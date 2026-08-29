@@ -8,9 +8,9 @@ policy remains a separate decision; this handoff does not create authority.
 
 The package graph remains useful, but its Client, OpenFloor, and adapter
 interface details are historical. Addressed `HarnessEndpoint`, GENESIS/POST,
-events-v2, and native shared sessions replace them through
-`docs/decisions/20260827-addressed-messaging-replaces-openfloor.md` and current
-`docs/spec/` chapters.
+events-v2, host-owned retry, and stock host callbacks replace them through
+`docs/decisions/20260827-addressed-messaging-replaces-openfloor.md`, its
+2026-08-28 replacement ADRs, and current `docs/spec/` chapters.
 
 ## Target product graph
 

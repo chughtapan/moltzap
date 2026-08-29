@@ -18,10 +18,14 @@ re-anchor, and daemon configuration remains current.
 `20260827-addressed-messaging-replaces-openfloor.md` replaces all v1 hash
 domains and START/BEGIN/ACK/MULTICAST values, OpenFloor attention and consumed
 turns, events-v1, reply grants, `HarnessClient`, and the five Simulator cuts
-that depended on start or bound reply. The current contract is GENESIS/POST,
-events-v2 durable addressed delivery, `HarnessEndpoint`, one native host
-session, and a fresh-state format cut. The replacement ADR and current
-specifications own every replaced field and failure.
+that depended on start or bound reply. `20260828-hosts-own-send-retry-policy.md`
+further removes host-supplied Client idempotency, and
+`20260828-channel-adapters-use-stock-host-apis.md` assigns session topology,
+host persistence and retry, prompt and output interpretation, ACLs, and
+sandboxing to stock hosts. The current contract is GENESIS/POST, events-v2
+addressed delivery, `HarnessEndpoint`, host-owned sessions, callback success
+before transport acknowledgment, and a fresh-state format cut. The replacement
+ADRs and current specifications own every replaced field and failure.
 
 ## Context and Problem Statement
 
@@ -227,3 +231,9 @@ until host-native memory is separately implemented.
   membership, fragmentation, pruning, encryption, remote administration,
   publication/version policy, and host-native cross-conversation memory remain
   deliberately deferred.
+
+## Record changelog
+
+| Date | Change |
+|---|---|
+| 2026-08-28 | Corrected the visible supersession lineage for host-owned retry, session topology, persistence, and output interpretation. The explicitly retained Client ownership and daemon-configuration outcome is unchanged. |

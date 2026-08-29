@@ -6,6 +6,9 @@ Current cutover decisions:
 the current manifest and explicitly retained four-layer outcome in
 [`20260811-four-layer-endpoint-replicated-harness.md`](../docs/decisions/20260811-four-layer-endpoint-replicated-harness.md),
 [`20260827-addressed-messaging-replaces-openfloor.md`](../docs/decisions/20260827-addressed-messaging-replaces-openfloor.md),
+[`20260828-hosts-own-send-retry-policy.md`](../docs/decisions/20260828-hosts-own-send-retry-policy.md),
+[`20260828-action-signatures-follow-router-order.md`](../docs/decisions/20260828-action-signatures-follow-router-order.md),
+[`20260828-channel-adapters-use-stock-host-apis.md`](../docs/decisions/20260828-channel-adapters-use-stock-host-apis.md),
 the explicitly retained Client ownership, persistence, recovery, management,
 catch-up, re-anchor, and daemon-configuration scope in
 [`20260813-client-protocol-and-attention.md`](../docs/decisions/20260813-client-protocol-and-attention.md),
@@ -16,6 +19,9 @@ Decision provenance:
 [`20260811-four-layer-v2-cutover-trajectory.md`](../docs/decision-evidence/20260811-four-layer-v2-cutover-trajectory.md),
 [`20260813-client-protocol-and-attention-trajectory.md`](../docs/decision-evidence/20260813-client-protocol-and-attention-trajectory.md),
 [`20260827-addressed-messaging-trajectory.md`](../docs/decision-evidence/20260827-addressed-messaging-trajectory.md),
+[`20260828-host-owned-retry-policy-source-gap.md`](../docs/decision-evidence/20260828-host-owned-retry-policy-source-gap.md),
+[`20260828-router-ordered-action-signatures-source-gap.md`](../docs/decision-evidence/20260828-router-ordered-action-signatures-source-gap.md),
+[`20260828-stock-host-adapter-source-gap.md`](../docs/decision-evidence/20260828-stock-host-adapter-source-gap.md),
 and
 [`20260813-simulator-link-fault-ordering-trajectory.md`](../docs/decision-evidence/20260813-simulator-link-fault-ordering-trajectory.md).
 
@@ -398,6 +404,11 @@ The source-faithful decision trajectories are
 `docs/decision-evidence/20260827-addressed-messaging-trajectory.md`,
 and
 `docs/decision-evidence/20260813-simulator-link-fault-ordering-trajectory.md`.
+The explicit source-gap reports for the three current 2026-08-28 decisions are
+`docs/decision-evidence/20260828-host-owned-retry-policy-source-gap.md`,
+`docs/decision-evidence/20260828-router-ordered-action-signatures-source-gap.md`,
+and
+`docs/decision-evidence/20260828-stock-host-adapter-source-gap.md`.
 The current replacement ADRs own their binding outcomes, supersession map,
 stable trace rows, assumptions, and deferrals. Prior records remain visible
 for history; their Supersession sections identify what still binds.

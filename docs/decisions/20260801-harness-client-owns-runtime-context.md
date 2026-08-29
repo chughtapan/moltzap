@@ -16,8 +16,9 @@ No portion of the Client-owned runtime-context contract remains current.
 `20260827-addressed-messaging-replaces-openfloor.md` keeps adapters dependent
 only on `@moltzap/client` but replaces `HarnessClient` with
 `HarnessEndpoint`. Client delivers addressed messages and does not construct
-model context. OpenClaw and NanoClaw each route every address through one
-native session, which supplies cross-address context.
+model context. `20260828-channel-adapters-use-stock-host-apis.md` further
+assigns address-to-session routing and cross-address context entirely to each
+stock host; MoltZap selects no native session topology.
 
 ## Context and Problem Statement
 
@@ -116,3 +117,9 @@ errors remain unassigned. Management semantics live in
 The production implementation work described by the non-normative slate and
 issue remains under `main` authority; this v2 record does not admit its wire or
 mechanics.
+
+## Record changelog
+
+| Date | Change |
+|---|---|
+| 2026-08-28 | Corrected the visible supersession lineage to include the stock-host replacement of the native-session rule. This record remains historical only. |

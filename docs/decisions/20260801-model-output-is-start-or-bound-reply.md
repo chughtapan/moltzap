@@ -14,10 +14,13 @@ Decision provenance: [Model output is start or bound reply](../decision-evidence
 No portion of this output contract remains current.
 
 `20260827-addressed-messaging-replaces-openfloor.md` replaces conversation
-start and bound reply with host-native explicit addressed send. A durable host
-outbox identifier supplies idempotency, and semantic success still returns
-`void` only after local certified durability. The replacement continues to
-hide Router authority and private proof values.
+start and bound reply with explicit addressed send.
+`20260828-hosts-own-send-retry-policy.md` removes host outbox identity from the
+Client contract, and `20260828-channel-adapters-use-stock-host-apis.md` assigns
+tool and final-output interpretation and retry behavior to each stock host.
+Semantic Client success still returns `void` only after local certified
+durability. The replacements continue to hide Router authority and private
+proof values.
 
 ## Context and Problem Statement
 
@@ -83,3 +86,9 @@ OpenClaw and NanoClaw decide only the reply payload and cannot redirect a
 delayed result or bypass grant admission. Generic send is removed rather than
 renamed. Exact retained raw semantics and the portable projection live in
 `docs/spec/harness/output.md`.
+
+## Record changelog
+
+| Date | Change |
+|---|---|
+| 2026-08-28 | Corrected the visible supersession lineage for removed host outbox identity and stock-host output and retry ownership. This record remains historical only. |

@@ -3,11 +3,11 @@
 Status: **HISTORICAL INTERFACE ORIENTATION — SUPERSEDED**
 
 The Client, OpenFloor, and adapter surface below is historical. Addressed
-`HarnessEndpoint`, GENESIS/POST, events-v2, and native shared sessions replace
-it through
-`docs/decisions/20260827-addressed-messaging-replaces-openfloor.md` and the
-current `docs/spec/` chapters. Retained four-layer package ownership remains
-orientation only.
+`HarnessEndpoint`, GENESIS/POST, events-v2, host-owned retry, and stock host
+callbacks replace it through
+`docs/decisions/20260827-addressed-messaging-replaces-openfloor.md`, its
+2026-08-28 replacement ADRs, and the current `docs/spec/` chapters. Retained
+four-layer package ownership remains orientation only.
 
 ## Design target
 

@@ -16,8 +16,11 @@ No portion of this Client interface remains current.
 `20260827-addressed-messaging-replaces-openfloor.md` removes public
 `ConversationId`, START, current-conversation turns, and bound reply. The
 replacement exposes `HarnessEndpoint.send` with explicit agent/group
-addresses and a durable host idempotency key, plus addressed inbound
-deliveries acknowledged after native host persistence.
+addresses and addressed inbound deliveries.
+`20260828-hosts-own-send-retry-policy.md` removes host-supplied Client
+idempotency, and `20260828-channel-adapters-use-stock-host-apis.md` makes
+successful stock-host callback completion the condition for transport
+acknowledgment while leaving persistence and retry semantics to the host.
 
 ## Context and Problem Statement
 
@@ -137,3 +140,9 @@ intentional compatibility cuts, not reasons to widen the Client root.
 - Transitional protocol, service, channel-core, formatter, pagination,
   profile, and public proof surfaces are deletion input. No compatibility shim
   survives the cutover.
+
+## Record changelog
+
+| Date | Change |
+|---|---|
+| 2026-08-28 | Corrected the visible supersession lineage for removed host idempotency and host-owned persistence and retry. This record remains historical only. |
