@@ -27,8 +27,6 @@ import {
 } from "./openclaw-entry.js";
 
 const ACCOUNT_ID = "primary";
-const DIRECT_QUEUE_ID = "openclaw.queue:41";
-const GROUP_QUEUE_ID = "openclaw.queue:42";
 const MAIN_SESSION_KEY = "agent:primary:main";
 const TEST_SESSION_STORE_PATH = ".moltzap-openclaw-test-sessions.json";
 
@@ -77,14 +75,13 @@ describe("OpenClaw HarnessEndpoint adapter", () => {
     replayRemainsHostOwned,
   );
   it(
-    "keeps OpenClaw message identity out of the Client send contract",
-    nativeSendKeepsHostMessageIdentityLocal,
+    "returns distinct receipt IDs without changing the Client send contract",
+    nativeSendUsesLocalReceiptIdentity,
   );
   it(
-    "treats a host send without queue identity as one invocation",
-    nativeSendWithoutQueueIdentityUsesInvocationIdentity,
+    "rejects a target outside the explicit address grammar",
+    rejectsInvalidTarget,
   );
-  it("rejects a noncanonical outbound target", rejectsInvalidTarget);
   vitestIt(
     "keeps the OpenClaw manifest schema in sync",
     manifestMatchesRuntimeSchema,
@@ -180,7 +177,7 @@ function replayRemainsHostOwned() {
   });
 }
 
-function nativeSendKeepsHostMessageIdentityLocal() {
+function nativeSendUsesLocalReceiptIdentity() {
   const fake = makeListeningEndpoint();
   const plugin = createMoltzapChannelPlugin(
     makeRuntime({ events: [], calls: [], routePeers: [] }),
@@ -197,8 +194,11 @@ function nativeSendKeepsHostMessageIdentityLocal() {
     yield* waitForConnected(setStatus);
     const { direct, group } = yield* executeNativeSends(plugin);
 
-    expect(direct.messageId).toBe(DIRECT_QUEUE_ID);
-    expect(group.messageId).toBe(GROUP_QUEUE_ID);
+    expect(direct.messageId).toEqual(expect.any(String));
+    expect(group.messageId).toEqual(expect.any(String));
+    expect(direct.messageId).not.toHaveLength(0);
+    expect(group.messageId).not.toHaveLength(0);
+    expect(direct.messageId).not.toBe(group.messageId);
     expect(fake.sends).toEqual([
       {
         to: "agent:nova",
@@ -230,7 +230,6 @@ function executeNativeSends(plugin: MoltZapPlugin) {
           accountId: ACCOUNT_ID,
           to: "agent:nova",
           text: "hello nova",
-          deliveryQueueId: DIRECT_QUEUE_ID,
         }),
       catch: (cause) => testError("sendText", cause),
     });
@@ -241,51 +240,10 @@ function executeNativeSends(plugin: MoltZapPlugin) {
           accountId: ACCOUNT_ID,
           to: "group:alice,bob,carol",
           text: "hello group",
-          deliveryQueueId: GROUP_QUEUE_ID,
         }),
       catch: (cause) => testError("sendGroupText", cause),
     });
     return { direct, group };
-  });
-}
-
-function nativeSendWithoutQueueIdentityUsesInvocationIdentity() {
-  const fake = makeListeningEndpoint();
-  const plugin = createMoltzapChannelPlugin(
-    makeRuntime({ events: [], calls: [], routePeers: [] }),
-    { harnessEndpointForAccount: () => fake.endpoint },
-  );
-  const controller = new AbortController();
-  const setStatus = vi.fn();
-
-  return Effect.gen(function* () {
-    const fiber = yield* startAccount(
-      plugin,
-      gatewayContext(controller.signal, setStatus),
-    ).pipe(Effect.fork);
-    yield* waitForConnected(setStatus);
-    const result = yield* Effect.tryPromise({
-      try: () =>
-        requireSendText(plugin)({
-          cfg: makeConfig(),
-          accountId: ACCOUNT_ID,
-          to: "agent:nova",
-          text: "hello nova",
-        }),
-      catch: (cause) => testError("sendTextWithoutQueueIdentity", cause),
-    });
-
-    expect(fake.sends).toEqual([
-      {
-        to: "agent:nova",
-        content: [{ type: "text", text: "hello nova" }],
-      },
-    ]);
-    expect(result.messageId).toEqual(expect.any(String));
-    expect(result.messageId).not.toHaveLength(0);
-
-    controller.abort();
-    yield* Effect.timeout(Fiber.join(fiber), "1 second");
   });
 }
 

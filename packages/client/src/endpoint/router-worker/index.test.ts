@@ -60,6 +60,29 @@ import {
 
 const retryMode: RouterSendRequest["mode"] = "retry";
 
+type Expect<Condition extends true> = Condition;
+type DecoderIsRequired = Expect<
+  Record<never, never> extends Pick<
+    RouterWorkerCallbacks<TestPayload>,
+    "decodePayload"
+  >
+    ? false
+    : true
+>;
+type DecoderProducesTestPayload = Expect<
+  Effect.Effect.Success<
+    ReturnType<RouterWorkerCallbacks<TestPayload>["decodePayload"]>
+  > extends TestPayload
+    ? true
+    : false
+>;
+
+// The worker's declared payload and its required decoder remain one contract.
+const decoderContract = [true, true] satisfies readonly [
+  DecoderIsRequired,
+  DecoderProducesTestPayload,
+];
+
 const callbacks = (input?: {
   readonly accepted?: Ref.Ref<string[]>;
   readonly acceptedRouterInstances?: Ref.Ref<string[]>;
@@ -1100,6 +1123,10 @@ const coldStartRecoversBeforeActivation = async (): Promise<void> => {
 
 // @agent-code-guard/regression-only: these scenarios pin the endpoint cursor and recovery safety boundary.
 describe("private Router worker", () => {
+  it("requires the decoder for the declared payload type", () => {
+    expect(decoderContract).toEqual([true, true]);
+  });
+
   it(
     "recovers certified history before activating a cold worker",
     coldStartRecoversBeforeActivation,

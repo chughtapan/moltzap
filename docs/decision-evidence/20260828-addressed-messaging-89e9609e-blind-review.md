@@ -1,6 +1,17 @@
+# Invalid blind teammate review
+
+Status: **INVALID**
+
+This run received an additional scope instruction that the repository's blind
+gate does not permit. It is retained for auditability and cannot satisfy the
+gate. The original report follows unchanged except that trailing whitespace
+was removed from its result metadata.
+
+---
+
 # Blind teammate review
 
-Overall result: **PASS**  
+Overall result: **PASS**
 Maintainer acceptance: **pending; reviewer prose is not self-certifying**
 
 ## Review identity

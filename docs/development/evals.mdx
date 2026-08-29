@@ -22,11 +22,12 @@ peers whose behavior is fixed by the case catalog.
 `peer.ts` and `peer-application.ts` implement case-owned peers entirely through
 the public `@moltzap/client` `HarnessEndpoint` contract:
 
-- `send` publishes a post to an explicit `agent:<AgentName>` or canonical
-  `group:<AgentName>,...` address, with each call creating one post;
+- `send` publishes a post to an explicit `agent:<AgentName>` or
+  `group:<AgentName>,...` input, with each call creating one post;
 - `messages` yields certified remote-authored `InboundDelivery` values; and
-- each delivery's `acknowledge` effect runs only after the peer durably accepts
-  the message. It carries no content and grants no response authority.
+- each delivery's `acknowledge` effect runs after the peer completes its
+  prescribed handling, including deliberate skips. It carries no content and
+  grants no response authority.
 
 Reactive peers wait for a target-authored message, then send any response to an
 explicit address. Opening peers send an addressed post and wait for the

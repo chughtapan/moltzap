@@ -286,7 +286,7 @@ const projectGroupMessage = (
  * Project one remote record to its exact host-visible addressed message.
  * @param conversation Verified local conversation state and member cards.
  * @param record Complete remote-authored certified record.
- * @returns Canonical direct or group message for native host insertion.
+ * @returns Canonical direct or group message for pending Client delivery.
  */
 const projectInboundMessage = (
   conversation: EngineConversation,

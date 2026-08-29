@@ -63,9 +63,11 @@ delivery replay remain endpoint responsibilities and are unchanged.
 This record partially supersedes
 `20260827-addressed-messaging-replaces-openfloor.md` only where that record
 requires a host-owned idempotency key, derives `PostId` from that key, or makes
-identical host calls resume one post. All address, native-session, output,
-certification, durability, delivery, compatibility, and cutover outcomes in
-that record remain current.
+identical host calls resume one post. This record leaves the address,
+native-session, output, certification, durability, delivery, compatibility,
+and cutover outcomes in that record untouched. Their current disposition,
+including the replacement of host-session and output guarantees, lives in
+[`20260828-channel-adapters-use-stock-host-apis.md`](../decisions/20260828-channel-adapters-use-stock-host-apis.md).
 
 ## Consequences
 
@@ -78,3 +80,9 @@ that record remain current.
   outbox row identity to satisfy the Client contract.
 - The public surface and error taxonomy shrink, while Router and inbound
   delivery idempotency laws remain distinct and unchanged.
+
+## Record changelog
+
+| Date | Change |
+|---|---|
+| 2026-08-28 | Clarified that this record leaves the addressed-messaging session and output outcomes untouched while the stock-host record governs their current disposition. The host-owned retry Decision Outcome is unchanged. |

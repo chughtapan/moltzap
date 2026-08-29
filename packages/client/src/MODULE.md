@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`ConnectError`](./contract.ts#L320)
+### [`ConnectError`](./contract.ts#L348)
 
 _Class_
 
@@ -104,7 +104,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./contract.ts#L308)
+### [`DeliveryAcknowledgeError`](./contract.ts#L336)
 
 _Class_
 
@@ -116,9 +116,9 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
 }> {}
 ```
 
-Durable host acceptance could not acknowledge one delivery.
+Transport acknowledgment could not complete for one delivery.
 
-### [`DirectMessage`](./contract.ts#L262)
+### [`DirectMessage`](./contract.ts#L290)
 
 _TypeAlias_
 
@@ -152,7 +152,7 @@ export const GroupAddress = addressInput.pipe(
 
 A complete fixed-member group address in unsigned ASCII name order.
 
-### [`GroupMessage`](./contract.ts#L264)
+### [`GroupMessage`](./contract.ts#L292)
 
 _TypeAlias_
 
@@ -162,7 +162,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./contract.ts#L331)
+### [`HarnessEndpoint`](./contract.ts#L359)
 
 _Interface_
 
@@ -175,7 +175,7 @@ export interface HarnessEndpoint {
 
 Structural runtime capability owned by one scoped endpoint connection.
 
-### [`InboundDelivery`](./contract.ts#L325)
+### [`InboundDelivery`](./contract.ts#L353)
 
 _Interface_
 
@@ -186,9 +186,9 @@ export interface InboundDelivery {
 }
 ```
 
-One message plus its transport-only durable-host acknowledgment.
+One message plus its transport-only acknowledgment.
 
-### [`InboundMessage`](./contract.ts#L272)
+### [`InboundMessage`](./contract.ts#L300)
 
 _TypeAlias_
 
@@ -198,7 +198,7 @@ export type InboundMessage = typeof InboundMessage.Type;
 
 A validated direct or group inbound message.
 
-### [`InboundMessage`](./contract.ts#L267)
+### [`InboundMessage`](./contract.ts#L295)
 
 _Variable_
 
@@ -246,7 +246,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./contract.ts#L297)
+### [`ListenError`](./contract.ts#L325)
 
 _Class_
 
@@ -305,7 +305,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`SendError`](./contract.ts#L286)
+### [`SendError`](./contract.ts#L314)
 
 _Class_
 

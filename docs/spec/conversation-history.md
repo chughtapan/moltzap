@@ -48,6 +48,14 @@ one private conversation identity and one group address at every member.
 There is no group name, directory, invitation, duplicate instance, add,
 remove, rename, or leave operation.
 
+## Exact closed values
+
+The historical START, BEGIN, ACK, and MULTICAST values formerly referenced by
+this stable anchor are superseded and intentionally absent from the current
+protocol. The current [closed schema vocabulary](#closed-schema-vocabulary)
+owns their replacements: GENESIS and POST actions, signed proposal and action
+statements, certified records, dissemination evidence, and recovery values.
+
 ## Closed schema vocabulary
 
 Every Client protocol value is decoded by a closed Effect Schema with

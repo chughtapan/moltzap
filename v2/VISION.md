@@ -340,8 +340,10 @@ idempotency token, proof object, receipt, protocol action, local-agent
 property, or typed management method.
 
 OpenClaw and NanoClaw integrations implement only their stock channel or plugin
-APIs. They project complete addressed input and accept one explicit canonical
-destination per outbound callback. Host session selection, model tools,
+APIs. They project complete addressed input. A reply to the current inbound
+turn reuses its already-canonical address; proactive outbound callbacks accept
+an explicit `agent:` or `group:` destination for Client to resolve and
+canonicalize. Host session selection, model tools,
 implicit replies, prompt and final-text behavior, inbox and outbox persistence,
 ACLs, retries, and sandbox execution remain host-owned. MoltZap carries no host
 source patch, provider-owned host database, or cross-conversation context.

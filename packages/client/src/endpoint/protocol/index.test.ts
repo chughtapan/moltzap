@@ -19,6 +19,7 @@ import { PollCursor, RouterInstanceId } from "@moltzap/router";
 import canonicalize from "canonicalize";
 import {
   Effect,
+  Either,
   Encoding,
   Fiber,
   Queue,
@@ -33,13 +34,10 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type { EngineRegistryPort } from "../engine-types.js";
-import type {
-  RouterIngressDisposition,
-  RouterWorkerIngress,
-} from "../router-worker/index.js";
+import type { EngineActionFold, EngineRegistryPort } from "../engine-types.js";
 import { SendInput } from "../../contract.js";
 import { type EndpointEngine, makeEndpointEngine } from "../engine.js";
+import { recoverFoldEvidence } from "../recovery/store-evidence.js";
 import {
   type ActionCertifiedRecord as ActionCertifiedRecordValue,
   type ActionProposal,
@@ -48,6 +46,7 @@ import {
   decodeCanonical,
   decodeOuterBody,
   deriveConversationId,
+  encodeCanonical,
   EvidenceStatement,
   hashAction,
   MembershipDescriptor,
@@ -60,9 +59,14 @@ import {
   type VerifiedMembership,
   verifyMembershipDescriptor,
 } from "../representation.js";
+import {
+  type RouterIngressDisposition,
+  type RouterWorkerIngress,
+  RouterWorkerPersistenceError,
+} from "../router-worker/index.js";
 import { type EndpointStore, openEndpointStore } from "../store.js";
 
-/* eslint-disable max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- Each protocol trace keeps its controlled Router phases beside the durable assertions. */
+/* eslint-disable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- The full protocol traces share one four-endpoint harness and keep controlled Router phases beside durable assertions. */
 
 interface ProtocolIdentity {
   readonly card: VerifiedAgentCard;
@@ -625,6 +629,128 @@ function hostileDurabilityMessage(input: {
   );
 }
 
+function rejectsPersistedDurabilityBinding(
+  mutatedBinding: "conversation" | "membership",
+) {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.identities, 0, "identity");
+        const hostileSigner = yield* requireAt(
+          harness.identities,
+          3,
+          "hostile signer",
+        );
+        const authorEngine = yield* requireAt(
+          harness.engines,
+          0,
+          "endpoint engine",
+        );
+        const authorStore = yield* requireAt(
+          harness.stores,
+          0,
+          "endpoint store",
+        );
+        const sending = yield* Effect.fork(
+          authorEngine.send(yield* sendInput(harness, "stage successor")),
+        );
+        const proposalBatch = yield* takeReadyBatch(harness);
+        yield* harness.deliver(proposalBatch);
+        yield* harness.drain();
+        const actionSignatures = yield* messagesOfKind(
+          yield* takeQueued(harness),
+          "action_signature",
+        );
+        expect(actionSignatures).toHaveLength(MEMBER_COUNT);
+        yield* harness.deliver(actionSignatures.slice(0, 3));
+        yield* harness.drain();
+        const actionRecordMessages = yield* messagesOfKind(
+          yield* takeQueued(harness),
+          "action_certified_record",
+        );
+        const authorActionRecordMessage = actionRecordMessages.find(
+          (message) => message.senderAgentId === author.card.agentId,
+        );
+        if (authorActionRecordMessage === undefined) {
+          return yield* Effect.dieMessage(
+            "author did not assemble the staged action certificate",
+          );
+        }
+        const actionRecord = yield* decodeActionCertifiedRecord(
+          authorActionRecordMessage,
+        );
+        const invalidEvidence = yield* signEvidenceMessage({
+          statement: {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "durability_vote",
+            signerAgentId: hostileSigner.card.agentId,
+            conversationId:
+              mutatedBinding === "conversation"
+                ? unrelatedConversationId
+                : harness.membership.descriptor.conversationId,
+            membershipHash:
+              mutatedBinding === "membership"
+                ? unrelatedMembershipHash
+                : harness.membership.hash,
+            recordHash: actionRecord.recordHash,
+          },
+          agentCard: hostileSigner.card,
+          signingAuthority: hostileSigner.authority,
+        });
+        yield* authorStore
+          .mergeEvidence({
+            conversationId: harness.membership.descriptor.conversationId,
+            kind: "durability",
+            subjectId: actionRecord.recordHash,
+            evidenceKey: hostileSigner.card.agentId,
+            canonicalEvidence: yield* encodeCanonical(
+              SignedMessage,
+              invalidEvidence,
+            ),
+          })
+          .pipe(Effect.orDie);
+        yield* Fiber.interrupt(sending);
+
+        const fold: EngineActionFold = {
+          conversation: {
+            conversationId: harness.membership.descriptor.conversationId,
+            membership: harness.membership,
+            currentAnchor: actionRecord.routerAnchor,
+          },
+          action: actionRecord.recordCore.action,
+          actionHash: actionRecord.recordCore.actionHash,
+          routerAnchor: actionRecord.routerAnchor,
+          actionEvidence: new Map(),
+          durabilityEvidence: new Map(),
+          localActionEvidenceQueued: true,
+          actionCertifiedRecordQueued: true,
+          localDurabilityEvidenceQueued: true,
+          certifiedRecordQueued: false,
+          recordHash: actionRecord.recordHash,
+        };
+        const recovered = yield* recoverFoldEvidence(
+          yield* authorStore.recover().pipe(Effect.orDie),
+          new Map([[fold.actionHash, fold]]),
+          new Map([[actionRecord.recordHash, fold]]),
+        ).pipe(Effect.either);
+
+        yield* Either.match(recovered, {
+          onLeft: (failure) =>
+            Effect.sync(() => {
+              expect(failure).toBeInstanceOf(RouterWorkerPersistenceError);
+            }),
+          onRight: () =>
+            Effect.dieMessage(
+              `recovery accepted a durability vote with a mutated ${mutatedBinding} binding`,
+            ),
+        });
+      }),
+    ),
+  );
+}
+
 function certifiesOrdinaryN4Post() {
   return Effect.runPromise(
     Effect.scoped(
@@ -970,6 +1096,16 @@ describe("fixed-post endpoint protocol", () => {
     TEST_TIMEOUT_MS,
   );
   it(
+    "rejects a persisted durability vote bound to another conversation",
+    () => rejectsPersistedDurabilityBinding("conversation"),
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "rejects a persisted durability vote bound to another membership",
+    () => rejectsPersistedDurabilityBinding("membership"),
+    TEST_TIMEOUT_MS,
+  );
+  it(
     "creates no action vote before ordering concurrent authors",
     () =>
       ordersCompetingProposalsBeforeActionVotes({
@@ -989,4 +1125,4 @@ describe("fixed-post endpoint protocol", () => {
   );
 });
 
-/* eslint-enable max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- Restore repository defaults. */
+/* eslint-enable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- Restore repository defaults. */

@@ -40,14 +40,16 @@ omitted rather than presenting the same text as two independent decisions.
   field
 - Literal excerpt:
 
-  > Cross-conversation context injection was removed. This can significantly
-  > affect CoordBench’s multi-DM N4/N10 coordination. <-- we should add this
-  > back
-  >
-  > The messaging interface needs a group chat feature so that the agents can
-  > themselves create groups.
-  >
-  > Individual private cal but shared meetings.
+  ```text
+  Cross-conversation context injection was removed. This can significantly
+  affect CoordBench’s multi-DM N4/N10 coordination. <-- we should add this
+  back
+
+  The messaging interface needs a group chat feature so that the agents can
+  themselves create groups.
+
+  Individual private cal but shared meetings.
+  ```
 
 Omission: the duplicated source record at line 2921 and the rest of this long
 submission are omitted. The omitted text requested analysis and described the

@@ -36,9 +36,10 @@ The MoltZap channel adapter owns only these operations:
 - await successful completion of the stock inbound callback before
   acknowledging the Client delivery;
 - bind the stock host's ordinary reply-delivery callback to the current
-  inbound message's canonical address, validate the canonical `agent:` or
-  `group:` destination supplied to any other stock outbound callback, and
-  invoke Client send once per callback; and
+  inbound message's canonical address, validate the explicit `agent:` or
+  `group:` input supplied to any other stock outbound callback, invoke Client
+  send once per callback, and leave resolution and canonicalization to Client;
+  and
 - translate closed Client and host-callback failures without exposing Client
   internals.
 
@@ -87,3 +88,4 @@ durability remain current.
 | Date | Change |
 |---|---|
 | 2026-08-28 | Clarified that the stock host's ordinary current-origin reply callback and its explicitly addressed proactive callback are both forwarded once. The host still owns whether tools or final output invoke either callback, so the stock-host Decision Outcome is unchanged. |
+| 2026-08-28 | Corrected proactive target validation to accept Client's explicit address-input grammar while leaving name resolution and group canonicalization to Client. The stock-host boundary remains unchanged. |

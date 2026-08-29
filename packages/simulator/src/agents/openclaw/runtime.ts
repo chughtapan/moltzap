@@ -75,7 +75,7 @@ const OPENCLAW_DEVICE_TOKEN_BYTES = 32;
 const OPENCLAW_ED25519_PUBLIC_KEY_BYTES = 32;
 const messagingMode = Schema.Literal("shared", "private");
 const STOCK_OPENCLAW_IMAGE = image.make(
-  "ghcr.io/openclaw/openclaw@sha256:f56744f2cbd2c2477c739158fbc4cf594300aa535767a87da3bcd9cafa150160",
+  "ghcr.io/openclaw/openclaw@sha256:47d342bafe83bd3b2dca6f1d8d8b608ba7b542a1952564960648943346206759",
 );
 const APPLICATION_RESOURCES = Object.freeze({
   cpuMillis: 1_000,

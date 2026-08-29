@@ -64,7 +64,7 @@
     },
     {
       "package": "@moltzap/client",
-      "reason": "The reduced Client surface supplies conversation identity and agent names to evaluation boundaries"
+      "reason": "The addressed HarnessEndpoint supplies send and acknowledged-delivery contracts to evaluation boundaries"
     },
     {
       "package": "@moltzap/simulator",

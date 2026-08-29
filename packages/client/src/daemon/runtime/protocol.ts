@@ -8,15 +8,17 @@ import type {
   EndpointEngine,
   EngineInitializationError,
 } from "../../endpoint/engine.js";
-import type {
-  RouterWorker,
-  RouterWorkerInput,
-  RouterWorkerProtocolError,
-  RouterWorkerTransportError,
-} from "../../endpoint/router-worker/index.js";
 import type { EndpointStore } from "../../endpoint/store.js";
 import type { HarnessMessageReadyEvent } from "../../harness-mcp-contract.js";
 import type { DaemonBootstrap } from "../configuration.js";
+import { decodeOuterBody } from "../../endpoint/representation.js";
+import {
+  type RouterWorker,
+  type RouterWorkerInput,
+  RouterWorkerPayloadInvalidError,
+  type RouterWorkerProtocolError,
+  type RouterWorkerTransportError,
+} from "../../endpoint/router-worker/index.js";
 import {
   DaemonActivationError,
   type DaemonRuntimeDependencies,
@@ -164,6 +166,12 @@ const makeWorkerCallbacks = (
   publishPending: Effect.Effect<void>,
 ): RouterWorkerInput["callbacks"] => ({
   pinSenderCard: () => awaitEngine.pipe(Effect.asVoid),
+  decodePayload: (message) =>
+    decodeOuterBody(message.body).pipe(
+      Effect.catchTag("ClientRepresentationError", () =>
+        Effect.fail(new RouterWorkerPayloadInvalidError()),
+      ),
+    ),
   acceptPayload: (ingress) =>
     awaitEngine.pipe(
       Effect.flatMap((engine) => engine.acceptRouterIngress(ingress)),

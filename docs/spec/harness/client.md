@@ -143,7 +143,8 @@ and private state do not cross the boundary.
 Client does not construct prompts, session context, checkpoints, or automatic
 responses. Stock hosts own sessions, model-output interpretation, destination
 discovery, inbox and outbox persistence, and retries. Adapters project complete
-addressed input and accept only a canonical addressed outbound callback.
+addressed input and accept only an explicit addressed outbound callback.
+Client resolves and canonicalizes that outbound address input.
 
 Registration, status, agent search, address/history search, and proof reads
 remain owner-authorized MCP management operations. They are not service
