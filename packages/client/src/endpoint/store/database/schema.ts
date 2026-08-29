@@ -1,8 +1,8 @@
-/** @file SQLite ownership, schema migration, and closed persistence primitives. */
+/** @file SQLite ownership, exact-version preflight, and closed persistence primitives. */
 
 import { Effect } from "effect";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Ownership requires synchronous permission changes before any database operation can escape acquisition.
-import { chmodSync, mkdirSync } from "node:fs";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Ownership requires synchronous permission changes before the database escapes acquisition.
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { CertifiedRecord } from "../types.js";
@@ -29,12 +29,14 @@ export interface StoreState {
 }
 
 const DATABASE_NAME = "moltzapd.sqlite3";
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+
+type PreflightDisposition = "initialize" | "reopen";
 
 /**
- * Acquires, verifies, migrates, and exclusively locks one endpoint database.
+ * Acquires and exclusively locks one exact-version endpoint database.
  * @param stateDirectory Exclusive persistent state directory.
- * @returns Acquired database state after integrity and migration checks.
+ * @returns Acquired database state after integrity and compatibility checks.
  */
 export const openStoreState = (
   stateDirectory: string,
@@ -116,19 +118,23 @@ export function transaction<Value>(
 function initializeStoreState(stateDirectory: string): StoreState {
   requireText(stateDirectory);
   mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
-  chmodSync(stateDirectory, 0o700);
   const databasePath = resolve(stateDirectory, DATABASE_NAME);
+  const expected = existsSync(databasePath)
+    ? inspectExistingDatabase(databasePath)
+    : undefined;
   let database: DatabaseSync | undefined;
   try {
-    database = new DatabaseSync(databasePath, {
-      enableForeignKeyConstraints: true,
-      enableDoubleQuotedStringLiterals: false,
-      allowExtension: false,
-      timeout: 0,
-    });
+    database = openWritableDatabase(databasePath);
+    const disposition = preflightDatabase(database);
+    if (expected !== undefined && disposition !== expected) {
+      throw new StoreSignal("incompatible");
+    }
+    chmodSync(stateDirectory, 0o700);
     chmodSync(databasePath, 0o600);
     configureDatabase(database);
-    migrateDatabase(database);
+    if (disposition === "initialize") {
+      initializeDatabase(database);
+    }
     return { database, snapshots: new Map(), closed: false };
   } catch (failure) {
     try {
@@ -138,6 +144,75 @@ function initializeStoreState(stateDirectory: string): StoreState {
       // Initialization reports only the original closed failure category.
     }
     throw failure;
+  }
+}
+
+function inspectExistingDatabase(databasePath: string): PreflightDisposition {
+  const database = new DatabaseSync(databasePath, {
+    readOnly: true,
+    enableForeignKeyConstraints: false,
+    enableDoubleQuotedStringLiterals: false,
+    allowExtension: false,
+    timeout: 0,
+  });
+  try {
+    return preflightDatabase(database);
+  } finally {
+    database.close();
+  }
+}
+
+function openWritableDatabase(databasePath: string): DatabaseSync {
+  return new DatabaseSync(databasePath, {
+    enableForeignKeyConstraints: true,
+    enableDoubleQuotedStringLiterals: false,
+    allowExtension: false,
+    timeout: 0,
+  });
+}
+
+function preflightDatabase(database: DatabaseSync): PreflightDisposition {
+  const versionRow = database.prepare("PRAGMA user_version").get();
+  if (versionRow === undefined) {
+    throw new StoreSignal("corrupt");
+  }
+  const version = readInteger(versionRow, "user_version");
+  if (version !== 0 && version !== SCHEMA_VERSION) {
+    throw new StoreSignal("incompatible");
+  }
+  if (version === 0) {
+    if (hasUserSchemaObjects(database)) {
+      throw new StoreSignal("incompatible");
+    }
+    requireHealthyDatabase(database);
+    return "initialize";
+  }
+  requireHealthyDatabase(database);
+  return "reopen";
+}
+
+function hasUserSchemaObjects(database: DatabaseSync): boolean {
+  return (
+    database
+      .prepare(
+        `SELECT 1 AS retained FROM sqlite_schema
+         WHERE type IN ('table', 'index', 'view', 'trigger')
+           AND name NOT LIKE 'sqlite_%'
+         LIMIT 1`,
+      )
+      .get() !== undefined
+  );
+}
+
+function requireHealthyDatabase(database: DatabaseSync): void {
+  const check = database.prepare("PRAGMA quick_check").all();
+  const checkRow = check[0];
+  if (
+    check.length !== 1 ||
+    checkRow === undefined ||
+    readText(checkRow, "quick_check") !== "ok"
+  ) {
+    throw new StoreSignal("corrupt");
   }
 }
 
@@ -187,15 +262,22 @@ const schemaSql = `
     agent_id TEXT NOT NULL,
     canonical_agent_card BLOB NOT NULL
   ) STRICT;
-  CREATE TABLE start_intents (
-    conversation_id TEXT PRIMARY KEY,
+  CREATE TABLE post_intents (
+    author_agent_id TEXT NOT NULL,
+    post_id TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    membership_hash TEXT NOT NULL,
     canonical_intent BLOB NOT NULL,
-    completed_record_hash TEXT
+    completed_record_hash TEXT,
+    PRIMARY KEY (author_agent_id, post_id),
+    FOREIGN KEY (conversation_id, membership_hash)
+      REFERENCES memberships(conversation_id, membership_hash)
   ) STRICT;
   CREATE TABLE memberships (
-    conversation_id TEXT PRIMARY KEY REFERENCES start_intents(conversation_id),
+    conversation_id TEXT PRIMARY KEY,
     membership_hash TEXT NOT NULL,
-    canonical_membership BLOB NOT NULL
+    canonical_membership BLOB NOT NULL,
+    UNIQUE (conversation_id, membership_hash)
   ) STRICT;
   CREATE TABLE anchors (
     conversation_id TEXT NOT NULL REFERENCES memberships(conversation_id),
@@ -214,24 +296,46 @@ const schemaSql = `
     FOREIGN KEY (conversation_id, current_anchor_hash)
       REFERENCES anchors(conversation_id, anchor_hash)
   ) STRICT;
+  CREATE TABLE proposal_locks (
+    conversation_id TEXT NOT NULL REFERENCES memberships(conversation_id),
+    predecessor_key TEXT NOT NULL,
+    previous_record_hash TEXT,
+    action_hash TEXT NOT NULL,
+    canonical_action_core BLOB NOT NULL,
+    PRIMARY KEY (conversation_id, predecessor_key),
+    CHECK (
+      (previous_record_hash IS NULL AND predecessor_key = '') OR
+      (previous_record_hash IS NOT NULL AND predecessor_key = previous_record_hash)
+    )
+  ) STRICT;
   CREATE TABLE staged_records (
     conversation_id TEXT NOT NULL REFERENCES memberships(conversation_id),
     record_hash TEXT NOT NULL,
-    predecessor_key TEXT NOT NULL,
     previous_record_hash TEXT,
     membership_hash TEXT NOT NULL,
     anchor_hash TEXT NOT NULL,
-    canonical_record BLOB NOT NULL,
+    action_hash TEXT NOT NULL,
+    author_agent_id TEXT NOT NULL,
+    post_id TEXT NOT NULL,
+    canonical_record_core BLOB NOT NULL,
     PRIMARY KEY (conversation_id, record_hash),
-    UNIQUE (conversation_id, predecessor_key),
     FOREIGN KEY (conversation_id, anchor_hash)
       REFERENCES anchors(conversation_id, anchor_hash)
+  ) STRICT;
+  CREATE TABLE protocol_evidence (
+    conversation_id TEXT NOT NULL REFERENCES memberships(conversation_id),
+    evidence_kind TEXT NOT NULL CHECK (
+      evidence_kind IN ('action', 'durability', 'catch-up', 'reanchor')
+    ),
+    subject_id TEXT NOT NULL,
+    evidence_key TEXT NOT NULL,
+    canonical_evidence BLOB NOT NULL,
+    PRIMARY KEY (conversation_id, evidence_kind, subject_id, evidence_key)
   ) STRICT;
   CREATE TABLE certified_records (
     conversation_id TEXT NOT NULL,
     record_hash TEXT NOT NULL,
     ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
-    canonical_certified_record BLOB NOT NULL,
     PRIMARY KEY (conversation_id, record_hash),
     UNIQUE (conversation_id, ordinal),
     FOREIGN KEY (conversation_id, record_hash)
@@ -252,50 +356,51 @@ const schemaSql = `
     FOREIGN KEY (conversation_id, selected_record_hash)
       REFERENCES certified_records(conversation_id, record_hash)
   ) STRICT;
-  CREATE TABLE protocol_evidence (
-    conversation_id TEXT NOT NULL REFERENCES memberships(conversation_id),
-    evidence_kind TEXT NOT NULL CHECK (
-      evidence_kind IN ('action', 'durability', 'catch-up', 'reanchor')
-    ),
-    subject_id TEXT NOT NULL,
-    evidence_key TEXT NOT NULL,
-    canonical_evidence BLOB NOT NULL,
-    PRIMARY KEY (conversation_id, evidence_kind, subject_id, evidence_key)
-  ) STRICT;
-  CREATE TABLE consumed_attention (
+  CREATE TABLE pending_deliveries (
+    delivery_sequence INTEGER PRIMARY KEY,
+    delivery_token TEXT NOT NULL UNIQUE,
     conversation_id TEXT NOT NULL,
     record_hash TEXT NOT NULL,
-    PRIMARY KEY (conversation_id, record_hash),
+    recipient_agent_id TEXT NOT NULL,
+    canonical_message BLOB NOT NULL,
+    acknowledged INTEGER NOT NULL DEFAULT 0 CHECK (acknowledged IN (0, 1)),
+    UNIQUE (conversation_id, record_hash, recipient_agent_id),
     FOREIGN KEY (conversation_id, record_hash)
       REFERENCES certified_records(conversation_id, record_hash)
   ) STRICT;
+  CREATE TABLE outbound_messages (
+    outbound_sequence INTEGER PRIMARY KEY,
+    outbound_id TEXT NOT NULL UNIQUE,
+    conversation_id TEXT NOT NULL REFERENCES memberships(conversation_id),
+    current_message_id TEXT NOT NULL UNIQUE,
+    canonical_initial_signed_message BLOB NOT NULL,
+    canonical_current_signed_message BLOB NOT NULL,
+    attempted INTEGER NOT NULL CHECK (attempted IN (0, 1)),
+    disposition TEXT NOT NULL CHECK (
+      disposition IN ('pending', 'accepted', 'discarded')
+    )
+  ) STRICT;
+  CREATE TABLE dissemination_obligations (
+    obligation_sequence INTEGER PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    record_hash TEXT NOT NULL,
+    packet_kind TEXT NOT NULL CHECK (
+      packet_kind IN ('action-certified-record', 'certified-record')
+    ),
+    outbound_id TEXT UNIQUE,
+    UNIQUE (conversation_id, record_hash, packet_kind),
+    FOREIGN KEY (conversation_id, record_hash)
+      REFERENCES staged_records(conversation_id, record_hash),
+    FOREIGN KEY (outbound_id) REFERENCES outbound_messages(outbound_id)
+  ) STRICT;
 `;
 
-function migrateDatabase(database: DatabaseSync): void {
+function initializeDatabase(database: DatabaseSync): void {
   transaction(
     database,
     () => {
-      const check = database.prepare("PRAGMA quick_check").all();
-      const checkRow = check[0];
-      if (
-        check.length !== 1 ||
-        checkRow === undefined ||
-        readText(checkRow, "quick_check") !== "ok"
-      ) {
-        throw new StoreSignal("corrupt");
-      }
-      const versionRow = database.prepare("PRAGMA user_version").get();
-      if (versionRow === undefined) {
-        throw new StoreSignal("corrupt");
-      }
-      const version = readInteger(versionRow, "user_version");
-      if (version > SCHEMA_VERSION) {
-        throw new StoreSignal("incompatible");
-      }
-      if (version === 0) {
-        database.exec(schemaSql);
-        database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-      }
+      database.exec(schemaSql);
+      database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     },
     "EXCLUSIVE",
   );

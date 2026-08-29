@@ -1,10 +1,10 @@
 /**
  * @file Type canary: the retained public ConversationAddress is constructible
- * from the caller-minted Client identity and a nonempty simulator participant
- * set, so removing content-free Endpoint.open does not strand Endpoint.socket.
+ * from one explicit Client destination and a nonempty simulator participant
+ * set, so removing content-free open does not strand Endpoint.socket.
  */
 
-import type { ConversationId } from "@moltzap/client";
+import type { MessageAddressInput } from "@moltzap/client";
 import type {
   ConversationAddress,
   ConversationParticipants,
@@ -21,6 +21,6 @@ type Assert<Condition extends true> = Condition;
 export type ConversationAddressCanary = Assert<
   Equal<
     ConstructorParameters<typeof ConversationAddress>,
-    [conversationId: ConversationId, participants: ConversationParticipants]
+    [destination: MessageAddressInput, participants: ConversationParticipants]
   >
 >;

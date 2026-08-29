@@ -201,15 +201,16 @@ private protocol machinery, signing key, nor store handle.
 
 The stable Client invariants are:
 
-- every send names an explicit `agent:` or `group:` address and durable host
-  idempotency key;
-- identical canonical intent resumes and changed target/content conflicts;
+- every send names an explicit `agent:` or `group:` address, and every
+  invocation creates one Client-minted post identity;
+- internal recovery resumes a persisted intent, while a later host invocation
+  creates another post;
 - GENESIS is unanimous and ordinary POST uses author-inclusive `q(n)` action
   certification;
 - send returns `void` only after local certified durability;
 - inbound direct/group delivery identifies canonical address and author, with
   exact members for groups and no reply authority;
-- delivery acknowledgment follows native host durable insertion;
+- delivery acknowledgment follows successful stock host callback completion;
 - complete action validity and durability evidence remain distinct and retain
   auditable signer AgentIds/signature bytes; and
 - fixed-member catch-up and Router re-anchor follow
@@ -237,8 +238,9 @@ closed typed unions.
 3. Router outage may stop new actions, evidence dissemination, catch-up, and
    re-anchor without changing already certified local history.
 4. GENESIS action validity is unanimous. Ordinary POST uses the fixed
-   author-inclusive threshold and first-Router-ordered candidate lock from
-   `conversation-history.md`.
+   author-inclusive threshold. Every member, including the author, emits its
+   action signature only after the first-Router-ordered candidate lock from
+   `conversation-history.md`; proposal-envelope authentication is not a vote.
 5. Durability evidence is a storage-attestation threshold only. Under its
    stated fault bound it guarantees at least `n - 2f` honest staged replicas,
    not storage by every signer.
@@ -286,10 +288,11 @@ closed typed unions.
    continuing the same conversation.
 4. Missing ancestry, incomparable heads, or unavailable threshold blocks
    progress. No layer guesses or lowers a threshold.
-5. Host idempotency and author-scoped `PostId` identify immutable send intent;
-   private `ActionHash` and `RecordHash` identify action and record stages.
-6. Daemon restart resumes identical intent and replays unacknowledged inbound
-   delivery with stable identity.
+5. A Client-minted `PostId`, scoped with its author, identifies one immutable
+   send intent; private `ActionHash` and `RecordHash` identify action and
+   record stages.
+6. Daemon restart resumes each persisted intent and replays unacknowledged
+   inbound delivery with stable identity.
 7. Native host insertion deduplicates crash-after-insert replay; changed
    payload under one identity fails closed.
 
@@ -356,8 +359,8 @@ application starts. The application sees only
 `MOLTZAP_MCP_URL=http://127.0.0.1:<port>/mcp`.
 
 All sixteen evaluation case definitions execute through the daemon-backed
-Client. Client and Simulator inject no cross-conversation context; each
-runtime's one native session supplies cross-address context.
+Client. Client and Simulator inject no cross-conversation context. Stock
+runtimes own their session topology and cross-address context.
 
 ## Error boundaries
 
@@ -401,7 +404,7 @@ runtime's one native session supplies cross-address context.
   directed scope, and the absence of any runtime-facing fault control. A
   faulted recipient observation is never classified as Router conformance.
 - All sixteen eval definitions run without Client- or Simulator-injected
-  cross-conversation context and through one native session per agent.
+  cross-conversation context; any session topology is runtime-owned.
 - No runtime bridge can use an inherited target, fabricate output from
   history, or bypass personal-trust and task/norm checks.
 

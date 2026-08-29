@@ -10,7 +10,7 @@ const networkOperation = Schema.Literal(
   "receive",
   "shape-link",
   "socket",
-  "start",
+  "send",
   "stop-router",
 );
 /** Network operation names used by typed failures. */

@@ -1,497 +1,297 @@
-/** @file Contract tests for NanoClaw's reduced HarnessClient adapter. */
+/** @file Public-boundary tests for NanoClaw's addressed MoltZap adapter. */
 
 import { live as it } from "@effect/vitest";
 import {
-  type Content,
-  ConversationId,
-  type HarnessClient,
-  type HarnessTurn,
-  type VerifiedAgentCard,
+  DeliveryAcknowledgeError,
+  type HarnessEndpoint,
+  type InboundDelivery,
+  ListenError,
+  InboundMessage as MoltZapInboundMessage,
+  type SendInput,
 } from "@moltzap/client";
-import { Deferred, Effect, Either, Queue, Schema, Stream } from "effect";
-import { describe, expect, it as vitestIt } from "vitest";
+import { Deferred, Effect, Option, Queue, Schema, Stream } from "effect";
+import { describe, expect, vi, it as vitestIt } from "vitest";
 
-import type {
-  ChannelSetup,
-  InboundMessage,
-  OutboundMessage,
-} from "./adapter.js";
-import {
-  getMessagingGroupAgentByPair,
-  getMessagingGroupByPlatform,
-} from "../db/messaging-groups.js";
+import type { ChannelSetup, InboundMessage } from "./adapter.js";
 import { getRegisteredChannelAdapter } from "./channel-registry.js";
 import { makeMoltZapAdapter, MoltZapAdapter } from "./moltzap.js";
 
-interface ReceivedMessage {
-  readonly jid: string;
-  readonly threadId: string | null;
-  readonly message: InboundMessage;
+interface FakeEndpoint {
+  readonly endpoint: HarnessEndpoint;
+  readonly queue: Queue.Queue<InboundDelivery>;
+  readonly sends: SendInput[];
 }
 
-interface MetadataRecord {
-  readonly jid: string;
-  readonly name?: string;
-  readonly isGroup?: boolean;
+const DIRECT_ADDRESS = "agent:alice";
+const GROUP_ADDRESS = "group:alice,bob,local";
+const DIRECT_POST_ID = `pst_${"A".repeat(43)}`;
+const GROUP_POST_ID = "pst_AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE";
+
+const directMessage = Schema.decodeUnknownSync(MoltZapInboundMessage)({
+  kind: "direct",
+  postId: DIRECT_POST_ID,
+  address: DIRECT_ADDRESS,
+  sender: DIRECT_ADDRESS,
+  content: [{ type: "text", text: "hello" }],
+});
+
+const groupMessage = Schema.decodeUnknownSync(MoltZapInboundMessage)({
+  kind: "group",
+  postId: GROUP_POST_ID,
+  address: GROUP_ADDRESS,
+  sender: "agent:bob",
+  members: ["agent:alice", "agent:bob", "agent:local"],
+  content: [
+    { type: "text", text: "status" },
+    { type: "data", value: { ready: true } },
+  ],
+});
+
+function createFakeEndpoint(): Effect.Effect<FakeEndpoint> {
+  return Effect.gen(function* () {
+    const queue = yield* Queue.unbounded<InboundDelivery>();
+    const sends: SendInput[] = [];
+    return {
+      queue,
+      sends,
+      endpoint: {
+        send: (input) =>
+          Effect.sync(() => {
+            sends.push(input);
+          }),
+        messages: Stream.fromQueue(queue),
+      },
+    };
+  });
 }
 
-interface RecordedSetup extends ChannelSetup {
-  readonly received: ReceivedMessage[];
-  readonly metadata: MetadataRecord[];
-  readonly callOrder: string[];
-  readonly receivedOne: Deferred.Deferred<undefined>;
-}
-
-interface FakeClient {
-  readonly client: HarnessClient;
-  readonly queue: Queue.Queue<HarnessTurn>;
-  readonly replies: Content[];
-}
-
-interface Harness {
-  readonly fake: FakeClient;
-  readonly setup: RecordedSetup;
-  readonly adapter: MoltZapAdapter;
-}
-
-const MOLTZAP_CHANNEL = "moltzap";
-const EVAL_AGENT_GROUP_ID = "eval-agent";
-const ON_METADATA = "onMetadata";
-const ON_INBOUND = "onInbound";
-const FIRST_CONVERSATION = Schema.decodeUnknownSync(ConversationId)(
-  "00000000-0000-4000-8000-000000000001",
-);
-const SECOND_CONVERSATION = Schema.decodeUnknownSync(ConversationId)(
-  "00000000-0000-4000-8000-000000000002",
-);
-const EVAL_CONVERSATION = Schema.decodeUnknownSync(ConversationId)(
-  "00000000-0000-4000-8000-000000000003",
-);
-const LOCAL = fakeCard("agt_local", "local-agent");
-const ALICE = fakeCard("agt_alice", "alice");
-const BOB = fakeCard("agt_bob", "bob");
-const HELLO_CONTENT = [{ type: "text", text: "hello" }] as const;
-const OUTBOUND_KIND_CHAT = "chat";
-const MENTIONS_NEVER = "never";
-
-const jid = (conversationId: ConversationId): string => `mz:${conversationId}`;
-
-function fakeCard(agentId: string, agentName: string): VerifiedAgentCard {
-  const candidate: unknown = {
-    agentId,
-    agentName,
-    principalId: `principal-${agentName}`,
-    publicKey: { crv: "Ed25519", kty: "OKP", x: "fixture" },
-    issuedAt: "2026-08-12T00:00:00Z",
-  };
-  if (!isFakeVerifiedAgentCard(candidate)) {
-    throw new Error("invalid VerifiedAgentCard test fixture");
-  }
-  return candidate;
-}
-
-function isFakeVerifiedAgentCard(value: unknown): value is VerifiedAgentCard {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  if (!("agentId" in value) || typeof value.agentId !== "string") {
-    return false;
-  }
-  return "agentName" in value && typeof value.agentName === "string";
-}
-
-function makeTurn(
-  options: Partial<{
-    readonly conversationId: ConversationId;
-    readonly peers: readonly [VerifiedAgentCard, ...VerifiedAgentCard[]];
-    readonly author: VerifiedAgentCard;
-    readonly content: Content;
-  }> = {},
-  replies: Content[] = [],
-): HarnessTurn {
+function hostSetup(overrides: Partial<ChannelSetup> = {}): ChannelSetup {
   return {
-    conversationId: options.conversationId ?? FIRST_CONVERSATION,
-    peers: options.peers ?? [ALICE],
-    author: options.author ?? ALICE,
-    content: options.content ?? HELLO_CONTENT,
-    reply: (content) =>
-      Effect.sync(() => {
-        replies.push(content);
-      }),
+    onInbound: () => Promise.resolve(),
+    onInboundEvent: () => {},
+    onMetadata: () => {},
+    onAction: () => {},
+    ...overrides,
   };
 }
 
-const createFakeClient = (): Effect.Effect<FakeClient> =>
-  Effect.gen(function* () {
-    const queue = yield* Queue.unbounded<HarnessTurn>();
-    const replies: Content[] = [];
-    const client: HarnessClient = {
-      start: () => Effect.dieMessage("NanoClaw must not initiate START"),
-      turns: Stream.fromQueue(queue),
-    };
-    return { client, queue, replies };
-  });
+function setupAdapter(
+  adapter: MoltZapAdapter,
+  setup: ChannelSetup,
+): Effect.Effect<void, unknown> {
+  return runPromise(() => adapter.setup(setup));
+}
 
-const createRecordedSetup = (): Effect.Effect<RecordedSetup> =>
-  Effect.gen(function* () {
-    const receivedOne = yield* Deferred.make<undefined>();
-    const received: ReceivedMessage[] = [];
-    const metadata: MetadataRecord[] = [];
-    const callOrder: string[] = [];
-    return {
-      onMetadata: (platformId, name, isGroup) => {
-        metadata.push({ jid: platformId, name, isGroup });
-        callOrder.push(ON_METADATA);
-      },
-      onInbound: (platformId, threadId, message) => {
-        received.push({ jid: platformId, threadId, message });
-        callOrder.push(ON_INBOUND);
-        Effect.runSync(Deferred.succeed(receivedOne, undefined));
-      },
-      received,
-      metadata,
-      callOrder,
-      receivedOne,
-    };
-  });
+function teardownAdapter(
+  adapter: MoltZapAdapter,
+): Effect.Effect<void, unknown> {
+  return runPromise(() => adapter.teardown());
+}
 
-const createHarness = (evalMode = false): Effect.Effect<Harness> =>
-  Effect.gen(function* () {
-    const fake = yield* createFakeClient();
-    const setup = yield* createRecordedSetup();
-    return {
-      fake,
-      setup,
-      adapter: MoltZapAdapter.fromClient(fake.client, evalMode),
-    };
-  });
+function waitForDisconnected(adapter: MoltZapAdapter): Effect.Effect<void> {
+  return runPromise(() =>
+    vi.waitFor(() => {
+      expect(adapter.isConnected()).toBe(false);
+    }),
+  ).pipe(Effect.orDie);
+}
 
-const runPromise = <A>(
+function runPromise<A>(
   evaluate: () => PromiseLike<A>,
-): Effect.Effect<A, unknown> =>
-  Effect.tryPromise({
+): Effect.Effect<A, unknown> {
+  return Effect.tryPromise({
     try: evaluate,
     catch: (cause) => cause,
   });
-
-const setupAdapter = (harness: Harness): Effect.Effect<void, unknown> =>
-  runPromise(() => harness.adapter.setup(harness.setup));
-
-const teardownAdapter = (harness: Harness): Effect.Effect<void, unknown> =>
-  runPromise(() => harness.adapter.teardown());
-
-const deliver = (
-  adapter: MoltZapAdapter,
-  platformId: string,
-  text: string,
-): Effect.Effect<void, unknown> =>
-  runPromise(() =>
-    adapter.deliver(platformId, null, {
-      kind: OUTBOUND_KIND_CHAT,
-      content: { text },
-    }),
-  ).pipe(Effect.asVoid);
-
-const expectFailure = (
-  effect: Effect.Effect<void, unknown>,
-  pattern: RegExp,
-): Effect.Effect<void> =>
-  Effect.gen(function* () {
-    const result = yield* Effect.either(effect);
-    Either.match(result, {
-      onLeft: (error) => {
-        expect(String(error)).toMatch(pattern);
-      },
-      onRight: () => {
-        expect.unreachable("expected the operation to fail");
-      },
-    });
-  });
-
-const waitsForOneTurn = (harness: Harness): Effect.Effect<void> =>
-  Deferred.await(harness.setup.receivedOne);
-
-function lifecycleTracksTheScopedTurnDrain() {
-  return Effect.gen(function* () {
-    const harness = yield* createHarness();
-    expect(harness.adapter.isConnected()).toBe(false);
-    yield* setupAdapter(harness);
-    expect(harness.adapter.isConnected()).toBe(true);
-    yield* teardownAdapter(harness);
-    expect(harness.adapter.isConnected()).toBe(false);
-  });
 }
 
-function projectsOneCurrentAction() {
-  return Effect.gen(function* () {
-    const harness = yield* createHarness();
-    yield* setupAdapter(harness);
-    yield* Queue.offer(
-      harness.fake.queue,
-      makeTurn(
-        {
-          content: [
-            { type: "text", text: "hello" },
-            { type: "data", value: { answer: 42 } },
-          ],
-        },
-        harness.fake.replies,
-      ),
-    );
-    yield* waitsForOneTurn(harness);
-    assertCurrentActionProjection(harness);
-    yield* teardownAdapter(harness);
-  });
-}
+// @agent-code-guard/regression-only: these examples pin the exact durable delivery and canonical-address host boundary.
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- Both examples share one ordered fake endpoint lifecycle and assert opposite durable directions.
+describe("MoltZapAdapter delivery", () => {
+  it("acknowledges only after NanoClaw's stock inbound callback completes", () =>
+    Effect.gen(function* () {
+      const fake = yield* createFakeEndpoint();
+      const inboundStarted = yield* Deferred.make<undefined>();
+      const allowCallback = yield* Deferred.make<undefined>();
+      const acknowledged = yield* Deferred.make<undefined>();
+      const callOrder: string[] = [];
+      const adapter = MoltZapAdapter.fromEndpoint(fake.endpoint);
+      yield* setupAdapter(
+        adapter,
+        hostSetup({
+          onMetadata: () => {
+            callOrder.push("metadata");
+          },
+          onInbound: () => {
+            callOrder.push("inbound");
+            Effect.runSync(Deferred.succeed(inboundStarted, undefined));
+            return Effect.runPromise(Deferred.await(allowCallback));
+          },
+        }),
+      );
 
-function assertCurrentActionProjection(harness: Harness): void {
-  expect(harness.setup.callOrder).toEqual([ON_METADATA, ON_INBOUND]);
-  expect(harness.setup.metadata).toEqual([
-    { jid: jid(FIRST_CONVERSATION), name: "alice", isGroup: false },
-  ]);
-  const received = harness.setup.received[0];
-  if (received === undefined) {
-    throw new Error("expected projected current action");
-  }
-  expect(received.jid).toBe(jid(FIRST_CONVERSATION));
-  expect(received.threadId).toBeNull();
-  expect(received.message.kind).toBe(OUTBOUND_KIND_CHAT);
-  expect(received.message.id).toMatch(/^mz-turn:/);
-  expect(Date.parse(received.message.timestamp)).not.toBeNaN();
-  expect(received.message.isGroup).toBe(false);
-  expect(received.message.content).toEqual({
-    text: 'hello\n{"answer":42}',
-    sender: "alice",
-    senderId: "moltzap:agt_alice",
-  });
-}
+      yield* Queue.offer(fake.queue, {
+        message: directMessage,
+        acknowledge: Effect.sync(() => {
+          callOrder.push("acknowledge");
+          Effect.runSync(Deferred.succeed(acknowledged, undefined));
+        }),
+      });
+      yield* Deferred.await(inboundStarted);
+      expect(Option.isNone(yield* Deferred.poll(acknowledged))).toBe(true);
 
-function projectsPeerMembershipForGroups() {
-  return Effect.gen(function* () {
-    const harness = yield* createHarness();
-    yield* setupAdapter(harness);
-    yield* Queue.offer(
-      harness.fake.queue,
-      makeTurn({ peers: [ALICE, BOB] }, harness.fake.replies),
-    );
-    yield* waitsForOneTurn(harness);
-    expect(harness.setup.metadata).toEqual([
-      { jid: jid(FIRST_CONVERSATION), name: "alice, bob", isGroup: true },
-    ]);
-    expect(harness.setup.received[0]?.message.isGroup).toBe(true);
-    yield* teardownAdapter(harness);
-  });
-}
+      yield* Deferred.succeed(allowCallback, undefined);
+      yield* Deferred.await(acknowledged);
+      expect(callOrder).toEqual(["metadata", "inbound", "acknowledge"]);
+      yield* teardownAdapter(adapter);
+    }));
 
-function dropsLocallyAuthoredTurns() {
-  return Effect.gen(function* () {
-    const harness = yield* createHarness();
-    yield* setupAdapter(harness);
-    yield* Queue.offer(
-      harness.fake.queue,
-      makeTurn({ author: LOCAL, peers: [ALICE] }, harness.fake.replies),
-    );
-    yield* Effect.sleep("10 millis");
-    expect(harness.setup.received).toHaveLength(0);
-    expect(harness.setup.metadata).toHaveLength(0);
-    yield* teardownAdapter(harness);
-  });
-}
+  it("keeps host, acknowledge, and transport failures stream-fatal", () =>
+    Effect.gen(function* () {
+      const hostFailure = yield* createFakeEndpoint();
+      const hostAdapter = MoltZapAdapter.fromEndpoint(hostFailure.endpoint);
+      yield* setupAdapter(
+        hostAdapter,
+        hostSetup({
+          onInbound: () => Promise.reject(new Error("host collision")),
+        }),
+      );
+      yield* Queue.offer(hostFailure.queue, {
+        message: directMessage,
+        acknowledge: Effect.void,
+      });
+      yield* waitForDisconnected(hostAdapter);
 
-function replyExistsOnlyDuringItsAwaitedHostTurn() {
-  return Effect.gen(function* () {
-    const fake = yield* createFakeClient();
-    const started = yield* Deferred.make<undefined>();
-    const release = yield* Deferred.make<undefined>();
-    const settled = yield* Deferred.make<undefined>();
-    const setup: ChannelSetup = {
-      onMetadata: () => {},
-      onInbound: () => {
-        Effect.runSync(Deferred.succeed(started, undefined));
-        return Effect.runPromise(Deferred.await(release)).finally(() => {
-          Effect.runSync(Deferred.succeed(settled, undefined));
+      const acknowledgeFailure = yield* createFakeEndpoint();
+      const acknowledgeAdapter = MoltZapAdapter.fromEndpoint(
+        acknowledgeFailure.endpoint,
+      );
+      yield* setupAdapter(
+        acknowledgeAdapter,
+        hostSetup({ onInbound: () => {} }),
+      );
+      yield* Queue.offer(acknowledgeFailure.queue, {
+        message: directMessage,
+        acknowledge: Effect.fail(
+          new DeliveryAcknowledgeError({ reason: "transport-failed" }),
+        ),
+      });
+      yield* waitForDisconnected(acknowledgeAdapter);
+
+      const transportAdapter = MoltZapAdapter.fromEndpoint({
+        send: () => Effect.void,
+        messages: Stream.fail(new ListenError({ reason: "transport-failed" })),
+      });
+      yield* setupAdapter(transportAdapter, hostSetup());
+      yield* waitForDisconnected(transportAdapter);
+    }));
+
+  it("treats each native delivery call as one provider invocation", () =>
+    Effect.gen(function* () {
+      const fake = yield* createFakeEndpoint();
+      const adapter = MoltZapAdapter.fromEndpoint(fake.endpoint);
+      yield* setupAdapter(adapter, hostSetup());
+      yield* runPromise(() =>
+        adapter.deliver(GROUP_ADDRESS, null, {
+          kind: "chat",
+          content: { text: "ready" },
+        }),
+      );
+      yield* runPromise(() =>
+        adapter.deliver(GROUP_ADDRESS, null, {
+          kind: "chat",
+          content: { text: "ready" },
+        }),
+      );
+      expect(fake.sends).toHaveLength(2);
+      for (const send of fake.sends) {
+        expect(send).toEqual({
+          to: GROUP_ADDRESS,
+          content: [{ type: "text", text: "ready" }],
         });
-      },
-    };
-    const adapter = MoltZapAdapter.fromClient(fake.client);
-    yield* runPromise(() => adapter.setup(setup));
-    yield* Queue.offer(fake.queue, makeTurn({}, fake.replies));
-    yield* Deferred.await(started);
+      }
+      yield* teardownAdapter(adapter);
+    }));
+});
 
-    yield* deliver(adapter, jid(FIRST_CONVERSATION), "bound reply");
-    expect(fake.replies).toEqual([[{ type: "text", text: "bound reply" }]]);
+// @agent-code-guard/regression-only: the adapter exposes the finite canonical address projections accepted by the host.
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The finite projection matrix shares one canonical direct/group fixture and lifecycle.
+describe("MoltZapAdapter canonical addresses", () => {
+  it("projects exact group identity and membership", () =>
+    Effect.gen(function* () {
+      const fake = yield* createFakeEndpoint();
+      const acknowledged = yield* Deferred.make<undefined>();
+      const received: InboundMessage[] = [];
+      const metadata: Array<{
+        address: string;
+        name?: string;
+        isGroup?: boolean;
+      }> = [];
+      const adapter = MoltZapAdapter.fromEndpoint(fake.endpoint);
+      yield* setupAdapter(
+        adapter,
+        hostSetup({
+          onMetadata: (address, name, isGroup) => {
+            metadata.push({ address, name, isGroup });
+          },
+          onInbound: (...[, , message]) => {
+            received.push(message);
+            return Promise.resolve();
+          },
+        }),
+      );
+      yield* Queue.offer(fake.queue, {
+        message: groupMessage,
+        acknowledge: Deferred.succeed(acknowledged, undefined),
+      });
+      yield* Deferred.await(acknowledged);
 
-    yield* Deferred.succeed(release, undefined);
-    yield* Deferred.await(settled);
-    yield* Effect.sleep("1 millis");
-    yield* expectFailure(
-      deliver(adapter, jid(FIRST_CONVERSATION), "late reply"),
-      /no active turn/,
-    );
-    yield* runPromise(() => adapter.teardown());
-  });
-}
-
-function serializesTurnsWithoutFallingReplyForward() {
-  return Effect.gen(function* () {
-    const fake = yield* createFakeClient();
-    const firstStarted = yield* Deferred.make<undefined>();
-    const secondStarted = yield* Deferred.make<undefined>();
-    const releaseFirst = yield* Deferred.make<undefined>();
-    const received: string[] = [];
-    const setup: ChannelSetup = {
-      onMetadata: () => {},
-      onInbound: (platformId) => {
-        received.push(platformId);
-        if (received.length === 1) {
-          Effect.runSync(Deferred.succeed(firstStarted, undefined));
-          return Effect.runPromise(Deferred.await(releaseFirst));
-        }
-        Effect.runSync(Deferred.succeed(secondStarted, undefined));
-        return undefined;
-      },
-    };
-    const adapter = MoltZapAdapter.fromClient(fake.client);
-    yield* runPromise(() => adapter.setup(setup));
-    yield* Queue.offer(fake.queue, makeTurn({}, fake.replies));
-    yield* Queue.offer(
-      fake.queue,
-      makeTurn({ conversationId: SECOND_CONVERSATION }, fake.replies),
-    );
-    yield* Deferred.await(firstStarted);
-    expect(received).toEqual([jid(FIRST_CONVERSATION)]);
-    yield* deliver(adapter, jid(FIRST_CONVERSATION), "first");
-    yield* expectFailure(
-      deliver(adapter, jid(SECOND_CONVERSATION), "too early"),
-      /no active turn/,
-    );
-
-    yield* Deferred.succeed(releaseFirst, undefined);
-    yield* Deferred.await(secondStarted);
-    expect(received).toEqual([
-      jid(FIRST_CONVERSATION),
-      jid(SECOND_CONVERSATION),
-    ]);
-    yield* deliver(adapter, jid(SECOND_CONVERSATION), "second");
-    expect(fake.replies).toEqual([
-      [{ type: "text", text: "first" }],
-      [{ type: "text", text: "second" }],
-    ]);
-    yield* runPromise(() => adapter.teardown());
-  });
-}
-
-function keepsHostShapeFailuresSeparate() {
-  return Effect.gen(function* () {
-    const harness = yield* createHarness();
-    yield* setupAdapter(harness);
-    yield* Queue.offer(harness.fake.queue, makeTurn({}, harness.fake.replies));
-    yield* waitsForOneTurn(harness);
-    yield* expectFailure(
-      deliver(harness.adapter, "telegram:123", "wrong route"),
-      /does not own jid/,
-    );
-    const invalidMessage: OutboundMessage = { kind: "file", content: {} };
-    yield* expectFailure(
-      runPromise(() =>
-        harness.adapter.deliver(jid(FIRST_CONVERSATION), null, invalidMessage),
-      ).pipe(Effect.asVoid),
-      /require text content/,
-    );
-    yield* teardownAdapter(harness);
-  });
-}
-
-function createsCompatibleEvalWiring() {
-  return Effect.gen(function* () {
-    const harness = yield* createHarness(true);
-    yield* setupAdapter(harness);
-    yield* Queue.offer(
-      harness.fake.queue,
-      makeTurn(
+      expect(metadata).toEqual([
+        { address: GROUP_ADDRESS, name: GROUP_ADDRESS, isGroup: true },
+      ]);
+      expect(received).toEqual([
         {
-          conversationId: EVAL_CONVERSATION,
-          peers: [ALICE, BOB],
+          id: GROUP_POST_ID,
+          kind: "chat",
+          timestamp: "1970-01-01T00:00:00.000Z",
+          isMention: true,
+          isGroup: true,
+          content: {
+            text: 'status\n{"ready":true}',
+            address: GROUP_ADDRESS,
+            sender: "agent:bob",
+            senderId: "agent:bob",
+            members: ["agent:alice", "agent:bob", "agent:local"],
+          },
         },
-        harness.fake.replies,
-      ),
-    );
-    yield* waitsForOneTurn(harness);
-    const group = getMessagingGroupByPlatform(
-      MOLTZAP_CHANNEL,
-      jid(EVAL_CONVERSATION),
-    );
-    if (group === undefined) {
-      throw new Error("expected eval messaging group");
-    }
-    expect(group).toMatchObject({
-      platform_id: jid(EVAL_CONVERSATION),
-      name: "alice, bob",
-      is_group: 1,
-      unknown_sender_policy: "public",
-    });
-    const wiring = getMessagingGroupAgentByPair(group.id, EVAL_AGENT_GROUP_ID);
-    expect(wiring).toMatchObject({
-      engage_mode: "pattern",
-      engage_pattern: ".",
-      sender_scope: "all",
-      ignored_message_policy: "drop",
-      session_mode: "shared",
-      priority: 0,
-    });
-    yield* teardownAdapter(harness);
-  });
-}
+      ]);
+      yield* teardownAdapter(adapter);
+    }));
 
-describe("MoltZapAdapter reduced Client boundary", () => {
-  it(
-    "tracks the scoped turn drain in its lifecycle",
-    lifecycleTracksTheScopedTurnDrain,
-  );
-  it(
-    "projects one current action without protocol or context payloads",
-    projectsOneCurrentAction,
-  );
-  it(
-    "projects fixed peers through NanoClaw group metadata",
-    projectsPeerMembershipForGroups,
-  );
-  it("drops a locally authored turn", dropsLocallyAuthoredTurns);
-  it(
-    "keeps reply authority only for the awaited host turn",
-    replyExistsOnlyDuringItsAwaitedHostTurn,
-  );
-  it(
-    "serializes turns without falling reply authority forward",
-    serializesTurnsWithoutFallingReplyForward,
-  );
-  it(
-    "keeps NanoClaw shape errors separate from Client failures",
-    keepsHostShapeFailuresSeparate,
-  );
-  it(
-    "creates eval wiring from conversation and peer membership",
-    createsCompatibleEvalWiring,
-  );
+  it("tracks the scoped endpoint lifecycle", () =>
+    Effect.gen(function* () {
+      const fake = yield* createFakeEndpoint();
+      const adapter = MoltZapAdapter.fromEndpoint(fake.endpoint);
+      expect(adapter.isConnected()).toBe(false);
+      yield* setupAdapter(adapter, hostSetup());
+      expect(adapter.isConnected()).toBe(true);
+      yield* teardownAdapter(adapter);
+      expect(adapter.isConnected()).toBe(false);
+    }));
 });
 
 describe("MoltZapAdapter registration", () => {
-  vitestIt("registers defaults with mentions disabled", () => {
-    expect(
-      getRegisteredChannelAdapter(MOLTZAP_CHANNEL)?.defaults?.mentions,
-    ).toBe(MENTIONS_NEVER);
+  vitestIt("registers its NanoClaw factory", () => {
+    expect(getRegisteredChannelAdapter("moltzap")).toBeDefined();
   });
-  vitestIt("does not create a production adapter without an MCP URL", () => {
-    expect(
-      makeMoltZapAdapter({ mcpEndpoint: null, evalMode: false }),
-    ).toBeNull();
+
+  vitestIt("is disabled without a loopback MCP URL", () => {
+    expect(makeMoltZapAdapter({ mcpEndpoint: null })).toBeNull();
   });
-  vitestIt("creates a production adapter from an MCP URL", () => {
+
+  vitestIt("creates an MCP-backed adapter from a loopback URL", () => {
     expect(
-      makeMoltZapAdapter({
-        mcpEndpoint: "http://127.0.0.1:4111/mcp",
-        evalMode: false,
-      }),
+      makeMoltZapAdapter({ mcpEndpoint: "http://127.0.0.1:4100/mcp" }),
     ).toBeInstanceOf(MoltZapAdapter);
   });
 });

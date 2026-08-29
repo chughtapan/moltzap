@@ -1,6 +1,6 @@
 /** @file Normalized evaluation transcripts and their evidence-ID invariants. */
 
-import { AgentName as agentName, ConversationId } from "@moltzap/client";
+import { AgentAddress, GroupAddress } from "@moltzap/client";
 import { OpenClawGatewayTimedOut } from "@moltzap/simulator/agents";
 import { Effect, Schema } from "effect";
 import { type EvaluationCaseMetadata, TARGET_AGENT_NAME } from "./cases.js";
@@ -30,6 +30,8 @@ import {
 const transcriptParts = Schema.NonEmptyArray(
   Schema.Struct({ type: Schema.Literal("text"), text: Schema.String }),
 );
+const agentName = Schema.NonEmptyString;
+const canonicalMessageAddress = Schema.Union(AgentAddress, GroupAddress);
 type TranscriptParts = typeof transcriptParts.Type;
 const maximumPartLength = 32_768;
 const maximumParts = 10;
@@ -52,7 +54,7 @@ export class GatewayTranscriptItem extends Schema.TaggedClass<GatewayTranscriptI
   },
 ) {}
 
-/** One semantic action observed through a peer's public HarnessClient. */
+/** One semantic action observed through a peer's public HarnessEndpoint. */
 export class SocialTranscriptItem extends Schema.TaggedClass<SocialTranscriptItem>()(
   "SocialTranscriptItem",
   {
@@ -61,7 +63,7 @@ export class SocialTranscriptItem extends Schema.TaggedClass<SocialTranscriptIte
     direction: Schema.Literal("input", "output"),
     actorName: agentName,
     endpointName: agentName,
-    conversationId: ConversationId,
+    address: canonicalMessageAddress,
     parts: semanticContent,
   },
 ) {}
@@ -298,7 +300,7 @@ function selectedSocialIssue(
   const isTargetInput =
     selection?.observation instanceof SocialActionObserved &&
     selection.observation.direction === "input" &&
-    selection.observation.authorName === target.name;
+    agentNameFromAddress(selection.observation.authorAddress) === target.name;
   return isTargetInput
     ? undefined
     : {
@@ -456,9 +458,9 @@ function socialItem(
       evidenceId: item.eventId,
       source: "social",
       direction: observation.direction,
-      actorName: observation.authorName,
-      endpointName: observation.endpointName,
-      conversationId: observation.conversationId,
+      actorName: agentNameFromAddress(observation.authorAddress),
+      endpointName: agentNameFromAddress(observation.endpointAddress),
+      address: observation.address,
       parts: observation.content,
     });
   }
@@ -467,12 +469,16 @@ function socialItem(
     source: "peer-timeout",
     direction: "input",
     actorName: target.name,
-    endpointName: observation.endpointName,
+    endpointName: agentNameFromAddress(observation.endpointAddress),
     parts: textParts(
       `No social action arrived within ${String(observation.timeoutMillis)}ms.`,
       "[No social action observed]",
     ),
   });
+}
+
+function agentNameFromAddress(address: typeof AgentAddress.Type): string {
+  return address.slice("agent:".length);
 }
 
 function transcriptFromEvidence(

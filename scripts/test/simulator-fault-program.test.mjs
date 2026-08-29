@@ -8,10 +8,6 @@ const { Duration, Deferred, Effect } = await import("effect");
 const { LinkController } = await import("@moltzap/simulator/network");
 const { makeFaultProgram } = await import("./simulator-fault-program.mjs");
 
-const conversations = [
-  "00000000-0000-4000-8000-000000000001",
-  "00000000-0000-4000-8000-000000000002",
-];
 const participants = Object.freeze({
   controller: Object.freeze({ name: "controller", id: "controller-id" }),
   held: Object.freeze({ name: "held", id: "held-id" }),
@@ -22,6 +18,13 @@ function text(value) {
   return [{ type: "text", text: value }];
 }
 
+function assertBefore(log, earlier, later) {
+  assert.ok(
+    log.indexOf(earlier) < log.indexOf(later),
+    `expected ${JSON.stringify(earlier)} before ${JSON.stringify(later)}`,
+  );
+}
+
 function executeProgram(options = {}) {
   return Effect.gen(function* () {
     const log = [];
@@ -29,28 +32,33 @@ function executeProgram(options = {}) {
     const heldReply = yield* Deferred.make();
     const freeAcknowledged = yield* Deferred.make();
     const heldAcknowledged = yield* Deferred.make();
-    let conversationIndex = 0;
-
-    const freeTurn = {
-      content: text(options.freeContent ?? "free-reply"),
-      reply: (reply) =>
-        Effect.sync(() => {
-          log.push(`reply:${reply[0]?.text}`);
-        }).pipe(Effect.zipRight(Deferred.succeed(freeAcknowledged, undefined))),
-    };
-    const heldTurn = {
-      content: text("held-reply"),
-      reply: (reply) =>
-        Effect.sync(() => {
-          log.push(`reply:${reply[0]?.text}`);
-        }).pipe(Effect.zipRight(Deferred.succeed(heldAcknowledged, undefined))),
-    };
+    const delivery = (peer, postId, replyText) => ({
+      message: {
+        kind: "direct",
+        postId,
+        address: `agent:${peer}`,
+        sender: `agent:${peer}`,
+        content: text(replyText),
+      },
+      acknowledge: Effect.sync(() => {
+        log.push(`acknowledge:${peer}`);
+      }),
+    });
+    const freeDelivery = delivery(
+      participants.free.name,
+      "pst_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      options.freeContent ?? "free-reply",
+    );
+    const heldDelivery = delivery(
+      participants.held.name,
+      "pst_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "held-reply",
+    );
     const endpoint = {
       participant: participants.controller,
       socket: (address) => {
-        const isHeld = address.participants.some(
-          ({ name }) => name === participants.held.name,
-        );
+        const isHeld =
+          address.destination === `agent:${participants.held.name}`;
         return Effect.succeed({
           receive: () =>
             isHeld
@@ -70,16 +78,23 @@ function executeProgram(options = {}) {
                 ),
         });
       },
-      start: (input) =>
-        Effect.sync(() => {
-          log.push(`start:${input.peers[0]}:${input.content[0]?.text}`);
-        }).pipe(
-          Effect.zipRight(
-            input.peers[0] === participants.free.name
-              ? Deferred.succeed(freeReply, freeTurn)
-              : Effect.void,
-          ),
-        ),
+      send: (input) => {
+        const firstPart = input.content[0];
+        const messageText = firstPart?.type === "text" ? firstPart.text : "";
+        const freeAddress = `agent:${participants.free.name}`;
+        const heldAddress = `agent:${participants.held.name}`;
+        let completion = Effect.void;
+        if (input.to === freeAddress && messageText === "free-start") {
+          completion = Deferred.succeed(freeReply, freeDelivery);
+        } else if (input.to === freeAddress && messageText === "free-ack") {
+          completion = Deferred.succeed(freeAcknowledged, undefined);
+        } else if (input.to === heldAddress && messageText === "held-ack") {
+          completion = Deferred.succeed(heldAcknowledged, undefined);
+        }
+        return Effect.sync(() => {
+          log.push(`send:${input.to}:${messageText}`);
+        }).pipe(Effect.zipRight(completion), Effect.asVoid);
+      },
     };
     const links = {
       hold: () =>
@@ -90,7 +105,7 @@ function executeProgram(options = {}) {
           () =>
             Effect.sync(() => {
               log.push("release:held->controller");
-            }).pipe(Effect.zipRight(Deferred.succeed(heldReply, heldTurn))),
+            }).pipe(Effect.zipRight(Deferred.succeed(heldReply, heldDelivery))),
         ),
     };
     const context = {
@@ -123,8 +138,6 @@ function executeProgram(options = {}) {
       },
     };
     const program = makeFaultProgram({
-      mintConversationId: () =>
-        Effect.sync(() => conversations[conversationIndex++]),
       subscriptionDelay: Effect.void,
       timeout: Duration.seconds(2),
     });
@@ -135,18 +148,35 @@ function executeProgram(options = {}) {
 }
 
 test("keeps the unfaulted exchange live until the scoped hold clears", async () => {
-  assert.deepEqual(await Effect.runPromise(executeProgram()), [
+  const log = await Effect.runPromise(executeProgram());
+  const expectedEvents = [
     "hold:held->controller",
-    "start:held:held-start",
-    "start:free:free-start",
+    "send:agent:held:held-start",
+    "send:agent:free:free-start",
     "receive:free",
-    "reply:free-ack",
+    "acknowledge:free",
+    "send:agent:free:free-ack",
     "exchange:free:complete",
     "release:held->controller",
     "receive:held",
-    "reply:held-ack",
+    "acknowledge:held",
+    "send:agent:held:held-ack",
     "exchange:held:complete",
-  ]);
+  ];
+
+  assert.deepEqual(log.toSorted(), expectedEvents.toSorted());
+  assertBefore(log, "hold:held->controller", "send:agent:held:held-start");
+  assertBefore(log, "hold:held->controller", "send:agent:free:free-start");
+  assertBefore(log, "send:agent:held:held-start", "release:held->controller");
+  assertBefore(log, "send:agent:free:free-start", "receive:free");
+  assertBefore(log, "receive:free", "acknowledge:free");
+  assertBefore(log, "acknowledge:free", "send:agent:free:free-ack");
+  assertBefore(log, "send:agent:free:free-ack", "exchange:free:complete");
+  assertBefore(log, "exchange:free:complete", "release:held->controller");
+  assertBefore(log, "release:held->controller", "receive:held");
+  assertBefore(log, "receive:held", "acknowledge:held");
+  assertBefore(log, "acknowledge:held", "send:agent:held:held-ack");
+  assertBefore(log, "send:agent:held:held-ack", "exchange:held:complete");
 });
 
 test("propagates a completed held-receive failure", async () => {
@@ -161,6 +191,6 @@ test("propagates a completed held-receive failure", async () => {
 test("fails through the Effect channel when a peer changes reply bytes", async () => {
   await assert.rejects(
     Effect.runPromise(executeProgram({ freeContent: "wrong reply" })),
-    /expected one text part "free-reply"/,
+    /with one text part "free-reply"/,
   );
 });

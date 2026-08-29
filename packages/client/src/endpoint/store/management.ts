@@ -6,7 +6,7 @@ import type {
   ConversationPage,
   EndpointRecovery,
   HistoryPage,
-  StartIntent,
+  PostIntent,
   StoredAnchor,
   StoredMembership,
 } from "./types.js";
@@ -21,9 +21,13 @@ import {
   type StoreState,
   validateContinuation,
 } from "./database/index.js";
+import { readRetainedDeliveries } from "./deliveries.js";
+import { readPendingDissemination } from "./dissemination.js";
+import { readPendingOutbound } from "./outbound.js";
 import {
   readCertifiedRecord,
   readConversationPosition,
+  readProposalLock,
   readProtocolEvidence,
   readRecoveredReanchor,
   readStagedRecord,
@@ -34,8 +38,8 @@ const HISTORY_PAGE_SIZE = 50;
 const historyQuery = `
   SELECT staged.conversation_id, staged.record_hash,
          staged.previous_record_hash, staged.membership_hash,
-         staged.anchor_hash, staged.canonical_record,
-         certified.canonical_certified_record
+         staged.anchor_hash, staged.action_hash, staged.author_agent_id,
+         staged.post_id, staged.canonical_record_core
   FROM certified_records AS certified
   JOIN staged_records AS staged
     ON staged.conversation_id = certified.conversation_id
@@ -109,7 +113,7 @@ export function recoverStoredState(database: DatabaseSync): EndpointRecovery {
   const identity = readStoredIdentity(database);
   return Object.freeze({
     ...(identity === undefined ? {} : { identity }),
-    startIntents: readStartIntents(database),
+    postIntents: readPostIntents(database),
     memberships: readMemberships(database),
     anchors: readAnchors(database),
     positions: Object.freeze(
@@ -122,12 +126,23 @@ export function recoverStoredState(database: DatabaseSync): EndpointRecovery {
         .all()
         .map(readConversationPosition),
     ),
+    proposalLocks: Object.freeze(
+      database
+        .prepare(
+          `SELECT conversation_id, previous_record_hash, action_hash,
+                  canonical_action_core
+           FROM proposal_locks ORDER BY conversation_id, predecessor_key`,
+        )
+        .all()
+        .map(readProposalLock),
+    ),
     stagedRecords: Object.freeze(
       database
         .prepare(
           `SELECT conversation_id, record_hash, previous_record_hash,
-                  membership_hash, anchor_hash, canonical_record
-           FROM staged_records ORDER BY conversation_id, predecessor_key`,
+                  membership_hash, anchor_hash, action_hash, author_agent_id,
+                  post_id, canonical_record_core
+           FROM staged_records ORDER BY conversation_id, rowid`,
         )
         .all()
         .map(readStagedRecord),
@@ -135,7 +150,9 @@ export function recoverStoredState(database: DatabaseSync): EndpointRecovery {
     evidence: readEvidence(database),
     certifiedRecords: readAllCertifiedRecords(database),
     stagedReanchors: readReanchors(database),
-    consumedAttention: readConsumedAttention(database),
+    pendingDeliveries: readRetainedDeliveries(database),
+    disseminationObligations: readPendingDissemination(database),
+    outboundMessages: readPendingOutbound(database),
   });
 }
 
@@ -181,7 +198,9 @@ function beginConversationRead(
   if (rows.length === 0 && afterOrdinal === -1) {
     throw new StoreSignal("not-found");
   }
-  const records = Object.freeze(rows.map(readCertifiedRecord));
+  const records = Object.freeze(
+    rows.map((row) => readCertifiedRecord(state.database, row)),
+  );
   return pageFromSnapshot(state, { records, offset: 0 });
 }
 
@@ -261,17 +280,32 @@ function retainNextPage(
 function copyCertifiedRecord(record: CertifiedRecord): CertifiedRecord {
   return Object.freeze({
     ...record,
-    canonicalRecord: copyBytes(record.canonicalRecord),
-    canonicalCertifiedRecord: copyBytes(record.canonicalCertifiedRecord),
+    canonicalRecordCore: copyBytes(record.canonicalRecordCore),
+    actionEvidence: copyEvidence(record.actionEvidence),
+    durabilityEvidence: copyEvidence(record.durabilityEvidence),
   });
 }
 
-function readStartIntents(database: DatabaseSync): readonly StartIntent[] {
+function copyEvidence(
+  evidenceItems: CertifiedRecord["actionEvidence"],
+): CertifiedRecord["actionEvidence"] {
+  return Object.freeze(
+    evidenceItems.map((evidence) =>
+      Object.freeze({
+        ...evidence,
+        canonicalEvidence: copyBytes(evidence.canonicalEvidence),
+      }),
+    ),
+  );
+}
+
+function readPostIntents(database: DatabaseSync): readonly PostIntent[] {
   return Object.freeze(
     database
       .prepare(
-        `SELECT conversation_id, canonical_intent, completed_record_hash
-         FROM start_intents ORDER BY conversation_id`,
+        `SELECT conversation_id, membership_hash, author_agent_id, post_id,
+                canonical_intent, completed_record_hash
+         FROM post_intents ORDER BY author_agent_id, post_id`,
       )
       .all()
       .map((row) => {
@@ -281,6 +315,9 @@ function readStartIntents(database: DatabaseSync): readonly StartIntent[] {
         );
         return Object.freeze({
           conversationId: readText(row, "conversation_id"),
+          membershipHash: readText(row, "membership_hash"),
+          authorAgentId: readText(row, "author_agent_id"),
+          postId: readText(row, "post_id"),
           canonicalIntent: readBytes(row, "canonical_intent"),
           ...(completedRecordHash === undefined ? {} : { completedRecordHash }),
         });
@@ -366,7 +403,7 @@ function readAllCertifiedRecords(
           ),
       )
       .all()
-      .map(readCertifiedRecord),
+      .map((row) => readCertifiedRecord(database, row)),
   );
 }
 
@@ -381,22 +418,5 @@ function readReanchors(database: DatabaseSync) {
       )
       .all()
       .map(readRecoveredReanchor),
-  );
-}
-
-function readConsumedAttention(database: DatabaseSync) {
-  return Object.freeze(
-    database
-      .prepare(
-        `SELECT conversation_id, record_hash FROM consumed_attention
-         ORDER BY conversation_id, record_hash`,
-      )
-      .all()
-      .map((row) =>
-        Object.freeze({
-          conversationId: readText(row, "conversation_id"),
-          recordHash: readText(row, "record_hash"),
-        }),
-      ),
   );
 }

@@ -1,6 +1,10 @@
 /** @file Controlled network endpoints and their run-scoped Effect service. */
 
-import type { ConversationId, HarnessTurn, StartInput } from "@moltzap/client";
+import type {
+  InboundDelivery,
+  MessageAddressInput,
+  SendInput,
+} from "@moltzap/client";
 import { Context, Effect, type Stream } from "effect";
 import type { ParticipantHandle } from "./participant.js";
 import type { AttachedEndpoint, EndpointTransport } from "./router.js";
@@ -18,12 +22,12 @@ const endpointConstruction: unique symbol = Symbol(
 
 /** Run-scoped receive cursors maintained by the simulator kernel. */
 export interface EndpointInbox {
-  /** Live fan-out stream for observers of every endpoint turn. */
-  readonly messages: Stream.Stream<HarnessTurn, NetworkError>;
-  /** Obtain the shared ordered cursor for one bound conversation. */
+  /** Live fan-out stream for observers of every endpoint delivery. */
+  readonly messages: Stream.Stream<InboundDelivery, NetworkError>;
+  /** Obtain the shared ordered cursor for one explicit destination. */
   readonly conversation: (
-    conversationId: ConversationId,
-  ) => Effect.Effect<Stream.Stream<HarnessTurn, NetworkError>>;
+    destination: MessageAddressInput,
+  ) => Effect.Effect<Stream.Stream<InboundDelivery, NetworkError>>;
 }
 
 /** A run-scoped participant controlled directly by the experiment program. */
@@ -52,19 +56,19 @@ export class Endpoint<Name extends string = string> {
   }
 
   /**
-   * Start one conversation through this endpoint's semantic daemon client.
-   * @param input Caller-minted conversation identity, peers, and initial content.
-   * @returns Completion after the daemon accepts the semantic START.
+   * Send one explicit addressed post through the endpoint daemon.
+   * @param input Durable host identity, destination, and nonempty content.
+   * @returns Completion after the daemon certifies the addressed post.
    */
-  start(input: StartInput): Effect.Effect<void, NetworkError> {
-    return this.transport.start(input);
+  send(input: SendInput): Effect.Effect<void, NetworkError> {
+    return this.transport.send(input);
   }
 
   /**
-   * Observe semantic turns delivered after this stream is subscribed.
-   * @returns A live fan-out stream of turns for this endpoint.
+   * Observe addressed deliveries emitted after this stream is subscribed.
+   * @returns A live fan-out stream of deliveries for this endpoint.
    */
-  messages(): Stream.Stream<HarnessTurn, NetworkError> {
+  messages(): Stream.Stream<InboundDelivery, NetworkError> {
     return this.inbox.messages;
   }
 
@@ -81,7 +85,7 @@ export class Endpoint<Name extends string = string> {
     );
     return isParticipant
       ? this.inbox
-          .conversation(address.conversationId)
+          .conversation(address.destination)
           .pipe(
             Effect.map((messages) =>
               makeConversationSocket(this.participant, address, messages),
@@ -99,7 +103,7 @@ export class Endpoint<Name extends string = string> {
 /**
  * Construct a controlled endpoint from one ready attachment and its inbox.
  * @param attachment Ready participant and semantic daemon transport.
- * @param inbox Run-owned endpoint and conversation turn streams.
+ * @param inbox Run-owned endpoint and conversation delivery streams.
  * @returns The immutable controlled endpoint capability.
  */
 export function makeEndpoint<const Name extends string>(

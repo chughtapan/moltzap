@@ -36,49 +36,49 @@ const APPLICATION_IMAGE = Schema.decodeSync(image)(
 const EXPECTED_TOPOLOGY: Readonly<
   Record<string, Readonly<Record<string, string>>>
 > = {
-  "EVAL-005": { [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v2" },
+  "EVAL-005": { [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v3" },
   "EVAL-006": {
-    [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
+    [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
     [OBSERVER_1_AGENT_NAME]: "moltzap.eval-peer-idle/v1",
   },
-  "EVAL-007": { [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v2" },
+  "EVAL-007": { [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v3" },
   "EVAL-008": {
-    [SOURCE_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
-    [PROBE_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
+    [SOURCE_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
+    [PROBE_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
   },
-  "EVAL-009": { [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v2" },
+  "EVAL-009": { [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v3" },
   "EVAL-010": {
-    [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
+    [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
     [OBSERVER_1_AGENT_NAME]: "moltzap.eval-peer-idle/v1",
   },
   "EVAL-011": {
-    [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
+    [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
     [OBSERVER_1_AGENT_NAME]: "moltzap.eval-peer-idle/v1",
     [OBSERVER_2_AGENT_NAME]: "moltzap.eval-peer-idle/v1",
   },
-  "EVAL-018": { [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v2" },
+  "EVAL-018": { [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v3" },
   "EVAL-019": {},
-  "EVAL-021": { [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v2" },
-  "EVAL-022": { [PEER_AGENT_NAME]: "moltzap.eval-peer-opening/v2" },
+  "EVAL-021": { [PEER_AGENT_NAME]: "moltzap.eval-peer-reactive/v3" },
+  "EVAL-022": { [PEER_AGENT_NAME]: "moltzap.eval-peer-opening/v3" },
   "EVAL-030": {
-    [SOURCE_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
-    [PROBE_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
+    [SOURCE_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
+    [PROBE_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
   },
   "EVAL-031": {
-    [SOURCE_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
-    [PROBE_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
+    [SOURCE_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
+    [PROBE_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
   },
   "EVAL-032": {
-    [SOURCE_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
-    [PROBE_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
+    [SOURCE_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
+    [PROBE_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
   },
   "EVAL-033": {
-    [SOURCE_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
-    [PROBE_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
+    [SOURCE_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
+    [PROBE_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
   },
   "EVAL-034": {
-    [SOURCE_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
-    [PROBE_AGENT_NAME]: "moltzap.eval-peer-reactive/v2",
+    [SOURCE_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
+    [PROBE_AGENT_NAME]: "moltzap.eval-peer-reactive/v3",
   },
 };
 
@@ -148,6 +148,7 @@ function submission(
       id: decodeEvaluationConditionId(condition),
       modelId: condition === "openclaw/v2" ? "openai/test" : "claude/test",
     },
+    messagingMode: "shared",
     nanoclawApplicationImage: APPLICATION_IMAGE,
     runtimeStartupTimeoutMillis: 1_000,
     peerObservationTimeoutMillis: 2_000,
@@ -242,11 +243,13 @@ it("materializes every case peer under both concrete runtime conditions", () => 
 });
 
 it("renders all 32 controller cells without injecting Client context", () => {
-  const sources = evaluationCases.flatMap((definition) =>
-    (["openclaw/v2", "nanoclaw/v2"] as const).map((condition) =>
-      evaluationControllerModule(submission(definition, condition)),
-    ),
+  const openClawSources = evaluationCases.map((definition) =>
+    evaluationControllerModule(submission(definition, "openclaw/v2")),
   );
+  const nanoClawSources = evaluationCases.map((definition) =>
+    evaluationControllerModule(submission(definition, "nanoclaw/v2")),
+  );
+  const sources = [...openClawSources, ...nanoClawSources];
 
   assert.lengthOf(sources, 32);
   for (const source of sources) {
@@ -257,5 +260,11 @@ it("renders all 32 controller cells without injecting Client context", () => {
     assert.notInclude(source, "@moltzap/client");
     assert.notInclude(source, "HarnessClient");
     assert.notInclude(source, "crossConversationContext");
+  }
+  for (const source of openClawSources) {
+    assert.include(source, 'messagingMode: "shared"');
+  }
+  for (const source of nanoClawSources) {
+    assert.notInclude(source, "messagingMode");
   }
 });

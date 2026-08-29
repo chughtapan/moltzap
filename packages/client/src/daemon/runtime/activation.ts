@@ -12,34 +12,35 @@ import type {
   EndpointEngine,
   EndpointEngineInput,
   EngineInitializationError,
-} from "../endpoint/engine.js";
+} from "../../endpoint/engine.js";
 import type {
   RouterWorker,
   RouterWorkerInput,
   RouterWorkerProtocolError,
   RouterWorkerTransportError,
-} from "../endpoint/router-worker.js";
-import type { EndpointStore, StoredMembership } from "../endpoint/store.js";
-import type { HarnessMcpSubscriptionHandler } from "../harness-mcp-subscription.js";
-import type { makeHarnessMcpHttpHandler } from "../harness-mcp-wire.js";
-import type { HarnessTurnEvent } from "../harness-runtime.js";
-import type { DaemonBootstrap } from "./configuration.js";
+} from "../../endpoint/router-worker/index.js";
+import type { EndpointStore, StoredMembership } from "../../endpoint/store.js";
+import type { HarnessMessageReadyEvent } from "../../harness-mcp-contract.js";
+import type { HarnessMcpSubscriptionHandler } from "../../harness-mcp-subscription.js";
+import type { makeHarnessMcpHttpHandler } from "../../harness-mcp-wire.js";
+import type { DaemonBootstrap } from "../configuration.js";
 import {
   decodeCanonical,
   encodeCanonical,
-  Membership,
-  verifyMembership,
-} from "../endpoint/representation.js";
+  MembershipDescriptor,
+  verifyMembershipDescriptor,
+} from "../../endpoint/representation.js";
 import {
   type DaemonManagementOperations,
   makeDaemonManagementOperations,
-} from "./management.js";
+} from "../management.js";
 import {
   type DaemonRegistrationState,
   readDaemonRegistrationState,
-} from "./registration.js";
+} from "../registration.js";
 
-type SubscriptionHandler = HarnessMcpSubscriptionHandler<HarnessTurnEvent>;
+type SubscriptionHandler =
+  HarnessMcpSubscriptionHandler<HarnessMessageReadyEvent>;
 
 /** Closed private daemon failure projected onto the public startup phases. */
 export class DaemonRuntimeError extends Data.TaggedError("DaemonRuntimeError")<{
@@ -140,10 +141,10 @@ const retainMembershipCards = (
 ): Effect.Effect<void, DaemonActivationError> =>
   Effect.gen(function* () {
     const membership = yield* decodeCanonical(
-      Membership,
+      MembershipDescriptor,
       stored.canonicalMembership,
     ).pipe(Effect.mapError(() => activationFailure("representation")));
-    const verified = yield* verifyMembership(
+    const verified = yield* verifyMembershipDescriptor(
       membership,
       input.bootstrap.configuration.registrySignerPublicKey,
     ).pipe(Effect.mapError(() => activationFailure("representation")));

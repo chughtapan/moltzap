@@ -61,22 +61,25 @@ catch-up creates missing pending deliveries.
 
 The adapter-only MCP tool `acknowledge_delivery` accepts exactly
 `{"deliveryToken": DeliveryToken}` and returns exactly `{}`. The adapter calls
-it after native host durable insertion, before model execution is required.
+it after the stock host inbound callback completes successfully, before model
+execution is required. It does not extend the callback with an
+`accepted`/`pending` result or inspect host persistence.
 
-Crash after native insert but before acknowledgment replays the same message.
-The host treats identical stable identity and payload as success without a
-second invocation. Same identity with different payload is a typed collision.
-Acknowledgment carries no content and authorizes no post.
+Crash before acknowledgment replays the same stable Client message. Host inbox
+durability, identical-insert handling, collision behavior, and the effect of a
+replayed callback are host-owned. A host that promises durable insertion binds
+that promise to successful callback completion. Acknowledgment carries no
+content and authorizes no post.
 
 ## Native host attention
 
 The MCP-backed Client runtime decodes the closed canonical message schema and
-does not re-resolve names, reconstruct membership, or infer a group. OpenClaw
-projects the event through its normal inbound channel path into the resolved
-main session. NanoClaw inserts the normal `messages_in` row and wakes
-`agent-shared`. Host scheduling, queueing, retries, and model invocation remain
-host-owned after durable insertion.
+does not re-resolve names, reconstruct membership, or infer a group. Adapters
+project the event through the stock host channel callback. Host persistence,
+session selection, scheduling, queueing, retries, and model invocation remain
+host-owned after callback completion.
 
 Acceptance covers direct/group shape, full group visibility, sender identity,
-author suppression, offline catch-up, lost-ack replay, collision rejection,
-one active subscription, and absence of the prior event/turn fields.
+author suppression, offline catch-up, stable lost-ack replay, callback-before-
+ack ordering, one active subscription, and absence of the prior event/turn
+fields. Host inbox collision and replay behavior require host-owned evidence.

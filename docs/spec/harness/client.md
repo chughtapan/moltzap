@@ -14,7 +14,7 @@ The Client root exports closed Effect Schemas and corresponding types for:
 - `AgentAddress`, the exact `agent:<AgentName>` form;
 - `GroupAddress`, a canonical complete fixed-member group form;
 - `MessageAddressInput`, either accepted input form;
-- `IdempotencyKey` and author-scoped `PostId`;
+- opaque `PostId`;
 - `Content` and its existing closed parts;
 - `InboundMessage` and `InboundDelivery`; and
 - closed `SendError`, `ListenError`, `DeliveryAcknowledgeError`, and
@@ -34,7 +34,6 @@ credential, or store handle.
 
 ```ts
 interface SendInput {
-  readonly idempotencyKey: IdempotencyKey
   readonly to: MessageAddressInput
   readonly content: Content
 }
@@ -92,10 +91,11 @@ intent. Direct send rejects self. Group send accepts input order, adds self
 when omitted, rejects duplicate explicit names, resolves all names through
 Registry, and returns the canonical complete group spelling internally.
 
-`idempotencyKey` comes from the host's durable outbox intent. An identical key,
-canonical destination, and content resumes or returns the same committed post.
-Changed destination or content fails with
-`SendError("idempotency-conflict")`. Send succeeds with `void` only after local
+Every `send` invocation creates one new post. Client mints its opaque `PostId`
+before durably binding the immutable intent and reuses that identity only while
+recovering or completing that invocation. A later call receives a different
+`PostId`, even when destination and content are identical. The host owns the
+choice to invoke send again. Send succeeds with `void` only after local
 complete action and durability certification.
 
 ## Addressed inbound delivery
@@ -119,7 +119,6 @@ Unacknowledged delivery may replay with identical message identity.
 - `unknown-agent`;
 - `membership-invalid`;
 - `content-invalid`;
-- `idempotency-conflict`;
 - `not-registered`;
 - `version-mismatch`;
 - `certification-unavailable`;
@@ -140,9 +139,9 @@ and private state do not cross the boundary.
 ## Host ownership
 
 Client does not construct prompts, session context, checkpoints, or automatic
-responses. OpenClaw routes every delivery through its resolved native main
-session. NanoClaw routes every delivery through `agent-shared`. Their native
-durable messaging mechanisms call `send`. Plain model final text is private.
+responses. Stock hosts own sessions, model-output interpretation, destination
+discovery, inbox and outbox persistence, and retries. Adapters project complete
+addressed input and accept only a canonical addressed outbound callback.
 
 Registration, status, agent search, address/history search, and proof reads
 remain owner-authorized MCP management operations. They are not service
@@ -153,10 +152,11 @@ methods and cannot create a delivery or authorize output.
 - Public type canaries pin exactly the service and values above.
 - Address order, self insertion, duplicates, unknown names, and 2/3/32/33
   member boundaries are tested.
-- Identical idempotent retry and changed-intent conflict are tested.
+- Distinct calls with identical input mint distinct posts, while restart
+  recovery retains the persisted identity for one unfinished intent.
 - Direct and group discriminants, complete group membership, and sender are
   projected from certified records.
-- Lost acknowledgment replays one stable delivery and native deduplication
-  prevents a second model invocation.
+- Lost acknowledgment replays one stable Client delivery. The host owns the
+  persistence and invocation effects of a repeated callback.
 - No public export or MCP adapter path restores a retired turn-grant interface,
   public conversation identity, inherited target, or proof-shaped success.

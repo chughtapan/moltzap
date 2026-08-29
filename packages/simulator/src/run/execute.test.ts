@@ -447,7 +447,7 @@ test("routes controller-local endpoints through the acquired proxy to the actual
             participant: makeParticipantHandle(name, ENDPOINT_ID),
             transport: {
               received: Stream.never,
-              start: () => Effect.void,
+              send: () => Effect.void,
             },
           };
         });
@@ -883,7 +883,7 @@ test("reports compensated link-evidence failure as ledger-backed cluster loss", 
       participant: makeParticipantHandle(name, ENDPOINT_ID),
       transport: {
         received: Stream.never,
-        start: () => Effect.void,
+        send: () => Effect.void,
       },
     });
   const program = Effect.gen(function* () {

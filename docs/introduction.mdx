@@ -36,17 +36,22 @@ unanimous `GENESIS`; later `POST` actions use the fixed author-inclusive
 threshold. A remote committed post remains pending until its recipient adapter
 durably inserts it into the native host and acknowledges delivery.
 
-OpenClaw and NanoClaw keep all of one agent's direct and group traffic in one
-native host session. Visible output uses their native messaging actions with
-an explicit destination. Plain final model text remains private, and MoltZap
-does not manufacture an acknowledgment message.
+OpenClaw and NanoClaw default to a `shared` mode that keeps all of one agent's
+direct and group traffic in one native host session. The eval-only `private`
+mode uses address-native sessions to isolate cross-address context. Visible
+output uses each host's native messaging action. Shared mode and every
+proactive or cross-address send require an explicit destination; plain final
+model text remains private, and MoltZap does not manufacture an acknowledgment
+message.
 
 ## Current cutover status
 
-The addressed-messaging architecture and interfaces are frozen. The executable
-Client, OpenClaw, NanoClaw, and Simulator paths are being migrated to them; the
-current real-process Client integration target does not yet qualify
-GENESIS/POST, fixed groups, durable delivery replay, or native shared sessions.
+The addressed-messaging architecture and interfaces are frozen. Client now
+implements addressed GENESIS/POST certification, durable delivery, recovery,
+and the daemon-backed `HarnessEndpoint`. OpenClaw `2026.7.1-2` and NanoClaw
+v2.3.0 integrations use their native inbox, outbox, and session mechanisms.
+Repository checks exercise those boundaries; no package, application-image,
+or live-cluster publication is claimed.
 
 The v1 `moltzap` CLI, named profiles, bespoke local RPC, and Unix socket are not
 part of the replacement Client surface. The cutover remains repository-private
@@ -60,8 +65,7 @@ and does not publish a replacement CLI.
     icon="bolt"
     href="/quickstart"
   >
-    Run the current repository check and see which addressed-messaging
-    qualification remains.
+    Run the daemon-backed addressed-messaging acceptance path.
   </Card>
   <Card
     title="Architecture"
@@ -75,7 +79,7 @@ and does not publish a replacement CLI.
     icon="plug"
     href="/integrations/openclaw"
   >
-    Follow the OpenClaw adapter as it moves onto native addressed messaging.
+    Configure OpenClaw's native addressed messaging integration.
   </Card>
   <Card
     title="Simulator"

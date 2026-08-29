@@ -1,17 +1,22 @@
-/** @file Atomic identity, START foundation, and Router-anchor transitions. */
+/** @file Atomic identity, post-intent, foundation, and Router-anchor transitions. */
 
 import type { DatabaseSync } from "node:sqlite";
 import type {
   CompletedReanchor,
   ConversationFoundation,
+  EmptyConversationRestart,
   IdentityBinding,
+  PostIntent,
+  PostIntentBinding,
+  ProposalLock,
+  RestartedEmptyConversation,
   StagedReanchor,
-  StartIntent,
   StoreMutation,
 } from "./types.js";
 import {
   copyBytes,
   readBytes,
+  readOptionalText,
   readText,
   requireBytes,
   requireEqual,
@@ -21,11 +26,15 @@ import {
   transaction,
 } from "./database/index.js";
 import {
+  findProposalLock,
   findStagedReanchor,
   readStoredIdentity,
   readStoredPosition,
+  requireSameProposalLock,
   requireSameReanchor,
 } from "./rows/index.js";
+
+const GENESIS_PREDECESSOR = "";
 
 /** Singleton identity binding operations. */
 export const bindIdentity = Object.freeze({
@@ -34,24 +43,40 @@ export const bindIdentity = Object.freeze({
 });
 
 /**
- * Durably binds one caller-minted conversation to exact canonical START bytes.
+ * Durably binds one author-scoped post to its immutable canonical intent.
  *
  * @param database Exclusively owned endpoint database.
- * @param intent Canonical START retry identity and bytes.
+ * @param binding Canonical post recovery identity and optional new foundation.
  * @returns Whether the same binding was inserted or already durable.
  */
-export function bindStartIntent(
+export function bindPostIntent(
   database: DatabaseSync,
-  intent: StartIntent,
+  binding: PostIntentBinding,
 ): StoreMutation {
+  const intent = binding.intent;
   requireText(intent.conversationId);
+  requireText(intent.membershipHash);
+  requireText(intent.authorAgentId);
+  requireText(intent.postId);
   requireBytes(intent.canonicalIntent);
   if (intent.completedRecordHash !== undefined) {
     throw new StoreSignal("invalid-input");
   }
-  return transaction(database, () =>
-    bindStartIntentInTransaction(database, intent),
-  );
+  if (binding.kind === "new-conversation") {
+    validateFoundation(binding.foundation);
+    requireEqual(binding.foundation.conversationId, intent.conversationId);
+    requireEqual(binding.foundation.membershipHash, intent.membershipHash);
+  }
+  return transaction(database, () => {
+    const foundation =
+      binding.kind === "new-conversation"
+        ? putConversationFoundationInTransaction(database, binding.foundation)
+        : requireConversationFoundation(database, intent);
+    const postIntent = bindPostIntentInTransaction(database, intent);
+    return foundation === "inserted" || postIntent === "inserted"
+      ? "inserted"
+      : "existing";
+  });
 }
 
 /**
@@ -65,16 +90,89 @@ export function putConversationFoundation(
   database: DatabaseSync,
   foundation: ConversationFoundation,
 ): StoreMutation {
-  validateFoundation(foundation);
+  return transaction(database, () =>
+    putConversationFoundationInTransaction(database, foundation),
+  );
+}
+
+/**
+ * Commits the first valid Router-ordered action for one predecessor.
+ *
+ * A caller signs only after this operation succeeds, so an endpoint cannot
+ * sign two actions for the same predecessor across crashes or restarts.
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param proposal Verified action core selected in Router order.
+ * @returns Whether the lock was inserted or the same lock already existed.
+ */
+export function lockProposal(
+  database: DatabaseSync,
+  proposal: ProposalLock,
+): StoreMutation {
+  validateProposalLock(proposal);
+  return transaction(database, () =>
+    lockProposalInTransaction(database, proposal),
+  );
+}
+
+/**
+ * Atomically retains a verified GENESIS foundation and its first-candidate lock.
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param foundation Verified immutable membership and Router anchor.
+ * @param proposal Verified gap-free GENESIS action selected in Router order.
+ * @returns Whether either exact durable component was inserted.
+ */
+export function lockGenesisProposal(
+  database: DatabaseSync,
+  foundation: ConversationFoundation,
+  proposal: ProposalLock,
+): StoreMutation {
+  validateProposalLock(proposal);
+  if (
+    proposal.previousRecordHash !== undefined ||
+    proposal.conversationId !== foundation.conversationId
+  ) {
+    throw new StoreSignal("invalid-input");
+  }
   return transaction(database, () => {
-    requireStartIntent(database, foundation.conversationId);
-    const existing = readFoundation(database, foundation.conversationId);
-    if (existing !== undefined) {
-      requireSameFoundation(existing, foundation);
-      return "existing";
-    }
-    insertFoundation(database, foundation);
-    return "inserted";
+    const retainedFoundation = putConversationFoundationInTransaction(
+      database,
+      foundation,
+    );
+    const retainedProposal = lockProposalInTransaction(database, proposal);
+    return retainedFoundation === "inserted" || retainedProposal === "inserted"
+      ? "inserted"
+      : "existing";
+  });
+}
+
+/**
+ * Replaces an uncommitted conversation's Router-instance foundation.
+ *
+ * The exact old foundation and empty certified head prevent this cleanup from
+ * erasing committed history or a concurrently advanced anchor.
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param restart Expected old and verified replacement genesis foundations.
+ * @returns The replacement foundation and immutable retained post intents.
+ */
+export function restartEmptyConversation(
+  database: DatabaseSync,
+  restart: EmptyConversationRestart,
+): RestartedEmptyConversation {
+  validateEmptyConversationRestart(restart);
+  return transaction(database, () => {
+    requireEmptyConversationPosition(database, restart.expectedFoundation);
+    clearIncompleteConversationState(database, restart.expectedFoundation);
+    installReplacementFoundation(database, restart.replacementFoundation);
+    return Object.freeze({
+      foundation: copyFoundation(restart.replacementFoundation),
+      postIntents: readConversationPostIntents(
+        database,
+        restart.replacementFoundation.conversationId,
+      ),
+    });
   });
 }
 
@@ -133,6 +231,48 @@ export function applyCatchUpReanchor(
   });
 }
 
+function lockProposalInTransaction(
+  database: DatabaseSync,
+  proposal: ProposalLock,
+): StoreMutation {
+  const predecessorKey = proposal.previousRecordHash ?? GENESIS_PREDECESSOR;
+  const existing = findProposalLock(
+    database,
+    proposal.conversationId,
+    predecessorKey,
+  );
+  if (existing !== undefined) {
+    requireSameProposalLock(existing, proposal);
+    return "existing";
+  }
+  const position = readStoredPosition(database, proposal.conversationId);
+  requireEqual(position.headRecordHash, proposal.previousRecordHash);
+  database
+    .prepare(
+      `INSERT INTO proposal_locks
+        (conversation_id, predecessor_key, previous_record_hash,
+         action_hash, canonical_action_core)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(
+      proposal.conversationId,
+      predecessorKey,
+      proposal.previousRecordHash ?? null,
+      proposal.actionHash,
+      copyBytes(proposal.canonicalActionCore),
+    );
+  return "inserted";
+}
+
+function validateProposalLock(proposal: ProposalLock): void {
+  requireText(proposal.conversationId);
+  if (proposal.previousRecordHash !== undefined) {
+    requireText(proposal.previousRecordHash);
+  }
+  requireText(proposal.actionHash);
+  requireBytes(proposal.canonicalActionCore);
+}
+
 function writeIdentity(
   database: DatabaseSync,
   binding: IdentityBinding,
@@ -156,16 +296,24 @@ function writeIdentity(
   });
 }
 
-function bindStartIntentInTransaction(
+function bindPostIntentInTransaction(
   database: DatabaseSync,
-  intent: StartIntent,
+  intent: PostIntent,
 ): StoreMutation {
+  const identity = readStoredIdentity(database);
+  if (identity === undefined) {
+    throw new StoreSignal("not-found");
+  }
+  requireEqual(identity.agentId, intent.authorAgentId);
   const existing = database
     .prepare(
-      "SELECT canonical_intent FROM start_intents WHERE conversation_id = ?",
+      `SELECT conversation_id, membership_hash, canonical_intent
+       FROM post_intents WHERE author_agent_id = ? AND post_id = ?`,
     )
-    .get(intent.conversationId);
+    .get(intent.authorAgentId, intent.postId);
   if (existing !== undefined) {
+    requireEqual(readText(existing, "conversation_id"), intent.conversationId);
+    requireEqual(readText(existing, "membership_hash"), intent.membershipHash);
     requireSameBytes(
       readBytes(existing, "canonical_intent"),
       intent.canonicalIntent,
@@ -174,10 +322,79 @@ function bindStartIntentInTransaction(
   }
   database
     .prepare(
-      "INSERT INTO start_intents (conversation_id, canonical_intent) VALUES (?, ?)",
+      `INSERT INTO post_intents
+        (author_agent_id, post_id, conversation_id, membership_hash,
+         canonical_intent)
+       VALUES (?, ?, ?, ?, ?)`,
     )
-    .run(intent.conversationId, copyBytes(intent.canonicalIntent));
+    .run(
+      intent.authorAgentId,
+      intent.postId,
+      intent.conversationId,
+      intent.membershipHash,
+      copyBytes(intent.canonicalIntent),
+    );
   return "inserted";
+}
+
+/**
+ * Inserts or validates one complete membership and genesis anchor in an
+ * existing transaction.
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param foundation Verified immutable conversation foundation.
+ * @returns Whether this transaction inserted the foundation.
+ */
+function putConversationFoundationInTransaction(
+  database: DatabaseSync,
+  foundation: ConversationFoundation,
+): StoreMutation {
+  validateFoundation(foundation);
+  const existing = readFoundation(database, foundation.conversationId);
+  if (existing !== undefined) {
+    requireSameFoundation(existing, foundation);
+    return "existing";
+  }
+  insertFoundation(database, foundation);
+  return "inserted";
+}
+
+function requireConversationFoundation(
+  database: DatabaseSync,
+  intent: PostIntent,
+): StoreMutation {
+  const foundation = readFoundation(database, intent.conversationId);
+  if (foundation === undefined) {
+    throw new StoreSignal("not-found");
+  }
+  requireEqual(foundation.membershipHash, intent.membershipHash);
+  return "existing";
+}
+
+function requireEmptyConversationPosition(
+  database: DatabaseSync,
+  expected: ConversationFoundation,
+): void {
+  const retained = readFoundation(database, expected.conversationId);
+  if (retained === undefined) {
+    throw new StoreSignal("not-found");
+  }
+  requireSameFoundation(retained, expected);
+  const position = readStoredPosition(database, expected.conversationId);
+  requireEqual(position.membershipHash, expected.membershipHash);
+  requireEqual(position.currentAnchorHash, expected.anchorHash);
+  requireEqual(position.headRecordHash, undefined);
+  requireEqual(position.headOrdinal, -1);
+  if (
+    database
+      .prepare(
+        `SELECT 1 AS retained FROM certified_records
+         WHERE conversation_id = ? LIMIT 1`,
+      )
+      .get(expected.conversationId) !== undefined
+  ) {
+    throw new StoreSignal("conflict");
+  }
 }
 
 function readFoundation(
@@ -311,20 +528,6 @@ function requireReanchorPosition(
   const position = readStoredPosition(database, reanchor.conversationId);
   requireEqual(position.currentAnchorHash, reanchor.previousAnchorHash);
   requireEqual(position.headRecordHash, reanchor.selectedRecordHash);
-  const unpromoted = database
-    .prepare(
-      `SELECT staged.record_hash
-       FROM staged_records AS staged
-       LEFT JOIN certified_records AS certified
-         ON certified.conversation_id = staged.conversation_id
-        AND certified.record_hash = staged.record_hash
-       WHERE staged.conversation_id = ? AND certified.record_hash IS NULL
-       LIMIT 1`,
-    )
-    .get(reanchor.conversationId);
-  if (unpromoted !== undefined) {
-    throw new StoreSignal("conflict");
-  }
 }
 
 function insertStagedReanchor(
@@ -384,22 +587,6 @@ function insertCompletedReanchor(
     .run(reanchor.anchorHash, reanchor.conversationId);
 }
 
-function requireStartIntent(
-  database: DatabaseSync,
-  conversationId: string,
-): Readonly<Record<string, unknown>> {
-  const row = database
-    .prepare(
-      `SELECT canonical_intent, completed_record_hash FROM start_intents
-       WHERE conversation_id = ?`,
-    )
-    .get(conversationId);
-  if (row === undefined) {
-    throw new StoreSignal("not-found");
-  }
-  return row;
-}
-
 function hasAnchor(
   database: DatabaseSync,
   conversationId: string,
@@ -415,12 +602,143 @@ function hasAnchor(
   );
 }
 
+function validateEmptyConversationRestart(
+  restart: EmptyConversationRestart,
+): void {
+  validateFoundation(restart.expectedFoundation);
+  validateFoundation(restart.replacementFoundation);
+  requireEqual(
+    restart.expectedFoundation.conversationId,
+    restart.replacementFoundation.conversationId,
+  );
+  requireEqual(
+    restart.expectedFoundation.membershipHash,
+    restart.replacementFoundation.membershipHash,
+  );
+  requireSameBytes(
+    restart.expectedFoundation.canonicalMembership,
+    restart.replacementFoundation.canonicalMembership,
+  );
+  if (
+    restart.expectedFoundation.anchorHash ===
+    restart.replacementFoundation.anchorHash
+  ) {
+    throw new StoreSignal("invalid-input");
+  }
+}
+
 function validateFoundation(foundation: ConversationFoundation): void {
   requireText(foundation.conversationId);
   requireText(foundation.membershipHash);
   requireBytes(foundation.canonicalMembership);
   requireText(foundation.anchorHash);
   requireBytes(foundation.canonicalAnchor);
+}
+
+function clearIncompleteConversationState(
+  database: DatabaseSync,
+  expected: ConversationFoundation,
+): void {
+  const conversationId = expected.conversationId;
+  database
+    .prepare("DELETE FROM dissemination_obligations WHERE conversation_id = ?")
+    .run(conversationId);
+  database
+    .prepare("DELETE FROM protocol_evidence WHERE conversation_id = ?")
+    .run(conversationId);
+  database
+    .prepare("DELETE FROM proposal_locks WHERE conversation_id = ?")
+    .run(conversationId);
+  database
+    .prepare("DELETE FROM staged_records WHERE conversation_id = ?")
+    .run(conversationId);
+  database
+    .prepare("DELETE FROM reanchors WHERE conversation_id = ?")
+    .run(conversationId);
+  database
+    .prepare(
+      `UPDATE outbound_messages SET disposition = 'discarded'
+       WHERE conversation_id = ? AND disposition = 'pending'`,
+    )
+    .run(conversationId);
+}
+
+function installReplacementFoundation(
+  database: DatabaseSync,
+  replacement: ConversationFoundation,
+): void {
+  const retainedReplacement = database
+    .prepare(
+      `SELECT 1 AS retained FROM anchors
+       WHERE conversation_id = ? AND anchor_hash = ?`,
+    )
+    .get(replacement.conversationId, replacement.anchorHash);
+  if (retainedReplacement !== undefined) {
+    throw new StoreSignal("conflict");
+  }
+  database
+    .prepare(
+      `INSERT INTO anchors
+        (conversation_id, anchor_hash, canonical_anchor) VALUES (?, ?, ?)`,
+    )
+    .run(
+      replacement.conversationId,
+      replacement.anchorHash,
+      copyBytes(replacement.canonicalAnchor),
+    );
+  database
+    .prepare(
+      `UPDATE conversation_state
+       SET current_anchor_hash = ?, head_record_hash = NULL, head_ordinal = -1
+       WHERE conversation_id = ?`,
+    )
+    .run(replacement.anchorHash, replacement.conversationId);
+  database
+    .prepare(
+      `DELETE FROM anchors
+       WHERE conversation_id = ? AND anchor_hash <> ?`,
+    )
+    .run(replacement.conversationId, replacement.anchorHash);
+}
+
+function readConversationPostIntents(
+  database: DatabaseSync,
+  conversationId: string,
+): readonly PostIntent[] {
+  return Object.freeze(
+    database
+      .prepare(
+        `SELECT conversation_id, membership_hash, author_agent_id, post_id,
+                canonical_intent, completed_record_hash
+         FROM post_intents WHERE conversation_id = ?
+         ORDER BY author_agent_id, post_id`,
+      )
+      .all(conversationId)
+      .map((row) => {
+        const completedRecordHash = readOptionalText(
+          row,
+          "completed_record_hash",
+        );
+        return Object.freeze({
+          conversationId: readText(row, "conversation_id"),
+          membershipHash: readText(row, "membership_hash"),
+          authorAgentId: readText(row, "author_agent_id"),
+          postId: readText(row, "post_id"),
+          canonicalIntent: readBytes(row, "canonical_intent"),
+          ...(completedRecordHash === undefined ? {} : { completedRecordHash }),
+        });
+      }),
+  );
+}
+
+function copyFoundation(
+  foundation: ConversationFoundation,
+): ConversationFoundation {
+  return Object.freeze({
+    ...foundation,
+    canonicalMembership: copyBytes(foundation.canonicalMembership),
+    canonicalAnchor: copyBytes(foundation.canonicalAnchor),
+  });
 }
 
 function validateCompletedReanchor(reanchor: CompletedReanchor): void {

@@ -82,18 +82,19 @@ protocol folds, partial votes, certificate assemblers, raw Router messages,
 private Effect RPC groups, Layers, and daemon storage codecs remain private.
 
 The semantic Client boundary is deliberately small. Every send names an
-explicit `agent:` or `group:` address and uses the host's durable idempotency
-key. It returns `void` only after local complete certification. Inbound direct
-or group delivery identifies canonical address, verified author, content, and
-exact group members, then acknowledges only after native host persistence.
+explicit `agent:` or `group:` address. Every call creates one Client-minted
+post, while the host owns whether to call again. Send returns `void` only after
+local complete certification. Inbound direct or group delivery identifies
+canonical address, verified author, content, and exact group members, then
+acknowledges only after the stock host callback completes successfully.
 
-OpenClaw routes every address through its native main session; NanoClaw uses
-`agent-shared`. Native host messaging produces visible output and plain final
-text remains private. Client carries no universal context, checkpoint,
-receipt, proof, or public conversation identifier. Search, history, status,
-registration, and signer-evidence inspection remain MCP management operations.
-Private post/action/record hashes, certificates, and recovery state stay behind
-the semantic Client boundary.
+Stock hosts own session topology, model-output interpretation, destination
+ACLs, inbox and outbox persistence, retries, and runtime isolation. Client
+carries no universal context, checkpoint, receipt, proof, or public
+conversation identifier. Search, history, status, registration, and
+signer-evidence inspection remain MCP management operations. Private
+post/action/record hashes, certificates, and recovery state stay behind the
+semantic Client boundary.
 
 ## Retired components
 

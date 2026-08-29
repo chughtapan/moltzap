@@ -1,10 +1,13 @@
 import { execFile } from "node:child_process";
 import {
+  cp,
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -30,6 +33,8 @@ const productDependencyGraph = Object.freeze({
   "@moltzap/openclaw-channel": Object.freeze(["@moltzap/client"]),
   "@moltzap/router": Object.freeze(["@moltzap/identity"]),
 });
+const OPENCLAW_VERSION = "2026.7.1-2";
+const OPENCLAW_COMMIT_SHA = "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c";
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-openclaw-pack-"));
 
 function requireCondition(condition, detail) {
@@ -153,9 +158,9 @@ async function verifyPackedManifest(archive, manifests) {
     "packed OpenClaw package has an unexpected product dependency",
   );
   requireCondition(
-    manifest.peerDependencies?.openclaw === ">=2026.0.0" &&
+    manifest.peerDependencies?.openclaw === OPENCLAW_VERSION &&
       manifest.peerDependenciesMeta?.openclaw?.optional === true,
-    "packed OpenClaw host peer must remain optional",
+    "packed OpenClaw host peer must remain exact and optional",
   );
   requireCondition(
     JSON.stringify(manifest.openclaw?.extensions) ===
@@ -200,6 +205,7 @@ async function verifyIsolatedInstall(consumerRoot) {
     "@moltzap/openclaw-channel",
     "@moltzap/router",
     "effect",
+    "openclaw",
     "typescript",
   ]) {
     const installed = await realpath(
@@ -210,6 +216,255 @@ async function verifyIsolatedInstall(consumerRoot) {
       `packed consumer resolved ${packageName} outside its isolated install`,
     );
   }
+}
+
+async function verifyStableOpenClaw(openclawRoot) {
+  const [manifestSource, buildInfoSource] = await Promise.all([
+    readFile(join(openclawRoot, "package.json"), "utf8"),
+    readFile(join(openclawRoot, "dist", "build-info.json"), "utf8"),
+  ]);
+  const manifest = JSON.parse(manifestSource);
+  const buildInfo = JSON.parse(buildInfoSource);
+  requireCondition(
+    manifest.version === OPENCLAW_VERSION &&
+      buildInfo.version === OPENCLAW_VERSION &&
+      buildInfo.commit === OPENCLAW_COMMIT_SHA,
+    "installed OpenClaw host does not match the pinned stable source",
+  );
+}
+
+async function assembleBundledPlugin(consumerRoot) {
+  const channelRoot = await realpath(
+    join(consumerRoot, "node_modules", "@moltzap", "openclaw-channel"),
+  );
+  const openclawRoot = await realpath(
+    join(consumerRoot, "node_modules", "openclaw"),
+  );
+  await verifyStableOpenClaw(openclawRoot);
+
+  const extensionsRoot = join(openclawRoot, "dist", "extensions");
+  const extensionNames = await readdir(extensionsRoot);
+  requireCondition(
+    !extensionNames.includes("openclaw-channel") &&
+      !extensionNames.includes("node_modules"),
+    "stable OpenClaw unexpectedly reserves the MoltZap bundled paths",
+  );
+  const bundledPluginRoot = join(extensionsRoot, "openclaw-channel");
+  const bundledDependenciesRoot = join(extensionsRoot, "node_modules");
+  await cp(channelRoot, bundledPluginRoot, { recursive: true });
+  await symlink(
+    join(consumerRoot, "node_modules"),
+    bundledDependenciesRoot,
+    "dir",
+  );
+  return {
+    bundledDependenciesRoot,
+    bundledPluginRoot,
+    channelRoot,
+    openclawRoot,
+  };
+}
+
+async function openClawPluginListCommand(openclawRoot) {
+  const candidates = (await readdir(join(openclawRoot, "dist"))).filter(
+    (name) => /^plugins-list-command-[A-Za-z0-9_-]+\.js$/.test(name),
+  );
+  requireCondition(
+    candidates.length === 1,
+    `stable OpenClaw exposes ${String(candidates.length)} plugin-list commands`,
+  );
+  return join(openclawRoot, "dist", candidates[0]);
+}
+
+async function openClawDistModule(openclawRoot, pattern, marker) {
+  const distRoot = join(openclawRoot, "dist");
+  const candidates = (await readdir(distRoot)).filter((name) =>
+    pattern.test(name),
+  );
+  const matches = [];
+  for (const candidate of candidates) {
+    const source = await readFile(join(distRoot, candidate), "utf8");
+    if (source.includes(marker)) {
+      matches.push(candidate);
+    }
+  }
+  requireCondition(
+    matches.length === 1,
+    `stable OpenClaw exposes ${String(matches.length)} ${marker} modules`,
+  );
+  return join(distRoot, matches[0]);
+}
+
+async function verifyBundledHost(consumerRoot) {
+  const {
+    bundledDependenciesRoot,
+    bundledPluginRoot,
+    channelRoot,
+    openclawRoot,
+  } = await assembleBundledPlugin(consumerRoot);
+  const stateRoot = join(consumerRoot, "openclaw-state");
+  const configPath = join(stateRoot, "openclaw.json");
+  await mkdir(stateRoot);
+  await writeFile(
+    configPath,
+    `${JSON.stringify(
+      {
+        channels: {
+          moltzap: {
+            accounts: [{ id: "simulator-agent", mode: "shared" }],
+          },
+        },
+        plugins: {
+          entries: { "openclaw-channel": { enabled: true } },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  const runtimeCheck = [
+    'import { join } from "node:path";',
+    'import { pathToFileURL } from "node:url";',
+    "function requireCondition(condition, detail) {",
+    "  if (!condition) throw new Error(detail);",
+    "}",
+    "const command = await import(pathToFileURL(process.env.MOLTZAP_OPENCLAW_PLUGIN_LIST_COMMAND).href);",
+    "const output = [];",
+    "await command.runPluginsListCommand(",
+    "  { enabled: false, json: true, verbose: false },",
+    "  {",
+    "    log: (value) => { output.push(value); },",
+    '    error: (...values) => { throw new Error(values.join(" ")); },',
+    "    exit: (code) => { throw new Error(`plugin list exited ${String(code)}`); },",
+    "  },",
+    ");",
+    'requireCondition(output.length === 1 && typeof output[0] === "string", "OpenClaw plugin list did not emit one JSON report");',
+    "const report = JSON.parse(output[0]);",
+    'requireCondition(report.registry?.source === "derived", "OpenClaw did not derive discovery from its packaged tree");',
+    'const plugin = report.plugins.find((candidate) => candidate.id === "openclaw-channel");',
+    'requireCondition(plugin?.origin === "bundled" && plugin.enabled === true && plugin.status === "loaded", "MoltZap was not admitted as an enabled bundled plugin");',
+    'requireCondition(typeof plugin.rootDir === "string" && typeof plugin.source === "string" && plugin.rootDir === process.env.MOLTZAP_OPENCLAW_BUNDLED_PLUGIN_ROOT && plugin.source.startsWith(`${plugin.rootDir}/`), "MoltZap discovery escaped its bundled root");',
+    'requireCondition(JSON.stringify(plugin.channelIds) === JSON.stringify(["moltzap"]), "MoltZap bundled channel metadata drifted");',
+    "const registryModule = await import(pathToFileURL(process.env.MOLTZAP_OPENCLAW_CHANNEL_REGISTRY).href);",
+    "const messageActionModule = await import(pathToFileURL(process.env.MOLTZAP_OPENCLAW_MESSAGE_ACTION_RUNNER).href);",
+    "const pluginRuntimeModule = await import(pathToFileURL(process.env.MOLTZAP_OPENCLAW_PLUGIN_RUNTIME).href);",
+    "const dependenciesRoot = process.env.MOLTZAP_OPENCLAW_BUNDLED_DEPENDENCIES_ROOT;",
+    'requireCondition(typeof dependenciesRoot === "string", "bundled dependency root is not configured");',
+    'requireCondition(report.plugins.every((candidate) => typeof candidate.rootDir !== "string" || (candidate.rootDir !== dependenciesRoot && !candidate.rootDir.startsWith(`${dependenciesRoot}/`))), "OpenClaw discovered the sibling node_modules mount as a plugin");',
+    'const packageApi = await import(pathToFileURL(join(process.env.MOLTZAP_OPENCLAW_CHANNEL_ROOT, "dist", "index.js")).href);',
+    'requireCondition(JSON.stringify(Object.keys(packageApi)) === JSON.stringify(["default"]), "OpenClaw package root exports more than its loader entry");',
+    "const extension = await import(pathToFileURL(plugin.source).href);",
+    'requireCondition(extension.default?.id === "openclaw-channel", "bundled discovery source is not the MoltZap loader entry");',
+    "const uncalled = (name) => () => { throw new Error(`registration called ${name}`); };",
+    "let registered;",
+    "extension.default.register({",
+    "  runtime: {",
+    "    channel: {",
+    '      inbound: { buildContext: uncalled("inbound.buildContext"), run: uncalled("inbound.run") },',
+    '      reply: { dispatchReplyWithBufferedBlockDispatcher: uncalled("reply.dispatch") },',
+    '      routing: { resolveAgentRoute: uncalled("routing.resolveAgentRoute") },',
+    '      session: { recordInboundSession: uncalled("session.recordInboundSession") },',
+    "    },",
+    '    state: { openChannelIngressQueue: uncalled("state.openChannelIngressQueue") },',
+    "  },",
+    "  registerChannel: ({ plugin: channel }) => { registered = channel; },",
+    "});",
+    'requireCondition(registered?.id === "moltzap", "bundled loader did not register the MoltZap channel");',
+    "const probeRegistry = pluginRuntimeModule.O();",
+    "probeRegistry.channels.push({ plugin: registered });",
+    'pluginRuntimeModule.D(probeRegistry, "moltzap-packed-host-probe");',
+    'const loadedChannel = registryModule.t("moltzap");',
+    'requireCondition(loadedChannel?.message?.send?.text, "stable OpenClaw did not activate the MoltZap message adapter");',
+    "const observedSends = [];",
+    "loadedChannel.message.send.text = async (ctx) => {",
+    "  observedSends.push({ deliveryQueueId: ctx.deliveryQueueId, to: ctx.to });",
+    "  await ctx.onPlatformSendDispatch?.();",
+    "  const messageId = ctx.deliveryQueueId ?? `best-effort:${String(observedSends.length)}`;",
+    "  return {",
+    "    messageId,",
+    "    receipt: {",
+    "      primaryPlatformMessageId: messageId,",
+    "      platformMessageIds: [messageId],",
+    '      parts: [{ platformMessageId: messageId, kind: "text", index: 0 }],',
+    "      sentAt: Date.now(),",
+    "    },",
+    "  };",
+    "};",
+    "const runMessageAction = messageActionModule.n;",
+    "const actionBase = {",
+    '  action: "send",',
+    '  cfg: { channels: { moltzap: { accounts: [{ id: "simulator-agent", mode: "shared" }] } } },',
+    '  defaultAccountId: "simulator-agent",',
+    '  sessionKey: "agent:primary:main",',
+    "  toolContext: {",
+    '    currentChannelProvider: "moltzap",',
+    '    currentChannelId: "agent:alice",',
+    '    currentMessagingTarget: "agent:alice",',
+    "  },",
+    "};",
+    "await runMessageAction({",
+    "  ...actionBase,",
+    '  sourceReplyDeliveryMode: "message_tool_only",',
+    '  params: { channel: "moltzap", message: "implicit alice" },',
+    "});",
+    "await runMessageAction({",
+    "  ...actionBase,",
+    "  toolContext: {",
+    '    currentChannelProvider: "moltzap",',
+    '    currentChannelId: "agent:bob",',
+    '    currentMessagingTarget: "agent:bob",',
+    "  },",
+    '  sourceReplyDeliveryMode: "message_tool_only",',
+    '  params: { channel: "moltzap", message: "implicit bob" },',
+    "});",
+    'requireCondition(observedSends.length === 2, "stable OpenClaw did not execute both source-send probes");',
+    'requireCondition(observedSends.every((send) => send.deliveryQueueId === undefined), "stable OpenClaw changed its native best-effort source-send policy");',
+    'requireCondition(observedSends[0].to === "agent:alice", "implicit source send escaped the Alice run origin");',
+    'requireCondition(observedSends[1].to === "agent:bob", "implicit source send escaped the Bob run origin");',
+    "",
+  ].join("\n");
+  await exec(
+    process.execPath,
+    ["--input-type=module", "--eval", runtimeCheck],
+    {
+      cwd: consumerRoot,
+      env: {
+        ...process.env,
+        HOME: stateRoot,
+        USERPROFILE: stateRoot,
+        NODE_PATH: undefined,
+        OPENCLAW_BUNDLED_PLUGINS_DIR: undefined,
+        OPENCLAW_CONFIG_PATH: configPath,
+        OPENCLAW_DISABLE_BUNDLED_PLUGINS: undefined,
+        OPENCLAW_HOME: stateRoot,
+        OPENCLAW_STATE_DIR: stateRoot,
+        OPENCLAW_TEST_TRUST_BUNDLED_PLUGINS_DIR: undefined,
+        VITEST: undefined,
+        MOLTZAP_OPENCLAW_BUNDLED_DEPENDENCIES_ROOT: bundledDependenciesRoot,
+        MOLTZAP_OPENCLAW_BUNDLED_PLUGIN_ROOT: bundledPluginRoot,
+        MOLTZAP_OPENCLAW_CHANNEL_ROOT: channelRoot,
+        MOLTZAP_OPENCLAW_CHANNEL_REGISTRY: await openClawDistModule(
+          openclawRoot,
+          /^registry-[A-Za-z0-9_-]+\.js$/,
+          "function getChannelPlugin(id)",
+        ),
+        MOLTZAP_OPENCLAW_MESSAGE_ACTION_RUNNER: await openClawDistModule(
+          openclawRoot,
+          /^message-action-runner-[A-Za-z0-9_-]+\.js$/,
+          "function applyImplicitSourceReplySendPolicy",
+        ),
+        MOLTZAP_OPENCLAW_PLUGIN_RUNTIME: await openClawDistModule(
+          openclawRoot,
+          /^runtime-[A-Za-z0-9_-]+\.js$/,
+          "function createEmptyPluginRegistry()",
+        ),
+        MOLTZAP_OPENCLAW_PLUGIN_LIST_COMMAND:
+          await openClawPluginListCommand(openclawRoot),
+      },
+      maxBuffer: 16 * 1024 * 1024,
+    },
+  );
 }
 
 async function verifyConsumer(archives) {
@@ -233,6 +488,7 @@ async function verifyConsumer(archives) {
           dependencies: {
             ...localPackages,
             effect: "3.22.0",
+            openclaw: OPENCLAW_VERSION,
           },
           devDependencies: { typescript: "6.0.2" },
         },
@@ -263,7 +519,7 @@ async function verifyConsumer(archives) {
             moduleResolution: "NodeNext",
             noEmit: true,
             noUncheckedIndexedAccess: true,
-            skipLibCheck: false,
+            skipLibCheck: true,
             strict: true,
             target: "ES2023",
             verbatimModuleSyntax: true,
@@ -277,10 +533,8 @@ async function verifyConsumer(archives) {
     writeFile(
       join(consumerRoot, "check.ts"),
       [
-        'import plugin, { createMoltzapChannelPlugin, moltzapChannelPlugin, type MoltzapChannelPlugin } from "@moltzap/openclaw-channel";',
-        "const constructed: MoltzapChannelPlugin = createMoltzapChannelPlugin();",
-        "const singleton: MoltzapChannelPlugin = moltzapChannelPlugin;",
-        "void [plugin, constructed, singleton];",
+        'import plugin from "@moltzap/openclaw-channel";',
+        "void plugin;",
         "",
       ].join("\n"),
     ),
@@ -296,35 +550,7 @@ async function verifyConsumer(archives) {
     ["--project", join(consumerRoot, "tsconfig.json")],
     { cwd: consumerRoot, maxBuffer: 16 * 1024 * 1024 },
   );
-  const runtimeCheck = join(consumerRoot, "runtime-check.mjs");
-  await writeFile(
-    runtimeCheck,
-    [
-      'import { readFile } from "node:fs/promises";',
-      'const packageRoot = new URL("./node_modules/@moltzap/openclaw-channel/", import.meta.url);',
-      'const manifest = JSON.parse(await readFile(new URL("package.json", packageRoot), "utf8"));',
-      'const discovery = JSON.parse(await readFile(new URL("openclaw.plugin.json", packageRoot), "utf8"));',
-      'const api = await import("@moltzap/openclaw-channel");',
-      'const expected = ["createMoltzapChannelPlugin", "default", "moltzapChannelPlugin"];',
-      "const actual = Object.keys(api).sort();",
-      'if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`OpenClaw runtime exports drifted: ${actual.join(", ")}`);',
-      'if (api.default.id !== "openclaw-channel") throw new Error("OpenClaw default plugin id drifted");',
-      'if (api.moltzapChannelPlugin.id !== "moltzap") throw new Error("MoltZap channel id drifted");',
-      'if (JSON.stringify(manifest.openclaw?.extensions) !== JSON.stringify(["./dist/openclaw-entry.js"])) throw new Error("OpenClaw discovery entry drifted");',
-      'if (discovery.id !== api.default.id || JSON.stringify(discovery.channels) !== JSON.stringify([api.moltzapChannelPlugin.id])) throw new Error("OpenClaw discovery manifest does not describe the runtime plugin");',
-      "const extension = await import(new URL(manifest.openclaw.extensions[0], packageRoot));",
-      'if (extension.default !== api.default) throw new Error("OpenClaw discovery entry does not expose the package plugin");',
-      "let registered;",
-      "extension.default.register({ registerChannel: ({ plugin }) => { registered = plugin; } });",
-      'if (registered !== api.moltzapChannelPlugin) throw new Error("OpenClaw discovery entry registered the wrong channel");',
-      "",
-    ].join("\n"),
-  );
-  await exec(process.execPath, [runtimeCheck], {
-    cwd: consumerRoot,
-    env: { ...process.env, NODE_PATH: undefined },
-    maxBuffer: 16 * 1024 * 1024,
-  });
+  await verifyBundledHost(consumerRoot);
 }
 
 try {

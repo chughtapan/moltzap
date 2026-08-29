@@ -77,13 +77,16 @@ not a product conversation store.
   second MCP process, address override, or bind fallback.
 - **Consumer-only adapters.** OpenClaw and NanoClaw use the public
   `HarnessEndpoint` capability or its MCP transport. They do not import Identity,
-  Router, Client internals, or one another.
+  Router, Client internals, or one another. They conform to stock host adapter
+  APIs and do not patch host inboxes, ACLs, sessions, prompts, output parsers,
+  or sandbox drivers.
 - **Addressed Client boundary.** Applications send through explicit
   `agent:<AgentName>` or canonical fixed-member `group:<members>` addresses.
-  `HarnessEndpoint.send` uses the host's durable idempotency key and returns
-  only after local certification. `HarnessEndpoint.messages` yields addressed
-  direct or group deliveries whose transport acknowledgment follows durable
-  host insertion. Search, history, status, and registration stay on MCP.
+  Each `HarnessEndpoint.send` invocation creates one Client-minted post and
+  returns only after local certification. `HarnessEndpoint.messages` yields
+  addressed direct or group deliveries whose transport acknowledgment follows
+  successful completion of the stock host callback. Search, history, status,
+  and registration stay on MCP.
 - **Closed Client protocol.** Client privately owns deterministic conversation
   identity, GENESIS/POST evidence, author-inclusive post thresholds,
   32-member and 32,768-byte content limits, nested `SignedMessage` transport,

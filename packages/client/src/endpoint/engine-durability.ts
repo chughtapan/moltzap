@@ -1,584 +1,335 @@
-/** @file START record staging, durability evidence, and local promotion. */
+/** @file Record certification, evidence persistence, and host projection. */
 
 import {
   type AgentId,
   MOLTZAP_VERSION,
   SignedMessage,
-  type SignedMessage as SignedMessageValue,
 } from "@moltzap/identity";
-import { Deferred, Effect, Schema, SubscriptionRef } from "effect";
-import type { EngineActionFold, EngineRuntime } from "./engine-types.js";
-import type { EndpointStoreError, StoreMutation } from "./store.js";
+import { Effect, Schema } from "effect";
+import type { EngineActionFold, EngineConversation } from "./engine-types.js";
+import type {
+  InboundDeliveryInput,
+  ProtocolEvidence,
+  StagedRecord,
+  CertifiedRecord as StoredCertifiedRecord,
+} from "./store.js";
 import {
-  assembleActionCertifiedRecord,
-  queueOuterEvidence,
-  queueOuterPacket,
-} from "./engine-start.js";
+  AgentAddress,
+  GroupAddress,
+  InboundMessage,
+  type InboundMessage as InboundMessageValue,
+} from "../contract.js";
 import {
-  ActionCertifiedRecord,
-  type ActionCertifiedRecord as ActionCertifiedRecordValue,
+  type ActionCertifiedRecord,
   type AnchorHash,
-  CertifiedRecord,
-  type CertifiedRecord as CertifiedRecordValue,
-  type ClientRepresentationError,
+  type CertifiedRecord,
+  ClientRepresentationError,
   compareAgentIds,
-  durabilityThreshold,
   encodeCanonical,
   hashAnchor,
-  type RecordHash,
-  signEvidenceMessage,
-  verifyActionCertifiedRecord,
-  verifyCertifiedRecord,
-  verifyStableEvidence,
+  hashRecord,
+  type RecordCore,
+  RecordCore as RecordCoreSchema,
 } from "./representation.js";
-import { RouterWorkerPersistenceError } from "./router-worker.js";
 
-const blocked = (): RouterWorkerPersistenceError =>
-  new RouterWorkerPersistenceError();
-
-/**
- * Compare two schema values by their canonical bytes.
- * @param schema Schema that defines the canonical representation.
- * @param left First value to compare.
- * @param right Second value to compare.
- * @returns An effect that reports whether the canonical encodings match.
- */
-export const sameCanonical = <A, I, R>(
-  schema: Schema.Schema<A, I, R>,
-  left: A,
-  right: A,
-): Effect.Effect<boolean, ClientRepresentationError, R> =>
-  Effect.all([
-    encodeCanonical(schema, left),
-    encodeCanonical(schema, right),
-  ]).pipe(
-    Effect.map(
-      ([leftBytes, rightBytes]) =>
-        leftBytes.length === rightBytes.length &&
-        leftBytes.every((byte, index) => byte === rightBytes[index]),
-    ),
-  );
-
-type PersistEvidenceArguments = readonly [
-  runtime: EngineRuntime,
-  conversationId: string,
-  kind: "action" | "durability",
-  subjectId: string,
-  signerAgentId: AgentId,
-  message: SignedMessageValue,
-];
-
-/**
- * Merge one canonical evidence message into durable endpoint state.
- * @param args Runtime, evidence binding, signer, and signed message.
- * @returns The idempotent store mutation.
- */
-export const persistEvidence = (...args: PersistEvidenceArguments) => {
-  const [runtime, conversationId, kind, subjectId, signerAgentId, message] =
-    args;
-  return encodeCanonical(SignedMessage, message).pipe(
-    Effect.mapError(blocked),
-    Effect.flatMap((canonicalEvidence) =>
-      runtime.input.store.mergeEvidence({
-        conversationId,
-        kind,
-        subjectId,
-        evidenceKey: signerAgentId,
-        canonicalEvidence,
-      }),
-    ),
-  );
-};
-
-/**
- * Persist an action-certified record before any durability vote is emitted.
- * @param runtime Endpoint engine state and dependencies.
- * @param conversation Action fold that owns the staged record.
- * @param record Action-certified record to stage.
- * @param recordHash Canonical hash of the staged record.
- * @returns The idempotent staging mutation.
- */
-export const stageEngineRecord = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-  record: ActionCertifiedRecordValue,
-  recordHash: RecordHash,
-) =>
-  encodeCanonical(ActionCertifiedRecord, record).pipe(
-    Effect.mapError(blocked),
-    Effect.flatMap((canonicalRecord) =>
-      runtime.input.store.stageRecord({
-        conversationId: conversation.conversationId,
-        recordHash,
-        membershipHash: conversation.membership.hash,
-        anchorHash: conversation.action.anchorHash,
-        canonicalRecord,
-        ...(conversation.action.previousRecordHash === null
-          ? {}
-          : {
-              previousRecordHash: conversation.action.previousRecordHash,
-            }),
-      }),
-    ),
-  );
-
-const markDurabilityVoteQueued = (conversation: EngineActionFold): void => {
-  conversation.durabilityVoteQueued = true;
-};
-
-const retainActionCertifiedRecord = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-  record: ActionCertifiedRecordValue,
-  recordHash: RecordHash,
-): void => {
-  conversation.actionCertifiedRecord = record;
-  conversation.recordHash = recordHash;
-  runtime.recordFolds.set(recordHash, conversation);
-};
-
-const queueLocalDurabilityVote = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-): Effect.Effect<void, RouterWorkerPersistenceError> =>
-  Effect.gen(function* () {
-    if (
-      conversation.durabilityVoteQueued ||
-      conversation.recordHash === undefined
-    ) {
-      return;
+const compareAscii = (left: string, right: string): number => {
+  const length = Math.min(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = left.charCodeAt(index) - right.charCodeAt(index);
+    if (difference !== 0) {
+      return difference;
     }
-    const vote = yield* signEvidenceMessage({
-      statement: {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "durability_vote",
-        signerAgentId: runtime.input.localAgentCard.agentId,
-        conversationId: conversation.conversationId,
-        membershipHash: conversation.membership.hash,
-        recordHash: conversation.recordHash,
-      },
-      agentCard: runtime.input.localAgentCard,
-      signingAuthority: runtime.input.signingAuthority,
-    }).pipe(Effect.mapError(blocked));
-    yield* queueOuterEvidence(runtime, conversation, vote).pipe(
-      Effect.mapError(blocked),
-    );
-    markDurabilityVoteQueued(conversation);
-  });
+  }
+  return left.length - right.length;
+};
 
-/**
- * Stage and retain an action-certified record, then queue the local vote.
- * @param runtime Endpoint engine state and dependencies.
- * @param conversation Action fold that adopts the record.
- * @param record Action-certified record to adopt.
- * @param recordHash Canonical hash of the adopted record.
- * @returns An effect that completes after the local durability vote is queued.
- */
-export const adoptActionCertifiedRecord = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-  record: ActionCertifiedRecordValue,
-  recordHash: RecordHash,
-): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
-  Effect.gen(function* () {
-    yield* stageEngineRecord(runtime, conversation, record, recordHash);
-    retainActionCertifiedRecord(runtime, conversation, record, recordHash);
-    yield* queueLocalDurabilityVote(runtime, conversation);
-  }).pipe(Effect.withSpan("adoptActionCertifiedRecord"));
-
-/**
- * Assemble and broadcast a certificate once every fixed member has signed.
- * @param runtime Endpoint engine state and dependencies.
- * @param conversation Action fold whose signatures may be complete.
- * @returns An effect that leaves incomplete signature sets unchanged.
- */
-export const maybeCertifyAction = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
-  Effect.gen(function* () {
-    if (
-      conversation.actionCertifiedRecord !== undefined ||
-      conversation.actionSignatures.size !==
-        conversation.membership.members.length
-    ) {
-      return;
-    }
-    const assembled = yield* assembleActionCertifiedRecord(conversation).pipe(
-      Effect.mapError(blocked),
-    );
-    yield* verifyActionCertifiedRecord({
-      record: assembled.record,
-      registrySignerPublicKey: runtime.input.registrySignerPublicKey,
-    }).pipe(Effect.mapError(blocked));
-    yield* adoptActionCertifiedRecord(
-      runtime,
-      conversation,
-      assembled.record,
-      assembled.recordHash,
-    );
-    yield* queueOuterPacket(runtime, conversation, assembled.record).pipe(
-      Effect.mapError(blocked),
-    );
-  }).pipe(Effect.withSpan("maybeCertifyAction"));
-
-interface CanonicalCertifiedRecord {
-  readonly canonicalRecord: Uint8Array;
-  readonly canonicalCertifiedRecord: Uint8Array;
+function requireNonEmpty<Value>(
+  values: readonly Value[],
+): Effect.Effect<readonly [Value, ...Value[]], ClientRepresentationError> {
+  const first = values[0];
+  if (first === undefined) {
+    return Effect.fail(representationFailure());
+  }
+  return Effect.succeed([first, ...values.slice(1)]);
 }
 
-const encodeCertifiedRecord = (
-  certified: CertifiedRecordValue,
-): Effect.Effect<CanonicalCertifiedRecord, RouterWorkerPersistenceError> =>
-  Effect.gen(function* () {
-    const canonicalCertifiedRecord = yield* encodeCanonical(
-      CertifiedRecord,
-      certified,
-    ).pipe(Effect.mapError(blocked));
-    const canonicalRecord = yield* encodeCanonical(
-      ActionCertifiedRecord,
-      certified.actionCertifiedRecord,
-    ).pipe(Effect.mapError(blocked));
-    return { canonicalCertifiedRecord, canonicalRecord };
-  });
+function representationFailure(): ClientRepresentationError {
+  return new ClientRepresentationError();
+}
 
-const promoteCertifiedRecord = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-  certified: CertifiedRecordValue,
-  canonical: CanonicalCertifiedRecord,
-): Effect.Effect<StoreMutation, EndpointStoreError> =>
-  runtime.input.store.promoteRecord({
-    conversationId: conversation.conversationId,
-    recordHash: certified.recordHash,
-    membershipHash: conversation.membership.hash,
-    anchorHash: conversation.action.anchorHash,
-    canonicalRecord: canonical.canonicalRecord,
-    canonicalCertifiedRecord: canonical.canonicalCertifiedRecord,
-    ...(conversation.action.previousRecordHash === null
-      ? {}
-      : { previousRecordHash: conversation.action.previousRecordHash }),
-  });
+/**
+ * Resolve the immutable Router anchor bound when one action fold is created.
+ * @param fold Selected action and its action-specific Router anchor.
+ * @returns The canonical anchor hash committed by the record core.
+ */
+export const recordAnchorHash = (
+  fold: EngineActionFold,
+): Effect.Effect<AnchorHash, ClientRepresentationError> =>
+  fold.action.kind === "GENESIS"
+    ? hashAnchor(fold.action.anchor)
+    : Effect.succeed(fold.action.anchorHash);
 
-const retainCertifiedRecord = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-  certified: CertifiedRecordValue,
-): void => {
-  conversation.certifiedRecord = certified;
-  const retained = runtime.conversations.get(conversation.conversationId);
-  if (retained !== undefined) {
-    retained.head = {
-      recordHash: certified.recordHash,
-      action: certified.actionCertifiedRecord.action,
-      certifiedRecord: certified,
-    };
-  }
-};
-
-const advanceRetainedAnchor = (
-  runtime: EngineRuntime,
-  conversation: Extract<EngineActionFold, { readonly foldKind: "multicast" }>,
-): void => {
-  const retained = runtime.conversations.get(conversation.conversationId);
-  if (retained !== undefined) {
-    retained.currentAnchor = conversation.routerAnchor;
-  }
-};
-
-const completeActionWaiter = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-): Effect.Effect<void> => {
-  if (conversation.foldKind === "start") {
-    const completion = runtime.completions.get(conversation.conversationId);
-    return completion === undefined
-      ? Effect.void
-      : Deferred.succeed(completion, undefined);
-  }
-  advanceRetainedAnchor(runtime, conversation);
-  return Deferred.succeed(conversation.completion, undefined);
-};
-
-const markCertifiedBroadcastQueued = (conversation: EngineActionFold): void => {
-  conversation.certifiedBroadcastQueued = true;
-};
-
-const queueCertifiedBroadcast = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-  certified: CertifiedRecordValue,
-  mutation: StoreMutation,
-): Effect.Effect<void, RouterWorkerPersistenceError> => {
-  if (mutation !== "inserted" || conversation.certifiedBroadcastQueued) {
-    return Effect.void;
-  }
-  return Effect.gen(function* () {
-    yield* queueOuterPacket(runtime, conversation, certified).pipe(
-      Effect.mapError(blocked),
-    );
-    markCertifiedBroadcastQueued(conversation);
-  });
-};
-
-const currentAnchorHash = (
-  conversation: EngineActionFold,
-): Effect.Effect<AnchorHash, RouterWorkerPersistenceError> => {
-  if (conversation.foldKind !== "start") {
-    return Effect.succeed(conversation.action.anchorHash);
-  }
-  return conversation.currentAnchor.kind === "genesis_anchor"
-    ? hashAnchor(conversation.currentAnchor).pipe(Effect.mapError(blocked))
-    : Effect.succeed(conversation.currentAnchor.anchorHash);
-};
-
-const notifyOpenFloor = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-  certified: CertifiedRecordValue,
-  mutation: StoreMutation,
-): Effect.Effect<void, RouterWorkerPersistenceError> => {
-  const openFloor = runtime.openFloor;
-  if (mutation !== "inserted" || openFloor === undefined) {
-    return Effect.void;
-  }
-  return Effect.gen(function* () {
-    const anchorHash = yield* currentAnchorHash(conversation);
-    yield* openFloor
-      .certifiedHead({
-        conversationId: conversation.conversationId,
-        membership: conversation.membership,
-        currentAnchorHash: anchorHash,
-        recordHash: certified.recordHash,
-        record: certified,
-      })
-      .pipe(Effect.mapError(blocked));
-  });
+/**
+ * Encode signer evidence in canonical decoded-AgentId order.
+ * @param evidence Verified signer messages keyed by signer identity.
+ * @returns Canonically ordered nonempty encoded evidence.
+ */
+const encodeOrderedEvidence = (
+  evidence: ReadonlyMap<AgentId, SignedMessage>,
+): Effect.Effect<
+  readonly [unknown, ...unknown[]],
+  ClientRepresentationError
+> => {
+  const messages = [...evidence.values()].sort((left, right) =>
+    compareAgentIds(left.senderAgentId, right.senderAgentId),
+  );
+  return Effect.forEach(
+    messages,
+    (message) =>
+      Schema.encode(SignedMessage)(message).pipe(
+        Effect.mapError(representationFailure),
+      ),
+    { concurrency: 1 },
+  ).pipe(Effect.flatMap(requireNonEmpty));
 };
 
 /**
- * Atomically promote one certified record and publish its local consequences.
- * @param runtime Endpoint engine state and dependencies.
- * @param conversation Action fold promoted by the record.
- * @param certified Fully certified record to promote.
- * @returns An effect that completes after waiters and observers are updated.
+ * Convert one verified inner signature into its durable evidence row.
+ * @param conversationId Private conversation that owns the evidence.
+ * @param kind Evidence statement family retained by the store.
+ * @param subjectId Hash named by the evidence statement.
+ * @param message Verified self-addressed evidence message.
+ * @returns Canonical durable evidence without changing its signer bytes.
  */
-export const completeActionRecord = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-  certified: CertifiedRecordValue,
-): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
-  Effect.gen(function* () {
-    const canonical = yield* encodeCertifiedRecord(certified);
-    const mutation = yield* promoteCertifiedRecord(
-      runtime,
-      conversation,
-      certified,
-      canonical,
-    );
-    retainCertifiedRecord(runtime, conversation, certified);
-    yield* completeActionWaiter(runtime, conversation);
-    yield* queueCertifiedBroadcast(runtime, conversation, certified, mutation);
-    yield* SubscriptionRef.update(runtime.revision, (revision) => revision + 1);
-    yield* notifyOpenFloor(runtime, conversation, certified, mutation);
-  }).pipe(Effect.withSpan("completeActionRecord"));
+export const protocolEvidence = (
+  conversationId: string,
+  kind: ProtocolEvidence["kind"],
+  subjectId: string,
+  message: SignedMessage,
+): Effect.Effect<ProtocolEvidence, ClientRepresentationError> =>
+  encodeCanonical(SignedMessage, message).pipe(
+    Effect.map((canonicalEvidence) => ({
+      conversationId,
+      kind,
+      subjectId,
+      evidenceKey: message.senderAgentId,
+      canonicalEvidence,
+    })),
+  );
 
-const assembleCertifiedRecord = (
-  conversation: EngineActionFold,
-): Effect.Effect<CertifiedRecordValue, RouterWorkerPersistenceError> =>
+/**
+ * Build the action-certified record after its threshold is reached.
+ * @param fold In-memory fold containing verified action evidence.
+ * @param anchorHash Completed anchor bound by the record core.
+ * @returns One evidence-independent record core with its action certificate.
+ */
+export const makeActionCertifiedRecord = (
+  fold: EngineActionFold,
+  anchorHash: RecordCore["anchorHash"],
+): Effect.Effect<ActionCertifiedRecord, ClientRepresentationError> =>
   Effect.gen(function* () {
-    const record = conversation.actionCertifiedRecord;
-    const recordHash = conversation.recordHash;
-    if (record === undefined || recordHash === undefined) {
-      return yield* Effect.fail(blocked());
-    }
-    const messages = [...conversation.durabilityVotes.values()].sort(
-      (left, right) => compareAgentIds(left.senderAgentId, right.senderAgentId),
-    );
-    const encoded = yield* Effect.forEach(
-      messages,
-      (message) => Schema.encode(SignedMessage)(message),
+    const signatures = yield* encodeOrderedEvidence(fold.actionEvidence);
+    const recordCore: RecordCore = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "record_core",
+      membership: fold.conversation.membership.descriptor,
+      anchorHash,
+      action: fold.action,
+      actionHash: fold.actionHash,
+    };
+    const actionCertifiedRecord: ActionCertifiedRecord = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "action_certified_record",
+      recordHash: yield* hashRecord(recordCore),
+      recordCore,
+      routerAnchor: fold.routerAnchor,
+      actionCertificate: {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "action_certificate",
+        actionHash: fold.actionHash,
+        signatures,
+      },
+    };
+    return actionCertifiedRecord;
+  }).pipe(Effect.withSpan("makeActionCertifiedRecord"));
+
+/**
+ * Add a durability certificate without changing the certified record hash.
+ * @param actionCertifiedRecord Action-certified core being finalized.
+ * @param fold In-memory fold containing verified durability evidence.
+ * @returns One complete certified record with mergeable durability votes.
+ */
+export const makeCertifiedRecord = (
+  actionCertifiedRecord: ActionCertifiedRecord,
+  fold: EngineActionFold,
+): Effect.Effect<CertifiedRecord, ClientRepresentationError> =>
+  encodeOrderedEvidence(fold.durabilityEvidence).pipe(
+    Effect.map((votes) => {
+      const certifiedRecord: CertifiedRecord = {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "certified_record",
+        actionCertifiedRecord,
+        durabilityCertificate: {
+          moltzapVersion: MOLTZAP_VERSION,
+          kind: "durability_certificate",
+          recordHash: actionCertifiedRecord.recordHash,
+          votes,
+        },
+      };
+      return certifiedRecord;
+    }),
+  );
+
+/**
+ * Convert one verified record core to the store's evidence-free staging row.
+ * @param record Verified action-certified record from the protocol fold.
+ * @returns Canonical evidence-free row used for atomic staging.
+ */
+export const stagedRecord = (
+  record: ActionCertifiedRecord,
+): Effect.Effect<StagedRecord, ClientRepresentationError> => {
+  const action = record.recordCore.action;
+  return encodeCanonical(RecordCoreSchema, record.recordCore).pipe(
+    Effect.map((canonicalRecordCore) => ({
+      conversationId: action.conversationId,
+      recordHash: record.recordHash,
+      ...(action.previousRecordHash === null
+        ? {}
+        : { previousRecordHash: action.previousRecordHash }),
+      membershipHash:
+        action.kind === "GENESIS"
+          ? action.postIntent.membershipHash
+          : action.membershipHash,
+      anchorHash: record.recordCore.anchorHash,
+      actionHash: record.recordCore.actionHash,
+      authorAgentId: action.postIntent.authorAgentId,
+      postId: action.postIntent.postId,
+      canonicalRecordCore,
+    })),
+  );
+};
+
+/**
+ * Convert a complete wire record into one complete store promotion row.
+ * @param record Complete certified wire record.
+ * @param fold In-memory fold retaining verified signer messages.
+ * @returns Store promotion data with separate action and durability evidence.
+ */
+export const storedCertifiedRecord = (
+  record: CertifiedRecord,
+  fold: EngineActionFold,
+): Effect.Effect<StoredCertifiedRecord, ClientRepresentationError> =>
+  Effect.gen(function* () {
+    const staged = yield* stagedRecord(record.actionCertifiedRecord);
+    const actionEvidence = yield* Effect.forEach(
+      [...fold.actionEvidence.values()],
+      (message) =>
+        protocolEvidence(
+          staged.conversationId,
+          "action",
+          staged.actionHash,
+          message,
+        ),
       { concurrency: 1 },
-    ).pipe(Effect.mapError(blocked));
-    const first = encoded[0];
-    if (first === undefined) {
-      return yield* Effect.fail(blocked());
+    );
+    const durabilityEvidence = yield* Effect.forEach(
+      [...fold.durabilityEvidence.values()],
+      (message) =>
+        protocolEvidence(
+          staged.conversationId,
+          "durability",
+          staged.recordHash,
+          message,
+        ),
+      { concurrency: 1 },
+    );
+    return { ...staged, actionEvidence, durabilityEvidence };
+  }).pipe(Effect.withSpan("storedCertifiedRecord"));
+
+const addressFor = (agentName: string) =>
+  Schema.decodeUnknown(AgentAddress)(`agent:${agentName}`).pipe(
+    Effect.mapError(representationFailure),
+  );
+
+const projectGroupMessage = (
+  conversation: EngineConversation,
+  intent: RecordCore["action"]["postIntent"],
+  sender: Effect.Effect.Success<ReturnType<typeof addressFor>>,
+): Effect.Effect<InboundMessageValue, ClientRepresentationError> =>
+  Effect.gen(function* () {
+    const names = conversation.membership.members
+      .map((member) => member.agentName)
+      .sort(compareAscii);
+    const address = yield* Schema.decodeUnknown(GroupAddress)(
+      `group:${names.join(",")}`,
+    ).pipe(Effect.mapError(representationFailure));
+    const members = yield* Effect.forEach(names, addressFor, {
+      concurrency: 1,
+    });
+    const first = members[0];
+    const second = members[1];
+    const third = members[2];
+    if (first === undefined || second === undefined || third === undefined) {
+      return yield* Effect.fail(representationFailure());
     }
     return {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "certified_record",
-      recordHash,
-      actionCertifiedRecord: record,
-      routerAnchor:
-        conversation.foldKind === "start"
-          ? conversation.currentAnchor
-          : conversation.routerAnchor,
-      durabilityVotes: [first, ...encoded.slice(1)],
+      kind: "group",
+      postId: intent.postId,
+      address,
+      sender,
+      members: [first, second, third, ...members.slice(3)],
+      content: intent.content,
     };
   });
 
 /**
- * Promote a staged record once the durability threshold is satisfied.
- * @param runtime Endpoint engine state and dependencies.
- * @param conversation Action fold whose durability votes may be sufficient.
- * @returns An effect that leaves an incomplete vote set unchanged.
+ * Project one remote record to its exact host-visible addressed message.
+ * @param conversation Verified local conversation state and member cards.
+ * @param record Complete remote-authored certified record.
+ * @returns Canonical direct or group message for native host insertion.
  */
-export const maybePromote = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
+const projectInboundMessage = (
+  conversation: EngineConversation,
+  record: CertifiedRecord,
+): Effect.Effect<InboundMessageValue, ClientRepresentationError> =>
   Effect.gen(function* () {
-    if (
-      conversation.certifiedRecord !== undefined ||
-      conversation.durabilityVotes.size <
-        durabilityThreshold(conversation.membership.members.length)
-    ) {
-      return;
-    }
-    const certified = yield* assembleCertifiedRecord(conversation);
-    yield* verifyCertifiedRecord({
-      record: certified,
-      registrySignerPublicKey: runtime.input.registrySignerPublicKey,
-    }).pipe(Effect.mapError(blocked));
-    yield* completeActionRecord(runtime, conversation, certified);
-  }).pipe(Effect.withSpan("maybePromote"));
-
-const retainCertifiedVote = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-  certified: CertifiedRecordValue,
-  representation: unknown,
-): Effect.Effect<void, RouterWorkerPersistenceError | EndpointStoreError> =>
-  Effect.gen(function* () {
-    const { message, statement } = yield* verifyStableEvidence({
-      representation,
-      membership: conversation.membership,
-    }).pipe(Effect.mapError(blocked));
-    if (statement.kind !== "durability_vote") {
-      return yield* Effect.fail(blocked());
-    }
-    yield* persistEvidence(
-      runtime,
-      conversation.conversationId,
-      "durability",
-      certified.recordHash,
-      statement.signerAgentId,
-      message,
+    const intent = record.actionCertifiedRecord.recordCore.action.postIntent;
+    const author = conversation.membership.members.find(
+      (member) => member.agentId === intent.authorAgentId,
     );
-    conversation.durabilityVotes.set(statement.signerAgentId, message);
-  });
+    if (author === undefined) {
+      return yield* Effect.fail(representationFailure());
+    }
+    const sender = yield* addressFor(author.agentName);
+    if (conversation.membership.members.length === 2) {
+      const directMessage: InboundMessageValue = {
+        kind: "direct",
+        postId: intent.postId,
+        address: sender,
+        sender,
+        content: intent.content,
+      };
+      return directMessage;
+    }
+    return yield* projectGroupMessage(conversation, intent, sender);
+  }).pipe(Effect.withSpan("projectInboundMessage"));
 
 /**
- * Verify and durably retain every vote carried by a certified record.
- * @param runtime Endpoint engine state and dependencies.
- * @param conversation Action fold that retains the verified votes.
- * @param certified Certified record carrying the votes.
- * @returns An effect that completes after all votes are retained in order.
+ * Encode the remote projection atomically retained during promotion.
+ * @param conversation Verified local conversation state and member cards.
+ * @param record Complete remote-authored certified record.
+ * @param recipientAgentId Local recipient that owns the pending delivery.
+ * @returns Canonical pending-delivery input for atomic record promotion.
  */
-export const retainCertifiedVotes = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-  certified: CertifiedRecordValue,
-): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
-  Effect.forEach(
-    certified.durabilityVotes,
-    (representation) =>
-      retainCertifiedVote(runtime, conversation, certified, representation),
-    { concurrency: 1, discard: true },
+export const inboundDelivery = (
+  conversation: EngineConversation,
+  record: CertifiedRecord,
+  recipientAgentId: AgentId,
+): Effect.Effect<InboundDeliveryInput, ClientRepresentationError> =>
+  projectInboundMessage(conversation, record).pipe(
+    Effect.flatMap((message) => encodeCanonical(InboundMessage, message)),
+    Effect.map((canonicalMessage) => ({
+      recipientAgentId,
+      canonicalMessage,
+    })),
   );
-
-const completeRecoveredStart = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-): Effect.Effect<void> => {
-  if (conversation.foldKind !== "start") {
-    return Effect.void;
-  }
-  const completion = runtime.completions.get(conversation.conversationId);
-  return completion === undefined
-    ? Effect.void
-    : Deferred.succeed(completion, undefined);
-};
-
-const resumeDurabilityVote = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-): Effect.Effect<void, RouterWorkerPersistenceError> => {
-  const retainedVote = conversation.durabilityVotes.get(
-    runtime.input.localAgentCard.agentId,
-  );
-  if (retainedVote === undefined) {
-    return queueLocalDurabilityVote(runtime, conversation);
-  }
-  if (conversation.durabilityVoteQueued) {
-    return Effect.void;
-  }
-  return Effect.gen(function* () {
-    yield* queueOuterEvidence(runtime, conversation, retainedVote).pipe(
-      Effect.mapError(blocked),
-    );
-    markDurabilityVoteQueued(conversation);
-  });
-};
-
-const resumeActionCertifiedFold = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-  actionCertifiedRecord: ActionCertifiedRecordValue,
-): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
-  Effect.gen(function* () {
-    yield* queueOuterPacket(runtime, conversation, actionCertifiedRecord).pipe(
-      Effect.mapError(blocked),
-    );
-    yield* resumeDurabilityVote(runtime, conversation);
-    yield* maybePromote(runtime, conversation);
-  });
-
-const markActionSignatureQueued = (conversation: EngineActionFold): void => {
-  conversation.actionSignatureQueued = true;
-};
-
-const resumeActionSignature = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-): Effect.Effect<void, RouterWorkerPersistenceError> => {
-  const retainedSignature = conversation.actionSignatures.get(
-    runtime.input.localAgentCard.agentId,
-  );
-  if (retainedSignature === undefined || conversation.actionSignatureQueued) {
-    return Effect.void;
-  }
-  return Effect.gen(function* () {
-    yield* queueOuterEvidence(runtime, conversation, retainedSignature).pipe(
-      Effect.mapError(blocked),
-    );
-    markActionSignatureQueued(conversation);
-  });
-};
-
-/**
- * Requeue only deterministic consequences of one recovered durable action fold.
- * @param runtime Endpoint engine state and dependencies.
- * @param conversation Recovered action fold to resume.
- * @returns An effect that completes after all recoverable work is requeued.
- */
-export const resumeActionFold = (
-  runtime: EngineRuntime,
-  conversation: EngineActionFold,
-): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> => {
-  if (conversation.certifiedRecord !== undefined) {
-    return completeRecoveredStart(runtime, conversation).pipe(
-      Effect.withSpan("resumeActionFold"),
-    );
-  }
-  if (conversation.actionCertifiedRecord !== undefined) {
-    return resumeActionCertifiedFold(
-      runtime,
-      conversation,
-      conversation.actionCertifiedRecord,
-    ).pipe(Effect.withSpan("resumeActionFold"));
-  }
-  return resumeActionSignature(runtime, conversation).pipe(
-    Effect.withSpan("resumeActionFold"),
-  );
-};

@@ -1,7 +1,6 @@
 /** @file The fixed calibration corpus that keeps the live judge layer honest. */
 
 import type { NonEmptyReadonlyArray } from "effect/Array";
-import { AgentName as agentName } from "@moltzap/client";
 import { Effect, Schema } from "effect";
 import {
   type CriterionResolution,
@@ -68,7 +67,7 @@ interface CalibrationDefinition {
   readonly verdict: CriterionVerdict;
 }
 
-const decodeAgentName = Schema.decodeSync(agentName);
+const decodeAgentName = Schema.decodeSync(Schema.NonEmptyString);
 const calibrationTargetName = decodeAgentName(TARGET_AGENT_NAME);
 const calibrationPolicyId = decodeJudgePolicyId(
   "moltzap.semantic-judge-calibration/v1",

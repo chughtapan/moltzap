@@ -1,22 +1,24 @@
 /** @file Public barrel for the final endpoint runtime capability. */
 // safer-arch-ignore no-folder-cycle: The root owns the public and loopback contracts consumed by endpoint internals while its server subpath composes daemon and endpoint capabilities into the one Client process boundary.
 export {
+  AgentAddress,
   ConnectError,
-  type Content,
-  type ContentPart,
-  ConversationId,
-  ConversationIdGenerationError,
-  createConversationId,
-  type HarnessClient,
-  type HarnessTurn,
-  type JsonValue,
+  Content,
+  ContentPart,
+  DeliveryAcknowledgeError,
+  type DirectMessage,
+  GroupAddress,
+  type GroupMessage,
+  type HarnessEndpoint,
+  type InboundDelivery,
+  InboundMessage,
+  JsonValue,
   ListenError,
-  ReplyError,
-  StartError,
-  type StartInput,
+  MessageAddressInput,
+  PostId,
+  SendError,
+  SendInput,
 } from "./contract.js";
-/** Acquire the structural Client for one loopback daemon endpoint. */
+/** Acquire the structural endpoint for one loopback daemon endpoint. */
 // safer-arch-ignore no-public-vendor-type-leak: URL is the platform-standard endpoint locator required by the public acquisition contract.
-export { acquireHarnessClient } from "./client-runtime.js";
-/** Identity-owned values used by the Client contract. */
-export { AgentName, type VerifiedAgentCard } from "@moltzap/identity";
+export { acquireHarnessEndpoint } from "./client-runtime.js";

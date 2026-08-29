@@ -39,6 +39,7 @@ function input(condition: EvaluationConditionName): SubmitEvaluationCellInput {
       id: decodeEvaluationConditionId(condition),
       modelId: condition === "openclaw/v2" ? "openai/gpt-5" : "claude/test",
     },
+    messagingMode: "shared",
     nanoclawApplicationImage: NANOCLAW_IMAGE,
     runtimeStartupTimeoutMillis: 300_000,
     peerObservationTimeoutMillis: 300_000,
@@ -50,6 +51,7 @@ it("binds the NanoClaw image into one NanoClaw cell module", () => {
   const source = evaluationControllerModule(input("nanoclaw/v2"));
 
   assert.include(source, `applicationImage: ${JSON.stringify(NANOCLAW_IMAGE)}`);
+  assert.notInclude(source, "messagingMode");
   assert.include(
     source,
     `definition.definitionId !== ${JSON.stringify(DEFINITION_ID)}`,
@@ -62,9 +64,13 @@ it("binds the NanoClaw image into one NanoClaw cell module", () => {
 });
 
 it("does not inject the unused NanoClaw application image into an OpenClaw cell", () => {
-  const source = evaluationControllerModule(input("openclaw/v2"));
+  const source = evaluationControllerModule({
+    ...input("openclaw/v2"),
+    messagingMode: "private",
+  });
 
   assert.include(source, "openClawEvaluationCondition({ runtime:");
+  assert.include(source, 'messagingMode: "private"');
   assert.notInclude(source, NANOCLAW_IMAGE);
   assert.include(source, "peerApplicationImage: supportImageFromEnvironment()");
 });

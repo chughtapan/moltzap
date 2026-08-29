@@ -70,12 +70,12 @@ const OPENCLAW_BOOTSTRAP_DIR = "/var/run/moltzap/bootstrap";
 const APPLICATION_STATE_DIR = `${OPENCLAW_BOOTSTRAP_DIR}/state`;
 const APPLICATION_CONFIG_PATH = `${OPENCLAW_BOOTSTRAP_DIR}/openclaw.json`;
 const OPENCLAW_WORKSPACE_DIR = `${OPENCLAW_BOOTSTRAP_DIR}/workspace`;
-const OPENCLAW_CHANNEL_PATH = `${OPENCLAW_BOOTSTRAP_DIR}/openclaw-channel`;
 const OPENCLAW_GATEWAY_TOKEN_BYTES = 32;
 const OPENCLAW_DEVICE_TOKEN_BYTES = 32;
 const OPENCLAW_ED25519_PUBLIC_KEY_BYTES = 32;
+const messagingMode = Schema.Literal("shared", "private");
 const STOCK_OPENCLAW_IMAGE = image.make(
-  "ghcr.io/openclaw/openclaw@sha256:27612bb8e5a766ace76fbc2c19276cc9e321f66ad065292eae197f0f5624d371",
+  "ghcr.io/openclaw/openclaw@sha256:f56744f2cbd2c2477c739158fbc4cf594300aa535767a87da3bcd9cafa150160",
 );
 const APPLICATION_RESOURCES = Object.freeze({
   cpuMillis: 1_000,
@@ -102,6 +102,7 @@ export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeCo
   workspaceFiles: Schema.Array(WorkspaceFileConfiguration),
   modelOverride: Schema.optional(Schema.String),
   mcpServers: Schema.Array(McpServerConfiguration),
+  messagingMode,
   tools: Schema.optional(OpenClawNativePolicyConfiguration),
   sandbox: Schema.optional(OpenClawNativePolicyConfiguration),
 }) {}
@@ -112,6 +113,10 @@ export interface OpenClawRuntimeOptions {
   readonly workspaceFiles?: readonly WorkspaceFile[];
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
+
+  /** Selects host-native session isolation for evaluations. Defaults to shared. */
+  readonly messagingMode?: "shared" | "private";
+
   readonly tools?: OpenClawToolsConfig;
   readonly sandbox?: OpenClawSandboxConfig;
 }
@@ -164,6 +169,7 @@ interface OpenClawRuntimeSettings {
   readonly invisibleWorkspaceFiles: readonly string[];
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
+  readonly messagingMode: typeof messagingMode.Type;
   readonly tools?: OpenClawToolsConfig;
   readonly sandbox?: OpenClawSandboxConfig;
 }
@@ -184,6 +190,7 @@ function snapshotOptions(
     invisibleWorkspaceFiles: invisibleFiles,
     modelId: options.modelId,
     mcpServers: snapshotMcpServers(options.mcpServers),
+    messagingMode: options.messagingMode ?? "shared",
     tools,
     sandbox: snapshotNativeConfiguration(options.sandbox),
   });
@@ -231,6 +238,7 @@ function runtimeConfiguration(
     startupTimeout: settings.startupTimeout,
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
     mcpServers: mcpConfiguration(settings.mcpServers),
+    messagingMode: settings.messagingMode,
     ...(tools === undefined ? {} : { tools }),
     ...(sandbox === undefined ? {} : { sandbox }),
     ...(settings.modelId === undefined
@@ -362,7 +370,7 @@ function bootstrapFiles(
       agentName: input.agentName,
       gatewayToken,
       gatewayBind: "lan",
-      channelPath: OPENCLAW_CHANNEL_PATH,
+      messagingMode: settings.messagingMode,
       ...(settings.modelId === undefined ? {} : { modelId: settings.modelId }),
       ...(settings.mcpServers === undefined
         ? {}

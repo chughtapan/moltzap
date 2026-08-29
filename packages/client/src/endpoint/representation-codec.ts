@@ -1,4 +1,4 @@
-/** @file Client protocol hashing, deterministic evidence, and Router envelopes. */
+/** @file Client protocol hashes, deterministic evidence, and Router envelopes. */
 
 import {
   type AgentId,
@@ -13,7 +13,7 @@ import {
 } from "@moltzap/identity";
 import { Effect, Either, Encoding, Schema } from "effect";
 import { createHash, randomBytes } from "node:crypto";
-import type { Content as SemanticContent } from "../contract.js";
+import { PostId, type PostId as PostIdValue } from "../contract.js";
 import {
   type ClientRepresentationError,
   decodeCanonical,
@@ -21,45 +21,39 @@ import {
   representationFailure,
 } from "./representation-canonical.js";
 import {
-  Action,
-  type ActionBinding as ActionBindingValue,
-  ActionCertificate,
-  type ActionCertificate as ActionCertificateValue,
-  ActionCertifiedRecord,
-  type ActionCertifiedRecord as ActionCertifiedRecordValue,
+  ActionCore,
   ActionHash,
   type ActionHash as ActionHashValue,
-  type Action as ActionValue,
+  AnchorBody,
   AnchorHash,
   type AnchorHash as AnchorHashValue,
-  BeginDigest,
-  type BeginDigest as BeginDigestValue,
-  Content,
-  ContentHash,
-  type ContentHash as ContentHashValue,
+  ConversationId,
+  ConversationIdentityInput,
+  type ConversationId as ConversationIdValue,
   DirectPacket,
   type DirectPacket as DirectPacketValue,
   EvidenceStatement,
   type EvidenceStatement as EvidenceStatementValue,
-  GenesisAnchor,
-  type GenesisAnchor as GenesisAnchorValue,
-  Membership,
+  type GenesisAnchorBody,
+  MembershipDescriptor,
+  type MembershipDescriptor as MembershipDescriptorValue,
   MembershipHash,
   type MembershipHash as MembershipHashValue,
-  ReanchorBody,
-  type ReanchorBody as ReanchorBodyValue,
+  PostIntent,
+  PostIntentHash,
+  type PostIntentHash as PostIntentHashValue,
+  type ReanchorBody,
+  RecordCore,
   RecordHash,
   type RecordHash as RecordHashValue,
-  ReplyFingerprint,
-  type ReplyFingerprint as ReplyFingerprintValue,
-  ReplyInput,
 } from "./representation-schemas.js";
 
 /* eslint-disable jsdoc/require-jsdoc -- The package-private representation facade documents this closed protocol vocabulary. */
 
 const HASH_BYTE_LENGTH = 32;
+const AGENT_ID_BYTE_LENGTH = 16;
 const MESSAGE_ID_BYTE_LENGTH = 16;
-const CLIENT_DOMAIN = "moltzap/client/v1/";
+const CLIENT_DOMAIN = "moltzap/client/v2/";
 const EVIDENCE_MESSAGE_ID_DOMAIN = `${CLIENT_DOMAIN}evidence-message-id\0`;
 const utf8Encoder = new TextEncoder();
 
@@ -90,126 +84,144 @@ const domainHash = <A, I, R>(input: {
     ),
   );
 
-export const hashMembership = (
-  membership: Membership,
-): Effect.Effect<MembershipHashValue, ClientRepresentationError> =>
-  domainHash({
-    artifact: "membership",
-    prefix: "mbr_",
-    schema: Membership,
-    value: membership,
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(MembershipHash)),
-    Effect.mapError(representationFailure),
-  );
-
-export const hashAnchor = (
-  anchor: GenesisAnchorValue | ReanchorBodyValue,
-): Effect.Effect<AnchorHashValue, ClientRepresentationError> =>
-  domainHash({
-    artifact: "anchor",
-    prefix: "anc_",
-    schema: Schema.Union(GenesisAnchor, ReanchorBody),
-    value: anchor,
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(AnchorHash)),
-    Effect.mapError(representationFailure),
-  );
-
-export const hashActionCertificate = (
-  certificate: ActionCertificateValue,
-): Effect.Effect<ActionHashValue, ClientRepresentationError> =>
-  domainHash({
-    artifact: "action",
-    prefix: "ach_",
-    schema: ActionCertificate,
-    value: certificate,
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(ActionHash)),
-    Effect.mapError(representationFailure),
-  );
-
-export const hashActionCertifiedRecord = (
-  record: ActionCertifiedRecordValue,
-): Effect.Effect<RecordHashValue, ClientRepresentationError> =>
-  domainHash({
-    artifact: "record",
-    prefix: "rch_",
-    schema: ActionCertifiedRecord,
-    value: record,
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(RecordHash)),
-    Effect.mapError(representationFailure),
-  );
-
-export const hashBeginMessage = (
-  beginMessage: SignedMessageValue,
-): Effect.Effect<BeginDigestValue, ClientRepresentationError> =>
-  domainHash({
-    artifact: "begin",
-    prefix: "bgn_",
-    schema: SignedMessage,
-    value: beginMessage,
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(BeginDigest)),
-    Effect.mapError(representationFailure),
-  );
-
-export const hashContent = (
-  content: SemanticContent,
-): Effect.Effect<ContentHashValue, ClientRepresentationError> =>
-  domainHash({
-    artifact: "content",
-    prefix: "cnt_",
-    schema: Content,
-    value: content,
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(ContentHash)),
-    Effect.mapError(representationFailure),
-  );
-
-export const fingerprintReply = (
-  content: SemanticContent,
-): Effect.Effect<ReplyFingerprintValue, ClientRepresentationError> => {
-  const replyInput: typeof ReplyInput.Type = {
-    moltzapVersion: MOLTZAP_VERSION,
-    kind: "reply_input",
-    content,
-  };
-  return domainHash({
-    artifact: "reply",
-    prefix: "rpf_",
-    schema: ReplyInput,
-    value: replyInput,
-  }).pipe(
-    Effect.flatMap(Schema.decodeUnknown(ReplyFingerprint)),
-    Effect.mapError(representationFailure),
-  );
-};
-
 export const compareAgentIds = (left: AgentId, right: AgentId): number => {
   const leftBytes = decodeCanonicalBase64Url(left.slice(4));
   const rightBytes = decodeCanonicalBase64Url(right.slice(4));
   if (leftBytes === undefined || rightBytes === undefined) {
     return 0;
   }
-  for (let index = 0; index < MESSAGE_ID_BYTE_LENGTH; index += 1) {
+  const length = Math.min(leftBytes.byteLength, rightBytes.byteLength);
+  for (let index = 0; index < length; index += 1) {
     const difference = (leftBytes[index] ?? 0) - (rightBytes[index] ?? 0);
     if (difference !== 0) {
       return difference;
     }
   }
-  return 0;
+  return leftBytes.byteLength - rightBytes.byteLength;
+};
+
+const sortedDistinctAgentIds = (agentIds: readonly AgentId[]): boolean => {
+  for (let index = 1; index < agentIds.length; index += 1) {
+    const previous = agentIds[index - 1];
+    const current = agentIds[index];
+    if (
+      previous === undefined ||
+      current === undefined ||
+      compareAgentIds(previous, current) >= 0
+    ) {
+      return false;
+    }
+  }
+  return true;
 };
 
 const decodeAgentIdBytes = (
   agentId: AgentId,
 ): Effect.Effect<Uint8Array, ClientRepresentationError> => {
   const bytes = decodeCanonicalBase64Url(agentId.slice(4));
-  return bytes?.byteLength === MESSAGE_ID_BYTE_LENGTH
+  return bytes?.byteLength === AGENT_ID_BYTE_LENGTH
     ? Effect.succeed(bytes)
     : Effect.fail(representationFailure());
 };
+
+export const deriveConversationId = (
+  memberAgentIds: ConversationIdentityInput["memberAgentIds"],
+): Effect.Effect<ConversationIdValue, ClientRepresentationError> => {
+  if (!sortedDistinctAgentIds(memberAgentIds)) {
+    return Effect.fail(representationFailure());
+  }
+  const input: ConversationIdentityInput = {
+    moltzapVersion: MOLTZAP_VERSION,
+    kind: "conversation_identity",
+    memberAgentIds,
+  };
+  return domainHash({
+    artifact: "conversation",
+    prefix: "cnv_",
+    schema: ConversationIdentityInput,
+    value: input,
+  }).pipe(
+    Effect.flatMap(Schema.decodeUnknown(ConversationId)),
+    Effect.mapError(representationFailure),
+  );
+};
+
+export const hashMembershipDescriptor = (
+  membership: MembershipDescriptorValue,
+): Effect.Effect<MembershipHashValue, ClientRepresentationError> =>
+  domainHash({
+    artifact: "membership",
+    prefix: "mbr_",
+    schema: MembershipDescriptor,
+    value: membership,
+  }).pipe(
+    Effect.flatMap(Schema.decodeUnknown(MembershipHash)),
+    Effect.mapError(representationFailure),
+  );
+
+export const mintPostId = (): Effect.Effect<
+  PostIdValue,
+  ClientRepresentationError
+> =>
+  Effect.try({
+    try: () => `pst_${randomBytes(HASH_BYTE_LENGTH).toString("base64url")}`,
+    catch: representationFailure,
+  }).pipe(
+    Effect.flatMap(Schema.decodeUnknown(PostId)),
+    Effect.mapError(representationFailure),
+  );
+
+export const hashPostIntent = (
+  intent: PostIntent,
+): Effect.Effect<PostIntentHashValue, ClientRepresentationError> =>
+  domainHash({
+    artifact: "post-intent",
+    prefix: "pit_",
+    schema: PostIntent,
+    value: intent,
+  }).pipe(
+    Effect.flatMap(Schema.decodeUnknown(PostIntentHash)),
+    Effect.mapError(representationFailure),
+  );
+
+export const hashAnchor = (
+  anchor: GenesisAnchorBody | ReanchorBody,
+): Effect.Effect<AnchorHashValue, ClientRepresentationError> =>
+  domainHash({
+    artifact: "anchor",
+    prefix: "anc_",
+    schema: AnchorBody,
+    value: anchor,
+  }).pipe(
+    Effect.flatMap(Schema.decodeUnknown(AnchorHash)),
+    Effect.mapError(representationFailure),
+  );
+
+export const hashAction = (
+  action: ActionCore,
+): Effect.Effect<ActionHashValue, ClientRepresentationError> =>
+  domainHash({
+    artifact: "action",
+    prefix: "ach_",
+    schema: ActionCore,
+    value: action,
+  }).pipe(
+    Effect.flatMap(Schema.decodeUnknown(ActionHash)),
+    Effect.mapError(representationFailure),
+  );
+
+export const hashRecord = (
+  record: RecordCore,
+): Effect.Effect<RecordHashValue, ClientRepresentationError> =>
+  domainHash({
+    artifact: "record",
+    prefix: "rch_",
+    schema: RecordCore,
+    value: record,
+  }).pipe(
+    Effect.flatMap(Schema.decodeUnknown(RecordHash)),
+    Effect.mapError(representationFailure),
+  );
 
 export const deriveEvidenceMessageId = (
   statement: EvidenceStatementValue,
@@ -227,28 +239,6 @@ export const deriveEvidenceMessageId = (
       `msg_${Encoding.encodeBase64Url(digest)}`,
     ).pipe(Effect.mapError(representationFailure));
   }).pipe(Effect.withSpan("deriveEvidenceMessageId"));
-
-export const makeActionBinding = (
-  action: ActionValue,
-): Effect.Effect<ActionBindingValue, ClientRepresentationError> =>
-  Effect.gen(function* () {
-    const contentHash = yield* hashContent(action.content);
-    const binding: ActionBindingValue = {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "action_binding",
-      actionKind: action.actionId,
-      conversationId: action.conversationId,
-      membershipHash: action.membershipHash,
-      anchorHash: action.anchorHash,
-      previousRecordHash: action.previousRecordHash,
-      beginDigest: action.beginDigest,
-      actionId: action.actionId,
-      authorAgentId: action.authorAgentId,
-      contentHash,
-      replyFingerprint: action.replyFingerprint,
-    };
-    return binding;
-  }).pipe(Effect.withSpan("makeActionBinding"));
 
 export const decodeDirectPacket = (
   bytes: Uint8Array,
@@ -306,17 +296,19 @@ export interface OuterMembership {
   ];
 }
 
-export const signOuterBody = (input: {
+const signOuterBody = (input: {
   readonly body: Uint8Array;
   readonly membership: OuterMembership;
   readonly agentCard: VerifiedAgentCard;
   readonly signingAuthority: AgentSigningAuthority;
 }): Effect.Effect<VerifiedSignedMessage, ClientRepresentationError> =>
   Effect.gen(function* () {
+    const memberAgentIds = input.membership.members.map(
+      (member) => member.agentId,
+    );
     if (
-      !input.membership.members.some(
-        (member) => member.agentId === input.agentCard.agentId,
-      )
+      !sortedDistinctAgentIds(memberAgentIds) ||
+      !memberAgentIds.includes(input.agentCard.agentId)
     ) {
       return yield* representationFailure();
     }
@@ -330,9 +322,7 @@ export const signOuterBody = (input: {
     return yield* SignedMessage.sign({
       agentCard: input.agentCard,
       signingAuthority: input.signingAuthority,
-      recipientAgentIds: new Set(
-        input.membership.members.map((member) => member.agentId),
-      ),
+      recipientAgentIds: new Set(memberAgentIds),
       messageId,
       body: input.body,
     }).pipe(Effect.mapError(representationFailure));
@@ -358,9 +348,9 @@ export const signOuterEvidence = (input: {
     Effect.flatMap((body) => signOuterBody({ ...input, body })),
   );
 
-export const encodeAction = (
-  action: ActionValue,
+export const encodeActionCore = (
+  action: ActionCore,
 ): Effect.Effect<Uint8Array, ClientRepresentationError> =>
-  encodeCanonical(Action, action);
+  encodeCanonical(ActionCore, action);
 
 /* eslint-enable jsdoc/require-jsdoc -- Restore package documentation rules. */

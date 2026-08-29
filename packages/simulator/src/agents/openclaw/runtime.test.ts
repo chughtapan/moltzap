@@ -4,7 +4,10 @@ import { assert, it as effectIt } from "@effect/vitest";
 import { AgentName } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import { describe } from "vitest";
-import type { RuntimeAcquisitionError } from "../agent.js";
+import {
+  type RuntimeAcquisitionError,
+  runtimeConfigurationProjection,
+} from "../agent.js";
 import {
   type Application,
   type ContainerRuntime,
@@ -25,7 +28,6 @@ const AGENT_NAME = Schema.decodeUnknownSync(AgentName)("alice");
 const GATEWAY_HOST = "alice.society.svc";
 const BOOTSTRAP_ROOT = "/var/run/moltzap/bootstrap/";
 const OPENCLAW_CONFIG_PATH = `${BOOTSTRAP_ROOT}openclaw.json`;
-const CHANNEL_PATH = `${BOOTSTRAP_ROOT}openclaw-channel`;
 const WORKSPACE_PATH = `${BOOTSTRAP_ROOT}workspace/IDENTITY.md`;
 const GATEWAY_PORT = 18_789;
 const APPLICATION_STATE_DIR = `${BOOTSTRAP_ROOT}state`;
@@ -33,6 +35,9 @@ const PAIRED_DEVICES_PATH = `${APPLICATION_STATE_DIR}/devices/paired.json`;
 const WORKSPACE_CONTENT = "Alice";
 const BRIDGE_RUN_ID = "openclaw-bridge-run";
 const BRIDGE_IDEMPOTENCY_KEY = "openclaw-bridge-key";
+const messagingModeProjection = Schema.Struct({
+  messagingMode: Schema.Literal("shared", "private"),
+});
 
 /**
  * OpenClaw sees no stop the cluster cannot, so it must never report one: its
@@ -54,7 +59,27 @@ const renderedOpenClawConfig = Schema.parseJson(
       auth: Schema.Struct({ token: Schema.String }),
     }),
     plugins: Schema.Struct({
-      load: Schema.Struct({ paths: Schema.Array(Schema.String) }),
+      entries: Schema.Struct({
+        "openclaw-channel": Schema.Struct({ enabled: Schema.Boolean }),
+      }),
+      load: Schema.optional(
+        Schema.Struct({ paths: Schema.Array(Schema.String) }),
+      ),
+    }),
+    session: Schema.optional(
+      Schema.Struct({
+        dmScope: Schema.Literal("per-account-channel-peer"),
+      }),
+    ),
+    channels: Schema.Struct({
+      moltzap: Schema.Struct({
+        accounts: Schema.Array(
+          Schema.Struct({
+            id: Schema.String,
+            mode: Schema.Literal("shared", "private"),
+          }),
+        ),
+      }),
     }),
   }),
 );
@@ -69,6 +94,7 @@ type OpenClawApplication = Application<
 >;
 
 interface StockFixture {
+  readonly runtime: ReturnType<typeof openClawRuntime>;
   readonly capability: OpenClawContainerRuntime;
   readonly application: OpenClawApplication;
   readonly config: typeof renderedOpenClawConfig.Type;
@@ -96,7 +122,7 @@ function makeStockFixture() {
     const config = Schema.decodeUnknownSync(renderedOpenClawConfig)(
       requireFile(application.files, OPENCLAW_CONFIG_PATH),
     );
-    return { capability, application, config };
+    return { runtime, capability, application, config };
   });
 }
 
@@ -109,7 +135,10 @@ function assertCredentialFreeReservation(
   }).toLowerCase();
   assert.notInclude(reservation, "credential");
   assert.notInclude(reservation, "bootstrap");
-  assert.match(capability.image, /@sha256:[\da-f]{64}$/u);
+  assert.strictEqual(
+    capability.image,
+    "ghcr.io/openclaw/openclaw@sha256:f56744f2cbd2c2477c739158fbc4cf594300aa535767a87da3bcd9cafa150160",
+  );
 }
 
 function assertApplicationContainer(fixture: StockFixture): void {
@@ -152,7 +181,47 @@ function assertApplicationContainer(fixture: StockFixture): void {
     config.agents.defaults.workspace,
     `${BOOTSTRAP_ROOT}workspace`,
   );
-  assert.deepStrictEqual(config.plugins.load.paths, [CHANNEL_PATH]);
+  assertMessagingConfiguration(fixture);
+}
+
+function assertMessagingConfiguration(fixture: StockFixture): void {
+  const { config, runtime } = fixture;
+  assert.deepStrictEqual(config.plugins.entries, {
+    "openclaw-channel": { enabled: true },
+  });
+  assert.notProperty(config.plugins, "load");
+  assert.notProperty(config, "session");
+  assert.deepStrictEqual(config.channels.moltzap.accounts, [
+    { id: "simulator-agent", mode: "shared" },
+  ]);
+  assert.strictEqual(
+    Schema.decodeUnknownSync(messagingModeProjection)(
+      runtimeConfigurationProjection(runtime),
+    ).messagingMode,
+    "shared",
+  );
+}
+
+function privateMessagingModeTest() {
+  return Effect.gen(function* () {
+    const runtime = openClawRuntime({ messagingMode: "private" });
+    const capability = containerRuntimeFor(runtime);
+    const application = yield* capability.render({ agentName: AGENT_NAME });
+    const config = Schema.decodeUnknownSync(renderedOpenClawConfig)(
+      requireFile(application.files, OPENCLAW_CONFIG_PATH),
+    );
+
+    assert.strictEqual(config.channels.moltzap.accounts[0]?.mode, "private");
+    assert.deepStrictEqual(config.session, {
+      dmScope: "per-account-channel-peer",
+    });
+    assert.strictEqual(
+      Schema.decodeUnknownSync(messagingModeProjection)(
+        runtimeConfigurationProjection(runtime),
+      ).messagingMode,
+      "private",
+    );
+  });
 }
 
 function assertBootstrapMaterial(fixture: StockFixture): void {
@@ -256,5 +325,9 @@ describe("OpenClaw container runtime", () => {
   test(
     "attaches the exact native gateway and termination observation",
     exactBridgeTest,
+  );
+  test(
+    "threads private evaluation messaging into native account configuration",
+    privateMessagingModeTest,
   );
 });

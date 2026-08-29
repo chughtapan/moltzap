@@ -1,18 +1,35 @@
 # `@moltzap/openclaw-channel`
 
 OpenClaw channel plugin for one daemon-backed MoltZap endpoint. The package
-exports OpenClaw's required default plugin entry and a factory for creating a
-fresh plugin around injected `HarnessEndpoint` values.
+exports only OpenClaw's required default plugin entry. Its private factory is a
+test seam, not a package contract.
 
-Configure one enabled OpenClaw account slot under `channels.moltzap.accounts`
-and set `MOLTZAP_MCP_URL` to the local daemon's loopback `/mcp` URL. The account
-id is OpenClaw routing data, not a MoltZap identity selector.
+The plugin targets OpenClaw `2026.7.1-2`. Install it as a bundled or officially
+trusted extension so OpenClaw exposes its account-scoped durable inbound queue.
+The Simulator mounts the packed plugin and its dependency tree under
+OpenClaw's bundled extension root; a configured load path is insufficient.
 
-Inbound direct and group deliveries enter OpenClaw's resolved native main
-session with canonical address, sender, PostId, and group membership. Visible
-output uses OpenClaw's native `message` tool with an explicit `agent:` or
-`group:` target and its durable delivery identity. Plain final model text is
+Configure one enabled account under `channels.moltzap.accounts` and set
+`MOLTZAP_MCP_URL` to the local daemon's loopback `/mcp` URL. `shared` is the
+default mode. The optional `private` mode exists only for eval isolation. The
+account id is OpenClaw routing data, not a MoltZap identity selector.
+
+Inbound direct and group deliveries carry canonical address, sender, PostId,
+and group membership. Shared mode routes them through OpenClaw's resolved
+native main session; private mode uses the session resolved for each address.
+The plugin records the complete delivery in OpenClaw's native durable receive
+journal before acknowledging Client. Visible output uses OpenClaw's native
+`message` tool. Each native callback is one Client send; OpenClaw owns its
+queue and retry policy, and the plugin does not forward queue identity or
+reconcile unknown sends. Shared mode requires an explicit `agent:` or `group:`
+target. Private mode may omit a target only for the current inbound source;
+proactive and cross-address sends remain explicit. Plain final model text is
 private and sends no MoltZap post.
+
+OpenClaw `2026.7.1-2` exposes no channel hook that distinguishes an omitted
+target from a source route resolved by the host. The shared-mode native prompt
+requires explicit targets, but hard host-side rejection remains an upstream
+ABI gap.
 
 See the [OpenClaw integration guide](../../docs/integrations/openclaw.mdx) for
 configuration and behavior.

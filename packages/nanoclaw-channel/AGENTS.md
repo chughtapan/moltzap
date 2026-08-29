@@ -21,18 +21,19 @@ does not change this package boundary.
 ## Host integration law
 
 - Keep NanoClaw's `ChannelAdapter` entry point and host-relative stub modules
-  aligned with the digest-pinned NanoClaw application used by simulator runs.
-- Route every MoltZap destination through NanoClaw's native `agent-shared`
-  session. Client does not build cross-conversation context or checkpoints.
+  aligned with the stock NanoClaw API. Do not patch or extend the host ABI,
+  inbox, ACL, session router, prompt, output parser, or sandbox driver.
 - Direct input identifies the sender and `agent:` address. Group input retains
   the canonical group address, sender, exact members, and native group flag.
-- Visible output uses native `send_message` or final `<message to="...">` and
-  names an explicit `agent:` or `group:` destination. Bare final text remains
-  private.
-- Use NanoClaw's durable `messages_out.id` as Client idempotency and
-  acknowledge inbound delivery only after durable `messages_in` insertion.
-- Preserve the host ordering requirement that metadata is projected before
-  inbound content, and continue dropping the local agent's own messages.
+- Validate the explicit `agent:` or `group:` platform destination supplied to
+  `deliver`; NanoClaw owns destination discovery and permissions.
+- Leave outbound queue and retry policy to NanoClaw. Every adapter call is one
+  Client send; do not pass `messages_out.id` or add adapter deduplication.
+  Project metadata before content, await the stock `onInbound` callback, and
+  only then acknowledge Client delivery. Do not add `accepted`/`pending`
+  results or inspect NanoClaw persistence.
+- NanoClaw owns sessions, implicit replies, model prompt and final-text
+  behavior, inbox replay, scheduling, and runtime isolation.
 - Discovery, search, history, status, registration, and proof inspection use
   MCP rather than `HarnessEndpoint`.
 - Keep host-shape failures distinct from closed Client failures without
@@ -47,7 +48,7 @@ context, target, and retry details do not define the final API.
 ## Tests
 
 - Unit tests may fake the public Client capability to verify NanoClaw address,
-  agent-shared session, group projection, native output, and durable delivery.
+  group projection, callback-before-ack ordering, and addressed output.
 - Integration and simulator tests exercise the final Client boundary; they
   must not restore dependencies on deleted protocol/server packages, profiles,
   raw Router credentials, or compatibility shims.

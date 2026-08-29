@@ -125,6 +125,7 @@ class SemanticJudgeCalibrationFailed extends Schema.TaggedError<SemanticJudgeCal
 interface RuntimeOptions {
   readonly openclawModel: string;
   readonly nanoclawModel: string;
+  readonly messagingMode: "shared" | "private";
   readonly profile: SimulatorProfile;
 }
 
@@ -133,6 +134,7 @@ interface CommonExecutionEnvironment {
   readonly nanoclawApplicationImage: Image;
   readonly controllerImage: Image;
   readonly temporalAddress: string;
+  readonly messagingMode: "shared" | "private";
   readonly models: Readonly<{
     readonly openclaw: string;
     readonly nanoclaw: string;
@@ -308,6 +310,7 @@ function evaluationConditions(
       runtime: {
         startupTimeout: RUNTIME_STARTUP_TIMEOUT,
         modelId: options.openclawModel,
+        messagingMode: options.messagingMode,
       },
       execution,
     }),
@@ -639,6 +642,7 @@ function submissionInput(
       id: condition.id,
       modelId: conditionModelId(environment.models, condition.id),
     },
+    messagingMode: environment.messagingMode,
     nanoclawApplicationImage: environment.nanoclawApplicationImage,
     runtimeStartupTimeoutMillis: Duration.toMillis(RUNTIME_STARTUP_TIMEOUT),
     peerObservationTimeoutMillis: Duration.toMillis(PEER_OBSERVATION_TIMEOUT),
@@ -728,6 +732,11 @@ const nanoclawModelOption = Options.text("nanoclaw-model").pipe(
   Options.withSchema(Schema.NonEmptyString),
   Options.withDescription("Exact NanoClaw model ID."),
 );
+const messagingModeOption = Options.text("messaging-mode").pipe(
+  Options.withSchema(Schema.Literal("shared", "private")),
+  Options.withDefault("shared"),
+  Options.withDescription("Native host session layout for addressed messages."),
+);
 const profileOption = Options.text("profile").pipe(
   Options.withSchema(Schema.Literal("local", "gke")),
   Options.withDefault("local"),
@@ -736,6 +745,7 @@ const profileOption = Options.text("profile").pipe(
 const runtimeOptions = {
   openclawModel: openclawModelOption,
   nanoclawModel: nanoclawModelOption,
+  messagingMode: messagingModeOption,
   profile: profileOption,
 } as const;
 
@@ -820,6 +830,7 @@ function commonEnvironment(
   return {
     workspaceRoot: root,
     ...images,
+    messagingMode: options.messagingMode,
     models: {
       openclaw: options.openclawModel,
       nanoclaw: options.nanoclawModel,

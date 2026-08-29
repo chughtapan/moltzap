@@ -10,38 +10,42 @@ import {
   ProtocolErrorCode,
   type StandardSchemaV1,
 } from "@modelcontextprotocol/server";
-import { Ed25519PublicKey } from "@moltzap/identity";
-import { Cause, Effect, Exit, Option, Schema } from "effect";
-import type { Content } from "./contract.js";
+import { Cause, Effect, Exit, JSONSchema, Option, Schema } from "effect";
+import type { DeliveryToken } from "./endpoint/store.js";
+import { type SendInput, SendInput as SendInputSchema } from "./contract.js";
+import {
+  HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
+  HARNESS_EVENTS_EXTENSION,
+  HARNESS_SEND_TOOL,
+  type HarnessAcknowledgeDeliveryRequest,
+  harnessAcknowledgeDeliveryRequestJsonSchema,
+  type HarnessEmptyResult,
+  harnessEmptyResultJsonSchema,
+  type HarnessMessageReadyEvent,
+} from "./harness-mcp-contract.js";
 import {
   type HarnessMcpSubscriptionHandler,
   makeHarnessMcpSubscriptionHandler,
 } from "./harness-mcp-subscription.js";
 import {
-  decodeHarnessReplyRequestMeta,
-  HARNESS_EVENTS_EXTENSION,
-  HARNESS_REPLY_TOOL,
-  HARNESS_START_TOOL,
-  type HarnessEmptyResult,
-  harnessEmptyResultJsonSchema,
-  type HarnessReplyRequest,
-  harnessReplyRequestJsonSchema,
-  type HarnessStartRequest,
-  harnessStartRequestJsonSchema,
-  type HarnessTurnEvent,
-  type ReplyGrant,
-} from "./harness-runtime.js";
-import {
-  managementJsonSchemas,
   type ManagementReadConversationRequest,
+  managementReadConversationRequestSchema,
   type ManagementReadConversationResult,
+  managementReadConversationResultSchema,
   type ManagementRegisterRequest,
+  managementRegisterRequestSchema,
   type ManagementRegisterResult,
+  managementRegisterResultSchema,
   type ManagementSearchAgentsRequest,
+  managementSearchAgentsRequestSchema,
   type ManagementSearchAgentsResult,
+  managementSearchAgentsResultSchema,
   type ManagementSearchConversationsRequest,
+  managementSearchConversationsRequestSchema,
   type ManagementSearchConversationsResult,
+  managementSearchConversationsResultSchema,
   type ManagementStatusResult,
+  managementStatusResultSchema,
 } from "./management-runtime.js";
 
 /* eslint-disable agent-code-guard/async-keyword -- Official MCP factories and callbacks are Promise-native. */
@@ -72,19 +76,17 @@ export interface HarnessMcpOperations {
   readonly readConversation: (
     input: ManagementReadConversationRequest,
   ) => Effect.Effect<ManagementReadConversationResult, ClosedOperationError>;
-  readonly start: (
-    input: HarnessStartRequest,
+  readonly send: (
+    input: SendInput,
   ) => Effect.Effect<void, ClosedOperationError>;
-  readonly reply: (
-    grant: ReplyGrant,
-    content: Content,
+  readonly acknowledgeDelivery: (
+    deliveryToken: DeliveryToken,
   ) => Effect.Effect<void, ClosedOperationError>;
 }
 
 interface HarnessMcpHandlerOptions {
   readonly implementation: Implementation;
   readonly operations: HarnessMcpOperations;
-  readonly registrySignerPublicKey: Ed25519PublicKey;
   readonly onSubscriptionActiveChange?: (active: boolean) => void;
   readonly onerror?: (error: Error) => void;
 }
@@ -108,75 +110,98 @@ const makeStandardSchema = <Value>(jsonSchema: unknown) =>
     jsonSchema as JsonSchemaType,
   );
 
+const makeJsonSchema = <A, I>(schema: Schema.Schema<A, I>) =>
+  JSONSchema.make(schema, { target: "jsonSchema2020-12" });
+
+const emptyRequestSchema = Schema.Record({
+  key: Schema.String,
+  value: Schema.Never,
+});
 const registerInput = makeStandardSchema<ManagementRegisterRequest>(
-  managementJsonSchemas.registerRequest,
+  makeJsonSchema(managementRegisterRequestSchema),
 );
 const registerOutput = makeStandardSchema<ManagementRegisterResult>(
-  managementJsonSchemas.registerResult,
+  makeJsonSchema(managementRegisterResultSchema),
 );
 const emptyInput = makeStandardSchema<Record<string, never>>(
-  managementJsonSchemas.emptyRequest,
+  makeJsonSchema(emptyRequestSchema),
 );
 const statusOutput = makeStandardSchema<ManagementStatusResult>(
-  managementJsonSchemas.statusResult,
+  makeJsonSchema(managementStatusResultSchema),
 );
 const searchAgentsInput = makeStandardSchema<ManagementSearchAgentsRequest>(
-  managementJsonSchemas.searchAgentsRequest,
+  makeJsonSchema(managementSearchAgentsRequestSchema),
 );
 const searchAgentsOutput = makeStandardSchema<ManagementSearchAgentsResult>(
-  managementJsonSchemas.searchAgentsResult,
+  makeJsonSchema(managementSearchAgentsResultSchema),
 );
 const searchConversationsInput =
   makeStandardSchema<ManagementSearchConversationsRequest>(
-    managementJsonSchemas.searchConversationsRequest,
+    makeJsonSchema(managementSearchConversationsRequestSchema),
   );
 const searchConversationsOutput =
   makeStandardSchema<ManagementSearchConversationsResult>(
-    managementJsonSchemas.searchConversationsResult,
+    makeJsonSchema(managementSearchConversationsResultSchema),
   );
 const readConversationInput =
   makeStandardSchema<ManagementReadConversationRequest>(
-    managementJsonSchemas.readConversationRequest,
+    makeJsonSchema(managementReadConversationRequestSchema),
   );
 const readConversationOutput =
   makeStandardSchema<ManagementReadConversationResult>(
-    managementJsonSchemas.readConversationResult,
+    makeJsonSchema(managementReadConversationResultSchema),
   );
-const startInput = makeStandardSchema<HarnessStartRequest>(
-  harnessStartRequestJsonSchema,
+const sendInput = makeStandardSchema<SendInput>(
+  JSONSchema.make(SendInputSchema, { target: "jsonSchema2020-12" }),
 );
-const replyInput = makeStandardSchema<HarnessReplyRequest>(
-  harnessReplyRequestJsonSchema,
-);
+const acknowledgeDeliveryInput =
+  makeStandardSchema<HarnessAcknowledgeDeliveryRequest>(
+    harnessAcknowledgeDeliveryRequestJsonSchema,
+  );
 const emptyOutput = makeStandardSchema<HarnessEmptyResult>(
   harnessEmptyResultJsonSchema,
 );
 
-const REGISTER_REASONS = new Set(["upstream", "persistence", "representation"]);
-const STATUS_REASONS = new Set(["persistence", "representation"]);
-const SEARCH_AGENTS_REASONS = new Set(["upstream", "representation"]);
-const SEARCH_CONVERSATIONS_REASONS = new Set(["persistence"]);
-const READ_CONVERSATION_REASONS = new Set([
-  "not-found",
-  "invalid-continuation",
-  "persistence",
-  "representation",
+const REGISTER_REASONS = new Set([
+  "dependency-unavailable",
+  "persistence-failed",
+  "incompatible-daemon",
 ]);
-const START_REASONS = new Set([
-  "intent-conflict",
+const STATUS_REASONS = new Set(["persistence-failed", "incompatible-daemon"]);
+const SEARCH_AGENTS_REASONS = new Set([
   "not-registered",
-  "membership",
-  "persistence",
-  "durability",
-  "reanchor",
-  "representation",
+  "dependency-unavailable",
+  "incompatible-daemon",
 ]);
-const REPLY_REASONS = new Set([
-  "authority-unavailable",
-  "persistence",
-  "durability",
-  "reanchor",
-  "representation",
+const SEARCH_CONVERSATIONS_REASONS = new Set([
+  "not-registered",
+  "invalid-address",
+  "persistence-failed",
+]);
+const READ_CONVERSATION_REASONS = new Set([
+  "not-registered",
+  "invalid-address",
+  "unknown-agent",
+  "invalid-continuation",
+  "history-gap",
+  "persistence-failed",
+]);
+const SEND_REASONS = new Set([
+  "invalid-address",
+  "unknown-agent",
+  "membership-invalid",
+  "content-invalid",
+  "not-registered",
+  "version-mismatch",
+  "certification-unavailable",
+  "persistence-failed",
+  "network-unavailable",
+]);
+const ACKNOWLEDGE_DELIVERY_REASONS = new Set([
+  "unknown-delivery",
+  "delivery-conflict",
+  "persistence-failed",
+  "transport-failed",
 ]);
 
 const operationReason = (
@@ -315,7 +340,7 @@ const registerStatusTool = (
         operation: operations.readStatus(),
         label: "Status",
         allowedReasons: STATUS_REASONS,
-        fallbackReason: "persistence",
+        fallbackReason: "persistence-failed",
         signal: context.mcpReq.signal,
       });
     },
@@ -336,7 +361,7 @@ const registerRegistrationTool = (
         operation: operations.register(input),
         label: "Registration",
         allowedReasons: REGISTER_REASONS,
-        fallbackReason: "upstream",
+        fallbackReason: "dependency-unavailable",
         signal: context.mcpReq.signal,
       });
       if (result.structuredContent.kind === "registered") {
@@ -359,7 +384,7 @@ const registerReadTools = (
         operation: operations.searchAgents(input),
         label: "Agent search",
         allowedReasons: SEARCH_AGENTS_REASONS,
-        fallbackReason: "upstream",
+        fallbackReason: "dependency-unavailable",
         signal: context.mcpReq.signal,
       }),
   );
@@ -374,7 +399,7 @@ const registerReadTools = (
         operation: operations.searchConversations(input),
         label: "Conversation search",
         allowedReasons: SEARCH_CONVERSATIONS_REASONS,
-        fallbackReason: "persistence",
+        fallbackReason: "persistence-failed",
         signal: context.mcpReq.signal,
       }),
   );
@@ -389,60 +414,39 @@ const registerReadTools = (
         operation: operations.readConversation(input),
         label: "Conversation read",
         allowedReasons: READ_CONVERSATION_REASONS,
-        fallbackReason: "representation",
+        fallbackReason: "persistence-failed",
         signal: context.mcpReq.signal,
       }),
   );
 };
 
-const decodeReplyGrant = (
-  metadata: unknown,
-): Effect.Effect<ReplyGrant, ProtocolError> =>
-  decodeHarnessReplyRequestMeta(metadata).pipe(
-    Effect.catchTag("ParseError", () =>
-      Effect.fail(
-        new ProtocolError(
-          ProtocolErrorCode.InvalidParams,
-          "Invalid reply authority",
-          { reason: "authority-unavailable" },
-        ),
-      ),
-    ),
-  );
-
-const registerModelTools = (
+const registerAdapterTools = (
   server: McpServer,
   operations: HarnessMcpOperations,
 ): void => {
   server.registerTool(
-    HARNESS_START_TOOL,
-    { inputSchema: startInput, outputSchema: emptyOutput },
+    HARNESS_SEND_TOOL,
+    { inputSchema: sendInput, outputSchema: emptyOutput },
     (input, context) =>
       runVoidOperation({
-        operation: operations.start(input),
-        label: "Conversation start",
-        allowedReasons: START_REASONS,
-        fallbackReason: "representation",
+        operation: operations.send(input),
+        label: "Addressed send",
+        allowedReasons: SEND_REASONS,
+        fallbackReason: "network-unavailable",
         signal: context.mcpReq.signal,
       }),
   );
   server.registerTool(
-    HARNESS_REPLY_TOOL,
-    { inputSchema: replyInput, outputSchema: emptyOutput },
-    // #ignore-sloppy-code-next-line[async-keyword]: registerTool requires a Promise callback to decode reply authority before invoking the reply operation.
-    async (input, context) => {
-      const grant = await Effect.runPromise(
-        decodeReplyGrant(context.mcpReq._meta),
-        { signal: context.mcpReq.signal },
-      );
-      return await runVoidOperation({
-        operation: operations.reply(grant, input.content),
-        label: "Reply",
-        allowedReasons: REPLY_REASONS,
-        fallbackReason: "authority-unavailable",
+    HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
+    { inputSchema: acknowledgeDeliveryInput, outputSchema: emptyOutput },
+    (input, context) =>
+      runVoidOperation({
+        operation: operations.acknowledgeDelivery(input.deliveryToken),
+        label: "Delivery acknowledgment",
+        allowedReasons: ACKNOWLEDGE_DELIVERY_REASONS,
+        fallbackReason: "transport-failed",
         signal: context.mcpReq.signal,
-      });
-    },
+      }),
   );
 };
 
@@ -451,13 +455,12 @@ const registerActiveTools = (
   operations: HarnessMcpOperations,
 ): void => {
   registerReadTools(server, operations);
-  registerModelTools(server, operations);
+  registerAdapterTools(server, operations);
 };
 
 interface ToolCallInput {
   readonly name: string;
   readonly toolArguments: unknown;
-  readonly metadata: unknown;
   readonly signal: AbortSignal;
 }
 
@@ -492,7 +495,7 @@ const handleStatusToolCall = async (
     operation: operations.readStatus(),
     label: "Status",
     allowedReasons: STATUS_REASONS,
-    fallbackReason: "persistence",
+    fallbackReason: "persistence-failed",
     signal: input.signal,
   });
 };
@@ -512,7 +515,7 @@ const handleRegistrationToolCall = async (
     operation: operations.register(decoded),
     label: "Registration",
     allowedReasons: REGISTER_REASONS,
-    fallbackReason: "upstream",
+    fallbackReason: "dependency-unavailable",
     signal: input.signal,
   });
   if (result.structuredContent.kind === "registered") {
@@ -535,7 +538,7 @@ const handleSearchAgentsToolCall = async (
     operation: operations.searchAgents(decoded),
     label: "Agent search",
     allowedReasons: SEARCH_AGENTS_REASONS,
-    fallbackReason: "upstream",
+    fallbackReason: "dependency-unavailable",
     signal: input.signal,
   });
 };
@@ -554,7 +557,7 @@ const handleSearchConversationsToolCall = async (
     operation: operations.searchConversations(decoded),
     label: "Conversation search",
     allowedReasons: SEARCH_CONVERSATIONS_REASONS,
-    fallbackReason: "persistence",
+    fallbackReason: "persistence-failed",
     signal: input.signal,
   });
 };
@@ -573,48 +576,45 @@ const handleReadConversationToolCall = async (
     operation: operations.readConversation(decoded),
     label: "Conversation read",
     allowedReasons: READ_CONVERSATION_REASONS,
-    fallbackReason: "representation",
+    fallbackReason: "persistence-failed",
     signal: input.signal,
   });
 };
 
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
-const handleStartToolCall = async (
+const handleSendToolCall = async (
   input: ToolCallInput,
   operations: HarnessMcpOperations,
 ) => {
   const decoded = await decodeToolInput(
-    startInput,
+    sendInput,
     input.toolArguments,
     input.name,
   );
   return await runValidatedVoidOperation(input.name, {
-    operation: operations.start(decoded),
-    label: "Conversation start",
-    allowedReasons: START_REASONS,
-    fallbackReason: "representation",
+    operation: operations.send(decoded),
+    label: "Addressed send",
+    allowedReasons: SEND_REASONS,
+    fallbackReason: "network-unavailable",
     signal: input.signal,
   });
 };
 
-// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation, reply authority decoding, and the Promise-native operation bridge.
-const handleReplyToolCall = async (
+// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
+const handleAcknowledgeDeliveryToolCall = async (
   input: ToolCallInput,
   operations: HarnessMcpOperations,
 ) => {
   const decoded = await decodeToolInput(
-    replyInput,
+    acknowledgeDeliveryInput,
     input.toolArguments,
     input.name,
   );
-  const grant = await Effect.runPromise(decodeReplyGrant(input.metadata), {
-    signal: input.signal,
-  });
   return await runValidatedVoidOperation(input.name, {
-    operation: operations.reply(grant, decoded.content),
-    label: "Reply",
-    allowedReasons: REPLY_REASONS,
-    fallbackReason: "authority-unavailable",
+    operation: operations.acknowledgeDelivery(decoded.deliveryToken),
+    label: "Delivery acknowledgment",
+    allowedReasons: ACKNOWLEDGE_DELIVERY_REASONS,
+    fallbackReason: "transport-failed",
     signal: input.signal,
   });
 };
@@ -631,10 +631,10 @@ const handleActiveToolCall = async (
       return await handleSearchConversationsToolCall(input, operations);
     case READ_CONVERSATION_TOOL:
       return await handleReadConversationToolCall(input, operations);
-    case HARNESS_START_TOOL:
-      return await handleStartToolCall(input, operations);
-    case HARNESS_REPLY_TOOL:
-      return await handleReplyToolCall(input, operations);
+    case HARNESS_SEND_TOOL:
+      return await handleSendToolCall(input, operations);
+    case HARNESS_ACKNOWLEDGE_DELIVERY_TOOL:
+      return await handleAcknowledgeDeliveryToolCall(input, operations);
     default:
       return toolNotFound(input.name);
   }
@@ -688,7 +688,6 @@ const installToolCallHandler = (
       {
         name: request.params.name,
         toolArguments: request.params.arguments ?? {},
-        metadata: context.mcpReq._meta,
         signal: context.mcpReq.signal,
       },
       operations,
@@ -701,15 +700,10 @@ const makeServer = (
   options: HarnessMcpHandlerOptions,
   state: ActiveCatalogState,
 ): McpServer => {
-  const registrySignerPublicKey = Schema.encodeSync(Ed25519PublicKey)(
-    options.registrySignerPublicKey,
-  );
   const server = new McpServer(options.implementation, {
     capabilities: {
-      extensions: {
-        [HARNESS_EVENTS_EXTENSION]: {
-          registrySignerPublicKey,
-        },
+      experimental: {
+        [HARNESS_EVENTS_EXTENSION]: {},
       },
     },
   });
@@ -724,14 +718,14 @@ const makeServer = (
 };
 
 /**
- * Create one state-dependent official MCP handler and custom turn listener.
- * @param options Closed daemon operations and deployment identity material.
+ * Create one state-dependent official MCP handler and message listener.
+ * @param options Closed daemon operations and lifecycle callbacks.
  * @returns Handler whose catalog transitions in place after registration.
  */
 export const makeHarnessMcpHttpHandler = (
   options: HarnessMcpHandlerOptions,
 ): Effect.Effect<
-  HarnessMcpSubscriptionHandler<HarnessTurnEvent>,
+  HarnessMcpSubscriptionHandler<HarnessMessageReadyEvent>,
   ClosedOperationError
 > =>
   options.operations.readStatus().pipe(

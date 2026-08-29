@@ -1,7 +1,7 @@
 /** @file Native and semantic observations remain independently selectable. */
 
 import { assert, it } from "@effect/vitest";
-import { AgentName, ConversationId } from "@moltzap/client";
+import { AgentAddress } from "@moltzap/client";
 import {
   OpenClawGatewayRequest,
   OpenClawGatewayResponse,
@@ -19,11 +19,10 @@ import { decodeEvaluationCaseId, decodeEvaluationEvidenceId } from "./model.js";
 import { SocialTranscriptItem, transcriptFromLedger } from "./transcript.js";
 
 const caseId = decodeEvaluationCaseId("EVAL-005");
-const target = Schema.decodeSync(AgentName)("evaluation-target");
-const peer = Schema.decodeSync(AgentName)("evaluation-peer");
-const conversationId = Schema.decodeSync(ConversationId)(
-  "00000000-0000-4000-8000-000000000505",
-);
+const target = "evaluation-target";
+const peer = "evaluation-peer";
+const targetAddress = Schema.decodeSync(AgentAddress)(`agent:${target}`);
+const peerAddress = Schema.decodeSync(AgentAddress)(`agent:${peer}`);
 const gatewayInputId = decodeEvaluationEvidenceId("evidence:gateway-input");
 const gatewayOutputId = decodeEvaluationEvidenceId("evidence:gateway-output");
 const socialId = decodeEvaluationEvidenceId("evidence:social");
@@ -50,9 +49,9 @@ const gatewayOutput = OpenClawPrincipalFinalOutput.make({
 });
 const social = SocialActionObserved.make({
   caseId,
-  endpointName: peer,
-  conversationId,
-  authorName: target,
+  endpointAddress: peerAddress,
+  address: targetAddress,
+  authorAddress: targetAddress,
   direction: "input",
   content: [{ type: "text", text: "The target replied." }],
 });

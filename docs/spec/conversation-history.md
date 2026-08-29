@@ -75,9 +75,8 @@ type ActionHash = `ach_${string}`
 type RecordHash = `rch_${string}`
 ```
 
-An `IdempotencyKey` is 1 through 128 ASCII characters matching
-`[A-Za-z0-9._:-]+`. `Content` is a nonempty array of the following closed
-union and its RFC 8785 encoding is at most 32,768 bytes:
+`Content` is a nonempty array of the following closed union and its RFC 8785
+encoding is at most 32,768 bytes:
 
 ```ts
 type ContentPart =
@@ -112,20 +111,15 @@ interface MembershipDescriptor {
   ]
 }
 
-interface PostIdInput {
-  readonly moltzapVersion: "2026.827.1"
-  readonly kind: "post_id_input"
-  readonly authorAgentId: AgentId
-  readonly idempotencyKey: IdempotencyKey
-}
 ```
 
 Both arrays contain 2 through 32 entries sorted by unsigned lexicographic
 comparison of the decoded 16-byte AgentIds. They contain no duplicate AgentId
 or AgentName. Every card has a valid Registry signature, and each descriptor's
-`conversationId` re-derives from its cards. A peer validates a `PostId`'s
-format and immutable author-scoped reuse. Only its author, which retains the
-private `idempotencyKey`, can re-derive it.
+`conversationId` re-derives from its cards. Client mints each `PostId` from 32
+cryptographically random bytes before persisting a new local post intent. A
+peer validates its canonical form and rejects changed intent under the same
+`(authorAgentId, PostId)` pair.
 
 ### Post intents, anchors, and action cores
 
@@ -211,24 +205,25 @@ H(artifact, S, v) =
   )
 ```
 
-The exact derivations are:
+The exact hash derivations are:
 
 | Value | Artifact | Schema preimage | Text |
 |---|---|---|---|
 | `ConversationId` | `conversation` | `ConversationIdentityInput` | `cnv_` + digest |
 | `MembershipHash` | `membership` | `MembershipDescriptor` | `mbr_` + digest |
-| `PostId` | `post` | `PostIdInput` | `pst_` + digest |
 | `PostIntentHash` | `post-intent` | `PostIntent` | `pit_` + digest |
 | `AnchorHash` | `anchor` | `AnchorBody` | `anc_` + digest |
 | `ActionHash` | `action` | `ActionCore` | `ach_` + digest |
 | `RecordHash` | `record` | `RecordCore` | `rch_` + digest |
 
-Digest text is the unique unpadded base64url encoding. `PostIntentHash`
+`PostId` is `pst_` followed by the unique unpadded base64url encoding of the
+32 random bytes and has no hash preimage. Digest text in the table is the
+unique unpadded base64url encoding. `PostIntentHash`
 excludes predecessor, anchor, and all evidence. `ActionHash` excludes action
 signatures. `RecordHash` includes `ActionHash` but excludes action signatures,
-re-anchor votes, and durability votes. Reusing `(authorAgentId, PostId)` with
-different canonical target membership or content is
-`idempotency-conflict`.
+re-anchor votes, and durability votes. A changed canonical target membership
+or content under one `(authorAgentId, PostId)` is a representation conflict and
+fails closed.
 
 ## Certificates and certified records
 
@@ -340,7 +335,7 @@ re-anchor certificates have at least `q(n)` and at most `n` valid member
 votes. N2=2, N3=3, N4=3, and N10=7. Numeric equality never makes the three
 statement kinds interchangeable.
 
-## Proposal ordering and idempotency
+## Proposal ordering and recovery identity
 
 An honest endpoint durably records one proposal lock for each
 `(ConversationId, previousRecordHash)`. It signs only the first structurally
@@ -353,9 +348,11 @@ against the new head, producing a new `ActionHash`. If its selected candidate
 cannot reach `q(n)`, that conversation head stalls. Gate 1 has no timeout
 replacement, view change, or alternative-candidate election.
 
-An identical `HarnessEndpoint.send` retry resumes local state or returns after
-the already-complete record is verified. Changed address, membership, author,
-or content under the same `(authorAgentId, PostId)` fails before new traffic.
+Daemon recovery resumes a persisted unfinished intent under its existing
+`PostId`. A later `HarnessEndpoint.send` invocation always mints a new
+`PostId`, including when its address and content equal an earlier call.
+Changed address, membership, author, or content under an existing
+`(authorAgentId, PostId)` fails before new traffic.
 
 ## Action validity and storage durability
 
@@ -470,7 +467,6 @@ interface ActionProposal {
   readonly moltzapVersion: "2026.827.1"
   readonly kind: "action_proposal"
   readonly action: ActionCore
-  readonly authorSignature: EncodedSignedMessage
 }
 
 type EvidenceStatement =
@@ -496,13 +492,18 @@ An outer Identity `SignedMessage` body is exactly one of:
 
 The two closed representations are disjoint. Client first decodes
 `DirectPacket`; if that exact decode fails, it decodes one encoded
-`SignedMessage`; if both fail, it rejects the body. An action proposal's
-`authorSignature` is the stable inner action-signature evidence for the
-proposal's `ActionHash`. Its signer and the proposal's outer sender both equal
-the post author. Any fixed member may assemble and send the other direct
+`SignedMessage`; if both fail, it rejects the body. An action proposal's outer
+sender equals the post author. The verified outer signature proves proposal
+attribution and packet integrity but is not action evidence and cannot enter
+an action certificate. Any fixed member may assemble and send the other direct
 packets. Every outer message's recipients are the complete fixed-member
 AgentIds sorted by decoded bytes, including its sender. The Router sees only
 that outer Identity value.
+
+After ordered delivery, every conforming member, including the author, durably
+locks its first valid gap-free candidate for the predecessor before emitting a
+stable inner `ActionSignatureStatement`. No honest endpoint emits an action
+vote before that lock.
 
 For an evidence statement `s`, its stable inner `MessageId` is:
 
@@ -631,8 +632,9 @@ limits. Client fragments nothing.
 Acceptance covers address permutation, membership bounds, deterministic
 conversation identity, N2/N3/N4/N10 thresholds, GENESIS unanimity, missing
 author, evidence-independent hashes, proposal locking, stalled quorum,
-idempotent rebase, conflicting intent, durability separation, catch-up,
-re-anchor, delivery replay, payload collision, and exact store/wire rejection.
+recovery rebase, conflicting intent, distinct host invocations, durability
+separation, catch-up, re-anchor, delivery replay, payload collision, and exact
+store/wire rejection.
 
 ## Explicitly deferred
 

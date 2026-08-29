@@ -15,6 +15,8 @@ import { promisify } from "node:util";
 import ts from "typescript";
 import {
   controllerExternalDependencies,
+  controllerOverlayExternalDependencies,
+  controllerOverlayPackageManifest,
   controllerPackageDependencies,
   controllerWorkspacePackageNames,
 } from "../simulator/build-controller-image.mjs";
@@ -384,6 +386,9 @@ async function verifyControllerImageAssembly() {
     ),
   ]);
   const channelPackage = JSON.parse(channelPackageSource);
+  const overlayPackage = controllerOverlayPackageManifest({
+    "@moltzap/openclaw-channel": "moltzap-openclaw-channel.tgz",
+  });
 
   requireCondition(
     JSON.stringify(controllerPackageDependencies) ===
@@ -417,8 +422,21 @@ async function verifyControllerImageAssembly() {
     "the controller image must install its Registry database and MCP registrar helpers",
   );
   requireCondition(
-    channelPackage.peerDependenciesMeta?.openclaw?.optional === true,
-    "the OpenClaw overlay must preserve its optional runtime peer",
+    JSON.stringify(controllerOverlayExternalDependencies) ===
+      JSON.stringify({ openclaw: "2026.7.1-2" }) &&
+      JSON.stringify(overlayPackage.dependencies) ===
+        JSON.stringify({
+          "@moltzap/openclaw-channel":
+            "file:./tarballs/moltzap-openclaw-channel.tgz",
+          openclaw: "2026.7.1-2",
+        }),
+    "the application overlay must install the exact stable OpenClaw host",
+  );
+  requireCondition(
+    channelPackage.peerDependencies?.openclaw === "2026.7.1-2" &&
+      channelPackage.peerDependenciesMeta?.openclaw?.optional === true &&
+      channelPackage.dependencies?.openclaw === undefined,
+    "the adapter must preserve its exact optional host peer without a runtime dependency edge",
   );
   requireCondition(
     /ENTRYPOINT \["node", "\/opt\/moltzap\/dist\/cluster\/controller\/main\.js"\]/.test(
@@ -431,6 +449,9 @@ async function verifyControllerImageAssembly() {
     "/opt/moltzap/dist",
     "/opt/moltzap/register-daemon.mjs",
     'await import("./node_modules/@moltzap/openclaw-channel/dist/openclaw-entry.js")',
+    "cp -a node_modules/@moltzap/openclaw-channel/. /application-overlay/openclaw-channel/",
+    "rm -rf node_modules/@moltzap/openclaw-channel",
+    "cp -a node_modules /application-overlay/node_modules",
   ]) {
     requireCondition(
       dockerfile.includes(expected),
@@ -679,10 +700,9 @@ function verifyRemovedFamilies(checker, facades) {
 
   const network = facades["./network"];
   const agents = facades["./agents"];
-  requireMembersAbsent(checker, network, "Endpoint", ["open", "send"]);
+  requireMembersAbsent(checker, network, "Endpoint", ["open"]);
   requireMembersAbsent(checker, network, "EndpointTransport", [
     "openConversation",
-    "send",
   ]);
   requireMembersAbsent(checker, network, "ConversationSocket", ["send"]);
   requireMembersAbsent(checker, network, "AgentConnection", [
@@ -711,21 +731,21 @@ function verifyRemovedFamilies(checker, facades) {
     "store",
   ]);
 
-  requireMembers(checker, network, "Endpoint", ["messages", "socket", "start"]);
+  requireMembers(checker, network, "Endpoint", ["messages", "send", "socket"]);
   requireMembers(checker, facades["."], "Endpoint", [
     "messages",
+    "send",
     "socket",
-    "start",
   ]);
   requireMembers(checker, network, "ConversationAddress", [
-    "conversationId",
+    "destination",
     "participants",
   ]);
   requireMembers(checker, facades["."], "ConversationAddress", [
-    "conversationId",
+    "destination",
     "participants",
   ]);
-  requireMembers(checker, network, "EndpointTransport", ["received", "start"]);
+  requireMembers(checker, network, "EndpointTransport", ["received", "send"]);
   requireMembers(checker, network, "ConversationSocket", [
     "address",
     "endpoint",
@@ -754,42 +774,36 @@ function verifyRemovedFamilies(checker, facades) {
     network,
     "Endpoint",
     "messages",
-    "HarnessTurn",
+    "InboundDelivery",
   );
-  requireSemanticMemberType(
-    checker,
-    network,
-    "Endpoint",
-    "start",
-    "StartInput",
-  );
+  requireSemanticMemberType(checker, network, "Endpoint", "send", "SendInput");
   requireSemanticMemberType(
     checker,
     facades["."],
     "Endpoint",
-    "start",
-    "StartInput",
+    "send",
+    "SendInput",
   );
   requireSemanticMemberType(
     checker,
     network,
     "EndpointTransport",
     "received",
-    "HarnessTurn",
+    "InboundDelivery",
   );
   requireSemanticMemberType(
     checker,
     network,
     "EndpointTransport",
-    "start",
-    "StartInput",
+    "send",
+    "SendInput",
   );
   requireSemanticMemberType(
     checker,
     network,
     "ConversationSocket",
     "receive",
-    "HarnessTurn",
+    "InboundDelivery",
   );
   requireSemanticMemberType(
     checker,
@@ -930,7 +944,11 @@ async function verifyConsumerImports(archives, census) {
             moduleResolution: "NodeNext",
             noEmit: true,
             noUncheckedIndexedAccess: true,
-            skipLibCheck: false,
+            // Simulator intentionally exposes OpenClaw's native policy types.
+            // Stable OpenClaw's bundled Zod declarations fail TypeScript 6
+            // variance checks; consumer source stays strict, and the census
+            // below validates the packed Simulator facades.
+            skipLibCheck: true,
             strict: true,
             target: "ES2023",
             verbatimModuleSyntax: true,
@@ -980,18 +998,18 @@ async function verifyConsumerImports(archives, census) {
       'const simulator = await import("@moltzap/simulator");',
       'const network = await import("@moltzap/simulator/network");',
       'const { Schema } = await import("effect");',
-      'const conversationId = Schema.decodeSync(client.ConversationId)("00000000-0000-4000-8000-000000000104");',
+      'const destination = Schema.decodeSync(client.MessageAddressInput)("agent:peer");',
       'const participant = network.makeParticipantHandle("observer", Schema.decodeSync(identity.AgentId)("agt_AAAAAAAAAAAAAAAAAAAAAA"));',
       "const participants = [participant];",
-      "const address = new network.ConversationAddress(conversationId, participants);",
-      "const rootAddress = new simulator.ConversationAddress(conversationId, participants);",
+      "const address = new network.ConversationAddress(destination, participants);",
+      "const rootAddress = new simulator.ConversationAddress(destination, participants);",
       "participants.push(participant);",
-      'if (rootAddress.constructor !== address.constructor || !Object.isFrozen(address) || !Object.isFrozen(address.participants) || address.participants.length !== 1) throw new Error("packed ConversationAddress does not preserve public immutable construction");',
+      'if (rootAddress.constructor !== address.constructor || address.destination !== destination || !Object.isFrozen(address) || !Object.isFrozen(address.participants) || address.participants.length !== 1) throw new Error("packed ConversationAddress does not preserve public immutable construction");',
       "let rejectedEmptyParticipants = false;",
-      "try { new network.ConversationAddress(conversationId, []); } catch (cause) { rejectedEmptyParticipants = cause instanceof TypeError; }",
+      "try { new network.ConversationAddress(destination, []); } catch (cause) { rejectedEmptyParticipants = cause instanceof TypeError; }",
       'if (!rejectedEmptyParticipants) throw new Error("packed ConversationAddress accepted empty participants");',
       "let rejectedDuplicateParticipants = false;",
-      "try { new network.ConversationAddress(conversationId, [participant, participant]); } catch (cause) { rejectedDuplicateParticipants = cause instanceof TypeError; }",
+      "try { new network.ConversationAddress(destination, [participant, participant]); } catch (cause) { rejectedDuplicateParticipants = cause instanceof TypeError; }",
       'if (!rejectedDuplicateParticipants) throw new Error("packed ConversationAddress accepted duplicate participant identities");',
       "",
     ].join("\n"),

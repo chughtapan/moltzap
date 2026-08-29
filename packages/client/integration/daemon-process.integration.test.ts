@@ -1,25 +1,15 @@
-/** @file Two real moltzapd processes prove the public START and bound-reply path. */
+/** @file Two real daemons certify, deliver, and recover addressed posts. */
 
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
-import { AgentCard } from "@moltzap/identity";
-import {
-  Duration,
-  Effect,
-  Either,
-  Fiber,
-  Option,
-  Schema,
-  Stream,
-} from "effect";
+import { AgentCard, type AgentName } from "@moltzap/identity";
+import { Duration, Effect, Fiber, Option, Schema, Stream } from "effect";
 import { expect, it } from "vitest";
 import {
-  acquireHarnessClient,
+  acquireHarnessEndpoint,
+  AgentAddress,
   type Content,
-  type ConversationId,
-  createConversationId,
-  type HarnessTurn,
+  type InboundDelivery,
 } from "../src/index.js";
-import { openEndpointStore } from "../src/endpoint/store.js";
 import {
   acquireDaemonManagementClient,
   acquireDaemonProcess,
@@ -31,34 +21,52 @@ import {
   stopProcess,
 } from "./daemon-process-harness.js";
 
-const TURN_TIMEOUT = Duration.seconds(60);
-const REPLY_PROGRESS_TIMEOUT = Duration.seconds(20);
+const DELIVERY_TIMEOUT = Duration.seconds(60);
 const UNREGISTERED_TOOL_CATALOG = ["register", "status"] as const;
 const ACTIVE_TOOL_CATALOG = [
+  "acknowledge_delivery",
   "read_conversation",
-  "reply",
   "search_agents",
   "search_conversations",
-  "start_conversation",
+  "send_message",
   "status",
 ] as const;
 
 const initialContent = [
   { type: "text", text: "hello from the first real daemon" },
 ] as const satisfies Content;
-const replyContent = [
-  { type: "text", text: "bound reply from the second real daemon" },
+const responseContent = [
+  { type: "text", text: "addressed response from the second real daemon" },
 ] as const satisfies Content;
 
-const requireTurn = (
-  optional: Option.Option<HarnessTurn>,
-  description: string,
-): Effect.Effect<HarnessTurn, ProcessTestError> =>
-  Option.match(optional, {
+function directAddress(agentName: AgentName): AgentAddress {
+  return Schema.decodeUnknownSync(AgentAddress)(`agent:${agentName}`);
+}
+
+function requireDelivery(
+  delivery: Option.Option<InboundDelivery>,
+): Effect.Effect<InboundDelivery, ProcessTestError> {
+  return Option.match(delivery, {
     onNone: () =>
-      Effect.fail(new ProcessTestError({ message: `${description} ended` })),
+      Effect.fail(
+        new ProcessTestError({ message: "message subscription ended" }),
+      ),
     onSome: Effect.succeed,
   });
+}
+
+function nextDelivery<E>(stream: Stream.Stream<InboundDelivery, E>) {
+  return Stream.runHead(stream).pipe(
+    Effect.timeoutFail({
+      duration: DELIVERY_TIMEOUT,
+      onTimeout: () =>
+        new ProcessTestError({
+          message: "timed out awaiting certified delivery",
+        }),
+    }),
+    Effect.flatMap(requireDelivery),
+  );
+}
 
 const decodeManagementCard = (encoded: unknown) =>
   Schema.decodeUnknown(AgentCard)(encoded).pipe(
@@ -71,15 +79,6 @@ const decodeManagementCard = (encoded: unknown) =>
     ),
   );
 
-const nextTurn = <E>(stream: Stream.Stream<HarnessTurn, E>) =>
-  Stream.runHead(stream).pipe(
-    Effect.timeoutFail({
-      duration: TURN_TIMEOUT,
-      onTimeout: () =>
-        new ProcessTestError({ message: "timed out awaiting certified turn" }),
-    }),
-  );
-
 const registerFixture = (fixture: DaemonProcessFixture) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -88,6 +87,7 @@ const registerFixture = (fixture: DaemonProcessFixture) =>
         UNREGISTERED_TOOL_CATALOG,
       );
       expect(yield* management.status()).toEqual({ kind: "unregistered" });
+
       const registered = yield* management.register(
         makeRegistrationRequest(fixture),
       );
@@ -102,45 +102,18 @@ const registerFixture = (fixture: DaemonProcessFixture) =>
 
 const readDurableHistory = (
   fixture: DaemonProcessFixture,
-  conversationId: ConversationId,
+  address: AgentAddress,
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
       const management = yield* acquireDaemonManagementClient(fixture.endpoint);
-      expect(yield* management.listToolNames()).toEqual(ACTIVE_TOOL_CATALOG);
-      const status = yield* management.status();
-      expect(status.kind).toBe("active");
-      if (status.kind === "active") {
-        const agentCard = yield* decodeManagementCard(status.agentCard);
-        expect(agentCard.agentName).toBe(fixture.agentName);
-      }
-      const conversations = yield* management.searchConversations();
-      expect(conversations).toEqual({
+      expect(yield* management.searchConversations()).toEqual({
         kind: "page",
-        conversationIds: [conversationId],
+        addresses: [address],
         hasMore: false,
       });
-      return yield* management.readConversation(conversationId);
+      return yield* management.readConversation(address);
     }),
-  );
-
-const describeStore = (fixture: DaemonProcessFixture) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const store = yield* openEndpointStore(fixture.stateDirectory);
-      const recovery = yield* store.recover();
-      const counts = new Map<string, number>();
-      const subjects = new Map<string, Set<string>>();
-      for (const evidence of recovery.evidence) {
-        counts.set(evidence.kind, (counts.get(evidence.kind) ?? 0) + 1);
-        const retained = subjects.get(evidence.kind) ?? new Set<string>();
-        retained.add(evidence.subjectId);
-        subjects.set(evidence.kind, retained);
-      }
-      return `staged=${recovery.stagedRecords.length},certified=${recovery.certifiedRecords.length},evidence=${JSON.stringify(Object.fromEntries(counts))},subjects=${JSON.stringify(Object.fromEntries([...subjects].map(([kind, values]) => [kind, values.size])))}`;
-    }),
-  ).pipe(
-    Effect.catchAll((error) => Effect.succeed(`unreadable:${error.reason}`)),
   );
 
 const processBehavior = Effect.gen(function* () {
@@ -152,13 +125,12 @@ const processBehavior = Effect.gen(function* () {
     ] as const,
     { concurrency: 2 },
   );
-  const callerDaemon = yield* acquireDaemonProcess(callerFixture);
+  yield* acquireDaemonProcess(callerFixture);
   const targetDaemon = yield* acquireDaemonProcess(targetFixture);
 
   yield* registerFixture(callerFixture);
   yield* registerFixture(targetFixture);
 
-  const absentConversationId = yield* createConversationId();
   yield* Effect.scoped(
     Effect.gen(function* () {
       const management = yield* acquireDaemonManagementClient(
@@ -166,106 +138,84 @@ const processBehavior = Effect.gen(function* () {
       );
       const malformed = yield* management.callExpectingProtocolError(
         "read_conversation",
-        { conversationId: "not-a-conversation-id" },
+        { conversationId: "retired-public-identifier" },
       );
       expect(malformed.code).toBe(ProtocolErrorCode.InvalidParams);
       expect(malformed.data).toBeUndefined();
-
-      const missing = yield* management.callExpectingProtocolError(
-        "read_conversation",
-        { conversationId: absentConversationId },
-      );
-      expect(missing.code).toBe(ProtocolErrorCode.InternalError);
-      expect(missing.data).toEqual({ reason: "not-found" });
     }),
   );
 
-  const conversationId = yield* createConversationId();
+  const callerAddress = directAddress(callerFixture.agentName);
+  const targetAddress = directAddress(targetFixture.agentName);
   yield* Effect.scoped(
     Effect.gen(function* () {
-      const caller = yield* acquireHarnessClient(callerFixture.endpoint);
-      const target = yield* acquireHarnessClient(targetFixture.endpoint);
-      const callerTurnFiber = yield* Effect.forkScoped(nextTurn(caller.turns));
-      const targetTurnFiber = yield* Effect.forkScoped(nextTurn(target.turns));
+      const caller = yield* acquireHarnessEndpoint(callerFixture.endpoint);
+      const target = yield* acquireHarnessEndpoint(targetFixture.endpoint);
+      const callerDelivery = yield* Effect.forkScoped(
+        nextDelivery(caller.messages),
+      );
+      const targetDelivery = yield* Effect.forkScoped(
+        nextDelivery(target.messages),
+      );
 
-      yield* caller.start({
-        conversationId,
-        peers: [targetFixture.agentName],
+      yield* caller.send({
+        to: targetAddress,
         content: initialContent,
       });
-      const targetTurn = yield* Fiber.join(targetTurnFiber).pipe(
-        Effect.flatMap((turn) => requireTurn(turn, "target turn stream")),
-      );
-      expect(targetTurn.conversationId).toBe(conversationId);
-      expect(targetTurn.author.agentName).toBe(callerFixture.agentName);
-      expect(targetTurn.peers.map(({ agentName }) => agentName)).toEqual([
-        callerFixture.agentName,
-      ]);
-      expect(targetTurn.content).toEqual(initialContent);
+      const targetInbound = yield* Fiber.join(targetDelivery);
+      expect(targetInbound.message).toMatchObject({
+        kind: "direct",
+        address: callerAddress,
+        sender: callerAddress,
+        content: initialContent,
+      });
+      yield* targetInbound.acknowledge;
 
-      const reply = yield* targetTurn
-        .reply(replyContent)
-        .pipe(Effect.timeoutOption(REPLY_PROGRESS_TIMEOUT), Effect.either);
-      if (Either.isLeft(reply)) {
-        return yield* Effect.fail(
-          new ProcessTestError({
-            message: `bound reply failed: ${reply.left.reason}`,
-            cause: reply.left,
-          }),
-        );
-      }
-      if (Option.isNone(reply.right)) {
-        yield* Effect.all(
-          [stopProcess(callerDaemon), stopProcess(targetDaemon)] as const,
-          { concurrency: 2, discard: true },
-        );
-        const [callerStore, targetStore] = yield* Effect.all(
-          [describeStore(callerFixture), describeStore(targetFixture)] as const,
-          { concurrency: 2 },
-        );
-        return yield* Effect.fail(
-          new ProcessTestError({
-            message:
-              `bound reply made no progress; caller=${callerStore}; ` +
-              `target=${targetStore}`,
-          }),
-        );
-      }
-      const callerTurn = yield* Fiber.join(callerTurnFiber).pipe(
-        Effect.flatMap((turn) => requireTurn(turn, "caller turn stream")),
-      );
-      expect(callerTurn.conversationId).toBe(conversationId);
-      expect(callerTurn.author.agentName).toBe(targetFixture.agentName);
-      expect(callerTurn.peers.map(({ agentName }) => agentName)).toEqual([
-        targetFixture.agentName,
-      ]);
-      expect(callerTurn.content).toEqual(replyContent);
+      yield* target.send({
+        to: callerAddress,
+        content: responseContent,
+      });
+      const callerInbound = yield* Fiber.join(callerDelivery);
+      expect(callerInbound.message).toMatchObject({
+        kind: "direct",
+        address: targetAddress,
+        sender: targetAddress,
+        content: responseContent,
+      });
+      yield* callerInbound.acknowledge;
     }),
   );
 
-  for (const fixture of [callerFixture, targetFixture]) {
-    const history = yield* readDurableHistory(fixture, conversationId);
-    expect(history.continuation).toBeNull();
-    expect(history.records).toHaveLength(2);
-    expect(
-      history.records.map(
-        ({ actionCertifiedRecord }) => actionCertifiedRecord.action.actionId,
-      ),
-    ).toEqual(["START", "MULTICAST"]);
-    expect(
-      history.records.map(
-        ({ actionCertifiedRecord }) => actionCertifiedRecord.action.content,
-      ),
-    ).toEqual([initialContent, replyContent]);
-  }
+  const callerHistory = yield* readDurableHistory(callerFixture, targetAddress);
+  const targetHistory = yield* readDurableHistory(targetFixture, callerAddress);
+  expect(callerHistory.continuation).toBeNull();
+  expect(callerHistory.records).toHaveLength(2);
+  expect(
+    callerHistory.records.map(({ recordCore }) => recordCore.action.kind),
+  ).toEqual(["GENESIS", "POST"]);
+  expect(
+    callerHistory.records.map(
+      ({ recordCore }) => recordCore.action.postIntent.content,
+    ),
+  ).toEqual([initialContent, responseContent]);
+  expect(targetHistory.continuation).toBeNull();
+  expect(targetHistory.records).toHaveLength(2);
+  expect(
+    targetHistory.records.map(({ recordCore }) => recordCore.action.kind),
+  ).toEqual(["GENESIS", "POST"]);
+  expect(
+    targetHistory.records.map(
+      ({ recordCore }) => recordCore.action.postIntent.content,
+    ),
+  ).toEqual([initialContent, responseContent]);
 
   yield* stopProcess(targetDaemon);
   yield* acquireDaemonProcess(targetFixture);
-  const recovered = yield* readDurableHistory(targetFixture, conversationId);
+  const recovered = yield* readDurableHistory(targetFixture, callerAddress);
   expect(recovered.records).toHaveLength(2);
 }).pipe(Effect.scoped);
 
-it("certifies START and one bound reply across two restarted real daemons", () => {
+it("certifies addressed posts across two restarted real daemons", () => {
   expect.hasAssertions();
   return Effect.runPromise(processBehavior);
 }, 180_000);
