@@ -66,11 +66,11 @@ _Class_
 export class ConversationAddress {
   readonly [conversationAddressTypeId] = conversationAddressTypeId;
 
-  readonly conversationId: ConversationId;
+  readonly destination: MessageAddressInput;
   readonly participants: ConversationParticipants;
 
   constructor(
-    conversationId: ConversationId,
+    destination: MessageAddressInput,
     participants: ConversationParticipants,
   ) {
     if (participants.length === 0) {
@@ -86,7 +86,7 @@ export class ConversationAddress {
         "conversation participants must be unique by AgentId",
       );
     }
-    this.conversationId = conversationId;
+    this.destination = destination;
     this.participants = Object.freeze([first, ...rest]);
     Object.freeze(this);
   }
@@ -117,8 +117,8 @@ _Class_
 export class ConversationSocket {
   readonly [conversationSocketTypeId] = conversationSocketTypeId;
 
-  /** Ordered semantic turns for this endpoint and conversation. */
-  readonly messages: Stream.Stream<HarnessTurn, NetworkError>;
+  /** Ordered addressed deliveries for this endpoint and conversation. */
+  readonly messages: Stream.Stream<InboundDelivery, NetworkError>;
 
   readonly endpoint: ParticipantHandle;
   readonly address: ConversationAddress;
@@ -126,7 +126,7 @@ export class ConversationSocket {
   private constructor(
     endpoint: ParticipantHandle,
     address: ConversationAddress,
-    messages: Stream.Stream<HarnessTurn, NetworkError>,
+    messages: Stream.Stream<InboundDelivery, NetworkError>,
   ) {
     this.endpoint = endpoint;
     this.address = address;
@@ -136,17 +136,17 @@ export class ConversationSocket {
   static [conversationSocketConstruction](
     endpoint: ParticipantHandle,
     address: ConversationAddress,
-    messages: Stream.Stream<HarnessTurn, NetworkError>,
+    messages: Stream.Stream<InboundDelivery, NetworkError>,
   ): ConversationSocket {
     return new ConversationSocket(endpoint, address, messages);
   }
 
   /**
-   * Receive the next ordered turn. Selection policy belongs in the consuming
-   * Effect, so the socket never skips an earlier turn.
-   * @returns The next turn, or a typed receive failure when the stream ends.
+   * Receive the next ordered delivery. Selection policy belongs in the
+   * consuming Effect, so the socket never skips an earlier delivery.
+   * @returns The next delivery, or a typed receive failure when the stream ends.
    */
-  receive(): Effect.Effect<HarnessTurn, NetworkError> {
+  receive(): Effect.Effect<InboundDelivery, NetworkError> {
     return this.messages.pipe(
       Stream.runHead,
       Effect.flatMap(
@@ -155,7 +155,7 @@ export class ConversationSocket {
             Effect.fail(
               networkError(
                 "receive",
-                `conversation ${this.address.conversationId} ended before another turn arrived`,
+                `destination ${this.address.destination} ended before another delivery arrived`,
               ),
             ),
           onSome: Effect.succeed,
@@ -168,7 +168,7 @@ export class ConversationSocket {
 
 A conversation address bound to exactly one controlled endpoint.
 
-### [`Endpoint`](./endpoint.ts#L30)
+### [`Endpoint`](./endpoint.ts#L34)
 
 _Class_
 
@@ -198,19 +198,19 @@ export class Endpoint<Name extends string = string> {
   }
 
   /**
-   * Start one conversation through this endpoint's semantic daemon client.
-   * @param input Caller-minted conversation identity, peers, and initial content.
-   * @returns Completion after the daemon accepts the semantic START.
+   * Send one explicit addressed post through the endpoint daemon.
+   * @param input Durable host identity, destination, and nonempty content.
+   * @returns Completion after the daemon certifies the addressed post.
    */
-  start(input: StartInput): Effect.Effect<void, NetworkError> {
-    return this.transport.start(input);
+  send(input: SendInput): Effect.Effect<void, NetworkError> {
+    return this.transport.send(input);
   }
 
   /**
-   * Observe semantic turns delivered after this stream is subscribed.
-   * @returns A live fan-out stream of turns for this endpoint.
+   * Observe addressed deliveries emitted after this stream is subscribed.
+   * @returns A live fan-out stream of deliveries for this endpoint.
    */
-  messages(): Stream.Stream<HarnessTurn, NetworkError> {
+  messages(): Stream.Stream<InboundDelivery, NetworkError> {
     return this.inbox.messages;
   }
 
@@ -227,7 +227,7 @@ export class Endpoint<Name extends string = string> {
     );
     return isParticipant
       ? this.inbox
-          .conversation(address.conversationId)
+          .conversation(address.destination)
           .pipe(
             Effect.map((messages) =>
               makeConversationSocket(this.participant, address, messages),
@@ -245,18 +245,18 @@ export class Endpoint<Name extends string = string> {
 
 A run-scoped participant controlled directly by the experiment program.
 
-### [`EndpointInbox`](./endpoint.ts#L20)
+### [`EndpointInbox`](./endpoint.ts#L24)
 
 _Interface_
 
 ```ts
 export interface EndpointInbox {
-  /** Live fan-out stream for observers of every endpoint turn. */
-  readonly messages: Stream.Stream<HarnessTurn, NetworkError>;
-  /** Obtain the shared ordered cursor for one bound conversation. */
+  /** Live fan-out stream for observers of every endpoint delivery. */
+  readonly messages: Stream.Stream<InboundDelivery, NetworkError>;
+  /** Obtain the shared ordered cursor for one explicit destination. */
   readonly conversation: (
-    conversationId: ConversationId,
-  ) => Effect.Effect<Stream.Stream<HarnessTurn, NetworkError>>;
+    destination: MessageAddressInput,
+  ) => Effect.Effect<Stream.Stream<InboundDelivery, NetworkError>>;
 }
 ```
 
@@ -268,13 +268,13 @@ _Interface_
 
 ```ts
 export interface EndpointTransport {
-  readonly received: Stream.Stream<HarnessTurn, NetworkError>;
-  readonly start: (input: StartInput) => Effect.Effect<void, NetworkError>;
+  readonly received: Stream.Stream<InboundDelivery, NetworkError>;
+  readonly send: (input: SendInput) => Effect.Effect<void, NetworkError>;
 }
 ```
 
 A ready, scope-owned endpoint attachment. The receive ingress is subscribed
-before acquisition returns and retains turns until its consumer advances.
+before acquisition returns and retains deliveries until its consumer advances.
 
 ### [`InboundLinkStage`](./link.ts#L69)
 
@@ -486,7 +486,7 @@ Construct an agent handle at the simulator network boundary.
 
 **Returns:** Nominal autonomous-agent identity.
 
-### [`makeEndpoint`](./endpoint.ts#L105)
+### [`makeEndpoint`](./endpoint.ts#L109)
 
 _Function_
 
@@ -528,7 +528,7 @@ Construct a nominal stop report at a platform boundary.
 
 **Returns:** Immutable evidence that the Router scope released.
 
-### [`Network`](./endpoint.ts#L122)
+### [`Network`](./endpoint.ts#L126)
 
 _Class_
 
@@ -588,7 +588,7 @@ export type NetworkOperation = typeof networkOperation.Type;
 
 Network operation names used by typed failures.
 
-### [`NetworkService`](./endpoint.ts#L115)
+### [`NetworkService`](./endpoint.ts#L119)
 
 _Interface_
 

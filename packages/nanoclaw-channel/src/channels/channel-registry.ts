@@ -12,7 +12,7 @@ const registrations = new Map<string, ChannelRegistration>();
 /**
  * Records an adapter factory under its host-facing channel name.
  * @param name Channel name NanoClaw uses for registration.
- * @param registration Factory and defaults exposed to NanoClaw.
+ * @param registration Factory and container configuration exposed to NanoClaw.
  */
 export function registerChannelAdapter(
   name: string,

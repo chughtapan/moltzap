@@ -80,6 +80,22 @@ export function mintContinuation(retained: ReadonlySet<string>): string {
 }
 
 /**
+ * Mints one collision-checked durable delivery token.
+ *
+ * @param retained Existing durable token keys.
+ * @returns One fresh `dlv_` token over 32 random bytes.
+ */
+export function mintDeliveryToken(retained: ReadonlySet<string>): string {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const deliveryToken = `dlv_${randomBytes(32).toString("base64url")}`;
+    if (!retained.has(deliveryToken)) {
+      return deliveryToken;
+    }
+  }
+  throw new StoreSignal("persistence");
+}
+
+/**
  * Reads and copies one nullable SQLite BLOB.
  *
  * @param row SQLite result row.

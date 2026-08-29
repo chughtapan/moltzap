@@ -1,14 +1,24 @@
-/** @file Regression coverage for controlled endpoint caching and turn inboxes. */
+/** @file Regression coverage for controlled endpoint caching and delivery inboxes. */
 
 import { assert, it } from "@effect/vitest";
 import {
-  AgentName,
-  ConversationId,
-  type HarnessTurn,
-  type VerifiedAgentCard,
+  AgentAddress,
+  Content,
+  GroupAddress,
+  type InboundDelivery,
+  MessageAddressInput,
+  PostId,
 } from "@moltzap/client";
-import { AgentId } from "@moltzap/identity";
-import { Effect, Exit, Queue, Schema, Stream } from "effect";
+import { AgentId, AgentName } from "@moltzap/identity";
+import {
+  Duration,
+  Effect,
+  Encoding,
+  Exit,
+  Queue,
+  Schema,
+  Stream,
+} from "effect";
 import { makeConversationAddress } from "../network/conversation.js";
 import { NetworkError } from "../network/failure.js";
 import { makeParticipantHandle } from "../network/participant.js";
@@ -19,46 +29,62 @@ import {
 import { makeLinkFabric } from "./link-fabric.js";
 
 const ENDPOINT_ID = Schema.decodeSync(AgentId)("agt_AAAAAAAAAAAAAAAAAAAAAA");
+const AUTHOR_ID = Schema.decodeSync(AgentId)("agt_AQAAAAAAAAAAAAAAAAAAAA");
+const ZETA_ID = Schema.decodeSync(AgentId)("agt_AgAAAAAAAAAAAAAAAAAAAA");
 const ENDPOINT_NAME = Schema.decodeSync(AgentName)("observer");
-const AUTHOR_NAME = Schema.decodeSync(AgentName)("author");
-const CONVERSATION_ID = Schema.decodeSync(ConversationId)(
-  "00000000-0000-4000-8000-000000000103",
+const ALPHA_NAME = Schema.decodeSync(AgentName)("alpha");
+const ZETA_NAME = Schema.decodeSync(AgentName)("zeta");
+const AUTHOR_ADDRESS = Schema.decodeSync(AgentAddress)("agent:author");
+const ALPHA_ADDRESS = Schema.decodeSync(AgentAddress)("agent:alpha");
+const ENDPOINT_ADDRESS = Schema.decodeSync(AgentAddress)("agent:observer");
+const ZETA_ADDRESS = Schema.decodeSync(AgentAddress)("agent:zeta");
+const NONCANONICAL_GROUP_DESTINATION =
+  Schema.decodeSync(MessageAddressInput)("group:zeta,alpha");
+const CANONICAL_GROUP_ADDRESS = Schema.decodeSync(GroupAddress)(
+  "group:alpha,observer,zeta",
 );
 const PROXY_ORIGIN = new URL("http://fault-proxy.example.test:43120");
 
-function turn(text: string, reply?: HarnessTurn["reply"]): HarnessTurn {
-  const author = fakeCard(AUTHOR_NAME);
+function delivery(input: {
+  readonly byte: number;
+  readonly text: string;
+  readonly acknowledge?: Effect.Effect<void>;
+}): InboundDelivery {
   return {
-    conversationId: CONVERSATION_ID,
-    peers: [author],
-    author,
-    content: [{ type: "text", text }],
-    reply: reply ?? (() => Effect.void),
+    message: {
+      kind: "direct",
+      postId: postId(input.byte),
+      address: AUTHOR_ADDRESS,
+      sender: AUTHOR_ADDRESS,
+      content: Schema.decodeSync(Content)([{ type: "text", text: input.text }]),
+    },
+    acknowledge: input.acknowledge ?? Effect.void,
   };
 }
 
-function fakeCard(agentName: typeof AgentName.Type): VerifiedAgentCard {
-  const candidate: unknown = {
-    agentId: "agt_BBBBBBBBBBBBBBBBBBBBBB",
-    agentName,
+function groupDelivery(): InboundDelivery {
+  return {
+    message: {
+      kind: "group",
+      postId: postId(3),
+      address: CANONICAL_GROUP_ADDRESS,
+      sender: ALPHA_ADDRESS,
+      members: [ALPHA_ADDRESS, ENDPOINT_ADDRESS, ZETA_ADDRESS],
+      content: Schema.decodeSync(Content)([
+        { type: "text", text: "canonical group delivery" },
+      ]),
+    },
+    acknowledge: Effect.void,
   };
-  if (!isFakeVerifiedAgentCard(candidate)) {
-    throw new Error("invalid VerifiedAgentCard test fixture");
-  }
-  return candidate;
 }
 
-function isFakeVerifiedAgentCard(value: unknown): value is VerifiedAgentCard {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  if (!("agentId" in value) || typeof value.agentId !== "string") {
-    return false;
-  }
-  return "agentName" in value && typeof value.agentName === "string";
+function postId(byte: number) {
+  return Schema.decodeSync(PostId)(
+    `pst_${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`,
+  );
 }
 
-function cachingEndpointAcquirer(turns: Queue.Queue<HarnessTurn>): {
+function cachingEndpointAcquirer(deliveries: Queue.Queue<InboundDelivery>): {
   readonly acquireEndpoint: AcquireControlledEndpoint;
   readonly acquisitionCount: () => number;
 } {
@@ -70,32 +96,20 @@ function cachingEndpointAcquirer(turns: Queue.Queue<HarnessTurn>): {
       return {
         participant: makeParticipantHandle(name, ENDPOINT_ID),
         transport: {
-          received: Stream.fromQueue(turns),
-          start: () => Effect.void,
+          received: Stream.fromQueue(deliveries),
+          send: () => Effect.void,
         },
       };
     });
   return { acquireEndpoint, acquisitionCount: () => acquisitions };
 }
 
-function captureReplyText(capture: { value?: string }): HarnessTurn["reply"] {
-  return (content) =>
-    Effect.sync(() => {
-      const [part] = content;
-      if (part?.type === "text") {
-        capture.value = part.text;
-      } else {
-        delete capture.value;
-      }
-    });
-}
-
-it("caches one daemon endpoint and retains one shared conversation cursor", () =>
+it("caches one daemon endpoint and retains one shared address cursor", () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const turns = yield* Queue.unbounded<HarnessTurn>();
-        const endpointAcquirer = cachingEndpointAcquirer(turns);
+        const deliveries = yield* Queue.unbounded<InboundDelivery>();
+        const endpointAcquirer = cachingEndpointAcquirer(deliveries);
         const fabric = yield* makeLinkFabric();
         const network = yield* makeNetworkService({
           acquireEndpoint: endpointAcquirer.acquireEndpoint,
@@ -104,29 +118,84 @@ it("caches one daemon endpoint and retains one shared conversation cursor", () =
         });
         const endpoint = yield* network.endpoint(ENDPOINT_NAME);
         const repeated = yield* network.endpoint(ENDPOINT_NAME);
-        const address = makeConversationAddress(CONVERSATION_ID, [
+        const address = makeConversationAddress(AUTHOR_ADDRESS, [
           endpoint.participant,
         ]);
         const socket = yield* endpoint.socket(address);
-        const replyText: { value?: string } = {};
+        let acknowledged = false;
 
-        yield* Queue.offer(turns, turn("first", captureReplyText(replyText)));
-        yield* Queue.offer(turns, turn("second"));
+        yield* Queue.offer(
+          deliveries,
+          delivery({
+            byte: 1,
+            text: "first",
+            acknowledge: Effect.sync(() => {
+              acknowledged = true;
+            }),
+          }),
+        );
+        yield* Queue.offer(deliveries, delivery({ byte: 2, text: "second" }));
         const first = yield* socket.receive();
         const second = yield* socket.receive();
-        yield* first.reply([{ type: "text", text: "ack" }]);
+        yield* first.acknowledge;
 
         assert.strictEqual(endpoint, repeated);
         assert.strictEqual(endpointAcquirer.acquisitionCount(), 1);
-        assert.deepStrictEqual(first.content, [
+        assert.deepStrictEqual(first.message.content, [
           { type: "text", text: "first" },
         ]);
-        assert.deepStrictEqual(second.content, [
+        assert.deepStrictEqual(second.message.content, [
           { type: "text", text: "second" },
         ]);
-        assert.strictEqual(replyText.value, "ack");
-        yield* fabric.driver.disable(first.author.agentId, ENDPOINT_ID);
-        yield* fabric.driver.enable(first.author.agentId, ENDPOINT_ID);
+        assert.isTrue(acknowledged);
+        yield* fabric.driver.disable(AUTHOR_ID, ENDPOINT_ID);
+        yield* fabric.driver.enable(AUTHOR_ID, ENDPOINT_ID);
+      }),
+    ),
+  ));
+
+it("routes an input-order group socket to the canonical delivered group", () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const deliveries = yield* Queue.unbounded<InboundDelivery>();
+        const endpointAcquirer = cachingEndpointAcquirer(deliveries);
+        const fabric = yield* makeLinkFabric();
+        const network = yield* makeNetworkService({
+          acquireEndpoint: endpointAcquirer.acquireEndpoint,
+          routerOrigin: PROXY_ORIGIN,
+          interceptor: fabric.interceptor,
+        });
+        const endpoint = yield* network.endpoint(ENDPOINT_NAME);
+        const alpha = makeParticipantHandle(ALPHA_NAME, AUTHOR_ID);
+        const zeta = makeParticipantHandle(ZETA_NAME, ZETA_ID);
+        const address = makeConversationAddress(
+          NONCANONICAL_GROUP_DESTINATION,
+          [endpoint.participant, alpha, zeta],
+        );
+        const socket = yield* endpoint.socket(address);
+
+        yield* Queue.offer(deliveries, groupDelivery());
+        const received = yield* socket.receive().pipe(
+          Effect.timeoutFail({
+            duration: Duration.seconds(1),
+            onTimeout: () =>
+              NetworkError.make({
+                operation: "receive",
+                detail: "canonical group delivery did not reach its socket",
+              }),
+          }),
+        );
+
+        assert.strictEqual(received.message.address, CANONICAL_GROUP_ADDRESS);
+        assert.strictEqual(received.message.kind, "group");
+        if (received.message.kind === "group") {
+          assert.deepStrictEqual(received.message.members, [
+            ALPHA_ADDRESS,
+            ENDPOINT_ADDRESS,
+            ZETA_ADDRESS,
+          ]);
+        }
       }),
     ),
   ));

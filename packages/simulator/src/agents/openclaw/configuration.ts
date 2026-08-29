@@ -22,13 +22,13 @@ export type OpenClawSandboxConfig = NonNullable<AgentDefaultsConfig["sandbox"]>;
 
 interface OpenClawConfigInput {
   readonly agentName: AgentName;
+  readonly messagingMode: "shared" | "private";
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
   readonly tools?: OpenClawToolsConfig;
   readonly sandbox?: OpenClawSandboxConfig;
   readonly gatewayToken: Redacted.Redacted;
   readonly gatewayBind?: "loopback" | "lan";
-  readonly channelPath?: string;
 }
 
 /**
@@ -54,8 +54,11 @@ export function buildOpenClawConfig(
       list: [{ id: input.agentName, default: true }],
     },
     ...(input.tools === undefined ? {} : { tools: input.tools }),
+    ...(input.messagingMode === "private"
+      ? { session: { dmScope: "per-account-channel-peer" as const } }
+      : {}),
     commands: { native: "auto", nativeSkills: "auto", restart: true },
-    ...pluginConfiguration(input.channelPath),
+    ...pluginConfiguration(),
     messages: {
       // Mid-turn traffic steers the active turn so social input is observed
       // without accumulating an independent simulator-owned mailbox.
@@ -67,6 +70,7 @@ export function buildOpenClawConfig(
         accounts: [
           {
             id: OPENCLAW_ACCOUNT_ID,
+            mode: input.messagingMode,
           },
         ],
       },
@@ -107,17 +111,12 @@ function mcpConfigSection(
   };
 }
 
-function pluginConfiguration(
-  channelPath?: string,
-): Pick<OpenClawConfig, "plugins"> {
-  return channelPath === undefined
-    ? {}
-    : {
-        plugins: {
-          entries: {
-            [OPENCLAW_EXTENSION_NAME]: { enabled: true },
-          },
-          load: { paths: [channelPath] },
-        },
-      };
+function pluginConfiguration(): Pick<OpenClawConfig, "plugins"> {
+  return {
+    plugins: {
+      entries: {
+        [OPENCLAW_EXTENSION_NAME]: { enabled: true },
+      },
+    },
+  };
 }

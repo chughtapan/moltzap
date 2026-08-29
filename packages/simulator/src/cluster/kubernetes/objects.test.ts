@@ -39,6 +39,7 @@ const APPLICATION_IMAGE = image.make(
 );
 const SECRET_CONTENT = "secret-content";
 const PARTIAL_ADMISSION_FIELD = "minCount";
+const OPENCLAW_CONFIG_PATH = "/var/run/moltzap/bootstrap/openclaw.json";
 const PLACEMENT = {
   nodeSelector: { "moltzap.dev/pool": "agents" },
   tolerations: [
@@ -74,6 +75,19 @@ function aggregateManifest(withPlacement = false) {
 }
 
 function sandboxFixture(withPlacement = false) {
+  return sandboxFixtureForEnvironment(
+    {
+      HOME: "/var/lib/moltzap/openclaw",
+      OPENCLAW_CONFIG_PATH,
+    },
+    withPlacement,
+  );
+}
+
+function sandboxFixtureForEnvironment(
+  environment: Readonly<Record<string, string>>,
+  withPlacement = false,
+) {
   const network = generateSocietyNetworkAuthority("mz-run");
   return sandboxManifest({
     namespace: "mz-run",
@@ -90,7 +104,7 @@ function sandboxFixture(withPlacement = false) {
     application: {
       image: APPLICATION_IMAGE,
       entrypoint: ["openclaw", "gateway", "run"],
-      environment: { HOME: "/var/lib/moltzap/openclaw" },
+      environment,
       credentials: ["OPENAI_API_KEY"],
       port: 18_789,
       resources: {
@@ -236,6 +250,10 @@ it("starts a registered daemon sidecar before the isolated application", () => {
                   value: `http://127.0.0.1:${String(DAEMON_MCP_PORT)}/mcp`,
                 },
                 {
+                  name: "OPENCLAW_CONFIG_PATH",
+                  value: OPENCLAW_CONFIG_PATH,
+                },
+                {
                   name: "OPENAI_API_KEY",
                   valueFrom: {
                     secretKeyRef: {
@@ -270,6 +288,7 @@ it("starts a registered daemon sidecar before the isolated application", () => {
   expect(encoded).not.toContain(SECRET_CONTENT);
   expect(encoded).not.toContain("runtime-state");
   expect(encoded).not.toContain('"name":"mcp"');
+  expect(encoded).not.toContain("/app/dist");
 });
 
 it("projects identical GKE placement onto reserved and actual Pods", () => {

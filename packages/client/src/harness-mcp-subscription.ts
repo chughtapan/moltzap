@@ -1,5 +1,5 @@
 /**
- * @file Adds the one Client-owned turn subscription to the official MCP
+ * @file Adds the one Client-owned message subscription to the official MCP
  * handler while leaving every standard MCP request with the SDK delegate.
  */
 
@@ -17,9 +17,9 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   HARNESS_EVENTS_EXTENSION,
-  HARNESS_TURN_READY_FILTER,
-  HARNESS_TURN_READY_NOTIFICATION,
-} from "./harness-runtime.js";
+  HARNESS_MESSAGE_READY_FILTER,
+  HARNESS_MESSAGE_READY_NOTIFICATION,
+} from "./harness-mcp-contract.js";
 
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The official MCP fetch boundary and retained POST stream are Promise-native. */
 
@@ -44,10 +44,10 @@ interface HarnessMcpSubscriptionOptions {
   readonly onerror?: (error: Error) => void;
 }
 
-/** Official MCP handler augmented by the sole daemon attention sink. */
+/** Official MCP handler augmented by the sole daemon delivery sink. */
 export interface HarnessMcpSubscriptionHandler<Payload extends object>
   extends McpHttpHandler {
-  /** Whether one accepted reply-capable listener currently owns the daemon. */
+  /** Whether one accepted message listener currently owns the daemon. */
   readonly hasActiveSubscription: () => boolean;
   /** Write one complete event frame to the current listener, if it still exists. */
   readonly publish: (payload: Payload) => boolean;
@@ -131,11 +131,11 @@ const requiredCapabilityDeclared = (params: JsonObject): boolean => {
     return false;
   }
   const capabilities = metadata[CLIENT_CAPABILITIES_META_KEY];
-  return (
-    isJsonObject(capabilities) &&
-    isJsonObject(capabilities.extensions) &&
-    Object.hasOwn(capabilities.extensions, HARNESS_EVENTS_EXTENSION)
-  );
+  if (!isJsonObject(capabilities) || !isJsonObject(capabilities.experimental)) {
+    return false;
+  }
+  const extension = capabilities.experimental[HARNESS_EVENTS_EXTENSION];
+  return isJsonObject(extension) && Object.keys(extension).length === 0;
 };
 
 const customListenRequest = (
@@ -153,8 +153,8 @@ const customListenRequest = (
   if (
     !isJsonObject(notifications) ||
     notificationKeys.length !== 1 ||
-    notificationKeys[0] !== HARNESS_TURN_READY_FILTER ||
-    notifications[HARNESS_TURN_READY_FILTER] !== true
+    notificationKeys[0] !== HARNESS_MESSAGE_READY_FILTER ||
+    notifications[HARNESS_MESSAGE_READY_FILTER] !== true
   ) {
     return undefined;
   }
@@ -216,7 +216,7 @@ class HarnessMcpSubscriptionState<Payload extends object> {
     }
     const published = this.enqueueMessage(subscription, {
       jsonrpc: JSON_RPC_VERSION,
-      method: HARNESS_TURN_READY_NOTIFICATION,
+      method: HARNESS_MESSAGE_READY_NOTIFICATION,
       params: {
         ...payload,
         _meta: { [SUBSCRIPTION_ID_META_KEY]: subscription.id },
@@ -291,7 +291,7 @@ class HarnessMcpSubscriptionState<Payload extends object> {
     if (!listenRequest.hasRequiredCapability) {
       const error = new MissingRequiredClientCapabilityError({
         requiredCapabilities: {
-          extensions: { [HARNESS_EVENTS_EXTENSION]: {} },
+          experimental: { [HARNESS_EVENTS_EXTENSION]: {} },
         },
       });
       return jsonRpcError({
@@ -309,7 +309,7 @@ class HarnessMcpSubscriptionState<Payload extends object> {
           id: listenRequest.id,
           code: SUBSCRIPTION_IN_USE,
           message: "Subscription already active",
-          data: { reason: "subscription-in-use" },
+          data: { reason: "already-listening" },
         });
   }
 
@@ -420,7 +420,7 @@ class HarnessMcpSubscriptionState<Payload extends object> {
       jsonrpc: JSON_RPC_VERSION,
       method: SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION,
       params: {
-        notifications: { [HARNESS_TURN_READY_FILTER]: true },
+        notifications: { [HARNESS_MESSAGE_READY_FILTER]: true },
         _meta: { [SUBSCRIPTION_ID_META_KEY]: id },
       },
     };
@@ -444,7 +444,7 @@ class HarnessMcpSubscriptionState<Payload extends object> {
 /**
  * Compose the one custom listen route in front of the official MCP handler.
  * @param options Official delegate, server identity, and lifecycle callbacks.
- * @returns The delegated MCP surface plus the private turn publisher.
+ * @returns The delegated MCP surface plus the private message publisher.
  */
 export const makeHarnessMcpSubscriptionHandler = <Payload extends object>(
   options: HarnessMcpSubscriptionOptions,

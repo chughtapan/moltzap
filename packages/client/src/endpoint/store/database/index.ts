@@ -16,6 +16,7 @@ export {
   type EndpointStoreFailure,
   mapStoreFailure,
   mintContinuation,
+  mintDeliveryToken,
   readBytes,
   readInteger,
   readOptionalBytes,

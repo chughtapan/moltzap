@@ -26,11 +26,6 @@ const publicTypePackage = {
     package: "@moltzap/client",
     reason: "Intra-monorepo client SDK; channels depend on its public surface",
   },
-  identity: {
-    package: "@moltzap/identity",
-    reason:
-      "Identity-owned AgentName and VerifiedAgentCard are deliberately part of the semantic Client contract",
-  },
   openclaw: {
     package: "openclaw",
     reason:
@@ -44,10 +39,7 @@ const publicTypePackage = {
 };
 
 const publicTypePackages = Object.entries(publicTypePackage)
-  .filter(
-    ([name]) =>
-      name !== "identity" && name !== "openclaw" && name !== "simulator",
-  )
+  .filter(([name]) => name !== "openclaw" && name !== "simulator")
   .map(([, definition]) => definition);
 
 const allowedTestPublicSubpaths = [
@@ -75,14 +67,6 @@ const packageDefinitions = {
     beforeShared: {
       maxFolderCycles: 1,
       folderReadmeFileNames: ["README.md", "../README.md"],
-      folderChildCountOverrides: [
-        {
-          folder: "endpoint",
-          maxChildren: 13,
-          reason:
-            "The endpoint protocol keeps one focused module per state-machine phase behind declared engine, representation, Router-worker, store, and attention facades",
-        },
-      ],
       facadeFiles: [
         {
           file: "server.ts",
@@ -95,19 +79,24 @@ const packageDefinitions = {
             "Private MCP operation facade shared by the daemon runtime and management catalog",
         },
         {
+          file: "harness-mcp-contract.ts",
+          reason:
+            "Private closed MCP schemas shared by daemon projection, loopback client decoding, and protocol-boundary tests",
+        },
+        {
           file: "management-runtime.ts",
           reason:
             "Exact private management schema boundary shared by daemon operations and its MCP catalog",
         },
         {
-          file: "daemon/runtime.ts",
-          reason:
-            "Sole daemon composition boundary joining endpoint capabilities to the loopback MCP server",
-        },
-        {
           file: "daemon/registration.ts",
           reason:
             "Crash-recoverable identity-registration boundary shared by daemon startup and management",
+        },
+        {
+          file: "daemon/runtime/activation.ts",
+          reason:
+            "Identity activation, pinned-card recovery, and crash-recoverable registration shared by runtime composition, controller operations, and protocol acquisition",
         },
         {
           file: "endpoint/engine.ts",
@@ -120,19 +109,14 @@ const packageDefinitions = {
             "Durable action-fold transition boundary shared by engine protocol phases",
         },
         {
-          file: "endpoint/engine-start.ts",
+          file: "endpoint/engine-send.ts",
           reason:
-            "START construction and resolution boundary shared by the endpoint engine phases",
+            "Addressed intent activation and durable send boundary shared by the endpoint engine phases",
         },
         {
           file: "endpoint/engine-types.ts",
           reason:
             "Closed endpoint-engine port and error vocabulary shared by every protocol phase",
-        },
-        {
-          file: "endpoint/openfloor.ts",
-          reason:
-            "Attention-state boundary that projects certified records into one live turn authority",
         },
         {
           file: "endpoint/representation-codec.ts",
@@ -145,14 +129,29 @@ const packageDefinitions = {
             "Complete private protocol-representation facade consumed by endpoint and daemon modules",
         },
         {
-          file: "endpoint/router-worker.ts",
+          file: "endpoint/recovery/state.ts",
           reason:
-            "Private Router transport, verification, retry, and recovery facade for the endpoint engine",
+            "Volatile catch-up and re-anchor coordination shared only by the recovery facade and its re-anchor implementation",
         },
         {
           file: "endpoint/store.ts",
           reason:
             "Private typed facade for the daemon-owned endpoint replica and its recovery state",
+        },
+        {
+          file: "endpoint/store/deliveries.ts",
+          reason:
+            "Pending-delivery SQL capability shared by record promotion, management recovery reads, and endpoint-store operations",
+        },
+        {
+          file: "endpoint/store/dissemination.ts",
+          reason:
+            "Dissemination-obligation SQL capability shared by record promotion, recovery reads, and atomic outbox enqueue",
+        },
+        {
+          file: "endpoint/store/outbound.ts",
+          reason:
+            "Durable outbox SQL capability shared by endpoint-store operations, recovery reads, and dissemination transactions",
         },
       ],
       layers: [
@@ -171,7 +170,7 @@ const packageDefinitions = {
       ],
     },
     afterShared: {
-      publicTypePackages: [...publicTypePackages, publicTypePackage.identity],
+      publicTypePackages,
     },
   },
   evals: {
@@ -456,7 +455,7 @@ const packageDefinitions = {
         {
           package: "@moltzap/client",
           reason:
-            "Simulator controlled-endpoint contracts deliberately expose Client-owned ConversationId, HarnessTurn, and StartInput values",
+            "Simulator controlled-endpoint contracts deliberately expose Client-owned SendInput and InboundDelivery values",
         },
       ],
       allowedTestPublicSubpaths: [],

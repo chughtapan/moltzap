@@ -1,6 +1,6 @@
 /** @file Router acquisition, attachment, and lifecycle ports. */
 
-import type { HarnessTurn, StartInput } from "@moltzap/client";
+import type { InboundDelivery, SendInput } from "@moltzap/client";
 import type { AgentId } from "@moltzap/identity";
 import { Context, type Effect, type Scope, type Stream } from "effect";
 import type { NetworkError } from "./failure.js";
@@ -39,11 +39,11 @@ export type ParticipantIds = readonly [AgentId, ...(readonly AgentId[])];
 
 /**
  * A ready, scope-owned endpoint attachment. The receive ingress is subscribed
- * before acquisition returns and retains turns until its consumer advances.
+ * before acquisition returns and retains deliveries until its consumer advances.
  */
 export interface EndpointTransport {
-  readonly received: Stream.Stream<HarnessTurn, NetworkError>;
-  readonly start: (input: StartInput) => Effect.Effect<void, NetworkError>;
+  readonly received: Stream.Stream<InboundDelivery, NetworkError>;
+  readonly send: (input: SendInput) => Effect.Effect<void, NetworkError>;
 }
 
 /** Runtime identity issued for one scope-owned autonomous agent. */

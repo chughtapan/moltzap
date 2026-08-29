@@ -1,14 +1,13 @@
-/** @file Autonomous evaluation peers built only on the public HarnessClient. */
+/** @file Autonomous evaluation peers built only on the public HarnessEndpoint. */
 
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import { HttpClient, HttpClientRequest } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
 import {
-  AgentName,
+  AgentAddress,
   type Content,
-  createConversationId,
-  type HarnessClient,
-  type HarnessTurn,
+  type HarnessEndpoint,
+  type InboundDelivery,
 } from "@moltzap/client";
 import {
   type AgentRuntime,
@@ -50,24 +49,24 @@ const EVALUATION_PEER_RESOURCES = Object.freeze({
   ephemeralStorageBytes: 128 * 1024 * 1024,
 });
 
-const decodeAgentName = Schema.decodeSync(AgentName);
+const decodeAgentAddress = Schema.decodeSync(AgentAddress);
 
-/** Wait for a target-authored action, then reply in that conversation. */
+/** Wait for a target-authored message, then send an addressed response. */
 class ReactivePeerPlan extends Schema.TaggedClass<ReactivePeerPlan>()(
-  "moltzap.eval-peer-reactive/v2",
+  "moltzap.eval-peer-reactive/v3",
   {
     caseId: evaluationCaseId,
-    targetName: AgentName,
+    targetAddress: AgentAddress,
     messages: Schema.NonEmptyArray(Schema.NonEmptyString),
   },
 ) {}
 
-/** Start a conversation with the target and wait for its first reply. */
+/** Send to the target and wait for its first addressed response. */
 class OpeningPeerPlan extends Schema.TaggedClass<OpeningPeerPlan>()(
-  "moltzap.eval-peer-opening/v2",
+  "moltzap.eval-peer-opening/v3",
   {
     caseId: evaluationCaseId,
-    targetName: AgentName,
+    targetAddress: AgentAddress,
     text: Schema.NonEmptyString,
   },
 ) {}
@@ -97,7 +96,7 @@ class EvaluationPeerRuntimeConfiguration extends Schema.Class<EvaluationPeerRunt
   plan: EvaluationPeerPlan,
 }) {}
 
-/** One semantic action observed at the public Client boundary. */
+/** One semantic action observed at the public endpoint boundary. */
 export type EvaluationPeerObservation = SocialActionObserved;
 
 /** One completed autonomous interaction in endpoint-observation order. */
@@ -105,7 +104,7 @@ export class PeerExchange extends Schema.Class<PeerExchange>("PeerExchange")({
   observations: Schema.NonEmptyArray(SocialActionObserved),
 }) {}
 
-/** A peer could not complete its public Client policy. */
+/** A peer could not complete its public endpoint policy. */
 export class EvaluationPeerFailed extends Schema.TaggedError<EvaluationPeerFailed>()(
   "EvaluationPeerFailed",
   {
@@ -113,8 +112,7 @@ export class EvaluationPeerFailed extends Schema.TaggedError<EvaluationPeerFaile
       "configuration",
       "connect",
       "listen",
-      "start",
-      "reply",
+      "send",
       "bridge",
     ),
     detail: Schema.NonEmptyString,
@@ -123,13 +121,13 @@ export class EvaluationPeerFailed extends Schema.TaggedError<EvaluationPeerFaile
 
 /** The peer application completed its autonomous policy. */
 export class EvaluationPeerBridgeCompleted extends Schema.TaggedClass<EvaluationPeerBridgeCompleted>()(
-  "moltzap.eval-peer-bridge-completed/v2",
+  "moltzap.eval-peer-bridge-completed/v3",
   { exchange: PeerExchange },
 ) {}
 
 /** The peer application terminated its policy with a typed failure. */
 export class EvaluationPeerBridgeFailed extends Schema.TaggedClass<EvaluationPeerBridgeFailed>()(
-  "moltzap.eval-peer-bridge-failed/v2",
+  "moltzap.eval-peer-bridge-failed/v3",
   { failure: EvaluationPeerFailed },
 ) {}
 
@@ -156,11 +154,11 @@ export interface EvaluationPeerDefinition {
 
 /** Runtime inputs used inside the peer application process. */
 export interface EvaluationPeerApplicationContext {
-  readonly agentName: typeof AgentName.Type;
-  readonly client: HarnessClient;
+  readonly endpointAddress: typeof AgentAddress.Type;
+  readonly endpoint: HarnessEndpoint;
 }
 
-type TurnInbox = Mailbox.ReadonlyMailbox<HarnessTurn, unknown>;
+type DeliveryInbox = Mailbox.ReadonlyMailbox<InboundDelivery, unknown>;
 type EvaluationPeerRuntime = AgentRuntime<
   EvaluationPeerGateway,
   RuntimeAcquisitionError,
@@ -168,8 +166,8 @@ type EvaluationPeerRuntime = AgentRuntime<
 >;
 
 /**
- * Run one triggered peer policy using only its scoped public Client.
- * @param context Public Client and endpoint identity for the peer.
+ * Run one triggered peer policy using only its scoped public endpoint.
+ * @param context Public endpoint and its local addressed identity.
  * @param plan Case-owned policy to execute.
  * @returns The completed peer exchange or its typed failure.
  */
@@ -192,7 +190,7 @@ export function runEvaluationPeerApplication(
  * Build a peer that replies after the target authors an action.
  * @param caseId Evaluation case that owns the peer.
  * @param targetName Roster name of the peer's target.
- * @param messages Non-empty reply sequence sent by the peer.
+ * @param messages Non-empty response sequence sent by the peer.
  * @returns The image-independent peer definition.
  */
 export function reactivePeer(
@@ -203,14 +201,14 @@ export function reactivePeer(
   return peerDefinition(
     new ReactivePeerPlan({
       caseId,
-      targetName: decodeAgentName(targetName),
+      targetAddress: directAddress(targetName),
       messages: Object.freeze([...messages]),
     }),
   );
 }
 
 /**
- * Build a peer that starts the conversation before the principal prompt.
+ * Build a peer that sends the first addressed message before the principal prompt.
  * @param caseId Evaluation case that owns the peer.
  * @param targetName Roster name of the peer's target.
  * @param text Initial message sent by the peer.
@@ -224,14 +222,14 @@ export function openingPeer(
   return peerDefinition(
     new OpeningPeerPlan({
       caseId,
-      targetName: decodeAgentName(targetName),
+      targetAddress: directAddress(targetName),
       text,
     }),
   );
 }
 
 /**
- * Build a roster-only member that never opens a Client subscription.
+ * Build a roster-only member that never opens an endpoint subscription.
  * @param caseId Evaluation case that owns the peer.
  * @returns The image-independent idle peer definition.
  */
@@ -257,52 +255,56 @@ function textContent(text: string): Content {
   return [{ type: "text", text }];
 }
 
+function directAddress(agentName: string): typeof AgentAddress.Type {
+  return decodeAgentAddress(`agent:${agentName}`);
+}
+
 function observed(input: {
   readonly caseId: EvaluationCaseId;
-  readonly endpointName: typeof AgentName.Type;
-  readonly turn: HarnessTurn;
+  readonly endpointAddress: typeof AgentAddress.Type;
+  readonly delivery: InboundDelivery;
 }): SocialActionObserved {
   return SocialActionObserved.make({
     caseId: input.caseId,
-    endpointName: input.endpointName,
-    conversationId: input.turn.conversationId,
-    authorName: input.turn.author.agentName,
+    endpointAddress: input.endpointAddress,
+    address: input.delivery.message.address,
+    authorAddress: input.delivery.message.sender,
     direction: "input",
-    content: input.turn.content,
+    content: input.delivery.message.content,
   });
 }
 
 function sent(input: {
   readonly caseId: EvaluationCaseId;
-  readonly endpointName: typeof AgentName.Type;
-  readonly conversationId: HarnessTurn["conversationId"];
+  readonly endpointAddress: typeof AgentAddress.Type;
+  readonly address: InboundDelivery["message"]["address"];
   readonly content: Content;
 }): SocialActionObserved {
   return SocialActionObserved.make({
     caseId: input.caseId,
-    endpointName: input.endpointName,
-    conversationId: input.conversationId,
-    authorName: input.endpointName,
+    endpointAddress: input.endpointAddress,
+    address: input.address,
+    authorAddress: input.endpointAddress,
     direction: "output",
     content: input.content,
   });
 }
 
-function matchingTurn(
-  inbox: TurnInbox,
-  targetName: typeof AgentName.Type,
-  conversationId?: HarnessTurn["conversationId"],
-): Effect.Effect<HarnessTurn, EvaluationPeerFailed> {
+function matchingDelivery(
+  inbox: DeliveryInbox,
+  targetAddress: typeof AgentAddress.Type,
+  address?: InboundDelivery["message"]["address"],
+): Effect.Effect<InboundDelivery, EvaluationPeerFailed> {
   return Effect.gen(function* () {
     while (true) {
-      const turn = yield* inbox.take.pipe(
+      const delivery = yield* inbox.take.pipe(
         Effect.mapError((cause) => failure("listen", cause)),
       );
       if (
-        turn.author.agentName === targetName &&
-        (conversationId === undefined || turn.conversationId === conversationId)
+        delivery.message.sender === targetAddress &&
+        (address === undefined || delivery.message.address === address)
       ) {
-        return turn;
+        return delivery;
       }
     }
   });
@@ -313,33 +315,38 @@ function reactiveExchange(
   plan: ReactivePeerPlan,
 ): Effect.Effect<PeerExchange, EvaluationPeerFailed, Scope.Scope> {
   return Effect.gen(function* () {
-    const inbox = yield* Mailbox.fromStream(context.client.turns);
-    let turn = yield* matchingTurn(inbox, plan.targetName);
+    const inbox = yield* Mailbox.fromStream(context.endpoint.messages);
+    let delivery = yield* matchingDelivery(inbox, plan.targetAddress);
+    const address = delivery.message.address;
     const observations: [
       EvaluationPeerObservation,
       ...EvaluationPeerObservation[],
     ] = [
-      observed({ caseId: plan.caseId, endpointName: context.agentName, turn }),
+      observed({
+        caseId: plan.caseId,
+        endpointAddress: context.endpointAddress,
+        delivery,
+      }),
     ];
     for (const message of plan.messages) {
-      const reply = textContent(message);
-      yield* turn
-        .reply(reply)
-        .pipe(Effect.mapError((cause) => failure("reply", cause)));
+      const content = textContent(message);
+      yield* context.endpoint
+        .send({ to: address, content })
+        .pipe(Effect.mapError((cause) => failure("send", cause)));
       observations.push(
         sent({
           caseId: plan.caseId,
-          endpointName: context.agentName,
-          conversationId: turn.conversationId,
-          content: reply,
+          endpointAddress: context.endpointAddress,
+          address,
+          content,
         }),
       );
-      turn = yield* matchingTurn(inbox, plan.targetName, turn.conversationId);
+      delivery = yield* matchingDelivery(inbox, plan.targetAddress, address);
       observations.push(
         observed({
           caseId: plan.caseId,
-          endpointName: context.agentName,
-          turn,
+          endpointAddress: context.endpointAddress,
+          delivery,
         }),
       );
     }
@@ -352,33 +359,33 @@ function openingExchange(
   plan: OpeningPeerPlan,
 ): Effect.Effect<PeerExchange, EvaluationPeerFailed, Scope.Scope> {
   return Effect.gen(function* () {
-    const inbox = yield* Mailbox.fromStream(context.client.turns);
-    const conversationId = yield* createConversationId().pipe(
-      Effect.mapError((cause) => failure("start", cause)),
-    );
+    const inbox = yield* Mailbox.fromStream(context.endpoint.messages);
     const initial = textContent(plan.text);
-    yield* context.client
-      .start({
-        conversationId,
-        peers: [plan.targetName],
+    yield* context.endpoint
+      .send({
+        to: plan.targetAddress,
         content: initial,
       })
-      .pipe(Effect.mapError((cause) => failure("start", cause)));
-    const turn = yield* matchingTurn(inbox, plan.targetName, conversationId);
+      .pipe(Effect.mapError((cause) => failure("send", cause)));
+    const delivery = yield* matchingDelivery(
+      inbox,
+      plan.targetAddress,
+      plan.targetAddress,
+    );
     return PeerExchange.make({
       observations: [
         SocialActionObserved.make({
           caseId: plan.caseId,
-          endpointName: context.agentName,
-          conversationId,
-          authorName: context.agentName,
+          endpointAddress: context.endpointAddress,
+          address: plan.targetAddress,
+          authorAddress: context.endpointAddress,
           direction: "output",
           content: initial,
         }),
         observed({
           caseId: plan.caseId,
-          endpointName: context.agentName,
-          turn,
+          endpointAddress: context.endpointAddress,
+          delivery,
         }),
       ],
     });
@@ -508,7 +515,7 @@ function attachEvaluationPeer(
 
 function peerApplication(
   plan: EvaluationPeerPlan,
-  agentName: typeof AgentName.Type,
+  agentName: string,
 ): Application<EvaluationPeerGateway, RuntimeAcquisitionError> {
   const encodedPlan = Schema.encodeSync(Schema.parseJson(EvaluationPeerPlan))(
     plan,

@@ -1,6 +1,6 @@
 /**
- * @file Pins the sole turn listener's admission, acknowledgment, framing, and
- * lifecycle so attention cannot be offered before an active subscription.
+ * @file Pins the sole message listener's admission, acknowledgment, framing, and
+ * lifecycle so delivery cannot be offered before an active subscription.
  */
 
 import {
@@ -14,14 +14,14 @@ import {
 } from "@modelcontextprotocol/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  HARNESS_EVENTS_EXTENSION,
+  HARNESS_MESSAGE_READY_FILTER,
+  HARNESS_MESSAGE_READY_NOTIFICATION,
+} from "./harness-mcp-contract.js";
+import {
   type HarnessMcpSubscriptionHandler,
   makeHarnessMcpSubscriptionHandler,
 } from "./harness-mcp-subscription.js";
-import {
-  HARNESS_EVENTS_EXTENSION,
-  HARNESS_TURN_READY_FILTER,
-  HARNESS_TURN_READY_NOTIFICATION,
-} from "./harness-runtime.js";
 
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- These interoperability tests exercise the official Promise-native MCP handler and retained response stream. */
 
@@ -29,10 +29,11 @@ const SUBSCRIPTIONS_LISTEN_METHOD = "subscriptions/listen";
 const SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION =
   "notifications/subscriptions/acknowledged";
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
+const BAD_REQUEST_STATUS = 400;
 const OK_STATUS = 200;
 const CONFLICT_STATUS = 409;
-const TURN_READY_NOTIFICATIONS = {
-  [HARNESS_TURN_READY_FILTER]: true,
+const MESSAGE_READY_NOTIFICATIONS = {
+  [HARNESS_MESSAGE_READY_FILTER]: true,
 };
 const SERVER_IMPLEMENTATION = {
   name: "harness-subscription-test",
@@ -61,7 +62,10 @@ const makeHandler = (onActiveChange?: (active: boolean) => void) => {
 
 const makeListenRequest = (
   id: string | number,
-  notifications: Readonly<Record<string, unknown>> = TURN_READY_NOTIFICATIONS,
+  notifications: Readonly<
+    Record<string, unknown>
+  > = MESSAGE_READY_NOTIFICATIONS,
+  extension: unknown = {},
 ): Request =>
   new Request("http://127.0.0.1/mcp", {
     method: "POST",
@@ -82,7 +86,7 @@ const makeListenRequest = (
             version: "1.0.0",
           },
           [CLIENT_CAPABILITIES_META_KEY]: {
-            extensions: { [HARNESS_EVENTS_EXTENSION]: {} },
+            experimental: { [HARNESS_EVENTS_EXTENSION]: extension },
           },
         },
       },
@@ -119,7 +123,7 @@ afterEach(async () => {
   openHandlers.clear();
 });
 
-const delegatesNonTurnSubscription = async () => {
+const delegatesNonMessageSubscription = async () => {
   const { delegate, handler } = makeHandler();
   const delegated = vi.spyOn(delegate, "fetch");
   const response = await handler.fetch(
@@ -140,18 +144,18 @@ const acknowledgesBeforePublication = async () => {
     jsonrpc: "2.0",
     method: SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION,
     params: {
-      notifications: TURN_READY_NOTIFICATIONS,
+      notifications: MESSAGE_READY_NOTIFICATIONS,
       _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-1" },
     },
   });
   expect(activeChanges).toEqual([true]);
   expect(handler.hasActiveSubscription()).toBe(true);
-  expect(handler.publish({ value: "certified-turn" })).toBe(true);
+  expect(handler.publish({ value: "certified-message" })).toBe(true);
   expect(await readFrame(reader)).toEqual({
     jsonrpc: "2.0",
-    method: HARNESS_TURN_READY_NOTIFICATION,
+    method: HARNESS_MESSAGE_READY_NOTIFICATION,
     params: {
-      value: "certified-turn",
+      value: "certified-message",
       _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-1" },
     },
   });
@@ -172,7 +176,7 @@ const refusesRacingListener = async () => {
     error: {
       code: -32_000,
       message: "Subscription already active",
-      data: { reason: "subscription-in-use" },
+      data: { reason: "already-listening" },
     },
     id: 2,
   });
@@ -183,14 +187,36 @@ const refusesRacingListener = async () => {
   await replacement.body?.cancel();
 };
 
-// @agent-code-guard/regression-only: this finite matrix pins the one retained response stream and its attention-ownership boundary.
-describe("Harness MCP turn subscription", () => {
-  it("delegates every non-turn subscription to the official handler", () =>
-    delegatesNonTurnSubscription());
-  it("acknowledges before publishing one complete turn frame", () =>
+const rejectsNonemptyEventsCapability = async () => {
+  const { handler } = makeHandler();
+  const response = await handler.fetch(
+    makeListenRequest("legacy-capability", MESSAGE_READY_NOTIFICATIONS, {
+      version: 2,
+    }),
+  );
+
+  expect(response.status).toBe(BAD_REQUEST_STATUS);
+  expect(await response.json()).toMatchObject({
+    error: {
+      data: {
+        requiredCapabilities: {
+          experimental: { [HARNESS_EVENTS_EXTENSION]: {} },
+        },
+      },
+    },
+  });
+};
+
+// @agent-code-guard/regression-only: this finite matrix pins the one retained response stream and its delivery-ownership boundary.
+describe("Harness MCP message subscription", () => {
+  it("delegates every non-message subscription to the official handler", () =>
+    delegatesNonMessageSubscription());
+  it("acknowledges before publishing one complete message frame", () =>
     acknowledgesBeforePublication());
   it("atomically refuses a second listener until the owner detaches", () =>
     refusesRacingListener());
+  it("rejects a nonempty events-v2 capability declaration", () =>
+    rejectsNonemptyEventsCapability());
 });
 
 /* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type -- Restore repository defaults after the Promise-native test boundary. */

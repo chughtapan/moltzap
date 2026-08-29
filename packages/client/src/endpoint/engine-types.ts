@@ -1,4 +1,4 @@
-/** @file Private endpoint engine contracts for daemon composition. */
+/** @file Private addressed-message engine contracts for daemon composition. */
 
 import type {
   AgentId,
@@ -14,22 +14,24 @@ import {
   type Deferred,
   type Effect,
   type Queue,
-  type Scope,
   type SubscriptionRef,
 } from "effect";
-import type { Content, ConversationId, StartInput } from "../contract.js";
-import type { ReplyGrant } from "../harness-runtime.js";
 import type {
-  Action,
-  ActionCertifiedRecord,
-  BeginDigest,
+  DeliveryAcknowledgeError,
+  InboundMessage,
+  ListenError,
+  SendError,
+  SendInput,
+} from "../contract.js";
+import type {
+  ActionCore,
+  ActionHash,
   CertifiedRecord,
-  CompletedReanchor,
+  ConversationId,
   DecodedOuterBody,
-  GenesisAnchor,
-  MulticastAction,
+  PostIntent,
   RecordHash,
-  StartAction,
+  RouterAnchor,
   VerifiedMembership,
 } from "./representation.js";
 import type {
@@ -42,8 +44,8 @@ import type {
   RouterWorkerRecoveryError,
   RouterWorkerSendError,
   RouterWorkerUnavailableError,
-} from "./router-worker.js";
-import type { EndpointStore } from "./store.js";
+} from "./router-worker/index.js";
+import type { DeliveryToken, EndpointStore } from "./store.js";
 
 /** Engine acquisition could not establish one coherent durable endpoint. */
 export class EngineInitializationError extends Data.TaggedError(
@@ -52,114 +54,17 @@ export class EngineInitializationError extends Data.TaggedError(
   readonly reason: "identity" | "persistence" | "representation";
 }> {}
 
-/** Closed private START failure mapped directly by the daemon boundary. */
-export class EngineStartError extends Data.TaggedError("EngineStartError")<{
-  readonly reason:
-    | "intent-conflict"
-    | "not-registered"
-    | "membership"
-    | "persistence"
-    | "durability"
-    | "reanchor"
-    | "representation";
-}> {}
-
-/** Closed failure for one admitted bound MULTICAST reply. */
-export class EngineReplyError extends Data.TaggedError("EngineReplyError")<{
-  readonly reason:
-    | "authority-unavailable"
-    | "persistence"
-    | "durability"
-    | "reanchor"
-    | "representation";
-}> {}
-
 /** Sending queued protocol traffic could not complete safely. */
 export class EngineOutboundError extends Data.TaggedError(
   "EngineOutboundError",
 )<{
-  readonly reason: "durability" | "persistence" | "reanchor" | "representation";
+  readonly reason: "network" | "persistence" | "representation";
 }> {}
 
-/** A second runtime listener attempted to own the endpoint. */
-export class EngineListenerInUseError extends Data.TaggedError(
-  "EngineListenerInUseError",
-) {}
-
-/** An eligible head could not enter the task-owned attention protocol. */
-export class EngineAttentionError extends Data.TaggedError(
-  "EngineAttentionError",
-) {}
-
-/** No active listener or eligible certified head authorizes delivery. */
-export class EngineAttentionUnavailableError extends Data.TaggedError(
-  "EngineAttentionUnavailableError",
-) {}
-
-/** The daemon could not write one complete turn frame. */
-export class EngineTurnWriteError extends Data.TaggedError(
-  "EngineTurnWriteError",
-) {}
-
-/** Complete semantic turn bytes passed to the sole daemon listener. */
-export interface EngineTurnFrame {
-  readonly conversationId: ConversationId;
-  readonly peers: readonly [VerifiedAgentCard, ...VerifiedAgentCard[]];
-  readonly author: VerifiedAgentCard;
-  readonly content: Content;
-  readonly replyGrant: ReplyGrant;
-}
-
-/** Task-owned live authority proposed for at-most-once runtime delivery. */
-export interface EngineProspectiveTurn extends EngineTurnFrame {
-  readonly recordHash: string;
-}
-
-/** One newly durable head supplied only by ordinary live protocol delivery. */
-export interface OpenFloorCertifiedHead {
-  readonly conversationId: ConversationId;
-  readonly membership: VerifiedMembership;
-  readonly currentAnchorHash: MulticastAction["anchorHash"];
-  readonly recordHash: MulticastAction["previousRecordHash"];
-  readonly record: CertifiedRecord;
-}
-
-/** Task-validated MULTICAST ready for the engine's certification fold. */
-export interface OpenFloorMulticastCandidate {
-  readonly conversationId: ConversationId;
-  readonly beginDigest: BeginDigest;
-  readonly membership: VerifiedMembership;
-  readonly action: MulticastAction;
-  readonly localActionSignature: SignedMessage;
-}
-
-/** Volatile task capability consumed by one endpoint engine. */
-export interface OpenFloorPort {
-  readonly listenerAttached: Effect.Effect<void, EngineAttentionError>;
-  readonly listenerDetached: Effect.Effect<void>;
-  readonly certifiedHead: (
-    head: OpenFloorCertifiedHead,
-  ) => Effect.Effect<void, EngineAttentionError>;
-  readonly acceptIngress: (
-    ingress: RouterWorkerIngress<DecodedOuterBody>,
-  ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
-  readonly admitReply: (
-    grant: ReplyGrant,
-    content: Content,
-  ) => Effect.Effect<OpenFloorMulticastCandidate, EngineReplyError>;
-  readonly abandon: Effect.Effect<void>;
-}
-
-/** Complete-frame writer owned by the daemon subscription. */
-export interface EngineTurnSink {
-  readonly write: (
-    turn: EngineTurnFrame,
-  ) => Effect.Effect<void, EngineTurnWriteError>;
-}
-
-/** Scoped ownership token for the endpoint's sole turn listener. */
-export interface EngineTurnListener {
-  readonly detach: Effect.Effect<void>;
+/** One durable delivery decoded for the daemon's sole subscriber. */
+export interface EnginePendingMessage {
+  readonly deliveryToken: DeliveryToken;
+  readonly message: InboundMessage;
 }
 
 /** Minimal Registry capability used to resolve immutable peer cards. */
@@ -175,9 +80,23 @@ export interface EngineRouterPort {
     RouterWorkerUnavailableError
   >;
   readonly send: (
-    message: SignedMessage,
+    outboundId: string,
   ) => Effect.Effect<void, RouterWorkerSendError>;
 }
+
+/** Closed result of the endpoint's local action-signing policy. */
+export type EngineActionPolicyDecision = "sign" | "refuse";
+
+/** Verified action context presented to local task, norm, and trust policy. */
+export interface EngineActionPolicyInput {
+  readonly action: ActionCore;
+  readonly membership: VerifiedMembership;
+}
+
+/** Endpoint-local policy invoked before creating an action signature. */
+export type EngineActionPolicy = (
+  input: EngineActionPolicyInput,
+) => Effect.Effect<EngineActionPolicyDecision>;
 
 /** Stable private dependencies for one endpoint protocol engine. */
 export interface EndpointEngineInput {
@@ -187,15 +106,19 @@ export interface EndpointEngineInput {
   readonly registry: EngineRegistryPort;
   readonly store: EndpointStore;
   readonly routerWorker: EngineRouterPort;
+  readonly actionPolicy: EngineActionPolicy;
 }
 
 /** Stable private engine capability consumed by daemon composition. */
 export interface EndpointEngine {
-  readonly start: (input: StartInput) => Effect.Effect<void, EngineStartError>;
-  readonly reply: (
-    grant: ReplyGrant,
-    content: Content,
-  ) => Effect.Effect<void, EngineReplyError>;
+  readonly send: (input: SendInput) => Effect.Effect<void, SendError>;
+  readonly readPendingMessages: () => Effect.Effect<
+    readonly EnginePendingMessage[],
+    ListenError
+  >;
+  readonly acknowledgeMessage: (
+    deliveryToken: DeliveryToken,
+  ) => Effect.Effect<void, DeliveryAcknowledgeError>;
   readonly acceptRouterIngress: (
     ingress: RouterWorkerIngress<DecodedOuterBody>,
   ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
@@ -210,84 +133,57 @@ export interface EndpointEngine {
   readonly abandonVolatileFolds: (
     reason: RouterDiscontinuityReason,
   ) => Effect.Effect<void>;
-  readonly acquireTurnSink: (
-    sink: EngineTurnSink,
-  ) => Effect.Effect<
-    EngineTurnListener,
-    EngineListenerInUseError | EngineAttentionError,
-    Scope.Scope
-  >;
-  readonly deliverTurn: (
-    turn: EngineProspectiveTurn,
-  ) => Effect.Effect<
-    void,
-    | EngineAttentionUnavailableError
-    | EngineTurnWriteError
-    | RouterWorkerPersistenceError
-  >;
 }
 
-/** One START fold reconstructed from durable state. */
-interface EngineActionFoldState {
+/** One locally authored immutable post intent awaiting certification. */
+export interface EnginePostIntent {
+  readonly intent: PostIntent;
+  readonly canonicalIntent: Uint8Array;
+  readonly completion: Deferred.Deferred<undefined, SendError>;
+  proposedActionHash?: ActionHash;
+}
+
+/** One locally complete history head. */
+export interface EngineCertifiedHead {
+  readonly recordHash: RecordHash;
+  readonly record: CertifiedRecord;
+}
+
+/** Immutable membership with the endpoint's current durable position. */
+export interface EngineConversation {
   readonly conversationId: ConversationId;
   readonly membership: VerifiedMembership;
-  readonly actionSignatures: Map<AgentId, SignedMessage>;
-  readonly durabilityVotes: Map<AgentId, SignedMessage>;
-  actionSignatureQueued: boolean;
-  durabilityVoteQueued: boolean;
-  certifiedBroadcastQueued: boolean;
-  actionCertifiedRecord?: ActionCertifiedRecord;
+  currentAnchor: RouterAnchor;
+  head?: EngineCertifiedHead;
+}
+
+/** Volatile evidence fold for the selected action at one predecessor. */
+export interface EngineActionFold {
+  readonly conversation: EngineConversation;
+  readonly action: ActionCore;
+  readonly actionHash: ActionHash;
+  readonly routerAnchor: RouterAnchor;
+  readonly actionEvidence: Map<AgentId, SignedMessage>;
+  readonly durabilityEvidence: Map<AgentId, SignedMessage>;
+  localActionEvidenceQueued: boolean;
+  actionCertifiedRecordQueued: boolean;
+  localDurabilityEvidenceQueued: boolean;
+  certifiedRecordQueued: boolean;
   recordHash?: RecordHash;
   certifiedRecord?: CertifiedRecord;
 }
 
-/** Durable current action projection, independent of its retained fold. */
-export interface EngineCertifiedHead {
-  readonly recordHash: RecordHash;
-  readonly action: Action;
-  readonly certifiedRecord: CertifiedRecord;
-}
-
-/** START fold and the durable current head for one fixed conversation. */
-export interface EngineConversation extends EngineActionFoldState {
-  readonly foldKind: "start";
-  readonly conversationId: ConversationId;
-  readonly canonicalIntent: Uint8Array;
-  readonly membership: VerifiedMembership;
-  readonly genesisAnchor: GenesisAnchor;
-  readonly action: StartAction;
-  currentAnchor: GenesisAnchor | CompletedReanchor;
-  head?: EngineCertifiedHead;
-}
-
-/** One volatile MULTICAST fold keyed by its authenticated BEGIN digest. */
-export interface EngineMulticastFold extends EngineActionFoldState {
-  readonly foldKind: "multicast";
-  readonly beginDigest: BeginDigest;
-  readonly action: MulticastAction;
-  readonly routerAnchor: GenesisAnchor | CompletedReanchor;
-  readonly completion: Deferred.Deferred<void, EngineReplyError>;
-}
-
-/** Common action-certification and durability state. */
-export type EngineActionFold = EngineConversation | EngineMulticastFold;
-
-/** Shared acquired state used by the engine's focused owners. */
+/** Shared acquired state used by addressed send and protocol ingress. */
 export interface EngineRuntime {
   readonly input: EndpointEngineInput;
   readonly conversations: Map<ConversationId, EngineConversation>;
-  readonly multicastFolds: Map<BeginDigest, EngineMulticastFold>;
+  readonly intents: Map<string, EnginePostIntent>;
+  readonly completedPostIds: Set<string>;
+  readonly actionFolds: Map<ActionHash, EngineActionFold>;
   readonly recordFolds: Map<RecordHash, EngineActionFold>;
-  readonly completions: Map<
-    ConversationId,
-    Deferred.Deferred<void, EngineStartError>
-  >;
-  readonly outbound: SignedMessage[];
+  readonly outbound: string[];
   readonly outboundSignal: Queue.Queue<undefined>;
   readonly gate: Effect.Semaphore;
   readonly outboundGate: Effect.Semaphore;
-  readonly listenerGate: Effect.Semaphore;
   readonly revision: SubscriptionRef.SubscriptionRef<number>;
-  openFloor?: OpenFloorPort;
-  activeSink?: EngineTurnSink;
 }

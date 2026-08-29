@@ -1,15 +1,7 @@
 /** @file Typed projections and exact-binding checks for endpoint-store rows. */
 
 import type { DatabaseSync } from "node:sqlite";
-import type {
-  CertifiedRecord,
-  ConversationPosition,
-  IdentityBinding,
-  ProtocolEvidence,
-  RecoveredReanchor,
-  StagedReanchor,
-  StagedRecord,
-} from "../types.js";
+import { Either, Schema } from "effect";
 import {
   readBytes,
   readInteger,
@@ -20,6 +12,18 @@ import {
   requireSameBytes,
   StoreSignal,
 } from "../database/index.js";
+import {
+  type CertifiedRecord,
+  type ConversationPosition,
+  DeliveryToken,
+  type IdentityBinding,
+  type PendingDelivery,
+  type ProposalLock,
+  type ProtocolEvidence,
+  type RecoveredReanchor,
+  type StagedReanchor,
+  type StagedRecord,
+} from "../types.js";
 
 /** Durable position plus the local indexing aid that carries no authority. */
 export interface InternalPosition extends ConversationPosition {
@@ -27,17 +31,36 @@ export interface InternalPosition extends ConversationPosition {
 }
 
 /**
- * Projects one complete certified record.
+ * Projects one complete certified record and its separate evidence maps.
  *
- * @param row SQLite result row.
+ * @param database Exclusively owned endpoint database.
+ * @param row SQLite result row for the certified record core.
  * @returns The detached complete certified record.
  */
 export function readCertifiedRecord(
+  database: DatabaseSync,
   row: Readonly<Record<string, unknown>>,
 ): CertifiedRecord {
+  const staged = readStagedRecord(row);
+  const actionEvidence = readEvidenceForSubject(
+    database,
+    staged.conversationId,
+    "action",
+    staged.actionHash,
+  );
+  const durabilityEvidence = readEvidenceForSubject(
+    database,
+    staged.conversationId,
+    "durability",
+    staged.recordHash,
+  );
+  if (actionEvidence.length === 0 || durabilityEvidence.length === 0) {
+    throw new StoreSignal("corrupt");
+  }
   return Object.freeze({
-    ...readStagedRecord(row),
-    canonicalCertifiedRecord: readBytes(row, "canonical_certified_record"),
+    ...staged,
+    actionEvidence,
+    durabilityEvidence,
   });
 }
 
@@ -130,6 +153,48 @@ export function readConversationPosition(
 }
 
 /**
+ * Reads an optional proposal lock for one predecessor.
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param conversationId Opaque conversation identity.
+ * @param predecessorKey Exact predecessor or the genesis sentinel.
+ * @returns The detached proposal lock when present.
+ */
+export function findProposalLock(
+  database: DatabaseSync,
+  conversationId: string,
+  predecessorKey: string,
+): ProposalLock | undefined {
+  const row = database
+    .prepare(
+      `SELECT conversation_id, previous_record_hash, action_hash,
+              canonical_action_core
+       FROM proposal_locks
+       WHERE conversation_id = ? AND predecessor_key = ?`,
+    )
+    .get(conversationId, predecessorKey);
+  return row === undefined ? undefined : readProposalLock(row);
+}
+
+/**
+ * Projects one durable proposal lock.
+ *
+ * @param row SQLite result row.
+ * @returns The detached proposal lock.
+ */
+export function readProposalLock(
+  row: Readonly<Record<string, unknown>>,
+): ProposalLock {
+  const previousRecordHash = readOptionalText(row, "previous_record_hash");
+  return Object.freeze({
+    conversationId: readText(row, "conversation_id"),
+    ...(previousRecordHash === undefined ? {} : { previousRecordHash }),
+    actionHash: readText(row, "action_hash"),
+    canonicalActionCore: readBytes(row, "canonical_action_core"),
+  });
+}
+
+/**
  * Reads an optional staged record by stable private hash.
  *
  * @param database Exclusively owned endpoint database.
@@ -145,7 +210,8 @@ export function findStagedRecord(
   const row = database
     .prepare(
       `SELECT conversation_id, record_hash, previous_record_hash,
-              membership_hash, anchor_hash, canonical_record
+              membership_hash, anchor_hash, action_hash, author_agent_id,
+              post_id, canonical_record_core
        FROM staged_records WHERE conversation_id = ? AND record_hash = ?`,
     )
     .get(conversationId, recordHash);
@@ -153,7 +219,7 @@ export function findStagedRecord(
 }
 
 /**
- * Projects one exact staged action-certified record.
+ * Projects one exact staged record core.
  *
  * @param row SQLite result row.
  * @returns The detached staged record.
@@ -168,7 +234,10 @@ export function readStagedRecord(
     ...(previousRecordHash === undefined ? {} : { previousRecordHash }),
     membershipHash: readText(row, "membership_hash"),
     anchorHash: readText(row, "anchor_hash"),
-    canonicalRecord: readBytes(row, "canonical_record"),
+    actionHash: readText(row, "action_hash"),
+    authorAgentId: readText(row, "author_agent_id"),
+    postId: readText(row, "post_id"),
+    canonicalRecordCore: readBytes(row, "canonical_record_core"),
   });
 }
 
@@ -181,14 +250,42 @@ export function readStagedRecord(
 export function readProtocolEvidence(
   row: Readonly<Record<string, unknown>>,
 ): ProtocolEvidence {
-  const kind = readEvidenceKind(row);
   return Object.freeze({
     conversationId: readText(row, "conversation_id"),
-    kind,
+    kind: readEvidenceKind(row),
     subjectId: readText(row, "subject_id"),
     evidenceKey: readText(row, "evidence_key"),
     canonicalEvidence: readBytes(row, "canonical_evidence"),
   });
+}
+
+/**
+ * Reads one ordered signer evidence map from its separate store rows.
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param conversationId Conversation whose evidence is retained.
+ * @param kind Separate evidence domain to read.
+ * @param subjectId Action, record, request, or anchor identity.
+ * @returns Detached evidence ordered by signer key.
+ */
+export function readEvidenceForSubject(
+  database: DatabaseSync,
+  conversationId: string,
+  kind: ProtocolEvidence["kind"],
+  subjectId: string,
+): readonly ProtocolEvidence[] {
+  return Object.freeze(
+    database
+      .prepare(
+        `SELECT conversation_id, evidence_kind, subject_id,
+                evidence_key, canonical_evidence
+         FROM protocol_evidence
+         WHERE conversation_id = ? AND evidence_kind = ? AND subject_id = ?
+         ORDER BY evidence_key COLLATE BINARY`,
+      )
+      .all(conversationId, kind, subjectId)
+      .map(readProtocolEvidence),
+  );
 }
 
 /**
@@ -234,10 +331,42 @@ export function readStagedReanchor(
 }
 
 /**
+ * Projects one retained durable delivery row.
+ *
+ * @param row SQLite result row.
+ * @returns The detached delivery and its acknowledgment state.
+ */
+export function readPendingDelivery(
+  row: Readonly<Record<string, unknown>>,
+): PendingDelivery {
+  const acknowledged = readInteger(row, "acknowledged");
+  if (acknowledged !== 0 && acknowledged !== 1) {
+    throw new StoreSignal("corrupt");
+  }
+  const deliveryToken = Either.match(
+    Schema.decodeUnknownEither(DeliveryToken)(readText(row, "delivery_token")),
+    {
+      onLeft: () => {
+        throw new StoreSignal("corrupt");
+      },
+      onRight: (token) => token,
+    },
+  );
+  return Object.freeze({
+    deliveryToken,
+    conversationId: readText(row, "conversation_id"),
+    recordHash: readText(row, "record_hash"),
+    recipientAgentId: readText(row, "recipient_agent_id"),
+    canonicalMessage: readBytes(row, "canonical_message"),
+    acknowledged: acknowledged === 1,
+  });
+}
+
+/**
  * Requires two records with one stable hash to have identical bindings.
  *
- * @param left Previously retained record.
- * @param right Candidate record.
+ * @param left Previously retained staged record.
+ * @param right Candidate record with the same private hash.
  */
 export function requireSameRecord(
   left: StagedRecord,
@@ -248,14 +377,33 @@ export function requireSameRecord(
   requireEqual(left.previousRecordHash, right.previousRecordHash);
   requireEqual(left.membershipHash, right.membershipHash);
   requireEqual(left.anchorHash, right.anchorHash);
-  requireSameBytes(left.canonicalRecord, right.canonicalRecord);
+  requireEqual(left.actionHash, right.actionHash);
+  requireEqual(left.authorAgentId, right.authorAgentId);
+  requireEqual(left.postId, right.postId);
+  requireSameBytes(left.canonicalRecordCore, right.canonicalRecordCore);
+}
+
+/**
+ * Requires two proposal locks for one predecessor to be byte-identical.
+ *
+ * @param left Previously retained proposal lock.
+ * @param right Candidate lock for the same predecessor.
+ */
+export function requireSameProposalLock(
+  left: ProposalLock,
+  right: ProposalLock,
+): void {
+  requireEqual(left.conversationId, right.conversationId);
+  requireEqual(left.previousRecordHash, right.previousRecordHash);
+  requireEqual(left.actionHash, right.actionHash);
+  requireSameBytes(left.canonicalActionCore, right.canonicalActionCore);
 }
 
 /**
  * Requires two re-anchors with one hash to have identical body bindings.
  *
  * @param left Previously retained re-anchor.
- * @param right Candidate re-anchor.
+ * @param right Candidate re-anchor with the same private hash.
  */
 export function requireSameReanchor(
   left: StagedReanchor,

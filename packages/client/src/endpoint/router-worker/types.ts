@@ -11,7 +11,8 @@ import type {
 import type { Registry } from "@moltzap/identity/registry";
 import type { PollCursor, Router, RouterInstanceId } from "@moltzap/router";
 import { type Context, Data, type Effect, type Ref } from "effect";
-import type { DecodedOuterBody } from "./representation.js";
+import type { DecodedOuterBody } from "../representation.js";
+import type { EndpointStore } from "../store.js";
 
 /** An outer sender card could not be resolved, pinned, or authenticated. */
 export class RouterWorkerAuthenticationError extends Data.TaggedError(
@@ -90,6 +91,7 @@ export type RouterWorkerPollError =
 
 /** Verified outer message and its decoded private Client payload. */
 export interface RouterWorkerIngress<Payload> {
+  readonly routerInstanceId: RouterInstanceId;
   readonly message: VerifiedSignedMessage;
   readonly senderCard: VerifiedAgentCard;
   readonly payload: Payload;
@@ -99,10 +101,25 @@ export interface RouterWorkerIngress<Payload> {
 export interface RouterWorkerRecovery {
   readonly reason: RouterDiscontinuityReason;
   readonly anchor: RouterTailAnchor;
+  readonly resume: (
+    outboundId: string,
+  ) => Effect.Effect<void, RouterWorkerSendError>;
   readonly send: (
-    message: SignedMessage,
+    input: RouterWorkerRecoverySend,
   ) => Effect.Effect<void, RouterWorkerSendError>;
 }
+
+/** One recovery-only message before its complete outer envelope is retained. */
+export interface RouterWorkerRecoverySend {
+  readonly conversationId: string;
+  readonly message: SignedMessage;
+}
+
+/** Durable operations required by the Router transport and no other worker path. */
+type RouterWorkerOutbox = Pick<
+  EndpointStore,
+  "enqueueOutbound" | "beginOutbound" | "replaceOutbound" | "completeOutbound"
+>;
 
 /** Private endpoint callbacks around the Router worker's ordering boundary. */
 export interface RouterWorkerCallbacks<Payload = DecodedOuterBody> {
@@ -127,7 +144,7 @@ export interface RouterWorkerCallbacks<Payload = DecodedOuterBody> {
 }
 
 /** Focused test seams that retain production postconditions. */
-export interface RouterWorkerOverrides {
+interface RouterWorkerOverrides {
   readonly verifyOuter?: (input: {
     readonly signedMessage: SignedMessage;
     readonly agentCard: VerifiedAgentCard;
@@ -149,6 +166,7 @@ export interface RouterWorkerInput<Payload = DecodedOuterBody> {
   /** Durable membership cards available before Registry connectivity. */
   readonly pinnedSenderCards: readonly VerifiedAgentCard[];
   readonly signingAuthority: AgentSigningAuthority;
+  readonly outbox: RouterWorkerOutbox;
   readonly callbacks: RouterWorkerCallbacks<Payload>;
   /** Test seams preserve production postconditions and are not process configuration. */
   readonly overrides?: RouterWorkerOverrides;
@@ -163,7 +181,7 @@ export interface RouterWorker {
   readonly pollOnce: Effect.Effect<void, RouterWorkerPollError>;
   readonly run: Effect.Effect<never, RouterWorkerPollError>;
   readonly send: (
-    message: SignedMessage,
+    outboundId: string,
   ) => Effect.Effect<void, RouterWorkerSendError>;
 }
 
@@ -179,6 +197,8 @@ export interface RouterWorkerRecoveringState {
   readonly kind: "recovering";
   readonly generation: number;
   readonly reason: RouterDiscontinuityReason;
+  readonly priorRouterInstanceId?: RouterInstanceId;
+  readonly volatileFoldsAbandoned: boolean;
   readonly anchor?: RouterTailAnchor;
 }
 

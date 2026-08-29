@@ -13,155 +13,210 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessClient`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/client-runtime.ts#L307)
+### [`acquireHarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/client-runtime.ts#L80)
 
 _Function_
 
 ```ts
-export const acquireHarnessClient = (
+export function acquireHarnessEndpoint(
   endpoint: URL,
-): Effect.Effect<HarnessClient, ConnectError, Scope.Scope>
+): Effect.Effect<HarnessEndpoint, ConnectError, Scope.Scope>
 ```
 
-Acquire one real MCP-backed client and its sole inbound subscription.
+Acquire one real MCP-backed endpoint and its scoped connection.
 
-**Returns:** A client whose resources remain live for the caller's scope.
+**Returns:** An endpoint whose resources remain live for the caller's scope.
 
-### [`AgentName`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/dist/identifiers.d.ts#L31)
+### [`AgentAddress`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L130)
 
 _TypeAlias_
 
 ```ts
-export type AgentName = typeof AgentName.Type;
+export type AgentAddress = typeof AgentAddress.Type;
 ```
 
-Validated nominal value decoded by AgentName.
+A validated direct destination.
 
-### [`AgentName`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/dist/identifiers.d.ts#L29)
+### [`AgentAddress`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L124)
 
 _Variable_
 
 ```ts
-export declare const AgentName: Schema.brand<Schema.filter<Schema.filter<Schema.filter<typeof Schema.String>>>, "AgentName">
-```
-
-Immutable Registry-wide human-facing agent handle.
-
-### [`ConnectError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L47)
-
-_Class_
-
-```ts
-export class ConnectError extends Data.TaggedError("ConnectError") {}
-```
-
-Acquiring the endpoint connection or its sole subscription failed.
-
-### [`Content`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L25)
-
-_TypeAlias_
-
-```ts
-export type Content = readonly [ContentPart, ...ContentPart[]];
-```
-
-Nonempty semantic content for one conversation action.
-
-### [`ContentPart`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L20)
-
-_TypeAlias_
-
-```ts
-export type ContentPart =
-  | Readonly<{ type: "text"; text: string }>
-  | Readonly<{ type: "data"; value: JsonValue }>;
-```
-
-One semantic part of a conversation action.
-
-### [`ConversationId`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L37)
-
-_TypeAlias_
-
-```ts
-export type ConversationId = typeof ConversationId.Type;
-```
-
-Validated conversation identity.
-
-### [`ConversationId`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L28)
-
-_Variable_
-
-```ts
-export const ConversationId = Schema.UUID.pipe(
-  Schema.brand("ConversationId"),
-  Schema.annotations({
-    identifier: "ConversationId",
-    description: "Caller-minted conversation identity",
-  }),
+export const AgentAddress = addressInput.pipe(
+  Schema.filter((value) => parseAgentAddress(value) !== undefined),
+  Schema.brand("AgentAddress"),
+  Schema.annotations({ identifier: "AgentAddress" }),
 )
 ```
 
-Caller-retained identity for one conversation and its START retries.
+An explicit direct destination using one canonical Registry name.
 
-### [`ConversationIdGenerationError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L42)
+### [`ConnectError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L320)
 
 _Class_
 
 ```ts
-export class ConversationIdGenerationError extends Data.TaggedError(
-  "ConversationIdGenerationError",
-) {}
+export class ConnectError extends Data.TaggedError("ConnectError")<{
+  readonly reason: ConnectFailure;
+}> {}
 ```
 
-Creating a conversation identity failed.
+Acquiring the endpoint connection failed.
 
-### [`createConversationId`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L111)
+### [`Content`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L229)
 
-_Function_
+_TypeAlias_
 
 ```ts
-export const createConversationId = (): Effect.Effect<
-  ConversationId,
-  ConversationIdGenerationError
->
+export type Content = typeof Content.Type;
 ```
 
-Mint a ConversationId before any START network work begins.
+Validated nonempty semantic content.
 
-**Returns:** The newly minted caller-retained identity.
+### [`Content`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L224)
 
-### [`HarnessClient`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L99)
+_Variable_
+
+```ts
+export const Content = contentStructure.pipe(
+  Schema.filter(contentFits),
+  Schema.annotations({ identifier: "Content" }),
+)
+```
+
+Nonempty semantic content whose canonical JSON is at most 32,768 bytes.
+
+### [`ContentPart`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L205)
+
+_TypeAlias_
+
+```ts
+export type ContentPart = typeof ContentPart.Type;
+```
+
+A validated semantic message part.
+
+### [`ContentPart`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L200)
+
+_Variable_
+
+```ts
+export const ContentPart = Schema.Union(
+  exactStruct({ type: Schema.Literal("text"), text: wellFormedString }),
+  exactStruct({ type: Schema.Literal("data"), value: JsonValue }),
+).annotations({ identifier: "ContentPart" })
+```
+
+One exact semantic part of a message.
+
+### [`DeliveryAcknowledgeError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L308)
+
+_Class_
+
+```ts
+export class DeliveryAcknowledgeError extends Data.TaggedError(
+  "DeliveryAcknowledgeError",
+)<{
+  readonly reason: DeliveryAcknowledgeFailure;
+}> {}
+```
+
+Durable host acceptance could not acknowledge one delivery.
+
+### [`DirectMessage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L262)
+
+_TypeAlias_
+
+```ts
+export type DirectMessage = typeof directMessage.Type;
+```
+
+One certified remote-authored direct message.
+
+### [`GroupAddress`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L139)
+
+_TypeAlias_
+
+```ts
+export type GroupAddress = typeof GroupAddress.Type;
+```
+
+A validated canonical complete group destination.
+
+### [`GroupAddress`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L133)
+
+_Variable_
+
+```ts
+export const GroupAddress = addressInput.pipe(
+  Schema.filter(isCanonicalGroupAddress),
+  Schema.brand("GroupAddress"),
+  Schema.annotations({ identifier: "GroupAddress" }),
+)
+```
+
+A complete fixed-member group address in unsigned ASCII name order.
+
+### [`GroupMessage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L264)
+
+_TypeAlias_
+
+```ts
+export type GroupMessage = typeof groupMessage.Type;
+```
+
+One certified remote-authored fixed-group message.
+
+### [`HarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L331)
 
 _Interface_
 
 ```ts
-export interface HarnessClient {
-  readonly start: (input: StartInput) => Effect.Effect<void, StartError>;
-  readonly turns: Stream.Stream<HarnessTurn, ListenError>;
+export interface HarnessEndpoint {
+  readonly send: (input: SendInput) => Effect.Effect<void, SendError>;
+  readonly messages: Stream.Stream<InboundDelivery, ListenError>;
 }
 ```
 
 Structural runtime capability owned by one scoped endpoint connection.
 
-### [`HarnessTurn`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L90)
+### [`InboundDelivery`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L325)
 
 _Interface_
 
 ```ts
-export interface HarnessTurn {
-  readonly conversationId: ConversationId;
-  readonly peers: readonly [VerifiedAgentCard, ...VerifiedAgentCard[]];
-  readonly author: VerifiedAgentCard;
-  readonly content: Content;
-  readonly reply: (content: Content) => Effect.Effect<void, ReplyError>;
+export interface InboundDelivery {
+  readonly message: InboundMessage;
+  readonly acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
 }
 ```
 
-One certified current-conversation action with live reply authority.
+One message plus its transport-only durable-host acknowledgment.
 
-### [`JsonValue`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L10)
+### [`InboundMessage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L272)
+
+_TypeAlias_
+
+```ts
+export type InboundMessage = typeof InboundMessage.Type;
+```
+
+A validated direct or group inbound message.
+
+### [`InboundMessage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L267)
+
+_Variable_
+
+```ts
+export const InboundMessage = Schema.Union(
+  directMessage,
+  groupMessage,
+).annotations({ identifier: "InboundMessage" })
+```
+
+Exact discriminated inbound message projection.
+
+### [`JsonValue`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L178)
 
 _TypeAlias_
 
@@ -177,7 +232,26 @@ export type JsonValue =
 
 A value accepted by the closed semantic content boundary.
 
-### [`ListenError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L66)
+### [`JsonValue`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L188)
+
+_Variable_
+
+```ts
+export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
+  Schema.Union(
+    Schema.Null,
+    Schema.Boolean,
+    Schema.JsonNumber,
+    wellFormedString,
+    Schema.Array(JsonValue),
+    Schema.Record({ key: wellFormedString, value: JsonValue }),
+  ),
+).annotations({ identifier: "JsonValue" })
+```
+
+Runtime validation for the closed recursive JSON value.
+
+### [`ListenError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L297)
 
 _Class_
 
@@ -187,55 +261,89 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 }> {}
 ```
 
-Closed failure from the endpoint's sole inbound stream.
+The endpoint's sole inbound subscription failed.
 
-### [`ReplyError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L78)
-
-_Class_
-
-```ts
-export class ReplyError extends Data.TaggedError("ReplyError")<{
-  readonly reason: ReplyFailure;
-}> {}
-```
-
-Closed failure from one turn-bound reply.
-
-### [`StartError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L59)
-
-_Class_
-
-```ts
-export class StartError extends Data.TaggedError("StartError")<{
-  readonly reason: StartFailure;
-}> {}
-```
-
-Closed failure from one START operation.
-
-### [`StartInput`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L83)
-
-_Interface_
-
-```ts
-export interface StartInput {
-  readonly conversationId: ConversationId;
-  readonly peers: readonly [AgentName, ...AgentName[]];
-  readonly content: Content;
-}
-```
-
-Complete semantic input for a new conversation.
-
-### [`VerifiedAgentCard`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/dist/agent-card.d.ts#L22)
+### [`MessageAddressInput`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L144)
 
 _TypeAlias_
 
 ```ts
-export type VerifiedAgentCard = AgentCard & Brand.Brand<"VerifiedAgentCard">;
+export type MessageAddressInput = typeof MessageAddressInput.Type;
 ```
 
-AgentCard verified against a deployment-pinned Registry signer.
+A validated explicit destination input.
+
+### [`MessageAddressInput`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L142)
+
+_Variable_
+
+```ts
+export const MessageAddressInput = addressInput
+```
+
+Either accepted destination input, including noncanonical group order.
+
+### [`PostId`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L168)
+
+_TypeAlias_
+
+```ts
+export type PostId = typeof PostId.Type;
+```
+
+A validated author-scoped post identity.
+
+### [`PostId`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L159)
+
+_Variable_
+
+```ts
+export const PostId = Schema.String.pipe(
+  Schema.filter(isCanonicalPostId, {
+    identifier: "PostId",
+    description: "Canonical author-scoped post identity",
+  }),
+  Schema.brand("PostId"),
+  Schema.annotations({ identifier: "PostId" }),
+)
+```
+
+Opaque identity minted for one addressed-send invocation.
+
+### [`SendError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L286)
+
+_Class_
+
+```ts
+export class SendError extends Data.TaggedError("SendError")<{
+  readonly reason: SendFailure;
+}> {}
+```
+
+An addressed send failed before local certification completed.
+
+### [`SendInput`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L237)
+
+_TypeAlias_
+
+```ts
+export type SendInput = typeof SendInput.Type;
+```
+
+Validated semantic input for one addressed send.
+
+### [`SendInput`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L232)
+
+_Variable_
+
+```ts
+export const SendInput = exactStruct({
+  to: MessageAddressInput,
+  content: Content,
+}).annotations({ identifier: "SendInput" })
+```
+
+Complete semantic input for one addressed send.
 
 ## Files
 

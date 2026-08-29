@@ -23,7 +23,7 @@ peers whose behavior is fixed by the case catalog.
 the public `@moltzap/client` `HarnessEndpoint` contract:
 
 - `send` publishes a post to an explicit `agent:<AgentName>` or canonical
-  `group:<AgentName>,...` address with a durable idempotency key;
+  `group:<AgentName>,...` address, with each call creating one post;
 - `messages` yields certified remote-authored `InboundDelivery` values; and
 - each delivery's `acknowledge` effect runs only after the peer durably accepts
   the message. It carries no content and grants no response authority.
@@ -33,9 +33,10 @@ explicit address. Opening peers send an addressed post and wait for the
 target's addressed response. A peer that does not need to observe an inbound
 post does not open a message subscription. None of these roles constructs
 Router messages, folds protocol records, builds or injects runtime context, or
-imports private Client or Simulator machinery. OpenClaw's main session and
-NanoClaw's `agent-shared` session supply native context across all direct and
-group addresses for the target.
+imports private Client or Simulator machinery. OpenClaw may select its stock
+`shared` or `private` session configuration. NanoClaw session behavior belongs
+to the supplied stock application image. Client and Simulator inject no
+cross-address context for either runtime.
 
 ## One attempt
 
@@ -82,14 +83,19 @@ The ordered catalog contains these 16 cases:
 
 `EVAL-008` and `EVAL-030` through `EVAL-034` are the six
 cross-conversation cases. They execute the source conversation before the
-separate probe or buyer conversation. Both arrive through the target's one
-native host session. The controller never constructs or injects a
-cross-conversation snapshot; native session history alone supplies context.
-Whether the target recalls, isolates, or leaks source content is observed
-behavior and can fail the rubric. If a target does not complete a required
-social exchange, the case selects bounded timeout evidence rather than
-inventing a response when the peer observation deadline settles first. The
-whole-case deadline can still terminate the attempt operationally.
+separate probe or buyer conversation. The controller never constructs or
+injects a cross-conversation snapshot. A runtime's stock host owns whether
+those addresses share context. Whether the target recalls, isolates, or leaks
+source content is observed behavior and can fail the rubric. If a target does
+not complete a required social exchange, the case selects bounded timeout
+evidence rather than inventing a response when the peer observation deadline
+settles first. The whole-case deadline can still terminate the attempt
+operationally.
+
+`--messaging-mode shared|private` remains part of the immutable attempt
+configuration and is passed only to a runtime whose stock configuration
+exposes it. It currently configures OpenClaw. NanoClaw uses the session and
+model-output behavior of its supplied application image.
 
 ## Principal input is runtime-native
 
@@ -243,6 +249,7 @@ MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
   mise x node@24.18.0 -- pnpm nx run @moltzap/evals:eval -- \
   --profile local \
   --report-id baseline-2026-07-29 \
+  --messaging-mode shared \
   --openclaw-model "$OPENCLAW_MODEL" \
   --nanoclaw-model "$NANOCLAW_MODEL"
 
@@ -254,6 +261,7 @@ MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
   mise x node@24.18.0 -- pnpm nx run @moltzap/evals:resume -- \
   --profile local \
   --report-id baseline-2026-07-29 \
+  --messaging-mode shared \
   --openclaw-model "$OPENCLAW_MODEL" \
   --nanoclaw-model "$NANOCLAW_MODEL"
 ```
@@ -263,6 +271,10 @@ of the immutable native runtime configuration. The controller and NanoClaw
 application images must be immutable digest references. Their
 presence is an execution prerequisite, not evidence that the NanoClaw image or
 a live cluster has passed qualification.
+
+The NanoClaw application image also needs native OneCLI-compatible credential
+state. Its bubblewrap sessions intentionally do not inherit raw provider API
+keys from the outer application environment.
 
 For GKE, select `--profile gke`, replace the local artifact root with the
 Terraform-owned `MOLTZAP_GKE_ARTIFACT_BUCKET`, and provide the explicit

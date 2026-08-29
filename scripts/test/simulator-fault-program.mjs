@@ -1,6 +1,5 @@
 /** @file Deterministic semantic program used by the local Simulator fault qualification. */
 
-import { createConversationId } from "@moltzap/client";
 import {
   ConversationAddress,
   LinkController,
@@ -23,35 +22,55 @@ function withinTimeout(label, timeout) {
     );
 }
 
-function assertText(turn, expected) {
-  const [part, ...extra] = turn.content;
-  return extra.length === 0 && part?.type === "text" && part.text === expected
+function assertDirectDelivery(delivery, address, expected) {
+  const [part, ...extra] = delivery.message.content;
+  const matches =
+    delivery.message.kind === "direct" &&
+    delivery.message.address === address &&
+    delivery.message.sender === address &&
+    extra.length === 0 &&
+    part?.type === "text" &&
+    part.text === expected;
+  return matches
     ? Effect.void
     : Effect.fail(
         new Error(
-          `expected one text part ${JSON.stringify(expected)}, received ${JSON.stringify(turn.content)}`,
+          `expected direct delivery from ${JSON.stringify(address)} with one text part ${JSON.stringify(expected)}, received ${JSON.stringify(delivery.message)}`,
         ),
       );
 }
 
-function conversation(endpoint, peer, mintConversationId) {
-  return Effect.gen(function* () {
-    const conversationId = yield* mintConversationId();
-    const address = new ConversationAddress(conversationId, [
-      endpoint.participant,
-      peer.agent,
-    ]);
-    const socket = yield* endpoint.socket(address);
-    return { address, socket };
-  });
+function conversation(endpoint, peer) {
+  const destination = `agent:${peer.agent.name}`;
+  const address = new ConversationAddress(destination, [
+    endpoint.participant,
+    peer.agent,
+  ]);
+  return endpoint.socket(address).pipe(
+    Effect.map((socket) => ({
+      destination,
+      socket,
+    })),
+  );
+}
+
+function sendText(endpoint, to, text) {
+  return endpoint
+    .send({ to, content: content(text) })
+    .pipe(
+      Effect.flatMap((result) =>
+        result === undefined
+          ? Effect.void
+          : Effect.fail(new Error("addressed send returned a non-void value")),
+      ),
+    );
 }
 
 /**
- * Construct the qualification program with replaceable time and identity
- * seams, leaving the production default on public Client and Effect APIs.
+ * Construct the qualification program with a replaceable timing seam while
+ * leaving production behavior on public Client and Effect APIs.
  */
 export function makeFaultProgram({
-  mintConversationId = createConversationId,
   subscriptionDelay = Effect.sleep(Duration.seconds(1)),
   timeout = DEFAULT_TIMEOUT,
 } = {}) {
@@ -61,16 +80,9 @@ export function makeFaultProgram({
       Effect.gen(function* () {
         const links = yield* LinkController;
         const endpoint = yield* context.network.endpoint(CONTROLLER_NAME);
-        const held = yield* conversation(
-          endpoint,
-          context.agents.held,
-          mintConversationId,
-        );
-        const free = yield* conversation(
-          endpoint,
-          context.agents.free,
-          mintConversationId,
-        );
+        const programScope = yield* Effect.scope;
+        const held = yield* conversation(endpoint, context.agents.held);
+        const free = yield* conversation(endpoint, context.agents.free);
 
         const heldExchange = yield* context.agents.held.gateway.exchange.pipe(
           bounded("held peer exchange"),
@@ -90,22 +102,23 @@ export function makeFaultProgram({
         yield* Effect.scoped(
           Effect.gen(function* () {
             yield* links.hold(context.agents.held.agent, endpoint.participant);
-            yield* endpoint.start({
-              conversationId: held.address.conversationId,
-              peers: [context.agents.held.agent.name],
-              content: content("held-start"),
-            });
-            yield* endpoint.start({
-              conversationId: free.address.conversationId,
-              peers: [context.agents.free.agent.name],
-              content: content("free-start"),
-            });
+            const heldSend = yield* sendText(
+              endpoint,
+              held.destination,
+              "held-start",
+            ).pipe(bounded("held initial send"), Effect.forkIn(programScope));
+            yield* sendText(endpoint, free.destination, "free-start");
 
-            const freeTurn = yield* free.socket
+            const freeDelivery = yield* free.socket
               .receive()
               .pipe(bounded("unfaulted reply"));
-            yield* assertText(freeTurn, "free-reply");
-            yield* freeTurn.reply(content("free-ack"));
+            yield* assertDirectDelivery(
+              freeDelivery,
+              free.destination,
+              "free-reply",
+            );
+            yield* freeDelivery.acknowledge;
+            yield* sendText(endpoint, free.destination, "free-ack");
 
             if (Option.isSome(yield* Fiber.poll(heldReply))) {
               // Joining first preserves an already-completed failure. A
@@ -120,14 +133,24 @@ export function makeFaultProgram({
             yield* Fiber.join(freeExchange).pipe(
               bounded("unfaulted peer completion"),
             );
+            return heldSend;
           }),
+        ).pipe(
+          Effect.flatMap((heldSend) =>
+            Fiber.join(heldSend).pipe(bounded("released held send")),
+          ),
         );
 
-        const heldTurn = yield* Fiber.join(heldReply).pipe(
+        const heldDelivery = yield* Fiber.join(heldReply).pipe(
           bounded("released held reply"),
         );
-        yield* assertText(heldTurn, "held-reply");
-        yield* heldTurn.reply(content("held-ack"));
+        yield* assertDirectDelivery(
+          heldDelivery,
+          held.destination,
+          "held-reply",
+        );
+        yield* heldDelivery.acknowledge;
+        yield* sendText(endpoint, held.destination, "held-ack");
         yield* Fiber.join(heldExchange).pipe(bounded("held peer completion"));
       }),
     );

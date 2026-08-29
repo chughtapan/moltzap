@@ -1,112 +1,144 @@
-/** @file Exact daemon management projection and closed-error tests. */
+/** @file Canonical addressed management projection and closed failures. */
 
 import {
   AgentCard,
+  AgentId,
+  AgentName,
   AgentSigningAuthority,
+  type AgentSigningAuthority as AgentSigningAuthorityValue,
   Ed25519PublicKey,
-  MessageId,
   MOLTZAP_VERSION,
-  SignedMessage,
+  PrincipalId,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import {
   Registry,
-  RegistryConnectionError,
-  type RegistryListRequest,
-  type RegistryLookupRequest,
-  type RegistryRegisterResult,
+  type RegistryLookupResult,
 } from "@moltzap/identity/registry";
-import { RouterInstanceId } from "@moltzap/router";
+import canonicalize from "canonicalize";
 import {
   type Context,
   Effect,
   Encoding,
   Layer,
   Redacted,
-  Ref,
   Schema,
 } from "effect";
+import {
+  createHash,
+  generateKeyPairSync,
+  type KeyObject,
+  sign as signBytes,
+} from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { DaemonBootstrap } from "./configuration.js";
 import {
-  CertifiedRecord,
+  compareAgentIds,
+  deriveConversationId,
   encodeCanonical,
+  hashMembershipDescriptor,
+  MembershipDescriptor,
 } from "../endpoint/representation.js";
 import {
+  type EndpointRecovery,
   type EndpointStore,
   EndpointStoreError,
-  type IdentityBinding,
-  type CertifiedRecord as StoredCertifiedRecord,
 } from "../endpoint/store.js";
 import {
-  managementRegisterRequestSchema,
-  managementSearchAgentsRequestSchema,
+  managementReadConversationRequestSchema,
+  managementSearchConversationsRequestSchema,
+  managementSearchConversationsResultSchema,
 } from "../management-runtime.js";
-import {
-  type DaemonManagementOperations,
-  makeDaemonManagementOperations,
-} from "./management.js";
+import { makeDaemonManagementOperations } from "./management.js";
 
-/* eslint-disable agent-code-guard/async-keyword -- Signed golden fixtures pin the exact private management boundary. */
-
-const privateKey = `-----BEGIN PRIVATE KEY-----
-MC4CAQAwBQYDK2VwBCIEIHsbmQdBGQFs1eXLEWxKDblLeG//B9s8WmWEMQHvw4f8
------END PRIVATE KEY-----`;
-const registryKeyRepresentation = {
-  crv: "Ed25519",
-  kty: "OKP",
-  x: "y1j1FUgbqjCPeQVEnllv-2euwn_s9DeDkfEh3gk_OJ0",
-} as const;
-const firstCardRepresentation = {
-  payload:
-    "eyJhZ2VudElkIjoiYWd0X0FRRUJBUUVCQVFFQkFRRUJBUUVCQVEiLCJhZ2VudE5hbWUiOiJhZ2VudC1vbmUiLCJpc3N1ZWRBdCI6IjIwMjYtMDgtMTNUMDA6MDA6MDFaIiwia2luZCI6ImFnZW50Q2FyZCIsIm1vbHR6YXBWZXJzaW9uIjoiMjAyNi43MjkuMSIsInByaW5jaXBhbElkIjoicHJuX0N3c0xDd3NMQ3dzTEN3c0xDd3NMQ3ciLCJwdWJsaWNLZXkiOnsiY3J2IjoiRWQyNTUxOSIsImt0eSI6Ik9LUCIsIngiOiIzclVKOTJ0SVAwREU0ZWttRVQxem1lNlNJV1RwNUcwS2lGM1pqTC1Bb0tnIn19",
-  signatures: [
-    {
-      protected:
-        "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6c2RFN0NFOENLYVFvMDlSYzdYUEVXbVVNN3puOS00RmxZRzR5QlFhODQtNCIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5tb2x0emFwLmFnZW50LWNhcmQrandzIn0",
-      signature:
-        "7gbf_w3RQVDaiX99yl3XrPAlVUweI_3R8P89ZRqOAB1P6KMP8fK71Ey3QHxEwmo_qnoVnZLVBuZomdnlOFRZAw",
-    },
-  ],
-} as const;
-const secondCardRepresentation = {
-  payload:
-    "eyJhZ2VudElkIjoiYWd0X0FnSUNBZ0lDQWdJQ0FnSUNBZ0lDQWciLCJhZ2VudE5hbWUiOiJhZ2VudC10d28iLCJpc3N1ZWRBdCI6IjIwMjYtMDgtMTNUMDA6MDA6MDJaIiwia2luZCI6ImFnZW50Q2FyZCIsIm1vbHR6YXBWZXJzaW9uIjoiMjAyNi43MjkuMSIsInByaW5jaXBhbElkIjoicHJuX0RBd01EQXdNREF3TURBd01EQXdNREEiLCJwdWJsaWNLZXkiOnsiY3J2IjoiRWQyNTUxOSIsImt0eSI6Ik9LUCIsIngiOiJwZ1liNXhZbW9UVXVKWTRHbktLQnltRnVGSGJuZXRLRG55Vm1uYkZBTU9zIn19",
-  signatures: [
-    {
-      protected:
-        "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6c2RFN0NFOENLYVFvMDlSYzdYUEVXbVVNN3puOS00RmxZRzR5QlFhODQtNCIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5tb2x0emFwLmFnZW50LWNhcmQrandzIn0",
-      signature:
-        "srmWhPubdYbD4O2t85NncbzdJcLKkiaKYd3ZZtSees0mGJh_AJblHAJiFpFeNmoxBsoJEWRLnwAZ6S6npQkUBg",
-    },
-  ],
-} as const;
-
-interface RegistryCalls {
-  readonly lookups: readonly RegistryLookupRequest[];
-  readonly lists: readonly RegistryListRequest[];
+interface IdentityFixture {
+  readonly bootstrap: DaemonBootstrap;
+  readonly cards: readonly [VerifiedAgentCard, VerifiedAgentCard];
 }
+
+const identifier = (prefix: string, byte: number): string =>
+  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`;
 
 const hash = (prefix: string, byte: number): string =>
   `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
 
-const makeBootstrapFixture = Effect.gen(function* () {
+const makeAuthority = () => {
+  const { privateKey } = generateKeyPairSync("ed25519");
+  return AgentSigningAuthority.fromPkcs8(
+    Redacted.make(privateKey.export({ format: "pem", type: "pkcs8" })),
+  );
+};
+
+const issueCard = (input: {
+  readonly byte: number;
+  readonly name: string;
+  readonly authority: AgentSigningAuthorityValue;
+  readonly registryPrivateKey: KeyObject;
+  readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
+}): Effect.Effect<VerifiedAgentCard> =>
+  Effect.gen(function* () {
+    const thumbprint = createHash("sha256")
+      .update(canonicalize(input.registrySignerPublicKey) ?? "")
+      .digest("base64url");
+    const protectedText = canonicalize({
+      alg: "Ed25519",
+      kid: `urn:ietf:params:oauth:jwk-thumbprint:sha-256:${thumbprint}`,
+      typ: "application/vnd.moltzap.agent-card+jws",
+    });
+    const payloadText = canonicalize({
+      agentId: Schema.decodeUnknownSync(AgentId)(
+        identifier("agt_", input.byte),
+      ),
+      agentName: Schema.decodeUnknownSync(AgentName)(input.name),
+      issuedAt: "2026-08-27T12:00:00Z",
+      kind: "agentCard",
+      moltzapVersion: MOLTZAP_VERSION,
+      principalId: Schema.decodeUnknownSync(PrincipalId)(
+        identifier("prn_", input.byte),
+      ),
+      publicKey: AgentSigningAuthority.publicKey(input.authority),
+    });
+    if (protectedText === undefined || payloadText === undefined) {
+      return yield* Effect.dieMessage("canonical card fixture failed");
+    }
+    const protectedValue = Buffer.from(protectedText).toString("base64url");
+    const payload = Buffer.from(payloadText).toString("base64url");
+    const signature = signBytes(
+      null,
+      Buffer.from(`${protectedValue}.${payload}`),
+      input.registryPrivateKey,
+    ).toString("base64url");
+    const card = yield* Schema.decodeUnknown(AgentCard)({
+      payload,
+      signatures: [{ protected: protectedValue, signature }],
+    });
+    return yield* AgentCard.verify({
+      agentCard: card,
+      registrySignerPublicKey: input.registrySignerPublicKey,
+    });
+  }).pipe(Effect.orDie);
+
+const makeIdentityFixture = Effect.gen(function* () {
+  const registryKeys = generateKeyPairSync("ed25519");
   const registrySignerPublicKey = yield* Schema.decodeUnknown(Ed25519PublicKey)(
-    registryKeyRepresentation,
+    registryKeys.publicKey.export({ format: "jwk" }),
   );
-  const encodedCard = yield* Schema.decodeUnknown(AgentCard)(
-    firstCardRepresentation,
-  );
-  const agentCard = yield* AgentCard.verify({
-    agentCard: encodedCard,
+  const localAuthority = yield* makeAuthority();
+  const remoteAuthority = yield* makeAuthority();
+  const local = yield* issueCard({
+    byte: 1,
+    name: "alice",
+    authority: localAuthority,
+    registryPrivateKey: registryKeys.privateKey,
     registrySignerPublicKey,
   });
-  const secondCard = yield* Schema.decodeUnknown(AgentCard)(
-    secondCardRepresentation,
-  );
-  const signingAuthority = yield* AgentSigningAuthority.fromPkcs8(
-    Redacted.make(privateKey),
-  );
+  const remote = yield* issueCard({
+    byte: 2,
+    name: "bob",
+    authority: remoteAuthority,
+    registryPrivateKey: registryKeys.privateKey,
+    registrySignerPublicKey,
+  });
   const bootstrap: DaemonBootstrap = Object.freeze({
     configuration: {
       stateDirectory: "/var/lib/moltzapd",
@@ -117,369 +149,229 @@ const makeBootstrapFixture = Effect.gen(function* () {
       agentPrivateKeyFile: Redacted.make("/run/secrets/agent.pem"),
       admissionCredentialFile: Redacted.make("/run/secrets/admission"),
     },
-    signingAuthority,
-    agentPublicKey: AgentSigningAuthority.publicKey(signingAuthority),
+    signingAuthority: localAuthority,
+    agentPublicKey: AgentSigningAuthority.publicKey(localAuthority),
     admissionCredential: Redacted.make("bootstrap-token="),
   });
-  return { agentCard, bootstrap, secondCard, signingAuthority };
-});
+  return { bootstrap, cards: [local, remote] } satisfies IdentityFixture;
+}).pipe(Effect.orDie);
 
-const makeStore = (input: {
-  readonly history?: StoredCertifiedRecord;
-  readonly historyFailure?: EndpointStoreError;
-}) =>
+const makeDirectMembership = (fixture: IdentityFixture) =>
   Effect.gen(function* () {
-    const binding = yield* Ref.make<IdentityBinding | undefined>(undefined);
-    const store: EndpointStore = {
-      readIdentity: () => Ref.get(binding),
-      bindIdentity: (candidate) =>
-        Ref.modify(
-          binding,
-          (current) =>
-            [
-              current === undefined ? "inserted" : "existing",
-              current ?? candidate,
-            ] as const,
-        ),
-      bindStartIntent: () => Effect.dieMessage("outside management test"),
-      putConversationFoundation: () =>
-        Effect.dieMessage("outside management test"),
-      stageRecord: () => Effect.dieMessage("outside management test"),
-      mergeEvidence: () => Effect.dieMessage("outside management test"),
-      promoteRecord: () => Effect.dieMessage("outside management test"),
-      applyCatchUpRecord: () => Effect.dieMessage("outside management test"),
-      stageReanchor: () => Effect.dieMessage("outside management test"),
-      completeReanchor: () => Effect.dieMessage("outside management test"),
-      applyCatchUpReanchor: () => Effect.dieMessage("outside management test"),
-      consumeAttention: () => Effect.dieMessage("outside management test"),
-      hasConsumedAttention: () => Effect.dieMessage("outside management test"),
-      searchConversations: () =>
-        Effect.succeed({
-          conversationIds: ["00000000-0000-4000-8000-000000000001"],
-          hasMore: false,
-        }),
-      readConversation: () =>
-        input.historyFailure === undefined
-          ? Effect.succeed({
-              records: input.history === undefined ? [] : [input.history],
-              continuation: null,
-            })
-          : Effect.fail(input.historyFailure),
-      releaseContinuation: () => Effect.void,
-      recover: () => Effect.dieMessage("outside management test"),
-    };
-    return store;
-  });
-
-const makeRegistryLayer = (input: {
-  readonly registration: RegistryRegisterResult;
-  readonly card: VerifiedAgentCard;
-  readonly calls: Ref.Ref<RegistryCalls>;
-  readonly fail?: boolean;
-}) => {
-  const service: Context.Tag.Service<typeof Registry> = {
-    register: () =>
-      input.fail === true
-        ? Effect.fail(new RegistryConnectionError())
-        : Effect.succeed(input.registration),
-    lookup: (request) =>
-      Ref.update(input.calls, (calls) => ({
-        ...calls,
-        lookups: [...calls.lookups, request],
-      })).pipe(Effect.as({ kind: "found" as const, agentCard: input.card })),
-    list: (request) =>
-      Ref.update(input.calls, (calls) => ({
-        ...calls,
-        lists: [...calls.lists, request],
-      })).pipe(
-        Effect.as({
-          kind: "page" as const,
-          agentCards: [input.card],
-          hasMore: false,
-        }),
+    const cards = fixture.cards.slice();
+    cards.sort((left, right) => compareAgentIds(left.agentId, right.agentId));
+    const firstAgent = cards[0];
+    const secondAgent = cards[1];
+    if (firstAgent === undefined || secondAgent === undefined) {
+      return yield* Effect.dieMessage("direct fixture lost a member");
+    }
+    const firstCard = yield* Schema.encode(AgentCard)(firstAgent);
+    const secondCard = yield* Schema.encode(AgentCard)(secondAgent);
+    const conversationId = yield* deriveConversationId([
+      firstAgent.agentId,
+      secondAgent.agentId,
+    ]);
+    const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "membership_descriptor",
+      conversationId,
+      members: [firstCard, secondCard],
+    });
+    const membershipHash = yield* hashMembershipDescriptor(descriptor);
+    return {
+      conversationId,
+      membershipHash,
+      canonicalMembership: yield* encodeCanonical(
+        MembershipDescriptor,
+        descriptor,
       ),
+    };
+  }).pipe(Effect.orDie);
+
+const makeRecovery = (fixture: IdentityFixture) =>
+  Effect.gen(function* () {
+    const membership = yield* makeDirectMembership(fixture);
+    const canonicalAgentCard = yield* encodeCanonical(
+      AgentCard,
+      fixture.cards[0],
+    );
+    const recovery: EndpointRecovery = {
+      identity: {
+        agentId: fixture.cards[0].agentId,
+        canonicalAgentCard,
+      },
+      postIntents: [],
+      memberships: [
+        {
+          conversationId: membership.conversationId,
+          membershipHash: membership.membershipHash,
+          canonicalMembership: membership.canonicalMembership,
+        },
+      ],
+      anchors: [],
+      positions: [
+        {
+          conversationId: membership.conversationId,
+          membershipHash: membership.membershipHash,
+          currentAnchorHash: hash("anc_", 3),
+          headRecordHash: hash("rch_", 4),
+        },
+      ],
+      proposalLocks: [],
+      stagedRecords: [],
+      evidence: [],
+      certifiedRecords: [],
+      stagedReanchors: [],
+      pendingDeliveries: [],
+      disseminationObligations: [],
+      outboundMessages: [],
+    };
+    return recovery;
+  }).pipe(Effect.orDie);
+
+function outsideManagementTest<Value>(): Effect.Effect<Value> {
+  return Effect.dieMessage("outside management test");
+}
+
+function makeStore(input: {
+  readonly recovery: EndpointRecovery;
+  readonly historyFailure?: EndpointStoreError;
+}): EndpointStore {
+  return {
+    readIdentity: () => Effect.succeed(input.recovery.identity),
+    bindIdentity: () => outsideManagementTest(),
+    bindPostIntent: () => outsideManagementTest(),
+    putConversationFoundation: () => outsideManagementTest(),
+    lockProposal: () => outsideManagementTest(),
+    lockGenesisProposal: () => outsideManagementTest(),
+    stageRecord: () => outsideManagementTest(),
+    stageRecordForDissemination: () => outsideManagementTest(),
+    mergeEvidence: () => outsideManagementTest(),
+    promoteRecord: () => outsideManagementTest(),
+    promoteRecordForDissemination: () => outsideManagementTest(),
+    applyCatchUpRecord: () => outsideManagementTest(),
+    stageReanchor: () => outsideManagementTest(),
+    completeReanchor: () => outsideManagementTest(),
+    applyCatchUpReanchor: () => outsideManagementTest(),
+    readPendingDeliveries: () => outsideManagementTest(),
+    acknowledgeDelivery: () => outsideManagementTest(),
+    enqueueOutbound: () => outsideManagementTest(),
+    enqueueDisseminationOutbound: () => outsideManagementTest(),
+    beginOutbound: () => outsideManagementTest(),
+    replaceOutbound: () => outsideManagementTest(),
+    completeOutbound: () => outsideManagementTest(),
+    discardOutbound: () => outsideManagementTest(),
+    restartEmptyConversation: () => outsideManagementTest(),
+    searchConversations: () => outsideManagementTest(),
+    readConversation: () =>
+      input.historyFailure === undefined
+        ? Effect.succeed({ records: [], continuation: null })
+        : Effect.fail(input.historyFailure),
+    releaseContinuation: () => outsideManagementTest(),
+    recover: () => Effect.succeed(input.recovery),
+  };
+}
+
+function makeRegistryLayer(cards: readonly VerifiedAgentCard[]) {
+  const lookup = (
+    request: Parameters<Context.Tag.Service<typeof Registry>["lookup"]>[0],
+  ): RegistryLookupResult => {
+    const card = cards.find((candidate) =>
+      "agentName" in request
+        ? candidate.agentName === request.agentName
+        : candidate.agentId === request.agentId,
+    );
+    return card === undefined
+      ? { kind: "not_found" }
+      : { kind: "found", agentCard: card };
+  };
+  const service: Context.Tag.Service<typeof Registry> = {
+    register: () => outsideManagementTest(),
+    lookup: (request) => Effect.succeed(lookup(request)),
+    list: () =>
+      Effect.succeed({ kind: "page", agentCards: cards, hasMore: false }),
   };
   return Layer.succeed(Registry, service);
-};
-
-interface CertifiedRecordFixture {
-  readonly agentCard: VerifiedAgentCard;
-  readonly secondCard: typeof AgentCard.Type;
-  readonly signingAuthority: AgentSigningAuthority;
 }
 
-interface RecordBindings {
-  readonly actionHash: string;
-  readonly anchorHash: string;
-  readonly contentHash: string;
-  readonly conversationId: string;
-  readonly membershipHash: string;
-  readonly recordHash: string;
-}
+// @agent-code-guard/regression-only: these cases pin the addressed owner-management contract.
+describe("addressed daemon management", () => {
+  it("pages canonical addresses without exposing conversation identity", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const fixture = yield* makeIdentityFixture;
+        const recovery = yield* makeRecovery(fixture);
+        const operations = yield* makeDaemonManagementOperations({
+          store: makeStore({ recovery }),
+          bootstrap: fixture.bootstrap,
+        }).pipe(Effect.provide(makeRegistryLayer(fixture.cards)));
 
-const makeRecordBindings = (): RecordBindings => ({
-  actionHash: hash("ach_", 4),
-  anchorHash: hash("anc_", 2),
-  contentHash: hash("cnt_", 5),
-  conversationId: "00000000-0000-4000-8000-000000000001",
-  membershipHash: hash("mbr_", 1),
-  recordHash: hash("rch_", 3),
+        expect(yield* operations.searchConversations({})).toEqual({
+          kind: "page",
+          addresses: ["agent:bob"],
+          hasMore: false,
+        });
+      }),
+    ));
+
+  it("maps a missing certified history to history-gap", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const fixture = yield* makeIdentityFixture;
+        const recovery = yield* makeRecovery(fixture);
+        const operations = yield* makeDaemonManagementOperations({
+          store: makeStore({
+            recovery,
+            historyFailure: new EndpointStoreError({ reason: "not-found" }),
+          }),
+          bootstrap: fixture.bootstrap,
+        }).pipe(Effect.provide(makeRegistryLayer(fixture.cards)));
+        const request = Schema.decodeUnknownSync(
+          managementReadConversationRequestSchema,
+        )({ address: "agent:bob" });
+
+        const error = yield* operations
+          .readConversation(request)
+          .pipe(Effect.flip);
+
+        expect(error).toMatchObject({ reason: "history-gap" });
+      }),
+    ));
 });
 
-const makeStartAction = (
-  bindings: RecordBindings,
-  fixture: CertifiedRecordFixture,
-) => ({
-  moltzapVersion: MOLTZAP_VERSION,
-  kind: "start_action" as const,
-  conversationId: bindings.conversationId,
-  membershipHash: bindings.membershipHash,
-  anchorHash: bindings.anchorHash,
-  previousRecordHash: null,
-  beginDigest: null,
-  actionId: "START" as const,
-  authorAgentId: fixture.agentCard.agentId,
-  content: [{ type: "text" as const, text: "hello" }],
-  replyFingerprint: null,
-});
+// @agent-code-guard/regression-only: the wire schema rejects retired identifiers and noncanonical pages.
+describe("management address schemas", () => {
+  it("accepts canonical address cursors and rejects retired fields", () => {
+    expect(
+      Schema.decodeUnknownSync(managementSearchConversationsRequestSchema)({
+        afterAddress: "agent:bob",
+      }),
+    ).toEqual({ afterAddress: "agent:bob" });
+    expect(() =>
+      Schema.decodeUnknownSync(managementSearchConversationsRequestSchema)({
+        afterConversationId: hash("cnv_", 1),
+      }),
+    ).toThrow();
+  });
 
-const makeMembership = (bindings: RecordBindings) => ({
-  moltzapVersion: MOLTZAP_VERSION,
-  kind: "membership" as const,
-  conversationId: bindings.conversationId,
-  membershipEpoch: 0 as const,
-  members: [firstCardRepresentation, secondCardRepresentation],
-});
-
-const makeActionCertifiedRecord = (input: {
-  readonly bindings: RecordBindings;
-  readonly encodedEvidence: unknown;
-  readonly fixture: CertifiedRecordFixture;
-}) => {
-  const action = makeStartAction(input.bindings, input.fixture);
-  return {
-    moltzapVersion: MOLTZAP_VERSION,
-    kind: "action_certified_record" as const,
-    membership: makeMembership(input.bindings),
-    anchorHash: input.bindings.anchorHash,
-    action,
-    actionHash: input.bindings.actionHash,
-    actionCertificate: {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "action_certificate" as const,
-      action: {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "action_binding" as const,
-        actionKind: "START" as const,
-        conversationId: input.bindings.conversationId,
-        membershipHash: input.bindings.membershipHash,
-        anchorHash: input.bindings.anchorHash,
-        previousRecordHash: null,
-        beginDigest: null,
-        actionId: "START" as const,
-        authorAgentId: input.fixture.agentCard.agentId,
-        contentHash: input.bindings.contentHash,
-        replyFingerprint: null,
-      },
-      signatures: [input.encodedEvidence],
-    },
-  };
-};
-
-const makeCertifiedRecord = (fixture: CertifiedRecordFixture) =>
-  Effect.gen(function* () {
-    const bindings = makeRecordBindings();
-    const routerInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
-      `rti_${Encoding.encodeBase64Url(new Uint8Array(16).fill(6))}`,
-    );
-    const messageId = Schema.decodeUnknownSync(MessageId)(
-      `msg_${Encoding.encodeBase64Url(new Uint8Array(16).fill(7))}`,
-    );
-    const evidence = yield* SignedMessage.sign({
-      agentCard: fixture.agentCard,
-      signingAuthority: fixture.signingAuthority,
-      recipientAgentIds: new Set([fixture.secondCard.agentId]),
-      messageId,
-      body: new Uint8Array([8]),
+  it("requires strictly ordered address pages", () => {
+    expect(
+      Schema.decodeUnknownSync(managementSearchConversationsResultSchema)({
+        kind: "page",
+        addresses: ["agent:bob", "group:alice,bob,carol"],
+        hasMore: false,
+      }),
+    ).toEqual({
+      kind: "page",
+      addresses: ["agent:bob", "group:alice,bob,carol"],
+      hasMore: false,
     });
-    const encodedEvidence = yield* Schema.encode(SignedMessage)(evidence);
-    const record = yield* Schema.decodeUnknown(CertifiedRecord)({
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "certified_record",
-      recordHash: bindings.recordHash,
-      actionCertifiedRecord: makeActionCertifiedRecord({
-        bindings,
-        encodedEvidence,
-        fixture,
+    expect(() =>
+      Schema.decodeUnknownSync(managementSearchConversationsResultSchema)({
+        kind: "page",
+        addresses: ["group:alice,bob,carol", "agent:bob"],
+        hasMore: false,
       }),
-      routerAnchor: {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "genesis_anchor",
-        conversationId: bindings.conversationId,
-        membershipHash: bindings.membershipHash,
-        routerInstanceId,
-      },
-      durabilityVotes: [encodedEvidence],
-    });
-    const canonicalCertifiedRecord = yield* encodeCanonical(
-      CertifiedRecord,
-      record,
-    );
-    const stored: StoredCertifiedRecord = {
-      conversationId: bindings.conversationId,
-      recordHash: bindings.recordHash,
-      membershipHash: bindings.membershipHash,
-      anchorHash: bindings.anchorHash,
-      canonicalRecord: new Uint8Array([1]),
-      canonicalCertifiedRecord,
-    };
-    return { record, stored };
+    ).toThrow();
   });
-
-const registrationRequest = () =>
-  Schema.decodeUnknownSync(managementRegisterRequestSchema)({
-    operationId: "opn_AAAAAAAAAAAAAAAAAAAAAA",
-    principalId: "prn_CwsLCwsLCwsLCwsLCwsLCw",
-    agentName: "agent-one",
-  });
-
-const assertLifecycle = async (operations: DaemonManagementOperations) => {
-  expect(await Effect.runPromise(operations.readStatus())).toEqual({
-    kind: "unregistered",
-  });
-  expect(
-    await Effect.runPromise(operations.register(registrationRequest())),
-  ).toEqual({
-    kind: "registered",
-    agentCard: firstCardRepresentation,
-  });
-  expect(await Effect.runPromise(operations.readStatus())).toEqual({
-    kind: "active",
-    agentCard: firstCardRepresentation,
-  });
-};
-
-const assertRegistrySearches = async (
-  operations: DaemonManagementOperations,
-  calls: Ref.Ref<RegistryCalls>,
-) => {
-  const lookup = Schema.decodeUnknownSync(managementSearchAgentsRequestSchema)({
-    agentName: "agent-one",
-  });
-  expect(await Effect.runPromise(operations.searchAgents(lookup))).toEqual({
-    kind: "found",
-    agentCard: firstCardRepresentation,
-  });
-  expect(await Effect.runPromise(operations.searchAgents({}))).toEqual({
-    kind: "page",
-    agentCards: [firstCardRepresentation],
-    hasMore: false,
-  });
-  expect(await Effect.runPromise(Ref.get(calls))).toEqual({
-    lookups: [lookup],
-    lists: [{}],
-  });
-};
-
-const projectsLifecycleAndRegistry = async () => {
-  const fixture = await Effect.runPromise(makeBootstrapFixture);
-  const store = await Effect.runPromise(makeStore({}));
-  const calls = await Effect.runPromise(
-    Ref.make<RegistryCalls>({ lookups: [], lists: [] }),
-  );
-  const operations = await Effect.runPromise(
-    Effect.provide(
-      makeDaemonManagementOperations({ store, bootstrap: fixture.bootstrap }),
-      makeRegistryLayer({
-        registration: { kind: "registered", agentCard: fixture.agentCard },
-        card: fixture.agentCard,
-        calls,
-      }),
-    ),
-  );
-  await assertLifecycle(operations);
-  await assertRegistrySearches(operations, calls);
-  expect(await Effect.runPromise(operations.searchConversations({}))).toEqual({
-    kind: "page",
-    conversationIds: ["00000000-0000-4000-8000-000000000001"],
-    hasMore: false,
-  });
-};
-
-const decodesCanonicalHistory = async () => {
-  const fixture = await Effect.runPromise(makeBootstrapFixture);
-  const history = await Effect.runPromise(makeCertifiedRecord(fixture));
-  const store = await Effect.runPromise(makeStore({ history: history.stored }));
-  const calls = await Effect.runPromise(
-    Ref.make<RegistryCalls>({ lookups: [], lists: [] }),
-  );
-  const operations = await Effect.runPromise(
-    Effect.provide(
-      makeDaemonManagementOperations({ store, bootstrap: fixture.bootstrap }),
-      makeRegistryLayer({
-        registration: { kind: "registered", agentCard: fixture.agentCard },
-        card: fixture.agentCard,
-        calls,
-      }),
-    ),
-  );
-  expect(
-    await Effect.runPromise(
-      operations.readConversation({
-        conversationId:
-          history.record.actionCertifiedRecord.action.conversationId,
-      }),
-    ),
-  ).toEqual({ kind: "page", records: [history.record], continuation: null });
-};
-
-const mapsClosedHistoryFailures = async () => {
-  const fixture = await Effect.runPromise(makeBootstrapFixture);
-  const calls = await Effect.runPromise(
-    Ref.make<RegistryCalls>({ lookups: [], lists: [] }),
-  );
-  const store = await Effect.runPromise(
-    makeStore({
-      historyFailure: new EndpointStoreError({
-        reason: "invalid-continuation",
-      }),
-    }),
-  );
-  const operations = await Effect.runPromise(
-    Effect.provide(
-      makeDaemonManagementOperations({ store, bootstrap: fixture.bootstrap }),
-      makeRegistryLayer({
-        registration: { kind: "registered", agentCard: fixture.agentCard },
-        card: fixture.agentCard,
-        calls,
-        fail: true,
-      }),
-    ),
-  );
-  const historyError = await Effect.runPromise(
-    Effect.flip(operations.readConversation({ continuation: "A".repeat(43) })),
-  );
-  expect(historyError).toMatchObject({ reason: "invalid-continuation" });
-  const registryError = await Effect.runPromise(
-    Effect.flip(operations.register(registrationRequest())),
-  );
-  expect(registryError).toMatchObject({ reason: "upstream" });
-};
-
-// @agent-code-guard/regression-only: these cases pin the closed management DTO projection and its failure collapse.
-describe("daemon management operations", () => {
-  it(
-    "encodes lifecycle and exact Registry lookup/list results",
-    projectsLifecycleAndRegistry,
-  );
-  it(
-    "decodes canonical certified history before MCP projection",
-    decodesCanonicalHistory,
-  );
-  it(
-    "maps store and Registry failures to closed management reasons",
-    mapsClosedHistoryFailures,
-  );
 });
-
-/* eslint-enable agent-code-guard/async-keyword -- Restore repository defaults. */

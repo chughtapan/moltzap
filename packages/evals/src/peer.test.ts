@@ -1,14 +1,13 @@
-/** @file Public HarnessClient contract tests for autonomous evaluation peers. */
+/** @file Public HarnessEndpoint contract tests for autonomous evaluation peers. */
 
 import { assert, it } from "@effect/vitest";
 import {
-  AgentName,
+  AgentAddress,
   type Content,
-  ConversationId,
-  type HarnessClient,
-  type HarnessTurn,
-  type StartInput,
-  type VerifiedAgentCard,
+  type HarnessEndpoint,
+  type InboundDelivery,
+  PostId,
+  type SendInput,
 } from "@moltzap/client";
 import { Deferred, Effect, Either, Queue, Schema, Stream } from "effect";
 import { decodeEvaluationCaseId } from "./model.js";
@@ -22,202 +21,147 @@ import {
 } from "./peer.js";
 
 const CASE_ID = decodeEvaluationCaseId("EVAL-005");
-const LOCAL_NAME = Schema.decodeSync(AgentName)("evaluation-peer");
-const TARGET_NAME = Schema.decodeSync(AgentName)("evaluation-target");
-const CONVERSATION_ID = Schema.decodeSync(ConversationId)(
-  "00000000-0000-4000-8000-000000000505",
-);
-const TARGET = fakeCard("agt_target", TARGET_NAME);
+const LOCAL_NAME = "evaluation-peer";
+const TARGET_NAME = "evaluation-target";
+const LOCAL_ADDRESS = Schema.decodeSync(AgentAddress)(`agent:${LOCAL_NAME}`);
+const TARGET_ADDRESS = Schema.decodeSync(AgentAddress)(`agent:${TARGET_NAME}`);
+const POST_ID = Schema.decodeSync(PostId)(`pst_${"A".repeat(43)}`);
 const TARGET_OPENING = [{ type: "text", text: "Can you help?" }] as const;
 const PEER_REPLY = [{ type: "text", text: "Yes, I can help." }] as const;
 const TARGET_FOLLOW_UP = [
   { type: "text", text: "Thank you for helping." },
 ] as const;
-const REACTIVE_OBSERVATIONS = [
+const OPENING_OBSERVATIONS = [
   {
-    authorName: TARGET_NAME,
-    direction: "input",
+    endpointAddress: LOCAL_ADDRESS,
+    address: TARGET_ADDRESS,
+    authorAddress: LOCAL_ADDRESS,
+    direction: "output",
     content: TARGET_OPENING,
   },
   {
-    authorName: LOCAL_NAME,
-    direction: "output",
-    content: PEER_REPLY,
-  },
-  {
-    authorName: TARGET_NAME,
+    endpointAddress: LOCAL_ADDRESS,
+    address: TARGET_ADDRESS,
+    authorAddress: TARGET_ADDRESS,
     direction: "input",
     content: TARGET_FOLLOW_UP,
   },
 ] as const;
 
-function openingObservations(conversationId: ConversationId) {
-  return [
-    {
-      conversationId,
-      authorName: LOCAL_NAME,
-      direction: "output",
-      content: TARGET_OPENING,
+function delivery(content: Content): InboundDelivery {
+  return {
+    message: {
+      kind: "direct",
+      postId: POST_ID,
+      address: TARGET_ADDRESS,
+      sender: TARGET_ADDRESS,
+      content,
     },
-    {
-      conversationId,
-      authorName: TARGET_NAME,
-      direction: "input",
-      content: TARGET_FOLLOW_UP,
-    },
-  ] as const;
+    acknowledge: Effect.void,
+  };
 }
 
-function openingObservation(observation: EvaluationPeerObservation) {
+function observationFields(observation: EvaluationPeerObservation) {
   return {
-    conversationId: observation.conversationId,
-    authorName: observation.authorName,
+    endpointAddress: observation.endpointAddress,
+    address: observation.address,
+    authorAddress: observation.authorAddress,
     direction: observation.direction,
     content: observation.content,
   };
 }
 
-function fakeCard(
-  agentId: string,
-  agentName: typeof AgentName.Type,
-): VerifiedAgentCard {
-  const candidate: unknown = {
-    agentId,
-    agentName,
-    principalId: `principal-${agentName}`,
-    publicKey: { crv: "Ed25519", kty: "OKP", x: "fixture" },
-    issuedAt: "2026-08-13T00:00:00Z",
-  };
-  if (!isFakeVerifiedAgentCard(candidate)) {
-    throw new Error("invalid VerifiedAgentCard test fixture");
-  }
-  return candidate;
-}
-
-function isFakeVerifiedAgentCard(value: unknown): value is VerifiedAgentCard {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  if (!("agentId" in value) || typeof value.agentId !== "string") {
-    return false;
-  }
-  return "agentName" in value && typeof value.agentName === "string";
-}
-
-function turn(input: {
-  readonly content: Content;
-  readonly reply: HarnessTurn["reply"];
-  readonly conversationId?: ConversationId;
-}): HarnessTurn {
-  return {
-    conversationId: input.conversationId ?? CONVERSATION_ID,
-    peers: [TARGET],
-    author: TARGET,
-    content: input.content,
-    reply: input.reply,
-  };
-}
-
 it.effect(
-  "consumes queued target turns and replies through the turn-bound capability",
+  "consumes target deliveries and sends to their explicit address",
   () =>
     Effect.gen(function* () {
-      const queue = yield* Queue.unbounded<HarnessTurn>();
-      const replies: Content[] = [];
-      let unrelatedReplyUsed = false;
-      yield* Queue.offer(
-        queue,
-        turn({
-          content: TARGET_OPENING,
-          reply: (content) =>
-            Effect.sync(() => {
-              replies.push(content);
-            }),
-        }),
-      );
-      yield* Queue.offer(
-        queue,
-        turn({
-          content: TARGET_FOLLOW_UP,
-          reply: () =>
-            Effect.sync(() => {
-              unrelatedReplyUsed = true;
-            }),
-        }),
-      );
-      const client: HarnessClient = {
-        start: () => Effect.dieMessage("reactive peers do not initiate START"),
-        turns: Stream.fromQueue(queue),
+      const queue = yield* Queue.unbounded<InboundDelivery>();
+      const sends: SendInput[] = [];
+      yield* Queue.offer(queue, delivery(TARGET_OPENING));
+      yield* Queue.offer(queue, delivery(TARGET_FOLLOW_UP));
+      const endpoint: HarnessEndpoint = {
+        send: (input) =>
+          Effect.sync(() => {
+            sends.push(input);
+          }),
+        messages: Stream.fromQueue(queue),
       };
       const plan = reactivePeer(CASE_ID, TARGET_NAME, ["Yes, I can help."]);
 
       const exchange = yield* runEvaluationPeerApplication(
-        { agentName: LOCAL_NAME, client },
+        { endpointAddress: LOCAL_ADDRESS, endpoint },
         plan.plan,
       ).pipe(Effect.scoped);
 
-      assert.deepStrictEqual(replies, [PEER_REPLY]);
-      assert.isFalse(unrelatedReplyUsed);
-      assert.deepStrictEqual(
-        exchange.observations.map((observation) => ({
-          authorName: observation.authorName,
-          direction: observation.direction,
-          content: observation.content,
-        })),
-        [...REACTIVE_OBSERVATIONS],
-      );
+      assert.lengthOf(sends, 1);
+      assert.strictEqual(sends[0]?.to, TARGET_ADDRESS);
+      assert.deepStrictEqual(sends[0]?.content, PEER_REPLY);
+      assert.deepStrictEqual(exchange.observations.map(observationFields), [
+        {
+          endpointAddress: LOCAL_ADDRESS,
+          address: TARGET_ADDRESS,
+          authorAddress: TARGET_ADDRESS,
+          direction: "input",
+          content: TARGET_OPENING,
+        },
+        {
+          endpointAddress: LOCAL_ADDRESS,
+          address: TARGET_ADDRESS,
+          authorAddress: LOCAL_ADDRESS,
+          direction: "output",
+          content: PEER_REPLY,
+        },
+        {
+          endpointAddress: LOCAL_ADDRESS,
+          address: TARGET_ADDRESS,
+          authorAddress: TARGET_ADDRESS,
+          direction: "input",
+          content: TARGET_FOLLOW_UP,
+        },
+      ]);
     }),
 );
 
 it.effect(
-  "establishes turns before START and records the target's returned action",
+  "establishes the message stream before its first addressed send",
   () =>
     Effect.gen(function* () {
-      const queue = yield* Queue.unbounded<HarnessTurn>();
-      const turnsEstablished = yield* Deferred.make<undefined>();
+      const queue = yield* Queue.unbounded<InboundDelivery>();
+      const messagesEstablished = yield* Deferred.make<undefined>();
       const operations: string[] = [];
-      let startInput: StartInput | undefined;
-      const client: HarnessClient = {
-        turns: Stream.unwrap(
+      let sendInput: SendInput | undefined;
+      const endpoint: HarnessEndpoint = {
+        messages: Stream.unwrap(
           Effect.gen(function* () {
-            operations.push("turns");
-            yield* Deferred.succeed(turnsEstablished, undefined);
+            operations.push("messages");
+            yield* Deferred.succeed(messagesEstablished, undefined);
             return Stream.fromQueue(queue);
           }),
         ),
-        start: (input) =>
+        send: (input) =>
           Effect.gen(function* () {
-            yield* Deferred.await(turnsEstablished);
-            operations.push("start");
-            startInput = input;
-            yield* Queue.offer(
-              queue,
-              turn({
-                conversationId: input.conversationId,
-                content: TARGET_FOLLOW_UP,
-                reply: () =>
-                  Effect.dieMessage("opening exchange does not reply again"),
-              }),
-            );
+            yield* Deferred.await(messagesEstablished);
+            operations.push("send");
+            sendInput = input;
+            yield* Queue.offer(queue, delivery(TARGET_FOLLOW_UP));
           }),
       };
       const plan = openingPeer(CASE_ID, TARGET_NAME, "Can you help?");
 
       const exchange = yield* runEvaluationPeerApplication(
-        { agentName: LOCAL_NAME, client },
+        { endpointAddress: LOCAL_ADDRESS, endpoint },
         plan.plan,
       ).pipe(Effect.scoped);
 
-      assert.deepStrictEqual(operations, ["turns", "start"]);
-      assert.isDefined(startInput);
-      if (startInput === undefined) {
+      assert.deepStrictEqual(operations, ["messages", "send"]);
+      assert.isDefined(sendInput);
+      if (sendInput === undefined) {
         return;
       }
-      assert.isTrue(Schema.is(ConversationId)(startInput.conversationId));
-      assert.deepStrictEqual(startInput.peers, [TARGET_NAME]);
-      assert.deepStrictEqual(startInput.content, TARGET_OPENING);
-      assert.deepStrictEqual(exchange.observations.map(openingObservation), [
-        ...openingObservations(startInput.conversationId),
+      assert.strictEqual(sendInput.to, TARGET_ADDRESS);
+      assert.deepStrictEqual(sendInput.content, TARGET_OPENING);
+      assert.deepStrictEqual(exchange.observations.map(observationFields), [
+        ...OPENING_OBSERVATIONS,
       ]);
     }),
 );
@@ -225,22 +169,22 @@ it.effect(
 it("keeps an idle roster member untriggerable", () =>
   Effect.runPromise(
     Effect.gen(function* () {
-      let startUsed = false;
-      let turnsUsed = false;
-      const client: HarnessClient = {
-        get turns() {
-          turnsUsed = true;
+      let sendUsed = false;
+      let messagesUsed = false;
+      const endpoint: HarnessEndpoint = {
+        get messages() {
+          messagesUsed = true;
           return Stream.empty;
         },
-        start: () =>
+        send: () =>
           Effect.sync(() => {
-            startUsed = true;
+            sendUsed = true;
           }),
       };
       const plan = idlePeer(CASE_ID);
 
       const result = yield* runEvaluationPeerApplication(
-        { agentName: LOCAL_NAME, client },
+        { endpointAddress: LOCAL_ADDRESS, endpoint },
         plan.plan,
       ).pipe(Effect.scoped, Effect.either);
 
@@ -252,7 +196,7 @@ it("keeps an idle roster member untriggerable", () =>
           assert.fail();
         },
       });
-      assert.isFalse(startUsed);
-      assert.isFalse(turnsUsed);
+      assert.isFalse(sendUsed);
+      assert.isFalse(messagesUsed);
     }),
   ));

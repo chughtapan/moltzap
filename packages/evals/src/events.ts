@@ -1,10 +1,6 @@
 /** @file Evaluation events and typed simulator evidence projections. */
 
-import {
-  AgentName as agentName,
-  ConversationId as conversationId,
-  type JsonValue,
-} from "@moltzap/client";
+import { AgentAddress, GroupAddress, type JsonValue } from "@moltzap/client";
 import { EventCatalog } from "@moltzap/simulator";
 import {
   NanoClawGatewayInput,
@@ -24,6 +20,7 @@ const openClawGatewayResponse = Schema.Union(
   OpenClawGatewaySucceeded,
   OpenClawGatewayTimedOut,
 );
+const canonicalMessageAddress = Schema.Union(AgentAddress, GroupAddress);
 const jsonValueSchema: Schema.Schema<JsonValue> = Schema.suspend(() =>
   Schema.Union(
     Schema.Null,
@@ -47,7 +44,7 @@ export class OpenClawPrincipalInstructionAttempted extends Schema.TaggedClass<Op
   "moltzap.openclaw-principal-instruction-attempted/v1",
   {
     caseId: evaluationCaseId,
-    agentName,
+    agentName: Schema.NonEmptyString,
     request: OpenClawGatewayRequest,
   },
 ) {}
@@ -57,7 +54,7 @@ export class OpenClawPrincipalFinalOutput extends Schema.TaggedClass<OpenClawPri
   "moltzap.openclaw-principal-final-output/v1",
   {
     caseId: evaluationCaseId,
-    agentName,
+    agentName: Schema.NonEmptyString,
     idempotencyKey: Schema.NonEmptyString,
     output: openClawGatewayResponse,
   },
@@ -68,7 +65,7 @@ export class NanoClawPrincipalInputSent extends Schema.TaggedClass<NanoClawPrinc
   "moltzap.nanoclaw-principal-input-sent/v1",
   {
     caseId: evaluationCaseId,
-    agentName,
+    agentName: Schema.NonEmptyString,
     input: NanoClawGatewayInput,
   },
 ) {}
@@ -78,30 +75,30 @@ export class NanoClawPrincipalOutputReceived extends Schema.TaggedClass<NanoClaw
   "moltzap.nanoclaw-principal-output-received/v1",
   {
     caseId: evaluationCaseId,
-    agentName,
+    agentName: Schema.NonEmptyString,
     output: NanoClawGatewayOutput,
   },
 ) {}
 
-/** A peer observed one certified action through its public HarnessClient. */
+/** A peer observed one certified action through its public HarnessEndpoint. */
 export class SocialActionObserved extends Schema.TaggedClass<SocialActionObserved>()(
-  "moltzap.social-action-observed/v1",
+  "moltzap.social-action-observed/v2",
   {
     caseId: evaluationCaseId,
-    endpointName: agentName,
-    conversationId,
-    authorName: agentName,
+    endpointAddress: AgentAddress,
+    address: canonicalMessageAddress,
+    authorAddress: AgentAddress,
     direction: Schema.Literal("input", "output"),
     content: semanticContent,
   },
 ) {}
 
-/** A required public Harness turn was absent at the case deadline. */
+/** A required addressed delivery was absent at the case deadline. */
 export class SocialActionNotObserved extends Schema.TaggedClass<SocialActionNotObserved>()(
-  "moltzap.social-action-not-observed/v1",
+  "moltzap.social-action-not-observed/v2",
   {
     caseId: evaluationCaseId,
-    endpointName: agentName,
+    endpointAddress: AgentAddress,
     timeoutMillis: Schema.Int.pipe(Schema.positive()),
   },
 ) {}

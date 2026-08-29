@@ -1,60 +1,31 @@
-/** @file Pins the official MCP capability document through loopback HTTP. */
+/** @file Pins events-v2 discovery and failure isolation through loopback HTTP. */
 
+import type { Implementation } from "@modelcontextprotocol/server";
 import {
   Client,
   ProtocolError,
   ProtocolErrorCode,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import {
-  CLIENT_CAPABILITIES_META_KEY,
-  CLIENT_INFO_META_KEY,
-  type Implementation,
-  PROTOCOL_VERSION_META_KEY,
-} from "@modelcontextprotocol/server";
-import { Ed25519PublicKey } from "@moltzap/identity";
-import { Duration, Effect, Schema, Stream } from "effect";
+import { Deferred, Duration, Effect, Fiber, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import { acquireHarnessClient } from "./client-runtime.js";
+import { acquireHarnessEndpoint } from "./client-runtime.js";
 import { ListenError } from "./contract.js";
+import { HARNESS_EVENTS_EXTENSION } from "./harness-mcp-contract.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-http.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
 } from "./harness-mcp-wire.js";
-import { HARNESS_EVENTS_EXTENSION } from "./harness-runtime.js";
 
 /* eslint-disable agent-code-guard/async-keyword -- These interoperability tests exercise the Promise-native MCP boundary. */
 
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
-const OK_STATUS = 200;
 const IMPLEMENTATION = {
   name: "harness-boundary-test",
   version: "1.0.0",
 } satisfies Implementation;
-const PUBLIC_KEY_REPRESENTATION = {
-  crv: "Ed25519",
-  kty: "OKP",
-  x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
-} as const;
 const PRIVATE_STATUS_DEFECT = "private status defect";
-const REGISTRY_SIGNER_PUBLIC_KEY = Schema.decodeUnknownSync(Ed25519PublicKey)(
-  PUBLIC_KEY_REPRESENTATION,
-);
-
-const discoverResponseSchema = Schema.Struct({
-  jsonrpc: Schema.Literal("2.0"),
-  id: Schema.Literal("discover"),
-  result: Schema.Struct({
-    capabilities: Schema.Struct({
-      extensions: Schema.Struct({
-        [HARNESS_EVENTS_EXTENSION]: Schema.Struct({
-          registrySignerPublicKey: Schema.encodedSchema(Ed25519PublicKey),
-        }),
-      }),
-    }),
-  }),
-});
 
 const unusedOperation = Effect.dieMessage("operation is outside this test");
 const operations: HarnessMcpOperations = {
@@ -63,31 +34,39 @@ const operations: HarnessMcpOperations = {
   searchAgents: () => unusedOperation,
   searchConversations: () => unusedOperation,
   readConversation: () => unusedOperation,
-  start: () => unusedOperation,
-  reply: () => unusedOperation,
+  send: () => unusedOperation,
+  acknowledgeDelivery: () => unusedOperation,
 };
 
-const acquireBoundaryServer = (selectedOperations: HarnessMcpOperations) =>
-  Effect.gen(function* () {
+function acquireBoundaryServer(
+  selectedOperations: HarnessMcpOperations,
+  onSubscriptionActiveChange?: (active: boolean) => void,
+) {
+  return Effect.gen(function* () {
     const handler = yield* makeHarnessMcpHttpHandler({
       implementation: IMPLEMENTATION,
       operations: selectedOperations,
-      registrySignerPublicKey: REGISTRY_SIGNER_PUBLIC_KEY,
+      ...(onSubscriptionActiveChange === undefined
+        ? {}
+        : { onSubscriptionActiveChange }),
     });
     const server = yield* acquireHarnessMcpHttpServer({ port: 0, handler });
     const address = server.address();
     const port =
       typeof address === "object" && address !== null ? address.port : 0;
-    return { port, server } as const;
+    return { port, server };
   });
+}
 
-const acquireProtocolClient = (port: number, name: string) =>
-  Effect.acquireRelease(
+function acquireProtocolClient(port: number, name: string) {
+  return Effect.acquireRelease(
     Effect.gen(function* () {
       const client = new Client(
         { name, version: "1.0.0" },
         {
-          capabilities: {},
+          capabilities: {
+            experimental: { [HARNESS_EVENTS_EXTENSION]: {} },
+          },
           versionNegotiation: { mode: { pin: MODERN_PROTOCOL_VERSION } },
         },
       );
@@ -105,53 +84,13 @@ const acquireProtocolClient = (port: number, name: string) =>
     }),
     (client) => Effect.tryPromise(() => client.close()).pipe(Effect.ignore),
   );
+}
 
-const discoverRequest = (port: number): Request =>
-  new Request(`http://127.0.0.1:${port}/mcp`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "mcp-method": "server/discover",
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: "discover",
-      method: "server/discover",
-      params: {
-        _meta: {
-          [PROTOCOL_VERSION_META_KEY]: MODERN_PROTOCOL_VERSION,
-          [CLIENT_INFO_META_KEY]: IMPLEMENTATION,
-          [CLIENT_CAPABILITIES_META_KEY]: {},
-        },
-      },
-    }),
-  });
-
-const servesEncodedSigner = async () => {
-  const decoded = await Effect.runPromise(
-    Effect.gen(function* () {
-      const { port } = yield* acquireBoundaryServer(operations);
-      const response = yield* Effect.tryPromise(() =>
-        // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The loopback test drives the same Web Request boundary accepted by the official MCP handler.
-        fetch(discoverRequest(port)),
-      );
-      expect(response.status).toBe(OK_STATUS);
-      const body = yield* Effect.tryPromise(() => response.json());
-      return yield* Schema.decodeUnknown(discoverResponseSchema)(body);
-    }).pipe(Effect.scoped),
-  );
-
-  expect(
-    decoded.result.capabilities.extensions[HARNESS_EVENTS_EXTENSION]
-      .registrySignerPublicKey,
-  ).toEqual(PUBLIC_KEY_REPRESENTATION);
-};
-
-const capturesProtocolError = (
+function capturesProtocolError(
   client: Client,
   toolArguments: Readonly<Record<string, unknown>>,
-) =>
-  Effect.tryPromise({
+) {
+  return Effect.tryPromise({
     try: (signal) =>
       client.callTool({ name: "status", arguments: toolArguments }, { signal }),
     catch: (cause) => cause,
@@ -161,8 +100,26 @@ const capturesProtocolError = (
       onSuccess: () => new Error("status unexpectedly succeeded"),
     }),
   );
+}
 
-const distinguishesProtocolAndDomainFailures = async () => {
+async function advertisesExactEventsExtension() {
+  const capabilities = await Effect.runPromise(
+    Effect.gen(function* () {
+      const { port } = yield* acquireBoundaryServer(operations);
+      const client = yield* acquireProtocolClient(
+        port,
+        "harness-capability-client",
+      );
+      return client.getServerCapabilities();
+    }).pipe(Effect.scoped),
+  );
+
+  expect(capabilities?.experimental).toEqual({
+    [HARNESS_EVENTS_EXTENSION]: {},
+  });
+}
+
+async function distinguishesProtocolAndDomainFailures() {
   let statusReads = 0;
   const failingOperations: HarnessMcpOperations = {
     ...operations,
@@ -170,7 +127,7 @@ const distinguishesProtocolAndDomainFailures = async () => {
       statusReads += 1;
       return statusReads === 1
         ? Effect.succeed({ kind: "unregistered" as const })
-        : Effect.fail({ reason: "persistence" as const });
+        : Effect.fail({ reason: "persistence-failed" as const });
     },
   };
   const [malformedCause, domainCause] = await Effect.runPromise(
@@ -184,7 +141,7 @@ const distinguishesProtocolAndDomainFailures = async () => {
         [
           capturesProtocolError(client, { unexpected: true }),
           capturesProtocolError(client, {}),
-        ] as const,
+        ],
         { concurrency: 1 },
       );
     }).pipe(Effect.scoped),
@@ -204,12 +161,12 @@ const distinguishesProtocolAndDomainFailures = async () => {
   expect(malformedCause.data).toBeUndefined();
   expect(domainCause).toMatchObject({
     code: ProtocolErrorCode.InternalError,
-    data: { reason: "persistence" },
+    data: { reason: "persistence-failed" },
   });
   expect(statusReads).toBe(2);
-};
+}
 
-const sanitizesUnexpectedOperationDefects = async () => {
+async function sanitizesUnexpectedOperationDefects() {
   let statusReads = 0;
   const defectiveOperations: HarnessMcpOperations = {
     ...operations,
@@ -237,54 +194,63 @@ const sanitizesUnexpectedOperationDefects = async () => {
   }
   expect(cause).toMatchObject({
     code: ProtocolErrorCode.InternalError,
-    data: { reason: "persistence" },
+    data: { reason: "persistence-failed" },
   });
   expect(String(cause)).not.toContain(PRIVATE_STATUS_DEFECT);
-};
+}
 
-const reportsUnexpectedSubscriptionLoss = async () => {
+async function reportsUnexpectedSubscriptionLoss() {
   const result = await Effect.runPromise(
     Effect.gen(function* () {
-      const { port, server } = yield* acquireBoundaryServer(operations);
-      const client = yield* acquireHarnessClient(
+      const subscriptionActive = yield* Deferred.make<undefined>();
+      const { port, server } = yield* acquireBoundaryServer(
+        operations,
+        (active) => {
+          if (active) {
+            Effect.runSync(Deferred.succeed(subscriptionActive, undefined));
+          }
+        },
+      );
+      const endpoint = yield* acquireHarnessEndpoint(
         new URL(`http://127.0.0.1:${port}/mcp`),
       );
-      yield* Effect.sync(() => {
-        server.closeAllConnections();
-      });
-      return yield* client.turns.pipe(
+      const receive = yield* endpoint.messages.pipe(
         Stream.runHead,
         Effect.match({
           onFailure: (cause) => cause,
-          onSuccess: () => new Error("turn stream ended without a failure"),
+          onSuccess: () =>
+            new Error("message stream ended without a transport failure"),
         }),
+        Effect.forkScoped,
+      );
+      yield* Deferred.await(subscriptionActive);
+      yield* Effect.sync(() => {
+        server.closeAllConnections();
+      });
+      return yield* Fiber.join(receive).pipe(
         Effect.timeoutFail({
           duration: Duration.seconds(5),
-          onTimeout: () => new Error("turn stream did not observe disconnect"),
+          onTimeout: () =>
+            new Error("message stream did not observe disconnect"),
         }),
       );
     }).pipe(Effect.scoped),
   );
 
   expect(result).toBeInstanceOf(ListenError);
-  expect(result).toMatchObject({ reason: "connection" });
-};
+  expect(result).toMatchObject({ reason: "transport-failed" });
+}
 
-// @agent-code-guard/regression-only: this boundary example pins the branded-key encoding seam and the sole loopback listener.
+// @agent-code-guard/regression-only: this boundary pins the exact capability and closed transport failures.
 describe("Harness MCP HTTP boundary", () => {
-  it("serves the encoded Registry signer in discovery", servesEncodedSigner);
-  it(
-    "keeps malformed input separate from closed domain failures",
-    distinguishesProtocolAndDomainFailures,
-  );
-  it(
-    "sanitizes unexpected operation defects",
-    sanitizesUnexpectedOperationDefects,
-  );
-  it(
-    "reports an unexpected subscription disconnect",
-    reportsUnexpectedSubscriptionLoss,
-  );
+  it("advertises the exact empty events-v2 capability", () =>
+    advertisesExactEventsExtension());
+  it("keeps malformed input separate from closed domain failures", () =>
+    distinguishesProtocolAndDomainFailures());
+  it("sanitizes unexpected operation defects", () =>
+    sanitizesUnexpectedOperationDefects());
+  it("reports an unexpected subscription disconnect", () =>
+    reportsUnexpectedSubscriptionLoss());
 });
 
 /* eslint-enable agent-code-guard/async-keyword -- Restore repository defaults after the MCP boundary. */
