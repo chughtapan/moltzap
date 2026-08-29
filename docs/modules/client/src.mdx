@@ -51,7 +51,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`ConnectError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L320)
+### [`ConnectError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L348)
 
 _Class_
 
@@ -109,7 +109,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L308)
+### [`DeliveryAcknowledgeError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L336)
 
 _Class_
 
@@ -121,9 +121,9 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
 }> {}
 ```
 
-Durable host acceptance could not acknowledge one delivery.
+Transport acknowledgment could not complete for one delivery.
 
-### [`DirectMessage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L262)
+### [`DirectMessage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L290)
 
 _TypeAlias_
 
@@ -157,7 +157,7 @@ export const GroupAddress = addressInput.pipe(
 
 A complete fixed-member group address in unsigned ASCII name order.
 
-### [`GroupMessage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L264)
+### [`GroupMessage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L292)
 
 _TypeAlias_
 
@@ -167,7 +167,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L331)
+### [`HarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L359)
 
 _Interface_
 
@@ -180,7 +180,7 @@ export interface HarnessEndpoint {
 
 Structural runtime capability owned by one scoped endpoint connection.
 
-### [`InboundDelivery`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L325)
+### [`InboundDelivery`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L353)
 
 _Interface_
 
@@ -191,9 +191,9 @@ export interface InboundDelivery {
 }
 ```
 
-One message plus its transport-only durable-host acknowledgment.
+One message plus its transport-only acknowledgment.
 
-### [`InboundMessage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L272)
+### [`InboundMessage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L300)
 
 _TypeAlias_
 
@@ -203,7 +203,7 @@ export type InboundMessage = typeof InboundMessage.Type;
 
 A validated direct or group inbound message.
 
-### [`InboundMessage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L267)
+### [`InboundMessage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L295)
 
 _Variable_
 
@@ -251,7 +251,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L297)
+### [`ListenError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L325)
 
 _Class_
 
@@ -310,7 +310,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`SendError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L286)
+### [`SendError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/client/src/contract.ts#L314)
 
 _Class_
 

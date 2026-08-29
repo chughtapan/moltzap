@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   AgentAddress,
   Content,
+  GroupAddress,
   type InboundMessage,
   PostId,
   SendInput,
@@ -22,6 +23,11 @@ const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
 );
 const peerAddress = Schema.decodeUnknownSync(AgentAddress)("agent:bob");
 const senderAddress = Schema.decodeUnknownSync(AgentAddress)("agent:alice");
+const thirdAddress = Schema.decodeUnknownSync(AgentAddress)("agent:carol");
+const outsiderAddress = Schema.decodeUnknownSync(AgentAddress)("agent:dave");
+const groupAddress = Schema.decodeUnknownSync(GroupAddress)(
+  "group:alice,bob,carol",
+);
 const postId = Schema.decodeUnknownSync(PostId)(`pst_${"A".repeat(43)}`);
 const content = Schema.decodeUnknownSync(Content)([
   { type: "text", text: "meeting invite sent" },
@@ -62,7 +68,7 @@ function decodesCanonicalDirectDelivery(): void {
   const message: InboundMessage = {
     kind: "direct",
     postId,
-    address: peerAddress,
+    address: senderAddress,
     sender: senderAddress,
     content,
   };
@@ -83,6 +89,68 @@ function decodesCanonicalDirectDelivery(): void {
   ).toBe(true);
 }
 
+function decodesCanonicalGroupDelivery(): void {
+  const message: InboundMessage = {
+    kind: "group",
+    postId,
+    address: groupAddress,
+    sender: peerAddress,
+    members: [senderAddress, peerAddress, thirdAddress],
+    content,
+  };
+
+  expect(
+    Effect.runSync(decodeHarnessMessageReadyEvent({ deliveryToken, message })),
+  ).toEqual({ deliveryToken, message });
+}
+
+function rejectsInconsistentDeliveryIdentity(): void {
+  const invalidMessages = [
+    {
+      kind: "direct",
+      postId,
+      address: peerAddress,
+      sender: senderAddress,
+      content,
+    },
+    {
+      kind: "group",
+      postId,
+      address: groupAddress,
+      sender: peerAddress,
+      members: [peerAddress, senderAddress, thirdAddress],
+      content,
+    },
+    {
+      kind: "group",
+      postId,
+      address: groupAddress,
+      sender: peerAddress,
+      members: [senderAddress, peerAddress, peerAddress],
+      content,
+    },
+    {
+      kind: "group",
+      postId,
+      address: groupAddress,
+      sender: outsiderAddress,
+      members: [senderAddress, peerAddress, thirdAddress],
+      content,
+    },
+  ];
+
+  for (const message of invalidMessages) {
+    expect(
+      Exit.isFailure(
+        Effect.runSyncExit(
+          decodeHarnessMessageReadyEvent({ deliveryToken, message }),
+        ),
+      ),
+    ).toBe(true);
+  }
+}
+
+// @agent-code-guard/regression-only: these examples pin the exact public wire grammar and its relational identity checks.
 describe("Harness MCP addressed-message representation", () => {
   it("accepts only the empty events-v2 declaration", () => {
     acceptsOnlyEmptyEventsDeclaration();
@@ -92,5 +160,11 @@ describe("Harness MCP addressed-message representation", () => {
   });
   it("decodes one canonical direct-message delivery", () => {
     decodesCanonicalDirectDelivery();
+  });
+  it("decodes one canonical group-message delivery", () => {
+    decodesCanonicalGroupDelivery();
+  });
+  it("rejects deliveries whose address, members, and sender disagree", () => {
+    rejectsInconsistentDeliveryIdentity();
   });
 });

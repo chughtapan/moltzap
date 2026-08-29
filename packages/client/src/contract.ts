@@ -236,7 +236,7 @@ export const SendInput = exactStruct({
 /** Validated semantic input for one addressed send. */
 export type SendInput = typeof SendInput.Type;
 
-const directMessage = exactStruct({
+const directMessageStructure = exactStruct({
   kind: Schema.Literal("direct"),
   postId: PostId,
   address: AgentAddress,
@@ -244,12 +244,19 @@ const directMessage = exactStruct({
   content: Content,
 });
 
+const directMessage = directMessageStructure.pipe(
+  Schema.filter((message) => message.address === message.sender, {
+    identifier: "DirectMessage",
+    description: "A direct delivery addressed by its remote sender",
+  }),
+);
+
 const groupMembers = Schema.Tuple(
   [AgentAddress, AgentAddress, AgentAddress],
   AgentAddress,
 ).pipe(Schema.maxItems(MAXIMUM_GROUP_MEMBERS));
 
-const groupMessage = exactStruct({
+const groupMessageStructure = exactStruct({
   kind: Schema.Literal("group"),
   postId: PostId,
   address: GroupAddress,
@@ -257,6 +264,27 @@ const groupMessage = exactStruct({
   members: groupMembers,
   content: Content,
 });
+
+const groupMessage = groupMessageStructure.pipe(
+  Schema.filter(
+    (message) => {
+      const addressNames = parseGroupAddress(message.address);
+      return (
+        addressNames !== undefined &&
+        addressNames.length === message.members.length &&
+        message.members.every(
+          (member, index) => parseAgentAddress(member) === addressNames[index],
+        ) &&
+        message.members.includes(message.sender)
+      );
+    },
+    {
+      identifier: "GroupMessage",
+      description:
+        "A group delivery whose canonical address, members, and sender agree",
+    },
+  ),
+);
 
 /** One certified remote-authored direct message. */
 export type DirectMessage = typeof directMessage.Type;
@@ -304,7 +332,7 @@ type DeliveryAcknowledgeFailure =
   | "persistence-failed"
   | "transport-failed";
 
-/** Durable host acceptance could not acknowledge one delivery. */
+/** Transport acknowledgment could not complete for one delivery. */
 export class DeliveryAcknowledgeError extends Data.TaggedError(
   "DeliveryAcknowledgeError",
 )<{
@@ -321,7 +349,7 @@ export class ConnectError extends Data.TaggedError("ConnectError")<{
   readonly reason: ConnectFailure;
 }> {}
 
-/** One message plus its transport-only durable-host acknowledgment. */
+/** One message plus its transport-only acknowledgment. */
 export interface InboundDelivery {
   readonly message: InboundMessage;
   readonly acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;

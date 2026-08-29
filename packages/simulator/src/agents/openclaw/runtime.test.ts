@@ -28,6 +28,7 @@ const AGENT_NAME = Schema.decodeUnknownSync(AgentName)("alice");
 const GATEWAY_HOST = "alice.society.svc";
 const BOOTSTRAP_ROOT = "/var/run/moltzap/bootstrap/";
 const OPENCLAW_CONFIG_PATH = `${BOOTSTRAP_ROOT}openclaw.json`;
+const OPENCLAW_EXTENSION_PATH = `${BOOTSTRAP_ROOT}openclaw-channel`;
 const WORKSPACE_PATH = `${BOOTSTRAP_ROOT}workspace/IDENTITY.md`;
 const GATEWAY_PORT = 18_789;
 const APPLICATION_STATE_DIR = `${BOOTSTRAP_ROOT}state`;
@@ -136,7 +137,7 @@ function assertCredentialFreeReservation(
   assert.notInclude(reservation, "bootstrap");
   assert.strictEqual(
     capability.image,
-    "ghcr.io/openclaw/openclaw@sha256:f56744f2cbd2c2477c739158fbc4cf594300aa535767a87da3bcd9cafa150160",
+    "ghcr.io/openclaw/openclaw@sha256:47d342bafe83bd3b2dca6f1d8d8b608ba7b542a1952564960648943346206759",
   );
 }
 
@@ -188,7 +189,9 @@ function assertMessagingConfiguration(fixture: StockFixture): void {
   assert.deepStrictEqual(config.plugins.entries, {
     "openclaw-channel": { enabled: true },
   });
-  assert.notProperty(config.plugins, "load");
+  assert.deepStrictEqual(config.plugins.load, {
+    paths: [OPENCLAW_EXTENSION_PATH],
+  });
   assert.notProperty(config, "session");
   assert.deepStrictEqual(config.channels.moltzap.accounts, [
     { id: "simulator-agent" },

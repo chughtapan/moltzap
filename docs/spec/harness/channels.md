@@ -20,12 +20,13 @@ add a host-only session mode or implicit-reply rule.
 
 ## Adapter messaging
 
-A proactive outbound callback supplies one explicit canonical `agent:` or
-`group:` destination and becomes one Client send. A stock reply-delivery
-callback uses the current inbound message's already-canonical address. Hosts
-own which model tool, final output, ACL, or session invokes either callback,
-and whether to queue or call again. Adapters forward no queue identity into
-Client and add no retry, deduplication, or destination-resolution policy.
+A proactive outbound callback supplies one explicit Client-accepted `agent:`
+or `group:` input and becomes one Client send. Client resolves names and
+canonicalizes group membership. A stock reply-delivery callback uses the
+current inbound message's already-canonical address. Hosts own which model
+tool, final output, ACL, or session invokes either callback, and whether to
+queue or call again. Adapters forward no queue identity into Client and add no
+retry, deduplication, or destination-resolution policy.
 
 Inbound direct metadata contains sender and direct address. Inbound group
 metadata contains `kind: group`, canonical full group address, sender, and
@@ -38,8 +39,8 @@ defines callback completion as durable insertion owns and tests that promise.
 The adapter never manufactures a semantic response.
 
 Acceptance proves exact direct/group projection, metadata-before-content,
-callback-before-ack ordering, canonical proactive-target validation, current-
-origin reply binding, one Client send per host callback, and absence of
-adapter-owned retry or host state. Session, prompt, final-text, inbox
-durability, replay, ACL, and sandbox guarantees belong to stock host
-qualification.
+callback-before-ack ordering, explicit proactive-target grammar validation,
+Client-owned resolution and canonicalization, current-origin reply binding,
+one Client send per host callback, and absence of adapter-owned retry or host
+state. Session, prompt, final-text, inbox durability, replay, ACL, and sandbox
+guarantees belong to stock host qualification.

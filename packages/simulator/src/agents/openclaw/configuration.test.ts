@@ -64,8 +64,11 @@ describe("buildOpenClawConfig", () => {
     assert.isUndefined(mcpSection(undefined));
   });
 
-  it("enables bundled discovery without a configuration load path", () => {
+  it("loads and enables the mounted channel adapter", () => {
     assert.deepStrictEqual(openClawConfig(undefined).plugins, {
+      load: {
+        paths: ["/var/run/moltzap/bootstrap/openclaw-channel"],
+      },
       entries: { "openclaw-channel": { enabled: true } },
     });
   });

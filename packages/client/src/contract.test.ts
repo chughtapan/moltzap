@@ -30,7 +30,7 @@ const decodingFails = (
     onRight: () => false,
   });
 
-// @agent-code-guard/regression-only: Address schemas pin the cutover's accepted canonical runtime grammar.
+// @agent-code-guard/regression-only: Address schemas pin the accepted public runtime grammar.
 describe("public address schemas", () => {
   it("accepts exact agent addresses and arbitrary group input order", () => {
     const direct = "agent:alice-agent";

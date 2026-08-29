@@ -17,9 +17,10 @@ content, and exact group membership through NanoClaw's stock callbacks. The
 adapter awaits `onInbound` before acknowledging Client delivery. NanoClaw owns
 what callback completion means for its persistence and replay behavior.
 
-Outbound delivery validates the canonical `agent:` or `group:` platform ID and
-performs one Client send. NanoClaw owns destination discovery, sessions, model
-output interpretation, queueing, and retries.
+Outbound delivery validates an explicit `agent:` or `group:` platform ID and
+performs one Client send. Client owns name resolution and group
+canonicalization. NanoClaw owns destination discovery, sessions, model output
+interpretation, queueing, and retries.
 
 ## Verification
 

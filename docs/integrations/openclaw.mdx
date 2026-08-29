@@ -43,6 +43,9 @@ channels:
     accounts:
       - id: primary
 plugins:
+  load:
+    paths:
+      - /path/to/openclaw-channel
   entries:
     openclaw-channel:
       enabled: true
@@ -64,10 +67,11 @@ When OpenClaw starts the account, the plugin acquires one scoped
 `HarnessEndpoint` and consumes its `messages` stream. Stopping or aborting the
 account closes that scope. A later start acquires a new endpoint connection.
 
-The plugin targets OpenClaw `2026.7.1-2` and uses its public channel runtime.
-The repository's Simulator mounts the packed package under OpenClaw's bundled
-extension root as a self-contained artifact layout, not because the adapter
-requires privileged host state.
+The plugin targets OpenClaw `2026.6.34` and uses its public channel runtime.
+The repository's Simulator mounts the packed package at
+`/var/run/moltzap/bootstrap/openclaw-channel` and lists that directory in
+`plugins.load.paths`. The self-contained artifact layout does not give the
+adapter privileged host state.
 
 ## Addressed messaging
 

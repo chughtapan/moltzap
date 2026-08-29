@@ -199,7 +199,7 @@ export class Endpoint<Name extends string = string> {
 
   /**
    * Send one explicit addressed post through the endpoint daemon.
-   * @param input Durable host identity, destination, and nonempty content.
+   * @param input Explicit destination and nonempty content.
    * @returns Completion after the daemon certifies the addressed post.
    */
   send(input: SendInput): Effect.Effect<void, NetworkError> {

@@ -9,7 +9,7 @@ import {
   InboundMessage as MoltZapInboundMessage,
   type SendInput,
 } from "@moltzap/client";
-import { Deferred, Effect, Option, Queue, Schema, Stream } from "effect";
+import { Deferred, Effect, Fiber, Option, Queue, Schema, Stream } from "effect";
 import { describe, expect, vi, it as vitestIt } from "vitest";
 
 import type { ChannelSetup, InboundMessage } from "./adapter.js";
@@ -212,9 +212,31 @@ describe("MoltZapAdapter delivery", () => {
       }
       yield* teardownAdapter(adapter);
     }));
+
+  it("forwards accepted group input for Client to canonicalize", () =>
+    Effect.gen(function* () {
+      const fake = yield* createFakeEndpoint();
+      const adapter = MoltZapAdapter.fromEndpoint(fake.endpoint);
+      yield* setupAdapter(adapter, hostSetup());
+
+      yield* runPromise(() =>
+        adapter.deliver("group:bob,alice", null, {
+          kind: "chat",
+          content: { text: "ready" },
+        }),
+      );
+
+      expect(fake.sends).toEqual([
+        {
+          to: "group:bob,alice",
+          content: [{ type: "text", text: "ready" }],
+        },
+      ]);
+      yield* teardownAdapter(adapter);
+    }));
 });
 
-// @agent-code-guard/regression-only: the adapter exposes the finite canonical address projections accepted by the host.
+// @agent-code-guard/regression-only: the adapter exposes the finite address projections accepted by the host.
 // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The finite projection matrix shares one canonical direct/group fixture and lifecycle.
 describe("MoltZapAdapter canonical addresses", () => {
   it("projects exact group identity and membership", () =>
@@ -275,6 +297,130 @@ describe("MoltZapAdapter canonical addresses", () => {
       expect(adapter.isConnected()).toBe(false);
       yield* setupAdapter(adapter, hostSetup());
       expect(adapter.isConnected()).toBe(true);
+      yield* teardownAdapter(adapter);
+      expect(adapter.isConnected()).toBe(false);
+    }));
+
+  it("reacquires after a failed stream and tears down the new activation", () =>
+    Effect.gen(function* () {
+      const queue = yield* Queue.unbounded<InboundDelivery>();
+      let subscriptions = 0;
+      const endpoint: HarnessEndpoint = {
+        send: () => Effect.void,
+        messages: Stream.unwrap(
+          Effect.sync(() => {
+            subscriptions += 1;
+            return subscriptions === 1
+              ? Stream.fail(new ListenError({ reason: "transport-failed" }))
+              : Stream.fromQueue(queue);
+          }),
+        ),
+      };
+      const adapter = MoltZapAdapter.fromEndpoint(endpoint);
+
+      yield* setupAdapter(adapter, hostSetup());
+      yield* waitForDisconnected(adapter);
+      yield* setupAdapter(adapter, hostSetup());
+      yield* runPromise(() =>
+        vi.waitFor(() => {
+          expect(subscriptions).toBe(2);
+        }),
+      );
+      expect(adapter.isConnected()).toBe(true);
+
+      yield* teardownAdapter(adapter);
+      expect(adapter.isConnected()).toBe(false);
+    }));
+
+  it("serializes concurrent setup calls around one activation", () =>
+    Effect.gen(function* () {
+      const queue = yield* Queue.unbounded<InboundDelivery>();
+      let subscriptions = 0;
+      let finalizations = 0;
+      const endpoint: HarnessEndpoint = {
+        send: () => Effect.void,
+        messages: Stream.unwrap(
+          Effect.sync(() => {
+            subscriptions += 1;
+            return Stream.fromQueue(queue).pipe(
+              Stream.ensuring(
+                Effect.sync(() => {
+                  finalizations += 1;
+                }),
+              ),
+            );
+          }),
+        ),
+      };
+      const adapter = MoltZapAdapter.fromEndpoint(endpoint);
+
+      yield* Effect.all(
+        [
+          setupAdapter(adapter, hostSetup()),
+          setupAdapter(adapter, hostSetup()),
+        ],
+        { concurrency: 2, discard: true },
+      );
+      yield* runPromise(() =>
+        vi.waitFor(() => {
+          expect(subscriptions).toBe(1);
+        }),
+      );
+      expect(adapter.isConnected()).toBe(true);
+
+      yield* teardownAdapter(adapter);
+      expect(finalizations).toBe(1);
+      expect(adapter.isConnected()).toBe(false);
+    }));
+
+  it("waits for teardown finalization before replacing the activation", () =>
+    Effect.gen(function* () {
+      const allowFinalization = yield* Deferred.make<undefined>();
+      let subscriptions = 0;
+      const endpoint: HarnessEndpoint = {
+        send: () => Effect.void,
+        messages: Stream.unwrap(
+          Effect.sync(() => {
+            subscriptions += 1;
+            return Stream.never.pipe(
+              Stream.ensuring(
+                subscriptions === 1
+                  ? Deferred.await(allowFinalization)
+                  : Effect.void,
+              ),
+            );
+          }),
+        ),
+      };
+      const adapter = MoltZapAdapter.fromEndpoint(endpoint);
+      yield* setupAdapter(adapter, hostSetup());
+
+      const teardown = yield* Effect.fork(teardownAdapter(adapter));
+      yield* runPromise(() =>
+        vi.waitFor(() => {
+          expect(adapter.isConnected()).toBe(false);
+        }),
+      );
+      const replacement = yield* Effect.fork(
+        setupAdapter(adapter, hostSetup()),
+      );
+      expect(Option.isNone(yield* Fiber.poll(teardown))).toBe(true);
+      expect(Option.isNone(yield* Fiber.poll(replacement))).toBe(true);
+      yield* Effect.flip(
+        runPromise(() =>
+          adapter.deliver(DIRECT_ADDRESS, null, {
+            kind: "chat",
+            content: { text: "too late" },
+          }),
+        ),
+      );
+
+      yield* Deferred.succeed(allowFinalization, undefined);
+      yield* Fiber.join(teardown);
+      yield* Fiber.join(replacement);
+      expect(subscriptions).toBe(2);
+      expect(adapter.isConnected()).toBe(true);
+
       yield* teardownAdapter(adapter);
       expect(adapter.isConnected()).toBe(false);
     }));

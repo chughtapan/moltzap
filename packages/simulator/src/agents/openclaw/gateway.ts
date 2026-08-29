@@ -161,27 +161,50 @@ export interface OpenClawGateway {
   ) => Effect.Effect<OpenClawGatewayResponse, OpenClawGatewayRequestError>;
 }
 
+interface OpenClawGatewayRequestOptions {
+  readonly expectFinal?: boolean;
+  readonly timeoutMs?: number | null;
+  readonly signal?: AbortSignal;
+}
+
+interface OpenClawGatewayClientOptions {
+  readonly url: string;
+  readonly token: string;
+  readonly clientName: "gateway-client";
+  readonly clientDisplayName: string;
+  readonly mode: "backend";
+  readonly role: "operator";
+  readonly scopes: readonly string[];
+  readonly deviceIdentity: OpenClawGatewayDeviceIdentity;
+  readonly env?: Record<string, string | undefined>;
+  readonly onHelloOk: () => void;
+}
+
+/* eslint-disable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- OpenClaw's native gateway seam is Promise-based. */
 /**
  * Narrow client contract used by lifecycle tests.
  * @internal
  */
 export interface OpenClawGatewayClient {
-  readonly start: GatewayClient["start"];
-  readonly stop: GatewayClient["stop"];
-  readonly stopAndWait: GatewayClient["stopAndWait"];
+  readonly start: () => void;
+  readonly stop: () => void;
+  readonly stopAndWait: (options?: {
+    readonly timeoutMs?: number;
+  }) => Promise<void>;
   readonly request: (
     method: string,
     params?: unknown,
-    options?: Parameters<GatewayClient["request"]>[2],
-  ) => ReturnType<GatewayClient["request"]>;
+    options?: OpenClawGatewayRequestOptions,
+  ) => Promise<unknown>;
 }
+/* eslint-enable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Restore repository defaults. */
 
 /**
  * Constructor seam for the public OpenClaw gateway client.
  * @internal
  */
 export type OpenClawGatewayClientFactory = (
-  options: ConstructorParameters<typeof GatewayClient>[0],
+  options: OpenClawGatewayClientOptions,
 ) => OpenClawGatewayClient;
 
 /**
@@ -258,7 +281,23 @@ export function acquireOpenClawGateway(
 }
 
 function nativeGatewayClientFactory(): OpenClawGatewayClientFactory {
-  return (options) => new GatewayClient(options);
+  return (options) => {
+    const client = new GatewayClient({
+      ...options,
+      scopes: [...options.scopes],
+    });
+    return {
+      start: () => {
+        client.start();
+      },
+      stop: () => {
+        client.stop();
+      },
+      stopAndWait: (stopOptions) => client.stopAndWait(stopOptions),
+      request: (method, params, requestOptions) =>
+        client.request(method, params, requestOptions),
+    };
+  };
 }
 
 interface OpenClawAgentRequestParameters {
@@ -300,7 +339,7 @@ function closeGatewayClient(
 
 function gatewayClientEnvironment(
   gatewayUrl: OpenClawGatewaySession["gatewayUrl"],
-): NodeJS.ProcessEnv | undefined {
+): Record<string, string | undefined> | undefined {
   const parsed = new URL(gatewayUrl);
   const loopback = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
   return parsed.protocol === "ws:" && !loopback.has(parsed.hostname)

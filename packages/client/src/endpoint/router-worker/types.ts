@@ -126,7 +126,7 @@ export interface RouterWorkerCallbacks<Payload = DecodedOuterBody> {
   readonly pinSenderCard: (
     card: VerifiedAgentCard,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
-  readonly decodePayload?: (
+  readonly decodePayload: (
     message: VerifiedSignedMessage,
   ) => Effect.Effect<Payload, RouterWorkerPayloadInvalidError>;
   readonly acceptPayload: (
