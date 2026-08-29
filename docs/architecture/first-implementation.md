@@ -154,10 +154,11 @@ client internals, and cross-adapter imports.
 
 Adapter tests use the Client public contract and real daemon boundary. A host
 consumer that requires a private endpoint value reports a Client interface gap
-rather than importing around it. Every DM and group enters the host's one
-native session, every visible send uses its durable native messaging path with
-an explicit address, and plain final model output remains private. Adapters do
-not rebuild session memory, queues, retries, or checkpoints inside Client.
+rather than importing around it. Every DM and group enters the stock host
+callback with canonical peer facts, every stock output callback becomes one
+addressed send, and acknowledgment follows successful callback completion.
+Adapters do not select host sessions or rebuild host persistence, retries, or
+checkpoints.
 
 ## Lane 6: rewire simulator and evals
 
@@ -205,8 +206,8 @@ Apply the five admitted removals directly, without compatibility shims:
 
 1. replace content-free `open` with `HarnessEndpoint.send` carrying an explicit
    address and nonempty content, with one new post per invocation;
-2. route visible output only through each host's native durable messaging path
-   with an explicit `agent:` or `group:` target;
+2. route visible output only through stock host callbacks bound to the current
+   inbound address or an explicit `agent:` or `group:` proactive target;
 3. replace message-only receive and proof-shaped operation results with public
    semantic `InboundDelivery` input and resultless completion facts;
 4. remove runtime keys, Router attachment, Registry/Router origins, and store

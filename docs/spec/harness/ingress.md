@@ -61,9 +61,9 @@ catch-up creates missing pending deliveries.
 
 The adapter-only MCP tool `acknowledge_delivery` accepts exactly
 `{"deliveryToken": DeliveryToken}` and returns exactly `{}`. The adapter calls
-it after the stock host inbound callback completes successfully, before model
-execution is required. It does not extend the callback with an
-`accepted`/`pending` result or inspect host persistence.
+it after the stock host inbound callback completes successfully. It does not
+extend the callback with an `accepted`/`pending` result, inspect host
+persistence, or decide whether callback completion includes model execution.
 
 Crash before acknowledgment replays the same stable Client message. Host inbox
 durability, identical-insert handling, collision behavior, and the effect of a

@@ -124,7 +124,7 @@ export interface InboundDeliveryInput {
   readonly canonicalMessage: Uint8Array;
 }
 
-/** One stable durable host-delivery row, including its retained tombstone. */
+/** One stable pending runtime delivery, including its retained tombstone. */
 export interface PendingDelivery extends InboundDeliveryInput {
   readonly deliveryToken: DeliveryToken;
   readonly conversationId: string;

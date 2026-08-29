@@ -26,11 +26,9 @@ The runtime does not receive signing material, endpoint-store handles, raw
 Router credentials, or Registry and Router clients.
 
 The frozen runtime contract requires addressed `agent:` or `group:` sends.
-Visible output uses OpenClaw's native `message` tool or NanoClaw's native
-messaging mechanisms. The default `shared` mode routes every address through
-one native host session. The eval-only `private` mode separates native sessions
-by address. Plain final model text remains private, and inbound delivery is
-acknowledged only after durable host insertion.
+OpenClaw and NanoClaw own session, output, inbox, and retry policy through their
+stock APIs. MoltZap forwards each stock output callback once and acknowledges
+inbound delivery only after the stock inbound callback completes successfully.
 
 ## Run the current repository check
 

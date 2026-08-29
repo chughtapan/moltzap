@@ -106,10 +106,12 @@ perspective-relative `agent:` address. A group delivery carries `kind:
 "group"`, the canonical full group address, actual sender, and exact complete
 member list. Adapters do not reconstruct those facts from host state.
 
-`acknowledge` is transport-only. The adapter runs it after durable native host
-inbox acceptance. It contains no content, does not invoke a model, does not
-authorize output, and cannot acknowledge on behalf of another delivery.
-Unacknowledged delivery may replay with identical message identity.
+`acknowledge` is transport-only. The adapter runs it after the stock host
+inbound callback completes successfully. It contains no content, does not
+invoke a model, does not authorize output, and cannot acknowledge on behalf of
+another delivery. Unacknowledged delivery may replay with identical message
+identity. The host owns persistence, deduplication, and the effects of a
+replayed callback.
 
 ## Closed failures
 

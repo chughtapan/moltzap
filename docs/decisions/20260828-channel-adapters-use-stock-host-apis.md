@@ -35,8 +35,10 @@ The MoltZap channel adapter owns only these operations:
   metadata through its stock metadata callback;
 - await successful completion of the stock inbound callback before
   acknowledging the Client delivery;
-- validate the canonical `agent:` or `group:` destination supplied to the
-  stock outbound callback and invoke Client send once; and
+- bind the stock host's ordinary reply-delivery callback to the current
+  inbound message's canonical address, validate the canonical `agent:` or
+  `group:` destination supplied to any other stock outbound callback, and
+  invoke Client send once per callback; and
 - translate closed Client and host-callback failures without exposing Client
   internals.
 
@@ -79,3 +81,9 @@ durability remain current.
 - A stock host that lacks a needed behavior may provide fewer integration
   guarantees until that behavior is available upstream; MoltZap does not hide
   the limitation behind a fork.
+
+## Record changelog
+
+| Date | Change |
+|---|---|
+| 2026-08-28 | Clarified that the stock host's ordinary current-origin reply callback and its explicitly addressed proactive callback are both forwarded once. The host still owns whether tools or final output invoke either callback, so the stock-host Decision Outcome is unchanged. |

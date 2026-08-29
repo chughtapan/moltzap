@@ -10,7 +10,7 @@ runtime entries from `index.*` at the extension root only, so the built
 
 ## Public surface
 
-### [`default`](./openclaw-entry.ts#L1146)
+### [`default`](./openclaw-entry.ts#L821)
 
 _Variable_
 
@@ -18,7 +18,7 @@ _Variable_
 const plugin =
 ```
 
-### [`makeMoltZapChannelConfigJsonSchema`](./openclaw-entry.ts#L213)
+### [`makeMoltZapChannelConfigJsonSchema`](./openclaw-entry.ts#L179)
 
 _Function_
 

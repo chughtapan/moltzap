@@ -293,8 +293,9 @@ closed typed unions.
    record stages.
 6. Daemon restart resumes each persisted intent and replays unacknowledged
    inbound delivery with stable identity.
-7. Native host insertion deduplicates crash-after-insert replay; changed
-   payload under one identity fails closed.
+7. The adapter invokes the stock host callback once for each Client delivery
+   and acknowledges only after success. Host persistence, deduplication, and
+   replay effects remain outside MoltZap's guarantees.
 
 ### Personal trust and recursive social features
 
