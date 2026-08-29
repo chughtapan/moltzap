@@ -10,6 +10,8 @@ import type {
 import * as agents from "@moltzap/simulator/agents";
 import type {
   AgentRuntimeInput,
+  OpenClawSandboxConfig,
+  OpenClawToolsConfig,
   StartedAgent,
 } from "@moltzap/simulator/agents";
 import * as ledger from "@moltzap/simulator/ledger";
@@ -45,6 +47,17 @@ type RunNetworkIsPublicNetwork = Assert<Equal<RunNetwork, RootNetworkService>>;
 type RouterProviderIsAClusterService = Assert<
   RouterProvider extends ClusterServices ? true : false
 >;
+
+const openClawTools = {
+  profile: "minimal",
+  deny: ["*"],
+  elevated: { enabled: false },
+  exec: { mode: "deny" },
+  sandbox: { tools: { allow: ["message"] } },
+} satisfies OpenClawToolsConfig;
+const openClawSandbox = { mode: "off" } satisfies OpenClawSandboxConfig;
+// @ts-expect-error The packed public type rejects misspelled native OpenClaw policy keys.
+const misspelledOpenClawTools: OpenClawToolsConfig = { profil: "minimal" };
 
 interface PositiveNetworkMembers {
   readonly address: ConversationAddress;
@@ -141,5 +154,8 @@ void simulator;
 void network;
 void ledger;
 void agents;
+void openClawTools;
+void openClawSandbox;
+void misspelledOpenClawTools;
 
 export type { RouterProviderIsAClusterService, RunNetworkIsPublicNetwork };

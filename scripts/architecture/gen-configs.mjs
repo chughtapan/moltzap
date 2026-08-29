@@ -165,7 +165,7 @@ const packageDefinitions = {
           name: "endpoint",
           folders: ["endpoint"],
           reason:
-            "Endpoint protocol, durability, recovery, Router work, and attention form the daemon's private semantic core",
+            "Endpoint protocol, durability, recovery, Router work, and addressed delivery form the daemon's private semantic core",
         },
       ],
     },
@@ -249,7 +249,7 @@ const packageDefinitions = {
         {
           ...publicTypePackage.client,
           reason:
-            "The reduced Client surface supplies conversation identity and agent names to evaluation boundaries",
+            "The addressed HarnessEndpoint supplies send and acknowledged-delivery contracts to evaluation boundaries",
         },
         publicTypePackage.simulator,
       ],
@@ -257,15 +257,6 @@ const packageDefinitions = {
     },
   },
   "nanoclaw-channel": {
-    beforeShared: {
-      sharedFolderNames: [
-        {
-          folder: "db",
-          reason:
-            "Host-substitution seam for the messaging-group module NanoClaw supplies when the adapter is installed.",
-        },
-      ],
-    },
     afterShared: {
       publicTypePackages: [publicTypePackage.effect, publicTypePackage.client],
       allowedTestPublicSubpaths: [],

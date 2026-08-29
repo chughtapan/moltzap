@@ -20,12 +20,7 @@ import {
 import { Effect, Encoding, Fiber, Ref, Schedule, Schema } from "effect";
 import { createHash, randomBytes } from "node:crypto";
 import type { OutboundMessageInput, StoredOutboundMessage } from "../store.js";
-import {
-  decodeCanonical,
-  type DecodedOuterBody,
-  decodeOuterBody,
-  encodeCanonical,
-} from "../representation.js";
+import { decodeCanonical, encodeCanonical } from "../representation.js";
 import {
   type RouterDiscontinuityReason,
   type RouterTailAnchor,
@@ -34,7 +29,6 @@ import {
   RouterWorkerAuthenticationError,
   RouterWorkerDiscontinuityError,
   type RouterWorkerInput,
-  RouterWorkerPayloadInvalidError,
   RouterWorkerPersistenceError,
   type RouterWorkerPollError,
   RouterWorkerProtocolError,
@@ -701,15 +695,6 @@ const verifyOuterDefault = (input: {
 }): Effect.Effect<VerifiedSignedMessage, RouterWorkerAuthenticationError> =>
   SignedMessage.verify(input).pipe(Effect.mapError(mapAuthenticationError));
 
-const decodePayloadDefault = (
-  message: VerifiedSignedMessage,
-): Effect.Effect<DecodedOuterBody, RouterWorkerPayloadInvalidError> =>
-  decodeOuterBody(message.body).pipe(
-    Effect.catchTag("ClientRepresentationError", () =>
-      Effect.fail(new RouterWorkerPayloadInvalidError()),
-    ),
-  );
-
 const resolveSenderCard = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
   agentId: AgentId,
@@ -762,30 +747,13 @@ const verifyBatch = <Payload>(
     concurrency: 1,
   });
 
-const decodePayload = <Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-  message: VerifiedSignedMessage,
-): Effect.Effect<Payload, RouterWorkerPayloadInvalidError> => {
-  const configured = runtime.input.callbacks.decodePayload;
-  if (configured !== undefined) {
-    return configured(message);
-  }
-  // RouterWorkerInput defaults Payload to DecodedOuterBody, so absence of a
-  // custom decoder and this cast are introduced by the same generic default.
-  // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- Generic default and decoder default are the same DecodedOuterBody type.
-  return decodePayloadDefault(message) as Effect.Effect<
-    Payload,
-    RouterWorkerPayloadInvalidError
-  >;
-};
-
 const acceptVerified = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
   ingress: RouterWorkerVerifiedIngress,
   routerInstanceId: RouterInstanceId,
   phase: "active" | "recovering" = "active",
 ): Effect.Effect<void, RouterWorkerPersistenceError> =>
-  decodePayload(runtime, ingress.message).pipe(
+  runtime.input.callbacks.decodePayload(ingress.message).pipe(
     Effect.flatMap((payload) =>
       phase === "active"
         ? runtime.input.callbacks.acceptPayload({

@@ -40,7 +40,7 @@ import { resolveStorePath } from "openclaw/plugin-sdk/session-store-runtime";
 
 const CHANNEL_ID = "moltzap";
 const TARGET_HINT =
-  'Use an explicit "agent:<name>" or canonical "group:<member>,<member>,..." address';
+  'Use an explicit "agent:<name>" or "group:<member>,<member>,..." address';
 const INBOUND_LOG_PREVIEW_CHARS = 80;
 
 type OpenClawTargetKind = "user" | "group";
@@ -242,7 +242,7 @@ function createMessagingSection() {
       return normalizeMessageTarget(raw)?.to;
     },
     targetResolver: {
-      looksLikeId: isCanonicalMessageTarget,
+      looksLikeId: isExplicitMessageTarget,
       hint: TARGET_HINT,
       resolveTarget(params: { readonly normalized: string }) {
         const target = normalizeMessageTarget(params.normalized);
@@ -310,7 +310,7 @@ function resolveAccountList(cfg: OpenClawConfig): readonly MoltZapAccount[] {
   );
 }
 
-function isCanonicalMessageTarget(raw: string): boolean {
+function isExplicitMessageTarget(raw: string): boolean {
   const target = raw.trim();
   return normalizeMessageTarget(target)?.to === target;
 }
@@ -737,7 +737,7 @@ function sendNativeText(
 ) {
   return sendAddressedText(activeEndpoints, {
     accountId: ctx.accountId,
-    messageId: ctx.deliveryQueueId ?? randomUUID(),
+    messageId: randomUUID(),
     text: ctx.text,
     to: ctx.to,
   });

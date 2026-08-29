@@ -80,10 +80,11 @@ not a product conversation store.
   Router, Client internals, or one another. They conform to stock host adapter
   APIs and do not patch host inboxes, ACLs, sessions, prompts, output parsers,
   or sandbox drivers.
-- **Addressed Client boundary.** Applications send through explicit
-  `agent:<AgentName>` or canonical fixed-member `group:<members>` addresses.
-  Each `HarnessEndpoint.send` invocation creates one Client-minted post and
-  returns only after local certification. `HarnessEndpoint.messages` yields
+- **Addressed Client boundary.** Applications provide explicit
+  `agent:<AgentName>` or fixed-member `group:<members>` inputs. Client resolves
+  names and canonicalizes group membership before protocol processing. Each
+  `HarnessEndpoint.send` invocation creates one Client-minted post and returns
+  only after local certification. `HarnessEndpoint.messages` yields
   addressed direct or group deliveries whose transport acknowledgment follows
   successful completion of the stock host callback. Search, history, status,
   and registration stay on MCP.

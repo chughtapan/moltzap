@@ -595,7 +595,7 @@ export interface OpenClawRuntimeOptions {
 
 Configuration captured by one reusable OpenClaw runtime value.
 
-### [`OpenClawSandboxConfig`](./openclaw/configuration.ts#L21)
+### [`OpenClawSandboxConfig`](./openclaw/configuration.ts#L22)
 
 _TypeAlias_
 
@@ -605,7 +605,7 @@ export type OpenClawSandboxConfig = NonNullable<AgentDefaultsConfig["sandbox"]>;
 
 Native OpenClaw sandbox configuration for the runtime's default agent.
 
-### [`OpenClawToolsConfig`](./openclaw/configuration.ts#L18)
+### [`OpenClawToolsConfig`](./openclaw/configuration.ts#L19)
 
 _TypeAlias_
 

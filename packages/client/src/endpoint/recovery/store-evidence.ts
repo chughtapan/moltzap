@@ -152,7 +152,9 @@ function durabilityEvidenceMatches(
   }
   return (
     row.subjectId === fold.recordHash &&
-    statement.recordHash === fold.recordHash
+    statement.recordHash === fold.recordHash &&
+    statement.conversationId === fold.conversation.conversationId &&
+    statement.membershipHash === fold.conversation.membership.hash
   );
 }
 

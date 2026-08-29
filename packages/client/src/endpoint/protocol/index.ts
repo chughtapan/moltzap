@@ -579,6 +579,10 @@ const maybePromote = (
     const record = yield* makeCertifiedRecord(actionCertifiedRecord, fold).pipe(
       Effect.mapError(localRepresentationFailure),
     );
+    yield* verifyCertifiedRecord({
+      record,
+      registrySignerPublicKey: runtime.input.registrySignerPublicKey,
+    }).pipe(Effect.mapError(localRepresentationFailure));
     yield* promote(runtime, fold, record, "assembled");
   });
 

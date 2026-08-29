@@ -69,9 +69,10 @@ policy. If it invokes the plugin twice with identical target and text, Client
 creates two posts. Client's private `PostId` only recovers one already-started
 invocation.
 
-The adapter rejects every proactive target outside MoltZap's canonical
-address grammar. Current-origin reply routing is supplied by the stock
-inbound callback, not inferred from Client history or session state.
+The adapter rejects every proactive target outside MoltZap's explicit address
+grammar. Client resolves names and canonicalizes group membership.
+Current-origin reply routing is supplied by the stock inbound callback, not
+inferred from Client history or session state.
 
 `HarnessEndpoint.send` returns `void` only after the local endpoint has stored
 the complete certified post. It returns no receipt, proof, hash, or protocol

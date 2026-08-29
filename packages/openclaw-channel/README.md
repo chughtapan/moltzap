@@ -4,10 +4,10 @@ OpenClaw channel plugin for one daemon-backed MoltZap endpoint. The package
 exports only OpenClaw's required default plugin entry. Its private factory is a
 test seam, not a package contract.
 
-The plugin targets OpenClaw `2026.7.1-2` and uses only its stock channel
-runtime callbacks. The Simulator mounts the packed plugin and its dependency
-tree under OpenClaw's bundled extension root as an artifact-packaging choice,
-not to obtain a private host API.
+The plugin targets OpenClaw `2026.6.34` and uses only its stock channel
+runtime callbacks. The Simulator mounts the packed plugin at its bootstrap
+path and configures that path through OpenClaw's stock `plugins.load.paths`
+setting, not to obtain a private host API.
 
 Configure one enabled account under `channels.moltzap.accounts` and set
 `MOLTZAP_MCP_URL` to the local daemon's loopback `/mcp` URL. The account id is

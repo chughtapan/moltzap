@@ -339,7 +339,7 @@ describe("addressed daemon management", () => {
     ));
 });
 
-// @agent-code-guard/regression-only: the wire schema rejects retired identifiers and noncanonical pages.
+// @agent-code-guard/regression-only: the wire schema accepts only address cursors and canonical pages.
 describe("management address schemas", () => {
   it("accepts canonical address cursors and rejects retired fields", () => {
     expect(

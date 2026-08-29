@@ -191,7 +191,7 @@
     "@types/ws": "8.18.1",
     "canonicalize": "3.0.0",
     "effect": "^3.22.0",
-    "openclaw": "2026.7.1-2"
+    "openclaw": "2026.6.34"
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",

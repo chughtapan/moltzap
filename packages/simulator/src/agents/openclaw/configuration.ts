@@ -13,6 +13,7 @@ const DEFAULT_OPENCLAW_MODEL_ID = "openai/gpt-5.5";
 const OPENCLAW_CHANNEL_ID = "moltzap";
 const OPENCLAW_ACCOUNT_ID = "simulator-agent";
 const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
+const OPENCLAW_EXTENSION_PATH = "/var/run/moltzap/bootstrap/openclaw-channel";
 
 /** Native OpenClaw tool exposure and execution configuration. */
 export type OpenClawToolsConfig = ToolsConfig;
@@ -41,7 +42,7 @@ export function buildOpenClawConfig(
   input: OpenClawConfigInput,
   workspaceDirectory: string,
 ): OpenClawConfig {
-  return {
+  const config = {
     ...mcpConfigSection(input.mcpServers),
     agents: {
       defaults: {
@@ -78,12 +79,11 @@ export function buildOpenClawConfig(
         token: Redacted.value(input.gatewayToken),
       },
     },
-  };
+  } satisfies OpenClawConfig;
+  return config;
 }
 
-function mcpConfigSection(
-  mcpServers?: readonly McpServer[],
-): Pick<OpenClawConfig, "mcp"> {
+function mcpConfigSection(mcpServers?: readonly McpServer[]) {
   if (mcpServers === undefined || mcpServers.length === 0) {
     return {};
   }
@@ -106,9 +106,10 @@ function mcpConfigSection(
   };
 }
 
-function pluginConfiguration(): Pick<OpenClawConfig, "plugins"> {
+function pluginConfiguration() {
   return {
     plugins: {
+      load: { paths: [OPENCLAW_EXTENSION_PATH] },
       entries: {
         [OPENCLAW_EXTENSION_NAME]: { enabled: true },
       },

@@ -58,7 +58,7 @@ Failures map one-for-one to `HarnessEndpoint`'s closed `SendError` reasons.
 Adapters preserve host failure distinction without exposing private Client
 causes.
 
-Acceptance proves canonical target validation, distinct identity for distinct
-calls, internal recovery of one persisted intent, first-send group
+Acceptance proves explicit target-grammar validation, distinct identity for
+distinct calls, internal recovery of one persisted intent, first-send group
 creation/reuse, and `void` success only after local certification. Host prompt
 and final-text behavior require stock host evidence.

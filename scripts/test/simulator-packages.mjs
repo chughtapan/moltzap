@@ -423,17 +423,17 @@ async function verifyControllerImageAssembly() {
   );
   requireCondition(
     JSON.stringify(controllerOverlayExternalDependencies) ===
-      JSON.stringify({ openclaw: "2026.7.1-2" }) &&
+      JSON.stringify({ openclaw: "2026.6.34" }) &&
       JSON.stringify(overlayPackage.dependencies) ===
         JSON.stringify({
           "@moltzap/openclaw-channel":
             "file:./tarballs/moltzap-openclaw-channel.tgz",
-          openclaw: "2026.7.1-2",
+          openclaw: "2026.6.34",
         }),
-    "the application overlay must install the exact stable OpenClaw host",
+    "the application overlay must install the exact OpenClaw host",
   );
   requireCondition(
-    channelPackage.peerDependencies?.openclaw === "2026.7.1-2" &&
+    channelPackage.peerDependencies?.openclaw === "2026.6.34" &&
       channelPackage.peerDependenciesMeta?.openclaw?.optional === true &&
       channelPackage.dependencies?.openclaw === undefined,
     "the adapter must preserve its exact optional host peer without a runtime dependency edge",
@@ -944,11 +944,7 @@ async function verifyConsumerImports(archives, census) {
             moduleResolution: "NodeNext",
             noEmit: true,
             noUncheckedIndexedAccess: true,
-            // Simulator intentionally exposes OpenClaw's native policy types.
-            // Stable OpenClaw's bundled Zod declarations fail TypeScript 6
-            // variance checks; consumer source stays strict, and the census
-            // below validates the packed Simulator facades.
-            skipLibCheck: true,
+            skipLibCheck: false,
             strict: true,
             target: "ES2023",
             verbatimModuleSyntax: true,

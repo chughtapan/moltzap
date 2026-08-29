@@ -1,12 +1,10 @@
 /** @file Projects the public MoltZap endpoint capability into NanoClaw. */
 import {
   acquireHarnessEndpoint,
-  AgentAddress,
   type ConnectError,
   type Content,
   type ContentPart,
   type DeliveryAcknowledgeError,
-  GroupAddress,
   type HarnessEndpoint,
   type InboundDelivery,
   type InboundMessage as MoltZapInboundMessage,
@@ -17,8 +15,8 @@ import {
   Config,
   ConfigProvider,
   Data,
+  Deferred,
   Effect,
-  Either,
   Exit,
   Option,
   Schema,
@@ -48,8 +46,6 @@ const MOLTZAP_CHANNEL = "moltzap";
  */
 const MOLTZAP_INBOUND_TIMESTAMP = "1970-01-01T00:00:00.000Z";
 
-const canonicalMessageAddress = Schema.Union(AgentAddress, GroupAddress);
-
 const moltZapChannelEnv = Config.all({
   mcpEndpoint: Config.option(Config.string("MOLTZAP_MCP_URL")).pipe(
     Config.map(Option.getOrNull),
@@ -63,6 +59,14 @@ interface MoltZapChannelEnv {
 interface MoltZapAdapterState {
   readonly injectedEndpoint: HarnessEndpoint | null;
   readonly mcpEndpoint: string | null;
+}
+
+interface MoltZapActivation {
+  readonly endpoint: HarnessEndpoint;
+  readonly finished: Deferred.Deferred<undefined>;
+  readonly scope: Scope.CloseableScope;
+  readonly stopSignal: Deferred.Deferred<undefined>;
+  state: "active" | "stopping";
 }
 
 interface MoltZapOutboundFile {
@@ -102,18 +106,10 @@ function decodeOutboundSend(
   address: string,
   message: MoltZapOutboundMessage,
 ): Effect.Effect<SendInput, MoltZapChannelError> {
-  const destination = decodeMessageAddress(address);
-  if (destination === null) {
-    return Effect.fail(
-      new MoltZapChannelError({
-        reason: "MoltZap outbound delivery requires a canonical address",
-      }),
-    );
-  }
   return decodeOutboundText(message).pipe(
     Effect.flatMap((text) =>
       Schema.decodeUnknown(SendInput)({
-        to: destination,
+        to: address,
         content: [{ type: "text", text }],
       }),
     ),
@@ -121,20 +117,10 @@ function decodeOutboundSend(
       Effect.fail(
         new MoltZapChannelError({
           reason:
-            "MoltZap outbound delivery requires an exact address and valid text",
+            "MoltZap outbound delivery requires an explicit agent or group address and valid text",
         }),
       ),
     ),
-  );
-}
-
-function decodeMessageAddress(value: string): string | null {
-  return Either.match(
-    Schema.decodeUnknownEither(canonicalMessageAddress)(value),
-    {
-      onLeft: () => null,
-      onRight: (address) => address,
-    },
   );
 }
 
@@ -222,11 +208,10 @@ export class MoltZapAdapter {
   readonly supportsThreads = false;
 
   private readonly injectedEndpoint: HarnessEndpoint | null;
+  private readonly lifecycleGate = Effect.runSync(Effect.makeSemaphore(1));
   private readonly mcpEndpoint: string | null;
+  private activation: MoltZapActivation | null = null;
   private setupConfig: ChannelSetup | null = null;
-  private lifecycleScope: Scope.CloseableScope | null = null;
-  private activeEndpoint: HarnessEndpoint | null = null;
-  private connected = false;
 
   private constructor(state: MoltZapAdapterState) {
     this.injectedEndpoint = state.injectedEndpoint;
@@ -259,24 +244,22 @@ export class MoltZapAdapter {
 
   // #ignore-sloppy-code-next-line[promise-type]: NanoClaw's ChannelAdapter lifecycle is Promise-native at the host boundary.
   setup(config: ChannelSetup): Promise<void> {
-    this.setupConfig = config;
-    return Effect.runPromise(this.start());
+    return Effect.runPromise(
+      this.lifecycleGate.withPermits(1)(
+        Effect.suspend(() => this.start(config)),
+      ),
+    );
   }
 
   // #ignore-sloppy-code-next-line[promise-type]: NanoClaw's ChannelAdapter lifecycle is Promise-native at the host boundary.
   teardown(): Promise<void> {
-    this.setupConfig = null;
-    this.activeEndpoint = null;
-    this.connected = false;
-    const scope = this.lifecycleScope;
-    this.lifecycleScope = null;
     return Effect.runPromise(
-      scope === null ? Effect.void : Scope.close(scope, Exit.void),
+      this.lifecycleGate.withPermits(1)(Effect.suspend(() => this.stop())),
     );
   }
 
   isConnected(): boolean {
-    return this.connected;
+    return this.activation?.state === "active";
   }
 
   deliver(
@@ -289,38 +272,79 @@ export class MoltZapAdapter {
     );
   }
 
-  private start(): Effect.Effect<void, ConnectError | MoltZapChannelError> {
-    if (this.connected) {
+  private start(
+    config: ChannelSetup,
+  ): Effect.Effect<void, ConnectError | MoltZapChannelError> {
+    const current = this.activation;
+    if (current?.state === "active") {
+      this.setupConfig = config;
       return Effect.void;
+    }
+    if (current?.state === "stopping") {
+      return Deferred.await(current.finished).pipe(
+        Effect.zipRight(Effect.suspend(() => this.start(config))),
+      );
     }
     return Effect.gen(
       function* (this: MoltZapAdapter) {
         const scope = yield* Scope.make();
-        this.lifecycleScope = scope;
-        const endpoint = yield* this.acquireEndpoint(scope);
-        this.activeEndpoint = endpoint;
-        this.connected = true;
+        const endpoint = yield* this.acquireEndpoint(scope).pipe(
+          Effect.onError(() => Scope.close(scope, Exit.void)),
+        );
+        const activation: MoltZapActivation = {
+          endpoint,
+          finished: yield* Deferred.make<undefined>(),
+          scope,
+          state: "active",
+          stopSignal: yield* Deferred.make<undefined>(),
+        };
+        this.setupConfig = config;
+        this.activation = activation;
         yield* endpoint.messages.pipe(
+          Stream.onDone(() => this.beginStopping(activation)),
+          Stream.onError(() => this.beginStopping(activation)),
           Stream.runForEach((delivery) => this.handleDelivery(delivery)),
-          Effect.ensuring(
-            Effect.sync(() => {
-              this.activeEndpoint = null;
-              this.connected = false;
-            }),
-          ),
-          Effect.forkIn(scope),
+          Effect.raceFirst(Deferred.await(activation.stopSignal)),
+          Effect.ensuring(this.finishActivation(activation)),
+          Effect.forkDaemon,
         );
       }.bind(this),
-    ).pipe(
-      Effect.onError(() => {
-        const scope = this.lifecycleScope;
-        this.lifecycleScope = null;
-        this.activeEndpoint = null;
-        this.connected = false;
-        return scope === null ? Effect.void : Scope.close(scope, Exit.void);
-      }),
+    ).pipe(Effect.asVoid);
+  }
+
+  private stop(): Effect.Effect<void> {
+    const activation = this.activation;
+    return activation === null
+      ? Effect.void
+      : this.beginStopping(activation).pipe(
+          Effect.zipRight(Deferred.succeed(activation.stopSignal, undefined)),
+          Effect.zipRight(Deferred.await(activation.finished)),
+        );
+  }
+
+  private finishActivation(activation: MoltZapActivation): Effect.Effect<void> {
+    return this.beginStopping(activation).pipe(
+      Effect.zipRight(Scope.close(activation.scope, Exit.void)),
+      Effect.zipRight(
+        Effect.sync(() => {
+          if (this.activation === activation) {
+            this.activation = null;
+            this.setupConfig = null;
+          }
+        }),
+      ),
+      Effect.ensuring(Deferred.succeed(activation.finished, undefined)),
       Effect.asVoid,
     );
+  }
+
+  private beginStopping(activation: MoltZapActivation): Effect.Effect<void> {
+    return Effect.sync(() => {
+      if (this.activation === activation) {
+        activation.state = "stopping";
+        this.setupConfig = null;
+      }
+    });
   }
 
   private acquireEndpoint(
@@ -350,8 +374,8 @@ export class MoltZapAdapter {
     address: string,
     message: MoltZapOutboundMessage,
   ): Effect.Effect<void, MoltZapChannelError | SendError> {
-    const endpoint = this.activeEndpoint;
-    if (endpoint === null) {
+    const activation = this.activation;
+    if (activation?.state !== "active") {
       return Effect.fail(
         new MoltZapChannelError({
           reason: "MoltZap channel is not connected",
@@ -359,7 +383,7 @@ export class MoltZapAdapter {
       );
     }
     return decodeOutboundSend(address, message).pipe(
-      Effect.flatMap((input) => endpoint.send(input)),
+      Effect.flatMap((input) => activation.endpoint.send(input)),
     );
   }
 

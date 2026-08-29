@@ -1,10 +1,4 @@
 {
-  "sharedFolderNames": [
-    {
-      "folder": "db",
-      "reason": "Host-substitution seam for the messaging-group module NanoClaw supplies when the adapter is installed."
-    }
-  ],
   "publicTypePackages": [
     {
       "package": "effect",

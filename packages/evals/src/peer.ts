@@ -42,6 +42,8 @@ export const EVALUATION_PEER_PLAN_ENVIRONMENT = EVALUATION_PEER_PLAN_ENV;
 /** Environment key carrying the roster-owned endpoint name. */
 export const EVALUATION_PEER_AGENT_NAME_ENVIRONMENT =
   EVALUATION_PEER_AGENT_NAME_ENV;
+/** Failure-operation value used when delivery acknowledgment fails. */
+export const EVALUATION_PEER_ACKNOWLEDGE_OPERATION = "acknowledge";
 
 const EVALUATION_PEER_RESOURCES = Object.freeze({
   cpuMillis: 100,
@@ -113,6 +115,7 @@ export class EvaluationPeerFailed extends Schema.TaggedError<EvaluationPeerFaile
       "connect",
       "listen",
       "send",
+      EVALUATION_PEER_ACKNOWLEDGE_OPERATION,
       "bridge",
     ),
     detail: Schema.NonEmptyString,
@@ -306,8 +309,19 @@ function matchingDelivery(
       ) {
         return delivery;
       }
+      yield* acknowledgeDelivery(delivery);
     }
   });
+}
+
+function acknowledgeDelivery(
+  delivery: InboundDelivery,
+): Effect.Effect<void, EvaluationPeerFailed> {
+  return delivery.acknowledge.pipe(
+    Effect.mapError((cause) =>
+      failure(EVALUATION_PEER_ACKNOWLEDGE_OPERATION, cause),
+    ),
+  );
 }
 
 function reactiveExchange(
@@ -341,6 +355,7 @@ function reactiveExchange(
           content,
         }),
       );
+      yield* acknowledgeDelivery(delivery);
       delivery = yield* matchingDelivery(inbox, plan.targetAddress, address);
       observations.push(
         observed({
@@ -350,6 +365,7 @@ function reactiveExchange(
         }),
       );
     }
+    yield* acknowledgeDelivery(delivery);
     return PeerExchange.make({ observations });
   });
 }
@@ -372,6 +388,7 @@ function openingExchange(
       plan.targetAddress,
       plan.targetAddress,
     );
+    yield* acknowledgeDelivery(delivery);
     return PeerExchange.make({
       observations: [
         SocialActionObserved.make({

@@ -256,7 +256,6 @@ interface OpenClawMessageSendContext {
   readonly accountId: string;
   readonly to: string;
   readonly text: string;
-  readonly deliveryQueueId: string;
 }
 
 interface OpenClawMessageSendResult {
@@ -287,6 +286,15 @@ interface StableOpenClawPluginApi {
 
 interface StableOpenClawEntry {
   register(api: StableOpenClawPluginApi): void;
+}
+
+function isStableOpenClawEntry(value: unknown): value is StableOpenClawEntry {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "register" in value &&
+    typeof value.register === "function"
+  );
 }
 
 interface OpenClawReplyFixture {
@@ -628,8 +636,12 @@ function registerOpenClawChannel(
           registered = registration.plugin;
         },
       };
-      const entry: StableOpenClawEntry = openClawPlugin;
-      entry.register(api);
+      if (!isStableOpenClawEntry(openClawPlugin)) {
+        throw new ProcessTestError({
+          message: "OpenClaw loader entry has no registration hook",
+        });
+      }
+      openClawPlugin.register(api);
       if (registered === null) {
         throw new ProcessTestError({
           message: "OpenClaw did not register the MoltZap channel",

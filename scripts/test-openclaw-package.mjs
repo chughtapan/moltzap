@@ -33,8 +33,8 @@ const productDependencyGraph = Object.freeze({
   "@moltzap/openclaw-channel": Object.freeze(["@moltzap/client"]),
   "@moltzap/router": Object.freeze(["@moltzap/identity"]),
 });
-const OPENCLAW_VERSION = "2026.7.1-2";
-const OPENCLAW_COMMIT_SHA = "0790d9f593ad30c940ed93b5872a8cf6d6f3cf8c";
+const OPENCLAW_VERSION = "2026.6.34";
+const OPENCLAW_COMMIT_SHA = "5c38f996d4059ebd9080cf74dc611ec3a17f4d50";
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-openclaw-pack-"));
 
 function requireCondition(condition, detail) {
@@ -229,7 +229,7 @@ async function verifyStableOpenClaw(openclawRoot) {
     manifest.version === OPENCLAW_VERSION &&
       buildInfo.version === OPENCLAW_VERSION &&
       buildInfo.commit === OPENCLAW_COMMIT_SHA,
-    "installed OpenClaw host does not match the pinned stable source",
+    "installed OpenClaw host does not match the pinned source",
   );
 }
 
@@ -274,25 +274,6 @@ async function openClawPluginListCommand(openclawRoot) {
     `stable OpenClaw exposes ${String(candidates.length)} plugin-list commands`,
   );
   return join(openclawRoot, "dist", candidates[0]);
-}
-
-async function openClawDistModule(openclawRoot, pattern, marker) {
-  const distRoot = join(openclawRoot, "dist");
-  const candidates = (await readdir(distRoot)).filter((name) =>
-    pattern.test(name),
-  );
-  const matches = [];
-  for (const candidate of candidates) {
-    const source = await readFile(join(distRoot, candidate), "utf8");
-    if (source.includes(marker)) {
-      matches.push(candidate);
-    }
-  }
-  requireCondition(
-    matches.length === 1,
-    `stable OpenClaw exposes ${String(matches.length)} ${marker} modules`,
-  );
-  return join(distRoot, matches[0]);
 }
 
 async function verifyBundledHost(consumerRoot) {
@@ -346,8 +327,6 @@ async function verifyBundledHost(consumerRoot) {
     'requireCondition(plugin?.origin === "bundled" && plugin.enabled === true && plugin.status === "loaded", "MoltZap was not admitted as an enabled bundled plugin");',
     'requireCondition(typeof plugin.rootDir === "string" && typeof plugin.source === "string" && plugin.rootDir === process.env.MOLTZAP_OPENCLAW_BUNDLED_PLUGIN_ROOT && plugin.source.startsWith(`${plugin.rootDir}/`), "MoltZap discovery escaped its bundled root");',
     'requireCondition(JSON.stringify(plugin.channelIds) === JSON.stringify(["moltzap"]), "MoltZap bundled channel metadata drifted");',
-    "const registryModule = await import(pathToFileURL(process.env.MOLTZAP_OPENCLAW_CHANNEL_REGISTRY).href);",
-    "const pluginRuntimeModule = await import(pathToFileURL(process.env.MOLTZAP_OPENCLAW_PLUGIN_RUNTIME).href);",
     "const dependenciesRoot = process.env.MOLTZAP_OPENCLAW_BUNDLED_DEPENDENCIES_ROOT;",
     'requireCondition(typeof dependenciesRoot === "string", "bundled dependency root is not configured");',
     'requireCondition(report.plugins.every((candidate) => typeof candidate.rootDir !== "string" || (candidate.rootDir !== dependenciesRoot && !candidate.rootDir.startsWith(`${dependenciesRoot}/`))), "OpenClaw discovered the sibling node_modules mount as a plugin");',
@@ -369,11 +348,7 @@ async function verifyBundledHost(consumerRoot) {
     "  registerChannel: ({ plugin: channel }) => { registered = channel; },",
     "});",
     'requireCondition(registered?.id === "moltzap", "bundled loader did not register the MoltZap channel");',
-    "const probeRegistry = pluginRuntimeModule.O();",
-    "probeRegistry.channels.push({ plugin: registered });",
-    'pluginRuntimeModule.D(probeRegistry, "moltzap-packed-host-probe");',
-    'const loadedChannel = registryModule.t("moltzap");',
-    'requireCondition(loadedChannel?.message?.send?.text, "stable OpenClaw did not activate the MoltZap message adapter");',
+    'requireCondition(registered?.message?.send?.text, "stable OpenClaw did not register the MoltZap message adapter");',
     "",
   ].join("\n");
   await exec(
@@ -396,16 +371,6 @@ async function verifyBundledHost(consumerRoot) {
         MOLTZAP_OPENCLAW_BUNDLED_DEPENDENCIES_ROOT: bundledDependenciesRoot,
         MOLTZAP_OPENCLAW_BUNDLED_PLUGIN_ROOT: bundledPluginRoot,
         MOLTZAP_OPENCLAW_CHANNEL_ROOT: channelRoot,
-        MOLTZAP_OPENCLAW_CHANNEL_REGISTRY: await openClawDistModule(
-          openclawRoot,
-          /^registry-[A-Za-z0-9_-]+\.js$/,
-          "function getChannelPlugin(id)",
-        ),
-        MOLTZAP_OPENCLAW_PLUGIN_RUNTIME: await openClawDistModule(
-          openclawRoot,
-          /^runtime-[A-Za-z0-9_-]+\.js$/,
-          "function createEmptyPluginRegistry()",
-        ),
         MOLTZAP_OPENCLAW_PLUGIN_LIST_COMMAND:
           await openClawPluginListCommand(openclawRoot),
       },
@@ -466,7 +431,7 @@ async function verifyConsumer(archives) {
             moduleResolution: "NodeNext",
             noEmit: true,
             noUncheckedIndexedAccess: true,
-            skipLibCheck: true,
+            skipLibCheck: false,
             strict: true,
             target: "ES2023",
             verbatimModuleSyntax: true,
@@ -481,7 +446,8 @@ async function verifyConsumer(archives) {
       join(consumerRoot, "check.ts"),
       [
         'import plugin from "@moltzap/openclaw-channel";',
-        "void plugin;",
+        "const pluginId: string = plugin.id;",
+        "void pluginId;",
         "",
       ].join("\n"),
     ),

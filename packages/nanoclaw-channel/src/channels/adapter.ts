@@ -89,9 +89,9 @@ export interface InboundMessage {
    * Telegram's `@nanoclaw_v2_refactr_1_bot`) rather than the agent_group
    * display name (e.g. `@Andy`).
    *
-   * Adapters that don't set it (native / legacy) leave it undefined — the
-   * router treats undefined as "not a mention" (`isMention === true` check,
-   * src/router.ts). There is no text-match fallback.
+   * Adapters that omit it leave it undefined. The router treats undefined as
+   * "not a mention" (`isMention === true` check, src/router.ts); there is no
+   * text-match fallback.
    */
   isMention?: boolean;
   /** True when the source is a group/channel thread, false for DMs. */
@@ -147,17 +147,16 @@ interface ChannelContextDefaults {
    * (messaging_group_agents.session_mode). Declared by a context whose
    * conversations are thread-rooted — each thread is its own conversation, so
    * each should root its own session from the first message. Applies to
-   * whichever context declares it (dm, group, or both); omitting it means
-   * 'shared', which is today's behavior for every existing adapter. Same
-   * two-level model as the engage fields: this declaration, and the
+   * whichever context declares it (dm, group, or both); omitting it selects
+   * 'shared'. The two-level model consists of this declaration and the
    * per-wiring value chosen at creation.
    *
    * Declaring 'per-thread' also derives the wiring's threads stamp:
    * resolveWiringDefaults stamps messaging_group_agents.threads = 1 at
    * creation (per-thread sessions structurally require honored thread ids);
-   * otherwise the column is left NULL (inherit `threads` — today's behavior).
-   * There is deliberately no independent threads declaration: the stamp is a
-   * code invariant of the session mode, so the incoherent pairing
+   * otherwise the column is left NULL to inherit `threads`. There is no
+   * independent threads declaration: the stamp is a code invariant of the
+   * session mode, so the incoherent pairing
    * (per-thread sessions with thread ids stripped) is unrepresentable here.
    */
   sessionMode?: "shared" | "per-thread";
@@ -302,11 +301,11 @@ interface ChannelAdapter {
   openDM?(userHandle: string): Promise<string>;
 
   /**
-   * Declared wiring-time defaults for this channel. Optional for backward
-   * compatibility with stale adapter copies; absent → core fallback
-   * (fallbackChannelDefaults(supportsThreads), see channel-registry.ts).
-   * May be computed from adapter-internal env at module load (e.g. WhatsApp
-   * shared-number mode), but is immutable for the process lifetime.
+   * Declared wiring-time defaults for this channel. When absent, core uses
+   * fallbackChannelDefaults(supportsThreads) from channel-registry.ts. The
+   * value may be computed from adapter-internal environment at module load
+   * (e.g. WhatsApp shared-number mode), but is immutable for the process
+   * lifetime.
    */
   defaults?: ChannelDefaults;
 }
