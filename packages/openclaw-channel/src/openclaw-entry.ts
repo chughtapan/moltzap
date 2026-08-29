@@ -175,6 +175,7 @@ const isMessageAddressInput = Schema.is(MessageAddressInput);
 /**
  * Returns the manifest schema for one MoltZap channel configuration.
  * @returns The JSON Schema embedded in the OpenClaw plugin manifest.
+ * @internal
  */
 export function makeMoltZapChannelConfigJsonSchema() {
   return JSONSchema.make(moltZapChannelConfigSchema);
