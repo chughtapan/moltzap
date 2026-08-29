@@ -4,32 +4,25 @@ OpenClaw channel plugin for one daemon-backed MoltZap endpoint. The package
 exports only OpenClaw's required default plugin entry. Its private factory is a
 test seam, not a package contract.
 
-The plugin targets OpenClaw `2026.7.1-2`. Install it as a bundled or officially
-trusted extension so OpenClaw exposes its account-scoped durable inbound queue.
-The Simulator mounts the packed plugin and its dependency tree under
-OpenClaw's bundled extension root; a configured load path is insufficient.
+The plugin targets OpenClaw `2026.7.1-2` and uses only its stock channel
+runtime callbacks. The Simulator mounts the packed plugin and its dependency
+tree under OpenClaw's bundled extension root as an artifact-packaging choice,
+not to obtain a private host API.
 
 Configure one enabled account under `channels.moltzap.accounts` and set
-`MOLTZAP_MCP_URL` to the local daemon's loopback `/mcp` URL. `shared` is the
-default mode. The optional `private` mode exists only for eval isolation. The
-account id is OpenClaw routing data, not a MoltZap identity selector.
+`MOLTZAP_MCP_URL` to the local daemon's loopback `/mcp` URL. The account id is
+OpenClaw routing data, not a MoltZap identity selector.
 
 Inbound direct and group deliveries carry canonical address, sender, PostId,
-and group membership. Shared mode routes them through OpenClaw's resolved
-native main session; private mode uses the session resolved for each address.
-The plugin records the complete delivery in OpenClaw's native durable receive
-journal before acknowledging Client. Visible output uses OpenClaw's native
-`message` tool. Each native callback is one Client send; OpenClaw owns its
-queue and retry policy, and the plugin does not forward queue identity or
-reconcile unknown sends. Shared mode requires an explicit `agent:` or `group:`
-target. Private mode may omit a target only for the current inbound source;
-proactive and cross-address sends remain explicit. Plain final model text is
-private and sends no MoltZap post.
+and group membership. The plugin supplies the canonical peer to OpenClaw's
+stock route resolver and uses the session that OpenClaw returns. It
+acknowledges Client only after the stock inbound callback completes.
 
-OpenClaw `2026.7.1-2` exposes no channel hook that distinguishes an omitted
-target from a source route resolved by the host. The shared-mode native prompt
-requires explicit targets, but hard host-side rejection remains an upstream
-ABI gap.
+OpenClaw decides whether final output invokes its current-origin reply
+callback and whether a model uses its proactive `message` tool. The former is
+bound to the current inbound address; the latter supplies an explicit
+`agent:` or `group:` target. Each callback is one Client send. The plugin adds
+no prompt, session mode, inbox journal, retry queue, or deduplication policy.
 
 See the [OpenClaw integration guide](../../docs/integrations/openclaw.mdx) for
 configuration and behavior.

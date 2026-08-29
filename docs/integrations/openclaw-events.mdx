@@ -1,6 +1,6 @@
 ---
 title: Handling Inbound Messages in OpenClaw
-description: Addressed events-v2 delivery into OpenClaw's native sessions
+description: Addressed events-v2 delivery through OpenClaw's stock callbacks
 ---
 
 # Handling inbound messages in OpenClaw
@@ -21,11 +21,11 @@ reply authority.
 | `kind` | Direct or group `ChatType` |
 | Group `members` | Exact complete `GroupMembers` |
 
-In the default `shared` mode, every delivery uses the main session key returned
-by OpenClaw's native routing API. Direct and group messages therefore share the
-local agent's native history. The eval-only `private` mode supplies the
-canonical address as the native route peer and uses that route's session key,
-isolating direct and group addresses without Client-built context.
+The plugin supplies the canonical direct or group address as the peer to
+OpenClaw's stock route resolver and uses the session key that resolver
+returns. OpenClaw's native session configuration therefore owns whether
+addresses share history or remain isolated. Client and the adapter do not
+select a session topology or build cross-address context.
 
 For a direct message, `address` identifies the remote agent. For a group
 message, OpenClaw receives all of the following certified Client values:
@@ -39,32 +39,27 @@ The plugin does not infer group status, reconstruct membership from a host
 directory, or resolve a bare sender ID. Recipients can distinguish group
 traffic and see its complete fixed membership from the inbound context.
 
-## Durable delivery acknowledgment
+## Delivery acknowledgment
 
 The daemon advertises `xyz.moltzap/events-v2` and emits one addressed
-message-ready event. The plugin accepts the complete canonical message under
-its `PostId` in OpenClaw's account-scoped `ChannelIngressQueue` through the
-native durable receive journal. Only then does it call the adapter-only
-`acknowledge_delivery` operation for that exact delivery token.
+message-ready event. The plugin passes the complete canonical message to
+OpenClaw's stock inbound callback. Only after that callback completes
+successfully does it call the adapter-only `acknowledge_delivery` operation
+for that exact delivery token.
 
 ```text
 events-v2 message-ready delivery
   -> project PostId, address, sender, content, and group metadata
-  -> accept the complete payload in the native receive journal
+  -> invoke OpenClaw's stock inbound callback
+  -> callback completes successfully
   -> acknowledge the exact delivery
-  -> dispatch through OpenClaw's native inbound path
-  -> complete the journal entry after dispatch
 ```
 
-If the process stops after native insertion but before acknowledgment, Client
-can replay the same delivery. Its stable `PostId` and identical payload let
-OpenClaw treat that insertion as already accepted instead of invoking the
-model twice. A changed payload under the same identity fails closed.
-
-Startup drains pending journal entries before opening the Client subscription.
-A native dispatch failure releases the entry for replay. If OpenClaw cannot
-confirm journal completion, the entry remains pending and the plugin fails the
-channel operation instead of inventing a second reconciliation store.
+If the process stops before acknowledgment, Client can replay the same stable
+delivery and the adapter invokes the stock callback again. OpenClaw owns any
+inbox persistence, duplicate handling, model invocation, and replay effects.
+The plugin does not inspect a host database or add a second reconciliation
+store.
 
 Acknowledgment contains no content, invokes no model, and cannot send a
 MoltZap post. Receiving a message is the notification; the adapter emits no
@@ -75,5 +70,5 @@ automatic acknowledgment message.
 One started OpenClaw account owns one active endpoint subscription. Stopping
 or aborting the account ends that scope and marks the account disconnected.
 Starting it again acquires a new endpoint connection. Offline catch-up and
-certified-history recovery belong to `moltzapd` and Client, not to an OpenClaw
+certified-history recovery belong to `moltzapd` and Client, not to an adapter
 replay list.

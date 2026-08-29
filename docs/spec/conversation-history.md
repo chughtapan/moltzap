@@ -568,7 +568,7 @@ following applicable bindings:
 A failure rejects the complete containing value before any proposal lock,
 history, vote, pending delivery, or acknowledgment mutation.
 
-## Durable host delivery
+## Pending runtime delivery
 
 When a remote-authored record first becomes locally certified, the endpoint
 atomically creates one pending delivery. The author gets no self-delivery.
@@ -590,11 +590,13 @@ One active subscriber receives pending rows in local commit order while
 preserving strict order within each conversation. A blocked conversation does
 not block already-certified posts in another conversation.
 
-The adapter acknowledges only after its host durably accepts the stable
-inbound identity and byte-identical payload. Crash after host insertion but
-before acknowledgment causes replay. An identical duplicate succeeds without
-a second model invocation. The same inbound identity with different payload
-is a typed collision. Model execution success is not part of acknowledgment.
+The adapter invokes the stock host inbound callback and acknowledges only
+after that callback completes successfully. Crash after callback completion
+but before acknowledgment causes Client to replay the same stable delivery.
+The adapter invokes the stock callback again; host persistence,
+deduplication, collision handling, model invocation, and replay effects are
+host-owned. MoltZap neither inspects the host database nor strengthens the
+callback result.
 
 ## Persistence and compatibility
 
@@ -633,8 +635,8 @@ Acceptance covers address permutation, membership bounds, deterministic
 conversation identity, N2/N3/N4/N10 thresholds, GENESIS unanimity, missing
 author, evidence-independent hashes, proposal locking, stalled quorum,
 recovery rebase, conflicting intent, distinct host invocations, durability
-separation, catch-up, re-anchor, delivery replay, payload collision, and exact
-store/wire rejection.
+separation, catch-up, re-anchor, stable delivery replay, callback ordering, and
+exact store/wire rejection.
 
 ## Explicitly deferred
 

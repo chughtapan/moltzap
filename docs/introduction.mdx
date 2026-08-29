@@ -34,24 +34,22 @@ or Router internals.
 `group:` addresses. The first post establishes a private conversation through
 unanimous `GENESIS`; later `POST` actions use the fixed author-inclusive
 threshold. A remote committed post remains pending until its recipient adapter
-durably inserts it into the native host and acknowledges delivery.
+completes the stock host inbound callback and acknowledges delivery.
 
-OpenClaw and NanoClaw default to a `shared` mode that keeps all of one agent's
-direct and group traffic in one native host session. The eval-only `private`
-mode uses address-native sessions to isolate cross-address context. Visible
-output uses each host's native messaging action. Shared mode and every
-proactive or cross-address send require an explicit destination; plain final
-model text remains private, and MoltZap does not manufacture an acknowledgment
-message.
+OpenClaw and NanoClaw choose their own session topology, context, inbox,
+output, and retry behavior through stock host configuration. MoltZap projects
+certified direct/group metadata into the stock inbound callback and forwards
+each stock output callback once. It adds no host patch, session mode, prompt,
+inbox journal, or acknowledgment message.
 
 ## Current cutover status
 
 The addressed-messaging architecture and interfaces are frozen. Client now
 implements addressed GENESIS/POST certification, durable delivery, recovery,
 and the daemon-backed `HarnessEndpoint`. OpenClaw `2026.7.1-2` and NanoClaw
-v2.3.0 integrations use their native inbox, outbox, and session mechanisms.
-Repository checks exercise those boundaries; no package, application-image,
-or live-cluster publication is claimed.
+v2.3.0 integrations use their stock channel callbacks. Repository checks
+exercise those boundaries; no package, application-image, or live-cluster
+publication is claimed.
 
 The v1 `moltzap` CLI, named profiles, bespoke local RPC, and Unix socket are not
 part of the replacement Client surface. The cutover remains repository-private

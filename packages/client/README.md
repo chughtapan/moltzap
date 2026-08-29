@@ -20,8 +20,9 @@ deferred.
 `PostId`; the host owns whether to invoke send again. Its `messages` stream
 yields certified direct or group deliveries with stable PostId, canonical
 sender and address, exact group membership where applicable, and an
-adapter-only acknowledgment to run after native host persistence. Plain model
-output does not send, and no inbound message carries reply authority.
+adapter-only acknowledgment to run after the stock host inbound callback
+completes successfully. Host persistence and replay effects remain host-owned,
+and no inbound message carries Client-level reply authority.
 
 The package also builds `moltzapd`, one explicitly configured process for one
 local `AgentId`, one state directory, and one loopback Streamable HTTP `/mcp`

@@ -6,16 +6,15 @@ import type {
   OpenClawConfig,
   OpenClawPluginApi,
   PluginRuntime,
+  ReplyPayload,
 } from "openclaw/plugin-sdk";
 import {
   acquireHarnessEndpoint,
   type Content,
   type HarnessEndpoint,
   type InboundDelivery,
-  InboundMessage,
   MessageAddressInput,
   type MessageAddressInput as MessageAddressInputValue,
-  PostId,
   type PostId as PostIdValue,
   SendInput,
 } from "@moltzap/client";
@@ -31,15 +30,11 @@ import {
   Stream,
 } from "effect";
 import { randomUUID } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
 import {
-  type ChannelIngressQueue,
   type ChannelMessageSendResult,
   type ChannelMessageSendTextContext,
-  createDurableInboundReceiveJournalFromQueue,
   createMessageReceiptFromOutboundResults,
   defineChannelMessageAdapter,
-  type DurableInboundReceiveJournal,
 } from "openclaw/plugin-sdk/channel-outbound";
 import { resolveStorePath } from "openclaw/plugin-sdk/session-store-runtime";
 
@@ -50,37 +45,7 @@ const INBOUND_LOG_PREVIEW_CHARS = 80;
 
 type OpenClawTargetKind = "user" | "group";
 type OpenClawOutboundFailure = "invalid-native-send" | "not-connected";
-type OpenClawInboundFailure =
-  | "native-dispatch-failed"
-  | "native-journal-failed"
-  | "native-journal-unavailable"
-  | "native-payload-collision"
-  | "native-payload-invalid";
-
-const nativeInboundPayloadSchema = Schema.Struct({ message: InboundMessage });
-const exactSchemaOptions = {
-  exact: true,
-  onExcessProperty: "error",
-} as const;
-
-type NativeInboundPayload = Schema.Schema.Type<
-  typeof nativeInboundPayloadSchema
->;
-type NativeInboundQueue = ChannelIngressQueue<
-  NativeInboundPayload,
-  never,
-  NativeInboundPayload
->;
-type NativeInboundJournal = DurableInboundReceiveJournal<
-  NativeInboundPayload,
-  never,
-  NativeInboundPayload
->;
-
-interface NativeInboundPersistence {
-  readonly journal: NativeInboundJournal;
-  readonly queue: NativeInboundQueue;
-}
+type OpenClawInboundFailure = "native-dispatch-failed";
 
 interface NativeChannelRuntime {
   readonly inbound: Pick<
@@ -99,18 +64,11 @@ interface NativeChannelRuntime {
     PluginRuntime["channel"]["session"],
     "recordInboundSession"
   >;
-  readonly state: {
-    readonly openChannelIngressQueue: (options: {
-      readonly accountId: string;
-    }) => NativeInboundQueue;
-  };
 }
 
-const moltZapModeSchema = Schema.Literal("shared", "private");
 const moltZapAccountSchema = Schema.Struct({
   id: Schema.String,
   enabled: Schema.optional(Schema.Boolean),
-  mode: Schema.optional(moltZapModeSchema),
 });
 
 /** One OpenClaw account bound to the process-local MCP endpoint. */
@@ -140,19 +98,27 @@ interface GatewayActivation {
   readonly ctx: ChannelGatewayContext<MoltZapAccount>;
   readonly runtime: NativeChannelRuntime;
   readonly endpoint: HarnessEndpoint;
-  readonly inbound: NativeInboundPersistence;
   readonly activeEndpoints: Map<string, ActiveHarnessEndpoint>;
 }
 
 interface InboundTurnProjection {
   readonly ctx: ChannelGatewayContext<MoltZapAccount>;
   readonly runtime: NativeChannelRuntime;
+  readonly endpoint: HarnessEndpoint;
   readonly message: InboundDelivery["message"];
   readonly body: string;
   readonly route: ReturnType<
     NativeChannelRuntime["routing"]["resolveAgentRoute"]
   >;
   readonly routeSessionKey: string;
+}
+
+interface InboundTurnInput {
+  readonly ctx: ChannelGatewayContext<MoltZapAccount>;
+  readonly runtime: NativeChannelRuntime;
+  readonly endpoint: HarnessEndpoint;
+  readonly message: InboundDelivery["message"];
+  readonly body: string;
 }
 
 interface AddressedTextSend {
@@ -224,14 +190,11 @@ export function makeMoltZapChannelConfigJsonSchema() {
  *   participant Client as HarnessEndpoint
  *   Host->>Plugin: start account
  *   Plugin->>Client: acquire endpoint
- *   Plugin->>Host: open native receive journal
- *   Plugin->>Host: drain pending native deliveries
  *   Client-->>Plugin: addressed delivery
- *   Plugin->>Host: accept message under PostId
+ *   Plugin->>Host: stock inbound callback
+ *   Host-->>Plugin: callback completes
  *   Plugin->>Client: acknowledge delivery
- *   Plugin->>Host: native inbound run
- *   Host->>Host: complete native journal entry
- *   Host->>Plugin: native message send
+ *   Host->>Plugin: stock outbound callback
  *   Plugin->>Client: addressed content
  * ```
  * @param runtime Native host services required by the channel adapter.
@@ -417,16 +380,12 @@ function runGateway(
   endpoint: HarnessEndpoint,
   activeEndpoints: Map<string, ActiveHarnessEndpoint>,
 ) {
-  return openNativeInboundPersistence(runtime, ctx.accountId).pipe(
-    Effect.flatMap((inbound) =>
-      activateGateway({
-        ctx,
-        runtime,
-        endpoint,
-        inbound,
-        activeEndpoints,
-      }),
-    ),
+  return activateGateway({
+    ctx,
+    runtime,
+    endpoint,
+    activeEndpoints,
+  }).pipe(
     Effect.ensuring(
       Effect.sync(() => {
         ctx.setStatus({
@@ -445,27 +404,6 @@ function runGateway(
       }),
     ),
   );
-}
-
-function openNativeInboundPersistence(
-  runtime: NativeChannelRuntime,
-  accountId: string,
-): Effect.Effect<NativeInboundPersistence, OpenClawInboundError> {
-  return Effect.try({
-    try: () => {
-      const queue = runtime.state.openChannelIngressQueue({ accountId });
-      return {
-        journal: createDurableInboundReceiveJournalFromQueue({ queue }),
-        queue,
-      };
-    },
-    catch: (cause) =>
-      new OpenClawInboundError({
-        reason: "native-journal-unavailable",
-        accountId,
-        detail: String(cause),
-      }),
-  });
 }
 
 function activateGateway(activation: GatewayActivation) {
@@ -492,66 +430,33 @@ function runActiveGateway(
   activation: GatewayActivation,
   active: ActiveHarnessEndpoint,
 ) {
-  const { activeEndpoints, ctx, inbound, runtime } = activation;
+  const { activeEndpoints, ctx, endpoint, runtime } = activation;
   return stopActiveGatewayAccount(activeEndpoints, ctx.accountId).pipe(
     Effect.tap(() =>
       Effect.sync(() => {
         activeEndpoints.set(ctx.accountId, active);
       }),
     ),
-    Effect.zipRight(drainPendingDeliveries(ctx, runtime, inbound)),
     Effect.zipRight(reportConnected(ctx)),
-    Effect.zipRight(runGatewayMessageLoop(ctx, runtime, inbound, active)),
+    Effect.zipRight(runGatewayMessageLoop(ctx, runtime, endpoint, active)),
   );
 }
 
 function runGatewayMessageLoop(
   ctx: ChannelGatewayContext<MoltZapAccount>,
   runtime: NativeChannelRuntime,
-  inbound: NativeInboundPersistence,
+  endpoint: HarnessEndpoint,
   active: ActiveHarnessEndpoint,
 ) {
   return Effect.raceFirst(
     active.endpoint.messages.pipe(
       Stream.runForEach((delivery) =>
-        handleDelivery(ctx, runtime, inbound, delivery),
+        handleDelivery(ctx, runtime, endpoint, delivery),
       ),
     ),
     Effect.raceFirst(
       waitForAbort(ctx.abortSignal),
       Deferred.await(active.stopSignal),
-    ),
-  );
-}
-
-function drainPendingDeliveries(
-  ctx: ChannelGatewayContext<MoltZapAccount>,
-  runtime: NativeChannelRuntime,
-  inbound: NativeInboundPersistence,
-): Effect.Effect<void, OpenClawInboundError> {
-  return Effect.tryPromise({
-    try: () => inbound.journal.pending(),
-    catch: (cause) =>
-      new OpenClawInboundError({
-        reason: "native-journal-failed",
-        accountId: ctx.accountId,
-        detail: String(cause),
-      }),
-  }).pipe(
-    Effect.flatMap((records) =>
-      Effect.forEach(
-        records,
-        (record) =>
-          decodeJournalPostId(ctx.accountId, record.id).pipe(
-            Effect.flatMap((postId) =>
-              decodeJournalPayload(ctx.accountId, postId, record.payload),
-            ),
-            Effect.flatMap((payload) =>
-              dispatchJournaledPayload(ctx, runtime, inbound, payload),
-            ),
-          ),
-        { concurrency: 1, discard: true },
-      ),
     ),
   );
 }
@@ -574,187 +479,14 @@ function reportConnected(
 function handleDelivery(
   ctx: ChannelGatewayContext<MoltZapAccount>,
   runtime: NativeChannelRuntime,
-  inbound: NativeInboundPersistence,
+  endpoint: HarnessEndpoint,
   delivery: InboundDelivery,
 ) {
-  const payload: NativeInboundPayload = { message: delivery.message };
-  return acceptDelivery(ctx.accountId, inbound.journal, delivery, payload).pipe(
-    Effect.flatMap(
-      Option.match({
-        onNone: () => Effect.void,
-        onSome: (storedPayload) =>
-          dispatchJournaledPayload(ctx, runtime, inbound, storedPayload),
-      }),
-    ),
-  );
-}
-
-function acceptDelivery(
-  accountId: string,
-  journal: NativeInboundJournal,
-  delivery: InboundDelivery,
-  payload: NativeInboundPayload,
-) {
-  const postId = delivery.message.postId;
-  return Effect.tryPromise({
-    try: () => journal.accept(postId, payload),
-    catch: (cause) =>
-      new OpenClawInboundError({
-        reason: "native-journal-failed",
-        accountId,
-        postId,
-        detail: String(cause),
-      }),
-  }).pipe(
-    Effect.flatMap((result) =>
-      validateJournalRecordId(accountId, postId, result.record.id).pipe(
-        Effect.zipRight(
-          decodeJournalPayload(
-            accountId,
-            postId,
-            result.kind === "completed"
-              ? result.record.metadata
-              : result.record.payload,
-          ),
-        ),
-        Effect.flatMap((storedPayload) =>
-          ensureMatchingPayload(accountId, postId, payload, storedPayload).pipe(
-            Effect.zipRight(acknowledgeDelivery(delivery)),
-            Effect.as(
-              result.kind === "completed"
-                ? Option.none()
-                : Option.some(storedPayload),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-function validateJournalRecordId(
-  accountId: string,
-  expectedPostId: PostIdValue,
-  value: string,
-): Effect.Effect<void, OpenClawInboundError> {
-  return decodeJournalPostId(accountId, value).pipe(
-    Effect.flatMap((storedPostId) =>
-      storedPostId === expectedPostId
-        ? Effect.void
-        : Effect.fail(
-            new OpenClawInboundError({
-              reason: "native-payload-collision",
-              accountId,
-              postId: expectedPostId,
-              detail:
-                "the native journal record identity does not match its message",
-            }),
-          ),
-    ),
-  );
-}
-
-function decodeJournalPostId(
-  accountId: string,
-  value: string,
-): Effect.Effect<PostIdValue, OpenClawInboundError> {
-  const decoded = Schema.decodeUnknownOption(PostId)(value, exactSchemaOptions);
-  return Option.isSome(decoded)
-    ? Effect.succeed(decoded.value)
-    : Effect.fail(
-        new OpenClawInboundError({
-          reason: "native-payload-invalid",
-          accountId,
-          detail: "the native journal contains an invalid PostId",
-        }),
-      );
-}
-
-function decodeJournalPayload(
-  accountId: string,
-  postId: PostIdValue,
-  value?: NativeInboundPayload,
-): Effect.Effect<NativeInboundPayload, OpenClawInboundError> {
-  const decoded = Schema.decodeUnknownOption(nativeInboundPayloadSchema)(
-    value,
-    exactSchemaOptions,
-  );
-  if (Option.isNone(decoded)) {
-    return Effect.fail(
-      new OpenClawInboundError({
-        reason: "native-payload-invalid",
-        accountId,
-        postId,
-        detail: "the native journal contains an invalid inbound message",
-      }),
-    );
-  }
-  return Effect.succeed(decoded.value).pipe(
-    Effect.flatMap((payload) =>
-      payload.message.postId === postId
-        ? Effect.succeed(payload)
-        : Effect.fail(
-            new OpenClawInboundError({
-              reason: "native-payload-collision",
-              accountId,
-              postId,
-              detail:
-                "the native journal payload belongs to a different PostId",
-            }),
-          ),
-    ),
-  );
-}
-
-function ensureMatchingPayload(
-  accountId: string,
-  postId: PostIdValue,
-  expected: NativeInboundPayload,
-  stored: NativeInboundPayload,
-): Effect.Effect<void, OpenClawInboundError> {
-  return isDeepStrictEqual(expected, stored)
-    ? Effect.void
-    : Effect.fail(
-        new OpenClawInboundError({
-          reason: "native-payload-collision",
-          accountId,
-          postId,
-          detail: "the PostId is already bound to a different inbound message",
-        }),
-      );
-}
-
-function acknowledgeDelivery(delivery: InboundDelivery) {
-  return delivery.acknowledge;
-}
-
-function dispatchJournaledPayload(
-  ctx: ChannelGatewayContext<MoltZapAccount>,
-  runtime: NativeChannelRuntime,
-  inbound: NativeInboundPersistence,
-  payload: NativeInboundPayload,
-): Effect.Effect<void, OpenClawInboundError> {
-  const message = payload.message;
-  const dispatch = logInbound(ctx, message).pipe(
-    Effect.zipRight(dispatchInboundPayload(ctx, runtime, payload)),
-  );
-  return dispatch.pipe(
-    Effect.tapError((cause) =>
-      releaseJournaledPayload(
-        ctx.accountId,
-        inbound.journal,
-        message.postId,
-        cause.message,
-      ),
-    ),
+  return logInbound(ctx, delivery.message).pipe(
     Effect.zipRight(
-      completeJournaledPayload(
-        ctx.accountId,
-        inbound.queue,
-        message.postId,
-        payload,
-      ),
+      dispatchInboundDelivery(ctx, runtime, endpoint, delivery.message),
     ),
+    Effect.zipRight(delivery.acknowledge),
   );
 }
 
@@ -776,19 +508,19 @@ function logInbound(
   });
 }
 
-function dispatchInboundPayload(
+function dispatchInboundDelivery(
   ctx: ChannelGatewayContext<MoltZapAccount>,
   runtime: NativeChannelRuntime,
-  payload: NativeInboundPayload,
+  endpoint: HarnessEndpoint,
+  message: InboundDelivery["message"],
 ): Effect.Effect<void, OpenClawInboundError> {
-  const message = payload.message;
   const body = renderContent(message.content);
   return Effect.tryPromise({
     try: () =>
       runtime.inbound.run({
         channel: CHANNEL_ID,
         accountId: ctx.accountId,
-        raw: payload,
+        raw: { message },
         adapter: {
           ingest: () => ({
             id: message.postId,
@@ -797,7 +529,8 @@ function dispatchInboundPayload(
             textForCommands: body,
             raw: message,
           }),
-          resolveTurn: () => resolveInboundTurn(ctx, runtime, message, body),
+          resolveTurn: () =>
+            resolveInboundTurn({ ctx, runtime, endpoint, message, body }),
         },
       }),
     catch: (cause) =>
@@ -810,89 +543,19 @@ function dispatchInboundPayload(
   });
 }
 
-function releaseJournaledPayload(
-  accountId: string,
-  journal: NativeInboundJournal,
-  postId: PostIdValue,
-  lastError: string,
-): Effect.Effect<void, OpenClawInboundError> {
-  return Effect.tryPromise({
-    try: () => journal.release(postId, { lastError }),
-    catch: (cause) =>
-      new OpenClawInboundError({
-        reason: "native-journal-failed",
-        accountId,
-        postId,
-        detail: String(cause),
-      }),
-  }).pipe(
-    Effect.flatMap((released) =>
-      released
-        ? Effect.void
-        : Effect.fail(
-            new OpenClawInboundError({
-              reason: "native-journal-failed",
-              accountId,
-              postId,
-              detail: "the failed native delivery was not pending",
-            }),
-          ),
-    ),
-  );
-}
-
-function completeJournaledPayload(
-  accountId: string,
-  queue: NativeInboundQueue,
-  postId: PostIdValue,
-  payload: NativeInboundPayload,
-): Effect.Effect<void, OpenClawInboundError> {
-  return Effect.tryPromise({
-    try: () => queue.complete(postId, { metadata: payload }),
-    catch: (cause) =>
-      new OpenClawInboundError({
-        reason: "native-journal-failed",
-        accountId,
-        postId,
-        detail: String(cause),
-      }),
-  }).pipe(
-    Effect.flatMap((completed) =>
-      completed
-        ? Effect.void
-        : Effect.fail(
-            new OpenClawInboundError({
-              reason: "native-journal-failed",
-              accountId,
-              postId,
-              detail:
-                "the native ingress queue did not complete the pending delivery",
-            }),
-          ),
-    ),
-  );
-}
-
-function resolveInboundTurn(
-  ctx: ChannelGatewayContext<MoltZapAccount>,
-  runtime: NativeChannelRuntime,
-  message: InboundDelivery["message"],
-  body: string,
-) {
-  const mode = ctx.account.mode ?? "shared";
+function resolveInboundTurn(input: InboundTurnInput) {
+  const { body, ctx, endpoint, message, runtime } = input;
   const route = runtime.routing.resolveAgentRoute({
     cfg: ctx.cfg,
     channel: CHANNEL_ID,
     accountId: ctx.accountId,
-    ...(mode === "private"
-      ? { peer: { kind: message.kind, id: message.address } }
-      : {}),
+    peer: { kind: message.kind, id: message.address },
   });
-  const routeSessionKey =
-    mode === "shared" ? route.mainSessionKey : route.sessionKey;
+  const routeSessionKey = route.sessionKey;
   const projection: InboundTurnProjection = {
     ctx,
     runtime,
+    endpoint,
     message,
     body,
     route,
@@ -966,7 +629,8 @@ function assembleInboundTurn(
   projection: InboundTurnProjection,
   ctxPayload: ReturnType<NativeChannelRuntime["inbound"]["buildContext"]>,
 ) {
-  const { ctx, message, route, routeSessionKey, runtime } = projection;
+  const { ctx, endpoint, message, route, routeSessionKey, runtime } =
+    projection;
   return {
     cfg: ctx.cfg,
     channel: CHANNEL_ID,
@@ -980,12 +644,9 @@ function assembleInboundTurn(
     recordInboundSession: runtime.session.recordInboundSession,
     dispatchReplyWithBufferedBlockDispatcher:
       runtime.reply.dispatchReplyWithBufferedBlockDispatcher,
-    delivery: { deliver: keepPlainFinalPrivate },
-    replyOptions: {
-      sourceReplyDeliveryMode: "message_tool_only" as const,
-      // A wildcard leaves the runtime tool surface intact and makes OpenClaw
-      // retain the channel's required message tool under narrow profiles.
-      toolsAllow: ["*"],
+    delivery: {
+      deliver: (payload: ReplyPayload) =>
+        deliverStockReply(endpoint, message.address, payload),
     },
     record: {
       updateLastRoute: {
@@ -999,8 +660,22 @@ function assembleInboundTurn(
   };
 }
 
-function keepPlainFinalPrivate() {
-  return Promise.resolve({ visibleReplySent: false as const });
+function deliverStockReply(
+  endpoint: HarnessEndpoint,
+  to: MessageAddressInputValue,
+  payload: ReplyPayload,
+) {
+  if (payload.text === undefined || payload.text.length === 0) {
+    return Promise.resolve({ visibleReplySent: false as const });
+  }
+  return runHostPromise(
+    endpoint
+      .send({
+        to,
+        content: [{ type: "text", text: payload.text }],
+      })
+      .pipe(Effect.as({ visibleReplySent: true as const })),
+  );
 }
 
 function renderContent(content: Content): string {
@@ -1155,14 +830,6 @@ const plugin = {
         reply: api.runtime.channel.reply,
         routing: api.runtime.channel.routing,
         session: api.runtime.channel.session,
-        state: {
-          openChannelIngressQueue: (options) =>
-            api.runtime.state.openChannelIngressQueue<
-              NativeInboundPayload,
-              never,
-              NativeInboundPayload
-            >(options),
-        },
       }),
     });
   },

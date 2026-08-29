@@ -64,9 +64,9 @@ authorize a send or create a delivery.
 
 Certification or catch-up atomically creates missing remote-authored pending
 rows. One active subscriber receives stable tokens. An acknowledgment commits
-only after native host durable acceptance. Disconnect, failed write, or crash
-before acknowledgment preserves the row for replay. Model execution does not
-hold the database transaction and is not part of acknowledgment.
+only after the stock host inbound callback completes successfully. Disconnect,
+failed callback, or crash before acknowledgment preserves the row for replay.
+The host owns what persistence or model execution that callback represents.
 
 ## Compatibility and failures
 
