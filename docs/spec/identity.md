@@ -201,9 +201,10 @@ Registration never generates, imports, copies, or encrypts an agent
 private key. `moltzapd` uses a pre-existing unencrypted Ed25519 PKCS#8
 file at an absolute path, derives its public JWK, and requires an exact
 match with the request and issued card. The MCP presentation never exposes key
-material. Whether the absolute path is supplied through daemon configuration
-or the registration tool remains unassigned until the daemon management
-representation owner is admitted.
+material. The daemon receives the absolute path through
+`MOLTZAPD_AGENT_PRIVATE_KEY_FILE`, as specified in
+[`harness/daemon.md`](./harness/daemon.md); the registration tool neither owns
+nor exposes it.
 
 Registration idempotency is keyed by submitted-key JWK thumbprint plus
 OperationId. An identical canonical inner request returns the original

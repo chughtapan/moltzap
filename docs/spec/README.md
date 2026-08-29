@@ -45,7 +45,7 @@ protocol, daemon representation, and Simulator cuts are ready.
 | Endpoint history, durability, catch-up, and Router re-anchor | `conversation-history.md`, `harness/tasks.md`, `router.md` | ready; Client owns the exact canonical evidence, nested transport, fixed limits, genesis anchor, and private hashes |
 | Daemon process and one state-dependent `/mcp` | `harness/daemon.md`, `management.md` | ready; process configuration, SQLite ownership, extension listen adapter, and closed management DTO semantics are exact |
 | `HarnessEndpoint` and adapter migration | `harness/client.md`, `harness/output.md`, `harness/ingress.md`, `harness/channels.md`, `management.md` | ready; explicit agent/group send, stable addressed delivery, stock host callbacks, and MCP-only management |
-| Simulator and eval migration | `layer-interfaces.md` | ready; compatible facades and `RunLedger` remain while runtimes use addressed Client traffic and native shared sessions |
+| Simulator and eval migration | `layer-interfaces.md` | ready; compatible facades and `RunLedger` remain while runtimes use addressed Client traffic through stock host callbacks and host-owned sessions |
 
 Client and simulator work must not use compatibility shims or semantic
 reinterpretation. The five incompatible simulator contracts are removal input,
@@ -96,8 +96,10 @@ fixed-group boundary.
 `agent:` or `group:` address, creates one Client-minted post per invocation,
 and returns `void` after local certified durability. Messages identify direct
 or group address, verified author, content, and exact members for groups, plus
-a transport acknowledgment after native host persistence. Registration,
-status, search, history, signer evidence, and proof inspection remain MCP-only.
+a transport acknowledgment that the adapter invokes only after the stock host
+callback succeeds. The host owns what persistence or retry that callback
+represents. Registration, status, search, history, signer evidence, and proof
+inspection remain MCP-only.
 Protocol hashes, proofs, receipts, private conversation identity, and local
 identity remain outside the public Client.
 
