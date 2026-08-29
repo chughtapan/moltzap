@@ -23,7 +23,7 @@ export const HARNESS_MESSAGE_READY_NOTIFICATION =
 /** Adapter operation for an explicit addressed send. */
 export const HARNESS_SEND_TOOL = "send_message";
 
-/** Adapter operation acknowledging native host persistence. */
+/** Adapter operation acknowledging successful stock host callback completion. */
 export const HARNESS_ACKNOWLEDGE_DELIVERY_TOOL = "acknowledge_delivery";
 
 const exact: SchemaAST.ParseOptions = {

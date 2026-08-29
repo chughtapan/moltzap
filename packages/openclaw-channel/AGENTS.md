@@ -20,17 +20,20 @@ re-exports. Publication and version policy remain separate release decisions.
 
 ## Host integration law
 
-- Project every Client delivery into OpenClaw's resolved native main session.
-  Client does not build cross-conversation context or presentation checkpoints.
+- Supply the canonical peer facts to OpenClaw's stock route resolver and use
+  the session it returns. Do not add a MoltZap session mode or select the main
+  session. Client does not build cross-conversation context or presentation
+  checkpoints.
 - Direct input identifies the sender and `agent:` address. Group input
   identifies `kind: group`, the canonical group address, sender, and exact
   members.
-- Visible output uses OpenClaw's native `message` tool and names an explicit
-  `agent:` or `group:` target on every send. Plain final text remains private.
+- A stock reply-delivery callback sends to the current inbound address. Other
+  stock outbound callbacks name an explicit `agent:` or `group:` target. The
+  host decides which tools or final output invoke those callbacks.
 - Leave outbound queue and retry policy to OpenClaw. Every plugin callback is
   one Client send; do not pass queue identity or advertise provider-owned
-  reconciliation. Acknowledge inbound delivery only after native durable
-  acceptance.
+  reconciliation. Acknowledge inbound delivery only after the stock inbound
+  callback completes successfully; do not inspect or extend host persistence.
 - Discovery, search, history, status, registration, and proof inspection use
   MCP rather than `HarnessEndpoint`.
 - Keep host failures and Client failures typed at the boundary. A delivery
@@ -46,8 +49,8 @@ target, and retry details do not define the final API.
 
 ## Tests
 
-- Unit tests may fake the public Client capability to verify OpenClaw address,
-  session, native-message, and delivery-acknowledgment behavior.
+- Unit tests may fake the public Client capability to verify canonical
+  projection, stock routing, outbound callbacks, and acknowledgment ordering.
 - Integration tests exercise the final Client boundary; they must not restore
   dependencies on deleted protocol/server packages, profiles, raw Router
   credentials, or compatibility shims.

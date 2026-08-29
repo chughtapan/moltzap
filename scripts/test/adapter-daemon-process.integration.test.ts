@@ -19,7 +19,6 @@ import {
   type Scope,
   Stream,
 } from "effect";
-import { isDeepStrictEqual } from "node:util";
 import { expect, it } from "vitest";
 import {
   acquireDaemonManagementClient,
@@ -34,7 +33,6 @@ import {
 const DELIVERY_TIMEOUT = Duration.seconds(60);
 const OPENCLAW_ACCOUNT_ID = "adapter-target";
 const OPENCLAW_MAIN_SESSION_KEY = "agent:primary:main";
-const OPENCLAW_OUTBOX_ID = "openclaw-messages-out-1";
 const OPENCLAW_REPLY = "reply from the real OpenClaw adapter";
 const NANOCLAW_REPLY = "reply from the real NanoClaw adapter";
 
@@ -43,38 +41,12 @@ interface Scenario {
   readonly target: DaemonProcessFixture;
 }
 
-interface DurableOutboundRow {
-  readonly id: string;
-  readonly text: string;
-  readonly to: string;
-}
-
-class DurableNativeOutbox {
-  private readonly rowsById = new Map<string, DurableOutboundRow>();
-
-  insert(row: DurableOutboundRow): void {
-    const existing = this.rowsById.get(row.id);
-    if (existing !== undefined && !isDeepStrictEqual(existing, row)) {
-      throw new ProcessTestError({
-        message: `native outbox identity ${row.id} has conflicting content`,
-      });
-    }
-    this.rowsById.set(row.id, row);
-  }
-
-  rows(): readonly DurableOutboundRow[] {
-    return [...this.rowsById.values()];
-  }
-}
-
 interface NativeSessionSnapshot {
   readonly messageIds: readonly string[];
-  readonly privateFinals: readonly string[];
 }
 
 class NativeSessionStore {
   private readonly messagesBySession = new Map<string, string[]>();
-  private readonly privateFinalsBySession = new Map<string, string[]>();
 
   acceptMessage(sessionKey: string, messageId: string): void {
     const messageIds = this.messagesBySession.get(sessionKey) ?? [];
@@ -84,12 +56,6 @@ class NativeSessionStore {
     this.messagesBySession.set(sessionKey, messageIds);
   }
 
-  recordPrivateFinal(sessionKey: string, text: string): void {
-    const finals = this.privateFinalsBySession.get(sessionKey) ?? [];
-    finals.push(text);
-    this.privateFinalsBySession.set(sessionKey, finals);
-  }
-
   keys(): readonly string[] {
     return [...this.messagesBySession.keys()];
   }
@@ -97,268 +63,7 @@ class NativeSessionStore {
   snapshot(sessionKey: string): NativeSessionSnapshot {
     return {
       messageIds: [...(this.messagesBySession.get(sessionKey) ?? [])],
-      privateFinals: [...(this.privateFinalsBySession.get(sessionKey) ?? [])],
     };
-  }
-}
-
-interface NativeInboundPayload {
-  readonly message: InboundMessage;
-}
-
-interface QueueRecordReference {
-  readonly id: string;
-}
-
-interface NativeQueuePendingRecord extends QueueRecordReference {
-  readonly channelId: string;
-  readonly accountId: string;
-  readonly queueName: string;
-  readonly payload: NativeInboundPayload;
-  readonly receivedAt: number;
-  readonly updatedAt: number;
-  readonly laneKey?: string;
-  readonly attempts: number;
-  readonly lastAttemptAt?: number;
-  readonly lastError?: string;
-}
-
-interface NativeQueueCompletedRecord extends QueueRecordReference {
-  readonly channelId: string;
-  readonly accountId: string;
-  readonly queueName: string;
-  readonly completedAt: number;
-  readonly metadata?: NativeInboundPayload;
-}
-
-interface NativeQueueFailedRecord extends QueueRecordReference {
-  readonly channelId: string;
-  readonly accountId: string;
-  readonly queueName: string;
-  readonly failedAt: number;
-  readonly reason: string;
-  readonly message?: string;
-}
-
-type NativeQueueEnqueueResult =
-  | {
-      readonly kind: "accepted";
-      readonly duplicate: false;
-      readonly record: NativeQueuePendingRecord;
-    }
-  | {
-      readonly kind: "pending";
-      readonly duplicate: true;
-      readonly record: NativeQueuePendingRecord;
-    }
-  | {
-      readonly kind: "completed";
-      readonly duplicate: true;
-      readonly record: NativeQueueCompletedRecord;
-    }
-  | {
-      readonly kind: "failed";
-      readonly duplicate: true;
-      readonly record: NativeQueueFailedRecord;
-    };
-
-interface NativeQueueEnqueueOptions {
-  readonly receivedAt?: number;
-  readonly laneKey?: string;
-}
-
-interface NativeQueueListOptions {
-  readonly limit?: number;
-  readonly orderBy?: "id" | "receivedAt";
-}
-
-interface NativeQueueMutationOptions {
-  readonly releasedAt?: number;
-  readonly completedAt?: number;
-  readonly failedAt?: number;
-  readonly metadata?: NativeInboundPayload;
-  readonly lastError?: string;
-  readonly message?: string;
-  readonly reason?: string;
-}
-
-/** Faithful in-memory implementation of OpenClaw's durable ingress queue ABI. */
-class InMemoryChannelIngressQueue {
-  private readonly pending = new Map<string, NativeQueuePendingRecord>();
-  private readonly completed = new Map<string, NativeQueueCompletedRecord>();
-  private readonly failed = new Map<string, NativeQueueFailedRecord>();
-  private readonly completedSignal: Deferred.Deferred<void>;
-  private currentTime = 1;
-
-  constructor(completedSignal: Deferred.Deferred<void>) {
-    this.completedSignal = completedSignal;
-  }
-
-  pendingIds(): readonly string[] {
-    return [...this.pending.keys()];
-  }
-
-  completedIds(): readonly string[] {
-    return [...this.completed.keys()];
-  }
-
-  enqueue(
-    id: string,
-    payload: NativeInboundPayload,
-    options?: NativeQueueEnqueueOptions,
-  ): Promise<NativeQueueEnqueueResult> {
-    const duplicate = this.duplicate(id);
-    if (duplicate !== null) {
-      return Promise.resolve(duplicate);
-    }
-    const receivedAt = options?.receivedAt ?? this.nextTime();
-    const record: NativeQueuePendingRecord = {
-      id,
-      channelId: "openclaw-channel",
-      accountId: OPENCLAW_ACCOUNT_ID,
-      queueName: "default",
-      payload,
-      receivedAt,
-      updatedAt: receivedAt,
-      ...(options?.laneKey === undefined ? {} : { laneKey: options.laneKey }),
-      attempts: 0,
-    };
-    this.pending.set(id, record);
-    return Promise.resolve({ kind: "accepted", duplicate: false, record });
-  }
-
-  listPending(
-    options?: NativeQueueListOptions,
-  ): Promise<readonly NativeQueuePendingRecord[]> {
-    const records = [...this.pending.values()].sort((left, right) =>
-      options?.orderBy === "id"
-        ? left.id.localeCompare(right.id)
-        : left.receivedAt - right.receivedAt || left.id.localeCompare(right.id),
-    );
-    return Promise.resolve(
-      options?.limit === undefined ? records : records.slice(0, options.limit),
-    );
-  }
-
-  listClaims(): Promise<readonly []> {
-    const claims: readonly [] = [];
-    return Promise.resolve(claims);
-  }
-
-  claimNext(): Promise<null> {
-    return Promise.resolve(null);
-  }
-
-  claim(): Promise<null> {
-    return Promise.resolve(null);
-  }
-
-  refreshClaim(): Promise<boolean> {
-    return Promise.resolve(false);
-  }
-
-  complete(
-    idOrRecord: string | QueueRecordReference,
-    options?: NativeQueueMutationOptions,
-  ): Promise<boolean> {
-    const id = queueRecordId(idOrRecord);
-    if (!this.pending.delete(id)) {
-      return Promise.resolve(false);
-    }
-    const record: NativeQueueCompletedRecord = {
-      id,
-      channelId: "openclaw-channel",
-      accountId: OPENCLAW_ACCOUNT_ID,
-      queueName: "default",
-      completedAt: options?.completedAt ?? this.nextTime(),
-      ...(options?.metadata === undefined
-        ? {}
-        : { metadata: options.metadata }),
-    };
-    this.completed.set(id, record);
-    Effect.runSync(Deferred.succeed(this.completedSignal, undefined));
-    return Promise.resolve(true);
-  }
-
-  release(
-    idOrRecord: string | QueueRecordReference,
-    options?: NativeQueueMutationOptions,
-  ): Promise<boolean> {
-    const id = queueRecordId(idOrRecord);
-    const record = this.pending.get(id);
-    if (record === undefined) {
-      return Promise.resolve(false);
-    }
-    const releasedAt = options?.releasedAt ?? this.nextTime();
-    this.pending.set(id, {
-      ...record,
-      updatedAt: releasedAt,
-      attempts: record.attempts + 1,
-      lastAttemptAt: releasedAt,
-      ...(options?.lastError === undefined
-        ? {}
-        : { lastError: options.lastError }),
-    });
-    return Promise.resolve(true);
-  }
-
-  fail(
-    idOrRecord: string | QueueRecordReference,
-    options: NativeQueueMutationOptions,
-  ): Promise<boolean> {
-    const id = queueRecordId(idOrRecord);
-    if (!this.pending.delete(id)) {
-      return Promise.resolve(false);
-    }
-    const record: NativeQueueFailedRecord = {
-      id,
-      channelId: "openclaw-channel",
-      accountId: OPENCLAW_ACCOUNT_ID,
-      queueName: "default",
-      failedAt: options.failedAt ?? this.nextTime(),
-      reason: options.reason ?? "native ingress failed",
-      ...(options.message === undefined ? {} : { message: options.message }),
-    };
-    this.failed.set(id, record);
-    return Promise.resolve(true);
-  }
-
-  delete(idOrRecord: string | QueueRecordReference): Promise<boolean> {
-    const id = queueRecordId(idOrRecord);
-    const removedPending = this.pending.delete(id);
-    const removedCompleted = this.completed.delete(id);
-    const removedFailed = this.failed.delete(id);
-    return Promise.resolve(removedPending || removedCompleted || removedFailed);
-  }
-
-  recoverStaleClaims(): Promise<number> {
-    return Promise.resolve(0);
-  }
-
-  prune(): Promise<number> {
-    return Promise.resolve(0);
-  }
-
-  private duplicate(id: string): NativeQueueEnqueueResult | null {
-    const completed = this.completed.get(id);
-    if (completed !== undefined) {
-      return { kind: "completed", duplicate: true, record: completed };
-    }
-    const failed = this.failed.get(id);
-    if (failed !== undefined) {
-      return { kind: "failed", duplicate: true, record: failed };
-    }
-    const pending = this.pending.get(id);
-    if (pending !== undefined) {
-      return { kind: "pending", duplicate: true, record: pending };
-    }
-    return null;
-  }
-
-  private nextTime(): number {
-    const now = this.currentTime;
-    this.currentTime += 1;
-    return now;
   }
 }
 
@@ -368,7 +73,6 @@ interface OpenClawConfig {
       readonly accounts: readonly [
         {
           readonly id: string;
-          readonly mode: "shared";
         },
       ];
     };
@@ -433,8 +137,8 @@ interface OpenClawRecordInput {
   readonly storePath: string;
 }
 
-interface OpenClawPrivateDeliveryResult {
-  readonly visibleReplySent: false;
+interface OpenClawDeliveryResult {
+  readonly visibleReplySent: boolean;
 }
 
 interface OpenClawReplyDispatcherInput {
@@ -443,11 +147,9 @@ interface OpenClawReplyDispatcherInput {
     readonly deliver: (
       payload: { readonly text: string },
       context: { readonly kind: "final" },
-    ) => Promise<OpenClawPrivateDeliveryResult>;
+    ) => Promise<OpenClawDeliveryResult>;
   };
-  readonly replyOptions: {
-    readonly sourceReplyDeliveryMode: "message_tool_only";
-  };
+  readonly replyOptions?: object;
 }
 
 interface OpenClawReplyResult {
@@ -457,7 +159,7 @@ interface OpenClawReplyResult {
     readonly block: number;
     readonly final: number;
   };
-  readonly sourceReplyDeliveryMode: "message_tool_only";
+  readonly sourceReplyDeliveryMode: "automatic";
 }
 
 interface OpenClawInboundTurnInput {
@@ -472,13 +174,13 @@ interface OpenClawInboundTurnInput {
     input: OpenClawReplyDispatcherInput,
   ) => Promise<OpenClawReplyResult>;
   readonly delivery: OpenClawReplyDispatcherInput["dispatcherOptions"];
-  readonly replyOptions: OpenClawReplyDispatcherInput["replyOptions"];
+  readonly replyOptions?: OpenClawReplyDispatcherInput["replyOptions"];
 }
 
 interface OpenClawInboundRunnerInput {
   readonly channel: string;
   readonly accountId: string;
-  readonly raw: NativeInboundPayload;
+  readonly raw: { readonly message: InboundMessage };
   readonly adapter: {
     readonly ingest: () => {
       readonly id: string;
@@ -526,11 +228,6 @@ interface StableOpenClawRuntime {
       ) => Promise<object | void>;
     };
   };
-  readonly state: {
-    readonly openChannelIngressQueue: (input: {
-      readonly accountId: string;
-    }) => object;
-  };
 }
 
 interface OpenClawGatewayStatus {
@@ -543,7 +240,7 @@ interface OpenClawGatewayStatus {
 interface OpenClawGatewayContext {
   readonly cfg: OpenClawConfig;
   readonly accountId: string;
-  readonly account: { readonly id: string; readonly mode: "shared" };
+  readonly account: { readonly id: string };
   readonly abortSignal: AbortSignal;
   readonly runtime: {
     readonly log: (message: string) => void;
@@ -594,16 +291,11 @@ interface StableOpenClawEntry {
 
 interface OpenClawReplyFixture {
   readonly callerAddress: string;
-  readonly channelPlugin: () => StableOpenClawChannelPlugin;
-  readonly cfg: OpenClawConfig;
-  readonly outbox: DurableNativeOutbox;
   readonly responseSent: Deferred.Deferred<void>;
   readonly sessions: NativeSessionStore;
 }
 
-interface OpenClawRuntimeFixture extends OpenClawReplyFixture {
-  readonly ingressQueue: InMemoryChannelIngressQueue;
-}
+type OpenClawRuntimeFixture = OpenClawReplyFixture;
 
 const nanoInboundContentSchema = Schema.Struct({
   text: Schema.String,
@@ -769,10 +461,6 @@ function assertDurableExchange(
   );
 }
 
-function queueRecordId(value: string | QueueRecordReference): string {
-  return typeof value === "string" ? value : value.id;
-}
-
 function buildOpenClawContext(
   input: OpenClawBuildContextInput,
 ): OpenClawInboundContext {
@@ -809,7 +497,6 @@ function makeOpenClawRuntime(
   fixture: OpenClawRuntimeFixture,
 ): StableOpenClawRuntime {
   const recordInboundSession = (input: OpenClawRecordInput) => {
-    expect(fixture.ingressQueue.pendingIds()).toContain(input.ctx.MessageSid);
     expect(input.sessionKey).toBe(OPENCLAW_MAIN_SESSION_KEY);
     fixture.sessions.acceptMessage(input.sessionKey, input.ctx.MessageSid);
     return Promise.resolve();
@@ -836,7 +523,9 @@ function makeOpenClawRuntime(
             turn.dispatchReplyWithBufferedBlockDispatcher({
               ctx: turn.ctxPayload,
               dispatcherOptions: turn.delivery,
-              replyOptions: turn.replyOptions,
+              ...(turn.replyOptions === undefined
+                ? {}
+                : { replyOptions: turn.replyOptions }),
             }),
           );
         },
@@ -844,7 +533,10 @@ function makeOpenClawRuntime(
       reply: { dispatchReplyWithBufferedBlockDispatcher },
       routing: {
         resolveAgentRoute: (input) => {
-          expect(input.peer).toBeUndefined();
+          expect(input.peer).toEqual({
+            kind: "direct",
+            id: fixture.callerAddress,
+          });
           return {
             agentId: "primary",
             channel: "moltzap",
@@ -858,9 +550,6 @@ function makeOpenClawRuntime(
       },
       session: { recordInboundSession },
     },
-    state: {
-      openChannelIngressQueue: () => fixture.ingressQueue,
-    },
   };
 }
 
@@ -872,48 +561,20 @@ function dispatchOpenClawReply(
     Effect.gen(function* () {
       expect(input.ctx.Body).toBe("hello through the real OpenClaw adapter");
       expect(input.ctx.SessionKey).toBe(OPENCLAW_MAIN_SESSION_KEY);
-      const privateDelivery = yield* effectFromPromise(
-        "OpenClaw private final",
+      const delivery = yield* effectFromPromise(
+        "OpenClaw stock reply callback",
         () =>
           input.dispatcherOptions.deliver(
-            { text: "private OpenClaw final" },
+            { text: OPENCLAW_REPLY },
             { kind: "final" },
           ),
       );
-      expect(privateDelivery).toEqual({ visibleReplySent: false });
-      fixture.sessions.recordPrivateFinal(
-        OPENCLAW_MAIN_SESSION_KEY,
-        "private OpenClaw final",
-      );
-      expect(fixture.outbox.rows()).toEqual([]);
-
-      const row: DurableOutboundRow = {
-        id: OPENCLAW_OUTBOX_ID,
-        text: OPENCLAW_REPLY,
-        to: fixture.callerAddress,
-      };
-      fixture.outbox.insert(row);
-      const sendContext: OpenClawMessageSendContext = {
-        cfg: fixture.cfg,
-        accountId: OPENCLAW_ACCOUNT_ID,
-        to: row.to,
-        text: row.text,
-        deliveryQueueId: row.id,
-      };
-      const first = yield* effectFromPromise("OpenClaw native message", () =>
-        fixture.channelPlugin().message.send.text(sendContext),
-      );
-      const repeated = yield* effectFromPromise(
-        "OpenClaw repeated native message",
-        () => fixture.channelPlugin().message.send.text(sendContext),
-      );
-      expect(first.messageId).toBe(OPENCLAW_OUTBOX_ID);
-      expect(repeated.messageId).toBe(OPENCLAW_OUTBOX_ID);
+      expect(delivery).toEqual({ visibleReplySent: true });
       yield* Deferred.succeed(fixture.responseSent, undefined);
       return {
         queuedFinal: false,
-        counts: { tool: 1, block: 0, final: 0 },
-        sourceReplyDeliveryMode: "message_tool_only",
+        counts: { tool: 0, block: 0, final: 1 },
+        sourceReplyDeliveryMode: "automatic",
       };
     }),
   );
@@ -988,7 +649,7 @@ function openClawConfig(stateDirectory: string): OpenClawConfig {
   return {
     channels: {
       moltzap: {
-        accounts: [{ id: OPENCLAW_ACCOUNT_ID, mode: "shared" }],
+        accounts: [{ id: OPENCLAW_ACCOUNT_ID }],
       },
     },
     session: { store: stateDirectory },
@@ -1005,26 +666,12 @@ function runOpenClawScenario() {
       const initial = textContent("hello through the real OpenClaw adapter");
       const reply = textContent(OPENCLAW_REPLY);
       const responseSent = yield* Deferred.make<void>();
-      const inboundCompleted = yield* Deferred.make<void>();
       const connected = yield* Deferred.make<void>();
-      const ingressQueue = new InMemoryChannelIngressQueue(inboundCompleted);
-      const outbox = new DurableNativeOutbox();
       const sessions = new NativeSessionStore();
       const cfg = openClawConfig(scenario.target.stateDirectory);
       let channelPlugin: StableOpenClawChannelPlugin | null = null;
       const runtime = makeOpenClawRuntime({
         callerAddress,
-        channelPlugin: () => {
-          if (channelPlugin === null) {
-            throw new ProcessTestError({
-              message: "OpenClaw channel is unavailable",
-            });
-          }
-          return channelPlugin;
-        },
-        cfg,
-        ingressQueue,
-        outbox,
         responseSent,
         sessions,
       });
@@ -1054,7 +701,7 @@ function runOpenClawScenario() {
       const gatewayContext: OpenClawGatewayContext = {
         cfg,
         accountId: OPENCLAW_ACCOUNT_ID,
-        account: { id: OPENCLAW_ACCOUNT_ID, mode: "shared" },
+        account: { id: OPENCLAW_ACCOUNT_ID },
         abortSignal: abortController.signal,
         runtime: {
           log: () => {},
@@ -1102,7 +749,6 @@ function runOpenClawScenario() {
         content: reply,
       });
       yield* returned.acknowledge;
-      yield* awaitSignal(inboundCompleted, "OpenClaw journal completion");
 
       yield* effectFromPromise("OpenClaw gateway stop", () =>
         channelPlugin.gateway.stopAccount({ accountId: OPENCLAW_ACCOUNT_ID }),
@@ -1120,17 +766,7 @@ function runOpenClawScenario() {
       const session = sessions.snapshot(OPENCLAW_MAIN_SESSION_KEY);
       expect(sessions.keys()).toEqual([OPENCLAW_MAIN_SESSION_KEY]);
       expect(session.messageIds).toHaveLength(1);
-      expect(session.privateFinals).toEqual(["private OpenClaw final"]);
-      expect(ingressQueue.pendingIds()).toEqual([]);
-      expect(ingressQueue.completedIds()).toEqual(session.messageIds);
-      expect(outbox.rows()).toEqual([
-        {
-          id: OPENCLAW_OUTBOX_ID,
-          text: OPENCLAW_REPLY,
-          to: callerAddress,
-        },
-      ]);
-      yield* assertDurableExchange(scenario, initial, [reply, reply]);
+      yield* assertDurableExchange(scenario, initial, [reply]);
     }),
   );
 }

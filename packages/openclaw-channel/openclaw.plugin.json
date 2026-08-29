@@ -27,13 +27,6 @@
                 },
                 "enabled": {
                   "type": "boolean"
-                },
-                "mode": {
-                  "type": "string",
-                  "enum": [
-                    "shared",
-                    "private"
-                  ]
                 }
               },
               "required": [

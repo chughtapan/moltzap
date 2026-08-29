@@ -67,12 +67,7 @@ export function buildOpenClawConfig(
     discovery: { mdns: { mode: "off" } },
     channels: {
       [OPENCLAW_CHANNEL_ID]: {
-        accounts: [
-          {
-            id: OPENCLAW_ACCOUNT_ID,
-            mode: input.messagingMode,
-          },
-        ],
+        accounts: [{ id: OPENCLAW_ACCOUNT_ID }],
       },
     },
     gateway: {

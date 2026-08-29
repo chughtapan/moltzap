@@ -70,11 +70,11 @@ describe("buildOpenClawConfig", () => {
     });
   });
 
-  it("uses the native main session in shared mode", () => {
+  it("leaves the default host session scope unchanged", () => {
     assert.notProperty(openClawConfig(undefined, "shared"), "session");
   });
 
-  it("isolates direct peers through the native private session scope", () => {
+  it("configures private sessions through OpenClaw's native setting", () => {
     assert.deepStrictEqual(openClawConfig(undefined, "private").session, {
       dmScope: "per-account-channel-peer",
     });

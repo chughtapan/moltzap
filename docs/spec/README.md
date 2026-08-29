@@ -80,9 +80,9 @@ public-boundary retention, relocation law, and deletion gates.
 | `management.md` | State-dependent MCP catalog and MCP-only registration, status, search, history, and proof inspection |
 | `harness/tasks.md` | Unanimous GENESIS, author-inclusive threshold POST, and separation from durability completion |
 | `harness/output.md` | Host-native explicit addressed send, host-owned retry policy, and `void` local-durability completion |
-| `harness/ingress.md` | Durable addressed direct/group delivery and host-persistence acknowledgment |
+| `harness/ingress.md` | Durable addressed direct/group delivery and stock-callback acknowledgment |
 | `harness/client.md` | Exact addressed public runtime capability and management-absence boundary |
-| `harness/channels.md` | One native host session, native messaging, and direct/group projection |
+| `harness/channels.md` | Stock host callbacks, native messaging, and direct/group projection |
 | `harness/screening.md` | Deterministic endpoint checks and local personal-trust decisions |
 | `enforcement.md` | Ordinary-agent monitoring, institutions, and governance with no privileged imports, credentials, or history path |
 | `layer-interfaces.md` | Exact seven-package DAG, type ownership, retained simulator surface, migration gates, and cross-layer laws |
