@@ -2,7 +2,7 @@
 
 Overall result: **PASS**
 
-Maintainer acceptance: **pending; reviewer prose is not self-certifying**
+Maintainer acceptance: **accepted by Tapan Chugh on 2026-08-30**
 
 ## Review identity
 
@@ -22,6 +22,14 @@ Maintainer acceptance: **pending; reviewer prose is not self-certifying**
 | Review budget | One uninterrupted fresh-agent context, with a 45-minute ceiling |
 | Duration | Approximately `00:08:08`, as reported by the reviewer |
 | Candidate state | Detached and clean throughout the run |
+
+## Maintainer acceptance
+
+Tapan Chugh accepted this PASS result on 2026-08-30 with the literal reply
+`approve` in the active Codex session. The current tool context exposes no
+native session or message locator, so none is invented. This acceptance was
+recorded after the reviewer completed its isolated run and does not alter the
+unedited report below.
 
 The depth-one candidate preserves the exact reviewed Git tree while keeping
 earlier quarantined review verdicts out of history command output. The
@@ -275,4 +283,4 @@ Overall result: **PASS — no blocker found.** Maintainer acceptance is still re
 The reviewer found no blocker and returned **PASS**. The only accidental gaps
 are the three already-explicit provenance source gaps; the reviewer found no
 accidental normative-owner, lineage, schema, or implementation-choice gap.
-Maintainer acceptance remains pending.
+Maintainer acceptance was recorded on 2026-08-30 after the reviewer report.
