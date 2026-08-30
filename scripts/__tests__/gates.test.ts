@@ -539,17 +539,18 @@ const testNodeVersionFloorConsistency = (): void => {
     resolve(workspaceRoot, "docs/quickstart.mdx"),
     "utf8",
   );
+  const workspaceNodeRange = workspaceManifest.engines?.node;
   assert(
     "workspace and pinned runtime support Node.js 22+",
-    workspaceManifest.engines?.node?.startsWith(">=22.") === true &&
+    workspaceNodeRange?.startsWith(">=22.") === true &&
       pinnedMajor >= 22 &&
       pinnedMajor < 25,
-    `expected a pinned Node.js 22–24 runtime, got engines.node=${String(workspaceManifest.engines?.node)} and .node-version=${pinnedNode}`,
+    `expected a pinned Node.js 22–24 runtime, got engines.node=${String(workspaceNodeRange)} and .node-version=${pinnedNode}`,
   );
   assert(
-    "quickstart advertises Node.js 22+",
-    quickstartDocs.includes("Node.js 22+"),
-    "quickstart has a different Node.js floor",
+    "quickstart matches the workspace Node.js range",
+    quickstartDocs.includes(`Node.js \`${String(workspaceNodeRange)}\``),
+    `quickstart does not advertise Node.js \`${String(workspaceNodeRange)}\``,
   );
 };
 
