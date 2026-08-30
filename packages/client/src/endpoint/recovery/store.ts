@@ -28,6 +28,7 @@ import {
   type AnchorHash as AnchorHashValue,
   type CertifiedRecord,
   type ClientRepresentationError,
+  compareAgentIds,
   CompletedReanchor,
   type CompletedReanchor as CompletedReanchorValue,
   ConversationId,
@@ -514,6 +515,14 @@ function decodeEvidence(
     rows,
     (row) => decodeCanonical(SignedMessage, row.canonicalEvidence),
     { concurrency: 1 },
+  ).pipe(
+    Effect.map((messages) =>
+      // SQLite orders encoded evidence keys, while certificates require
+      // decoded AgentId byte order.
+      [...messages].sort((left, right) =>
+        compareAgentIds(left.senderAgentId, right.senderAgentId),
+      ),
+    ),
   );
 }
 

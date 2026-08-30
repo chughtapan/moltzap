@@ -35,7 +35,11 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type { EngineRegistryPort, EngineRouterPort } from "../engine-types.js";
+import type {
+  EndpointEngineInput,
+  EngineRegistryPort,
+  EngineRouterPort,
+} from "../engine-types.js";
 import type { RouterWorkerIngress } from "../router-worker/index.js";
 import { SendInput } from "../../contract.js";
 import { type EndpointEngine, makeEndpointEngine } from "../engine.js";
@@ -47,6 +51,7 @@ import {
   type CatchUpPage,
   type CatchUpRequest,
   type CertifiedRecord,
+  compareAgentIds,
   decodeCanonical,
   type DecodedOuterBody,
   decodeOuterBody,
@@ -81,6 +86,7 @@ interface IdentityFixture {
 
 interface RecoveryFixture {
   readonly engine: EndpointEngine;
+  readonly input: EndpointEngineInput;
   readonly store: EndpointStore;
   readonly local: IdentityFixture;
   readonly remote: IdentityFixture;
@@ -232,7 +238,7 @@ const issueCard = (input: {
         identifier("agt_", input.byte),
       ),
       agentName: Schema.decodeUnknownSync(AgentName)(`recovery-${input.byte}`),
-      issuedAt: `2026-08-27T12:00:0${input.byte}Z`,
+      issuedAt: "2026-08-27T12:00:00Z",
       kind: "agentCard",
       moltzapVersion: MOLTZAP_VERSION,
       principalId: Schema.decodeUnknownSync(PrincipalId)(
@@ -363,6 +369,10 @@ const buildCertifiedGenesis = (
 
 const makeFixtureWithRouter = (
   makeRouter: (context: FixtureRouterContext) => EngineRouterPort,
+  identityBytes: { readonly local: number; readonly remote: number } = {
+    local: 1,
+    remote: 2,
+  },
 ) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -374,7 +384,7 @@ const makeFixtureWithRouter = (
     const remoteAuthority = yield* makeAuthority();
     const local: IdentityFixture = {
       card: yield* issueCard({
-        byte: 1,
+        byte: identityBytes.local,
         authority: localAuthority,
         registryPrivateKey: registryKeys.privateKey,
         registrySignerPublicKey,
@@ -383,7 +393,7 @@ const makeFixtureWithRouter = (
     };
     const remote: IdentityFixture = {
       card: yield* issueCard({
-        byte: 2,
+        byte: identityBytes.remote,
         authority: remoteAuthority,
         registryPrivateKey: registryKeys.privateKey,
         registrySignerPublicKey,
@@ -449,7 +459,7 @@ const makeFixtureWithRouter = (
       },
     };
     const normalOutbound = yield* Queue.unbounded<SignedMessage>();
-    const engine = yield* makeEndpointEngine({
+    const input = {
       localAgentCard: local.card,
       signingAuthority: local.authority,
       registrySignerPublicKey,
@@ -457,9 +467,11 @@ const makeFixtureWithRouter = (
       store,
       actionPolicy: () => Effect.succeed("sign"),
       routerWorker: makeRouter({ store, normalOutbound }),
-    }).pipe(Effect.orDie);
+    } satisfies EndpointEngineInput;
+    const engine = yield* makeEndpointEngine(input).pipe(Effect.orDie);
     return {
       engine,
+      input,
       store,
       local,
       remote,
@@ -471,14 +483,23 @@ const makeFixtureWithRouter = (
     } satisfies RecoveryFixture;
   }).pipe(Effect.provide(NodeFileSystem.layer));
 
-const makeFixture = makeFixtureWithRouter(({ store, normalOutbound }) => ({
+const makeFixtureRouter = ({
+  store,
+  normalOutbound,
+}: FixtureRouterContext): EngineRouterPort => ({
   currentAnchor: Effect.succeed({
     routerInstanceId: newRouterInstanceId,
     pollCursor,
   }),
   send: (outboundId) =>
     forwardStoredOutbound(store, normalOutbound, outboundId),
-}));
+});
+
+const makeFixture = makeFixtureWithRouter(makeFixtureRouter);
+const makeNonLexicalAgentOrderFixture = makeFixtureWithRouter(
+  makeFixtureRouter,
+  { local: 0, remote: 208 },
+);
 
 const addN4Foundation = (fixture: RecoveryFixture) =>
   Effect.gen(function* () {
@@ -932,6 +953,28 @@ const retainCertifiedRecord = (fixture: RecoveryFixture) =>
   certifiedRecordIngress(fixture).pipe(
     Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     Effect.asVoid,
+  );
+
+const restartWithNonLexicalAgentOrder = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeNonLexicalAgentOrderFixture;
+        expect(
+          compareAgentIds(
+            fixture.local.card.agentId,
+            fixture.remote.card.agentId,
+          ),
+        ).toBeLessThan(0);
+        expect(fixture.remote.card.agentId < fixture.local.card.agentId).toBe(
+          true,
+        );
+
+        yield* retainCertifiedRecord(fixture);
+        const restarted = yield* makeEndpointEngine(fixture.input);
+        expect(restarted).toBeDefined();
+      }),
+    ),
   );
 
 const stageAttachedDissemination = (fixture: RecoveryFixture) =>
@@ -2126,6 +2169,10 @@ const blocksN4ReanchorBehindStagedSuccessor = () =>
 
 // @agent-code-guard/regression-only: these traces pin restart liveness and fail-closed ancestry handling.
 describe("endpoint restart recovery", () => {
+  it(
+    "recovers certificates when encoded and canonical AgentId orders differ",
+    restartWithNonLexicalAgentOrder,
+  );
   it(
     "waits for the complete N4 successor before re-anchoring its latest head",
     recoversN4PartiallyDisseminatedSuccessor,
