@@ -206,7 +206,6 @@ it("materializes every case peer under both concrete runtime conditions", () => 
     nanoclawEvaluationCondition({
       runtime: {
         applicationImage: APPLICATION_IMAGE,
-        autoRegisterConversations: true,
         modelId: "claude/test",
       },
       execution,

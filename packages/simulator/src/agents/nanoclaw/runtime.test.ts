@@ -47,7 +47,6 @@ const renderedRuntimeConfig = Schema.parseJson(
     gateway: Schema.Struct({ host: Schema.String, port: Schema.Number }),
     stateDirectory: Schema.String,
     workspaceDirectory: Schema.String,
-    autoRegisterConversations: Schema.Boolean,
     modelId: Schema.optional(Schema.String),
     mcpServers: Schema.Array(
       Schema.Union(
@@ -91,7 +90,6 @@ function makeFixture() {
   return Effect.gen(function* () {
     const runtime = nanoclawRuntime({
       applicationImage: APPLICATION_IMAGE,
-      autoRegisterConversations: true,
       modelId: MODEL_ID,
       workspaceFiles: [
         { relativePath: "IDENTITY.md", content: WORKSPACE_CONTENT },
@@ -148,7 +146,6 @@ function assertBootstrap(fixture: Fixture): void {
   assert.strictEqual(runtimeConfig.gateway.port, GATEWAY_PORT);
   assert.strictEqual(runtimeConfig.stateDirectory, STATE_DIR);
   assert.strictEqual(runtimeConfig.modelId, MODEL_ID);
-  assert.isTrue(runtimeConfig.autoRegisterConversations);
   assert.deepStrictEqual(runtimeConfig.mcpServers, [
     {
       name: "private-tool",
@@ -172,10 +169,6 @@ function assertBootstrap(fixture: Fixture): void {
   assert.notInclude(
     JSON.stringify(runtimeConfigurationProjection(runtime)),
     MCP_SECRET,
-  );
-  assert.notInclude(
-    JSON.stringify(runtimeConfigurationProjection(runtime)),
-    MCP_URL,
   );
 }
 

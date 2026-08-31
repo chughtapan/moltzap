@@ -11,6 +11,7 @@ import {
   infrastructureFailed,
   invalidImageDetail,
   missingImageDetail,
+  runtimeSelectionDiagnostic,
 } from "./cli.js";
 import {
   decodeConditionId,
@@ -70,6 +71,45 @@ effect.each(["MOLTZAP_CONTROLLER_IMAGE", "MOLTZAP_NANOCLAW_IMAGE"] as const)(
       assert.include(invalidImageDetail(key), key);
     }),
 );
+
+it.each([
+  [
+    {
+      runtime: "all",
+      nanoclawModel: "claude/test",
+      messagingMode: "shared",
+    },
+    "--openclaw-model",
+  ],
+  [
+    {
+      runtime: "nanoclaw",
+      messagingMode: "shared",
+    },
+    "--nanoclaw-model",
+  ],
+  [
+    {
+      runtime: "all",
+      openclawModel: "openai/test",
+      nanoclawModel: "claude/test",
+      messagingMode: "private",
+    },
+    "--runtime openclaw",
+  ],
+] as const)("rejects an incomplete runtime selection", (options, expected) => {
+  assert.include(runtimeSelectionDiagnostic(options), expected);
+});
+
+it("accepts private mode when only OpenClaw is selected", () => {
+  assert.isUndefined(
+    runtimeSelectionDiagnostic({
+      runtime: "openclaw",
+      openclawModel: "openai/test",
+      messagingMode: "private",
+    }),
+  );
+});
 
 const CLUSTER_LOST = { _tag: "ClusterLost", receipt: RECEIPT } as const;
 const ALLOCATION_FAILED = { _tag: "LedgerAllocationFailed" } as const;

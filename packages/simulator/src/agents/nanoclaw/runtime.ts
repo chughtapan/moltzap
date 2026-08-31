@@ -65,7 +65,6 @@ export class NanoClawRuntimeConfiguration extends Schema.Class<NanoClawRuntimeCo
   startupTimeout: Schema.DurationFromMillis,
   workspaceFiles: Schema.Array(WorkspaceFileConfiguration),
   modelOverride: Schema.optional(Schema.String),
-  autoRegisterConversations: Schema.Boolean,
   mcpServers: Schema.Array(McpServerConfiguration),
   applicationImage: image,
 }) {}
@@ -80,12 +79,6 @@ export interface NanoClawRuntimeOptions {
    * Digest-pinned one-container NanoClaw artifact for Kubernetes execution.
    */
   readonly applicationImage: Image;
-
-  /**
-   * Register conversations on first delivery in disposable evaluations.
-   * Ordinary societies leave registration to their endpoint code.
-   */
-  readonly autoRegisterConversations?: boolean;
 
   /** MCP servers reachable from the NanoClaw container. */
   readonly mcpServers?: readonly McpServer[];
@@ -125,7 +118,6 @@ interface NanoClawRuntimeSettings {
   readonly workspaceFiles: readonly CheckedWorkspaceFile[];
   readonly modelId?: string;
   readonly applicationImage: Image;
-  readonly autoRegisterConversations: boolean;
   readonly mcpServers?: readonly McpServer[];
 }
 
@@ -154,7 +146,6 @@ function snapshotOptions(
     startupTimeout: options.startupTimeout ?? DEFAULT_NANOCLAW_STARTUP_TIMEOUT,
     workspaceFiles: snapshotWorkspaceFiles(options.workspaceFiles),
     applicationImage: options.applicationImage,
-    autoRegisterConversations: options.autoRegisterConversations ?? false,
     ...(modelId === undefined ? {} : { modelId }),
     ...(mcpServers === undefined ? {} : { mcpServers }),
   });
@@ -178,7 +169,6 @@ function runtimeConfiguration(
   return NanoClawRuntimeConfiguration.make({
     startupTimeout: settings.startupTimeout,
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
-    autoRegisterConversations: settings.autoRegisterConversations,
     mcpServers: mcpConfiguration(settings.mcpServers),
     applicationImage: settings.applicationImage,
     ...(settings.modelId === undefined
@@ -266,7 +256,6 @@ function runtimeConfig(
       },
       stateDirectory: NANOCLAW_STATE_DIR,
       workspaceDirectory: NANOCLAW_WORKSPACE_DIR,
-      autoRegisterConversations: settings.autoRegisterConversations,
       ...(settings.modelId === undefined ? {} : { modelId: settings.modelId }),
       mcpServers: settings.mcpServers ?? [],
     },

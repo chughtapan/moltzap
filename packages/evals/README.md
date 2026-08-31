@@ -97,13 +97,14 @@ mise x node@24.18.0 -- pnpm nx run @moltzap/evals:lint
 ```
 
 Live runs require digest-pinned `MOLTZAP_CONTROLLER_IMAGE` and
-`MOLTZAP_NANOCLAW_IMAGE` values, the selected Simulator profile's artifact
-location and Temporal address, model credentials, and a clean committed
-worktree. `eval` and `resume` accept `--messaging-mode shared|private` and
-default to `shared`; the mode is retained in the immutable report plan and is
-passed only to runtimes whose stock configuration exposes it. NanoClaw session
-behavior belongs to the supplied application image. Run `eval`, `resume`,
-`calibrate`, or `publish` through the package's Nx targets.
+`MOLTZAP_NANOCLAW_IMAGE` when NanoClaw is selected, the selected Simulator
+profile's artifact location and Temporal address, model credentials, and a
+clean committed worktree. `eval` and `resume` accept
+`--runtime all|openclaw|nanoclaw` and default to `all`. Every selected runtime
+requires its matching model option. `--messaging-mode` defaults to `shared`;
+`private` is currently valid only with `--runtime openclaw`. The
+NanoClaw application image uses one native `agent-shared` session. Run `eval`,
+`resume`, `calibrate`, or `publish` through the package's Nx targets.
 
 SQLite is the mutable report authority. Resume executes only cells missing from
 an exactly matching plan. Completed Simulator artifacts remain the evidence
