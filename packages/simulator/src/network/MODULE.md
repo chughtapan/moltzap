@@ -4,7 +4,7 @@ _`packages/simulator/src/network`_
 
 ## Purpose
 
-Compatible simulator network contracts and run-scoped services.
+Simulator network contracts and run-scoped services.
 
 ## Public surface
 
@@ -58,117 +58,7 @@ export interface AttachedEndpoint<Name extends string> {
 
 Router output used by an experiment-controlled endpoint.
 
-### [`ConversationAddress`](./conversation.ts#L28)
-
-_Class_
-
-```ts
-export class ConversationAddress {
-  readonly [conversationAddressTypeId] = conversationAddressTypeId;
-
-  readonly destination: MessageAddressInput;
-  readonly participants: ConversationParticipants;
-
-  constructor(
-    destination: MessageAddressInput,
-    participants: ConversationParticipants,
-  ) {
-    if (participants.length === 0) {
-      // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- This synchronous public constructor rejects invalid JavaScript input before creating a nominal address.
-      throw new TypeError("conversation participants must not be empty");
-    }
-    const [first, ...rest] = participants;
-    if (
-      new Set(participants.map(({ id }) => id)).size !== participants.length
-    ) {
-      // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- This synchronous public constructor rejects invalid JavaScript input before creating a nominal address.
-      throw new TypeError(
-        "conversation participants must be unique by AgentId",
-      );
-    }
-    this.destination = destination;
-    this.participants = Object.freeze([first, ...rest]);
-    Object.freeze(this);
-  }
-}
-```
-
-A participant-independent network address. Binding an endpoint produces a
-conversation socket; the address itself never implies a sender.
-
-### [`ConversationParticipants`](./conversation.ts#L19)
-
-_TypeAlias_
-
-```ts
-export type ConversationParticipants = readonly [
-  ParticipantHandle,
-  ...(readonly ParticipantHandle[]),
-];
-```
-
-Every conversation has at least one participant of any network role.
-
-### [`ConversationSocket`](./conversation.ts#L72)
-
-_Class_
-
-```ts
-export class ConversationSocket {
-  readonly [conversationSocketTypeId] = conversationSocketTypeId;
-
-  /** Ordered addressed deliveries for this endpoint and conversation. */
-  readonly messages: Stream.Stream<InboundDelivery, NetworkError>;
-
-  readonly endpoint: ParticipantHandle;
-  readonly address: ConversationAddress;
-
-  private constructor(
-    endpoint: ParticipantHandle,
-    address: ConversationAddress,
-    messages: Stream.Stream<InboundDelivery, NetworkError>,
-  ) {
-    this.endpoint = endpoint;
-    this.address = address;
-    this.messages = messages;
-  }
-
-  static [conversationSocketConstruction](
-    endpoint: ParticipantHandle,
-    address: ConversationAddress,
-    messages: Stream.Stream<InboundDelivery, NetworkError>,
-  ): ConversationSocket {
-    return new ConversationSocket(endpoint, address, messages);
-  }
-
-  /**
-   * Receive the next ordered delivery. Selection policy belongs in the
-   * consuming Effect, so the socket never skips an earlier delivery.
-   * @returns The next delivery, or a typed receive failure when the stream ends.
-   */
-  receive(): Effect.Effect<InboundDelivery, NetworkError> {
-    return this.messages.pipe(
-      Stream.runHead,
-      Effect.flatMap(
-        Option.match({
-          onNone: () =>
-            Effect.fail(
-              networkError(
-                "receive",
-                `destination ${this.address.destination} ended before another delivery arrived`,
-              ),
-            ),
-          onSome: Effect.succeed,
-        }),
-      ),
-    );
-  }
-}
-```
-
-A conversation address bound to exactly one controlled endpoint.
-
-### [`Endpoint`](./endpoint.ts#L34)
+### [`Endpoint`](./endpoint.ts#L21)
 
 _Class_
 
@@ -213,39 +103,12 @@ export class Endpoint<Name extends string = string> {
   messages(): Stream.Stream<InboundDelivery, NetworkError> {
     return this.inbox.messages;
   }
-
-  /**
-   * Bind this endpoint as the receiver for an existing address.
-   * @param address Conversation whose participant set includes this endpoint.
-   * @returns The endpoint-bound socket or a typed address mismatch.
-   */
-  socket(
-    address: ConversationAddress,
-  ): Effect.Effect<ConversationSocket, NetworkError> {
-    const isParticipant = address.participants.some(
-      (participant) => participant.id === this.participant.id,
-    );
-    return isParticipant
-      ? this.inbox
-          .conversation(address.destination)
-          .pipe(
-            Effect.map((messages) =>
-              makeConversationSocket(this.participant, address, messages),
-            ),
-          )
-      : Effect.fail(
-          networkError(
-            "socket",
-            `participant ${this.participant.name} is not addressed by the conversation`,
-          ),
-        );
-  }
 }
 ```
 
 A run-scoped participant controlled directly by the experiment program.
 
-### [`EndpointInbox`](./endpoint.ts#L24)
+### [`EndpointInbox`](./endpoint.ts#L15)
 
 _Interface_
 
@@ -253,14 +116,10 @@ _Interface_
 export interface EndpointInbox {
   /** Live fan-out stream for observers of every endpoint delivery. */
   readonly messages: Stream.Stream<InboundDelivery, NetworkError>;
-  /** Obtain the shared ordered cursor for one explicit destination. */
-  readonly conversation: (
-    destination: MessageAddressInput,
-  ) => Effect.Effect<Stream.Stream<InboundDelivery, NetworkError>>;
 }
 ```
 
-Run-scoped receive cursors maintained by the simulator kernel.
+Run-scoped delivery stream maintained by the simulator kernel.
 
 ### [`EndpointTransport`](./router.ts#L44)
 
@@ -486,7 +345,7 @@ Construct an agent handle at the simulator network boundary.
 
 **Returns:** Nominal autonomous-agent identity.
 
-### [`makeEndpoint`](./endpoint.ts#L109)
+### [`makeEndpoint`](./endpoint.ts#L69)
 
 _Function_
 
@@ -528,7 +387,7 @@ Construct a nominal stop report at a platform boundary.
 
 **Returns:** Immutable evidence that the Router scope released.
 
-### [`Network`](./endpoint.ts#L126)
+### [`Network`](./endpoint.ts#L86)
 
 _Class_
 
@@ -541,7 +400,7 @@ export class Network extends Context.Tag("@moltzap/simulator/Network")<
 
 Network operations available to the customer program.
 
-### [`networkError`](./failure.ts#L40)
+### [`networkError`](./failure.ts#L39)
 
 _Function_
 
@@ -558,7 +417,7 @@ the boundary raised a thrown Error or a plain description.
 
 **Returns:** Typed network failure.
 
-### [`NetworkError`](./failure.ts#L20)
+### [`NetworkError`](./failure.ts#L19)
 
 _Class_
 
@@ -578,7 +437,7 @@ export class NetworkError extends Schema.TaggedError<NetworkError>()(
 
 An operational failure at a simulator network boundary.
 
-### [`NetworkOperation`](./failure.ts#L17)
+### [`NetworkOperation`](./failure.ts#L16)
 
 _TypeAlias_
 
@@ -588,7 +447,7 @@ export type NetworkOperation = typeof networkOperation.Type;
 
 Network operation names used by typed failures.
 
-### [`NetworkService`](./endpoint.ts#L119)
+### [`NetworkService`](./endpoint.ts#L79)
 
 _Interface_
 
@@ -701,7 +560,6 @@ Shutdown evidence available only after the Router scope has released.
 
 ## Files
 
-- `conversation.ts`
 - `endpoint.ts`
 - `failure.ts`
 - `index.ts`

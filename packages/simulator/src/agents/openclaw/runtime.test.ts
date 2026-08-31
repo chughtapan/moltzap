@@ -81,6 +81,14 @@ const renderedOpenClawConfig = Schema.parseJson(
         ),
       }),
     }),
+    messages: Schema.Struct({
+      queue: Schema.Struct({
+        mode: Schema.Literal("steer"),
+        cap: Schema.Number,
+        drop: Schema.Literal("new"),
+      }),
+      inbound: Schema.Struct({ debounceMs: Schema.Number }),
+    }),
   }),
 );
 
@@ -93,23 +101,23 @@ type OpenClawApplication = Application<
   RuntimeAcquisitionError
 >;
 
-interface StockFixture {
+interface OpenClawContainerFixture {
   readonly runtime: ReturnType<typeof openClawRuntime>;
   readonly capability: OpenClawContainerRuntime;
   readonly application: OpenClawApplication;
   readonly config: typeof renderedOpenClawConfig.Type;
 }
 
-function stockCapabilityTest() {
+function applicationContainerTest() {
   return Effect.gen(function* () {
-    const fixture = yield* makeStockFixture();
+    const fixture = yield* makeOpenClawContainerFixture();
     assertCredentialFreeReservation(fixture.capability);
     assertApplicationContainer(fixture);
     assertBootstrapMaterial(fixture);
   });
 }
 
-function makeStockFixture() {
+function makeOpenClawContainerFixture() {
   return Effect.gen(function* () {
     const runtime = openClawRuntime({
       modelId: "openai/gpt-5.5",
@@ -137,11 +145,11 @@ function assertCredentialFreeReservation(
   assert.notInclude(reservation, "bootstrap");
   assert.strictEqual(
     capability.image,
-    "ghcr.io/openclaw/openclaw@sha256:47d342bafe83bd3b2dca6f1d8d8b608ba7b542a1952564960648943346206759",
+    "ghcr.io/openclaw/openclaw@sha256:e7849cb6c1ef1ead39ab4be7d85edb2df89611f486e283284c7cf35ce39a20d4",
   );
 }
 
-function assertApplicationContainer(fixture: StockFixture): void {
+function assertApplicationContainer(fixture: OpenClawContainerFixture): void {
   const { application, capability, config } = fixture;
   const containerProjection = JSON.stringify({
     entrypoint: application.entrypoint,
@@ -184,7 +192,7 @@ function assertApplicationContainer(fixture: StockFixture): void {
   assertMessagingConfiguration(fixture);
 }
 
-function assertMessagingConfiguration(fixture: StockFixture): void {
+function assertMessagingConfiguration(fixture: OpenClawContainerFixture): void {
   const { config, runtime } = fixture;
   assert.deepStrictEqual(config.plugins.entries, {
     "openclaw-channel": { enabled: true },
@@ -196,6 +204,10 @@ function assertMessagingConfiguration(fixture: StockFixture): void {
   assert.deepStrictEqual(config.channels.moltzap.accounts, [
     { id: "simulator-agent" },
   ]);
+  assert.deepStrictEqual(config.messages, {
+    queue: { mode: "steer", cap: 100, drop: "new" },
+    inbound: { debounceMs: 0 },
+  });
   assert.strictEqual(
     Schema.decodeUnknownSync(messagingModeProjection)(
       runtimeConfigurationProjection(runtime),
@@ -228,7 +240,7 @@ function privateMessagingModeTest() {
   });
 }
 
-function assertBootstrapMaterial(fixture: StockFixture): void {
+function assertBootstrapMaterial(fixture: OpenClawContainerFixture): void {
   const { application } = fixture;
   assert.strictEqual(
     requireFile(application.files, WORKSPACE_PATH),
@@ -287,7 +299,7 @@ function bridgeClient(observed: ObservedClient): OpenClawGatewayClientFactory {
 function exactBridgeTest() {
   return Effect.gen(function* () {
     const observed: ObservedClient = {};
-    const fixture = yield* makeStockFixture();
+    const fixture = yield* makeOpenClawContainerFixture();
     const response = yield* Effect.scoped(
       Effect.gen(function* () {
         const gateway = yield* fixture.application.attach(
@@ -323,15 +335,15 @@ function exactBridgeTest() {
 
 describe("OpenClaw container runtime", () => {
   test(
-    "renders one stock application container with credentials confined to bootstrap files",
-    stockCapabilityTest,
+    "renders one OpenClaw application container with credentials confined to bootstrap files",
+    applicationContainerTest,
   );
   test(
-    "attaches the exact native gateway and termination observation",
+    "attaches the public OpenClaw gateway and termination observation",
     exactBridgeTest,
   );
   test(
-    "threads private evaluation messaging into native account configuration",
+    "threads private evaluation messaging into OpenClaw account configuration",
     privateMessagingModeTest,
   );
 });

@@ -1,5 +1,5 @@
-/** @file Compatible simulator network contracts and run-scoped services. */
-// safer-arch-ignore no-inventory-barrel: The compatibility-frozen Network subpath deliberately exposes the complete stable contract implemented by these six domain modules.
+/** @file Simulator network contracts and run-scoped services. */
+// safer-arch-ignore no-inventory-barrel: The Network subpath deliberately exposes the complete contract implemented by these five domain modules.
 
 /** Re-exports nominal participant identity handles. */
 export {
@@ -8,12 +8,6 @@ export {
   makeParticipantHandle,
   ParticipantHandle,
 } from "./participant.js";
-/** Re-exports conversation addressing and receive-only sockets. */
-export {
-  ConversationAddress,
-  type ConversationParticipants,
-  ConversationSocket,
-} from "./conversation.js";
 /** Re-exports controlled endpoint contracts. */
 export {
   Endpoint,

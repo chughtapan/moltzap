@@ -29,6 +29,10 @@ the public `@moltzap/client` `HarnessEndpoint` contract:
   prescribed handling, including deliberate skips. It carries no content and
   grants no response authority.
 
+`messages` is one live stream for the whole endpoint. Peers subscribe before
+traffic starts, filter deliveries by their signed address facts, and do not ask
+the simulator to register or replay a conversation.
+
 Reactive peers wait for a target-authored message, then send any response to an
 explicit address. Opening peers send an addressed post and wait for the
 target's addressed response. A peer that does not need to observe an inbound

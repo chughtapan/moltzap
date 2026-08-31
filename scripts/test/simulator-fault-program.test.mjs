@@ -4,7 +4,7 @@ import test from "node:test";
 
 register("./simulator-workspace-loader.mjs", import.meta.url);
 
-const { Duration, Deferred, Effect } = await import("effect");
+const { Duration, Deferred, Effect, Stream } = await import("effect");
 const { LinkController } = await import("@moltzap/simulator/network");
 const { makeFaultProgram } = await import("./simulator-fault-program.mjs");
 
@@ -56,28 +56,11 @@ function executeProgram(options = {}) {
     );
     const endpoint = {
       participant: participants.controller,
-      socket: (address) => {
-        const isHeld =
-          address.destination === `agent:${participants.held.name}`;
-        return Effect.succeed({
-          receive: () =>
-            isHeld
-              ? (options.heldReceive ?? Deferred.await(heldReply)).pipe(
-                  Effect.tap(() =>
-                    Effect.sync(() => {
-                      log.push("receive:held");
-                    }),
-                  ),
-                )
-              : Deferred.await(freeReply).pipe(
-                  Effect.tap(() =>
-                    Effect.sync(() => {
-                      log.push("receive:free");
-                    }),
-                  ),
-                ),
-        });
-      },
+      messages: () =>
+        Stream.merge(
+          Stream.fromEffect(Deferred.await(freeReply)),
+          Stream.fromEffect(options.heldReceive ?? Deferred.await(heldReply)),
+        ),
       send: (input) => {
         const firstPart = input.content[0];
         const messageText = firstPart?.type === "text" ? firstPart.text : "";
@@ -153,12 +136,10 @@ test("keeps the unfaulted exchange live until the scoped hold clears", async () 
     "hold:held->controller",
     "send:agent:held:held-start",
     "send:agent:free:free-start",
-    "receive:free",
     "acknowledge:free",
     "send:agent:free:free-ack",
     "exchange:free:complete",
     "release:held->controller",
-    "receive:held",
     "acknowledge:held",
     "send:agent:held:held-ack",
     "exchange:held:complete",
@@ -168,13 +149,11 @@ test("keeps the unfaulted exchange live until the scoped hold clears", async () 
   assertBefore(log, "hold:held->controller", "send:agent:held:held-start");
   assertBefore(log, "hold:held->controller", "send:agent:free:free-start");
   assertBefore(log, "send:agent:held:held-start", "release:held->controller");
-  assertBefore(log, "send:agent:free:free-start", "receive:free");
-  assertBefore(log, "receive:free", "acknowledge:free");
+  assertBefore(log, "send:agent:free:free-start", "acknowledge:free");
   assertBefore(log, "acknowledge:free", "send:agent:free:free-ack");
   assertBefore(log, "send:agent:free:free-ack", "exchange:free:complete");
   assertBefore(log, "exchange:free:complete", "release:held->controller");
-  assertBefore(log, "release:held->controller", "receive:held");
-  assertBefore(log, "receive:held", "acknowledge:held");
+  assertBefore(log, "release:held->controller", "acknowledge:held");
   assertBefore(log, "acknowledge:held", "send:agent:held:held-ack");
   assertBefore(log, "send:agent:held:held-ack", "exchange:held:complete");
 });

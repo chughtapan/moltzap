@@ -11,7 +11,7 @@ readonly terraform_root="$profile_root/terraform"
 readonly system_namespace="moltzap-system"
 
 usage() {
-  echo "usage: $0 (setup|up|run SPEC|evals [ARG...]|publish-image|down|delete)" >&2
+  echo "usage: $0 (setup|up|run SPEC|publish-image|down|delete)" >&2
   echo "       [--delete-artifacts]" >&2
   exit 64
 }
@@ -22,14 +22,6 @@ shift
 
 delete_artifacts=false
 run_spec=""
-evals_args=()
-# Everything after `evals` belongs to the evaluation CLI, which owns its own
-# option vocabulary. Parsing it here would fork that vocabulary, and the first
-# option this script did not know about would be rejected by the wrong program.
-if [[ "$command" == "evals" ]]; then
-  evals_args=("$@")
-  set --
-fi
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --delete-artifacts) delete_artifacts=true ;;
@@ -41,7 +33,7 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-for executable in terraform gcloud kubectl helm docker node nc corepack; do
+for executable in terraform gcloud kubectl helm docker node nc; do
   if ! command -v "$executable" >/dev/null 2>&1; then
     echo "required executable is unavailable: $executable" >&2
     exit 69
@@ -137,11 +129,9 @@ open_temporal_forward() {
   done
 }
 
-# Everything `run` and `evals` both need before they can reach the cluster:
-# credentials, an immutable controller image, and a Temporal endpoint that
-# survives a dropped forward. Sharing it is what keeps the trap in one place —
-# a leaked port-forward still accepts connections while proxying to a pod that
-# no longer exists, so a fix applied to one verb has to apply to both.
+# Everything `run` needs before it can reach the cluster: credentials, an
+# immutable controller image, and a Temporal endpoint that survives a dropped
+# forward.
 begin_cluster_session() {
   attach_kubectl
 
@@ -190,33 +180,6 @@ case "$command" in
     gcloud auth configure-docker "$(registry_host)" --quiet
     echo
     echo "setup complete; submit a run with '$0 run SPEC.mjs'"
-    echo "or an evaluation sweep with '$0 evals --report-id REPORT_ID ...'"
-    ;;
-
-  evals)
-    begin_cluster_session
-
-    # Every identity the sweep cannot derive for itself, each one a property of
-    # the cluster just attached to, so the sweep and the operator cannot
-    # disagree about which cluster is being measured. MOLTZAP_NANOCLAW_IMAGE is
-    # deliberately absent: it is the runtime under evaluation rather than this
-    # cluster's infrastructure, so the caller's own value passes straight
-    # through.
-    export MOLTZAP_KUBE_CONTEXT="$(kubectl config current-context)"
-    export MOLTZAP_GKE_ARTIFACT_BUCKET="$(terraform_output artifact_bucket_name)"
-    export MOLTZAP_TEMPORAL_ADDRESS="localhost:${forward_port}"
-    export MOLTZAP_CONTROLLER_IMAGE="$controller_image"
-    export MOLTZAP_SUPPORT_IMAGE="$controller_image"
-
-    # Not exec: the forward supervisor is this shell's background job, and
-    # replacing the shell would strand it with no trap left to reap it. Running
-    # in the foreground under errexit propagates the sweep's exit status after
-    # cleanup, which is what a caller reads anyway.
-    cd "$workspace_root"
-    # `${a[@]+"${a[@]}"}` rather than `"${a[@]}"`: under errexit an empty array
-    # is an unbound expansion on the bash macOS still ships.
-    corepack pnpm nx run @moltzap/evals:eval -- \
-      --profile gke ${evals_args[@]+"${evals_args[@]}"}
     ;;
 
   publish-image)

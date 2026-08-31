@@ -1,11 +1,14 @@
-/** @file Native OpenClaw configuration rendered into an application container. */
+/// <reference types="node" preserve="true" />
+
+/**
+ * @file OpenClaw configuration written into an application container.
+ * OpenClaw's configuration declarations import Node types without preserving
+ * that dependency in emitted declarations. The reference keeps packed
+ * consumer typechecks self-contained.
+ */
 
 import type { AgentName } from "@moltzap/identity";
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import type {
-  AgentDefaultsConfig,
-  ToolsConfig,
-} from "openclaw/plugin-sdk/config-types";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { Redacted } from "effect";
 import { isHttpMcpServer, type McpServer } from "../workspace.js";
 
@@ -15,11 +18,13 @@ const OPENCLAW_ACCOUNT_ID = "simulator-agent";
 const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
 const OPENCLAW_EXTENSION_PATH = "/var/run/moltzap/bootstrap/openclaw-channel";
 
-/** Native OpenClaw tool exposure and execution configuration. */
-export type OpenClawToolsConfig = ToolsConfig;
+/** Tool configuration accepted by `OpenClawConfig`. */
+export type OpenClawToolsConfig = NonNullable<OpenClawConfig["tools"]>;
 
-/** Native OpenClaw sandbox configuration for the runtime's default agent. */
-export type OpenClawSandboxConfig = NonNullable<AgentDefaultsConfig["sandbox"]>;
+/** Default-agent sandbox configuration accepted by `OpenClawConfig`. */
+export type OpenClawSandboxConfig = NonNullable<
+  NonNullable<NonNullable<OpenClawConfig["agents"]>["defaults"]>["sandbox"]
+>;
 
 interface OpenClawConfigInput {
   readonly agentName: AgentName;
@@ -33,10 +38,10 @@ interface OpenClawConfigInput {
 }
 
 /**
- * Build the complete OpenClaw configuration mounted into one container.
+ * Builds the OpenClaw configuration mounted into an application container.
  * @param input Runtime-specific OpenClaw settings and credentials.
  * @param workspaceDirectory Absolute workspace path inside the container.
- * @returns The native OpenClaw configuration.
+ * @returns The complete `OpenClawConfig` for the container.
  */
 export function buildOpenClawConfig(
   input: OpenClawConfigInput,
@@ -63,7 +68,8 @@ export function buildOpenClawConfig(
     messages: {
       // Mid-turn traffic steers the active turn so social input is observed
       // without accumulating an independent simulator-owned mailbox.
-      queue: { mode: "steer", debounceMs: 0, cap: 100, drop: "new" },
+      queue: { mode: "steer", cap: 100, drop: "new" },
+      inbound: { debounceMs: 0 },
     },
     discovery: { mdns: { mode: "off" } },
     channels: {

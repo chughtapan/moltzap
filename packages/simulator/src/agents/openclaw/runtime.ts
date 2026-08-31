@@ -57,7 +57,7 @@ import {
   OpenClawGatewayStoppedBeforeHello,
 } from "./gateway.js";
 
-/** Native OpenClaw policy types accepted by the shipped runtime. */
+/** OpenClaw policy types accepted by the shipped runtime. */
 export type {
   OpenClawSandboxConfig,
   OpenClawToolsConfig,
@@ -74,8 +74,8 @@ const OPENCLAW_GATEWAY_TOKEN_BYTES = 32;
 const OPENCLAW_DEVICE_TOKEN_BYTES = 32;
 const OPENCLAW_ED25519_PUBLIC_KEY_BYTES = 32;
 const messagingMode = Schema.Literal("shared", "private");
-const STOCK_OPENCLAW_IMAGE = image.make(
-  "ghcr.io/openclaw/openclaw@sha256:47d342bafe83bd3b2dca6f1d8d8b608ba7b542a1952564960648943346206759",
+const PINNED_OPENCLAW_IMAGE = image.make(
+  "ghcr.io/openclaw/openclaw@sha256:e7849cb6c1ef1ead39ab4be7d85edb2df89611f486e283284c7cf35ce39a20d4",
 );
 const APPLICATION_RESOURCES = Object.freeze({
   cpuMillis: 1_000,
@@ -85,8 +85,8 @@ const APPLICATION_RESOURCES = Object.freeze({
 
 const acquisitionFailure = acquisitionFailureFor(OPENCLAW_RUNTIME_NAME);
 
-class OpenClawNativePolicyConfiguration extends Schema.Class<OpenClawNativePolicyConfiguration>(
-  "OpenClawNativePolicyConfiguration",
+class OpenClawPolicySnapshot extends Schema.Class<OpenClawPolicySnapshot>(
+  "OpenClawPolicySnapshot",
 )({
   definitionDigest: configurationDigest,
   redacted: Schema.Tuple(Schema.Literal("configuration")),
@@ -103,8 +103,8 @@ export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeCo
   modelOverride: Schema.optional(Schema.String),
   mcpServers: Schema.Array(McpServerConfiguration),
   messagingMode,
-  tools: Schema.optional(OpenClawNativePolicyConfiguration),
-  sandbox: Schema.optional(OpenClawNativePolicyConfiguration),
+  tools: Schema.optional(OpenClawPolicySnapshot),
+  sandbox: Schema.optional(OpenClawPolicySnapshot),
 }) {}
 
 /** Configuration captured by one reusable OpenClaw runtime value. */
@@ -114,7 +114,7 @@ export interface OpenClawRuntimeOptions {
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
 
-  /** Selects host-native session isolation for evaluations. Defaults to shared. */
+  /** Selects OpenClaw session isolation for evaluations. Defaults to shared. */
   readonly messagingMode?: "shared" | "private";
 
   readonly tools?: OpenClawToolsConfig;
@@ -128,15 +128,23 @@ export const OPENCLAW_CONTEXT_FILENAMES: readonly string[] = Object.freeze([
   "TOOLS.md",
   "IDENTITY.md",
   "USER.md",
-  "HEARTBEAT.md",
   "BOOTSTRAP.md",
   "MEMORY.md",
 ]);
 
 /**
- * Construct an OpenClaw application container with its native gateway bridge.
- * @param options Options that control the operation.
- * @returns The open claw runtime result.
+ * Constructs a simulator runtime from the pinned OpenClaw application image.
+ *
+ * ```mermaid
+ * flowchart LR
+ *   Options[Runtime options] --> Definition[OpenClaw runtime definition]
+ *   Definition --> Application[Pinned image and generated configuration]
+ *   Application --> Channel[MoltZap channel for daemon messages]
+ *   Application --> Gateway[OpenClaw agent RPC]
+ * ```
+ *
+ * @param options OpenClaw policy and workspace files for each started agent.
+ * @returns A reusable OpenClaw container runtime definition.
  */
 export function openClawRuntime(
   options: OpenClawRuntimeOptions = {},
@@ -179,7 +187,7 @@ function snapshotOptions(
 ): OpenClawRuntimeSettings {
   const workspaceFiles = snapshotWorkspaceFiles(options.workspaceFiles);
   const invisibleFiles = invisibleWorkspaceFiles(workspaceFiles);
-  const tools = snapshotNativeConfiguration(options.tools);
+  const tools = snapshotOpenClawPolicy(options.tools);
   assertWorkspaceFilesReachable(
     invisibleFiles,
     tools?.deny?.includes("*") ?? false,
@@ -192,7 +200,7 @@ function snapshotOptions(
     mcpServers: snapshotMcpServers(options.mcpServers),
     messagingMode: options.messagingMode ?? "shared",
     tools,
-    sandbox: snapshotNativeConfiguration(options.sandbox),
+    sandbox: snapshotOpenClawPolicy(options.sandbox),
   });
 }
 
@@ -220,7 +228,7 @@ function invisibleWorkspaceFiles(
   );
 }
 
-function snapshotNativeConfiguration<Value extends object>(
+function snapshotOpenClawPolicy<Value extends object>(
   value?: Value,
 ): Value | undefined {
   if (value === undefined) {
@@ -232,8 +240,8 @@ function snapshotNativeConfiguration<Value extends object>(
 function runtimeConfiguration(
   settings: OpenClawRuntimeSettings,
 ): OpenClawRuntimeConfiguration {
-  const tools = nativePolicyConfiguration(settings.tools);
-  const sandbox = nativePolicyConfiguration(settings.sandbox);
+  const tools = summarizeOpenClawPolicy(settings.tools);
+  const sandbox = summarizeOpenClawPolicy(settings.sandbox);
   return OpenClawRuntimeConfiguration.make({
     startupTimeout: settings.startupTimeout,
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
@@ -247,13 +255,13 @@ function runtimeConfiguration(
   });
 }
 
-function nativePolicyConfiguration(
+function summarizeOpenClawPolicy(
   policy?: object,
-): OpenClawNativePolicyConfiguration | undefined {
+): OpenClawPolicySnapshot | undefined {
   if (policy === undefined) {
     return undefined;
   }
-  return OpenClawNativePolicyConfiguration.make({
+  return OpenClawPolicySnapshot.make({
     definitionDigest: digestText(Inspectable.stringifyCircular(policy)),
     redacted: ["configuration"],
   });
@@ -365,7 +373,7 @@ function bootstrapFiles(
   gatewayToken: Redacted.Redacted,
   pairing: OpenClawGatewayPairing,
 ): readonly File[] {
-  const nativeConfig = buildOpenClawConfig(
+  const openClawConfig = buildOpenClawConfig(
     {
       agentName: input.agentName,
       gatewayToken,
@@ -383,7 +391,7 @@ function bootstrapFiles(
   return Object.freeze([
     bootstrapFile(
       APPLICATION_CONFIG_PATH,
-      JSON.stringify(nativeConfig, null, 2),
+      JSON.stringify(openClawConfig, null, 2),
     ),
     bootstrapFile(
       `${APPLICATION_STATE_DIR}/devices/paired.json`,
@@ -490,7 +498,7 @@ function openClawCapability(
   acquireGateway: OpenClawGatewayAcquirer,
 ): ContainerRuntime<OpenClawGateway, RuntimeAcquisitionError> {
   return Object.freeze({
-    image: STOCK_OPENCLAW_IMAGE,
+    image: PINNED_OPENCLAW_IMAGE,
     resources: APPLICATION_RESOURCES,
     render: (input: AgentRuntimeInput) =>
       renderOpenClaw(settings, acquireGateway, input),

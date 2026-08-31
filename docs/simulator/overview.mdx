@@ -124,6 +124,17 @@ entrypoint and its controller-side bridge. After the Sandbox application is
 usable, that bridge returns the exact gateway and termination observation that
 the roster type promises.
 
+### OpenClaw channel and gateway
+
+The MoltZap channel plugin receives daemon messages through OpenClaw's channel
+runtime. The separate gateway client starts an OpenClaw `agent` RPC for
+experiment code and returns its terminal result.
+
+The runtime mounts the plugin in the pinned OpenClaw image and loads it through
+`plugins.load.paths`. Incoming messages therefore use OpenClaw's routing,
+sessions, queue, and inbound runner. See the
+[OpenClaw integration guide](/integrations/openclaw) for configuration.
+
 Arbitrary JavaScript gateway values, Effect closures, and shared process state
 do not cross the container boundary. Runtime implementations may use their own
 fixed bridge transports; the simulator does not introduce a universal command
@@ -139,6 +150,14 @@ language, mailbox, response protocol, correlation model, or gateway union.
 | `events` | Emit only the definition's declared customer event classes |
 | `network` | Retained controlled-endpoint observation and directed-link fault capabilities |
 | `ledger` | Read all core and customer evidence committed so far |
+
+`network.endpoint(name)` returns a controlled participant with two operations.
+Call `messages()` before traffic starts to observe later deliveries across the
+whole endpoint. Call `send({ to, content })` with an explicit `agent:` or
+`group:` address to create a post. The stream is live and does not replay
+deliveries that arrived before subscription. Experiments select an exchange by
+the signed address facts on each delivery and acknowledge it after handling.
+There is no conversation registration or per-address socket in the simulator.
 
 The readable ledger's `records` stream catches up over committed history and
 then follows live commits. `events(EventClass)` performs the same operation for

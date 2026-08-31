@@ -41,11 +41,11 @@ interface Scenario {
   readonly target: DaemonProcessFixture;
 }
 
-interface NativeSessionSnapshot {
+interface RecordedSessionSnapshot {
   readonly messageIds: readonly string[];
 }
 
-class NativeSessionStore {
+class RecordedSessionStore {
   private readonly messagesBySession = new Map<string, string[]>();
 
   acceptMessage(sessionKey: string, messageId: string): void {
@@ -60,7 +60,7 @@ class NativeSessionStore {
     return [...this.messagesBySession.keys()];
   }
 
-  snapshot(sessionKey: string): NativeSessionSnapshot {
+  snapshot(sessionKey: string): RecordedSessionSnapshot {
     return {
       messageIds: [...(this.messagesBySession.get(sessionKey) ?? [])],
     };
@@ -164,16 +164,22 @@ interface OpenClawReplyResult {
 
 interface OpenClawInboundTurnInput {
   readonly cfg: OpenClawConfig;
-  readonly routeSessionKey: string;
-  readonly storePath: string;
+  readonly channel: string;
+  readonly accountId: string;
+  readonly route: {
+    readonly agentId: string;
+    readonly sessionKey: string;
+  };
   readonly ctxPayload: OpenClawInboundContext;
-  readonly recordInboundSession: (
-    input: OpenClawRecordInput,
-  ) => Promise<object | void>;
-  readonly dispatchReplyWithBufferedBlockDispatcher: (
-    input: OpenClawReplyDispatcherInput,
-  ) => Promise<OpenClawReplyResult>;
   readonly delivery: OpenClawReplyDispatcherInput["dispatcherOptions"];
+  readonly record?: {
+    readonly updateLastRoute?: {
+      readonly sessionKey: string;
+      readonly channel: string;
+      readonly to: string;
+      readonly accountId: string;
+    };
+  };
   readonly replyOptions?: OpenClawReplyDispatcherInput["replyOptions"];
 }
 
@@ -198,18 +204,14 @@ interface OpenClawRouteInput {
   readonly peer?: { readonly kind: string; readonly id: string };
 }
 
-interface StableOpenClawRuntime {
+interface ObservedOpenClawAccountRuntime {
   readonly channel: {
+    readonly runtimeContexts: object;
     readonly inbound: {
       readonly buildContext: (
         input: OpenClawBuildContextInput,
       ) => OpenClawInboundContext;
       readonly run: (input: OpenClawInboundRunnerInput) => Promise<object>;
-    };
-    readonly reply: {
-      readonly dispatchReplyWithBufferedBlockDispatcher: (
-        input: OpenClawReplyDispatcherInput,
-      ) => Promise<OpenClawReplyResult>;
     };
     readonly routing: {
       readonly resolveAgentRoute: (input: OpenClawRouteInput) => {
@@ -221,11 +223,6 @@ interface StableOpenClawRuntime {
         readonly lastRoutePolicy: "session";
         readonly matchedBy: "default";
       };
-    };
-    readonly session: {
-      readonly recordInboundSession: (
-        input: OpenClawRecordInput,
-      ) => Promise<object | void>;
     };
   };
 }
@@ -247,6 +244,7 @@ interface OpenClawGatewayContext {
     readonly error: (message: string) => void;
     readonly exit: (code: number) => void;
   };
+  readonly channelRuntime: ObservedOpenClawAccountRuntime["channel"];
   readonly getStatus: () => OpenClawGatewayStatus;
   readonly setStatus: (status: OpenClawGatewayStatus) => void;
 }
@@ -266,9 +264,6 @@ interface OpenClawMessageSendResult {
 interface StableOpenClawChannelPlugin {
   readonly gateway: {
     readonly startAccount: (context: OpenClawGatewayContext) => Promise<void>;
-    readonly stopAccount: (context: {
-      readonly accountId: string;
-    }) => Promise<void>;
   };
   readonly message: {
     readonly send: {
@@ -300,7 +295,7 @@ function isStableOpenClawEntry(value: unknown): value is StableOpenClawEntry {
 interface OpenClawReplyFixture {
   readonly callerAddress: string;
   readonly responseSent: Deferred.Deferred<void>;
-  readonly sessions: NativeSessionStore;
+  readonly sessions: RecordedSessionStore;
 }
 
 type OpenClawRuntimeFixture = OpenClawReplyFixture;
@@ -501,9 +496,14 @@ function buildOpenClawContext(
   };
 }
 
-function makeOpenClawRuntime(
+/**
+ * Creates the smallest account runtime needed by the process-boundary test.
+ * The channel package test covers OpenClaw's real inbound runner; this fixture
+ * records only the values that must survive the daemon process boundary.
+ */
+function makeObservedOpenClawAccountRuntime(
   fixture: OpenClawRuntimeFixture,
-): StableOpenClawRuntime {
+): ObservedOpenClawAccountRuntime {
   const recordInboundSession = (input: OpenClawRecordInput) => {
     expect(input.sessionKey).toBe(OPENCLAW_MAIN_SESSION_KEY);
     fixture.sessions.acceptMessage(input.sessionKey, input.ctx.MessageSid);
@@ -514,6 +514,7 @@ function makeOpenClawRuntime(
   ) => dispatchOpenClawReply(input, fixture);
   return {
     channel: {
+      runtimeContexts: {},
       inbound: {
         buildContext: buildOpenClawContext,
         run: (input) => {
@@ -521,14 +522,30 @@ function makeOpenClawRuntime(
           expect(ingested.id).toBe(input.raw.message.postId);
           expect(ingested.raw).toEqual(input.raw.message);
           const turn = input.adapter.resolveTurn();
+          expect(turn.route).toEqual({
+            agentId: "primary",
+            sessionKey: OPENCLAW_MAIN_SESSION_KEY,
+          });
+          expect(turn.record?.updateLastRoute).toEqual({
+            sessionKey: OPENCLAW_MAIN_SESSION_KEY,
+            channel: "moltzap",
+            to: fixture.callerAddress,
+            accountId: OPENCLAW_ACCOUNT_ID,
+          });
+          expect("routeSessionKey" in turn).toBe(false);
+          expect("storePath" in turn).toBe(false);
+          expect("recordInboundSession" in turn).toBe(false);
+          expect("dispatchReplyWithBufferedBlockDispatcher" in turn).toBe(
+            false,
+          );
           return Promise.resolve(
-            turn.recordInboundSession({
+            recordInboundSession({
               ctx: turn.ctxPayload,
-              sessionKey: turn.routeSessionKey,
-              storePath: turn.storePath,
+              sessionKey: turn.route.sessionKey,
+              storePath: turn.cfg.session.store,
             }),
           ).then(() =>
-            turn.dispatchReplyWithBufferedBlockDispatcher({
+            dispatchReplyWithBufferedBlockDispatcher({
               ctx: turn.ctxPayload,
               dispatcherOptions: turn.delivery,
               ...(turn.replyOptions === undefined
@@ -538,7 +555,6 @@ function makeOpenClawRuntime(
           );
         },
       },
-      reply: { dispatchReplyWithBufferedBlockDispatcher },
       routing: {
         resolveAgentRoute: (input) => {
           expect(input.peer).toEqual({
@@ -556,7 +572,6 @@ function makeOpenClawRuntime(
           };
         },
       },
-      session: { recordInboundSession },
     },
   };
 }
@@ -569,13 +584,11 @@ function dispatchOpenClawReply(
     Effect.gen(function* () {
       expect(input.ctx.Body).toBe("hello through the real OpenClaw adapter");
       expect(input.ctx.SessionKey).toBe(OPENCLAW_MAIN_SESSION_KEY);
-      const delivery = yield* effectFromPromise(
-        "OpenClaw stock reply callback",
-        () =>
-          input.dispatcherOptions.deliver(
-            { text: OPENCLAW_REPLY },
-            { kind: "final" },
-          ),
+      const delivery = yield* effectFromPromise("OpenClaw reply delivery", () =>
+        input.dispatcherOptions.deliver(
+          { text: OPENCLAW_REPLY },
+          { kind: "final" },
+        ),
       );
       expect(delivery).toEqual({ visibleReplySent: true });
       yield* Deferred.succeed(fixture.responseSent, undefined);
@@ -596,9 +609,7 @@ function isStableOpenClawChannelPlugin(
     typeof value.gateway !== "object" ||
     value.gateway === null ||
     !("startAccount" in value.gateway) ||
-    typeof value.gateway.startAccount !== "function" ||
-    !("stopAccount" in value.gateway) ||
-    typeof value.gateway.stopAccount !== "function"
+    typeof value.gateway.startAccount !== "function"
   ) {
     return false;
   }
@@ -614,14 +625,15 @@ function isStableOpenClawChannelPlugin(
   );
 }
 
-function registerOpenClawChannel(
-  runtime: StableOpenClawRuntime,
-): Effect.Effect<StableOpenClawChannelPlugin, ProcessTestError> {
+function registerOpenClawChannel(): Effect.Effect<
+  StableOpenClawChannelPlugin,
+  ProcessTestError
+> {
   return Effect.try({
     try: () => {
       let registered: StableOpenClawChannelPlugin | null = null;
       const api: StableOpenClawPluginApi = {
-        runtime,
+        runtime: {},
         registerChannel(registration) {
           if (
             !("plugin" in registration) ||
@@ -679,15 +691,15 @@ function runOpenClawScenario() {
       const reply = textContent(OPENCLAW_REPLY);
       const responseSent = yield* Deferred.make<void>();
       const connected = yield* Deferred.make<void>();
-      const sessions = new NativeSessionStore();
+      const sessions = new RecordedSessionStore();
       const cfg = openClawConfig(scenario.target.stateDirectory);
       let channelPlugin: StableOpenClawChannelPlugin | null = null;
-      const runtime = makeOpenClawRuntime({
+      const runtime = makeObservedOpenClawAccountRuntime({
         callerAddress,
         responseSent,
         sessions,
       });
-      channelPlugin = yield* registerOpenClawChannel(runtime);
+      channelPlugin = yield* registerOpenClawChannel();
 
       const previousEndpoint = process.env.MOLTZAP_MCP_URL;
       process.env.MOLTZAP_MCP_URL = scenario.target.endpoint.href;
@@ -720,6 +732,7 @@ function runOpenClawScenario() {
           error: () => {},
           exit: () => {},
         },
+        channelRuntime: runtime.channel,
         getStatus: () => status,
         setStatus: (next) => {
           status = next;
@@ -742,12 +755,12 @@ function runOpenClawScenario() {
         content: initial,
       });
       yield* Effect.raceFirst(
-        awaitSignal(responseSent, "OpenClaw native response"),
+        awaitSignal(responseSent, "OpenClaw channel reply"),
         Fiber.join(runningGateway).pipe(
           Effect.zipRight(
             Effect.fail(
               new ProcessTestError({
-                message: "OpenClaw gateway stopped before its native response",
+                message: "OpenClaw account stopped before its channel reply",
               }),
             ),
           ),
@@ -762,9 +775,7 @@ function runOpenClawScenario() {
       });
       yield* returned.acknowledge;
 
-      yield* effectFromPromise("OpenClaw gateway stop", () =>
-        channelPlugin.gateway.stopAccount({ accountId: OPENCLAW_ACCOUNT_ID }),
-      );
+      abortController.abort();
       yield* Fiber.join(runningGateway).pipe(
         Effect.timeoutFail({
           duration: DELIVERY_TIMEOUT,

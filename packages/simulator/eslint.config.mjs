@@ -10,6 +10,7 @@ const TEMPORAL_ADAPTER = "src/cluster/temporal.ts";
 const TEMPORAL_WORKFLOW = "src/cluster/reclaim.ts";
 const LIVE_CLUSTER_SUITES = "src/**/*.cluster.test.ts";
 const TEST_SUITES = "src/**/*.test.ts";
+const OPENCLAW_CONFIGURATION = "src/agents/openclaw/configuration.ts";
 
 const noKubernetes = {
   group: ["@kubernetes/*"],
@@ -38,6 +39,18 @@ const vendorSdks = (files, patterns) => ({
 
 export default [
   ...packageEslintConfig({ tsconfigRootDir: import.meta.dirname }),
+
+  // OpenClaw's public configuration declaration imports node:fs but does not
+  // expose its @types/node dependency to strict package consumers. Preserving
+  // one reference in our emitted declaration is smaller than copying its
+  // configuration types or requiring consumer-specific tsconfig settings.
+  {
+    files: [OPENCLAW_CONFIGURATION],
+    rules: {
+      "@typescript-eslint/triple-slash-reference": "off",
+      "agent-code-guard/require-stable-file-shell": "off",
+    },
+  },
 
   {
     files: [TEST_SUITES],

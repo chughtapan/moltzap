@@ -9,8 +9,8 @@ gateways, run evidence, Kueue cohort admission, Agent Sandbox applications, and
 coarse Temporal lifecycle control. Experiment code owns completion policy,
 scenarios, sweeps, and grading.
 
-The source layout and its compatibility-preserving validation plan are recorded
-in [`docs/architecture/simulator-domain-barrels.md`](../../docs/architecture/simulator-domain-barrels.md).
+The source layout is recorded in
+[`docs/architecture/simulator-domain-barrels.md`](../../docs/architecture/simulator-domain-barrels.md).
 
 ## Entry points
 
@@ -59,6 +59,29 @@ Each started agent exposes three lifecycle-facing values:
   `AgentId`;
 - `.gateway` is that runtime's exact principal interface; and
 - `.termination` observes autonomous runtime completion.
+
+For OpenClaw, the mounted MoltZap channel plugin handles daemon messages. The
+separate `.gateway` starts an OpenClaw `agent` RPC and returns its terminal
+result to experiment code.
+
+## Controlled endpoints
+
+`network.endpoint(name)` attaches an experiment-controlled participant. Its
+API has two operations:
+
+- call `messages()` before traffic starts to observe every later addressed
+  delivery; and
+- call `send({ to, content })` with an explicit `agent:` or `group:` address.
+
+`messages()` is a live, endpoint-wide stream. It does not replay deliveries
+that arrived before subscription. Inspect each delivery's signed `address`,
+`sender`, and group `members` when the experiment needs to select a particular
+exchange, and run `acknowledge` after handling it.
+
+The simulator does not open or register conversations. It does not create
+per-address sockets or mailboxes. Address membership and durable delivery are
+Client and daemon responsibilities; experiment code only sends and observes
+their public facts.
 
 NanoClaw requires an explicit digest-pinned application image implementing its
 fixed one-container bootstrap and gateway contract. The simulator never

@@ -41,45 +41,9 @@ const facadeSpecifiers = Object.freeze({
   "./ledger": "@moltzap/simulator/ledger",
   "./agents": "@moltzap/simulator/agents",
 });
-const simulatorBaselineCommit = "102f110436bedbba828591c1b97fd4e322abcf76";
-const baselineFacadeSources = Object.freeze({
-  ".": "packages/simulator/src/index.ts",
-  "./network": "packages/simulator/src/network.ts",
-  "./ledger": "packages/simulator/src/ledger.ts",
-  "./agents": "packages/simulator/src/agents.ts",
-});
-const expectedBaselineCounts = Object.freeze({
-  ".": 70,
-  "./network": 41,
-  "./ledger": 40,
-  "./agents": 45,
-});
-const admittedBaselineRemovals = Object.freeze({
-  ".": Object.freeze([
-    "ConversationOpened",
-    "EndpointMessageReceived",
-    "EndpointMessageSent",
-    "LinkMessageDelayed",
-    "LinkMessageDropped",
-    "LinkMessageHeld",
-    "MessageParts",
-    "ReceivedMessage",
-    "RouterMessageCommitted",
-  ]),
-  "./network": Object.freeze([
-    "CommittedRouterMessage",
-    "MessageParts",
-    "OpenedConversation",
-    "ReceivedMessage",
-    "RouterSequence",
-    "routerSequence",
-  ]),
-  "./ledger": Object.freeze([]),
-  "./agents": Object.freeze([]),
-});
 const expectedCensusCounts = Object.freeze({
-  ".": Object.freeze({ unique: 61, runtime: 40, types: 56 }),
-  "./network": Object.freeze({ unique: 35, runtime: 18, types: 28 }),
+  ".": Object.freeze({ unique: 58, runtime: 38, types: 53 }),
+  "./network": Object.freeze({ unique: 32, runtime: 16, types: 25 }),
   "./ledger": Object.freeze({ unique: 40 }),
   "./agents": Object.freeze({ unique: 45 }),
 });
@@ -163,12 +127,7 @@ function requireStringArray(value, detail) {
 async function loadApiCensus() {
   const parsed = JSON.parse(await readFile(apiCensusPath, "utf8"));
   requireCondition(
-    isRecord(parsed) &&
-      parsed.schemaVersion === 2 &&
-      isRecord(parsed.baseline) &&
-      parsed.baseline.commit === simulatorBaselineCommit &&
-      isRecord(parsed.baseline.removals) &&
-      isRecord(parsed.facades),
+    isRecord(parsed) && parsed.schemaVersion === 3 && isRecord(parsed.facades),
     "simulator API census has an unsupported shape",
   );
   const facades = {};
@@ -214,115 +173,7 @@ async function loadApiCensus() {
       `simulator API census has the wrong admitted counts for ${subpath}`,
     );
   }
-  await verifyBaselineDelta(parsed.baseline.removals, facades);
   return Object.freeze(facades);
-}
-
-function hasExportModifier(statement) {
-  return statement.modifiers?.some(
-    (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
-  );
-}
-
-function exportedVariableNames(statement) {
-  if (!ts.isVariableStatement(statement) || !hasExportModifier(statement)) {
-    return [];
-  }
-  return statement.declarationList.declarations.map((declaration) => {
-    requireCondition(
-      ts.isIdentifier(declaration.name),
-      "simulator baseline facade uses an unsupported exported binding pattern",
-    );
-    return declaration.name.text;
-  });
-}
-
-function exportedDeclarationName(statement) {
-  if (
-    !hasExportModifier(statement) ||
-    !("name" in statement) ||
-    statement.name === undefined ||
-    !ts.isIdentifier(statement.name)
-  ) {
-    return [];
-  }
-  return [statement.name.text];
-}
-
-function facadeSourceExportNames(source, path) {
-  const sourceFile = ts.createSourceFile(
-    path,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
-  const names = [];
-  for (const statement of sourceFile.statements) {
-    if (ts.isExportDeclaration(statement)) {
-      requireCondition(
-        statement.exportClause !== undefined &&
-          ts.isNamedExports(statement.exportClause),
-        `simulator baseline facade ${path} must use named exports`,
-      );
-      names.push(
-        ...statement.exportClause.elements.map((element) => element.name.text),
-      );
-      continue;
-    }
-    names.push(
-      ...exportedVariableNames(statement),
-      ...exportedDeclarationName(statement),
-    );
-  }
-  return sortedNames(new Set(names));
-}
-
-async function baselineFacadeNames(subpath) {
-  const sourcePath = baselineFacadeSources[subpath];
-  const { stdout } = await exec(
-    "git",
-    ["show", `${simulatorBaselineCommit}:${sourcePath}`],
-    { cwd: workspaceRoot, maxBuffer: 16 * 1024 * 1024 },
-  );
-  return facadeSourceExportNames(stdout, sourcePath);
-}
-
-async function verifyBaselineDelta(removals, facades) {
-  requireCondition(
-    JSON.stringify(Object.keys(removals)) ===
-      JSON.stringify(Object.keys(baselineFacadeSources)),
-    "simulator baseline removal map must contain exactly four facades",
-  );
-  for (const subpath of Object.keys(baselineFacadeSources)) {
-    const declaredRemovals = requireStringArray(
-      removals[subpath],
-      `simulator baseline removals for ${subpath} must be a string array`,
-    );
-    requireCondition(
-      JSON.stringify(declaredRemovals) ===
-        JSON.stringify(admittedBaselineRemovals[subpath]),
-      `simulator baseline removals drifted for ${subpath}`,
-    );
-    const baseline = await baselineFacadeNames(subpath);
-    requireCondition(
-      baseline.length === expectedBaselineCounts[subpath],
-      `simulator immutable baseline has the wrong declaration count for ${subpath}`,
-    );
-    const removalSet = new Set(declaredRemovals);
-    requireCondition(
-      declaredRemovals.every((name) => baseline.includes(name)),
-      `simulator removal map names a symbol absent from the immutable ${subpath} baseline`,
-    );
-    const expectedCurrent = baseline.filter((name) => !removalSet.has(name));
-    const current = sortedNames(
-      new Set([...facades[subpath].runtime, ...facades[subpath].types]),
-    );
-    requireCondition(
-      JSON.stringify(current) === JSON.stringify(expectedCurrent),
-      `simulator ${subpath} differs from its immutable baseline by more than the admitted removals`,
-    );
-  }
 }
 
 function isMissing(cause) {
@@ -423,17 +274,17 @@ async function verifyControllerImageAssembly() {
   );
   requireCondition(
     JSON.stringify(controllerOverlayExternalDependencies) ===
-      JSON.stringify({ openclaw: "2026.6.34" }) &&
+      JSON.stringify({ openclaw: "2026.8.1" }) &&
       JSON.stringify(overlayPackage.dependencies) ===
         JSON.stringify({
           "@moltzap/openclaw-channel":
             "file:./tarballs/moltzap-openclaw-channel.tgz",
-          openclaw: "2026.6.34",
+          openclaw: "2026.8.1",
         }),
     "the application overlay must install the exact OpenClaw host",
   );
   requireCondition(
-    channelPackage.peerDependencies?.openclaw === "2026.6.34" &&
+    channelPackage.peerDependencies?.openclaw === "2026.8.1" &&
       channelPackage.peerDependenciesMeta?.openclaw?.optional === true &&
       channelPackage.dependencies?.openclaw === undefined,
     "the adapter must preserve its exact optional host peer without a runtime dependency edge",
@@ -448,7 +299,7 @@ async function verifyControllerImageAssembly() {
     "/opt/moltzap/application-overlay",
     "/opt/moltzap/dist",
     "/opt/moltzap/register-daemon.mjs",
-    'await import("./node_modules/@moltzap/openclaw-channel/dist/openclaw-entry.js")',
+    'await import("./node_modules/@moltzap/openclaw-channel/dist/plugin.js")',
     "cp -a node_modules/@moltzap/openclaw-channel/. /application-overlay/openclaw-channel/",
     "rm -rf node_modules/@moltzap/openclaw-channel",
     "cp -a node_modules /application-overlay/node_modules",
@@ -704,7 +555,6 @@ function verifyRemovedFamilies(checker, facades) {
   requireMembersAbsent(checker, network, "EndpointTransport", [
     "openConversation",
   ]);
-  requireMembersAbsent(checker, network, "ConversationSocket", ["send"]);
   requireMembersAbsent(checker, network, "AgentConnection", [
     "connection",
     "key",
@@ -731,27 +581,9 @@ function verifyRemovedFamilies(checker, facades) {
     "store",
   ]);
 
-  requireMembers(checker, network, "Endpoint", ["messages", "send", "socket"]);
-  requireMembers(checker, facades["."], "Endpoint", [
-    "messages",
-    "send",
-    "socket",
-  ]);
-  requireMembers(checker, network, "ConversationAddress", [
-    "destination",
-    "participants",
-  ]);
-  requireMembers(checker, facades["."], "ConversationAddress", [
-    "destination",
-    "participants",
-  ]);
+  requireMembers(checker, network, "Endpoint", ["messages", "send"]);
+  requireMembers(checker, facades["."], "Endpoint", ["messages", "send"]);
   requireMembers(checker, network, "EndpointTransport", ["received", "send"]);
-  requireMembers(checker, network, "ConversationSocket", [
-    "address",
-    "endpoint",
-    "messages",
-    "receive",
-  ]);
   requireMembers(checker, network, "AgentConnection", ["agent"]);
   requireMembers(checker, network, "Router", ["address", "stopped"]);
   requireMembers(checker, network, "LinkDelivery", ["from", "message", "to"]);
@@ -797,13 +629,6 @@ function verifyRemovedFamilies(checker, facades) {
     "EndpointTransport",
     "send",
     "SendInput",
-  );
-  requireSemanticMemberType(
-    checker,
-    network,
-    "ConversationSocket",
-    "receive",
-    "InboundDelivery",
   );
   requireSemanticMemberType(
     checker,
@@ -909,9 +734,7 @@ async function verifyConsumerImports(archives, census) {
             ...localPackages,
             effect: "3.22.0",
           },
-          devDependencies: {
-            typescript: "6.0.2",
-          },
+          devDependencies: { typescript: "6.0.2" },
           pnpm: {
             overrides: localPackages,
           },
@@ -989,24 +812,6 @@ async function verifyConsumerImports(archives, census) {
       '    throw new Error(`${subpath} runtime exports drifted: ${actual.join(", ")}`);',
       "  }",
       "}",
-      'const client = await import("@moltzap/client");',
-      'const identity = await import("@moltzap/identity");',
-      'const simulator = await import("@moltzap/simulator");',
-      'const network = await import("@moltzap/simulator/network");',
-      'const { Schema } = await import("effect");',
-      'const destination = Schema.decodeSync(client.MessageAddressInput)("agent:peer");',
-      'const participant = network.makeParticipantHandle("observer", Schema.decodeSync(identity.AgentId)("agt_AAAAAAAAAAAAAAAAAAAAAA"));',
-      "const participants = [participant];",
-      "const address = new network.ConversationAddress(destination, participants);",
-      "const rootAddress = new simulator.ConversationAddress(destination, participants);",
-      "participants.push(participant);",
-      'if (rootAddress.constructor !== address.constructor || address.destination !== destination || !Object.isFrozen(address) || !Object.isFrozen(address.participants) || address.participants.length !== 1) throw new Error("packed ConversationAddress does not preserve public immutable construction");',
-      "let rejectedEmptyParticipants = false;",
-      "try { new network.ConversationAddress(destination, []); } catch (cause) { rejectedEmptyParticipants = cause instanceof TypeError; }",
-      'if (!rejectedEmptyParticipants) throw new Error("packed ConversationAddress accepted empty participants");',
-      "let rejectedDuplicateParticipants = false;",
-      "try { new network.ConversationAddress(destination, [participant, participant]); } catch (cause) { rejectedDuplicateParticipants = cause instanceof TypeError; }",
-      'if (!rejectedDuplicateParticipants) throw new Error("packed ConversationAddress accepted duplicate participant identities");',
       "",
     ].join("\n"),
   );

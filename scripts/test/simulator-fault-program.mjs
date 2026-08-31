@@ -1,10 +1,7 @@
 /** @file Deterministic semantic program used by the local Simulator fault qualification. */
 
-import {
-  ConversationAddress,
-  LinkController,
-} from "@moltzap/simulator/network";
-import { Duration, Effect, Fiber, Option } from "effect";
+import { LinkController } from "@moltzap/simulator/network";
+import { Duration, Effect, Fiber, Option, Stream } from "effect";
 
 const CONTROLLER_NAME = "controller";
 const DEFAULT_TIMEOUT = Duration.minutes(2);
@@ -40,17 +37,21 @@ function assertDirectDelivery(delivery, address, expected) {
       );
 }
 
-function conversation(endpoint, peer) {
-  const destination = `agent:${peer.agent.name}`;
-  const address = new ConversationAddress(destination, [
-    endpoint.participant,
-    peer.agent,
-  ]);
-  return endpoint.socket(address).pipe(
-    Effect.map((socket) => ({
-      destination,
-      socket,
-    })),
+function receiveFrom(endpoint, destination) {
+  return endpoint.messages().pipe(
+    Stream.filter((delivery) => delivery.message.address === destination),
+    Stream.runHead,
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          Effect.fail(
+            new Error(
+              `endpoint delivery stream ended before ${JSON.stringify(destination)} replied`,
+            ),
+          ),
+        onSome: Effect.succeed,
+      }),
+    ),
   );
 }
 
@@ -81,8 +82,8 @@ export function makeFaultProgram({
         const links = yield* LinkController;
         const endpoint = yield* context.network.endpoint(CONTROLLER_NAME);
         const programScope = yield* Effect.scope;
-        const held = yield* conversation(endpoint, context.agents.held);
-        const free = yield* conversation(endpoint, context.agents.free);
+        const heldDestination = `agent:${context.agents.held.agent.name}`;
+        const freeDestination = `agent:${context.agents.free.agent.name}`;
 
         const heldExchange = yield* context.agents.held.gateway.exchange.pipe(
           bounded("held peer exchange"),
@@ -93,32 +94,34 @@ export function makeFaultProgram({
           Effect.forkScoped,
         );
 
+        const heldReply = yield* receiveFrom(endpoint, heldDestination).pipe(
+          bounded("held reply"),
+          Effect.forkScoped,
+        );
+        const freeReply = yield* receiveFrom(endpoint, freeDestination).pipe(
+          bounded("unfaulted reply"),
+          Effect.forkScoped,
+        );
         yield* subscriptionDelay;
-
-        const heldReply = yield* held.socket
-          .receive()
-          .pipe(bounded("held reply"), Effect.forkScoped);
 
         yield* Effect.scoped(
           Effect.gen(function* () {
             yield* links.hold(context.agents.held.agent, endpoint.participant);
             const heldSend = yield* sendText(
               endpoint,
-              held.destination,
+              heldDestination,
               "held-start",
             ).pipe(bounded("held initial send"), Effect.forkIn(programScope));
-            yield* sendText(endpoint, free.destination, "free-start");
+            yield* sendText(endpoint, freeDestination, "free-start");
 
-            const freeDelivery = yield* free.socket
-              .receive()
-              .pipe(bounded("unfaulted reply"));
+            const freeDelivery = yield* Fiber.join(freeReply);
             yield* assertDirectDelivery(
               freeDelivery,
-              free.destination,
+              freeDestination,
               "free-reply",
             );
             yield* freeDelivery.acknowledge;
-            yield* sendText(endpoint, free.destination, "free-ack");
+            yield* sendText(endpoint, freeDestination, "free-ack");
 
             if (Option.isSome(yield* Fiber.poll(heldReply))) {
               // Joining first preserves an already-completed failure. A
@@ -146,11 +149,11 @@ export function makeFaultProgram({
         );
         yield* assertDirectDelivery(
           heldDelivery,
-          held.destination,
+          heldDestination,
           "held-reply",
         );
         yield* heldDelivery.acknowledge;
-        yield* sendText(endpoint, held.destination, "held-ack");
+        yield* sendText(endpoint, heldDestination, "held-ack");
         yield* Fiber.join(heldExchange).pipe(bounded("held peer completion"));
       }),
     );

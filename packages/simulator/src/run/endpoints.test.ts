@@ -1,4 +1,4 @@
-/** @file Regression coverage for controlled endpoint caching and delivery inboxes. */
+/** @file Controlled endpoint caching and live delivery stream regressions. */
 
 import { assert, it } from "@effect/vitest";
 import {
@@ -6,20 +6,20 @@ import {
   Content,
   GroupAddress,
   type InboundDelivery,
-  MessageAddressInput,
   PostId,
 } from "@moltzap/client";
 import { AgentId, AgentName } from "@moltzap/identity";
 import {
-  Duration,
+  Deferred,
   Effect,
   Encoding,
   Exit,
+  Fiber,
   Queue,
   Schema,
   Stream,
 } from "effect";
-import { makeConversationAddress } from "../network/conversation.js";
+import type { Endpoint } from "../network/endpoint.js";
 import { NetworkError } from "../network/failure.js";
 import { makeParticipantHandle } from "../network/participant.js";
 import {
@@ -30,16 +30,11 @@ import { makeLinkFabric } from "./link-fabric.js";
 
 const ENDPOINT_ID = Schema.decodeSync(AgentId)("agt_AAAAAAAAAAAAAAAAAAAAAA");
 const AUTHOR_ID = Schema.decodeSync(AgentId)("agt_AQAAAAAAAAAAAAAAAAAAAA");
-const ZETA_ID = Schema.decodeSync(AgentId)("agt_AgAAAAAAAAAAAAAAAAAAAA");
 const ENDPOINT_NAME = Schema.decodeSync(AgentName)("observer");
-const ALPHA_NAME = Schema.decodeSync(AgentName)("alpha");
-const ZETA_NAME = Schema.decodeSync(AgentName)("zeta");
 const AUTHOR_ADDRESS = Schema.decodeSync(AgentAddress)("agent:author");
 const ALPHA_ADDRESS = Schema.decodeSync(AgentAddress)("agent:alpha");
 const ENDPOINT_ADDRESS = Schema.decodeSync(AgentAddress)("agent:observer");
 const ZETA_ADDRESS = Schema.decodeSync(AgentAddress)("agent:zeta");
-const NONCANONICAL_GROUP_DESTINATION =
-  Schema.decodeSync(MessageAddressInput)("group:zeta,alpha");
 const CANONICAL_GROUP_ADDRESS = Schema.decodeSync(GroupAddress)(
   "group:alpha,observer,zeta",
 );
@@ -84,7 +79,9 @@ function postId(byte: number) {
   );
 }
 
-function cachingEndpointAcquirer(deliveries: Queue.Queue<InboundDelivery>): {
+function cachingEndpointAcquirer(
+  received: Stream.Stream<InboundDelivery, NetworkError>,
+): {
   readonly acquireEndpoint: AcquireControlledEndpoint;
   readonly acquisitionCount: () => number;
 } {
@@ -95,21 +92,37 @@ function cachingEndpointAcquirer(deliveries: Queue.Queue<InboundDelivery>): {
       assert.strictEqual(routerOrigin.href, PROXY_ORIGIN.href);
       return {
         participant: makeParticipantHandle(name, ENDPOINT_ID),
-        transport: {
-          received: Stream.fromQueue(deliveries),
-          send: () => Effect.void,
-        },
+        transport: { received, send: () => Effect.void },
       };
     });
   return { acquireEndpoint, acquisitionCount: () => acquisitions };
 }
 
-it("caches one daemon endpoint and retains one shared address cursor", () =>
-  Effect.runPromise(
+function assertFanout(
+  first: readonly InboundDelivery[],
+  second: readonly InboundDelivery[],
+): void {
+  assert.deepStrictEqual(
+    first.map(({ message }) => message.content),
+    [[{ type: "text", text: "first" }], [{ type: "text", text: "second" }]],
+  );
+  assert.deepStrictEqual(second, first);
+}
+
+function collectTwoDeliveries(endpoint: Endpoint) {
+  return endpoint
+    .messages()
+    .pipe(Stream.take(2), Stream.runCollect, Effect.forkScoped);
+}
+
+function fanoutTest() {
+  return Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         const deliveries = yield* Queue.unbounded<InboundDelivery>();
-        const endpointAcquirer = cachingEndpointAcquirer(deliveries);
+        const endpointAcquirer = cachingEndpointAcquirer(
+          Stream.fromQueue(deliveries),
+        );
         const fabric = yield* makeLinkFabric();
         const network = yield* makeNetworkService({
           acquireEndpoint: endpointAcquirer.acquireEndpoint,
@@ -118,12 +131,10 @@ it("caches one daemon endpoint and retains one shared address cursor", () =>
         });
         const endpoint = yield* network.endpoint(ENDPOINT_NAME);
         const repeated = yield* network.endpoint(ENDPOINT_NAME);
-        const address = makeConversationAddress(AUTHOR_ADDRESS, [
-          endpoint.participant,
-        ]);
-        const socket = yield* endpoint.socket(address);
         let acknowledged = false;
-
+        const firstSubscriber = yield* collectTwoDeliveries(endpoint);
+        const secondSubscriber = yield* collectTwoDeliveries(endpoint);
+        yield* Effect.yieldNow();
         yield* Queue.offer(
           deliveries,
           delivery({
@@ -135,31 +146,48 @@ it("caches one daemon endpoint and retains one shared address cursor", () =>
           }),
         );
         yield* Queue.offer(deliveries, delivery({ byte: 2, text: "second" }));
-        const first = yield* socket.receive();
-        const second = yield* socket.receive();
-        yield* first.acknowledge;
+
+        const firstDeliveries = Array.from(yield* Fiber.join(firstSubscriber));
+        const secondDeliveries = Array.from(
+          yield* Fiber.join(secondSubscriber),
+        );
+        const firstDelivery = firstDeliveries[0];
+        assert.exists(firstDelivery);
+        yield* firstDelivery.acknowledge;
 
         assert.strictEqual(endpoint, repeated);
         assert.strictEqual(endpointAcquirer.acquisitionCount(), 1);
-        assert.deepStrictEqual(first.message.content, [
-          { type: "text", text: "first" },
-        ]);
-        assert.deepStrictEqual(second.message.content, [
-          { type: "text", text: "second" },
-        ]);
+        assertFanout(firstDeliveries, secondDeliveries);
         assert.isTrue(acknowledged);
         yield* fabric.driver.disable(AUTHOR_ID, ENDPOINT_ID);
         yield* fabric.driver.enable(AUTHOR_ID, ENDPOINT_ID);
       }),
     ),
-  ));
+  );
+}
 
-it("routes an input-order group socket to the canonical delivered group", () =>
+it(
+  "caches one endpoint and fans out ordered deliveries to live subscribers",
+  fanoutTest,
+);
+
+it("does not replay earlier traffic and preserves the delivered group facts", () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         const deliveries = yield* Queue.unbounded<InboundDelivery>();
-        const endpointAcquirer = cachingEndpointAcquirer(deliveries);
+        const earlierDeliveryPublished = yield* Deferred.make<undefined>();
+        const received = Stream.make(
+          delivery({ byte: 1, text: "before subscription" }),
+        ).pipe(
+          Stream.concat(
+            Stream.fromEffect(
+              Deferred.succeed(earlierDeliveryPublished, undefined),
+            ).pipe(Stream.drain),
+          ),
+          Stream.concat(Stream.fromQueue(deliveries)),
+        );
+        const endpointAcquirer = cachingEndpointAcquirer(received);
         const fabric = yield* makeLinkFabric();
         const network = yield* makeNetworkService({
           acquireEndpoint: endpointAcquirer.acquireEndpoint,
@@ -167,35 +195,68 @@ it("routes an input-order group socket to the canonical delivered group", () =>
           interceptor: fabric.interceptor,
         });
         const endpoint = yield* network.endpoint(ENDPOINT_NAME);
-        const alpha = makeParticipantHandle(ALPHA_NAME, AUTHOR_ID);
-        const zeta = makeParticipantHandle(ZETA_NAME, ZETA_ID);
-        const address = makeConversationAddress(
-          NONCANONICAL_GROUP_DESTINATION,
-          [endpoint.participant, alpha, zeta],
-        );
-        const socket = yield* endpoint.socket(address);
+        yield* Deferred.await(earlierDeliveryPublished);
 
+        const subscriber = yield* endpoint
+          .messages()
+          .pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped);
+        yield* Effect.yieldNow();
         yield* Queue.offer(deliveries, groupDelivery());
-        const received = yield* socket.receive().pipe(
-          Effect.timeoutFail({
-            duration: Duration.seconds(1),
-            onTimeout: () =>
-              NetworkError.make({
-                operation: "receive",
-                detail: "canonical group delivery did not reach its socket",
-              }),
-          }),
-        );
+        const observed = Array.from(yield* Fiber.join(subscriber));
 
-        assert.strictEqual(received.message.address, CANONICAL_GROUP_ADDRESS);
-        assert.strictEqual(received.message.kind, "group");
-        if (received.message.kind === "group") {
-          assert.deepStrictEqual(received.message.members, [
+        assert.lengthOf(observed, 1);
+        assert.strictEqual(
+          observed[0]?.message.address,
+          CANONICAL_GROUP_ADDRESS,
+        );
+        assert.strictEqual(observed[0]?.message.kind, "group");
+        if (observed[0]?.message.kind === "group") {
+          assert.deepStrictEqual(observed[0].message.members, [
             ALPHA_ADDRESS,
             ENDPOINT_ADDRESS,
             ZETA_ADDRESS,
           ]);
         }
+      }),
+    ),
+  ));
+
+it("exposes terminal completion and receive failure to later subscribers", () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fabric = yield* makeLinkFabric();
+        const completedNetwork = yield* makeNetworkService({
+          acquireEndpoint: cachingEndpointAcquirer(Stream.empty)
+            .acquireEndpoint,
+          routerOrigin: PROXY_ORIGIN,
+          interceptor: fabric.interceptor,
+        });
+        const completed = yield* completedNetwork.endpoint(ENDPOINT_NAME);
+        const completedDeliveries = yield* Stream.runCollect(
+          completed.messages(),
+        );
+
+        const failure = NetworkError.make({
+          operation: "receive",
+          detail: "ingress stopped",
+        });
+        const failureFabric = yield* makeLinkFabric();
+        const failedNetwork = yield* makeNetworkService({
+          acquireEndpoint: cachingEndpointAcquirer(Stream.fail(failure))
+            .acquireEndpoint,
+          routerOrigin: PROXY_ORIGIN,
+          interceptor: failureFabric.interceptor,
+        });
+        const failed = yield* failedNetwork.endpoint(
+          Schema.decodeSync(AgentName)("failed-observer"),
+        );
+        const observedFailure = yield* Stream.runDrain(failed.messages()).pipe(
+          Effect.flip,
+        );
+
+        assert.isEmpty(Array.from(completedDeliveries));
+        assert.strictEqual(observedFailure, failure);
       }),
     ),
   ));

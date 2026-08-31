@@ -69,7 +69,7 @@ export const controllerExternalDependencies = {
 };
 /** Host installed only in the application overlay for the optional adapter peer. */
 export const controllerOverlayExternalDependencies = {
-  openclaw: "2026.6.34",
+  openclaw: "2026.8.1",
 };
 
 function report(message) {

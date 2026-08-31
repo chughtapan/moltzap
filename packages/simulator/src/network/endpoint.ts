@@ -1,33 +1,20 @@
 /** @file Controlled network endpoints and their run-scoped Effect service. */
 
-import type {
-  InboundDelivery,
-  MessageAddressInput,
-  SendInput,
-} from "@moltzap/client";
-import { Context, Effect, type Stream } from "effect";
+import type { InboundDelivery, SendInput } from "@moltzap/client";
+import { Context, type Effect, type Stream } from "effect";
+import type { NetworkError } from "./failure.js";
 import type { ParticipantHandle } from "./participant.js";
 import type { AttachedEndpoint, EndpointTransport } from "./router.js";
-import {
-  type ConversationAddress,
-  type ConversationSocket,
-  makeConversationSocket,
-} from "./conversation.js";
-import { type NetworkError, networkError } from "./failure.js";
 
 const endpointTypeId: unique symbol = Symbol("@moltzap/simulator/Endpoint");
 const endpointConstruction: unique symbol = Symbol(
   "@moltzap/simulator/EndpointConstruction",
 );
 
-/** Run-scoped receive cursors maintained by the simulator kernel. */
+/** Run-scoped delivery stream maintained by the simulator kernel. */
 export interface EndpointInbox {
   /** Live fan-out stream for observers of every endpoint delivery. */
   readonly messages: Stream.Stream<InboundDelivery, NetworkError>;
-  /** Obtain the shared ordered cursor for one explicit destination. */
-  readonly conversation: (
-    destination: MessageAddressInput,
-  ) => Effect.Effect<Stream.Stream<InboundDelivery, NetworkError>>;
 }
 
 /** A run-scoped participant controlled directly by the experiment program. */
@@ -71,39 +58,12 @@ export class Endpoint<Name extends string = string> {
   messages(): Stream.Stream<InboundDelivery, NetworkError> {
     return this.inbox.messages;
   }
-
-  /**
-   * Bind this endpoint as the receiver for an existing address.
-   * @param address Conversation whose participant set includes this endpoint.
-   * @returns The endpoint-bound socket or a typed address mismatch.
-   */
-  socket(
-    address: ConversationAddress,
-  ): Effect.Effect<ConversationSocket, NetworkError> {
-    const isParticipant = address.participants.some(
-      (participant) => participant.id === this.participant.id,
-    );
-    return isParticipant
-      ? this.inbox
-          .conversation(address.destination)
-          .pipe(
-            Effect.map((messages) =>
-              makeConversationSocket(this.participant, address, messages),
-            ),
-          )
-      : Effect.fail(
-          networkError(
-            "socket",
-            `participant ${this.participant.name} is not addressed by the conversation`,
-          ),
-        );
-  }
 }
 
 /**
  * Construct a controlled endpoint from one ready attachment and its inbox.
  * @param attachment Ready participant and semantic daemon transport.
- * @param inbox Run-owned endpoint and conversation delivery streams.
+ * @param inbox Run-owned endpoint delivery stream.
  * @returns The immutable controlled endpoint capability.
  */
 export function makeEndpoint<const Name extends string>(
