@@ -87,6 +87,40 @@
         "command": "node scripts/simulator/build-controller-image.mjs"
       }
     },
+    "simulator-nanoclaw-image": {
+      "cache": false,
+      "dependsOn": [
+        "simulator-nanoclaw-image-check"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "node scripts/simulator/build-nanoclaw-image.mjs"
+      }
+    },
+    "simulator-nanoclaw-image-check": {
+      "cache": true,
+      "inputs": [
+        "{workspaceRoot}/scripts/simulator/build-nanoclaw-image.mjs",
+        "{workspaceRoot}/scripts/simulator/nanoclaw-image/**/*",
+        "{workspaceRoot}/packages/nanoclaw-channel/src/channels/moltzap.ts"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "parallel": false,
+        "commands": [
+          "node --test scripts/simulator/nanoclaw-image/*.test.mjs",
+          "node --check scripts/simulator/build-nanoclaw-image.mjs",
+          "node --check scripts/simulator/nanoclaw-image/bootstrap.mjs",
+          "node --check scripts/simulator/nanoclaw-image/entrypoint.mjs",
+          "node --check scripts/simulator/nanoclaw-image/preload.mjs",
+          "node --check scripts/simulator/nanoclaw-image/prepare.mjs",
+          "node --check scripts/simulator/nanoclaw-image/process-driver.mjs",
+          "node --check scripts/simulator/nanoclaw-image/provision.mjs"
+        ]
+      }
+    },
     "simulator-local-fault-qualification": {
       "cache": false,
       "dependsOn": [
