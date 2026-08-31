@@ -24,6 +24,7 @@ import {
   RUN_OWNER_NAME,
   RUN_WORKER_NAME,
   RUN_WORKER_PRESTOP_SECONDS,
+  RUN_WORKER_READY_PATH,
   RUN_WORKER_TERMINATION_GRACE_SECONDS,
   runNamespaceManifest,
   runOwnerManifest,
@@ -469,11 +470,12 @@ it("routes daemon traffic through the controller's private fault proxy", () => {
   );
   expect(controller?.ports).toEqual([
     {
-      name: "router-fault-proxy",
+      name: "router-proxy",
       containerPort: ROUTER_FAULT_PROXY_PORT,
       protocol: "TCP",
     },
   ]);
+  expect(controller?.ports?.[0]?.name?.length).toBeLessThanOrEqual(15);
 });
 
 it("mounts the experiment and durable local ledger for the controller", () => {
@@ -615,6 +617,7 @@ it("serves the run queue from a Deployment carrying the host's choices", () => {
   expect(deployment.spec?.template.spec).toMatchObject({
     serviceAccountName: RUN_WORKER_NAME,
   });
+  expect(deployment.spec?.strategy).toEqual({ type: "Recreate" });
   expect(worker).toMatchObject({
     image: INPUT.controllerImage,
     command: ["node", "/opt/moltzap/dist/cluster/temporal.js"],
@@ -627,6 +630,12 @@ it("serves the run queue from a Deployment carrying the host's choices", () => {
         value: JSON.stringify(GKE_PROFILE),
       },
     ],
+    readinessProbe: {
+      exec: { command: ["/usr/bin/test", "-f", RUN_WORKER_READY_PATH] },
+      failureThreshold: 1,
+      periodSeconds: 1,
+      timeoutSeconds: 1,
+    },
   });
 });
 

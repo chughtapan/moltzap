@@ -123,21 +123,30 @@ class SemanticJudgeCalibrationFailed extends Schema.TaggedError<SemanticJudgeCal
 ) {}
 
 interface RuntimeOptions {
-  readonly openclawModel: string;
-  readonly nanoclawModel: string;
+  readonly runtime: "all" | "openclaw" | "nanoclaw";
+  readonly openclawModel?: string;
+  readonly nanoclawModel?: string;
   readonly messagingMode: "shared" | "private";
+  readonly profile: SimulatorProfile;
+}
+
+interface RuntimeCliOptions {
+  readonly runtime: RuntimeOptions["runtime"];
+  readonly openclawModel: Option.Option<string>;
+  readonly nanoclawModel: Option.Option<string>;
+  readonly messagingMode: RuntimeOptions["messagingMode"];
   readonly profile: SimulatorProfile;
 }
 
 interface CommonExecutionEnvironment {
   readonly workspaceRoot: string;
-  readonly nanoclawApplicationImage: Image;
+  readonly nanoclawApplicationImage?: Image;
   readonly controllerImage: Image;
   readonly temporalAddress: string;
   readonly messagingMode: "shared" | "private";
   readonly models: Readonly<{
-    readonly openclaw: string;
-    readonly nanoclaw: string;
+    readonly openclaw?: string;
+    readonly nanoclaw?: string;
   }>;
 }
 
@@ -161,7 +170,7 @@ type EvaluationExecutionEnvironment =
 
 interface EvaluationExecutionImages {
   readonly controllerImage: Image;
-  readonly nanoclawApplicationImage: Image;
+  readonly nanoclawApplicationImage?: Image;
 }
 
 /** One cell's identity while its attempt is being produced. */
@@ -175,6 +184,38 @@ export interface AttemptContext {
 export type EvaluationImageKey =
   | "MOLTZAP_CONTROLLER_IMAGE"
   | "MOLTZAP_NANOCLAW_IMAGE";
+
+/**
+ * Return the operator-facing reason one runtime selection is incomplete.
+ * @param options Runtime, model, and messaging-mode selection.
+ * @param options.runtime Runtime conditions included in the sweep.
+ * @param options.openclawModel Exact OpenClaw model when selected.
+ * @param options.nanoclawModel Exact NanoClaw model when selected.
+ * @param options.messagingMode Native host session layout.
+ * @returns A diagnostic, or `undefined` when the selection is executable.
+ */
+export function runtimeSelectionDiagnostic(options: {
+  readonly runtime: "all" | "openclaw" | "nanoclaw";
+  readonly openclawModel?: string;
+  readonly nanoclawModel?: string;
+  readonly messagingMode: "shared" | "private";
+}): string | undefined {
+  const selected = new Set(
+    options.runtime === "all"
+      ? (["openclaw", "nanoclaw"] as const)
+      : [options.runtime],
+  );
+  if (selected.has("openclaw") && options.openclawModel === undefined) {
+    return "--openclaw-model is required when --runtime selects OpenClaw";
+  }
+  if (selected.has("nanoclaw") && options.nanoclawModel === undefined) {
+    return "--nanoclaw-model is required when --runtime selects NanoClaw";
+  }
+  if (selected.has("nanoclaw") && options.messagingMode === "private") {
+    return "--messaging-mode private is supported only with --runtime openclaw";
+  }
+  return undefined;
+}
 
 /**
  * Record an infrastructure failure, with whatever account the run left.
@@ -297,33 +338,96 @@ const exactSourceRevision = Effect.fn("evals.exactSourceRevision")(
   },
 );
 
+function resolveRuntimeOptions(options: RuntimeCliOptions): RuntimeOptions {
+  const resolved = {
+    runtime: options.runtime,
+    openclawModel: Option.getOrUndefined(options.openclawModel),
+    nanoclawModel: Option.getOrUndefined(options.nanoclawModel),
+    messagingMode: options.messagingMode,
+    profile: options.profile,
+  } as const;
+  const diagnostic = runtimeSelectionDiagnostic(resolved);
+  if (diagnostic !== undefined) {
+    throw EvaluationSourceStateError.make({ detail: diagnostic });
+  }
+  return resolved;
+}
+
 function evaluationConditions(
   options: RuntimeOptions,
-  nanoclawApplicationImage: Image,
-): readonly [EvaluationCondition, EvaluationCondition] {
+  environment: Pick<CommonExecutionEnvironment, "nanoclawApplicationImage">,
+): NonEmptyReadonlyArray<EvaluationCondition> {
+  switch (options.runtime) {
+    case "openclaw":
+      return [openClawCondition(options)];
+    case "nanoclaw": {
+      const nanoclawApplicationImage = environment.nanoclawApplicationImage;
+      if (nanoclawApplicationImage === undefined) {
+        throw EvaluationSourceStateError.make({
+          detail: missingImageDetail("MOLTZAP_NANOCLAW_IMAGE"),
+        });
+      }
+      return [nanoClawCondition(options, nanoclawApplicationImage)];
+    }
+    case "all": {
+      const nanoclawApplicationImage = environment.nanoclawApplicationImage;
+      if (nanoclawApplicationImage === undefined) {
+        throw EvaluationSourceStateError.make({
+          detail: missingImageDetail("MOLTZAP_NANOCLAW_IMAGE"),
+        });
+      }
+      return [
+        openClawCondition(options),
+        nanoClawCondition(options, nanoclawApplicationImage),
+      ];
+    }
+    default:
+      throw EvaluationSourceStateError.make({
+        detail: "evaluation runtime selection is unsupported",
+      });
+  }
+}
+
+function openClawCondition(options: RuntimeOptions): EvaluationCondition {
+  if (options.openclawModel === undefined) {
+    throw EvaluationSourceStateError.make({
+      detail: "selected OpenClaw condition has no model",
+    });
+  }
   const execution = {
     peerObservationTimeout: PEER_OBSERVATION_TIMEOUT,
     caseTimeout: CASE_TIMEOUT,
   } as const;
-  return [
-    openClawEvaluationCondition({
-      runtime: {
-        startupTimeout: RUNTIME_STARTUP_TIMEOUT,
-        modelId: options.openclawModel,
-        messagingMode: options.messagingMode,
-      },
-      execution,
-    }),
-    nanoclawEvaluationCondition({
-      runtime: {
-        applicationImage: nanoclawApplicationImage,
-        autoRegisterConversations: true,
-        startupTimeout: RUNTIME_STARTUP_TIMEOUT,
-        modelId: options.nanoclawModel,
-      },
-      execution,
-    }),
-  ];
+  return openClawEvaluationCondition({
+    runtime: {
+      startupTimeout: RUNTIME_STARTUP_TIMEOUT,
+      modelId: options.openclawModel,
+      messagingMode: options.messagingMode,
+    },
+    execution,
+  });
+}
+
+function nanoClawCondition(
+  options: RuntimeOptions,
+  applicationImage: Image,
+): EvaluationCondition {
+  if (options.nanoclawModel === undefined) {
+    throw EvaluationSourceStateError.make({
+      detail: "selected NanoClaw condition has no model",
+    });
+  }
+  return nanoclawEvaluationCondition({
+    runtime: {
+      applicationImage,
+      startupTimeout: RUNTIME_STARTUP_TIMEOUT,
+      modelId: options.nanoclawModel,
+    },
+    execution: {
+      peerObservationTimeout: PEER_OBSERVATION_TIMEOUT,
+      caseTimeout: CASE_TIMEOUT,
+    },
+  });
 }
 
 function reportPlan(
@@ -390,8 +494,12 @@ function planInfrastructure(
 ): EvaluationInfrastructure {
   const shared = {
     controllerImage: environment.controllerImage,
-    nanoclawApplicationImage: environment.nanoclawApplicationImage,
     temporalAddress: environment.temporalAddress,
+    ...(environment.nanoclawApplicationImage === undefined
+      ? {}
+      : {
+          nanoclawApplicationImage: environment.nanoclawApplicationImage,
+        }),
   };
   return environment.profile === "local"
     ? LocalEvaluationInfrastructure.make({
@@ -643,7 +751,11 @@ function submissionInput(
       modelId: conditionModelId(environment.models, condition.id),
     },
     messagingMode: environment.messagingMode,
-    nanoclawApplicationImage: environment.nanoclawApplicationImage,
+    ...(environment.nanoclawApplicationImage === undefined
+      ? {}
+      : {
+          nanoclawApplicationImage: environment.nanoclawApplicationImage,
+        }),
     runtimeStartupTimeoutMillis: Duration.toMillis(RUNTIME_STARTUP_TIMEOUT),
     peerObservationTimeoutMillis: Duration.toMillis(PEER_OBSERVATION_TIMEOUT),
     caseTimeoutMillis: Duration.toMillis(CASE_TIMEOUT),
@@ -654,13 +766,21 @@ function conditionModelId(
   models: CommonExecutionEnvironment["models"],
   condition: EvaluationConditionId,
 ): string {
-  const byCondition: Readonly<Record<EvaluationConditionName, string>> = {
+  const byCondition: Readonly<
+    Record<EvaluationConditionName, string | undefined>
+  > = {
     "openclaw/v2": models.openclaw,
     "nanoclaw/v2": models.nanoclaw,
   };
   // Indexing needs the plain spelling; the brand is not part of the key set.
   const name: EvaluationConditionName = condition;
-  return byCondition[name];
+  const model = byCondition[name];
+  if (model === undefined) {
+    throw EvaluationSourceStateError.make({
+      detail: `no model was resolved for selected condition ${name}`,
+    });
+  }
+  return model;
 }
 
 function executeCell(
@@ -727,10 +847,17 @@ const optionalReportIdOption = reportIdOption.pipe(Options.optional);
 const openclawModelOption = Options.text("openclaw-model").pipe(
   Options.withSchema(Schema.NonEmptyString),
   Options.withDescription("Exact OpenClaw model ID."),
+  Options.optional,
 );
 const nanoclawModelOption = Options.text("nanoclaw-model").pipe(
   Options.withSchema(Schema.NonEmptyString),
   Options.withDescription("Exact NanoClaw model ID."),
+  Options.optional,
+);
+const runtimeOption = Options.text("runtime").pipe(
+  Options.withSchema(Schema.Literal("all", "openclaw", "nanoclaw")),
+  Options.withDefault("all"),
+  Options.withDescription("Agent runtime conditions included in the sweep."),
 );
 const messagingModeOption = Options.text("messaging-mode").pipe(
   Options.withSchema(Schema.Literal("shared", "private")),
@@ -743,16 +870,23 @@ const profileOption = Options.text("profile").pipe(
   Options.withDescription("Repository-owned Kubernetes execution profile."),
 );
 const runtimeOptions = {
+  runtime: runtimeOption,
   openclawModel: openclawModelOption,
   nanoclawModel: nanoclawModelOption,
   messagingMode: messagingModeOption,
   profile: profileOption,
 } as const;
 
-function executionImages() {
-  return Effect.all({
-    controllerImage: requiredImage("MOLTZAP_CONTROLLER_IMAGE"),
-    nanoclawApplicationImage: requiredImage("MOLTZAP_NANOCLAW_IMAGE"),
+function executionImages(options: RuntimeOptions) {
+  return Effect.gen(function* () {
+    const controllerImage = yield* requiredImage("MOLTZAP_CONTROLLER_IMAGE");
+    if (options.runtime === "openclaw") {
+      return { controllerImage };
+    }
+    return {
+      controllerImage,
+      nanoclawApplicationImage: yield* requiredImage("MOLTZAP_NANOCLAW_IMAGE"),
+    };
   });
 }
 
@@ -832,8 +966,12 @@ function commonEnvironment(
     ...images,
     messagingMode: options.messagingMode,
     models: {
-      openclaw: options.openclawModel,
-      nanoclaw: options.nanoclawModel,
+      ...(options.openclawModel === undefined
+        ? {}
+        : { openclaw: options.openclawModel }),
+      ...(options.nanoclawModel === undefined
+        ? {}
+        : { nanoclaw: options.nanoclawModel }),
     },
   } as const;
 }
@@ -849,7 +987,7 @@ function executionEnvironment(
   return Effect.gen(function* () {
     const path = yield* Path.Path;
     const common = {
-      ...commonEnvironment(root, options, yield* executionImages()),
+      ...commonEnvironment(root, options, yield* executionImages(options)),
       temporalAddress: yield* requiredEnvironment("MOLTZAP_TEMPORAL_ADDRESS"),
     };
     if (options.profile === "local") {
@@ -871,16 +1009,22 @@ function executionEnvironment(
 function runOrResume(
   mode: "run" | "resume",
   reportId: Option.Option<EvaluationReportId>,
-  options: RuntimeOptions,
+  cliOptions: RuntimeCliOptions,
 ) {
   return Effect.gen(function* () {
+    const options = yield* Effect.try({
+      try: () => resolveRuntimeOptions(cliOptions),
+      catch: (cause) =>
+        cause instanceof EvaluationSourceStateError
+          ? cause
+          : EvaluationSourceStateError.make({
+              detail: describeUnknown(cause),
+            }),
+    });
     const root = yield* workspaceRoot();
     const sourceRevision = yield* exactSourceRevision();
     const environment = yield* executionEnvironment(root, options);
-    const conditions = evaluationConditions(
-      options,
-      environment.nanoclawApplicationImage,
-    );
+    const conditions = evaluationConditions(options, environment);
     const plan = reportPlan(sourceRevision, conditions, environment);
     const resolvedId = Option.isSome(reportId)
       ? reportId.value
@@ -908,7 +1052,7 @@ const runCommand = CliCommand.make(
   ({ reportId, ...options }) => runOrResume("run", reportId, options),
 ).pipe(
   CliCommand.withDescription(
-    "Run the complete OpenClaw and NanoClaw evaluation matrix.",
+    "Run the complete evaluation matrix for the selected runtime conditions.",
   ),
 );
 

@@ -591,6 +591,8 @@ export const RUN_WORKER_NAME = "run-worker";
 export const IN_CLUSTER_TEMPORAL_ADDRESS = `temporal.${SYSTEM_NAMESPACE}.svc.cluster.local:7233`;
 
 const RUN_WORKER_ENTRYPOINT = "/opt/moltzap/dist/cluster/temporal.js";
+/** File created only while the in-cluster Temporal worker is polling. */
+export const RUN_WORKER_READY_PATH = "/home/node/.moltzap-run-worker-ready";
 /**
  * Delay held before the worker Pod is signalled, in seconds.
  *
@@ -706,7 +708,7 @@ function controllerContainer(
     command: ["node", CONTROLLER_ENTRYPOINT],
     ports: [
       {
-        name: "router-fault-proxy",
+        name: "router-proxy",
         containerPort: ROUTER_FAULT_PROXY_PORT,
         protocol: "TCP",
       },
@@ -1157,6 +1159,7 @@ function runWorkerDeployment(options: RunWorkerOptions): V1Deployment {
     },
     spec: {
       replicas: 1,
+      strategy: { type: "Recreate" },
       selector: { matchLabels: runWorkerLabels() },
       template: {
         metadata: { labels: runWorkerLabels() },
@@ -1186,6 +1189,12 @@ function runWorkerContainer(options: RunWorkerOptions): V1Container {
         value: encodeKubernetesExecutionProfile(options.profile),
       },
     ],
+    readinessProbe: {
+      exec: { command: ["/usr/bin/test", "-f", RUN_WORKER_READY_PATH] },
+      failureThreshold: 1,
+      periodSeconds: 1,
+      timeoutSeconds: 1,
+    },
     terminationMessagePolicy: "FallbackToLogsOnError",
     resources: { requests: { cpu: "100m", memory: "256Mi" } },
     // A shell sleep rather than the Kubernetes `sleep` handler, which needs a

@@ -12,6 +12,8 @@ import {
   Option,
   Runtime,
 } from "effect";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The Temporal SDK owns this executable's Promise-native lifetime, including its Kubernetes readiness marker.
+import { rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type {
   CleanupRunInput,
@@ -31,7 +33,10 @@ import {
   makeKubernetesRunWorkerInstallApi,
   type RunWorkerInstallApi,
 } from "./kubernetes/calls.js";
-import { IN_CLUSTER_TEMPORAL_ADDRESS } from "./kubernetes/objects.js";
+import {
+  IN_CLUSTER_TEMPORAL_ADDRESS,
+  RUN_WORKER_READY_PATH,
+} from "./kubernetes/objects.js";
 import {
   decodeKubernetesExecutionProfile,
   type KubernetesExecutionProfile,
@@ -130,18 +135,33 @@ export async function serveRunSocietyWorker(
   environment: RunWorkerEnvironment,
   // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 ): Promise<void> {
+  await rm(RUN_WORKER_READY_PATH, { force: true });
   const connection = await NativeConnection.connect({
     address: required(environment, "MOLTZAP_TEMPORAL_ADDRESS"),
   });
+  let worker: Worker | undefined;
+  let running: Promise<void> | undefined;
   try {
-    const worker = await createRunSocietyWorker({
+    worker = await createRunSocietyWorker({
       connection,
       namespace: required(environment, "MOLTZAP_TEMPORAL_NAMESPACE"),
       taskQueue: required(environment, "MOLTZAP_TEMPORAL_TASK_QUEUE"),
       activities: workerActivities(environment),
     });
-    await worker.run();
+    running = worker.run();
+    if (worker.getState() !== "RUNNING") {
+      throw new RunWorkerConfigurationFailed(
+        "the Temporal worker did not enter its polling state",
+      );
+    }
+    await writeFile(RUN_WORKER_READY_PATH, "", { mode: 0o600 });
+    await running;
   } finally {
+    if (worker?.getState() === "RUNNING") {
+      worker.shutdown();
+    }
+    await running?.catch(() => undefined);
+    await rm(RUN_WORKER_READY_PATH, { force: true });
     await connection.close();
   }
 }

@@ -393,7 +393,7 @@ export class NanoClawGatewayOutput extends Schema.Class<NanoClawGatewayOutput>(
 
 One native output frame emitted by NanoClaw's owner-local CLI channel.
 
-### [`nanoclawRuntime`](./nanoclaw/runtime.ts#L100)
+### [`nanoclawRuntime`](./nanoclaw/runtime.ts#L93)
 
 _Function_
 
@@ -412,7 +412,7 @@ roster identity and its runtime-owned native gateway bridge.
 
 **Returns:** The nanoclaw runtime result.
 
-### [`NanoClawRuntimeOptions`](./nanoclaw/runtime.ts#L74)
+### [`NanoClawRuntimeOptions`](./nanoclaw/runtime.ts#L73)
 
 _Interface_
 
@@ -426,12 +426,6 @@ export interface NanoClawRuntimeOptions {
    * Digest-pinned one-container NanoClaw artifact for Kubernetes execution.
    */
   readonly applicationImage: Image;
-
-  /**
-   * Register conversations on first delivery in disposable evaluations.
-   * Ordinary societies leave registration to their endpoint code.
-   */
-  readonly autoRegisterConversations?: boolean;
 
   /** MCP servers reachable from the NanoClaw container. */
   readonly mcpServers?: readonly McpServer[];
