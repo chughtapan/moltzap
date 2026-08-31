@@ -226,8 +226,32 @@ it("starts a registered daemon sidecar before the isolated application", () => {
           automountServiceAccountToken: false,
           enableServiceLinks: false,
           restartPolicy: "Never",
+          securityContext: {
+            runAsUser: 1000,
+            runAsGroup: 1000,
+            fsGroup: 1000,
+          },
           initContainers: [
             { name: "bootstrap", image: SUPPORT_IMAGE },
+            {
+              name: "endpoint-state-permissions",
+              image: SUPPORT_IMAGE,
+              command: ["chown"],
+              args: ["1000:1000", "/var/lib/moltzap/endpoint"],
+              securityContext: {
+                allowPrivilegeEscalation: false,
+                capabilities: { add: ["CHOWN"], drop: ["ALL"] },
+                readOnlyRootFilesystem: true,
+                runAsNonRoot: false,
+                runAsUser: 0,
+              },
+              volumeMounts: [
+                {
+                  name: "endpoint-state",
+                  mountPath: "/var/lib/moltzap/endpoint",
+                },
+              ],
+            },
             {
               name: "moltzapd",
               image: SUPPORT_IMAGE,
