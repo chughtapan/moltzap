@@ -1,8 +1,7 @@
 import { packageEslintConfig } from "../../eslint.shared.mjs";
 
-// `openclaw-entry.ts` is the single boot/factory file (~1100 lines) for
-// the channel plugin; splitting along Spec D3's invariants would
-// duplicate the wire-format constants. Cap raised to 1200 lines.
+// `plugin.ts` keeps the OpenClaw registration and channel callbacks together
+// so a reader can see the complete host contract in one place.
 export default packageEslintConfig({
   maxLines: 1200,
   tsconfigRootDir: import.meta.dirname,

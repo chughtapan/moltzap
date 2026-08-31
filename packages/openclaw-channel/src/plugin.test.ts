@@ -1,44 +1,70 @@
-/** @file Stock OpenClaw callback integration tests. */
+/** @file MoltZap channel behavior against OpenClaw's public inbound runner. */
 
 import type {
   ChannelAccountSnapshot,
   ChannelGatewayContext,
+  ChannelRuntimeSurface,
+} from "openclaw/plugin-sdk/channel-contract";
+import type {
   OpenClawConfig,
   PluginRuntime,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/channel-core";
 import { live as it } from "@effect/vitest";
 import {
   type HarnessEndpoint,
   type InboundDelivery,
   InboundMessage,
+  ListenError,
   type SendInput,
 } from "@moltzap/client";
 import { Data, Effect, Encoding, Fiber, Schema, Stream } from "effect";
+import { join } from "node:path";
 import {
   buildChannelInboundEventContext,
+  type ChannelInboundEventRunnerParams,
+  type ChannelInboundTurnPlan,
   runChannelInboundEvent,
 } from "openclaw/plugin-sdk/channel-inbound";
 import { describe, expect, vi, it as vitestIt } from "vitest";
 
 import manifest from "../openclaw.plugin.json" with { type: "json" };
+import { openClawTestStateDirectory } from "../vitest.setup.js";
 import {
   createMoltzapChannelPlugin,
   makeMoltZapChannelConfigJsonSchema,
-} from "./openclaw-entry.js";
+} from "./plugin.js";
 
 const ACCOUNT_ID = "primary";
 const MAIN_SESSION_KEY = "agent:primary:main";
-const TEST_SESSION_STORE_PATH = ".moltzap-openclaw-test-sessions.json";
+const TEST_SESSION_STORE_PATH = join(
+  openClawTestStateDirectory,
+  "sessions.json",
+);
 
-type NativeRuntime = Parameters<typeof createMoltzapChannelPlugin>[0];
 type MoltZapPlugin = ReturnType<typeof createMoltzapChannelPlugin>;
-type NativeDispatch =
-  PluginRuntime["channel"]["reply"]["dispatchReplyWithBufferedBlockDispatcher"];
-type NativeDispatchInput = Parameters<NativeDispatch>[0];
+type OpenClawInboundRunInput = ChannelInboundEventRunnerParams<{
+  readonly message: InboundDelivery["message"];
+}>;
+type ResolvedInboundTurn = Awaited<
+  ReturnType<OpenClawInboundRunInput["adapter"]["resolveTurn"]>
+>;
+
+interface ObservedAccountRuntime extends ChannelRuntimeSurface {
+  readonly inbound: {
+    readonly buildContext: PluginRuntime["channel"]["inbound"]["buildContext"];
+    readonly run: (
+      input: OpenClawInboundRunInput,
+    ) => ReturnType<typeof runChannelInboundEvent>;
+  };
+  readonly routing: Pick<
+    PluginRuntime["channel"]["routing"],
+    "resolveAgentRoute"
+  >;
+}
 
 interface DispatchObservation {
-  readonly ctx: NativeDispatchInput["ctx"];
-  readonly replyOptions: NativeDispatchInput["replyOptions"];
+  readonly ctx: ChannelInboundTurnPlan["ctxPayload"];
+  readonly replyOptions: ChannelInboundTurnPlan["replyOptions"];
 }
 
 interface FakeHarnessEndpoint {
@@ -54,21 +80,27 @@ interface RuntimeFixtureParams {
     readonly id: string;
   } | null>;
   readonly failDispatch?: boolean;
+  readonly plans?: ChannelInboundTurnPlan[];
+  readonly replyText?: string;
 }
 
 class OpenClawTestError extends Data.TaggedError("OpenClawTestError")<{
   readonly operation: string;
   readonly detail: string;
-}> {}
+}> {
+  override get message(): string {
+    return `${this.operation} failed: ${this.detail}`;
+  }
+}
 
 describe("OpenClaw HarnessEndpoint adapter", () => {
   it(
-    "uses stock host routing and acknowledges after callback completion",
-    stockHostRoutingAndAcknowledgment,
+    "runs the public host pipeline and acknowledges after it completes",
+    upstreamRunnerAndAcknowledgment,
   );
   it(
-    "leaves a Client delivery pending when the stock callback fails",
-    failedHostCallbackPreservesDelivery,
+    "leaves a Client delivery pending when the host turn fails",
+    failedHostTurnPreservesDelivery,
   );
   it(
     "forwards a replay to the host without adapter-owned deduplication",
@@ -76,7 +108,19 @@ describe("OpenClaw HarnessEndpoint adapter", () => {
   );
   it(
     "returns distinct receipt IDs without changing the Client send contract",
-    nativeSendUsesLocalReceiptIdentity,
+    proactiveSendUsesLocalReceiptIdentity,
+  );
+  it(
+    "acknowledges a host-suppressed empty reply without sending",
+    emptyReplyRemainsInvisible,
+  );
+  it(
+    "fails startup before endpoint acquisition when the account runtime is absent",
+    missingAccountRuntimeFailsStartup,
+  );
+  it(
+    "disconnects the account when the endpoint stream fails",
+    inboundStreamFailureDisconnects,
   );
   it(
     "rejects a target outside the explicit address grammar",
@@ -88,29 +132,35 @@ describe("OpenClaw HarnessEndpoint adapter", () => {
   );
 });
 
-function stockHostRoutingAndAcknowledgment() {
+function upstreamRunnerAndAcknowledgment() {
   const events: string[] = [];
   const direct = directMessage();
   const group = groupMessage();
   const fake = makeInboundEndpoint([direct, group], events);
   const calls: DispatchObservation[] = [];
+  const plans: ChannelInboundTurnPlan[] = [];
   const routePeers: RuntimeFixtureParams["routePeers"] = [];
-  const plugin = createMoltzapChannelPlugin(
-    makeRuntime({ events, calls, routePeers }),
-    { harnessEndpointForAccount: () => fake.endpoint },
-  );
+  const runtime = makeObservedRuntime({ events, calls, plans, routePeers });
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
 
   return Effect.gen(function* () {
-    yield* startAccount(plugin, gatewayContext(new AbortController().signal));
+    yield* startAccount(
+      plugin,
+      gatewayContext(new AbortController().signal, runtime),
+    );
 
     expect(routePeers).toEqual([
       { kind: "direct", id: direct.message.address },
       { kind: "group", id: group.message.address },
     ]);
     expect(calls).toHaveLength(2);
+    expectRoutedTurn(requireTurnPlan(plans, 0), direct.message.address);
+    expectRoutedTurn(requireTurnPlan(plans, 1), group.message.address);
     expectDirectProjection(requireDispatchCall(calls, 0), direct.message);
     expectGroupProjection(requireDispatchCall(calls, 1), group.message);
-    expect(calls.every((call) => call.replyOptions === undefined)).toBe(true);
+    expect(plans.every((plan) => plan.replyOptions === undefined)).toBe(true);
     expect(events).toEqual([
       `record:${direct.message.postId}:${sessionKeyFor(direct.message.address)}`,
       `dispatch:${direct.message.postId}`,
@@ -131,22 +181,30 @@ function stockHostRoutingAndAcknowledgment() {
         content: [{ type: "text", text: "host final" }],
       },
     ]);
-    expect(plugin.agentPrompt).toBeUndefined();
+    yield* proactiveSendFailsWhenDisconnected(plugin, fake, 2);
   });
 }
 
-function failedHostCallbackPreservesDelivery() {
+function failedHostTurnPreservesDelivery() {
   const events: string[] = [];
   const message = directMessage();
   const fake = makeInboundEndpoint([message], events);
-  const plugin = createMoltzapChannelPlugin(
-    makeRuntime({ events, calls: [], routePeers: [], failDispatch: true }),
-    { harnessEndpointForAccount: () => fake.endpoint },
-  );
+  const runtime = makeObservedRuntime({
+    events,
+    calls: [],
+    routePeers: [],
+    failDispatch: true,
+  });
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
 
   return Effect.gen(function* () {
     const failure = yield* Effect.flip(
-      startAccount(plugin, gatewayContext(new AbortController().signal)),
+      startAccount(
+        plugin,
+        gatewayContext(new AbortController().signal, runtime),
+      ),
     );
 
     expect(failure).toBeInstanceOf(OpenClawTestError);
@@ -163,13 +221,16 @@ function replayRemainsHostOwned() {
   const message = directMessage();
   const fake = makeInboundEndpoint([message, message], events);
   const calls: DispatchObservation[] = [];
-  const plugin = createMoltzapChannelPlugin(
-    makeRuntime({ events, calls, routePeers: [] }),
-    { harnessEndpointForAccount: () => fake.endpoint },
-  );
+  const runtime = makeObservedRuntime({ events, calls, routePeers: [] });
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
 
   return Effect.gen(function* () {
-    yield* startAccount(plugin, gatewayContext(new AbortController().signal));
+    yield* startAccount(
+      plugin,
+      gatewayContext(new AbortController().signal, runtime),
+    );
 
     expect(calls).toHaveLength(2);
     expect(events.filter((event) => event.startsWith("ack:"))).toHaveLength(2);
@@ -177,22 +238,26 @@ function replayRemainsHostOwned() {
   });
 }
 
-function nativeSendUsesLocalReceiptIdentity() {
+function proactiveSendUsesLocalReceiptIdentity() {
   const fake = makeListeningEndpoint();
-  const plugin = createMoltzapChannelPlugin(
-    makeRuntime({ events: [], calls: [], routePeers: [] }),
-    { harnessEndpointForAccount: () => fake.endpoint },
-  );
+  const runtime = makeObservedRuntime({
+    events: [],
+    calls: [],
+    routePeers: [],
+  });
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
   const controller = new AbortController();
   const setStatus = vi.fn();
 
   return Effect.gen(function* () {
     const fiber = yield* startAccount(
       plugin,
-      gatewayContext(controller.signal, setStatus),
+      gatewayContext(controller.signal, runtime, setStatus),
     ).pipe(Effect.fork);
     yield* waitForConnected(setStatus);
-    const { direct, group } = yield* executeNativeSends(plugin);
+    const { direct, group } = yield* executeProactiveSends(plugin);
 
     expect(direct.messageId).toEqual(expect.any(String));
     expect(group.messageId).toEqual(expect.any(String));
@@ -217,10 +282,32 @@ function nativeSendUsesLocalReceiptIdentity() {
 
     controller.abort();
     yield* Effect.timeout(Fiber.join(fiber), "1 second");
+    yield* proactiveSendFailsWhenDisconnected(plugin, fake, 2);
   });
 }
 
-function executeNativeSends(plugin: MoltZapPlugin) {
+function proactiveSendFailsWhenDisconnected(
+  plugin: MoltZapPlugin,
+  fake: FakeHarnessEndpoint,
+  expectedSendCount: number,
+) {
+  return Effect.gen(function* () {
+    const failure = yield* Effect.tryPromise({
+      try: () =>
+        requireSendText(plugin)({
+          cfg: makeConfig(),
+          accountId: ACCOUNT_ID,
+          to: "agent:nova",
+          text: "while disconnected",
+        }),
+      catch: (cause) => testError("sendAfterAbort", cause),
+    }).pipe(Effect.flip);
+    expect(failure).toBeInstanceOf(OpenClawTestError);
+    expect(fake.sends).toHaveLength(expectedSendCount);
+  });
+}
+
+function executeProactiveSends(plugin: MoltZapPlugin) {
   const sendText = requireSendText(plugin);
   return Effect.gen(function* () {
     const direct = yield* Effect.tryPromise({
@@ -249,17 +336,21 @@ function executeNativeSends(plugin: MoltZapPlugin) {
 
 function rejectsInvalidTarget() {
   const fake = makeListeningEndpoint();
-  const plugin = createMoltzapChannelPlugin(
-    makeRuntime({ events: [], calls: [], routePeers: [] }),
-    { harnessEndpointForAccount: () => fake.endpoint },
-  );
+  const runtime = makeObservedRuntime({
+    events: [],
+    calls: [],
+    routePeers: [],
+  });
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
   const controller = new AbortController();
   const setStatus = vi.fn();
 
   return Effect.gen(function* () {
     const fiber = yield* startAccount(
       plugin,
-      gatewayContext(controller.signal, setStatus),
+      gatewayContext(controller.signal, runtime, setStatus),
     ).pipe(Effect.fork);
     yield* waitForConnected(setStatus);
     const failure = yield* Effect.tryPromise({
@@ -281,7 +372,81 @@ function rejectsInvalidTarget() {
   });
 }
 
+function emptyReplyRemainsInvisible() {
+  const events: string[] = [];
+  const message = directMessage();
+  const fake = makeInboundEndpoint([message], events);
+  const runtime = makeObservedRuntime({
+    events,
+    calls: [],
+    routePeers: [],
+    replyText: "",
+  });
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
+
+  return Effect.gen(function* () {
+    yield* startAccount(
+      plugin,
+      gatewayContext(new AbortController().signal, runtime),
+    );
+
+    expect(events).toEqual([
+      `record:${message.message.postId}:${sessionKeyFor(message.message.address)}`,
+      `dispatch:${message.message.postId}`,
+      `ack:${message.message.postId}`,
+    ]);
+    expect(fake.sends).toEqual([]);
+  });
+}
+
+function missingAccountRuntimeFailsStartup() {
+  const endpointFactory = vi.fn(() => makeListeningEndpoint().endpoint);
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: endpointFactory,
+  });
+
+  return Effect.gen(function* () {
+    const failure = yield* startAccount(
+      plugin,
+      gatewayContext(new AbortController().signal),
+    ).pipe(Effect.flip);
+
+    expect(failure).toBeInstanceOf(OpenClawTestError);
+    expect(endpointFactory).not.toHaveBeenCalled();
+  });
+}
+
+function inboundStreamFailureDisconnects() {
+  const streamFailure = new ListenError({ reason: "transport-failed" });
+  const fake = makeEndpoint(Stream.fail(streamFailure), []);
+  const runtime = makeObservedRuntime({
+    events: [],
+    calls: [],
+    routePeers: [],
+  });
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
+  const setStatus = vi.fn();
+
+  return Effect.gen(function* () {
+    const failure = yield* startAccount(
+      plugin,
+      gatewayContext(new AbortController().signal, runtime, setStatus),
+    ).pipe(Effect.flip);
+
+    expect(failure).toBeInstanceOf(OpenClawTestError);
+    expect(setStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({ connected: false, running: false }),
+    );
+    yield* proactiveSendFailsWhenDisconnected(plugin, fake, 0);
+  });
+}
+
 function manifestMatchesRuntimeSchema() {
+  expect(createMoltzapChannelPlugin().agentPrompt).toBeUndefined();
   const { $schema, ...generated } = makeMoltZapChannelConfigJsonSchema();
   expect($schema).toBeDefined();
   if (!("required" in generated)) {
@@ -292,25 +457,81 @@ function manifestMatchesRuntimeSchema() {
   expect(manifest.channelConfigs.moltzap.schema).toEqual(embedded);
 }
 
-function makeRuntime(params: RuntimeFixtureParams): NativeRuntime {
+function makeObservedRuntime(
+  params: RuntimeFixtureParams,
+): ObservedAccountRuntime {
   return {
+    runtimeContexts: {
+      register: () => ({ dispose: () => undefined }),
+      get: () => undefined,
+      watch: () => () => undefined,
+    },
     inbound: {
       buildContext: buildChannelInboundEventContext,
-      run: runChannelInboundEvent,
+      run: observedOpenClawInboundRunner(params),
     },
     routing: makeRoutingRuntime(params),
-    session: {
-      recordInboundSession: makeInboundSessionRecorder(params),
-    },
-    reply: {
-      dispatchReplyWithBufferedBlockDispatcher: makeReplyDispatcher(params),
-    },
   };
+}
+
+function observedOpenClawInboundRunner(
+  params: RuntimeFixtureParams,
+): ObservedAccountRuntime["inbound"]["run"] {
+  return (input) =>
+    runChannelInboundEvent({
+      ...input,
+      adapter: {
+        ...input.adapter,
+        resolveTurn: (normalized, eventClass, preflight) =>
+          Effect.runPromise(
+            Effect.tryPromise({
+              try: () =>
+                Promise.resolve(
+                  input.adapter.resolveTurn(normalized, eventClass, preflight),
+                ),
+              catch: (cause) => testError("resolveTurn", cause),
+            }).pipe(Effect.map((resolved) => observedTurn(params, resolved))),
+          ),
+      },
+      log: (event) => {
+        if (event.stage === "record" && event.event === "done") {
+          params.events.push(
+            `record:${event.messageId ?? "missing"}:${event.sessionKey ?? "missing"}`,
+          );
+        }
+      },
+    });
+}
+
+function observedTurn(
+  params: RuntimeFixtureParams,
+  resolved: ResolvedInboundTurn,
+): ChannelInboundTurnPlan {
+  const turn = requireRoutedTurnPlan(resolved);
+  params.plans?.push(turn);
+  return {
+    ...turn,
+    dispatchReplyFromConfig: observedReplyDispatch(params),
+  };
+}
+
+function requireRoutedTurnPlan(
+  turn: ResolvedInboundTurn,
+): ChannelInboundTurnPlan {
+  if (
+    !("route" in turn) ||
+    !("delivery" in turn) ||
+    !("deliver" in turn.delivery) ||
+    typeof turn.delivery.deliver !== "function"
+  ) {
+    throw new Error("expected a core-managed routed inbound turn");
+  }
+  return turn;
 }
 
 function makeRoutingRuntime(
   params: RuntimeFixtureParams,
-): NativeRuntime["routing"] {
+): ObservedAccountRuntime["routing"] {
   return {
     resolveAgentRoute: (input) => {
       params.routePeers.push(input.peer ?? null);
@@ -330,47 +551,23 @@ function makeRoutingRuntime(
   };
 }
 
-function makeInboundSessionRecorder(params: RuntimeFixtureParams) {
-  return (
-    input: Parameters<NativeRuntime["session"]["recordInboundSession"]>[0],
-  ) => {
-    params.events.push(
-      `record:${input.ctx.MessageSid ?? "missing"}:${input.sessionKey}`,
-    );
-    return Promise.resolve();
-  };
-}
-
-function makeReplyDispatcher(params: RuntimeFixtureParams): NativeDispatch {
-  return (input) => {
-    params.calls.push({ ctx: input.ctx, replyOptions: input.replyOptions });
-    const messageId = input.ctx.MessageSid ?? "missing";
+function observedReplyDispatch(
+  params: RuntimeFixtureParams,
+): NonNullable<ChannelInboundTurnPlan["dispatchReplyFromConfig"]> {
+  return ({ ctx, dispatcher, replyOptions }) => {
+    const messageId = ctx.MessageSid ?? "missing";
+    params.calls.push({ ctx, replyOptions });
     if (params.failDispatch === true) {
       params.events.push(`dispatch-failed:${messageId}`);
-      return Promise.reject(new Error("stock inbound callback failed"));
+      return Promise.reject(testError("dispatch", "OpenClaw turn failed"));
     }
+    const text = params.replyText ?? "host final";
     params.events.push(`dispatch:${messageId}`);
-    return Effect.runPromise(
-      Effect.tryPromise({
-        try: () =>
-          input.dispatcherOptions.deliver(
-            { text: "host final" },
-            { kind: "final" },
-          ),
-        catch: (cause) => testError("deliverFinal", cause),
-      }).pipe(
-        Effect.tap((result) =>
-          Effect.sync(() => {
-            expect(result).toEqual({ visibleReplySent: true });
-          }),
-        ),
-        Effect.as({
-          queuedFinal: false,
-          counts: { tool: 0, block: 0, final: 1 },
-          sourceReplyDeliveryMode: "automatic" as const,
-        }),
-      ),
-    );
+    const queuedFinal = dispatcher.sendFinalReply({ text });
+    return Promise.resolve({
+      queuedFinal,
+      counts: { tool: 0, block: 0, final: queuedFinal ? 1 : 0 },
+    });
   };
 }
 
@@ -451,6 +648,7 @@ function makeEndpoint(
 
 function gatewayContext(
   abortSignal: AbortSignal,
+  channelRuntime?: ChannelRuntimeSurface,
   setStatus?: ReturnType<typeof vi.fn>,
 ): ChannelGatewayContext<{
   readonly id: string;
@@ -468,6 +666,7 @@ function gatewayContext(
       error: () => undefined,
       exit: () => undefined,
     },
+    ...(channelRuntime === undefined ? {} : { channelRuntime }),
     getStatus: () => snapshot,
     setStatus: (next) => {
       snapshot = next;
@@ -505,7 +704,7 @@ function startAccount(
 function requireSendText(plugin: MoltZapPlugin) {
   const sendText = plugin.message?.send?.text;
   if (sendText === undefined) {
-    throw new Error("missing native text sender");
+    throw new Error("missing OpenClaw text sender");
   }
   return sendText;
 }
@@ -535,6 +734,35 @@ function requireDispatchCall(
     throw new Error(`missing dispatch call ${String(index)}`);
   }
   return call;
+}
+
+function requireTurnPlan(
+  plans: readonly ChannelInboundTurnPlan[],
+  index: number,
+): ChannelInboundTurnPlan {
+  const plan = plans[index];
+  if (plan === undefined) {
+    throw new Error(`missing routed turn plan ${String(index)}`);
+  }
+  return plan;
+}
+
+function expectRoutedTurn(plan: ChannelInboundTurnPlan, address: string): void {
+  expect(plan.route).toEqual({
+    agentId: "primary",
+    sessionKey: sessionKeyFor(address),
+  });
+  expect(plan.record?.updateLastRoute).toEqual({
+    sessionKey: sessionKeyFor(address),
+    channel: "moltzap",
+    to: address,
+    accountId: ACCOUNT_ID,
+  });
+  expect(plan).not.toHaveProperty("agentId");
+  expect(plan).not.toHaveProperty("routeSessionKey");
+  expect(plan).not.toHaveProperty("storePath");
+  expect(plan).not.toHaveProperty("recordInboundSession");
+  expect(plan).not.toHaveProperty("dispatchReplyWithBufferedBlockDispatcher");
 }
 
 function expectDirectProjection(

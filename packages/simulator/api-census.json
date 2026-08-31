@@ -1,31 +1,5 @@
 {
-  "schemaVersion": 2,
-  "baseline": {
-    "commit": "102f110436bedbba828591c1b97fd4e322abcf76",
-    "removals": {
-      ".": [
-        "ConversationOpened",
-        "EndpointMessageReceived",
-        "EndpointMessageSent",
-        "LinkMessageDelayed",
-        "LinkMessageDropped",
-        "LinkMessageHeld",
-        "MessageParts",
-        "ReceivedMessage",
-        "RouterMessageCommitted"
-      ],
-      "./network": [
-        "CommittedRouterMessage",
-        "MessageParts",
-        "OpenedConversation",
-        "ReceivedMessage",
-        "RouterSequence",
-        "routerSequence"
-      ],
-      "./ledger": [],
-      "./agents": []
-    }
-  },
+  "schemaVersion": 3,
   "facades": {
     ".": {
       "declaration": "dist/index.d.ts",
@@ -40,8 +14,6 @@
         "ClusterError",
         "ClusterLost",
         "CompletedLedgerReceipt",
-        "ConversationAddress",
-        "ConversationSocket",
         "Endpoint",
         "EventCatalog",
         "EventCatalogDefinitionError",
@@ -84,9 +56,6 @@
         "ClusterLost",
         "ClusterServices",
         "CompletedLedgerReceipt",
-        "ConversationAddress",
-        "ConversationParticipants",
-        "ConversationSocket",
         "CustomerEvents",
         "EncodedEventOf",
         "Endpoint",
@@ -134,8 +103,6 @@
       "declaration": "dist/network/index.d.ts",
       "runtime": [
         "AgentHandle",
-        "ConversationAddress",
-        "ConversationSocket",
         "Endpoint",
         "LinkController",
         "LinkDriver",
@@ -156,9 +123,6 @@
         "AgentConnection",
         "AgentHandle",
         "AttachedEndpoint",
-        "ConversationAddress",
-        "ConversationParticipants",
-        "ConversationSocket",
         "Endpoint",
         "EndpointInbox",
         "EndpointTransport",

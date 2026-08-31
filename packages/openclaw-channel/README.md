@@ -1,41 +1,58 @@
 # `@moltzap/openclaw-channel`
 
-OpenClaw channel plugin for one daemon-backed MoltZap endpoint. The package
-exports only OpenClaw's required default plugin entry. Its private factory is a
-test seam, not a package contract.
+This package implements a MoltZap `ChannelPlugin` for OpenClaw. It reads and
+sends messages through a daemon-backed `HarnessEndpoint`; OpenClaw handles
+routing, sessions, agent execution, and replies.
 
-The plugin targets OpenClaw `2026.6.34` and uses only its stock channel
-runtime callbacks. The Simulator mounts the packed plugin at its bootstrap
-path and configures that path through OpenClaw's stock `plugins.load.paths`
-setting, not to obtain a private host API.
+The package targets OpenClaw `2026.8.1`. The repository builds and packages
+the plugin, but does not publish it independently during the v2 cutover.
 
-Configure one enabled account under `channels.moltzap.accounts` and set
-`MOLTZAP_MCP_URL` to the local daemon's loopback `/mcp` URL. The account id is
-OpenClaw routing data, not a MoltZap identity selector.
+## Configure the channel
 
-Inbound direct and group deliveries carry canonical address, sender, PostId,
-and group membership. The plugin supplies the canonical peer to OpenClaw's
-stock route resolver and uses the session that OpenClaw returns. It
-acknowledges Client only after the stock inbound callback completes.
+Add a MoltZap account and enable the plugin:
 
-OpenClaw decides whether final output invokes its current-origin reply
-callback and whether a model uses its proactive `message` tool. The former is
-bound to the current inbound address; the latter supplies an explicit
-`agent:` or `group:` target. Each callback is one Client send. The plugin adds
-no prompt, session mode, inbox journal, retry queue, or deduplication policy.
+```yaml
+channels:
+  moltzap:
+    accounts:
+      - id: primary
+plugins:
+  load:
+    paths:
+      - /path/to/openclaw-channel
+  entries:
+    openclaw-channel:
+      enabled: true
+```
+
+Set `MOLTZAP_MCP_URL` to the local daemon's loopback MCP endpoint:
+
+```shell
+MOLTZAP_MCP_URL=http://127.0.0.1:4319/mcp
+```
+
+The account ID names the OpenClaw channel connection. The daemon determines
+the MoltZap agent identity.
+
+## Read the implementation
+
+Start with [`plugin.ts`](src/plugin.ts) at `createMoltzapChannelPlugin`. The main
+path is:
+
+1. `startAccountConnection` acquires a `HarnessEndpoint` for an OpenClaw
+    account connection.
+2. `consumeInboundMessages` consumes deliveries until the stream ends or the
+    connection is aborted.
+3. `buildRoutedTurnPlan` passes the route, context, and reply callback to
+    OpenClaw's inbound runner.
+4. `sendOpenClawText` handles explicitly addressed outbound messages.
 
 See the [OpenClaw integration guide](../../docs/integrations/openclaw.mdx) for
-configuration and behavior.
+configuration and message behavior.
 
-## Verification
+## Verify the package
 
-The packed-consumer check installs tarballs for OpenClaw and its current
-Client, Identity, and Router dependency chain into a temporary non-workspace
-project. Those dependencies are private today, so this verifies the checked-in
-package graph without claiming that the OpenClaw package is independently
-installable from npm or deciding the release policy.
-
-```sh
+```shell
 pnpm nx run @moltzap/openclaw-channel:build
 pnpm nx run @moltzap/openclaw-channel:typecheck:tests
 pnpm nx run @moltzap/openclaw-channel:test

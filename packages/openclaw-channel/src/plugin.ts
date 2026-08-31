@@ -1,13 +1,12 @@
-/** @file OpenClaw host integration over the public HarnessEndpoint. */
+/** @file OpenClaw plugin that registers the MoltZap channel. */
 
 import type {
   ChannelGatewayContext,
-  ChannelPlugin,
-  OpenClawConfig,
-  OpenClawPluginApi,
-  PluginRuntime,
-  ReplyPayload,
-} from "openclaw/plugin-sdk";
+  ChannelRuntimeSurface,
+} from "openclaw/plugin-sdk/channel-contract";
+import type { ChannelInboundTurnPlan } from "openclaw/plugin-sdk/channel-inbound";
+import type { OpenClawPluginDefinition } from "openclaw/plugin-sdk/plugin-entry";
+import type { ReplyPayload } from "openclaw/plugin-sdk/reply-payload";
 import {
   acquireHarnessEndpoint,
   type Content,
@@ -22,7 +21,6 @@ import {
   Config,
   ConfigError,
   Data,
-  Deferred,
   Effect,
   JSONSchema,
   Option,
@@ -31,12 +29,19 @@ import {
 } from "effect";
 import { randomUUID } from "node:crypto";
 import {
+  type ChannelPlugin,
+  createChannelPluginBase,
+  defineChannelPluginEntry,
+  type OpenClawConfig,
+  type PluginRuntime,
+} from "openclaw/plugin-sdk/channel-core";
+import {
   type ChannelMessageSendResult,
   type ChannelMessageSendTextContext,
   createMessageReceiptFromOutboundResults,
   defineChannelMessageAdapter,
+  waitUntilAbort,
 } from "openclaw/plugin-sdk/channel-outbound";
-import { resolveStorePath } from "openclaw/plugin-sdk/session-store-runtime";
 
 const CHANNEL_ID = "moltzap";
 const TARGET_HINT =
@@ -44,25 +49,17 @@ const TARGET_HINT =
 const INBOUND_LOG_PREVIEW_CHARS = 80;
 
 type OpenClawTargetKind = "user" | "group";
-type OpenClawOutboundFailure = "invalid-native-send" | "not-connected";
-type OpenClawInboundFailure = "native-dispatch-failed";
+type OpenClawOutboundFailure = "account-not-connected" | "invalid-address";
+type OpenClawInboundFailure = "turn-failed";
 
-interface NativeChannelRuntime {
+interface OpenClawAccountRuntime {
   readonly inbound: Pick<
     PluginRuntime["channel"]["inbound"],
     "buildContext" | "run"
   >;
-  readonly reply: Pick<
-    PluginRuntime["channel"]["reply"],
-    "dispatchReplyWithBufferedBlockDispatcher"
-  >;
   readonly routing: Pick<
     PluginRuntime["channel"]["routing"],
     "resolveAgentRoute"
-  >;
-  readonly session: Pick<
-    PluginRuntime["channel"]["session"],
-    "recordInboundSession"
   >;
 }
 
@@ -89,33 +86,9 @@ interface ResolvedMessageTarget {
   readonly display: string;
 }
 
-interface ActiveHarnessEndpoint {
-  readonly endpoint: HarnessEndpoint;
-  readonly stopSignal: Deferred.Deferred<undefined>;
-}
-
-interface GatewayActivation {
+interface InboundMessageTurnInput {
   readonly ctx: ChannelGatewayContext<MoltZapAccount>;
-  readonly runtime: NativeChannelRuntime;
-  readonly endpoint: HarnessEndpoint;
-  readonly activeEndpoints: Map<string, ActiveHarnessEndpoint>;
-}
-
-interface InboundTurnProjection {
-  readonly ctx: ChannelGatewayContext<MoltZapAccount>;
-  readonly runtime: NativeChannelRuntime;
-  readonly endpoint: HarnessEndpoint;
-  readonly message: InboundDelivery["message"];
-  readonly body: string;
-  readonly route: ReturnType<
-    NativeChannelRuntime["routing"]["resolveAgentRoute"]
-  >;
-  readonly routeSessionKey: string;
-}
-
-interface InboundTurnInput {
-  readonly ctx: ChannelGatewayContext<MoltZapAccount>;
-  readonly runtime: NativeChannelRuntime;
+  readonly runtime: OpenClawAccountRuntime;
   readonly endpoint: HarnessEndpoint;
   readonly message: InboundDelivery["message"];
   readonly body: string;
@@ -155,7 +128,7 @@ class OpenClawOutboundError extends Data.TaggedError("OpenClawOutboundError")<{
   readonly accountId: string;
 }> {
   override get message(): string {
-    return `MoltZap native message delivery failed for account ${this.accountId}: ${this.reason}`;
+    return `MoltZap message delivery failed for account ${this.accountId}: ${this.reason}`;
   }
 }
 
@@ -167,6 +140,16 @@ class OpenClawConfigurationError extends Data.TaggedError(
 }> {
   override get message(): string {
     return `MoltZap configuration ${this.source} is invalid: ${this.detail}`;
+  }
+}
+
+class OpenClawRuntimeError extends Data.TaggedError("OpenClawRuntimeError")<{
+  readonly reason: "abort-wait-failed" | "channel-runtime-unavailable";
+  readonly accountId: string;
+  readonly detail: string;
+}> {
+  override get message(): string {
+    return `MoltZap account ${this.accountId} runtime failed: ${this.reason}: ${this.detail}`;
   }
 }
 
@@ -182,44 +165,48 @@ export function makeMoltZapChannelConfigJsonSchema() {
 }
 
 /**
- * Creates one runtime-bound OpenClaw channel plugin.
+ * Creates the MoltZap OpenClaw channel plugin.
+ *
+ * OpenClaw supplies the account runtime to `startAccount`. The registered
+ * plugin does not retain an account runtime or session.
  *
  * ```mermaid
  * sequenceDiagram
  *   participant Host as OpenClaw
  *   participant Plugin as MoltZap plugin
  *   participant Client as HarnessEndpoint
- *   Host->>Plugin: start account
+ *   Host->>Plugin: start account with its runtime
  *   Plugin->>Client: acquire endpoint
  *   Client-->>Plugin: addressed delivery
- *   Plugin->>Host: stock inbound callback
- *   Host-->>Plugin: callback completes
+ *   Plugin->>Host: submit routed turn
+ *   Host->>Host: record session and run agent
+ *   Host-->>Plugin: deliver final reply
+ *   Plugin->>Client: send to inbound address
  *   Plugin->>Client: acknowledge delivery
- *   Host->>Plugin: stock outbound callback
- *   Plugin->>Client: addressed content
+ *   Host->>Plugin: proactive send with explicit address
+ *   Plugin->>Client: send addressed content
  * ```
- * @param runtime Native host services required by the channel adapter.
  * @param deps Optional process-local dependency overrides used by tests.
- * @returns An OpenClaw channel plugin bound to the supplied host runtime.
+ * @returns The MoltZap channel plugin.
  * @internal
  */
 export function createMoltzapChannelPlugin(
-  runtime: NativeChannelRuntime,
   deps: MoltzapChannelPluginDeps = {},
 ): ChannelPlugin<MoltZapAccount> {
-  const activeEndpoints = new Map<string, ActiveHarnessEndpoint>();
+  const connectedEndpoints = new Map<string, HarnessEndpoint>();
   return {
-    id: CHANNEL_ID,
-    meta: createPluginMeta(),
+    ...createChannelPluginBase<MoltZapAccount>({
+      id: CHANNEL_ID,
+      meta: createPluginMeta(),
+    }),
     capabilities: { chatTypes: ["direct", "group"] },
-    messaging: createMessagingSection(),
     config: createConfigSection(),
+    messaging: createMessagingSection(),
     gateway: {
       startAccount: (ctx) =>
-        startGatewayAccount(ctx, runtime, activeEndpoints, deps),
-      stopAccount: (ctx) => stopGatewayAccount(ctx, activeEndpoints),
+        startAccountConnection(ctx, connectedEndpoints, deps),
     },
-    message: createMessageSection(activeEndpoints),
+    message: createMessageSection(connectedEndpoints),
   };
 }
 
@@ -276,12 +263,12 @@ function createConfigSection() {
 }
 
 function createMessageSection(
-  activeEndpoints: Map<string, ActiveHarnessEndpoint>,
+  connectedEndpoints: Map<string, HarnessEndpoint>,
 ) {
   return defineChannelMessageAdapter({
     id: CHANNEL_ID,
     send: {
-      text: (ctx) => runHostPromise(sendNativeText(activeEndpoints, ctx)),
+      text: (ctx) => runHostPromise(sendOpenClawText(connectedEndpoints, ctx)),
     },
   });
 }
@@ -328,34 +315,84 @@ function normalizeMessageTarget(raw: string): ResolvedMessageTarget | null {
   };
 }
 
-function startGatewayAccount(
+function startAccountConnection(
   ctx: ChannelGatewayContext<MoltZapAccount>,
-  runtime: NativeChannelRuntime,
-  activeEndpoints: Map<string, ActiveHarnessEndpoint>,
+  connectedEndpoints: Map<string, HarnessEndpoint>,
   deps: MoltzapChannelPluginDeps,
 ) {
   if (ctx.abortSignal.aborted) {
     return Promise.resolve();
   }
   return runHostPromise(
-    acquireAccountEndpoint(deps, ctx.accountId, ctx.account).pipe(
-      Effect.flatMap((endpoint) =>
-        runGateway(ctx, runtime, endpoint, activeEndpoints),
+    requireOpenClawAccountRuntime(ctx).pipe(
+      Effect.flatMap((runtime) =>
+        acquireAccountEndpoint(deps, ctx.accountId, ctx.account).pipe(
+          Effect.flatMap((endpoint) =>
+            runAccountConnection(ctx, runtime, endpoint, connectedEndpoints),
+          ),
+        ),
       ),
       Effect.scoped,
     ),
   );
 }
 
-function stopGatewayAccount(
+/**
+ * Returns the OpenClaw services for an account task.
+ *
+ * OpenClaw creates a channel runtime for each account task. Reading it here
+ * prevents the registered plugin from retaining another account's runtime.
+ * @param ctx The account connection context supplied by OpenClaw.
+ * @returns The routing and inbound services scoped to this account task.
+ */
+function requireOpenClawAccountRuntime(
   ctx: ChannelGatewayContext<MoltZapAccount>,
-  activeEndpoints: Map<string, ActiveHarnessEndpoint>,
-) {
-  if (activeEndpoints.has(ctx.accountId)) {
-    ctx.log?.info?.("MoltZap: stopping");
+): Effect.Effect<OpenClawAccountRuntime, OpenClawRuntimeError> {
+  if (
+    ctx.channelRuntime !== undefined &&
+    isOpenClawAccountRuntime(ctx.channelRuntime)
+  ) {
+    return Effect.succeed(ctx.channelRuntime);
   }
-  return runHostPromise(
-    stopActiveGatewayAccount(activeEndpoints, ctx.accountId),
+  return Effect.fail(
+    new OpenClawRuntimeError({
+      reason: "channel-runtime-unavailable",
+      accountId: ctx.accountId,
+      detail: "the account task did not receive OpenClaw channel services",
+    }),
+  );
+}
+
+function isOpenClawAccountRuntime(
+  runtime: ChannelRuntimeSurface,
+): runtime is ChannelRuntimeSurface & OpenClawAccountRuntime {
+  return (
+    hasOpenClawInboundRuntime(runtime) && hasOpenClawRoutingRuntime(runtime)
+  );
+}
+
+function hasOpenClawInboundRuntime(runtime: ChannelRuntimeSurface): boolean {
+  const inbound = runtime.inbound;
+  if (typeof inbound !== "object" || inbound === null) {
+    return false;
+  }
+  if (!("buildContext" in inbound)) {
+    return false;
+  }
+  if (typeof inbound.buildContext !== "function") {
+    return false;
+  }
+  return "run" in inbound && typeof inbound.run === "function";
+}
+
+function hasOpenClawRoutingRuntime(runtime: ChannelRuntimeSurface): boolean {
+  const routing = runtime.routing;
+  if (typeof routing !== "object" || routing === null) {
+    return false;
+  }
+  return (
+    "resolveAgentRoute" in routing &&
+    typeof routing.resolveAgentRoute === "function"
   );
 }
 
@@ -375,18 +412,20 @@ function configuredMcpEndpoint() {
   return Config.url("MOLTZAP_MCP_URL");
 }
 
-function runGateway(
+function runAccountConnection(
   ctx: ChannelGatewayContext<MoltZapAccount>,
-  runtime: NativeChannelRuntime,
+  runtime: OpenClawAccountRuntime,
   endpoint: HarnessEndpoint,
-  activeEndpoints: Map<string, ActiveHarnessEndpoint>,
+  connectedEndpoints: Map<string, HarnessEndpoint>,
 ) {
-  return activateGateway({
-    ctx,
-    runtime,
-    endpoint,
-    activeEndpoints,
+  return Effect.sync(() => {
+    connectedEndpoints.set(ctx.accountId, endpoint);
   }).pipe(
+    Effect.zipRight(reportConnected(ctx)),
+    Effect.zipRight(consumeInboundMessages(ctx, runtime, endpoint)),
+    Effect.ensuring(
+      removeConnectedEndpoint(connectedEndpoints, ctx.accountId, endpoint),
+    ),
     Effect.ensuring(
       Effect.sync(() => {
         ctx.setStatus({
@@ -407,58 +446,37 @@ function runGateway(
   );
 }
 
-function activateGateway(activation: GatewayActivation) {
-  return Deferred.make<undefined>().pipe(
-    Effect.flatMap((stopSignal) => {
-      const active: ActiveHarnessEndpoint = {
-        endpoint: activation.endpoint,
-        stopSignal,
-      };
-      return runActiveGateway(activation, active).pipe(
-        Effect.ensuring(
-          finishActiveGatewayAccount(
-            activation.activeEndpoints,
-            activation.ctx.accountId,
-            active,
-          ),
-        ),
-      );
-    }),
-  );
-}
-
-function runActiveGateway(
-  activation: GatewayActivation,
-  active: ActiveHarnessEndpoint,
-) {
-  const { activeEndpoints, ctx, endpoint, runtime } = activation;
-  return stopActiveGatewayAccount(activeEndpoints, ctx.accountId).pipe(
-    Effect.tap(() =>
-      Effect.sync(() => {
-        activeEndpoints.set(ctx.accountId, active);
-      }),
-    ),
-    Effect.zipRight(reportConnected(ctx)),
-    Effect.zipRight(runGatewayMessageLoop(ctx, runtime, endpoint, active)),
-  );
-}
-
-function runGatewayMessageLoop(
+/**
+ * Consumes messages until the stream ends or OpenClaw aborts the account.
+ *
+ * The stream can complete or fail independently of the account abort signal.
+ * Racing both operations sends every result through the cleanup in
+ * `runAccountConnection`.
+ * @param ctx The account task and abort signal supplied by OpenClaw.
+ * @param runtime OpenClaw routing and inbound services for this account task.
+ * @param endpoint The daemon-backed message stream for this account.
+ * @returns An effect that ends with the stream or the abort signal.
+ */
+function consumeInboundMessages(
   ctx: ChannelGatewayContext<MoltZapAccount>,
-  runtime: NativeChannelRuntime,
+  runtime: OpenClawAccountRuntime,
   endpoint: HarnessEndpoint,
-  active: ActiveHarnessEndpoint,
 ) {
   return Effect.raceFirst(
-    active.endpoint.messages.pipe(
+    endpoint.messages.pipe(
       Stream.runForEach((delivery) =>
-        handleDelivery(ctx, runtime, endpoint, delivery),
+        handleInboundDelivery(ctx, runtime, endpoint, delivery),
       ),
     ),
-    Effect.raceFirst(
-      waitForAbort(ctx.abortSignal),
-      Deferred.await(active.stopSignal),
-    ),
+    Effect.tryPromise({
+      try: () => waitUntilAbort(ctx.abortSignal),
+      catch: (cause) =>
+        new OpenClawRuntimeError({
+          reason: "abort-wait-failed",
+          accountId: ctx.accountId,
+          detail: String(cause),
+        }),
+    }),
   );
 }
 
@@ -477,16 +495,14 @@ function reportConnected(
   });
 }
 
-function handleDelivery(
+function handleInboundDelivery(
   ctx: ChannelGatewayContext<MoltZapAccount>,
-  runtime: NativeChannelRuntime,
+  runtime: OpenClawAccountRuntime,
   endpoint: HarnessEndpoint,
   delivery: InboundDelivery,
 ) {
   return logInbound(ctx, delivery.message).pipe(
-    Effect.zipRight(
-      dispatchInboundDelivery(ctx, runtime, endpoint, delivery.message),
-    ),
+    Effect.zipRight(runOpenClawTurn(ctx, runtime, endpoint, delivery.message)),
     Effect.zipRight(delivery.acknowledge),
   );
 }
@@ -509,9 +525,9 @@ function logInbound(
   });
 }
 
-function dispatchInboundDelivery(
+function runOpenClawTurn(
   ctx: ChannelGatewayContext<MoltZapAccount>,
-  runtime: NativeChannelRuntime,
+  runtime: OpenClawAccountRuntime,
   endpoint: HarnessEndpoint,
   message: InboundDelivery["message"],
 ): Effect.Effect<void, OpenClawInboundError> {
@@ -531,12 +547,12 @@ function dispatchInboundDelivery(
             raw: message,
           }),
           resolveTurn: () =>
-            resolveInboundTurn({ ctx, runtime, endpoint, message, body }),
+            buildRoutedTurnPlan({ ctx, runtime, endpoint, message, body }),
         },
       }),
     catch: (cause) =>
       new OpenClawInboundError({
-        reason: "native-dispatch-failed",
+        reason: "turn-failed",
         accountId: ctx.accountId,
         postId: message.postId,
         detail: String(cause),
@@ -544,29 +560,48 @@ function dispatchInboundDelivery(
   });
 }
 
-function resolveInboundTurn(input: InboundTurnInput) {
-  const { body, ctx, endpoint, message, runtime } = input;
+function buildRoutedTurnPlan(
+  input: InboundMessageTurnInput,
+): ChannelInboundTurnPlan {
+  const { ctx, endpoint, message, runtime } = input;
   const route = runtime.routing.resolveAgentRoute({
     cfg: ctx.cfg,
     channel: CHANNEL_ID,
     accountId: ctx.accountId,
     peer: { kind: message.kind, id: message.address },
   });
-  const routeSessionKey = route.sessionKey;
-  const projection: InboundTurnProjection = {
-    ctx,
-    runtime,
-    endpoint,
-    message,
-    body,
-    route,
-    routeSessionKey,
+  const ctxPayload = buildInboundContext(input, route);
+  return {
+    cfg: ctx.cfg,
+    channel: CHANNEL_ID,
+    accountId: ctx.accountId,
+    route: {
+      agentId: route.agentId,
+      sessionKey: route.sessionKey,
+      ...(route.dmScope === undefined ? {} : { dmScope: route.dmScope }),
+    },
+    ctxPayload,
+    delivery: {
+      deliver: (payload: ReplyPayload) =>
+        deliverReplyToInboundAddress(endpoint, message.address, payload),
+    },
+    record: {
+      updateLastRoute: {
+        sessionKey: route.sessionKey,
+        channel: CHANNEL_ID,
+        to: message.address,
+        accountId: ctx.accountId,
+      },
+    },
+    messageId: message.postId,
   };
-  return assembleInboundTurn(projection, buildInboundContext(projection));
 }
 
-function buildInboundContext(projection: InboundTurnProjection) {
-  const { body, ctx, message, route, routeSessionKey, runtime } = projection;
+function buildInboundContext(
+  input: InboundMessageTurnInput,
+  route: ReturnType<OpenClawAccountRuntime["routing"]["resolveAgentRoute"]>,
+) {
+  const { body, ctx, message, runtime } = input;
   return runtime.inbound.buildContext({
     channel: CHANNEL_ID,
     accountId: ctx.accountId,
@@ -579,9 +614,9 @@ function buildInboundContext(projection: InboundTurnProjection) {
     route: {
       agentId: route.agentId,
       accountId: ctx.accountId,
-      routeSessionKey,
-      dispatchSessionKey: routeSessionKey,
-      persistedSessionKey: routeSessionKey,
+      routeSessionKey: route.sessionKey,
+      dispatchSessionKey: route.sessionKey,
+      persistedSessionKey: route.sessionKey,
       mainSessionKey: route.mainSessionKey,
     },
     reply: inboundReplyFacts(message),
@@ -626,42 +661,7 @@ function inboundGroupFacts(message: InboundDelivery["message"]) {
     : undefined;
 }
 
-function assembleInboundTurn(
-  projection: InboundTurnProjection,
-  ctxPayload: ReturnType<NativeChannelRuntime["inbound"]["buildContext"]>,
-) {
-  const { ctx, endpoint, message, route, routeSessionKey, runtime } =
-    projection;
-  return {
-    cfg: ctx.cfg,
-    channel: CHANNEL_ID,
-    accountId: ctx.accountId,
-    agentId: route.agentId,
-    routeSessionKey,
-    storePath: resolveStorePath(ctx.cfg.session?.store, {
-      agentId: route.agentId,
-    }),
-    ctxPayload,
-    recordInboundSession: runtime.session.recordInboundSession,
-    dispatchReplyWithBufferedBlockDispatcher:
-      runtime.reply.dispatchReplyWithBufferedBlockDispatcher,
-    delivery: {
-      deliver: (payload: ReplyPayload) =>
-        deliverStockReply(endpoint, message.address, payload),
-    },
-    record: {
-      updateLastRoute: {
-        sessionKey: routeSessionKey,
-        channel: CHANNEL_ID,
-        to: message.address,
-        accountId: ctx.accountId,
-      },
-    },
-    messageId: message.postId,
-  };
-}
-
-function deliverStockReply(
+function deliverReplyToInboundAddress(
   endpoint: HarnessEndpoint,
   to: MessageAddressInputValue,
   payload: ReplyPayload,
@@ -690,53 +690,23 @@ function renderContentPart(part: Content[number]): string {
   return JSON.stringify(part.value) ?? "null";
 }
 
-function waitForAbort(signal: AbortSignal): Effect.Effect<void> {
-  return Effect.async<undefined>((resume) => {
-    if (signal.aborted) {
-      resume(Effect.succeed(undefined));
-      return;
-    }
-    const onAbort = () => {
-      resume(Effect.succeed(undefined));
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-    return Effect.sync(() => {
-      signal.removeEventListener("abort", onAbort);
-    });
-  });
-}
-
-function stopActiveGatewayAccount(
-  activeEndpoints: Map<string, ActiveHarnessEndpoint>,
+function removeConnectedEndpoint(
+  connectedEndpoints: Map<string, HarnessEndpoint>,
   accountId: string,
-): Effect.Effect<void> {
-  return Effect.gen(function* () {
-    const active = activeEndpoints.get(accountId);
-    if (active === undefined) {
-      return;
-    }
-    activeEndpoints.delete(accountId);
-    yield* Deferred.succeed(active.stopSignal, undefined);
-  });
-}
-
-function finishActiveGatewayAccount(
-  activeEndpoints: Map<string, ActiveHarnessEndpoint>,
-  accountId: string,
-  active: ActiveHarnessEndpoint,
+  active: HarnessEndpoint,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
-    if (activeEndpoints.get(accountId) === active) {
-      activeEndpoints.delete(accountId);
+    if (connectedEndpoints.get(accountId) === active) {
+      connectedEndpoints.delete(accountId);
     }
   });
 }
 
-function sendNativeText(
-  activeEndpoints: Map<string, ActiveHarnessEndpoint>,
+function sendOpenClawText(
+  connectedEndpoints: Map<string, HarnessEndpoint>,
   ctx: ChannelMessageSendTextContext,
 ) {
-  return sendAddressedText(activeEndpoints, {
+  return sendAddressedText(connectedEndpoints, {
     accountId: ctx.accountId,
     messageId: randomUUID(),
     text: ctx.text,
@@ -745,14 +715,17 @@ function sendNativeText(
 }
 
 function sendAddressedText(
-  activeEndpoints: Map<string, ActiveHarnessEndpoint>,
+  connectedEndpoints: Map<string, HarnessEndpoint>,
   params: AddressedTextSend,
 ) {
   const accountId = params.accountId?.trim() ?? "(unspecified)";
-  const endpoint = activeEndpoint(activeEndpoints, params.accountId);
+  const endpoint = connectedEndpoint(connectedEndpoints, params.accountId);
   if (endpoint === undefined) {
     return Effect.fail(
-      new OpenClawOutboundError({ reason: "not-connected", accountId }),
+      new OpenClawOutboundError({
+        reason: "account-not-connected",
+        accountId,
+      }),
     );
   }
   return decodeSendInput(params, accountId).pipe(
@@ -773,7 +746,7 @@ function decodeSendInput(
     ? Effect.succeed(decoded.value)
     : Effect.fail(
         new OpenClawOutboundError({
-          reason: "invalid-native-send",
+          reason: "invalid-address",
           accountId,
         }),
       );
@@ -789,18 +762,18 @@ function makeMessageSendResult(messageId: string): ChannelMessageSendResult {
   };
 }
 
-function activeEndpoint(
-  activeEndpoints: Map<string, ActiveHarnessEndpoint>,
+function connectedEndpoint(
+  connectedEndpoints: Map<string, HarnessEndpoint>,
   accountId?: string | null,
 ): HarnessEndpoint | undefined {
   const requested = accountId?.trim();
   if (requested !== undefined && requested.length > 0) {
-    return activeEndpoints.get(requested)?.endpoint;
+    return connectedEndpoints.get(requested);
   }
-  if (activeEndpoints.size !== 1) {
+  if (connectedEndpoints.size !== 1) {
     return undefined;
   }
-  return activeEndpoints.values().next().value?.endpoint;
+  return connectedEndpoints.values().next().value;
 }
 
 function runHostPromise<A, E extends Error | ConfigError.ConfigError>(
@@ -819,22 +792,14 @@ function hostPromiseError(error: Error | ConfigError.ConfigError): Error {
   return error;
 }
 
-const plugin = {
-  id: "openclaw-channel",
-  name: "MoltZap",
-  description: "Agent-to-agent messaging through the local MoltZap endpoint",
-  configSchema: {},
-  register(api: OpenClawPluginApi) {
-    api.registerChannel({
-      plugin: createMoltzapChannelPlugin({
-        inbound: api.runtime.channel.inbound,
-        reply: api.runtime.channel.reply,
-        routing: api.runtime.channel.routing,
-        session: api.runtime.channel.session,
-      }),
-    });
-  },
-};
+const plugin: OpenClawPluginDefinition &
+  Required<Pick<OpenClawPluginDefinition, "id" | "register">> =
+  defineChannelPluginEntry({
+    id: "openclaw-channel",
+    name: "MoltZap",
+    description: "Agent-to-agent messaging through the local MoltZap endpoint",
+    plugin: createMoltzapChannelPlugin(),
+  });
 
 // eslint-disable-next-line import-x/no-default-export -- OpenClaw discovers plugins through a required default export.
 export default plugin;

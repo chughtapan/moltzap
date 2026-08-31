@@ -466,7 +466,7 @@ export class OpenClawGatewayRequest extends Schema.Class<OpenClawGatewayRequest>
 }) {}
 ```
 
-Principal instruction accepted by OpenClaw's native `agent` RPC.
+Principal instruction accepted by OpenClaw's `agent` gateway RPC.
 
 ### [`OpenClawGatewayRequestError`](./openclaw/gateway.ts#L146)
 
@@ -485,7 +485,7 @@ export class OpenClawGatewayRequestError extends Schema.TaggedError<OpenClawGate
 }
 ```
 
-A native OpenClaw gateway call failed or returned an invalid payload.
+An OpenClaw gateway call failed or returned an invalid payload.
 
 ### [`OpenClawGatewayResponse (type)`](./openclaw/gateway.ts#L143)
 
@@ -495,7 +495,7 @@ _TypeAlias_
 export type OpenClawGatewayResponse = typeof OpenClawGatewayResponse.Type;
 ```
 
-Exact terminal response returned by OpenClaw's native `agent` RPC.
+Exact terminal response returned by OpenClaw's `agent` gateway RPC.
 
 ### [`OpenClawGatewayResponse (value)`](./openclaw/gateway.ts#L136)
 
@@ -508,7 +508,7 @@ export const OpenClawGatewayResponse = Schema.Union(
 )
 ```
 
-Schema for the exact terminal response returned by the native `agent` RPC.
+Schema for the exact terminal response returned by the `agent` gateway RPC.
 
 ### [`OpenClawGatewaySucceeded`](./openclaw/gateway.ts#L107)
 
@@ -525,7 +525,7 @@ export class OpenClawGatewaySucceeded extends Schema.Class<OpenClawGatewaySuccee
 }) {}
 ```
 
-Successful terminal projection returned by OpenClaw's native `agent` RPC.
+Successful terminal result returned by OpenClaw's `agent` gateway RPC.
 
 ### [`OpenClawGatewayTimedOut`](./openclaw/gateway.ts#L122)
 
@@ -545,12 +545,12 @@ export class OpenClawGatewayTimedOut extends Schema.Class<OpenClawGatewayTimedOu
 }) {}
 ```
 
-Timed-out terminal projection returned by OpenClaw's native `agent` RPC.
+Timed-out terminal result returned by OpenClaw's `agent` gateway RPC.
 
 OpenClaw treats this as a successful RPC payload rather than a transport
 failure. A run may time out before it has an agent result.
 
-### [`openClawRuntime`](./openclaw/runtime.ts#L141)
+### [`openClawRuntime`](./openclaw/runtime.ts#L149)
 
 _Function_
 
@@ -564,9 +564,17 @@ export function openClawRuntime(
 >
 ```
 
-Construct an OpenClaw application container with its native gateway bridge.
+Constructs a simulator runtime from the pinned OpenClaw application image.
 
-**Returns:** The open claw runtime result.
+```mermaid
+flowchart LR
+  Options[Runtime options] --> Definition[OpenClaw runtime definition]
+  Definition --> Application[Pinned image and generated configuration]
+  Application --> Channel[MoltZap channel for daemon messages]
+  Application --> Gateway[OpenClaw agent RPC]
+```
+
+**Returns:** A reusable OpenClaw container runtime definition.
 
 ### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L111)
 
@@ -579,7 +587,7 @@ export interface OpenClawRuntimeOptions {
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
 
-  /** Selects host-native session isolation for evaluations. Defaults to shared. */
+  /** Selects OpenClaw session isolation for evaluations. Defaults to shared. */
   readonly messagingMode?: "shared" | "private";
 
   readonly tools?: OpenClawToolsConfig;
@@ -589,25 +597,27 @@ export interface OpenClawRuntimeOptions {
 
 Configuration captured by one reusable OpenClaw runtime value.
 
-### [`OpenClawSandboxConfig`](./openclaw/configuration.ts#L22)
+### [`OpenClawSandboxConfig`](./openclaw/configuration.ts#L25)
 
 _TypeAlias_
 
 ```ts
-export type OpenClawSandboxConfig = NonNullable<AgentDefaultsConfig["sandbox"]>;
+export type OpenClawSandboxConfig = NonNullable<
+  NonNullable<NonNullable<OpenClawConfig["agents"]>["defaults"]>["sandbox"]
+>;
 ```
 
-Native OpenClaw sandbox configuration for the runtime's default agent.
+Default-agent sandbox configuration accepted by `OpenClawConfig`.
 
-### [`OpenClawToolsConfig`](./openclaw/configuration.ts#L19)
+### [`OpenClawToolsConfig`](./openclaw/configuration.ts#L22)
 
 _TypeAlias_
 
 ```ts
-export type OpenClawToolsConfig = ToolsConfig;
+export type OpenClawToolsConfig = NonNullable<OpenClawConfig["tools"]>;
 ```
 
-Native OpenClaw tool exposure and execution configuration.
+Tool configuration accepted by `OpenClawConfig`.
 
 ### [`Resources`](./container.ts#L41)
 

@@ -48,7 +48,7 @@ function filenameStems(source: string): string[] {
 describe("context filename drift canary", () => {
   it("matches the installed OpenClaw bootstrap loader entries", () => {
     const require = createRequire(import.meta.url);
-    const sdkEntry = require.resolve("openclaw/plugin-sdk");
+    const sdkEntry = require.resolve("openclaw/plugin-sdk/channel-core");
     const distIndex = sdkEntry.indexOf(`${path.sep}dist${path.sep}`);
     assert.isAbove(distIndex, 0, "openclaw's dist directory moved");
     const distDirectory = sdkEntry.slice(0, distIndex + 5);
