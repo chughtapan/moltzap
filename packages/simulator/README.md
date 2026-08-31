@@ -64,6 +64,14 @@ NanoClaw requires an explicit digest-pinned application image implementing its
 fixed one-container bootstrap and gateway contract. The simulator never
 substitutes a mutable or placeholder image.
 
+Build that application image from the pinned NanoClaw source archive:
+
+```bash
+pnpm nx run workspace:simulator-nanoclaw-image
+```
+
+The command prints the immutable `pinnedImage` value accepted by the runtime.
+
 ## Local and GKE profiles
 
 Build the shared controller/support image and create the pinned local profile:
