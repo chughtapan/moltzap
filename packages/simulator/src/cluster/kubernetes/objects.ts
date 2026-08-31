@@ -44,6 +44,7 @@ const BOOTSTRAP_INPUT_PATH = "/var/run/moltzap/secret";
 const BOOTSTRAP_OUTPUT_PATH = "/var/run/moltzap/bootstrap";
 const DAEMON_SECRET_PATH = "/var/run/moltzap/daemon";
 const ENDPOINT_STATE_PATH = "/var/lib/moltzap/endpoint";
+const SANDBOX_USER_ID = 1_000;
 const MCP_URL = `http://127.0.0.1:${String(DAEMON_MCP_PORT)}/mcp`;
 const REGISTRAR_ENTRYPOINT = "/opt/moltzap/register-daemon.mjs";
 
@@ -343,9 +344,14 @@ function sandboxPodSpec(input: SandboxManifestInput) {
     automountServiceAccountToken: false,
     enableServiceLinks: false,
     restartPolicy: "Never",
-    securityContext: { runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000 },
+    securityContext: {
+      runAsUser: SANDBOX_USER_ID,
+      runAsGroup: SANDBOX_USER_ID,
+      fsGroup: SANDBOX_USER_ID,
+    },
     initContainers: [
       bootstrapContainer(input),
+      endpointStatePermissionsContainer(input),
       daemonContainer(input),
       registrarContainer(input),
     ],
@@ -448,6 +454,38 @@ function bootstrapContainer(input: SandboxManifestInput) {
       },
       { name: "bootstrap-output", mountPath: BOOTSTRAP_OUTPUT_PATH },
     ],
+  };
+}
+
+/**
+ * Give the daemon ownership of the persistent volume's mount root.
+ *
+ * Kubernetes projects `fsGroup` onto the volume but leaves its root directory
+ * owned by root. The endpoint store narrows that directory to mode 0700, which
+ * requires the daemon user to own it rather than merely have group write access.
+ *
+ * @param input Sandbox settings that provide the support image.
+ * @returns The init container that prepares the endpoint-state volume.
+ */
+function endpointStatePermissionsContainer(
+  input: SandboxManifestInput,
+): V1Container {
+  return {
+    name: "endpoint-state-permissions",
+    image: input.supportImage,
+    command: ["chown"],
+    args: [
+      `${String(SANDBOX_USER_ID)}:${String(SANDBOX_USER_ID)}`,
+      ENDPOINT_STATE_PATH,
+    ],
+    securityContext: {
+      allowPrivilegeEscalation: false,
+      capabilities: { add: ["CHOWN"], drop: ["ALL"] },
+      readOnlyRootFilesystem: true,
+      runAsNonRoot: false,
+      runAsUser: 0,
+    },
+    volumeMounts: [{ name: "endpoint-state", mountPath: ENDPOINT_STATE_PATH }],
   };
 }
 
