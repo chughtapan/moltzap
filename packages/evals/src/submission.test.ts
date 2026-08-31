@@ -47,6 +47,8 @@ function input(condition: EvaluationConditionName): SubmitEvaluationCellInput {
   };
 }
 
+// @agent-code-guard/regression-only: generated controller source is a finite two-runtime wire contract whose exact imports and image bindings are the behavior under test.
+
 it("binds the NanoClaw image into one NanoClaw cell module", () => {
   const source = evaluationControllerModule(input("nanoclaw/v2"));
 
@@ -64,8 +66,10 @@ it("binds the NanoClaw image into one NanoClaw cell module", () => {
 });
 
 it("does not inject the unused NanoClaw application image into an OpenClaw cell", () => {
+  const openClawInput = input("openclaw/v2");
+  Reflect.deleteProperty(openClawInput, "nanoclawApplicationImage");
   const source = evaluationControllerModule({
-    ...input("openclaw/v2"),
+    ...openClawInput,
     messagingMode: "private",
   });
 
@@ -73,6 +77,16 @@ it("does not inject the unused NanoClaw application image into an OpenClaw cell"
   assert.include(source, 'messagingMode: "private"');
   assert.notInclude(source, NANOCLAW_IMAGE);
   assert.include(source, "peerApplicationImage: supportImageFromEnvironment()");
+});
+
+it("refuses a NanoClaw cell without its application image", () => {
+  const nanoclawInput = input("nanoclaw/v2");
+  Reflect.deleteProperty(nanoclawInput, "nanoclawApplicationImage");
+
+  assert.throws(
+    () => evaluationControllerModule(nanoclawInput),
+    /require a NanoClaw application image/u,
+  );
 });
 
 effect.each(["local", "gke"] as const)(

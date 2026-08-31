@@ -118,7 +118,7 @@ export class LocalEvaluationInfrastructure extends Schema.TaggedClass<LocalEvalu
   {
     profile: Schema.Literal("local"),
     controllerImage: image,
-    nanoclawApplicationImage: image,
+    nanoclawApplicationImage: Schema.optional(image),
     temporalAddress: Schema.NonEmptyString,
     artifactDirectory: Schema.NonEmptyString,
   },
@@ -130,7 +130,7 @@ export class GkeEvaluationInfrastructure extends Schema.TaggedClass<GkeEvaluatio
   {
     profile: Schema.Literal("gke"),
     controllerImage: image,
-    nanoclawApplicationImage: image,
+    nanoclawApplicationImage: Schema.optional(image),
     temporalAddress: Schema.NonEmptyString,
     kubeContext: Schema.NonEmptyString,
     artifactBucket: Schema.NonEmptyString,

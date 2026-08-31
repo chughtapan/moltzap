@@ -21,6 +21,12 @@ import { bootstrapSecretManifest, type KubernetesRunOwner } from "./objects.js";
 const REGISTRY_STATE_PATH = "/var/lib/moltzap/registry";
 const REGISTRY_SECRET_PATH = "/var/run/moltzap/registry";
 const STATE_STORAGE = "1Gi";
+const POSTGRESQL_READY_SCRIPT = [
+  "const net = require('node:net');",
+  "const socket = net.connect(5432, '127.0.0.1');",
+  "socket.once('connect', () => socket.end());",
+  "socket.once('error', () => process.exit(1));",
+].join("");
 
 /** Fixed run-owned objects that host the one Registry and one Router. */
 export interface SocietyNetworkManifests {
@@ -171,7 +177,12 @@ function registryDeployment(input: SocietyNetworkManifestInput): V1Deployment {
                 "10",
               ],
               ports: [{ name: "postgresql", containerPort: 5432 }],
-              readinessProbe: { tcpSocket: { port: 5432 }, periodSeconds: 1 },
+              readinessProbe: {
+                exec: {
+                  command: ["node", "--eval", POSTGRESQL_READY_SCRIPT],
+                },
+                periodSeconds: 1,
+              },
               resources: { requests: { cpu: "100m", memory: "256Mi" } },
               volumeMounts: [
                 { name: "registry-state", mountPath: REGISTRY_STATE_PATH },

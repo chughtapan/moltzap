@@ -35,9 +35,10 @@ target's addressed response. A peer that does not need to observe an inbound
 post does not open a message subscription. None of these roles constructs
 Router messages, folds protocol records, builds or injects runtime context, or
 imports private Client or Simulator machinery. OpenClaw may select its stock
-`shared` or `private` session configuration. NanoClaw session behavior belongs
-to the supplied stock application image. Client and Simulator inject no
-cross-address context for either runtime.
+`shared` or `private` session configuration. The simulator NanoClaw image uses
+one native `agent-shared` session across the MoltZap addresses delivered to its
+application container. Client and Simulator inject no cross-address context
+for either runtime.
 
 ## One attempt
 
@@ -93,10 +94,12 @@ evidence rather than inventing a response when the peer observation deadline
 settles first. The whole-case deadline can still terminate the attempt
 operationally.
 
-`--messaging-mode shared|private` remains part of the immutable attempt
-configuration and is passed only to a runtime whose stock configuration
-exposes it. It currently configures OpenClaw. NanoClaw uses the session and
-model-output behavior of its supplied application image.
+`--runtime all|openclaw|nanoclaw` selects the conditions in the immutable
+attempt plan and defaults to `all`. Every selected condition requires its
+matching model option. `--messaging-mode shared|private` selects OpenClaw's
+session configuration. `private` is currently accepted only with
+`--runtime openclaw`; NanoClaw qualification uses the application image's
+`agent-shared` session.
 
 ## Principal input is runtime-native
 
@@ -242,6 +245,9 @@ OPENAI_API_KEY=... \
 Start or resume a live report:
 
 ```bash
+pnpm nx run workspace:simulator-nanoclaw-image
+
+ANTHROPIC_API_KEY=... \
 OPENAI_API_KEY=... \
 MOLTZAP_CONTROLLER_IMAGE=CONTROLLER_IMAGE_AT_SHA256 \
 MOLTZAP_NANOCLAW_IMAGE=NANOCLAW_APPLICATION_IMAGE_AT_SHA256 \
@@ -250,10 +256,11 @@ MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
   mise x node@24.18.0 -- pnpm nx run @moltzap/evals:eval -- \
   --profile local \
   --report-id baseline-2026-07-29 \
+  --runtime nanoclaw \
   --messaging-mode shared \
-  --openclaw-model "$OPENCLAW_MODEL" \
   --nanoclaw-model "$NANOCLAW_MODEL"
 
+ANTHROPIC_API_KEY=... \
 OPENAI_API_KEY=... \
 MOLTZAP_CONTROLLER_IMAGE=CONTROLLER_IMAGE_AT_SHA256 \
 MOLTZAP_NANOCLAW_IMAGE=NANOCLAW_APPLICATION_IMAGE_AT_SHA256 \
@@ -262,20 +269,20 @@ MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
   mise x node@24.18.0 -- pnpm nx run @moltzap/evals:resume -- \
   --profile local \
   --report-id baseline-2026-07-29 \
+  --runtime nanoclaw \
   --messaging-mode shared \
-  --openclaw-model "$OPENCLAW_MODEL" \
   --nanoclaw-model "$NANOCLAW_MODEL"
 ```
 
-The source worktree must be clean. Both model IDs are required and become part
-of the immutable native runtime configuration. The controller and NanoClaw
-application images must be immutable digest references. Their
-presence is an execution prerequisite, not evidence that the NanoClaw image or
-a live cluster has passed qualification.
+The source worktree must be clean. Each selected runtime's model ID becomes
+part of the immutable native runtime configuration. The controller image and,
+when selected, the NanoClaw application image must be immutable digest
+references. Their presence is an execution prerequisite, not evidence that an
+image or live cluster has passed qualification.
 
-The NanoClaw application image also needs native OneCLI-compatible credential
-state. Its bubblewrap sessions intentionally do not inherit raw provider API
-keys from the outer application environment.
+The NanoClaw image uses the outer application container as its simulator
+isolation boundary and supervises the native agent runner as a child process.
+It does not require a nested container daemon.
 
 For GKE, select `--profile gke`, replace the local artifact root with the
 Terraform-owned `MOLTZAP_GKE_ARTIFACT_BUCKET`, and provide the explicit

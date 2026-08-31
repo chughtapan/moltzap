@@ -83,6 +83,25 @@ const APPLIED = Object.freeze({
   fieldManager: "moltzap-simulator",
   fieldValidation: "Strict",
 } as const);
+const NAMED_WORKER = Object.freeze({
+  name: RUN_WORKER_NAME,
+  namespace: SYSTEM_NAMESPACE,
+} as const);
+const STRATEGIC_MERGE_OPTIONS = setHeaderOptions(
+  "Content-Type",
+  PatchStrategy.StrategicMergePatch,
+);
+// Deployment defaults rollingUpdate while its type is RollingUpdate. Removing
+// every strategy key except type makes the transition to Recreate atomic before
+// server-side apply declares the complete desired object.
+const RECREATE_STRATEGY_PATCH = Object.freeze({
+  spec: {
+    strategy: {
+      $retainKeys: ["type"],
+      type: "Recreate",
+    },
+  },
+});
 
 /** Failure of one Kubernetes call, carrying the status but never the body. */
 export class KubernetesCallFailed extends Error {
@@ -227,9 +246,7 @@ export function makeKubernetesRunWorkerInstallApi(
     );
   return Object.freeze({
     install: (object: RunWorkerObject) =>
-      kubernetesCall(`apply run worker ${object}`, applies[object]).pipe(
-        Effect.asVoid,
-      ),
+      installRunWorkerObject(clients, applies, object),
     // A cluster with no worker yet reads as no image rather than as a failure:
     // nothing is installed, so nothing can be interrupted by installing.
     readInstalledWorkerImage: () =>
@@ -439,6 +456,31 @@ function ignoreAbsent(
 ): Effect.Effect<void, ClusterError> {
   return attemptUnlessAbsent(operation, evaluate).pipe(
     Effect.mapError(societyFailure),
+  );
+}
+
+function installRunWorkerObject(
+  clients: InstallClients,
+  applies: Readonly<Record<RunWorkerObject, InstalledObjectApply>>,
+  object: RunWorkerObject,
+): Effect.Effect<void, KubernetesCallFailed> {
+  const apply = kubernetesCall(
+    `apply run worker ${object}`,
+    applies[object],
+  ).pipe(Effect.asVoid);
+  return object === "deployment"
+    ? prepareRunWorkerDeployment(clients).pipe(Effect.zipRight(apply))
+    : apply;
+}
+
+function prepareRunWorkerDeployment(
+  clients: InstallClients,
+): Effect.Effect<void, KubernetesCallFailed> {
+  return attemptUnlessAbsent("prepare run worker deployment strategy", () =>
+    clients.apps.patchNamespacedDeployment(
+      { ...NAMED_WORKER, body: RECREATE_STRATEGY_PATCH, ...APPLIED },
+      STRATEGIC_MERGE_OPTIONS,
+    ),
   );
 }
 
@@ -1083,11 +1125,6 @@ interface KubeContextSelector {
 
 /** One object's apply call, already bound to the manifest it declares. */
 type InstalledObjectApply = () => PromiseLike<unknown>;
-
-const NAMED_WORKER = Object.freeze({
-  name: RUN_WORKER_NAME,
-  namespace: SYSTEM_NAMESPACE,
-} as const);
 
 /**
  * Field ownership plus the content type that makes a patch an apply. Ownership
