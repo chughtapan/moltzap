@@ -257,7 +257,14 @@ it("starts a registered daemon sidecar before the isolated application", () => {
               image: SUPPORT_IMAGE,
               restartPolicy: "Always",
               startupProbe: {
-                tcpSocket: { host: "127.0.0.1", port: DAEMON_MCP_PORT },
+                exec: {
+                  command: [
+                    "node",
+                    "--input-type=module",
+                    "--eval",
+                    `await fetch("http://127.0.0.1:${String(DAEMON_MCP_PORT)}/mcp");`,
+                  ],
+                },
               },
             },
             { name: "register-daemon", image: SUPPORT_IMAGE },
