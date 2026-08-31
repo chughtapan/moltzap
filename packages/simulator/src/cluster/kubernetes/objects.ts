@@ -46,6 +46,8 @@ const DAEMON_SECRET_PATH = "/var/run/moltzap/daemon";
 const ENDPOINT_STATE_PATH = "/var/lib/moltzap/endpoint";
 const SANDBOX_USER_ID = 1_000;
 const MCP_URL = `http://127.0.0.1:${String(DAEMON_MCP_PORT)}/mcp`;
+/** Probe inside the container because the daemon listens on pod loopback only. */
+const MCP_PROBE_PROGRAM = `await fetch(${JSON.stringify(MCP_URL)});`;
 const REGISTRAR_ENTRYPOINT = "/opt/moltzap/register-daemon.mjs";
 
 /** Root ConfigMap name shared with controller-created owner references. */
@@ -575,7 +577,9 @@ function daemonContainer(input: SandboxManifestInput) {
     ],
     resources: { requests: { cpu: "100m", memory: "256Mi" } },
     startupProbe: {
-      tcpSocket: { port: DAEMON_MCP_PORT, host: "127.0.0.1" },
+      exec: {
+        command: ["node", "--input-type=module", "--eval", MCP_PROBE_PROGRAM],
+      },
       failureThreshold: 120,
       periodSeconds: 1,
       timeoutSeconds: 1,
