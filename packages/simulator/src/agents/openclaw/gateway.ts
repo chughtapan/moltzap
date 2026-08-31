@@ -32,7 +32,7 @@ export class OpenClawGatewayStoppedBeforeHello extends Schema.TaggedError<OpenCl
   }
 }
 
-/** Controller-side observations required to attach the native gateway. */
+/** Process details required to attach OpenClaw's public gateway client. */
 export interface OpenClawGatewaySession {
   readonly gatewayUrl: `ws://${string}` | `wss://${string}`;
   readonly gatewayToken: Redacted.Redacted;
@@ -42,7 +42,7 @@ export interface OpenClawGatewaySession {
   readonly stopped: Effect.Effect<never, OpenClawGatewayStoppedBeforeHello>;
 }
 
-/** Native OpenClaw device keypair used by the controller bridge. */
+/** OpenClaw device keypair used only by the controller bridge. */
 export interface OpenClawGatewayDeviceIdentity {
   readonly deviceId: string;
   readonly privateKeyPem: string;
@@ -80,7 +80,7 @@ class OpenClawGatewayResult extends Schema.Class<OpenClawGatewayResult>(
   ),
 }) {}
 
-/** Principal instruction accepted by OpenClaw's native `agent` RPC. */
+/** Principal instruction accepted by OpenClaw's `agent` gateway RPC. */
 export class OpenClawGatewayRequest extends Schema.Class<OpenClawGatewayRequest>(
   "OpenClawGatewayRequest",
 )({
@@ -102,7 +102,7 @@ const openClawTimeoutPhase = Schema.Literal(
 );
 
 /**
- * Successful terminal projection returned by OpenClaw's native `agent` RPC.
+ * Successful terminal result returned by OpenClaw's `agent` gateway RPC.
  */
 export class OpenClawGatewaySucceeded extends Schema.Class<OpenClawGatewaySucceeded>(
   "OpenClawGatewaySucceeded",
@@ -114,7 +114,7 @@ export class OpenClawGatewaySucceeded extends Schema.Class<OpenClawGatewaySuccee
 }) {}
 
 /**
- * Timed-out terminal projection returned by OpenClaw's native `agent` RPC.
+ * Timed-out terminal result returned by OpenClaw's `agent` gateway RPC.
  *
  * OpenClaw treats this as a successful RPC payload rather than a transport
  * failure. A run may time out before it has an agent result.
@@ -131,18 +131,18 @@ export class OpenClawGatewayTimedOut extends Schema.Class<OpenClawGatewayTimedOu
   result: Schema.optional(OpenClawGatewayResult),
 }) {}
 
-/** Schema for the exact terminal response returned by the native `agent` RPC. */
-// eslint-disable-next-line @typescript-eslint/naming-convention, agent-code-guard/no-exported-brand-constructor -- evaluation event schemas compose this closed native response at their publication boundary.
+/** Schema for the exact terminal response returned by the `agent` gateway RPC. */
+// eslint-disable-next-line @typescript-eslint/naming-convention, agent-code-guard/no-exported-brand-constructor -- Evaluation event schemas compose this closed gateway response at their publication boundary.
 export const OpenClawGatewayResponse = Schema.Union(
   OpenClawGatewaySucceeded,
   OpenClawGatewayTimedOut,
 );
 
-/** Exact terminal response returned by OpenClaw's native `agent` RPC. */
+/** Exact terminal response returned by OpenClaw's `agent` gateway RPC. */
 // eslint-disable-next-line @typescript-eslint/no-redeclare -- the value is the runtime Schema and the type is its decoded result.
 export type OpenClawGatewayResponse = typeof OpenClawGatewayResponse.Type;
 
-/** A native OpenClaw gateway call failed or returned an invalid payload. */
+/** An OpenClaw gateway call failed or returned an invalid payload. */
 export class OpenClawGatewayRequestError extends Schema.TaggedError<OpenClawGatewayRequestError>()(
   "OpenClawGatewayRequestError",
   {
@@ -209,7 +209,7 @@ export type OpenClawGatewayClientFactory = (
 
 /**
  * Gateway client construction, replaceable by lifecycle tests. A run that
- * installs nothing gets the native client.
+ * installs nothing gets OpenClaw's public client.
  * @internal
  */
 export class GatewayOperations extends Context.Tag(
@@ -222,10 +222,10 @@ export class GatewayOperations extends Context.Tag(
  *
  * The container attach contract fixes this Effect's requirements to Scope, so
  * the client factory is an optional environment override rather than a
- * required service: a run that installs nothing gets the native client.
+ * required service: a run that installs nothing gets OpenClaw's public client.
  * @param session Running OpenClaw process and private gateway credentials.
  * @param within Runtime-owned startup deadline.
- * @returns The runtime-native principal gateway.
+ * @returns The principal-facing gateway for this OpenClaw process.
  * @internal
  */
 export function acquireOpenClawGateway(
@@ -234,7 +234,7 @@ export function acquireOpenClawGateway(
 ): Effect.Effect<OpenClawGateway, Error, Scope.Scope> {
   return Effect.gen(function* () {
     const makeClient = yield* Effect.serviceOption(GatewayOperations).pipe(
-      Effect.map(Option.getOrElse(nativeGatewayClientFactory)),
+      Effect.map(Option.getOrElse(defaultGatewayClientFactory)),
     );
     const hello = yield* Deferred.make<undefined>();
     // eslint-disable-next-line agent-code-guard/acquire-release-requires-scope -- The returned Effect requires Scope, so its caller owns this finalizer.
@@ -280,7 +280,7 @@ export function acquireOpenClawGateway(
   }).pipe(Effect.withSpan("OpenClawGateway.acquire"));
 }
 
-function nativeGatewayClientFactory(): OpenClawGatewayClientFactory {
+function defaultGatewayClientFactory(): OpenClawGatewayClientFactory {
   return (options) => {
     const client = new GatewayClient({
       ...options,

@@ -310,16 +310,19 @@ closed typed unions.
 
 ## Simulator cutover
 
-Simulator retains its compatible facades, `Run.execute(RunSpec)`, cluster and
-Temporal execution, fault layers, and simulation `RunLedger`. The five
-incompatible contracts are removed rather than preserved through shims:
+Simulator retains `Run.execute(RunSpec)`, cluster and Temporal execution, fault
+layers, and simulation `RunLedger`. Its endpoint and runtime cutover follows
+these five rules:
 
-1. Delete `Endpoint.open`, `EndpointTransport.openConversation`, and
-   `OpenedConversation`; first explicit addressed send creates or reuses fixed
-   membership with nonempty initial content.
-2. Delete unaddressed `ConversationSocket.send` and
-   `EndpointTransport.send`; every visible output uses host-native messaging
-   with an explicit `agent:` or `group:` address.
+1. Delete `Endpoint.open`, `Endpoint.socket`, `ConversationAddress`,
+   `ConversationParticipants`, `ConversationSocket`,
+   `EndpointTransport.openConversation`, and `OpenedConversation`. The first
+   explicit addressed send creates or reuses fixed membership with nonempty
+   initial content.
+2. A controlled `Endpoint` exposes only its live endpoint-wide `messages()`
+   stream and `send({ to, content })`. Every send uses an explicit `agent:` or
+   `group:` address. The simulator does not register conversations, create
+   per-address mailboxes, or replay deliveries that predate a subscription.
 3. Replace `Message`, `ReceivedMessage`, message-only receive streams, and
    proof-shaped operation results with public addressed delivery and `void`
    completion facts.

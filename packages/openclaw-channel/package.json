@@ -33,7 +33,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/openclaw-channel",
-          "command": "tsc -b"
+          "command": "node scripts/clean-dist.mjs && tsc -b"
         }
       },
       "lint": {
@@ -72,12 +72,12 @@
     "@types/node": "^25.5.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
-    "openclaw": "2026.6.34",
+    "openclaw": "2026.8.1",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^3.2.0"
   },
   "peerDependencies": {
-    "openclaw": "2026.6.34"
+    "openclaw": "2026.8.1"
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -86,7 +86,7 @@
   },
   "openclaw": {
     "extensions": [
-      "./dist/openclaw-entry.js"
+      "./dist/plugin.js"
     ]
   }
 }

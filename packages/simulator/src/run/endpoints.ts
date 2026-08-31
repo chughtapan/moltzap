@@ -1,6 +1,6 @@
 /** @file Run-owned controlled endpoint acquisition and addressed delivery inboxes. */
 
-import type { InboundDelivery, MessageAddressInput } from "@moltzap/client";
+import type { InboundDelivery } from "@moltzap/client";
 import {
   Cache,
   Cause,
@@ -9,8 +9,6 @@ import {
   Effect,
   ExecutionStrategy,
   Exit,
-  Mailbox,
-  Option,
   PubSub,
   Ref,
   Scope,
@@ -29,22 +27,14 @@ import {
 
 // safer-arch-ignore no-cross-domain-sibling-import: The run kernel binds private cluster acquisition, link registration, and the public endpoint facade.
 
-type DeliveryMailbox = Mailbox.Mailbox<InboundDelivery, NetworkError>;
 type EndpointCache = Cache.Cache<string, Exit.Exit<Endpoint, NetworkError>>;
 
-interface ConversationMailbox {
-  readonly destination: MessageAddressInput;
-  readonly mailbox: DeliveryMailbox;
-}
-
 interface InboxState {
-  readonly conversations: readonly ConversationMailbox[];
   readonly exit?: Exit.Exit<void, NetworkError>;
 }
 
 interface InboxRuntime {
   readonly all: PubSub.PubSub<Take.Take<InboundDelivery, NetworkError>>;
-  readonly localName: string;
   readonly state: Ref.Ref<InboxState>;
   readonly transition: Effect.Semaphore;
 }
@@ -93,20 +83,6 @@ export function makeNetworkService(input: {
   }).pipe(Effect.withSpan("makeNetworkService"));
 }
 
-function conversationStream(
-  mailbox: DeliveryMailbox,
-): Stream.Stream<InboundDelivery, NetworkError> {
-  return Stream.repeatEffectOption(
-    mailbox.take.pipe(
-      Effect.mapError((error) =>
-        Cause.isNoSuchElementException(error)
-          ? Option.none()
-          : Option.some(error),
-      ),
-    ),
-  );
-}
-
 function terminalStream(
   exit: Exit.Exit<void, NetworkError>,
 ): Stream.Stream<InboundDelivery, NetworkError> {
@@ -141,34 +117,7 @@ function publish(
         return;
       }
       yield* PubSub.publish(runtime.all, Take.of(delivery));
-      let conversation = state.conversations.find(({ destination }) =>
-        matchesDelivery(runtime, destination, delivery),
-      );
-      if (conversation === undefined) {
-        const mailbox = yield* Mailbox.make<InboundDelivery, NetworkError>();
-        conversation = { destination: delivery.message.address, mailbox };
-        yield* Ref.set(runtime.state, {
-          ...state,
-          conversations: [...state.conversations, conversation],
-        });
-      }
-      yield* conversation.mailbox.offer(delivery);
     }).pipe(Effect.uninterruptible),
-  );
-}
-
-function matchesDelivery(
-  runtime: InboxRuntime,
-  destination: MessageAddressInput,
-  delivery: InboundDelivery,
-): boolean {
-  if (delivery.message.kind === "direct") {
-    return delivery.message.address === destination;
-  }
-  const expected = groupMemberAddresses(destination, runtime.localName);
-  return (
-    expected !== undefined &&
-    containsSameAddresses(expected, delivery.message.members)
   );
 }
 
@@ -187,84 +136,7 @@ function finish(
         runtime.all,
         Exit.isSuccess(exit) ? Take.end : Take.failCause(exit.cause),
       );
-      yield* Effect.forEach(
-        state.conversations,
-        ({ mailbox }) => mailbox.done(exit),
-        { concurrency: 1, discard: true },
-      );
     }).pipe(Effect.uninterruptible),
-  );
-}
-
-function conversation(runtime: InboxRuntime): EndpointInbox["conversation"] {
-  return (destination: MessageAddressInput) =>
-    runtime.transition.withPermits(1)(
-      Effect.gen(function* () {
-        const state = yield* Ref.get(runtime.state);
-        const existing = state.conversations.find((conversation) =>
-          sameConversation(
-            conversation.destination,
-            destination,
-            runtime.localName,
-          ),
-        );
-        if (existing !== undefined) {
-          return conversationStream(existing.mailbox);
-        }
-        const mailbox = yield* Mailbox.make<InboundDelivery, NetworkError>();
-        if (state.exit !== undefined) {
-          yield* mailbox.done(state.exit);
-        } else {
-          yield* Ref.set(runtime.state, {
-            ...state,
-            conversations: [...state.conversations, { destination, mailbox }],
-          });
-        }
-        return conversationStream(mailbox);
-      }),
-    );
-}
-
-function sameConversation(
-  left: MessageAddressInput,
-  right: MessageAddressInput,
-  localName: string,
-): boolean {
-  if (left === right) {
-    return true;
-  }
-  const leftMembers = groupMemberAddresses(left, localName);
-  const rightMembers = groupMemberAddresses(right, localName);
-  return (
-    leftMembers !== undefined &&
-    rightMembers !== undefined &&
-    containsSameAddresses(leftMembers, [...rightMembers])
-  );
-}
-
-function groupMemberAddresses(
-  destination: MessageAddressInput,
-  localName: string,
-): ReadonlySet<string> | undefined {
-  if (!destination.startsWith("group:")) {
-    return undefined;
-  }
-  const names = destination.slice("group:".length).split(",");
-  if (new Set(names).size !== names.length) {
-    return undefined;
-  }
-  const addresses = new Set(names.map((name) => `agent:${name}`));
-  addresses.add(`agent:${localName}`);
-  return addresses;
-}
-
-function containsSameAddresses(
-  expected: ReadonlySet<string>,
-  actual: readonly string[],
-): boolean {
-  return (
-    expected.size === actual.length &&
-    actual.every((address) => expected.has(address))
   );
 }
 
@@ -290,8 +162,7 @@ function makeInbox<Name extends string>(
   return Effect.gen(function* () {
     const runtime: InboxRuntime = {
       all: yield* PubSub.unbounded<Take.Take<InboundDelivery, NetworkError>>(),
-      localName: attachment.participant.name,
-      state: yield* Ref.make<InboxState>({ conversations: [] }),
+      state: yield* Ref.make<InboxState>({}),
       transition: yield* Effect.makeSemaphore(1),
     };
     const ingressStarted = yield* Deferred.make<undefined>();
@@ -303,7 +174,6 @@ function makeInbox<Name extends string>(
     yield* Deferred.await(ingressStarted);
     return Object.freeze({
       messages: endpointMessages(runtime),
-      conversation: conversation(runtime),
     });
   });
 }

@@ -30,8 +30,5 @@ export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
     "@moltzap/nanoclaw-channel",
     "packages/nanoclaw-channel/src/channels/moltzap.ts",
   ),
-  alias(
-    "@moltzap/openclaw-channel",
-    "packages/openclaw-channel/src/openclaw-entry.ts",
-  ),
+  alias("@moltzap/openclaw-channel", "packages/openclaw-channel/src/plugin.ts"),
 ];

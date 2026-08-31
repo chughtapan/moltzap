@@ -17,8 +17,6 @@ interface FacadeCensus {
 
 type SimulatorFacade = "." | "./network" | "./ledger" | "./agents";
 
-const SIMULATOR_BASELINE_COMMIT = "102f110436bedbba828591c1b97fd4e322abcf76";
-
 function loadPackageExports(): Record<string, unknown> {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const packageJsonPath = path.join(here, "../package.json");
@@ -33,17 +31,11 @@ function loadApiCensus(): Readonly<Record<SimulatorFacade, FacadeCensus>> {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const censusPath = path.join(here, "../api-census.json");
   const parsed: unknown = JSON.parse(readFileSync(censusPath, "utf8"));
-  if (!isRecord(parsed) || parsed.schemaVersion !== 2) {
+  if (!isRecord(parsed) || parsed.schemaVersion !== 3) {
     throw new TypeError("simulator API census has an unsupported shape");
   }
-  const { baseline, facades } = parsed;
-  if (!isRecord(baseline) || !isRecord(facades)) {
-    throw new TypeError("simulator API census has an unsupported shape");
-  }
-  if (
-    baseline.commit !== SIMULATOR_BASELINE_COMMIT ||
-    !isRecord(baseline.removals)
-  ) {
+  const { facades } = parsed;
+  if (!isRecord(facades)) {
     throw new TypeError("simulator API census has an unsupported shape");
   }
   return Object.freeze({
@@ -126,7 +118,7 @@ describe("@moltzap/simulator package map", () => {
     });
   });
 
-  it("pins the admitted declaration-space census", () => {
+  it("pins the current declaration-space census", () => {
     for (const facade of Object.values(apiCensus)) {
       expect(facade.runtime).toEqual(sortedNames(facade.runtime));
       expect(facade.types).toEqual(sortedNames(facade.types));
@@ -145,8 +137,8 @@ describe("@moltzap/simulator package map", () => {
       ledger: uniqueExportCount(apiCensus["./ledger"]),
       agents: uniqueExportCount(apiCensus["./agents"]),
     }).toEqual({
-      root: { unique: 61, runtime: 40, types: 56 },
-      network: { unique: 35, runtime: 18, types: 28 },
+      root: { unique: 58, runtime: 38, types: 53 },
+      network: { unique: 32, runtime: 16, types: 25 },
       ledger: 40,
       agents: 45,
     });
@@ -154,7 +146,7 @@ describe("@moltzap/simulator package map", () => {
 });
 
 describe("@moltzap/simulator/network package export", () => {
-  it("publishes exactly the admitted network runtime values", () => {
+  it("publishes exactly the current network runtime values", () => {
     expect(sortedNames(Object.keys(networkApi))).toEqual(
       sortedNames(apiCensus["./network"].runtime),
     );
@@ -162,7 +154,7 @@ describe("@moltzap/simulator/network package export", () => {
 });
 
 describe("@moltzap/simulator root export", () => {
-  it("publishes exactly the admitted experiment runtime values", () => {
+  it("publishes exactly the current experiment runtime values", () => {
     expect(sortedNames(Object.keys(customerApi))).toEqual(
       sortedNames(apiCensus["."].runtime),
     );
@@ -200,7 +192,7 @@ describe("@moltzap/simulator root export", () => {
 });
 
 describe("@moltzap/simulator/ledger package export", () => {
-  it("publishes exactly the admitted ledger runtime values", () => {
+  it("publishes exactly the current ledger runtime values", () => {
     expect(sortedNames(Object.keys(ledgerApi))).toEqual(
       sortedNames(apiCensus["./ledger"].runtime),
     );
@@ -212,7 +204,7 @@ describe("@moltzap/simulator/ledger package export", () => {
 });
 
 describe("@moltzap/simulator/agents package export", () => {
-  it("publishes exactly the admitted agent runtime values", () => {
+  it("publishes exactly the current agent runtime values", () => {
     expect(sortedNames(Object.keys(runtimeApi))).toEqual(
       sortedNames(apiCensus["./agents"].runtime),
     );

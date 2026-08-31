@@ -9,9 +9,10 @@ Case-owned social peers are ordinary Simulator agents. Their active policies use
 only the public `HarnessEndpoint`: `send` posts to an explicit `agent:` or
 `group:` address. Matching `messages` deliveries become observations; every
 delivery the policy deliberately handles, including a skip, is acknowledged.
-Evals does not inject protocol context,
-construct raw Router traffic, or reach into Client, Router, protocol, or
-Simulator internals.
+Peers subscribe before traffic starts because `messages` is a live
+endpoint-wide stream, not a conversation registration or replay API. Evals does
+not inject protocol context, construct raw Router traffic, or reach into
+Client, Router, protocol, or Simulator internals.
 
 Each OpenClaw or NanoClaw matrix cell constructs a `RunSpec`, submits it through
 the repository's local or GKE Simulator profile, validates completed ledger

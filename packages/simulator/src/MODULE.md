@@ -207,116 +207,6 @@ export class CompletedLedgerReceipt extends Schema.TaggedClass<CompletedLedgerRe
 
 Physical receipt for a ledger whose completion marker is durable.
 
-### [`ConversationAddress`](./network/conversation.ts#L28)
-
-_Class_
-
-```ts
-export class ConversationAddress {
-  readonly [conversationAddressTypeId] = conversationAddressTypeId;
-
-  readonly destination: MessageAddressInput;
-  readonly participants: ConversationParticipants;
-
-  constructor(
-    destination: MessageAddressInput,
-    participants: ConversationParticipants,
-  ) {
-    if (participants.length === 0) {
-      // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- This synchronous public constructor rejects invalid JavaScript input before creating a nominal address.
-      throw new TypeError("conversation participants must not be empty");
-    }
-    const [first, ...rest] = participants;
-    if (
-      new Set(participants.map(({ id }) => id)).size !== participants.length
-    ) {
-      // eslint-disable-next-line agent-code-guard/no-raw-throw-new-error -- This synchronous public constructor rejects invalid JavaScript input before creating a nominal address.
-      throw new TypeError(
-        "conversation participants must be unique by AgentId",
-      );
-    }
-    this.destination = destination;
-    this.participants = Object.freeze([first, ...rest]);
-    Object.freeze(this);
-  }
-}
-```
-
-A participant-independent network address. Binding an endpoint produces a
-conversation socket; the address itself never implies a sender.
-
-### [`ConversationParticipants`](./network/conversation.ts#L19)
-
-_TypeAlias_
-
-```ts
-export type ConversationParticipants = readonly [
-  ParticipantHandle,
-  ...(readonly ParticipantHandle[]),
-];
-```
-
-Every conversation has at least one participant of any network role.
-
-### [`ConversationSocket`](./network/conversation.ts#L72)
-
-_Class_
-
-```ts
-export class ConversationSocket {
-  readonly [conversationSocketTypeId] = conversationSocketTypeId;
-
-  /** Ordered addressed deliveries for this endpoint and conversation. */
-  readonly messages: Stream.Stream<InboundDelivery, NetworkError>;
-
-  readonly endpoint: ParticipantHandle;
-  readonly address: ConversationAddress;
-
-  private constructor(
-    endpoint: ParticipantHandle,
-    address: ConversationAddress,
-    messages: Stream.Stream<InboundDelivery, NetworkError>,
-  ) {
-    this.endpoint = endpoint;
-    this.address = address;
-    this.messages = messages;
-  }
-
-  static [conversationSocketConstruction](
-    endpoint: ParticipantHandle,
-    address: ConversationAddress,
-    messages: Stream.Stream<InboundDelivery, NetworkError>,
-  ): ConversationSocket {
-    return new ConversationSocket(endpoint, address, messages);
-  }
-
-  /**
-   * Receive the next ordered delivery. Selection policy belongs in the
-   * consuming Effect, so the socket never skips an earlier delivery.
-   * @returns The next delivery, or a typed receive failure when the stream ends.
-   */
-  receive(): Effect.Effect<InboundDelivery, NetworkError> {
-    return this.messages.pipe(
-      Stream.runHead,
-      Effect.flatMap(
-        Option.match({
-          onNone: () =>
-            Effect.fail(
-              networkError(
-                "receive",
-                `destination ${this.address.destination} ended before another delivery arrived`,
-              ),
-            ),
-          onSome: Effect.succeed,
-        }),
-      ),
-    );
-  }
-}
-```
-
-A conversation address bound to exactly one controlled endpoint.
-
 ### [`coreEvents`](./events/core.ts#L193)
 
 _Variable_
@@ -359,7 +249,7 @@ export type EncodedEventOf<Catalog> = Schema.Schema.Encoded<
 
 The closed encoded union persisted for a catalog.
 
-### [`Endpoint`](./network/endpoint.ts#L34)
+### [`Endpoint`](./network/endpoint.ts#L21)
 
 _Class_
 
@@ -403,33 +293,6 @@ export class Endpoint<Name extends string = string> {
    */
   messages(): Stream.Stream<InboundDelivery, NetworkError> {
     return this.inbox.messages;
-  }
-
-  /**
-   * Bind this endpoint as the receiver for an existing address.
-   * @param address Conversation whose participant set includes this endpoint.
-   * @returns The endpoint-bound socket or a typed address mismatch.
-   */
-  socket(
-    address: ConversationAddress,
-  ): Effect.Effect<ConversationSocket, NetworkError> {
-    const isParticipant = address.participants.some(
-      (participant) => participant.id === this.participant.id,
-    );
-    return isParticipant
-      ? this.inbox
-          .conversation(address.destination)
-          .pipe(
-            Effect.map((messages) =>
-              makeConversationSocket(this.participant, address, messages),
-            ),
-          )
-      : Effect.fail(
-          networkError(
-            "socket",
-            `participant ${this.participant.name} is not addressed by the conversation`,
-          ),
-        );
   }
 }
 ```
@@ -857,7 +720,7 @@ export type LinkVerdict = Data.TaggedEnum<{
 
 Closed per-delivery decision returned by a link policy.
 
-### [`Network`](./network/endpoint.ts#L126)
+### [`Network`](./network/endpoint.ts#L86)
 
 _Class_
 
@@ -870,7 +733,7 @@ export class Network extends Context.Tag("@moltzap/simulator/Network")<
 
 Network operations available to the customer program.
 
-### [`NetworkError`](./network/failure.ts#L20)
+### [`NetworkError`](./network/failure.ts#L19)
 
 _Class_
 
@@ -890,7 +753,7 @@ export class NetworkError extends Schema.TaggedError<NetworkError>()(
 
 An operational failure at a simulator network boundary.
 
-### [`NetworkService`](./network/endpoint.ts#L119)
+### [`NetworkService`](./network/endpoint.ts#L79)
 
 _Interface_
 
@@ -1257,7 +1120,6 @@ Stable persisted identity for an event class.
 - `ledger/read.ts`
 - `ledger/schema.ts`
 - `ledger/storage.ts`
-- `network/conversation.ts`
 - `network/endpoint.ts`
 - `network/failure.ts`
 - `network/index.ts`

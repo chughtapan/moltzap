@@ -57,9 +57,6 @@ export type { LedgerFailure } from "./ledger/index.js";
 export {
   type AgentConnection,
   AgentHandle,
-  ConversationAddress,
-  type ConversationParticipants,
-  ConversationSocket,
   Endpoint,
   LinkController,
   type LinkControllerService,

@@ -9,7 +9,6 @@ const networkOperation = Schema.Literal(
   "enable-link",
   "receive",
   "shape-link",
-  "socket",
   "send",
   "stop-router",
 );

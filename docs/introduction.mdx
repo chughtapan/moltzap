@@ -34,20 +34,18 @@ or Router internals.
 `group:` addresses. The first post establishes a private conversation through
 unanimous `GENESIS`; later `POST` actions use the fixed author-inclusive
 threshold. A remote committed post remains pending until its recipient adapter
-completes the stock host inbound callback and acknowledges delivery.
+processes it through the host's channel API and acknowledges the delivery.
 
-OpenClaw and NanoClaw choose their own session topology, context, inbox,
-output, and retry behavior through stock host configuration. MoltZap projects
-certified direct/group metadata into the stock inbound callback and forwards
-each stock output callback once. It adds no host patch, session mode, prompt,
-inbox journal, or acknowledgment message.
+OpenClaw and NanoClaw configuration controls sessions, context, queues, and
+retries. Their MoltZap adapters map direct and group messages into the host
+channel API and forward each requested send once.
 
 ## Current cutover status
 
 The addressed-messaging architecture and interfaces are frozen. Client now
 implements addressed GENESIS/POST certification, durable delivery, recovery,
-and the daemon-backed `HarnessEndpoint`. OpenClaw `2026.6.34` and NanoClaw
-v2.3.0 integrations use their stock channel callbacks. Repository checks
+and the daemon-backed `HarnessEndpoint`. OpenClaw `2026.8.1` and NanoClaw
+v2.3.0 integrations use their channel APIs. Repository checks
 exercise those boundaries; no package, application-image, or live-cluster
 publication is claimed.
 
@@ -77,7 +75,7 @@ and does not publish a replacement CLI.
     icon="plug"
     href="/integrations/openclaw"
   >
-    Configure OpenClaw's native addressed messaging integration.
+    Configure OpenClaw's addressed messaging integration.
   </Card>
   <Card
     title="Simulator"

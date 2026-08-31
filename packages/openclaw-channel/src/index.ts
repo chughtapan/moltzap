@@ -1,9 +1,11 @@
 /**
- * @file Canonical package entry. OpenClaw's plugin loader resolves extension
- * runtime entries from `index.*` at the extension root only, so the built
- * `dist/index.js` must exist; the implementation lives in `openclaw-entry.ts`.
+ * @file Package entry for tools that import the extension by package name.
+ *
+ * OpenClaw discovers `dist/plugin.js` through package metadata. `dist/index.js`
+ * gives other package consumers a stable default export without exposing
+ * OpenClaw-specific types.
  */
-import plugin from "./openclaw-entry.js";
+import plugin from "./plugin.js";
 
 interface OpenClawLoaderEntry {
   readonly id: string;

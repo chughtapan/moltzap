@@ -19,8 +19,6 @@ import * as network from "@moltzap/simulator/network";
 import type {
   AgentConnection,
   AgentHandle,
-  ConversationAddress,
-  ConversationSocket,
   Endpoint,
   EndpointTransport,
   LinkDelivery,
@@ -60,7 +58,6 @@ const openClawSandbox = { mode: "off" } satisfies OpenClawSandboxConfig;
 const misspelledOpenClawTools: OpenClawToolsConfig = { profil: "minimal" };
 
 interface PositiveNetworkMembers {
-  readonly address: ConversationAddress;
   readonly connection: AgentConnection<"alice">;
   readonly delivery: LinkDelivery;
   readonly driver: LinkDriverService;
@@ -71,7 +68,6 @@ interface PositiveNetworkMembers {
   readonly provider: RouterProviderService;
   readonly router: Router;
   readonly runtimeInput: AgentRuntimeInput;
-  readonly socket: ConversationSocket;
   readonly sendInput: SendInput;
   readonly started: StartedAgent<"alice", unknown>;
 }
@@ -82,24 +78,10 @@ export function verifyPositiveNetworkMembers(input: PositiveNetworkMembers) {
   const endpointSend: Effect.Effect<void, NetworkError> = input.endpoint.send(
     input.sendInput,
   );
-  const socket: Effect.Effect<ConversationSocket, NetworkError> =
-    input.endpoint.socket(input.address);
-  const constructedAddress: ConversationAddress =
-    new network.ConversationAddress(
-      input.address.destination,
-      input.address.participants,
-    );
-  const rootConstructedAddress: ConversationAddress =
-    new simulator.ConversationAddress(
-      input.address.destination,
-      input.address.participants,
-    );
   const received: Stream.Stream<InboundDelivery, NetworkError> =
     input.endpointTransport.received;
   const transportSend: Effect.Effect<void, NetworkError> =
     input.endpointTransport.send(input.sendInput);
-  const nextDelivery: Effect.Effect<InboundDelivery, NetworkError> =
-    input.socket.receive();
   const agent: AgentHandle<"alice"> = input.connection.agent;
   const startedAgent: AgentHandle<"alice"> = input.started.agent;
   const agentName: AgentName = input.runtimeInput.agentName;
@@ -131,18 +113,14 @@ export function verifyPositiveNetworkMembers(input: PositiveNetworkMembers) {
     agentName,
     clear,
     controlledEndpoint,
-    constructedAddress,
     disable,
     enable,
     endpointMessages,
     endpointSend,
     from,
-    nextDelivery,
     received,
-    rootConstructedAddress,
     routerAddress,
     signedMessage,
-    socket,
     startedAgent,
     stopped,
     to,
