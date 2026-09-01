@@ -37,7 +37,6 @@ import {
 } from "../society-network.js";
 
 // safer-arch-ignore no-cross-domain-sibling-import: Kubernetes objects carry the agent and ledger identities the run gives them.
-/* eslint-disable max-lines -- The package's private Kubernetes manifest catalog is intentionally centralized for whole-object review. */
 
 const MAX_KUEUE_POD_SETS = 8;
 const BOOTSTRAP_INPUT_PATH = "/var/run/moltzap/secret";
@@ -440,50 +439,12 @@ function bootstrapContainer(input: SandboxManifestInput) {
 
 function applicationContainer(input: SandboxManifestInput) {
   const [command, ...args] = input.application.entrypoint;
-  const credentials = (input.application.credentials ?? [])
-    .map((name) => {
-      const key = input.credentialSecretKeys[name];
-      return key === undefined
-        ? undefined
-        : {
-            name,
-            valueFrom: {
-              secretKeyRef: {
-                name: input.bootstrapSecretName,
-                key,
-                optional: false,
-              },
-            },
-          };
-    })
-    .filter((entry) => entry !== undefined);
   return {
     name: "application",
     image: input.application.image,
     command: [command],
     args,
-    env: [
-      ...Object.entries({
-        ...input.application.environment,
-        MOLTZAP_MCP_URL: MCP_URL,
-        MOLTZAP_REGISTRATION_AGENT_NAME: input.agentName,
-        MOLTZAP_REGISTRATION_OPERATION_ID: input.daemon.operationId,
-        MOLTZAP_REGISTRATION_PRINCIPAL_ID: input.daemon.principalId,
-        MOLTZAPD_ADMISSION_CREDENTIAL_FILE:
-          DAEMON_SECRET_PATH + "/" + ADMISSION_CREDENTIAL_SECRET_KEY,
-        MOLTZAPD_AGENT_PRIVATE_KEY_FILE:
-          DAEMON_SECRET_PATH + "/" + AGENT_PRIVATE_KEY_SECRET_KEY,
-        MOLTZAPD_MCP_PORT: String(DAEMON_MCP_PORT),
-        MOLTZAPD_REGISTRY_ORIGIN: input.network.registryOrigin,
-        MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY:
-          input.network.registrySignerPublicKeyJson,
-        MOLTZAPD_ROUTER_ORIGIN: input.network.routerOrigin,
-        MOLTZAPD_STATE_DIRECTORY: ENDPOINT_STATE_PATH,
-      })
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([name, value]) => ({ name, value })),
-      ...credentials,
-    ],
+    env: applicationEnvironment(input),
     ports: [
       {
         name: `gateway-${String(input.application.port)}`,
@@ -515,6 +476,48 @@ function applicationContainer(input: SandboxManifestInput) {
       { name: "endpoint-state", mountPath: ENDPOINT_STATE_PATH },
     ],
   };
+}
+
+function applicationEnvironment(input: SandboxManifestInput) {
+  const credentials = (input.application.credentials ?? [])
+    .map((name) => {
+      const key = input.credentialSecretKeys[name];
+      return key === undefined
+        ? undefined
+        : {
+            name,
+            valueFrom: {
+              secretKeyRef: {
+                name: input.bootstrapSecretName,
+                key,
+                optional: false,
+              },
+            },
+          };
+    })
+    .filter((entry) => entry !== undefined);
+  return [
+    ...Object.entries({
+      ...input.application.environment,
+      MOLTZAP_MCP_URL: MCP_URL,
+      MOLTZAP_REGISTRATION_AGENT_NAME: input.agentName,
+      MOLTZAP_REGISTRATION_OPERATION_ID: input.daemon.operationId,
+      MOLTZAP_REGISTRATION_PRINCIPAL_ID: input.daemon.principalId,
+      MOLTZAPD_ADMISSION_CREDENTIAL_FILE:
+        DAEMON_SECRET_PATH + "/" + ADMISSION_CREDENTIAL_SECRET_KEY,
+      MOLTZAPD_AGENT_PRIVATE_KEY_FILE:
+        DAEMON_SECRET_PATH + "/" + AGENT_PRIVATE_KEY_SECRET_KEY,
+      MOLTZAPD_MCP_PORT: String(DAEMON_MCP_PORT),
+      MOLTZAPD_REGISTRY_ORIGIN: input.network.registryOrigin,
+      MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY:
+        input.network.registrySignerPublicKeyJson,
+      MOLTZAPD_ROUTER_ORIGIN: input.network.routerOrigin,
+      MOLTZAPD_STATE_DIRECTORY: ENDPOINT_STATE_PATH,
+    })
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, value]) => ({ name, value })),
+    ...credentials,
+  ];
 }
 
 function resourceRequests(
@@ -749,19 +752,26 @@ function controllerEnvironment(
       ? []
       : [{ name: "MOLTZAP_COHORT_SIZE", value: String(input.cohortSize) }]),
     { name: "MOLTZAP_LEDGER_DIRECTORY", value: LOCAL_LEDGER_DIRECTORY },
-    ...(profile.kind === "gke"
-      ? [
-          {
-            name: "MOLTZAP_LEDGER_EXPORT_DIRECTORY",
-            value: `${GKE_ARTIFACT_MOUNT_PATH}/${input.namespace}/ledger`,
-          },
-          {
-            name: "MOLTZAP_ROSTER_PLACEMENT",
-            value: JSON.stringify(profile.rosterPlacement),
-          },
-        ]
-      : []),
+    ...profileControllerEnvironment(input, profile),
   ];
+}
+
+function profileControllerEnvironment(
+  input: RunSocietyWorkflowInput,
+  profile: KubernetesExecutionProfile,
+) {
+  return profile.kind === "gke"
+    ? [
+        {
+          name: "MOLTZAP_LEDGER_EXPORT_DIRECTORY",
+          value: `${GKE_ARTIFACT_MOUNT_PATH}/${input.namespace}/ledger`,
+        },
+        {
+          name: "MOLTZAP_ROSTER_PLACEMENT",
+          value: JSON.stringify(profile.rosterPlacement),
+        },
+      ]
+    : [];
 }
 
 function experimentManifest(
@@ -1188,5 +1198,3 @@ function runWorkerLabels(): Readonly<Record<string, string>> {
     "app.kubernetes.io/managed-by": "moltzap-simulator",
   };
 }
-
-/* eslint-enable max-lines -- Restore the workspace file-size limit outside the manifest catalog. */
