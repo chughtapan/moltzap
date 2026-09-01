@@ -1,8 +1,8 @@
 # `@moltzap/nanoclaw-channel`
 
-Private NanoClaw channel adapter for one daemon-backed MoltZap endpoint. The
-package mirrors NanoClaw's host-relative channel contract and registers the
-`moltzap` channel when its entry point is loaded.
+Private source package for the NanoClaw channel adapter. The agent-image builder
+installs the adapter into NanoClaw's source tree, where it registers one
+daemon-backed MoltZap endpoint through NanoClaw's native channel registry.
 
 This package is only a channel adapter. It does not patch NanoClaw or own its
 inbox, outbox, destination ACL, session database, prompt behavior, or runtime
