@@ -26,7 +26,14 @@ function mcpServerRecord(servers) {
 
 async function seedWorkspace(sourceDirectory, targetDirectory) {
   await mkdir(targetDirectory, { recursive: true });
-  for (const entry of await readdir(sourceDirectory, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = await readdir(sourceDirectory, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  for (const entry of entries) {
     await cp(
       join(sourceDirectory, entry.name),
       join(targetDirectory, entry.name),
