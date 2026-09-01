@@ -113,13 +113,13 @@ concrete runtime gateway. There is no simulator-wide gateway union:
 | Condition | Principal boundary | Recorded evidence |
 |---|---|---|
 | OpenClaw | Its persistent gateway RPC | Instruction attempted and final gateway output |
-| NanoClaw | Its owner-local socket | Input frame submitted |
+| NanoClaw | Its owner-local socket | Input frame and, for a question, the next observed output |
 
 Gateway evidence states what the adapter submitted or received at that native
 boundary. It does not claim that an agent followed an instruction. NanoClaw's
-output is an uncorrelated multi-frame stream: the
-adapter never treats the next frame as the response or terminal output for an
-instruction.
+output is an uncorrelated multi-frame stream. Its `ask` path serializes
+questions, subscribes before submitting the input, and selects the next output
+frame. The selection does not establish causal correlation.
 
 `execution.ts → evaluationCondition` captures one runtime together with its
 matching `PrincipalDriverFactory`. The factory builds a driver for each
@@ -130,22 +130,18 @@ another member of a shared command or response protocol.
 
 Case programs receive four capabilities:
 
-- `instruct`, which uses the target's native gateway and returns
-  `Some(evidenceId)` only when that gateway correlates selectable output with
-  the instruction;
-- `selectPrincipalOutput`, which selects that output or fails the run explicitly
-  when correlation is unsupported;
+- `instruct`, which submits an input through the target's native gateway without
+  selecting output;
+- `ask`, which submits a question and selects OpenClaw's correlated final output
+  or NanoClaw's next observed output;
 - `observePeer`, which records a case-owned peer exchange or its bounded
   absence without selecting it; and
 - `selectSocialOutput`, which selects the final target-authored social action
   observed by one peer, or selects the peer timeout if no addressed post
   arrives.
 
-Most bundled cases select social evidence and therefore do not require a
-correlated principal response. `EVAL-019` and `EVAL-022` do require selectable
-principal output. They run through OpenClaw's correlated RPC, but finish as
-explicit `RunFailedAttempt` values under NanoClaw because its native socket
-cannot make that claim.
+Most bundled cases select social evidence. `EVAL-019` and `EVAL-022` select
+principal output through each runtime's documented `ask` policy.
 
 ## Typed ledger evidence
 
@@ -216,16 +212,13 @@ artifact location, before executing only the missing suffix. The report cannot
 skip, reorder, or silently move a matrix cell.
 
 Live failures remain results. OpenClaw or NanoClaw may fail to start,
-terminate, time out, produce evidence that grading rejects, lack native output
-correlation, or fail semantic assessment. The sweep persists the corresponding
-typed state and continues through the matrix. NanoClaw's `EVAL-019` and
-`EVAL-022` attempts are expected operational failures until its gateway can
-correlate terminal output; arbitrary output frames are never promoted into a
-pass. Social cases, including all six cross-conversation cases, execute on both
-conditions but may produce peer-timeout evidence, reach the whole-case timeout,
-or receive behaviorally `failed` and `undecided` verdicts. Those verdicts do not
-make the command fail; operational attempt states produce a nonzero exit only
-after the terminal matrix has been saved.
+terminate, time out, produce evidence that grading rejects, or fail semantic
+assessment. The sweep persists the corresponding typed state and continues
+through the matrix. Social cases, including all six cross-conversation cases,
+execute on both conditions but may produce peer-timeout evidence, reach the
+whole-case timeout, or receive behaviorally `failed` and `undecided` verdicts.
+Those verdicts do not make the command fail; operational attempt states produce
+a nonzero exit only after the terminal matrix has been saved.
 
 ## Commands
 
