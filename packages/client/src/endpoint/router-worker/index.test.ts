@@ -40,7 +40,7 @@ import {
   type TestPayload,
   unavailableRegistryLayer,
   unreachableOutbox,
-} from "./fixtures.js";
+} from "../../__tests__/router-worker-fixtures.js";
 import {
   makeRouterWorker,
   RouterWorkerAuthenticationError,
