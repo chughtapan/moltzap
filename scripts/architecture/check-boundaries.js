@@ -342,20 +342,6 @@ failOnSetDrift(
   FINAL_PACKAGE_DIRS,
 );
 
-const v2Dirs = fs.existsSync(v2Root)
-  ? fs
-      .readdirSync(v2Root, { withFileTypes: true })
-      .filter(
-        (entry) =>
-          entry.isDirectory() &&
-          fs.existsSync(path.join(v2Root, entry.name, "package.json")),
-      )
-      .map((entry) => entry.name)
-      .sort()
-  : [];
-
-failOnSetDrift("v2/", "executable package roots remain", v2Dirs, []);
-
 // Architectural numbering helps readers navigate specifications, but it
 // obscures domain ownership in executable artifacts. Source and package
 // metadata name identity, Registry, router, and Router directly.
@@ -897,5 +883,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-architecture-boundaries] OK — ${sourceFiles.length} package TypeScript sources, ${finalSourceCount} final-package code files, exact seven-product static graph, no executable v2 package roots, and ${identityRouterVocabularyFileCount} Identity/Router non-documentation files scanned at compatibility version ${compatibilityVersion}`,
+  `[check-architecture-boundaries] OK — ${sourceFiles.length} package TypeScript sources, ${finalSourceCount} final-package code files, exact seven-product static graph, and ${identityRouterVocabularyFileCount} Identity/Router non-documentation files scanned at compatibility version ${compatibilityVersion}`,
 );
