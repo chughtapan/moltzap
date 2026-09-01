@@ -73,7 +73,7 @@ const moltZapAccountSchema = Schema.Struct({
 type MoltZapAccount = Schema.Schema.Type<typeof moltZapAccountSchema>;
 
 const moltZapChannelConfigSchema = Schema.Struct({
-  accounts: Schema.optional(Schema.Array(moltZapAccountSchema)),
+  accounts: Schema.optional(Schema.Tuple(moltZapAccountSchema)),
 });
 const moltZapOpenClawConfigSchema = Schema.Struct({
   channels: Schema.optional(
@@ -85,6 +85,15 @@ interface ResolvedMessageTarget {
   readonly to: MessageAddressInputValue;
   readonly kind: OpenClawTargetKind;
   readonly display: string;
+}
+
+interface ConnectedAccount {
+  readonly accountId: string;
+  readonly endpoint: HarnessEndpoint;
+}
+
+interface ConnectedAccountState {
+  current?: ConnectedAccount;
 }
 
 interface InboundMessageTurnInput {
@@ -194,7 +203,7 @@ export function makeMoltZapChannelConfigJsonSchema() {
 export function createMoltzapChannelPlugin(
   deps: MoltzapChannelPluginDeps = {},
 ): ChannelPlugin<MoltZapAccount> {
-  const connectedEndpoints = new Map<string, HarnessEndpoint>();
+  const connectedAccount: ConnectedAccountState = {};
   return {
     ...createChannelPluginBase<MoltZapAccount>({
       id: CHANNEL_ID,
@@ -205,9 +214,9 @@ export function createMoltzapChannelPlugin(
     messaging: createMessagingSection(),
     gateway: {
       startAccount: (ctx) =>
-        startAccountConnection(ctx, connectedEndpoints, deps),
+        startAccountConnection(ctx, connectedAccount, deps),
     },
-    message: createMessageSection(connectedEndpoints),
+    message: createMessageSection(connectedAccount),
   };
 }
 
@@ -263,13 +272,11 @@ function createConfigSection() {
   };
 }
 
-function createMessageSection(
-  connectedEndpoints: Map<string, HarnessEndpoint>,
-) {
+function createMessageSection(connectedAccount: ConnectedAccountState) {
   return defineChannelMessageAdapter({
     id: CHANNEL_ID,
     send: {
-      text: (ctx) => runHostPromise(sendOpenClawText(connectedEndpoints, ctx)),
+      text: (ctx) => runHostPromise(sendOpenClawText(connectedAccount, ctx)),
     },
   });
 }
@@ -318,7 +325,7 @@ function normalizeMessageTarget(raw: string): ResolvedMessageTarget | null {
 
 function startAccountConnection(
   ctx: ChannelGatewayContext<MoltZapAccount>,
-  connectedEndpoints: Map<string, HarnessEndpoint>,
+  connectedAccount: ConnectedAccountState,
   deps: MoltzapChannelPluginDeps,
 ) {
   if (ctx.abortSignal.aborted) {
@@ -329,7 +336,7 @@ function startAccountConnection(
       Effect.flatMap((runtime) =>
         acquireAccountEndpoint(deps, ctx.accountId, ctx.account).pipe(
           Effect.flatMap((endpoint) =>
-            runAccountConnection(ctx, runtime, endpoint, connectedEndpoints),
+            runAccountConnection(ctx, runtime, endpoint, connectedAccount),
           ),
         ),
       ),
@@ -417,15 +424,15 @@ function runAccountConnection(
   ctx: ChannelGatewayContext<MoltZapAccount>,
   runtime: OpenClawAccountRuntime,
   endpoint: HarnessEndpoint,
-  connectedEndpoints: Map<string, HarnessEndpoint>,
+  connectedAccount: ConnectedAccountState,
 ) {
   return Effect.sync(() => {
-    connectedEndpoints.set(ctx.accountId, endpoint);
+    connectedAccount.current = { accountId: ctx.accountId, endpoint };
   }).pipe(
     Effect.zipRight(reportConnected(ctx)),
     Effect.zipRight(consumeInboundMessages(ctx, runtime, endpoint)),
     Effect.ensuring(
-      removeConnectedEndpoint(connectedEndpoints, ctx.accountId, endpoint),
+      removeConnectedEndpoint(connectedAccount, ctx.accountId, endpoint),
     ),
     Effect.ensuring(
       Effect.sync(() => {
@@ -707,22 +714,25 @@ function renderContentPart(part: Content[number]): string {
 }
 
 function removeConnectedEndpoint(
-  connectedEndpoints: Map<string, HarnessEndpoint>,
+  connectedAccount: ConnectedAccountState,
   accountId: string,
   active: HarnessEndpoint,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
-    if (connectedEndpoints.get(accountId) === active) {
-      connectedEndpoints.delete(accountId);
+    if (
+      connectedAccount.current?.accountId === accountId &&
+      connectedAccount.current.endpoint === active
+    ) {
+      connectedAccount.current = undefined;
     }
   });
 }
 
 function sendOpenClawText(
-  connectedEndpoints: Map<string, HarnessEndpoint>,
+  connectedAccount: ConnectedAccountState,
   ctx: ChannelMessageSendTextContext,
 ) {
-  return sendAddressedText(connectedEndpoints, {
+  return sendAddressedText(connectedAccount, {
     accountId: ctx.accountId,
     messageId: randomUUID(),
     text: ctx.text,
@@ -731,11 +741,11 @@ function sendOpenClawText(
 }
 
 function sendAddressedText(
-  connectedEndpoints: Map<string, HarnessEndpoint>,
+  connectedAccount: ConnectedAccountState,
   params: AddressedTextSend,
 ) {
   const accountId = params.accountId?.trim() ?? "(unspecified)";
-  const endpoint = connectedEndpoint(connectedEndpoints, params.accountId);
+  const endpoint = connectedEndpoint(connectedAccount, params.accountId);
   if (endpoint === undefined) {
     return Effect.fail(
       new OpenClawOutboundError({
@@ -779,17 +789,22 @@ function makeMessageSendResult(messageId: string): ChannelMessageSendResult {
 }
 
 function connectedEndpoint(
-  connectedEndpoints: Map<string, HarnessEndpoint>,
+  connectedAccount: ConnectedAccountState,
   accountId?: string | null,
 ): HarnessEndpoint | undefined {
-  const requested = accountId?.trim();
-  if (requested !== undefined && requested.length > 0) {
-    return connectedEndpoints.get(requested);
-  }
-  if (connectedEndpoints.size !== 1) {
+  const active = connectedAccount.current;
+  if (active === undefined) {
     return undefined;
   }
-  return connectedEndpoints.values().next().value;
+  const requested = accountId?.trim();
+  if (
+    requested !== undefined &&
+    requested.length > 0 &&
+    requested !== active.accountId
+  ) {
+    return undefined;
+  }
+  return active.endpoint;
 }
 
 function runHostPromise<A, E extends Error | ConfigError.ConfigError>(
