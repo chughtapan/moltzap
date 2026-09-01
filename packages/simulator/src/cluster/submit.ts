@@ -373,18 +373,24 @@ function boundedResult(result: RunControllerResult): RunControllerResult {
   return { ...result, diagnostic: boundedDiagnostic(result.diagnostic) };
 }
 
+function createRunIdentity(
+  operations: SubmitOperationsService,
+): Effect.Effect<ReturnType<typeof makeRunIdentity>, RunSubmissionError> {
+  return Effect.try({
+    try: () => makeRunIdentity(operations.randomUuid()),
+    catch: (cause) =>
+      cause instanceof RunSubmissionError
+        ? cause
+        : failure("execution", "the local run identity could not be created"),
+  });
+}
+
 function executePreparedRun(
   prepared: PreparedRun,
   operations: SubmitOperationsService,
 ): Effect.Effect<RunSubmission, RunSubmissionError> {
   return Effect.gen(function* () {
-    const identity = yield* Effect.try({
-      try: () => makeRunIdentity(operations.randomUuid()),
-      catch: (cause) =>
-        cause instanceof RunSubmissionError
-          ? cause
-          : failure("execution", "the local run identity could not be created"),
-    });
+    const identity = yield* createRunIdentity(operations);
     const experimentModule = yield* readExperiment(prepared.path, operations);
     const result = yield* executeTemporalRun(
       {
