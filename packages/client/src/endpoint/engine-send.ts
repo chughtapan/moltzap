@@ -571,7 +571,9 @@ function activateIntent(
   prepared: PreparedSend,
 ): Effect.Effect<Deferred.Deferred<undefined, SendError>, SendError> {
   return runtime.gate
-    .withPermits(1)(activateIntentOnce(runtime, prepared))
+    .withPermits(1)(
+      Effect.uninterruptible(activateIntentOnce(runtime, prepared)),
+    )
     .pipe(
       Effect.flatMap((activation) => {
         switch (activation.kind) {
@@ -625,10 +627,10 @@ function activateIntentOnce(
       });
       yield* Deferred.succeed(completion, undefined);
     } else {
-      yield* proposeIntent(runtime, localIntent);
       yield* Effect.sync(() => {
         runtime.intents.set(intent.postId, localIntent);
       });
+      yield* proposeIntent(runtime, localIntent);
     }
     return { kind: "ready", completion } satisfies IntentActivation;
   });
