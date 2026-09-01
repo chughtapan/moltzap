@@ -177,7 +177,9 @@ function exactFinalText(
       return CriterionDecided.make({
         criterionId: id,
         verdict: passed ? "passed" : "failed",
-        detail: question,
+        detail: passed
+          ? question
+          : `Expected exactly ${JSON.stringify(expected)} from ${expectedSource}; received ${JSON.stringify(text(selected))} from ${selected.source}.`,
         citations: [selected.evidenceId],
       });
     },
