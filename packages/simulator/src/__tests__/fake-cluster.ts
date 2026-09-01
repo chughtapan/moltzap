@@ -17,7 +17,7 @@ import type {
   RouterFaultProxyPlatform,
   Slot,
   Society,
-} from "./cluster.js";
+} from "../cluster/cluster.js";
 import {
   type AgentRuntimeDefinition,
   type AgentRuntimeLike,
