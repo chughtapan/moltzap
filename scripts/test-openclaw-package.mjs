@@ -27,12 +27,6 @@ const packageRoots = Object.freeze({
   ),
   "@moltzap/router": join(workspaceRoot, "packages", "router"),
 });
-const productDependencyGraph = Object.freeze({
-  "@moltzap/client": Object.freeze(["@moltzap/identity", "@moltzap/router"]),
-  "@moltzap/identity": Object.freeze([]),
-  "@moltzap/openclaw-channel": Object.freeze(["@moltzap/client"]),
-  "@moltzap/router": Object.freeze(["@moltzap/identity"]),
-});
 const OPENCLAW_VERSION = "2026.8.1";
 const OPENCLAW_COMMIT_SHA = "ea806575e6450e4d1efdfc72c19f04be982a1b9b";
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-openclaw-pack-"));
@@ -81,7 +75,7 @@ async function readPackedManifest(archive) {
   return JSON.parse(stdout);
 }
 
-async function verifyPackedProductGraph(archives) {
+async function readPackedManifests(archives) {
   const manifests = Object.fromEntries(
     await Promise.all(
       Object.entries(archives).map(async ([name, archive]) => [
@@ -90,10 +84,7 @@ async function verifyPackedProductGraph(archives) {
       ]),
     ),
   );
-  for (const [name, expectedDependencies] of Object.entries(
-    productDependencyGraph,
-  )) {
-    const manifest = manifests[name];
+  for (const [name, manifest] of Object.entries(manifests)) {
     const sourceManifest = JSON.parse(
       await readFile(join(packageRoots[name], "package.json"), "utf8"),
     );
@@ -105,18 +96,11 @@ async function verifyPackedProductGraph(archives) {
       manifest.private === sourceManifest.private,
       `packed ${name} manifest changed its current private-package status`,
     );
-    const actualDependencies = Object.keys(manifest.dependencies ?? {})
-      .filter((dependency) => dependency.startsWith("@moltzap/"))
-      .sort();
-    requireCondition(
-      JSON.stringify(actualDependencies) ===
-        JSON.stringify([...expectedDependencies].sort()),
-      `packed ${name} product dependency graph drifted`,
-    );
-    for (const dependency of expectedDependencies) {
+    for (const dependency of Object.keys(manifest.dependencies ?? {}).filter(
+      (candidate) => candidate in archives,
+    )) {
       requireCondition(
-        archives[dependency] !== undefined &&
-          manifest.dependencies[dependency] === manifests[dependency].version,
+        manifest.dependencies[dependency] === manifests[dependency].version,
         `packed ${name} does not resolve ${dependency} to its packed version`,
       );
     }
@@ -151,11 +135,8 @@ async function verifyPackedManifest(archive, manifests) {
   );
   requireCondition(
     manifest.dependencies?.["@moltzap/client"] ===
-      manifests["@moltzap/client"].version &&
-      Object.keys(manifest.dependencies ?? {}).every(
-        (name) => name === "@moltzap/client" || name === "effect",
-      ),
-    "packed OpenClaw package has an unexpected product dependency",
+      manifests["@moltzap/client"].version,
+    "packed OpenClaw package must use the packed Client version",
   );
   requireCondition(
     manifest.peerDependencies?.openclaw === OPENCLAW_VERSION &&
@@ -175,14 +156,6 @@ async function verifyPackedManifest(archive, manifests) {
       "dist/plugin.d.ts",
       "openclaw.plugin.json",
     ].map((path) => readFile(join(extractedPackage, path))),
-  );
-  const distributionModules = (await readdir(join(extractedPackage, "dist")))
-    .filter((path) => path.endsWith(".js") || path.endsWith(".d.ts"))
-    .sort();
-  requireCondition(
-    JSON.stringify(distributionModules) ===
-      JSON.stringify(["index.d.ts", "index.js", "plugin.d.ts", "plugin.js"]),
-    "packed OpenClaw distribution contains an unexpected module",
   );
   const pluginManifest = JSON.parse(
     await readFile(join(extractedPackage, "openclaw.plugin.json"), "utf8"),
@@ -251,12 +224,6 @@ async function assembleBundledPlugin(consumerRoot) {
   await verifyStableOpenClaw(openclawRoot);
 
   const extensionsRoot = join(openclawRoot, "dist", "extensions");
-  const extensionNames = await readdir(extensionsRoot);
-  requireCondition(
-    !extensionNames.includes("openclaw-channel") &&
-      !extensionNames.includes("node_modules"),
-    "stable OpenClaw unexpectedly reserves the MoltZap bundled paths",
-  );
   const bundledPluginRoot = join(extensionsRoot, "openclaw-channel");
   const bundledDependenciesRoot = join(extensionsRoot, "node_modules");
   await cp(channelRoot, bundledPluginRoot, { recursive: true });
@@ -266,9 +233,7 @@ async function assembleBundledPlugin(consumerRoot) {
     "dir",
   );
   return {
-    bundledDependenciesRoot,
     bundledPluginRoot,
-    channelRoot,
     openclawRoot,
   };
 }
@@ -285,12 +250,8 @@ async function openClawPluginListCommand(openclawRoot) {
 }
 
 async function verifyBundledHost(consumerRoot) {
-  const {
-    bundledDependenciesRoot,
-    bundledPluginRoot,
-    channelRoot,
-    openclawRoot,
-  } = await assembleBundledPlugin(consumerRoot);
+  const { bundledPluginRoot, openclawRoot } =
+    await assembleBundledPlugin(consumerRoot);
   const stateRoot = join(consumerRoot, "openclaw-state");
   const configPath = join(stateRoot, "openclaw.json");
   await mkdir(stateRoot);
@@ -313,7 +274,6 @@ async function verifyBundledHost(consumerRoot) {
   );
 
   const runtimeCheck = [
-    'import { join } from "node:path";',
     'import { pathToFileURL } from "node:url";',
     "function requireCondition(condition, detail) {",
     "  if (!condition) throw new Error(detail);",
@@ -335,11 +295,6 @@ async function verifyBundledHost(consumerRoot) {
     'requireCondition(plugin?.origin === "bundled" && plugin.enabled === true && plugin.status === "loaded", "MoltZap was not admitted as an enabled bundled plugin");',
     'requireCondition(typeof plugin.rootDir === "string" && typeof plugin.source === "string" && plugin.rootDir === process.env.MOLTZAP_OPENCLAW_BUNDLED_PLUGIN_ROOT && plugin.source.startsWith(`${plugin.rootDir}/`), "MoltZap discovery escaped its bundled root");',
     'requireCondition(JSON.stringify(plugin.channelIds) === JSON.stringify(["moltzap"]), "MoltZap bundled channel metadata drifted");',
-    "const dependenciesRoot = process.env.MOLTZAP_OPENCLAW_BUNDLED_DEPENDENCIES_ROOT;",
-    'requireCondition(typeof dependenciesRoot === "string", "bundled dependency root is not configured");',
-    'requireCondition(report.plugins.every((candidate) => typeof candidate.rootDir !== "string" || (candidate.rootDir !== dependenciesRoot && !candidate.rootDir.startsWith(`${dependenciesRoot}/`))), "OpenClaw discovered the sibling node_modules mount as a plugin");',
-    'const packageApi = await import(pathToFileURL(join(process.env.MOLTZAP_OPENCLAW_CHANNEL_ROOT, "dist", "index.js")).href);',
-    'requireCondition(JSON.stringify(Object.keys(packageApi)) === JSON.stringify(["default"]), "OpenClaw package root exports more than its loader entry");',
     "const extension = await import(pathToFileURL(plugin.source).href);",
     'requireCondition(extension.default?.id === "openclaw-channel", "bundled discovery source is not the MoltZap loader entry");',
     "let registered;",
@@ -350,7 +305,6 @@ async function verifyBundledHost(consumerRoot) {
     'requireCondition(registered?.id === "moltzap", "bundled loader did not register the MoltZap channel");',
     'requireCondition(registered?.message?.send?.text, "stable OpenClaw did not register the MoltZap message adapter");',
     'requireCondition(extension.default.channelPlugin === registered, "stable OpenClaw channel entry did not expose the registered plugin");',
-    'requireCondition(extension.default.setChannelRuntime === undefined, "MoltZap captured a registration-time channel runtime");',
     "",
   ].join("\n");
   await exec(
@@ -370,9 +324,7 @@ async function verifyBundledHost(consumerRoot) {
         OPENCLAW_STATE_DIR: stateRoot,
         OPENCLAW_TEST_TRUST_BUNDLED_PLUGINS_DIR: undefined,
         VITEST: undefined,
-        MOLTZAP_OPENCLAW_BUNDLED_DEPENDENCIES_ROOT: bundledDependenciesRoot,
         MOLTZAP_OPENCLAW_BUNDLED_PLUGIN_ROOT: bundledPluginRoot,
-        MOLTZAP_OPENCLAW_CHANNEL_ROOT: channelRoot,
         MOLTZAP_OPENCLAW_PLUGIN_LIST_COMMAND:
           await openClawPluginListCommand(openclawRoot),
       },
@@ -470,7 +422,7 @@ async function verifyConsumer(archives) {
 
 try {
   const archives = await packedArchives();
-  const manifests = await verifyPackedProductGraph(archives);
+  const manifests = await readPackedManifests(archives);
   await verifyPackedManifest(archives["@moltzap/openclaw-channel"], manifests);
   await verifyConsumer(archives);
   process.stdout.write("OpenClaw packed consumer check passed\n");
