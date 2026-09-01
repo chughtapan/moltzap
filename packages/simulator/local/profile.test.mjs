@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  loadPinnedImages,
   normalizeContainerdReference,
   parseArguments,
   renderKindConfiguration,
@@ -147,29 +148,30 @@ test("the end-to-end run sizes its roster from the run rather than the file", as
   assert.match(endToEnd, /deny: \["\*"\]/);
 });
 
-test("local cluster makes every selected image discoverable", async () => {
-  const setup = await read("../scripts/local-create-cluster.mjs");
-  assert.match(setup, /makePinnedImageDiscoverable/);
-  assert.match(
-    setup,
-    /\.replaceAll\(ARTIFACT_TOKEN,\s*JSON\.stringify\(artifacts\)\)/,
-  );
-  assert.match(
-    setup,
-    /\.replaceAll\(TEMPORAL_HOST_PORT_TOKEN,\s*String\(temporalHostPort\)\)/,
-  );
-  assert.match(setup, /"docker-image",\n\s+source,/);
-  assert.match(
-    setup,
-    /"ctr",\n\s+"-n",\n\s+"k8s\.io",\n\s+"images",\n\s+"tag"/,
-  );
-  assert.match(setup, /"--force",\n\s+"--skip-reference-check"/);
-  assert.match(setup, /"crictl", "inspecti", digestReference/);
-  assert.match(setup, /for \(const \{ image, source \} of imageSources\)/);
-  assert.match(
-    setup,
-    /makePinnedImageDiscoverable\(\n\s+kind,\n\s+options\.cluster,\n\s+source,\n\s+image,/,
-  );
+test("local cluster loads and publishes every selected image", async () => {
+  const imageSources = [
+    { image: "controller@sha256:pinned", source: "controller:local" },
+    { image: "runtime@sha256:pinned", source: "runtime:local" },
+  ];
+  const announced = [];
+  const loaded = [];
+  const discoverable = [];
+
+  await loadPinnedImages("kind", "cluster", imageSources, {
+    announce: (source) => announced.push(source),
+    loadImage: (source) => {
+      loaded.push(source);
+      return Promise.resolve();
+    },
+    makeDiscoverable: (source, image) => {
+      discoverable.push({ image, source });
+      return Promise.resolve();
+    },
+  });
+
+  assert.deepEqual(announced, ["controller:local", "runtime:local"]);
+  assert.deepEqual(loaded, ["controller:local", "runtime:local"]);
+  assert.deepEqual(discoverable, imageSources);
 });
 
 test("local image discovery retries are bounded", async () => {
