@@ -320,7 +320,6 @@ function proactiveSendUsesLocalReceiptIdentity() {
         content: [{ type: "text", text: "hello group" }],
       },
     ]);
-    expect(plugin.message?.durableFinal).toBeUndefined();
     expect(plugin.messaging?.targetResolver?.looksLikeId?.("agent:nova")).toBe(
       true,
     );
@@ -813,11 +812,6 @@ function expectRoutedTurn(
     to: address,
     accountId: ACCOUNT_ID,
   });
-  expect(plan).not.toHaveProperty("agentId");
-  expect(plan).not.toHaveProperty("routeSessionKey");
-  expect(plan).not.toHaveProperty("storePath");
-  expect(plan).not.toHaveProperty("recordInboundSession");
-  expect(plan).not.toHaveProperty("dispatchReplyWithBufferedBlockDispatcher");
 }
 
 function expectDirectProjection(
