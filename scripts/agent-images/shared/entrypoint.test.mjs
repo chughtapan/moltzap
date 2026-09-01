@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -20,11 +28,18 @@ async function fixture(options = {}) {
   const state = join(root, "state");
   const hostRecord = join(root, "host.json");
   const hostStarts = join(root, "host-starts");
-  await import("node:fs/promises").then(({ mkdir }) =>
-    mkdir(source, { recursive: true }),
+  const projectedData = join(source, "..data");
+  await mkdir(projectedData, { recursive: true });
+  await writeFile(join(projectedData, "agent-private-key"), "private");
+  await writeFile(join(projectedData, "admission-credential"), "admission");
+  await symlink(
+    join("..data", "agent-private-key"),
+    join(source, "agent-private-key"),
   );
-  await writeFile(join(source, "agent-private-key"), "private");
-  await writeFile(join(source, "admission-credential"), "admission");
+  await symlink(
+    join("..data", "admission-credential"),
+    join(source, "admission-credential"),
+  );
 
   const daemon = join(root, "daemon.mjs");
   await executable(daemon, [
