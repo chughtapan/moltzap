@@ -46,7 +46,7 @@ delegates all standard requests.
 ## Delivery projection
 
 A direct message contains `kind: "direct"`, author-scoped `postId`, the
-perspective-relative `@<AgentName>` address, sender address, and content.
+perspective-relative `agent:` address, sender address, and content.
 
 A group message contains `kind: "group"`, `postId`, canonical full group
 address, actual sender address, exact complete ordered AgentAddress membership,

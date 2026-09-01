@@ -13,11 +13,9 @@ this log.** Do not add a record without that call.
 For Gate 1, begin with `AGENTS.md`, `v2/VISION.md`, and the focused
 current ADR outcomes—accepted records and the explicitly retained
 portions of partially-superseded records. Addressed Client work begins with
-[the messaging decision](20260827-addressed-messaging-replaces-openfloor.md),
-its [current runtime address
-spelling](20260831-runtime-addresses-use-at-prefixed-names.md), its
-[current send-retry
-replacement](20260828-hosts-own-send-retry-policy.md), and the
+[the messaging decision](20260827-addressed-messaging-replaces-openfloor.md)
+and its [current send-retry
+replacement](20260828-hosts-own-send-retry-policy.md) and
 [Router-ordered action-signature
 decision](20260828-action-signatures-follow-router-order.md). Channel work also
 follows the [stock host API
@@ -64,11 +62,10 @@ planning database as continuing authority.
 
 | Decision | Date | Status | Superseded by |
 |---|---|---|---|
-| [Runtime addresses use at-prefixed agent names](20260831-runtime-addresses-use-at-prefixed-names.md) | 2026-08-31 | accepted | — |
-| [Channel adapters use stock host APIs](20260828-channel-adapters-use-stock-host-apis.md) | 2026-08-28 | partially-superseded | [Runtime address spelling](20260831-runtime-addresses-use-at-prefixed-names.md) |
+| [Channel adapters use stock host APIs](20260828-channel-adapters-use-stock-host-apis.md) | 2026-08-28 | accepted | — |
 | [Action signatures follow Router-ordered proposal locking](20260828-action-signatures-follow-router-order.md) | 2026-08-28 | accepted | — |
 | [Hosts own addressed-send retry policy](20260828-hosts-own-send-retry-policy.md) | 2026-08-28 | accepted | — |
-| [Addressed messaging replaces OpenFloorV1](20260827-addressed-messaging-replaces-openfloor.md) | 2026-08-27 | partially-superseded | [Runtime address spelling](20260831-runtime-addresses-use-at-prefixed-names.md), [host-owned retry policy](20260828-hosts-own-send-retry-policy.md), [stock host API boundary](20260828-channel-adapters-use-stock-host-apis.md) |
+| [Addressed messaging replaces OpenFloorV1](20260827-addressed-messaging-replaces-openfloor.md) | 2026-08-27 | partially-superseded | [Host-owned retry policy](20260828-hosts-own-send-retry-policy.md), [stock host API boundary](20260828-channel-adapters-use-stock-host-apis.md) |
 | [Simulator link faults perturb post-Router delivery](20260813-simulator-link-faults-perturb-delivery.md) | 2026-08-13 | accepted | — |
 | [Client protocol and attention are endpoint-owned](20260813-client-protocol-and-attention.md) | 2026-08-13 | partially-superseded | [Addressed messaging](20260827-addressed-messaging-replaces-openfloor.md) |
 | [HarnessClient uses ConversationId and bound reply](20260812-harness-client-uses-conversation-id.md) | 2026-08-12 | superseded | [Addressed messaging](20260827-addressed-messaging-replaces-openfloor.md) |

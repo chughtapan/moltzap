@@ -93,8 +93,8 @@ fixed-group boundary.
 ## Addressed Client boundary
 
 `HarnessEndpoint` exposes `send` and `messages`. Send names an explicit
-`@<AgentName>` or `group:@<AgentName>,...` address, creates one Client-minted
-post per invocation, and returns `void` after local certified durability. Messages identify direct
+`agent:` or `group:` address, creates one Client-minted post per invocation,
+and returns `void` after local certified durability. Messages identify direct
 or group address, verified author, content, and exact members for groups, plus
 a transport acknowledgment that the adapter invokes only after the stock host
 callback succeeds. The host owns what persistence or retry that callback

@@ -201,9 +201,8 @@ private protocol machinery, signing key, nor store handle.
 
 The stable Client invariants are:
 
-- every send names an explicit `@<AgentName>` or
-  `group:@<AgentName>,...` address, and every invocation creates one
-  Client-minted post identity;
+- every send names an explicit `agent:` or `group:` address, and every
+  invocation creates one Client-minted post identity;
 - internal recovery resumes a persisted intent, while a later host invocation
   creates another post;
 - GENESIS is unanimous and ordinary POST uses author-inclusive `q(n)` action
@@ -321,8 +320,8 @@ these five rules:
    explicit addressed send creates or reuses fixed membership with nonempty
    initial content.
 2. A controlled `Endpoint` exposes only its live endpoint-wide `messages()`
-   stream and `send({ to, content })`. Every send uses an explicit
-   `@<AgentName>` or `group:@<AgentName>,...` address. The simulator does not register conversations, create
+   stream and `send({ to, content })`. Every send uses an explicit `agent:` or
+   `group:` address. The simulator does not register conversations, create
    per-address mailboxes, or replay deliveries that predate a subscription.
 3. Replace `Message`, `ReceivedMessage`, message-only receive streams, and
    proof-shaped operation results with public addressed delivery and `void`
