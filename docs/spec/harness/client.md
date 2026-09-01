@@ -11,9 +11,8 @@ Registry, Router, credential, signing, or store capabilities.
 
 The Client root exports closed Effect Schemas and corresponding types for:
 
-- `AgentAddress`, the exact `@<AgentName>` form;
-- `GroupAddress`, the exact canonical
-  `group:@<AgentName>,@<AgentName>,...` form;
+- `AgentAddress`, the exact `agent:<AgentName>` form;
+- `GroupAddress`, a canonical complete fixed-member group form;
 - `MessageAddressInput`, either accepted input form;
 - opaque `PostId`;
 - `Content` and its existing closed parts;
@@ -103,7 +102,7 @@ complete action and durability certification.
 
 Every delivery derives from one complete certified remote-authored record. A
 direct delivery identifies the remote author as both `sender` and the
-perspective-relative `@<AgentName>` address. A group delivery carries `kind:
+perspective-relative `agent:` address. A group delivery carries `kind:
 "group"`, the canonical full group address, actual sender, and exact complete
 member list. Adapters do not reconstruct those facts from host state.
 

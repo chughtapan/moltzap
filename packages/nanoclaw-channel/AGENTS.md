@@ -23,11 +23,10 @@ does not change this package boundary.
 - Keep NanoClaw's `ChannelAdapter` entry point and host-relative stub modules
   aligned with the stock NanoClaw API. Do not patch or extend the host ABI,
   inbox, ACL, session router, prompt, output parser, or sandbox driver.
-- Direct input identifies the sender and `@<AgentName>` address. Group input retains
+- Direct input identifies the sender and `agent:` address. Group input retains
   the canonical group address, sender, exact members, and native group flag.
-- Validate the explicit `@<AgentName>` or `group:@<AgentName>,...` platform
-  destination supplied to `deliver`; NanoClaw owns destination discovery and
-  permissions.
+- Validate the explicit `agent:` or `group:` platform destination supplied to
+  `deliver`; NanoClaw owns destination discovery and permissions.
 - Leave outbound queue and retry policy to NanoClaw. Every adapter call is one
   Client send; do not pass `messages_out.id` or add adapter deduplication.
   Project metadata before content, await the stock `onInbound` callback, and
