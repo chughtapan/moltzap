@@ -1,4 +1,4 @@
-/** @file Installs the narrow MoltZap source overlay into an extracted NanoClaw tree. */
+/** @file Installs the MoltZap channel into an extracted stock NanoClaw tree. */
 import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
