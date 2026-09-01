@@ -4,6 +4,9 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const AGENT_GROUP_ID = "agent";
+const PRINCIPAL_CHANNEL = "cli";
+const PRINCIPAL_MESSAGING_GROUP_ID = "moltzap-principal";
+const PRINCIPAL_PLATFORM_ID = "local";
 
 function moduleUrl(appRoot, relativePath) {
   return pathToFileURL(`${appRoot}/dist/${relativePath}`).href;
@@ -46,11 +49,52 @@ async function seedWorkspace(sourceDirectory, targetDirectory) {
   }
 }
 
+async function wirePrincipalGateway(messagingGroups, agentGroupId, now) {
+  let group = await messagingGroups.getMessagingGroupByPlatform(
+    PRINCIPAL_CHANNEL,
+    PRINCIPAL_PLATFORM_ID,
+    PRINCIPAL_CHANNEL,
+  );
+  if (group === undefined) {
+    group = {
+      id: PRINCIPAL_MESSAGING_GROUP_ID,
+      channel_type: PRINCIPAL_CHANNEL,
+      platform_id: PRINCIPAL_PLATFORM_ID,
+      instance: PRINCIPAL_CHANNEL,
+      name: "MoltZap principal",
+      is_group: 0,
+      unknown_sender_policy: "public",
+      created_at: now,
+    };
+    await messagingGroups.createMessagingGroup(group);
+  }
+
+  const wiring = await messagingGroups.getMessagingGroupAgentByPair(
+    group.id,
+    agentGroupId,
+  );
+  if (wiring === undefined) {
+    await messagingGroups.createMessagingGroupAgent({
+      id: "moltzap-principal-agent",
+      messaging_group_id: group.id,
+      agent_group_id: agentGroupId,
+      engage_mode: "pattern",
+      engage_pattern: ".",
+      sender_scope: "all",
+      ignored_message_policy: "drop",
+      session_mode: "agent-shared",
+      priority: 0,
+      created_at: now,
+    });
+  }
+}
+
 /**
  * Initialize the native agent group that gives the single host its workspace.
  *
- * Conversations, sessions, and channel wiring remain absent until NanoClaw
- * receives traffic and routes it through its normal host lifecycle.
+ * The owner-local CLI gateway is wired during provisioning. MoltZap
+ * conversations and sessions remain absent until NanoClaw receives traffic
+ * and routes it through its normal host lifecycle.
  */
 export async function provisionNanoClaw(
   config,
@@ -65,6 +109,7 @@ export async function provisionNanoClaw(
     containerConfigs,
     configModule,
     groupInit,
+    messagingGroups,
     migrations,
     upgrade,
   ] = await Promise.all([
@@ -73,6 +118,7 @@ export async function provisionNanoClaw(
     import(moduleUrl(appRoot, "db/container-configs.js")),
     import(moduleUrl(appRoot, "config.js")),
     import(moduleUrl(appRoot, "group-init.js")),
+    import(moduleUrl(appRoot, "db/messaging-groups.js")),
     import(moduleUrl(appRoot, "db/migrations/index.js")),
     import(moduleUrl(appRoot, "upgrade-state.js")),
   ]);
@@ -99,6 +145,7 @@ export async function provisionNanoClaw(
     }
 
     await groupInit.initGroupFilesystem(agent, { provider: "claude" });
+    await wirePrincipalGateway(messagingGroups, agent.id, now);
     await seedWorkspace(
       config.workspaceDirectory,
       join(config.stateDirectory, "groups", agent.folder),
