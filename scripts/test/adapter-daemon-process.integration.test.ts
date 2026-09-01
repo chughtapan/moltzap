@@ -294,6 +294,7 @@ function isStableOpenClawEntry(value: unknown): value is StableOpenClawEntry {
 
 interface OpenClawReplyFixture {
   readonly callerAddress: string;
+  readonly callerId: string;
   readonly responseSent: Deferred.Deferred<void>;
   readonly sessions: RecordedSessionStore;
 }
@@ -559,7 +560,7 @@ function makeObservedOpenClawAccountRuntime(
         resolveAgentRoute: (input) => {
           expect(input.peer).toEqual({
             kind: "direct",
-            id: fixture.callerAddress,
+            id: fixture.callerId,
           });
           return {
             agentId: "primary",
@@ -696,6 +697,7 @@ function runOpenClawScenario() {
       let channelPlugin: StableOpenClawChannelPlugin | null = null;
       const runtime = makeObservedOpenClawAccountRuntime({
         callerAddress,
+        callerId: scenario.caller.agentName,
         responseSent,
         sessions,
       });
