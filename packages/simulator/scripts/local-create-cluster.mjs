@@ -381,6 +381,25 @@ async function makePinnedImageDiscoverable(kind, cluster, source, image) {
   }
 }
 
+export async function loadPinnedImages(
+  kind,
+  cluster,
+  imageSources,
+  {
+    announce = (source) => report(`loading image ${source}`),
+    loadImage = (source) =>
+      run(kind, ["load", "docker-image", source, "--name", cluster]),
+    makeDiscoverable = (source, image) =>
+      makePinnedImageDiscoverable(kind, cluster, source, image),
+  } = {},
+) {
+  for (const { image, source } of imageSources) {
+    announce(source);
+    await loadImage(source);
+    await makeDiscoverable(source, image);
+  }
+}
+
 export async function renderKindConfiguration(
   artifacts,
   temporalHostPort,
@@ -548,17 +567,7 @@ async function main() {
       "5m",
     ]);
     await installProfile(kubectl, context, profile, temporary);
-    for (const { image, source } of imageSources) {
-      report(`loading image ${source}`);
-      await run(kind, [
-        "load",
-        "docker-image",
-        source,
-        "--name",
-        options.cluster,
-      ]);
-      await makePinnedImageDiscoverable(kind, options.cluster, source, image);
-    }
+    await loadPinnedImages(kind, options.cluster, imageSources);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
