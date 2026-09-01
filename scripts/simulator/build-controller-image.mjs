@@ -22,6 +22,15 @@ const scriptRoot = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = dirname(dirname(scriptRoot));
 const simulatorRoot = join(workspaceRoot, "packages", "simulator");
 const dockerfile = join(scriptRoot, "controller-image", "Dockerfile");
+const agentEntrypoint = join(
+  workspaceRoot,
+  "scripts/agent-images/shared/entrypoint.mjs",
+);
+const agentHostCommand = join(
+  scriptRoot,
+  "controller-image",
+  "host-command.json",
+);
 const registrar = join(
   workspaceRoot,
   "scripts/agent-images/shared/register-daemon.mjs",
@@ -138,6 +147,8 @@ async function stage() {
   const archives = Object.fromEntries(packed);
   await Promise.all([
     copyFile(dockerfile, join(root, "Dockerfile")),
+    copyFile(agentEntrypoint, join(root, "agent-entrypoint.mjs")),
+    copyFile(agentHostCommand, join(root, "agent-host-command.json")),
     copyFile(registrar, join(root, "register-daemon.mjs")),
     copyFile(qualificationProgram, join(root, "simulator-fault-program.mjs")),
     writeFile(
@@ -161,6 +172,8 @@ async function fingerprint(root) {
   const hash = createHash("sha256");
   const inputs = [
     "Dockerfile",
+    "agent-entrypoint.mjs",
+    "agent-host-command.json",
     "controller-package.json",
     "register-daemon.mjs",
     "simulator-fault-program.mjs",
