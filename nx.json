@@ -102,6 +102,7 @@
       "cache": true
     },
     "test:integration": {
+      "parallelism": false,
       "dependsOn": [
         "^build"
       ],
