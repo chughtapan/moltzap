@@ -98,19 +98,26 @@ const forgetPublishedDelivery = (
   });
 
 const makeAcknowledgeDeliveryOperation =
-  (state: ProtocolState): HarnessMcpOperations["acknowledgeDelivery"] =>
+  (
+    state: ProtocolState,
+    deliveryGate: Effect.Semaphore,
+  ): HarnessMcpOperations["acknowledgeDelivery"] =>
   (deliveryToken) =>
-    Effect.suspend(() => {
-      const protocol = state.activeProtocol;
-      if (protocol === undefined) {
-        return Effect.fail(
-          new DeliveryAcknowledgeError({ reason: "unknown-delivery" }),
-        );
-      }
-      return protocol.engine
-        .acknowledgeMessage(deliveryToken)
-        .pipe(Effect.tap(() => forgetPublishedDelivery(state, deliveryToken)));
-    });
+    deliveryGate.withPermits(1)(
+      Effect.suspend(() => {
+        const protocol = state.activeProtocol;
+        if (protocol === undefined) {
+          return Effect.fail(
+            new DeliveryAcknowledgeError({ reason: "unknown-delivery" }),
+          );
+        }
+        return protocol.engine
+          .acknowledgeMessage(deliveryToken)
+          .pipe(
+            Effect.tap(() => forgetPublishedDelivery(state, deliveryToken)),
+          );
+      }),
+    );
 
 const runSubscriptionChanges = (
   environment: ProtocolEnvironment,
@@ -148,6 +155,7 @@ const assembleDaemonController = (input: {
   readonly environment: ProtocolEnvironment;
   readonly management: DaemonActivationPreparation["management"];
   readonly changes: Queue.Queue<boolean>;
+  readonly deliveryGate: Effect.Semaphore;
   readonly reconciler: Effect.Effect<void>;
   readonly initialize: InitializeProtocol;
 }): DaemonController => {
@@ -163,6 +171,7 @@ const assembleDaemonController = (input: {
       send: makeSendOperation(input.environment.state),
       acknowledgeDelivery: makeAcknowledgeDeliveryOperation(
         input.environment.state,
+        input.deliveryGate,
       ),
     }),
     subscriptionChanged: (active) => {
@@ -219,6 +228,7 @@ export const makeDaemonController = (
       environment,
       management: input.management,
       changes,
+      deliveryGate,
       reconciler,
       initialize,
     });

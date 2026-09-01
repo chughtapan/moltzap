@@ -96,8 +96,15 @@ interface Fixture {
 interface DeliveryState {
   readonly pending: EnginePendingMessage;
   readonly acknowledgedTokens: Array<typeof DeliveryToken.Type>;
+  readonly events: string[];
   acknowledged: boolean;
+  readBarrier?: ReadBarrier;
   reads: number;
+}
+
+interface ReadBarrier {
+  readonly entered: Deferred.Deferred<undefined>;
+  readonly release: Deferred.Deferred<undefined>;
 }
 
 interface HarnessSignals {
@@ -432,9 +439,17 @@ function makeEngine(
   return {
     send: () => Effect.void,
     readPendingMessages: () =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         delivery.reads += 1;
-        return delivery.acknowledged ? [] : [delivery.pending];
+        const messages = delivery.acknowledged ? [] : [delivery.pending];
+        const barrier = delivery.readBarrier;
+        delivery.readBarrier = undefined;
+        if (barrier !== undefined) {
+          yield* Deferred.succeed(barrier.entered, undefined);
+          yield* Deferred.await(barrier.release);
+        }
+        delivery.events.push("delivery-ready");
+        return messages;
       }),
     acknowledgeMessage: (deliveryToken) =>
       deliveryToken !== delivery.pending.deliveryToken
@@ -444,6 +459,7 @@ function makeEngine(
         : Effect.sync(() => {
             delivery.acknowledged = true;
             delivery.acknowledgedTokens.push(deliveryToken);
+            delivery.events.push("acknowledged");
           }),
     acceptRouterIngress: () => Effect.succeed("ignored"),
     acceptRecoveryIngress: () => Effect.succeed("ignored"),
@@ -466,6 +482,7 @@ const makeHarness = (
       pending: fixture.pending,
       acknowledged: false,
       acknowledgedTokens: [],
+      events: [],
       reads: 0,
     };
     const dependencies = makeRuntimeDependencies({
@@ -703,15 +720,31 @@ const receivesFirstDelivery = async (
   return undefined;
 };
 
-const receivesReplacementDelivery = async (
+const acknowledgeDuringReplacementDelivery = async (
+  harness: RuntimeHarness,
   handler: HarnessMcpSubscriptionHandler<HarnessMessageReadyEvent>,
   pending: EnginePendingMessage,
 ): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
+  const readBarrier: ReadBarrier = {
+    entered: await Effect.runPromise(Deferred.make<undefined>()),
+    release: await Effect.runPromise(Deferred.make<undefined>()),
+  };
+  harness.delivery.readBarrier = readBarrier;
   const reader = responseReader(
     await handler.fetch(makeListenRequest("listener-2")),
   );
   await awaitFrame(reader, "replacement subscription acknowledgment");
-  expect(await awaitFrame(reader, "replayed message delivery")).toEqual({
+  await awaitStage(
+    Deferred.await(readBarrier.entered),
+    "pending delivery read",
+  );
+
+  const acknowledgment = Effect.runFork(
+    requireOperations(harness).acknowledgeDelivery(pending.deliveryToken),
+  );
+  await Effect.runPromise(Effect.yieldNow());
+  await Effect.runPromise(Deferred.succeed(readBarrier.release, undefined));
+  expect(await awaitFrame(reader, "replacement message delivery")).toEqual({
     jsonrpc: "2.0",
     method: HARNESS_MESSAGE_READY_NOTIFICATION,
     params: {
@@ -719,6 +752,7 @@ const receivesReplacementDelivery = async (
       _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-2" },
     },
   });
+  await awaitStage(Fiber.join(acknowledgment), "delivery acknowledgment");
   return reader;
 };
 
@@ -732,20 +766,16 @@ const replaysUntilAcknowledged = async () => {
     const handler = requireHandler(harness);
 
     await receivesFirstDelivery(handler, fixture.pending);
-    const secondReader = await receivesReplacementDelivery(
+    harness.delivery.events.length = 0;
+    const secondReader = await acknowledgeDuringReplacementDelivery(
+      harness,
       handler,
       fixture.pending,
-    );
-
-    await awaitStage(
-      requireOperations(harness).acknowledgeDelivery(
-        fixture.pending.deliveryToken,
-      ),
-      "delivery acknowledgment",
     );
     expect(harness.delivery.acknowledgedTokens).toEqual([
       fixture.pending.deliveryToken,
     ]);
+    expect(harness.delivery.events).toEqual(["delivery-ready", "acknowledged"]);
     expect(harness.delivery.reads).toBe(2);
     await secondReader.cancel();
   } finally {
@@ -753,13 +783,12 @@ const replaysUntilAcknowledged = async () => {
   }
 };
 
-// @agent-code-guard/regression-only: these cases pin the finite daemon activation, supervision, and delivery ownership boundaries.
 describe("daemon runtime composition", () => {
   it("waits for the active engine and supervises the Router worker", () =>
     blocksStartupAndSupervisesWorker());
   it("does not finish registration before engine activation", () =>
     blocksRegistrationAndSupervisesOutbound());
-  it("publishes only while subscribed and replays until acknowledgment", () =>
+  it("publishes durable deliveries before completing acknowledgment", () =>
     replaysUntilAcknowledged());
 });
 
