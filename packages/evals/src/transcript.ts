@@ -279,12 +279,12 @@ function selectedGatewayIssue(
   target: EvaluationTarget,
 ): TranscriptIssue | undefined {
   const isTargetOutput =
-    selection.observation instanceof OpenClawPrincipalFinalOutput &&
+    isGatewayOutput(selection.observation) &&
     selection.observation.agentName === target.name;
   return isTargetOutput
     ? undefined
     : {
-        detail: `selected evidence ${selectedId} is not correlated terminal output from the target`,
+        detail: `selected evidence ${selectedId} is not output from the target`,
         evidenceId: selectedId,
       };
 }
