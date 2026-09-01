@@ -7,7 +7,7 @@ import {
   defineRuntime,
   runtimeConfigurationProjection,
 } from "./agent.js";
-import { makeAgentRosterBuilder } from "./roster.js";
+import { AgentRoster } from "./roster.js";
 
 const testRuntimeConfiguration = Schema.Struct({
   label: Schema.String,
@@ -37,10 +37,8 @@ it("validates roster keys when the definition constructs its roster", () => {
     name: "test",
     configuration,
   });
-  const makeRoster = makeAgentRosterBuilder("acme.society/v1");
-
   assert.throws(() =>
-    makeRoster({
+    AgentRoster.make("acme.society/v1", {
       "Not Wire Safe": runtime,
     }),
   );
@@ -63,7 +61,7 @@ it("copies and freezes roster declarations without mutating caller input", () =>
     configuration,
   });
   const definitions = { alice: runtime };
-  const roster = makeAgentRosterBuilder("acme.society/v1")(definitions);
+  const roster = AgentRoster.make("acme.society/v1", definitions);
 
   assert.isFalse(Object.isFrozen(definitions));
   assert.notStrictEqual(roster.definitions, definitions);

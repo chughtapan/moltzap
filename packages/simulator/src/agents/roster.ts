@@ -11,8 +11,6 @@ const agentRosterTypeId: unique symbol = Symbol(
   "@moltzap/simulator/AgentRoster",
 );
 
-const rosterDefinitionTokens = new WeakMap<object, object>();
-
 let nextRosterServiceId = 0;
 
 type ValidatedAgentDefinition<
@@ -142,48 +140,4 @@ export class AgentRoster<
       ),
     );
   }
-}
-
-type AgentRosterBuilder<Id extends string> = <
-  const Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
->(
-  runtimes: Definitions,
-) => AgentRoster<Id, Definitions>;
-
-/**
- * Bind the roster constructor to one simulator definition.
- * @param definitionId Definition identity retained by every constructed roster.
- * @returns The created agent roster builder.
- */
-export function makeAgentRosterBuilder<const Id extends string>(
-  definitionId: Id,
-): AgentRosterBuilder<Id> {
-  return makeAgentRosterBinding(definitionId).agents;
-}
-
-/**
- * Construct the roster factory and ownership check for one definition value.
- * The shared token stays inside this closure so equal definition ids cannot
- * make independently constructed definitions interchangeable.
- * @param definitionId Definition identity shared by the bound ownership token.
- * @returns The created agent roster binding.
- */
-export function makeAgentRosterBinding<const Id extends string>(
-  definitionId: Id,
-) {
-  const definitionToken = Object.freeze({});
-  const agents = <
-    const Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  >(
-    runtimes: Definitions,
-  ): AgentRoster<Id, Definitions> => {
-    const roster = AgentRoster.make(definitionId, runtimes);
-    rosterDefinitionTokens.set(roster, definitionToken);
-    return roster;
-  };
-  const owns = <Definitions extends Readonly<Record<string, AgentRuntimeLike>>>(
-    roster: AgentRoster<Id, Definitions>,
-  ): boolean => rosterDefinitionTokens.get(roster) === definitionToken;
-
-  return Object.freeze({ agents, owns });
 }

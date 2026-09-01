@@ -4,8 +4,8 @@ import { Effect, Schema } from "effect";
 import type { AgentHandle } from "../network/participant.js";
 import { defineRuntime } from "./agent.js";
 import {
+  AgentRoster,
   type AgentRosterAcquisitionError,
-  makeAgentRosterBuilder,
   type StartedAgents,
 } from "./roster.js";
 
@@ -54,7 +54,7 @@ const betaRuntime = defineRuntime<
   configuration,
 });
 
-const roster = makeAgentRosterBuilder("acme.society/v1")({
+const roster = AgentRoster.make("acme.society/v1", {
   alice: alphaRuntime,
   bob: betaRuntime,
 });
