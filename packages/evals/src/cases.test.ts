@@ -4,6 +4,7 @@ import { assert, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import {
   evaluationCase,
+  type EvaluationCaseDefinition,
   type EvaluationCaseProgramContext,
   evaluationCases,
   PROBE_AGENT_NAME,
@@ -19,6 +20,7 @@ import {
 const SOCIAL_EVIDENCE = decodeEvaluationEvidenceId("case:social");
 const PRINCIPAL_EVIDENCE = decodeEvaluationEvidenceId("case:principal");
 const FAILED_VERDICT = Schema.decodeSync(criterionVerdict)("failed");
+const GROUP_TURN_CASE = decodeEvaluationCaseId("EVAL-010");
 
 function context(operations: string[]): EvaluationCaseProgramContext<never> {
   return {
@@ -43,6 +45,24 @@ function context(operations: string[]): EvaluationCaseProgramContext<never> {
   };
 }
 
+function assertCombinedGroupTurn(definition: EvaluationCaseDefinition): void {
+  if (definition.id !== GROUP_TURN_CASE) {
+    return;
+  }
+  const peer = definition.peers["evaluation-peer"];
+  assert.isDefined(peer);
+  if (peer === undefined) {
+    return;
+  }
+  const { plan } = peer;
+  if (!("messages" in plan)) {
+    assert.fail("EVAL-010 requires a reactive peer plan");
+  }
+  assert.deepStrictEqual(plan.messages, [
+    "I just finished the API integration. Works great. Nice work! What about you, evaluation-target?",
+  ]);
+}
+
 it.effect("executes every bundled case with grading criteria", () =>
   Effect.forEach(
     evaluationCases,
@@ -55,6 +75,7 @@ it.effect("executes every bundled case with grading criteria", () =>
         assert.isAbove(definition.slices.length, 0);
         assert.isAbove(operations.length, 0);
         assert.oneOf(selected, [PRINCIPAL_EVIDENCE, SOCIAL_EVIDENCE]);
+        assertCombinedGroupTurn(definition);
       }),
     { concurrency: 1, discard: true },
   ),
