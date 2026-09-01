@@ -47,10 +47,8 @@ describe("the experiment application image", () => {
   });
 
   it("is optional for experiments that carry their images in source", async () => {
-    const { MOLTZAP_APPLICATION_IMAGE: _, ...withoutApplicationImage } =
-      ENVIRONMENT;
     const { submitted } = await Effect.runPromise(
-      submit(withoutApplicationImage),
+      submit({ ...ENVIRONMENT, MOLTZAP_APPLICATION_IMAGE: undefined }),
     );
 
     expect(submitted.options[0]?.input.applicationImage).toBeUndefined();
