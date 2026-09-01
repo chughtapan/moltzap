@@ -22,9 +22,7 @@
   },
   "scripts": {
     "build": "nx run @moltzap/nanoclaw-channel:build",
-    "lint": "nx run @moltzap/nanoclaw-channel:lint",
-    "test": "vitest run",
-    "typecheck:tests": "tsc -p tsconfig.test.json"
+    "lint": "nx run @moltzap/nanoclaw-channel:lint"
   },
   "nx": {
     "targets": {
@@ -56,10 +54,8 @@
     "effect": "^3.22.0"
   },
   "devDependencies": {
-    "@effect/vitest": "^0.30.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
-    "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "vitest": "^3.2.0"
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
   }
 }
