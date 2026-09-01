@@ -1,4 +1,4 @@
-/** @file Composed run-kernel lifecycle, failure, and durability regressions. */
+/** @file Composed run-kernel lifecycle, failure, and durability behavior. */
 
 import type * as NodeHttp from "node:http"; // eslint-disable-line agent-code-guard/prefer-effect-platform -- The test captures the run-owned raw proxy listener.
 import { assert, effect as test } from "@effect/vitest";
@@ -20,14 +20,17 @@ import {
 import { createServer, type RequestListener, type Server } from "node:http";
 import { afterEach, vi } from "vitest";
 import type { AcquireControlledEndpoint } from "./endpoints.js";
+import {
+  defineFakeRuntime,
+  makeFakeCluster,
+} from "../__tests__/fake-cluster.js";
 import { RuntimeAcquisitionError } from "../agents/agent.js";
-import { makeAgentRosterBuilder } from "../agents/roster.js";
+import { AgentRoster } from "../agents/roster.js";
 import {
   Cluster,
   ClusterError,
   type ClusterService,
 } from "../cluster/cluster.js";
-import { defineFakeRuntime, makeFakeCluster } from "../cluster/fake.js";
 import { EventCatalog } from "../events/catalog.js";
 import {
   AgentRuntimeStartFailed,
@@ -112,7 +115,7 @@ const eventServices = makeDefinitionEventServices(
   DEFINITION_ID,
   EventCatalog.make(LifecycleObservation),
 );
-const roster = makeAgentRosterBuilder(DEFINITION_ID)({});
+const roster = AgentRoster.make(DEFINITION_ID, {});
 type EmptyRosterDefinitions = Readonly<Record<never, never>>;
 
 function completion(manifest: LedgerManifest, count: number): LedgerCompletion {
@@ -516,7 +519,7 @@ test("binds the proxy listener before acquiring any roster runtime", () =>
         response.end();
       });
       let runtimeAcquisitions = 0;
-      const blockedRoster = makeAgentRosterBuilder(DEFINITION_ID)({
+      const blockedRoster = AgentRoster.make(DEFINITION_ID, {
         alice: defineFakeRuntime({
           name: "proxy-order-runtime",
           configuration: { schema: Schema.Struct({}), value: {} },
@@ -834,7 +837,7 @@ test("records roster acquisition failure without running customer code", () => {
     agent: "alice",
     detail: "readiness failed",
   });
-  const failingRoster = makeAgentRosterBuilder(DEFINITION_ID)({
+  const failingRoster = AgentRoster.make(DEFINITION_ID, {
     alice: defineFakeRuntime({
       name: "unavailable-runtime",
       configuration: { schema: Schema.Struct({}), value: {} },

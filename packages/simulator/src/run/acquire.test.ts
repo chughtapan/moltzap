@@ -1,14 +1,17 @@
-/** @file Roster gateway installation and pre-dispatch runtime-termination regressions. */
+/** @file Roster gateway installation and pre-dispatch runtime termination. */
 
 import { assert, effect as test } from "@effect/vitest";
 import { AgentId, type AgentName } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import type { runtimeEvents } from "../events/core.js";
 import type { LedgerWriter } from "../ledger/append.js";
+import {
+  defineFakeRuntime,
+  makeFakeCluster,
+} from "../__tests__/fake-cluster.js";
 import { RuntimeExited } from "../agents/agent.js";
-import { makeAgentRosterBuilder } from "../agents/roster.js";
+import { AgentRoster } from "../agents/roster.js";
 import { ClusterError } from "../cluster/cluster.js";
-import { defineFakeRuntime, makeFakeCluster } from "../cluster/fake.js";
 import { acquireRoster } from "./acquire.js";
 
 const configuration = {
@@ -30,7 +33,7 @@ function agentIdFor(agentName: AgentName) {
   );
 }
 
-const roster = makeAgentRosterBuilder("acme.runtime-lifecycle-test/v1")({
+const roster = AgentRoster.make("acme.runtime-lifecycle-test/v1", {
   alice: defineFakeRuntime({
     name: "alpha",
     configuration,
@@ -105,9 +108,10 @@ test("rejects an already-terminated runtime before the cohort gate", () =>
             termination: Effect.succeed(RuntimeExited.make({ code: 0 })),
           }),
       });
-      const terminatedRoster = makeAgentRosterBuilder(
+      const terminatedRoster = AgentRoster.make(
         "acme.runtime-pre-dispatch-loss/v1",
-      )({ alice: terminated });
+        { alice: terminated },
+      );
       const session = yield* makeFakeCluster({ agentIdFor }).prepare(
         terminatedRoster,
       );
