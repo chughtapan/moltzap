@@ -2,10 +2,10 @@
 
 import { Effect, type Layer, Schema } from "effect";
 import type { AgentRuntimeLike } from "./agents/agent.js";
-import type { AgentRoster, StartedAgents } from "./agents/index.js";
+import type { StartedAgents } from "./agents/index.js";
 import type { Cluster } from "./cluster/cluster.js";
 import type { LedgerStorage } from "./ledger/index.js";
-import { makeAgentRosterBinding } from "./agents/roster.js";
+import { AgentRoster } from "./agents/roster.js";
 import { EventCatalog } from "./events/catalog.js";
 import {
   Network,
@@ -211,7 +211,7 @@ function defineRunSpec<
   const execute = input.execute;
   const customerCatalog = EventCatalog.merge(EventCatalog.empty(), ...catalogs);
   const eventServices = makeDefinitionEventServices(id, customerCatalog);
-  const roster = makeAgentRosterBinding(id).agents(input.agents);
+  const roster = AgentRoster.make(id, input.agents);
   const program = Effect.gen(function* () {
     const agents = yield* roster.startedAgents;
     const events = yield* eventServices.events;
