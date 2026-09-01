@@ -2,25 +2,30 @@ diff --git a/container/agent-runner/src/destinations.ts b/container/agent-runner
 index 5bf3fc7..5f925fc 100644
 --- a/container/agent-runner/src/destinations.ts
 +++ b/container/agent-runner/src/destinations.ts
-@@ -10,6 +10,9 @@
-  * The host re-validates on the delivery side against the central DB,
-  * so even if this table is stale the host's enforcement is authoritative.
-  */
-+import { MessageAddressInput } from '@moltzap/client';
-+import { Schema } from 'effect';
-+
- import { getAgentMailbox } from './mailbox/index.js';
- import type { Destination } from './mailbox/types.js';
-
-@@ -44,6 +47,20 @@ export function findByName(name: string): DestinationEntry | undefined {
+@@ -44,6 +44,35 @@ export function findByName(name: string): DestinationEntry | undefined {
    return destination && destinationEntry(destination);
  }
 
++const AGENT_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
++
++function isAgentName(value: string): boolean {
++  return value.length >= 3 && value.length <= 32 && AGENT_NAME.test(value);
++}
++
++function isMessageAddress(value: string): boolean {
++  if (value.startsWith('agent:')) {
++    return isAgentName(value.slice('agent:'.length));
++  }
++  if (!value.startsWith('group:')) return false;
++  const members = value.slice('group:'.length).split(',');
++  return members.length > 0 && members.every(isAgentName);
++}
++
 +/** Resolve a local name first, then an explicit MoltZap text destination. */
 +export function findMessageDestination(name: string): DestinationEntry | undefined {
 +  const known = findByName(name);
 +  if (known) return known;
-+  if (!Schema.is(MessageAddressInput)(name)) return undefined;
++  if (!isMessageAddress(name)) return undefined;
 +  return {
 +    name,
 +    displayName: name,
