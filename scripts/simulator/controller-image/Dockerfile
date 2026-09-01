@@ -13,7 +13,9 @@ RUN npm install --omit=dev --no-audit --no-fund \
   && ln -s /srv/moltzap/node_modules /opt/moltzap/node_modules \
   && ln -s /srv/moltzap/node_modules /node_modules
 
-COPY --chown=node:node register-daemon.mjs /opt/moltzap/register-daemon.mjs
+COPY --chown=node:node agent-entrypoint.mjs /opt/moltzap/agent/entrypoint.mjs
+COPY --chown=node:node agent-host-command.json /opt/moltzap/agent/host-command.json
+COPY --chown=node:node register-daemon.mjs /opt/moltzap/agent/register-daemon.mjs
 COPY --chown=node:node simulator-fault-program.mjs /opt/moltzap/qualification/simulator-fault-program.mjs
 RUN node --input-type=module --eval \
   'await import("/opt/moltzap/qualification/simulator-fault-program.mjs")'
