@@ -283,6 +283,9 @@ export async function runAgentImage(environment = process.env) {
       waitForExit(daemon, "moltzapd"),
       waitForExit(registrar, "registration"),
     ]);
+    if (requestedSignal !== undefined) {
+      return 0;
+    }
     if (bootstrap.label === "moltzapd") {
       await terminate(registrar);
       throw new Error(
@@ -294,10 +297,6 @@ export async function runAgentImage(environment = process.env) {
       throw new Error(
         "daemon registration failed (" + String(bootstrap.code) + ")",
       );
-    }
-    if (requestedSignal !== undefined) {
-      await terminate(daemon, requestedSignal);
-      return 0;
     }
     host = spawnChild(hostCommand, {
       environment: {
