@@ -82,6 +82,9 @@
     "simulator-controller-image": {
       "cache": false,
       "executor": "nx:run-commands",
+      "inputs": [
+        "{workspaceRoot}/scripts/simulator/controller-image/host-command.json"
+      ],
       "options": {
         "cwd": ".",
         "command": "node scripts/simulator/build-controller-image.mjs"
@@ -93,6 +96,10 @@
         "agent-images-check"
       ],
       "executor": "nx:run-commands",
+      "inputs": [
+        "{workspaceRoot}/scripts/agent-images/openclaw/Dockerfile",
+        "{workspaceRoot}/scripts/agent-images/openclaw/host-command.json"
+      ],
       "options": {
         "cwd": ".",
         "command": "node scripts/agent-images/build-openclaw-image.mjs"
@@ -104,6 +111,10 @@
         "agent-images-check"
       ],
       "executor": "nx:run-commands",
+      "inputs": [
+        "{workspaceRoot}/scripts/agent-images/nanoclaw/Dockerfile",
+        "{workspaceRoot}/scripts/agent-images/nanoclaw/host-command.json"
+      ],
       "options": {
         "cwd": ".",
         "command": "node scripts/agent-images/build-nanoclaw-image.mjs"
@@ -120,7 +131,7 @@
         "cwd": ".",
         "parallel": false,
         "commands": [
-          "node --test scripts/agent-images/shared/*.test.mjs scripts/agent-images/nanoclaw/*.test.mjs",
+          "node --test scripts/agent-images/shared/entrypoint.test.mjs scripts/agent-images/shared/register-daemon.test.mjs scripts/agent-images/nanoclaw/process-driver.test.mjs",
           "node --check scripts/agent-images/build-openclaw-image.mjs",
           "node --check scripts/agent-images/build-nanoclaw-image.mjs",
           "node --check scripts/agent-images/shared/entrypoint.mjs",
