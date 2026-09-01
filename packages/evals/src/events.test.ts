@@ -21,6 +21,7 @@ import {
 } from "./events.js";
 import { decodeEvaluationCaseId, decodeEvaluationEvidenceId } from "./model.js";
 import {
+  type EvaluationTranscript,
   GatewayTranscriptItem,
   SocialTranscriptItem,
   transcriptFromLedger,
@@ -40,7 +41,7 @@ const gatewayResponse = Schema.decodeSync(OpenClawGatewayResponse)({
   runId: "events-test-run",
   status: "ok",
   summary: "completed",
-  result: { payloads: [{ text: "I contacted the peer." }] },
+  result: { payloads: [{ text: "I contacted the peer.", mediaUrl: null }] },
 });
 
 const gatewayInput = OpenClawPrincipalInstructionAttempted.make({
@@ -103,6 +104,18 @@ function record(eventId: string, logicalSequence: number, event: unknown) {
   return { eventId, logicalSequence, event };
 }
 
+function assertNormalizedGatewayOutput(transcript: EvaluationTranscript): void {
+  const gateway = transcript.items.find(
+    ({ evidenceId }) => evidenceId === gatewayOutputId,
+  );
+  assert.instanceOf(gateway, GatewayTranscriptItem);
+  if (gateway instanceof GatewayTranscriptItem) {
+    assert.deepStrictEqual(gateway.parts, [
+      { type: "text", text: "I contacted the peer." },
+    ]);
+  }
+}
+
 it("projects and selects a public semantic target action", () =>
   Effect.runPromise(
     Effect.gen(function* () {
@@ -143,6 +156,7 @@ it("projects and selects a public semantic target action", () =>
         const selected = transcript.items.find(
           ({ evidenceId }) => evidenceId === socialId,
         );
+        assertNormalizedGatewayOutput(transcript);
         assert.instanceOf(selected, SocialTranscriptItem);
         if (selected instanceof SocialTranscriptItem) {
           assert.strictEqual(selected.actorName, target);
