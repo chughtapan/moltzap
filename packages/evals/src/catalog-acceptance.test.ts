@@ -2,7 +2,7 @@
 
 import { assert, it } from "@effect/vitest";
 import { image } from "@moltzap/simulator/agents";
-import { Duration, Effect, Option, Schema } from "effect";
+import { Duration, Effect, Schema } from "effect";
 import {
   type EvaluationCaseProgramContext,
   evaluationCases,
@@ -98,11 +98,10 @@ function programContext(
     instruct: (message) =>
       Effect.sync(() => {
         operations.push(`instruct:${message}`);
-        return Option.some(PRINCIPAL_EVIDENCE);
       }),
-    selectPrincipalOutput: () =>
+    ask: (message) =>
       Effect.sync(() => {
-        operations.push("select:principal");
+        operations.push(`ask:${message}`);
         return PRINCIPAL_EVIDENCE;
       }),
     observePeer: (agent) =>
