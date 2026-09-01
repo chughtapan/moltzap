@@ -29,11 +29,7 @@
       "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "packages/nanoclaw-channel": {
-      "entry": [
-        "src/**/*.test.ts",
-        "vitest*.config.mjs"
-      ],
-      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
+      "project": ["src/**/*.ts"]
     },
     "packages/openclaw-channel": {
       "entry": [

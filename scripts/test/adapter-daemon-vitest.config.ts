@@ -15,10 +15,6 @@ export default defineConfig({
         WORKSPACE_ROOT,
         "packages/client/src/index.ts",
       ),
-      "@moltzap/nanoclaw-channel": resolve(
-        WORKSPACE_ROOT,
-        "packages/nanoclaw-channel/src/channels/moltzap.ts",
-      ),
       "@moltzap/openclaw-channel": resolve(
         WORKSPACE_ROOT,
         "packages/openclaw-channel/src/index.ts",

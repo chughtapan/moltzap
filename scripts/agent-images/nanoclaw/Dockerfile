@@ -10,10 +10,13 @@ RUN apt-get update \
 COPY source /opt/moltzap/nanoclaw/app
 COPY tarballs /opt/moltzap/nanoclaw/tarballs
 COPY channel/moltzap.ts /opt/moltzap/nanoclaw/channel/moltzap.ts
+COPY nanoclaw-v2.3.0.patch /opt/moltzap/nanoclaw/nanoclaw-v2.3.0.patch
 COPY prepare.mjs /opt/moltzap/nanoclaw/prepare.mjs
 
 WORKDIR /opt/moltzap/nanoclaw/app
-RUN node /opt/moltzap/nanoclaw/prepare.mjs \
+RUN git apply --check /opt/moltzap/nanoclaw/nanoclaw-v2.3.0.patch \
+  && git apply /opt/moltzap/nanoclaw/nanoclaw-v2.3.0.patch \
+  && node /opt/moltzap/nanoclaw/prepare.mjs \
     /opt/moltzap/nanoclaw/app \
     /opt/moltzap/nanoclaw/channel/moltzap.ts \
     /opt/moltzap/nanoclaw/tarballs/client.tgz \
