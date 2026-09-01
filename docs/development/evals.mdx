@@ -169,12 +169,11 @@ with:
 - ledger-ordered gateway, social, and peer-timeout items; and
 - the evidence identities selected by case policy.
 
-Selected gateway evidence must be correlated OpenClaw terminal output from the
-same target. Selected social evidence must be a target-authored input observed
-by the named peer as an explicitly addressed post; a bounded peer timeout is
-also selectable. NanoClaw input establishes target identity, and its output
-frames remain visible as unselected gateway testimony, but they cannot satisfy
-a principal-output selection.
+Selected gateway evidence must be output from the same target. OpenClaw output
+is correlated terminal output. NanoClaw output is the next frame observed by
+its serialized `ask` path and does not establish causal correlation. Selected
+social evidence must be a target-authored input observed by the named peer as
+an explicitly addressed post; a bounded peer timeout is also selectable.
 
 Every criterion receives the same ordered selected evidence. Exact-answer,
 literal-disclosure, and peer-timeout checks can decide conclusive outcomes
