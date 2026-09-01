@@ -135,6 +135,7 @@ async function main() {
     CONTAINER_IMAGE: "moltzap-nanoclaw-agent:embedded",
     DEFAULT_AGENT_PROVIDER: "claude",
     MOLTZAP_NANOCLAW_AGENT_GROUP_ID: "agent",
+    NANOCLAW_GATEWAY_PROVIDER: "moltzap-process",
     NANOCLAW_RUNTIME_DRIVER: "moltzap-process",
     NANOCLAW_TEMPLATES_DIR: `${config.stateDirectory}/templates`,
     NODE_ENV: "production",
