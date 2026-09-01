@@ -9,9 +9,6 @@
       "@moltzap/client": [
         "../../packages/client/src/index.ts"
       ],
-      "@moltzap/nanoclaw-channel": [
-        "../../packages/nanoclaw-channel/src/channels/moltzap.ts"
-      ],
       "@moltzap/openclaw-channel": [
         "../../packages/openclaw-channel/src/index.ts"
       ]

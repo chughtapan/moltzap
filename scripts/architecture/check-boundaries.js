@@ -122,7 +122,7 @@ const FINAL_PACKAGES = {
       },
     },
     bin: {},
-    targets: ["arch:check", "build", "lint", "test", "typecheck:tests"],
+    targets: ["arch:check", "build", "lint"],
   },
   simulator: {
     npmName: "@moltzap/simulator",
