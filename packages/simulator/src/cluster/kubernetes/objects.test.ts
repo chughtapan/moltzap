@@ -1,8 +1,16 @@
+/** @file Exact run-scoped Kubernetes workload, network, controller, and worker manifests. */
+
 import assert from "node:assert/strict";
 import { expect, it } from "vitest";
-import { image } from "../../agents/container.js";
 import type { KubernetesExecutionProfile } from "../profile.js";
 import type { RunSocietyWorkflowInput } from "../reclaim.js";
+import { image } from "../../agents/container.js";
+import {
+  DAEMON_MCP_PORT,
+  generateAgentDaemonAuthority,
+  generateSocietyNetworkAuthority,
+} from "../society-network.js";
+import { societyNetworkManifests } from "./network-objects.js";
 import {
   aggregateWorkloadManifest,
   bootstrapSecretManifest,
@@ -12,10 +20,11 @@ import {
   IN_CLUSTER_TEMPORAL_ADDRESS,
   LOCAL_QUEUE_NAME,
   ownedRunControlManifests,
-  ROUTER_SERVICE_NAME,
+  ROUTER_FAULT_PROXY_PORT,
   RUN_OWNER_NAME,
   RUN_WORKER_NAME,
   RUN_WORKER_PRESTOP_SECONDS,
+  RUN_WORKER_READY_PATH,
   RUN_WORKER_TERMINATION_GRACE_SECONDS,
   runNamespaceManifest,
   runOwnerManifest,
@@ -31,6 +40,7 @@ const APPLICATION_IMAGE = image.make(
 );
 const SECRET_CONTENT = "secret-content";
 const PARTIAL_ADMISSION_FIELD = "minCount";
+const OPENCLAW_CONFIG_PATH = "/var/run/moltzap/bootstrap/openclaw.json";
 const PLACEMENT = {
   nodeSelector: { "moltzap.dev/pool": "agents" },
   tolerations: [
@@ -42,6 +52,8 @@ const PLACEMENT = {
     },
   ],
 };
+const NETWORK = generateSocietyNetworkAuthority("mz-run");
+const DAEMON = generateAgentDaemonAuthority();
 
 function aggregateManifest(withPlacement = false) {
   return aggregateWorkloadManifest({
@@ -65,6 +77,19 @@ function aggregateManifest(withPlacement = false) {
 }
 
 function sandboxFixture(withPlacement = false) {
+  return sandboxFixtureForEnvironment(
+    {
+      HOME: "/var/lib/moltzap/openclaw",
+      OPENCLAW_CONFIG_PATH,
+    },
+    withPlacement,
+  );
+}
+
+function sandboxFixtureForEnvironment(
+  environment: Readonly<Record<string, string>>,
+  withPlacement = false,
+) {
   return sandboxManifest({
     namespace: "mz-run",
     name: "agent-1-alice",
@@ -72,11 +97,15 @@ function sandboxFixture(withPlacement = false) {
     owner: OWNER,
     bootstrapSecretName: "agent-1-alice-bootstrap",
     supportImage: SUPPORT_IMAGE,
+    network: NETWORK,
+    daemon: DAEMON,
+    endpointStateClaimName: "agent-1-alice-endpoint-state",
+    agentName: "alice",
     ...(withPlacement ? { placement: PLACEMENT } : {}),
     application: {
       image: APPLICATION_IMAGE,
-      entrypoint: ["openclaw", "gateway", "run"],
-      environment: { HOME: "/var/lib/moltzap/openclaw" },
+      entrypoint: ["node", "/opt/moltzap/agent/entrypoint.mjs"],
+      environment,
       credentials: ["OPENAI_API_KEY"],
       port: 18_789,
       resources: {
@@ -92,7 +121,6 @@ function sandboxFixture(withPlacement = false) {
   });
 }
 
-// eslint-disable-next-line agent-code-guard/no-example-only-tests -- these examples pin exact third-party manifest schemas and ordering omissions
 it("reserves identical runtimes as one all-or-nothing pod set", () => {
   const manifest = aggregateManifest();
   expect(manifest).toMatchObject({
@@ -109,6 +137,7 @@ it("reserves identical runtimes as one all-or-nothing pod set", () => {
               restartPolicy: "Never",
               containers: [
                 {
+                  image: "registry/openclaw@sha256:abc",
                   name: "application",
                   resources: { requests: { cpu: "1", memory: "1Gi" } },
                 },
@@ -120,6 +149,43 @@ it("reserves identical runtimes as one all-or-nothing pod set", () => {
     },
   });
   expect(JSON.stringify(manifest)).not.toContain(PARTIAL_ADMISSION_FIELD);
+});
+
+it("owns one private Registry and one Router per run", () => {
+  const authority = generateSocietyNetworkAuthority("mz-run");
+  const manifests = societyNetworkManifests({
+    namespace: "mz-run",
+    labels: { "moltzap.dev/run": "run" },
+    owner: OWNER,
+    supportImage: SUPPORT_IMAGE,
+    authority,
+  });
+
+  expect(manifests.registryDeployment).toMatchObject({
+    metadata: { name: "registry", ownerReferences: [{ uid: OWNER.uid }] },
+    spec: {
+      replicas: 1,
+      strategy: { type: "Recreate" },
+      template: {
+        spec: {
+          containers: [
+            { name: "postgresql", image: SUPPORT_IMAGE },
+            { name: "registry", image: SUPPORT_IMAGE },
+          ],
+        },
+      },
+    },
+  });
+  expect(manifests.routerDeployment).toMatchObject({
+    metadata: { name: "router", ownerReferences: [{ uid: OWNER.uid }] },
+    spec: { replicas: 1, strategy: { type: "Recreate" } },
+  });
+  expect(manifests.registryState.spec).toMatchObject({
+    accessModes: ["ReadWriteOnce"],
+  });
+  expect(JSON.stringify(manifests.routerDeployment)).not.toContain(
+    authority.admissionCredential,
+  );
 });
 
 it("stores bootstrap content as immutable Secret data", () => {
@@ -141,7 +207,8 @@ it("stores bootstrap content as immutable Secret data", () => {
   expect(JSON.stringify(manifest)).not.toContain(SECRET_CONTENT);
 });
 
-it("creates one application container without bootstrap bytes in its environment", () => {
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- One whole-object assertion keeps the application isolation contract readable as the exact rendered Pod.
+it("runs the daemon and host from one fail-fast application container", () => {
   const manifest = sandboxFixture();
   expect(manifest).toMatchObject({
     apiVersion: "agents.x-k8s.io/v1beta1",
@@ -151,16 +218,76 @@ it("creates one application container without bootstrap bytes in its environment
       podTemplate: {
         spec: {
           automountServiceAccountToken: false,
+          enableServiceLinks: false,
           restartPolicy: "Never",
-          initContainers: [{ name: "bootstrap", image: SUPPORT_IMAGE }],
+          securityContext: {
+            seccompProfile: { type: "RuntimeDefault" },
+          },
+          initContainers: [
+            {
+              name: "bootstrap",
+              image: SUPPORT_IMAGE,
+              command: ["node", "/opt/moltzap/dist/cluster/bootstrap.js"],
+              args: [
+                "--manifest",
+                "/var/run/moltzap/secret/manifest.json",
+                "--source",
+                "/var/run/moltzap/secret",
+                "--output",
+                "/var/run/moltzap/bootstrap",
+              ],
+            },
+          ],
           containers: [
             {
               name: "application",
               image: APPLICATION_IMAGE,
-              command: ["openclaw"],
-              args: ["gateway", "run"],
+              command: ["node"],
+              args: ["/opt/moltzap/agent/entrypoint.mjs"],
               env: [
                 { name: "HOME", value: "/var/lib/moltzap/openclaw" },
+                {
+                  name: "MOLTZAP_MCP_URL",
+                  value: `http://127.0.0.1:${String(DAEMON_MCP_PORT)}/mcp`,
+                },
+                { name: "MOLTZAP_REGISTRATION_AGENT_NAME", value: "alice" },
+                {
+                  name: "MOLTZAP_REGISTRATION_OPERATION_ID",
+                  value: DAEMON.operationId,
+                },
+                {
+                  name: "MOLTZAP_REGISTRATION_PRINCIPAL_ID",
+                  value: DAEMON.principalId,
+                },
+                {
+                  name: "MOLTZAPD_ADMISSION_CREDENTIAL_FILE",
+                  value: "/var/run/moltzap/daemon/admission-credential",
+                },
+                {
+                  name: "MOLTZAPD_AGENT_PRIVATE_KEY_FILE",
+                  value: "/var/run/moltzap/daemon/agent-private-key.pem",
+                },
+                { name: "MOLTZAPD_MCP_PORT", value: "4319" },
+                {
+                  name: "MOLTZAPD_REGISTRY_ORIGIN",
+                  value: NETWORK.registryOrigin,
+                },
+                {
+                  name: "MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY",
+                  value: NETWORK.registrySignerPublicKeyJson,
+                },
+                {
+                  name: "MOLTZAPD_ROUTER_ORIGIN",
+                  value: NETWORK.routerOrigin,
+                },
+                {
+                  name: "MOLTZAPD_STATE_DIRECTORY",
+                  value: "/var/lib/moltzap/endpoint",
+                },
+                {
+                  name: "OPENCLAW_CONFIG_PATH",
+                  value: OPENCLAW_CONFIG_PATH,
+                },
                 {
                   name: "OPENAI_API_KEY",
                   valueFrom: {
@@ -180,13 +307,77 @@ it("creates one application container without bootstrap bytes in its environment
                   "ephemeral-storage": "2147483648",
                 },
               },
+              securityContext: {
+                allowPrivilegeEscalation: false,
+                capabilities: {
+                  add: ["CHOWN", "DAC_OVERRIDE", "KILL", "SETGID", "SETUID"],
+                  drop: ["ALL"],
+                },
+                runAsNonRoot: false,
+                runAsUser: 0,
+              },
+              volumeMounts: [
+                {
+                  name: "bootstrap-output",
+                  mountPath: "/var/run/moltzap/bootstrap",
+                },
+                {
+                  name: "daemon-secret",
+                  mountPath: "/var/run/moltzap/daemon-source",
+                  readOnly: true,
+                },
+                {
+                  name: "endpoint-state",
+                  mountPath: "/var/lib/moltzap/endpoint",
+                },
+              ],
+            },
+          ],
+          volumes: [
+            {
+              name: "bootstrap-input",
+              secret: { secretName: "agent-1-alice-bootstrap" },
+            },
+            { name: "bootstrap-output", emptyDir: {} },
+            {
+              name: "daemon-secret",
+              secret: {
+                secretName: "agent-1-alice-bootstrap",
+                items: [
+                  {
+                    key: "agent-private-key.pem",
+                    path: "agent-private-key.pem",
+                    mode: 0o400,
+                  },
+                  {
+                    key: "admission-credential",
+                    path: "admission-credential",
+                    mode: 0o400,
+                  },
+                ],
+              },
+            },
+            {
+              name: "endpoint-state",
+              persistentVolumeClaim: {
+                claimName: "agent-1-alice-endpoint-state",
+              },
             },
           ],
         },
       },
     },
   });
-  expect(JSON.stringify(manifest)).not.toContain(SECRET_CONTENT);
+  const encoded = JSON.stringify(manifest);
+  expect(encoded).not.toContain(SECRET_CONTENT);
+  expect(encoded).not.toContain("runtime-state");
+  expect(encoded).not.toContain('"name":"mcp"');
+  expect(encoded).not.toContain("/app/dist");
+  expect(encoded).not.toContain("endpoint-state-permissions");
+  expect(encoded).not.toContain('"name":"register-daemon"');
+  expect(encoded).not.toContain('"name":"moltzapd"');
+  expect(encoded).not.toContain("startupProbe");
+  expect(encoded).not.toContain("/opt/moltzap/application-overlay");
 });
 
 it("projects identical GKE placement onto reserved and actual Pods", () => {
@@ -212,6 +403,7 @@ const INPUT: RunSocietyWorkflowInput = {
   namespace: "mz-run-1",
   controllerImage: `registry/controller@sha256:${DIGEST}`,
   supportImage: `registry/support@sha256:${DIGEST}`,
+  applicationImage: `registry/openclaw@sha256:${DIGEST}`,
   experimentModule: EXPERIMENT_SOURCE,
 };
 type GkeKubernetesExecutionProfile = Extract<
@@ -286,6 +478,16 @@ it("gives the controller only the run-scoped operations its platform uses", () =
       }),
       expect.objectContaining({
         apiGroups: [""],
+        resources: ["secrets", "persistentvolumeclaims", "services"],
+        verbs: ["create", "delete"],
+      }),
+      expect.objectContaining({
+        apiGroups: ["apps"],
+        resources: ["deployments"],
+        verbs: ["create", "delete"],
+      }),
+      expect.objectContaining({
+        apiGroups: [""],
         resources: ["configmaps"],
         resourceNames: [RUN_OWNER_NAME],
         verbs: ["get", "delete"],
@@ -313,19 +515,63 @@ it("launches one controller attempt with the closed environment contract", () =>
       { name: "MOLTZAP_RUN_OWNER_UID", value: "owner-uid" },
       { name: "MOLTZAP_SUPPORT_IMAGE", value: INPUT.supportImage },
       {
+        name: "MOLTZAP_APPLICATION_IMAGE",
+        value: INPUT.applicationImage,
+      },
+      {
         name: "MOLTZAP_EXPERIMENT_MODULE",
         value: "/opt/moltzap/experiment/main.mjs",
       },
       { name: "MOLTZAP_LEDGER_DIRECTORY", value: "/var/lib/moltzap/ledger" },
-      {
-        name: "MOLTZAP_ROUTER_URL",
-        value: `ws://${ROUTER_SERVICE_NAME}.${INPUT.namespace}.svc.cluster.local:3000`,
-      },
     ],
   });
 });
 
-it("mounts the experiment and durable local ledger beside the router Service", () => {
+// eslint-disable-next-line complexity -- The whole-object assertion follows each optional Kubernetes field without manufacturing stronger fixture guarantees.
+it("routes daemon traffic through the controller's private fault proxy", () => {
+  const manifests = ownedRunControlManifests(INPUT, "owner-uid");
+  const template = manifests.controllerJob.spec?.template;
+  const [controller] = template?.spec?.containers ?? [];
+  const controllerLabels = {
+    "app.kubernetes.io/name": "moltzap-simulator-controller",
+    "app.kubernetes.io/managed-by": "moltzap-simulator",
+  };
+
+  expect(manifests.controllerService).toMatchObject({
+    apiVersion: "v1",
+    kind: "Service",
+    metadata: {
+      name: CONTROLLER_NAME,
+      namespace: INPUT.namespace,
+      ownerReferences: [{ name: RUN_OWNER_NAME, uid: "owner-uid" }],
+    },
+    spec: {
+      selector: controllerLabels,
+      ports: [
+        {
+          name: "router-fault-proxy",
+          port: ROUTER_FAULT_PROXY_PORT,
+          targetPort: ROUTER_FAULT_PROXY_PORT,
+          protocol: "TCP",
+        },
+      ],
+    },
+  });
+  expect(template?.metadata?.labels).toEqual(controllerLabels);
+  expect(manifests.controllerService.spec?.selector).not.toHaveProperty(
+    "moltzap.dev/run",
+  );
+  expect(controller?.ports).toEqual([
+    {
+      name: "router-proxy",
+      containerPort: ROUTER_FAULT_PROXY_PORT,
+      protocol: "TCP",
+    },
+  ]);
+  expect(controller?.ports?.[0]?.name?.length).toBeLessThanOrEqual(15);
+});
+
+it("mounts the experiment and durable local ledger for the controller", () => {
   const manifests = ownedRunControlManifests(INPUT, "owner-uid");
   const pod = manifests.controllerJob.spec?.template.spec;
   expect(pod).toMatchObject({
@@ -359,10 +605,6 @@ it("mounts the experiment and durable local ledger beside the router Service", (
       volumeMounts: [{ name: "ledger", mountPath: "/var/lib/moltzap/ledger" }],
     }),
   ]);
-  expect(manifests.routerService).toMatchObject({
-    metadata: { name: ROUTER_SERVICE_NAME },
-    spec: { ports: [{ port: 3_000, targetPort: 3_000 }] },
-  });
 });
 
 // eslint-disable-next-line complexity -- This regression assertion pins the two-volume GKE projection across optional Kubernetes manifest fields.
@@ -468,6 +710,7 @@ it("serves the run queue from a Deployment carrying the host's choices", () => {
   expect(deployment.spec?.template.spec).toMatchObject({
     serviceAccountName: RUN_WORKER_NAME,
   });
+  expect(deployment.spec?.strategy).toEqual({ type: "Recreate" });
   expect(worker).toMatchObject({
     image: INPUT.controllerImage,
     command: ["node", "/opt/moltzap/dist/cluster/temporal.js"],
@@ -480,6 +723,12 @@ it("serves the run queue from a Deployment carrying the host's choices", () => {
         value: JSON.stringify(GKE_PROFILE),
       },
     ],
+    readinessProbe: {
+      exec: { command: ["/usr/bin/test", "-f", RUN_WORKER_READY_PATH] },
+      failureThreshold: 1,
+      periodSeconds: 1,
+      timeoutSeconds: 1,
+    },
   });
 });
 

@@ -4,7 +4,6 @@
  * drives, and the control-plane installation the host drives.
  */
 
-import { connect } from "node:net";
 import {
   ApiException,
   AppsV1Api,
@@ -15,23 +14,28 @@ import {
   PatchStrategy,
   RbacAuthorizationV1Api,
   setHeaderOptions,
+  type V1Deployment,
   type V1Job,
   type V1JobCondition,
+  type V1PersistentVolumeClaim,
+  type V1Service,
 } from "@kubernetes/client-node";
 import { Cause, Duration, Effect, Schema } from "effect";
-import { ClusterError, clusterError } from "../cluster.js";
+import { connect } from "node:net";
 import type { KubernetesExecutionProfile } from "../profile.js";
 import type { RunSocietyWorkflowInput } from "../reclaim.js";
+import { ClusterError, clusterError } from "../cluster.js";
 import {
   CONTROLLER_NAME,
+  type KubernetesManifest,
+  type OwnedRunControlManifests,
+  RUN_WORKER_NAME,
   runNamespaceManifest,
   runOwnerManifest,
-  RUN_WORKER_NAME,
   runWorkerManifests,
-  SYSTEM_NAMESPACE,
-  type OwnedRunControlManifests,
   type RunWorkerManifests,
   type RunWorkerOptions,
+  SYSTEM_NAMESPACE,
 } from "./objects.js";
 
 const BRIDGE_PROBE_TIMEOUT = Duration.seconds(2);
@@ -79,23 +83,25 @@ const APPLIED = Object.freeze({
   fieldManager: "moltzap-simulator",
   fieldValidation: "Strict",
 } as const);
-
-// A call the bound cut off is reported as never answered, not as failed: the
-// cluster refusing an object and the cluster never replying at all are
-// different operator problems, and only one of them is about the object. A
-// status of zero is no status, which no Kubernetes response carries.
-function callDetail(
-  operation: string,
-  status: number,
-  unanswered: boolean,
-): string {
-  if (unanswered) {
-    return `${operation} did not answer in time`;
-  }
-  return status === 0
-    ? `${operation} failed`
-    : `${operation} failed (Kubernetes ${String(status)})`;
-}
+const NAMED_WORKER = Object.freeze({
+  name: RUN_WORKER_NAME,
+  namespace: SYSTEM_NAMESPACE,
+} as const);
+const STRATEGIC_MERGE_OPTIONS = setHeaderOptions(
+  "Content-Type",
+  PatchStrategy.StrategicMergePatch,
+);
+// Deployment defaults rollingUpdate while its type is RollingUpdate. Removing
+// every strategy key except type makes the transition to Recreate atomic before
+// server-side apply declares the complete desired object.
+const RECREATE_STRATEGY_PATCH = Object.freeze({
+  spec: {
+    strategy: {
+      $retainKeys: ["type"],
+      type: "Recreate",
+    },
+  },
+});
 
 /** Failure of one Kubernetes call, carrying the status but never the body. */
 export class KubernetesCallFailed extends Error {
@@ -145,17 +151,133 @@ export function kubernetesCall<Result>(
   );
 }
 
-function attemptUnlessAbsent(
-  operation: string,
-  evaluate: () => PromiseLike<unknown>,
-): Effect.Effect<void, KubernetesCallFailed> {
-  return kubernetesCall(operation, evaluate).pipe(
-    Effect.catchIf(
-      (failure) => failure.absent,
-      () => Effect.void,
-    ),
-    Effect.asVoid,
+/**
+ * Build the live in-cluster client without leaking generated API types.
+ * @param namespace Namespace that owns the run-scoped resources.
+ * @returns Narrow Kubernetes operations consumed by the cluster.
+ */
+export function makeInClusterKubernetesSocietyApi(
+  namespace: string,
+): KubernetesSocietyApi {
+  const config = new KubeConfig();
+  config.loadFromDefault();
+  const custom = config.makeApiClient(CustomObjectsApi);
+  const core = config.makeApiClient(CoreV1Api);
+  const apps = config.makeApiClient(AppsV1Api);
+  return Object.freeze({
+    ...workloadOperations(namespace, custom),
+    ...coreOperations(namespace, core),
+    ...deploymentOperations(namespace, apps),
+    ...sandboxOperations(namespace, custom),
+    bridgeAccepts,
+    serviceAccepts: bridgeAccepts,
+  });
+}
+
+/**
+ * Test whether an object has a positive current-generation condition.
+ * @param observation Narrow object status returned by the live decoder.
+ * @param type Kubernetes condition type to find.
+ * @returns Whether the current generation reports that condition as true.
+ */
+export function currentConditionIsTrue(
+  observation: ConditionedObservation,
+  type: string,
+): boolean {
+  const generation = observation.metadata.generation;
+  return (
+    observation.status?.conditions?.some(
+      (entry) =>
+        entry.type === type &&
+        entry.status === "True" &&
+        (generation === undefined || entry.observedGeneration === generation),
+    ) ?? false
   );
+}
+
+/**
+ * Build the live Kubernetes access one run-lifecycle worker attempt uses.
+ * @returns Run-control operations backed by the worker Pod's service account.
+ */
+export function makeKubernetesRunControlApi(): RunControlApi {
+  const clients = runControlClients();
+  return Object.freeze({
+    ...runPreparationOperations(clients),
+    ...runObservationOperations(clients),
+  });
+}
+
+/**
+ * Select the host context carried by either execution profile. A local profile
+ * without one retains the historical ambient-kubeconfig behavior.
+ * @param config Host kubeconfig loaded from the operator's environment.
+ * @param profile Cluster choice for this submission.
+ */
+export function selectConfiguredKubeContext(
+  config: KubeContextSelector,
+  profile: KubernetesExecutionProfile,
+): void {
+  const kubeContext = profile.kubeContext;
+  if (kubeContext === undefined) {
+    return;
+  }
+  if (config.getContextObject(kubeContext) === null) {
+    throw new KubernetesCallFailed("select configured kubeconfig context");
+  }
+  config.setCurrentContext(kubeContext);
+}
+
+/**
+ * Build the live host-side access used to install the cluster's run worker.
+ * @param options Host-selected image, Temporal endpoint, queue, and profile.
+ * @returns Install operations against the profile's cluster.
+ */
+export function makeKubernetesRunWorkerInstallApi(
+  options: RunWorkerOptions,
+): RunWorkerInstallApi {
+  const clients = installClients(options.profile);
+  const applies = installedObjectApplies(clients, runWorkerManifests(options));
+  const readWorker = () =>
+    kubernetesCall("observe run worker", () =>
+      clients.apps.readNamespacedDeployment({
+        name: RUN_WORKER_NAME,
+        namespace: SYSTEM_NAMESPACE,
+      }),
+    );
+  return Object.freeze({
+    install: (object: RunWorkerObject) =>
+      installRunWorkerObject(clients, applies, object),
+    // A cluster with no worker yet reads as no image rather than as a failure:
+    // nothing is installed, so nothing can be interrupted by installing.
+    readInstalledWorkerImage: () =>
+      readWorker().pipe(
+        Effect.map(installedWorkerImage),
+        Effect.catchIf(
+          (failure) => failure.absent,
+          () => Effect.succeed(undefined),
+        ),
+      ),
+    readWorkerAvailability: () =>
+      readWorker().pipe(Effect.map(workerAvailabilityOf)),
+    wait: (milliseconds: number) => Effect.sleep(Duration.millis(milliseconds)),
+  });
+}
+
+// A call the bound cut off is reported as never answered, not as failed: the
+// cluster refusing an object and the cluster never replying at all are
+// different operator problems, and only one of them is about the object. A
+// status of zero is no status, which no Kubernetes response carries.
+function callDetail(
+  operation: string,
+  status: number,
+  unanswered: boolean,
+): string {
+  if (unanswered) {
+    return `${operation} did not answer in time`;
+  }
+  return status === 0
+    ? `${operation} failed`
+    : `${operation} failed (Kubernetes ${String(status)})`;
 }
 
 const KUEUE_GROUP = "kueue.x-k8s.io";
@@ -260,7 +382,7 @@ export type SandboxObservation = typeof sandboxObservation.Type;
 export type PodObservation = typeof podObservation.Type;
 
 /** Private manifest shape submitted through the custom-object API. */
-export type KubernetesManifest = Readonly<Record<string, unknown>>;
+export type { KubernetesManifest };
 
 /** Exact cluster calls needed to bring up and observe one society. */
 export interface KubernetesSocietyApi {
@@ -275,6 +397,22 @@ export interface KubernetesSocietyApi {
     manifest: KubernetesManifest,
   ) => Effect.Effect<void, ClusterError>;
   readonly deleteSecret: (name: string) => Effect.Effect<void, ClusterError>;
+  readonly createPersistentVolumeClaim: (
+    manifest: V1PersistentVolumeClaim,
+  ) => Effect.Effect<void, ClusterError>;
+  readonly deletePersistentVolumeClaim: (
+    name: string,
+  ) => Effect.Effect<void, ClusterError>;
+  readonly createService: (
+    manifest: V1Service,
+  ) => Effect.Effect<void, ClusterError>;
+  readonly deleteService: (name: string) => Effect.Effect<void, ClusterError>;
+  readonly createDeployment: (
+    manifest: V1Deployment,
+  ) => Effect.Effect<void, ClusterError>;
+  readonly deleteDeployment: (
+    name: string,
+  ) => Effect.Effect<void, ClusterError>;
   readonly createSandbox: (
     manifest: KubernetesManifest,
   ) => Effect.Effect<void, ClusterError>;
@@ -294,6 +432,11 @@ export interface KubernetesSocietyApi {
     host: string,
     port: number,
   ) => Effect.Effect<boolean>;
+  /** Whether one run-internal production service accepts a TCP connection. */
+  readonly serviceAccepts: (
+    host: string,
+    port: number,
+  ) => Effect.Effect<boolean>;
 }
 
 // The same call failure, at the public error type of the cluster seam.
@@ -307,16 +450,6 @@ function request<A>(operation: string, evaluate: () => PromiseLike<A>) {
   );
 }
 
-function decode<A, I, R>(
-  operation: string,
-  schema: Schema.Schema<A, I, R>,
-  value: unknown,
-): Effect.Effect<A, ClusterError, R> {
-  return Schema.decodeUnknown(schema)(value).pipe(
-    Effect.mapError((cause) => clusterError(operation, cause)),
-  );
-}
-
 function ignoreAbsent(
   operation: string,
   evaluate: () => PromiseLike<unknown>,
@@ -326,11 +459,59 @@ function ignoreAbsent(
   );
 }
 
+function installRunWorkerObject(
+  clients: InstallClients,
+  applies: Readonly<Record<RunWorkerObject, InstalledObjectApply>>,
+  object: RunWorkerObject,
+): Effect.Effect<void, KubernetesCallFailed> {
+  const apply = kubernetesCall(
+    `apply run worker ${object}`,
+    applies[object],
+  ).pipe(Effect.asVoid);
+  return object === "deployment"
+    ? prepareRunWorkerDeployment(clients).pipe(Effect.zipRight(apply))
+    : apply;
+}
+
+function prepareRunWorkerDeployment(
+  clients: InstallClients,
+): Effect.Effect<void, KubernetesCallFailed> {
+  return attemptUnlessAbsent("prepare run worker deployment strategy", () =>
+    clients.apps.patchNamespacedDeployment(
+      { ...NAMED_WORKER, body: RECREATE_STRATEGY_PATCH, ...APPLIED },
+      STRATEGIC_MERGE_OPTIONS,
+    ),
+  );
+}
+
 function decodeWorkload(value: unknown) {
   return decode(
     "decode aggregate capacity reservation",
     workloadObservation,
     value,
+  );
+}
+
+function attemptUnlessAbsent(
+  operation: string,
+  evaluate: () => PromiseLike<unknown>,
+): Effect.Effect<void, KubernetesCallFailed> {
+  return kubernetesCall(operation, evaluate).pipe(
+    Effect.catchIf(
+      (failure) => failure.absent,
+      () => Effect.void,
+    ),
+    Effect.asVoid,
+  );
+}
+
+function decode<A, I, R>(
+  operation: string,
+  schema: Schema.Schema<A, I, R>,
+  value: unknown,
+): Effect.Effect<A, ClusterError, R> {
+  return Schema.decodeUnknown(schema)(value).pipe(
+    Effect.mapError((cause) => clusterError(operation, cause)),
   );
 }
 
@@ -377,10 +558,20 @@ function workloadOperations(
   };
 }
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The Core API capability record keeps each paired create/delete operation visibly bound to one client and namespace.
 function coreOperations(
   namespace: string,
   core: CoreV1Api,
-): Pick<KubernetesSocietyApi, "createSecret" | "deleteSecret" | "listPods"> {
+): Pick<
+  KubernetesSocietyApi,
+  | "createSecret"
+  | "deleteSecret"
+  | "createPersistentVolumeClaim"
+  | "deletePersistentVolumeClaim"
+  | "createService"
+  | "deleteService"
+  | "listPods"
+> {
   return {
     createSecret: (body) =>
       request("create runtime bootstrap", () =>
@@ -398,6 +589,34 @@ function coreOperations(
           propagationPolicy: "Foreground",
         }),
       ),
+    createPersistentVolumeClaim: (body) =>
+      request("create persistent endpoint state", () =>
+        core.createNamespacedPersistentVolumeClaim({
+          namespace,
+          body,
+          ...APPLIED,
+        }),
+      ).pipe(Effect.asVoid),
+    deletePersistentVolumeClaim: (name) =>
+      ignoreAbsent("delete persistent endpoint state", () =>
+        core.deleteNamespacedPersistentVolumeClaim({
+          namespace,
+          name,
+          propagationPolicy: "Foreground",
+        }),
+      ),
+    createService: (body) =>
+      request("create run network service", () =>
+        core.createNamespacedService({ namespace, body, ...APPLIED }),
+      ).pipe(Effect.asVoid),
+    deleteService: (name) =>
+      ignoreAbsent("delete run network service", () =>
+        core.deleteNamespacedService({
+          namespace,
+          name,
+          propagationPolicy: "Foreground",
+        }),
+      ),
     listPods: (selector) =>
       request("observe sandbox application", () =>
         core.listNamespacedPod({ namespace, labelSelector: selector }),
@@ -406,6 +625,26 @@ function coreOperations(
           decode("decode sandbox application", podListObservation, value),
         ),
         Effect.map((value) => value.items),
+      ),
+  };
+}
+
+function deploymentOperations(
+  namespace: string,
+  apps: AppsV1Api,
+): Pick<KubernetesSocietyApi, "createDeployment" | "deleteDeployment"> {
+  return {
+    createDeployment: (body) =>
+      request("create run network process", () =>
+        apps.createNamespacedDeployment({ namespace, body, ...APPLIED }),
+      ).pipe(Effect.asVoid),
+    deleteDeployment: (name) =>
+      ignoreAbsent("delete run network process", () =>
+        apps.deleteNamespacedDeployment({
+          namespace,
+          name,
+          propagationPolicy: "Foreground",
+        }),
       ),
   };
 }
@@ -493,50 +732,9 @@ function sandboxOperations(
   };
 }
 
-/**
- * Build the live in-cluster client without leaking generated API types.
- * @param namespace Namespace that owns the run-scoped resources.
- * @returns Narrow Kubernetes operations consumed by the cluster.
- */
-export function makeInClusterKubernetesSocietyApi(
-  namespace: string,
-): KubernetesSocietyApi {
-  const config = new KubeConfig();
-  config.loadFromDefault();
-  const custom = config.makeApiClient(CustomObjectsApi);
-  const core = config.makeApiClient(CoreV1Api);
-  return Object.freeze({
-    ...workloadOperations(namespace, custom),
-    ...coreOperations(namespace, core),
-    ...sandboxOperations(namespace, custom),
-    bridgeAccepts,
-  });
-}
-
 interface ConditionedObservation {
   readonly metadata: { readonly generation?: number };
   readonly status?: { readonly conditions?: readonly KubernetesCondition[] };
-}
-
-/**
- * Test whether an object has a positive current-generation condition.
- * @param observation Narrow object status returned by the live decoder.
- * @param type Kubernetes condition type to find.
- * @returns Whether the current generation reports that condition as true.
- */
-export function currentConditionIsTrue(
-  observation: ConditionedObservation,
-  type: string,
-): boolean {
-  const generation = observation.metadata.generation;
-  return (
-    observation.status?.conditions?.some(
-      (entry) =>
-        entry.type === type &&
-        entry.status === "True" &&
-        (generation === undefined || entry.observedGeneration === generation),
-    ) ?? false
-  );
 }
 
 /** Coarse controller Job status, total so its readers need no defaulting. */
@@ -627,7 +825,7 @@ export interface RunControlApi {
     namespace: string,
     manifests: OwnedRunControlManifests,
   ) => Effect.Effect<void, KubernetesCallFailed>;
-  readonly createRouterService: (
+  readonly createControllerService: (
     namespace: string,
     manifests: OwnedRunControlManifests,
   ) => Effect.Effect<void, KubernetesCallFailed>;
@@ -847,7 +1045,7 @@ function runPreparationOperations(
   | "createRunRoot"
   | "createExperimentAndQueue"
   | "createControllerAccess"
-  | "createRouterService"
+  | "createControllerService"
   | "startController"
 > {
   return {
@@ -856,11 +1054,11 @@ function runPreparationOperations(
       createExperimentAndQueue(clients, namespace, manifests),
     createControllerAccess: (namespace, manifests) =>
       createControllerAccess(clients, namespace, manifests),
-    createRouterService: (namespace, manifests) =>
-      kubernetesCall("create router service", () =>
+    createControllerService: (namespace, manifests) =>
+      kubernetesCall("create controller service", () =>
         clients.core.createNamespacedService({
           namespace,
-          body: manifests.routerService,
+          body: manifests.controllerService,
           ...APPLIED,
         }),
       ).pipe(Effect.asVoid),
@@ -914,31 +1112,19 @@ function runObservationOperations(
   };
 }
 
-/**
- * Build the live Kubernetes access one run-lifecycle worker attempt uses.
- * @returns Run-control operations backed by the worker Pod's service account.
- */
-export function makeKubernetesRunControlApi(): RunControlApi {
-  const clients = runControlClients();
-  return Object.freeze({
-    ...runPreparationOperations(clients),
-    ...runObservationOperations(clients),
-  });
-}
-
 interface InstallClients {
   readonly apps: AppsV1Api;
   readonly core: CoreV1Api;
   readonly rbac: RbacAuthorizationV1Api;
 }
 
+interface KubeContextSelector {
+  readonly getContextObject: (name: string) => unknown;
+  readonly setCurrentContext: (name: string) => void;
+}
+
 /** One object's apply call, already bound to the manifest it declares. */
 type InstalledObjectApply = () => PromiseLike<unknown>;
-
-const NAMED_WORKER = Object.freeze({
-  name: RUN_WORKER_NAME,
-  namespace: SYSTEM_NAMESPACE,
-} as const);
 
 /**
  * Field ownership plus the content type that makes a patch an apply. Ownership
@@ -988,53 +1174,10 @@ function installedObjectApplies(
 function installClients(profile: KubernetesExecutionProfile): InstallClients {
   const config = new KubeConfig();
   config.loadFromDefault();
-  if (profile.kind === "gke") {
-    if (config.getContextObject(profile.kubeContext) === null) {
-      throw new KubernetesCallFailed("select configured kubeconfig context");
-    }
-    config.setCurrentContext(profile.kubeContext);
-  }
+  selectConfiguredKubeContext(config, profile);
   return {
     apps: config.makeApiClient(AppsV1Api),
     core: config.makeApiClient(CoreV1Api),
     rbac: config.makeApiClient(RbacAuthorizationV1Api),
   };
-}
-
-/**
- * Build the live host-side access used to install the cluster's run worker.
- * @param options Host-selected image, Temporal endpoint, queue, and profile.
- * @returns Install operations against the profile's cluster.
- */
-export function makeKubernetesRunWorkerInstallApi(
-  options: RunWorkerOptions,
-): RunWorkerInstallApi {
-  const clients = installClients(options.profile);
-  const applies = installedObjectApplies(clients, runWorkerManifests(options));
-  const readWorker = () =>
-    kubernetesCall("observe run worker", () =>
-      clients.apps.readNamespacedDeployment({
-        name: RUN_WORKER_NAME,
-        namespace: SYSTEM_NAMESPACE,
-      }),
-    );
-  return Object.freeze({
-    install: (object: RunWorkerObject) =>
-      kubernetesCall(`apply run worker ${object}`, applies[object]).pipe(
-        Effect.asVoid,
-      ),
-    // A cluster with no worker yet reads as no image rather than as a failure:
-    // nothing is installed, so nothing can be interrupted by installing.
-    readInstalledWorkerImage: () =>
-      readWorker().pipe(
-        Effect.map(installedWorkerImage),
-        Effect.catchIf(
-          (failure) => failure.absent,
-          () => Effect.succeed(undefined),
-        ),
-      ),
-    readWorkerAvailability: () =>
-      readWorker().pipe(Effect.map(workerAvailabilityOf)),
-    wait: (milliseconds: number) => Effect.sleep(Duration.millis(milliseconds)),
-  });
 }

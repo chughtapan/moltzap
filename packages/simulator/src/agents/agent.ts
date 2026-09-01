@@ -1,14 +1,10 @@
 /** @file Scoped autonomous-agent runtime contract. */
-// safer-arch-ignore no-cross-domain-sibling-import: A runtime contract is defined by what it receives: the ledger's JSON configuration shape and the network's connection and inbound-link types.
 
-import type { AgentName } from "@moltzap/protocol/identity";
-import { type Effect, Either, Schema, type Scope } from "effect";
-import {
-  jsonValue,
-  type JsonValue as JsonValueType,
-} from "../ledger/schema.js";
-import type { InboundLinkStage } from "../network/link.js";
-import type { AgentConnection } from "../network/router.js";
+import type { AgentName } from "@moltzap/identity";
+import { type Effect, Either, Schema } from "effect";
+import { jsonValue, type JsonValue as JsonValueType } from "../ledger/index.js";
+
+// safer-arch-ignore no-cross-domain-sibling-import: A runtime contract is defined by the ledger's JSON configuration shape and the roster-owned name it receives.
 
 const agentRuntimeTypeId: unique symbol = Symbol(
   "@moltzap/simulator/AgentRuntime",
@@ -85,22 +81,9 @@ export interface RunningAgent<Gateway> {
   readonly termination: Effect.Effect<RuntimeTermination>;
 }
 
-/** Router attachment presented to a runtime's private container realization. */
-export interface AgentRuntimeInput<Name extends string> {
+/** Roster identity presented to a runtime's private realization. */
+export interface AgentRuntimeInput {
   readonly agentName: AgentName;
-  readonly connection: AgentConnection<Name>;
-  /**
-   * Scoped acquisition of the stage that applies the run's directed-link
-   * policies to this agent's inbound deliveries. A runtime whose agent receives
-   * in this process acquires it and wraps the stream it hands the agent; one
-   * whose agent receives in another process leaves it unacquired, so link
-   * control over that agent fails instead of shaping nothing.
-   */
-  readonly interceptInbound?: Effect.Effect<
-    InboundLinkStage,
-    never,
-    Scope.Scope
-  >;
 }
 
 /** Runtime-native schema and sanitized configuration captured at definition. */
@@ -163,23 +146,6 @@ export interface AgentRuntimeLike {
   readonly configuration: AgentRuntimeConfiguration<Schema.Schema.AnyNoContext>;
 }
 
-function invalidConfiguration(detail: string): AgentRuntimeDefinitionError {
-  return AgentRuntimeDefinitionError.make({
-    detail: `runtime configuration must be Schema-encoded JSON: ${detail}`,
-  });
-}
-
-function configurationValue<Value>(
-  result: Either.Either<Value, unknown>,
-): Value {
-  return Either.match(result, {
-    onLeft: (error) => {
-      throw invalidConfiguration(String(error));
-    },
-    onRight: (value) => value,
-  });
-}
-
 /**
  * Freeze a value and everything reachable from it.
  * @param value Value to freeze in place.
@@ -195,43 +161,6 @@ export function deepFreeze<Value>(value: Value): Value {
   return Object.freeze(value);
 }
 
-function captureConfiguration<
-  ConfigurationSchema extends Schema.Schema.AnyNoContext,
-  Type extends
-    Schema.Schema.Type<ConfigurationSchema> = Schema.Schema.Type<ConfigurationSchema>,
-  Encoded = Schema.Schema.Encoded<ConfigurationSchema>,
->(
-  configuration: Readonly<{
-    schema: ConfigurationSchema & Schema.Schema<Type, Encoded>;
-    value: Type;
-  }>,
-): {
-  readonly configuration: AgentRuntimeConfiguration<ConfigurationSchema>;
-  readonly projection: JsonValueType;
-} {
-  const encoded = configurationValue(
-    Schema.encodeUnknownEither(configuration.schema)(configuration.value),
-  );
-  const projection = configurationValue(
-    Schema.decodeUnknownEither(jsonValue)(encoded),
-  );
-  const canonicalProjection = deepFreeze(projection);
-  const nativeValue = () =>
-    configurationValue(
-      Schema.decodeUnknownEither(configuration.schema)(canonicalProjection),
-    );
-  nativeValue();
-  return {
-    configuration: Object.freeze({
-      schema: configuration.schema,
-      get value() {
-        return nativeValue();
-      },
-    }),
-    projection: canonicalProjection,
-  };
-}
-
 /**
  * Read the validated, immutable JSON projection captured at definition time.
  * @param runtime Defined runtime whose projection is required.
@@ -244,8 +173,8 @@ export function runtimeConfigurationProjection(
 }
 
 /**
- * Preserve inferred gateway, acquisition error, and configuration types.
- * @param runtime Value supplied to the operation.
+ * Validate, snapshot, and brand one runtime definition for roster use.
+ * @param runtime Runtime metadata and native configuration to capture.
  * @returns The immutable runtime definition.
  */
 export function defineRuntime<
@@ -290,4 +219,58 @@ export class RuntimeAcquisitionError extends Schema.TaggedError<RuntimeAcquisiti
   override get message(): string {
     return `${this.runtime} runtime for "${this.agent}" failed to start: ${this.detail}`;
   }
+}
+
+function captureConfiguration<
+  ConfigurationSchema extends Schema.Schema.AnyNoContext,
+  Type extends
+    Schema.Schema.Type<ConfigurationSchema> = Schema.Schema.Type<ConfigurationSchema>,
+  Encoded = Schema.Schema.Encoded<ConfigurationSchema>,
+>(
+  configuration: Readonly<{
+    schema: ConfigurationSchema & Schema.Schema<Type, Encoded>;
+    value: Type;
+  }>,
+): {
+  readonly configuration: AgentRuntimeConfiguration<ConfigurationSchema>;
+  readonly projection: JsonValueType;
+} {
+  const encoded = configurationValue(
+    Schema.encodeUnknownEither(configuration.schema)(configuration.value),
+  );
+  const projection = configurationValue(
+    Schema.decodeUnknownEither(jsonValue)(encoded),
+  );
+  const canonicalProjection = deepFreeze(projection);
+  const nativeValue = () =>
+    configurationValue(
+      Schema.decodeUnknownEither(configuration.schema)(canonicalProjection),
+    );
+  nativeValue();
+  return {
+    configuration: Object.freeze({
+      schema: configuration.schema,
+      get value() {
+        return nativeValue();
+      },
+    }),
+    projection: canonicalProjection,
+  };
+}
+
+function configurationValue<Value>(
+  result: Either.Either<Value, unknown>,
+): Value {
+  return Either.match(result, {
+    onLeft: (error) => {
+      throw invalidConfiguration(String(error));
+    },
+    onRight: (value) => value,
+  });
+}
+
+function invalidConfiguration(detail: string): AgentRuntimeDefinitionError {
+  return AgentRuntimeDefinitionError.make({
+    detail: `runtime configuration must be Schema-encoded JSON: ${detail}`,
+  });
 }

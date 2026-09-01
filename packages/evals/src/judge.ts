@@ -1,6 +1,6 @@
 /** @file Provider-neutral semantic judge contract and structured-output validation. */
 
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Schema } from "effect";
 import {
   criterionId,
   criterionVerdict,
@@ -10,8 +10,8 @@ import {
   positiveInteger,
 } from "./model.js";
 import {
-  EvaluationTranscript,
   citationIssue,
+  EvaluationTranscript,
   transcriptIssue,
 } from "./transcript.js";
 
@@ -119,30 +119,6 @@ export class SemanticJudge extends Context.Tag("@moltzap/evals/SemanticJudge")<
   SemanticJudgeService
 >() {}
 
-function judgeCoverageIssue(
-  bundle: JudgeBundle,
-  result: JudgeResult,
-): JudgeInvalidOutput | undefined {
-  if (result.caseId !== bundle.caseId) {
-    return JudgeInvalidOutput.make({
-      detail: `judge returned case ${result.caseId} for ${bundle.caseId}`,
-    });
-  }
-  const expected = bundle.criteria.map((criterion) => criterion.id);
-  const actual = result.criteria.map((criterion) => criterion.criterionId);
-  if (
-    new Set(actual).size !== actual.length ||
-    expected.length !== actual.length ||
-    expected.some((criterion) => !actual.includes(criterion))
-  ) {
-    return JudgeInvalidOutput.make({
-      detail:
-        "judge output does not contain every requested criterion exactly once",
-    });
-  }
-  return undefined;
-}
-
 /**
  * Enforce exact criterion coverage and evidence-ID-bound citations.
  * @param bundle Trusted policy and normalized untrusted evidence.
@@ -185,23 +161,26 @@ export function validateJudgeResult(
   return Effect.succeed(result);
 }
 
-/** Test or provider handler accepted by the semantic judge service. */
-export type SemanticJudgeHandler = (
+function judgeCoverageIssue(
   bundle: JudgeBundle,
-) => Effect.Effect<JudgeResult, JudgeError>;
-
-/**
- * Build a parameterized fake layer for grading and calibration tests.
- * @param handler Test-owned structured judge implementation.
- * @returns A judge layer that also enforces the production validator.
- */
-export function makeSemanticJudgeTestLayer(
-  handler: SemanticJudgeHandler,
-): Layer.Layer<SemanticJudge> {
-  return Layer.succeed(SemanticJudge, {
-    assess: (bundle) =>
-      handler(bundle).pipe(
-        Effect.flatMap((result) => validateJudgeResult(bundle, result)),
-      ),
-  });
+  result: JudgeResult,
+): JudgeInvalidOutput | undefined {
+  if (result.caseId !== bundle.caseId) {
+    return JudgeInvalidOutput.make({
+      detail: `judge returned case ${result.caseId} for ${bundle.caseId}`,
+    });
+  }
+  const expected = bundle.criteria.map((criterion) => criterion.id);
+  const actual = result.criteria.map((criterion) => criterion.criterionId);
+  if (
+    new Set(actual).size !== actual.length ||
+    expected.length !== actual.length ||
+    expected.some((criterion) => !actual.includes(criterion))
+  ) {
+    return JudgeInvalidOutput.make({
+      detail:
+        "judge output does not contain every requested criterion exactly once",
+    });
+  }
+  return undefined;
 }

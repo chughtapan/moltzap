@@ -1,71 +1,14 @@
 /** @file Definition-time bootstrap material shared by container runtimes. */
 
-import type { AgentId, AgentKey, AgentName } from "@moltzap/protocol/identity";
+import { Schema } from "effect";
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
-import { Redacted, Schema } from "effect";
 import type { File } from "./container.js";
-
-const PROFILE_CONFIG_INDENT_SPACES = 2;
-
-/** Profile selector shared by isolated runtime containers. */
-export const SIMULATOR_PROFILE_NAME = "simulator-agent";
-
-/**
- * Loopback port the slot's daemon binds inside its own container.
- *
- * A profile records the port rather than discovering one: the daemon and every
- * adapter derive the same MCP URL from the slot, so nothing allocates or falls
- * back. One fixed value stays collision-free because each agent owns a network
- * namespace, and it sits beside the gateway ports the same container binds.
- */
-export const SLOT_MCP_CONTAINER_PORT = 18_791;
-
-/**
- * Serialize the per-agent MoltZap profile mounted into a runtime container.
- * @param profile Runtime identity and redacted credentials.
- * @param profile.agentName Router-visible agent name.
- * @param profile.agentId Registered agent identity.
- * @param profile.apiKey Registered agent credential.
- * @param profile.mcpPort Loopback port the slot's daemon binds.
- * @returns The JSON profile configuration.
- */
-export function serializeMoltZapProfileConfig(profile: {
-  readonly agentName: AgentName;
-  readonly agentId: AgentId;
-  readonly apiKey: AgentKey;
-  readonly mcpPort: number;
-}): string {
-  return JSON.stringify(
-    {
-      profiles: {
-        [SIMULATOR_PROFILE_NAME]: {
-          agentId: profile.agentId,
-          apiKey: Redacted.value(profile.apiKey),
-          agentName: profile.agentName,
-          mcpPort: profile.mcpPort,
-        },
-      },
-    },
-    null,
-    PROFILE_CONFIG_INDENT_SPACES,
-  );
-}
-
-function staysBelowWorkspaceRoot(value: string): boolean {
-  // A backslash is an ordinary character to posix.normalize, so a Windows-style
-  // separator would survive normalization and reach the container verbatim.
-  if (value.includes("\\") || posix.isAbsolute(value)) {
-    return false;
-  }
-  return value !== "." && value !== ".." && !value.startsWith("../");
-}
 
 /**
  * A workspace path proven to land inside its runtime's workspace root, held in
  * the normalized form the bootstrap file is written under. Decoding happens
- * where a runtime is defined, so a path can no longer escape at render time,
- * after the router has already issued the agent its credentials.
+ * where a runtime is defined, so a path cannot escape later at render time.
  */
 const workspaceRelativePath = Schema.transform(
   Schema.String,
@@ -107,27 +50,21 @@ interface StdioMcpServer {
   readonly env: Readonly<Record<string, string>>;
 }
 
+/** One remote MCP server reached over streamable HTTP. */
 interface HttpMcpServer {
   readonly name: string;
   readonly url: string;
 }
 
-/**
- * One MCP server a runtime mounts: spawned over stdio inside the container,
- * or reached remotely over streamable HTTP. A remote URL may embed a
- * per-agent capability token, so sanitized configurations treat the URL like
- * credential material: digested by origin only, never recorded.
- */
+/** One MCP server reachable from a runtime container. */
 export type McpServer = StdioMcpServer | HttpMcpServer;
 
 /**
- * Whether one MCP server is reached over streamable HTTP rather than stdio.
- * @param server MCP server whose transport is being decided.
- * @returns Whether the server carries a remote URL.
+ * Distinguishes remote streamable-HTTP servers from spawned stdio servers.
+ * @param server MCP server whose transport is being selected.
+ * @returns Whether the definition carries a remote URL.
  */
-export function isHttpMcpServer(
-  server: McpServer,
-): server is Extract<McpServer, { readonly url: string }> {
+export function isHttpMcpServer(server: McpServer): server is HttpMcpServer {
   return "url" in server;
 }
 
@@ -250,13 +187,55 @@ export function workspaceConfiguration(
 }
 
 /**
- * The sanitized record of one MCP server: a value-free definition digest and
- * the matching redaction list, produced together so they cannot drift. Only
- * environment *keys* and the URL *origin* are digested: values and token
- * paths are secrets, and digesting them would let anyone holding a candidate
- * confirm it against a published ledger.
+ * Record which MCP servers a runtime mounts without recording their secrets.
+ * @param servers MCP servers a runtime mounts, if any.
+ * @returns The sanitized MCP server records.
+ */
+export function mcpConfiguration(
+  servers?: readonly McpServer[],
+): readonly McpServerConfiguration[] {
+  return (servers ?? []).map(sanitizedMcpServer);
+}
+
+/**
+ * Place one checked workspace path under a runtime's workspace root.
+ * @param root Absolute workspace directory inside the container.
+ * @param relativePath Path already proven to stay below that root.
+ * @returns The absolute in-container path.
+ */
+export function workspaceFilePath(
+  root: `/${string}`,
+  relativePath: WorkspaceRelativePath,
+): `/${string}` {
+  return `${root}/${relativePath}`;
+}
+
+/**
+ * One bootstrap file. Mode 0o600 because these may carry private runtime
+ * configuration, gateway credentials, or tool environment values.
+ * @param path Absolute in-container path the file is materialized at.
+ * @param content Exact file content.
+ * @returns The frozen file the run-scoped Secret materializes.
+ */
+export function bootstrapFile(path: `/${string}`, content: string): File {
+  return Object.freeze({ path, content, mode: 0o600 });
+}
+
+function staysBelowWorkspaceRoot(value: string): boolean {
+  // A backslash is an ordinary character to posix.normalize, so a Windows-style
+  // separator would survive normalization and reach the container verbatim.
+  if (value.includes("\\") || posix.isAbsolute(value)) {
+    return false;
+  }
+  return value !== "." && value !== ".." && !value.startsWith("../");
+}
+
+/**
+ * Sanitizes one MCP definition without retaining credential material. Stdio
+ * definitions keep only environment keys; remote definitions keep only their
+ * origin so capability-bearing paths cannot be confirmed from run evidence.
  * @param server MCP server whose definition is being recorded.
- * @returns The sanitized MCP server record.
+ * @returns The value-free configuration projection.
  */
 function sanitizedMcpServer(server: McpServer): McpServerConfiguration {
   const { definition, redacted } = isHttpMcpServer(server)
@@ -283,39 +262,4 @@ function sanitizedMcpServer(server: McpServer): McpServerConfiguration {
     definitionDigest: digestText(definition),
     redacted,
   });
-}
-
-/**
- * Record which MCP servers a runtime mounts without recording their secrets.
- * @param servers MCP servers a runtime mounts, if any.
- * @returns The sanitized MCP server records.
- */
-export function mcpConfiguration(
-  servers?: readonly McpServer[],
-): readonly McpServerConfiguration[] {
-  return (servers ?? []).map(sanitizedMcpServer);
-}
-
-/**
- * Place one checked workspace path under a runtime's workspace root.
- * @param root Absolute workspace directory inside the container.
- * @param relativePath Path already proven to stay below that root.
- * @returns The absolute in-container path.
- */
-export function workspaceFilePath(
-  root: `/${string}`,
-  relativePath: WorkspaceRelativePath,
-): `/${string}` {
-  return `${root}/${relativePath}`;
-}
-
-/**
- * One bootstrap file. Mode 0o600 because these carry the agent's router
- * credential and every provider secret the runtime was configured with.
- * @param path Absolute in-container path the file is materialized at.
- * @param content Exact file content.
- * @returns The frozen file the run-scoped Secret materializes.
- */
-export function bootstrapFile(path: `/${string}`, content: string): File {
-  return Object.freeze({ path, content, mode: 0o600 });
 }

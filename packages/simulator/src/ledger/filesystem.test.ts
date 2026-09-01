@@ -1,23 +1,27 @@
+/** @file Filesystem ledger canonicalization, durability, concurrency, and failure regressions. */
+
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { it as effectIt } from "@effect/vitest";
+import { Deferred, Effect, Exit, Fiber, Option, Ref, Schema } from "effect";
+import { describe, expect } from "vitest";
+import { EventCatalog } from "../events/catalog.js";
 import {
-  EventCatalog,
+  filesystemLedgerStorageLayer,
+  makeFilesystemLedgerStorage,
+} from "./filesystem.js";
+import {
   type JsonValue,
   jsonValue,
   LedgerCompletion,
   LedgerManifest,
   ledgerRef,
+} from "./schema.js";
+import {
+  type LedgerAllocationInput,
   LedgerStorage,
   LedgerStorageError,
-  type LedgerAllocationInput,
-} from "../ledger.js";
-import { Deferred, Effect, Exit, Fiber, Option, Ref, Schema } from "effect";
-import { describe, expect } from "vitest";
-import {
-  makeFilesystemLedgerStorage,
-  filesystemLedgerStorageLayer,
-} from "./filesystem.js";
+} from "./storage.js";
 
 const it = effectIt.scoped;
 const UNSORTED_RECORD = '{"z":1,"a":2}';
@@ -50,10 +54,6 @@ function allocationInput(): LedgerAllocationInput {
   };
 }
 
-function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
-  return Array.isArray(value);
-}
-
 function expectCanonicalObjects(value: JsonValue): void {
   if (isJsonArray(value)) {
     for (const entry of value) {
@@ -70,6 +70,10 @@ function expectCanonicalObjects(value: JsonValue): void {
       expectCanonicalObjects(entry);
     }
   }
+}
+
+function isJsonArray(value: JsonValue): value is readonly JsonValue[] {
+  return Array.isArray(value);
 }
 
 function verifyRoundTrip() {

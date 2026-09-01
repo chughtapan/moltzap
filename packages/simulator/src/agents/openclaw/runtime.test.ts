@@ -1,45 +1,39 @@
+/** @file OpenClaw container rendering, bootstrap isolation, and gateway attachment regressions. */
+
 import { assert, it as effectIt } from "@effect/vitest";
+import { AgentName } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import { describe } from "vitest";
-import { makeAgentHandle, type AgentConnection } from "../../network.js";
 import {
-  containerRuntimeFor,
-  type Application,
-  type ContainerRuntime,
-  type File,
-} from "../container.js";
-import {
-  runtimeConfigurationProjection,
   type RuntimeAcquisitionError,
+  runtimeConfigurationProjection,
 } from "../agent.js";
 import {
+  type Application,
+  type ContainerRuntime,
+  containerRuntimeFor,
+  type File,
+  image,
+} from "../container.js";
+import {
   GatewayOperations,
-  OpenClawGatewayRequest,
-  OpenClawGatewaySucceeded,
   type OpenClawGateway,
   type OpenClawGatewayClientFactory,
+  OpenClawGatewayRequest,
+  OpenClawGatewaySucceeded,
 } from "./gateway.js";
 import { openClawRuntime } from "./runtime.js";
-import { serverBaseUrl } from "@moltzap/protocol/network";
-import {
-  agentId,
-  agentName,
-  redactedAgentKey,
-} from "@moltzap/protocol/testing";
 
 const test = effectIt.effect;
-const AGENT_NAME = agentName("alice");
-const AGENT_ID = agentId("00000000-0000-4000-8000-000000000001");
-const AGENT_KEY_TEXT =
-  "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000";
-const AGENT_KEY = redactedAgentKey(AGENT_KEY_TEXT);
-// eslint-disable-next-line sonarjs/no-clear-text-protocols -- the private in-cluster router contract is intentionally HTTP.
-const ROUTER_URL = serverBaseUrl("http://router.society.svc:3000");
+const AGENT_NAME = Schema.decodeUnknownSync(AgentName)("alice");
 const GATEWAY_HOST = "alice.society.svc";
+const APPLICATION_IMAGE = image.make(
+  "example.invalid/openclaw-agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+);
 const BOOTSTRAP_ROOT = "/var/run/moltzap/bootstrap/";
 const OPENCLAW_CONFIG_PATH = `${BOOTSTRAP_ROOT}openclaw.json`;
-const PROFILE_PATH = `${BOOTSTRAP_ROOT}moltzap/config.json`;
-const CHANNEL_PATH = `${BOOTSTRAP_ROOT}openclaw-channel`;
+const OPENCLAW_EXTENSION_PATH =
+  "/opt/moltzap/node_modules/@moltzap/openclaw-channel";
 const WORKSPACE_PATH = `${BOOTSTRAP_ROOT}workspace/IDENTITY.md`;
 const GATEWAY_PORT = 18_789;
 const APPLICATION_STATE_DIR = `${BOOTSTRAP_ROOT}state`;
@@ -47,12 +41,9 @@ const PAIRED_DEVICES_PATH = `${APPLICATION_STATE_DIR}/devices/paired.json`;
 const WORKSPACE_CONTENT = "Alice";
 const BRIDGE_RUN_ID = "openclaw-bridge-run";
 const BRIDGE_IDEMPOTENCY_KEY = "openclaw-bridge-key";
-
-const connection: AgentConnection<"alice"> = {
-  agent: makeAgentHandle("alice", AGENT_ID),
-  key: AGENT_KEY,
-  routerUrl: ROUTER_URL,
-};
+const messagingModeProjection = Schema.Struct({
+  messagingMode: Schema.Literal("shared", "private"),
+});
 
 /**
  * OpenClaw sees no stop the cluster cannot, so it must never report one: its
@@ -74,19 +65,35 @@ const renderedOpenClawConfig = Schema.parseJson(
       auth: Schema.Struct({ token: Schema.String }),
     }),
     plugins: Schema.Struct({
-      load: Schema.Struct({ paths: Schema.Array(Schema.String) }),
-    }),
-  }),
-);
-
-const renderedMoltZapProfile = Schema.parseJson(
-  Schema.Struct({
-    profiles: Schema.Struct({
-      "simulator-agent": Schema.Struct({
-        agentId: Schema.String,
-        apiKey: Schema.String,
-        agentName: Schema.String,
+      entries: Schema.Struct({
+        "openclaw-channel": Schema.Struct({ enabled: Schema.Boolean }),
       }),
+      load: Schema.optional(
+        Schema.Struct({ paths: Schema.Array(Schema.String) }),
+      ),
+    }),
+    session: Schema.optional(
+      Schema.Struct({
+        dmScope: Schema.Literal("per-account-channel-peer"),
+      }),
+    ),
+    channels: Schema.Struct({
+      moltzap: Schema.Struct({
+        accounts: Schema.Array(
+          Schema.Struct({
+            id: Schema.String,
+            mode: Schema.Literal("shared", "private"),
+          }),
+        ),
+      }),
+    }),
+    messages: Schema.Struct({
+      queue: Schema.Struct({
+        mode: Schema.Literal("steer"),
+        cap: Schema.Number,
+        drop: Schema.Literal("new"),
+      }),
+      inbound: Schema.Struct({ debounceMs: Schema.Number }),
     }),
   }),
 );
@@ -100,42 +107,37 @@ type OpenClawApplication = Application<
   RuntimeAcquisitionError
 >;
 
-interface StockFixture {
+interface OpenClawContainerFixture {
   readonly runtime: ReturnType<typeof openClawRuntime>;
   readonly capability: OpenClawContainerRuntime;
   readonly application: OpenClawApplication;
   readonly config: typeof renderedOpenClawConfig.Type;
-  readonly profile: typeof renderedMoltZapProfile.Type;
 }
 
-function requireFile(files: readonly File[], path: string): string {
-  const file = files.find((candidate) => candidate.path === path);
-  if (file === undefined) {
-    throw new Error(`missing rendered file ${path}`);
-  }
-  return file.content;
+function applicationContainerTest() {
+  return Effect.gen(function* () {
+    const fixture = yield* makeOpenClawContainerFixture();
+    assertCredentialFreeReservation(fixture.capability);
+    assertApplicationContainer(fixture);
+    assertBootstrapMaterial(fixture);
+  });
 }
 
-function makeStockFixture() {
+function makeOpenClawContainerFixture() {
   return Effect.gen(function* () {
     const runtime = openClawRuntime({
+      applicationImage: APPLICATION_IMAGE,
       modelId: "openai/gpt-5.5",
       workspaceFiles: [
         { relativePath: "IDENTITY.md", content: WORKSPACE_CONTENT },
       ],
     });
     const capability = containerRuntimeFor(runtime);
-    const application = yield* capability.render({
-      agentName: AGENT_NAME,
-      connection,
-    });
+    const application = yield* capability.render({ agentName: AGENT_NAME });
     const config = Schema.decodeUnknownSync(renderedOpenClawConfig)(
       requireFile(application.files, OPENCLAW_CONFIG_PATH),
     );
-    const profile = Schema.decodeUnknownSync(renderedMoltZapProfile)(
-      requireFile(application.files, PROFILE_PATH),
-    );
-    return { runtime, capability, application, config, profile };
+    return { runtime, capability, application, config };
   });
 }
 
@@ -146,13 +148,12 @@ function assertCredentialFreeReservation(
     image: capability.image,
     resources: capability.resources,
   }).toLowerCase();
-  assert.notInclude(reservation, AGENT_KEY_TEXT.toLowerCase());
   assert.notInclude(reservation, "credential");
   assert.notInclude(reservation, "bootstrap");
-  assert.match(capability.image, /@sha256:[\da-f]{64}$/u);
+  assert.strictEqual(capability.image, APPLICATION_IMAGE);
 }
 
-function assertApplicationContainer(fixture: StockFixture): void {
+function assertApplicationContainer(fixture: OpenClawContainerFixture): void {
   const { application, capability, config } = fixture;
   const containerProjection = JSON.stringify({
     entrypoint: application.entrypoint,
@@ -163,18 +164,13 @@ function assertApplicationContainer(fixture: StockFixture): void {
   assert.notProperty(application, "containers");
   assert.notProperty(application, "applicationContainers");
   assert.deepStrictEqual(capability.resources, {
-    cpuMillis: 1_000,
-    memoryBytes: 1_024 * 1_024 * 1_024,
+    cpuMillis: 1_100,
+    memoryBytes: 1_280 * 1_024 * 1_024,
     ephemeralStorageBytes: 1_024 * 1_024 * 1_024,
   });
   assert.deepStrictEqual(application.entrypoint, [
     "node",
-    "/app/openclaw.mjs",
-    "gateway",
-    "run",
-    "--allow-unconfigured",
-    "--port",
-    String(GATEWAY_PORT),
+    "/opt/moltzap/agent/entrypoint.mjs",
   ]);
   assert.strictEqual(application.port, GATEWAY_PORT);
   assert.strictEqual(
@@ -185,26 +181,69 @@ function assertApplicationContainer(fixture: StockFixture): void {
     application.environment.OPENCLAW_STATE_DIR,
     APPLICATION_STATE_DIR,
   );
-  assert.strictEqual(application.environment.MOLTZAP_SERVER_URL, ROUTER_URL);
   assert.deepStrictEqual(application.credentials, ["OPENAI_API_KEY"]);
-  assert.notInclude(containerProjection, AGENT_KEY_TEXT);
   assert.notInclude(containerProjection, config.gateway.auth.token);
   assert.strictEqual(config.gateway.bind, "lan");
   assert.strictEqual(
     config.agents.defaults.workspace,
     `${BOOTSTRAP_ROOT}workspace`,
   );
-  assert.deepStrictEqual(config.plugins.load.paths, [CHANNEL_PATH]);
+  assertMessagingConfiguration(fixture);
 }
 
-function assertBootstrapMaterial(fixture: StockFixture): void {
-  const { application, profile, runtime } = fixture;
-  assert.strictEqual(profile.profiles["simulator-agent"].agentId, AGENT_ID);
+function assertMessagingConfiguration(fixture: OpenClawContainerFixture): void {
+  const { config, runtime } = fixture;
+  assert.deepStrictEqual(config.plugins.entries, {
+    "openclaw-channel": { enabled: true },
+  });
+  assert.deepStrictEqual(config.plugins.load, {
+    paths: [OPENCLAW_EXTENSION_PATH],
+  });
+  assert.notProperty(config, "session");
+  assert.deepStrictEqual(config.channels.moltzap.accounts, [
+    { id: "simulator-agent", mode: "shared" },
+  ]);
+  assert.deepStrictEqual(config.messages, {
+    queue: { mode: "steer", cap: 100, drop: "new" },
+    inbound: { debounceMs: 0 },
+  });
   assert.strictEqual(
-    profile.profiles["simulator-agent"].apiKey,
-    AGENT_KEY_TEXT,
+    Schema.decodeUnknownSync(messagingModeProjection)(
+      runtimeConfigurationProjection(runtime),
+    ).messagingMode,
+    "shared",
   );
-  assert.strictEqual(profile.profiles["simulator-agent"].agentName, AGENT_NAME);
+}
+
+function privateMessagingModeTest() {
+  return Effect.gen(function* () {
+    const runtime = openClawRuntime({
+      applicationImage: APPLICATION_IMAGE,
+      messagingMode: "private",
+    });
+    const capability = containerRuntimeFor(runtime);
+    const application = yield* capability.render({ agentName: AGENT_NAME });
+    const config = Schema.decodeUnknownSync(renderedOpenClawConfig)(
+      requireFile(application.files, OPENCLAW_CONFIG_PATH),
+    );
+
+    assert.deepStrictEqual(config.channels.moltzap.accounts, [
+      { id: "simulator-agent", mode: "private" },
+    ]);
+    assert.deepStrictEqual(config.session, {
+      dmScope: "per-account-channel-peer",
+    });
+    assert.strictEqual(
+      Schema.decodeUnknownSync(messagingModeProjection)(
+        runtimeConfigurationProjection(runtime),
+      ).messagingMode,
+      "private",
+    );
+  });
+}
+
+function assertBootstrapMaterial(fixture: OpenClawContainerFixture): void {
+  const { application } = fixture;
   assert.strictEqual(
     requireFile(application.files, WORKSPACE_PATH),
     WORKSPACE_CONTENT,
@@ -222,19 +261,14 @@ function assertBootstrapMaterial(fixture: StockFixture): void {
   assert.isTrue(
     application.files.every((file) => file.path.startsWith(BOOTSTRAP_ROOT)),
   );
-  assert.notInclude(
-    JSON.stringify(runtimeConfigurationProjection(runtime)),
-    AGENT_KEY_TEXT,
-  );
 }
 
-function stockCapabilityTest() {
-  return Effect.gen(function* () {
-    const fixture = yield* makeStockFixture();
-    assertCredentialFreeReservation(fixture.capability);
-    assertApplicationContainer(fixture);
-    assertBootstrapMaterial(fixture);
-  });
+function requireFile(files: readonly File[], path: string): string {
+  const file = files.find((candidate) => candidate.path === path);
+  if (file === undefined) {
+    throw new Error(`missing rendered file ${path}`);
+  }
+  return file.content;
 }
 
 interface ObservedClient {
@@ -267,7 +301,7 @@ function bridgeClient(observed: ObservedClient): OpenClawGatewayClientFactory {
 function exactBridgeTest() {
   return Effect.gen(function* () {
     const observed: ObservedClient = {};
-    const fixture = yield* makeStockFixture();
+    const fixture = yield* makeOpenClawContainerFixture();
     const response = yield* Effect.scoped(
       Effect.gen(function* () {
         const gateway = yield* fixture.application.attach(
@@ -303,11 +337,15 @@ function exactBridgeTest() {
 
 describe("OpenClaw container runtime", () => {
   test(
-    "renders one stock application container with credentials confined to bootstrap files",
-    stockCapabilityTest,
+    "renders one OpenClaw application container with credentials confined to bootstrap files",
+    applicationContainerTest,
   );
   test(
-    "attaches the exact native gateway and termination observation",
+    "attaches the public OpenClaw gateway and termination observation",
     exactBridgeTest,
+  );
+  test(
+    "threads private evaluation messaging into OpenClaw account configuration",
+    privateMessagingModeTest,
   );
 });

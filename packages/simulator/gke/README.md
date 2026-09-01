@@ -20,7 +20,6 @@ costs, because creating the cluster is slow and keeping nodes is expensive:
 | `./cluster.sh setup` | create the substrate and install the add-ons | ~12 min, once |
 | `./cluster.sh up` | bring the controller online | ~2 min |
 | `./cluster.sh run SPEC.mjs` | submit one RunSpec | run-sized |
-| `./cluster.sh evals ARG...` | run an evaluation sweep against this cluster | sweep-sized |
 | `./cluster.sh publish-image` | publish the controller image and print its digest | ~3 min |
 | `./cluster.sh down` | park the controller | ~1 min |
 | `./cluster.sh delete` | destroy the substrate | ~8 min |
@@ -98,10 +97,10 @@ one alone.
 uses, into `moltzap-system`. Production hosting and high availability remain
 deliberately unselected; this is a single Deployment sized for experiments.
 
-Nothing publishes it. `run` and `evals` open a supervised port-forward and set
-`MOLTZAP_TEMPORAL_ADDRESS` to it themselves, replacing a dropped forward for as
-long as the run lasts. An operator driving `dist/cluster/profiles/gke.js`
-directly supplies that address instead.
+Nothing publishes it. `run` opens a supervised port-forward and sets
+`MOLTZAP_TEMPORAL_ADDRESS` to it, replacing a dropped forward for as long as
+the run lasts. An operator driving `dist/cluster/profiles/gke.js` directly
+supplies that address instead.
 
 The in-cluster run worker reaches Temporal by a different route than the
 operator does — a `localhost` port-forward means nothing inside a Pod — so the
@@ -136,7 +135,7 @@ MOLTZAP_GKE_ARTIFACT_BUCKET="$(terraform -chdir=packages/simulator/gke/terraform
 MOLTZAP_TEMPORAL_ADDRESS=TEMPORAL_HOST:7233 \
 MOLTZAP_CONTROLLER_IMAGE=REGISTRY/CONTROLLER@sha256:DIGEST \
 MOLTZAP_SUPPORT_IMAGE=REGISTRY/CONTROLLER@sha256:DIGEST \
-pnpm nx run @moltzap/simulator:gke-run -- packages/simulator/local/end-to-end.mjs
+pnpm nx run @moltzap/simulator:gke-run -- local/end-to-end.mjs
 ```
 
 The GKE entry validates `profile.json`, requires every dynamic identity above,
@@ -149,29 +148,6 @@ reference, so it can be assigned directly:
 ```bash
 MOLTZAP_CONTROLLER_IMAGE="$(packages/simulator/gke/cluster.sh publish-image)"
 ```
-
-## Evaluation sweeps
-
-`./cluster.sh evals` publishes the controller image, holds the Temporal
-forward, exports every identity above, and hands the rest of its arguments to
-[`@moltzap/evals`](../../evals/README.md) with `--profile gke`:
-
-```bash
-OPENAI_API_KEY=... \
-ANTHROPIC_API_KEY=... \
-MOLTZAP_NANOCLAW_IMAGE="$(node packages/simulator/scripts/build-nanoclaw-image.mjs \
-  | node -e 'process.stdin.on("data",(d)=>process.stdout.write(JSON.parse(d).pinnedImage))')" \
-packages/simulator/gke/cluster.sh evals \
-  --report-id baseline-2026-08-06 \
-  --openclaw-model "$OPENCLAW_MODEL" \
-  --nanoclaw-model "$NANOCLAW_MODEL"
-```
-
-The NanoClaw image is passed through rather than built by the verb: it is the
-agent runtime under evaluation, not this cluster's infrastructure, and pushing
-it to this registry is the caller's choice. Every other image and endpoint the
-sweep needs is derived from the cluster the verb just attached to, so the two
-cannot disagree about which cluster is being measured.
 
 ## Private platform contract
 
@@ -212,9 +188,10 @@ repository, as
 [the execution trajectory](../../../docs/decision-evidence/20260801-main-kubernetes-society-execution-trajectory.md)
 records.
 
-The ADR's GKE gate is therefore still open on its evaluation half. Do not claim
-it until one OpenClaw and one NanoClaw evaluation complete through
-`./cluster.sh evals`, their ledgers are readable in the artifact bucket,
+Runtime evaluations are owned and run by
+[`@moltzap/evals`](../../evals/README.md), which can select this profile as its
+Simulator backend. They are not cluster lifecycle commands. Do not claim live
+qualification until the resulting ledgers are readable in the artifact bucket,
 run-owned Kubernetes residue is zero, and that evidence is retained where a
 reader can find it.
 

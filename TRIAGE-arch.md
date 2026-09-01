@@ -1,62 +1,38 @@
-# Follow up on deferred safer-architecture findings
+# Architecture tooling status
 
-`@chughtapan/safer-architecture-lsp` is adopted and green
-(`pnpm arch:check` → 0 findings across all 7 packages), but is **not yet in the
-`pnpm lint` gate** — see "CI enforcement" below. The initial adoption residual is
-clean, with one source-scoped decision that intentionally remains follow-up work.
+`@chughtapan/safer-architecture-lsp` is configured for the exact seven-package
+workspace: Identity, Router, Client, OpenClaw, NanoClaw, Simulator, and Evals.
+The retired umbrella protocol and server packages have no project, config, or
+waiver ledger in the cutover graph.
 
-Protocol `#`-subpath boundary findings remain waived as analyzer false
-positives. Each directive references upstream
-`chughtapan/safer-architecture-lsp#2`.
+Architecture checks are blocking rather than deferred:
 
-## CI enforcement (deferred)
+- `pnpm arch:check` runs every package's `arch:check` target with the required
+  Node heap;
+- `pnpm lint` runs the exact graph and boundary check, validates generated
+  architecture configs, and depends on each package's architecture and lint
+  targets; and
+- CI executes the common build, typecheck, test, lint, and architecture floor
+  for all seven packages.
 
-`arch:check` is intentionally left OUT of `pnpm lint` for now. Wiring it in as a
-blocking gate OOM-killed protocol's cold check on CI (default ~4GB Node heap),
-because CI runs cold — `ci.yml` sets `NX_SKIP_REMOTE_CACHE: "true"`, so the nx
-cache never serves a prior result. Run it manually with `pnpm arch:check`.
+## Configured budgets and waivers
 
-Re-enable once the upstream perf work lands:
-
-- `chughtapan/safer-architecture-lsp#3` — `check` is cold + memory-heavy on every
-  invocation. A cheap interim fix is `NODE_OPTIONS=--max-old-space-size=8192` on
-  the `arch:check` invocation (protocol then completes in ~37s at ~1.9GB); the
-  real fix is upstream.
-- Decide whether CI should connect to the self-hosted nx remote cache (drop
-  `NX_SKIP_REMOTE_CACHE`) so warm results skip the cold analysis entirely.
-
-## Deferred findings
-
-- `no-fat-orchestrator` — `packages/protocol/src/message/messages.ts`
-  - Reason: The message-domain descriptor catalog owns RPCs, callbacks, and
-    notifications; evaluate splitting those families as the catalog grows.
-  - Follow-up: Reassess the catalog when another descriptor family or consumer
-    is added. Split only along a stable RPC, callback, or notification boundary,
-    while preserving the protocol layer DAG.
-
-## Config-relaxed shape heuristics
-
-Reaching the green gate raised several folder- and surface-shape budgets in the
-per-package `safer-architecture.config.json` files rather than restructuring the
-code. These are deliberate, config-first deferrals, not permanent decisions —
-revisit them as the packages evolve:
-
-- `maxPublicExports` / `maxPublicReexports` / `minPublicFacadeModules` /
-  `minExportedSiblingModules` / `maxSubpathExports` were raised to match each
-  package's present curated surface. Follow-up: treat a future increase as a
-  prompt to split the surface rather than raise the budget again.
-
-## Acceptance criteria
-
-- The replacement boundaries preserve the existing public testing and protocol
-  contracts or include an intentional migration plan.
-- The corresponding `safer-arch-ignore` directive is removed.
-- `pnpm arch:check`, `pnpm lint`, `pnpm build`, and
-  `pnpm exec nx run-many -t typecheck:tests` remain green.
-
-Inspect the live waiver ledger with:
+Each `packages/*/safer-architecture.config.json` records the current package
+shape. Refresh and review those files with:
 
 ```sh
-pnpm exec safer-architecture-lsp check packages/protocol --waivers
-pnpm exec safer-architecture-lsp check packages/server --waivers
+pnpm arch:config:generate
+pnpm arch:config:check
 ```
+
+Source-specific exceptions remain inline beside the affected declaration as
+`safer-arch-ignore` directives. They belong to their current owner package and
+must not name or preserve a retired package boundary. Inspect the live source
+ledger with:
+
+```sh
+rg -n "safer-arch-ignore" packages/*/src
+```
+
+Treat any future budget increase or new waiver as an architecture review point
+rather than silently relaxing the generated configuration.

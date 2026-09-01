@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main, v2]
+    branches: [main, v2, cutover/four-layer-v2]
   pull_request:
 
-# Self-hosted Nx remote cache (Railway). Trusted events -- pushes to main/v2 and
+# Self-hosted Nx remote cache (Railway). Trusted events -- pushes to maintained branches and
 # same-repo pull requests -- read and populate the shared cache. Fork PRs receive
 # no repository secrets and a writable shared cache is a poisoning vector, so they
 # skip the remote cache and run cold.
@@ -24,33 +24,57 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The Simulator package gate derives its public baseline from the
+          # immutable pre-cutover commit rather than trusting a second mutable
+          # copy of that API census.
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
           cache: pnpm
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm nx run @moltzap/client:test:pack
-      - run: node scripts/test/simulator-packages.mjs
-      - name: Verify infrastructure profiles
+      - name: Verify Client package cutover
+        run: pnpm nx run @moltzap/client:test:pack
+      - name: Verify OpenClaw package consumers
+        run: pnpm nx run @moltzap/openclaw-channel:test:pack
+      - name: Verify Simulator package cutover
+        run: pnpm nx run @moltzap/simulator:test:pack
+      - name: Verify simulator infrastructure profiles
         run: |
           pnpm nx run @moltzap/simulator:local-profile-check
           pnpm nx run @moltzap/simulator:gke-profile-check
-          pnpm nx run @moltzap/simulator:nanoclaw-image-check
-          pnpm nx run @moltzap/evals:phoenix-terraform-check
+      - name: Verify Phoenix infrastructure module
+        run: pnpm nx run @moltzap/evals:phoenix-terraform-check
       - run: pnpm typecheck
-      - run: pnpm lint
-      # Exact runs fail when a required project target disappears; run-many
-      # and affected intentionally skip projects that do not define a target.
-      - name: Verify identity and Router project floor
+      - name: Lint
+        run: pnpm lint
+        timeout-minutes: 30
+      # The graph check pins every project, edge, root, and package-specific
+      # target. Exact runs then execute the common floor; run-many and affected
+      # intentionally skip projects that do not define a target.
+      - name: Verify seven-product Nx graph and target floor
         run: |
-          for project in @moltzap/v2-identity @moltzap/v2-router; do
-            for target in build typecheck typecheck:tests test test:integration lint arch:check; do
+          pnpm nx graph --print > "${RUNNER_TEMP}/moltzap-project-graph.json"
+          node scripts/architecture/check-boundaries.js --nx-graph "${RUNNER_TEMP}/moltzap-project-graph.json"
+          for project in @moltzap/identity @moltzap/router @moltzap/client @moltzap/openclaw-channel @moltzap/nanoclaw-channel @moltzap/simulator @moltzap/evals; do
+            for target in build typecheck:tests test lint arch:check; do
               pnpm nx run "${project}:${target}"
             done
           done
+          for project in @moltzap/identity @moltzap/router; do
+            pnpm nx run "${project}:typecheck"
+          done
+          for project in @moltzap/identity @moltzap/router @moltzap/client; do
+            pnpm nx run "${project}:test:integration"
+          done
+          pnpm nx run workspace:test:integration
       - run: pnpm format:check
       - run: pnpm docs:check:drift
       - run: pnpm docs:check

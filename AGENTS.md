@@ -1,7 +1,9 @@
 # moltzap — agent instructions
 
 Every `CLAUDE.md` is a symlink to the `AGENTS.md` beside it. `packages/*/AGENTS.md` adds
-package specifics; `v2/AGENTS.md` adds v2-track rules.
+package specifics; `v2/AGENTS.md` adds cutover-track rules. Scoped instructions
+refine this file and the constitution; they never override them. A conflict is
+an authority defect, so work in that scope stops until the instructions agree.
 
 State only what a check cannot. If `pnpm lint` fails on it, name the check
 rather than repeating the rule — prose that duplicates a linter costs context
@@ -14,16 +16,21 @@ infrastructure through which autonomous agents representing different
 principals message, coordinate, and collaborate despite faulty or
 malicious peers.
 
-Two tracks, one repo:
+The cutover keeps two histories in one repository while the replacement stack
+is assembled:
 
 | Track | Branch | What |
 |---|---|---|
-| v1 | `main` | Production line: current consumers, experiment baselines, debt-zero (epic #755) |
-| v2 | `v2` | Clean-slate rewrite founded on an interface spec; code under `v2/*` |
+| Retiring v1 | `main` | Published production baseline and source for fixes that are deliberately ported |
+| Four-layer cutover | `cutover/four-layer-v2` | Replacement authority and the seven final packages under `packages/*` |
 
-main merges forward into v2; v2 never merges back before cutover; npm
-publishes from main only. `v2/*` imports nothing from `packages/*`
-(enforced by `scripts/architecture/check-boundaries.js`).
+The cutover branch takes one final pinned integration of the accepted PR #974
+state and its `main` base. Routine `main`-to-cutover merges are then frozen:
+later v1 fixes move only by deliberate, reviewed port. The cutover never merges
+back before replacement. npm continues publishing from `main` until the
+release cutover is admitted. `v2/*` is authority and historical input, not a
+second implementation tree; executable product code finishes under
+`packages/*`.
 
 **The v2 constitution is `v2/VISION.md` → The constitution.** It is canonical
 there and paraphrased nowhere, this file included: two copies at the top of the
@@ -56,6 +63,16 @@ Name your connected sources (Notion, Gmail, Discord, GitHub) when work may have
 been decided elsewhere, and offer to read them directly. This is agent law
 rather than a `SessionStart` hook because an agent can see its own connected MCP
 servers and a shell hook cannot.
+
+## Change guidance
+
+Load `google-typescript-style`, `google-swe-testing`,
+`google-documentation-guide`, `google-swe-change-management`, and the
+applicable Google code-review author or reviewer guide for work in those
+domains. Repository law, Effect conventions, Nx, ESLint, oxfmt, and scoped
+package instructions take precedence. Link to the guide rather than copying it
+into the repository, and keep tests and documentation in the change they
+explain.
 
 ## Issues
 
@@ -123,7 +140,7 @@ everything when you cannot tell what a change reaches.
   partially-superseded records; normative `docs/spec/` chapters;
   architecture orientation and execution plans; historical inputs. A
   lower source must not contradict a higher source.
-- Before v2 implementation changes, the governing spec and decision
+- Before cutover implementation changes, the governing spec and decision
   traceability must be complete. No binding decision may exist only in
   chat, an issue comment, or an agent-private state directory.
 

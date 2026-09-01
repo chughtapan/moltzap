@@ -18,10 +18,6 @@
       "reason": "RPC descriptors are the public contract; Rpc/RpcGroup types cross the boundary by design"
     },
     {
-      "package": "@moltzap/protocol",
-      "reason": "Intra-monorepo protocol; foundational shared contract"
-    },
-    {
       "package": "@moltzap/client",
       "reason": "Intra-monorepo client SDK; channels depend on its public surface"
     }
@@ -38,10 +34,6 @@
     {
       "subpath": "./test-support",
       "reason": "Channel test support exposed for integration tests"
-    },
-    {
-      "subpath": "./testing",
-      "reason": "Conformance + driver surface for cross-package integration testing"
     }
   ]
 }

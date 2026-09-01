@@ -1,10 +1,10 @@
 #!/usr/bin/env tsx
 /**
  * @file Gate + generator smoke tests. Plain Node, no vitest config —
- * runs the three doc-side scripts under controlled mutations to a
- * temp workspace mirror and asserts (1) the gates pass on the clean
- * snapshot, (2) gates flag every planted regression, (3) the
- * constants generator is idempotent across re-runs.
+ * runs the three doc-side scripts under controlled mutations that are
+ * restored after each assertion. It proves (1) the gates pass on the clean
+ * snapshot, (2) gates flag every planted regression, and (3) the constants
+ * generator is idempotent across re-runs.
  *
  * Invoked via `pnpm docs:check:gates-test`.
  *
@@ -46,11 +46,10 @@ const runScript = (
   script: string,
   cwd: string,
 ): { code: number; stdout: string; stderr: string } => {
-  const r = spawnSync(
-    "pnpm",
-    ["--filter", "@moltzap/server-core", "exec", "tsx", `../../${script}`],
-    { cwd, encoding: "utf8" },
-  );
+  const r = spawnSync("pnpm", ["exec", "tsx", script], {
+    cwd,
+    encoding: "utf8",
+  });
   return {
     code: r.status ?? -1,
     stdout: r.stdout ?? "",
@@ -63,13 +62,7 @@ const runGenerate = (
 ): { code: number; stdout: string; stderr: string } => {
   const r = spawnSync(
     "pnpm",
-    [
-      "--filter",
-      "@moltzap/server-core",
-      "exec",
-      "tsx",
-      "../../scripts/docs/generate-constants-snippets.ts",
-    ],
+    ["exec", "tsx", "scripts/docs/generate-constants-snippets.ts"],
     { cwd, encoding: "utf8" },
   );
   return {
@@ -80,17 +73,13 @@ const runGenerate = (
 };
 
 /**
- * Run the generator without asking pnpm to parse every workspace manifest.
- * This lets the negative-path tests deliberately corrupt protocol/package.json
- * and prove the generator itself fails closed.
+ * Run the generator directly so version-file failure tests exercise the
+ * generator rather than package-manager behavior.
  */
 const runGenerateDirect = (
   cwd: string,
 ): { code: number; stdout: string; stderr: string } => {
-  const tsxCli = resolve(
-    workspaceRoot,
-    "packages/server/node_modules/tsx/dist/cli.mjs",
-  );
+  const tsxCli = resolve(workspaceRoot, "node_modules/tsx/dist/cli.mjs");
   const r = spawnSync(
     process.execPath,
     [
@@ -157,8 +146,9 @@ const testNoHardcodedConstants = (): void => {
     `expected exit 0, got ${clean.code}. stderr: ${clean.stderr}`,
   );
 
-  // Planted regression 1: hardcoded PROTOCOL_VERSION in a non-baked doc.
-  const target1 = "docs/development/local-setup.mdx";
+  // Planted regression 1: an unowned version-shaped literal in a maintained
+  // document.
+  const target1 = "docs/development/contributing.mdx";
   if (existsSync(resolve(workspaceRoot, target1))) {
     plantFile(
       target1,
@@ -169,24 +159,24 @@ const testNoHardcodedConstants = (): void => {
       workspaceRoot,
     );
     assert(
-      "flags planted PROTOCOL_VERSION literal",
-      r1.code !== 0 &&
-        /PROTOCOL_VERSION|VERSION_SHAPED_LITERAL/.test(r1.stderr),
-      `expected non-zero exit + PROTOCOL_VERSION hit. exit=${r1.code}, stderr=${r1.stderr.slice(0, 300)}`,
+      "flags planted version-shaped literal",
+      r1.code !== 0 && /VERSION_SHAPED_LITERAL/.test(r1.stderr),
+      `expected VERSION_SHAPED_LITERAL hit. exit=${r1.code}, stderr=${r1.stderr.slice(0, 300)}`,
     );
     restoreAllPlants();
   } else {
     assert("planted-regression target exists", false, `${target1} not found`);
   }
 
-  // Planted regression 2: hardcoded V2 version in a non-baked doc.
-  const v2Version = readFileSync(
+  // Planted regression 2: hardcoded MoltZap version in a non-baked doc.
+  const moltzapVersion = readFileSync(
     resolve(workspaceRoot, "v2/VERSION"),
     "utf8",
   ).trim();
   plantFile(
     target1,
-    (s) => `${s}\nV2 compatibility pinned at ${v2Version} for this run.\n`,
+    (s) =>
+      `${s}\nMoltZap compatibility pinned at ${moltzapVersion} for this run.\n`,
   );
   const r2 = runScript(
     "scripts/docs/check-no-hardcoded-constants.ts",
@@ -201,8 +191,10 @@ const testNoHardcodedConstants = (): void => {
 
   // Planted regression 3: a version that extends the baked value cannot
   // hide behind a prefix match.
-  const v2BakedTarget = "docs/spec/router-representation.md";
-  plantFile(v2BakedTarget, (s) => s.replace(v2Version, `${v2Version}0`));
+  const compatibilityBakedTarget = "docs/spec/router-representation.md";
+  plantFile(compatibilityBakedTarget, (s) =>
+    s.replace(moltzapVersion, `${moltzapVersion}0`),
+  );
   const r3 = runScript(
     "scripts/docs/check-no-hardcoded-constants.ts",
     workspaceRoot,
@@ -211,37 +203,6 @@ const testNoHardcodedConstants = (): void => {
     "flags prefix-extending version drift inside a V2-baked document",
     r3.code !== 0 && /VERSION_SHAPED_LITERAL/.test(r3.stderr),
     `expected VERSION_SHAPED_LITERAL hit. exit=${r3.code}, stderr=${r3.stderr.slice(0, 300)}`,
-  );
-  restoreAllPlants();
-
-  // Planted regression 4: stale port 3100.
-  const target2 = "docs/quickstart.mdx";
-  plantFile(target2, (s) => `${s}\nLegacy bind: PORT=3100 npx old-server\n`);
-  const r4 = runScript(
-    "scripts/docs/check-no-hardcoded-constants.ts",
-    workspaceRoot,
-  );
-  assert(
-    "flags stale port 3100",
-    r4.code !== 0 && /STALE_PORT_3100/.test(r4.stderr),
-    `expected STALE_PORT_3100 hit. exit=${r4.code}, stderr=${r4.stderr.slice(0, 300)}`,
-  );
-  restoreAllPlants();
-
-  // Planted regression 5: API_KEY_PREFIX in generated-looking copy.
-  const target3 = "docs/development/local-setup.mdx";
-  plantFile(
-    target3,
-    (s) => `${s}\nExample credential: moltzap_agent_deadbeef\n`,
-  );
-  const r5 = runScript(
-    "scripts/docs/check-no-hardcoded-constants.ts",
-    workspaceRoot,
-  );
-  assert(
-    "flags planted API_KEY_PREFIX",
-    r5.code !== 0 && /API_KEY_PREFIX/.test(r5.stderr),
-    `expected API_KEY_PREFIX hit. exit=${r5.code}, stderr=${r5.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
 };
@@ -261,11 +222,11 @@ const testDocImportsResolve = (): void => {
   );
 
   // Planted regression 1: import from a non-existent subpath.
-  const target1 = "docs/development/local-setup.mdx";
+  const target1 = "docs/development/contributing.mdx";
   plantFile(
     target1,
     (s) =>
-      `${s}\n\`\`\`typescript\nimport { foo } from "@moltzap/server-core/does-not-exist";\n\`\`\`\n`,
+      `${s}\n\`\`\`typescript\nimport { foo } from "@moltzap/identity/does-not-exist";\n\`\`\`\n`,
   );
   const r1 = runScript(
     "scripts/docs/check-doc-imports-resolve.ts",
@@ -282,7 +243,7 @@ const testDocImportsResolve = (): void => {
   plantFile(
     target1,
     (s) =>
-      `${s}\n\`\`\`typescript\nimport { ThisSymbolDoesNotExist } from "@moltzap/server-core";\n\`\`\`\n`,
+      `${s}\n\`\`\`typescript\nimport { ThisSymbolDoesNotExist } from "@moltzap/identity";\n\`\`\`\n`,
   );
   const r2 = runScript(
     "scripts/docs/check-doc-imports-resolve.ts",
@@ -295,34 +256,14 @@ const testDocImportsResolve = (): void => {
   );
   restoreAllPlants();
 
-  // Planted regression 3: import from a package that isn't in packages/.
-  plantFile(
-    target1,
-    (s) =>
-      `${s}\n\`\`\`typescript\nimport { x } from "@moltzap/never-shipped";\n\`\`\`\n`,
-  );
-  const r3 = runScript(
-    "scripts/docs/check-doc-imports-resolve.ts",
-    workspaceRoot,
-  );
-  assert(
-    "flags unknown package",
-    r3.code !== 0 && /unknown-package/.test(r3.stderr),
-    `expected unknown-package. exit=${r3.code}, stderr=${r3.stderr.slice(0, 300)}`,
-  );
-  restoreAllPlants();
-
   // Positive case: multi-line `import { ... } from "..."` block whose
   // bindings are unknown must still be flagged as missing-export. Locks
   // in that the joinMultiLineImports fold feeds IMPORT_RE rather than
-  // silently skipping multi-line statements. Uses the main barrel
-  // (`@moltzap/server-core`) because `./test-utils` re-exports through
-  // `export *` and the resolver skips named-binding checks when the
-  // target entry has a star export.
+  // silently skipping multi-line statements.
   plantFile(
     target1,
     (s) =>
-      `${s}\n\`\`\`typescript\nimport {\n  ThisSymbolDoesNotExist,\n  AlsoNotExported,\n} from "@moltzap/server-core";\n\`\`\`\n`,
+      `${s}\n\`\`\`typescript\nimport {\n  ThisSymbolDoesNotExist,\n  AlsoNotExported,\n} from "@moltzap/identity";\n\`\`\`\n`,
   );
   const r4 = runScript(
     "scripts/docs/check-doc-imports-resolve.ts",
@@ -343,7 +284,7 @@ const testDocImportsResolve = (): void => {
   plantFile(
     target1,
     (s) =>
-      `${s}\n\`\`\`typescript\nimport {\n  startCoreTestServer,\n  stopCoreTestServer,\n} from "@moltzap/server-core/test-utils";\n\`\`\`\n`,
+      `${s}\n\`\`\`typescript\nimport {\n  AgentId,\n  AgentName,\n} from "@moltzap/identity";\n\`\`\`\n`,
   );
   const r5 = runScript(
     "scripts/docs/check-doc-imports-resolve.ts",
@@ -356,74 +297,73 @@ const testDocImportsResolve = (): void => {
   );
   restoreAllPlants();
 
-  // V2 packages live outside packages/, so pin both a named root binding
-  // and a bare server-subpath import from the active implementation packages.
+  // Pin the final package names, named root and capability bindings, and
+  // their server composition subpaths together.
   plantFile(
     target1,
     (s) =>
-      `${s}\n\`\`\`typescript\nimport { MOLTZAP_VERSION } from "@moltzap/v2-identity";\nimport "@moltzap/v2-router/server";\n\`\`\`\n`,
+      `${s}\n\`\`\`typescript\nimport { MOLTZAP_VERSION } from "@moltzap/identity";\nimport { Registry } from "@moltzap/identity/registry";\nimport "@moltzap/identity/registry/server";\nimport "@moltzap/router/server";\n\`\`\`\n`,
   );
   const r6 = runScript(
     "scripts/docs/check-doc-imports-resolve.ts",
     workspaceRoot,
   );
   assert(
-    "v2 root binding and server subpath resolve",
+    "final identity and router package subpaths resolve",
     r6.code === 0,
-    `expected v2 imports to pass. exit=${r6.code}, stderr=${r6.stderr.slice(0, 300)}`,
+    `expected final package imports to pass. exit=${r6.code}, stderr=${r6.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
 
   plantFile(
     target1,
     (s) =>
-      `${s}\n\`\`\`typescript\nimport { ThisV2SymbolDoesNotExist } from "@moltzap/v2-identity";\n\`\`\`\n`,
+      `${s}\n\`\`\`typescript\nimport { ThisIdentitySymbolDoesNotExist } from "@moltzap/identity";\n\`\`\`\n`,
   );
   const r7 = runScript(
     "scripts/docs/check-doc-imports-resolve.ts",
     workspaceRoot,
   );
   assert(
-    "flags missing v2 named export",
+    "flags missing identity named export",
     r7.code !== 0 &&
       /missing-export/.test(r7.stderr) &&
-      /ThisV2SymbolDoesNotExist/.test(r7.stderr),
-    `expected v2 missing-export. exit=${r7.code}, stderr=${r7.stderr.slice(0, 300)}`,
+      /ThisIdentitySymbolDoesNotExist/.test(r7.stderr),
+    `expected identity missing-export. exit=${r7.code}, stderr=${r7.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
 
   plantFile(
     target1,
     (s) =>
-      `${s}\n\`\`\`typescript\nimport "@moltzap/v2-router/does-not-exist";\n\`\`\`\n`,
+      `${s}\n\`\`\`typescript\nimport "@moltzap/router/does-not-exist";\n\`\`\`\n`,
   );
   const r8 = runScript(
     "scripts/docs/check-doc-imports-resolve.ts",
     workspaceRoot,
   );
   assert(
-    "flags unknown v2 subpath",
+    "flags unknown router subpath",
     r8.code !== 0 && /unknown-subpath/.test(r8.stderr),
-    `expected v2 unknown-subpath. exit=${r8.code}, stderr=${r8.stderr.slice(0, 300)}`,
+    `expected router unknown-subpath. exit=${r8.code}, stderr=${r8.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
 
-  plantFile("v2/router/package.json", (s) =>
+  plantFile("packages/router/package.json", (s) =>
     s.replace("./dist/server.js", "./dist/missing-server.js"),
   );
   plantFile(
     target1,
-    (s) =>
-      `${s}\n\`\`\`typescript\nimport "@moltzap/v2-router/server";\n\`\`\`\n`,
+    (s) => `${s}\n\`\`\`typescript\nimport "@moltzap/router/server";\n\`\`\`\n`,
   );
   const r9 = runScript(
     "scripts/docs/check-doc-imports-resolve.ts",
     workspaceRoot,
   );
   assert(
-    "flags a documented v2 subpath with no source or built target",
+    "flags a documented router subpath with no source or built target",
     r9.code !== 0 && /missing-target/.test(r9.stderr),
-    `expected v2 missing-target. exit=${r9.code}, stderr=${r9.stderr.slice(0, 300)}`,
+    `expected router missing-target. exit=${r9.code}, stderr=${r9.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
 };
@@ -449,7 +389,7 @@ const testBakeFailureFailClosed = (): void => {
   // Regression: plant an unknown constant name into an existing bake
   // marker. The bake step should see no matching constant and push a
   // BakeFailure, which trips the fail-closed exit.
-  const target = "docs/quickstart.mdx";
+  const target = "docs/spec/identity.md";
   plantFile(target, (s) =>
     s.replace(
       /\{\/\*\s*@bake-constants:\s*([^*]+?)\s*\*\/\}/,
@@ -471,102 +411,16 @@ const testBakeFailureFailClosed = (): void => {
   restoreAllPlants();
 };
 
-// ─── Tests: package manifest is the protocol-version authority ───────────
+// ─── Tests: MoltZap compatibility authority ──────────────────────────────
 
-const testProtocolVersionManifest = (): void => {
-  console.log("\n# protocol package version source");
-  const manifestPath = "packages/protocol/package.json";
-
-  plantFile(manifestPath, () => "{");
-  const malformed = runGenerateDirect(workspaceRoot);
-  assert(
-    "malformed protocol manifest fails closed",
-    malformed.code !== 0 && /could not parse/.test(malformed.stderr),
-    `expected parse failure. exit=${malformed.code}, stderr=${malformed.stderr.slice(0, 300)}`,
-  );
-  restoreAllPlants();
-
-  plantFile(manifestPath, (source) => {
-    const parsed = JSON.parse(source) as Record<string, unknown>;
-    Reflect.deleteProperty(parsed, "version");
-    return `${JSON.stringify(parsed, null, 2)}\n`;
-  });
-  const missing = runGenerateDirect(workspaceRoot);
-  assert(
-    "missing protocol package version fails closed",
-    missing.code !== 0 &&
-      /expected a string version field/.test(missing.stderr),
-    `expected missing-version failure. exit=${missing.code}, stderr=${missing.stderr.slice(0, 300)}`,
-  );
-  restoreAllPlants();
-
-  const currentVersion = JSON.parse(
-    readFileSync(resolve(workspaceRoot, manifestPath), "utf8"),
-  ).version as string;
-  const nextVersion = "2099.999.9";
-  const marker = "@bake-constants:";
-  const consumers = [
-    ...walkFiles(resolve(workspaceRoot, "docs")),
-    resolve(workspaceRoot, "README.md"),
-  ]
-    .filter((path) => /\.mdx?$/.test(path))
-    .filter((path) => {
-      const source = readFileSync(path, "utf8");
-      return (
-        source.includes(marker) &&
-        source.includes("PROTOCOL_VERSION") &&
-        source.includes(currentVersion)
-      );
-    });
-  const generated = [
-    "docs/snippets/constants/values.json",
-    "docs/snippets/constants/values.mdx",
-  ];
-  for (const path of [
-    ...consumers,
-    ...generated.map((p) => resolve(workspaceRoot, p)),
-  ]) {
-    const original = readFileSync(path, "utf8");
-    planted.push({ path, original });
-  }
-  plantFile(manifestPath, (source) => {
-    const parsed = JSON.parse(source) as Record<string, unknown>;
-    parsed.version = nextVersion;
-    return `${JSON.stringify(parsed, null, 2)}\n`;
-  });
-  const bumped = runGenerateDirect(workspaceRoot);
-  assert(
-    "changed package version regenerates constants",
-    bumped.code === 0,
-    `expected successful regeneration. exit=${bumped.code}, stderr=${bumped.stderr.slice(0, 300)}`,
-  );
-  for (const path of consumers) {
-    assert(
-      `re-bakes protocol version: ${path.split("/").slice(-2).join("/")}`,
-      readFileSync(path, "utf8").includes(nextVersion),
-      `${path} did not contain ${nextVersion} after regeneration`,
-    );
-  }
-  for (const path of generated) {
-    assert(
-      `regenerates protocol version snippet: ${path.split("/").slice(-2).join("/")}`,
-      readFileSync(resolve(workspaceRoot, path), "utf8").includes(nextVersion),
-      `${path} did not contain ${nextVersion} after regeneration`,
-    );
-  }
-  restoreAllPlants();
-};
-
-// ─── Tests: v2/VERSION is the V2 compatibility authority ────────────────
-
-const testV2ProtocolVersionFile = (): void => {
-  console.log("\n# V2 compatibility version source");
+const testMoltzapVersionFile = (): void => {
+  console.log("\n# MoltZap compatibility version source");
   const versionPath = "v2/VERSION";
 
   plantFile(versionPath, () => "\n");
   const empty = runGenerateDirect(workspaceRoot);
   assert(
-    "empty V2 version fails closed",
+    "empty MoltZap version fails closed",
     empty.code !== 0 && /expected a nonempty version/.test(empty.stderr),
     `expected empty-version failure. exit=${empty.code}, stderr=${empty.stderr.slice(0, 300)}`,
   );
@@ -586,7 +440,7 @@ const testV2ProtocolVersionFile = (): void => {
     .filter((path) => readFileSync(path, "utf8").includes(marker));
   for (const path of consumers) {
     assert(
-      `V2 marker has current value: ${path.split("/").slice(-2).join("/")}`,
+      `compatibility marker has current value: ${path.split("/").slice(-2).join("/")}`,
       readFileSync(path, "utf8").includes(currentVersion),
       `${path} has a V2 bake marker but not ${currentVersion}`,
     );
@@ -605,20 +459,20 @@ const testV2ProtocolVersionFile = (): void => {
   plantFile(versionPath, () => `${nextVersion}\n`);
   const bumped = runGenerateDirect(workspaceRoot);
   assert(
-    "changed V2 version regenerates constants",
+    "changed MoltZap version regenerates constants",
     bumped.code === 0,
     `expected successful regeneration. exit=${bumped.code}, stderr=${bumped.stderr.slice(0, 300)}`,
   );
   for (const path of consumers) {
     assert(
-      `re-bakes V2 version: ${path.split("/").slice(-2).join("/")}`,
+      `re-bakes MoltZap version: ${path.split("/").slice(-2).join("/")}`,
       readFileSync(path, "utf8").includes(nextVersion),
       `${path} did not contain ${nextVersion} after regeneration`,
     );
   }
   for (const path of generated) {
     assert(
-      `regenerates V2 version snippet: ${path.split("/").slice(-2).join("/")}`,
+      `regenerates MoltZap version snippet: ${path.split("/").slice(-2).join("/")}`,
       readFileSync(resolve(workspaceRoot, path), "utf8").includes(nextVersion),
       `${path} did not contain ${nextVersion} after regeneration`,
     );
@@ -626,72 +480,32 @@ const testV2ProtocolVersionFile = (): void => {
   restoreAllPlants();
 };
 
-const testPublishWorkflowVersionFlow = (): void => {
-  console.log("\n# publish workflow protocol version flow");
-  const workflow = readFileSync(
-    resolve(workspaceRoot, ".github/workflows/publish.yml"),
-    "utf8",
-  );
-  const manifestWrite = workflow.indexOf(
-    'jq --arg v "$VERSION" \'.version = $v\' "packages/$pkg/package.json"',
-  );
-  const build = workflow.indexOf("pnpm build", manifestWrite);
-  const docs = workflow.indexOf("pnpm docs:generate", build);
-  const stage = workflow.indexOf(
-    "git add packages/*/package.json pnpm-lock.yaml",
-    docs,
-  );
-  assert(
-    "release mutates only the package manifest version source",
-    manifestWrite >= 0 &&
-      !workflow.includes("packages/protocol/src/version.ts") &&
-      !/sed .*PROTOCOL_VERSION/.test(workflow),
-    "expected a package.json version write with no source-file mutation",
-  );
-  assert(
-    "release rebuilds and regenerates docs before staging",
-    manifestWrite < build && build < docs && docs < stage,
-    `expected manifest → build → docs → stage ordering; indices=${manifestWrite},${build},${docs},${stage}`,
-  );
-};
-
 const testNodeVersionFloorConsistency = (): void => {
   console.log("\n# Node version floor consistency");
-  const protocolManifest = JSON.parse(
-    readFileSync(
-      resolve(workspaceRoot, "packages/protocol/package.json"),
-      "utf8",
-    ),
+  const workspaceManifest = JSON.parse(
+    readFileSync(resolve(workspaceRoot, "package.json"), "utf8"),
   ) as { readonly engines?: { readonly node?: string } };
-  const quickstart = readFileSync(
-    resolve(workspaceRoot, "scripts/setup/quickstart.sh"),
+  const pinnedNode = readFileSync(
+    resolve(workspaceRoot, ".node-version"),
     "utf8",
-  );
+  ).trim();
+  const pinnedMajor = Number(pinnedNode.split(".")[0]);
   const quickstartDocs = readFileSync(
     resolve(workspaceRoot, "docs/quickstart.mdx"),
     "utf8",
   );
-  const localSetupDocs = readFileSync(
-    resolve(workspaceRoot, "docs/development/local-setup.mdx"),
-    "utf8",
+  const workspaceNodeRange = workspaceManifest.engines?.node;
+  assert(
+    "workspace and pinned runtime support Node.js 22+",
+    workspaceNodeRange?.startsWith(">=22.") === true &&
+      pinnedMajor >= 22 &&
+      pinnedMajor < 25,
+    `expected a pinned Node.js 22–24 runtime, got engines.node=${String(workspaceNodeRange)} and .node-version=${pinnedNode}`,
   );
   assert(
-    "protocol package declares Node.js 22+",
-    protocolManifest.engines?.node === ">=22.0.0",
-    `expected engines.node >=22.0.0, got ${String(protocolManifest.engines?.node)}`,
-  );
-  assert(
-    "quickstart preflight enforces Node.js 22+",
-    quickstart.includes("install Node.js 22+") &&
-      quickstart.includes('if [ "$node_major" -lt 22 ]') &&
-      quickstart.includes("Node.js 22+ required"),
-    "scripts/setup/quickstart.sh does not consistently enforce Node.js 22+",
-  );
-  assert(
-    "setup docs advertise Node.js 22+",
-    quickstartDocs.includes("Node.js 22+") &&
-      localSetupDocs.includes("Node.js 22+"),
-    "quickstart or local-setup docs have a different Node.js floor",
+    "quickstart matches the workspace Node.js range",
+    quickstartDocs.includes(`Node.js \`${String(workspaceNodeRange)}\``),
+    `quickstart does not advertise Node.js \`${String(workspaceNodeRange)}\``,
   );
 };
 
@@ -759,10 +573,8 @@ const main = (): void => {
     // rather than the post-clean-runGenerate state — eliminating
     // order-of-test coupling between the two suites.
     testGeneratorIdempotence();
-    testProtocolVersionManifest();
-    testV2ProtocolVersionFile();
+    testMoltzapVersionFile();
     testBakeFailureFailClosed();
-    testPublishWorkflowVersionFlow();
     testNodeVersionFloorConsistency();
   } finally {
     restoreAllPlants();

@@ -1,0 +1,119 @@
+{
+  "name": "@moltzap/router",
+  "version": "2026.729.1",
+  "private": true,
+  "description": "Router contracts and representation, Router client and in-memory server",
+  "license": "Apache-2.0",
+  "type": "module",
+  "files": ["dist", "!dist/tsconfig.tsbuildinfo", "bin"],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    }
+  },
+  "bin": {
+    "moltzap-router": "./bin/moltzap-router"
+  },
+  "scripts": {
+    "build": "nx run @moltzap/router:build",
+    "typecheck": "nx run @moltzap/router:typecheck",
+    "typecheck:tests": "nx run @moltzap/router:typecheck:tests",
+    "test": "nx run @moltzap/router:test",
+    "test:integration": "nx run @moltzap/router:test:integration",
+    "lint": "nx run @moltzap/router:lint",
+    "arch:check": "nx run @moltzap/router:arch:check"
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "executor": "nx:run-commands",
+        "inputs": [
+          "production",
+          "^production"
+        ],
+        "options": {
+          "cwd": "packages/router",
+          "command": "tsc -b"
+        }
+      },
+      "typecheck": {
+        "executor": "nx:run-commands",
+        "inputs": [
+          "production",
+          "^production"
+        ],
+        "options": {
+          "cwd": "packages/router",
+          "command": "tsc --noEmit --tsBuildInfoFile ./tsconfig.typecheck.tsbuildinfo -p tsconfig.json"
+        }
+      },
+      "typecheck:tests": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/router",
+          "command": "tsc -p tsconfig.test.json"
+        }
+      },
+      "test": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "options": {
+          "cwd": "packages/router",
+          "command": "vitest run --config vitest.config.mjs"
+        }
+      },
+      "test:integration": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "options": {
+          "cwd": "packages/router",
+          "command": "vitest run --config vitest.integration.config.mjs"
+        }
+      },
+      "lint": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/router",
+          "command": "eslint . --cache --max-warnings=0"
+        }
+      },
+      "arch:check": {
+        "executor": "nx:run-commands",
+        "options": {
+          "cwd": "packages/router",
+          "command": "node ../../scripts/architecture/check-package.mjs ."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@effect/platform": "^0.97.0",
+    "@effect/platform-node": "^0.108.0",
+    "@effect/rpc": "^0.76.0",
+    "@moltzap/identity": "workspace:*",
+    "canonicalize": "3.0.0",
+    "effect": "^3.22.0",
+    "jose": "6.2.5"
+  },
+  "devDependencies": {
+    "@effect/vitest": "^0.30.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "eslint": "^9",
+    "fast-check": "3.23.2",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "vitest": "3.2.4"
+  }
+}

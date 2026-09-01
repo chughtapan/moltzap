@@ -37,44 +37,44 @@ trap cleanup EXIT
 # Test 1: No existing versions (fresh package)
 echo "--- Test 1: No existing versions ---"
 export NPM_MOCK_RESPONSE='[]'
-RESULT=$("$SCRIPT_DIR/compute-next-version.sh" protocol)
+RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "no existing versions" "${TODAY}.0" "$RESULT"
 
 # Test 2: One existing version today
 echo "--- Test 2: One existing version today ---"
 export NPM_MOCK_RESPONSE="[\"${TODAY}.0\"]"
-RESULT=$("$SCRIPT_DIR/compute-next-version.sh" protocol)
+RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "one existing version" "${TODAY}.1" "$RESULT"
 
 # Test 3: Multiple versions today
 echo "--- Test 3: Multiple versions today ---"
 export NPM_MOCK_RESPONSE="[\"${TODAY}.0\", \"${TODAY}.1\", \"${TODAY}.2\"]"
-RESULT=$("$SCRIPT_DIR/compute-next-version.sh" protocol)
+RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "multiple versions" "${TODAY}.3" "$RESULT"
 
 # Test 4: Mixed versions (old dates + today)
 echo "--- Test 4: Mixed old and today versions ---"
 export NPM_MOCK_RESPONSE="[\"2026.101.0\", \"2026.101.1\", \"${TODAY}.0\"]"
-RESULT=$("$SCRIPT_DIR/compute-next-version.sh" protocol)
+RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "mixed versions" "${TODAY}.1" "$RESULT"
 
 # Test 5: npm returns single string (only one version ever published)
 echo "--- Test 5: npm returns single string ---"
 export NPM_MOCK_RESPONSE="\"${TODAY}.0\""
-RESULT=$("$SCRIPT_DIR/compute-next-version.sh" protocol)
+RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "single string response" "${TODAY}.1" "$RESULT"
 
 # Test 6: Only old versions, none today
 echo "--- Test 6: Only old versions ---"
 export NPM_MOCK_RESPONSE='["2026.101.0", "2026.102.0"]'
-RESULT=$("$SCRIPT_DIR/compute-next-version.sh" protocol)
+RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "only old versions" "${TODAY}.0" "$RESULT"
 
 # Test 7: npm returns 404 (deleted package)
 echo "--- Test 7: npm 404 (deleted package) ---"
 export NPM_MOCK_RESPONSE='{"error":{"code":"E404"}}'
 export NPM_MOCK_EXIT=1
-RESULT=$("$SCRIPT_DIR/compute-next-version.sh" protocol)
+RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "npm 404" "${TODAY}.0" "$RESULT"
 unset NPM_MOCK_EXIT
 

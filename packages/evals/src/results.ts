@@ -1,37 +1,37 @@
 /** @file Effect SQL storage and resumable execution for evaluation reports. */
 
+import type { SqlError } from "@effect/sql/SqlError";
 import { FileSystem, Path } from "@effect/platform";
+import { SqliteClient } from "@effect/sql-sqlite-node";
 import * as Migrator from "@effect/sql/Migrator";
 import * as SqlClient from "@effect/sql/SqlClient";
 import * as SqlSchema from "@effect/sql/SqlSchema";
-import type { SqlError } from "@effect/sql/SqlError";
-import { SqliteClient } from "@effect/sql-sqlite-node";
 import {
   Context,
   Effect,
   Layer,
   Option,
-  Schema,
   type ParseResult,
+  Schema,
 } from "effect";
 import {
-  CompletedEvaluationReport,
-  EvaluationReportPlan,
-  InProgressEvaluationReport,
-  evaluationPlanDigest,
-  evaluationReportId,
-  terminalAttempt,
   appendEvaluationAttempt,
+  CompletedEvaluationReport,
   completeEvaluationReport,
   createEvaluationReport,
-  remainingEvaluationCells,
-  resumeEvaluationReport,
-  validateEvaluationReport,
+  evaluationPlanDigest,
   type EvaluationReport,
+  evaluationReportId,
   type EvaluationReportId,
+  EvaluationReportPlan,
   type EvaluationReportValidationError,
   type EvaluationSweepCell,
+  InProgressEvaluationReport,
+  remainingEvaluationCells,
+  resumeEvaluationReport,
+  terminalAttempt,
   type TerminalAttempt as TerminalAttemptType,
+  validateEvaluationReport,
 } from "./sweep.js";
 
 const REPORT_FORMAT_VERSION = 3;
@@ -181,12 +181,66 @@ const migrations = Migrator.fromRecord({
   }),
 });
 
+/**
+ * Open one report-local SQLite bundle.
+ *
+ * The owning directory is private, SQLite WAL is enabled by the official
+ * client, and migrations run before the repository becomes available.
+ * @param databasePath Report-local SQLite file to create or reopen.
+ * @returns A closed live layer that owns its platform and SQL resources.
+ */
+export function evaluationResultStoreLayer(databasePath: string) {
+  const sqlLayer = SqliteClient.layer({ filename: databasePath });
+  const storeLayer = Layer.effect(
+    EvaluationResultStore,
+    makeStore(databasePath),
+  ).pipe(Layer.provide(sqlLayer));
+  return Layer.unwrapEffect(
+    prepareResultBundle(databasePath).pipe(Effect.as(storeLayer)),
+  );
+}
+
+/**
+ * Execute missing cells sequentially.
+ *
+ * A cell owns the report's SQLite write transaction from selection through
+ * terminal-attempt commit. Process failure or interruption rolls that cell
+ * back and releases ownership; earlier cells remain committed.
+ * @param execute Customer cell execution policy.
+ * @returns The completed report Effect.
+ */
+export function runEvaluationSweep<E, R>(execute: ExecuteCell<E, R>) {
+  return Effect.gen(function* () {
+    const store = yield* EvaluationResultStore;
+    while (true) {
+      const report = yield* store.advance(execute);
+      if (report instanceof CompletedEvaluationReport) {
+        return report;
+      }
+    }
+  }).pipe(Effect.withSpan("evals.runEvaluationSweep"));
+}
+
 function conflict(
   reportId: EvaluationReportId,
   detail: string,
 ): EvaluationResultConflict {
   return EvaluationResultConflict.make({ reportId, detail });
 }
+
+function makeQueries(sql: SqlClient.SqlClient) {
+  return {
+    insertReport: makeInsertReport(sql),
+    selectReport: makeSelectReport(sql),
+    selectAttempts: makeSelectAttempts(sql),
+    insertAttempt: makeInsertAttempt(sql),
+    updateAfterAttempt: makeUpdateAfterAttempt(sql),
+    markCompleted: makeMarkCompleted(sql),
+    acquireWrite: makeAcquireWrite(sql),
+  };
+}
+
+type ResultQueries = ReturnType<typeof makeQueries>;
 
 function makeInsertReport(sql: SqlClient.SqlClient) {
   return SqlSchema.findOne({
@@ -315,20 +369,6 @@ function makeAcquireWrite(sql: SqlClient.SqlClient) {
     `,
   });
 }
-
-function makeQueries(sql: SqlClient.SqlClient) {
-  return {
-    insertReport: makeInsertReport(sql),
-    selectReport: makeSelectReport(sql),
-    selectAttempts: makeSelectAttempts(sql),
-    insertAttempt: makeInsertAttempt(sql),
-    updateAfterAttempt: makeUpdateAfterAttempt(sql),
-    markCompleted: makeMarkCompleted(sql),
-    acquireWrite: makeAcquireWrite(sql),
-  };
-}
-
-type ResultQueries = ReturnType<typeof makeQueries>;
 
 const loadStoredReport = Effect.fn("evals.results.load")(function* (
   databasePath: string,
@@ -507,25 +547,6 @@ function prepareResultBundle(databasePath: string) {
   });
 }
 
-/**
- * Open one report-local SQLite bundle.
- *
- * The owning directory is private, SQLite WAL is enabled by the official
- * client, and migrations run before the repository becomes available.
- * @param databasePath Report-local SQLite file to create or reopen.
- * @returns A closed live layer that owns its platform and SQL resources.
- */
-export function evaluationResultStoreLayer(databasePath: string) {
-  const sqlLayer = SqliteClient.layer({ filename: databasePath });
-  const storeLayer = Layer.effect(
-    EvaluationResultStore,
-    makeStore(databasePath),
-  ).pipe(Layer.provide(sqlLayer));
-  return Layer.unwrapEffect(
-    prepareResultBundle(databasePath).pipe(Effect.as(storeLayer)),
-  );
-}
-
 /** Resolve the report-local SQLite bundle path. */
 export const evaluationResultPath = Effect.fn("evals.evaluationResultPath")(
   function* (reportId: EvaluationReportId) {
@@ -638,25 +659,4 @@ function makeStoreService(
         advanceStoredReportTransaction(databasePath, queries, execute),
       ),
   };
-}
-
-/**
- * Execute missing cells sequentially.
- *
- * A cell owns the report's SQLite write transaction from selection through
- * terminal-attempt commit. Process failure or interruption rolls that cell
- * back and releases ownership; earlier cells remain committed.
- * @param execute Customer cell execution policy.
- * @returns The completed report Effect.
- */
-export function runEvaluationSweep<E, R>(execute: ExecuteCell<E, R>) {
-  return Effect.gen(function* () {
-    const store = yield* EvaluationResultStore;
-    while (true) {
-      const report = yield* store.advance(execute);
-      if (report instanceof CompletedEvaluationReport) {
-        return report;
-      }
-    }
-  }).pipe(Effect.withSpan("evals.runEvaluationSweep"));
 }

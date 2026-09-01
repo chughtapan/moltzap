@@ -1,11 +1,13 @@
-import { assert, effect, it } from "@effect/vitest";
+/** @file Submission controller source generation and output decoding tests. */
+
+import type { SimulatorDefinitionId } from "@moltzap/simulator";
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
+import { assert, effect, it } from "@effect/vitest";
+import { image } from "@moltzap/simulator/agents";
+import { Effect, Schema } from "effect";
 import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Effect, Schema } from "effect";
-import type { SimulatorDefinitionId } from "@moltzap/simulator";
-import { image } from "@moltzap/simulator/agents";
 import {
   decodeEvaluationCaseId,
   decodeEvaluationConditionId,
@@ -14,33 +16,34 @@ import {
 import {
   decodeSubmissionOutput,
   evaluationControllerModule,
+  type SimulatorProfile,
   simulatorProfileEntrypoint,
   submissionDiagnostic,
-  type SimulatorProfile,
   type SubmitEvaluationCellInput,
 } from "./submission.js";
 
 const decodeImage = Schema.decodeSync(image);
-const PEER_IMAGE = decodeImage(
-  "registry.example/moltzap-support@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+const OPENCLAW_IMAGE = decodeImage(
+  "registry.example/openclaw-agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 );
 const NANOCLAW_IMAGE = decodeImage(
   "registry.example/nanoclaw-application@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 );
-const DEFINITION_ID = "moltzap.eval-006/v4" satisfies SimulatorDefinitionId;
+const DEFINITION_ID = "moltzap.eval-019/v3" satisfies SimulatorDefinitionId;
 
 function input(condition: EvaluationConditionName): SubmitEvaluationCellInput {
   return {
     workspaceRoot: "/workspace/moltzap",
     profile: "local",
-    caseId: decodeEvaluationCaseId("EVAL-006"),
+    caseId: decodeEvaluationCaseId("EVAL-019"),
     definitionId: DEFINITION_ID,
-    attemptId: "eval-006-nanoclaw-1",
+    attemptId: "eval-019-nanoclaw-1",
     condition: {
       id: decodeEvaluationConditionId(condition),
       modelId: condition === "openclaw/v2" ? "openai/gpt-5" : "claude/test",
     },
-    peerApplicationImage: PEER_IMAGE,
+    messagingMode: "shared",
+    openclawApplicationImage: OPENCLAW_IMAGE,
     nanoclawApplicationImage: NANOCLAW_IMAGE,
     runtimeStartupTimeoutMillis: 300_000,
     peerObservationTimeoutMillis: 300_000,
@@ -48,11 +51,13 @@ function input(condition: EvaluationConditionName): SubmitEvaluationCellInput {
   };
 }
 
-it("binds distinct peer and NanoClaw images into one NanoClaw cell module", () => {
+// @agent-code-guard/regression-only: generated controller source is a finite two-runtime wire contract whose exact imports and image bindings are the behavior under test.
+
+it("binds the NanoClaw image into one NanoClaw cell module", () => {
   const source = evaluationControllerModule(input("nanoclaw/v2"));
 
   assert.include(source, `applicationImage: ${JSON.stringify(NANOCLAW_IMAGE)}`);
-  assert.include(source, `peerApplicationImage: ${JSON.stringify(PEER_IMAGE)}`);
+  assert.notInclude(source, "messagingMode");
   assert.include(
     source,
     `definition.definitionId !== ${JSON.stringify(DEFINITION_ID)}`,
@@ -61,15 +66,42 @@ it("binds distinct peer and NanoClaw images into one NanoClaw cell module", () =
     source,
     'from "/opt/moltzap/node_modules/@moltzap/evals/dist/execution.js"',
   );
-  assert.notInclude(source, `applicationImage: ${JSON.stringify(PEER_IMAGE)}`);
+  assert.include(source, "peerApplicationImage: supportImageFromEnvironment()");
 });
 
-it("does not inject the unused NanoClaw application image into an OpenClaw cell", () => {
-  const source = evaluationControllerModule(input("openclaw/v2"));
+it("binds only the OpenClaw image into an OpenClaw cell", () => {
+  const openClawInput = input("openclaw/v2");
+  Reflect.deleteProperty(openClawInput, "nanoclawApplicationImage");
+  const source = evaluationControllerModule({
+    ...openClawInput,
+    messagingMode: "private",
+  });
 
   assert.include(source, "openClawEvaluationCondition({ runtime:");
-  assert.include(source, `peerApplicationImage: ${JSON.stringify(PEER_IMAGE)}`);
+  assert.include(source, JSON.stringify(OPENCLAW_IMAGE));
+  assert.include(source, 'messagingMode: "private"');
   assert.notInclude(source, NANOCLAW_IMAGE);
+  assert.include(source, "peerApplicationImage: supportImageFromEnvironment()");
+});
+
+it("refuses an OpenClaw cell without its application image", () => {
+  const openclawInput = input("openclaw/v2");
+  Reflect.deleteProperty(openclawInput, "openclawApplicationImage");
+
+  assert.throws(
+    () => evaluationControllerModule(openclawInput),
+    /require an OpenClaw application image/u,
+  );
+});
+
+it("refuses a NanoClaw cell without its application image", () => {
+  const nanoclawInput = input("nanoclaw/v2");
+  Reflect.deleteProperty(nanoclawInput, "nanoclawApplicationImage");
+
+  assert.throws(
+    () => evaluationControllerModule(nanoclawInput),
+    /require a NanoClaw application image/u,
+  );
 });
 
 effect.each(["local", "gke"] as const)(

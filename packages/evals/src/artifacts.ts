@@ -1,11 +1,11 @@
 /** @file Exact local/GCS retrieval of completed evaluation ledger artifacts. */
 
-import { Command, FileSystem, Path } from "@effect/platform";
 import type { CommandExecutor } from "@effect/platform/CommandExecutor";
+import { Command, FileSystem, Path } from "@effect/platform";
 import {
-  ledgerArtifactFiles,
   type CompletedLedgerArtifacts,
   type LedgerArtifact,
+  ledgerArtifactFiles,
   type LedgerRef,
 } from "@moltzap/simulator/ledger";
 import { Brand, Effect, Option, Schema } from "effect";
@@ -72,6 +72,60 @@ export interface EvaluationArtifactLocation {
   readonly ledger: LedgerDirectory;
 }
 
+const liveOperations: EvaluationArtifactOperations<
+  FileSystem.FileSystem | CommandExecutor
+> = Object.freeze({
+  readFile: (path: string) =>
+    FileSystem.FileSystem.pipe(
+      Effect.flatMap((fileSystem) => fileSystem.readFileString(path)),
+    ),
+  readObject: (url: string) =>
+    Command.string(
+      Command.make("gcloud", "storage", "cat", url).pipe(
+        Command.stderr("inherit"),
+      ),
+    ),
+});
+
+/**
+ * Retrieve completed artifacts from the selected repository-owned profile.
+ * @param location Profile-owned namespace and ledger identity.
+ * @returns The three artifact texts read through live host operations.
+ */
+export function readEvaluationLedgerArtifacts(
+  location: EvaluationArtifactLocation,
+) {
+  return readEvaluationLedgerArtifactsWith(location, liveOperations);
+}
+
+/**
+ * Retrieve the three exact immutable artifacts through injected operations.
+ * @param location Profile-owned namespace and ledger identity.
+ * @param operations Replaceable local-file and Cloud Storage readers.
+ * @returns The three retrieved artifact texts without interpreting them.
+ */
+export function readEvaluationLedgerArtifactsWith<Requirements = never>(
+  location: EvaluationArtifactLocation,
+  operations: EvaluationArtifactOperations<Requirements>,
+): Effect.Effect<
+  CompletedLedgerArtifacts,
+  EvaluationArtifactReadFailed,
+  Path.Path | Requirements
+> {
+  return Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const [manifest, records, completion] = yield* Effect.all(
+      [
+        readArtifact(location, "manifest", operations, path),
+        readArtifact(location, "records", operations, path),
+        readArtifact(location, "completion", operations, path),
+      ] as const,
+      { concurrency: 3 },
+    );
+    return { manifest, records, completion };
+  }).pipe(Effect.withSpan("readEvaluationLedgerArtifactsWith"));
+}
+
 /**
  * Accept an artifact root only where the host path service calls it absolute.
  * @param path Platform path service that decides absoluteness.
@@ -115,31 +169,22 @@ export function evaluationArtifactLocation(
   );
 }
 
-const liveOperations: EvaluationArtifactOperations<
-  FileSystem.FileSystem | CommandExecutor
-> = Object.freeze({
-  readFile: (path: string) =>
-    FileSystem.FileSystem.pipe(
-      Effect.flatMap((fileSystem) => fileSystem.readFileString(path)),
-    ),
-  readObject: (url: string) =>
-    Command.string(
-      Command.make("gcloud", "storage", "cat", url).pipe(
-        Command.stderr("inherit"),
-      ),
-    ),
-});
-
-function readFailure(
+function readArtifact<Requirements>(
   location: EvaluationArtifactLocation,
   artifact: LedgerArtifact,
-  cause: unknown,
-): EvaluationArtifactReadFailed {
-  return EvaluationArtifactReadFailed.make({
-    profile: location.storage.profile,
-    artifact,
-    detail: String(cause).trim() || "artifact read failed",
-  });
+  operations: EvaluationArtifactOperations<Requirements>,
+  path: Path.Path,
+) {
+  const storage = location.storage;
+  const read =
+    storage.profile === "local"
+      ? operations.readFile(
+          localIdentity(storage.root, location, artifact, path),
+        )
+      : operations.readObject(gcsIdentity(storage.bucket, location, artifact));
+  return read.pipe(
+    Effect.mapError((cause) => readFailure(location, artifact, cause)),
+  );
 }
 
 function localIdentity(
@@ -165,59 +210,14 @@ function gcsIdentity(
   return `gs://${bucket}/${encodeURIComponent(location.namespace)}/ledger/${location.ledger}/${ledgerArtifactFiles[artifact]}`;
 }
 
-function readArtifact<Requirements>(
+function readFailure(
   location: EvaluationArtifactLocation,
   artifact: LedgerArtifact,
-  operations: EvaluationArtifactOperations<Requirements>,
-  path: Path.Path,
-) {
-  const storage = location.storage;
-  const read =
-    storage.profile === "local"
-      ? operations.readFile(
-          localIdentity(storage.root, location, artifact, path),
-        )
-      : operations.readObject(gcsIdentity(storage.bucket, location, artifact));
-  return read.pipe(
-    Effect.mapError((cause) => readFailure(location, artifact, cause)),
-  );
-}
-
-/**
- * Retrieve the three exact immutable artifacts through injected operations.
- * @param location Profile-owned namespace and ledger identity.
- * @param operations Replaceable local-file and Cloud Storage readers.
- * @returns The three retrieved artifact texts without interpreting them.
- */
-export function readEvaluationLedgerArtifactsWith<Requirements = never>(
-  location: EvaluationArtifactLocation,
-  operations: EvaluationArtifactOperations<Requirements>,
-): Effect.Effect<
-  CompletedLedgerArtifacts,
-  EvaluationArtifactReadFailed,
-  Path.Path | Requirements
-> {
-  return Effect.gen(function* () {
-    const path = yield* Path.Path;
-    const [manifest, records, completion] = yield* Effect.all(
-      [
-        readArtifact(location, "manifest", operations, path),
-        readArtifact(location, "records", operations, path),
-        readArtifact(location, "completion", operations, path),
-      ] as const,
-      { concurrency: 3 },
-    );
-    return { manifest, records, completion };
-  }).pipe(Effect.withSpan("readEvaluationLedgerArtifactsWith"));
-}
-
-/**
- * Retrieve completed artifacts from the selected repository-owned profile.
- * @param location Profile-owned namespace and ledger identity.
- * @returns The three artifact texts read through live host operations.
- */
-export function readEvaluationLedgerArtifacts(
-  location: EvaluationArtifactLocation,
-) {
-  return readEvaluationLedgerArtifactsWith(location, liveOperations);
+  cause: unknown,
+): EvaluationArtifactReadFailed {
+  return EvaluationArtifactReadFailed.make({
+    profile: location.storage.profile,
+    artifact,
+    detail: String(cause).trim() || "artifact read failed",
+  });
 }

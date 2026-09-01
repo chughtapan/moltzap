@@ -4,16 +4,18 @@ description: "Run containerized agent societies as code-first Effect programs an
 ---
 
 `@moltzap/simulator` is the code-first library for agent-society experiments.
-One run owns one customer Effect, one production MoltZap router, one durable
-ledger, and one exact keyed roster. Kubernetes is the execution backend. The
+One run owns one customer Effect, one durable ledger, and one exact keyed
+roster. Kubernetes is the execution backend. The
 repository provides local kind and GKE profiles for the same path.
 
-Each roster entry becomes one Agent Sandbox application container. Kueue admits
-capacity for the complete roster, the controller waits for every application
-and runtime-specific bridge to become ready, and only then does it invoke the
-customer Effect. Temporal coordinates the coarse run lifecycle and cleanup.
-Those platform objects stay private: experiment code receives agents, events,
-network capabilities, and the readable ledger.
+Each roster entry becomes one Agent Sandbox Pod with one complete agent
+application container. The image starts its own host and `moltzapd` processes,
+performs registration, and fails as a unit when either process exits. Kueue
+admits capacity for the complete roster, and the controller waits for every
+application and runtime-specific bridge before invoking the customer Effect.
+Temporal coordinates the coarse run lifecycle and cleanup. Those platform
+objects stay private: experiment code receives agents, network controls,
+events, and the readable ledger.
 
 ## One package, four public entry points
 
@@ -22,13 +24,12 @@ The package keeps capability boundaries inside one install:
 | Import | Owner |
 |---|---|
 | `@moltzap/simulator` | `RunSpec`, `Run.execute`, event catalogs, customer services, and run outcomes |
+| `@moltzap/simulator/network` | Participant and endpoint capabilities, Router fixtures, and directed-link fault controls |
 | `@moltzap/simulator/agents` | Container runtime descriptors and the shipped OpenClaw and NanoClaw implementations |
-| `@moltzap/simulator/network` | Router, transport, participant, endpoint, conversation, and link contracts |
 | `@moltzap/simulator/ledger` | Ledger schemas, completed-artifact validation, and offline inspection |
 
 Experiment code normally imports the root entry point and `/agents`.
-Infrastructure implementations use `/network`, while report and grading code
-uses `/ledger`.
+Report and grading code uses `/ledger`.
 
 ## Define one `RunSpec`
 
@@ -46,7 +47,10 @@ import {
   openClawRuntime,
 } from "@moltzap/simulator/agents";
 import { Effect, Schema } from "effect";
-import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";
+import {
+  applicationImageFromEnvironment,
+  controllerServicesFromEnvironment,
+} from "/opt/moltzap/dist/cluster/controller/services.js";
 
 class ConsensusReached extends Schema.TaggedClass<ConsensusReached>()(
   "acme.consensus-reached/v1",
@@ -62,6 +66,7 @@ export const negotiationEvents = EventCatalog.make(
 
 const runtime = (identity: string) =>
   openClawRuntime({
+    applicationImage: applicationImageFromEnvironment(),
     tools: {
       deny: ["*"],
       elevated: { enabled: false },
@@ -83,22 +88,14 @@ export const runSpec = RunSpec.define({
   cluster: controllerServicesFromEnvironment(),
   execute: ({ agents, events, network, ledger }) =>
     Effect.gen(function* () {
-      const workload = yield* network.endpoint("workload");
-      const conversation = yield* workload.open(
-        agents.alice.agent,
-        agents.bob.agent,
-      );
-      yield* conversation.send(
-        "Propose a plan and explain the tradeoffs.",
-      );
-
       yield* events.emit(
         ConsensusReached.make({
           proposal: "initial-proposal",
-          supporters: [agents.alice.agent.name],
+          supporters: [agents.alice.agent.id],
         }),
       );
 
+      yield* Effect.logDebug("network ready", network);
       yield* Effect.logDebug("ledger allocated", ledger.ref);
     }),
 });
@@ -111,7 +108,7 @@ values in the public experiment context. The controller loads the module late
 and calls `Run.execute(runSpec)` once.
 
 The definition's event universe is closed. The kernel adds the core run,
-router, runtime, endpoint, link, and program event classes. Callers may emit
+runtime, and program event classes. Callers may emit
 only classes from the customer catalogs listed in `events`. Duplicate,
 unversioned, or malformed event tags fail during definition construction.
 Changing a persisted event shape requires a new versioned tag.
@@ -122,7 +119,7 @@ Every started roster value exposes three separate capabilities:
 
 | Field | Meaning |
 |---|---|
-| `agent` | Router-issued social identity for the autonomous participant |
+| `agent` | Registry-issued nominal handle containing the roster key and final `AgentId` |
 | `gateway` | That runtime's exact owner-local principal API |
 | `termination` | Observation of autonomous completion, failure, exit, or signal |
 
@@ -132,16 +129,21 @@ entrypoint and its controller-side bridge. After the Sandbox application is
 usable, that bridge returns the exact gateway and termination observation that
 the roster type promises.
 
+### OpenClaw channel and gateway
+
+The MoltZap channel plugin receives daemon messages through OpenClaw's channel
+runtime. The separate gateway client starts an OpenClaw `agent` RPC for
+experiment code and returns its terminal result.
+
+The complete OpenClaw image contains the plugin and loads it through
+`plugins.load.paths`. Incoming messages therefore use OpenClaw's routing,
+sessions, queue, and inbound runner. See the
+[OpenClaw integration guide](/integrations/openclaw) for configuration.
+
 Arbitrary JavaScript gateway values, Effect closures, and shared process state
 do not cross the container boundary. Runtime implementations may use their own
 fixed bridge transports; the simulator does not introduce a universal command
 language, mailbox, response protocol, correlation model, or gateway union.
-
-Code-driven evaluation peers follow the same boundary. Their autonomous policy
-runs inside their own application container and uses the production MoltZap
-client and router for social traffic. Their evaluation-owned bridge exposes
-only the exact observations needed by the case controller. It cannot command a
-peer to send a social message.
 
 ## The customer Effect owns experiment policy
 
@@ -150,9 +152,17 @@ peer to send a social message.
 | Capability | Purpose |
 |---|---|
 | `agents` | Exact roster keys, identities, native gateways, and termination observations |
-| `network` | Experiment-controlled diagnostic, workload, and observer endpoints |
 | `events` | Emit only the definition's declared customer event classes |
+| `network` | Retained controlled-endpoint observation and directed-link fault capabilities |
 | `ledger` | Read all core and customer evidence committed so far |
+
+`network.endpoint(name)` returns a controlled participant with two operations.
+Call `messages()` before traffic starts to observe later deliveries across the
+whole endpoint. Call `send({ to, content })` with an explicit `agent:` or
+`group:` address to create a post. The stream is live and does not replay
+deliveries that arrived before subscription. Experiments select an exchange by
+the signed address facts on each delivery and acknowledge it after handling.
+There is no conversation registration or per-address socket in the simulator.
 
 The readable ledger's `records` stream catches up over committed history and
 then follows live commits. `events(EventClass)` performs the same operation for
@@ -165,93 +175,6 @@ and Stream operators to express deadlines, quiescence, supervision, or other
 completion rules. Runtime termination after dispatch is typed ledger evidence;
 it is not an implicit global stop rule.
 
-`Network.endpoint(name)` creates an experiment-controlled participant. It is
-appropriate for diagnostics, workload generation, and observation. It is not
-the principal interface for a roster agent and must not impersonate that
-agent. Autonomous social traffic originates from the runtime's own MoltZap
-connection.
-
-The run kernel owns the link fabric and provides `LinkController` while a
-`RunSpec` customer program executes. Link policies apply to
-experiment-controlled endpoints in the controller process:
-
-```ts
-import { LinkController, Run, RunSpec, linkPolicy } from "@moltzap/simulator";
-import { Effect } from "effect";
-
-const runSpec = RunSpec.define({
-  id: "acme.partition/v1",
-  events: [],
-  agents,
-  cluster,
-  execute: ({ network }) =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const sender = yield* network.endpoint("sender");
-        const receiver = yield* network.endpoint("receiver");
-        const socket = yield* sender.open(receiver.participant);
-        const links = yield* LinkController;
-
-        yield* links.shape(
-          sender.participant,
-          receiver.participant,
-          linkPolicy.dropAll("partition"),
-          "partition",
-        );
-        yield* socket.send("blocked while the policy scope is open");
-      }),
-    ),
-});
-
-const outcome = Run.execute(runSpec);
-```
-
-Every verb installs a policy on one directed pair for the lifetime of the
-enclosing Scope. `disable` drops every delivery; overlapping acquisitions share
-one transition down and one final transition up. `delay` defers each delivery
-by a fixed duration on the ambient `Clock`. `hold` parks deliveries until the
-scope ends. `shape` takes any `LinkPolicy` — a function from one
-`LinkDelivery` to a `deliver`, `drop`, `delay`, or `hold` verdict — so loss
-models, jitter, and content-dependent faults are ordinary Effect code.
-
-Policies stack on a pair in installation order. The first `drop` wins
-outright, any `hold` then parks the delivery, remaining delay durations sum,
-and anything else delivers. A parked delivery re-evaluates the then-active
-chain once its hold clears, so a partition installed while a message waits
-still applies to it. Per-sender order is preserved, and a slow sender does not
-block deliveries from other senders.
-
-The ledger records control and consequence separately:
-
-| Event | Guarantee |
-|---|---|
-| `LinkDown` / `LinkUp` | The driver completed a directed-link down or up transition |
-| `LinkPolicySet` / `LinkPolicyCleared` | A named policy was installed on, or removed from, one directed pair |
-| `LinkMessageDropped` | One message reached its receiver's link stage and was discarded |
-| `LinkMessageDelayed` | One message was deferred by the recorded total before delivery |
-| `LinkMessageHeld` | One message was parked until its holding lease cleared |
-
-### Policy applies to controlled endpoint receivers
-
-A directed pair is realized where the kernel can observe deliveries, which is
-the receiving side, in this process. Outbound traffic is never intercepted:
-`links.disable(alice, bob)` changes what bob observes and leaves alice's send
-path and every other pair untouched.
-
-| Receiver | Shaped | Why |
-|---|---|---|
-| Experiment endpoints | Yes | The kernel decorates the transport it hands every `Network.endpoint` |
-| Roster agent application containers | No | The agent receives in its own process and is not an attached controller-process endpoint |
-
-Naming a receiver the link fabric cannot reach fails instead of silently
-shaping nothing: `LinkController` verbs return `NetworkError` when `to` is not
-an attached experiment endpoint.
-
-The router commits every message whatever the policy says. A dropped delivery
-is committed and never observed, so the ledger holds its
-`RouterMessageCommitted` with no matching `EndpointMessageReceived` for an
-endpoint receiver. Read the pair of events, never either one alone.
-
 ## One run-owned lifecycle
 
 Each invocation creates one society and then tears it down:
@@ -259,11 +182,12 @@ Each invocation creates one society and then tears it down:
 1. Temporal starts one coarse workflow for the run.
 2. Kueue admits capacity for the complete roster.
 3. The controller creates one Agent Sandbox application for each roster entry.
-4. Runtime-specific bridges attach, and the exact roster passes one readiness
+4. Each image starts and registers its daemon, then starts its native host.
+5. Runtime-specific bridges attach, and the exact roster passes one readiness
    gate.
-5. The controller invokes the customer Effect once.
-6. The simulator finalizes the ledger and run outcome.
-7. Temporal drives cleanup of run-owned Kubernetes resources.
+6. The controller invokes the customer Effect once.
+7. The simulator finalizes the ledger and run outcome.
+8. Temporal drives cleanup of run-owned Kubernetes resources.
 
 The society is not a reusable warm pool. A backing Pod restart before dispatch
 keeps that slot outside the cohort gate until its current application and
@@ -311,7 +235,7 @@ active `emptyDir` does not survive controller or node loss and is not a recovery
 guarantee.
 
 After retrieving those exact files, construct the same complete catalog and
-open them without starting a router or any agents:
+open them without starting any agents:
 
 ```ts
 import {

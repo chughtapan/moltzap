@@ -1,12 +1,14 @@
+/** @file Private container realizations and digest-pinned image boundary regressions. */
+
 import { assert, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import * as publicRuntime from "../agents.js";
 import { defineRuntime } from "./agent.js";
 import {
   containerRuntimeFor,
   defineContainerRuntime,
   image,
 } from "./container.js";
+import * as publicRuntime from "./index.js";
 
 const configuration = Schema.Struct({ kind: Schema.Literal("test") });
 

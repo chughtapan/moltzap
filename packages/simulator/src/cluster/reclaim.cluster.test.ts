@@ -1,25 +1,23 @@
-/** @file Live proof that a killed submitter still leaves its run reclaimed. */
+/**
+ * @file Proves that killing a real submitter still reclaims its run namespace.
+ * A fake worker never dies, so it cannot prove that cleanup outlives its
+ * submitter. This suite runs only through the local-cluster-test target after
+ * local-cluster-create and workspace:simulator-controller-image prepare the
+ * cluster and controller image.
+ */
 
-// Reclamation cannot be shown against a fake: the fake worker never dies, so
-// the assertion holds whether or not the worker outlives its submitter. This
-// suite kills a real submitter against a real cluster and requires the run's
-// namespace to disappear anyway.
-//
-// Opt in with the local-cluster-test target, against a cluster prepared by
-// local-cluster-create and an image built by local-controller-image.
-
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, agent-code-guard/no-process-env-at-runtime, @typescript-eslint/no-invalid-void-type -- This suite drives a real cluster and a real child process through their native Promise and process APIs. */
-
-import { spawn } from "node:child_process";
-import { resolve } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import {
   CoreV1Api,
   CustomObjectsApi,
   KubeConfig,
 } from "@kubernetes/client-node";
+import { spawn } from "node:child_process";
+import { resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { expect, it } from "vitest";
 import { SYSTEM_NAMESPACE } from "./kubernetes/objects.js";
+
+/* eslint-disable agent-code-guard/promise-type, agent-code-guard/no-process-env-at-runtime, @typescript-eslint/no-invalid-void-type -- This suite drives a real cluster and a real child process through their native Promise and process APIs. */
 
 const RUN_NAMESPACE_PREFIX = "mz-";
 const EXPERIMENT = resolve("local/end-to-end.mjs");
@@ -140,4 +138,4 @@ it("reclaims a run whose submitter is killed mid-flight", async () => {
   ).toBe(SYSTEM_NAMESPACE);
 });
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type, agent-code-guard/no-process-env-at-runtime, @typescript-eslint/no-invalid-void-type -- Restore Effect-first test rules after the live-cluster reclamation proof. */
+/* eslint-enable agent-code-guard/promise-type, agent-code-guard/no-process-env-at-runtime, @typescript-eslint/no-invalid-void-type -- Restore Effect-first test rules after the live-cluster reclamation proof. */

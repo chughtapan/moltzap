@@ -1,21 +1,22 @@
-/* eslint-disable agent-code-guard/async-keyword -- The submitter boundary is Promise-native, so its assertions await it. */
+/** @file Submission input validation, workflow projection, and bounded diagnostic regressions. */
 
-import { describe, expect, it } from "vitest";
 import { Cause, Data, Effect, Layer, Logger } from "effect";
+import { describe, expect, it } from "vitest";
 import type { RunControllerResult } from "./reclaim.js";
+import type { RunTemporalSocietyOptions } from "./temporal.js";
 import { LOCAL_KUBERNETES_EXECUTION_PROFILE } from "./profile.js";
 import {
   boundedDiagnostic,
-  runKubernetesSociety,
-  SUBMIT_STAGE,
-  SUBMITTED_DIAGNOSTIC_MAX_BYTES,
-  SubmitOperations,
   type RunEnvironment,
+  runKubernetesSociety,
   type RunSubmission,
+  SUBMIT_STAGE,
+  SubmitOperations,
+  SUBMITTED_DIAGNOSTIC_MAX_BYTES,
 } from "./submit.js";
-import type { RunTemporalSocietyOptions } from "./temporal.js";
 
 const DIGEST = "b".repeat(64);
+const APPLICATION_IMAGE = `registry/openclaw@sha256:${DIGEST}`;
 const ENTRYPOINT = "society.mjs";
 const STARTUP_TIMEOUT_VARIABLE = "MOLTZAP_STARTUP_TIMEOUT_MS";
 const STARTUP_TIMEOUT_MS = 900_000;
@@ -29,24 +30,43 @@ const RESULT: RunControllerResult = {
 const ENVIRONMENT: RunEnvironment = {
   MOLTZAP_CONTROLLER_IMAGE: `registry/controller@sha256:${DIGEST}`,
   MOLTZAP_SUPPORT_IMAGE: `registry/support@sha256:${DIGEST}`,
+  MOLTZAP_APPLICATION_IMAGE: APPLICATION_IMAGE,
 };
 
 interface Submitted {
   readonly options: RunTemporalSocietyOptions[];
 }
 
-function recordingOperations(
-  submitted: Submitted,
-): Layer.Layer<SubmitOperations> {
-  return Layer.succeed(SubmitOperations, {
-    readTextFile: () => Effect.succeed("export const runSpec = society;"),
-    randomUuid: () => "0123456789abcdef0123456789abcdef",
-    runTemporalSociety: (options: RunTemporalSocietyOptions) => {
-      submitted.options.push(options);
-      return Promise.resolve(RESULT);
-    },
+describe("the experiment application image", () => {
+  it("reaches the controller when the environment selects one", async () => {
+    const { submitted } = await Effect.runPromise(submit(ENVIRONMENT));
+
+    expect(submitted.options[0]?.input.applicationImage).toBe(
+      APPLICATION_IMAGE,
+    );
   });
-}
+
+  it("is optional for experiments that carry their images in source", async () => {
+    const { submitted } = await Effect.runPromise(
+      submit({ ...ENVIRONMENT, MOLTZAP_APPLICATION_IMAGE: undefined }),
+    );
+
+    expect(submitted.options[0]?.input.applicationImage).toBeUndefined();
+  });
+
+  it("refuses a mutable image reference", async () => {
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        submit({
+          ...ENVIRONMENT,
+          MOLTZAP_APPLICATION_IMAGE: "registry/openclaw:latest",
+        }),
+      ),
+    );
+
+    expect(String(failure)).toContain("MOLTZAP_APPLICATION_IMAGE");
+  });
+});
 
 function submit(
   environment: RunEnvironment,
@@ -63,6 +83,19 @@ function submit(
     Effect.provide(recordingOperations(submitted)),
     Effect.map((submission) => ({ submission, submitted })),
   );
+}
+
+function recordingOperations(
+  submitted: Submitted,
+): Layer.Layer<SubmitOperations> {
+  return Layer.succeed(SubmitOperations, {
+    readTextFile: () => Effect.succeed("export const runSpec = society;"),
+    randomUuid: () => "0123456789abcdef0123456789abcdef",
+    runTemporalSociety: (options: RunTemporalSocietyOptions) => {
+      submitted.options.push(options);
+      return Promise.resolve(RESULT);
+    },
+  });
 }
 
 /** What the filesystem said, which the reported detail deliberately drops. */
@@ -214,5 +247,3 @@ describe("the published controller diagnostic", () => {
     expect(boundedDiagnostic(value).endsWith("TAIL")).toBe(true);
   });
 });
-
-/* eslint-enable agent-code-guard/async-keyword -- Restore Effect-first test rules after the Promise-native submitter. */

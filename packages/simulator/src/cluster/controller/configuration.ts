@@ -1,14 +1,11 @@
 /** @file Closed environment contract for the in-cluster run controller. */
-// safer-arch-ignore no-cross-domain-sibling-import: Decodes one environment into the ledger, network, and cluster values the controller needs.
 
-import {
-  type ServerBaseUrl,
-  serverBaseUrlSchema,
-} from "@moltzap/protocol/network";
-import { isAbsolute } from "node:path";
 import { Data, Either, Schema } from "effect";
-import type { Image } from "../../agents/container.js";
+import { isAbsolute } from "node:path";
+import type { Image } from "../../agents/index.js";
 import type { KubernetesPodPlacement } from "../profile.js";
+
+// safer-arch-ignore no-cross-domain-sibling-import: Decodes one environment into the ledger and cluster values the controller needs.
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 120_000;
 const DEFAULT_COHORT_SIZE = 2;
@@ -19,7 +16,6 @@ const MAX_STARTUP_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const DNS_LABEL = /^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$/u;
 const OWNER_UID = /^[A-Za-z0-9](?:[-A-Za-z0-9._]*[A-Za-z0-9])?$/u;
 const DIGEST_PINNED_IMAGE = /^.+@sha256:[0-9a-f]{64}$/u;
-const decodeServerBaseUrl = Schema.decodeEither(serverBaseUrlSchema);
 const placementSchema = Schema.Struct({
   nodeSelector: Schema.Record({
     key: Schema.NonEmptyString,
@@ -59,6 +55,7 @@ export interface ControllerConfiguration {
     readonly uid: string;
   };
   readonly supportImage: Image;
+  readonly applicationImage?: Image;
   readonly runtimeCredentials: Readonly<
     Partial<Record<"ANTHROPIC_API_KEY" | "OPENAI_API_KEY", string>>
   >;
@@ -66,7 +63,6 @@ export interface ControllerConfiguration {
   readonly experimentModule: string;
   readonly ledgerDirectory: string;
   readonly ledgerExportDirectory?: string;
-  readonly routerUrl: ServerBaseUrl;
   readonly startupTimeoutMs: number;
   /** Agents an experiment sized by its run builds its roster from. */
   readonly cohortSize: number;
@@ -81,16 +77,34 @@ export class ControllerConfigurationError extends Data.TaggedError(
   }
 }
 
-function invalid(detail: string): ControllerConfigurationError {
-  return new ControllerConfigurationError({ detail });
-}
-
-function required(environment: ControllerEnvironment, key: string): string {
-  const value = environment[key];
-  if (value === undefined || value.length === 0) {
-    throw invalid(`${key} is required`);
-  }
-  return value;
+/**
+ * Decode the one closed environment contract used by a controller Job.
+ * @param environment Process environment or a deterministic test substitute.
+ * @returns Safe, typed controller configuration.
+ */
+export function controllerConfigurationFromEnvironment(
+  environment: ControllerEnvironment,
+): ControllerConfiguration {
+  return Object.freeze({
+    namespace: kubernetesName(environment, "MOLTZAP_RUN_NAMESPACE"),
+    queueName: kubernetesName(environment, "MOLTZAP_RUN_QUEUE"),
+    owner: Object.freeze({
+      name: kubernetesName(environment, "MOLTZAP_RUN_OWNER_NAME"),
+      uid: ownerUid(environment),
+    }),
+    supportImage: supportImage(environment),
+    applicationImage: optionalImage(environment, "MOLTZAP_APPLICATION_IMAGE"),
+    runtimeCredentials: runtimeCredentials(environment),
+    rosterPlacement: rosterPlacement(environment),
+    experimentModule: experimentModulePath(environment),
+    ledgerDirectory: absolutePath(environment, "MOLTZAP_LEDGER_DIRECTORY"),
+    ledgerExportDirectory: optionalAbsolutePath(
+      environment,
+      "MOLTZAP_LEDGER_EXPORT_DIRECTORY",
+    ),
+    startupTimeoutMs: startupTimeoutMs(environment),
+    cohortSize: cohortSize(environment),
+  });
 }
 
 function kubernetesName(
@@ -114,21 +128,30 @@ function ownerUid(environment: ControllerEnvironment): string {
 }
 
 function supportImage(environment: ControllerEnvironment): Image {
-  const key = "MOLTZAP_SUPPORT_IMAGE";
-  const value = required(environment, key);
+  return requiredImage(environment, "MOLTZAP_SUPPORT_IMAGE");
+}
+
+function optionalImage(
+  environment: ControllerEnvironment,
+  key: "MOLTZAP_APPLICATION_IMAGE",
+): Image | undefined {
+  const value = environment[key];
+  return value === undefined ? undefined : decodeImage(value, key);
+}
+
+function requiredImage(
+  environment: ControllerEnvironment,
+  key: "MOLTZAP_SUPPORT_IMAGE",
+): Image {
+  return decodeImage(required(environment, key), key);
+}
+
+function decodeImage(value: string, key: string): Image {
   if (!DIGEST_PINNED_IMAGE.test(value)) {
     throw invalid(`${key} must be a lowercase SHA-256 digest-pinned image`);
   }
   // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The preceding closed pattern proves the template-literal image contract.
   return value as Image;
-}
-
-function absolutePath(environment: ControllerEnvironment, key: string): string {
-  const value = required(environment, key);
-  if (!isAbsolute(value)) {
-    throw invalid(`${key} must be an absolute path`);
-  }
-  return value;
 }
 
 function optionalAbsolutePath(
@@ -147,18 +170,6 @@ function experimentModulePath(environment: ControllerEnvironment): string {
     throw invalid(`${key} must be an absolute .mjs path`);
   }
   return value;
-}
-
-function routerUrl(environment: ControllerEnvironment): ServerBaseUrl {
-  const key = "MOLTZAP_ROUTER_URL";
-  const value = required(environment, key);
-  const decoded = decodeServerBaseUrl(value);
-  return Either.match(decoded, {
-    onLeft: () => {
-      throw invalid(`${key} must be a MoltZap server origin`);
-    },
-    onRight: (url) => url,
-  });
 }
 
 function startupTimeoutMs(environment: ControllerEnvironment): number {
@@ -248,32 +259,22 @@ function runtimeCredentials(
   });
 }
 
-/**
- * Decode the one closed environment contract used by a controller Job.
- * @param environment Process environment or a deterministic test substitute.
- * @returns Safe, typed controller configuration.
- */
-export function controllerConfigurationFromEnvironment(
-  environment: ControllerEnvironment,
-): ControllerConfiguration {
-  return Object.freeze({
-    namespace: kubernetesName(environment, "MOLTZAP_RUN_NAMESPACE"),
-    queueName: kubernetesName(environment, "MOLTZAP_RUN_QUEUE"),
-    owner: Object.freeze({
-      name: kubernetesName(environment, "MOLTZAP_RUN_OWNER_NAME"),
-      uid: ownerUid(environment),
-    }),
-    supportImage: supportImage(environment),
-    runtimeCredentials: runtimeCredentials(environment),
-    rosterPlacement: rosterPlacement(environment),
-    experimentModule: experimentModulePath(environment),
-    ledgerDirectory: absolutePath(environment, "MOLTZAP_LEDGER_DIRECTORY"),
-    ledgerExportDirectory: optionalAbsolutePath(
-      environment,
-      "MOLTZAP_LEDGER_EXPORT_DIRECTORY",
-    ),
-    routerUrl: routerUrl(environment),
-    startupTimeoutMs: startupTimeoutMs(environment),
-    cohortSize: cohortSize(environment),
-  });
+function absolutePath(environment: ControllerEnvironment, key: string): string {
+  const value = required(environment, key);
+  if (!isAbsolute(value)) {
+    throw invalid(`${key} must be an absolute path`);
+  }
+  return value;
+}
+
+function required(environment: ControllerEnvironment, key: string): string {
+  const value = environment[key];
+  if (value === undefined || value.length === 0) {
+    throw invalid(`${key} is required`);
+  }
+  return value;
+}
+
+function invalid(detail: string): ControllerConfigurationError {
+  return new ControllerConfigurationError({ detail });
 }

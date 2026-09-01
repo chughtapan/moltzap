@@ -1,12 +1,14 @@
+/** @file Durable ledger allocation, artifact, reader, and storage service contracts. */
+
 import { Context, type Effect, Schema } from "effect";
 import type { VersionedEventTag } from "../events/catalog.js";
 import {
-  type LedgerRef,
-  ledgerRef,
   type JsonObject,
   type LedgerCompletion,
   type LedgerDigest,
   type LedgerManifest,
+  type LedgerRef,
+  ledgerRef,
 } from "./schema.js";
 
 const ledgerArtifactSchema = Schema.Literal(
