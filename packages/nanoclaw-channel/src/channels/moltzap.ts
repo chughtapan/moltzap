@@ -67,15 +67,6 @@ const moltZapChannelEnv = Config.all({
   ),
 });
 
-interface MoltZapChannelEnv {
-  readonly mcpEndpoint: string | null;
-}
-
-interface MoltZapAdapterState {
-  readonly injectedEndpoint: HarnessEndpoint | null;
-  readonly mcpEndpoint: string | null;
-}
-
 interface MoltZapActivation {
   readonly endpoint: HarnessEndpoint;
   readonly finished: Deferred.Deferred<undefined>;
@@ -94,28 +85,6 @@ interface MoltZapOutboundMessage {
   readonly content: unknown;
   readonly files?: readonly MoltZapOutboundFile[];
 }
-
-/* eslint-disable @typescript-eslint/no-use-before-define -- The exported factory must precede internal story helpers; construction is deferred until after module initialization. */
-/**
- * Create the production adapter when a loopback MCP URL is configured.
- * @param env Explicit environment, or process configuration when omitted.
- * @returns An MCP-backed adapter, or null when the channel is disabled.
- */
-export function makeMoltZapAdapter(
-  env?: MoltZapChannelEnv,
-): MoltZapAdapter | null {
-  const resolvedEnv: MoltZapChannelEnv =
-    env ??
-    Effect.runSync(
-      moltZapChannelEnv.pipe(
-        Effect.withConfigProvider(ConfigProvider.fromEnv()),
-      ),
-    );
-  return resolvedEnv.mcpEndpoint === null
-    ? null
-    : MoltZapAdapter.fromMcpEndpoint(resolvedEnv.mcpEndpoint);
-}
-/* eslint-enable @typescript-eslint/no-use-before-define -- Restore declaration-order checks after the deferred factory. */
 
 function decodeOutboundSend(
   address: string,
@@ -205,7 +174,7 @@ function renderContentPart(part: ContentPart): string {
  * ```mermaid
  * sequenceDiagram
  *   participant Client as HarnessEndpoint
- *   participant Adapter as MoltZapAdapter
+ *   participant Adapter as MoltZapChannelAdapter
  *   participant Host as NanoClaw host
  *   Client->>Adapter: InboundDelivery
  *   Adapter->>Host: onMetadata<br>address and group shape
@@ -217,44 +186,18 @@ function renderContentPart(part: ContentPart): string {
  *
  * The stream acknowledges after the stock host callback completes.
  */
-export class MoltZapAdapter {
+class MoltZapChannelAdapter {
   readonly name = MOLTZAP_CHANNEL;
   readonly channelType = MOLTZAP_CHANNEL;
   readonly supportsThreads = false;
 
-  private readonly injectedEndpoint: HarnessEndpoint | null;
   private readonly lifecycleGate = Effect.runSync(Effect.makeSemaphore(1));
-  private readonly mcpEndpoint: string | null;
+  private readonly mcpEndpoint: string;
   private activation: MoltZapActivation | null = null;
   private setupConfig: ChannelSetup | null = null;
 
-  private constructor(state: MoltZapAdapterState) {
-    this.injectedEndpoint = state.injectedEndpoint;
-    this.mcpEndpoint = state.mcpEndpoint;
-  }
-
-  /**
-   * Build an adapter around an already-acquired public Client capability.
-   * @param endpoint Scoped structural Client capability.
-   * @returns An adapter that consumes the injected endpoint.
-   */
-  static fromEndpoint(endpoint: HarnessEndpoint): MoltZapAdapter {
-    return new MoltZapAdapter({
-      injectedEndpoint: endpoint,
-      mcpEndpoint: null,
-    });
-  }
-
-  /**
-   * Build an adapter that acquires Client from one loopback MCP URL.
-   * @param mcpEndpoint Loopback endpoint owned by the local daemon.
-   * @returns An adapter that acquires the endpoint when set up.
-   */
-  static fromMcpEndpoint(mcpEndpoint: string): MoltZapAdapter {
-    return new MoltZapAdapter({
-      injectedEndpoint: null,
-      mcpEndpoint,
-    });
+  constructor(mcpEndpoint: string) {
+    this.mcpEndpoint = mcpEndpoint;
   }
 
   // #ignore-sloppy-code-next-line[promise-type]: NanoClaw's ChannelAdapter lifecycle is Promise-native at the host boundary.
@@ -301,7 +244,7 @@ export class MoltZapAdapter {
       );
     }
     return Effect.gen(
-      function* (this: MoltZapAdapter) {
+      function* (this: MoltZapChannelAdapter) {
         const scope = yield* Scope.make();
         const endpoint = yield* this.acquireEndpoint(scope).pipe(
           Effect.onError(() => Scope.close(scope, Exit.void)),
@@ -365,19 +308,8 @@ export class MoltZapAdapter {
   private acquireEndpoint(
     scope: Scope.CloseableScope,
   ): Effect.Effect<HarnessEndpoint, ConnectError | MoltZapChannelError> {
-    if (this.injectedEndpoint !== null) {
-      return Effect.succeed(this.injectedEndpoint);
-    }
-    const mcpEndpoint = this.mcpEndpoint;
-    if (mcpEndpoint === null) {
-      return Effect.fail(
-        new MoltZapChannelError({
-          reason: "MoltZap channel has no MCP endpoint",
-        }),
-      );
-    }
     return Effect.try({
-      try: () => new URL(mcpEndpoint),
+      try: () => new URL(this.mcpEndpoint),
       catch: () =>
         new MoltZapChannelError({
           reason: "MoltZap channel MCP endpoint is invalid",
@@ -470,9 +402,16 @@ export class MoltZapAdapter {
   }
 }
 
+function makeMoltZapChannelAdapter(): MoltZapChannelAdapter | null {
+  const { mcpEndpoint } = Effect.runSync(
+    moltZapChannelEnv.pipe(Effect.withConfigProvider(ConfigProvider.fromEnv())),
+  );
+  return mcpEndpoint === null ? null : new MoltZapChannelAdapter(mcpEndpoint);
+}
+
 registerChannelAdapter(MOLTZAP_CHANNEL, {
   defaults: MOLTZAP_CHANNEL_DEFAULTS,
-  factory: () => makeMoltZapAdapter(),
+  factory: makeMoltZapChannelAdapter,
 });
 
 /* eslint-enable jsdoc/text-escaping -- Restore strict defaults after the Mermaid block. */
