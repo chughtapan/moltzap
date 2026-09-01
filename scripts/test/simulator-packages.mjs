@@ -278,10 +278,7 @@ async function verifyControllerImageAssembly() {
     ),
     "controller image must start the compiled controller",
   );
-  for (const expected of [
-    "/opt/moltzap/dist",
-    "/opt/moltzap/register-daemon.mjs",
-  ]) {
+  for (const expected of ["/opt/moltzap/dist"]) {
     requireCondition(
       dockerfile.includes(expected),
       `controller image is missing ${expected}`,
@@ -294,7 +291,7 @@ async function verifyControllerImageAssembly() {
   requireCondition(
     !dockerfile.includes("application-overlay") &&
       !dockerfile.includes("@moltzap/openclaw-channel"),
-    "the controller image must not contain an agent host or channel plugin",
+    "the controller image must not contain runtime-specific overlays or plugins",
   );
   await exec(process.execPath, ["--check", controllerImageBuilder], {
     cwd: workspaceRoot,

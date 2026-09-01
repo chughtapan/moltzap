@@ -26,8 +26,7 @@ import { SocialActionObserved } from "./events.js";
 import { evaluationCaseId, type EvaluationCaseId } from "./model.js";
 
 const EVALUATION_PEER_RUNTIME_NAME = "evaluation-peer";
-const EVALUATION_PEER_APPLICATION_ENTRYPOINT =
-  "/opt/moltzap/node_modules/@moltzap/evals/dist/peer-application.js";
+const AGENT_IMAGE_ENTRYPOINT = "/opt/moltzap/agent/entrypoint.mjs";
 const EVALUATION_PEER_PLAN_ENV = "MOLTZAP_EVAL_PEER_PLAN";
 const EVALUATION_PEER_AGENT_NAME_ENV = "MOLTZAP_EVAL_AGENT_NAME";
 const EVALUATION_PEER_BRIDGE_POLL_INTERVAL = Duration.millis(100);
@@ -538,10 +537,7 @@ function peerApplication(
     plan,
   );
   return Object.freeze({
-    entrypoint: Object.freeze([
-      "node",
-      EVALUATION_PEER_APPLICATION_ENTRYPOINT,
-    ] as const),
+    entrypoint: Object.freeze(["node", AGENT_IMAGE_ENTRYPOINT] as const),
     environment: Object.freeze({
       NODE_ENV: "production",
       [EVALUATION_PEER_PLAN_ENV]: encodedPlan,

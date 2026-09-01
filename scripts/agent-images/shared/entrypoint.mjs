@@ -99,28 +99,31 @@ async function chownTree(path, uid, gid) {
   await lchown(path, uid, gid);
 }
 
+async function prepareOwnedDirectory(path, uid, gid) {
+  await mkdir(path, { recursive: true });
+  await chownTree(path, process.getuid?.() ?? 0, process.getgid?.() ?? 0);
+  await chmod(path, 0o700);
+  await chownTree(path, uid, gid);
+}
+
 async function prepareFilesystem(options) {
-  await mkdir(options.stateDirectory, { recursive: true });
-  await chownTree(
+  await prepareOwnedDirectory(
     options.stateDirectory,
     options.daemonUserId,
     options.daemonGroupId,
   );
-  await chmod(options.stateDirectory, 0o700);
-  await mkdir(options.secretDirectory, { recursive: true, mode: 0o700 });
-  await chown(
+  await prepareOwnedDirectory(
     options.secretDirectory,
     options.daemonUserId,
     options.daemonGroupId,
   );
-  await chmod(options.secretDirectory, 0o700);
   for (const source of await readdir(options.secretSource)) {
     const sourcePath = join(options.secretSource, source);
     if (!(await lstat(sourcePath)).isFile()) continue;
     const destination = join(options.secretDirectory, basename(source));
     await copyFile(sourcePath, destination);
-    await chown(destination, options.daemonUserId, options.daemonGroupId);
     await chmod(destination, 0o400);
+    await chown(destination, options.daemonUserId, options.daemonGroupId);
   }
 }
 
