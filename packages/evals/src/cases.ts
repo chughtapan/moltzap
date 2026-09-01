@@ -298,12 +298,12 @@ interface GroupScenarioInput {
 function groupScenario(
   input: GroupScenarioInput,
 ): Pick<EvaluationCaseDefinition, "peers" | "program"> {
-  const messages =
+  const message =
     input.announcement === undefined
-      ? ([input.question] as const)
-      : ([input.announcement, input.question] as const);
+      ? input.question
+      : `${input.announcement} ${input.question}`;
   const peers: Record<string, EvaluationPeerDefinition> = {
-    [PEER_AGENT_NAME]: reactivePeer(input.caseId, TARGET_AGENT_NAME, messages),
+    [PEER_AGENT_NAME]: reactivePeer(input.caseId, TARGET_AGENT_NAME, [message]),
     [OBSERVER_1_AGENT_NAME]: idlePeer(input.caseId),
   };
   if (input.silentObservers > 1) {
@@ -432,7 +432,7 @@ const eval005 = defineCase({
 
 const eval006 = defineCase({
   id: EVAL_006,
-  definitionId: "moltzap.eval-006/v5",
+  definitionId: "moltzap.eval-006/v6",
   name: "Group conversation behavior",
   description:
     "The target joins a fixed group where one peer contributes before asking everyone for progress.",
@@ -527,7 +527,7 @@ const eval009 = defineCase({
 
 const eval010 = defineCase({
   id: EVAL_010,
-  definitionId: "moltzap.eval-010/v5",
+  definitionId: "moltzap.eval-010/v6",
   name: "Group turn-taking discipline",
   description:
     "The target joins a fixed group where one peer reports work before addressing it.",
