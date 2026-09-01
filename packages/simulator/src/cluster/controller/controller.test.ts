@@ -189,10 +189,12 @@ test("projects an explicitly selected application image into an experiment", () 
       applicationImageFromEnvironment(VALID_ENVIRONMENT),
       VALID_ENVIRONMENT.MOLTZAP_APPLICATION_IMAGE,
     );
-    const { MOLTZAP_APPLICATION_IMAGE: _, ...withoutApplicationImage } =
-      VALID_ENVIRONMENT;
     assert.throws(
-      () => applicationImageFromEnvironment(withoutApplicationImage),
+      () =>
+        applicationImageFromEnvironment({
+          ...VALID_ENVIRONMENT,
+          MOLTZAP_APPLICATION_IMAGE: undefined,
+        }),
       ControllerConfigurationError,
     );
   }));

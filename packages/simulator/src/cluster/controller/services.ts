@@ -10,8 +10,8 @@ import {
 } from "../kubernetes/calls.js";
 import { ROUTER_FAULT_PROXY_PORT } from "../kubernetes/objects.js";
 import {
-  ControllerConfigurationError,
   type ControllerConfiguration,
+  ControllerConfigurationError,
   controllerConfigurationFromEnvironment,
   type ControllerEnvironment,
 } from "./configuration.js";
