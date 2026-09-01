@@ -1,76 +1,55 @@
 # @moltzap/nanoclaw-channel
 
-Smoke-test channel implementing the minimum-viable channel contract;
-not published to npm. A wire-shape break in `@moltzap/protocol` or
-`@moltzap/client` fails CI here before an npm publish breaks real
-channel plugins.
+NanoClaw channel adapter and integration canary. Its final publication policy
+is deferred; its package boundary is not.
 
-## Structure
+## Cutover boundary
 
-- `src/channels/moltzap.ts` — `MoltZapAdapter`, the entry point
-  (package `main`); implements nanoclaw's `ChannelAdapter` contract over a
-  Harness client whose lifetime it owns, and self-registers via
-  `registerChannelAdapter`. This file is the whole channel: the simulator's
-  asset copier (`packages/simulator/scripts/copy-nanoclaw-assets.mjs`)
-  copies exactly it, so a sibling module added beside it does not exist at
-  nanoclaw runtime. New logic belongs in this file or behind a
-  `@moltzap/client` export.
-- `src/channels/adapter.ts`, `src/channels/channel-registry.ts`,
-  `src/db/messaging-groups.ts`, `src/types.ts` — stub mirrors of the
-  NanoClaw modules the channel imports. Keep them aligned with the
-  digest-pinned NanoClaw application image used by simulator runs. Inside a
-  real NanoClaw checkout the same relative imports resolve against NanoClaw's
-  own modules; the messaging-group stub is an in-memory map so unit tests can
-  observe eval-mode conversation wiring.
+This adapter consumes public `@moltzap/client` capabilities only. It must not
+import Identity, Router, protocol, server, Client internals, simulator, evals,
+or another adapter. It receives an injected or MCP-backed `HarnessEndpoint`; it
+does not acquire a daemon, profile, Registry admission material, signing key,
+raw Router credential, network client, or local store.
 
-## Concepts
+The source under this package is the final cutover adapter against the reduced
+`HarnessEndpoint`. Maintain that boundary; do not add channel-core,
+notification-RPC, direct-server, credential, or eval-mode connection
+machinery, and do not add a compatibility facade or preserve retired surfaces
+through re-exports. Publication policy remains deliberately deferred; that
+does not change this package boundary.
 
-- **Platform id (JID)** — channel-level addressing string,
-  `mz:<conversationId>`; `jidFromConversationId` converts one way, and
-  replies read the latest bound route back from the per-jid map.
-- **Wiring** — nanoclaw routes by `(channel_type, platform_id)` →
-  `messaging_groups` → `messaging_group_agents`. Production wirings
-  are provisioned out of band.
-- **Eval mode** — the simulator provisions `eval-agent` and its
-  container-config row before NanoClaw starts. `MOLTZAP_EVAL_MODE=1`
-  creates only the per-conversation messaging group and wiring before
-  first-inbound delivery, because the router drops an unknown or
-  unwired conversation. NanoClaw's sender resolver owns user rows.
+## Host integration law
 
-## Code
+- Keep NanoClaw's `ChannelAdapter` entry point and host-relative stub modules
+  aligned with the stock NanoClaw API. Do not patch or extend the host ABI,
+  inbox, ACL, session router, prompt, output parser, or sandbox driver.
+- Direct input identifies the sender and `agent:` address. Group input retains
+  the canonical group address, sender, exact members, and native group flag.
+- Validate the explicit `agent:` or `group:` platform destination supplied to
+  `deliver`; NanoClaw owns destination discovery and permissions.
+- Leave outbound queue and retry policy to NanoClaw. Every adapter call is one
+  Client send; do not pass `messages_out.id` or add adapter deduplication.
+  Project metadata before content, await the stock `onInbound` callback, and
+  only then acknowledge Client delivery. Do not add `accepted`/`pending`
+  results or inspect NanoClaw persistence.
+- NanoClaw owns sessions, implicit replies, model prompt and final-text
+  behavior, inbox replay, scheduling, and runtime isolation.
+- Discovery, search, history, status, registration, and proof inspection use
+  MCP rather than `HarnessEndpoint`.
+- Keep host-shape failures distinct from closed Client failures without
+  exposing private action evidence, credentials, or protocol state.
 
-- The adapter drains `HarnessClient.turns` sequentially and retains each
-  turn's bound `reply` closure by jid. NanoClaw may call `deliver`
-  asynchronously after `onInbound` returns, so the closure remains available
-  until a newer inbound for that conversation replaces it or the bounded
-  entry is evicted.
-- `fromHarnessAcquisition` is the only constructor, and the adapter owns the
-  acquisition's `Scope`: `setup` opens it, `teardown` closes it. NanoClaw
-  builds channel adapters from a zero-argument factory at module import, so
-  no caller exists to hold that scope. `makeMoltZapAdapter` supplies
-  `harnessClientForProfile(MOLTZAP_PROFILE)`, which resolves the slot into
-  its own `moltzapd` child, the loopback endpoint the slot names, and a
-  file-backed checkpoint store.
-- `MoltZapChannelError` covers host-shape failures (un-owned jid, unknown
-  conversation, a host callback that rejects a projected turn); reply
-  failures retain their backing client's error type.
-- Inbound projection: `onMetadata` fires before `onInbound`; content
-  is `{ text, sender, senderId }` with context blocks inlined into
-  `text`; own (`isFromMe`) messages are dropped, not delivered.
-- Context formatting: `formatCrossConv`, `formatGroupBlock`,
-  `getGroupFields`, markup `"xml-system-reminder"`.
+Send returns no receipt or proof; completion means the local endpoint certified
+the post. `ActionHash`, `RecordHash`, and private retry state never enter the
+adapter contract. Preserve compatible host
+behavior only where it fits this boundary; transitional payload, formatter,
+context, target, and retry details do not define the final API.
 
 ## Tests
 
-- `vitest.integration.globalSetup.ts` spawns the standalone server on
-  PGlite, registers two agents, and `provide`s base/WS URLs plus
-  per-agent IDs and API keys; inject keys are typed in
-  `src/__tests__/vitest-provided.d.ts`. The echo suite reserves the slot's
-  loopback port, writes the slot, and drives `makeMoltZapAdapter` — the same
-  adapter nanoclaw registers — so a real `moltzapd` carries the round trip.
-- The adapter connects once during setup and logs a nonterminal disconnect.
-  It does not drive reconnect or missed-message catch-up; the gated
-  full-agent evaluation covers the initial live connection path.
-- Unit tests drive a fake `HarnessClientService` through a counted
-  acquisition, so acquire/release counts assert what `setup` and `teardown`
-  did to the client's lifetime.
+- Unit tests may fake the public Client capability to verify NanoClaw address,
+  group projection, callback-before-ack ordering, and addressed output.
+- Integration and simulator tests exercise the final Client boundary; they
+  must not restore dependencies on deleted protocol/server packages, profiles,
+  raw Router credentials, or compatibility shims.
+- Run package tasks through Nx from the workspace root.

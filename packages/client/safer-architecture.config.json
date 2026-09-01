@@ -1,40 +1,93 @@
 {
-  "minExportedSiblingModules": 6,
-  "maxSubpathExports": 6,
-  "maxPublicExports": 29,
-  "minPublicFacadeModules": 9,
-  "folderChildCountOverrides": [
-    {
-      "folder": ".",
-      "maxChildren": 26,
-      "maxChildrenIncludingTests": 28,
-      "reason": "The client SDK keeps its peer public surfaces and their focused implementation modules flat at the source root; AGENTS.md documents the package structure"
-    }
+  "maxFolderCycles": 1,
+  "folderReadmeFileNames": [
+    "README.md",
+    "../README.md"
   ],
   "facadeFiles": [
     {
-      "file": "harness-client.ts",
-      "reason": "Named adapter-facing boundary for the loopback daemon client, published as the ./harness-client subpath"
-    },
-    {
-      "file": "channel-core.ts",
-      "reason": "Named public boundary for channel-adapter dispatch, admission, and enrichment"
-    },
-    {
-      "file": "service.ts",
-      "reason": "Named public boundary for the managed MoltZap client service"
-    },
-    {
-      "file": "profile.ts",
-      "reason": "Named-profile persistence contract shared by client configuration and the daemon that owns each slot"
+      "file": "server.ts",
+      "reason": "Published process-composition boundary for the single configured endpoint daemon"
     },
     {
       "file": "harness-mcp-wire.ts",
-      "reason": "MCP catalog contract shared by the daemon composition and the listener that serves it"
+      "reason": "Private MCP operation facade shared by the daemon runtime and management catalog"
     },
     {
-      "file": "moltzapd-catalog.ts",
-      "reason": "Slot and active catalog boundary shared by the daemon composition and its registration handler"
+      "file": "harness-mcp-contract.ts",
+      "reason": "Private closed MCP schemas shared by daemon projection, loopback client decoding, and protocol-boundary tests"
+    },
+    {
+      "file": "management-runtime.ts",
+      "reason": "Exact private management schema boundary shared by daemon operations and its MCP catalog"
+    },
+    {
+      "file": "daemon/registration.ts",
+      "reason": "Crash-recoverable identity-registration boundary shared by daemon startup and management"
+    },
+    {
+      "file": "daemon/runtime/activation.ts",
+      "reason": "Identity activation, pinned-card recovery, and crash-recoverable registration shared by runtime composition, controller operations, and protocol acquisition"
+    },
+    {
+      "file": "endpoint/engine.ts",
+      "reason": "Private endpoint-engine facade composing protocol phases behind the daemon-owned EndpointEngine capability"
+    },
+    {
+      "file": "endpoint/engine-durability.ts",
+      "reason": "Durable action-fold transition boundary shared by engine protocol phases"
+    },
+    {
+      "file": "endpoint/engine-send.ts",
+      "reason": "Addressed intent activation and durable send boundary shared by the endpoint engine phases"
+    },
+    {
+      "file": "endpoint/engine-types.ts",
+      "reason": "Closed endpoint-engine port and error vocabulary shared by every protocol phase"
+    },
+    {
+      "file": "endpoint/representation-codec.ts",
+      "reason": "Canonical encoding, signing, and hashing boundary beneath the complete representation facade"
+    },
+    {
+      "file": "endpoint/representation.ts",
+      "reason": "Complete private protocol-representation facade consumed by endpoint and daemon modules"
+    },
+    {
+      "file": "endpoint/recovery/state.ts",
+      "reason": "Volatile catch-up and re-anchor coordination shared only by the recovery facade and its re-anchor implementation"
+    },
+    {
+      "file": "endpoint/store.ts",
+      "reason": "Private typed facade for the daemon-owned endpoint replica and its recovery state"
+    },
+    {
+      "file": "endpoint/store/deliveries.ts",
+      "reason": "Pending-delivery SQL capability shared by record promotion, management recovery reads, and endpoint-store operations"
+    },
+    {
+      "file": "endpoint/store/dissemination.ts",
+      "reason": "Dissemination-obligation SQL capability shared by record promotion, recovery reads, and atomic outbox enqueue"
+    },
+    {
+      "file": "endpoint/store/outbound.ts",
+      "reason": "Durable outbox SQL capability shared by endpoint-store operations, recovery reads, and dissemination transactions"
+    }
+  ],
+  "layers": [
+    {
+      "name": "daemon",
+      "folders": [
+        "daemon"
+      ],
+      "reason": "Process composition may depend on endpoint capabilities while endpoint protocol code never depends on daemon lifecycle"
+    },
+    {
+      "name": "endpoint",
+      "folders": [
+        "endpoint"
+      ],
+      "reason": "Endpoint protocol, durability, recovery, Router work, and addressed delivery form the daemon's private semantic core"
     }
   ],
   "publicTypePackages": [
@@ -55,10 +108,6 @@
       "reason": "RPC descriptors are the public contract; Rpc/RpcGroup types cross the boundary by design"
     },
     {
-      "package": "@moltzap/protocol",
-      "reason": "Intra-monorepo protocol; foundational shared contract"
-    },
-    {
       "package": "@moltzap/client",
       "reason": "Intra-monorepo client SDK; channels depend on its public surface"
     }
@@ -75,10 +124,6 @@
     {
       "subpath": "./test-support",
       "reason": "Channel test support exposed for integration tests"
-    },
-    {
-      "subpath": "./testing",
-      "reason": "Conformance + driver surface for cross-package integration testing"
     }
   ]
 }

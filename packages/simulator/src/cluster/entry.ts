@@ -6,10 +6,6 @@ import { fileURLToPath } from "node:url";
 
 const FILE_URL_SCHEME = "file:";
 
-function realPath(path: string): string | undefined {
-  return existsSync(path) ? realpathSync(path) : undefined;
-}
-
 /**
  * Whether a module is the process entry point rather than an ordinary import.
  *
@@ -37,4 +33,8 @@ export function isEntryModule(moduleUrl: string, invoked?: string): boolean {
   }
   const entry = realPath(resolve(invoked));
   return entry !== undefined && entry === realPath(fileURLToPath(moduleUrl));
+}
+
+function realPath(path: string): string | undefined {
+  return existsSync(path) ? realpathSync(path) : undefined;
 }

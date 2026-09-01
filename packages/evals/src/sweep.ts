@@ -4,27 +4,27 @@ import { CompletedLedgerReceipt, LedgerReceipt } from "@moltzap/simulator";
 import { image } from "@moltzap/simulator/agents";
 import {
   jsonValue,
-  LedgerStorageError,
   type JsonValue,
+  LedgerStorageError,
 } from "@moltzap/simulator/ledger";
 import { Data, DateTime, Effect, Encoding, Schema } from "effect";
 import {
+  CodeAssessment,
+  type CriterionAssessment,
+  GradeReport,
+  validateAssessmentEvidence,
+} from "./assessment.js";
+import { judgeError } from "./judge.js";
+import {
   conditionId,
+  type ConditionId,
   criterionId,
   evaluationCaseId,
+  type EvaluationCaseId,
   evaluationSlice,
   judgePolicyId,
-  type ConditionId,
-  type EvaluationCaseId,
 } from "./model.js";
-import {
-  CodeAssessment,
-  EvaluationTranscript,
-  GradeReport,
-  judgeError,
-  validateAssessmentEvidence,
-  type CriterionAssessment,
-} from "./grading.js";
+import { EvaluationTranscript } from "./transcript.js";
 
 const REPORT_FORMAT_VERSION = 3;
 const SAMPLE_NUMBER = 1;
@@ -118,8 +118,8 @@ export class LocalEvaluationInfrastructure extends Schema.TaggedClass<LocalEvalu
   {
     profile: Schema.Literal("local"),
     controllerImage: image,
-    peerApplicationImage: image,
-    nanoclawApplicationImage: image,
+    openclawApplicationImage: Schema.optional(image),
+    nanoclawApplicationImage: Schema.optional(image),
     temporalAddress: Schema.NonEmptyString,
     artifactDirectory: Schema.NonEmptyString,
   },
@@ -131,8 +131,8 @@ export class GkeEvaluationInfrastructure extends Schema.TaggedClass<GkeEvaluatio
   {
     profile: Schema.Literal("gke"),
     controllerImage: image,
-    peerApplicationImage: image,
-    nanoclawApplicationImage: image,
+    openclawApplicationImage: Schema.optional(image),
+    nanoclawApplicationImage: Schema.optional(image),
     temporalAddress: Schema.NonEmptyString,
     kubeContext: Schema.NonEmptyString,
     artifactBucket: Schema.NonEmptyString,
@@ -253,6 +253,27 @@ const unavailableJudgingEvidenceValue = Schema.Struct({
 const ledgerStorageErrorValueSchema = Schema.Struct(LedgerStorageError.fields);
 const makeLedgerStorageErrorValue =
   Data.tagged<typeof ledgerStorageErrorValueSchema.Type>("LedgerStorageError");
+
+/**
+ * Canonical JSON used for plan, report, and Phoenix reconciliation digests.
+ * @param value JSON value to encode.
+ * @returns Deterministic JSON text with recursively sorted object keys.
+ */
+export function canonicalJson(value: JsonValue): string {
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (typeof value === "number") {
+    return value === 0 ? "0" : String(value);
+  }
+  if (typeof value === "string") {
+    return quote(value);
+  }
+  return canonicalComposite(value);
+}
 
 function ledgerStorageErrorValue(
   failure: LedgerStorageError,
@@ -386,6 +407,32 @@ export class EvaluationSweepIncomplete extends Schema.TaggedError<EvaluationSwee
   },
 ) {}
 
+function validateAttemptSet(
+  report: EvaluationReport,
+): Effect.Effect<void, EvaluationReportValidationError> {
+  const expected = expectedAttemptIds(report);
+  const actual = report.attempts.map((attempt) => attempt.attemptId);
+  const duplicateAttempt = duplicate(actual);
+  if (duplicateAttempt !== undefined) {
+    return Effect.fail(
+      validationError(`duplicate terminal attempt ${duplicateAttempt}`),
+    );
+  }
+  const expectedSet = new Set(expected);
+  return Effect.forEach(
+    report.attempts,
+    (attempt) => validateAttempt(report, expectedSet, attempt),
+    { concurrency: 1, discard: true },
+  ).pipe(
+    Effect.flatMap(() => {
+      const issue = attemptOrderIssue(report, expected);
+      return issue === undefined
+        ? Effect.void
+        : Effect.fail(validationError(issue));
+    }),
+  );
+}
+
 function validationError(detail: string): EvaluationReportValidationError {
   return EvaluationReportValidationError.make({ detail });
 }
@@ -400,6 +447,18 @@ function describeUnknown(cause: unknown): string {
 
 function quote(value: string): string {
   return JSON.stringify(value) ?? '""';
+}
+
+function canonicalComposite(
+  value: readonly JsonValue[] | { readonly [key: string]: JsonValue },
+): string {
+  if (isJsonArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  const fields = Object.entries(value)
+    .sort(([left], [right]) => compareKeys(left, right))
+    .map(([key, entry]) => `${quote(key)}:${canonicalJson(entry)}`);
+  return `{${fields.join(",")}}`;
 }
 
 function isJsonArray(
@@ -418,37 +477,81 @@ function compareKeys(left: string, right: string): number {
   return 0;
 }
 
-function canonicalComposite(
-  value: readonly JsonValue[] | { readonly [key: string]: JsonValue },
-): string {
-  if (isJsonArray(value)) {
-    return `[${value.map(canonicalJson).join(",")}]`;
-  }
-  const fields = Object.entries(value)
-    .sort(([left], [right]) => compareKeys(left, right))
-    .map(([key, entry]) => `${quote(key)}:${canonicalJson(entry)}`);
-  return `{${fields.join(",")}}`;
+function digestAssessedEvidence(
+  attempt: AssessedAttemptInput,
+): Effect.Effect<EvaluationEvidenceDigest, EvaluationReportValidationError> {
+  return digestSchemaValue(assessedEvidenceValue, {
+    kind: "assessed",
+    attemptId: attempt.attemptId,
+    caseId: attempt.caseId,
+    conditionId: attempt.conditionId,
+    sample: attempt.sample,
+    startedAt: attempt.startedAt,
+    completedAt: attempt.completedAt,
+    receipt: attempt.receipt,
+    transcript: attempt.transcript,
+    grade: attempt.grade,
+  }).pipe(Effect.flatMap(decodeEvidenceDigest));
 }
 
-/**
- * Canonical JSON used for plan, report, and Phoenix reconciliation digests.
- * @param value JSON value to encode.
- * @returns Deterministic JSON text with recursively sorted object keys.
- */
-export function canonicalJson(value: JsonValue): string {
-  if (value === null) {
-    return "null";
-  }
-  if (typeof value === "boolean") {
-    return value ? "true" : "false";
-  }
-  if (typeof value === "number") {
-    return value === 0 ? "0" : String(value);
-  }
-  if (typeof value === "string") {
-    return quote(value);
-  }
-  return canonicalComposite(value);
+function digestUnavailableJudgingEvidence(
+  attempt: JudgingUnavailableAttemptInput,
+): Effect.Effect<EvaluationEvidenceDigest, EvaluationReportValidationError> {
+  return digestSchemaValue(unavailableJudgingEvidenceValue, {
+    kind: "judging-unavailable",
+    attemptId: attempt.attemptId,
+    caseId: attempt.caseId,
+    conditionId: attempt.conditionId,
+    sample: attempt.sample,
+    startedAt: attempt.startedAt,
+    completedAt: attempt.completedAt,
+    receipt: attempt.receipt,
+    transcript: attempt.transcript,
+    codeAssessments: attempt.codeAssessments,
+    pendingCriterionIds: attempt.pendingCriterionIds,
+    error: attempt.error,
+  }).pipe(Effect.flatMap(decodeEvidenceDigest));
+}
+
+function matchPlanComponent<S extends Schema.Schema.AnyNoContext>(
+  field: ResumeMismatchField,
+  schema: S,
+  actual: Schema.Schema.Type<S>,
+  expected: Schema.Schema.Type<S>,
+): Effect.Effect<
+  void,
+  EvaluationReportValidationError | EvaluationResumeMismatch
+> {
+  return Effect.all({
+    actual: digestSchemaValue(schema, actual).pipe(
+      Effect.flatMap(Schema.decodeUnknown(evaluationPlanDigest)),
+      Effect.mapError((cause) =>
+        cause instanceof EvaluationReportValidationError
+          ? cause
+          : validationError(`invalid ${field} digest: ${cause.message}`),
+      ),
+    ),
+    expected: digestSchemaValue(schema, expected).pipe(
+      Effect.flatMap(Schema.decodeUnknown(evaluationPlanDigest)),
+      Effect.mapError((cause) =>
+        cause instanceof EvaluationReportValidationError
+          ? cause
+          : validationError(`invalid ${field} digest: ${cause.message}`),
+      ),
+    ),
+  }).pipe(
+    Effect.flatMap((digests) =>
+      digests.actual === digests.expected
+        ? Effect.void
+        : Effect.fail(
+            EvaluationResumeMismatch.make({
+              field,
+              expectedDigest: digests.expected,
+              actualDigest: digests.actual,
+            }),
+          ),
+    ),
+  );
 }
 
 function digestSchemaValue<S extends Schema.Schema.AnyNoContext>(
@@ -491,42 +594,6 @@ function decodeEvidenceDigest(
       validationError(`invalid evidence digest: ${cause.message}`),
     ),
   );
-}
-
-function digestAssessedEvidence(
-  attempt: AssessedAttemptInput,
-): Effect.Effect<EvaluationEvidenceDigest, EvaluationReportValidationError> {
-  return digestSchemaValue(assessedEvidenceValue, {
-    kind: "assessed",
-    attemptId: attempt.attemptId,
-    caseId: attempt.caseId,
-    conditionId: attempt.conditionId,
-    sample: attempt.sample,
-    startedAt: attempt.startedAt,
-    completedAt: attempt.completedAt,
-    receipt: attempt.receipt,
-    transcript: attempt.transcript,
-    grade: attempt.grade,
-  }).pipe(Effect.flatMap(decodeEvidenceDigest));
-}
-
-function digestUnavailableJudgingEvidence(
-  attempt: JudgingUnavailableAttemptInput,
-): Effect.Effect<EvaluationEvidenceDigest, EvaluationReportValidationError> {
-  return digestSchemaValue(unavailableJudgingEvidenceValue, {
-    kind: "judging-unavailable",
-    attemptId: attempt.attemptId,
-    caseId: attempt.caseId,
-    conditionId: attempt.conditionId,
-    sample: attempt.sample,
-    startedAt: attempt.startedAt,
-    completedAt: attempt.completedAt,
-    receipt: attempt.receipt,
-    transcript: attempt.transcript,
-    codeAssessments: attempt.codeAssessments,
-    pendingCriterionIds: attempt.pendingCriterionIds,
-    error: attempt.error,
-  }).pipe(Effect.flatMap(decodeEvidenceDigest));
 }
 
 /** Construct a terminal assessed attempt with its complete evidence binding. */
@@ -632,21 +699,15 @@ function expectedAttemptIds(report: EvaluationReport): readonly string[] {
   );
 }
 
-function gradedCriterionIds(
+function gradedAttemptIssue(
+  report: EvaluationReport,
   attempt: TerminalAttempt,
-): readonly string[] | undefined {
-  if (attempt instanceof AssessedAttempt) {
-    return attempt.grade.assessments.map(
-      (assessment) => assessment.criterionId,
-    );
-  }
-  if (attempt instanceof JudgingUnavailableAttempt) {
-    return [
-      ...attempt.codeAssessments.map((assessment) => assessment.criterionId),
-      ...attempt.pendingCriterionIds,
-    ];
-  }
-  return undefined;
+): string | undefined {
+  return (
+    attemptTimeIssue(attempt) ??
+    gradingIdentityIssue(attempt) ??
+    criterionCoverageIssue(report, attempt)
+  );
 }
 
 function attemptTimeIssue(attempt: TerminalAttempt): string | undefined {
@@ -699,15 +760,21 @@ function criterionCoverageIssue(
     : `attempt ${attempt.attemptId} does not cover the exact criterion set`;
 }
 
-function gradedAttemptIssue(
-  report: EvaluationReport,
+function gradedCriterionIds(
   attempt: TerminalAttempt,
-): string | undefined {
-  return (
-    attemptTimeIssue(attempt) ??
-    gradingIdentityIssue(attempt) ??
-    criterionCoverageIssue(report, attempt)
-  );
+): readonly string[] | undefined {
+  if (attempt instanceof AssessedAttempt) {
+    return attempt.grade.assessments.map(
+      (assessment) => assessment.criterionId,
+    );
+  }
+  if (attempt instanceof JudgingUnavailableAttempt) {
+    return [
+      ...attempt.codeAssessments.map((assessment) => assessment.criterionId),
+      ...attempt.pendingCriterionIds,
+    ];
+  }
+  return undefined;
 }
 
 function validateGradedAttemptEvidence(
@@ -797,32 +864,6 @@ function attemptOrderIssue(
   return undefined;
 }
 
-function validateAttemptSet(
-  report: EvaluationReport,
-): Effect.Effect<void, EvaluationReportValidationError> {
-  const expected = expectedAttemptIds(report);
-  const actual = report.attempts.map((attempt) => attempt.attemptId);
-  const duplicateAttempt = duplicate(actual);
-  if (duplicateAttempt !== undefined) {
-    return Effect.fail(
-      validationError(`duplicate terminal attempt ${duplicateAttempt}`),
-    );
-  }
-  const expectedSet = new Set(expected);
-  return Effect.forEach(
-    report.attempts,
-    (attempt) => validateAttempt(report, expectedSet, attempt),
-    { concurrency: 1, discard: true },
-  ).pipe(
-    Effect.flatMap(() => {
-      const issue = attemptOrderIssue(report, expected);
-      return issue === undefined
-        ? Effect.void
-        : Effect.fail(validationError(issue));
-    }),
-  );
-}
-
 /** Validate a decoded report's digest, matrix identities, and terminal state. */
 export const validateEvaluationReport = Effect.fn(
   "evals.validateEvaluationReport",
@@ -879,47 +920,6 @@ export const createEvaluationReport = Effect.fn("evals.createEvaluationReport")(
     });
   },
 );
-
-function matchPlanComponent<S extends Schema.Schema.AnyNoContext>(
-  field: ResumeMismatchField,
-  schema: S,
-  actual: Schema.Schema.Type<S>,
-  expected: Schema.Schema.Type<S>,
-): Effect.Effect<
-  void,
-  EvaluationReportValidationError | EvaluationResumeMismatch
-> {
-  return Effect.all({
-    actual: digestSchemaValue(schema, actual).pipe(
-      Effect.flatMap(Schema.decodeUnknown(evaluationPlanDigest)),
-      Effect.mapError((cause) =>
-        cause instanceof EvaluationReportValidationError
-          ? cause
-          : validationError(`invalid ${field} digest: ${cause.message}`),
-      ),
-    ),
-    expected: digestSchemaValue(schema, expected).pipe(
-      Effect.flatMap(Schema.decodeUnknown(evaluationPlanDigest)),
-      Effect.mapError((cause) =>
-        cause instanceof EvaluationReportValidationError
-          ? cause
-          : validationError(`invalid ${field} digest: ${cause.message}`),
-      ),
-    ),
-  }).pipe(
-    Effect.flatMap((digests) =>
-      digests.actual === digests.expected
-        ? Effect.void
-        : Effect.fail(
-            EvaluationResumeMismatch.make({
-              field,
-              expectedDigest: digests.expected,
-              actualDigest: digests.actual,
-            }),
-          ),
-    ),
-  );
-}
 
 /** Accept a stored report only when every immutable execution input matches. */
 export const resumeEvaluationReport = Effect.fn("evals.resumeEvaluationReport")(

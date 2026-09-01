@@ -1,16 +1,18 @@
-/**
- * The private Temporal boundary carries only its closed serializable lifecycle
- * data, and the coarse workflow preserves the controller's operational result.
- */
+/** @file Type canaries for the closed coarse Temporal lifecycle boundary. */
 
 import type { ControllerFailedRunSummary } from "./controller/summary.js";
 import type {
   CleanupRunInput,
   RunControllerResult,
   RunLifecycleActivities,
-  RunSocietyWorkflowInput,
   runSocietyWorkflow,
+  RunSocietyWorkflowInput,
 } from "./reclaim.js";
+
+/**
+ * The private Temporal boundary carries only its closed serializable lifecycle
+ * data, and the coarse workflow preserves the controller's operational result.
+ */
 
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
@@ -22,6 +24,7 @@ type WorkflowInputKeysAreClosed = Expect<
     | "namespace"
     | "controllerImage"
     | "supportImage"
+    | "applicationImage"
     | "runtimeCredentials"
     | "experimentModule"
     | "startupTimeoutMs"

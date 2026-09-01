@@ -1,7 +1,7 @@
 {
   "name": "@moltzap/simulator",
-  "version": "2026.812.0",
-  "description": "Code-first simulator for agentic societies connected over MoltZap",
+  "version": "2026.811.0",
+  "description": "Code-first lifecycle simulator for agentic societies",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -27,28 +27,24 @@
       "import": "./dist/index.js"
     },
     "./network": {
-      "types": "./dist/network.d.ts",
-      "import": "./dist/network.js"
+      "types": "./dist/network/index.d.ts",
+      "import": "./dist/network/index.js"
     },
     "./ledger": {
-      "types": "./dist/ledger.d.ts",
-      "import": "./dist/ledger.js"
+      "types": "./dist/ledger/index.d.ts",
+      "import": "./dist/ledger/index.js"
     },
     "./agents": {
-      "types": "./dist/agents.d.ts",
-      "import": "./dist/agents.js"
+      "types": "./dist/agents/index.d.ts",
+      "import": "./dist/agents/index.js"
     }
   },
   "scripts": {
     "build": "nx run @moltzap/simulator:build",
     "lint": "nx run @moltzap/simulator:lint",
     "test": "vitest run --passWithNoTests",
-    "test:integration": "vitest run --config vitest.integration.config.mjs",
     "local:profile:check": "nx run @moltzap/simulator:local-profile-check",
     "local:cluster:create": "nx run @moltzap/simulator:local-cluster-create",
-    "local:controller:image": "nx run @moltzap/simulator:local-controller-image",
-    "nanoclaw:image": "nx run @moltzap/simulator:nanoclaw-image",
-    "nanoclaw:image:check": "nx run @moltzap/simulator:nanoclaw-image-check",
     "local:run": "nx run @moltzap/simulator:local-run",
     "local:cluster:test": "nx run @moltzap/simulator:local-cluster-test",
     "gke:profile:check": "nx run @moltzap/simulator:gke-profile-check",
@@ -61,20 +57,18 @@
         "executor": "nx:run-commands",
         "inputs": [
           "production",
-          "^production",
-          "{workspaceRoot}/packages/nanoclaw-channel/src/channels/moltzap.ts",
-          "{projectRoot}/nanoclaw-assets/*"
+          "^production"
         ],
         "options": {
           "cwd": "packages/simulator",
-          "command": "node scripts/clean-dist.mjs && tsc -b && node scripts/copy-nanoclaw-assets.mjs"
+          "command": "node scripts/clean-dist.mjs && tsc -b"
         }
       },
       "lint": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/simulator",
-          "command": "eslint . --cache --max-warnings=0"
+          "command": "eslint . --cache --concurrency 4 --max-warnings=0"
         }
       },
       "test": {
@@ -84,62 +78,16 @@
           "command": "vitest run"
         }
       },
-      "test:integration": {
-        "dependsOn": [
-          "build"
-        ],
-        "inputs": [
-          "default",
-          "^production",
-          {
-            "env": "MOLTZAP_NANOCLAW_ITEST"
-          },
-          {
-            "env": "MOLTZAP_OPENCLAW_ITEST"
-          },
-          {
-            "env": "MOLTZAP_SIM_ITEST"
-          }
-        ],
-        "executor": "nx:run-script",
-        "options": {
-          "script": "test:integration"
-        }
-      },
       "local-profile-check": {
         "executor": "nx:run-commands",
         "inputs": [
           "default",
           "{projectRoot}/local/**/*",
-          "{projectRoot}/scripts/local-create-cluster.mjs",
-          "{projectRoot}/scripts/build-controller-image.mjs"
+          "{projectRoot}/scripts/local-create-cluster.mjs"
         ],
         "options": {
           "cwd": "packages/simulator",
-          "command": "node --test local/profile.test.mjs && node --check scripts/local-create-cluster.mjs && node --check scripts/build-controller-image.mjs && node --check local/end-to-end.mjs"
-        }
-      },
-      "nanoclaw-image-check": {
-        "dependsOn": [
-          "build"
-        ],
-        "executor": "nx:run-commands",
-        "inputs": [
-          "default",
-          "{projectRoot}/nanoclaw-image/**/*",
-          "{projectRoot}/scripts/build-nanoclaw-image.mjs"
-        ],
-        "options": {
-          "cwd": "packages/simulator",
-          "command": "node --test nanoclaw-image/image.test.mjs && node --check scripts/build-nanoclaw-image.mjs && node --check nanoclaw-image/prepare.mjs && node --check nanoclaw-image/entrypoint.mjs"
-        }
-      },
-      "nanoclaw-image": {
-        "cache": false,
-        "executor": "nx:run-commands",
-        "options": {
-          "cwd": "packages/simulator",
-          "command": "node scripts/build-nanoclaw-image.mjs"
+          "command": "node --test local/profile.test.mjs && node --check scripts/local-create-cluster.mjs && node --check local/end-to-end.mjs"
         }
       },
       "local-cluster-create": {
@@ -148,14 +96,6 @@
         "options": {
           "cwd": "packages/simulator",
           "command": "node scripts/local-create-cluster.mjs"
-        }
-      },
-      "local-controller-image": {
-        "cache": false,
-        "executor": "nx:run-commands",
-        "options": {
-          "cwd": "packages/simulator",
-          "command": "node scripts/build-controller-image.mjs"
         }
       },
       "local-run": {
@@ -215,11 +155,22 @@
           "command": "tsc -p tsconfig.test.json"
         }
       },
+      "test:pack": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "cache": false,
+        "options": {
+          "command": "node scripts/test/simulator-packages.mjs"
+        }
+      },
       "arch:check": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/simulator",
-          "command": "safer-architecture-lsp check ."
+          "command": "node ../../scripts/architecture/check-package.mjs ."
         }
       }
     }
@@ -228,23 +179,22 @@
     "@effect/platform": "^0.97.0",
     "@effect/platform-node": "^0.108.0",
     "@effect/sql": "^0.52.0",
-    "@electric-sql/pglite": "0.4.4",
     "@kubernetes/client-node": "1.4.0",
-    "@moltzap/client": "workspace:^",
-    "@moltzap/openclaw-channel": "workspace:^",
-    "@moltzap/protocol": "workspace:^",
-    "@moltzap/server-core": "workspace:*",
+    "@moltzap/client": "workspace:*",
+    "@moltzap/identity": "workspace:*",
+    "@moltzap/router": "workspace:*",
     "@temporalio/activity": "1.21.1",
     "@temporalio/client": "1.21.1",
     "@temporalio/worker": "1.21.1",
     "@temporalio/workflow": "1.21.1",
+    "@types/node": "24.13.3",
+    "@types/ws": "8.18.1",
+    "canonicalize": "3.0.0",
     "effect": "^3.22.0",
-    "openclaw": "2026.6.33"
+    "openclaw": "2026.8.1"
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",
-    "@moltzap/nanoclaw-channel": "workspace:*",
-    "@types/node": "^25.5.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
     "typescript": "npm:@typescript/typescript6@^6.0.2",

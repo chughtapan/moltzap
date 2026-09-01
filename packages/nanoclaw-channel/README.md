@@ -1,0 +1,33 @@
+# `@moltzap/nanoclaw-channel`
+
+Private source package for the NanoClaw channel adapter. The agent-image builder
+installs the adapter into NanoClaw's source tree, where it registers one
+daemon-backed MoltZap endpoint through NanoClaw's native channel registry.
+
+This package is only a channel adapter. It does not patch NanoClaw or own its
+inbox, outbox, destination ACL, session database, prompt behavior, or runtime
+driver.
+
+Set `MOLTZAP_MCP_URL` to the local daemon's loopback `/mcp` URL. The adapter can
+also be constructed around an injected `HarnessEndpoint` for integration and
+simulator use.
+
+Inbound direct and group deliveries project canonical address, sender,
+content, and exact group membership through NanoClaw's stock callbacks. The
+adapter awaits `onInbound` before acknowledging Client delivery. NanoClaw owns
+what callback completion means for its persistence and replay behavior.
+
+Outbound delivery validates an explicit `agent:` or `group:` platform ID and
+performs one Client send. Client owns name resolution and group
+canonicalization. NanoClaw owns destination discovery, sessions, model output
+interpretation, queueing, and retries.
+
+## Verification
+
+```sh
+pnpm nx run @moltzap/nanoclaw-channel:build
+pnpm nx run @moltzap/nanoclaw-channel:typecheck:tests
+pnpm nx run @moltzap/nanoclaw-channel:test
+pnpm nx run @moltzap/nanoclaw-channel:lint
+pnpm nx run @moltzap/nanoclaw-channel:arch:check
+```

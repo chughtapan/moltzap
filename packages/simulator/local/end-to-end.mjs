@@ -2,6 +2,7 @@ import { RunSpec } from "@moltzap/simulator";
 import { openClawRuntime } from "@moltzap/simulator/agents";
 import { Duration, Effect } from "effect";
 import {
+  applicationImageFromEnvironment,
   cohortSizeFromEnvironment,
   controllerServicesFromEnvironment,
 } from "/opt/moltzap/dist/cluster/controller/services.js";
@@ -11,6 +12,7 @@ import {
 // because the path is the same at two agents and at a hundred, and only the
 // time it takes to get there differs.
 const AGENTS = cohortSizeFromEnvironment();
+const APPLICATION_IMAGE = applicationImageFromEnvironment();
 
 // Holding the society idle is the measurement. Agents are already running by
 // the time execute begins, so the wait exercises whether a cohort this size
@@ -19,6 +21,7 @@ const HOLD = Duration.seconds(30);
 
 const runtime = (identity) =>
   openClawRuntime({
+    applicationImage: APPLICATION_IMAGE,
     tools: {
       deny: ["*"],
       elevated: { enabled: false },

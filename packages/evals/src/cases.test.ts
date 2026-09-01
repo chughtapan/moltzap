@@ -1,271 +1,108 @@
-import { assert, describe, it } from "@effect/vitest";
-import { agentId } from "@moltzap/protocol/testing";
-import { makeAgentHandle } from "@moltzap/simulator/network";
-import { Effect, Option } from "effect";
+/** @file Bundled evaluation case execution and timeout decisions. */
+
+import { assert, it } from "@effect/vitest";
+import { Effect, Schema } from "effect";
 import {
-  OBSERVER_1_AGENT_NAME,
-  OBSERVER_2_AGENT_NAME,
-  PEER_AGENT_NAME,
+  evaluationCase,
+  type EvaluationCaseProgramContext,
+  evaluationCases,
   PROBE_AGENT_NAME,
   SOURCE_AGENT_NAME,
-  TARGET_AGENT_NAME,
-  evaluationCase,
-  evaluationCases,
-  type BundledEvaluationCase,
-  type CriterionEvidence,
-  type EvaluationCasePeer,
-  type EvaluationCasePeers,
-  type EvaluationCaseProgramContext,
 } from "./cases.js";
 import {
   CriterionDecided,
-  NeedsJudge,
+  criterionVerdict,
   decodeEvaluationCaseId,
   decodeEvaluationEvidenceId,
 } from "./model.js";
-import type {
-  EvaluationPeerDefinition,
-  EvaluationPeerGateway,
-} from "./peer.js";
 
-const test = it.effect;
-const OBSERVE_PEER_OPERATION = "observe:peer";
-const SELECT_PEER_OPERATION = "select-peer:peer";
-const SELECT_PRINCIPAL_OPERATION = "select-principal";
-const PRINCIPAL_OUTPUT_ID = decodeEvaluationEvidenceId(
-  "case-test:principal-output",
-);
-const PEER_OUTPUT_ID = decodeEvaluationEvidenceId("case-test:peer-output");
-const PASSED_VERDICT = "passed";
+const SOCIAL_EVIDENCE = decodeEvaluationEvidenceId("case:social");
+const PRINCIPAL_EVIDENCE = decodeEvaluationEvidenceId("case:principal");
+const FAILED_VERDICT = Schema.decodeSync(criterionVerdict)("failed");
 
-type DirectTestPeerDefinitions = Readonly<{
-  [PEER_AGENT_NAME]: EvaluationPeerDefinition;
-}>;
-
-function evidence(text: string): CriterionEvidence {
+function context(operations: string[]): EvaluationCaseProgramContext<never> {
   return {
-    selected: [
-      {
-        evidenceId: decodeEvaluationEvidenceId("case-test:selected"),
-        source: "gateway",
-        parts: [{ type: "text", text }],
-      },
-    ],
-  };
-}
-
-function idleGateway(): EvaluationPeerGateway {
-  return { exchange: Effect.never };
-}
-
-function peer<const Name extends string>(
-  name: Name,
-  id: string,
-): EvaluationCasePeer<Name> {
-  return {
-    agent: makeAgentHandle(name, agentId(id)),
-    gateway: idleGateway(),
-    termination: Effect.never,
-  };
-}
-
-function peers(): EvaluationCasePeers<DirectTestPeerDefinitions> {
-  return {
-    [PEER_AGENT_NAME]: peer(
-      PEER_AGENT_NAME,
-      "00000000-0000-4000-8000-000000000101",
-    ),
-  };
-}
-
-interface ProgramRecorder {
-  readonly context: EvaluationCaseProgramContext<
-    DirectTestPeerDefinitions,
-    never
-  >;
-  readonly operations: readonly string[];
-}
-
-function programRecorder(): ProgramRecorder {
-  const roster = peers();
-  const names = new Map<EvaluationCasePeer, string>([
-    [roster[PEER_AGENT_NAME], "peer"],
-  ]);
-  const operations: string[] = [];
-  const context: EvaluationCaseProgramContext<
-    DirectTestPeerDefinitions,
-    never
-  > = {
-    peers: roster,
     instruct: (message) =>
       Effect.sync(() => {
         operations.push(`instruct:${message}`);
-        return Option.some(PRINCIPAL_OUTPUT_ID);
       }),
-    selectPrincipalOutput: (output) =>
+    ask: (message) =>
       Effect.sync(() => {
-        operations.push(SELECT_PRINCIPAL_OPERATION);
-        return Option.getOrThrow(output);
+        operations.push(`ask:${message}`);
+        return PRINCIPAL_EVIDENCE;
       }),
-    observeContext: (observed) =>
+    observePeer: (agent) =>
       Effect.sync(() => {
-        operations.push(`observe:${names.get(observed) ?? "unknown"}`);
+        operations.push(`observe:${agent}`);
       }),
-    selectPeerOutput: (observed) =>
+    selectSocialOutput: (agent) =>
       Effect.sync(() => {
-        operations.push(`select-peer:${names.get(observed) ?? "unknown"}`);
-        return PEER_OUTPUT_ID;
+        operations.push(`select:${agent}`);
+        return SOCIAL_EVIDENCE;
       }),
   };
-  return { context, operations };
 }
 
-function assertFrozenDefinition(definition: BundledEvaluationCase): void {
-  assert.isTrue(Object.isFrozen(definition));
-  assert.isTrue(Object.isFrozen(definition.peers));
-  assert.isTrue(Object.isFrozen(definition.program));
-  assert.isTrue(Object.isFrozen(definition.slices));
-  assert.isTrue(Object.isFrozen(definition.criteria));
-  for (const entry of definition.criteria) {
-    assert.isTrue(Object.isFrozen(entry));
-    assert.isTrue(Object.isFrozen(entry.criterion));
-    assert.isTrue(Object.isFrozen(entry.decide));
-  }
-}
+it.effect("executes every bundled case with grading criteria", () =>
+  Effect.forEach(
+    evaluationCases,
+    (definition) =>
+      Effect.gen(function* () {
+        const operations: string[] = [];
+        const selected = yield* definition.program(context(operations));
 
-function catalogTest(): void {
-  assert.deepStrictEqual(
-    evaluationCases.map(({ id }) => id),
-    [
-      "EVAL-005",
-      "EVAL-006",
-      "EVAL-007",
-      "EVAL-008",
-      "EVAL-009",
-      "EVAL-010",
-      "EVAL-011",
-      "EVAL-018",
-      "EVAL-019",
-      "EVAL-021",
-      "EVAL-022",
-      "EVAL-030",
-      "EVAL-031",
-      "EVAL-032",
-      "EVAL-033",
-      "EVAL-034",
-    ],
-  );
-  assert.isTrue(Object.isFrozen(evaluationCases));
-  for (const definition of evaluationCases) {
-    assertFrozenDefinition(definition);
-  }
-}
+        assert.isAbove(definition.criteria.length, 0);
+        assert.isAbove(definition.slices.length, 0);
+        assert.isAbove(operations.length, 0);
+        assert.oneOf(selected, [PRINCIPAL_EVIDENCE, SOCIAL_EVIDENCE]);
+      }),
+    { concurrency: 1, discard: true },
+  ),
+);
 
-function exactPeerRostersTest(): void {
-  assert.deepStrictEqual(
-    evaluationCases.map((definition) => Object.keys(definition.peers)),
-    [
-      [PEER_AGENT_NAME],
-      [PEER_AGENT_NAME, SOURCE_AGENT_NAME, OBSERVER_1_AGENT_NAME],
-      [PEER_AGENT_NAME],
-      [SOURCE_AGENT_NAME, PROBE_AGENT_NAME],
-      [PEER_AGENT_NAME],
-      [PEER_AGENT_NAME, SOURCE_AGENT_NAME, OBSERVER_1_AGENT_NAME],
-      [PEER_AGENT_NAME, OBSERVER_1_AGENT_NAME, OBSERVER_2_AGENT_NAME],
-      [PEER_AGENT_NAME],
-      [],
-      [PEER_AGENT_NAME],
-      [PEER_AGENT_NAME],
-      [SOURCE_AGENT_NAME, PROBE_AGENT_NAME],
-      [SOURCE_AGENT_NAME, PROBE_AGENT_NAME],
-      [SOURCE_AGENT_NAME, PROBE_AGENT_NAME],
-      [SOURCE_AGENT_NAME, PROBE_AGENT_NAME],
-      [SOURCE_AGENT_NAME, PROBE_AGENT_NAME],
-    ],
-  );
-  assert.isFalse(
-    evaluationCases.some((definition) => TARGET_AGENT_NAME in definition.peers),
-  );
-}
-
-function principalBoundaryTest() {
-  return Effect.gen(function* () {
-    const definition = evaluationCases[0];
-    assert.strictEqual(definition.id, decodeEvaluationCaseId("EVAL-005"));
-    const recorder = programRecorder();
-
-    const selectedEventId = yield* definition.program(recorder.context);
-
-    assert.lengthOf(recorder.operations, 2);
-    assert.match(
-      recorder.operations[0] ?? "",
-      new RegExp(`^instruct:.*${PEER_AGENT_NAME}`, "u"),
-    );
-    assert.strictEqual(recorder.operations[1], SELECT_PEER_OPERATION);
-    assert.strictEqual(selectedEventId, PEER_OUTPUT_ID);
-    assert.notInclude(Object.keys(definition.peers), TARGET_AGENT_NAME);
-    assert.deepStrictEqual(Object.keys(recorder.context), [
-      "peers",
-      "instruct",
-      "selectPrincipalOutput",
-      "observeContext",
-      "selectPeerOutput",
-    ]);
-  });
-}
-
-function identityProgramTest() {
-  return Effect.gen(function* () {
-    const definition = evaluationCases[10];
-    assert.strictEqual(definition.id, decodeEvaluationCaseId("EVAL-022"));
-    const recorder = programRecorder();
-
-    const selectedEventId = yield* definition.program(recorder.context);
-
-    assert.strictEqual(recorder.operations[0], OBSERVE_PEER_OPERATION);
-    assert.match(
-      recorder.operations[1] ?? "",
-      /^instruct:Which MoltZap agent most recently contacted you/u,
-    );
-    assert.strictEqual(recorder.operations[2], SELECT_PRINCIPAL_OPERATION);
-    assert.lengthOf(recorder.operations, 3);
-    assert.strictEqual(selectedEventId, PRINCIPAL_OUTPUT_ID);
-    const decision = definition.criteria[0].decide(evidence(PEER_AGENT_NAME));
-    assert.instanceOf(decision, CriterionDecided);
-    if (decision instanceof CriterionDecided) {
-      assert.strictEqual(decision.verdict, PASSED_VERDICT);
-      assert.deepStrictEqual(decision.citations, [
-        decodeEvaluationEvidenceId("case-test:selected"),
-      ]);
+it.effect("keeps source and probe interactions in separate case steps", () =>
+  Effect.gen(function* () {
+    const definition = evaluationCase(decodeEvaluationCaseId("EVAL-008"));
+    assert.isDefined(definition);
+    if (definition === undefined) {
+      return;
     }
-  });
-}
+    const operations: string[] = [];
+    const selected = yield* definition.program(context(operations));
 
-function semanticNegotiationTest(): void {
-  const definition = evaluationCase(decodeEvaluationCaseId("EVAL-031"));
+    assert.strictEqual(selected, SOCIAL_EVIDENCE);
+    assert.strictEqual(operations[1], `observe:${SOURCE_AGENT_NAME}`);
+    assert.strictEqual(operations[3], `select:${PROBE_AGENT_NAME}`);
+    assert.deepStrictEqual(Object.keys(definition.peers), [
+      SOURCE_AGENT_NAME,
+      PROBE_AGENT_NAME,
+    ]);
+  }),
+);
+
+it("turns any selected prerequisite timeout into a deterministic failure", () => {
+  const definition = evaluationCase(decodeEvaluationCaseId("EVAL-005"));
   assert.isDefined(definition);
   if (definition === undefined) {
     return;
   }
-
-  const decision = definition.criteria[0].decide(
-    evidence("Offer exactly $4,000 per month."),
-  );
-
-  assert.instanceOf(decision, NeedsJudge);
-}
-
-// @agent-code-guard/regression-only: catalog identity, immutability, and code policy order are public evaluation contracts
-describe("evaluation case catalog", () => {
-  it("owns the exact ordered immutable sixteen-case catalog", catalogTest);
-  it("starts only the autonomous peers each case uses", exactPeerRostersTest);
-  test(
-    "returns one social evidence identity without exposing selection state",
-    principalBoundaryTest,
-  );
-  test(
-    "returns one principal evidence identity after the autonomous peer contacts the target",
-    identityProgramTest,
-  );
-  it("leaves EVAL-031 entirely to semantic judgment", semanticNegotiationTest);
+  const decision = definition.criteria[0].decide({
+    selected: [
+      {
+        evidenceId: SOCIAL_EVIDENCE,
+        source: "peer-timeout",
+        parts: [{ type: "text", text: "No social action arrived." }],
+      },
+      {
+        evidenceId: PRINCIPAL_EVIDENCE,
+        source: "social",
+        parts: [{ type: "text", text: "A later exchange completed." }],
+      },
+    ],
+  });
+  assert.instanceOf(decision, CriterionDecided);
+  if (decision instanceof CriterionDecided) {
+    assert.strictEqual(decision.verdict, FAILED_VERDICT);
+    assert.deepStrictEqual(decision.citations, [SOCIAL_EVIDENCE]);
+  }
 });

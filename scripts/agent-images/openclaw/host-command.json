@@ -1,0 +1,9 @@
+[
+  "node",
+  "/app/openclaw.mjs",
+  "gateway",
+  "run",
+  "--allow-unconfigured",
+  "--port",
+  "18789"
+]

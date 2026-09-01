@@ -1,29 +1,31 @@
-import { createHash } from "node:crypto";
-import { Effect, type ParseResult, Schema, Stream } from "effect";
+/** @file Strict completed-ledger artifact validation and immutable typed inspection. */
+
 import type { ParseOptions } from "effect/SchemaAST";
+import { Effect, type ParseResult, Schema, Stream } from "effect";
+import { createHash } from "node:crypto";
 import {
-  versionedEventTag,
   type EventCatalog,
   type EventClass,
   type EventClassOf,
+  versionedEventTag,
   type VersionedEventTag,
 } from "../events/catalog.js";
+import { ledgerEvents } from "./append.js";
 import {
   LedgerCompletion,
   ledgerDigest,
   LedgerManifest,
+  type LedgerRecord,
   type LedgerRef,
   makeLedgerRecordSchema,
-  type LedgerRecord,
   versionedDefinitionId,
 } from "./schema.js";
-import { ledgerEvents } from "./append.js";
 import {
-  LedgerStorage,
-  LedgerStorageError,
-  ledgerReaderFor,
   type LedgerArtifact,
   type LedgerReader,
+  ledgerReaderFor,
+  LedgerStorage,
+  LedgerStorageError,
 } from "./storage.js";
 
 const ledgerInvalidReasonSchema = Schema.Literal(
@@ -98,12 +100,6 @@ export interface CompletedRunLedger<Catalog> {
   ) => Stream.Stream<Schema.Schema.Type<Event>>;
 }
 
-interface LedgerArtifacts {
-  readonly manifest: string;
-  readonly records: string;
-  readonly completion: string;
-}
-
 /** Complete immutable artifact text retrieved from a profile-owned store. */
 export interface CompletedLedgerArtifacts {
   readonly manifest: string;
@@ -111,42 +107,87 @@ export interface CompletedLedgerArtifacts {
   readonly completion: string;
 }
 
+/**
+ * Inspect definition and provenance without granting access to unverified
+ * records.
+ */
+export const readLedgerManifest = Effect.fn("readLedgerManifest")(function* (
+  ref: LedgerRef,
+): Effect.fn.Return<
+  LedgerManifest,
+  LedgerInvalid | LedgerStorageError,
+  LedgerStorage
+> {
+  const reader = ledgerReaderFor(yield* LedgerStorage, ref);
+  const text = yield* reader.read("manifest");
+  const manifest = yield* decodeJson("manifest", LedgerManifest, text);
+  yield* validateManifestTags(manifest);
+  return manifest;
+});
+
+/**
+ * Validate a completed ledger before exposing its reusable typed record
+ * stream. The exact catalog is required; no unknown-event branch escapes.
+ * @param catalog Exact event catalog used to decode the records.
+ * @param ref Durable ledger identity to open.
+ * @param expectedDefinitionId Optional definition identity to verify.
+ * @returns The open ledger result.
+ */
+export function openLedger<
+  SchemaType extends Schema.Schema.AnyNoContext,
+  Classes extends EventClass,
+>(
+  catalog: EventCatalog<SchemaType, Classes>,
+  ref: LedgerRef,
+  expectedDefinitionId?: string,
+): Effect.Effect<
+  CompletedRunLedger<EventCatalog<SchemaType, Classes>>,
+  LedgerOpenError,
+  LedgerStorage
+> {
+  const definitionId = expectedDefinitionId ?? null;
+  return Effect.flatMap(LedgerStorage, (storage) =>
+    openLedgerWith(ledgerReaderFor(storage, ref), catalog, ref, definitionId),
+  ).pipe(Effect.withSpan("openLedger"));
+}
+
+/**
+ * Validate already-retrieved durable artifacts without exposing their storage
+ * backend through the customer program.
+ * @param catalog Exact event catalog used to decode the records.
+ * @param ref Durable ledger identity associated with the artifacts.
+ * @param artifacts Complete artifact text retrieved from durable storage.
+ * @param expectedDefinitionId Optional definition identity to verify.
+ * @returns A validated completed ledger with infallible record streams.
+ */
+export function openLedgerArtifacts<
+  SchemaType extends Schema.Schema.AnyNoContext,
+  Classes extends EventClass,
+>(
+  catalog: EventCatalog<SchemaType, Classes>,
+  ref: LedgerRef,
+  artifacts: CompletedLedgerArtifacts,
+  expectedDefinitionId?: string,
+): Effect.Effect<
+  CompletedRunLedger<EventCatalog<SchemaType, Classes>>,
+  LedgerOpenError
+> {
+  const definitionId = expectedDefinitionId ?? null;
+  return openLedgerWith(
+    artifactReader(artifacts),
+    catalog,
+    ref,
+    definitionId,
+  ).pipe(Effect.withSpan("openLedgerArtifacts"));
+}
+
+interface LedgerArtifacts {
+  readonly manifest: string;
+  readonly records: string;
+  readonly completion: string;
+}
+
 const strictDecode: ParseOptions = { onExcessProperty: "error" };
-
-function invalid(
-  artifact: LedgerArtifact,
-  reason: LedgerInvalidReason,
-  detail: string,
-): LedgerInvalid {
-  return LedgerInvalid.make({ artifact, reason, detail });
-}
-
-function parseJson(
-  artifact: LedgerArtifact,
-  text: string,
-): Effect.Effect<unknown, LedgerInvalid> {
-  return Effect.try({
-    try: (): unknown => JSON.parse(text),
-    catch: (cause) => invalid(artifact, "invalid-json", String(cause)),
-  });
-}
-
-function decodeSchema<S extends Schema.Schema.AnyNoContext>(
-  artifact: LedgerArtifact,
-  schema: S,
-  input: unknown,
-): Effect.Effect<Schema.Schema.Type<S>, LedgerInvalid> {
-  const decode: (
-    input: unknown,
-    options?: ParseOptions,
-  ) => Effect.Effect<Schema.Schema.Type<S>, ParseResult.ParseError> =
-    Schema.decodeUnknown(schema);
-  return decode(input, strictDecode).pipe(
-    Effect.mapError((cause) =>
-      invalid(artifact, "schema-mismatch", cause.message),
-    ),
-  );
-}
 
 function decodeJson<S extends Schema.Schema.AnyNoContext>(
   artifact: LedgerArtifact,
@@ -155,16 +196,6 @@ function decodeJson<S extends Schema.Schema.AnyNoContext>(
 ): Effect.Effect<Schema.Schema.Type<S>, LedgerInvalid> {
   return parseJson(artifact, text).pipe(
     Effect.flatMap((input) => decodeSchema(artifact, schema, input)),
-  );
-}
-
-function sameStrings(
-  left: readonly string[],
-  right: readonly string[],
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((value, index) => value === right[index])
   );
 }
 
@@ -219,6 +250,19 @@ function verifyDefinition(
           actualDefinitionId: manifest.definitionId,
         }),
       );
+}
+
+function decodeLedgerRecords<
+  SchemaType extends Schema.Schema.AnyNoContext,
+  Classes extends EventClass,
+>(catalog: EventCatalog<SchemaType, Classes>, text: string) {
+  return recordLines(text).pipe(
+    Effect.flatMap((lines) =>
+      Effect.forEach(lines, (line) => decodeRecordLine(catalog, line), {
+        concurrency: 1,
+      }),
+    ),
+  );
 }
 
 function recordLines(
@@ -346,23 +390,50 @@ function verifyCompletion(
       );
 }
 
-/**
- * Inspect definition and provenance without granting access to unverified
- * records.
- */
-export const readLedgerManifest = Effect.fn("readLedgerManifest")(function* (
-  ref: LedgerRef,
-): Effect.fn.Return<
-  LedgerManifest,
-  LedgerInvalid | LedgerStorageError,
-  LedgerStorage
-> {
-  const reader = ledgerReaderFor(yield* LedgerStorage, ref);
-  const text = yield* reader.read("manifest");
-  const manifest = yield* decodeJson("manifest", LedgerManifest, text);
-  yield* validateManifestTags(manifest);
-  return manifest;
-});
+function parseJson(
+  artifact: LedgerArtifact,
+  text: string,
+): Effect.Effect<unknown, LedgerInvalid> {
+  return Effect.try({
+    try: (): unknown => JSON.parse(text),
+    catch: (cause) => invalid(artifact, "invalid-json", String(cause)),
+  });
+}
+
+function decodeSchema<S extends Schema.Schema.AnyNoContext>(
+  artifact: LedgerArtifact,
+  schema: S,
+  input: unknown,
+): Effect.Effect<Schema.Schema.Type<S>, LedgerInvalid> {
+  const decode: (
+    input: unknown,
+    options?: ParseOptions,
+  ) => Effect.Effect<Schema.Schema.Type<S>, ParseResult.ParseError> =
+    Schema.decodeUnknown(schema);
+  return decode(input, strictDecode).pipe(
+    Effect.mapError((cause) =>
+      invalid(artifact, "schema-mismatch", cause.message),
+    ),
+  );
+}
+
+function sameStrings(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
+}
+
+function invalid(
+  artifact: LedgerArtifact,
+  reason: LedgerInvalidReason,
+  detail: string,
+): LedgerInvalid {
+  return LedgerInvalid.make({ artifact, reason, detail });
+}
 
 function readLedgerArtifacts(
   reader: LedgerReader,
@@ -426,19 +497,6 @@ function verifyLedgerDigests(
   });
 }
 
-function decodeLedgerRecords<
-  SchemaType extends Schema.Schema.AnyNoContext,
-  Classes extends EventClass,
->(catalog: EventCatalog<SchemaType, Classes>, text: string) {
-  return recordLines(text).pipe(
-    Effect.flatMap((lines) =>
-      Effect.forEach(lines, (line) => decodeRecordLine(catalog, line), {
-        concurrency: 1,
-      }),
-    ),
-  );
-}
-
 function openLedgerWith<
   SchemaType extends Schema.Schema.AnyNoContext,
   Classes extends EventClass,
@@ -474,32 +532,6 @@ function openLedgerWith<
   });
 }
 
-/**
- * Validate a completed ledger before exposing its reusable typed record
- * stream. The exact catalog is required; no unknown-event branch escapes.
- * @param catalog Value supplied to the operation.
- * @param ref Value supplied to the operation.
- * @param expectedDefinitionId Value supplied to the operation.
- * @returns The open ledger result.
- */
-export function openLedger<
-  SchemaType extends Schema.Schema.AnyNoContext,
-  Classes extends EventClass,
->(
-  catalog: EventCatalog<SchemaType, Classes>,
-  ref: LedgerRef,
-  expectedDefinitionId?: string,
-): Effect.Effect<
-  CompletedRunLedger<EventCatalog<SchemaType, Classes>>,
-  LedgerOpenError,
-  LedgerStorage
-> {
-  const definitionId = expectedDefinitionId ?? null;
-  return Effect.flatMap(LedgerStorage, (storage) =>
-    openLedgerWith(ledgerReaderFor(storage, ref), catalog, ref, definitionId),
-  ).pipe(Effect.withSpan("openLedger"));
-}
-
 function artifactReader(artifacts: CompletedLedgerArtifacts): LedgerReader {
   return {
     read: (artifact) => Effect.succeed(artifacts[artifact]),
@@ -524,34 +556,4 @@ function artifactReader(artifacts: CompletedLedgerArtifacts): LedgerReader {
         ),
       ),
   };
-}
-
-/**
- * Validate already-retrieved durable artifacts without exposing their storage
- * backend through the customer program.
- * @param catalog Exact event catalog used to decode the records.
- * @param ref Durable ledger identity associated with the artifacts.
- * @param artifacts Complete artifact text retrieved from durable storage.
- * @param expectedDefinitionId Optional definition identity to verify.
- * @returns A validated completed ledger with infallible record streams.
- */
-export function openLedgerArtifacts<
-  SchemaType extends Schema.Schema.AnyNoContext,
-  Classes extends EventClass,
->(
-  catalog: EventCatalog<SchemaType, Classes>,
-  ref: LedgerRef,
-  artifacts: CompletedLedgerArtifacts,
-  expectedDefinitionId?: string,
-): Effect.Effect<
-  CompletedRunLedger<EventCatalog<SchemaType, Classes>>,
-  LedgerOpenError
-> {
-  const definitionId = expectedDefinitionId ?? null;
-  return openLedgerWith(
-    artifactReader(artifacts),
-    catalog,
-    ref,
-    definitionId,
-  ).pipe(Effect.withSpan("openLedgerArtifacts"));
 }

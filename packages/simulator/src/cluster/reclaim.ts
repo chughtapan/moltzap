@@ -13,6 +13,8 @@ export interface RunSocietyWorkflowInput {
   readonly namespace: string;
   readonly controllerImage: string;
   readonly supportImage: string;
+  /** Complete agent image selected for an environment-driven experiment. */
+  readonly applicationImage?: string;
   /** Provider credentials retained only for the transient controller Job. */
   readonly runtimeCredentials?: Readonly<
     Partial<Record<"ANTHROPIC_API_KEY" | "OPENAI_API_KEY", string>>

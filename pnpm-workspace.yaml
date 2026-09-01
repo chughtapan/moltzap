@@ -1,6 +1,5 @@
 packages:
   - "packages/*"
-  - "v2/*"
 
 overrides:
   "eslint-plugin-sonarjs@4.0.3>typescript": "npm:@typescript/typescript6@6.0.2"

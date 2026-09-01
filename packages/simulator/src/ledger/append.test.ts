@@ -1,26 +1,30 @@
-/* eslint-disable agent-code-guard/no-example-only-tests -- regression-only suite: each case pins a distinct durable commit, failure latch, corruption check, or mismatch diagnostic */
+/** @file Durable ledger commit, failure-latch, completion, and reopen regressions. */
 
 import { assert, effect as test } from "@effect/vitest";
 import { Chunk, DateTime, Effect, Exit, Fiber, Schema, Stream } from "effect";
+import { EventCatalog } from "../events/catalog.js";
+import { type ActiveRunLedger, makeRunLedger } from "./append.js";
 import {
-  EventCatalog,
-  LedgerCompletion,
   LedgerCatalogMismatch,
   LedgerDefinitionMismatch,
-  ledgerDigest,
   LedgerInvalid,
+  type LedgerInvalidReason,
+  openLedger,
+} from "./read.js";
+import {
+  LedgerCompletion,
+  ledgerDigest,
   LedgerManifest,
   ledgerRef,
+} from "./schema.js";
+import {
+  type LedgerAllocation,
+  type LedgerAllocationInput,
+  type LedgerArtifact,
   LedgerStorage,
   LedgerStorageError,
-  openLedger,
-  type LedgerAllocation,
-  type LedgerArtifact,
-  type LedgerAllocationInput,
-  type LedgerInvalidReason,
   type LedgerStorageService,
-} from "../ledger.js";
-import { makeRunLedger, type ActiveRunLedger } from "./append.js";
+} from "./storage.js";
 
 class KernelObserved extends Schema.TaggedClass<KernelObserved>()(
   "moltzap.kernel-observed/v1",
@@ -117,6 +121,19 @@ function completeLedger(files: Map<LedgerArtifact, string>, runId: string) {
     });
 }
 
+function makeMemoryStorage(failWrites = false): MemoryStorage {
+  const files = new Map<LedgerArtifact, string>();
+  const records: string[] = [];
+  return {
+    files,
+    service: {
+      allocate: allocateMemoryLedger(files, records, failWrites),
+      read: readMemoryArtifact(files),
+      digest: () => Effect.succeed(DIGEST),
+    },
+  };
+}
+
 function allocateMemoryLedger(
   files: Map<LedgerArtifact, string>,
   records: string[],
@@ -143,19 +160,6 @@ function readMemoryArtifact(
     return value === undefined
       ? Effect.fail(storageFailure("read", "missing artifact", artifact))
       : Effect.succeed(value);
-  };
-}
-
-function makeMemoryStorage(failWrites = false): MemoryStorage {
-  const files = new Map<LedgerArtifact, string>();
-  const records: string[] = [];
-  return {
-    files,
-    service: {
-      allocate: allocateMemoryLedger(files, records, failWrites),
-      read: readMemoryArtifact(files),
-      digest: () => Effect.succeed(DIGEST),
-    },
   };
 }
 
@@ -296,5 +300,3 @@ test("renders definition and catalog mismatches with both sides", () =>
     assert.include(definition.message, "acme.expected/v1");
     assert.include(definition.message, "acme.actual/v1");
   }));
-
-/* eslint-enable agent-code-guard/no-example-only-tests -- Restore strict defaults after the scoped file-level exception. */

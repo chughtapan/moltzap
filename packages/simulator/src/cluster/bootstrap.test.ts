@@ -1,25 +1,20 @@
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, agent-code-guard/prefer-effect-platform, @typescript-eslint/no-invalid-void-type, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- Hostile fixtures are built with Node's own filesystem so the suite exercises the exact syscalls the materializer must survive, and each fixture stays next to its containment assertion. */
-import {
-  chmod,
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
-import { execFile as execFileCallback } from "node:child_process";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+/** @file Bootstrap materialization containment, symlink, mode, and CLI regressions. */
+
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect } from "effect";
+import { execFile as execFileCallback } from "node:child_process";
+import * as NodeFs from "node:fs/promises"; // eslint-disable-line agent-code-guard/prefer-effect-platform -- Hostile fixtures use Node's own filesystem so tests exercise the syscalls the materializer must contain.
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { materializeBootstrap } from "./bootstrap.js";
 
+/* eslint-disable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type, max-lines-per-function, sonarjs/max-lines-per-function -- Hostile fixtures are built with Node's own filesystem so the suite exercises the exact syscalls the materializer must survive, and each fixture stays next to its containment assertion. */
+
+const { chmod, lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } =
+  NodeFs;
 const roots: string[] = [];
 const execFile = promisify(execFileCallback);
 
@@ -27,7 +22,6 @@ interface Fixture {
   readonly root: string;
   readonly source: string;
   readonly output: string;
-  readonly overlay: string;
   readonly manifest: string;
 }
 
@@ -51,24 +45,13 @@ async function makeFixture(): Promise<Fixture> {
   roots.push(root);
   const source = join(root, "source");
   const output = join(root, "output");
-  const overlay = join(root, "overlay");
   const manifest = join(root, "manifest.json");
   await mkdir(source);
-  await mkdir(overlay);
-  return { root, source, output, overlay, manifest };
+  return { root, source, output, manifest };
 }
 
 async function writeManifest(fixture: Fixture, value: unknown): Promise<void> {
   await writeFile(fixture.manifest, JSON.stringify(value), "utf8");
-}
-
-function options(fixture: Fixture) {
-  return {
-    manifest: fixture.manifest,
-    source: fixture.source,
-    output: fixture.output,
-    overlay: fixture.overlay,
-  } as const;
 }
 
 function materialize(fixture: Fixture): Promise<void> {
@@ -79,6 +62,14 @@ function materialize(fixture: Fixture): Promise<void> {
   );
 }
 
+function options(fixture: Fixture) {
+  return {
+    manifest: fixture.manifest,
+    source: fixture.source,
+    output: fixture.output,
+  } as const;
+}
+
 afterEach(async () => {
   const stale = roots.splice(0);
   for (const root of stale) {
@@ -87,19 +78,8 @@ afterEach(async () => {
 });
 
 describe("materializeBootstrap", () => {
-  it("copies the trusted overlay before placing regular Secret files with exact modes", async () => {
+  it("places regular Secret files with exact modes", async () => {
     const fixture = await makeFixture();
-    await mkdir(join(fixture.overlay, "openclaw-channel"));
-    await writeFile(
-      join(fixture.overlay, "openclaw-channel", "package.json"),
-      "overlay",
-      "utf8",
-    );
-    await writeFile(
-      join(fixture.overlay, "openclaw.json"),
-      "placeholder",
-      "utf8",
-    );
     await writeFile(join(fixture.source, "config"), "secret-config", "utf8");
     await writeFile(join(fixture.source, "profile"), "secret-profile", "utf8");
     await chmod(join(fixture.source, "config"), 0o644);
@@ -119,12 +99,6 @@ describe("materializeBootstrap", () => {
     await expect(
       readFile(join(fixture.output, "moltzap", "config.json"), "utf8"),
     ).resolves.toBe("secret-profile");
-    await expect(
-      readFile(
-        join(fixture.output, "openclaw-channel", "package.json"),
-        "utf8",
-      ),
-    ).resolves.toBe("overlay");
     expect(
       (await stat(join(fixture.output, "openclaw.json"))).mode & 0o777,
     ).toBe(0o600);
@@ -247,8 +221,6 @@ describe("materializeBootstrap", () => {
       fixture.source,
       "--output",
       fixture.output,
-      "--overlay",
-      fixture.overlay,
     ]);
 
     await expect(
@@ -304,11 +276,12 @@ describe("materializeBootstrap", () => {
     }
   });
 
-  it("does not follow an overlay symlink when placing a Secret", async () => {
+  it("does not follow an existing output symlink when placing a Secret", async () => {
     const fixture = await makeFixture();
     const outside = join(fixture.root, "outside");
     await mkdir(outside);
-    await symlink(outside, join(fixture.overlay, "redirect"));
+    await mkdir(fixture.output);
+    await symlink(outside, join(fixture.output, "redirect"));
     await writeFile(join(fixture.source, "config"), "secret", "utf8");
     await writeManifest(fixture, {
       apiVersion: "moltzap.bootstrap/v1",
@@ -324,4 +297,4 @@ describe("materializeBootstrap", () => {
   });
 });
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type, agent-code-guard/prefer-effect-platform, @typescript-eslint/no-invalid-void-type, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/no-example-only-tests, agent-code-guard/no-hardcoded-assertion-literals -- Restore strict defaults after the filesystem regression suite. */
+/* eslint-enable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type, max-lines-per-function, sonarjs/max-lines-per-function -- Restore strict defaults after the filesystem regression suite. */

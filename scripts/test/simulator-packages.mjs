@@ -1,54 +1,40 @@
 import { execFile } from "node:child_process";
-import { access, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import {
+  copyFile,
   mkdir,
   mkdtemp,
   realpath,
   rm,
-  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import ts from "typescript";
 
 const exec = promisify(execFile);
 const workspaceRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const packageRoot = join(workspaceRoot, "packages", "simulator");
+const apiCensusPath = join(packageRoot, "api-census.json");
+const packedConsumerPath = join(
+  workspaceRoot,
+  "scripts/test/fixtures/simulator-packed-consumer.ts",
+);
+const workspacePackageRoots = Object.freeze({
+  "@moltzap/client": join(workspaceRoot, "packages", "client"),
+  "@moltzap/identity": join(workspaceRoot, "packages", "identity"),
+  "@moltzap/router": join(workspaceRoot, "packages", "router"),
+  "@moltzap/simulator": packageRoot,
+});
+const facadeSpecifiers = Object.freeze({
+  ".": "@moltzap/simulator",
+  "./network": "@moltzap/simulator/network",
+  "./ledger": "@moltzap/simulator/ledger",
+  "./agents": "@moltzap/simulator/agents",
+});
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-simulator-pack-"));
-const forbiddenSimulatorPaths = [
-  "scripts/build-server-image.mjs",
-  "server-image/Dockerfile",
-  "server-image/moltzap.yaml",
-  "src/layer.ts",
-  "src/network/server.ts",
-  "src/network/server-image.ts",
-  "src/agents/cache.ts",
-  "src/agents/effect.ts",
-  "src/agents/nanoclaw/install.ts",
-  "src/agents/nanoclaw/onecli.ts",
-  "src/agents/nanoclaw/process.ts",
-  "src/agents/openclaw/cache.ts",
-  "src/agents/openclaw/process.ts",
-];
-const forbiddenStandaloneWorkspacePaths = [
-  "examples/simulator/README.md",
-  "examples/simulator/hello.ts",
-  "examples/simulator/openclaw-container.mjs",
-  "examples/simulator/openclaw-container.test.mjs",
-  "examples/simulator/openclaw-image.json",
-  "examples/simulator/package.json",
-  "examples/simulator/tsconfig.json",
-];
-const standaloneWorkspaceControlFiles = [
-  "package.json",
-  "pnpm-lock.yaml",
-  "pnpm-workspace.yaml",
-  "knip.json",
-  "tools/workspace/project.json",
-  ".github/workflows/ci.yml",
-];
 
 function requireCondition(condition, detail) {
   if (!condition) {
@@ -56,63 +42,63 @@ function requireCondition(condition, detail) {
   }
 }
 
-function isMissing(cause) {
-  return (
-    typeof cause === "object" &&
-    cause !== null &&
-    "code" in cause &&
-    cause.code === "ENOENT"
-  );
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function requirePathMissing(root, relativePath, detail) {
-  try {
-    await access(join(root, relativePath));
-  } catch (cause) {
-    if (isMissing(cause)) {
-      return;
-    }
-    throw cause;
+function requireStringArray(value, detail) {
+  requireCondition(
+    Array.isArray(value) && value.every((item) => typeof item === "string"),
+    detail,
+  );
+  return value;
+}
+
+async function loadApiCensus() {
+  const parsed = JSON.parse(await readFile(apiCensusPath, "utf8"));
+  requireCondition(
+    isRecord(parsed) && parsed.schemaVersion === 3 && isRecord(parsed.facades),
+    "simulator API census has an unsupported shape",
+  );
+  const facades = {};
+  for (const subpath of Object.keys(facadeSpecifiers)) {
+    const facade = parsed.facades[subpath];
+    requireCondition(
+      isRecord(facade) && typeof facade.declaration === "string",
+      `simulator API census is missing ${subpath}`,
+    );
+    facades[subpath] = Object.freeze({
+      declaration: facade.declaration,
+      runtime: requireStringArray(
+        facade.runtime,
+        `simulator API census ${subpath}.runtime must be a string array`,
+      ),
+      types: requireStringArray(
+        facade.types,
+        `simulator API census ${subpath}.types must be a string array`,
+      ),
+    });
+    requireCondition(
+      JSON.stringify(facades[subpath].runtime) ===
+        JSON.stringify(sortedNames(facades[subpath].runtime)) &&
+        JSON.stringify(facades[subpath].types) ===
+          JSON.stringify(sortedNames(facades[subpath].types)),
+      `simulator API census ${subpath} names must be checked in sorted order`,
+    );
   }
-  throw new Error(detail);
+  requireCondition(
+    JSON.stringify(Object.keys(parsed.facades)) ===
+      JSON.stringify(Object.keys(facadeSpecifiers)),
+    "simulator API census must contain exactly the four public facades",
+  );
+  return Object.freeze(facades);
 }
 
-async function verifyRepositoryCutover() {
-  await Promise.all(
-    forbiddenStandaloneWorkspacePaths.map((relativePath) =>
-      requirePathMissing(
-        workspaceRoot,
-        relativePath,
-        `standalone simulator workspace path remains: ${relativePath}`,
-      ),
-    ),
-  );
-  await Promise.all(
-    forbiddenSimulatorPaths.map((relativePath) =>
-      requirePathMissing(
-        packageRoot,
-        relativePath,
-        `obsolete simulator path remains in the repository: ${relativePath}`,
-      ),
-    ),
-  );
-  await Promise.all(
-    standaloneWorkspaceControlFiles.map(async (relativePath) => {
-      const source = await readFile(join(workspaceRoot, relativePath), "utf8");
-      requireCondition(
-        !source.includes("examples/simulator") &&
-          !source.includes("simulator-example"),
-        `standalone simulator workspace remains configured in ${relativePath}`,
-      );
-    }),
-  );
-}
-
-async function packedTarball() {
+async function packWorkspacePackage(packageDirectory, destination) {
   const { stdout } = await exec(
     "pnpm",
-    ["pack", "--pack-destination", temporaryRoot],
-    { cwd: packageRoot },
+    ["pack", "--pack-destination", destination],
+    { cwd: packageDirectory },
   );
   const printed = stdout
     .trim()
@@ -121,21 +107,32 @@ async function packedTarball() {
     .filter((line) => line.length > 0)
     .at(-1);
   requireCondition(printed !== undefined, "pnpm pack returned no tarball");
-  return resolve(packageRoot, printed);
+  return resolve(packageDirectory, printed);
+}
+
+async function packedTarballs() {
+  const destination = join(temporaryRoot, "tarballs");
+  await mkdir(destination);
+  return Object.fromEntries(
+    await Promise.all(
+      Object.entries(workspacePackageRoots).map(async ([name, root]) => [
+        name,
+        await packWorkspacePackage(root, destination),
+      ]),
+    ),
+  );
 }
 
 async function verifyPackedFiles(extractedPackage) {
   const required = [
     "dist/index.js",
     "dist/index.d.ts",
-    "dist/network.js",
-    "dist/network.d.ts",
-    "dist/ledger.js",
-    "dist/ledger.d.ts",
-    "dist/agents.js",
-    "dist/agents.d.ts",
-    "dist/nanoclaw-assets/SKILL.md",
-    "dist/nanoclaw-assets/moltzap.ts",
+    "dist/network/index.js",
+    "dist/network/index.d.ts",
+    "dist/ledger/index.js",
+    "dist/ledger/index.d.ts",
+    "dist/agents/index.js",
+    "dist/agents/index.d.ts",
   ];
   await Promise.all(
     required.map(async (relativePath) => {
@@ -146,15 +143,6 @@ async function verifyPackedFiles(extractedPackage) {
         });
       });
     }),
-  );
-  await Promise.all(
-    forbiddenSimulatorPaths.map((relativePath) =>
-      requirePathMissing(
-        extractedPackage,
-        relativePath,
-        `packed simulator contains obsolete path ${relativePath}`,
-      ),
-    ),
   );
 
   const manifest = JSON.parse(
@@ -167,53 +155,380 @@ async function verifyPackedFiles(extractedPackage) {
   );
 }
 
-async function verifyConsumerImports(extractedPackage) {
-  const consumerRoot = join(temporaryRoot, "consumer");
-  const packageScope = join(consumerRoot, "node_modules", "@moltzap");
-  await mkdir(packageScope, { recursive: true });
-  await symlink(extractedPackage, join(packageScope, "simulator"), "dir");
-  await symlink(
-    await realpath(join(packageRoot, "node_modules")),
-    join(extractedPackage, "node_modules"),
-    "dir",
+function compareNames(left, right) {
+  if (left < right) {
+    return -1;
+  }
+  if (left > right) {
+    return 1;
+  }
+  return 0;
+}
+
+function sortedNames(values) {
+  return [...values].sort(compareNames);
+}
+
+function resolveAlias(checker, symbol) {
+  return (symbol.flags & ts.SymbolFlags.Alias) === 0
+    ? symbol
+    : checker.getAliasedSymbol(symbol);
+}
+
+function isTypeOnlyExport(symbol) {
+  const declarations = symbol.declarations ?? [];
+  return (
+    declarations.length > 0 &&
+    declarations.every((declaration) => {
+      if (ts.isExportSpecifier(declaration)) {
+        return declaration.isTypeOnly || declaration.parent.parent.isTypeOnly;
+      }
+      return ts.isExportDeclaration(declaration) && declaration.isTypeOnly;
+    })
   );
-  const checkPath = join(consumerRoot, "check.mjs");
+}
+
+function exportedSpaces(checker, sourceFile) {
+  const moduleSymbol = checker.getSymbolAtLocation(sourceFile);
+  requireCondition(
+    moduleSymbol !== undefined,
+    `declaration ${sourceFile.fileName} has no module symbol`,
+  );
+  const symbols = checker.getExportsOfModule(moduleSymbol);
+  return Object.freeze({
+    symbols: new Map(symbols.map((symbol) => [symbol.name, symbol])),
+    runtime: sortedNames(
+      symbols
+        .filter(
+          (symbol) =>
+            !isTypeOnlyExport(symbol) &&
+            (resolveAlias(checker, symbol).flags & ts.SymbolFlags.Value) !== 0,
+        )
+        .map((symbol) => symbol.name),
+    ),
+    types: sortedNames(
+      symbols
+        .filter(
+          (symbol) =>
+            (resolveAlias(checker, symbol).flags & ts.SymbolFlags.Type) !== 0,
+        )
+        .map((symbol) => symbol.name),
+    ),
+  });
+}
+
+function declaredProperties(checker, facade, symbolName) {
+  const exported = facade.symbols.get(symbolName);
+  requireCondition(
+    exported !== undefined,
+    `missing exported type ${symbolName}`,
+  );
+  const target = resolveAlias(checker, exported);
+  return checker.getPropertiesOfType(checker.getDeclaredTypeOfSymbol(target));
+}
+
+function requireMembers(checker, facade, symbolName, expected) {
+  const names = new Set(
+    declaredProperties(checker, facade, symbolName).map(
+      (property) => property.name,
+    ),
+  );
+  for (const member of expected) {
+    requireCondition(
+      names.has(member),
+      `${symbolName} must retain public member ${member}`,
+    );
+  }
+}
+
+function requireSemanticMemberType(
+  checker,
+  facade,
+  symbolName,
+  memberName,
+  requiredTypeName,
+) {
+  const member = declaredProperties(checker, facade, symbolName).find(
+    (property) => property.name === memberName,
+  );
+  requireCondition(
+    member !== undefined,
+    `${symbolName} must retain public member ${memberName}`,
+  );
+  const declaration = member.valueDeclaration ?? member.declarations?.[0];
+  requireCondition(
+    declaration !== undefined,
+    `${symbolName}.${memberName} has no declaration`,
+  );
+  const rendered = checker.typeToString(
+    checker.getTypeOfSymbolAtLocation(member, declaration),
+    declaration,
+    ts.TypeFormatFlags.NoTruncation,
+  );
+  requireCondition(
+    rendered.includes(requiredTypeName),
+    `${symbolName}.${memberName} must be expressed in ${requiredTypeName}, got ${rendered}`,
+  );
+}
+
+function verifyPublicContracts(checker, facades) {
+  const network = facades["./network"];
+  const agents = facades["./agents"];
+  requireMembers(checker, network, "Endpoint", ["messages", "send"]);
+  requireMembers(checker, facades["."], "Endpoint", ["messages", "send"]);
+  requireMembers(checker, network, "EndpointTransport", ["received", "send"]);
+  requireMembers(checker, network, "AgentConnection", ["agent"]);
+  requireMembers(checker, network, "Router", ["address", "stopped"]);
+  requireMembers(checker, network, "LinkDelivery", ["from", "message", "to"]);
+  requireMembers(checker, agents, "AgentRuntimeInput", ["agentName"]);
+  requireMembers(checker, agents, "StartedAgent", [
+    "agent",
+    "gateway",
+    "termination",
+  ]);
+  requireMembers(checker, facades["."], "RunSpec", [
+    "agents",
+    "cluster",
+    "events",
+    "execute",
+    "id",
+  ]);
+
+  requireSemanticMemberType(
+    checker,
+    network,
+    "Endpoint",
+    "messages",
+    "InboundDelivery",
+  );
+  requireSemanticMemberType(checker, network, "Endpoint", "send", "SendInput");
+  requireSemanticMemberType(
+    checker,
+    facades["."],
+    "Endpoint",
+    "send",
+    "SendInput",
+  );
+  requireSemanticMemberType(
+    checker,
+    network,
+    "EndpointTransport",
+    "received",
+    "InboundDelivery",
+  );
+  requireSemanticMemberType(
+    checker,
+    network,
+    "EndpointTransport",
+    "send",
+    "SendInput",
+  );
+  requireSemanticMemberType(
+    checker,
+    network,
+    "LinkDelivery",
+    "message",
+    "SignedMessage",
+  );
+}
+
+function verifyDeclarationCensus(installedPackage, census) {
+  const declarationPaths = Object.fromEntries(
+    Object.entries(census).map(([subpath, facade]) => [
+      subpath,
+      join(installedPackage, facade.declaration),
+    ]),
+  );
+  const program = ts.createProgram({
+    rootNames: Object.values(declarationPaths),
+    options: {
+      module: ts.ModuleKind.NodeNext,
+      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+      skipLibCheck: true,
+      strict: true,
+      target: ts.ScriptTarget.ES2023,
+    },
+  });
+  const checker = program.getTypeChecker();
+  const facades = {};
+  for (const [subpath, declarationPath] of Object.entries(declarationPaths)) {
+    const sourceFile = program.getSourceFile(declarationPath);
+    requireCondition(
+      sourceFile !== undefined,
+      `TypeScript did not load packed declaration ${declarationPath}`,
+    );
+    const actual = exportedSpaces(checker, sourceFile);
+    const expected = census[subpath];
+    requireCondition(
+      JSON.stringify(actual.runtime) ===
+        JSON.stringify(sortedNames(expected.runtime)),
+      `${subpath} packed runtime declaration census drifted`,
+    );
+    requireCondition(
+      JSON.stringify(actual.types) ===
+        JSON.stringify(sortedNames(expected.types)),
+      `${subpath} packed type declaration census drifted`,
+    );
+    facades[subpath] = actual;
+  }
+  verifyPublicContracts(checker, facades);
+}
+
+function localArchiveSpecifier(consumerRoot, archive) {
+  return `file:${relative(consumerRoot, archive)}`;
+}
+
+async function verifyIsolatedInstall(consumerRoot) {
+  const installedRoot = await realpath(consumerRoot);
+  for (const packageName of [
+    "@moltzap/client",
+    "@moltzap/identity",
+    "@moltzap/router",
+    "@moltzap/simulator",
+    "effect",
+    "typescript",
+  ]) {
+    const installed = await realpath(
+      join(consumerRoot, "node_modules", ...packageName.split("/")),
+    );
+    requireCondition(
+      installed.startsWith(`${installedRoot}/`),
+      `packed consumer resolved ${packageName} outside its isolated install`,
+    );
+  }
+  const lockfile = await readFile(join(consumerRoot, "pnpm-lock.yaml"), "utf8");
+  requireCondition(
+    !lockfile.includes(workspaceRoot) &&
+      !lockfile.includes("workspace:") &&
+      !lockfile.includes("link:"),
+    "packed simulator consumer lockfile escaped to the source workspace",
+  );
+}
+
+async function verifyConsumerImports(archives, census) {
+  const consumerRoot = join(temporaryRoot, "consumer");
+  await mkdir(consumerRoot);
+  const localPackages = Object.fromEntries(
+    Object.entries(archives).map(([name, archive]) => [
+      name,
+      localArchiveSpecifier(consumerRoot, archive),
+    ]),
+  );
+  await Promise.all([
+    writeFile(
+      join(consumerRoot, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "moltzap-simulator-packed-consumer",
+          version: "0.0.0",
+          private: true,
+          type: "module",
+          dependencies: {
+            ...localPackages,
+            effect: "3.22.0",
+          },
+          devDependencies: { typescript: "6.0.2" },
+          pnpm: {
+            overrides: localPackages,
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    ),
+    writeFile(
+      join(consumerRoot, "pnpm-workspace.yaml"),
+      [
+        "packages:",
+        '  - "."',
+        "overrides:",
+        ...Object.entries(localPackages).map(
+          ([name, specifier]) =>
+            `  ${JSON.stringify(name)}: ${JSON.stringify(specifier)}`,
+        ),
+        "",
+      ].join("\n"),
+    ),
+    writeFile(
+      join(consumerRoot, "tsconfig.json"),
+      `${JSON.stringify(
+        {
+          compilerOptions: {
+            exactOptionalPropertyTypes: true,
+            lib: ["ES2023", "DOM"],
+            module: "NodeNext",
+            moduleResolution: "NodeNext",
+            noEmit: true,
+            noUncheckedIndexedAccess: true,
+            skipLibCheck: false,
+            strict: true,
+            target: "ES2023",
+            verbatimModuleSyntax: true,
+          },
+          include: ["check.ts"],
+        },
+        null,
+        2,
+      )}\n`,
+    ),
+    copyFile(packedConsumerPath, join(consumerRoot, "check.ts")),
+    copyFile(apiCensusPath, join(consumerRoot, "api-census.json")),
+  ]);
+  await exec(
+    "pnpm",
+    ["install", "--no-frozen-lockfile", "--ignore-scripts", "--prefer-offline"],
+    { cwd: consumerRoot, maxBuffer: 16 * 1024 * 1024 },
+  );
+  await verifyIsolatedInstall(consumerRoot);
+  await exec(
+    join(consumerRoot, "node_modules", ".bin", "tsc"),
+    ["--project", join(consumerRoot, "tsconfig.json")],
+    { cwd: consumerRoot, maxBuffer: 16 * 1024 * 1024 },
+  );
+  const installedSimulator = await realpath(
+    join(consumerRoot, "node_modules", "@moltzap", "simulator"),
+  );
+  verifyDeclarationCensus(installedSimulator, census);
+
+  const runtimeCheckPath = join(consumerRoot, "runtime-check.mjs");
   await writeFile(
-    checkPath,
+    runtimeCheckPath,
     [
-      'import * as simulator from "@moltzap/simulator";',
-      'import * as network from "@moltzap/simulator/network";',
-      'import * as ledger from "@moltzap/simulator/ledger";',
-      'import * as agents from "@moltzap/simulator/agents";',
-      'for (const name of ["Run", "RunSpec"]) {',
-      "  if (!(name in simulator)) throw new Error(`missing root export ${name}`);",
+      'import { readFile } from "node:fs/promises";',
+      'const census = JSON.parse(await readFile(new URL("./api-census.json", import.meta.url), "utf8"));',
+      `const specifiers = ${JSON.stringify(facadeSpecifiers)};`,
+      "for (const [subpath, specifier] of Object.entries(specifiers)) {",
+      "  const api = await import(specifier);",
+      "  const actual = Object.keys(api).sort();",
+      "  const expected = [...census.facades[subpath].runtime].sort();",
+      "  if (JSON.stringify(actual) !== JSON.stringify(expected)) {",
+      '    throw new Error(`${subpath} runtime exports drifted: ${actual.join(", ")}`);',
+      "  }",
       "}",
-      'for (const name of ["defineContainerRuntime", "openClawRuntime", "nanoclawRuntime"]) {',
-      "  if (!(name in agents)) throw new Error(`missing agents export ${name}`);",
-      "}",
-      'for (const name of ["simulator", "simulatorLayer"]) {',
-      "  if (name in simulator) throw new Error(`obsolete root export ${name}`);",
-      "}",
-      'for (const name of ["defineRuntime", "effectRuntime"]) {',
-      "  if (name in agents) throw new Error(`obsolete agents export ${name}`);",
-      "}",
-      'if (!("RouterProvider" in network)) throw new Error("missing network RouterProvider");',
-      'if (!("LedgerStorage" in ledger)) throw new Error("missing ledger LedgerStorage");',
       "",
     ].join("\n"),
   );
-  await exec(process.execPath, [checkPath], { cwd: consumerRoot });
+  await exec(process.execPath, [runtimeCheckPath], {
+    cwd: consumerRoot,
+    env: { ...process.env, NODE_PATH: undefined },
+    maxBuffer: 16 * 1024 * 1024,
+  });
 }
 
 try {
-  await verifyRepositoryCutover();
-  const tarball = await packedTarball();
+  const census = await loadApiCensus();
+  const archives = await packedTarballs();
   const extractedRoot = join(temporaryRoot, "extracted");
   await mkdir(extractedRoot);
-  await exec("tar", ["-xzf", tarball, "-C", extractedRoot]);
+  await exec("tar", [
+    "-xzf",
+    archives["@moltzap/simulator"],
+    "-C",
+    extractedRoot,
+  ]);
   const extractedPackage = join(extractedRoot, "package");
   await verifyPackedFiles(extractedPackage);
-  await verifyConsumerImports(extractedPackage);
+  await verifyConsumerImports(archives, census);
   process.stdout.write("simulator package consumer check passed\n");
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });

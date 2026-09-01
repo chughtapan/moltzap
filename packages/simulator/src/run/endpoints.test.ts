@@ -1,553 +1,294 @@
-import { assert, effect as test } from "@effect/vitest";
-import type { MessageId } from "@moltzap/protocol/conversation";
-import { serverBaseUrlSchema } from "@moltzap/protocol/network";
+/** @file Controlled endpoint caching and live delivery stream regressions. */
+
+import { assert, it } from "@effect/vitest";
 import {
-  agentId,
-  conversationId,
-  messageId,
-  redactedAgentKey,
-} from "@moltzap/protocol/testing";
+  AgentAddress,
+  Content,
+  GroupAddress,
+  type InboundDelivery,
+  PostId,
+} from "@moltzap/client";
+import { AgentId, AgentName } from "@moltzap/identity";
 import {
   Deferred,
   Effect,
+  Encoding,
   Exit,
   Fiber,
-  Option,
-  PubSub,
+  Queue,
   Schema,
   Stream,
 } from "effect";
+import type { Endpoint } from "../network/endpoint.js";
+import { NetworkError } from "../network/failure.js";
+import { makeParticipantHandle } from "../network/participant.js";
 import {
-  ConversationOpened,
-  type endpointEvents,
-  EndpointMessageReceived,
-  EndpointMessageSent,
-} from "../events/core.js";
-import type { LedgerWriter } from "../ledger/append.js";
-import { LedgerStorageError } from "../ledger/storage.js";
-import {
-  makeAgentHandle,
-  makeParticipantHandle,
-  makeRouterStopReport,
-  networkError,
-  type EndpointTransport,
-  type ReceivedMessage,
-  type Router,
-} from "../network.js";
-import { makeNetworkService } from "./endpoints.js";
-import type { InboundLinkInterceptor } from "./link-fabric.js";
+  type AcquireControlledEndpoint,
+  makeNetworkService,
+} from "./endpoints.js";
+import { makeLinkFabric } from "./link-fabric.js";
 
-const passthroughInterceptor: InboundLinkInterceptor = {
-  attach: () => Effect.succeed((inbound) => inbound),
-};
-
-type EndpointEventWriter = LedgerWriter<typeof endpointEvents>;
-const PROBE_ID = agentId("00000000-0000-4000-8000-000000000001");
-const TARGET_ID = agentId("00000000-0000-4000-8000-000000000002");
-const KEY = redactedAgentKey(
-  "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000",
+const ENDPOINT_ID = Schema.decodeSync(AgentId)("agt_AAAAAAAAAAAAAAAAAAAAAA");
+const AUTHOR_ID = Schema.decodeSync(AgentId)("agt_AQAAAAAAAAAAAAAAAAAAAA");
+const ENDPOINT_NAME = Schema.decodeSync(AgentName)("observer");
+const AUTHOR_ADDRESS = Schema.decodeSync(AgentAddress)("agent:author");
+const ALPHA_ADDRESS = Schema.decodeSync(AgentAddress)("agent:alpha");
+const ENDPOINT_ADDRESS = Schema.decodeSync(AgentAddress)("agent:observer");
+const ZETA_ADDRESS = Schema.decodeSync(AgentAddress)("agent:zeta");
+const CANONICAL_GROUP_ADDRESS = Schema.decodeSync(GroupAddress)(
+  "group:alpha,observer,zeta",
 );
-const ROUTER_URL = Schema.decodeSync(serverBaseUrlSchema)(
-  "http://127.0.0.1:43100",
-);
-const CONVERSATION_ID = conversationId("00000000-0000-4000-8000-000000000004");
-const RECEIVED_ID = messageId("00000000-0000-4000-8000-000000000005");
-const SECOND_RECEIVED_ID = messageId("00000000-0000-4000-8000-000000000007");
-const SENT_ID = messageId("00000000-0000-4000-8000-000000000006");
+const PROXY_ORIGIN = new URL("http://fault-proxy.example.test:43120");
 
-type EndpointEvent =
-  | ConversationOpened
-  | EndpointMessageReceived
-  | EndpointMessageSent;
-
-function writer(events: EndpointEvent[]): EndpointEventWriter {
-  return {
-    write: ({ event }) =>
-      Effect.sync(() => {
-        events.push(event);
-        return {
-          runId: "observed-network-test",
-          eventId: `event-${String(events.length)}`,
-          logicalSequence: events.length - 1,
-          elapsedNanos: 0n,
-          observedAt: 0,
-          producer: "kernel.endpoint",
-          event,
-        };
-      }),
-  };
-}
-
-function receivedMessage(id: MessageId, text: string): ReceivedMessage {
+function delivery(input: {
+  readonly byte: number;
+  readonly text: string;
+  readonly acknowledge?: Effect.Effect<void>;
+}): InboundDelivery {
   return {
     message: {
-      id,
-      conversationId: CONVERSATION_ID,
-      senderId: TARGET_ID,
-      parts: [{ type: "text", text }],
-      createdAt: "2026-07-28T00:00:00.000Z",
+      kind: "direct",
+      postId: postId(input.byte),
+      address: AUTHOR_ADDRESS,
+      sender: AUTHOR_ADDRESS,
+      content: Schema.decodeSync(Content)([{ type: "text", text: input.text }]),
     },
+    acknowledge: input.acknowledge ?? Effect.void,
   };
 }
 
-interface AttachmentCount {
-  value: number;
+function groupDelivery(): InboundDelivery {
+  return {
+    message: {
+      kind: "group",
+      postId: postId(3),
+      address: CANONICAL_GROUP_ADDRESS,
+      sender: ALPHA_ADDRESS,
+      members: [ALPHA_ADDRESS, ENDPOINT_ADDRESS, ZETA_ADDRESS],
+      content: Schema.decodeSync(Content)([
+        { type: "text", text: "canonical group delivery" },
+      ]),
+    },
+    acknowledge: Effect.void,
+  };
 }
 
-function sendMessage(sends?: AttachmentCount): EndpointTransport["send"] {
-  return (...[conversationId, parts]) =>
+function postId(byte: number) {
+  return Schema.decodeSync(PostId)(
+    `pst_${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`,
+  );
+}
+
+function cachingEndpointAcquirer(
+  received: Stream.Stream<InboundDelivery, NetworkError>,
+): {
+  readonly acquireEndpoint: AcquireControlledEndpoint;
+  readonly acquisitionCount: () => number;
+} {
+  let acquisitions = 0;
+  const acquireEndpoint: AcquireControlledEndpoint = ({ name, routerOrigin }) =>
     Effect.sync(() => {
-      if (sends !== undefined) {
-        sends.value += 1;
-      }
+      acquisitions += 1;
+      assert.strictEqual(routerOrigin.href, PROXY_ORIGIN.href);
       return {
-        id: SENT_ID,
-        conversationId,
-        senderId: PROBE_ID,
-        parts,
-        createdAt: "2026-07-28T00:00:00.000Z",
+        participant: makeParticipantHandle(name, ENDPOINT_ID),
+        transport: { received, send: () => Effect.void },
       };
     });
+  return { acquireEndpoint, acquisitionCount: () => acquisitions };
 }
 
-function router(
-  received: Stream.Stream<ReceivedMessage>,
-  attachments: AttachmentCount,
-  sends?: AttachmentCount,
-): Router {
-  return {
-    address: ROUTER_URL,
-    stopped: Effect.succeed(makeRouterStopReport([])),
-    attachAgent: (name) =>
-      Effect.succeed({
-        agent: makeAgentHandle(name, TARGET_ID),
-        key: KEY,
-        routerUrl: ROUTER_URL,
-      }),
-    attachEndpoint: (name) =>
-      Effect.sync(() => {
-        attachments.value += 1;
-        return {
-          participant: makeParticipantHandle(name, PROBE_ID),
-          transport: {
-            received,
-            openConversation: () =>
-              Effect.succeed({
-                conversationId: CONVERSATION_ID,
-              }),
-            send: sendMessage(sends),
-          },
-        };
-      }),
-  };
-}
-
-function assertEndpointEvidence(events: readonly EndpointEvent[]): void {
+function assertFanout(
+  first: readonly InboundDelivery[],
+  second: readonly InboundDelivery[],
+): void {
   assert.deepStrictEqual(
-    events.map((event) => event._tag),
-    [
-      ConversationOpened._tag,
-      EndpointMessageReceived._tag,
-      EndpointMessageReceived._tag,
-      EndpointMessageSent._tag,
-    ],
+    first.map(({ message }) => message.content),
+    [[{ type: "text", text: "first" }], [{ type: "text", text: "second" }]],
   );
-  const [, firstReceived, , sent] = events;
-  assert.instanceOf(firstReceived, EndpointMessageReceived);
-  assert.instanceOf(sent, EndpointMessageSent);
+  assert.deepStrictEqual(second, first);
 }
 
-function observedNetworkTest() {
-  return Effect.gen(function* () {
-    const deliveries = yield* PubSub.unbounded<ReceivedMessage>();
-    const received = yield* Stream.fromPubSub(deliveries, {
-      scoped: true,
-    });
-    const events: EndpointEvent[] = [];
-    const attachments = { value: 0 };
-    const network = yield* makeNetworkService(
-      router(received, attachments),
-      writer(events),
-      passthroughInterceptor,
-    );
-    const probe = yield* network.endpoint("probe");
-    const sameProbe = yield* network.endpoint("probe");
-    const socket = yield* probe.open(
-      makeParticipantHandle("target", TARGET_ID),
-    );
-    const endpointMessagesFiber = yield* probe
-      .messages()
-      .pipe(Stream.take(2), Stream.runCollect, Effect.fork);
-    yield* Effect.yieldNow();
-    yield* PubSub.publishAll(deliveries, [
-      receivedMessage(RECEIVED_ID, "first"),
-      receivedMessage(SECOND_RECEIVED_ID, "second"),
-    ]);
-    const endpointMessages = yield* Fiber.join(endpointMessagesFiber);
-    const first = yield* socket.receive();
-    const second = yield* socket.receive();
-    yield* socket.send("request");
-    assert.strictEqual(sameProbe, probe);
-    assert.strictEqual(attachments.value, 1);
-    assert.strictEqual(endpointMessages.length, 2);
-    assert.strictEqual(first.message.id, RECEIVED_ID);
-    assert.strictEqual(second.message.id, SECOND_RECEIVED_ID);
-    assertEndpointEvidence(events);
-  });
+function collectTwoDeliveries(endpoint: Endpoint) {
+  return endpoint
+    .messages()
+    .pipe(Stream.take(2), Stream.runCollect, Effect.forkScoped);
 }
 
-// @agent-code-guard/regression-only: controlled streams and writers expose exact endpoint evidence, cursor, and fatal-ledger behavior
-test("observes one ingress and advances ordered endpoint and conversation inboxes", () =>
-  Effect.scoped(observedNetworkTest()));
-
-interface AttachmentGates {
-  readonly attachmentStarted: Deferred.Deferred<undefined>;
-  readonly releaseAttachment: Deferred.Deferred<undefined>;
-  readonly attempts: AttachmentCount;
-}
-
-function gatedRouter(baseRouter: Router, gates: AttachmentGates): Router {
-  return {
-    ...baseRouter,
-    attachEndpoint: (name, agentName) =>
-      Effect.sync(() => {
-        gates.attempts.value += 1;
-      }).pipe(
-        Effect.zipRight(
-          Deferred.succeed(gates.attachmentStarted, undefined).pipe(
-            Effect.asVoid,
-          ),
-        ),
-        Effect.zipRight(Deferred.await(gates.releaseAttachment)),
-        Effect.zipRight(baseRouter.attachEndpoint(name, agentName)),
-      ),
-  };
-}
-
-test("coalesces concurrent attachment of the same endpoint", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const attachmentStarted = yield* Deferred.make<undefined>();
-      const releaseAttachment = yield* Deferred.make<undefined>();
-      const callersStarted = yield* Deferred.make<undefined>();
-      const attachments = { value: 0 };
-      const attempts = { value: 0 };
-      const callers = { value: 0 };
-      const baseRouter = router(Stream.never, attachments);
-      const network = yield* makeNetworkService(
-        gatedRouter(baseRouter, {
-          attachmentStarted,
-          releaseAttachment,
-          attempts,
-        }),
-        writer([]),
-        passthroughInterceptor,
-      );
-      const acquire = Effect.sync(() => {
-        callers.value += 1;
-        return callers.value;
-      }).pipe(
-        Effect.tap((count) =>
-          count === 2
-            ? Deferred.succeed(callersStarted, undefined).pipe(Effect.asVoid)
-            : Effect.void,
-        ),
-        Effect.zipRight(network.endpoint("probe")),
-      );
-      const endpoints = yield* Effect.all([acquire, acquire], {
-        concurrency: 2,
-      }).pipe(Effect.fork);
-
-      yield* Deferred.await(callersStarted);
-      yield* Deferred.await(attachmentStarted);
-      yield* Effect.yieldNow();
-      assert.strictEqual(attempts.value, 1);
-
-      yield* Deferred.succeed(releaseAttachment, undefined);
-      const [first, second] = yield* Fiber.join(endpoints);
-      assert.strictEqual(first, second);
-      assert.strictEqual(attachments.value, 1);
-    }),
-  ));
-
-interface AttachmentRetryGates {
-  readonly firstStarted: Deferred.Deferred<undefined>;
-  readonly releaseFirst: Deferred.Deferred<undefined>;
-  readonly retryStarted: Deferred.Deferred<undefined>;
-  readonly releaseRetry: Deferred.Deferred<undefined>;
-}
-
-function retryingRouter(
-  baseRouter: Router,
-  attempts: AttachmentCount,
-  gates: AttachmentRetryGates,
-): Router {
-  return {
-    ...baseRouter,
-    attachEndpoint: (name, agentName) =>
-      Effect.sync(() => {
-        attempts.value += 1;
-        return attempts.value;
-      }).pipe(
-        Effect.flatMap((attempt) =>
-          attempt === 1
-            ? Deferred.succeed(gates.firstStarted, undefined).pipe(
-                Effect.zipRight(Deferred.await(gates.releaseFirst)),
-                Effect.zipRight(
-                  Effect.fail(
-                    networkError("attach-endpoint", "temporarily unavailable"),
-                  ),
-                ),
-              )
-            : Deferred.succeed(gates.retryStarted, undefined).pipe(
-                Effect.zipRight(Deferred.await(gates.releaseRetry)),
-                Effect.zipRight(baseRouter.attachEndpoint(name, agentName)),
-              ),
-        ),
-      ),
-  };
-}
-
-function failedAttachmentRetryTest() {
-  return Effect.gen(function* () {
-    const gates: AttachmentRetryGates = {
-      firstStarted: yield* Deferred.make<undefined>(),
-      releaseFirst: yield* Deferred.make<undefined>(),
-      retryStarted: yield* Deferred.make<undefined>(),
-      releaseRetry: yield* Deferred.make<undefined>(),
-    };
-    const waiterStarted = yield* Deferred.make<undefined>();
-    const attachments = { value: 0 };
-    const attempts = { value: 0 };
-    const baseRouter = router(Stream.never, attachments);
-    const network = yield* makeNetworkService(
-      retryingRouter(baseRouter, attempts, gates),
-      writer([]),
-      passthroughInterceptor,
-    );
-    const retrying = yield* network.endpoint("probe").pipe(
-      Effect.catchAll(() => network.endpoint("probe")),
-      Effect.fork,
-    );
-    yield* Deferred.await(gates.firstStarted);
-    const lateWaiter = yield* Deferred.succeed(waiterStarted, undefined).pipe(
-      Effect.zipRight(network.endpoint("probe")),
-      Effect.exit,
-      Effect.fork,
-    );
-    yield* Deferred.await(waiterStarted);
-    yield* Effect.yieldNow();
-
-    yield* Deferred.succeed(gates.releaseFirst, undefined);
-    yield* Deferred.await(gates.retryStarted);
-    const failed = yield* Fiber.join(lateWaiter);
-    const peer = yield* network.endpoint("probe").pipe(Effect.fork);
-    yield* Effect.yieldNow();
-    assert.isTrue(Exit.isFailure(failed));
-    assert.strictEqual(attempts.value, 2);
-
-    yield* Deferred.succeed(gates.releaseRetry, undefined);
-    const retry = yield* Fiber.join(retrying);
-    const coalesced = yield* Fiber.join(peer);
-    assert.strictEqual(retry, coalesced);
-    assert.strictEqual(attempts.value, 2);
-    assert.strictEqual(attachments.value, 1);
-  });
-}
-
-test("evicts a failed attachment without letting late waiters evict its retry", () =>
-  Effect.scoped(failedAttachmentRetryTest()));
-
-interface AttachmentLifecycle {
-  attempts: number;
-  live: number;
-  releases: number;
-}
-
-function interruptibleRouter(
-  baseRouter: Router,
-  lifecycle: AttachmentLifecycle,
-  firstStarted: Deferred.Deferred<undefined>,
-): Router {
-  return {
-    ...baseRouter,
-    attachEndpoint: (name, agentName) =>
-      Effect.acquireRelease(
-        Effect.sync(() => {
-          lifecycle.attempts += 1;
-          lifecycle.live += 1;
-          return lifecycle.attempts;
-        }),
-        () =>
-          Effect.sync(() => {
-            lifecycle.live -= 1;
-            lifecycle.releases += 1;
-          }),
-      ).pipe(
-        Effect.flatMap((attempt) =>
-          attempt === 1
-            ? Deferred.succeed(firstStarted, undefined).pipe(
-                Effect.zipRight(Effect.never),
-              )
-            : baseRouter.attachEndpoint(name, agentName),
-        ),
-      ),
-  };
-}
-
-function canceledAttachmentTest(lifecycle: AttachmentLifecycle) {
-  return Effect.gen(function* () {
-    const firstStarted = yield* Deferred.make<undefined>();
-    const attachments = { value: 0 };
-    const baseRouter = router(Stream.never, attachments);
-    const network = yield* makeNetworkService(
-      interruptibleRouter(baseRouter, lifecycle, firstStarted),
-      writer([]),
-      passthroughInterceptor,
-    );
-    const first = yield* network.endpoint("probe").pipe(Effect.fork);
-    yield* Deferred.await(firstStarted);
-    yield* Fiber.interrupt(first);
-
-    assert.strictEqual(lifecycle.live, 0);
-    assert.strictEqual(lifecycle.releases, 1);
-
-    yield* network.endpoint("probe");
-    assert.strictEqual(lifecycle.attempts, 2);
-    assert.strictEqual(lifecycle.live, 1);
-    assert.strictEqual(attachments.value, 1);
-  });
-}
-
-test("releases a canceled attachment attempt before retrying", () =>
-  Effect.gen(function* () {
-    const lifecycle: AttachmentLifecycle = {
-      attempts: 0,
-      live: 0,
-      releases: 0,
-    };
-    yield* Effect.scoped(canceledAttachmentTest(lifecycle));
-    assert.strictEqual(lifecycle.live, 0);
-    assert.strictEqual(lifecycle.releases, 2);
-  }));
-
-function deliveryBeforeBindingTest() {
-  return Effect.gen(function* () {
-    const processed = yield* Deferred.make<undefined>();
-    const allowSecond = yield* Deferred.make<undefined>();
-    const firstDelivery = receivedMessage(RECEIVED_ID, "early");
-    const received = Stream.make(firstDelivery).pipe(
-      Stream.concat(
-        Stream.fromEffect(Deferred.succeed(processed, undefined)).pipe(
-          Stream.drain,
-        ),
-      ),
-      Stream.concat(
-        Stream.fromEffect(
-          Deferred.await(allowSecond).pipe(
-            Effect.as(receivedMessage(SECOND_RECEIVED_ID, "live")),
-          ),
-        ),
-      ),
-      Stream.concat(Stream.never),
-    );
-    const events: EndpointEvent[] = [];
-    const network = yield* makeNetworkService(
-      router(received, { value: 0 }),
-      writer(events),
-      passthroughInterceptor,
-    );
-    const probe = yield* network.endpoint("probe");
-    yield* Deferred.await(processed);
-
-    const socket = yield* probe.open(
-      makeParticipantHandle("target", TARGET_ID),
-    );
-    const early = yield* socket.receive();
-    const liveFiber = yield* probe
-      .messages()
-      .pipe(Stream.take(1), Stream.runHead, Effect.fork);
-    yield* Effect.yieldNow();
-    yield* Deferred.succeed(allowSecond, undefined);
-    const live = yield* Fiber.join(liveFiber);
-    const next = yield* socket.receive();
-
-    assert.strictEqual(early.message.id, RECEIVED_ID);
-    assert.strictEqual(Option.getOrThrow(live).message.id, SECOND_RECEIVED_ID);
-    assert.strictEqual(next.message.id, SECOND_RECEIVED_ID);
-  });
-}
-
-test("backlogs conversations without replaying history to live endpoint observers", () =>
-  Effect.scoped(deliveryBeforeBindingTest()));
-
-function unavailableWriter(
-  attempted?: Deferred.Deferred<undefined>,
-): EndpointEventWriter {
-  return {
-    write: () =>
-      (attempted === undefined
-        ? Effect.void
-        : Deferred.succeed(attempted, undefined).pipe(Effect.asVoid)
-      ).pipe(
-        Effect.zipRight(
-          Effect.fail(
-            LedgerStorageError.make({
-              operation: "append",
-              detail: "ledger unavailable",
+function fanoutTest() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const deliveries = yield* Queue.unbounded<InboundDelivery>();
+        const endpointAcquirer = cachingEndpointAcquirer(
+          Stream.fromQueue(deliveries),
+        );
+        const fabric = yield* makeLinkFabric();
+        const network = yield* makeNetworkService({
+          acquireEndpoint: endpointAcquirer.acquireEndpoint,
+          routerOrigin: PROXY_ORIGIN,
+          interceptor: fabric.interceptor,
+        });
+        const endpoint = yield* network.endpoint(ENDPOINT_NAME);
+        const repeated = yield* network.endpoint(ENDPOINT_NAME);
+        let acknowledged = false;
+        const firstSubscriber = yield* collectTwoDeliveries(endpoint);
+        const secondSubscriber = yield* collectTwoDeliveries(endpoint);
+        yield* Effect.yieldNow();
+        yield* Queue.offer(
+          deliveries,
+          delivery({
+            byte: 1,
+            text: "first",
+            acknowledge: Effect.sync(() => {
+              acknowledged = true;
             }),
-          ),
-        ),
-      ),
-  };
+          }),
+        );
+        yield* Queue.offer(deliveries, delivery({ byte: 2, text: "second" }));
+
+        const firstDeliveries = Array.from(yield* Fiber.join(firstSubscriber));
+        const secondDeliveries = Array.from(
+          yield* Fiber.join(secondSubscriber),
+        );
+        const firstDelivery = firstDeliveries[0];
+        assert.exists(firstDelivery);
+        yield* firstDelivery.acknowledge;
+
+        assert.strictEqual(endpoint, repeated);
+        assert.strictEqual(endpointAcquirer.acquisitionCount(), 1);
+        assertFanout(firstDeliveries, secondDeliveries);
+        assert.isTrue(acknowledged);
+        yield* fabric.driver.disable(AUTHOR_ID, ENDPOINT_ID);
+        yield* fabric.driver.enable(AUTHOR_ID, ENDPOINT_ID);
+      }),
+    ),
+  );
 }
 
-test("returns a committed send without fabricating a retryable network failure", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const sends = { value: 0 };
-      const network = yield* makeNetworkService(
-        router(Stream.never, { value: 0 }, sends),
-        unavailableWriter(),
-        passthroughInterceptor,
-      );
-      const probe = yield* network.endpoint("probe");
-      const socket = yield* probe.open(
-        makeParticipantHandle("target", TARGET_ID),
-      );
-      const sent = yield* Effect.exit(socket.send("request"));
+it(
+  "caches one endpoint and fans out ordered deliveries to live subscribers",
+  fanoutTest,
+);
 
-      assert.isTrue(Exit.isSuccess(sent));
-      assert.strictEqual(sends.value, 1);
-    }),
+it("does not replay earlier traffic and preserves the delivered group facts", () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const deliveries = yield* Queue.unbounded<InboundDelivery>();
+        const earlierDeliveryPublished = yield* Deferred.make<undefined>();
+        const received = Stream.make(
+          delivery({ byte: 1, text: "before subscription" }),
+        ).pipe(
+          Stream.concat(
+            Stream.fromEffect(
+              Deferred.succeed(earlierDeliveryPublished, undefined),
+            ).pipe(Stream.drain),
+          ),
+          Stream.concat(Stream.fromQueue(deliveries)),
+        );
+        const endpointAcquirer = cachingEndpointAcquirer(received);
+        const fabric = yield* makeLinkFabric();
+        const network = yield* makeNetworkService({
+          acquireEndpoint: endpointAcquirer.acquireEndpoint,
+          routerOrigin: PROXY_ORIGIN,
+          interceptor: fabric.interceptor,
+        });
+        const endpoint = yield* network.endpoint(ENDPOINT_NAME);
+        yield* Deferred.await(earlierDeliveryPublished);
+
+        const subscriber = yield* endpoint
+          .messages()
+          .pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped);
+        yield* Effect.yieldNow();
+        yield* Queue.offer(deliveries, groupDelivery());
+        const observed = Array.from(yield* Fiber.join(subscriber));
+
+        assert.lengthOf(observed, 1);
+        assert.strictEqual(
+          observed[0]?.message.address,
+          CANONICAL_GROUP_ADDRESS,
+        );
+        assert.strictEqual(observed[0]?.message.kind, "group");
+        if (observed[0]?.message.kind === "group") {
+          assert.deepStrictEqual(observed[0].message.members, [
+            ALPHA_ADDRESS,
+            ENDPOINT_ADDRESS,
+            ZETA_ADDRESS,
+          ]);
+        }
+      }),
+    ),
   ));
 
-test("does not deliver ingress whose ledger evidence failed", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const deliveries = yield* PubSub.unbounded<ReceivedMessage>();
-      const received = yield* Stream.fromPubSub(deliveries, {
-        scoped: true,
-      });
-      const attempted = yield* Deferred.make<undefined>();
-      const network = yield* makeNetworkService(
-        router(received, { value: 0 }),
-        unavailableWriter(attempted),
-        passthroughInterceptor,
-      );
-      const probe = yield* network.endpoint("probe");
-      const delivery = yield* probe
-        .messages()
-        .pipe(Stream.runHead, Effect.fork);
+it("exposes terminal completion and receive failure to later subscribers", () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fabric = yield* makeLinkFabric();
+        const completedNetwork = yield* makeNetworkService({
+          acquireEndpoint: cachingEndpointAcquirer(Stream.empty)
+            .acquireEndpoint,
+          routerOrigin: PROXY_ORIGIN,
+          interceptor: fabric.interceptor,
+        });
+        const completed = yield* completedNetwork.endpoint(ENDPOINT_NAME);
+        const completedDeliveries = yield* Stream.runCollect(
+          completed.messages(),
+        );
 
-      yield* PubSub.publish(
-        deliveries,
-        receivedMessage(RECEIVED_ID, "unevidenced"),
-      );
-      yield* Deferred.await(attempted);
-      yield* Effect.yieldNow();
+        const failure = NetworkError.make({
+          operation: "receive",
+          detail: "ingress stopped",
+        });
+        const failureFabric = yield* makeLinkFabric();
+        const failedNetwork = yield* makeNetworkService({
+          acquireEndpoint: cachingEndpointAcquirer(Stream.fail(failure))
+            .acquireEndpoint,
+          routerOrigin: PROXY_ORIGIN,
+          interceptor: failureFabric.interceptor,
+        });
+        const failed = yield* failedNetwork.endpoint(
+          Schema.decodeSync(AgentName)("failed-observer"),
+        );
+        const observedFailure = yield* Stream.runDrain(failed.messages()).pipe(
+          Effect.flip,
+        );
 
-      assert.isTrue(Option.isNone(yield* Fiber.poll(delivery)));
-      yield* Fiber.interrupt(delivery);
-    }),
+        assert.isEmpty(Array.from(completedDeliveries));
+        assert.strictEqual(observedFailure, failure);
+      }),
+    ),
+  ));
+
+it("retains a terminal acquisition failure for one endpoint name", () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        let acquisitions = 0;
+        const acquireEndpoint: AcquireControlledEndpoint = () =>
+          Effect.suspend(() => {
+            acquisitions += 1;
+            return Effect.fail(
+              NetworkError.make({
+                operation: "attach-endpoint",
+                detail: `attempt ${String(acquisitions)} failed`,
+              }),
+            );
+          });
+        const fabric = yield* makeLinkFabric();
+        const network = yield* makeNetworkService({
+          acquireEndpoint,
+          routerOrigin: PROXY_ORIGIN,
+          interceptor: fabric.interceptor,
+        });
+
+        const first = yield* network.endpoint(ENDPOINT_NAME).pipe(Effect.exit);
+        const second = yield* network.endpoint(ENDPOINT_NAME).pipe(Effect.exit);
+
+        assert.isTrue(Exit.isFailure(first));
+        assert.isTrue(Exit.isFailure(second));
+        assert.strictEqual(acquisitions, 1);
+      }),
+    ),
   ));

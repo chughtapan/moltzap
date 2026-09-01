@@ -1,37 +1,36 @@
 /** @file Criterion assessment provenance and one-semantic-call case grading. */
 
-import { Array as Arr, Effect, Schema } from "effect";
 import type { NonEmptyReadonlyArray } from "effect/Array";
+import { Array as Arr, Effect, Schema } from "effect";
 import type {
   CriterionDefinition,
   CriterionEvidence,
   EvaluationCaseMetadata,
 } from "./cases.js";
 import {
+  evidenceNotice,
   JudgeBundle,
   JudgeCriterion,
+  judgeError,
   type JudgeResult,
   SemanticJudge,
-  evidenceNotice,
-  judgeError,
   validateJudgeResult,
 } from "./judge.js";
 import {
   CriterionDecided,
-  type CriterionVerdict,
-  type EvaluationCaseId,
-  type JudgePolicyId,
-  NeedsJudge,
   criterionId,
+  type CriterionVerdict,
   criterionVerdict,
+  type EvaluationCaseId,
   evaluationCaseId,
   evaluationEvidenceId,
+  type JudgePolicyId,
+  NeedsJudge,
 } from "./model.js";
 import {
+  citationIssue,
   type EvaluationTranscript,
   type GradingRefused,
-  PeerTimeoutTranscriptItem,
-  citationIssue,
   refusal,
   validateEvaluationTranscript,
 } from "./transcript.js";
@@ -91,11 +90,27 @@ const verdictPrecedence = {
 } as const satisfies Readonly<Record<CriterionVerdict, number>>;
 
 /**
+ * Restate an unresolved criterion as the question the semantic judge answers.
+ * @param resolution A criterion whose code policy deferred to the judge.
+ * @returns The judge-facing criterion carried in the bundle and the calibration
+ * corpus alike, so both request the same shape.
+ */
+export function pendingCriterion(
+  resolution: CriterionResolution & { readonly decision: NeedsJudge },
+): JudgeCriterion {
+  return JudgeCriterion.make({
+    id: resolution.definition.criterion.id,
+    name: resolution.definition.criterion.name,
+    question: resolution.decision.question,
+  });
+}
+
+/**
  * Reduce nonempty assessments using failed-over-undecided-over-passed precedence.
  * @param assessments Criterion assessments for one case.
  * @returns The report-level verdict.
  */
-export function verdictOf(
+function verdictOf(
   assessments: NonEmptyReadonlyArray<CriterionAssessment>,
 ): CriterionVerdict {
   return assessments.reduce<CriterionVerdict>(
@@ -149,8 +164,7 @@ function selectedEvidence(
             {
               evidenceId,
               source: item.source,
-              parts:
-                item instanceof PeerTimeoutTranscriptItem ? [] : item.parts,
+              parts: item.parts,
             },
           ];
     });
@@ -257,31 +271,6 @@ interface JudgeCriteria {
 
 type PartitionedCriteria = CodeOnlyCriteria | JudgeCriteria;
 
-function codeAssessment(decision: CriterionDecided): CodeAssessment {
-  return CodeAssessment.make({
-    criterionId: decision.criterionId,
-    verdict: decision.verdict,
-    detail: decision.detail,
-    citations: decision.citations,
-  });
-}
-
-/**
- * Restate an unresolved criterion as the question the semantic judge answers.
- * @param resolution A criterion whose code policy deferred to the judge.
- * @returns The judge-facing criterion carried in the bundle and the calibration
- * corpus alike, so both request the same shape.
- */
-export function pendingCriterion(
-  resolution: CriterionResolution & { readonly decision: NeedsJudge },
-): JudgeCriterion {
-  return JudgeCriterion.make({
-    id: resolution.definition.criterion.id,
-    name: resolution.definition.criterion.name,
-    question: resolution.decision.question,
-  });
-}
-
 function partitionCriteria(
   resolutions: NonEmptyReadonlyArray<CriterionResolution>,
 ): PartitionedCriteria {
@@ -326,6 +315,15 @@ function partitionCriteria(
       ...pending,
     ],
   };
+}
+
+function codeAssessment(decision: CriterionDecided): CodeAssessment {
+  return CodeAssessment.make({
+    criterionId: decision.criterionId,
+    verdict: decision.verdict,
+    detail: decision.detail,
+    citations: decision.citations,
+  });
 }
 
 function gradePendingCriteria(

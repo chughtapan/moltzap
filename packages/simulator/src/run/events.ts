@@ -1,20 +1,20 @@
+/** @file Definition-bound readable-ledger and customer-event Effect services. */
+
 import { Context, type Effect, Layer, type Schema, type Stream } from "effect";
+import type { LedgerWriter } from "../ledger/append.js";
+import type {
+  LedgerFailure,
+  LedgerManifest,
+  LedgerRecord,
+  LedgerRef,
+  RunLedger,
+} from "../ledger/index.js";
 import {
   EventCatalog,
   type EventClass,
   type EventClassOf,
   type EventOf,
 } from "../events/catalog.js";
-import type {
-  LedgerFailure,
-  LedgerWriter,
-  RunLedger,
-} from "../ledger/append.js";
-import type {
-  LedgerManifest,
-  LedgerRecord,
-  LedgerRef,
-} from "../ledger/schema.js";
 import { coreEvents } from "../events/core.js";
 
 type CatalogSchema = Schema.Schema.All;
@@ -44,6 +44,42 @@ export interface CustomerEvents<Catalog extends AnyEventCatalog> {
     event: EventOf<Catalog>,
     metadata?: EventMetadata,
   ) => Effect.Effect<LedgerRecord<Catalog>, LedgerFailure>;
+}
+
+/**
+ * Close one definition over its readable core-plus-customer catalog and its
+ * customer-only writable catalog. The returned tags are unique to this
+ * definition value and are provided once at the run boundary.
+ * @param definitionId Stable identity used to namespace this definition's services.
+ * @param customerCatalog Customer-owned event variants accepted for emission.
+ * @returns Definition-bound tags, merged catalog, and service-layer constructor.
+ */
+export function makeDefinitionEventServices<
+  const Id extends string,
+  CustomerSchema extends CatalogSchema,
+  CustomerClasses extends EventClass,
+>(
+  definitionId: Id,
+  customerCatalog: EventCatalog<CustomerSchema, CustomerClasses>,
+) {
+  const catalog = EventCatalog.merge(coreEvents, customerCatalog);
+  type ReadableCatalog = typeof catalog;
+  type CustomerCatalog = typeof customerCatalog;
+  const services = makeServiceTags(definitionId, catalog, customerCatalog);
+
+  const layer = (
+    ledger: RunLedger<ReadableCatalog>,
+    customerWriter: LedgerWriter<CustomerCatalog>,
+  ) =>
+    Layer.merge(
+      Layer.succeed(services.ledger, makeReadableRunLedger(ledger)),
+      Layer.succeed(services.events, makeCustomerEvents(customerWriter)),
+    );
+
+  return Object.freeze({
+    ...services,
+    layer,
+  });
 }
 
 function nonEmpty(value?: string): string | undefined {
@@ -108,41 +144,5 @@ function makeServiceTags<
     customerCatalog,
     ledger: ledgerValue,
     events: eventsValue,
-  });
-}
-
-/**
- * Close one definition over its readable core-plus-customer catalog and its
- * customer-only writable catalog. The returned tags are unique to this
- * definition value and are provided once at the run boundary.
- * @param definitionId Value supplied to the operation.
- * @param customerCatalog Value supplied to the operation.
- * @returns The created definition event services.
- */
-export function makeDefinitionEventServices<
-  const Id extends string,
-  CustomerSchema extends CatalogSchema,
-  CustomerClasses extends EventClass,
->(
-  definitionId: Id,
-  customerCatalog: EventCatalog<CustomerSchema, CustomerClasses>,
-) {
-  const catalog = EventCatalog.merge(coreEvents, customerCatalog);
-  type ReadableCatalog = typeof catalog;
-  type CustomerCatalog = typeof customerCatalog;
-  const services = makeServiceTags(definitionId, catalog, customerCatalog);
-
-  const layer = (
-    ledger: RunLedger<ReadableCatalog>,
-    customerWriter: LedgerWriter<CustomerCatalog>,
-  ) =>
-    Layer.merge(
-      Layer.succeed(services.ledger, makeReadableRunLedger(ledger)),
-      Layer.succeed(services.events, makeCustomerEvents(customerWriter)),
-    );
-
-  return Object.freeze({
-    ...services,
-    layer,
   });
 }

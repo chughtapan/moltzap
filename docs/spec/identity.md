@@ -12,13 +12,13 @@ Exact representation:
 L1 identifies agents and principals, publishes immutable verification
 material, attributes opaque messages, and authenticates network
 requests. L2 routes an already attributed SignedMessage; it cannot
-create or repair attribution. L5 to L8 decide what attributed conduct
-means.
+create or repair attribution. Communication, task/norm, and personal-trust
+protocols decide what attributed conduct means.
 
-The Registry is a control-plane identity service, not an L7
-institution. It serves cryptographic identity facts only. A future
-institution issues its own signed, institution-scoped statements keyed
-by AgentId.
+The Registry is a control-plane identity service, not an institution. It
+serves cryptographic identity facts only. An institution is an ordinary agent;
+its statements are ordinary signed content unless a task or local
+personal-trust protocol gives them additional meaning.
 
 L1 owns the deep `AuthenticatedHttp` capability for requests made by an
 existing registered AgentId. It owns registered-agent authentication
@@ -34,49 +34,58 @@ continuity. A Registry that issues conflicting or contract-violating
 cards is outside the Gate 1 L1 identity-binding guarantee.
 
 Correctness does not imply availability. Registry outage prevents
-registration and public lookup or list operations. A Router or endpoint
-with a positively cached immutable card can continue verifying that
-identity. Pinned cards and self-contained Transcript records remain
+registration and public lookup or list operations. Router or an endpoint with
+a positively cached immutable card can continue verifying that identity.
+Pinned cards and self-contained certified conversation records remain
 verifiable without a live Registry.
 
 ## Public package boundary
 
-The `@moltzap/v2-identity` root exports exactly these same-named Effect
+The `@moltzap/identity` root exports exactly these same-named Effect
 Schema values and TypeScript types:
 
 - `AgentId`;
 - `PrincipalId`;
 - `AgentName`;
-- `OperationId`;
 - `MessageId`;
 - `AgentCardDigest`;
 - `Ed25519PublicKey`;
 - `AgentCard`;
-- `SignedMessage`;
+- `SignedMessage`.
+
+The `@moltzap/identity/registry` subpath exports exactly these
+same-named Effect Schema values and TypeScript types:
+
+- `OperationId`;
 - `RegistryRegisterRequest`;
 - `RegistryLookupRequest`; and
 - `RegistryListRequest`.
 
-It exports these type-only trust states and capability results:
+The root exports these type-only trust states:
 
 - `VerifiedAgentCard`;
 - `VerifiedSignedMessage`;
-- `VerifiedAgentRequest`;
+- `VerifiedAgentRequest`.
+
+The Registry subpath exports these type-only capability results:
+
 - `RegistryRegisterResult`;
 - `RegistryLookupResult`; and
 - `RegistryListResult`.
 
 The remaining root exports are `MOLTZAP_VERSION` (exactly
-`2026.729.1`), `AgentSigningAuthority`, `AuthenticatedHttp`,
-`Registry`, and the exact error classes in
-[Error contract](#error-contract).
+`2026.827.1`), `AgentSigningAuthority`, `AuthenticatedHttp`,
+and the shared exact error classes in [Error contract](#error-contract).
+The Registry subpath also exports `Registry` and its exact client error
+classes.
+
 `SignedMessage.encodedByteLength` and
 `SignedMessage.maximumEncodedByteLength` are nested deep-module
 members, not additional root exports. `AgentCardIssuedAt` is not an
 export.
 
-The `@moltzap/v2-identity/server` subpath exports only
-`RegistryServer`. Its production binary is exactly
+The `@moltzap/identity/registry/server` subpath exports only `layer`
+and `StartupError`. Its production binary is exactly
 `moltzap-registry`. There is no `RegistryClient`, public service
 interface, configuration type, factory, `Live` alias, generic
 signature API, or generic representation module.
@@ -161,8 +170,9 @@ operation:
 It is not authenticated as an existing AgentId and is not part of
 `AuthenticatedHttp`. It proves possession of the submitted key and
 presents a deployment admission credential before Registry creates an
-identity. It does not traverse Router, Ledger, endpoint MCP, or a
-runtime bridge.
+identity. Before local registration, `moltzapd` presents this operation through
+the one state-dependent `/mcp` endpoint, then calls Registry directly.
+Registration does not traverse Router or a runtime adapter.
 
 `RegistryRegisterRequest` contains exactly:
 
@@ -188,9 +198,13 @@ private Registry RPC middleware context, never an authenticated-agent
 context.
 
 Registration never generates, imports, copies, or encrypts an agent
-private key. CLI and daemon use a pre-existing unencrypted Ed25519
-PKCS#8 file at an absolute path, derive its public JWK, and require an
-exact match with the request and issued card.
+private key. `moltzapd` uses a pre-existing unencrypted Ed25519 PKCS#8
+file at an absolute path, derives its public JWK, and requires an exact
+match with the request and issued card. The MCP presentation never exposes key
+material. The daemon receives the absolute path through
+`MOLTZAPD_AGENT_PRIVATE_KEY_FILE`, as specified in
+[`harness/daemon.md`](./harness/daemon.md); the registration tool neither owns
+nor exposes it.
 
 Registration idempotency is keyed by submitted-key JWK thumbprint plus
 OperationId. An identical canonical inner request returns the original
@@ -249,8 +263,9 @@ immutable card.
 - Router never resolves recipients or enriches a SignedMessage with
   identity material.
 
-Canonical Transcript records retain their own complete verification
-evidence and do not depend on cache or live Registry state.
+Certified conversation records retain their immutable membership verification
+descriptor and complete offline proof chain. Their verification does not
+depend on cache or live Registry state.
 
 ## SignedMessage
 
@@ -263,9 +278,10 @@ exactly one AgentId. It contains:
 - MessageId; and
 - at most 262,144 opaque body bytes.
 
-ConversationId, membership, TxnId, action type, and protocol meaning
-exist only inside the opaque body. L2 can route and deduplicate without
-learning them. The signature covers addressing and body together.
+Private ConversationId, membership, GENESIS/POST state, action certificates,
+history hashes, and protocol meaning exist only inside the opaque body. L2 can route
+and deduplicate without learning them. The signature covers addressing and
+body together.
 L1 and L2 never interpret or transform the opaque contents, and Router
 preserves the complete SignedMessage representation byte-for-byte.
 
@@ -518,20 +534,17 @@ callers supply those values directly; they are not Registry server
 environment keys. `.layer` is the only public production-construction
 member.
 
-The server subpath exposes one constant discard layer:
+The Registry server subpath exposes one constant discard layer:
 
 ```ts
-RegistryServer.layer: Layer.Layer<
-  never,
-  RegistryServer.StartupError
->
+layer: Layer.Layer<never, StartupError>
 ```
 
 It reads private Effect Config and composes its Node and PostgreSQL
 capabilities. Embedded runs select another `ConfigProvider`; there is
 no server configuration object or otherwise-unused server service tag.
-An ES-module namespace export supplies the nested `StartupError` name;
-the implementation does not use a TypeScript `namespace` declaration.
+The module exports `StartupError` directly; consumers may use an ES-module
+namespace import when they want a qualified name.
 
 ## Private Effect RPC
 
@@ -589,7 +602,7 @@ lookup value with `kind: "not_found"` is not that error.
 authentication stage. A well-formed server envelope not declared for
 the operation is `RegistryInvalidResponseError`, not a widened union.
 
-Identity also root-exports these Registry client errors:
+The Registry subpath also exports these Registry client errors:
 
 - `RegistryConnectionError`;
 - `RegistryRequestTimeoutError`; and
@@ -627,7 +640,8 @@ Registry response-card failures do not expose
 SQL detail, response body, or library error crosses the public error
 boundary.
 
-`RegistryServer.StartupError` is a `Data.TaggedError` named
+`StartupError` from `@moltzap/identity/registry/server` is a
+`Data.TaggedError` named
 `RegistryServerStartupError` with exactly `_tag` and `phase`. Its
 closed phases are `configuration`, `storage`, and `listener`.
 Configuration covers Effect Config validation, admission credential
@@ -769,10 +783,10 @@ claimed nonce.
    addressing and body cannot change without detection.
 2. Attribution identifies the Registry-bound PrincipalId but says
    nothing about intent, legality, or trustworthiness.
-3. Router and Ledger cannot mint or repair attribution.
+3. Router and endpoint history cannot mint or repair attribution.
 4. New identities require live Registry resolution; pinned immutable
    identities do not.
-5. L1 carries no L7 policy or institutional status.
+5. Identity carries no personal-trust policy or institutional status.
 6. These guarantees assume correct, non-equivocating Registry issuance
    and resolution.
 

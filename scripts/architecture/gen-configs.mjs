@@ -1,3 +1,5 @@
+/** @file Generates package-local architecture analyzer configurations. */
+
 import { writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
@@ -19,10 +21,6 @@ const publicTypePackage = {
     package: "@effect/rpc",
     reason:
       "RPC descriptors are the public contract; Rpc/RpcGroup types cross the boundary by design",
-  },
-  protocol: {
-    package: "@moltzap/protocol",
-    reason: "Intra-monorepo protocol; foundational shared contract",
   },
   client: {
     package: "@moltzap/client",
@@ -57,11 +55,6 @@ const allowedTestPublicSubpaths = [
     subpath: "./test-support",
     reason: "Channel test support exposed for integration tests",
   },
-  {
-    subpath: "./testing",
-    reason:
-      "Conformance + driver surface for cross-package integration testing",
-  },
 ];
 
 const sharedConfig = {
@@ -72,56 +65,112 @@ const sharedConfig = {
 const packageDefinitions = {
   client: {
     beforeShared: {
-      minExportedSiblingModules: 6,
-      // HarnessClient is an intentional runtime-facing entrypoint alongside
-      // the existing package surfaces.
-      maxSubpathExports: 6,
-      maxPublicExports: 29,
-      // channel-base names the adapter primitives, and BoundedMap is one of
-      // them; the rule counts local re-exports, so owning that module in-package
-      // rather than importing it raises the count without widening the contract.
-      minPublicFacadeModules: 9,
-      folderChildCountOverrides: [
-        {
-          folder: ".",
-          maxChildren: 26,
-          maxChildrenIncludingTests: 28,
-          reason:
-            "The client SDK keeps its peer public surfaces and their focused implementation modules flat at the source root; AGENTS.md documents the package structure",
-        },
-      ],
+      maxFolderCycles: 1,
+      folderReadmeFileNames: ["README.md", "../README.md"],
       facadeFiles: [
         {
-          file: "harness-client.ts",
+          file: "server.ts",
           reason:
-            "Named adapter-facing boundary for the loopback daemon client, published as the ./harness-client subpath",
-        },
-        {
-          file: "channel-core.ts",
-          reason:
-            "Named public boundary for channel-adapter dispatch, admission, and enrichment",
-        },
-        {
-          file: "service.ts",
-          reason:
-            "Named public boundary for the managed MoltZap client service",
-        },
-        {
-          file: "profile.ts",
-          reason:
-            "Named-profile persistence contract shared by client configuration and the daemon that owns each slot",
+            "Published process-composition boundary for the single configured endpoint daemon",
         },
         {
           file: "harness-mcp-wire.ts",
           reason:
-            "MCP catalog contract shared by the daemon composition and the listener that serves it",
+            "Private MCP operation facade shared by the daemon runtime and management catalog",
         },
         {
-          file: "moltzapd-catalog.ts",
+          file: "harness-mcp-contract.ts",
           reason:
-            "Slot and active catalog boundary shared by the daemon composition and its registration handler",
+            "Private closed MCP schemas shared by daemon projection, loopback client decoding, and protocol-boundary tests",
+        },
+        {
+          file: "management-runtime.ts",
+          reason:
+            "Exact private management schema boundary shared by daemon operations and its MCP catalog",
+        },
+        {
+          file: "daemon/registration.ts",
+          reason:
+            "Crash-recoverable identity-registration boundary shared by daemon startup and management",
+        },
+        {
+          file: "daemon/runtime/activation.ts",
+          reason:
+            "Identity activation, pinned-card recovery, and crash-recoverable registration shared by runtime composition, controller operations, and protocol acquisition",
+        },
+        {
+          file: "endpoint/engine.ts",
+          reason:
+            "Private endpoint-engine facade composing protocol phases behind the daemon-owned EndpointEngine capability",
+        },
+        {
+          file: "endpoint/engine-durability.ts",
+          reason:
+            "Durable action-fold transition boundary shared by engine protocol phases",
+        },
+        {
+          file: "endpoint/engine-send.ts",
+          reason:
+            "Addressed intent activation and durable send boundary shared by the endpoint engine phases",
+        },
+        {
+          file: "endpoint/engine-types.ts",
+          reason:
+            "Closed endpoint-engine port and error vocabulary shared by every protocol phase",
+        },
+        {
+          file: "endpoint/representation-codec.ts",
+          reason:
+            "Canonical encoding, signing, and hashing boundary beneath the complete representation facade",
+        },
+        {
+          file: "endpoint/representation.ts",
+          reason:
+            "Complete private protocol-representation facade consumed by endpoint and daemon modules",
+        },
+        {
+          file: "endpoint/recovery/state.ts",
+          reason:
+            "Volatile catch-up and re-anchor coordination shared only by the recovery facade and its re-anchor implementation",
+        },
+        {
+          file: "endpoint/store.ts",
+          reason:
+            "Private typed facade for the daemon-owned endpoint replica and its recovery state",
+        },
+        {
+          file: "endpoint/store/deliveries.ts",
+          reason:
+            "Pending-delivery SQL capability shared by record promotion, management recovery reads, and endpoint-store operations",
+        },
+        {
+          file: "endpoint/store/dissemination.ts",
+          reason:
+            "Dissemination-obligation SQL capability shared by record promotion, recovery reads, and atomic outbox enqueue",
+        },
+        {
+          file: "endpoint/store/outbound.ts",
+          reason:
+            "Durable outbox SQL capability shared by endpoint-store operations, recovery reads, and dissemination transactions",
         },
       ],
+      layers: [
+        {
+          name: "daemon",
+          folders: ["daemon"],
+          reason:
+            "Process composition may depend on endpoint capabilities while endpoint protocol code never depends on daemon lifecycle",
+        },
+        {
+          name: "endpoint",
+          folders: ["endpoint"],
+          reason:
+            "Endpoint protocol, durability, recovery, Router work, and addressed delivery form the daemon's private semantic core",
+        },
+      ],
+    },
+    afterShared: {
+      publicTypePackages,
     },
   },
   evals: {
@@ -152,9 +201,9 @@ const packageDefinitions = {
             "Mixed-roster execution and runtime-native condition adapters form the application execution boundary",
         },
         {
-          file: "src/grading.ts",
+          file: "src/peer.ts",
           reason:
-            "Evaluation-owned transcript, assessment, semantic judge, and calibration boundary",
+            "Autonomous peer plans, public-Client behavior, and the controller observation gateway form the evaluation peer boundary",
         },
         {
           file: "src/transcript.ts",
@@ -187,11 +236,6 @@ const packageDefinitions = {
             "Per-condition experiment identity and reconciliation shared by dataset versioning and report publication",
         },
         {
-          file: "src/peer.ts",
-          reason:
-            "Autonomous Effect peer policies and observation gateways form the bundled social-peer boundary",
-        },
-        {
           file: "src/sweep.ts",
           reason:
             "Durable report and sequential matrix execution boundary shared by the CLI and Phoenix publisher",
@@ -202,131 +246,28 @@ const packageDefinitions = {
       publicTypePackages: [
         publicTypePackage.effect,
         publicTypePackage.platform,
-        publicTypePackage.protocol,
+        {
+          ...publicTypePackage.client,
+          reason:
+            "The addressed HarnessEndpoint supplies send and acknowledged-delivery contracts to evaluation boundaries",
+        },
         publicTypePackage.simulator,
       ],
       allowedTestPublicSubpaths: [],
     },
   },
   "nanoclaw-channel": {
-    beforeShared: {
-      folderReadmeFileNames: ["README.md", "MODULE.md"],
-      sharedFolderNames: [
-        {
-          folder: "db",
-          reason:
-            "Persistence helpers (agent/messaging groups, container configs) the moltzap channel adapter composes over.",
-        },
-        {
-          folder: "modules",
-          reason:
-            "Cross-cutting modules (permissions) the channel adapter depends on.",
-        },
-      ],
+    afterShared: {
+      publicTypePackages: [publicTypePackage.effect, publicTypePackage.client],
+      allowedTestPublicSubpaths: [],
     },
   },
   "openclaw-channel": {
     beforeShared: {
       packageRuntime: "node",
     },
-  },
-  protocol: {
-    config: {
-      minExportedSiblingModules: 10,
-      maxSubpathExports: 11,
-      maxPublicExports: 43,
-      maxPublicReexports: 13,
-      minPublicFacadeModules: 14,
-      folderChildCountOverrides: [
-        {
-          folder: "transport",
-          maxChildren: 12,
-          reason:
-            "Transport is a flat wire-contract toolkit whose descriptor, dispatch, mux, decoding, pagination, and wire-error modules form one cohesive lowest layer",
-        },
-      ],
-      facadeFiles: [
-        {
-          file: "socket/lifecycle.ts",
-          reason:
-            "Stable lifecycle contract shared by the agent and app socket clients while socket/index.ts curates the published socket surface",
-        },
-        {
-          file: "socket/client-runtime.config.ts",
-          reason:
-            "Internal managed-runtime boot policy that sends protocol diagnostics to stderr so client applications can reserve stdout for structured output",
-        },
-        {
-          file: "socket/server.ts",
-          reason:
-            "Stable server socket contract that composes transport and requirement layers behind MoltZapServer",
-        },
-        {
-          file: "identity/agents/types.ts",
-          reason:
-            "Agent record schemas and validation form the identity descriptor boundary consumed by the agent-list RPC while identity/agents/index.ts curates the published surface",
-        },
-        {
-          file: "transport/definition.ts",
-          reason:
-            "Descriptor definitions are the stable transport boundary used by every higher protocol domain",
-        },
-      ],
-      publicTypePackages: [
-        publicTypePackage.effect,
-        publicTypePackage.platform,
-        publicTypePackage.platformNode,
-        {
-          package: "@effect/rpc",
-          reason:
-            "RPC definitions are the protocol's public contract; Rpc/RpcGroup types cross the boundary by design",
-        },
-      ],
-      allowedTestPublicSubpaths: [
-        {
-          subpath: "./testing",
-          reason:
-            "Conformance + driver surface for cross-package integration testing; consumed by moltzap-arena",
-        },
-      ],
-      layers: [
-        {
-          name: "socket",
-          folders: ["socket"],
-          reason:
-            "Composition layer: the clients, the server, and the catalog that derives its RPC groups from every domain below it",
-        },
-        {
-          name: "message",
-          folders: ["message"],
-          reason:
-            "Message domain: payloads, send and list descriptors, dispatch admission; addresses conversations, so it sits above them",
-        },
-        {
-          name: "conversation",
-          folders: ["conversation"],
-          reason:
-            "Conversation domain: addressing, participant membership, and the identifiers the message domain references",
-        },
-        {
-          name: "network",
-          folders: ["network"],
-          reason:
-            "Network domain: connect descriptors, protocol version, and the server address",
-        },
-        {
-          name: "identity",
-          folders: ["identity"],
-          reason:
-            "Identity domain: agents, apps, users, and the principal requirements every domain above composes",
-        },
-        {
-          name: "transport",
-          folders: ["transport"],
-          reason:
-            "Wire layer: descriptor primitives, strict decode, mux routing, tagged errors; no domain semantics",
-        },
-      ],
+    afterShared: {
+      publicTypePackages,
     },
   },
   simulator: {
@@ -347,19 +288,9 @@ const packageDefinitions = {
       ],
       facadeFiles: [
         {
-          file: "network.ts",
+          file: "network/router.ts",
           reason:
-            "Published network contract for participants, conversations, endpoints, links, and router implementations",
-        },
-        {
-          file: "ledger.ts",
-          reason:
-            "Published ledger contract for records, storage, live runs, and offline inspection",
-        },
-        {
-          file: "agents.ts",
-          reason:
-            "Published runtime contract for autonomous agents, keyed rosters, and shipped runtime implementations",
+            "Domain-internal Router fixture boundary shared by cluster composition and the published Network barrel",
         },
         {
           file: "events/catalog.ts",
@@ -377,9 +308,9 @@ const packageDefinitions = {
             "Definition-bound Effect services for readable ledgers and customer-owned event emission",
         },
         {
-          file: "ledger/schema.ts",
+          file: "run/link-fabric.ts",
           reason:
-            "Durable record, manifest, completion, digest, and ledger-reference model",
+            "Run-private post-Router delivery-interception port shared by endpoint attachment, fault control, and the transport proxy",
         },
         {
           file: "ledger/storage.ts",
@@ -392,23 +323,9 @@ const packageDefinitions = {
             "Live-ledger boundary for ordered append, failure latching, completion, and typed event streams",
         },
         {
-          file: "ledger/read.ts",
-          reason: "Completed-ledger validation and offline opening boundary",
-        },
-        {
-          file: "run/link-fabric.ts",
-          reason:
-            "Link-fabric boundary coupling the platform link driver, receiver registration, and the policy interpreter",
-        },
-        {
           file: "run/outcomes.ts",
           reason:
-            "Causal outcome conversion shared by runtime, router, and program lifecycle modules",
-        },
-        {
-          file: "run/router.ts",
-          reason:
-            "Router lifecycle boundary coupling scoped acquisition and shutdown with durable causal outcomes",
+            "Causal outcome conversion shared by runtime and program lifecycle modules",
         },
         {
           file: "run/execute.ts",
@@ -451,35 +368,6 @@ const packageDefinitions = {
             "Public authoring surface composing catalogs, roster, cluster layer, and the customer Effect into one runnable spec",
         },
         {
-          file: "network/endpoint.ts",
-          reason:
-            "Controlled endpoint and network service boundary over router transports and conversation receive cursors",
-        },
-        {
-          file: "network/link.ts",
-          reason:
-            "Link driver port and experiment-facing scoped link controller services",
-        },
-        {
-          file: "network/participant.ts",
-          reason:
-            "Nominal participant and agent handles shared by network, runtime, and kernel capabilities",
-        },
-        {
-          file: "network/conversation.ts",
-          reason: "Conversation addressing and endpoint-bound socket contract",
-        },
-        {
-          file: "network/router.ts",
-          reason:
-            "Router port, framed message model, connection contract, and typed network failures",
-        },
-        {
-          file: "network/server/process.ts",
-          reason:
-            "Scoped MoltZap server ownership for image, storage, process, observation, and identity resources",
-        },
-        {
           file: "agents/agent.ts",
           reason:
             "Autonomous participant lifecycle contract implemented by every runtime family",
@@ -490,9 +378,9 @@ const packageDefinitions = {
             "Keyed mixed-runtime roster preserving each agent's acquisition errors and Effect requirements",
         },
         {
-          file: "network/server/packages.ts",
+          file: "agents/container.ts",
           reason:
-            "Runtime package discovery and install-policy boundary shared by shipped runtime families",
+            "Private container-runtime selection port used only by the Kubernetes society composition root",
         },
       ],
       layers: [
@@ -509,18 +397,34 @@ const packageDefinitions = {
             "The run kernel orchestrates capability contracts without becoming a dependency of them",
         },
         {
-          name: "capabilities",
-          folders: [
-            "events",
-            "ledger",
-            "network",
-            "agents",
-            "cluster",
-            "cluster/kubernetes",
-            "cluster/profiles",
-          ],
+          name: "cluster",
+          folders: ["cluster"],
           reason:
-            "Peer event, ledger, network, agent, and cluster capabilities compose through typed ports and do not form a truthful linear stack; each exposes a port the run kernel requires and hides its adapters behind it",
+            "Cluster implementations consume agent, ledger, and network contracts while keeping platform mechanisms below the run kernel",
+        },
+        {
+          name: "agents",
+          folders: ["agents"],
+          reason:
+            "Agent runtimes consume ledger configuration values and Network participant handles without owning either domain",
+        },
+        {
+          name: "ledger",
+          folders: ["ledger"],
+          reason:
+            "Ledger persistence consumes the closed event catalog while remaining independent of agents, network, and platforms",
+        },
+        {
+          name: "network",
+          folders: ["network"],
+          reason:
+            "Network contracts depend only on lower package owners and remain independent of Simulator orchestration and evidence",
+        },
+        {
+          name: "events",
+          folders: ["events"],
+          reason:
+            "The closed event vocabulary is the deepest Simulator-owned contract used by ledger and orchestration",
         },
       ],
     },
@@ -528,54 +432,19 @@ const packageDefinitions = {
       publicTypePackages: [
         publicTypePackage.effect,
         publicTypePackage.platform,
-        {
-          ...publicTypePackage.rpc,
-          reason:
-            "Effect RPC types cross the autonomous runtime-builder boundary through the production MoltZap agent client",
-        },
         publicTypePackage.openclaw,
-        publicTypePackage.protocol,
+        {
+          package: "@moltzap/identity",
+          reason:
+            "Simulator participant, Router-fixture, and fault contracts deliberately expose Identity-owned AgentId, AgentName, and SignedMessage values",
+        },
+        {
+          package: "@moltzap/client",
+          reason:
+            "Simulator controlled-endpoint contracts deliberately expose Client-owned SendInput and InboundDelivery values",
+        },
       ],
       allowedTestPublicSubpaths: [],
-    },
-  },
-  server: {
-    beforeShared: {
-      packageRuntime: "node",
-    },
-    afterShared: {
-      minExportedSiblingModules: 7,
-      folderChildCountOverrides: [
-        {
-          folder: ".",
-          maxChildren: 13,
-          reason:
-            "The source root is the package assembly boundary and intentionally groups its domain folders with the binary and configuration entrypoints",
-        },
-        {
-          folder: "db",
-          maxChildren: 11,
-          reason:
-            "The database boundary keeps schema, client, and migration adapters together while each concern remains named and cohesive",
-        },
-      ],
-      facadeFiles: [
-        {
-          file: "message/layer.ts",
-          reason:
-            "The message layer module is the composition facade for its Effect service tags and live implementations",
-        },
-        {
-          file: "network/layer.ts",
-          reason:
-            "The network layer module is the composition facade for its Effect service tags and live implementations",
-        },
-        {
-          file: "moltzap/handler-catalog.ts",
-          reason:
-            "The handler catalog is the explicit adapter facade that binds domain handlers to protocol method tags",
-        },
-      ],
     },
   },
 };
@@ -588,7 +457,7 @@ const architectureConfigDefinitions = [
     definition,
   })),
   {
-    packageRoot: "v2/identity",
+    packageRoot: "packages/identity",
     definition: {
       config: {
         packageRuntime: "node",
@@ -606,7 +475,7 @@ const architectureConfigDefinitions = [
             folder: ".",
             maxChildren: 12,
             reason:
-              "The identity root keeps its closed identifier, key, signed-artifact, request-authentication, and Registry capability boundaries as peer deep modules",
+              "The identity package keeps its closed identifier, key, signed-artifact, request-authentication, and Registry capability boundaries as peer deep modules",
           },
         ],
         facadeFiles: [
@@ -643,7 +512,7 @@ const architectureConfigDefinitions = [
           {
             file: "registry/server.ts",
             reason:
-              "Production process-composition boundary exported through the server subpath",
+              "Production process-composition boundary exported through the Registry server subpath",
           },
           {
             file: "registry/storage.ts",
@@ -660,7 +529,7 @@ const architectureConfigDefinitions = [
     },
   },
   {
-    packageRoot: "v2/router",
+    packageRoot: "packages/router",
     definition: {
       config: {
         packageRuntime: "node",
@@ -673,17 +542,12 @@ const architectureConfigDefinitions = [
         folderChildCountOverrides: [
           {
             folder: "router",
-            maxChildren: 12,
+            maxChildren: 9,
             reason:
-              "The Router implementation keeps contract, client, RPC, HTTP, send, poll, feed, cursor, waiters, configuration, server, and process as the cohesive boundaries of one independently runnable service",
+              "The Router implementation keeps contract, RPC, HTTP, send, poll, feed, cursor, waiters, and process as the cohesive boundaries of one independently runnable service",
           },
         ],
         facadeFiles: [
-          {
-            file: "router/client.ts",
-            reason:
-              "Private HTTP client boundary used by the public Router capability",
-          },
           {
             file: "router/feed.ts",
             reason:
@@ -713,11 +577,6 @@ const architectureConfigDefinitions = [
             file: "router/send.ts",
             reason:
               "Authenticated send behavior boundary over identity proof and feed capabilities",
-          },
-          {
-            file: "router/server.ts",
-            reason:
-              "Production process-composition boundary exported through the server subpath",
           },
         ],
       },

@@ -1,23 +1,22 @@
 /** @file Runtime-native principal drivers for bundled evaluation conditions. */
 
-import { agentName } from "@moltzap/protocol/identity";
 import type { CustomerEvents, LedgerFailure } from "@moltzap/simulator";
 import {
-  NanoClawGatewayInput,
-  type NanoClawGatewayError,
   type NanoClawGateway,
-  OpenClawGatewayRequest,
+  type NanoClawGatewayError,
+  NanoClawGatewayInput,
   type OpenClawGateway,
+  OpenClawGatewayRequest,
   type OpenClawGatewayRequestError,
   type StartedAgent,
 } from "@moltzap/simulator/agents";
-import { Effect, Option, Ref, Schema, Stream } from "effect";
+import { Effect, PubSub, Queue, Ref, Schema, Stream } from "effect";
 import {
+  type evaluationEvents,
   NanoClawPrincipalInputSent,
   NanoClawPrincipalOutputReceived,
   OpenClawPrincipalFinalOutput,
   OpenClawPrincipalInstructionAttempted,
-  type evaluationEvents,
 } from "./events.js";
 import {
   decodeEvaluationEvidenceId,
@@ -25,7 +24,9 @@ import {
   type EvaluationEvidenceId,
 } from "./model.js";
 
-const decodeAgentName = Schema.decodeSync(agentName);
+const decodeAgentName = Schema.decodeSync(
+  OpenClawPrincipalInstructionAttempted.fields.agentName,
+);
 
 /** Definition-bound customer event writer used by concrete principal drivers. */
 export type EmitEvaluationEvent = CustomerEvents<
@@ -42,8 +43,8 @@ export interface PrincipalInstruction {
  * Evaluation-local adapter over one exact runtime gateway.
  *
  * The simulator never sees this interface and no union combines OpenClaw with
- * NanoClaw. The result identifies a correlated native output when that
- * gateway has one.
+ * NanoClaw. A question selects runtime-native output while an instruction does
+ * not expose output to the case program.
  */
 export interface PrincipalDriver<Gateway, Failure> {
   readonly observe: <Name extends string>(
@@ -51,14 +52,16 @@ export interface PrincipalDriver<Gateway, Failure> {
     caseId: EvaluationCaseId,
     emit: EmitEvaluationEvent,
   ) => Effect.Effect<never, Failure | LedgerFailure>;
-  readonly drive: <Name extends string>(
+  readonly instruct: <Name extends string>(
     target: StartedAgent<Name, Gateway>,
     instruction: PrincipalInstruction,
     emit: EmitEvaluationEvent,
-  ) => Effect.Effect<
-    Option.Option<EvaluationEvidenceId>,
-    Failure | LedgerFailure
-  >;
+  ) => Effect.Effect<void, Failure | LedgerFailure>;
+  readonly ask: <Name extends string>(
+    target: StartedAgent<Name, Gateway>,
+    instruction: PrincipalInstruction,
+    emit: EmitEvaluationEvent,
+  ) => Effect.Effect<EvaluationEvidenceId, Failure | LedgerFailure>;
 }
 
 /** Construct one native principal adapter for an exact evaluation attempt. */
@@ -79,13 +82,13 @@ interface OpenClawDriverState {
   readonly nextInstruction: Ref.Ref<number>;
 }
 
-function driveOpenClaw<Name extends string>(
+function askOpenClaw<Name extends string>(
   state: OpenClawDriverState,
   target: StartedAgent<Name, OpenClawGateway>,
   instruction: PrincipalInstruction,
   emit: EmitEvaluationEvent,
 ): Effect.Effect<
-  Option.Option<EvaluationEvidenceId>,
+  EvaluationEvidenceId,
   OpenClawGatewayRequestError | LedgerFailure
 > {
   return Effect.gen(function* () {
@@ -106,7 +109,6 @@ function driveOpenClaw<Name extends string>(
       OpenClawPrincipalInstructionAttempted.make({
         caseId: instruction.caseId,
         agentName: decodeAgentName(target.agent.name),
-        agentId: target.agent.id,
         request,
       }),
     );
@@ -115,12 +117,11 @@ function driveOpenClaw<Name extends string>(
       OpenClawPrincipalFinalOutput.make({
         caseId: instruction.caseId,
         agentName: decodeAgentName(target.agent.name),
-        agentId: target.agent.id,
         idempotencyKey,
         output: response,
       }),
     );
-    return Option.some(evidenceId(output));
+    return evidenceId(output);
   }).pipe(Effect.withSpan("evals.principal.openclaw"));
 }
 
@@ -131,12 +132,23 @@ export const openClawPrincipalDriver = Object.freeze({
       Effect.map((nextInstruction) =>
         Object.freeze({
           observe: () => Effect.never,
-          drive: <Name extends string>(
+          instruct: <Name extends string>(
             target: StartedAgent<Name, OpenClawGateway>,
             instruction: PrincipalInstruction,
             emit: EmitEvaluationEvent,
           ) =>
-            driveOpenClaw(
+            askOpenClaw(
+              { attemptId, nextInstruction },
+              target,
+              instruction,
+              emit,
+            ).pipe(Effect.asVoid),
+          ask: <Name extends string>(
+            target: StartedAgent<Name, OpenClawGateway>,
+            instruction: PrincipalInstruction,
+            emit: EmitEvaluationEvent,
+          ) =>
+            askOpenClaw(
               { attemptId, nextInstruction },
               target,
               instruction,
@@ -150,14 +162,11 @@ export const openClawPrincipalDriver = Object.freeze({
   OpenClawGatewayRequestError
 >;
 
-function driveNanoClaw<Name extends string>(
+function instructNanoClaw<Name extends string>(
   target: StartedAgent<Name, NanoClawGateway>,
   instruction: PrincipalInstruction,
   emit: EmitEvaluationEvent,
-): Effect.Effect<
-  Option.Option<EvaluationEvidenceId>,
-  NanoClawGatewayError | LedgerFailure
-> {
+): Effect.Effect<void, NanoClawGatewayError | LedgerFailure> {
   return Effect.gen(function* () {
     const input = NanoClawGatewayInput.make({
       text: instruction.message,
@@ -167,29 +176,52 @@ function driveNanoClaw<Name extends string>(
       NanoClawPrincipalInputSent.make({
         caseId: instruction.caseId,
         agentName: decodeAgentName(target.agent.name),
-        agentId: target.agent.id,
         input,
       }),
     );
-    return Option.none<EvaluationEvidenceId>();
   }).pipe(Effect.withSpan("evals.principal.nanoclaw"));
 }
 
+interface NanoClawDriverState {
+  readonly askGate: Effect.Semaphore;
+  readonly outputEvidence: PubSub.PubSub<EvaluationEvidenceId>;
+}
+
+function askNanoClaw<Name extends string>(
+  state: NanoClawDriverState,
+  target: StartedAgent<Name, NanoClawGateway>,
+  instruction: PrincipalInstruction,
+  emit: EmitEvaluationEvent,
+): Effect.Effect<EvaluationEvidenceId, NanoClawGatewayError | LedgerFailure> {
+  return state.askGate.withPermits(1)(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const outputs = yield* PubSub.subscribe(state.outputEvidence);
+        yield* instructNanoClaw(target, instruction, emit);
+        return yield* Queue.take(outputs);
+      }),
+    ),
+  );
+}
+
 function observeNanoClaw<Name extends string>(
+  state: NanoClawDriverState,
   target: StartedAgent<Name, NanoClawGateway>,
   caseId: EvaluationCaseId,
   emit: EmitEvaluationEvent,
 ): Effect.Effect<never, NanoClawGatewayError | LedgerFailure> {
   return target.gateway.outputs.pipe(
     Stream.runForEach((output) =>
-      emit(
-        NanoClawPrincipalOutputReceived.make({
-          caseId,
-          agentName: decodeAgentName(target.agent.name),
-          agentId: target.agent.id,
-          output,
-        }),
-      ),
+      Effect.gen(function* () {
+        const record = yield* emit(
+          NanoClawPrincipalOutputReceived.make({
+            caseId,
+            agentName: decodeAgentName(target.agent.name),
+            output,
+          }),
+        );
+        yield* PubSub.publish(state.outputEvidence, evidenceId(record));
+      }),
     ),
     Effect.andThen(Effect.never),
     Effect.withSpan("evals.principal.nanoclaw.outputs"),
@@ -199,18 +231,31 @@ function observeNanoClaw<Name extends string>(
 /**
  * Drive NanoClaw only through its native owner-local socket.
  *
- * Socket output is an uncorrelated multi-frame stream, so submitting an input
- * cannot identify a terminal response for evidence selection.
+ * Socket output has no request identifiers. Questions therefore serialize and
+ * select the next output observed after their input is accepted.
  */
 export const nanoclawPrincipalDriver: PrincipalDriverFactory<
   NanoClawGateway,
   NanoClawGatewayError
 > = Object.freeze({
   make: () =>
-    Effect.succeed(
-      Object.freeze({
-        observe: observeNanoClaw,
-        drive: driveNanoClaw,
-      }),
-    ),
+    Effect.gen(function* () {
+      const state = {
+        askGate: yield* Effect.makeSemaphore(1),
+        outputEvidence: yield* PubSub.unbounded<EvaluationEvidenceId>(),
+      } satisfies NanoClawDriverState;
+      return Object.freeze({
+        observe: <Name extends string>(
+          target: StartedAgent<Name, NanoClawGateway>,
+          caseId: EvaluationCaseId,
+          emit: EmitEvaluationEvent,
+        ) => observeNanoClaw(state, target, caseId, emit),
+        instruct: instructNanoClaw,
+        ask: <Name extends string>(
+          target: StartedAgent<Name, NanoClawGateway>,
+          instruction: PrincipalInstruction,
+          emit: EmitEvaluationEvent,
+        ) => askNanoClaw(state, target, instruction, emit),
+      });
+    }).pipe(Effect.withSpan("nanoclawPrincipalDriver")),
 });

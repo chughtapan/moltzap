@@ -1,13 +1,10 @@
-# Nanoclaw channel source
+# NanoClaw channel source
 
-The Nanoclaw channel plugin: it binds Nanoclaw's per-agent container runtime to
-the moltzap network.
+The NanoClaw channel adapter projects the public MoltZap endpoint capability
+into NanoClaw's native messaging contract. The image builder installs
+`channels/moltzap.ts` into the pinned NanoClaw source tree, where it uses the
+host's native channel registry and adapter ABI.
 
-- `channels/` — the channel adapter and registry (the boundary Nanoclaw's host
-  loads).
-- `db/` — persistence for agent and messaging groups, container configs.
-- `modules/` — cross-cutting concerns (permissions) the adapter composes.
-- `types.ts` — shared channel option and message shapes.
-
-External hosts load the channel via the package entrypoint; the folders here are
-internal composition, not a published surface.
+NanoClaw owns destination ACLs, groups, sessions, inboxes, and outboxes. The
+adapter owns no parallel routing or persistence state. Only the package root is
+exported; the host-facing ABI mirror is internal.

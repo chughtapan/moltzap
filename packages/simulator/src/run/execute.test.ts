@@ -1,793 +1,919 @@
-/* eslint-disable agent-code-guard/no-example-only-tests -- Regression-only suite: each case pins one ordering, evidence, or cleanup guarantee across a full run lifecycle, so the cases are timelines rather than an input domain and each keeps its setup beside its assertions. */
+/** @file Composed run-kernel lifecycle, failure, and durability behavior. */
 
+import type * as NodeHttp from "node:http"; // eslint-disable-line agent-code-guard/prefer-effect-platform -- The test captures the run-owned raw proxy listener.
 import { assert, effect as test } from "@effect/vitest";
+import { AgentId } from "@moltzap/identity";
 import {
   Cause,
-  Chunk,
+  DateTime,
   Deferred,
-  Duration,
   Effect,
   Exit,
   Fiber,
+  Option,
   Ref,
+  Schema,
+  type Scope,
   Stream,
-  TestClock,
 } from "effect";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests capture the run-owned raw proxy listener and host one ephemeral upstream peer.
+import { createServer, type RequestListener, type Server } from "node:http";
+import { afterEach, vi } from "vitest";
+import type { AcquireControlledEndpoint } from "./endpoints.js";
 import {
-  AgentProcessExited,
-  AgentProcessSignaled,
-  AgentRuntimeCompleted,
-  AgentRuntimeFailed,
-  AgentRuntimeReady,
+  defineFakeRuntime,
+  makeFakeCluster,
+} from "../__tests__/fake-cluster.js";
+import { RuntimeAcquisitionError } from "../agents/agent.js";
+import { AgentRoster } from "../agents/roster.js";
+import {
+  Cluster,
+  ClusterError,
+  type ClusterService,
+} from "../cluster/cluster.js";
+import { EventCatalog } from "../events/catalog.js";
+import {
   AgentRuntimeStartFailed,
-  EndpointMessageReceived,
-  EndpointMessageSent,
   LinkDown,
-  LinkMessageDelayed,
-  LinkMessageDropped,
-  LinkPolicyCleared,
-  LinkPolicySet,
-  LinkUp,
-  RouterMessageCommitted,
+  ProgramFailed,
+  ProgramSucceeded,
   RouterStarted,
+  RouterStartFailed,
+  RouterStopFailed,
   RunStarted,
 } from "../events/core.js";
 import {
+  LedgerCompletion,
+  ledgerDigest,
+  LedgerManifest,
+  ledgerRef,
+} from "../ledger/schema.js";
+import {
+  type LedgerArtifact,
   LedgerStorage,
   LedgerStorageError,
   type LedgerStorageService,
 } from "../ledger/storage.js";
+import { Network } from "../network/endpoint.js";
+import { NetworkError } from "../network/failure.js";
+import { LinkController, LinkDriver } from "../network/link.js";
+import { makeParticipantHandle } from "../network/participant.js";
 import {
-  LinkController,
-  linkPolicy,
-  Network,
-  NetworkError,
+  makeRouterStopReport,
   RouterProvider,
-  type ReceivedMessage,
-  type Router,
-} from "../network.js";
+  type RouterProviderService,
+} from "../network/router.js";
+import { makeDefinitionEventServices } from "./events.js";
 import {
+  ClusterLost,
   CompletedLedgerReceipt,
   IncompleteLedgerReceipt,
   ProgramFinished,
-  ClusterLost,
+  runSociety,
+  type SimulatorRunOutcome,
 } from "./execute.js";
-import { RuntimeCompleted, RuntimeExited } from "../agents/agent.js";
-import { defineFakeRuntime } from "../cluster/fake.js";
 
-import {
-  OBSERVED_EXIT_CODE,
-  Observation,
-  PRIMARY_AGENT_NAME,
-  REF,
-  ROUTER_URL,
-  assertDefaultProvenance,
-  configuration,
-  fakeRouterProvider,
-  kernelHarness,
-  memoryStorage,
-  observeCompletions,
-  ongoingRoster,
-  type testRuntimeConfiguration,
-} from "../test-utils/index.js";
+const DEFINITION_ID = "acme.run-lifecycle-test/v1";
+const ROUTER_URL = new URL("http://router.example.test:43100");
+const ADVERTISED_PROXY_URL = new URL("http://controller.run.test:43120");
+const ENDPOINT_ID = Schema.decodeSync(AgentId)("agt_AAAAAAAAAAAAAAAAAAAAAA");
+const SENDER_ID = Schema.decodeSync(AgentId)("agt_AQAAAAAAAAAAAAAAAAAAAA");
+const DIGEST = Schema.decodeSync(ledgerDigest)("a".repeat(64));
+const REF = Schema.decodeSync(ledgerRef)("run-lifecycle-test-ledger");
 
-// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- One mixed-roster lifetime: splitting it would separate the ordering assertions from the timeline they pin.
-test("runs mixed runtimes until customer policy completes", () =>
-  // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- the generator is the same ordered lifecycle regression as its enclosing test callback.
-  Effect.gen(function* () {
-    const codeTermination = yield* Deferred.make<RuntimeCompleted>();
-    const processTermination = yield* Deferred.make<RuntimeExited>();
-    const roster = kernelHarness.agents({
-      alice: defineFakeRuntime({
-        name: "effect",
-        configuration: configuration("in-process"),
-        acquire: () =>
-          Effect.succeed({
-            gateway: undefined,
-            termination: Deferred.await(codeTermination),
-          }),
-      }),
-      bob: defineFakeRuntime({
-        name: "process",
-        configuration: configuration("external-process"),
-        acquire: () =>
-          Effect.succeed({
-            gateway: undefined,
-            termination: Deferred.await(processTermination),
-          }),
-      }),
-    });
-    const program = Effect.gen(function* () {
-      const agents = yield* roster.startedAgents;
-      const ledger = yield* kernelHarness.ledger;
-      const events = yield* kernelHarness.events;
-      yield* Network;
-      yield* Deferred.succeed(codeTermination, RuntimeCompleted.make({}));
-      yield* Deferred.succeed(
-        processTermination,
-        RuntimeExited.make({ code: 0 }),
+const httpBoundary = vi.hoisted(
+  (): { onServer?: (server: NodeHttp.Server) => void } => ({}),
+);
+
+vi.mock("node:http", async (importOriginal) => {
+  const original = await importOriginal<typeof NodeHttp>();
+  return {
+    ...original,
+    createServer: (listener?: RequestListener) => {
+      if (listener === undefined) {
+        const server = original.createServer();
+        httpBoundary.onServer?.(server);
+        return server;
+      }
+      const server = original.createServer(listener);
+      httpBoundary.onServer?.(server);
+      return server;
+    },
+  };
+});
+
+afterEach(() => {
+  httpBoundary.onServer = undefined;
+});
+
+class LifecycleObservation extends Schema.TaggedClass<LifecycleObservation>()(
+  "acme.run-lifecycle-observation/v1",
+  { value: Schema.String },
+) {}
+
+const eventServices = makeDefinitionEventServices(
+  DEFINITION_ID,
+  EventCatalog.make(LifecycleObservation),
+);
+const roster = AgentRoster.make(DEFINITION_ID, {});
+type EmptyRosterDefinitions = Readonly<Record<never, never>>;
+
+function completion(manifest: LedgerManifest, count: number): LedgerCompletion {
+  return LedgerCompletion.make({
+    ledgerFormatVersion: 1,
+    runId: manifest.runId,
+    recordCount: count,
+    artifacts: { manifest: DIGEST, records: DIGEST },
+  });
+}
+
+interface MemoryStorageOptions {
+  readonly allocationFailure?: LedgerStorageError;
+  readonly appendFailure?: {
+    readonly eventTag: string;
+    readonly error: LedgerStorageError;
+  };
+  readonly beforeComplete?: Effect.Effect<void>;
+  readonly completionFailure?: LedgerStorageError;
+}
+
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- One fake storage allocation keeps its failpoints beside the physical artifact state they govern.
+function memoryStorage(
+  records: string[],
+  options: MemoryStorageOptions = {},
+): LedgerStorageService {
+  const files = new Map<LedgerArtifact, string>();
+  return {
+    // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- This is the complete in-memory implementation of one allocation.
+    allocate: (input) => {
+      if (options.allocationFailure !== undefined) {
+        return Effect.fail(options.allocationFailure);
+      }
+      const manifest = LedgerManifest.make({
+        ledgerFormatVersion: 1,
+        definitionId: input.definitionId,
+        runId: "run-lifecycle-test",
+        catalogTags: [...input.catalogTags].sort((left, right) =>
+          left.localeCompare(right),
+        ),
+        createdAt: DateTime.unsafeMake(0),
+        provenance: input.provenance,
+        metadata: input.metadata,
+      });
+      files.set(
+        "manifest",
+        JSON.stringify(Schema.encodeSync(LedgerManifest)(manifest)),
       );
-      yield* ledger
-        .events(AgentRuntimeCompleted)
-        .pipe(Stream.take(1), Stream.runDrain);
-      yield* Effect.yieldNow();
-      yield* events.emit(Observation.make({ value: "done" }));
-      return [agents.alice.agent.name, agents.bob.agent.name] as const;
-    });
-    const result = yield* kernelHarness.run(roster, program);
-    assert.instanceOf(result, ProgramFinished);
-    if (!(result instanceof ProgramFinished)) {
-      return;
-    }
-    assert.isTrue(Exit.isSuccess(result.exit));
-    if (Exit.isFailure(result.exit)) {
-      return;
-    }
-    assert.deepStrictEqual(result.exit.value, ["alice", "bob"]);
-
-    const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
-    assertDefaultProvenance(ledger.manifest);
-    assert.lengthOf(
-      yield* Stream.runCollect(ledger.events(AgentRuntimeReady)),
-      2,
-    );
-    assert.lengthOf(yield* Stream.runCollect(ledger.events(Observation)), 1);
-    assert.lengthOf(
-      yield* Stream.runCollect(ledger.events(RouterMessageCommitted)),
-      0,
-    );
-  }).pipe(
-    Effect.provideService(LedgerStorage, memoryStorage()),
-    Effect.provideService(RouterProvider, fakeRouterProvider()),
-  ));
-
-test("scope teardown interrupts an unfinished runtime observation", () =>
-  Effect.gen(function* () {
-    const result = yield* kernelHarness.run(
-      ongoingRoster,
-      Effect.succeed("policy-complete"),
-    );
-    assert.instanceOf(result, ProgramFinished);
-    if (!(result instanceof ProgramFinished)) {
-      return;
-    }
-    assert.deepStrictEqual(result.exit, Exit.succeed("policy-complete"));
-
-    const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
-    assert.lengthOf(
-      yield* Stream.runCollect(ledger.events(AgentRuntimeCompleted)),
-      0,
-    );
-    assert.lengthOf(
-      yield* Stream.runCollect(ledger.events(AgentRuntimeFailed)),
-      0,
-    );
-    assert.lengthOf(
-      yield* Stream.runCollect(ledger.events(AgentProcessExited)),
-      0,
-    );
-    assert.lengthOf(
-      yield* Stream.runCollect(ledger.events(AgentProcessSignaled)),
-      0,
-    );
-  }).pipe(
-    Effect.provideService(LedgerStorage, memoryStorage()),
-    Effect.provideService(RouterProvider, fakeRouterProvider()),
-  ));
-
-test("records the roster as the manifest's complete run description", () =>
-  Effect.gen(function* () {
-    const result = yield* kernelHarness.run(
-      ongoingRoster,
-      Effect.succeed("policy-complete"),
-    );
-    assert.instanceOf(result, ProgramFinished);
-    if (!(result instanceof ProgramFinished)) {
-      return;
-    }
-    const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
-
-    assert.deepStrictEqual(ledger.manifest.provenance, {
-      agents: [
-        {
-          name: "alice",
-          runtime: "ongoing",
-          configuration: { kind: "ongoing" },
+      files.set("records", "");
+      return Effect.succeed({
+        ref: REF,
+        runId: manifest.runId,
+        manifest,
+        append: (record: string) => {
+          const failure = options.appendFailure;
+          return failure !== undefined && record.includes(failure.eventTag)
+            ? Effect.fail(failure.error)
+            : Effect.sync(() => {
+                records.push(record);
+                files.set("records", `${records.join("\n")}\n`);
+              });
         },
-      ],
-    });
-    assert.deepStrictEqual(ledger.manifest.metadata, {});
-  }).pipe(
-    Effect.provideService(LedgerStorage, memoryStorage()),
-    Effect.provideService(RouterProvider, fakeRouterProvider()),
-  ));
-
-test("records genuine runtime termination while policy remains active", () =>
-  Effect.gen(function* () {
-    const termination = yield* Deferred.make<RuntimeExited>();
-    const observedRuntime = defineFakeRuntime({
-      name: "observed-process",
-      configuration: configuration("observed-process"),
-      acquire: () =>
-        Effect.succeed({
-          gateway: undefined,
-          termination: Deferred.await(termination),
-        }),
-    });
-    const observedRoster = kernelHarness.agents({
-      alice: observedRuntime,
-    });
-    const program = Effect.gen(function* () {
-      const ledger = yield* kernelHarness.ledger;
-      yield* Deferred.succeed(
-        termination,
-        RuntimeExited.make({ code: OBSERVED_EXIT_CODE }),
-      );
-      yield* ledger
-        .events(AgentProcessExited)
-        .pipe(Stream.take(1), Stream.runDrain);
-      return "observed";
-    });
-
-    const result = yield* kernelHarness.run(observedRoster, program);
-    assert.instanceOf(result, ProgramFinished);
-    if (!(result instanceof ProgramFinished)) {
-      return;
-    }
-    assert.deepStrictEqual(result.exit, Exit.succeed("observed"));
-    const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
-    const exits = yield* Stream.runCollect(ledger.events(AgentProcessExited));
-    assert.strictEqual(exits.length, 1);
-    assert.strictEqual(Chunk.unsafeGet(exits, 0).code, OBSERVED_EXIT_CODE);
-  }).pipe(
-    Effect.provideService(LedgerStorage, memoryStorage()),
-    Effect.provideService(RouterProvider, fakeRouterProvider()),
-  ));
-
-test("records a defective termination observer as runtime failure", () =>
-  Effect.gen(function* () {
-    const triggerDefect = yield* Deferred.make<undefined>();
-    const defectiveRuntime = defineFakeRuntime({
-      name: "defective-termination-observer",
-      configuration: configuration("defective-observer"),
-      acquire: () =>
-        Effect.succeed({
-          gateway: undefined,
-          termination: Deferred.await(triggerDefect).pipe(
-            Effect.zipRight(Effect.dieMessage("termination observer defect")),
+        complete: (count: number) =>
+          (options.beforeComplete ?? Effect.void).pipe(
+            Effect.zipRight(
+              options.completionFailure === undefined
+                ? Effect.sync(() => {
+                    const completed = completion(manifest, count);
+                    files.set(
+                      "completion",
+                      JSON.stringify(
+                        Schema.encodeSync(LedgerCompletion)(completed),
+                      ),
+                    );
+                    return completed;
+                  })
+                : Effect.fail(options.completionFailure),
+            ),
           ),
-        }),
-    });
-    const defectiveRoster = kernelHarness.agents({
-      alice: defectiveRuntime,
-    });
-    const program = Effect.gen(function* () {
-      const ledger = yield* kernelHarness.ledger;
-      yield* Deferred.succeed(triggerDefect, undefined);
-      yield* ledger
-        .events(AgentRuntimeFailed)
-        .pipe(Stream.take(1), Stream.runDrain);
-      return "observed";
-    });
+      });
+    },
+    read: (...[, artifact]) => Effect.succeed(files.get(artifact) ?? ""),
+    digest: () => Effect.succeed(DIGEST),
+  };
+}
 
-    const result = yield* kernelHarness.run(defectiveRoster, program);
-    assert.instanceOf(result, ProgramFinished);
-    if (!(result instanceof ProgramFinished)) {
-      return;
+function eventTags(records: readonly string[]): readonly string[] {
+  return records.map((record) => {
+    const decoded: unknown = JSON.parse(record);
+    if (typeof decoded !== "object" || decoded === null) {
+      throw new TypeError("test ledger record has no event tag");
     }
-    assert.deepStrictEqual(result.exit, Exit.succeed("observed"));
-    const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
-    const failures = yield* Stream.runCollect(
-      ledger.events(AgentRuntimeFailed),
-    );
-    assert.strictEqual(failures.length, 1);
-    assert.include(
-      Chunk.unsafeGet(failures, 0).cause,
-      "termination observer defect",
-    );
+    if (!("event" in decoded)) {
+      throw new TypeError("test ledger record has no event tag");
+    }
+    const { event } = decoded;
+    if (typeof event !== "object" || event === null || !("_tag" in event)) {
+      throw new TypeError("test ledger record has no event tag");
+    }
+    if (typeof event._tag !== "string") {
+      throw new TypeError("test ledger record has no event tag");
+    }
+    return event._tag;
+  });
+}
+
+function hasFailure(
+  cause: Cause.Cause<unknown>,
+  predicate: (failure: unknown) => boolean,
+): boolean {
+  return Array.from(Cause.failures(cause)).some(predicate);
+}
+
+function isLedgerFailure(
+  expected: LedgerStorageError,
+): (failure: unknown) => failure is LedgerStorageError {
+  return (failure): failure is LedgerStorageError =>
+    failure instanceof LedgerStorageError &&
+    failure.operation === expected.operation &&
+    failure.detail === expected.detail;
+}
+
+function isClusterFailure(
+  expected: ClusterError,
+): (failure: unknown) => failure is ClusterError {
+  return (failure): failure is ClusterError =>
+    failure instanceof ClusterError && failure.detail === expected.detail;
+}
+
+function isRuntimeFailure(
+  expected: RuntimeAcquisitionError,
+): (failure: unknown) => failure is RuntimeAcquisitionError {
+  return (failure): failure is RuntimeAcquisitionError =>
+    failure instanceof RuntimeAcquisitionError &&
+    failure.runtime === expected.runtime &&
+    failure.agent === expected.agent &&
+    failure.detail === expected.detail;
+}
+
+function successfulRouterProvider(
+  timeline?: Ref.Ref<readonly string[]>,
+  address: URL = ROUTER_URL,
+): RouterProviderService {
+  return {
+    acquire: Effect.gen(function* () {
+      const stopped =
+        yield* Deferred.make<ReturnType<typeof makeRouterStopReport>>();
+      if (timeline !== undefined) {
+        yield* Ref.update(timeline, (entries) => [
+          ...entries,
+          "router-acquire",
+        ]);
+      }
+      yield* Effect.addFinalizer(() => {
+        const observeRelease =
+          timeline === undefined
+            ? Effect.void
+            : Ref.update(timeline, (entries) => [...entries, "router-release"]);
+        return Deferred.succeed(stopped, makeRouterStopReport()).pipe(
+          Effect.tap(() => observeRelease),
+          Effect.asVoid,
+        );
+      });
+      return Object.freeze({
+        address,
+        stopped: Deferred.await(stopped),
+      });
+    }),
+  };
+}
+
+function runKernel<A, E>(
+  program: Effect.Effect<A, E, LinkController | LinkDriver | Network>,
+  storage: LedgerStorageService,
+  router: RouterProviderService,
+  cluster?: ClusterService,
+): Effect.Effect<
+  SimulatorRunOutcome<A, E, EmptyRosterDefinitions>,
+  LedgerStorageError
+> {
+  return runSociety({
+    definitionId: DEFINITION_ID,
+    eventServices,
+    roster,
+    program,
   }).pipe(
-    Effect.provideService(LedgerStorage, memoryStorage()),
-    Effect.provideService(RouterProvider, fakeRouterProvider()),
-  ));
+    Effect.provideService(Cluster, cluster ?? makeFakeCluster()),
+    Effect.provideService(RouterProvider, router),
+    Effect.provideService(LedgerStorage, storage),
+  );
+}
 
-test("fails the run ledger without making a committed endpoint send retryable", () =>
+interface TestHttpServer {
+  readonly server: Server;
+  readonly origin: URL;
+}
+
+function acquireHttpServer(
+  listener: RequestListener,
+): Effect.Effect<TestHttpServer, Error, Scope.Scope> {
+  const server = createServer(listener);
+  const acquire = Effect.tryPromise({
+    try: () =>
+      new Promise<TestHttpServer>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", () => {
+          server.off("error", reject);
+          const address = server.address();
+          if (address === null || typeof address === "string") {
+            reject(new Error("test HTTP server has no TCP address"));
+            return;
+          }
+          resolve({
+            server,
+            origin: new URL(`http://127.0.0.1:${String(address.port)}`),
+          });
+        });
+      }),
+    catch: (cause) =>
+      cause instanceof Error ? cause : new Error(String(cause)),
+  });
+  return Effect.acquireRelease(acquire, (acquiredServer) =>
+    Effect.async<undefined>((resume) => {
+      acquiredServer.server.close(() => {
+        resume(Effect.succeed(undefined));
+      });
+    }),
+  );
+}
+
+test("acquires the Router before the cluster and releases it afterward", () =>
   Effect.gen(function* () {
-    const committedSends = yield* Ref.make(0);
-    const program = Effect.gen(function* () {
-      const agents = yield* ongoingRoster.startedAgents;
-      const network = yield* Network;
-      const probe = yield* network.endpoint("probe");
-      const socket = yield* probe.open(agents.alice.agent);
-      yield* socket.send("request");
-      return "sent";
+    const records: string[] = [];
+    const timeline = yield* Ref.make<readonly string[]>([]);
+    const cluster = makeFakeCluster({
+      onPrepare: () =>
+        Ref.update(timeline, (entries) => [...entries, "cluster-prepare"]),
+      onRelease: Ref.update(timeline, (entries) => [
+        ...entries,
+        "cluster-release",
+      ]),
     });
+    const result = yield* runSociety({
+      definitionId: DEFINITION_ID,
+      eventServices,
+      roster,
+      program: Ref.update(timeline, (entries) => [...entries, "program"]),
+    }).pipe(
+      Effect.provideService(Cluster, cluster),
+      Effect.provideService(RouterProvider, successfulRouterProvider(timeline)),
+      Effect.provideService(LedgerStorage, memoryStorage(records)),
+    );
 
-    const outcome = yield* kernelHarness
-      .run(ongoingRoster, program)
-      .pipe(
+    assert.instanceOf(result, ProgramFinished);
+    if (result instanceof ProgramFinished) {
+      assert.deepStrictEqual(result.exit, Exit.void);
+      assert.instanceOf(result.receipt, CompletedLedgerReceipt);
+      assert.strictEqual(result.receipt.completion.recordCount, records.length);
+    }
+    assert.deepStrictEqual(yield* Ref.get(timeline), [
+      "router-acquire",
+      "cluster-prepare",
+      "program",
+      "cluster-release",
+      "router-release",
+    ]);
+    assert.include(eventTags(records), RouterStarted._tag);
+    assert.include(eventTags(records), ProgramSucceeded._tag);
+  }));
+
+test("returns a completed receipt around a failed customer program Exit", () =>
+  Effect.gen(function* () {
+    const records: string[] = [];
+    const result = yield* runKernel(
+      Effect.fail("customer rejected the run"),
+      memoryStorage(records),
+      successfulRouterProvider(),
+    );
+
+    assert.instanceOf(result, ProgramFinished);
+    if (result instanceof ProgramFinished) {
+      assert.isTrue(Exit.isFailure(result.exit));
+      if (Exit.isFailure(result.exit)) {
+        assert.deepStrictEqual(Array.from(Cause.failures(result.exit.cause)), [
+          "customer rejected the run",
+        ]);
+      }
+      assert.instanceOf(result.receipt, CompletedLedgerReceipt);
+      assert.strictEqual(result.receipt.completion.recordCount, records.length);
+    }
+    assert.include(eventTags(records), ProgramFailed._tag);
+    assert.notInclude(eventTags(records), ProgramSucceeded._tag);
+  }));
+
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- This regression pins the composed proxy path with a raw ephemeral peer.
+test("routes controller-local endpoints through the acquired proxy to the actual Router origin", () =>
+  Effect.scoped(
+    // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The generator owns the complete scoped HTTP lifecycle of this single composition probe.
+    Effect.gen(function* () {
+      const records: string[] = [];
+      const upstreamPaths: string[] = [];
+      let endpointRouterOrigin: URL | undefined;
+      const upstream = yield* acquireHttpServer((request, response) => {
+        upstreamPaths.push(request.url ?? "");
+        response.writeHead(204);
+        response.end();
+      });
+      const acquireEndpoint: AcquireControlledEndpoint = ({
+        name,
+        routerOrigin,
+      }) =>
+        Effect.gen(function* () {
+          endpointRouterOrigin = routerOrigin;
+          const response = yield* Effect.tryPromise({
+            // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- A fetch probe verifies the actual loopback proxy origin supplied to the endpoint seam.
+            try: () => fetch(new URL("/composition-probe", routerOrigin)),
+            catch: (cause) =>
+              NetworkError.make({
+                operation: "attach-endpoint",
+                detail: cause instanceof Error ? cause.message : String(cause),
+              }),
+          });
+          if (!response.ok) {
+            return yield* Effect.fail(
+              NetworkError.make({
+                operation: "attach-endpoint",
+                detail: `proxy probe returned ${String(response.status)}`,
+              }),
+            );
+          }
+          return {
+            participant: makeParticipantHandle(name, ENDPOINT_ID),
+            transport: {
+              received: Stream.never,
+              send: () => Effect.void,
+            },
+          };
+        });
+      const program = Effect.gen(function* () {
+        const network = yield* Network;
+        const endpoint = yield* network.endpoint("observer");
+        return endpoint.participant.name;
+      });
+      const result = yield* runSociety({
+        definitionId: DEFINITION_ID,
+        eventServices,
+        roster,
+        program,
+      }).pipe(
         Effect.provideService(
-          LedgerStorage,
-          memoryStorage(EndpointMessageSent._tag),
+          Cluster,
+          makeFakeCluster({
+            acquireEndpoint,
+            routerFaultProxy: {
+              listener: {
+                bindHost: "0.0.0.0",
+                port: 0,
+                advertisedOrigin: ADVERTISED_PROXY_URL,
+              },
+            },
+          }),
         ),
         Effect.provideService(
           RouterProvider,
-          fakeRouterProvider(committedSends),
+          successfulRouterProvider(undefined, upstream.origin),
         ),
+        Effect.provideService(LedgerStorage, memoryStorage(records)),
       );
 
-    assert.instanceOf(outcome, ClusterLost);
-    if (outcome instanceof ClusterLost) {
-      assert.isTrue(
-        Array.from(Cause.failures(outcome.cause)).some(
-          (failure) =>
-            failure instanceof LedgerStorageError &&
-            failure.detail.includes(EndpointMessageSent._tag),
-        ),
+      assert.instanceOf(result, ProgramFinished);
+      if (result instanceof ProgramFinished) {
+        assert.deepStrictEqual(result.exit, Exit.succeed("observer"));
+      }
+      assert.deepStrictEqual(upstreamPaths, ["/composition-probe"]);
+      assert.strictEqual(
+        endpointRouterOrigin?.hostname,
+        upstream.origin.hostname,
       );
-      assert.instanceOf(outcome.receipt, IncompleteLedgerReceipt);
-    }
-    assert.strictEqual(yield* Ref.get(committedSends), 1);
-  }));
-
-test("returns an incomplete receipt when the first post-allocation append fails", () =>
-  Effect.gen(function* () {
-    const outcome = yield* kernelHarness.run(ongoingRoster, Effect.void);
-
-    assert.instanceOf(outcome, ClusterLost);
-    if (outcome instanceof ClusterLost) {
-      assert.instanceOf(outcome.receipt, IncompleteLedgerReceipt);
-      assert.strictEqual(outcome.receipt.ledger, REF);
-      assert.isTrue(
-        Array.from(Cause.failures(outcome.cause)).some(
-          (failure) =>
-            failure instanceof LedgerStorageError &&
-            failure.detail.includes(RunStarted._tag),
-        ),
+      assert.notStrictEqual(endpointRouterOrigin?.port, "0");
+      assert.notStrictEqual(
+        endpointRouterOrigin?.origin,
+        upstream.origin.origin,
       );
-    }
-  }).pipe(
-    Effect.provideService(LedgerStorage, memoryStorage(RunStarted._tag)),
-    Effect.provideService(RouterProvider, fakeRouterProvider()),
+      assert.notStrictEqual(
+        endpointRouterOrigin?.origin,
+        ADVERTISED_PROXY_URL.origin,
+      );
+      assert.notStrictEqual(
+        upstream.origin.origin,
+        ADVERTISED_PROXY_URL.origin,
+      );
+    }),
   ));
 
-test("retains router stop failure when started-event storage fails", () => {
-  const stopFailure = NetworkError.make({
-    operation: "stop-router",
-    detail: "router shutdown failed",
-  });
-  const router: Router = {
-    address: ROUTER_URL,
-    stopped: Effect.fail(stopFailure),
-    attachAgent: () => Effect.dieMessage("unused"),
-    attachEndpoint: () => Effect.dieMessage("unused"),
-  };
-  return Effect.gen(function* () {
-    const outcome = yield* kernelHarness.run(
-      kernelHarness.agents({}),
-      Effect.void,
-    );
-
-    assert.instanceOf(outcome, ClusterLost);
-    if (outcome instanceof ClusterLost) {
-      const failures = Array.from(Cause.failures(outcome.cause));
-      assert.isTrue(
-        failures.some(
-          (failure) =>
-            failure instanceof NetworkError &&
-            failure.operation === "stop-router" &&
-            failure.detail === stopFailure.detail,
+test("binds the proxy listener before acquiring any roster runtime", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const records: string[] = [];
+      const occupied = yield* acquireHttpServer((...[, response]) => {
+        response.writeHead(204);
+        response.end();
+      });
+      let runtimeAcquisitions = 0;
+      const blockedRoster = AgentRoster.make(DEFINITION_ID, {
+        alice: defineFakeRuntime({
+          name: "proxy-order-runtime",
+          configuration: { schema: Schema.Struct({}), value: {} },
+          acquire: () =>
+            Effect.sync(() => {
+              runtimeAcquisitions += 1;
+              return { gateway: undefined, termination: Effect.never };
+            }),
+        }),
+      });
+      const result = yield* runSociety({
+        definitionId: DEFINITION_ID,
+        eventServices,
+        roster: blockedRoster,
+        program: Effect.void,
+      }).pipe(
+        Effect.provideService(
+          Cluster,
+          makeFakeCluster({
+            agentIdFor: () => ENDPOINT_ID,
+            routerFaultProxy: {
+              listener: {
+                bindHost: "127.0.0.1",
+                port: Number(occupied.origin.port),
+              },
+            },
+          }),
         ),
+        Effect.provideService(
+          RouterProvider,
+          successfulRouterProvider(undefined, ROUTER_URL),
+        ),
+        Effect.provideService(LedgerStorage, memoryStorage(records)),
       );
-    }
-  }).pipe(
-    Effect.provideService(LedgerStorage, memoryStorage(RouterStarted._tag)),
-    Effect.provideService(RouterProvider, {
-      acquire: Effect.succeed(router),
+
+      assert.instanceOf(result, ClusterLost);
+      assert.strictEqual(runtimeAcquisitions, 0);
     }),
-  );
-});
+  ));
 
-test("keeps allocation failure in the Effect error channel", () =>
+test("propagates unexpected post-bind proxy failure through the run outcome", () =>
   Effect.gen(function* () {
-    const allocationFailure = LedgerStorageError.make({
-      operation: "allocate",
-      detail: "allocation unavailable",
-    });
-    const storage: LedgerStorageService = {
-      ...memoryStorage(),
-      allocate: () => Effect.fail(allocationFailure),
-    };
-    const failure = yield* kernelHarness
-      .run(ongoingRoster, Effect.void)
-      .pipe(
-        Effect.provideService(LedgerStorage, storage),
-        Effect.provideService(RouterProvider, fakeRouterProvider()),
-        Effect.flip,
-      );
-
-    assert.instanceOf(failure, LedgerStorageError);
-    assert.strictEqual(failure.operation, allocationFailure.operation);
-    assert.strictEqual(failure.detail, allocationFailure.detail);
-  }));
-
-test("completes the ledger before preserving caller interruption", () =>
-  Effect.gen(function* () {
+    const records: string[] = [];
     const programStarted = yield* Deferred.make<undefined>();
-    const completions = yield* Ref.make(0);
-    const storage = observeCompletions(memoryStorage(), completions);
+    const proxyCreated = yield* Deferred.make<Server>();
+    httpBoundary.onServer = (server) => {
+      Effect.runSync(Deferred.succeed(proxyCreated, server));
+    };
     const program = Deferred.succeed(programStarted, undefined).pipe(
       Effect.zipRight(Effect.never),
     );
-    const run = yield* kernelHarness
-      .run(ongoingRoster, program)
-      .pipe(
-        Effect.provideService(LedgerStorage, storage),
-        Effect.provideService(RouterProvider, fakeRouterProvider()),
-        Effect.fork,
-      );
+    const running = yield* runKernel(
+      program,
+      memoryStorage(records),
+      successfulRouterProvider(),
+    ).pipe(Effect.fork);
 
+    const proxyServer = yield* Deferred.await(proxyCreated);
     yield* Deferred.await(programStarted);
-    const exit = yield* Fiber.interrupt(run);
+    proxyServer.emit("error", new Error("proxy listener lost"));
 
-    assert.isTrue(Exit.isFailure(exit));
-    if (Exit.isFailure(exit)) {
-      assert.isTrue(Cause.isInterruptedOnly(exit.cause));
-    }
-    assert.strictEqual(yield* Ref.get(completions), 1);
-    const ledger = yield* kernelHarness
-      .openLedger(REF)
-      .pipe(Effect.provideService(LedgerStorage, storage));
-    assert.strictEqual(ledger.ref, REF);
-  }));
-
-test("preserves caller interruption composed with cleanup failure", () =>
-  Effect.gen(function* () {
-    const programStarted = yield* Deferred.make<undefined>();
-    const cleanupRan = yield* Ref.make(false);
-    const completions = yield* Ref.make(0);
-    const storage = observeCompletions(memoryStorage(), completions);
-    const program = Effect.scoped(
-      Effect.acquireRelease(Deferred.succeed(programStarted, undefined), () =>
-        Ref.set(cleanupRan, true).pipe(
-          Effect.zipRight(Effect.dieMessage("cleanup failed")),
-        ),
-      ).pipe(Effect.zipRight(Effect.never)),
-    );
-    const run = yield* kernelHarness
-      .run(ongoingRoster, program)
-      .pipe(
-        Effect.provideService(LedgerStorage, storage),
-        Effect.provideService(RouterProvider, fakeRouterProvider()),
-        Effect.fork,
-      );
-
-    yield* Deferred.await(programStarted);
-    const exit = yield* Fiber.interrupt(run);
-
-    assert.isTrue(Exit.isFailure(exit));
-    if (Exit.isFailure(exit)) {
-      assert.isTrue(Cause.isInterruptedOnly(exit.cause));
-    }
-    assert.isTrue(yield* Ref.get(cleanupRan));
-    assert.strictEqual(yield* Ref.get(completions), 1);
-    const ledger = yield* kernelHarness
-      .openLedger(REF)
-      .pipe(Effect.provideService(LedgerStorage, storage));
-    assert.strictEqual(ledger.ref, REF);
-  }));
-
-test("preserves caller interruption during roster acquisition", () =>
-  Effect.gen(function* () {
-    const acquisitionStarted = yield* Deferred.make<undefined>();
-    const completions = yield* Ref.make(0);
-    const storage = observeCompletions(memoryStorage(), completions);
-    const acquiringRuntime = defineFakeRuntime({
-      name: "acquiring",
-      configuration: configuration("acquiring"),
-      acquire: () =>
-        Deferred.succeed(acquisitionStarted, undefined).pipe(
-          Effect.zipRight(Effect.never),
-        ),
-    });
-    const acquiringRoster = kernelHarness.agents({
-      alice: acquiringRuntime,
-    });
-    const run = yield* kernelHarness
-      .run(acquiringRoster, Effect.void)
-      .pipe(
-        Effect.provideService(LedgerStorage, storage),
-        Effect.provideService(RouterProvider, fakeRouterProvider()),
-        Effect.fork,
-      );
-
-    yield* Deferred.await(acquisitionStarted);
-    const exit = yield* Fiber.interrupt(run);
-
-    assert.isTrue(Exit.isFailure(exit));
-    if (Exit.isFailure(exit)) {
-      assert.isTrue(Cause.isInterruptedOnly(exit.cause));
-    }
-    assert.strictEqual(yield* Ref.get(completions), 1);
-    const ledger = yield* kernelHarness
-      .openLedger(REF)
-      .pipe(Effect.provideService(LedgerStorage, storage));
-    assert.strictEqual(ledger.ref, REF);
-  }));
-
-test("masks physical allocation through the kernel ownership handoff", () =>
-  Effect.gen(function* () {
-    const physicallyAllocated = yield* Deferred.make<undefined>();
-    const releaseAllocation = yield* Deferred.make<undefined>();
-    const completions = yield* Ref.make(0);
-    const observed = observeCompletions(memoryStorage(), completions);
-    const storage: LedgerStorageService = {
-      ...observed,
-      allocate: (input) =>
-        observed.allocate(input).pipe(
-          Effect.tap(() => Deferred.succeed(physicallyAllocated, undefined)),
-          Effect.tap(() => Deferred.await(releaseAllocation)),
-        ),
-    };
-    const run = yield* kernelHarness
-      .run(ongoingRoster, Effect.never)
-      .pipe(
-        Effect.provideService(LedgerStorage, storage),
-        Effect.provideService(RouterProvider, fakeRouterProvider()),
-        Effect.fork,
-      );
-
-    yield* Deferred.await(physicallyAllocated);
-    yield* Fiber.interruptFork(run);
-    yield* Effect.yieldNow();
-    yield* Deferred.succeed(releaseAllocation, undefined);
-    const exit = yield* Fiber.await(run);
-
-    assert.isTrue(Exit.isFailure(exit));
-    if (Exit.isFailure(exit)) {
-      assert.isTrue(Cause.isInterruptedOnly(exit.cause));
-    }
-    assert.strictEqual(yield* Ref.get(completions), 1);
-    const ledger = yield* kernelHarness
-      .openLedger(REF)
-      .pipe(Effect.provideService(LedgerStorage, storage));
-    assert.strictEqual(ledger.ref, REF);
-  }));
-
-test("peer acquisition cancellation is not a startup failure", () =>
-  Effect.gen(function* () {
-    const siblingStarted = yield* Deferred.make<undefined>();
-    const primary = defineFakeRuntime<
-      never,
-      string,
-      typeof testRuntimeConfiguration
-    >({
-      name: "primary-failure",
-      configuration: configuration("primary-failure"),
-      acquire: () =>
-        Deferred.await(siblingStarted).pipe(
-          Effect.zipRight(Effect.fail("primary failed")),
-        ),
-    });
-    const interruptedPeer = defineFakeRuntime({
-      name: "interrupted-peer",
-      configuration: configuration("interrupted-peer"),
-      acquire: () =>
-        Deferred.succeed(siblingStarted, undefined).pipe(
-          Effect.zipRight(Effect.never),
-        ),
-    });
-    const failingRoster = kernelHarness.agents({
-      [PRIMARY_AGENT_NAME]: primary,
-      bob: interruptedPeer,
-    });
-
-    const result = yield* kernelHarness.run(failingRoster, Effect.void);
+    const result = yield* Fiber.join(running);
     assert.instanceOf(result, ClusterLost);
     if (result instanceof ClusterLost) {
       assert.instanceOf(result.receipt, CompletedLedgerReceipt);
       assert.isFalse(Cause.isInterrupted(result.cause));
+      assert.isTrue(
+        hasFailure(
+          result.cause,
+          (failure) =>
+            failure instanceof NetworkError &&
+            failure.operation === "receive" &&
+            failure.detail.includes("proxy listener lost"),
+        ),
+      );
     }
+    assert.notInclude(eventTags(records), ProgramSucceeded._tag);
+  }));
 
-    const ledger = yield* kernelHarness.openLedger(REF);
-    const failures = yield* Stream.runCollect(
-      ledger.events(AgentRuntimeStartFailed),
-    );
-    assert.strictEqual(failures.length, 1);
-    assert.strictEqual(
-      Chunk.unsafeGet(failures, 0).agentName,
-      PRIMARY_AGENT_NAME,
-    );
-  }).pipe(
-    Effect.provideService(LedgerStorage, memoryStorage()),
-    Effect.provideService(RouterProvider, fakeRouterProvider()),
-  ));
+test("records Router acquisition failure without claiming readiness", () => {
+  const records: string[] = [];
+  const failure = NetworkError.make({
+    operation: "acquire-router",
+    detail: "router unavailable",
+  });
+  return Effect.gen(function* () {
+    const result = yield* runKernel(Effect.void, memoryStorage(records), {
+      acquire: Effect.fail(failure),
+    });
+    assert.instanceOf(result, ClusterLost);
+    if (result instanceof ClusterLost) {
+      assert.isTrue(
+        Array.from(Cause.failures(result.cause)).some(
+          (current) =>
+            current instanceof NetworkError &&
+            current.operation === failure.operation &&
+            current.detail === failure.detail,
+        ),
+      );
+    }
+    assert.include(eventTags(records), RouterStartFailed._tag);
+    assert.notInclude(eventTags(records), RouterStarted._tag);
+  });
+});
 
-test("releases an acquired peer when parallel roster acquisition fails", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const peerAcquired = yield* Deferred.make<undefined>();
-      const peerReleased = yield* Ref.make(false);
-      const primary = defineFakeRuntime({
-        name: "primary-failure",
-        configuration: configuration("primary-failure"),
-        acquire: () =>
-          Deferred.await(peerAcquired).pipe(
-            Effect.zipRight(Effect.fail("primary failed")),
-          ),
-      });
-      const acquiredPeer = defineFakeRuntime({
-        name: "acquired-peer",
-        configuration: configuration("acquired-peer"),
-        acquire: () =>
-          Effect.acquireRelease(
-            Deferred.succeed(peerAcquired, undefined).pipe(
-              Effect.as({ gateway: undefined, termination: Effect.never }),
-            ),
-            () => Ref.set(peerReleased, true),
-          ),
-      });
-      const failingRoster = kernelHarness.agents({
-        [PRIMARY_AGENT_NAME]: primary,
-        bob: acquiredPeer,
-      });
-      const result = yield* kernelHarness.run(failingRoster, Effect.void);
-      assert.instanceOf(result, ClusterLost);
-      if (result instanceof ClusterLost) {
-        assert.instanceOf(result.receipt, CompletedLedgerReceipt);
-      }
-      assert.isTrue(yield* Ref.get(peerReleased));
-      const ledger = yield* kernelHarness.openLedger(REF);
-      const failures = yield* Stream.runCollect(
-        ledger.events(AgentRuntimeStartFailed),
+test("records Router stop failure and retains it in the run outcome", () => {
+  const records: string[] = [];
+  const failure = NetworkError.make({
+    operation: "stop-router",
+    detail: "router shutdown failed",
+  });
+  return Effect.gen(function* () {
+    const result = yield* runKernel(Effect.void, memoryStorage(records), {
+      acquire: Effect.succeed({
+        address: ROUTER_URL,
+        stopped: Effect.fail(failure),
+      }),
+    });
+    assert.instanceOf(result, ClusterLost);
+    if (result instanceof ClusterLost) {
+      assert.isTrue(
+        Array.from(Cause.failures(result.cause)).some(
+          (current) =>
+            current instanceof NetworkError &&
+            current.operation === failure.operation &&
+            current.detail === failure.detail,
+        ),
       );
-      assert.strictEqual(failures.length, 1);
-      assert.strictEqual(
-        Chunk.unsafeGet(failures, 0).agentName,
-        PRIMARY_AGENT_NAME,
+    }
+    assert.include(eventTags(records), RouterStopFailed._tag);
+  });
+});
+
+test("installs the link controller and its run-owned driver", () => {
+  const records: string[] = [];
+  const program = Effect.gen(function* () {
+    const links = yield* LinkController;
+    const driver = yield* LinkDriver;
+    return [typeof links.disable, typeof driver.apply] as const;
+  });
+  return Effect.gen(function* () {
+    const result = yield* runKernel(
+      program,
+      memoryStorage(records),
+      successfulRouterProvider(),
+    );
+    assert.instanceOf(result, ProgramFinished);
+    if (result instanceof ProgramFinished) {
+      assert.deepStrictEqual(
+        result.exit,
+        Exit.succeed(["function", "function"]),
       );
+    }
+  });
+});
+
+test("keeps ledger allocation failure in the Effect error channel", () => {
+  const records: string[] = [];
+  const failure = new LedgerStorageError({
+    operation: "allocate",
+    detail: "allocation unavailable",
+  });
+  return Effect.gen(function* () {
+    const observed = yield* runKernel(
+      Effect.void,
+      memoryStorage(records, { allocationFailure: failure }),
+      successfulRouterProvider(),
+    ).pipe(Effect.flip);
+
+    assert.instanceOf(observed, LedgerStorageError);
+    assert.strictEqual(observed.operation, failure.operation);
+    assert.strictEqual(observed.detail, failure.detail);
+    assert.deepStrictEqual(records, []);
+  });
+});
+
+test("returns incomplete evidence when the first ledger append fails", () => {
+  const records: string[] = [];
+  const failure = new LedgerStorageError({
+    operation: "append",
+    detail: `cannot append ${RunStarted._tag}`,
+    ref: REF,
+    artifact: "records",
+  });
+  return Effect.gen(function* () {
+    const result = yield* runKernel(
+      Effect.void,
+      memoryStorage(records, {
+        appendFailure: { eventTag: RunStarted._tag, error: failure },
+      }),
+      successfulRouterProvider(),
+    );
+
+    assert.instanceOf(result, ClusterLost);
+    if (result instanceof ClusterLost) {
+      assert.instanceOf(result.receipt, IncompleteLedgerReceipt);
+      assert.strictEqual(result.receipt.ledger, REF);
+      assert.isTrue(hasFailure(result.cause, isLedgerFailure(failure)));
+    }
+    assert.deepStrictEqual(records, []);
+  });
+});
+
+test("retains completed program evidence when ledger completion fails", () => {
+  const records: string[] = [];
+  const failure = new LedgerStorageError({
+    operation: "complete",
+    detail: "completion unavailable",
+    ref: REF,
+    artifact: "completion",
+  });
+  return Effect.gen(function* () {
+    const result = yield* runKernel(
+      Effect.succeed("program-complete"),
+      memoryStorage(records, { completionFailure: failure }),
+      successfulRouterProvider(),
+    );
+
+    assert.instanceOf(result, ClusterLost);
+    if (result instanceof ClusterLost) {
+      assert.instanceOf(result.receipt, IncompleteLedgerReceipt);
+      assert.isTrue(hasFailure(result.cause, isLedgerFailure(failure)));
+    }
+    assert.include(eventTags(records), ProgramSucceeded._tag);
+  });
+});
+
+test("finalizes durably before restoring repeated caller interruption", () =>
+  Effect.gen(function* () {
+    const records: string[] = [];
+    const programStarted = yield* Deferred.make<undefined>();
+    const completionStarted = yield* Deferred.make<undefined>();
+    const releaseCompletion = yield* Deferred.make<undefined>();
+    const storage = memoryStorage(records, {
+      beforeComplete: Deferred.succeed(completionStarted, undefined).pipe(
+        Effect.zipRight(Deferred.await(releaseCompletion)),
+      ),
+    });
+    const program = Deferred.succeed(programStarted, undefined).pipe(
+      Effect.zipRight(Effect.never),
+    );
+    const running = yield* runKernel(
+      program,
+      storage,
+      successfulRouterProvider(),
+    ).pipe(Effect.fork);
+
+    yield* Deferred.await(programStarted);
+    yield* Fiber.interruptFork(running);
+    yield* Deferred.await(completionStarted);
+    yield* Fiber.interruptFork(running);
+    yield* Effect.yieldNow();
+    assert.isTrue(Option.isNone(yield* Fiber.poll(running)));
+
+    yield* Deferred.succeed(releaseCompletion, undefined);
+    const exit = yield* Fiber.await(running);
+    assert.isTrue(Exit.isInterrupted(exit));
+    assert.notStrictEqual(yield* storage.read(REF, "completion"), "");
+  }));
+
+test("returns completed cluster-loss evidence when cluster preparation fails", () => {
+  const records: string[] = [];
+  const failure = new ClusterError({ detail: "cluster prepare failed" });
+  const cluster: ClusterService = {
+    prepare: () => Effect.fail(failure),
+  };
+  return Effect.gen(function* () {
+    const result = yield* runKernel(
+      Effect.void,
+      memoryStorage(records),
+      successfulRouterProvider(),
+      cluster,
+    );
+
+    assert.instanceOf(result, ClusterLost);
+    if (result instanceof ClusterLost) {
+      assert.instanceOf(result.receipt, CompletedLedgerReceipt);
+      assert.isTrue(hasFailure(result.cause, isClusterFailure(failure)));
+    }
+    assert.notInclude(eventTags(records), ProgramSucceeded._tag);
+    assert.notInclude(eventTags(records), ProgramFailed._tag);
+  });
+});
+
+test("returns completed cluster-loss evidence when an active session fails", () =>
+  Effect.gen(function* () {
+    const records: string[] = [];
+    const programStarted = yield* Deferred.make<undefined>();
+    const sessionLost = yield* Deferred.make<never, ClusterError>();
+    const failure = new ClusterError({ detail: "cluster session lost" });
+    const program = Deferred.succeed(programStarted, undefined).pipe(
+      Effect.zipRight(Effect.never),
+    );
+    const running = yield* runKernel(
+      program,
+      memoryStorage(records),
+      successfulRouterProvider(),
+      makeFakeCluster({ failure: Deferred.await(sessionLost) }),
+    ).pipe(Effect.fork);
+
+    yield* Deferred.await(programStarted);
+    yield* Deferred.fail(sessionLost, failure);
+    const result = yield* Fiber.join(running);
+    assert.instanceOf(result, ClusterLost);
+    if (result instanceof ClusterLost) {
+      assert.instanceOf(result.receipt, CompletedLedgerReceipt);
+      assert.isTrue(hasFailure(result.cause, isClusterFailure(failure)));
+    }
+  }));
+
+test("records roster acquisition failure without running customer code", () => {
+  const records: string[] = [];
+  const failure = RuntimeAcquisitionError.make({
+    runtime: "unavailable-runtime",
+    agent: "alice",
+    detail: "readiness failed",
+  });
+  const failingRoster = AgentRoster.make(DEFINITION_ID, {
+    alice: defineFakeRuntime({
+      name: "unavailable-runtime",
+      configuration: { schema: Schema.Struct({}), value: {} },
+      acquire: () => Effect.fail(failure),
+    }),
+  });
+  let programRan = false;
+  return Effect.gen(function* () {
+    const result = yield* runSociety({
+      definitionId: DEFINITION_ID,
+      eventServices,
+      roster: failingRoster,
+      program: Effect.sync(() => {
+        programRan = true;
+      }),
     }).pipe(
-      Effect.provideService(LedgerStorage, memoryStorage()),
-      Effect.provideService(RouterProvider, fakeRouterProvider()),
-    ),
-  ));
+      Effect.provideService(
+        Cluster,
+        makeFakeCluster({ agentIdFor: () => ENDPOINT_ID }),
+      ),
+      Effect.provideService(RouterProvider, successfulRouterProvider()),
+      Effect.provideService(LedgerStorage, memoryStorage(records)),
+    );
 
-const SHAPE_DESCRIPTION = "delay under shape";
-const SHAPED_DELAY = Duration.millis(100);
-const SHAPED_DELAY_MILLIS = 100;
+    assert.instanceOf(result, ClusterLost);
+    if (result instanceof ClusterLost) {
+      assert.instanceOf(result.receipt, CompletedLedgerReceipt);
+      assert.isTrue(hasFailure(result.cause, isRuntimeFailure(failure)));
+    }
+    assert.isFalse(programRan);
+    assert.include(eventTags(records), AgentRuntimeStartFailed._tag);
+    assert.notInclude(eventTags(records), ProgramSucceeded._tag);
+  });
+});
 
-function textOf(received: ReceivedMessage): string {
-  return received.message.parts
-    .map((part) => (part.type === "text" ? part.text : ""))
-    .join("");
-}
-
-function awaitSleepers(count: number): Effect.Effect<void> {
-  return TestClock.sleeps().pipe(
-    Effect.flatMap((sleeps) =>
-      Chunk.size(sleeps) >= count
-        ? Effect.void
-        : Effect.yieldNow().pipe(
-            Effect.zipRight(Effect.suspend(() => awaitSleepers(count))),
-          ),
-    ),
-  );
-}
-
-function openPair() {
-  return Effect.gen(function* () {
+test("reports compensated link-evidence failure as ledger-backed cluster loss", () => {
+  const records: string[] = [];
+  const failure = new LedgerStorageError({
+    operation: "append",
+    detail: `cannot append ${LinkDown._tag}`,
+    ref: REF,
+    artifact: "records",
+  });
+  const acquireEndpoint: AcquireControlledEndpoint = ({ name }) =>
+    Effect.succeed({
+      participant: makeParticipantHandle(name, ENDPOINT_ID),
+      transport: {
+        received: Stream.never,
+        send: () => Effect.void,
+      },
+    });
+  const program = Effect.gen(function* () {
     const network = yield* Network;
-    const sender = yield* network.endpoint("sender");
+    const links = yield* LinkController;
     const receiver = yield* network.endpoint("receiver");
-    const socket = yield* sender.open(receiver.participant);
-    return { sender, receiver, socket };
+    const sender = makeParticipantHandle("sender", SENDER_ID);
+    yield* Effect.scoped(links.disable(sender, receiver.participant));
   });
-}
-
-function disableRoundTripProgram() {
   return Effect.gen(function* () {
-    const links = yield* LinkController;
-    const ledger = yield* kernelHarness.ledger;
-    const { sender, receiver, socket } = yield* openPair();
-    const received = yield* receiver
-      .messages()
-      .pipe(Stream.take(2), Stream.runCollect, Effect.fork);
-    yield* Effect.yieldNow();
-    yield* socket.send("baseline");
-    yield* ledger
-      .events(EndpointMessageReceived)
-      .pipe(Stream.take(1), Stream.runDrain);
-    yield* Effect.scoped(
-      Effect.gen(function* () {
-        yield* links.disable(sender.participant, receiver.participant);
-        yield* socket.send("blocked");
-        yield* ledger
-          .events(LinkMessageDropped)
-          .pipe(Stream.take(1), Stream.runDrain);
+    const result = yield* runKernel(
+      program,
+      memoryStorage(records, {
+        appendFailure: { eventTag: LinkDown._tag, error: failure },
       }),
+      successfulRouterProvider(),
+      makeFakeCluster({ acquireEndpoint }),
     );
-    yield* socket.send("after");
-    const messages = yield* Fiber.join(received);
-    return Chunk.toReadonlyArray(messages).map(textOf);
-  });
-}
 
-test("scoped link disable drops deliveries with evidence and restores delivery", () =>
-  Effect.gen(function* () {
-    const result = yield* kernelHarness.run(
-      kernelHarness.agents({}),
-      disableRoundTripProgram(),
-    );
-    assert.instanceOf(result, ProgramFinished);
-    if (!(result instanceof ProgramFinished)) {
-      return;
+    assert.instanceOf(result, ClusterLost);
+    if (result instanceof ClusterLost) {
+      assert.instanceOf(result.receipt, IncompleteLedgerReceipt);
+      assert.isFalse(Cause.isInterrupted(result.cause));
+      assert.isTrue(hasFailure(result.cause, isLedgerFailure(failure)));
     }
-    assert.deepStrictEqual(result.exit, Exit.succeed(["baseline", "after"]));
-
-    const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
-    assert.lengthOf(yield* Stream.runCollect(ledger.events(LinkDown)), 1);
-    assert.lengthOf(yield* Stream.runCollect(ledger.events(LinkUp)), 1);
-    const dropped = yield* Stream.runCollect(ledger.events(LinkMessageDropped));
-    assert.strictEqual(dropped.length, 1);
-  }).pipe(
-    Effect.provideService(LedgerStorage, memoryStorage()),
-    Effect.provideService(RouterProvider, fakeRouterProvider()),
-  ));
-
-function delayUnderShapeProgram() {
-  return Effect.gen(function* () {
-    const links = yield* LinkController;
-    const ledger = yield* kernelHarness.ledger;
-    const { sender, receiver, socket } = yield* openPair();
-    const received = yield* receiver
-      .messages()
-      .pipe(Stream.take(1), Stream.runCollect, Effect.fork);
-    yield* Effect.yieldNow();
-    yield* Effect.scoped(
-      Effect.gen(function* () {
-        yield* links.shape(
-          sender.participant,
-          receiver.participant,
-          linkPolicy.delay(SHAPED_DELAY),
-          SHAPE_DESCRIPTION,
-        );
-        yield* socket.send("delayed");
-        yield* ledger
-          .events(LinkMessageDelayed)
-          .pipe(Stream.take(1), Stream.runDrain);
-        yield* awaitSleepers(1);
-        yield* TestClock.adjust(SHAPED_DELAY);
-      }),
-    );
-    const messages = yield* Fiber.join(received);
-    return Chunk.toReadonlyArray(messages).map(textOf);
+    assert.include(eventTags(records), RunStarted._tag);
+    assert.include(eventTags(records), RouterStarted._tag);
+    assert.notInclude(eventTags(records), LinkDown._tag);
   });
-}
-
-test("a shaped delay defers delivery until the ambient clock advances", () =>
-  Effect.gen(function* () {
-    const result = yield* kernelHarness.run(
-      kernelHarness.agents({}),
-      delayUnderShapeProgram(),
-    );
-    assert.instanceOf(result, ProgramFinished);
-    if (!(result instanceof ProgramFinished)) {
-      return;
-    }
-    assert.deepStrictEqual(result.exit, Exit.succeed(["delayed"]));
-
-    const ledger = yield* kernelHarness.openLedger(result.receipt.ledger);
-    const set = yield* Stream.runCollect(ledger.events(LinkPolicySet));
-    assert.strictEqual(Chunk.unsafeGet(set, 0).policy, SHAPE_DESCRIPTION);
-    const cleared = yield* Stream.runCollect(ledger.events(LinkPolicyCleared));
-    assert.strictEqual(Chunk.unsafeGet(cleared, 0).policy, SHAPE_DESCRIPTION);
-    const delayed = yield* Stream.runCollect(ledger.events(LinkMessageDelayed));
-    assert.strictEqual(
-      Chunk.unsafeGet(delayed, 0).delayMillis,
-      SHAPED_DELAY_MILLIS,
-    );
-  }).pipe(
-    Effect.provideService(LedgerStorage, memoryStorage()),
-    Effect.provideService(RouterProvider, fakeRouterProvider()),
-  ));
-
-/* eslint-enable agent-code-guard/no-example-only-tests -- Restore the project default after the run-lifecycle regressions. */
+});

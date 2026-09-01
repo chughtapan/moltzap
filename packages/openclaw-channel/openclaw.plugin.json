@@ -18,24 +18,32 @@
         "properties": {
           "accounts": {
             "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "id": {
-                  "type": "string"
+            "items": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "shared",
+                      "private"
+                    ]
+                  }
                 },
-                "agentName": {
-                  "type": "string"
-                },
-                "enabled": {
-                  "type": "boolean"
-                }
-              },
-              "required": [
-                "id"
-              ]
-            }
+                "required": [
+                  "id"
+                ]
+              }
+            ],
+            "additionalItems": false,
+            "minItems": 1
           }
         }
       }

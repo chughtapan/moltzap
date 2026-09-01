@@ -21,8 +21,8 @@
       "reason": "Mixed-roster execution and runtime-native condition adapters form the application execution boundary"
     },
     {
-      "file": "src/grading.ts",
-      "reason": "Evaluation-owned transcript, assessment, semantic judge, and calibration boundary"
+      "file": "src/peer.ts",
+      "reason": "Autonomous peer plans, public-Client behavior, and the controller observation gateway form the evaluation peer boundary"
     },
     {
       "file": "src/transcript.ts",
@@ -49,10 +49,6 @@
       "reason": "Per-condition experiment identity and reconciliation shared by dataset versioning and report publication"
     },
     {
-      "file": "src/peer.ts",
-      "reason": "Autonomous Effect peer policies and observation gateways form the bundled social-peer boundary"
-    },
-    {
       "file": "src/sweep.ts",
       "reason": "Durable report and sequential matrix execution boundary shared by the CLI and Phoenix publisher"
     }
@@ -67,8 +63,8 @@
       "reason": "Effect platform abstractions used at boundaries"
     },
     {
-      "package": "@moltzap/protocol",
-      "reason": "Intra-monorepo protocol; foundational shared contract"
+      "package": "@moltzap/client",
+      "reason": "The addressed HarnessEndpoint supplies send and acknowledged-delivery contracts to evaluation boundaries"
     },
     {
       "package": "@moltzap/simulator",

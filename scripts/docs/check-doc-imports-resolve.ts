@@ -3,7 +3,7 @@
  * @file Doc-imports-resolve gate. Scans every `from "@moltzap/*"`
  * import statement that appears in a `.mdx`/`.md` file under `docs/`
  * (or in the repo-root `README.md`), parses each referenced package's
- * `exports` map from the v1 and v2 workspace package roots, and verifies:
+ * `exports` map from the workspace package root, and verifies:
  *
  *   1. The exact subpath (`.` or `./<name>`) resolves to a published
  *      entry — the doc cannot dangle on a path that isn't in the
@@ -36,10 +36,7 @@ import ts from "typescript";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(scriptDir, "..", "..");
 const docsDir = resolve(workspaceRoot, "docs");
-const workspacePackageRoots = [
-  resolve(workspaceRoot, "packages"),
-  resolve(workspaceRoot, "v2"),
-] as const;
+const workspacePackageRoot = resolve(workspaceRoot, "packages");
 
 // ─── Workspace package discovery ──────────────────────────────────────────
 
@@ -58,30 +55,28 @@ interface PackageInfo {
 
 const readPackages = (): ReadonlyMap<string, PackageInfo> => {
   const out = new Map<string, PackageInfo>();
-  for (const packageRoot of workspacePackageRoots) {
-    for (const entry of readdirSync(packageRoot)) {
-      const pkgDir = resolve(packageRoot, entry);
-      const pkgJsonPath = resolve(pkgDir, "package.json");
-      let parsed: { name?: string; exports?: Record<string, unknown> };
-      try {
-        parsed = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as typeof parsed;
-      } catch {
-        continue;
-      }
-      if (!parsed.name) continue;
-      const subpaths = new Map<string, ExportTarget>();
-      for (const [sub, target] of Object.entries(parsed.exports ?? {})) {
-        const resolved = resolveExportTarget(target);
-        if (resolved === null) continue;
-        const resolvedAbs = resolve(pkgDir, resolved);
-        const sourceCandidate = guessSourcePath(pkgDir, resolved);
-        subpaths.set(sub, {
-          resolvedPath: resolvedAbs,
-          ...(sourceCandidate === null ? {} : { sourceCandidate }),
-        });
-      }
-      out.set(parsed.name, { packageDir: pkgDir, subpaths });
+  for (const entry of readdirSync(workspacePackageRoot)) {
+    const pkgDir = resolve(workspacePackageRoot, entry);
+    const pkgJsonPath = resolve(pkgDir, "package.json");
+    let parsed: { name?: string; exports?: Record<string, unknown> };
+    try {
+      parsed = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as typeof parsed;
+    } catch {
+      continue;
     }
+    if (!parsed.name) continue;
+    const subpaths = new Map<string, ExportTarget>();
+    for (const [sub, target] of Object.entries(parsed.exports ?? {})) {
+      const resolved = resolveExportTarget(target);
+      if (resolved === null) continue;
+      const resolvedAbs = resolve(pkgDir, resolved);
+      const sourceCandidate = guessSourcePath(pkgDir, resolved);
+      subpaths.set(sub, {
+        resolvedPath: resolvedAbs,
+        ...(sourceCandidate === null ? {} : { sourceCandidate }),
+      });
+    }
+    out.set(parsed.name, { packageDir: pkgDir, subpaths });
   }
   return out;
 };
@@ -200,6 +195,17 @@ const fileExists = (path: string): boolean => {
 const isDocFile = (path: string): boolean =>
   path.endsWith(".md") || path.endsWith(".mdx");
 
+/**
+ * Historical handoffs preserve the package imports that were current when
+ * they were reviewed. Only an explicit opening Status marker containing both
+ * HISTORICAL and SUPERSEDED exempts a document; ordinary live docs continue
+ * through the resolver even if their prose mentions either word elsewhere.
+ */
+const isHistoricalSupersededDocument = (text: string): boolean => {
+  const opening = text.split("\n").slice(0, 20).join("\n");
+  return /^Status:\s+.*\bHISTORICAL\b.*\bSUPERSEDED\b.*$/m.test(opening);
+};
+
 const walkDocs = (root: string): string[] => {
   const out: string[] = [];
   const visit = (dir: string): void => {
@@ -293,7 +299,7 @@ const joinMultiLineImports = (
 
 const collectImports = (absPath: string): readonly DocImport[] => {
   const text = safeRead(absPath);
-  if (text === null) return [];
+  if (text === null || isHistoricalSupersededDocument(text)) return [];
   const out: DocImport[] = [];
   const folded = joinMultiLineImports(text.split("\n"));
   for (const { text: line, startLine } of folded) {
@@ -359,7 +365,7 @@ const scanImports = (
         line: imp.line,
         text: imp.raw,
         kind: "unknown-package",
-        detail: `Package '${imp.packageName}' is not in packages/ or v2/.`,
+        detail: `Package '${imp.packageName}' is not in packages/.`,
       });
       continue;
     }
