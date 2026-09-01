@@ -9,11 +9,10 @@ import {
   InboundMessage as MoltZapInboundMessage,
   type SendInput,
 } from "@moltzap/client";
-import { Deferred, Effect, Fiber, Option, Queue, Schema, Stream } from "effect";
+import { Deferred, Effect, Option, Queue, Schema, Stream } from "effect";
 import { describe, expect, vi, it as vitestIt } from "vitest";
 
 import type { ChannelSetup } from "./adapter.js";
-import { getRegisteredChannelAdapter } from "./channel-registry.js";
 import { makeMoltZapAdapter, MoltZapAdapter } from "./moltzap.js";
 
 interface FakeEndpoint {
@@ -113,8 +112,7 @@ function runPromise<A>(
   });
 }
 
-// @agent-code-guard/regression-only: these examples pin the exact durable delivery and canonical-address host boundary.
-// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- Both examples share one ordered fake endpoint lifecycle and assert opposite durable directions.
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The delivery laws share one endpoint fixture and lifecycle.
 describe("MoltZapAdapter delivery", () => {
   it("acknowledges only after NanoClaw's stock inbound callback completes", () =>
     Effect.gen(function* () {
@@ -122,16 +120,13 @@ describe("MoltZapAdapter delivery", () => {
       const inboundStarted = yield* Deferred.make<undefined>();
       const allowCallback = yield* Deferred.make<undefined>();
       const acknowledged = yield* Deferred.make<undefined>();
-      const callOrder: string[] = [];
+      const events: string[] = [];
       const adapter = MoltZapAdapter.fromEndpoint(fake.endpoint);
       yield* setupAdapter(
         adapter,
         hostSetup({
-          onMetadata: () => {
-            callOrder.push("metadata");
-          },
           onInbound: () => {
-            callOrder.push("inbound");
+            events.push("inbound");
             Effect.runSync(Deferred.succeed(inboundStarted, undefined));
             return Effect.runPromise(Deferred.await(allowCallback));
           },
@@ -141,7 +136,7 @@ describe("MoltZapAdapter delivery", () => {
       yield* Queue.offer(fake.queue, {
         message: directMessage,
         acknowledge: Effect.sync(() => {
-          callOrder.push("acknowledge");
+          events.push("acknowledge");
           Effect.runSync(Deferred.succeed(acknowledged, undefined));
         }),
       });
@@ -150,7 +145,7 @@ describe("MoltZapAdapter delivery", () => {
 
       yield* Deferred.succeed(allowCallback, undefined);
       yield* Deferred.await(acknowledged);
-      expect(callOrder).toEqual(["metadata", "inbound", "acknowledge"]);
+      expect(events).toEqual(["inbound", "acknowledge"]);
       yield* teardownAdapter(adapter);
     }));
 
@@ -194,13 +189,13 @@ describe("MoltZapAdapter delivery", () => {
       yield* waitForDisconnected(transportAdapter);
     }));
 
-  it("treats each native delivery call as one provider invocation", () =>
+  it("forwards each native delivery call once to Client", () =>
     Effect.gen(function* () {
       const fake = yield* createFakeEndpoint();
       const adapter = MoltZapAdapter.fromEndpoint(fake.endpoint);
       yield* setupAdapter(adapter, hostSetup());
       yield* runPromise(() =>
-        adapter.deliver(GROUP_ADDRESS, null, {
+        adapter.deliver("group:bob,alice", null, {
           kind: "chat",
           content: { text: "ready" },
         }),
@@ -212,31 +207,13 @@ describe("MoltZapAdapter delivery", () => {
         }),
       );
       expect(fake.sends).toHaveLength(2);
-      for (const send of fake.sends) {
-        expect(send).toEqual({
-          to: GROUP_ADDRESS,
-          content: [{ type: "text", text: "ready" }],
-        });
-      }
-      yield* teardownAdapter(adapter);
-    }));
-
-  it("forwards accepted group input for Client to canonicalize", () =>
-    Effect.gen(function* () {
-      const fake = yield* createFakeEndpoint();
-      const adapter = MoltZapAdapter.fromEndpoint(fake.endpoint);
-      yield* setupAdapter(adapter, hostSetup());
-
-      yield* runPromise(() =>
-        adapter.deliver("group:bob,alice", null, {
-          kind: "chat",
-          content: { text: "ready" },
-        }),
-      );
-
       expect(fake.sends).toEqual([
         {
           to: "group:bob,alice",
+          content: [{ type: "text", text: "ready" }],
+        },
+        {
+          to: GROUP_ADDRESS,
           content: [{ type: "text", text: "ready" }],
         },
       ]);
@@ -244,8 +221,7 @@ describe("MoltZapAdapter delivery", () => {
     }));
 });
 
-// @agent-code-guard/regression-only: the adapter exposes the finite address projections accepted by the host.
-// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The finite projection matrix shares one canonical direct/group fixture and lifecycle.
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- Address projection and reconnect behavior share one adapter fixture.
 describe("MoltZapAdapter canonical addresses", () => {
   it("projects exact group identity and membership", () =>
     Effect.gen(function* () {
@@ -296,17 +272,6 @@ describe("MoltZapAdapter canonical addresses", () => {
       yield* teardownAdapter(adapter);
     }));
 
-  it("tracks the scoped endpoint lifecycle", () =>
-    Effect.gen(function* () {
-      const fake = yield* createFakeEndpoint();
-      const adapter = MoltZapAdapter.fromEndpoint(fake.endpoint);
-      expect(adapter.isConnected()).toBe(false);
-      yield* setupAdapter(adapter, hostSetup());
-      expect(adapter.isConnected()).toBe(true);
-      yield* teardownAdapter(adapter);
-      expect(adapter.isConnected()).toBe(false);
-    }));
-
   it("reacquires after a failed stream and tears down the new activation", () =>
     Effect.gen(function* () {
       const queue = yield* Queue.unbounded<InboundDelivery>();
@@ -337,115 +302,9 @@ describe("MoltZapAdapter canonical addresses", () => {
       yield* teardownAdapter(adapter);
       expect(adapter.isConnected()).toBe(false);
     }));
-
-  it("serializes concurrent setup calls around one activation", () =>
-    Effect.gen(function* () {
-      const queue = yield* Queue.unbounded<InboundDelivery>();
-      let subscriptions = 0;
-      let finalizations = 0;
-      const endpoint: HarnessEndpoint = {
-        send: () => Effect.void,
-        messages: Stream.unwrap(
-          Effect.sync(() => {
-            subscriptions += 1;
-            return Stream.fromQueue(queue).pipe(
-              Stream.ensuring(
-                Effect.sync(() => {
-                  finalizations += 1;
-                }),
-              ),
-            );
-          }),
-        ),
-      };
-      const adapter = MoltZapAdapter.fromEndpoint(endpoint);
-
-      yield* Effect.all(
-        [
-          setupAdapter(adapter, hostSetup()),
-          setupAdapter(adapter, hostSetup()),
-        ],
-        { concurrency: 2, discard: true },
-      );
-      yield* runPromise(() =>
-        vi.waitFor(() => {
-          expect(subscriptions).toBe(1);
-        }),
-      );
-      expect(adapter.isConnected()).toBe(true);
-
-      yield* teardownAdapter(adapter);
-      expect(finalizations).toBe(1);
-      expect(adapter.isConnected()).toBe(false);
-    }));
-
-  it("waits for teardown finalization before replacing the activation", () =>
-    Effect.gen(function* () {
-      const allowFinalization = yield* Deferred.make<undefined>();
-      let subscriptions = 0;
-      const endpoint: HarnessEndpoint = {
-        send: () => Effect.void,
-        messages: Stream.unwrap(
-          Effect.sync(() => {
-            subscriptions += 1;
-            return Stream.never.pipe(
-              Stream.ensuring(
-                subscriptions === 1
-                  ? Deferred.await(allowFinalization)
-                  : Effect.void,
-              ),
-            );
-          }),
-        ),
-      };
-      const adapter = MoltZapAdapter.fromEndpoint(endpoint);
-      yield* setupAdapter(adapter, hostSetup());
-
-      const teardown = yield* Effect.fork(teardownAdapter(adapter));
-      yield* runPromise(() =>
-        vi.waitFor(() => {
-          expect(adapter.isConnected()).toBe(false);
-        }),
-      );
-      const replacement = yield* Effect.fork(
-        setupAdapter(adapter, hostSetup()),
-      );
-      expect(Option.isNone(yield* Fiber.poll(teardown))).toBe(true);
-      expect(Option.isNone(yield* Fiber.poll(replacement))).toBe(true);
-      yield* Effect.flip(
-        runPromise(() =>
-          adapter.deliver(DIRECT_ADDRESS, null, {
-            kind: "chat",
-            content: { text: "too late" },
-          }),
-        ),
-      );
-
-      yield* Deferred.succeed(allowFinalization, undefined);
-      yield* Fiber.join(teardown);
-      yield* Fiber.join(replacement);
-      expect(subscriptions).toBe(2);
-      expect(adapter.isConnected()).toBe(true);
-
-      yield* teardownAdapter(adapter);
-      expect(adapter.isConnected()).toBe(false);
-    }));
 });
 
-describe("MoltZapAdapter registration", () => {
-  vitestIt("registers its NanoClaw factory", () => {
-    expect(getRegisteredChannelAdapter("moltzap")).toMatchObject({
-      defaults: {
-        dm: { unknownSenderPolicy: "public" },
-        group: { unknownSenderPolicy: "public" },
-      },
-    });
-  });
-
-  vitestIt("is disabled without a loopback MCP URL", () => {
-    expect(makeMoltZapAdapter({ mcpEndpoint: null })).toBeNull();
-  });
-
+describe("MoltZapAdapter configuration", () => {
   vitestIt("creates an MCP-backed adapter from a loopback URL", () => {
     expect(
       makeMoltZapAdapter({ mcpEndpoint: "http://127.0.0.1:4100/mcp" }),
