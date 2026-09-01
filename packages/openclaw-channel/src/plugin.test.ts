@@ -152,8 +152,8 @@ function upstreamRunnerAndAcknowledgment() {
     );
 
     expect(routePeers).toEqual([
-      { kind: "direct", id: direct.message.address },
-      { kind: "group", id: group.message.address },
+      { kind: "direct", id: "alice" },
+      { kind: "group", id: "alice,bob,carol" },
     ]);
     expect(calls).toHaveLength(2);
     expectRoutedTurn(requireTurnPlan(plans, 0), direct.message.address);
@@ -542,7 +542,7 @@ function makeRoutingRuntime(
         sessionKey:
           input.peer === undefined || input.peer === null
             ? MAIN_SESSION_KEY
-            : sessionKeyFor(input.peer.id),
+            : sessionKeyForPeer(input.peer.kind, input.peer.id),
         mainSessionKey: MAIN_SESSION_KEY,
         lastRoutePolicy: "session",
         matchedBy: "default",
@@ -804,5 +804,11 @@ function expectGroupProjection(
 }
 
 function sessionKeyFor(address: string): string {
-  return `agent:primary:moltzap:${address}`;
+  return address.startsWith("group:")
+    ? sessionKeyForPeer("group", address.slice("group:".length))
+    : sessionKeyForPeer("direct", address.slice("agent:".length));
+}
+
+function sessionKeyForPeer(kind: string, id: string): string {
+  return `agent:primary:moltzap:${kind}:${id}`;
 }
