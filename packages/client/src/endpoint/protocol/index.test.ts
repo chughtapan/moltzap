@@ -18,6 +18,7 @@ import {
 import { PollCursor, RouterInstanceId } from "@moltzap/router";
 import canonicalize from "canonicalize";
 import {
+  Deferred,
   Effect,
   Either,
   Encoding,
@@ -34,7 +35,11 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type { EngineActionFold, EngineRegistryPort } from "../engine-types.js";
+import type {
+  EndpointEngineInput,
+  EngineActionFold,
+  EngineRegistryPort,
+} from "../engine-types.js";
 import { SendInput } from "../../contract.js";
 import { type EndpointEngine, makeEndpointEngine } from "../engine.js";
 import { recoverFoldEvidence } from "../recovery/store-evidence.js";
@@ -380,11 +385,9 @@ function drainEngines(
   ).pipe(Effect.orDie);
 }
 
-function makeProtocolHarness(): Effect.Effect<
-  ProtocolHarness,
-  never,
-  Scope.Scope
-> {
+function makeProtocolHarness(
+  authorActionPolicy: EndpointEngineInput["actionPolicy"] = signEveryAction,
+): Effect.Effect<ProtocolHarness, never, Scope.Scope> {
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const registryKeys = generateKeyPairSync("ed25519");
@@ -424,7 +427,7 @@ function makeProtocolHarness(): Effect.Effect<
               registrySignerPublicKey,
               registry,
               store,
-              actionPolicy: signEveryAction,
+              actionPolicy: index === 0 ? authorActionPolicy : signEveryAction,
               routerWorker: scriptedRouterWorker(store, outbound),
             }),
           ),
@@ -1083,7 +1086,44 @@ function givesIdenticalHostInvocationsDistinctPostIds() {
   );
 }
 
-// @agent-code-guard/regression-only: these traces pin threshold separation and first-candidate safety through durable engine state.
+function retainsInterruptedDurableSend() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const policyEntered = yield* Deferred.make<undefined>();
+        const releasePolicy = yield* Deferred.make<undefined>();
+        const harness = yield* makeProtocolHarness(() =>
+          Deferred.succeed(policyEntered, undefined).pipe(
+            Effect.zipRight(Deferred.await(releasePolicy)),
+            Effect.as("sign" as const),
+          ),
+        );
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const sending = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "retained send")),
+        );
+        yield* Deferred.await(policyEntered);
+        const interrupting = yield* Effect.fork(Fiber.interrupt(sending));
+        yield* Effect.yieldNow();
+        yield* Deferred.succeed(releasePolicy, undefined);
+        yield* Fiber.join(interrupting);
+
+        yield* author.drainOutbound.pipe(Effect.orDie);
+        const proposal = yield* takeReadyBatch(harness).pipe(
+          Effect.flatMap((messages) =>
+            requireAt(messages, 0, "retained proposal"),
+          ),
+          Effect.flatMap(decodeActionProposal),
+        );
+        expect(proposal.action.postIntent.content).toEqual([
+          { type: "text", text: "retained send" },
+        ]);
+      }),
+    ),
+  );
+}
+
+// @agent-code-guard/regression-only: These stateful traces exercise durable quorum and interruption boundaries across real endpoint engines.
 describe("fixed-post endpoint protocol", () => {
   it(
     "mints a distinct PostId for each identical host invocation",
@@ -1121,6 +1161,11 @@ describe("fixed-post endpoint protocol", () => {
         firstAuthorIndex: 0,
         secondAuthorIndex: 0,
       }),
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "retains a durably bound send when its caller is interrupted",
+    retainsInterruptedDurableSend,
     TEST_TIMEOUT_MS,
   );
 });
