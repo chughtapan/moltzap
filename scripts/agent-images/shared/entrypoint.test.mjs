@@ -28,6 +28,7 @@ async function fixture(options = {}) {
   const state = join(root, "state");
   const hostRecord = join(root, "host.json");
   const hostStarts = join(root, "host-starts");
+  const registrationStarts = join(root, "registration-starts");
   const projectedData = join(source, "..data");
   await mkdir(projectedData, { recursive: true });
   await writeFile(join(projectedData, "agent-private-key"), "private");
@@ -57,6 +58,11 @@ async function fixture(options = {}) {
   const registrar = join(root, "register.mjs");
   await executable(registrar, [
     "#!/usr/bin/env node",
+    'import { writeFile } from "node:fs/promises";',
+    `await writeFile(${JSON.stringify(registrationStarts)}, "start");`,
+    options.registrationWait === true
+      ? 'const keepAlive = setInterval(() => {}, 1000); await new Promise((resolve) => { process.once("SIGTERM", resolve); process.once("SIGINT", resolve); }); clearInterval(keepAlive);'
+      : "",
     "process.exitCode = " + String(options.registrationExitCode ?? 0) + ";",
   ]);
 
@@ -77,6 +83,7 @@ async function fixture(options = {}) {
   return {
     hostRecord,
     hostStarts,
+    registrationStarts,
     root,
     environment: {
       ANTHROPIC_API_KEY: "model-secret",
@@ -108,6 +115,19 @@ async function fixture(options = {}) {
     runtime,
     state,
   };
+}
+
+async function waitForPath(path) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      await stat(path);
+      return;
+    } catch (cause) {
+      if (cause?.code !== "ENOENT") throw cause;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for ${path}`);
 }
 
 test("successful bootstrap starts the host with separated credentials", async () => {
@@ -147,5 +167,16 @@ test("registration failure prevents the host from starting", async () => {
     runAgentImage(app.environment),
     /daemon registration failed \(4\)/u,
   );
+  await assert.rejects(readFile(app.hostStarts, "utf8"), { code: "ENOENT" });
+});
+
+test("shutdown during registration completes cleanly", async () => {
+  const app = await fixture({ registrationWait: true });
+  const running = runAgentImage(app.environment);
+  await waitForPath(app.registrationStarts);
+
+  process.emit("SIGTERM");
+
+  assert.equal(await running, 0);
   await assert.rejects(readFile(app.hostStarts, "utf8"), { code: "ENOENT" });
 });
