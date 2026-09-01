@@ -1,7 +1,7 @@
 {
   "name": "@moltzap/nanoclaw-channel",
   "version": "0.0.0",
-  "description": "Nanoclaw channel for MoltZap — smoke test package, not published",
+  "description": "NanoClaw channel adapter for MoltZap \u2014 private package",
   "private": true,
   "license": "MIT",
   "repository": {
@@ -24,7 +24,6 @@
     "build": "nx run @moltzap/nanoclaw-channel:build",
     "lint": "nx run @moltzap/nanoclaw-channel:lint",
     "test": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.mjs",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {
@@ -47,19 +46,16 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/nanoclaw-channel",
-          "command": "safer-architecture-lsp check ."
+          "command": "node ../../scripts/architecture/check-package.mjs ."
         }
       }
     }
   },
   "dependencies": {
     "@moltzap/client": "workspace:*",
-    "@moltzap/protocol": "workspace:*",
     "effect": "^3.22.0"
   },
   "devDependencies": {
-    "@effect/platform": "^0.97.0",
-    "@effect/platform-node": "^0.108.0",
     "@effect/vitest": "^0.30.0",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",

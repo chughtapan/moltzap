@@ -1,4 +1,5 @@
-results/
+results/*
+!results/*.md
 *.tgz
 dist/
 node_modules/

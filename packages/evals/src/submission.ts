@@ -1,12 +1,12 @@
 /** @file Repository-local Kubernetes submission for one generated evaluation cell. */
 
+import type { Image } from "@moltzap/simulator/agents";
 import { Command, FileSystem, Path } from "@effect/platform";
 import {
   CompletedLedgerReceipt,
   LedgerReceipt,
   type SimulatorDefinitionId,
 } from "@moltzap/simulator";
-import type { Image } from "@moltzap/simulator/agents";
 import { Effect, Either, Schema } from "effect";
 import type {
   EvaluationCaseId,
@@ -105,35 +105,12 @@ export interface SubmitEvaluationCellInput {
   readonly definitionId: SimulatorDefinitionId;
   readonly attemptId: string;
   readonly condition: SubmissionCondition;
-  readonly peerApplicationImage: Image;
-  readonly nanoclawApplicationImage: Image;
+  readonly messagingMode: "shared" | "private";
+  readonly openclawApplicationImage?: Image;
+  readonly nanoclawApplicationImage?: Image;
   readonly runtimeStartupTimeoutMillis: number;
   readonly peerObservationTimeoutMillis: number;
   readonly caseTimeoutMillis: number;
-}
-
-function literal(value: string): string {
-  return Schema.encodeSync(Schema.parseJson(Schema.String))(value);
-}
-
-function conditionExpression(input: SubmitEvaluationCellInput): string {
-  const shared = [
-    `startupTimeout: Duration.millis(${String(input.runtimeStartupTimeoutMillis)})`,
-    `modelId: ${literal(input.condition.modelId)}`,
-  ];
-  const execution = [
-    `peerObservationTimeout: Duration.millis(${String(input.peerObservationTimeoutMillis)})`,
-    `caseTimeout: Duration.millis(${String(input.caseTimeoutMillis)})`,
-  ];
-  // Total over the conditions that exist, so the generated module never has to
-  // carry a throw for a condition the caller could not have named.
-  const byCondition: Readonly<Record<EvaluationConditionName, string>> = {
-    "openclaw/v2": `openClawEvaluationCondition({ runtime: { ${shared.join(", ")} }, execution: { ${execution.join(", ")} } })`,
-    "nanoclaw/v2": `nanoclawEvaluationCondition({ runtime: { ${shared.join(", ")}, applicationImage: ${literal(input.nanoclawApplicationImage)}, autoRegisterConversations: true }, execution: { ${execution.join(", ")} } })`,
-  };
-  // Indexing needs the plain spelling; the brand is not part of the key set.
-  const condition: EvaluationConditionName = input.condition.id;
-  return byCondition[condition];
 }
 
 /**
@@ -149,7 +126,7 @@ export function evaluationControllerModule(
     'import { Duration } from "effect";',
     'import { evaluationCase } from "/opt/moltzap/node_modules/@moltzap/evals/dist/cases.js";',
     'import { evaluationCellRunSpec, nanoclawEvaluationCondition, openClawEvaluationCondition } from "/opt/moltzap/node_modules/@moltzap/evals/dist/execution.js";',
-    'import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";',
+    'import { controllerServicesFromEnvironment, supportImageFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";',
     `const definition = evaluationCase(${literal(input.caseId)});`,
     `if (definition === undefined || definition.definitionId !== ${literal(input.definitionId)}) throw new Error("evaluation case definition is unavailable");`,
     `const condition = ${condition};`,
@@ -157,18 +134,11 @@ export function evaluationControllerModule(
     "  definition,",
     "  condition,",
     `  attemptId: ${literal(input.attemptId)},`,
-    `  peerApplicationImage: ${literal(input.peerApplicationImage)},`,
+    "  peerApplicationImage: supportImageFromEnvironment(),",
     "  cluster: controllerServicesFromEnvironment(),",
     "});",
     "",
   ].join("\n");
-}
-
-function commandFailure(cause: unknown): EvaluationSubmissionFailed {
-  return EvaluationSubmissionFailed.make({
-    stage: "command",
-    detail: String(cause).trim() || "simulator submitter failed",
-  });
 }
 
 /**
@@ -241,6 +211,9 @@ export function submitEvaluationCell(input: SubmitEvaluationCellInput) {
       );
       const command = Command.make("node", entrypoint, modulePath).pipe(
         Command.workingDirectory(simulatorRoot),
+        Command.env({
+          MOLTZAP_STARTUP_TIMEOUT_MS: String(input.runtimeStartupTimeoutMillis),
+        }),
         Command.stderr("inherit"),
       );
       const output = yield* Command.string(command).pipe(
@@ -249,4 +222,53 @@ export function submitEvaluationCell(input: SubmitEvaluationCellInput) {
       return yield* decodeSubmissionOutput(output);
     }),
   ).pipe(Effect.withSpan("submitEvaluationCell"));
+}
+
+function conditionExpression(input: SubmitEvaluationCellInput): string {
+  const runtime = [
+    `startupTimeout: Duration.millis(${String(input.runtimeStartupTimeoutMillis)})`,
+    `modelId: ${literal(input.condition.modelId)}`,
+  ];
+  const execution = [
+    `peerObservationTimeout: Duration.millis(${String(input.peerObservationTimeoutMillis)})`,
+    `caseTimeout: Duration.millis(${String(input.caseTimeoutMillis)})`,
+  ];
+  // Total over the conditions that exist, so the generated module never has to
+  // carry a throw for a condition the caller could not have named.
+  const byCondition: Readonly<Record<EvaluationConditionName, () => string>> = {
+    "openclaw/v2": () => {
+      if (input.openclawApplicationImage === undefined) {
+        throw EvaluationSubmissionFailed.make({
+          stage: "module",
+          detail:
+            "OpenClaw evaluation cells require an OpenClaw application image",
+        });
+      }
+      return `openClawEvaluationCondition({ runtime: { ${runtime.join(", ")}, applicationImage: ${literal(input.openclawApplicationImage)}, messagingMode: ${literal(input.messagingMode)} }, execution: { ${execution.join(", ")} } })`;
+    },
+    "nanoclaw/v2": () => {
+      if (input.nanoclawApplicationImage === undefined) {
+        throw EvaluationSubmissionFailed.make({
+          stage: "module",
+          detail:
+            "NanoClaw evaluation cells require a NanoClaw application image",
+        });
+      }
+      return `nanoclawEvaluationCondition({ runtime: { ${runtime.join(", ")}, applicationImage: ${literal(input.nanoclawApplicationImage)} }, execution: { ${execution.join(", ")} } })`;
+    },
+  };
+  // Indexing needs the plain spelling; the brand is not part of the key set.
+  const condition: EvaluationConditionName = input.condition.id;
+  return byCondition[condition]();
+}
+
+function literal(value: string): string {
+  return Schema.encodeSync(Schema.parseJson(Schema.String))(value);
+}
+
+function commandFailure(cause: unknown): EvaluationSubmissionFailed {
+  return EvaluationSubmissionFailed.make({
+    stage: "command",
+    detail: String(cause).trim() || "simulator submitter failed",
+  });
 }

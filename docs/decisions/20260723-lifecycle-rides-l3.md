@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-23
 decision-makers: Tapan Chugh
-superseded-by: 20260728-open-floor-v1.md
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # Conversation lifecycle rides in-band at L3
@@ -11,10 +11,15 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 
 ## Supersession
 
-In-band L3 START genesis remains accepted. Gate 1 fixes membership at
-epoch 0, includes initial content in START, and implements no ADD,
-LEAVE, or empty-conversation lifecycle. The model initiates genesis
-only through `start_conversation`.
+In-band fixed-membership genesis with initial content and no control-plane
+create operation remains current. Dynamic membership, ADD, LEAVE, empty
+conversations, and mutable groups remain outside the accepted profile.
+
+`20260827-addressed-messaging-replaces-openfloor.md` replaces client-minted
+`ConversationId` and START with deterministic private conversation identity,
+runtime-visible agent/group addresses, and unanimous GENESIS containing the
+first post. Endpoint-replicated history remains governed by the four-layer
+record and current conversation-history specification.
 
 ## Context and Problem Statement
 
@@ -74,3 +79,12 @@ Consequences: five dissolution verdicts flip from control to data
 transcript-ordered"); the control plane's op surface shrinks to
 identity ops and reads; conversation ids are client-minted;
 first-conversation bootstrap needs no provisioning.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |
+| 2026-08-27 | Recorded the addressed GENESIS/POST replacement while retaining endpoint-owned in-band lifecycle and Router blindness. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

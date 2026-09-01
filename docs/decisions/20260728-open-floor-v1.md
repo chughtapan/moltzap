@@ -1,12 +1,24 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # Gate 1 uses OpenFloorV1 with fixed membership and unanimity
 
 Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-open-floor-v1).
+
+## Supersession
+
+No portion of this record remains current.
+
+`20260827-addressed-messaging-replaces-openfloor.md` removes OpenFloorV1,
+START, MULTICAST, BEGIN/ACK contention, reply grants, and unanimous ordinary
+actions. The current contract uses unanimous fixed-membership GENESIS and
+author-inclusive threshold-certified POST. Endpoint-replicated history,
+durability, catch-up, and re-anchoring remain governed by the four-layer
+record and the current normative specifications.
 
 ## Context and Problem Statement
 

@@ -14,23 +14,18 @@
   "exclude": [
     "src/**/*.test.ts",
     "src/**/*.types-check.ts",
+    "src/__tests__",
     "dist"
   ],
   "references": [
     {
+      "path": "../identity"
+    },
+    {
+      "path": "../router"
+    },
+    {
       "path": "../client"
-    },
-    {
-      "path": "../nanoclaw-channel"
-    },
-    {
-      "path": "../openclaw-channel"
-    },
-    {
-      "path": "../protocol"
-    },
-    {
-      "path": "../server"
     }
   ]
 }

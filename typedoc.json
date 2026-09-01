@@ -2,14 +2,12 @@
   "$schema": "https://typedoc.org/schema.json",
   "entryPointStrategy": "packages",
   "entryPoints": [
-    "packages/protocol",
-    "packages/server",
     "packages/client",
     "packages/simulator",
     "packages/nanoclaw-channel",
     "packages/openclaw-channel",
-    "v2/identity",
-    "v2/router"
+    "packages/identity",
+    "packages/router"
   ],
   "externalSymbolLinkMappings": {
     "effect": {

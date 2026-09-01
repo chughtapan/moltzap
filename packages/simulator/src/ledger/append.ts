@@ -1,3 +1,5 @@
+/** @file Serialized live-ledger commits, producer-bound writers, streams, and completion. */
+
 import {
   Cause,
   Chunk,
@@ -7,13 +9,13 @@ import {
   Exit,
   Match,
   Option,
+  type ParseResult,
   PubSub,
   Queue,
   Ref,
   Schema,
-  Stream,
-  type ParseResult,
   type Scope,
+  Stream,
 } from "effect";
 import type {
   EventCatalog,
@@ -22,16 +24,16 @@ import type {
   EventOf,
 } from "../events/catalog.js";
 import {
-  makeLedgerRecordSchema,
   type JsonObject,
   type LedgerCompletion,
   type LedgerManifest,
   type LedgerRecord,
   type LedgerRef,
+  makeLedgerRecordSchema,
 } from "./schema.js";
 import {
-  LedgerStorage,
   type LedgerAllocation,
+  LedgerStorage,
   type LedgerStorageError,
 } from "./storage.js";
 
@@ -171,6 +173,63 @@ interface CommitRequest<
   readonly catalog: EventCatalog<WriterSchema, WriterClasses>;
   readonly producer: string;
   readonly input: LedgerWrite<EventCatalog<WriterSchema, WriterClasses>>;
+}
+
+/**
+ * Allocate one live ledger from the `LedgerStorage` service. The returned
+ * kernel capability owns writer binding and completion; its readable member
+ * is safe to place in the run's Effect context.
+ * @param catalog Complete event catalog accepted by the live ledger.
+ * @param options Definition, provenance, and metadata used to allocate storage.
+ * @returns The created run ledger.
+ */
+export function makeRunLedger<
+  SchemaType extends Schema.Schema.AnyNoContext,
+  Classes extends EventClass,
+>(
+  catalog: EventCatalog<SchemaType, Classes>,
+  options: RunLedgerOptions,
+): Effect.Effect<
+  ActiveRunLedger<CatalogOf<SchemaType, Classes>>,
+  LedgerStorageError,
+  LedgerStorage | Scope.Scope
+> {
+  return Effect.gen(function* () {
+    const initialized = yield* initializeRunLedger(catalog, options);
+    const ledger = makeReadableLedger(initialized);
+    return makeActiveLedger(initialized.runtime, ledger);
+  }).pipe(Effect.withSpan("makeRunLedger"));
+}
+
+/**
+ * Select one exact declared event class without exposing an open union.
+ * @param catalog Declared catalog that bounds selectable event classes.
+ * @param records Ledger record stream to project.
+ * @param eventClass Exact declared event class to select.
+ * @returns A stream containing decoded events of the selected class.
+ */
+export function ledgerEvents<
+  SchemaType extends Schema.Schema.AnyNoContext,
+  Classes extends EventClass,
+  Failure,
+  Event extends Classes,
+>(
+  catalog: EventCatalog<SchemaType, Classes>,
+  records: Stream.Stream<
+    LedgerRecord<EventCatalog<SchemaType, Classes>>,
+    Failure
+  >,
+  eventClass: Event,
+): Stream.Stream<Schema.Schema.Type<Event>, Failure> {
+  const tag = eventClass._tag;
+  if (!catalog.has(eventClass)) {
+    return Stream.dieMessage(
+      `Event class "${tag}" is outside this ledger catalog`,
+    );
+  }
+  const decode: (input: unknown) => Option.Option<Schema.Schema.Type<Event>> =
+    Schema.decodeUnknownOption(eventClass);
+  return records.pipe(Stream.filterMap((record) => decode(record.event)));
 }
 
 function stringifyJson(
@@ -348,6 +407,27 @@ function exposeCommit<
   );
 }
 
+function writeRecord<
+  RuntimeSchema extends Schema.Schema.AnyNoContext,
+  RuntimeClasses extends EventClass,
+  WriterSchema extends Schema.Schema.AnyNoContext,
+  WriterClasses extends RuntimeClasses,
+>(
+  runtime: LedgerRuntime<RuntimeSchema, RuntimeClasses>,
+  writerCatalog: EventCatalog<WriterSchema, WriterClasses>,
+  producer: string,
+  input: LedgerWrite<EventCatalog<WriterSchema, WriterClasses>>,
+): Effect.Effect<
+  LedgerRecord<EventCatalog<WriterSchema, WriterClasses>>,
+  LedgerFailure
+> {
+  return runtime.transition
+    .withPermits(1)(
+      commitRecord(runtime, { catalog: writerCatalog, producer, input }),
+    )
+    .pipe(Effect.withSpan("RunLedger.write"));
+}
+
 function commitRecord<
   RuntimeSchema extends Schema.Schema.AnyNoContext,
   RuntimeClasses extends EventClass,
@@ -390,27 +470,6 @@ function commitRecord<
   );
 }
 
-function writeRecord<
-  RuntimeSchema extends Schema.Schema.AnyNoContext,
-  RuntimeClasses extends EventClass,
-  WriterSchema extends Schema.Schema.AnyNoContext,
-  WriterClasses extends RuntimeClasses,
->(
-  runtime: LedgerRuntime<RuntimeSchema, RuntimeClasses>,
-  writerCatalog: EventCatalog<WriterSchema, WriterClasses>,
-  producer: string,
-  input: LedgerWrite<EventCatalog<WriterSchema, WriterClasses>>,
-): Effect.Effect<
-  LedgerRecord<EventCatalog<WriterSchema, WriterClasses>>,
-  LedgerFailure
-> {
-  return runtime.transition
-    .withPermits(1)(
-      commitRecord(runtime, { catalog: writerCatalog, producer, input }),
-    )
-    .pipe(Effect.withSpan("RunLedger.write"));
-}
-
 type CursorRead<Catalog> =
   | {
       readonly _tag: "records";
@@ -422,34 +481,6 @@ type CursorRead<Catalog> =
       readonly _tag: "failed";
       readonly cause: Cause.Cause<LedgerFailure>;
     };
-
-function readCursor<
-  SchemaType extends Schema.Schema.AnyNoContext,
-  Classes extends EventClass,
->(
-  runtime: LedgerRuntime<SchemaType, Classes>,
-  cursor: Ref.Ref<number>,
-): Effect.Effect<CursorRead<CatalogOf<SchemaType, Classes>>> {
-  return Effect.gen(function* () {
-    const committed = yield* Ref.get(runtime.history);
-    const next = yield* Ref.get(cursor);
-    const available = Chunk.drop(committed, next);
-    if (Chunk.isNonEmpty(available)) {
-      yield* Ref.set(cursor, Chunk.size(committed));
-      return { _tag: "records", records: available };
-    }
-    const phase = yield* Ref.get(runtime.phase);
-    return Match.value(phase).pipe(
-      Match.tag("completed", () => ({ _tag: "end" as const })),
-      Match.tag("failed", (failed) => ({
-        _tag: "failed" as const,
-        cause: failed.cause,
-      })),
-      Match.tag("open", () => ({ _tag: "wait" as const })),
-      Match.exhaustive,
-    );
-  });
-}
 
 function readNextChunk<
   SchemaType extends Schema.Schema.AnyNoContext,
@@ -485,6 +516,61 @@ function readNextChunk<
     );
 }
 
+function readCursor<
+  SchemaType extends Schema.Schema.AnyNoContext,
+  Classes extends EventClass,
+>(
+  runtime: LedgerRuntime<SchemaType, Classes>,
+  cursor: Ref.Ref<number>,
+): Effect.Effect<CursorRead<CatalogOf<SchemaType, Classes>>> {
+  return Effect.gen(function* () {
+    const committed = yield* Ref.get(runtime.history);
+    const next = yield* Ref.get(cursor);
+    const available = Chunk.drop(committed, next);
+    if (Chunk.isNonEmpty(available)) {
+      yield* Ref.set(cursor, Chunk.size(committed));
+      return { _tag: "records", records: available };
+    }
+    const phase = yield* Ref.get(runtime.phase);
+    return Match.value(phase).pipe(
+      Match.tag("completed", () => ({ _tag: "end" as const })),
+      Match.tag("failed", (failed) => ({
+        _tag: "failed" as const,
+        cause: failed.cause,
+      })),
+      Match.tag("open", () => ({ _tag: "wait" as const })),
+      Match.exhaustive,
+    );
+  });
+}
+
+function makeReadableLedger<
+  SchemaType extends Schema.Schema.AnyNoContext,
+  Classes extends EventClass,
+>(
+  initialized: InitializedRunLedger<SchemaType, Classes>,
+): RunLedger<CatalogOf<SchemaType, Classes>> {
+  const { allocation, runtime } = initialized;
+  const records = recordStream(runtime);
+  return {
+    ref: allocation.ref,
+    manifest: allocation.manifest,
+    records,
+    events: (eventClass) => ledgerEvents(runtime.catalog, records, eventClass),
+  };
+}
+
+function recordStream<
+  SchemaType extends Schema.Schema.AnyNoContext,
+  Classes extends EventClass,
+>(
+  runtime: LedgerRuntime<SchemaType, Classes>,
+): Stream.Stream<LedgerRecord<CatalogOf<SchemaType, Classes>>, LedgerFailure> {
+  return Stream.unwrapScoped(
+    runtime.transition.withPermits(1)(snapshotRecords(runtime)),
+  );
+}
+
 function snapshotRecords<
   SchemaType extends Schema.Schema.AnyNoContext,
   Classes extends EventClass,
@@ -502,48 +588,6 @@ function snapshotRecords<
       readNextChunk(runtime, changes, cursor),
     );
   });
-}
-
-function recordStream<
-  SchemaType extends Schema.Schema.AnyNoContext,
-  Classes extends EventClass,
->(
-  runtime: LedgerRuntime<SchemaType, Classes>,
-): Stream.Stream<LedgerRecord<CatalogOf<SchemaType, Classes>>, LedgerFailure> {
-  return Stream.unwrapScoped(
-    runtime.transition.withPermits(1)(snapshotRecords(runtime)),
-  );
-}
-
-/**
- * Select one exact declared event class without exposing an open union.
- * @param catalog Value supplied to the operation.
- * @param records Value supplied to the operation.
- * @param eventClass Value supplied to the operation.
- * @returns The ledger events result.
- */
-export function ledgerEvents<
-  SchemaType extends Schema.Schema.AnyNoContext,
-  Classes extends EventClass,
-  Failure,
-  Event extends Classes,
->(
-  catalog: EventCatalog<SchemaType, Classes>,
-  records: Stream.Stream<
-    LedgerRecord<EventCatalog<SchemaType, Classes>>,
-    Failure
-  >,
-  eventClass: Event,
-): Stream.Stream<Schema.Schema.Type<Event>, Failure> {
-  const tag = eventClass._tag;
-  if (!catalog.has(eventClass)) {
-    return Stream.dieMessage(
-      `Event class "${tag}" is outside this ledger catalog`,
-    );
-  }
-  const decode: (input: unknown) => Option.Option<Schema.Schema.Type<Event>> =
-    Schema.decodeUnknownOption(eventClass);
-  return records.pipe(Stream.filterMap((record) => decode(record.event)));
 }
 
 function isCatalogSubset<
@@ -660,22 +704,6 @@ function initializeRunLedger<
   });
 }
 
-function makeReadableLedger<
-  SchemaType extends Schema.Schema.AnyNoContext,
-  Classes extends EventClass,
->(
-  initialized: InitializedRunLedger<SchemaType, Classes>,
-): RunLedger<CatalogOf<SchemaType, Classes>> {
-  const { allocation, runtime } = initialized;
-  const records = recordStream(runtime);
-  return {
-    ref: allocation.ref,
-    manifest: allocation.manifest,
-    records,
-    events: (eventClass) => ledgerEvents(runtime.catalog, records, eventClass),
-  };
-}
-
 function makeActiveLedger<
   SchemaType extends Schema.Schema.AnyNoContext,
   Classes extends EventClass,
@@ -699,30 +727,4 @@ function makeActiveLedger<
     },
     complete: () => completeLedger(runtime),
   };
-}
-
-/**
- * Allocate one live ledger from the `LedgerStorage` service. The returned
- * kernel capability owns writer binding and completion; its readable member
- * is safe to place in the run's Effect context.
- * @param catalog Value supplied to the operation.
- * @param options Options that control the operation.
- * @returns The created run ledger.
- */
-export function makeRunLedger<
-  SchemaType extends Schema.Schema.AnyNoContext,
-  Classes extends EventClass,
->(
-  catalog: EventCatalog<SchemaType, Classes>,
-  options: RunLedgerOptions,
-): Effect.Effect<
-  ActiveRunLedger<CatalogOf<SchemaType, Classes>>,
-  LedgerStorageError,
-  LedgerStorage | Scope.Scope
-> {
-  return Effect.gen(function* () {
-    const initialized = yield* initializeRunLedger(catalog, options);
-    const ledger = makeReadableLedger(initialized);
-    return makeActiveLedger(initialized.runtime, ledger);
-  }).pipe(Effect.withSpan("makeRunLedger"));
 }

@@ -1,24 +1,21 @@
-/** @file Typed failures raised at any network boundary. */
+/** @file Typed failures raised at simulator network boundaries. */
 
 import { Schema } from "effect";
 
 const networkOperation = Schema.Literal(
   "acquire-router",
-  "attach-agent",
   "attach-endpoint",
   "disable-link",
   "enable-link",
-  "open-conversation",
   "receive",
   "shape-link",
-  "socket",
-  "stop-router",
   "send",
+  "stop-router",
 );
 /** Network operation names used by typed failures. */
 export type NetworkOperation = typeof networkOperation.Type;
 
-/** An operational failure at a network boundary. */
+/** An operational failure at a simulator network boundary. */
 export class NetworkError extends Schema.TaggedError<NetworkError>()(
   "NetworkError",
   {

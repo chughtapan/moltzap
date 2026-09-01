@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-23
 decision-makers: Tapan Chugh
-superseded-by: 20260728-simulator-is-the-system-driver.md
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # The eval seam is a testbed data-plane implementation
@@ -11,11 +11,15 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 
 ## Supersession
 
-The testbed's role in substitution, fault injection, and black-box
-evaluation remains accepted. It is no longer an alternative production
-data-plane implementation: v2 owns a separate portable simulator
-kernel, and testbed owns platform and process composition around public
-capabilities.
+Substitution, fault injection, observation, and black-box composition remain
+simulation concerns. Production behavior and guarantees remain independent of
+test-only injection and observation.
+
+`20260811-four-layer-endpoint-replicated-harness.md` fully removes a standalone
+testbed product, testbed data-plane implementation, and testbed-owned process
+composition. `@moltzap/simulator` owns those reusable capabilities and
+`@moltzap/evals` consumes the simulator for experiments. The replacement
+record and `docs/spec/layer-interfaces.md` own the current evaluation seam.
 
 ## Context and Problem Statement
 
@@ -64,3 +68,11 @@ simplifies to implementation-swap equivalence — replacing the
 production data plane with the testbed plane changes no production
 conformance outcome; the bench's observation and injection needs
 are met with zero production surface.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

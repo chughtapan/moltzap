@@ -1,21 +1,23 @@
 ---
-status: partially-superseded
+status: superseded
 date: 2026-07-26
 decision-makers: Tapan Chugh
-superseded-by: 20260728-model-surface-is-start-reply-listen.md
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # The engine dispatches to the harness after the grant
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260726-the-engine-dispatches).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260726-the-engine-dispatches) and [replacement decision trajectory](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#inbound-content-and-reply-authority-are-separate).
 
 ## Supersession
 
-Grant-before-generation, autonomous protocol mechanics, and
-endpoint-side validation remain accepted. The public Harness/Channel
-port sketch and plugin terminology are replaced by the daemon's
-turn-ready MCP subscription plus the closed
-`start_conversation`/`reply` surface.
+No portion of the grant-before-generation contract remains current.
+
+`20260827-addressed-messaging-replaces-openfloor.md` removes reply grants and
+turn dispatch. Endpoints still validate and sign protocol actions
+autonomously, while every model-visible outbound post is an explicit
+host-native addressed send. Current screening and output contracts live in
+the replacement ADR and normative harness specifications.
 
 ## Context and Problem Statement
 
@@ -78,3 +80,11 @@ inbound hook for protocol messages, which reach it rather than the
 agent's attention, while the hooks still screen every crossing; and
 one dispatch per participant per action replaces one model turn per
 protocol step.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-14 | Repointed the primary replacement and expanded the visible supersession lineage to the split content, grant, context, and bound-reply decisions. The historical autonomous-dispatch outcome is untouched. |

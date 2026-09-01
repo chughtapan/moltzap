@@ -1,7 +1,10 @@
+/** @file Result-store transaction, resume, and process-failure regression coverage. */
+
 import { Command, FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { image } from "@moltzap/simulator/agents";
 import { assert, describe, it as effectIt } from "@effect/vitest";
+import { image } from "@moltzap/simulator/agents";
+import { LedgerStorageError } from "@moltzap/simulator/ledger";
 import {
   Cause,
   DateTime,
@@ -28,17 +31,16 @@ import {
 } from "./results.js";
 import {
   CompletedEvaluationReport,
+  decodeEvaluationReportId,
   EvaluationCasePlan,
   EvaluationConditionPlan,
   EvaluationReportPlan,
   EvaluationResumeMismatch,
+  type EvaluationSweepCell,
   JudgePolicySnapshot,
   LedgerAllocationFailedAttempt,
   LocalEvaluationInfrastructure,
-  decodeEvaluationReportId,
-  type EvaluationSweepCell,
 } from "./sweep.js";
-import { LedgerStorageError } from "@moltzap/simulator/ledger";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- storage tests pin transaction, resume, and privacy invariants. */
 
@@ -74,21 +76,6 @@ function casePlan(id: string): EvaluationCasePlan {
   });
 }
 
-// Every field but the artifact directory is fixed, so a resume mismatch test can
-// vary that one field and still submit an otherwise identical plan.
-function localInfrastructure(
-  artifactDirectory: string,
-): LocalEvaluationInfrastructure {
-  return LocalEvaluationInfrastructure.make({
-    profile: "local",
-    controllerImage: testImage(`controller@sha256:${"a".repeat(64)}`),
-    peerApplicationImage: testImage(`peer@sha256:${"b".repeat(64)}`),
-    nanoclawApplicationImage: testImage(`nanoclaw@sha256:${"c".repeat(64)}`),
-    temporalAddress: "127.0.0.1:7233",
-    artifactDirectory,
-  });
-}
-
 function plan(
   first: EvaluationCasePlan,
   ...remaining: readonly EvaluationCasePlan[]
@@ -116,6 +103,43 @@ function plan(
     infrastructure: localInfrastructure("/var/lib/moltzap/artifacts"),
     samplesPerCell: 1,
   });
+}
+
+// Every field but the artifact directory is fixed, so a resume mismatch test can
+// vary that one field and still submit an otherwise identical plan.
+function localInfrastructure(
+  artifactDirectory: string,
+): LocalEvaluationInfrastructure {
+  return LocalEvaluationInfrastructure.make({
+    profile: "local",
+    controllerImage: testImage(`controller@sha256:${"a".repeat(64)}`),
+    nanoclawApplicationImage: testImage(`nanoclaw@sha256:${"c".repeat(64)}`),
+    temporalAddress: "127.0.0.1:7233",
+    artifactDirectory,
+  });
+}
+
+function firstPass(
+  executed: Ref.Ref<readonly string[]>,
+  expected: DeliberateExecutionFailure,
+  cell: EvaluationSweepCell,
+) {
+  return recordExecution(executed, cell).pipe(
+    Effect.zipRight(
+      cell.casePlan.id === caseId("EVAL-005")
+        ? Effect.succeed(allocationFailed(cell))
+        : Effect.fail(expected),
+    ),
+  );
+}
+
+function successfulPass(
+  executed: Ref.Ref<readonly string[]>,
+  cell: EvaluationSweepCell,
+) {
+  return recordExecution(executed, cell).pipe(
+    Effect.as(allocationFailed(cell)),
+  );
 }
 
 function allocationFailed(
@@ -171,29 +195,6 @@ function recordExecution(
   cell: EvaluationSweepCell,
 ) {
   return Ref.update(executed, (attempts) => [...attempts, cell.attemptId]);
-}
-
-function firstPass(
-  executed: Ref.Ref<readonly string[]>,
-  expected: DeliberateExecutionFailure,
-  cell: EvaluationSweepCell,
-) {
-  return recordExecution(executed, cell).pipe(
-    Effect.zipRight(
-      cell.casePlan.id === caseId("EVAL-005")
-        ? Effect.succeed(allocationFailed(cell))
-        : Effect.fail(expected),
-    ),
-  );
-}
-
-function successfulPass(
-  executed: Ref.Ref<readonly string[]>,
-  cell: EvaluationSweepCell,
-) {
-  return recordExecution(executed, cell).pipe(
-    Effect.as(allocationFailed(cell)),
-  );
 }
 
 function checkpointResumeTest() {

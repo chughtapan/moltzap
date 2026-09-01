@@ -1,47 +1,81 @@
-import { Redacted } from "effect";
+/** @file Pins the OpenClaw configuration rendered for application containers. */
+
 import { assert, describe, it } from "@effect/vitest";
-import { agentName } from "@moltzap/protocol/testing";
+import { AgentName } from "@moltzap/identity";
+import { Redacted, Schema } from "effect";
+
 import { buildOpenClawConfig } from "./configuration.js";
 
 const CALENDAR_URL = "https://calendar.test/mcp/opaque-token";
 
+function stdioMcpServerRenders() {
+  assert.deepStrictEqual(
+    mcpSection([
+      {
+        name: "files",
+        command: "files-mcp",
+        args: ["--root", "."],
+        env: { A: "1" },
+      },
+    ]),
+    {
+      files: {
+        transport: "stdio",
+        command: "files-mcp",
+        args: ["--root", "."],
+        env: { A: "1" },
+      },
+    },
+  );
+}
+
 function mcpSection(
   mcpServers: Parameters<typeof buildOpenClawConfig>[0]["mcpServers"],
 ) {
-  const config = buildOpenClawConfig(
+  return openClawConfig(mcpServers).mcp?.servers;
+}
+
+function privateSessionsUseOpenClawConfiguration() {
+  const config = openClawConfig(undefined, "private");
+  assert.deepStrictEqual(config.session, {
+    dmScope: "per-account-channel-peer",
+  });
+}
+
+function socialMessagesJoinActiveTurn() {
+  assert.deepStrictEqual(openClawConfig(undefined).messages, {
+    queue: { mode: "steer", cap: 100, drop: "new" },
+    inbound: { debounceMs: 0 },
+  });
+}
+
+function sharedSessionsUseOpenClawDefaults() {
+  const config = openClawConfig(undefined, "shared");
+  assert.notProperty(config, "session");
+}
+
+function openClawConfig(
+  mcpServers: Parameters<typeof buildOpenClawConfig>[0]["mcpServers"],
+  messagingMode: "shared" | "private" = "shared",
+) {
+  return buildOpenClawConfig(
     {
-      agentName: agentName("alice"),
+      agentName: Schema.decodeUnknownSync(AgentName)("alice"),
       gatewayToken: Redacted.make("token"),
+      messagingMode,
       mcpServers,
     },
     "/var/run/moltzap/bootstrap/workspace",
   );
-  return config.mcp?.servers;
 }
 
-describe("buildOpenClawConfig MCP servers", () => {
-  it("renders a command definition as a stdio transport", () => {
-    assert.deepStrictEqual(
-      mcpSection([
-        {
-          name: "files",
-          command: "files-mcp",
-          args: ["--root", "."],
-          env: { A: "1" },
-        },
-      ]),
-      {
-        files: {
-          transport: "stdio",
-          command: "files-mcp",
-          args: ["--root", "."],
-          env: { A: "1" },
-        },
-      },
-    );
-  });
+describe("buildOpenClawConfig", () => {
+  it(
+    "renders a command definition as a stdio transport",
+    stdioMcpServerRenders,
+  );
 
-  it("renders a url definition as a streamable-http transport", () => {
+  it("renders a URL definition as a streamable-http transport", () => {
     assert.deepStrictEqual(
       mcpSection([{ name: "calendar", url: CALENDAR_URL }]),
       {
@@ -50,7 +84,31 @@ describe("buildOpenClawConfig MCP servers", () => {
     );
   });
 
-  it("omits the mcp section without servers", () => {
+  it("omits the MCP section without servers", () => {
     assert.isUndefined(mcpSection(undefined));
   });
+
+  it("loads and enables the mounted channel adapter", () => {
+    assert.deepStrictEqual(openClawConfig(undefined).plugins, {
+      load: {
+        paths: ["/opt/moltzap/node_modules/@moltzap/openclaw-channel"],
+      },
+      entries: { "openclaw-channel": { enabled: true } },
+    });
+  });
+
+  it(
+    "leaves the default host session scope unchanged",
+    sharedSessionsUseOpenClawDefaults,
+  );
+
+  it(
+    "configures private sessions through OpenClaw's own setting",
+    privateSessionsUseOpenClawConfiguration,
+  );
+
+  it(
+    "steers new social messages into an active OpenClaw turn",
+    socialMessagesJoinActiveTurn,
+  );
 });

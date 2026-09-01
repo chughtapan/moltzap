@@ -1,15 +1,16 @@
 /** @file Completion-gated export of controller-local ledger artifacts. */
-// safer-arch-ignore no-cross-domain-sibling-import: Exports ledger artifacts from the controller's cluster-provided filesystem.
 
-import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Context, Data, Effect, Layer } from "effect";
+import { join } from "node:path";
 import type { CompletedLedgerReceipt } from "../../run/execute.js";
+import { ledgerArtifactFiles } from "../../ledger/index.js";
 import {
-  ledgerArtifactFiles,
-  ledgerArtifacts,
   type LedgerArtifactFile,
+  ledgerArtifacts,
 } from "../../ledger/storage.js";
+
+// safer-arch-ignore no-cross-domain-sibling-import: Exports ledger artifacts from the controller's cluster-provided filesystem.
 
 type ArtifactName = LedgerArtifactFile;
 
@@ -49,13 +50,6 @@ export class ControllerLedgerExportError extends Data.TaggedError(
   }
 }
 
-function exportFailure(
-  operation: ControllerLedgerExportError["operation"],
-  artifact?: ArtifactName,
-): ControllerLedgerExportError {
-  return new ControllerLedgerExportError({ operation, artifact });
-}
-
 /**
  * Copy one completed ledger to retained storage, publishing completion last.
  * @param options Active and retained roots plus the completed receipt.
@@ -81,6 +75,13 @@ export function exportCompletedLedger(
         .pipe(Effect.mapError(() => exportFailure("write", file)));
     }
   }).pipe(Effect.withSpan("controller.exportCompletedLedger"));
+}
+
+function exportFailure(
+  operation: ControllerLedgerExportError["operation"],
+  artifact?: ArtifactName,
+): ControllerLedgerExportError {
+  return new ControllerLedgerExportError({ operation, artifact });
 }
 
 /** Retained-ledger bytes written through the Effect platform filesystem. */

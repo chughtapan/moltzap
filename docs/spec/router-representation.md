@@ -115,7 +115,7 @@ recipient. For send it must also equal the verified SignedMessage
 sender.
 
 Requests use `Content-Type: application/json`,
-`MoltZap-Version: 2026.729.1`, exact Content-Digest, and the
+`MoltZap-Version: 2026.827.1`, exact Content-Digest, and the
 `moltzap-request-v1` HTTP message-signature profile. Application code
 imposes no URL scheme or TLS requirement.
 

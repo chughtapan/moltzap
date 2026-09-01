@@ -1,22 +1,22 @@
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/no-example-only-tests -- Vitest awaits the Effect the host installation boundary returns, and these regression-only cases pin the exact rollout arithmetic and bounded availability deadline rather than an invariant over generated input. */
+/** @file Run-worker installation ordering, availability, and guarded rollout regressions. */
 
 import { Effect } from "effect";
 import { expect, it } from "vitest";
+import {
+  FORCE_WORKER_ROLL_VARIABLE,
+  installRunWorker,
+  type OpenRunReading,
+  type RunWorkerInstallRequest,
+  RunWorkerRollRefused,
+  RunWorkerUnavailable,
+  workerIsAvailable,
+} from "./install.js";
 import {
   KubernetesCallFailed,
   type RunWorkerInstallApi,
   type RunWorkerObject,
   type WorkerAvailability,
 } from "./kubernetes/calls.js";
-import {
-  FORCE_WORKER_ROLL_VARIABLE,
-  installRunWorker,
-  RunWorkerRollRefused,
-  RunWorkerUnavailable,
-  workerIsAvailable,
-  type OpenRunReading,
-  type RunWorkerInstallRequest,
-} from "./install.js";
 
 // What each control-plane object needs to already exist when it is installed.
 // A Deployment created before its binding starts a Pod whose service account
@@ -99,6 +99,16 @@ function recordingInstall(options: InstallOptions = {}): RecordedInstall {
   };
 }
 
+function install(
+  recorded: RecordedInstall,
+  options: {
+    readonly openRuns?: OpenRunReading;
+    readonly forced?: boolean;
+  } = {},
+) {
+  return installRunWorker(recorded.api, request(recorded, options));
+}
+
 function request(
   recorded: RecordedInstall,
   options: {
@@ -115,16 +125,6 @@ function request(
         return options.openRuns ?? { _tag: "open", workflowIds: [] };
       }),
   };
-}
-
-function install(
-  recorded: RecordedInstall,
-  options: {
-    readonly openRuns?: OpenRunReading;
-    readonly forced?: boolean;
-  } = {},
-) {
-  return installRunWorker(recorded.api, request(recorded, options));
 }
 
 it("installs every object exactly once, each after everything it depends on", async () => {
@@ -321,5 +321,3 @@ it("reads a rollout as available only once it is both observed and serving", () 
     }),
   ).toBe(false);
 });
-
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/no-example-only-tests -- Restore Effect-first test rules after the host installation contract. */

@@ -1,0 +1,320 @@
+/** @file Exact closed schemas for every Client-owned conversation value. */
+
+import {
+  AgentCard,
+  AgentId,
+  MOLTZAP_VERSION,
+  SignedMessage,
+} from "@moltzap/identity";
+import { RouterInstanceId } from "@moltzap/router";
+import { Either, Encoding, Schema } from "effect";
+import { PostId, Content as PublicContent } from "../contract.js";
+
+/* eslint-disable jsdoc/require-jsdoc -- These package-private Schema names are the exact closed protocol vocabulary. */
+
+export const maximumContentBytes = 32_768;
+export const maximumMembers = 32;
+const HASH_BYTE_LENGTH = 32;
+
+const exactOptions = {
+  exact: true,
+  onExcessProperty: "error" as const,
+};
+
+const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
+  Schema.Struct(fields).annotations({ parseOptions: exactOptions });
+
+const versionAndKind = <const Kind extends string>(kind: Kind) => ({
+  moltzapVersion: Schema.Literal(MOLTZAP_VERSION),
+  kind: Schema.Literal(kind),
+});
+
+const decodeCanonicalBase64Url = (value: string): Uint8Array | undefined =>
+  Either.match(Encoding.decodeBase64Url(value), {
+    onLeft: () => undefined,
+    onRight: (bytes) =>
+      Encoding.encodeBase64Url(bytes) === value ? bytes : undefined,
+  });
+
+const canonicalIdentifier = <const Name extends string>(
+  name: Name,
+  prefix: string,
+) =>
+  Schema.String.pipe(
+    Schema.filter(
+      (value) =>
+        value.startsWith(prefix) &&
+        decodeCanonicalBase64Url(value.slice(prefix.length))?.byteLength ===
+          HASH_BYTE_LENGTH,
+      { identifier: name, description: `${name} canonical representation` },
+    ),
+    Schema.brand(name),
+    Schema.annotations({
+      identifier: name,
+      description: `${name} canonical representation`,
+    }),
+  );
+
+/* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Private Effect Schemas share their domain names with the values they decode. */
+
+export const ConversationId = canonicalIdentifier("ConversationId", "cnv_");
+export type ConversationId = typeof ConversationId.Type;
+export const MembershipHash = canonicalIdentifier("MembershipHash", "mbr_");
+export type MembershipHash = typeof MembershipHash.Type;
+export const PostIntentHash = canonicalIdentifier("PostIntentHash", "pit_");
+export type PostIntentHash = typeof PostIntentHash.Type;
+export const AnchorHash = canonicalIdentifier("AnchorHash", "anc_");
+export type AnchorHash = typeof AnchorHash.Type;
+export const ActionHash = canonicalIdentifier("ActionHash", "ach_");
+export type ActionHash = typeof ActionHash.Type;
+export const RecordHash = canonicalIdentifier("RecordHash", "rch_");
+export type RecordHash = typeof RecordHash.Type;
+
+export const Content = PublicContent;
+
+const encodedAgentCard = Schema.encodedSchema(AgentCard);
+const encodedSignedMessage = Schema.encodedSchema(SignedMessage);
+const MemberAgentIds = Schema.Tuple([AgentId, AgentId], AgentId).pipe(
+  Schema.maxItems(maximumMembers),
+);
+const MembershipMembers = Schema.Tuple(
+  [encodedAgentCard, encodedAgentCard],
+  encodedAgentCard,
+).pipe(Schema.maxItems(maximumMembers));
+const EvidenceMessages = Schema.NonEmptyArray(encodedSignedMessage).pipe(
+  Schema.maxItems(maximumMembers),
+);
+
+export const ConversationIdentityInput = exactStruct({
+  ...versionAndKind("conversation_identity"),
+  memberAgentIds: MemberAgentIds,
+});
+export type ConversationIdentityInput = typeof ConversationIdentityInput.Type;
+
+export const MembershipDescriptor = exactStruct({
+  ...versionAndKind("membership_descriptor"),
+  conversationId: ConversationId,
+  members: MembershipMembers,
+});
+export type MembershipDescriptor = typeof MembershipDescriptor.Type;
+
+export const PostIntent = exactStruct({
+  ...versionAndKind("post_intent"),
+  conversationId: ConversationId,
+  membershipHash: MembershipHash,
+  authorAgentId: AgentId,
+  postId: PostId,
+  content: Content,
+});
+export type PostIntent = typeof PostIntent.Type;
+
+export const GenesisAnchorBody = exactStruct({
+  ...versionAndKind("genesis_anchor_body"),
+  conversationId: ConversationId,
+  membershipHash: MembershipHash,
+  routerInstanceId: RouterInstanceId,
+});
+export type GenesisAnchorBody = typeof GenesisAnchorBody.Type;
+
+export const ReanchorBody = exactStruct({
+  ...versionAndKind("reanchor_body"),
+  conversationId: ConversationId,
+  membershipHash: MembershipHash,
+  previousAnchorHash: AnchorHash,
+  selectedRecordHash: RecordHash,
+  routerInstanceId: RouterInstanceId,
+});
+export type ReanchorBody = typeof ReanchorBody.Type;
+
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- Private hash code composes the complete closed anchor union.
+export const AnchorBody = Schema.Union(GenesisAnchorBody, ReanchorBody);
+export type AnchorBody = typeof AnchorBody.Type;
+
+export const GenesisActionCore = exactStruct({
+  ...versionAndKind("GENESIS"),
+  conversationId: ConversationId,
+  membership: MembershipDescriptor,
+  anchor: GenesisAnchorBody,
+  previousRecordHash: Schema.Null,
+  postIntent: PostIntent,
+  postIntentHash: PostIntentHash,
+});
+export type GenesisActionCore = typeof GenesisActionCore.Type;
+
+export const PostActionCore = exactStruct({
+  ...versionAndKind("POST"),
+  conversationId: ConversationId,
+  membershipHash: MembershipHash,
+  anchorHash: AnchorHash,
+  previousRecordHash: RecordHash,
+  postIntent: PostIntent,
+  postIntentHash: PostIntentHash,
+});
+export type PostActionCore = typeof PostActionCore.Type;
+
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- Private protocol code composes the complete closed action union.
+export const ActionCore = Schema.Union(GenesisActionCore, PostActionCore);
+export type ActionCore = typeof ActionCore.Type;
+
+export const RecordCore = exactStruct({
+  ...versionAndKind("record_core"),
+  membership: MembershipDescriptor,
+  anchorHash: AnchorHash,
+  action: ActionCore,
+  actionHash: ActionHash,
+});
+export type RecordCore = typeof RecordCore.Type;
+
+export const ActionSignatureStatement = exactStruct({
+  ...versionAndKind("action_signature"),
+  signerAgentId: AgentId,
+  actionHash: ActionHash,
+});
+export type ActionSignatureStatement = typeof ActionSignatureStatement.Type;
+
+export const DurabilityVoteStatement = exactStruct({
+  ...versionAndKind("durability_vote"),
+  signerAgentId: AgentId,
+  conversationId: ConversationId,
+  membershipHash: MembershipHash,
+  recordHash: RecordHash,
+});
+export type DurabilityVoteStatement = typeof DurabilityVoteStatement.Type;
+
+export const ReanchorVoteStatement = exactStruct({
+  ...versionAndKind("reanchor_vote"),
+  signerAgentId: AgentId,
+  anchorHash: AnchorHash,
+  reanchor: ReanchorBody,
+});
+export type ReanchorVoteStatement = typeof ReanchorVoteStatement.Type;
+
+export const ActionCertificate = exactStruct({
+  ...versionAndKind("action_certificate"),
+  actionHash: ActionHash,
+  signatures: EvidenceMessages,
+});
+export type ActionCertificate = typeof ActionCertificate.Type;
+
+export const DurabilityCertificate = exactStruct({
+  ...versionAndKind("durability_certificate"),
+  recordHash: RecordHash,
+  votes: EvidenceMessages,
+});
+export type DurabilityCertificate = typeof DurabilityCertificate.Type;
+
+export const ReanchorCertificate = exactStruct({
+  ...versionAndKind("reanchor_certificate"),
+  anchorHash: AnchorHash,
+  votes: EvidenceMessages,
+});
+export type ReanchorCertificate = typeof ReanchorCertificate.Type;
+
+export const CompletedReanchor = exactStruct({
+  ...versionAndKind("completed_reanchor"),
+  anchorHash: AnchorHash,
+  reanchor: ReanchorBody,
+  certificate: ReanchorCertificate,
+});
+export type CompletedReanchor = typeof CompletedReanchor.Type;
+
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- Private record verification composes the complete closed anchor union.
+export const RouterAnchor = Schema.Union(GenesisAnchorBody, CompletedReanchor);
+export type RouterAnchor = typeof RouterAnchor.Type;
+
+export const ActionCertifiedRecord = exactStruct({
+  ...versionAndKind("action_certified_record"),
+  recordHash: RecordHash,
+  recordCore: RecordCore,
+  routerAnchor: RouterAnchor,
+  actionCertificate: ActionCertificate,
+});
+export type ActionCertifiedRecord = typeof ActionCertifiedRecord.Type;
+
+export const CertifiedRecord = exactStruct({
+  ...versionAndKind("certified_record"),
+  actionCertifiedRecord: ActionCertifiedRecord,
+  durabilityCertificate: DurabilityCertificate,
+});
+export type CertifiedRecord = typeof CertifiedRecord.Type;
+
+export const CatchUpRequest = exactStruct({
+  ...versionAndKind("catch_up_request"),
+  conversationId: ConversationId,
+  membershipHash: MembershipHash,
+  requesterAgentId: AgentId,
+  knownRecordHash: Schema.NullOr(RecordHash),
+  knownAnchorHash: Schema.NullOr(AnchorHash),
+}).pipe(
+  Schema.filter(
+    (request) =>
+      (request.knownRecordHash === null) === (request.knownAnchorHash === null),
+  ),
+);
+export type CatchUpRequest = typeof CatchUpRequest.Type;
+
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- Private catch-up code composes the complete closed item union.
+export const CatchUpItem = Schema.Union(CertifiedRecord, CompletedReanchor);
+export type CatchUpItem = typeof CatchUpItem.Type;
+
+export const CatchUpAttestationStatement = exactStruct({
+  ...versionAndKind("catch_up_attestation"),
+  signerAgentId: AgentId,
+  request: CatchUpRequest,
+  itemKind: Schema.Literal(
+    "certified_record",
+    "completed_reanchor",
+    "incomplete",
+  ),
+  itemHash: Schema.NullOr(Schema.Union(RecordHash, AnchorHash)),
+  hasMore: Schema.Boolean,
+});
+export type CatchUpAttestationStatement =
+  typeof CatchUpAttestationStatement.Type;
+
+export const CatchUpPage = exactStruct({
+  ...versionAndKind("catch_up_page"),
+  request: CatchUpRequest,
+  item: CatchUpItem,
+  hasMore: Schema.Boolean,
+  attestation: encodedSignedMessage,
+});
+export type CatchUpPage = typeof CatchUpPage.Type;
+
+export const CatchUpIncomplete = exactStruct({
+  ...versionAndKind("catch_up_incomplete"),
+  request: CatchUpRequest,
+  attestation: encodedSignedMessage,
+});
+export type CatchUpIncomplete = typeof CatchUpIncomplete.Type;
+
+export const ActionProposal = exactStruct({
+  ...versionAndKind("action_proposal"),
+  action: ActionCore,
+});
+export type ActionProposal = typeof ActionProposal.Type;
+
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- Private signing and verification compose the complete closed evidence union.
+export const EvidenceStatement = Schema.Union(
+  ActionSignatureStatement,
+  DurabilityVoteStatement,
+  ReanchorVoteStatement,
+  CatchUpAttestationStatement,
+);
+export type EvidenceStatement = typeof EvidenceStatement.Type;
+
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- Private Router-envelope codecs compose the complete closed packet union.
+export const DirectPacket = Schema.Union(
+  ActionProposal,
+  ActionCertifiedRecord,
+  CertifiedRecord,
+  CompletedReanchor,
+  CatchUpRequest,
+  CatchUpPage,
+  CatchUpIncomplete,
+);
+export type DirectPacket = typeof DirectPacket.Type;
+
+/* eslint-enable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Restore the package naming rules. */
+
+/* eslint-enable jsdoc/require-jsdoc -- Restore package documentation rules. */

@@ -16,6 +16,7 @@ export interface KubernetesPodPlacement {
 /** Host-mounted artifact storage used by the repository's kind profile. */
 interface LocalKubernetesExecutionProfile {
   readonly kind: "local";
+  readonly kubeContext?: string;
 }
 
 /** GKE-specific host configuration kept outside Temporal workflow input. */
@@ -48,7 +49,10 @@ const podPlacementSchema = Schema.Struct({
 });
 
 const executionProfileSchema = Schema.Union(
-  Schema.Struct({ kind: Schema.Literal("local") }),
+  Schema.Struct({
+    kind: Schema.Literal("local"),
+    kubeContext: Schema.optional(Schema.NonEmptyString),
+  }),
   Schema.Struct({
     kind: Schema.Literal("gke"),
     artifactBucket: Schema.String,

@@ -1,13 +1,15 @@
+/** @file Definition-bound customer emission, causality, and ledger-failure regressions. */
+
 import { assert, effect as test } from "@effect/vitest";
 import { DateTime, Effect, Schema, Stream } from "effect";
+import type { LedgerWriter, RunLedger } from "../ledger/append.js";
+import type { LedgerRecord } from "../ledger/schema.js";
+import { EventCatalog } from "../events/catalog.js";
 import {
   LedgerManifest,
   ledgerRef as ledgerRefSchema,
   LedgerStorageError,
-} from "../ledger.js";
-import { EventCatalog } from "../events/catalog.js";
-import type { LedgerWriter, RunLedger } from "../ledger/append.js";
-import type { LedgerRecord } from "../ledger/schema.js";
+} from "../ledger/index.js";
 import { makeDefinitionEventServices } from "./events.js";
 
 class Observation extends Schema.TaggedClass<Observation>()(

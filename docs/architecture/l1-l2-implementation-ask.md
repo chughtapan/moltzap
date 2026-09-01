@@ -2,7 +2,13 @@
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
-Status: **ACTIVE IMPLEMENTATION ASK — AUTHORITY REVIEW PASSED AND ACCEPTED; READY FOR CODE**
+Status: **HISTORICAL IMPLEMENTATION HANDOFF — SUPERSEDED BY THE FOUR-LAYER CUTOVER**
+
+This page preserves the implementation archaeology for the accepted Identity
+and Router contracts. Its six-package graph, `v2/*` destinations, Ledger
+qualifiers, version plan, and execution gate are not current. Implementers use
+[`first-implementation.md`](./first-implementation.md); retained Identity and
+Router behavior is owned by the current ADR lineage and normative specs.
 
 Governing architecture:
 [`20260728-gate-1-architecture-freeze.md`](../decisions/20260728-gate-1-architecture-freeze.md)
@@ -20,6 +26,14 @@ chapters remain authoritative in the order stated by `AGENTS.md` and
 `v2/AGENTS.md`. Candidate ADR and specification changes in this ask
 must land atomically and pass the repository blind teammate review gate
 before implementation code starts.
+
+The later 2026-08-01 authority replaces this ask's former Harness name
+placeholder and package-map entries. The current package is `harness`,
+its daemon is `moltzapd`, and runtime adapters consume `HarnessClient`.
+See [`harness-implementation-slate.md`](./harness-implementation-slate.md)
+and `docs/spec/harness/`. This correction does not alter the reviewed
+L1/L2 representations or make the two backing applications share a raw
+MCP wire or runtime implementation.
 
 ## Goal
 
@@ -130,7 +144,6 @@ The final identity production map is:
 ```text
 v2/identity/src/
 ├── index.ts
-├── server.ts
 ├── version.ts
 ├── identifiers.ts
 ├── agent-key.ts
@@ -159,8 +172,8 @@ v2/identity/src/
 private canonical identifier constructor used by their semantic owners.
 `AgentCard` owns `AgentCardDigest` and whole-second issuance validation.
 `SignedMessage` owns `MessageId`. The Registry contract owns
-`OperationId`. The root façade continues to export the exact approved
-names.
+`OperationId`. The root and Registry subpath façades export their exact
+approved names.
 
 `agent-key.ts` is the one key boundary for `Ed25519PublicKey`,
 `AgentSigningAuthority`, strict signature representation checks, and
@@ -243,11 +256,12 @@ moltzap-router
   → exact HTTP response
 ```
 
-The package-root `server.ts` files remain the intentional `./server`
-export façades. The nested `registry/server.ts` and `router/server.ts`
-files are the production composition roots. A Mermaid flow in JSDoc
-above each owning composition symbol makes that distinction visible in
-generated module documentation.
+`registry/server.ts` is both the Registry production composition root
+and its `./registry/server` package subpath. Router retains its
+package-root `server.ts` as the `./server` export façade over the nested
+`router/server.ts` composition root. A Mermaid flow in JSDoc above each
+owning composition symbol makes those boundaries visible in generated
+module documentation.
 
 Each substantial production file reads in this order:
 
@@ -290,14 +304,14 @@ concurrency, restart, persistence, and boundary assertion.
 |---|---|
 | Keep `AuthenticatedHttp` reusable by Router, Ledger, and later consumers | Horizontal ownership |
 | Separate public service contracts from private Effect RPC machinery | Horizontal ownership and both package maps |
-| Collapse vague buckets and unjustified shallow modules without changing exports | Identity package map and Router package map |
+| Collapse vague buckets and unjustified shallow modules while keeping exports with their owning domain | Identity package map and Router package map |
 | Preserve deep HTTP, standards, authentication, storage, and state modules | Final source organization and readability pass |
 | Make binary-to-response flows visible in code and generated docs | Vertical reading order |
 | Reorganize tests by behavior and remove vacuous runtime export tests | Test organization |
 
 The pass is complete when:
 
-- the identity root exports the exact approved inventory;
+- the identity package entrypoints export the exact approved inventories;
 - `AuthenticatedHttp` remains identity-owned and imports no Router code;
 - Router depends only on the public identity package;
 - Registry and Router clients and servers consume their own single
@@ -368,7 +382,7 @@ Approved vocabulary:
 | Concept | Public name |
 |---|---|
 | L1 identity service | `Registry` |
-| L1 server capability | `RegistryServer` |
+| L1 server module | `@moltzap/v2-identity/registry/server` |
 | L2 opaque routing service | `Router` |
 | L2 server capability | `RouterServer` |
 | shared request-authentication capability | `AuthenticatedHttp` |
@@ -378,11 +392,10 @@ Approved vocabulary:
 | digest of a complete SignedMessage JWS | `SignedMessageDigest` |
 | opaque client-held Router continuation | `PollCursor` |
 
-`HarnessEndpoin` is the literal human-selected name for the future
-public endpoint-facing harness concept. The current source does not
-authorize silently normalizing it to `HarnessEndpoint`. Neither name is
-introduced by the L1 or L2 slices, so a future slice confirms the exact
-spelling at its vocabulary gate.
+The former `HarnessEndpoin` placeholder and any normalized
+`HarnessEndpoint` spelling are retired. The later-layer package and
+subsystem are named `harness` and `Harness`; the L1/L2 slices still do
+not own their public runtime contract.
 
 Retired public vocabulary:
 
@@ -602,7 +615,7 @@ V2 continues to contain exactly six deep packages:
 | `identity` | L1 contracts, Registry client, PostgreSQL Registry server, `moltzap-registry` |
 | `router` | L2 contracts, Router client, in-memory Router server, `moltzap-router` |
 | `transcript` | L3 contracts, Ledger client and server |
-| `endpoint` | endpoint protocol engine, local state, daemon MCP, CLI |
+| `harness` | interpretive protocol engine, local state, `HarnessClient`, daemon MCP, `moltzapd` |
 | `simulator` | production-capability system driver and run evidence |
 | `testbed` | platform acquisition, processes, faults, and black-box subjects |
 
@@ -611,9 +624,9 @@ The production dependency graph becomes:
 ```text
 router     -> identity
 transcript -> identity + router contracts
-endpoint   -> identity + router + transcript
-simulator  -> identity + endpoint public capabilities
-testbed    -> identity + router + transcript + endpoint + simulator
+harness    -> identity + router + transcript
+simulator  -> identity + harness public capabilities
+testbed    -> identity + router + transcript + harness + simulator
 ```
 
 The package directory `v2/transport` becomes `v2/router`. Its npm name
@@ -625,7 +638,7 @@ The identity binary becomes `moltzap-registry`. The Router binary
 remains `moltzap-router`.
 
 `v2/VERSION`, all six package manifests, and `MOLTZAP_VERSION` advance
-together to `2026.729.1` in one slice. MCP and simulator
+together to `2026.827.1` in one slice. MCP and simulator
 persisted-schema versions remain independent.
 
 ## Shared implementation principles
@@ -639,9 +652,9 @@ audit retains these proven shapes:
   `packages/protocol/src/conversation/types.ts → conversationId`,
   `messageId` demonstrate one distinctly branded Effect Schema per
   semantic identifier;
-- `packages/protocol/src/transport/strict-decode.ts →
-  decodesStrictly`, `closedStructGuard` demonstrates why every closed
-  boundary must pass `onExcessProperty: "error"`;
+- `packages/protocol/src/transport/definition.ts → closedStructGuard`
+  demonstrates why every closed boundary must pass
+  `onExcessProperty: "error"`;
 - `packages/protocol/src/transport/definition.ts → defineRpc`,
   `applyRequirementMiddlewares` demonstrates per-operation Effect RPC
   schemas, ordered required middleware, and middleware failures
@@ -793,7 +806,7 @@ The implementation does not carry forward these v1 debt patterns:
 
 The exact candidate exports, decoded artifact views, verified types,
 method arguments, Effect `A`, `E`, and `R`, layer inputs and
-requirements, and error fields live under `Identity root exports`
+requirements, and error fields live under `Identity package exports`
 through `Client and signed-artifact errors` in
 [`l1-l2-human-review-slate.md`](./l1-l2-human-review-slate.md). After
 the recorded exact-slate approval and authority reconciliation,
@@ -883,7 +896,7 @@ The exact public-key representation is:
 ```
 
 Unknown fields are rejected. Private key loading accepts an absolute
-path to an unencrypted Ed25519 PKCS#8 document at the CLI or process
+path to an unencrypted Ed25519 PKCS#8 document at a process
 boundary. Private key material does not appear in logs, errors, public
 models, or Registry storage.
 
@@ -894,7 +907,7 @@ The exact signed payload is:
 ```json
 {
   "kind": "agentCard",
-  "moltzapVersion": "2026.729.1",
+  "moltzapVersion": "2026.827.1",
   "agentId": "agt_<16-byte-base64url>",
   "principalId": "prn_<16-byte-base64url>",
   "agentName": "example-agent",
@@ -938,7 +951,7 @@ The exact signed payload is:
 ```json
 {
   "kind": "signedMessage",
-  "moltzapVersion": "2026.729.1",
+  "moltzapVersion": "2026.827.1",
   "senderAgentId": "agt_<16-byte-base64url>",
   "agentCardDigest": "acd_<sha256-base64url>",
   "recipientAgentIds": ["agt_<16-byte-base64url>"],
@@ -1655,7 +1668,7 @@ code exists in this slice.
 - Rename the package, Nx project, imports, dependency edges, and binary
   references.
 - Rename `moltzap-directory` to `moltzap-registry`.
-- Bump all v2 release identities to `2026.729.1`.
+- Bump all v2 release identities to `2026.827.1`.
 - Keep exactly six packages and preserve the frozen DAG.
 - Record every approved runtime and test dependency under the package
   that owns its use. Add its exact pin to that manifest and update the
@@ -1802,7 +1815,7 @@ Required evidence:
   package-local architecture findings become meaningful as real module
   topology arrives in Batch 2 rather than through synthetic fixtures or
   predeclared allowances in Batch 1;
-- exact six-package graph, `2026.729.1` release identity, export maps,
+- exact six-package graph, `2026.827.1` release identity, export maps,
   recorded dependency allocation, no newly preloaded mechanism
   dependency, and zero v1 imports; the unchanged repository-contract
   checker verifies these cross-package invariants but is not evidence
@@ -1912,10 +1925,10 @@ fields, card reuse, failure collapse, and rejection of registration as
 an AuthenticatedHttp operation.
 
 Exit: `Registry` exists before `AuthenticatedHttp.layer` requires it,
-the root façade exposes both complete capabilities, registration
-plainly means bootstrap admission, public reads have no authentication,
-the registered-agent stage order appears once, and readability is
-`PASS`.
+the identity package exposes both complete capabilities through their
+owning entrypoints, registration plainly means bootstrap admission,
+public reads have no authentication, the registered-agent stage order
+appears once, and readability is `PASS`.
 
 ### Batch 6: Registry state and configuration
 
@@ -1957,7 +1970,6 @@ Production modules:
 - `v2/identity/src/registry/server.ts`
 - `v2/identity/src/registry/process.ts`
 - `v2/identity/src/index.ts`
-- `v2/identity/src/server.ts`
 
 Production executable:
 
@@ -2218,7 +2230,7 @@ This ask does not decide or implement:
 
 - any change to L3 and later representation formats;
 - conversations, reliability, transactions, replay, or recovery at L2;
-- `HarnessEndpoin` and any normalized spelling;
+- implementation of the separately governed Harness subsystem;
 - Registry malicious-equivocation tolerance;
 - key rotation, revocation, recovery, delegation, HSMs, keychains, or
   external signers;

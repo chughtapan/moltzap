@@ -1,15 +1,17 @@
 /** @file Private cluster acquisition and lifecycle boundary. */
-// safer-arch-ignore no-cross-domain-sibling-import: The cluster seam names the roster it prepares and the router connection it hands each agent.
 
-import type { AgentName } from "@moltzap/protocol/identity";
+import type { AgentName } from "@moltzap/identity";
 import { Context, Data, type Effect, type Scope } from "effect";
-import type { AgentConnection } from "../network/router.js";
+import type { AgentRuntimeLike } from "../agents/agent.js";
 import type {
   AgentRoster,
   AgentRosterAcquisitionError,
   RuntimeGatewayOf,
-} from "../agents/roster.js";
-import type { AgentRuntimeLike, RunningAgent } from "../agents/agent.js";
+  StartedAgent,
+} from "../agents/index.js";
+import type { AttachedEndpoint, NetworkError } from "../network/index.js";
+
+// safer-arch-ignore no-cross-domain-sibling-import: The cluster seam names the roster it prepares and the runtime it starts for each roster entry.
 
 /** Cluster loss that ends a run without exposing its backend. */
 export class ClusterError extends Data.TaggedError("ClusterError")<{
@@ -42,20 +44,44 @@ export interface Slot<
   readonly name: Name;
   readonly agentName: AgentName;
   readonly runtime: Definitions[Name];
-  readonly connection: AgentConnection<Name>;
+}
+
+/** Platform-owned listener used only by the run-private Router fault proxy. */
+export interface RouterFaultProxyPlatform {
+  readonly listener: {
+    readonly bindHost: string;
+    readonly port: number;
+    readonly advertisedOrigin?: URL;
+  };
+}
+
+/** Proxy listener whose endpoint-facing network identity is mandatory. */
+export interface AdvertisedRouterFaultProxyPlatform
+  extends RouterFaultProxyPlatform {
+  readonly listener: RouterFaultProxyPlatform["listener"] & {
+    readonly advertisedOrigin: URL;
+  };
 }
 
 /** Run-scoped cluster capabilities for one complete society roster. */
 export interface Society<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > {
+  readonly routerFaultProxy: RouterFaultProxyPlatform;
+
   readonly acquireAgent: <Name extends Extract<keyof Definitions, string>>(
     input: Slot<Definitions, Name>,
   ) => Effect.Effect<
-    RunningAgent<RuntimeGatewayOf<Definitions[Name]>>,
+    StartedAgent<Name, RuntimeGatewayOf<Definitions[Name]>>,
     AgentRosterAcquisitionError<Definitions> | ClusterError,
     Scope.Scope
   >;
+
+  /** Acquires one controller-owned daemon against the run's routed ingress. */
+  readonly acquireEndpoint: <const Name extends string>(input: {
+    readonly name: Name;
+    readonly routerOrigin: URL;
+  }) => Effect.Effect<AttachedEndpoint<Name>, NetworkError, Scope.Scope>;
 
   /** Completes only while the exact acquired roster is ready for dispatch. */
   readonly cohortReady: Effect.Effect<void, ClusterError>;

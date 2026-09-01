@@ -1,8 +1,10 @@
+/** @file Pins MCP transport snapshots and secret-free run projections. */
+
 import { assert, describe, it } from "@effect/vitest";
 import {
   mcpConfiguration,
-  snapshotMcpServers,
   type McpServer,
+  snapshotMcpServers,
 } from "./workspace.js";
 
 const STDIO: McpServer = {
@@ -18,12 +20,14 @@ const HTTP: McpServer = { name: "calendar", url: URL_A };
 describe("snapshotMcpServers", () => {
   it("passes both server shapes through frozen and intact", () => {
     const snapshot = snapshotMcpServers([STDIO, HTTP]);
+
     assert.deepStrictEqual(snapshot, [STDIO, HTTP]);
+    assert.isTrue(Object.isFrozen(snapshot));
     assert.isTrue(Object.isFrozen(snapshot?.[0]));
     assert.isTrue(Object.isFrozen(snapshot?.[1]));
   });
 
-  it("refuses an unparseable remote url at definition time", () => {
+  it("refuses an unparseable remote URL at definition time", () => {
     assert.throws(() =>
       snapshotMcpServers([{ name: "calendar", url: "not a url" }]),
     );
@@ -31,14 +35,16 @@ describe("snapshotMcpServers", () => {
 });
 
 describe("mcpConfiguration", () => {
-  it("redacts the url on remote servers", () => {
+  it("redacts the complete URL from remote-server evidence", () => {
     const [record] = mcpConfiguration([HTTP]);
+
     assert.deepStrictEqual(record?.redacted, ["url"]);
     assert.notInclude(JSON.stringify(record), URL_A);
   });
 
-  it("keeps the stdio redaction shape", () => {
+  it("keeps the existing stdio redaction shape", () => {
     const [record] = mcpConfiguration([STDIO]);
+
     assert.deepStrictEqual(record?.redacted, [
       "command",
       "args",
@@ -47,11 +53,12 @@ describe("mcpConfiguration", () => {
     assert.notInclude(JSON.stringify(record), "secret-value");
   });
 
-  it("digests remote servers by origin only, never the token path", () => {
+  it("digests remote servers by origin and name, never token path", () => {
     const [alpha] = mcpConfiguration([{ name: "calendar", url: URL_A }]);
     const [beta] = mcpConfiguration([{ name: "calendar", url: URL_B }]);
-    assert.strictEqual(alpha?.definitionDigest, beta?.definitionDigest);
     const [other] = mcpConfiguration([{ name: "notes", url: URL_A }]);
+
+    assert.strictEqual(alpha?.definitionDigest, beta?.definitionDigest);
     assert.notStrictEqual(alpha?.definitionDigest, other?.definitionDigest);
   });
 });

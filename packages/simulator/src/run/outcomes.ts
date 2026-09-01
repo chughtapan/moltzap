@@ -1,8 +1,8 @@
 /** @file Conversion of Effect/runtime outcomes into exact ledger events. */
-// safer-arch-ignore no-cross-domain-sibling-import: Converts Effect and runtime outcomes into ledger events, so it names both domains.
 
-import type { AgentId, AgentName } from "@moltzap/protocol/identity";
+import type { AgentId, AgentName } from "@moltzap/identity";
 import { Cause, Exit } from "effect";
+import type { RuntimeTermination } from "../agents/index.js";
 import {
   AgentProcessExited,
   AgentProcessSignaled,
@@ -12,7 +12,8 @@ import {
   ProgramInterrupted,
   ProgramSucceeded,
 } from "../events/core.js";
-import type { RuntimeTermination } from "../agents/agent.js";
+
+// safer-arch-ignore no-cross-domain-sibling-import: Converts Effect and runtime outcomes into ledger events, so it names both domains.
 
 /** Describes runtime evidence input. */
 export interface RuntimeEvidenceInput {
@@ -22,19 +23,9 @@ export interface RuntimeEvidenceInput {
 }
 
 /**
- * Executes the non empty cause operation.
- * @param cause Failure cause to inspect.
- * @returns The non empty cause result.
- */
-export function nonEmptyCause(cause: Cause.Cause<unknown>): string {
-  const rendered = Cause.pretty(cause).trim();
-  return rendered.length === 0 ? "unknown failure" : rendered;
-}
-
-/**
  * Runs time event.
- * @param acquired Value supplied to the operation.
- * @param termination Value supplied to the operation.
+ * @param acquired Stable runtime identity observed at acquisition.
+ * @param termination Terminal runtime result to project into evidence.
  * @returns The runtime event result.
  */
 export function runtimeEvent(
@@ -77,7 +68,7 @@ export function runtimeEvent(
 
 /**
  * Executes the program event operation.
- * @param exit Value supplied to the operation.
+ * @param exit Customer program success, failure, or interruption.
  * @returns The program event result.
  */
 export function programEvent<A, E>(exit: Exit.Exit<A, E>) {
@@ -91,4 +82,14 @@ export function programEvent<A, E>(exit: Exit.Exit<A, E>) {
     : ProgramFailed.make({
         cause: nonEmptyCause(exit.cause),
       });
+}
+
+/**
+ * Executes the non empty cause operation.
+ * @param cause Failure cause to inspect.
+ * @returns The non empty cause result.
+ */
+export function nonEmptyCause(cause: Cause.Cause<unknown>): string {
+  const rendered = Cause.pretty(cause).trim();
+  return rendered.length === 0 ? "unknown failure" : rendered;
 }

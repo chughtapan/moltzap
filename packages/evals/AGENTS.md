@@ -1,15 +1,18 @@
-# @moltzap/evals
+# `@moltzap/evals`
 
-Private, unpublished. One code-first customer of `@moltzap/simulator`:
-it defines behavioral cases, runs mixed societies through the production
-router, grades durable ledger evidence, stores resumable reports, and
-publishes completed results to Phoenix.
+Evals is a retained private product. Preserve its grading and report behavior,
+CLI modes, deployment behavior, artifacts, and container-consumed entry points
+while rewiring it to the final four-layer harness.
 
-Being a customer is the point. Everything here reaches the system the way
-an external consumer would — the production router, the runtime-native
-gateway, the same protocol on every leg. A shortcut that reaches past
-those surfaces stops the package measuring what it exists to measure.
-
-Cases pair with OpenClaw and NanoClaw target conditions, and every society
-also contains evaluation-owned autonomous peer application containers.
-`README.md` carries the execution model and the grading reference.
+- Production code consumes only the public surfaces of `@moltzap/client` and
+  `@moltzap/simulator`.
+- Do not import `@moltzap/protocol`, server packages, Client or Simulator
+  internals, adapters, Identity, or Router directly.
+- Existing protocol imports, raw-client types, legacy Simulator contracts, and
+  undeclared artifact edges are migration input only. Replace them; they do
+  not define the final interface or justify compatibility shims.
+- Keep evaluation policy here. Communication records and agent operation
+  belong to Client; run orchestration and `RunLedger` evidence belong to
+  Simulator.
+- Verify migrations through the package's `pnpm nx` targets and retain
+  meaningful grading, report, CLI, artifact, and deployment coverage.

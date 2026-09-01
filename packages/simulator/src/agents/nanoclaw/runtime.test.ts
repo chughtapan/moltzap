@@ -1,47 +1,36 @@
-import { serverBaseUrl } from "@moltzap/protocol/network";
-import {
-  agentId,
-  agentName,
-  redactedAgentKey,
-} from "@moltzap/protocol/testing";
-import { createServer, type Socket as NetSocket } from "node:net";
+/** @file Verifies the rendered NanoClaw container and bridge contract. */
+
 import { assert, it as effectIt } from "@effect/vitest";
+import { AgentName } from "@moltzap/identity";
 import { Deferred, Effect, Schema, type Scope } from "effect";
+import { createServer, type Socket as NetSocket } from "node:net";
 import { describe } from "vitest";
-import { makeAgentHandle, type AgentConnection } from "../../network.js";
+import type { NanoClawGateway } from "./gateway.js";
 import {
-  containerRuntimeFor,
-  image,
-  type Application,
-  type ContainerRuntime,
-  type File,
-} from "../container.js";
-import {
-  RuntimeFailed,
-  runtimeConfigurationProjection,
   type RuntimeAcquisitionError,
+  runtimeConfigurationProjection,
+  RuntimeFailed,
   type RuntimeTermination,
 } from "../agent.js";
-import type { NanoClawGateway } from "./gateway.js";
+import {
+  type Application,
+  type ContainerRuntime,
+  containerRuntimeFor,
+  type File,
+  image,
+} from "../container.js";
 import { nanoclawRuntime } from "./runtime.js";
 
 const test = effectIt.effect;
 const liveTest = effectIt.scopedLive;
-const AGENT_NAME = agentName("alice");
-const AGENT_ID = agentId("00000000-0000-4000-8000-000000000001");
-const AGENT_KEY_TEXT =
-  "moltzap_agent_0000000000000000_000000000000000000000000000000000000000000000000";
-const AGENT_KEY = redactedAgentKey(AGENT_KEY_TEXT);
-// eslint-disable-next-line sonarjs/no-clear-text-protocols -- the private in-cluster router contract is intentionally HTTP.
-const ROUTER_URL = serverBaseUrl("http://router.society.svc:3000");
+const AGENT_NAME = Schema.decodeUnknownSync(AgentName)("alice");
 const APPLICATION_IMAGE = image.make(
   "example.invalid/nanoclaw-application@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 );
 const BOOTSTRAP_ROOT = "/var/run/moltzap/bootstrap/";
 const RUNTIME_CONFIG_PATH = `${BOOTSTRAP_ROOT}nanoclaw/runtime.json`;
-const PROFILE_PATH = `${BOOTSTRAP_ROOT}moltzap/config.json`;
 const WORKSPACE_PATH = `${BOOTSTRAP_ROOT}workspace/IDENTITY.md`;
-const ENTRYPOINT = "/opt/moltzap/nanoclaw/entrypoint.mjs";
+const ENTRYPOINT = "/opt/moltzap/agent/entrypoint.mjs";
 const GATEWAY_PORT = 18_790;
 const STATE_DIR = "/var/lib/moltzap/nanoclaw";
 const GATEWAY_BIND_HOST = "0.0.0.0";
@@ -51,12 +40,6 @@ const WORKSPACE_CONTENT = "Alice";
 const MCP_SECRET = "secret-mcp-value";
 const MCP_URL = "https://calendar.test/mcp/opaque-token";
 
-const connection: AgentConnection<"alice"> = {
-  agent: makeAgentHandle("alice", AGENT_ID),
-  key: AGENT_KEY,
-  routerUrl: ROUTER_URL,
-};
-
 const renderedRuntimeConfig = Schema.parseJson(
   Schema.Struct({
     apiVersion: Schema.Literal("moltzap.nanoclaw-application/v1"),
@@ -64,7 +47,6 @@ const renderedRuntimeConfig = Schema.parseJson(
     gateway: Schema.Struct({ host: Schema.String, port: Schema.Number }),
     stateDirectory: Schema.String,
     workspaceDirectory: Schema.String,
-    autoRegisterConversations: Schema.Boolean,
     modelId: Schema.optional(Schema.String),
     mcpServers: Schema.Array(
       Schema.Union(
@@ -77,18 +59,6 @@ const renderedRuntimeConfig = Schema.parseJson(
         Schema.Struct({ name: Schema.String, url: Schema.String }),
       ),
     ),
-  }),
-);
-
-const renderedMoltZapProfile = Schema.parseJson(
-  Schema.Struct({
-    profiles: Schema.Struct({
-      "simulator-agent": Schema.Struct({
-        agentId: Schema.String,
-        apiKey: Schema.String,
-        agentName: Schema.String,
-      }),
-    }),
   }),
 );
 
@@ -106,15 +76,6 @@ interface Fixture {
   readonly capability: NanoClawContainerRuntime;
   readonly application: NanoClawApplication;
   readonly runtimeConfig: typeof renderedRuntimeConfig.Type;
-  readonly profile: typeof renderedMoltZapProfile.Type;
-}
-
-function requireFile(files: readonly File[], path: string): string {
-  const file = files.find((candidate) => candidate.path === path);
-  if (file === undefined) {
-    throw new Error(`missing rendered file ${path}`);
-  }
-  return file.content;
 }
 
 /**
@@ -129,7 +90,6 @@ function makeFixture() {
   return Effect.gen(function* () {
     const runtime = nanoclawRuntime({
       applicationImage: APPLICATION_IMAGE,
-      autoRegisterConversations: true,
       modelId: MODEL_ID,
       workspaceFiles: [
         { relativePath: "IDENTITY.md", content: WORKSPACE_CONTENT },
@@ -145,17 +105,11 @@ function makeFixture() {
       ],
     });
     const capability = containerRuntimeFor(runtime);
-    const application = yield* capability.render({
-      agentName: AGENT_NAME,
-      connection,
-    });
+    const application = yield* capability.render({ agentName: AGENT_NAME });
     const runtimeConfig = Schema.decodeUnknownSync(renderedRuntimeConfig)(
       requireFile(application.files, RUNTIME_CONFIG_PATH),
     );
-    const profile = Schema.decodeUnknownSync(renderedMoltZapProfile)(
-      requireFile(application.files, PROFILE_PATH),
-    );
-    return { runtime, capability, application, runtimeConfig, profile };
+    return { runtime, capability, application, runtimeConfig };
   });
 }
 
@@ -170,31 +124,28 @@ function assertApplicationContainer(fixture: Fixture): void {
   assert.notProperty(application, "containers");
   assert.strictEqual(capability.image, APPLICATION_IMAGE);
   assert.deepStrictEqual(capability.resources, {
-    cpuMillis: 1_000,
-    memoryBytes: 1_024 * 1_024 * 1_024,
+    cpuMillis: 1_100,
+    memoryBytes: 1_280 * 1_024 * 1_024,
     ephemeralStorageBytes: 1_024 * 1_024 * 1_024,
   });
   assert.deepStrictEqual(application.entrypoint, ["node", ENTRYPOINT]);
   assert.strictEqual(application.port, GATEWAY_PORT);
-  assert.strictEqual(application.environment.MOLTZAP_SERVER_URL, ROUTER_URL);
   assert.strictEqual(
     application.environment.MOLTZAP_NANOCLAW_CONFIG,
     RUNTIME_CONFIG_PATH,
   );
   assert.strictEqual(application.environment.MOLTZAP_NANOCLAW_STATE, STATE_DIR);
   assert.deepStrictEqual(application.credentials, ["ANTHROPIC_API_KEY"]);
-  assert.notInclude(projection, AGENT_KEY_TEXT);
   assert.notInclude(projection, MCP_SECRET);
 }
 
 function assertBootstrap(fixture: Fixture): void {
-  const { application, profile, runtime, runtimeConfig } = fixture;
+  const { application, runtime, runtimeConfig } = fixture;
   assert.strictEqual(runtimeConfig.agentName, AGENT_NAME);
   assert.strictEqual(runtimeConfig.gateway.host, GATEWAY_BIND_HOST);
   assert.strictEqual(runtimeConfig.gateway.port, GATEWAY_PORT);
   assert.strictEqual(runtimeConfig.stateDirectory, STATE_DIR);
   assert.strictEqual(runtimeConfig.modelId, MODEL_ID);
-  assert.isTrue(runtimeConfig.autoRegisterConversations);
   assert.deepStrictEqual(runtimeConfig.mcpServers, [
     {
       name: "private-tool",
@@ -204,11 +155,6 @@ function assertBootstrap(fixture: Fixture): void {
     },
     { name: "calendar", url: MCP_URL },
   ]);
-  assert.strictEqual(profile.profiles["simulator-agent"].agentId, AGENT_ID);
-  assert.strictEqual(
-    profile.profiles["simulator-agent"].apiKey,
-    AGENT_KEY_TEXT,
-  );
   assert.strictEqual(
     requireFile(application.files, WORKSPACE_PATH),
     WORKSPACE_CONTENT,
@@ -218,16 +164,20 @@ function assertBootstrap(fixture: Fixture): void {
   );
   assert.notInclude(
     JSON.stringify(runtimeConfigurationProjection(runtime)),
-    AGENT_KEY_TEXT,
-  );
-  assert.notInclude(
-    JSON.stringify(runtimeConfigurationProjection(runtime)),
     MCP_URL,
   );
   assert.notInclude(
     JSON.stringify(runtimeConfigurationProjection(runtime)),
     MCP_SECRET,
   );
+}
+
+function requireFile(files: readonly File[], path: string): string {
+  const file = files.find((candidate) => candidate.path === path);
+  if (file === undefined) {
+    throw new Error(`missing rendered file ${path}`);
+  }
+  return file.content;
 }
 
 function applicationContractTest() {
@@ -260,8 +210,8 @@ function rejectedEndpointTest() {
 }
 
 function rejectedWorkspacePathTest(): void {
-  // Escapes are refused where the runtime is defined, which is before any
-  // router credential exists to be written into a bootstrap file.
+  // Escapes are refused where the runtime is defined, before any bootstrap
+  // file can be rendered.
   for (const relativePath of ["", "../escape.md", "/etc/passwd", "a\\b.md"]) {
     assert.throws(() =>
       nanoclawRuntime({

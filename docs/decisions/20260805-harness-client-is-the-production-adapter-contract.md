@@ -1,12 +1,22 @@
 ---
-status: accepted
+status: superseded
 date: 2026-08-05
 decision-makers: Tapan Chugh
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # HarnessClient is the production adapter contract
 
 Decision provenance: [compacted trajectory](../decision-evidence/20260805-production-harness-cutover-trajectory.md#harness-client-is-the-production-adapter-contract).
+
+## Supersession
+
+No portion of the `HarnessClient` contract remains current.
+
+`20260827-addressed-messaging-replaces-openfloor.md` retains the package
+boundary—adapters consume only `@moltzap/client` and receive no network or
+storage internals—but replaces the capability with addressed
+`HarnessEndpoint` send and delivery. Native host sessions own model context.
 
 ## Context and Problem Statement
 

@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-27
 decision-makers: Tapan Chugh
-superseded-by: 20260801-main-simulator-runs-container-societies-on-kubernetes.md
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # The simulator is code-first with a closed event catalog
@@ -11,12 +11,11 @@ Decision provenance: [stored code-first simulator trajectory](../decision-eviden
 
 ## Supersession
 
-The following scope remains current for main: the code-first TypeScript/Effect
-approach; an immutable closed typed EventCatalog; the typed run-evidence
-RunLedger and producer-bound writers; exact keyed runtime gateways;
-customer-owned scenario languages, sweeps, completion policy, and graders; one
-`@moltzap/simulator` package; the production v1 router and protocol; and one
-public stack without social callback shortcuts.
+The code-first TypeScript/Effect approach, immutable closed typed EventCatalog,
+typed run-evidence RunLedger and producer-bound writers, exact keyed runtime
+gateways, customer-owned scenario languages, sweeps, completion policy and
+graders, one `@moltzap/simulator` package, and one public stack without social
+callback shortcuts remain current.
 
 [`20260801-main-simulator-runs-container-societies-on-kubernetes.md`](./20260801-main-simulator-runs-container-societies-on-kubernetes.md)
 replaces the main/v1 `simulator.define(...).run(...)` public naming and its
@@ -33,12 +32,14 @@ principal-native gateway control and MoltZap social traffic, the absence of a
 universal gateway union or correlation id, and the classification of
 controlled-endpoint traffic as diagnostic rather than behavioral acceptance.
 
-`20260728-simulator-is-the-system-driver.md` replaces the historical
-single-package ownership and source-layout plan only for v2. The accepted v2
-record, the Gate 1 manifest, and the v2 package/specification boundary remain
-unchanged. `20260729-router-order-is-opaque.md` continues to replace
-simulator-owned production Router state and public RouterSequence in its v2
-scope.
+`20260811-four-layer-endpoint-replicated-harness.md` removes the production-v1
+protocol qualifier, separate v2 simulator/testbed handoff, and stale
+simulator-owned product Router/order claims. It adopts the retained latest-main
+kernel as the sole final simulator while keeping product certified history
+separate from RunLedger. `20260801-main-simulator-runs-container-societies-on-kubernetes.md`
+continues to own the non-conflicting `RunSpec`/`Run.execute` and Kubernetes
+surface. Exact treatment of conflicting communication and persisted Router
+evidence shapes remains deliberately deferred to a compatibility decision.
 
 ## Context and Problem Statement
 
@@ -433,3 +434,13 @@ observable ingress buffers behind the same `RunLedger`, `Network`, and
 `ConversationSocket` capabilities. A hard timeout for embedded PGlite close
 would require isolating that drain in a killable worker because PGlite exposes
 no cancellation signal.
+
+## Record changelog
+
+Point corrections that leave the Decision Outcome intact. A change that alters
+the outcome is a supersession, not a row here.
+
+| Date | Change |
+|---|---|
+| 2026-08-01 | Retargeted `superseded-by` from the runtime-gateway record to the Kubernetes society record, and restated the retained scope in that record's vocabulary. The Decision Outcome is untouched: what this record decided still stands, and only the naming of what replaced part of it moved. Recorded on 2026-08-06, when the forward merge's shape check surfaced the missing row. |
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

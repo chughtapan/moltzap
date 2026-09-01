@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
- * Architecture boundary checks for both tracks.
+ * Architecture boundary checks for the final product graph.
  *
- * v1 (`packages/*`) rules cover wildcard exports, barrel discipline, and the
- * published export maps. v2 (`v2/*`) rules cover the frozen package set, the
- * shared compatibility value, the export and binary maps, and the three
- * import rules that keep the clean slate clean.
+ * Shared `packages/*` rules cover wildcard exports and barrel discipline. The
+ * final-package table pins the directory and package names, public entrypoints,
+ * binaries, manifest edges, TypeScript references, and required Nx targets for
+ * all seven products.
  *
- * The v2 table below is a hand transcription of frozen law in
- * docs/architecture/components.md. It is written down rather than derived so
- * that drift fails whichever side moves, but it is not self-certifying:
- * re-verify it against that document whenever the document changes.
+ * The final-package table is a hand transcription of the current package
+ * contract. It is written down rather than derived so drift fails whichever
+ * side moves, but it is not self-certifying: re-verify it against
+ * docs/spec/layer-interfaces.md whenever that contract changes.
  *
  * Every rule asserts its input set is non-empty before reporting success. A
  * check that walks nothing passes vacuously and is indistinguishable from no
@@ -24,59 +24,164 @@ const v2Root = path.join(repo, "v2");
 const packagesRoot = path.join(repo, "packages");
 const failures = [];
 
-// `deps` lists the only v2 packages a package may reach, in package.json, in
-// TypeScript project references, in knip's ignore list, and in source imports
-// alike.
-const V2_PACKAGES = {
+// `deps` lists the only product packages each package may reach in manifests,
+// TypeScript project references, Knip ignores, source imports, and the resolved
+// Nx graph. `targets` is a minimum floor: additional operator targets are
+// allowed, but deleting a required verification or product entry target fails.
+const FINAL_PACKAGES = {
   identity: {
-    npmName: "@moltzap/v2-identity",
+    npmName: "@moltzap/identity",
     deps: [],
-    exports: [".", "./server"],
-    bin: ["moltzap-registry"],
+    exports: {
+      ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
+      "./registry": {
+        types: "./dist/registry.d.ts",
+        import: "./dist/registry.js",
+      },
+      "./registry/server": {
+        types: "./dist/registry/server.d.ts",
+        import: "./dist/registry/server.js",
+      },
+    },
+    bin: { "moltzap-registry": "./bin/moltzap-registry" },
+    targets: [
+      "arch:check",
+      "build",
+      "lint",
+      "test",
+      "test:integration",
+      "typecheck",
+      "typecheck:tests",
+    ],
   },
   router: {
-    npmName: "@moltzap/v2-router",
+    npmName: "@moltzap/router",
     deps: ["identity"],
-    exports: [".", "./server"],
-    bin: ["moltzap-router"],
+    exports: {
+      ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
+      "./server": {
+        types: "./dist/server.d.ts",
+        import: "./dist/server.js",
+      },
+    },
+    bin: { "moltzap-router": "./bin/moltzap-router" },
+    targets: [
+      "arch:check",
+      "build",
+      "lint",
+      "test",
+      "test:integration",
+      "typecheck",
+      "typecheck:tests",
+    ],
   },
-  transcript: {
-    npmName: "@moltzap/v2-transcript",
+  client: {
+    npmName: "@moltzap/client",
     deps: ["identity", "router"],
-    exports: [".", "./server"],
-    bin: ["moltzap-ledger"],
+    exports: {
+      ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
+      "./server": {
+        types: "./dist/server.d.ts",
+        import: "./dist/server.js",
+      },
+    },
+    bin: { moltzapd: "./bin/moltzapd" },
+    targets: [
+      "arch:check",
+      "build",
+      "lint",
+      "test",
+      "test:integration",
+      "test:pack",
+      "typecheck:tests",
+    ],
   },
-  endpoint: {
-    npmName: "@moltzap/v2-endpoint",
-    deps: ["identity", "router", "transcript"],
-    exports: [".", "./server"],
-    bin: ["moltzap", "moltzap-agentd"],
+  "openclaw-channel": {
+    npmName: "@moltzap/openclaw-channel",
+    deps: ["client"],
+    exports: {
+      ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
+    },
+    bin: {},
+    targets: [
+      "arch:check",
+      "build",
+      "lint",
+      "test",
+      "test:pack",
+      "typecheck:tests",
+    ],
+  },
+  "nanoclaw-channel": {
+    npmName: "@moltzap/nanoclaw-channel",
+    deps: ["client"],
+    exports: {
+      ".": {
+        types: "./dist/channels/moltzap.d.ts",
+        import: "./dist/channels/moltzap.js",
+      },
+    },
+    bin: {},
+    targets: ["arch:check", "build", "lint", "test", "typecheck:tests"],
   },
   simulator: {
-    npmName: "@moltzap/v2-simulator",
-    deps: ["identity", "endpoint"],
-    exports: [".", "./adapter", "./ledger"],
-    bin: [],
+    npmName: "@moltzap/simulator",
+    deps: ["identity", "router", "client"],
+    exports: {
+      ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
+      "./network": {
+        types: "./dist/network/index.d.ts",
+        import: "./dist/network/index.js",
+      },
+      "./ledger": {
+        types: "./dist/ledger/index.d.ts",
+        import: "./dist/ledger/index.js",
+      },
+      "./agents": {
+        types: "./dist/agents/index.d.ts",
+        import: "./dist/agents/index.js",
+      },
+    },
+    bin: {},
+    targets: [
+      "arch:check",
+      "build",
+      "gke-profile-check",
+      "gke-run",
+      "lint",
+      "local-cluster-create",
+      "local-cluster-test",
+      "local-profile-check",
+      "local-run",
+      "test",
+      "test:pack",
+      "typecheck:tests",
+    ],
   },
-  testbed: {
-    npmName: "@moltzap/v2-testbed",
-    deps: ["identity", "router", "transcript", "endpoint", "simulator"],
-    exports: ["."],
-    bin: [],
+  evals: {
+    npmName: "@moltzap/evals",
+    deps: ["client", "simulator"],
+    exports: {},
+    bin: {},
+    targets: [
+      "arch:check",
+      "build",
+      "calibrate",
+      "eval",
+      "lint",
+      "phoenix-terraform-check",
+      "publish",
+      "resume",
+      "test",
+      "typecheck:tests",
+    ],
   },
 };
 
-// Simulator and testbed are experiment and acquisition machinery. The
-// packages that ship the product must never reach for them.
-const NON_PRODUCTION = ["simulator", "testbed"];
-const PRODUCTION = Object.keys(V2_PACKAGES).filter(
-  (dir) => !NON_PRODUCTION.includes(dir),
+const FINAL_PACKAGE_DIRS = Object.keys(FINAL_PACKAGES);
+const FINAL_PACKAGE_NAMES = new Set(
+  Object.values(FINAL_PACKAGES).map(({ npmName }) => npmName),
 );
-
-const v2DirByNpmName = new Map(
-  Object.entries(V2_PACKAGES).map(([dir, meta]) => [meta.npmName, dir]),
-);
-
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -84,6 +189,30 @@ function walk(dir, out = []) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(full, out);
     else if (entry.isFile() && entry.name.endsWith(".ts")) out.push(full);
+  }
+  return out;
+}
+
+const CODE_EXTENSIONS = new Set([
+  ".cjs",
+  ".cts",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".mts",
+  ".ts",
+  ".tsx",
+]);
+
+function walkCodeFiles(dir, out = []) {
+  if (!fs.existsSync(dir)) return out;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "dist" || entry.name === "node_modules") continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) walkCodeFiles(full, out);
+    else if (entry.isFile() && CODE_EXTENSIONS.has(path.extname(entry.name))) {
+      out.push(full);
+    }
   }
   return out;
 }
@@ -161,30 +290,13 @@ function packageRoot(specifier) {
   return parts[0];
 }
 
-// ─── v1 source rules ──────────────────────────────────────────────────────
+// ─── Shared source rules ──────────────────────────────────────────────────
 
 function checkSourceFile(file) {
   const text = fs.readFileSync(file, "utf8");
 
   for (const match of text.matchAll(/export\s+\*\s+from\s+["'][^"']+["']/g)) {
     fail(file, lineAt(text, match.index), "wildcard export is not allowed");
-  }
-
-  for (const match of text.matchAll(
-    /import\s*\{([^}]*)\}\s*from\s*["']#transport["']/g,
-  )) {
-    const names = match[1];
-    if (
-      /\b(defineRpc|defineNotification|decodeRpcResult|effectiveErrorClasses|jsonRpcMethod)\b/.test(
-        names,
-      )
-    ) {
-      fail(
-        file,
-        lineAt(text, match.index),
-        "descriptor construction must import from #transport/descriptor",
-      );
-    }
   }
 
   for (const match of text.matchAll(
@@ -203,160 +315,32 @@ function checkSourceFile(file) {
       );
     }
   }
-
-  // v1 ships the product too, so the no-simulator/testbed rule binds it. The
-  // literal guard keeps the common case to one substring scan.
-  if (text.includes("@moltzap/v2-")) {
-    for (const { specifier, index } of importSpecifiers(text)) {
-      const target = v2DirByNpmName.get(packageRoot(specifier));
-      if (target !== undefined && NON_PRODUCTION.includes(target)) {
-        fail(
-          file,
-          lineAt(text, index),
-          `production package must not import non-production package "${target}"`,
-        );
-      }
-    }
-  }
-}
-
-function assertExportMap(pkgPath, expected) {
-  const pkg = readJson(path.join(repo, pkgPath, "package.json"));
-  failOnSetDrift(
-    `${pkgPath}/package.json`,
-    "exports changed",
-    Object.keys(pkg.exports ?? {}),
-    expected,
-  );
-}
-
-function assertBinMap(pkgPath, expected) {
-  const pkg = readJson(path.join(repo, pkgPath, "package.json"));
-  const bin = pkg.bin ?? {};
-  failOnSetDrift(
-    `${pkgPath}/package.json`,
-    "bin changed",
-    typeof bin === "string" ? [path.basename(pkgPath)] : Object.keys(bin),
-    expected,
-  );
-}
-
-// ─── adapter containment ──────────────────────────────────────────────────
-
-// Channel adapters reach MoltZap only through the client's published subpaths,
-// and only through the ones that carry adapter-facing contracts. A deep import
-// would let an adapter build its own transport beside HarnessClient, which is
-// exactly the coexistence this package set removed.
-const ADAPTER_PACKAGES = ["openclaw-channel", "nanoclaw-channel"];
-// Shipped sources only. Test scaffolding legitimately drives a peer agent and
-// registers fixtures against a real server; none of it reaches a user.
-const TEST_FILE = /(^|\/)(__tests__\/|vitest\.)|\.test\.ts$|\.test-utils\.ts$/;
-const ADAPTER_CLIENT_SUBPATHS = new Set([
-  "@moltzap/client",
-  "@moltzap/client/channel-base",
-  "@moltzap/client/harness-client",
-  "@moltzap/client/notification",
-  "@moltzap/client/pagination",
-  "@moltzap/client/test-utils",
-]);
-// Daemon-side machinery. Naming these by symbol catches a re-export chain that
-// the subpath rule alone would let through.
-const DAEMON_ONLY_SYMBOLS =
-  /\b(MoltZapService|MoltZapChannelCore|MoltZapAgentClient|ChannelService|acquireMoltzapd|runMoltzapd)\b/;
-
-function checkAdapterFile(file) {
-  const text = fs.readFileSync(file, "utf8");
-
-  for (const { specifier, index } of importSpecifiers(text)) {
-    if (
-      specifier.startsWith("@moltzap/client") &&
-      !ADAPTER_CLIENT_SUBPATHS.has(specifier)
-    ) {
-      fail(
-        file,
-        lineAt(text, index),
-        `adapter may not import "${specifier}"; use a published adapter-facing subpath`,
-      );
-    }
-  }
-
-  for (const match of text.matchAll(
-    /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["'][^"']*["']/g,
-  )) {
-    if (DAEMON_ONLY_SYMBOLS.test(match[1])) {
-      fail(
-        file,
-        lineAt(text, match.index),
-        "adapter may not import daemon-side machinery; reach MoltZap through HarnessClient",
-      );
-    }
-  }
 }
 
 const sourceFiles = walk(packagesRoot);
 if (sourceFiles.length === 0) {
   failures.push(
-    "packages/: no TypeScript sources scanned; the v1 rules would pass vacuously",
+    "packages/: no TypeScript sources scanned; shared rules would pass vacuously",
   );
 }
 for (const file of sourceFiles) checkSourceFile(file);
 
-assertExportMap("packages/protocol", [
-  ".",
-  "./conversation",
-  "./identity",
-  "./message",
-  "./network",
-  "./rpc",
-  "./socket",
-  "./socket/catalog",
-  "./testing",
-]);
-assertExportMap("packages/server", [".", "./test-utils"]);
-assertExportMap("packages/client", [
-  ".",
-  "./auth",
-  "./channel-base",
-  "./harness-client",
-  "./notification",
-  "./pagination",
-  "./test-utils",
-]);
+// ─── Final package set ────────────────────────────────────────────────
 
-// The bespoke `moltzap` CLI is gone. Only the daemon ships as a binary.
-assertBinMap("packages/client", ["moltzapd"]);
-assertBinMap("packages/server", ["moltzap-server"]);
-
-let adapterSourceCount = 0;
-for (const adapter of ADAPTER_PACKAGES) {
-  const files = walk(path.join(packagesRoot, adapter)).filter(
-    (file) => !TEST_FILE.test(rel(file)),
-  );
-  if (files.length === 0) {
-    failures.push(
-      `packages/${adapter}: no shipped TypeScript sources scanned; the adapter containment rules would pass vacuously`,
-    );
-    continue;
-  }
-  adapterSourceCount += files.length;
-  for (const file of files) checkAdapterFile(file);
-}
-
-// ─── v2 package set ───────────────────────────────────────────────────────
-
-const v2Dirs = fs.existsSync(v2Root)
+const packageDirs = fs.existsSync(packagesRoot)
   ? fs
-      .readdirSync(v2Root, { withFileTypes: true })
-      .filter(
-        (entry) =>
-          entry.isDirectory() &&
-          fs.existsSync(path.join(v2Root, entry.name, "package.json")),
-      )
+      .readdirSync(packagesRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort()
   : [];
 
-failOnSetDrift("v2/", "package set drifted", v2Dirs, Object.keys(V2_PACKAGES));
+failOnSetDrift(
+  "packages/",
+  "product directories drifted",
+  packageDirs,
+  FINAL_PACKAGE_DIRS,
+);
 
 // Architectural numbering helps readers navigate specifications, but it
 // obscures domain ownership in executable artifacts. Source and package
@@ -364,16 +348,16 @@ failOnSetDrift("v2/", "package set drifted", v2Dirs, Object.keys(V2_PACKAGES));
 const DOCUMENTATION_ONLY_LAYER_NOTATION =
   /(?:^|[^A-Za-z0-9])(?:[Ll][12](?=$|[^a-z0-9])|[Ll]ayer(?:[ _-]?(?:[12]|[Oo]ne|[Tt]wo))(?=$|[^a-z0-9]))/g;
 
-let v2VocabularyFileCount = 0;
-for (const dir of v2Dirs) {
-  const files = walkNonDocumentationFiles(path.join(v2Root, dir));
+let identityRouterVocabularyFileCount = 0;
+for (const dir of ["identity", "router"]) {
+  const files = walkNonDocumentationFiles(path.join(packagesRoot, dir));
   if (files.length === 0) {
     failures.push(
-      `v2/${dir}: no non-documentation files scanned; the vocabulary rule would pass vacuously here`,
+      `packages/${dir}: no non-documentation files scanned; the vocabulary rule would pass vacuously here`,
     );
     continue;
   }
-  v2VocabularyFileCount += files.length;
+  identityRouterVocabularyFileCount += files.length;
 
   for (const file of files) {
     const relativePath = rel(file);
@@ -395,65 +379,154 @@ for (const dir of v2Dirs) {
   }
 }
 
-// ─── One CalVer, carried by v2/VERSION and all six manifests ──────────────
+// ─── Compatibility value ──────────────────────────────────────────────────
 
-const versionFile = path.join(v2Root, "VERSION");
-let v2Version = null;
-if (!fs.existsSync(versionFile)) {
+const compatibilityVersionFile = path.join(v2Root, "VERSION");
+let compatibilityVersion = null;
+if (!fs.existsSync(compatibilityVersionFile)) {
   failures.push(
-    "v2/VERSION: missing; it is the sole MoltZap compatibility value",
+    "v2/VERSION: missing; it is the current MoltZap wire compatibility value",
   );
 } else {
-  v2Version = fs.readFileSync(versionFile, "utf8").trim();
-  if (!/^\d{4}\.\d{3,4}\.\d+$/.test(v2Version)) {
-    failures.push(`v2/VERSION: "${v2Version}" is not a YYYY.MDD.PATCH CalVer`);
+  compatibilityVersion = fs
+    .readFileSync(compatibilityVersionFile, "utf8")
+    .trim();
+  if (!/^\d{4}\.\d{3,4}\.\d+$/.test(compatibilityVersion)) {
+    failures.push(
+      `v2/VERSION: "${compatibilityVersion}" is not a YYYY.MDD.PATCH CalVer`,
+    );
   }
 }
 
-// ─── v2 manifests, project references, and knip ignores ───────────────────
+// ─── Final manifests, references, targets, and Knip roots ────────────────────
 
 const knipWorkspaces = readJson(path.join(repo, "knip.json")).workspaces ?? {};
+const workspacePackageNames = new Set();
+for (const dir of FINAL_PACKAGE_DIRS) {
+  const manifestPath = path.join(packagesRoot, dir, "package.json");
+  if (fs.existsSync(manifestPath)) {
+    workspacePackageNames.add(readJson(manifestPath).name);
+  }
+}
+failOnSetDrift(
+  "packages/*/package.json",
+  "workspace package names drifted",
+  workspacePackageNames,
+  FINAL_PACKAGE_NAMES,
+);
+failOnSetDrift(
+  "knip.json",
+  "package workspace roots drifted",
+  Object.keys(knipWorkspaces).filter((name) => name.startsWith("packages/")),
+  FINAL_PACKAGE_DIRS.map((dir) => `packages/${dir}`),
+);
 
-for (const dir of v2Dirs) {
-  const expected = V2_PACKAGES[dir];
-  if (expected === undefined) continue;
+const rootTsconfig = readJson(path.join(repo, "tsconfig.json"));
+failOnSetDrift(
+  "tsconfig.json",
+  "root project references drifted",
+  (rootTsconfig.references ?? []).map(({ path: referencePath }) =>
+    path.normalize(referencePath),
+  ),
+  FINAL_PACKAGE_DIRS.map((dir) => path.join("packages", dir)),
+);
 
-  const where = `v2/${dir}/package.json`;
-  const manifest = readJson(path.join(v2Root, dir, "package.json"));
+const workspaceProject = readJson(
+  path.join(repo, "tools", "workspace", "project.json"),
+);
+const workspaceLintDependencies =
+  workspaceProject.targets?.lint?.dependsOn?.filter(
+    (dependency) => typeof dependency === "string",
+  ) ?? [];
+if (!workspaceLintDependencies.includes("lint:effect")) {
+  failures.push(
+    "tools/workspace/project.json: workspace:lint must depend on workspace:lint:effect",
+  );
+}
+const rootManifest = readJson(path.join(repo, "package.json"));
+if (rootManifest.scripts?.lint !== "pnpm nx run workspace:lint") {
+  failures.push(
+    'package.json: lint must route through "pnpm nx run workspace:lint"',
+  );
+}
+
+const DEPENDENCY_SECTIONS = [
+  "dependencies",
+  "devDependencies",
+  "optionalDependencies",
+  "peerDependencies",
+];
+
+for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
+  const where = `packages/${dir}/package.json`;
+  const manifest = readJson(path.join(packagesRoot, dir, "package.json"));
+  const projectPath = path.join(packagesRoot, dir, "project.json");
+  const project = fs.existsSync(projectPath) ? readJson(projectPath) : null;
 
   if (manifest.name !== expected.npmName) {
     failures.push(
       `${where}: name is "${manifest.name}", expected "${expected.npmName}"`,
     );
   }
-
-  if (v2Version !== null && manifest.version !== v2Version) {
+  if (project !== null && project.name !== expected.npmName) {
     failures.push(
-      `${where}: version "${manifest.version}" does not match v2/VERSION "${v2Version}"`,
+      `packages/${dir}/project.json: name is "${project.name}", expected "${expected.npmName}"`,
     );
   }
 
-  if (manifest.private !== true) {
-    failures.push(`${where}: must set "private": true; v2 publishes nothing`);
+  // Identity and Router are private clean-slate packages. Publication choices
+  // for the retained production packages remain deliberately unsettled.
+  if ((dir === "identity" || dir === "router") && manifest.private !== true) {
+    failures.push(
+      `${where}: must stay private until release policy is admitted`,
+    );
   }
 
+  const actualExports = manifest.exports ?? {};
   failOnSetDrift(
     where,
     "exports drifted",
-    Object.keys(manifest.exports ?? {}),
-    expected.exports,
+    Object.keys(actualExports),
+    Object.keys(expected.exports),
   );
+  for (const [subpath, wantedTarget] of Object.entries(expected.exports)) {
+    const actualTarget = actualExports[subpath];
+    for (const condition of ["types", "import"]) {
+      if (actualTarget?.[condition] !== wantedTarget[condition]) {
+        failures.push(
+          `${where}: export "${subpath}" ${condition} target is "${actualTarget?.[condition] ?? "missing"}", expected "${wantedTarget[condition]}"`,
+        );
+      }
+    }
+  }
+  const rootExport = expected.exports["."];
+  if (
+    rootExport !== undefined &&
+    (manifest.main !== rootExport.import || manifest.types !== rootExport.types)
+  ) {
+    failures.push(
+      `${where}: main/types must match the root export (${rootExport.import}, ${rootExport.types})`,
+    );
+  }
+
+  const actualBin = manifest.bin ?? {};
   failOnSetDrift(
     where,
     "binaries drifted",
-    Object.keys(manifest.bin ?? {}),
-    expected.bin,
+    Object.keys(actualBin),
+    Object.keys(expected.bin),
   );
 
   // Binaries are checked in rather than built, so the target exists at
   // install time and a declared binary is never a dangling link.
-  for (const [name, target] of Object.entries(manifest.bin ?? {})) {
-    const binPath = path.join(v2Root, dir, target);
+  for (const [name, target] of Object.entries(expected.bin)) {
+    if (actualBin[name] !== target) {
+      failures.push(
+        `${where}: binary "${name}" points at "${actualBin[name] ?? "missing"}", expected "${target}"`,
+      );
+      continue;
+    }
+    const binPath = path.join(packagesRoot, dir, target);
     if (!fs.existsSync(binPath)) {
       failures.push(
         `${where}: binary "${name}" points at missing file "${target}"`,
@@ -468,154 +541,306 @@ for (const dir of v2Dirs) {
     }
   }
 
-  const wantedDeps = expected.deps.map((d) => V2_PACKAGES[d].npmName);
+  const wantedDeps = expected.deps.map(
+    (dependency) => FINAL_PACKAGES[dependency].npmName,
+  );
+  const productionMoltZapDependencies = new Set();
+  for (const section of [
+    "dependencies",
+    "optionalDependencies",
+    "peerDependencies",
+  ]) {
+    for (const name of Object.keys(manifest[section] ?? {})) {
+      if (name.startsWith("@moltzap/")) productionMoltZapDependencies.add(name);
+    }
+  }
   failOnSetDrift(
     where,
-    "v2 dependencies violate the frozen DAG",
-    Object.keys(manifest.dependencies ?? {}).filter((name) =>
-      v2DirByNpmName.has(name),
-    ),
+    "production dependencies violate the final DAG",
+    productionMoltZapDependencies,
     wantedDeps,
   );
+  for (const dependency of wantedDeps) {
+    if (manifest.dependencies?.[dependency] !== "workspace:*") {
+      failures.push(
+        `${where}: final dependency "${dependency}" must be declared as "workspace:*"`,
+      );
+    }
+  }
+  for (const section of DEPENDENCY_SECTIONS) {
+    for (const name of Object.keys(manifest[section] ?? {})) {
+      if (
+        name.startsWith("@moltzap/") &&
+        (!FINAL_PACKAGE_NAMES.has(name) || !wantedDeps.includes(name))
+      ) {
+        failures.push(
+          `${where}: ${section} contains forbidden product edge "${name}"`,
+        );
+      }
+    }
+  }
 
-  // Project references must encode the same DAG, or `tsc -b` and the manifest
-  // disagree about what this package may reach.
-  const tsconfigPath = path.join(v2Root, dir, "tsconfig.json");
+  // Project references use normalized paths relative to packages/, so a path
+  // that merely ends in an allowed directory name cannot escape the graph.
+  const tsconfigPath = path.join(packagesRoot, dir, "tsconfig.json");
   if (!fs.existsSync(tsconfigPath)) {
-    failures.push(`v2/${dir}/tsconfig.json: missing`);
+    failures.push(`packages/${dir}/tsconfig.json: missing`);
   } else {
     failOnSetDrift(
-      `v2/${dir}/tsconfig.json`,
-      "project references violate the frozen DAG",
-      (readJson(tsconfigPath).references ?? []).map((ref) =>
-        path.basename(ref.path),
+      `packages/${dir}/tsconfig.json`,
+      "project references violate the final DAG",
+      (readJson(tsconfigPath).references ?? []).map(({ path: referencePath }) =>
+        path.relative(
+          packagesRoot,
+          path.resolve(path.join(packagesRoot, dir), referencePath),
+        ),
       ),
       expected.deps,
+    );
+  }
+
+  const declaredTargets = new Set([
+    ...Object.keys(manifest.nx?.targets ?? {}),
+    ...Object.keys(manifest.scripts ?? {}),
+    ...Object.keys(project?.targets ?? {}),
+  ]);
+  const missingDeclaredTargets = expected.targets.filter(
+    (target) => !declaredTargets.has(target),
+  );
+  if (missingDeclaredTargets.length > 0) {
+    failures.push(
+      `${where}: required Nx target declarations are missing: ${missingDeclaredTargets.join(", ")}`,
     );
   }
 
   // Knip ignores describe dependencies reached outside its static TypeScript
   // graph, such as an executable launched by path. Source-visible imports need
   // no ignore, so only validate that every ignore is declared and that an
-  // ignored v2 package belongs to the frozen DAG.
+  // ignored product package belongs to the final DAG.
   const ignoredDependencies =
-    knipWorkspaces[`v2/${dir}`]?.ignoreDependencies ?? [];
-  const declaredDependencies = new Set([
-    ...Object.keys(manifest.dependencies ?? {}),
-    ...Object.keys(manifest.devDependencies ?? {}),
-    ...Object.keys(manifest.optionalDependencies ?? {}),
-    ...Object.keys(manifest.peerDependencies ?? {}),
-  ]);
+    knipWorkspaces[`packages/${dir}`]?.ignoreDependencies ?? [];
+  const declaredDependencies = new Set(
+    DEPENDENCY_SECTIONS.flatMap((section) =>
+      Object.keys(manifest[section] ?? {}),
+    ),
+  );
   const undeclaredIgnores = ignoredDependencies.filter(
     (name) => !declaredDependencies.has(name),
   );
   if (undeclaredIgnores.length > 0) {
     failures.push(
-      `knip.json workspaces["v2/${dir}"]: ignored dependencies are not declared by ${where}: ${undeclaredIgnores.join(", ")}`,
+      `knip.json workspaces["packages/${dir}"]: ignored dependencies are not declared by ${where}: ${undeclaredIgnores.join(", ")}`,
     );
   }
-  const disallowedIgnoredV2Dependencies = ignoredDependencies.filter(
-    (name) => v2DirByNpmName.has(name) && !wantedDeps.includes(name),
+  const disallowedIgnoredWorkspaceDependencies = ignoredDependencies.filter(
+    (name) => name.startsWith("@moltzap/") && !wantedDeps.includes(name),
   );
-  if (disallowedIgnoredV2Dependencies.length > 0) {
+  if (disallowedIgnoredWorkspaceDependencies.length > 0) {
     failures.push(
-      `knip.json workspaces["v2/${dir}"]: ignored v2 dependencies violate the frozen DAG: ${disallowedIgnoredV2Dependencies.join(", ")}`,
+      `knip.json workspaces["packages/${dir}"]: ignored product dependencies violate the final DAG: ${disallowedIgnoredWorkspaceDependencies.join(", ")}`,
     );
   }
 }
 
-// ─── v2 import rules ──────────────────────────────────────────────────────
+// ─── Final import rules ───────────────────────────────────────────────
 
-// Workspace packages whose source lives under packages/ are v1. Resolving the
-// rule against the real layout keeps it correct however either track names
-// its packages.
-const v1PackageNames = new Set();
-if (fs.existsSync(packagesRoot)) {
-  for (const entry of fs.readdirSync(packagesRoot, { withFileTypes: true })) {
-    const manifestPath = path.join(packagesRoot, entry.name, "package.json");
-    if (entry.isDirectory() && fs.existsSync(manifestPath)) {
-      v1PackageNames.add(readJson(manifestPath).name);
-    }
-  }
-}
-if (v1PackageNames.size === 0) {
-  failures.push(
-    "packages/: no v1 workspace manifests found; the v2-imports-no-v1 rule would pass vacuously",
-  );
+const packageByNpmName = new Map(
+  Object.values(FINAL_PACKAGES).map((contract) => [contract.npmName, contract]),
+);
+
+function exportSubpath(specifier, root) {
+  return specifier === root ? "." : `.${specifier.slice(root.length)}`;
 }
 
-let v2SourceCount = 0;
-for (const dir of v2Dirs) {
-  const files = walk(path.join(v2Root, dir));
+const SHARED_PACKAGE_CONFIG_IMPORTS = new Set([
+  path.join(repo, "eslint.shared.mjs"),
+  path.join(repo, "vitest.workspace-aliases.js"),
+]);
+
+let finalSourceCount = 0;
+for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
+  const packageDirectory = path.join(packagesRoot, dir);
+  const files = walkCodeFiles(packageDirectory);
   if (files.length === 0) {
     failures.push(
-      `v2/${dir}: no TypeScript sources scanned; the import rules would pass vacuously here`,
+      `packages/${dir}: no code files scanned; import rules would pass vacuously here`,
     );
     continue;
   }
-  v2SourceCount += files.length;
+  finalSourceCount += files.length;
 
-  const allowed = new Set(V2_PACKAGES[dir]?.deps ?? []);
-  const isProduction = PRODUCTION.includes(dir);
+  const allowedWorkspacePackages = new Set([
+    expected.npmName,
+    ...expected.deps.map((dependency) => FINAL_PACKAGES[dependency].npmName),
+  ]);
 
   for (const file of files) {
     const text = fs.readFileSync(file, "utf8");
     for (const { specifier, index } of importSpecifiers(text)) {
-      // Rule 1 — v2 imports nothing from v1, by package name or by reaching
-      // into the packages/ tree with a relative path.
       const root = packageRoot(specifier);
-      if (v1PackageNames.has(root)) {
-        fail(
-          file,
-          lineAt(text, index),
-          `v2 must not import v1 package "${root}"`,
-        );
-        continue;
+      if (root.startsWith("@moltzap/")) {
+        if (!FINAL_PACKAGE_NAMES.has(root)) {
+          fail(
+            file,
+            lineAt(text, index),
+            `unknown MoltZap package import "${root}"`,
+          );
+          continue;
+        }
+        if (!allowedWorkspacePackages.has(root)) {
+          fail(
+            file,
+            lineAt(text, index),
+            `dependency DAG violation: "${dir}" may not import "${root}"`,
+          );
+          continue;
+        }
+        const subpath = exportSubpath(specifier, root);
+        if (!Object.hasOwn(packageByNpmName.get(root).exports, subpath)) {
+          fail(
+            file,
+            lineAt(text, index),
+            `import "${specifier}" is not a public export of "${root}"`,
+          );
+        }
+        if (
+          (dir === "openclaw-channel" || dir === "nanoclaw-channel") &&
+          root === "@moltzap/client" &&
+          subpath !== "."
+        ) {
+          fail(
+            file,
+            lineAt(text, index),
+            "runtime adapter must import only the @moltzap/client root",
+          );
+        }
       }
-      if (/(^|\/)\.\.\/packages\//.test(specifier)) {
-        fail(
-          file,
-          lineAt(text, index),
-          `v2 must not reach into packages/ by relative path ("${specifier}")`,
-        );
-        continue;
-      }
-
-      const target = v2DirByNpmName.get(root);
-      if (target === undefined || target === dir) continue;
-
-      // Rule 2 — nothing that ships the product may import the simulator or
-      // the testbed. Checked before the DAG so the violation is named for
-      // what it actually is.
-      if (isProduction && NON_PRODUCTION.includes(target)) {
-        fail(
-          file,
-          lineAt(text, index),
-          `production package "${dir}" must not import non-production package "${target}"`,
-        );
-        continue;
-      }
-
-      // Rule 3 — every remaining cross-package import follows the DAG.
-      if (!allowed.has(target)) {
-        fail(
-          file,
-          lineAt(text, index),
-          `dependency DAG violation: "${dir}" may not import "${target}" (allowed: ${[...allowed].join(", ") || "none"})`,
-        );
+      if (specifier.startsWith(".")) {
+        const resolved = path.resolve(path.dirname(file), specifier);
+        if (
+          !SHARED_PACKAGE_CONFIG_IMPORTS.has(resolved) &&
+          resolved !== packageDirectory &&
+          !resolved.startsWith(`${packageDirectory}${path.sep}`)
+        ) {
+          fail(
+            file,
+            lineAt(text, index),
+            `package must not cross its boundary by relative path ("${specifier}")`,
+          );
+        }
       }
     }
+  }
+}
+
+// The resolved Nx graph is supplied by CI. Keeping Nx invocation outside this
+// script avoids starting Nx recursively when the same checks run as an Nx
+// target, while still comparing the graph Nx actually calculated.
+function checkNxGraph(graphFile) {
+  const parsed = readJson(graphFile);
+  const graph = parsed.graph;
+  if (graph === undefined || graph.nodes === undefined) {
+    failures.push(`${rel(graphFile)}: not an Nx project graph`);
+    return;
+  }
+
+  failOnSetDrift(
+    rel(graphFile),
+    "Nx project nodes drifted",
+    Object.keys(graph.nodes),
+    [...FINAL_PACKAGE_NAMES, "workspace"],
+  );
+
+  for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
+    const node = graph.nodes[expected.npmName];
+    if (node === undefined) {
+      failures.push(
+        `${rel(graphFile)}: missing Nx project "${expected.npmName}"`,
+      );
+      continue;
+    }
+    if (node.data?.root !== `packages/${dir}`) {
+      failures.push(
+        `${rel(graphFile)}: Nx project "${expected.npmName}" root is "${node.data?.root ?? "missing"}", expected "packages/${dir}"`,
+      );
+    }
+
+    const resolvedTargets = Object.keys(node.data?.targets ?? {});
+    const missingTargets = expected.targets.filter(
+      (target) => !resolvedTargets.includes(target),
+    );
+    if (missingTargets.length > 0) {
+      failures.push(
+        `${rel(graphFile)}: Nx project "${expected.npmName}" is missing required targets: ${missingTargets.join(", ")}`,
+      );
+    }
+
+    const dependencyEntries = graph.dependencies?.[expected.npmName];
+    if (!Array.isArray(dependencyEntries)) {
+      failures.push(
+        `${rel(graphFile)}: Nx dependency entry for "${expected.npmName}" is missing`,
+      );
+      continue;
+    }
+    failOnSetDrift(
+      rel(graphFile),
+      `Nx dependencies for "${expected.npmName}" violate the final DAG`,
+      dependencyEntries.map(({ target }) => target),
+      expected.deps.map((dependency) => FINAL_PACKAGES[dependency].npmName),
+    );
+  }
+
+  const workspaceNode = graph.nodes.workspace;
+  if (workspaceNode?.data?.root !== "tools/workspace") {
+    failures.push(
+      `${rel(graphFile)}: Nx project "workspace" root is "${workspaceNode?.data?.root ?? "missing"}", expected "tools/workspace"`,
+    );
+  }
+  for (const target of [
+    "lint",
+    "lint:architecture-boundaries",
+    "lint:effect",
+    "test:integration",
+  ]) {
+    if (!Object.hasOwn(workspaceNode?.data?.targets ?? {}, target)) {
+      failures.push(
+        `${rel(graphFile)}: Nx project "workspace" is missing required target "${target}"`,
+      );
+    }
+  }
+  failOnSetDrift(
+    rel(graphFile),
+    'Nx dependencies for "workspace" drifted',
+    (graph.dependencies?.workspace ?? []).map(({ target }) => target),
+    [],
+  );
+}
+
+const nxGraphArgument = process.argv.indexOf("--nx-graph");
+if (nxGraphArgument !== -1) {
+  const graphFile = process.argv[nxGraphArgument + 1];
+  if (graphFile === undefined) {
+    failures.push("--nx-graph requires a project-graph JSON path");
+  } else if (!fs.existsSync(graphFile)) {
+    failures.push(`${graphFile}: Nx project graph does not exist`);
+  } else {
+    checkNxGraph(path.resolve(graphFile));
   }
 }
 
 // ─── The compatibility value is exported, and matches ─────────────────────
 
-const identityIndex = path.join(v2Root, "identity", "src", "index.ts");
-const identityVersion = path.join(v2Root, "identity", "src", "version.ts");
-if (v2Version !== null) {
+const identityIndex = path.join(packagesRoot, "identity", "src", "index.ts");
+const identityVersion = path.join(
+  packagesRoot,
+  "identity",
+  "src",
+  "version.ts",
+);
+if (compatibilityVersion !== null) {
   if (!fs.existsSync(identityIndex)) {
     failures.push(
-      "v2/identity/src/index.ts: missing; it exports the compatibility value",
+      "packages/identity/src/index.ts: missing; it exports the compatibility value",
     );
   } else {
     const reExport = fs
@@ -625,13 +850,13 @@ if (v2Version !== null) {
       );
     if (reExport === null) {
       failures.push(
-        "v2/identity/src/index.ts: must re-export MOLTZAP_VERSION from ./version.js",
+        "packages/identity/src/index.ts: must re-export MOLTZAP_VERSION from ./version.js",
       );
     }
   }
   if (!fs.existsSync(identityVersion)) {
     failures.push(
-      "v2/identity/src/version.ts: missing; it owns the compatibility value",
+      "packages/identity/src/version.ts: missing; it owns the compatibility value",
     );
   } else {
     const match = fs
@@ -639,11 +864,11 @@ if (v2Version !== null) {
       .match(/export\s+const\s+MOLTZAP_VERSION\s*=\s*["']([^"']+)["']/);
     if (match === null) {
       failures.push(
-        "v2/identity/src/version.ts: must export the literal MOLTZAP_VERSION",
+        "packages/identity/src/version.ts: must export the literal MOLTZAP_VERSION",
       );
-    } else if (match[1] !== v2Version) {
+    } else if (match[1] !== compatibilityVersion) {
       failures.push(
-        `v2/identity/src/version.ts: MOLTZAP_VERSION "${match[1]}" does not match v2/VERSION "${v2Version}"`,
+        `packages/identity/src/version.ts: MOLTZAP_VERSION "${match[1]}" does not match v2/VERSION "${compatibilityVersion}"`,
       );
     }
   }
@@ -658,5 +883,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-architecture-boundaries] OK — ${sourceFiles.length} v1 sources, ${adapterSourceCount} adapter sources, ${v2Dirs.length} v2 packages, ${v2SourceCount} v2 sources, and ${v2VocabularyFileCount} v2 non-documentation files scanned at version ${v2Version}`,
+  `[check-architecture-boundaries] OK — ${sourceFiles.length} package TypeScript sources, ${finalSourceCount} final-package code files, exact seven-product static graph, and ${identityRouterVocabularyFileCount} Identity/Router non-documentation files scanned at compatibility version ${compatibilityVersion}`,
 );

@@ -1,5 +1,6 @@
 /**
- * The result-store layer consumes only portable filesystem capabilities.
+ * @file The result-store layer consumes only portable filesystem capabilities.
+ *
  * Keeping Node services out of this boundary lets the application select its
  * runtime once at the CLI edge.
  */

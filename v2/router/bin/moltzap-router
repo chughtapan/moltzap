@@ -1,4 +1,0 @@
-#!/usr/bin/env node
-import { runRouterProcess } from "../dist/router/process.js";
-
-runRouterProcess();

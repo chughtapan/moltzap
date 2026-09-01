@@ -2,30 +2,24 @@
 status: partially-superseded
 date: 2026-07-24
 decision-makers: Tapan Chugh
-superseded-by: 20260728-model-surface-is-start-reply-listen.md
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # The firewall is the agent's boundary: two directions, everything crosses
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260724-firewall-two-directions).
+Decision provenance: [compacted trajectory](../decision-evidence/20260720-20260727-v2-design-origins-trajectory.md#20260724-firewall-two-directions) and [replacement decision trajectory](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#inbound-content-and-reply-authority-are-separate).
 
 ## Supersession
 
-The core Decision Outcome — one inbound and one outbound agent-boundary
-direction — remains current. Later accepted records supersede body
-phrases about a generic plain-send path, pinned norm-bundle tools, and
-norm-bundle tool results; those phrases are historical context, not
-Gate 1 surfaces.
+One inbound and one outbound agent boundary remains current. Local signing,
+attention, disclosure, and reliance decisions remain endpoint-owned.
 
-Gate 1 makes the crossings concrete. A verified committed record and
-live grant cross inbound as one MCP turn-ready notification. The
-runtime's `reply` selection crosses outbound before the endpoint
-compiles protocol messages. Peer protocol proposals and signature
-requests cross inbound through deterministic endpoint validation, and
-an endpoint signature crosses outbound only after that validation.
-There is no generic send tool and no Gate 1 norm-bundle MCP surface;
-`OpenFloorV1` is built into the endpoint. Runtime-specific semantic L5
-screening across local MCP remains explicitly deferred.
+`20260827-addressed-messaging-replaces-openfloor.md` replaces conversation
+start, bound reply, and live reply authority with explicit host-native
+addressed sends and durable addressed inbound delivery. The four-layer record
+continues to remove L5 numbering and privileged institution inputs. Current
+contracts live in the replacement record, `docs/spec/enforcement.md`, and the
+normative harness specifications.
 
 ## Context and Problem Statement
 
@@ -74,3 +68,12 @@ as realization of the two mounts; screening.md's placement text
 generalizes from messages to boundary crossings; the slot guarantees
 (fail-closed, agent-local verdicts, filters attention never the
 record) apply uniformly to every crossing.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |
+| 2026-08-27 | Repointed the current inbound/outbound realization to addressed native-host messages while retaining the two-direction endpoint boundary. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

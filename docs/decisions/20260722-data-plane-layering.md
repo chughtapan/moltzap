@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-22
 decision-makers: Tapan Chugh
-superseded-by: 20260728-layer-boundaries-and-fault-model.md
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # Data-plane layering: atomic multicast, transactional collectives
@@ -11,12 +11,17 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 
 ## Supersession
 
-The separate data-plane surface and layered responsibility remain
-accepted. Atomic delivery to conversation membership, conversation
-addressing at L2, WebSocket carriage, and Router-owned convergence are
-replaced. L2 now multicasts opaque messages to explicit AgentIds in one
-global order; L3 endpoints and the independent Ledger own certified
-conversation actions and recovery.
+The separate data-plane surface and layered responsibility remain current. L2
+multicasts opaque messages to explicit AgentIds in one Router order and owns no
+conversation, membership, persistence, replay, or recovery semantics. Endpoint
+communication owns conversations, reliability, protocols, and certified
+actions.
+
+`20260811-four-layer-endpoint-replicated-harness.md` removes the independent
+Ledger from that endpoint layer and assigns staging, durability voting,
+certified history, catch-up, and Router restart re-anchoring to fixed-member
+endpoint replicas. The replacement record, `docs/spec/router.md`, and
+`docs/spec/conversation-history.md` own the current data-plane layering.
 
 ## Context and Problem Statement
 
@@ -83,3 +88,11 @@ remain a centralized database — a ledger realization stays a
 preserved structural possibility, like e2e encryption; the charter
 designs op semantics against atomic multicast plus a transactional
 transcript, not raw message flow.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

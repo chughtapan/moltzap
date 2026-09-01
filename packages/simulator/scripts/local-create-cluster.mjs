@@ -28,6 +28,8 @@ const temporalPath = join(localRoot, "temporal.yaml");
 const toolsRoot = join(localRoot, ".tools");
 const DEFAULT_ARTIFACTS = join(localRoot, "artifacts");
 const ARTIFACT_TOKEN = "__MOLTZAP_ARTIFACTS__";
+const TEMPORAL_HOST_PORT_TOKEN = "__MOLTZAP_TEMPORAL_HOST_PORT__";
+const DEFAULT_TEMPORAL_HOST_PORT = 7_233;
 const SHA256 = /^[0-9a-f]{64}$/;
 const PINNED_IMAGE = /^.+@sha256:[0-9a-f]{64}$/;
 const DNS_LABEL = /^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$/;
@@ -182,11 +184,13 @@ function run(command, args) {
   });
 }
 
-function parseArguments(args, defaults) {
+export function parseArguments(args, defaults) {
   const options = {
     artifacts: DEFAULT_ARTIFACTS,
     cluster: defaults.clusterName,
+    extraImages: [],
     image: undefined,
+    temporalPort: DEFAULT_TEMPORAL_HOST_PORT,
   };
   for (let index = 0; index < args.length; index += 2) {
     const flag = args[index];
@@ -200,6 +204,10 @@ function parseArguments(args, defaults) {
       options.cluster = value;
     } else if (flag === "--image") {
       options.image = value;
+    } else if (flag === "--extra-image") {
+      options.extraImages.push(value);
+    } else if (flag === "--temporal-port") {
+      options.temporalPort = Number(value);
     } else {
       throw new TypeError(`unknown local cluster option ${flag}`);
     }
@@ -209,6 +217,18 @@ function parseArguments(args, defaults) {
   }
   if (options.image !== undefined && !PINNED_IMAGE.test(options.image)) {
     throw new TypeError("--image must be a SHA-256 digest-pinned image");
+  }
+  if (options.extraImages.some((image) => !PINNED_IMAGE.test(image))) {
+    throw new TypeError("--extra-image must be a SHA-256 digest-pinned image");
+  }
+  if (
+    !Number.isInteger(options.temporalPort) ||
+    options.temporalPort < 1_024 ||
+    options.temporalPort > 65_535
+  ) {
+    throw new TypeError(
+      "--temporal-port must be an integer from 1024 to 65535",
+    );
   }
   return options;
 }
@@ -257,7 +277,7 @@ export function selectLocalImageTag(tags, pinnedImage) {
     (tag) => typeof tag === "string" && tag.length > 0 && !tag.includes("@"),
   );
   if (candidates.length === 0) {
-    throw new Error("controller image has no local repository tag");
+    throw new Error("image has no local repository tag");
   }
   const repository = normalizeContainerdReference(
     repositoryReference(pinnedImage),
@@ -280,10 +300,10 @@ async function localImageTag(image) {
   try {
     tags = JSON.parse(stdout);
   } catch (cause) {
-    throw new Error("Docker returned invalid controller image tags", { cause });
+    throw new Error("Docker returned invalid image tags", { cause });
   }
   if (!Array.isArray(tags)) {
-    throw new Error("Docker returned invalid controller image tags");
+    throw new Error("Docker returned invalid image tags");
   }
   return selectLocalImageTag(tags, image);
 }
@@ -354,25 +374,56 @@ async function makePinnedImageDiscoverable(kind, cluster, source, image) {
       });
     } catch (cause) {
       throw new Error(
-        `controller image did not become discoverable on kind node ${node}`,
+        `image did not become discoverable on kind node ${node}`,
         { cause },
       );
     }
   }
 }
 
-async function renderKindConfiguration(artifacts, destination, profile) {
+export async function loadPinnedImages(
+  kind,
+  cluster,
+  imageSources,
+  {
+    announce = (source) => report(`loading image ${source}`),
+    loadImage = (source) =>
+      run(kind, ["load", "docker-image", source, "--name", cluster]),
+    makeDiscoverable = (source, image) =>
+      makePinnedImageDiscoverable(kind, cluster, source, image),
+  } = {},
+) {
+  for (const { image, source } of imageSources) {
+    announce(source);
+    await loadImage(source);
+    await makeDiscoverable(source, image);
+  }
+}
+
+export async function renderKindConfiguration(
+  artifacts,
+  temporalHostPort,
+  destination,
+  profile,
+) {
   const template = await readFile(kindTemplatePath, "utf8");
   if (
     !template.includes(ARTIFACT_TOKEN) ||
+    !template.includes(TEMPORAL_HOST_PORT_TOKEN) ||
     !template.includes(profile.kind.nodeImage)
   ) {
     throw new Error("kind configuration does not match the pinned profile");
   }
-  await writeFile(
-    destination,
-    template.replaceAll(ARTIFACT_TOKEN, JSON.stringify(artifacts)),
-  );
+  const rendered = template
+    .replaceAll(ARTIFACT_TOKEN, JSON.stringify(artifacts))
+    .replaceAll(TEMPORAL_HOST_PORT_TOKEN, String(temporalHostPort));
+  if (
+    rendered.includes(ARTIFACT_TOKEN) ||
+    rendered.includes(TEMPORAL_HOST_PORT_TOKEN)
+  ) {
+    throw new Error("rendered kind configuration contains an unresolved token");
+  }
+  await writeFile(destination, rendered);
 }
 
 async function assertNewCluster(kind, name) {
@@ -481,10 +532,16 @@ async function main() {
     tool("kubectl", profile.kubectl.version, profile.kubectl.asset),
   ]);
   await exec("docker", ["info"], { timeout: 30_000 });
-  const imageSource =
-    options.image === undefined
-      ? undefined
-      : await localImageTag(options.image);
+  const selectedImages = [
+    ...(options.image === undefined ? [] : [options.image]),
+    ...options.extraImages,
+  ];
+  const imageSources = await Promise.all(
+    selectedImages.map(async (image) => ({
+      image,
+      source: await localImageTag(image),
+    })),
+  );
   await assertNewCluster(kind, options.cluster);
   await mkdir(options.artifacts, { recursive: true });
   const artifacts = await realpath(options.artifacts);
@@ -492,7 +549,12 @@ async function main() {
   const renderedKind = join(temporary, "kind.yaml");
   const context = `kind-${options.cluster}`;
   try {
-    await renderKindConfiguration(artifacts, renderedKind, profile);
+    await renderKindConfiguration(
+      artifacts,
+      options.temporalPort,
+      renderedKind,
+      profile,
+    );
     report(`creating kind cluster ${options.cluster}`);
     await run(kind, [
       "create",
@@ -505,22 +567,7 @@ async function main() {
       "5m",
     ]);
     await installProfile(kubectl, context, profile, temporary);
-    if (options.image !== undefined && imageSource !== undefined) {
-      report(`loading controller image ${imageSource}`);
-      await run(kind, [
-        "load",
-        "docker-image",
-        imageSource,
-        "--name",
-        options.cluster,
-      ]);
-      await makePinnedImageDiscoverable(
-        kind,
-        options.cluster,
-        imageSource,
-        options.image,
-      );
-    }
+    await loadPinnedImages(kind, options.cluster, imageSources);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
@@ -532,11 +579,12 @@ async function main() {
       kindBinary: kind,
       kubectlBinary: kubectl,
       loadedImage: options.image,
+      loadedImages: selectedImages,
       artifacts,
       artifactNodePath: profile.artifactNodePath,
       clusterQueue: profile.clusterQueue,
       localQueue: profile.localQueue,
-      temporalAddress: "127.0.0.1:7233",
+      temporalAddress: `127.0.0.1:${String(options.temporalPort)}`,
     })}\n`,
   );
 }

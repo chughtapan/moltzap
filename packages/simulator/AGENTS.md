@@ -1,113 +1,151 @@
 # @moltzap/simulator
 
-Code-first simulator for agentic societies.
+Extends the workspace-root `AGENTS.md`. This package is the one final
+production-stack driver and run-evidence owner. Its current implementation is
+also migration input: preserve compatible public behavior, but do not expand a
+legacy protocol, server, adapter, or raw-Router dependency.
 
-## Boundary
+## Current boundary
 
-This package owns:
+The final package consumes public `@moltzap/identity`, `@moltzap/router`, and
+`@moltzap/client` capabilities. It owns:
 
-- `RunSpec` definitions and `Run.execute`;
-- exact keyed agent rosters and runtime-native gateways;
-- the closed readable event catalog and customer-only writable catalog;
-- live and completed run ledgers;
-- network participant, endpoint, conversation, socket, and link capabilities;
-- the private run and the private fake cluster used by tests;
-- the Kubernetes, Kueue, Agent Sandbox, and Temporal integration used by that
-  run; and
-- local-Kubernetes and GKE Effect Layers plus their setup assets.
+- `RunSpec`, `Run.execute`, and the definition-bound run kernel;
+- exact agent rosters and runtime-native principal gateways;
+- the closed event catalog and customer event declarations;
+- live and completed simulation `RunLedger` evidence;
+- production-stack acquisition, fault control, and run-scoped fixtures;
+- local-Kubernetes and GKE execution through Kubernetes, Kueue, Agent
+  Sandbox, and Temporal; and
+- the compatible root, `./network`, `./ledger`, and `./agents` facades.
 
-`packages/evals` owns cases, runtime conditions, grading, reports, resume
-policy, SQLite state, and Phoenix publication. It consumes this package's one
-execution path and does not implement another simulator backend.
+`RunLedger` records simulation configuration, events, and outcomes. It is not a
+product Ledger, conversation store, durability certificate, global offset, or
+privileged view of endpoint-private history.
 
-Keep Kubernetes, Kueue, Agent Sandbox, Temporal, Helm, Terraform, and
-cloud-provider types out of public definitions, event models, network
-contracts, and customer Effects. Concrete integrations stay private and are
-composed at the application edge.
+`@moltzap/evals` owns cases, runtime conditions, grading, reports, resume
+policy, application state, and Phoenix publication. It consumes Client and the
+one simulator execution path; it does not implement another production stack.
 
-## Laws
+Root workspace tooling owns multi-package image and artifact assembly. Do not
+create runtime `simulator -> evals`, `simulator -> openclaw-channel`, or
+`simulator -> nanoclaw-channel` edges by reading another package's source.
 
-- One execution creates one experiment society, runs one customer Effect, and
-  tears the society down. It is not a reusable warm pool.
-- Kubernetes is the only execution backend. Local Kubernetes and GKE are two
-  cluster Layers for the same controller and run path.
-- One roster entry maps to one Agent Sandbox application container.
-  Infrastructure containers do not count as agents.
-- Kueue admits capacity for the complete roster before Sandboxes are created.
-  Kueue admission does not establish simulator readiness.
-- The customer Effect starts only after the exact roster is ready at one
-  cohort gate. A pre-gate backing-Pod restart delays readiness without adding a
-  public generation model. An unrecoverable loss or deadline fails acquisition
-  and starts cleanup.
-- The controller invokes the customer Effect once and does not replay it.
-  Controller or infrastructure loss fails the run and starts cleanup; this is
-  not an exactly-once guarantee for external side effects.
-- After dispatch, runtime termination remains typed ledger evidence. Customer
-  Effect policy decides whether that observation ends the run.
-- Temporal owns one coarse workflow for run lifecycle and cleanup. It never
-  runs agent logic, appends simulator evidence, creates per-agent workflows,
-  or replays customer code.
-- Every event class is declared before execution. The definition's catalog is
-  the complete event universe for emission, selection, and typed opening.
-- Core events are readable and run-only writable. Customer emission accepts
-  only the definition's declared customer event classes.
-- Event catalogs and network handles are nominal values. Infrastructure
-  writers are producer-bound capabilities; callers never pass emitter names.
-- Principal control uses each runtime's native typed gateway. Agent social
-  traffic uses the production MoltZap router. Controlled endpoints remain
-  diagnostics and must not impersonate an autonomous agent's principal.
-- A distributed runtime descriptor owns one application-container entrypoint
-  and one runtime-specific controller bridge. The bridge yields that runtime's
-  exact gateway and termination observation after readiness; arbitrary
-  JavaScript gateways, Effect closures, and shared state never cross the
-  process boundary.
-- Runtime bridges may use fixed runtime-specific transports. Never add a
-  simulator-wide gateway proxy, command language, actor mailbox, correlation
-  model, or gateway union.
-- Real and code-driven agents may share one society. Code agents receive no
-  social shortcut around the production router. Their policy runs inside
-  their own application container and their bridge exposes only the exact
-  controller-side gateway owned by that runtime.
-- The stock digest-pinned OpenClaw image is the compatibility path. Experiment
-  code and instructions are late-bound; a prebuilt MoltZap image is only an
-  optimization.
-- `RunSpec.cluster` carries the selected local-Kubernetes or GKE Effect Layer.
-  Its roster and customer Effect never receive raw Kubernetes, Sandbox, Kueue,
-  or Temporal objects.
-- Do not add generation streams, customer-visible restart/rebind/rejoin APIs,
-  post-dispatch recovery guarantees, customer Effect replay, artifact
-  authorities, global execution identities, synthetic identity schemes, or a
-  new serialization framework.
-- The root public execution path is `Run.execute(RunSpec)`. Do not add another
-  execution model or compatibility alias.
+## Cutover law
 
-## Structure
+- Preserve every latest-`main` public declaration and behavior that is
+  compatible with the four-layer constitution. Freeze all four packed facade
+  inventories and downstream compile/runtime probes before internal rewiring.
+- Runtime subjects receive MCP or an injected `HarnessEndpoint`. Never give a
+  runtime Registry admission material, endpoint signing keys, raw Router
+  credentials, Router attachment capabilities, endpoint stores, or protocol
+  internals.
+- The injected Client sends only to explicit `agent:` or `group:` addresses.
+  Each call creates one post, and the runtime host owns whether to call again.
+  Client emits addressed direct or group deliveries and returns `void` after
+  local certification. Search, history, status, registration, and proof
+  inspection stay on MCP. Simulator evidence may observe public effects but
+  cannot obtain `ActionHash`, `RecordHash`, certificates, or private recovery
+  state from `HarnessEndpoint`.
+- Social traffic uses the same Identity, Router, and Client implementation as
+  production. Code agents receive no shortcut around endpoint certification,
+  durability, catch-up, or personal trust.
+- With no active directed link fault, the Simulator preserves each
+  recipient's Router order and exact message bytes. An explicitly activated
+  fault may drop, delay, hold, or reorder post-Router delivery to test
+  endpoint recovery. Evidence from that path is fault-tolerance evidence, not
+  Router-conformance evidence.
+- Keep infrastructure types out of public definitions, event models, and
+  customer Effects. Concrete cluster integration stays private and composes at
+  the application edge.
+- One execution creates one society, invokes one customer Effect, records
+  typed evidence, and tears the society down. It is not a warm pool and does
+  not replay customer code.
+- A roster entry maps to one autonomous application container. Infrastructure
+  containers are not agents. Runtime-specific controller bridges expose only
+  that runtime's typed principal gateway and termination observation.
+- Event classes are declared before execution. Core events are run-only
+  writable; customers may emit only declared customer events. Producer-bound
+  writers carry attribution without caller-supplied emitter names.
+- Temporal owns coarse run lifecycle and cleanup only. It does not run agent
+  logic, append endpoint history, create per-agent workflows, or replay a
+  customer Effect.
+- Preserve `Run.execute(RunSpec)` as the one execution path. Do not add a
+  compatibility engine, generation selector, runtime-facing or
+  general-purpose gateway proxy, command language, actor mailbox, synthetic
+  identity scheme, or serialization framework.
 
-- `src/events/` — exact event catalogs and core event classes.
-- `src/ledger/` — records, append, storage, reading, and filesystem
-  implementation.
-- `src/network/` — participant, conversation, endpoint, router, transport,
-  link, and router-server-process capabilities.
-- `src/agents/` — portable container runtime definitions, exact gateway
-  contracts, and shipped OpenClaw and NanoClaw implementations.
-- `src/run/` — definition-bound services and mechanism-neutral execution
-  sequencing.
-- `src/cluster/` — private cluster code: the smallest interface needed by the
-  run, its fake, and the Kubernetes/Kueue/Sandbox/Temporal implementation.
-- `src/definition.ts` — public definition assembly, including `RunSpec`.
+Legacy `@moltzap/protocol`, `@moltzap/server-core`, adapter imports, socket
+types, and runtime-facing direct Router fixtures are removal inputs. New code
+must not deepen those edges. Simulator's private run-scoped infrastructure may
+provision the public Router process and capability required by the final graph;
+runtime subjects still receive only Client. Extract retained meaning behind
+final public capabilities, then delete the legacy dependency rather than
+hiding it behind an alias.
 
-Only `src/index.ts`, `src/agents.ts`, `src/network.ts`, and `src/ledger.ts`
-are published facades. Do not add a package or public export for cluster,
-controller, Temporal, Kueue, or Sandbox internals.
+## Fault boundary
 
-Folders are capability boundaries, not namespaces. Keep a type with its
-construction rules and merge single-consumer helpers into their owner. Reuse
-the existing EventCatalog, RunLedger, roster, gateway, and run concepts
-instead of rebuilding them for Kubernetes.
+Directed link faults interpose privately after Router has accepted and ordered
+a message and before the recipient Client consumes it. The run controller owns
+policy evaluation; private run-scoped infrastructure applies the result. The
+interposition must not modify or forge a `SignedMessage`, change Router state,
+or add a callback to Registry, Router, Client, or `moltzapd`.
+
+When no fault is active, the path is a transparent pass-through. Application
+containers receive no fault-control endpoint, credential, environment value,
+mount, raw network capability, or store access. Fault activation and lifecycle
+may be Simulator evidence, but `RunLedger` never records a private Router
+position or authoritative Router order.
+
+## Five admitted removals
+
+The current four-layer decision removes these incompatible contracts. Delete
+them directly; do not preserve them through a semantic shim or reinterpret an
+old name or persisted event:
+
+1. Delete content-free conversation open. First explicit addressed send creates
+   or reuses deterministic fixed membership and includes nonempty content.
+2. Delete unaddressed or inherited-target send. Every visible output names an
+   `agent:` or `group:` address through the host's native messaging path.
+3. Replace message-only receive and proof-shaped operation results with public
+   addressed delivery and `void` completion facts.
+4. Remove bearer credentials, signing material, raw Router attachment,
+   Registry/Router origins, and endpoint-store handles from runtime inputs. A
+   runtime receives only its loopback MCP URL or an injected `HarnessEndpoint`.
+5. Delete persisted events that claim durable Router commit or Router-local
+   order. `RunLedger` records only simulation lifecycle and public semantic
+   effects.
+
+An inert credential field, lazy first-send translation, cached reply closure,
+hidden raw Router path, or new meaning under an existing event tag is not
+compatibility. The normative cutover contract is
+`docs/spec/layer-interfaces.md → Simulator cutover`; the five removals are
+current decisions rather than deliberate deferrals.
+
+## Structure during migration
+
+- `src/events/` owns exact simulation evidence and event catalogs.
+- `src/ledger/` owns simulation `RunLedger` records, storage, reads, and the
+  `./ledger` public barrel at `src/ledger/index.ts`.
+- `src/run/` owns definition-bound execution sequencing.
+- `src/cluster/` owns private acquisition, fakes, Kubernetes, Kueue, Sandbox,
+  and Temporal mechanisms.
+- `src/agents/` owns portable runtime definitions, typed principal gateways,
+  and the `./agents` public barrel at `src/agents/index.ts`.
+- `src/network/` owns the compatible experiment-facing contracts and the
+  `./network` public barrel at `src/network/index.ts`. It is transitional where
+  it still exposes any of the five admitted removals. Do not add public
+  authority there; delete those contracts and move compatible production-stack
+  composition behind Identity, Router, and Client as the cutover proceeds.
+
+Only `src/index.ts`, `src/agents/index.ts`, `src/network/index.ts`, and
+`src/ledger/index.ts` own the current published facades. Publication/version
+policy is separately deferred; do not add or remove a facade merely to answer
+it.
 
 ## Tests
 
-Use Nx targets from the workspace root:
+Run targets through Nx from the workspace root:
 
 ```bash
 pnpm nx run @moltzap/simulator:build
@@ -116,4 +154,7 @@ pnpm nx run @moltzap/simulator:lint
 pnpm nx run @moltzap/simulator:test
 ```
 
-Type-level invariants belong in positive `*.types-check.ts` canaries.
+Preserve unit, integration, local/GKE, Temporal, cluster, fault, packaging, and
+eval-facing behavior for compatible contracts. Type canaries pin what remains;
+they do not create negative imports for deleted APIs or force a removed
+contract through a fake compatible type.

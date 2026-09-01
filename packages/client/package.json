@@ -1,7 +1,8 @@
 {
   "name": "@moltzap/client",
-  "version": "2026.812.0",
-  "description": "MoltZap client service — connection, conversation state, and cross-conversation context",
+  "version": "2026.805.1",
+  "private": true,
+  "description": "MoltZap endpoint runtime and harness boundary",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -9,49 +10,30 @@
   },
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "!dist/tsconfig.tsbuildinfo",
+    "bin"
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "moltzapd": "./dist/moltzapd-main.js"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./test-utils": {
-      "types": "./dist/test-utils/index.d.ts",
-      "import": "./dist/test-utils/index.js"
-    },
-    "./channel-base": {
-      "types": "./dist/channel-base/index.d.ts",
-      "import": "./dist/channel-base/index.js"
-    },
-    "./auth": {
-      "types": "./dist/auth.d.ts",
-      "import": "./dist/auth.js"
-    },
-    "./harness-client": {
-      "types": "./dist/harness-client.d.ts",
-      "import": "./dist/harness-client.js"
-    },
-    "./pagination": {
-      "types": "./dist/pagination.d.ts",
-      "import": "./dist/pagination.js"
-    },
-    "./notification": {
-      "types": "./dist/notification/index.d.ts",
-      "import": "./dist/notification/index.js"
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
     }
+  },
+  "bin": {
+    "moltzapd": "./bin/moltzapd"
   },
   "scripts": {
     "build": "nx run @moltzap/client:build",
     "lint": "nx run @moltzap/client:lint",
     "test": "vitest run",
-    "test:integration": "vitest run --config vitest.integration.config.mjs",
-    "docs:generate": "pnpm exec tsx scripts/generate-ws-connect-snippet.ts",
+    "test:integration": "nx run @moltzap/client:test:integration",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {
@@ -60,7 +42,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/client",
-          "command": "tsc -b"
+          "command": "node scripts/clean-dist.mjs && tsc -b"
         }
       },
       "lint": {
@@ -76,9 +58,10 @@
           "build",
           "^build"
         ],
+        "cache": false,
         "options": {
           "cwd": "packages/client",
-          "command": "vitest run --config vitest.integration.config.mjs"
+          "command": "tsc -p tsconfig.integration.json && vitest run --config vitest.integration.config.mjs"
         }
       },
       "test:pack": {
@@ -86,11 +69,6 @@
         "dependsOn": [
           "build",
           "^build"
-        ],
-        "inputs": [
-          "production",
-          "^production",
-          "{workspaceRoot}/scripts/test-client-package.mjs"
         ],
         "cache": false,
         "options": {
@@ -101,32 +79,24 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/client",
-          "command": "safer-architecture-lsp check ."
+          "command": "node ../../scripts/architecture/check-package.mjs ."
         }
       }
     }
   },
   "dependencies": {
-    "@effect/cli": "^0.76.0",
-    "@effect/platform": "^0.97.0",
-    "@effect/platform-node": "^0.108.0",
-    "@effect/printer": "^0.50.0",
-    "@effect/printer-ansi": "^0.50.0",
-    "@effect/rpc": "^0.76.0",
-    "@effect/typeclass": "^0.41.0",
     "@modelcontextprotocol/client": "2.0.0-beta.5",
     "@modelcontextprotocol/node": "2.0.0-beta.5",
     "@modelcontextprotocol/server": "2.0.0-beta.5",
-    "@moltzap/protocol": "workspace:*",
+    "@effect/platform-node": "^0.108.0",
+    "@moltzap/identity": "workspace:*",
+    "@moltzap/router": "workspace:*",
+    "canonicalize": "3.0.0",
     "effect": "^3.22.0"
   },
   "devDependencies": {
-    "@effect/vitest": "^0.30.0",
-    "@moltzap/server-core": "workspace:*",
     "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9",
-    "fast-check": "^3.23.1",
-    "tsx": "^4.19.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "vitest": "^3.2.0"
   }

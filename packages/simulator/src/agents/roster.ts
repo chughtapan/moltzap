@@ -1,16 +1,15 @@
 /** @file Nominal keyed runtime rosters and their exact Effect service. */
-// safer-arch-ignore no-cross-domain-sibling-import: A roster entry pairs a network participant handle with the runtime that answers for it.
 
+import { AgentName as agentName } from "@moltzap/identity";
 import { Context, Schema } from "effect";
-import { agentName } from "@moltzap/protocol/identity";
-import type { AgentHandle } from "../network/participant.js";
+import type { AgentHandle } from "../network/index.js";
 import type { AgentRuntime, AgentRuntimeLike, RunningAgent } from "./agent.js";
+
+// safer-arch-ignore no-cross-domain-sibling-import: A roster entry pairs an identity-owned name with the runtime that answers for it.
 
 const agentRosterTypeId: unique symbol = Symbol(
   "@moltzap/simulator/AgentRoster",
 );
-
-const rosterDefinitionTokens = new WeakMap<object, object>();
 
 let nextRosterServiceId = 0;
 
@@ -45,7 +44,7 @@ export type AgentRosterAcquisitionError<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > = RuntimeAcquisitionErrorOf<Definitions[keyof Definitions]>;
 
-/** A ready autonomous runtime paired with its router-issued identity. */
+/** A ready autonomous runtime paired with its Registry-issued identity. */
 export interface StartedAgent<Name extends string, Gateway>
   extends RunningAgent<Gateway> {
   readonly agent: AgentHandle<Name>;
@@ -141,48 +140,4 @@ export class AgentRoster<
       ),
     );
   }
-}
-
-type AgentRosterBuilder<Id extends string> = <
-  const Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
->(
-  runtimes: Definitions,
-) => AgentRoster<Id, Definitions>;
-
-/**
- * Construct the roster factory and ownership check for one definition value.
- * The shared token stays inside this closure so equal definition ids cannot
- * make independently constructed definitions interchangeable.
- * @param definitionId Value supplied to the operation.
- * @returns The created agent roster binding.
- */
-export function makeAgentRosterBinding<const Id extends string>(
-  definitionId: Id,
-) {
-  const definitionToken = Object.freeze({});
-  const agents = <
-    const Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  >(
-    runtimes: Definitions,
-  ): AgentRoster<Id, Definitions> => {
-    const roster = AgentRoster.make(definitionId, runtimes);
-    rosterDefinitionTokens.set(roster, definitionToken);
-    return roster;
-  };
-  const owns = <Definitions extends Readonly<Record<string, AgentRuntimeLike>>>(
-    roster: AgentRoster<Id, Definitions>,
-  ): boolean => rosterDefinitionTokens.get(roster) === definitionToken;
-
-  return Object.freeze({ agents, owns });
-}
-
-/**
- * Bind the roster constructor to one simulator definition.
- * @param definitionId Value supplied to the operation.
- * @returns The created agent roster builder.
- */
-export function makeAgentRosterBuilder<const Id extends string>(
-  definitionId: Id,
-): AgentRosterBuilder<Id> {
-  return makeAgentRosterBinding(definitionId).agents;
 }

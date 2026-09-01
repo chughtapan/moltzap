@@ -1,12 +1,27 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # The endpoint daemon exposes modern MCP over loopback HTTP
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-endpoint-daemon-speaks-modern-mcp).
+Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-endpoint-daemon-speaks-modern-mcp) and [replacement decision trajectory](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#harness-vocabulary-and-one-profile-slot-daemon).
+
+## Supersession
+
+The pinned MCP core and official SDK boundary, modern Streamable HTTP framing,
+one loopback listener, discovery, local subscription ownership, local trust,
+acknowledgment ordering, and daemon-specific supervision remain current where
+they do not depend on profiles or Ledger.
+
+`20260827-addressed-messaging-replaces-openfloor.md` retains the one
+state-dependent `/mcp` endpoint and endpoint-owned certified history but
+replaces current-conversation projection, reply grants, turn readiness, and
+events-v1 with `HarnessEndpoint`, durable addressed delivery, and events-v2.
+The current framing and daemon contract lives in that replacement record and
+the normative harness specifications.
 
 ## Context and Problem Statement
 
@@ -70,3 +85,13 @@ The daemon is HTTP MCP, not a stdio MCP server. Harnesses own
 supervision and translation into native model input. Local
 authorization, hostile-host defense, dynamic discovery, and a universal
 service manager are deferred.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-14 | Corrected the visible retained scope to match the accepted reduced `HarnessClient`: current-conversation projection remains, while presentation checkpoints do not. The historical Decision Outcome is untouched. |
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |
+| 2026-08-27 | Recorded events-v2 addressed delivery and transport acknowledgment in the visible supersession while retaining loopback HTTP MCP ownership. The historical Decision Outcome is untouched. |

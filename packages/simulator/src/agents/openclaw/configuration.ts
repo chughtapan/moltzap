@@ -1,43 +1,96 @@
-/** @file Native OpenClaw configuration rendered into an application container. */
+/// <reference types="node" preserve="true" />
 
-import type { MoltzapChannelPlugin } from "@moltzap/openclaw-channel";
-import type { AgentName } from "@moltzap/protocol/identity";
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import type {
-  AgentDefaultsConfig,
-  ToolsConfig,
-} from "openclaw/plugin-sdk/config-types";
+/**
+ * @file OpenClaw configuration written into an application container.
+ * OpenClaw's configuration declarations import Node types without preserving
+ * that dependency in emitted declarations. The reference keeps packed
+ * consumer typechecks self-contained.
+ */
+
+import type { AgentName } from "@moltzap/identity";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { Redacted } from "effect";
-import {
-  isHttpMcpServer,
-  SIMULATOR_PROFILE_NAME,
-  type McpServer,
-} from "../workspace.js";
+import { isHttpMcpServer, type McpServer } from "../workspace.js";
 
 const DEFAULT_OPENCLAW_MODEL_ID = "openai/gpt-5.5";
-const OPENCLAW_CHANNEL_ID = "moltzap" satisfies MoltzapChannelPlugin["id"];
+const OPENCLAW_CHANNEL_ID = "moltzap";
+const OPENCLAW_ACCOUNT_ID = "simulator-agent";
 const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
+const OPENCLAW_EXTENSION_PATH =
+  "/opt/moltzap/node_modules/@moltzap/openclaw-channel";
 
-/** Native OpenClaw tool exposure and execution configuration. */
-export type OpenClawToolsConfig = ToolsConfig;
+/** Tool configuration accepted by `OpenClawConfig`. */
+export type OpenClawToolsConfig = NonNullable<OpenClawConfig["tools"]>;
 
-/** Native OpenClaw sandbox configuration for the runtime's default agent. */
-export type OpenClawSandboxConfig = NonNullable<AgentDefaultsConfig["sandbox"]>;
+/** Default-agent sandbox configuration accepted by `OpenClawConfig`. */
+export type OpenClawSandboxConfig = NonNullable<
+  NonNullable<NonNullable<OpenClawConfig["agents"]>["defaults"]>["sandbox"]
+>;
 
 interface OpenClawConfigInput {
   readonly agentName: AgentName;
+  readonly messagingMode: "shared" | "private";
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
   readonly tools?: OpenClawToolsConfig;
   readonly sandbox?: OpenClawSandboxConfig;
   readonly gatewayToken: Redacted.Redacted;
   readonly gatewayBind?: "loopback" | "lan";
-  readonly channelPath?: string;
 }
 
-function mcpConfigSection(
-  mcpServers?: readonly McpServer[],
-): Pick<OpenClawConfig, "mcp"> {
+/**
+ * Builds the OpenClaw configuration mounted into an application container.
+ * @param input Runtime-specific OpenClaw settings and credentials.
+ * @param workspaceDirectory Absolute workspace path inside the container.
+ * @returns The complete `OpenClawConfig` for the container.
+ */
+export function buildOpenClawConfig(
+  input: OpenClawConfigInput,
+  workspaceDirectory: string,
+): OpenClawConfig {
+  const config = {
+    ...mcpConfigSection(input.mcpServers),
+    agents: {
+      defaults: {
+        model: { primary: input.modelId ?? DEFAULT_OPENCLAW_MODEL_ID },
+        workspace: workspaceDirectory,
+        compaction: { mode: "safeguard" },
+        ...(input.sandbox === undefined ? {} : { sandbox: input.sandbox }),
+        skipBootstrap: true,
+      },
+      list: [{ id: input.agentName, default: true }],
+    },
+    ...(input.tools === undefined ? {} : { tools: input.tools }),
+    ...(input.messagingMode === "private"
+      ? { session: { dmScope: "per-account-channel-peer" as const } }
+      : {}),
+    commands: { native: "auto", nativeSkills: "auto", restart: true },
+    ...pluginConfiguration(),
+    messages: {
+      // Mid-turn traffic steers the active turn so social input is observed
+      // without accumulating an independent simulator-owned mailbox.
+      queue: { mode: "steer", cap: 100, drop: "new" },
+      inbound: { debounceMs: 0 },
+    },
+    discovery: { mdns: { mode: "off" } },
+    channels: {
+      [OPENCLAW_CHANNEL_ID]: {
+        accounts: [{ id: OPENCLAW_ACCOUNT_ID, mode: input.messagingMode }],
+      },
+    },
+    gateway: {
+      mode: "local",
+      bind: input.gatewayBind ?? "loopback",
+      auth: {
+        mode: "token",
+        token: Redacted.value(input.gatewayToken),
+      },
+    },
+  } satisfies OpenClawConfig;
+  return config;
+}
+
+function mcpConfigSection(mcpServers?: readonly McpServer[]) {
   if (mcpServers === undefined || mcpServers.length === 0) {
     return {};
   }
@@ -60,68 +113,12 @@ function mcpConfigSection(
   };
 }
 
-function pluginConfiguration(
-  channelPath?: string,
-): Pick<OpenClawConfig, "plugins"> {
-  return channelPath === undefined
-    ? {}
-    : {
-        plugins: {
-          entries: {
-            [OPENCLAW_EXTENSION_NAME]: { enabled: true },
-          },
-          load: { paths: [channelPath] },
-        },
-      };
-}
-
-/**
- * Build the complete OpenClaw configuration mounted into one container.
- * @param input Runtime-specific OpenClaw settings and credentials.
- * @param workspaceDirectory Absolute workspace path inside the container.
- * @returns The native OpenClaw configuration.
- */
-export function buildOpenClawConfig(
-  input: OpenClawConfigInput,
-  workspaceDirectory: string,
-): OpenClawConfig {
+function pluginConfiguration() {
   return {
-    ...mcpConfigSection(input.mcpServers),
-    agents: {
-      defaults: {
-        model: { primary: input.modelId ?? DEFAULT_OPENCLAW_MODEL_ID },
-        workspace: workspaceDirectory,
-        compaction: { mode: "safeguard" },
-        ...(input.sandbox === undefined ? {} : { sandbox: input.sandbox }),
-        skipBootstrap: true,
-      },
-      list: [{ id: input.agentName, default: true }],
-    },
-    ...(input.tools === undefined ? {} : { tools: input.tools }),
-    commands: { native: "auto", nativeSkills: "auto", restart: true },
-    ...pluginConfiguration(input.channelPath),
-    messages: {
-      // Mid-turn traffic steers the active turn so social input is observed
-      // without accumulating an independent simulator-owned mailbox.
-      queue: { mode: "steer", debounceMs: 0, cap: 100, drop: "new" },
-    },
-    discovery: { mdns: { mode: "off" } },
-    channels: {
-      [OPENCLAW_CHANNEL_ID]: {
-        accounts: [
-          {
-            id: SIMULATOR_PROFILE_NAME,
-            agentName: input.agentName,
-          },
-        ],
-      },
-    },
-    gateway: {
-      mode: "local",
-      bind: input.gatewayBind ?? "loopback",
-      auth: {
-        mode: "token",
-        token: Redacted.value(input.gatewayToken),
+    plugins: {
+      load: { paths: [OPENCLAW_EXTENSION_PATH] },
+      entries: {
+        [OPENCLAW_EXTENSION_NAME]: { enabled: true },
       },
     },
   };

@@ -1,12 +1,29 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-08-01
 decision-makers: Tapan Chugh
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # The main simulator runs container societies on Kubernetes
 
 Decision provenance: [stored main-track trajectory](../decision-evidence/20260801-main-kubernetes-society-execution-trajectory.md#main-simulator-runs-container-societies-on-kubernetes), with the retained [code-first simulator](../decision-evidence/20260727-code-first-simulator-trajectory.md#code-first-simulator-closed-event-catalog) and [principal-gateway](../decision-evidence/20260729-principal-runtime-gateway-trajectory.md#principal-io-uses-each-runtime-gateway) trajectories.
+
+## Supersession
+
+`RunSpec`, `Run.execute`, one Kubernetes execution path with local and GKE
+profiles, exact runtime gateways, closed events, RunLedger evidence, failure
+semantics, and non-conflicting public facades remain the final simulator
+preservation baseline. The simulation RunLedger is not the removed product
+Ledger and remains owned by `@moltzap/simulator`.
+
+`20260827-addressed-messaging-replaces-openfloor.md` retains the four-layer
+record's seven-package cutover and resolves the runtime social interface as
+explicit addressed send and addressed inbound delivery through Client. It
+continues to remove content-free open, raw Router authority, and persisted
+Router-commit/order evidence without an inert or lazy compatibility shim. The
+replacement record and `docs/spec/layer-interfaces.md` own the cutover scope;
+this record continues to own its retained execution contract.
 
 ## Scope and authority
 
@@ -294,3 +311,4 @@ the outcome is a supersession, not a row here.
 | 2026-08-06 | Corrected the illustrative snippet from `export default` to the named `runSpec` export the controller admits. |
 | 2026-08-06 | Scoped the `autoscaling` non-goal to a run's cohort. A profile's node pool may autoscale; it was selected because it is the simpler thing to operate. |
 | 2026-08-11 | Recorded that the transitional host entry point and in-process Effect runtime are gone. Both were described in the present tense after the cutover that removed them, leaving a reader unable to tell whether either still existed. The Decision Outcome and its removal condition are unchanged. |
+| 2026-08-27 | Recorded the addressed Client and native-session adapter replacement in the visible supersession. The Kubernetes society-execution Decision Outcome is untouched. |

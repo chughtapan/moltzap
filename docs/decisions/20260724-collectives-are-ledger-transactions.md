@@ -2,7 +2,7 @@
 status: partially-superseded
 date: 2026-07-24
 decision-makers: Tapan Chugh
-superseded-by: 20260728-transcript-is-mechanical-atomic-commit.md
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # Collectives are ledger transactions, assembled by rounds over L2
@@ -11,11 +11,18 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 
 ## Supersession
 
-One endpoint-certified action becoming one atomic, ordered Transcript
-record remains accepted. Ledger-enforced grants, invalid-but-ineffective
-commits, store-owned lock policy, and the general v0 collective profile
-are replaced. Gate 1 endpoints run OpenFloorV1 and Ledger checks only
-the exact mechanical certificate format.
+One endpoint-certified action still becomes one canonical, hash-linked history
+record, while proposal, acknowledgment, and vote traffic remains volatile.
+OpenFloorV1, rather than storage, continues to own action eligibility and
+validity.
+
+`20260811-four-layer-endpoint-replicated-harness.md` replaces a Ledger
+transaction, leader-only central commit, store-owned ordering or lock policy,
+and the historical general collective profile with endpoint staging,
+unanimous action certification, a separate durability certificate, and local
+certified histories. The replacement record,
+`docs/spec/conversation-history.md`, and `docs/spec/harness/tasks.md` own the
+current action-to-history contract.
 
 ## Context and Problem Statement
 
@@ -169,3 +176,11 @@ the votes; L6 evidence strengthens, since committed transactions
 self-certify.
 Supersedes in part: the durable-then-deliver wording of constitution
 clause 13 and the storage guarantees that repeated it.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |

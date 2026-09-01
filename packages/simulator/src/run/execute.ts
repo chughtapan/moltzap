@@ -1,54 +1,63 @@
 /** @file Allocation, execution, and ordered finalization of one run. */
-// safer-arch-ignore no-cross-domain-sibling-import: The run kernel is the composition root that wires ledger, network, agents, and cluster into one customer program.
 
 import { Cause, Data, Effect, Exit, Layer, Option, Ref, Schema } from "effect";
+import type { AgentRuntimeLike } from "../agents/agent.js";
+import type { EventClass } from "../events/catalog.js";
+import type { makeDefinitionEventServices } from "./events.js";
 import {
-  endpointEvents,
+  type AgentRoster,
+  type AgentRosterAcquisitionError,
+  runtimeConfigurationProjection,
+  type StartedAgents,
+} from "../agents/index.js";
+import {
+  Cluster,
+  type ClusterError,
+  type Society,
+} from "../cluster/cluster.js";
+import {
   linkEvents,
   routerEvents,
+  RouterStarted,
+  RouterStartFailed,
+  RouterStopFailed,
   runEvents,
   RunStarted,
   runtimeEvents,
 } from "../events/core.js";
-import type { EventClass } from "../events/catalog.js";
 import {
-  makeRunLedger,
   type ActiveRunLedger,
-  type LedgerFailure,
   type LedgerWriter,
+  makeRunLedger,
 } from "../ledger/append.js";
-import { LedgerCompletion, ledgerRef } from "../ledger/schema.js";
-import type { LedgerStorageError } from "../ledger/storage.js";
+import {
+  LedgerCompletion,
+  type LedgerFailure,
+  ledgerRef,
+  type LedgerStorageError,
+} from "../ledger/index.js";
 import {
   LinkController,
   type LinkControllerService,
   LinkDriver,
   type LinkDriverService,
-} from "../network/link.js";
-import { Network, type NetworkService } from "../network/endpoint.js";
-import type { Router } from "../network/router.js";
-import type { NetworkError } from "../network/failure.js";
-import {
-  Cluster,
-  type Society,
-  type ClusterError,
-} from "../cluster/cluster.js";
-import type {
-  AgentRoster,
-  AgentRosterAcquisitionError,
-  StartedAgents,
-} from "../agents/roster.js";
-import {
-  runtimeConfigurationProjection,
-  type AgentRuntimeLike,
-} from "../agents/agent.js";
-import { programEvent } from "./outcomes.js";
-import { makeNetworkService } from "./endpoints.js";
-import { makeLinkFabric } from "./link-fabric.js";
-import { makeLinkController } from "./links.js";
+  Network,
+  type NetworkError,
+  type NetworkService,
+  type Router,
+  RouterProvider,
+} from "../network/index.js";
 import { acquireRoster } from "./acquire.js";
-import { acquireRouter, recordStoppedRouter } from "./router.js";
-import type { makeDefinitionEventServices } from "./events.js";
+import { makeNetworkService } from "./endpoints.js";
+import { type LinkFabric, makeLinkFabric } from "./link-fabric.js";
+import { makeLinkController } from "./links.js";
+import { nonEmptyCause, programEvent } from "./outcomes.js";
+import {
+  makeRouterFaultProxy,
+  type RouterFaultProxy,
+} from "./router-fault-proxy.js";
+
+// safer-arch-ignore no-cross-domain-sibling-import: The run kernel wires ledger, Router lifecycle, fault control, agents, and cluster into one customer program.
 
 type CatalogSchema = Schema.Schema.AnyNoContext;
 
@@ -151,34 +160,15 @@ interface ProgramLayerInput<
   readonly active: ActiveRunLedger<
     DefinitionEventServices<Id, CustomerSchema, CustomerClasses>["catalog"]
   >;
-  readonly services: ProgramNetworkServices;
+  readonly services: ProgramFaultServices;
   readonly agents: StartedAgents<Definitions>;
 }
 
-/** Run-scoped network-facing services installed for the customer program. */
-interface ProgramNetworkServices {
+/** Run-scoped fault-control services installed for the customer program. */
+interface ProgramFaultServices {
   readonly driver: LinkDriverService;
   readonly links: LinkControllerService;
   readonly network: NetworkService;
-}
-
-function makeProgramLayer<
-  Id extends string,
-  CustomerSchema extends CatalogSchema,
-  CustomerClasses extends EventClass,
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
->(input: ProgramLayerInput<Id, CustomerSchema, CustomerClasses, Definitions>) {
-  const customerWriter = input.active.writerFor(
-    "program",
-    input.eventServices.customerCatalog,
-  );
-  return Layer.mergeAll(
-    input.eventServices.layer(input.active.ledger, customerWriter),
-    Layer.succeed(Network, input.services.network),
-    Layer.succeed(LinkController, input.services.links),
-    Layer.succeed(LinkDriver, input.services.driver),
-    Layer.succeed(input.roster.startedAgents, input.agents),
-  );
 }
 
 interface KernelContext<
@@ -205,7 +195,6 @@ interface KernelContext<
   readonly runWriter: LedgerWriter<typeof runEvents>;
   readonly routerWriter: LedgerWriter<typeof routerEvents>;
   readonly runtimeWriter: LedgerWriter<typeof runtimeEvents>;
-  readonly endpointWriter: LedgerWriter<typeof endpointEvents>;
   readonly linkWriter: LedgerWriter<typeof linkEvents>;
   readonly router: Ref.Ref<Option.Option<Router>>;
 }
@@ -230,6 +219,88 @@ interface SocietyExecutionInput<
   >;
   readonly router: Router;
   readonly session: Society<Definitions>;
+}
+
+interface PreparedSocietyExecutionInput<
+  Id extends string,
+  CustomerSchema extends CatalogSchema,
+  CustomerClasses extends EventClass,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+  A,
+  E,
+  R,
+> extends SocietyExecutionInput<
+    Id,
+    CustomerSchema,
+    CustomerClasses,
+    Definitions,
+    A,
+    E,
+    R
+  > {
+  readonly fabric: LinkFabric;
+  readonly proxy: RouterFaultProxy;
+}
+
+/**
+ * Execute one definition against one mixed roster. Nested scopes stop the
+ * cluster and Router before publishing ledger completion.
+ * @param input Input value to process.
+ * @returns The run society result.
+ */
+export function runSociety<
+  const Id extends string,
+  CustomerSchema extends CatalogSchema,
+  CustomerClasses extends EventClass,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+  A,
+  E,
+  R,
+>(
+  input: RunInput<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>,
+): Effect.Effect<
+  SimulatorRunOutcome<A, E, Definitions>,
+  LedgerStorageError,
+  Effect.Effect.Context<
+    ReturnType<
+      typeof executeRun<
+        Id,
+        CustomerSchema,
+        CustomerClasses,
+        Definitions,
+        A,
+        E,
+        R
+      >
+    >
+  >
+> {
+  return executeRun(input);
+}
+
+/**
+ * Ledger allocation and context construction form one ownership handoff.
+ * Interruptibility resumes only after the kernel can finalize that ledger.
+ * @param input Definition-bound run description and customer program.
+ * @returns The scoped run Effect.
+ */
+function executeRun<
+  Id extends string,
+  CustomerSchema extends CatalogSchema,
+  CustomerClasses extends EventClass,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+  A,
+  E,
+  R,
+>(input: RunInput<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>) {
+  return Effect.scoped(
+    Effect.uninterruptibleMask((restore) =>
+      allocateRunLedger(input).pipe(
+        Effect.flatMap((active) => makeContext(input, active)),
+        Effect.flatMap((context) => runContext(context, restore)),
+      ),
+    ),
+  ).pipe(Effect.withSpan("Simulator.run"));
 }
 
 function allocateRunLedger<
@@ -278,14 +349,13 @@ function makeContext<
       runWriter: active.writerFor("kernel.run", runEvents),
       routerWriter: active.writerFor("kernel.router", routerEvents),
       runtimeWriter: active.writerFor("kernel.runtime", runtimeEvents),
-      endpointWriter: active.writerFor("kernel.endpoint", endpointEvents),
       linkWriter: active.writerFor("kernel.link", linkEvents),
       router,
     };
   });
 }
 
-function executeSociety<
+function runContext<
   Id extends string,
   CustomerSchema extends CatalogSchema,
   CustomerClasses extends EventClass,
@@ -294,7 +364,7 @@ function executeSociety<
   E,
   R,
 >(
-  input: SocietyExecutionInput<
+  context: KernelContext<
     Id,
     CustomerSchema,
     CustomerClasses,
@@ -303,42 +373,23 @@ function executeSociety<
     E,
     R
   >,
+  restore: <RestoredA, RestoredE, RestoredR>(
+    effect: Effect.Effect<RestoredA, RestoredE, RestoredR>,
+  ) => Effect.Effect<RestoredA, RestoredE, RestoredR>,
 ) {
-  const { context, router, session } = input;
-  return Effect.gen(function* () {
-    // The fabric shapes what this process can observe: the customer's own
-    // controlled endpoints. A roster agent runs in its own container, so its
-    // agent-to-agent traffic never crosses this stream and the fabric does not
-    // register it. Link control over a containerized agent therefore fails
-    // rather than silently passing traffic it claims to police.
-    const fabric = yield* makeLinkFabric(context.linkWriter);
-    const agents = yield* acquireRoster({
-      router,
-      roster: context.input.roster,
-      session,
-      writer: context.runtimeWriter,
-    });
-    const network = yield* makeNetworkService(
-      router,
-      context.endpointWriter,
-      fabric.interceptor,
-    );
-    const links = yield* makeLinkController(context.linkWriter);
-    const layer = makeProgramLayer({
-      eventServices: context.input.eventServices,
-      roster: context.input.roster,
-      active: context.active,
-      services: { driver: fabric.driver, links, network },
-      agents,
-    });
-    const exit = yield* context.input.program.pipe(
-      Effect.provide(layer),
-      Effect.exit,
-      Effect.scoped,
-    );
-    yield* context.runWriter.write({ event: programEvent(exit) });
-    return exit;
-  });
+  return restore(
+    Effect.raceFirst(
+      Effect.scoped(executeProgram(context)),
+      context.active.failure,
+    ),
+  ).pipe(
+    Effect.exit,
+    Effect.flatMap((execution) =>
+      finalizeRun(context, execution).pipe(
+        Effect.flatMap((outcome) => preserveCancellation(execution, outcome)),
+      ),
+    ),
+  );
 }
 
 function executeProgram<
@@ -374,64 +425,182 @@ function executeProgram<
   });
 }
 
-function recordRouterStop(
-  routerRef: Ref.Ref<Option.Option<Router>>,
-  writer: LedgerWriter<typeof routerEvents>,
+function executeSociety<
+  Id extends string,
+  CustomerSchema extends CatalogSchema,
+  CustomerClasses extends EventClass,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+  A,
+  E,
+  R,
+>(
+  input: SocietyExecutionInput<
+    Id,
+    CustomerSchema,
+    CustomerClasses,
+    Definitions,
+    A,
+    E,
+    R
+  >,
 ) {
-  return Ref.get(routerRef).pipe(
-    Effect.flatMap(
-      Option.match({
-        onNone: () => Effect.void,
-        onSome: (router) => recordStoppedRouter(router, writer),
-      }),
-    ),
+  const { router, session } = input;
+  return Effect.gen(function* () {
+    const fabric = yield* makeLinkFabric();
+    const proxy = yield* makeRouterFaultProxy({
+      upstreamRouterOrigin: router.address,
+      listener: session.routerFaultProxy.listener,
+      fabric,
+    });
+    return yield* Effect.raceFirst(
+      runSocietyProgram({ ...input, fabric, proxy }),
+      proxy.failure,
+    );
+  });
+}
+
+function runSocietyProgram<
+  Id extends string,
+  CustomerSchema extends CatalogSchema,
+  CustomerClasses extends EventClass,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+  A,
+  E,
+  R,
+>(
+  input: PreparedSocietyExecutionInput<
+    Id,
+    CustomerSchema,
+    CustomerClasses,
+    Definitions,
+    A,
+    E,
+    R
+  >,
+) {
+  const { context } = input;
+  return Effect.gen(function* () {
+    const layer = yield* makeSocietyProgramLayer(input);
+    const exit = yield* context.input.program.pipe(
+      Effect.provide(layer),
+      Effect.exit,
+      Effect.scoped,
+    );
+    yield* context.runWriter.write({ event: programEvent(exit) });
+    return exit;
+  });
+}
+
+function makeSocietyProgramLayer<
+  Id extends string,
+  CustomerSchema extends CatalogSchema,
+  CustomerClasses extends EventClass,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+  A,
+  E,
+  R,
+>(
+  input: PreparedSocietyExecutionInput<
+    Id,
+    CustomerSchema,
+    CustomerClasses,
+    Definitions,
+    A,
+    E,
+    R
+  >,
+) {
+  const { context, fabric, proxy, session } = input;
+  return Effect.gen(function* () {
+    const agents = yield* acquireRoster({
+      roster: context.input.roster,
+      session,
+      writer: context.runtimeWriter,
+    });
+    yield* attachAgents(agents, fabric);
+    const network = yield* makeNetworkService({
+      acquireEndpoint: session.acquireEndpoint,
+      routerOrigin: proxy.localRouterOrigin,
+      interceptor: fabric.interceptor,
+    });
+    const links = yield* makeLinkController(context.linkWriter);
+    return makeProgramLayer({
+      eventServices: context.input.eventServices,
+      roster: context.input.roster,
+      active: context.active,
+      services: { driver: fabric.driver, links, network },
+      agents,
+    });
+  });
+}
+
+function attachAgents<
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+>(agents: StartedAgents<Definitions>, fabric: LinkFabric) {
+  return Effect.forEach(
+    Object.values(agents),
+    ({ agent }) => fabric.interceptor.attach(agent.id),
+    { concurrency: 1, discard: true },
   );
 }
 
-function appendFailure<Failure>(
-  cause: Cause.Cause<Failure>,
-  exit: Exit.Exit<unknown, Failure>,
-): Cause.Cause<Failure> {
-  return Exit.isFailure(exit) ? Cause.sequential(cause, exit.cause) : cause;
-}
-
-function collectInterruptions(
-  cause: Cause.Cause<unknown>,
-): Cause.Cause<never> | undefined {
-  let interruptions: Cause.Cause<never> | undefined;
-  for (const interruptor of Cause.interruptors(cause)) {
-    const interruption = Cause.interrupt(interruptor);
-    interruptions =
-      interruptions === undefined
-        ? interruption
-        : Cause.parallel(interruptions, interruption);
-  }
-  return interruptions;
-}
-
-/**
- * Cancellation remains an Effect interrupt after durable finalization. Run
- * outcomes describe completed execution paths, not control-plane cancellation.
- * @param execution Complete exit from the interruptible execution region.
- * @param outcome Durable run outcome produced after finalization.
- * @returns The outcome unless caller cancellation must be restored.
- */
-function preserveCancellation<
-  A,
-  E,
+function makeProgramLayer<
+  Id extends string,
+  CustomerSchema extends CatalogSchema,
+  CustomerClasses extends EventClass,
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  Failure,
->(
-  execution: Exit.Exit<unknown, Failure>,
-  outcome: SimulatorRunOutcome<A, E, Definitions>,
-): Effect.Effect<SimulatorRunOutcome<A, E, Definitions>> {
-  if (Exit.isSuccess(execution) || !Cause.isInterrupted(execution.cause)) {
-    return Effect.succeed(outcome);
-  }
-  const interruptions = collectInterruptions(execution.cause);
-  return interruptions === undefined
-    ? Effect.interrupt
-    : Effect.failCause(interruptions);
+>(input: ProgramLayerInput<Id, CustomerSchema, CustomerClasses, Definitions>) {
+  const customerWriter = input.active.writerFor(
+    "program",
+    input.eventServices.customerCatalog,
+  );
+  return Layer.mergeAll(
+    input.eventServices.layer(input.active.ledger, customerWriter),
+    Layer.succeed(Network, input.services.network),
+    Layer.succeed(LinkController, input.services.links),
+    Layer.succeed(LinkDriver, input.services.driver),
+    Layer.succeed(input.roster.startedAgents, input.agents),
+  );
+}
+
+function acquireRouter(
+  writer: LedgerWriter<typeof routerEvents>,
+  routerRef: Ref.Ref<Option.Option<Router>>,
+) {
+  return Effect.uninterruptibleMask((restore) =>
+    Effect.gen(function* () {
+      const provider = yield* RouterProvider;
+      const attempted = yield* Effect.exit(restore(provider.acquire));
+      if (Exit.isFailure(attempted)) {
+        if (Cause.isInterruptedOnly(attempted.cause)) {
+          return yield* Effect.failCause(attempted.cause);
+        }
+        const recorded = yield* Effect.exit(
+          restore(
+            writer.write({
+              event: RouterStartFailed.make({
+                cause: nonEmptyCause(attempted.cause),
+              }),
+            }),
+          ),
+        );
+        return yield* Effect.failCause(
+          Exit.isFailure(recorded)
+            ? Cause.sequential(attempted.cause, recorded.cause)
+            : attempted.cause,
+        );
+      }
+      yield* Ref.set(routerRef, Option.some(attempted.value));
+      yield* restore(
+        writer.write({
+          event: RouterStarted.make({
+            routerUrl: attempted.value.address,
+          }),
+        }),
+      );
+      return attempted.value;
+    }),
+  ).pipe(Effect.withSpan("Simulator.acquireRouter"));
 }
 
 // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- the generic signature states the exact definition-bound outcome contract while the body keeps ordered stop/completion handling together.
@@ -499,100 +668,90 @@ function finalizeRun<
   });
 }
 
-function runContext<
-  Id extends string,
-  CustomerSchema extends CatalogSchema,
-  CustomerClasses extends EventClass,
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  A,
-  E,
-  R,
->(
-  context: KernelContext<
-    Id,
-    CustomerSchema,
-    CustomerClasses,
-    Definitions,
-    A,
-    E,
-    R
-  >,
-  restore: <RestoredA, RestoredE, RestoredR>(
-    effect: Effect.Effect<RestoredA, RestoredE, RestoredR>,
-  ) => Effect.Effect<RestoredA, RestoredE, RestoredR>,
+function recordRouterStop(
+  routerRef: Ref.Ref<Option.Option<Router>>,
+  writer: LedgerWriter<typeof routerEvents>,
 ) {
-  return restore(
-    Effect.raceFirst(
-      Effect.scoped(executeProgram(context)),
-      context.active.failure,
-    ),
-  ).pipe(
-    Effect.exit,
-    Effect.flatMap((execution) =>
-      finalizeRun(context, execution).pipe(
-        Effect.flatMap((outcome) => preserveCancellation(execution, outcome)),
-      ),
+  return Ref.get(routerRef).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.void,
+        onSome: (router) => recordStoppedRouter(router, writer),
+      }),
     ),
   );
 }
 
-/**
- * Ledger allocation and context construction form one ownership handoff.
- * Interruptibility resumes only after the kernel can finalize that ledger.
- * @param input Definition-bound run description and customer program.
- * @returns The scoped run Effect.
- */
-function executeRun<
-  Id extends string,
-  CustomerSchema extends CatalogSchema,
-  CustomerClasses extends EventClass,
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
-  A,
-  E,
-  R,
->(input: RunInput<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>) {
-  return Effect.scoped(
-    Effect.uninterruptibleMask((restore) =>
-      allocateRunLedger(input).pipe(
-        Effect.flatMap((active) => makeContext(input, active)),
-        Effect.flatMap((context) => runContext(context, restore)),
-      ),
-    ),
-  ).pipe(Effect.withSpan("Simulator.run"));
+function recordStoppedRouter(
+  router: Router,
+  writer: LedgerWriter<typeof routerEvents>,
+) {
+  return Effect.exit(router.stopped).pipe(
+    Effect.flatMap((stopped) => {
+      if (Exit.isSuccess(stopped)) {
+        return Effect.void;
+      }
+      return Effect.exit(
+        writer.write({
+          event: RouterStopFailed.make({
+            cause: nonEmptyCause(stopped.cause),
+          }),
+        }),
+      ).pipe(
+        Effect.flatMap((recorded) =>
+          Effect.failCause(
+            Exit.isFailure(recorded)
+              ? Cause.sequential(stopped.cause, recorded.cause)
+              : stopped.cause,
+          ),
+        ),
+      );
+    }),
+  );
+}
+
+function appendFailure<Failure>(
+  cause: Cause.Cause<Failure>,
+  exit: Exit.Exit<unknown, Failure>,
+): Cause.Cause<Failure> {
+  return Exit.isFailure(exit) ? Cause.sequential(cause, exit.cause) : cause;
 }
 
 /**
- * Execute one definition against one mixed roster. Nested scopes stop
- * endpoints, runtimes, and the router before publishing ledger completion.
- * @param input Input value to process.
- * @returns The run society result.
+ * Cancellation remains an Effect interrupt after durable finalization. Run
+ * outcomes describe completed execution paths, not control-plane cancellation.
+ * @param execution Complete exit from the interruptible execution region.
+ * @param outcome Durable run outcome produced after finalization.
+ * @returns The outcome unless caller cancellation must be restored.
  */
-export function runSociety<
-  const Id extends string,
-  CustomerSchema extends CatalogSchema,
-  CustomerClasses extends EventClass,
-  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+function preserveCancellation<
   A,
   E,
-  R,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+  Failure,
 >(
-  input: RunInput<Id, CustomerSchema, CustomerClasses, Definitions, A, E, R>,
-): Effect.Effect<
-  SimulatorRunOutcome<A, E, Definitions>,
-  LedgerStorageError,
-  Effect.Effect.Context<
-    ReturnType<
-      typeof executeRun<
-        Id,
-        CustomerSchema,
-        CustomerClasses,
-        Definitions,
-        A,
-        E,
-        R
-      >
-    >
-  >
-> {
-  return executeRun(input);
+  execution: Exit.Exit<unknown, Failure>,
+  outcome: SimulatorRunOutcome<A, E, Definitions>,
+): Effect.Effect<SimulatorRunOutcome<A, E, Definitions>> {
+  if (Exit.isSuccess(execution) || !Cause.isInterrupted(execution.cause)) {
+    return Effect.succeed(outcome);
+  }
+  const interruptions = collectInterruptions(execution.cause);
+  return interruptions === undefined
+    ? Effect.interrupt
+    : Effect.failCause(interruptions);
+}
+
+function collectInterruptions(
+  cause: Cause.Cause<unknown>,
+): Cause.Cause<never> | undefined {
+  let interruptions: Cause.Cause<never> | undefined;
+  for (const interruptor of Cause.interruptors(cause)) {
+    const interruption = Cause.interrupt(interruptor);
+    interruptions =
+      interruptions === undefined
+        ? interruption
+        : Cause.parallel(interruptions, interruption);
+  }
+  return interruptions;
 }

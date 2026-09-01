@@ -1,16 +1,18 @@
-import { assert, describe, it } from "@effect/vitest";
+/** @file Phoenix publication and reconciliation coverage over an in-memory transport. */
+
 import {
   createClient,
   type PhoenixClient,
   type Types,
 } from "@arizeai/phoenix-client";
+import { assert, describe, it } from "@effect/vitest";
 import { CompletedLedgerReceipt } from "@moltzap/simulator";
 import { image } from "@moltzap/simulator/agents";
 import {
   LedgerCompletion,
-  LedgerStorageError,
   ledgerDigest,
   ledgerRef,
+  LedgerStorageError,
 } from "@moltzap/simulator/ledger";
 import { DateTime, Effect, Option, Ref, Schema } from "effect";
 import {
@@ -20,16 +22,16 @@ import {
   decodeJudgePolicyId,
 } from "./model.js";
 import {
-  PhoenixPublicationConflict,
   findPhoenixDataset,
   makePhoenixPublisher,
-  phoenixCatalogExamples,
   phoenixAttemptEvaluations,
-  phoenixExperimentProvenance,
-  phoenixPublishedDatasetVersion,
-  reconcilePhoenixDatasetCatalog,
+  phoenixCatalogExamples,
   type PhoenixDatasetCatalog,
   type PhoenixExperimentDatasetReference,
+  phoenixExperimentProvenance,
+  PhoenixPublicationConflict,
+  phoenixPublishedDatasetVersion,
+  reconcilePhoenixDatasetCatalog,
 } from "./phoenix.js";
 import {
   appendEvaluationAttempt,
@@ -38,14 +40,14 @@ import {
   decodeEvaluationAttemptId,
   decodeEvaluationReportDigest,
   decodeEvaluationReportId,
-  type EvaluationReportDigest,
   EvaluationCasePlan,
   EvaluationConditionPlan,
+  type EvaluationReportDigest,
   EvaluationReportPlan,
   EvidenceRejectedAttempt,
   JudgePolicySnapshot,
-  LocalEvaluationInfrastructure,
   LedgerAllocationFailedAttempt,
+  LocalEvaluationInfrastructure,
 } from "./sweep.js";
 
 const testImage = Schema.decodeSync(image);
@@ -129,7 +131,6 @@ function plan(definitionId = "moltzap.test.phoenix/v1"): EvaluationReportPlan {
     infrastructure: LocalEvaluationInfrastructure.make({
       profile: "local",
       controllerImage: testImage(`controller@sha256:${"a".repeat(64)}`),
-      peerApplicationImage: testImage(`peer@sha256:${"b".repeat(64)}`),
       nanoclawApplicationImage: testImage(`nanoclaw@sha256:${"c".repeat(64)}`),
       temporalAddress: "127.0.0.1:7233",
       artifactDirectory: "/var/lib/moltzap/artifacts",
@@ -209,6 +210,21 @@ interface FakePhoenix {
   readonly client: PhoenixClient;
   readonly snapshot: Effect.Effect<FakePhoenixState>;
   readonly driftFirstRun: Effect.Effect<void>;
+}
+
+function concurrentExperiment(
+  options: FakePhoenixOptions,
+  dataset: FakeDataset,
+  body: typeof experimentCreateBody.Type,
+): readonly FakeExperiment[] {
+  if (options.concurrentExperiment === undefined) {
+    return [];
+  }
+  const metadata =
+    options.concurrentExperiment.conflictingMetadata === true
+      ? { ...body.metadata, reportDigest: "remote-drift" }
+      : body.metadata;
+  return [experimentFrom("experiment-a", dataset, body, metadata)];
 }
 
 function phoenixResponse(body: unknown, status = 200): Response {
@@ -407,21 +423,6 @@ function listFakeExperiments(state: FakeStateRef): Effect.Effect<Response> {
       phoenixResponse({ data: current.experiments, next_cursor: null }),
     ),
   );
-}
-
-function concurrentExperiment(
-  options: FakePhoenixOptions,
-  dataset: FakeDataset,
-  body: typeof experimentCreateBody.Type,
-): readonly FakeExperiment[] {
-  if (options.concurrentExperiment === undefined) {
-    return [];
-  }
-  const metadata =
-    options.concurrentExperiment.conflictingMetadata === true
-      ? { ...body.metadata, reportDigest: "remote-drift" }
-      : body.metadata;
-  return [experimentFrom("experiment-a", dataset, body, metadata)];
 }
 
 const createFakeExperiment = Effect.fn("test.createFakeExperiment")(function* (
@@ -641,20 +642,20 @@ function makeFakePhoenix(
   });
 }
 
-function fakeExperimentIds(state: FakePhoenixState): readonly string[] {
-  return state.experiments.map((experiment) => experiment.id);
-}
-
-function fakeRunExperimentIds(state: FakePhoenixState): readonly string[] {
-  return state.runs.map((run) => run.experiment_id);
-}
-
 function canonicalFakeExperimentId(
   state: FakePhoenixState,
 ): string | undefined {
   return [...fakeExperimentIds(state)].sort((left, right) =>
     left.localeCompare(right),
   )[0];
+}
+
+function fakeExperimentIds(state: FakePhoenixState): readonly string[] {
+  return state.experiments.map((experiment) => experiment.id);
+}
+
+function fakeRunExperimentIds(state: FakePhoenixState): readonly string[] {
+  return state.runs.map((run) => run.experiment_id);
 }
 
 function experimentReference(

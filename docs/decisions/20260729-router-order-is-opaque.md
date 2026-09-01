@@ -1,12 +1,30 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-07-29
 decision-makers: Tapan Chugh
+superseded-by: 20260811-four-layer-endpoint-replicated-harness.md
 ---
 
 # Router order is opaque
 
 Decision provenance: [compacted trajectory](../decision-evidence/20260729-l1-l2-implementation-trajectory.md#router-order-is-opaque).
+
+## Supersession
+
+Router's private global order, opaque client-held continuation, bounded
+agent-wide feed, coupled retry semantics, explicit instance identity, volatile
+restart behavior, and correct non-equivocating Router assumption remain
+current. Router order is still neither a permanent public position nor
+conversation history.
+
+`20260811-four-layer-endpoint-replicated-harness.md` replaces Ledger-based
+reconciliation and permanent post-restart conversation fencing with
+fixed-member certified-head catch-up and a quorum-certified Router-instance
+epoch anchor. Router itself remains restart-volatile and supplies no
+restart-transparent replay. The replacement record and
+`docs/spec/conversation-history.md` own anchor selection and persistence; this
+record and `docs/spec/router.md` continue to own the Router wire and volatile
+feed.
 
 ## Context and Problem Statement
 

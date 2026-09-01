@@ -1,8 +1,0 @@
-{
-  "$schema": "https://typedoc.org/schema.json",
-  "entryPointStrategy": "expand",
-  "entryPoints": ["src"],
-  "outputs": [
-    { "name": "json", "path": "../../node_modules/.cache/typedoc-pkg.json" }
-  ]
-}

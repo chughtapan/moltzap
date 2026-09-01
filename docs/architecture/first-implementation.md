@@ -1,236 +1,278 @@
-# Gate 1 implementation plan
+# Four-layer cutover implementation order
 
-{/* @bake-constants: V2_PROTOCOL_VERSION */}
+This is execution orientation. `v2/VISION.md`, current ADR outcomes, and
+`docs/spec/` decide behavior.
 
-Status: **APPROVED IMPLEMENTATION PLAN — AUTHORITY REVIEW REQUIRED BEFORE CODE**
+## Constraints on every lane
 
-The complete approved L1 and L2 handoff is
-[`l1-l2-implementation-ask.md`](./l1-l2-implementation-ask.md). That
-document is the durable implementation ask: exact contracts, defaults,
-dependency choices, tests, human gates, and slice boundaries live
-there. This page records the repository-wide order and prevents later
-work from racing ahead of its authority.
+- Work in final `packages/*` homes and final package names.
+- A lane starts only when its behavior, representation, stable trace rows, and
+  blind-review candidate are current.
+- Move a deep module with its tests, configuration, migration, binary, and
+  package contract. Do not leave a forwarding implementation behind.
+- Delete displaced v1 or obsolete v2 machinery as soon as its final consumer
+  moves. Do not build compatibility aliases or generation selectors.
+- Keep expected failures typed and compose resource ownership through Effect
+  services and scoped Layers.
+- Keep package manifests, TypeScript references, Nx dependencies,
+  architecture checks, release configuration, aliases, and CI aligned with the
+  same seven-package graph.
+- Treat the ACG vertical-readability rules as branch-wide errors. Fix retained
+  code; delete dead code rather than constructing allowlists around it.
 
-Normative behavior lives in `v2/VISION.md`, current ADR outcomes, and
-`docs/spec/`. This plan never overrides them.
+## Lane 0: freeze and integrate
 
-## Outcome
+1. Freeze the four-layer authority candidate, including ADR lineage, current
+   trace rows, normative specs, and architecture orientation.
+2. Pass the isolated six-question blind teammate review and record maintainer
+   acceptance.
+3. Integrate the accepted PR #974 head and its pinned `main` base into the
+   long-lived cutover branch.
+4. Record that routine forward merges are frozen. Port later v1 fixes only when
+   they remain relevant to a final product.
 
-Gate 1 produces one stack with:
+PR #974 remains useful source material for the transitional Client and adapter
+cutover. It does not make its profile, recovery, or simulator choices
+authoritative for the final stack.
 
-- an L1 Registry and AuthenticatedHttp boundary;
-- an L2 content-blind Router with a private global order;
-- an L3 Ledger for mechanically admitted atomic Transcript commits;
-- one endpoint daemon per AgentId;
-- one portable simulator driving the production capabilities;
-- one testbed acquiring the stack and adding faults; and
-- OpenClaw and NanoClaw as consumers of the same daemon contract.
+## Lane 1: establish the final graph
 
-The associated authority change makes L1 and L2 ready once its blind
-review is accepted. It leaves the L3, L4, daemon-persistence, and
-local-MCP semantic documents and focused ADRs unchanged.
+Move generic documentation tooling out of the protocol package before that
+package is deleted. Add non-vacuous checks for exactly these products and
+edges:
 
-## Non-negotiable boundaries
+```text
+identity
+router       -> identity
+client       -> identity + router
+openclaw     -> client
+nanoclaw     -> client
+simulator    -> identity + router + client
+evals        -> client + simulator
+```
 
-- Registry, Router, Ledger, and each endpoint daemon are independent
-  processes.
-- Router and Ledger are siblings. Endpoints coordinate them.
-- Router sees only attributed L1 addressing and opaque body bytes.
-- L3 owns conversations, retries, recovery, certificates, and durable
-  actions.
-- Endpoints decide validity. Ledger checks complete certificates
-  mechanically.
-- One TranscriptRecord is atomically committed for all fixed members or
-  for none.
-- The local daemon-to-runtime MCP surface is not a network plane.
-- Each layer owns a separate representation chapter and private
-  mechanisms.
-- V2 contains exactly six deep packages and imports nothing from
-  `packages/*`.
-- Simulator and testbed are never production dependencies.
-- Application code imposes no TLS, URL-scheme, certificate, or
-  trusted-proxy policy. Deployment owns channel protection and preserves
-  signed request components.
+The graph check covers directory and package names, declared dependencies,
+TypeScript references, Nx dependencies, export maps, binaries, forbidden
+imports, deleted implementation roots, and retired public machinery. Root
+artifact tooling may assemble images without creating runtime imports.
 
-## Package and process shape
+Freeze complete simulator export and behavior evidence before changing its
+internals. Preserve the root, `./network`, `./ledger`, and `./agents` facade
+censuses plus packed downstream compile and runtime import probes. Treat the
+five accepted removals in Lane 6 as the expected breaking delta and preserve
+the remaining facade contracts.
 
-| Package | Depends on | Production process |
-|---|---|---|
-| `identity` | none | `moltzap-registry` |
-| `router` | `identity` | `moltzap-router` |
-| `transcript` | `identity`, Router contracts | `moltzap-ledger` |
-| `endpoint` | `identity`, `router`, `transcript` | `moltzap-agentd`, `moltzap` |
-| `simulator` | public `identity` and `endpoint` capabilities | none |
-| `testbed` | all five | none |
+## Lane 2: move Identity
 
-The authority slice renames `v2/transport` to `v2/router`,
-`@moltzap/v2-transport` to `@moltzap/v2-router`, and
-`moltzap-directory` to `moltzap-registry`. It updates all manifests,
-project references, workspace checks, and documentation atomically.
+Move the complete accepted `v2/identity` implementation to
+`packages/identity` and rename it `@moltzap/identity`. Move its Registry
+process, migrations, configuration, tests, type canaries, representation
+fixtures, and package instructions in the same lane.
 
-`v2/VERSION`, every v2 package manifest, and the ready MoltZap
-representations advance together to `2026.729.1`. MCP and simulator
-persisted-schema versions remain independent. The requested ACG upgrade
-is omitted from this work.
+Preserve the admitted immutable AgentCard, bootstrap-admission,
+AuthenticatedHttp, lookup/list, exact closed representation, limits, and typed
+Effect capability contracts. Replace only package/path identity and stale
+Ledger/profile qualifiers. Delete the old implementation root after consumers
+and checks target the final package.
 
-## Gate 0 — reconcile and review authority
+Acceptance:
 
-Before product code:
+- all Identity Nx targets pass;
+- package packing and process probes resolve the final name;
+- no source import reaches the old root or v1 protocol identity; and
+- Registry behavior remains independent of Router and endpoint storage.
 
-1. admit the four focused 2026-07-29 ADRs and their source-faithful
-   trajectory;
-2. update every superseded or partially superseded record, the decision
-   index, and the Gate 1 trace manifest;
-3. reconcile agent law, constitution, normative specs, and architecture
-   orientation;
-4. remove the superseded cross-layer wire profile;
-5. land the package vocabulary and version changes above;
-6. pass documentation, architecture, build, type, and lint checks;
-7. freeze the exact candidate as a commit;
-8. run the six-question blind teammate review from a fresh isolated
-   context; and
-9. obtain maintainer acceptance of that result.
+## Lane 3: move Router
 
-Any semantic correction creates a new candidate and requires a
-different fresh reviewer. No implementation commit may be based only on
-chat or on the unreviewed candidate.
+Move the complete accepted `v2/router` implementation to `packages/router`
+and rename it `@moltzap/router`. Point its one production dependency to final
+Identity. Move its tests, configuration, process binary, fixtures, and package
+instructions together.
 
-## Gate 1 — immutable simulator source baseline
+Preserve authenticated opaque send/poll, bounded volatile retention,
+retry-scope behavior, one non-equivocating order per instance, and closed
+Router representation. Replace Ledger reconciliation references with the
+endpoint history/re-anchor boundary; do not add conversation state to Router.
 
-The simulator port uses only the landed SHA recorded in
-`v2/inputs/simulator-handoff-20260728.md`. Until that manifest names a
-reconstructible, tracked, constitution-aligned source commit and the
-handoff checks pass, simulator source work remains blocked.
+Acceptance:
 
-The port preserves the code-first `Simulator.define` surface, closed
-EventCatalog, typed run-evidence RunLedger, scoped runtime roster, and
-private lifecycle engine. It replaces v1-facing types with v2 public
-capabilities. RunLedger never substitutes for the product Transcript.
+- all Router and Identity caller targets pass;
+- restart tests expose a fresh RouterInstanceId without persistent
+  conversation state;
+- architecture checks reject Client concepts in Router; and
+- old Router roots and imports are absent.
 
-## Gate 2 — implement L1 in readability-reviewed slices
+## Lane 4: build Client communication
 
-The governing contracts are `docs/spec/identity.md` and
-`docs/spec/identity-representation.md`.
+Establish the accepted reduced `@moltzap/client` public shell, then replace the
+transitional package behind that shell with cohesive endpoint modules for:
 
-The slices are:
+1. canonical record and certificate values;
+2. local staged/certified history and atomic promotion;
+3. action validation and independent durability voting;
+4. mergeable certificate assembly and dissemination;
+5. automatic fixed-member catch-up;
+6. Router-instance head reconciliation and threshold re-anchoring;
+7. GENESIS/POST tasks, first-candidate locking, and personal-trust decisions;
+8. one state-directory daemon and one state-dependent `/mcp` endpoint; and
+9. the final semantic `HarnessEndpoint` capability.
 
-1. refined identity values and strict canonical base64url;
-2. private JCS and JOSE adapters, AgentCard, and SignedMessage;
-3. the deep AuthenticatedHttp boundary;
-4. Registry client, PostgreSQL repository, migrations, and server;
-5. `moltzap-registry` process composition; and
-6. black-box, integration, property, interoperability-example, and
-   type-canary coverage owned by L1.
+The public shell acquires one endpoint and exposes explicit addressed send plus
+durable inbound deliveries. `HarnessEndpoint.send` accepts an `agent:` or
+`group:` target and nonempty content. Every invocation creates one post with a
+fresh Client-minted `PostId`; the host owns whether to invoke it again. Send
+returns `void` only after local certification. The messages stream projects
+certified direct and group posts with stable PostId, canonical address, sender,
+group membership where applicable, and an adapter-only delivery
+acknowledgment.
 
-Use maintained standards libraries behind narrow private adapters. Do
-not implement custom JSON canonicalization, JOSE, HTTP message
-signatures, structured headers, PostgreSQL drivers, or a generic wire
-framework.
+Keep raw Router envelopes, partial folds, repositories, storage codecs,
+private RPC, Layers, and MCP representation private. `TxnId` is absent;
+private conversation identity, `PostIntentHash`, `ActionHash`, `RecordHash`,
+certificates, and recovery state stay behind the semantic boundary. Search,
+history, status, registration, and proof inspection remain MCP management
+operations. History reads and catch-up do not authorize output.
 
-Each slice must:
+The protocol test floor includes quorum arithmetic, honest intersection,
+conflicting successors, Byzantine votes, author failure, partial
+dissemination, duplicates, missing history, stale heads, catch-up, Router
+restart and re-anchor, local restart from staged material, and separation of
+action validity from durability.
 
-- satisfy its normative acceptance criteria;
-- keep expected failures typed and closed;
-- validate untrusted data at the boundary;
-- expose a deep domain API rather than library objects;
-- run its focused Nx checks; and
-- pass a human readability and vocabulary review before the next slice.
+The MCP floor covers both catalogs, registration persistence, explicit
+configuration, addressed send, durable message delivery and acknowledgment,
+history reads, typed failures, and restart. Type canaries pin the reduced
+public service, direct/group message union, void completion, and absence of
+proof and management methods.
 
-## Gate 3 — implement L2 in readability-reviewed slices
+## Lane 5: rewrite runtime adapters
 
-The governing contracts are `docs/spec/router.md` and
-`docs/spec/router-representation.md`.
+Retain OpenClaw and NanoClaw host integration while replacing their MoltZap
+dependencies with an injected or MCP-backed `HarnessEndpoint`. Remove profile
+environment, protocol/server imports, signing keys, raw Router attachment,
+client internals, and cross-adapter imports.
 
-The slices are:
+Adapter tests use the Client public contract and real daemon boundary. A host
+consumer that requires a private endpoint value reports a Client interface gap
+rather than importing around it. Every DM and group enters the stock host
+callback with canonical peer facts, every stock output callback becomes one
+addressed send, and acknowledgment follows successful callback completion.
+Adapters do not select host sessions or rebuild host persistence, retries, or
+checkpoints.
 
-1. Router-owned refined values and opaque PollCursor;
-2. Router client contracts and authenticated requests;
-3. one bounded global SignedMessage ring and coupled retry index;
-4. sender verification and positive immutable AgentCard cache;
-5. initial and continuation polling with request-scoped waiters;
-6. `moltzap-router` process composition; and
-7. concurrency, retention, restart, cursor, fault, property, and
-   black-box coverage owned by L2.
+## Lane 6: rewire simulator and evals
 
-The Router keeps bounded volatile process state, not durable state. It
-stores one copy per accepted SignedMessage and no per-recipient queue,
-cursor record, session, database, public sequence value, or delivery
-wrapper.
+### Simulator provenance
 
-Every slice has the same focused verification and human readability
-review gate as L1.
+The immutable porting baseline is
+`102f110436bedbba828591c1b97fd4e322abcf76`, the merge of production
+Simulator PR #974 into `main`. It is fully tracked and its CI, test, and
+conformance checks passed. The later `main` commit `78e376341eb4b37aafbc5a3c446bb10826564085`
+changes release numbers only and is not the behavioral Simulator baseline.
 
-## Gate 4 — later-layer handoff boundary
+At the baseline SHA, the four facade barrels contain 196 unique named
+declarations counting intentional cross-facade duplication: 70 at `.`, 41 at
+`./network`, 40 at `./ledger`, and 45 at `./agents`. The five admitted removal
+families delete exactly these 15 facade names:
 
-L3, L4, daemon persistence, local MCP, simulator, testbed, and runtime
-bridge implementation remain outside this L1/L2 candidate. Their
-semantic documents and focused ADRs are unchanged.
+- root: `ConversationOpened`, `EndpointMessageReceived`,
+  `EndpointMessageSent`, `LinkMessageDelayed`, `LinkMessageDropped`,
+  `LinkMessageHeld`, `MessageParts`, `ReceivedMessage`, and
+  `RouterMessageCommitted`;
+- `./network`: `CommittedRouterMessage`, `MessageParts`,
+  `OpenedConversation`, `ReceivedMessage`, `RouterSequence`, and
+  `routerSequence`; and
+- `./ledger` and `./agents`: none.
 
-The exact bridge symbol remains human-gated. The recorded source
-contains the literal `HarnessEndpoin`; no implementation silently
-normalizes or exports either spelling before a maintainer confirms it.
+The resulting checked-in census is 181 declarations: 61, 35, 40, and 45.
+`packages/simulator/api-census.json` records the exact deletion set and final
+type/value spaces. The baseline remains provenance for the admitted port.
+`scripts/test/simulator-packages.mjs` checks the current packed facades against
+that census and runs isolated type and runtime consumer probes.
 
-## Future end-to-end proof
+#### Simulator provenance gate
 
-Testbed acquires the one production stack, supervises external
-processes, supplies public-capability substitutes where a focused test
-requires them, and injects faults from outside. It does not insert a
-second Router or Ledger into production code.
+No different source SHA, additional deletion, replacement alias, or public
+namespace drift is a compatible port. A new baseline requires a current
+decision and replacement evidence rather than editing the expected census.
 
-The final proof covers:
+Preserve every non-conflicting latest-`main` simulator facade and meaning,
+including `Run.execute(RunSpec)`, clusters, Temporal integration, fault layers,
+and simulation `RunLedger`. Replace production-stack acquisition with final
+Identity, Router, and Client capabilities.
 
-- Registry uniqueness, idempotency, signer continuity, persistence,
-  replay protection, and outage behavior;
-- Router total order, byte identity, retry retention, cursor
-  continuation, feed gaps, restart fencing, resource bounds, and
-  Registry-cache behavior;
-- Ledger atomicity, signer-set mechanics, dense offsets, hash chain,
-  restart, and ambiguous append recovery;
-- START and OpenFloorV1 safety and conditional liveness;
-- daemon restart, attention compare-and-swap, lost notifications,
-  reply recovery, and cross-conversation concurrency;
-- the accepted MCP contract;
-- simulator determinism and run-evidence integrity; and
-- OpenClaw and NanoClaw as public-interface-only consumers.
+Apply the five admitted removals directly, without compatibility shims:
 
-Publishing, deployment, cutover, and v1 retirement are separate work.
+1. replace content-free `open` with `HarnessEndpoint.send` carrying an explicit
+   address and nonempty content, with one new post per invocation;
+2. route visible output only through stock host callbacks bound to the current
+   inbound address or an explicit `agent:` or `group:` proactive target;
+3. replace message-only receive and proof-shaped operation results with public
+   semantic `InboundDelivery` input and resultless completion facts;
+4. remove runtime keys, Router attachment, Registry/Router origins, and store
+   handles; and
+5. delete persisted Router-commit/order events. `RunLedger` records only
+   simulation lifecycle and public semantic effects.
 
-## Verification rules
+One run provisions one Registry and one Router. Each agent Sandbox Pod owns a
+restartable `moltzapd` sidecar, private key/admission mounts, and a per-agent
+persistent volume. Registration completes before application startup. The
+application receives only
+`MOLTZAP_MCP_URL=http://127.0.0.1:<port>/mcp`; it never receives the daemon's
+network origins, signing material, or state path.
 
-Run tasks through Nx with the workspace package manager. At minimum,
-the candidate or affected slice runs:
+Place retained directed link faults at a private recipient-delivery
+interposition after Router polling and before Client consumption. With no
+active fault, pass the exact messages through in Router order. An explicit
+fault scope may drop, delay, hold, or reorder one sender-to-recipient
+delivery. The controller evaluates policy; application containers receive no
+control endpoint or credential, and production Router and Client expose no
+fault hook. Classify those observations as endpoint fault-tolerance evidence,
+not Router conformance.
 
-- architecture and v1-import guards;
-- generated-document drift checks;
-- Markdown and Mermaid checks;
-- affected builds, typechecks, lints, and tests;
-- package export and dependency checks; and
-- any new integration or black-box targets introduced by the slice.
+Rewire evals through Client and simulator while preserving grading, reports,
+CLI modes, and deployment artifacts. Move image assembly that would otherwise
+create hidden simulator-to-adapter or simulator-to-evals runtime edges into
+root tooling. Execute all sixteen case definitions through the daemon-backed
+Client. Do not inject automatic cross-conversation context; the six cases that
+require it may fail until their host provides native memory.
 
-A passing command that discovers no intended source or test is a
-failure. Preserve the exact failing evidence and fix the gate rather
-than treating a vacuous result as success.
+Acceptance includes all four packed simulator facades, unit/integration/local
+and cluster suites, Temporal and fault tests, GKE packaging where available,
+and eval-facing behavior. Facade checks preserve every compatible declaration
+and encode the five removals above as the only accepted breaking delta. Fault
+checks separately prove inactive byte/order transparency, every activated
+post-Router perturbation, and runtime isolation from fault controls.
 
-## Completion criteria
+## Lane 7: remove the retired stack
 
-The L1/L2 implementation is complete only when:
+Delete:
 
-- every implemented surface has a current semantic and representation
-  owner;
-- every accepted ADR has valid lineage, provenance, manifest trace, and
-  an accepted blind review;
-- all six packages share the exact current compatibility value;
-- no v2 source imports v1 or violates the six-package DAG;
-- Registry and Router satisfy their fault, restart, and recovery
-  contracts;
-- all focused and end-to-end checks pass non-vacuously; and
-- each implementation slice has a recorded human readability review.
+- `packages/protocol` and `packages/server`;
+- profile, bespoke CLI, Unix-socket, local-RPC, and generation-selection code;
+- central product Ledger, Transcript, and `LedgerOffset` machinery;
+- obsolete `v2/identity`, `v2/router`, `v2/transcript`, `v2/harness`,
+  `v2/simulator`, and `v2/testbed` implementation roots; and
+- aliases, fixtures, generated docs, examples, CI jobs, and release entries
+  whose only purpose was a retired surface.
 
-## Explicit deferrals
+Preserve historical ADRs and source-faithful evidence. Absence checks target
+executable code, current specs and orientation, configuration, package
+metadata, generated documentation, and user guidance rather than rewriting
+history.
 
-Router replication and Byzantine sequencing; persistent or
-per-recipient Router state; end-to-end encryption and key distribution;
-L1 rotation, revocation, and recovery; dynamic membership;
-non-unanimous certificates; append takeover and disputes; L6/L7/L8
-services; hostile-local-process security; event replay; deployment,
-publishing, and all later-layer implementation.
+## Final gate
+
+Before release cutover:
+
+- build before typed lint, then run the full workspace Nx test floor;
+- run protocol property, recovery, fault, MCP, adapter, simulator, eval, and
+  process integration suites;
+- regenerate documentation and pass drift, Mermaid, link, ADR-shape, and
+  architecture checks;
+- pack and install every publishable product in isolated consumers;
+- prove the exact seven-package graph and absence of every retired public
+  surface;
+- resolve publication/version policy and update release automation; and
+- freeze and accept any final semantic authority candidate through a fresh
+  blind review.

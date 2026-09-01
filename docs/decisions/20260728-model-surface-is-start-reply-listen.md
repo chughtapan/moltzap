@@ -1,12 +1,25 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-28
 decision-makers: Tapan Chugh
+superseded-by: 20260827-addressed-messaging-replaces-openfloor.md
 ---
 
 # The model surface is start_conversation, reply, and listen
 
-Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-model-surface-is-start-reply-listen).
+Decision provenance: [compacted trajectory](../decision-evidence/20260728-gate-1-engineering-review-trajectory.md#20260728-model-surface-is-start-reply-listen) and [replacement decision trajectory](../decision-evidence/20260801-harness-mcp-and-dispatch-trajectory.md#model-output-is-start-or-bound-reply).
+
+## Supersession
+
+No portion of this model surface remains current.
+
+`20260827-addressed-messaging-replaces-openfloor.md` replaces start and bound
+reply with explicit addressed messaging through each host's native messaging
+mechanism. `20260828-channel-adapters-use-stock-host-apis.md` assigns session
+topology to the stock host; inbound direct and group messages retain explicit
+addresses and carry no reply grant. Closed typed failures and
+endpoint-certified durability are restated by the replacements and their
+normative specifications.
 
 ## Context and Problem Statement
 
@@ -64,3 +77,12 @@ There is no generic send, participant-side protocol verb, asynchronous
 task handle, or action-specific tool generation in Gate 1. Semantic L5
 screening across the local MCP boundary remains a future contract;
 deterministic SharedCore validation is load-bearing now.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |
+| 2026-08-28 | Updated the visible Supersession lineage after `20260828-channel-adapters-use-stock-host-apis.md` assigned session topology to stock hosts. The historical Decision Outcome is untouched. |

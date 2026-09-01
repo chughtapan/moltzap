@@ -1,18 +1,13 @@
-/* eslint-disable agent-code-guard/no-example-only-tests -- Regression-only boundary tests pin one-shot dispatch, closed module exports, and failure redaction; the cases are lifecycle timelines rather than an input domain. */
+/** @file One-shot controller configuration, dispatch, ledger export, and summary regressions. */
 
-import { assert, effect as test } from "@effect/vitest";
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
+import { assert, effect as test } from "@effect/vitest";
+import { Cause, Effect, Exit, Layer, Schema } from "effect";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Cause, Effect, Exit, Layer, Schema } from "effect";
+import { defineRuntime } from "../../agents/agent.js";
 import { RunSpec } from "../../definition.js";
-import {
-  CompletedLedgerReceipt,
-  IncompleteLedgerReceipt,
-  ProgramFinished,
-  ClusterLost,
-} from "../../run/execute.js";
 import {
   LedgerCompletion,
   ledgerDigest,
@@ -20,27 +15,36 @@ import {
 } from "../../ledger/schema.js";
 import { LedgerStorage, LedgerStorageError } from "../../ledger/storage.js";
 import { RouterProvider } from "../../network/router.js";
-import { ClusterError, Cluster } from "../cluster.js";
-import { defineRuntime } from "../../agents/agent.js";
+import {
+  ClusterLost,
+  CompletedLedgerReceipt,
+  IncompleteLedgerReceipt,
+  ProgramFinished,
+} from "../../run/execute.js";
+import { Cluster, ClusterError } from "../cluster.js";
+import { isEntryModule } from "../entry.js";
 import {
   ControllerConfigurationError,
   controllerConfigurationFromEnvironment,
   type ControllerEnvironment,
 } from "./configuration.js";
 import {
+  type ControllerLedgerExportOptions,
+  exportCompletedLedger,
+  LedgerExportOperations,
+  type LedgerExportOperationsService,
+} from "./ledger-export.js";
+import {
   CONTROLLER_STAGE,
   ControllerError,
   ControllerOperations,
-  runController,
   type ControllerOperationsService,
+  runController,
 } from "./main.js";
-import { isEntryModule } from "../entry.js";
 import {
-  exportCompletedLedger,
-  LedgerExportOperations,
-  type ControllerLedgerExportOptions,
-  type LedgerExportOperationsService,
-} from "./ledger-export.js";
+  applicationImageFromEnvironment,
+  supportImageFromEnvironment,
+} from "./services.js";
 import {
   CONTROLLER_SUMMARY_MAX_BYTES,
   CONTROLLER_SUMMARY_PREFIX,
@@ -76,9 +80,9 @@ const VALID_ENVIRONMENT: ControllerEnvironment = Object.freeze({
   MOLTZAP_RUN_OWNER_NAME: "run-root",
   MOLTZAP_RUN_OWNER_UID: "19193f95-73b8-49fb-bbd9-518773ba0331",
   MOLTZAP_SUPPORT_IMAGE: `registry.example/moltzap@sha256:${IMAGE_DIGEST}`,
+  MOLTZAP_APPLICATION_IMAGE: `registry.example/openclaw@sha256:${IMAGE_DIGEST}`,
   MOLTZAP_EXPERIMENT_MODULE: "/var/run/moltzap/experiment/main.mjs",
   MOLTZAP_LEDGER_DIRECTORY: "/var/lib/moltzap/ledger",
-  MOLTZAP_ROUTER_URL: "https://router.mz-run-1.svc:3000",
 });
 const ACTIVE_LEDGER_DIRECTORY = "/var/lib/moltzap/ledger";
 const EXPORT_DIRECTORY = `/var/lib/moltzap-artifacts/${EXPECTED_NAMESPACE}/ledger`;
@@ -109,8 +113,8 @@ const runSpec = RunSpec.define({
   agents: { alice: runtime },
   cluster: Layer.mergeAll(
     Layer.effect(LedgerStorage, Effect.never),
-    Layer.effect(RouterProvider, Effect.never),
     Layer.effect(Cluster, Effect.never),
+    Layer.effect(RouterProvider, Effect.never),
   ),
   execute: () => Effect.succeed("completed"),
 });
@@ -161,6 +165,38 @@ test("decodes the closed controller environment without retaining mutable input"
     assert.deepStrictEqual(configuration.runtimeCredentials, {});
     assert.isTrue(Object.isFrozen(configuration));
     assert.isTrue(Object.isFrozen(configuration.owner));
+  }));
+
+test("projects the same validated support image into generated experiment code", () =>
+  Effect.sync(() => {
+    assert.strictEqual(
+      supportImageFromEnvironment(VALID_ENVIRONMENT),
+      VALID_ENVIRONMENT.MOLTZAP_SUPPORT_IMAGE,
+    );
+    assert.throws(
+      () =>
+        supportImageFromEnvironment({
+          ...VALID_ENVIRONMENT,
+          MOLTZAP_SUPPORT_IMAGE: "registry.example/moltzap:mutable",
+        }),
+      ControllerConfigurationError,
+    );
+  }));
+
+test("projects an explicitly selected application image into an experiment", () =>
+  Effect.sync(() => {
+    assert.strictEqual(
+      applicationImageFromEnvironment(VALID_ENVIRONMENT),
+      VALID_ENVIRONMENT.MOLTZAP_APPLICATION_IMAGE,
+    );
+    assert.throws(
+      () =>
+        applicationImageFromEnvironment({
+          ...VALID_ENVIRONMENT,
+          MOLTZAP_APPLICATION_IMAGE: undefined,
+        }),
+      ControllerConfigurationError,
+    );
   }));
 
 test("reads a run-chosen cohort size and refuses one no roster could have", () =>
@@ -537,5 +573,3 @@ test("round-trips only the final bounded closed result marker", () =>
       ),
     );
   }));
-
-/* eslint-enable agent-code-guard/no-example-only-tests -- Restore generative-test defaults after the lifecycle regressions. */
