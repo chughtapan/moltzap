@@ -82,6 +82,7 @@ const renderedOpenClawConfig = Schema.parseJson(
         accounts: Schema.Array(
           Schema.Struct({
             id: Schema.String,
+            mode: Schema.Literal("shared", "private"),
           }),
         ),
       }),
@@ -200,7 +201,7 @@ function assertMessagingConfiguration(fixture: OpenClawContainerFixture): void {
   });
   assert.notProperty(config, "session");
   assert.deepStrictEqual(config.channels.moltzap.accounts, [
-    { id: "simulator-agent" },
+    { id: "simulator-agent", mode: "shared" },
   ]);
   assert.deepStrictEqual(config.messages, {
     queue: { mode: "steer", cap: 100, drop: "new" },
@@ -227,7 +228,7 @@ function privateMessagingModeTest() {
     );
 
     assert.deepStrictEqual(config.channels.moltzap.accounts, [
-      { id: "simulator-agent" },
+      { id: "simulator-agent", mode: "private" },
     ]);
     assert.deepStrictEqual(config.session, {
       dmScope: "per-account-channel-peer",

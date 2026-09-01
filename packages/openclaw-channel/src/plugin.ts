@@ -66,6 +66,7 @@ interface OpenClawAccountRuntime {
 const moltZapAccountSchema = Schema.Struct({
   id: Schema.String,
   enabled: Schema.optional(Schema.Boolean),
+  mode: Schema.optional(Schema.Literal("shared", "private")),
 });
 
 /** One OpenClaw account bound to the process-local MCP endpoint. */
@@ -571,14 +572,18 @@ function buildRoutedTurnPlan(
     accountId: ctx.accountId,
     peer,
   });
-  const ctxPayload = buildInboundContext(input, route);
+  const sessionKey =
+    (ctx.account.mode ?? "shared") === "shared"
+      ? route.mainSessionKey
+      : route.sessionKey;
+  const ctxPayload = buildInboundContext(input, route, sessionKey);
   return {
     cfg: ctx.cfg,
     channel: CHANNEL_ID,
     accountId: ctx.accountId,
     route: {
       agentId: route.agentId,
-      sessionKey: route.sessionKey,
+      sessionKey,
       ...(route.dmScope === undefined ? {} : { dmScope: route.dmScope }),
     },
     ctxPayload,
@@ -588,7 +593,7 @@ function buildRoutedTurnPlan(
     },
     record: {
       updateLastRoute: {
-        sessionKey: route.sessionKey,
+        sessionKey,
         channel: CHANNEL_ID,
         to: message.address,
         accountId: ctx.accountId,
@@ -601,6 +606,7 @@ function buildRoutedTurnPlan(
 function buildInboundContext(
   input: InboundMessageTurnInput,
   route: ReturnType<OpenClawAccountRuntime["routing"]["resolveAgentRoute"]>,
+  sessionKey: string,
 ) {
   const { body, ctx, message, runtime } = input;
   return runtime.inbound.buildContext({
@@ -615,9 +621,9 @@ function buildInboundContext(
     route: {
       agentId: route.agentId,
       accountId: ctx.accountId,
-      routeSessionKey: route.sessionKey,
-      dispatchSessionKey: route.sessionKey,
-      persistedSessionKey: route.sessionKey,
+      routeSessionKey: sessionKey,
+      dispatchSessionKey: sessionKey,
+      persistedSessionKey: sessionKey,
       mainSessionKey: route.mainSessionKey,
     },
     reply: inboundReplyFacts(message),

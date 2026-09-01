@@ -95,8 +95,12 @@ class OpenClawTestError extends Data.TaggedError("OpenClawTestError")<{
 
 describe("OpenClaw HarnessEndpoint adapter", () => {
   it(
-    "runs the public host pipeline and acknowledges after it completes",
+    "runs shared inbound turns in the main session and acknowledges after completion",
     upstreamRunnerAndAcknowledgment,
+  );
+  it(
+    "runs private inbound turns in the host-resolved peer session",
+    privateModeUsesHostResolvedPeerSession,
   );
   it(
     "leaves a Client delivery pending when the host turn fails",
@@ -162,11 +166,11 @@ function upstreamRunnerAndAcknowledgment() {
     expectGroupProjection(requireDispatchCall(calls, 1), group.message);
     expect(plans.every((plan) => plan.replyOptions === undefined)).toBe(true);
     expect(events).toEqual([
-      `record:${direct.message.postId}:${sessionKeyFor(direct.message.address)}`,
+      `record:${direct.message.postId}:${MAIN_SESSION_KEY}`,
       `dispatch:${direct.message.postId}`,
       `send:${direct.message.address}:host final`,
       `ack:${direct.message.postId}`,
-      `record:${group.message.postId}:${sessionKeyFor(group.message.address)}`,
+      `record:${group.message.postId}:${MAIN_SESSION_KEY}`,
       `dispatch:${group.message.postId}`,
       `send:${group.message.address}:host final`,
       `ack:${group.message.postId}`,
@@ -182,6 +186,48 @@ function upstreamRunnerAndAcknowledgment() {
       },
     ]);
     yield* proactiveSendFailsWhenDisconnected(plugin, fake, 2);
+  });
+}
+
+function privateModeUsesHostResolvedPeerSession() {
+  const events: string[] = [];
+  const message = groupMessage();
+  const fake = makeInboundEndpoint([message], events);
+  const calls: DispatchObservation[] = [];
+  const plans: ChannelInboundTurnPlan[] = [];
+  const runtime = makeObservedRuntime({
+    events,
+    calls,
+    plans,
+    routePeers: [],
+  });
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
+  const sessionKey = sessionKeyFor(message.message.address);
+
+  return Effect.gen(function* () {
+    yield* startAccount(
+      plugin,
+      gatewayContext(
+        new AbortController().signal,
+        runtime,
+        undefined,
+        "private",
+      ),
+    );
+
+    expectRoutedTurn(
+      requireTurnPlan(plans, 0),
+      message.message.address,
+      sessionKey,
+    );
+    expectGroupProjection(
+      requireDispatchCall(calls, 0),
+      message.message,
+      sessionKey,
+    );
+    expect(events).toContain(`record:${message.message.postId}:${sessionKey}`);
   });
 }
 
@@ -209,7 +255,7 @@ function failedHostTurnPreservesDelivery() {
 
     expect(failure).toBeInstanceOf(OpenClawTestError);
     expect(events).toEqual([
-      `record:${message.message.postId}:${sessionKeyFor(message.message.address)}`,
+      `record:${message.message.postId}:${MAIN_SESSION_KEY}`,
       `dispatch-failed:${message.message.postId}`,
     ]);
     expect(fake.sends).toEqual([]);
@@ -393,7 +439,7 @@ function emptyReplyRemainsInvisible() {
     );
 
     expect(events).toEqual([
-      `record:${message.message.postId}:${sessionKeyFor(message.message.address)}`,
+      `record:${message.message.postId}:${MAIN_SESSION_KEY}`,
       `dispatch:${message.message.postId}`,
       `ack:${message.message.postId}`,
     ]);
@@ -650,16 +696,18 @@ function gatewayContext(
   abortSignal: AbortSignal,
   channelRuntime?: ChannelRuntimeSurface,
   setStatus?: ReturnType<typeof vi.fn>,
+  mode: "shared" | "private" = "shared",
 ): ChannelGatewayContext<{
   readonly id: string;
   readonly enabled?: boolean;
+  readonly mode: "shared" | "private";
 }> {
   let snapshot: ChannelAccountSnapshot = { accountId: ACCOUNT_ID };
   const statusSink = setStatus ?? vi.fn();
   return {
-    cfg: makeConfig(),
+    cfg: makeConfig(mode),
     accountId: ACCOUNT_ID,
-    account: { id: ACCOUNT_ID },
+    account: { id: ACCOUNT_ID, mode },
     abortSignal,
     runtime: {
       log: () => undefined,
@@ -675,10 +723,12 @@ function gatewayContext(
   };
 }
 
-function makeConfig(): OpenClawConfig {
+function makeConfig(mode: "shared" | "private" = "shared"): OpenClawConfig {
   return {
     channels: {
-      moltzap: { accounts: [{ id: ACCOUNT_ID }] },
+      moltzap: {
+        accounts: [{ id: ACCOUNT_ID, mode }],
+      },
     },
     session: { store: TEST_SESSION_STORE_PATH },
   };
@@ -689,6 +739,7 @@ function startAccount(
   ctx: ChannelGatewayContext<{
     readonly id: string;
     readonly enabled?: boolean;
+    readonly mode?: "shared" | "private";
   }>,
 ) {
   const start = plugin.gateway?.startAccount;
@@ -747,13 +798,17 @@ function requireTurnPlan(
   return plan;
 }
 
-function expectRoutedTurn(plan: ChannelInboundTurnPlan, address: string): void {
+function expectRoutedTurn(
+  plan: ChannelInboundTurnPlan,
+  address: string,
+  expectedSessionKey: string = MAIN_SESSION_KEY,
+): void {
   expect(plan.route).toEqual({
     agentId: "primary",
-    sessionKey: sessionKeyFor(address),
+    sessionKey: expectedSessionKey,
   });
   expect(plan.record?.updateLastRoute).toEqual({
-    sessionKey: sessionKeyFor(address),
+    sessionKey: expectedSessionKey,
     channel: "moltzap",
     to: address,
     accountId: ACCOUNT_ID,
@@ -768,6 +823,7 @@ function expectRoutedTurn(plan: ChannelInboundTurnPlan, address: string): void {
 function expectDirectProjection(
   call: DispatchObservation,
   message: InboundDelivery["message"],
+  expectedSessionKey: string = MAIN_SESSION_KEY,
 ): void {
   expect(call.ctx).toMatchObject({
     Body: 'hello\n{"count":2}',
@@ -779,7 +835,7 @@ function expectDirectProjection(
     OriginatingTo: "agent:alice",
     SenderId: "agent:alice",
     SenderName: "alice",
-    SessionKey: sessionKeyFor(message.address),
+    SessionKey: expectedSessionKey,
   });
   expect(call.ctx.GroupMembers).toBeUndefined();
 }
@@ -787,6 +843,7 @@ function expectDirectProjection(
 function expectGroupProjection(
   call: DispatchObservation,
   message: InboundDelivery["message"],
+  expectedSessionKey: string = MAIN_SESSION_KEY,
 ): void {
   expect(call.ctx).toMatchObject({
     Body: "group message",
@@ -799,7 +856,7 @@ function expectGroupProjection(
     OriginatingTo: "group:alice,bob,carol",
     SenderId: "agent:bob",
     SenderName: "bob",
-    SessionKey: sessionKeyFor(message.address),
+    SessionKey: expectedSessionKey,
   });
 }
 
