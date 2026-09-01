@@ -75,7 +75,6 @@ export function materializeBootstrap(
   options: BootstrapMaterializationOptions,
 ): Effect.Effect<void, BootstrapError, FileSystem.FileSystem> {
   return Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
     const manifest = yield* readManifest(options.manifest);
     const files = yield* resolveManifestSources(options, manifest);
 

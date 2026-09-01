@@ -207,7 +207,7 @@ export function createProcessSessionDriver({
             env: {
               ...baseEnvironment,
               ...agent.env,
-              ...(agent.contributedEnv ?? {}),
+              ...agent.contributedEnv,
             },
             stdio: "inherit",
             ...(nextRecord.spec.runAs === undefined
