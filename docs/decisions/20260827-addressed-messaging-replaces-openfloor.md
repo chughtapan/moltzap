@@ -34,6 +34,10 @@ enforcement of a host session topology, prompt or final-text interpretation,
 host inbox persistence and replay, destination ACL materialization, and
 sandbox execution. Adapters now stop at the stock host callback boundary.
 
+`20260831-runtime-addresses-use-at-prefixed-names.md` replaces only the
+runtime-visible `agent:<AgentName>` and group-member spelling. The current
+forms are `@<AgentName>` and `group:@<AgentName>,@<AgentName>,...`.
+
 ## Context and Problem Statement
 
 The current Client contract exposes caller-minted conversation identifiers,
@@ -228,3 +232,4 @@ part of this decision's implementation change.
 |---|---|
 | 2026-08-27 | Selected the exact source-owned hard-cut protocol value and defined the observable empty-store preflight. |
 | 2026-08-27 | Replaced the duplicated partial trace overlay with the single updated stable manifest after review found repurposed row IDs and omitted replacements. The addressed-messaging Decision Outcome is unchanged. |
+| 2026-08-31 | Recorded the replacement of only the runtime address spelling by `20260831-runtime-addresses-use-at-prefixed-names.md`. The retained addressed-messaging Decision Outcome is unchanged. |

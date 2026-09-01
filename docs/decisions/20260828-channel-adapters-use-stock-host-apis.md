@@ -1,13 +1,24 @@
 ---
-status: accepted
+status: partially-superseded
 date: 2026-08-28
 decision-makers: Tapan Chugh
+superseded-by: 20260831-runtime-addresses-use-at-prefixed-names.md
 ---
 
 # Channel adapters use stock host APIs
 
 Decision provenance: [current decision source
 gap](../decision-evidence/20260828-stock-host-adapter-source-gap.md).
+
+## Supersession
+
+The stock host API boundary, callback ownership, one-send projection, and
+prohibition on host patches remain current.
+
+`20260831-runtime-addresses-use-at-prefixed-names.md` replaces only the
+explicit direct and group-member address spelling. Current direct addresses
+use `@<AgentName>` and group addresses use
+`group:@<AgentName>,@<AgentName>,...`.
 
 ## Context and Problem Statement
 

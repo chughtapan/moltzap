@@ -25,15 +25,15 @@ signatures, durability votes, and delivery tokens never cross
 The two runtime-visible address grammars are:
 
 ```text
-agent:<AgentName>
-group:<AgentName>,<AgentName>,...
+@<AgentName>
+group:@<AgentName>,@<AgentName>,...
 ```
 
-`AgentName` uses Identity's canonical spelling. Comma and colon are therefore
-not valid inside a name.
+`AgentName` uses Identity's canonical spelling. `@`, comma, and colon are
+therefore not valid inside a name.
 
-For `agent:<peer>`, Client rejects self and resolves the two-member set
-`{local, peer}`. For `group:<members>`, Client:
+For `@<peer>`, Client rejects self and resolves the two-member set
+`{local, peer}`. For `group:@<member>,...`, Client:
 
 1. parses names in any input order;
 2. rejects a repeated explicit name;
@@ -590,7 +590,7 @@ contains:
 - `kind`, either `direct` or `group`;
 - author-scoped `postId`;
 - canonical runtime-visible `address`;
-- author `sender` as `agent:<AgentName>`;
+- author `sender` as `@<AgentName>`;
 - canonical `content`; and
 - for a group, the exact ordered complete `members` as AgentAddress values.
 
