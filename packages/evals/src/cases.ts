@@ -3,7 +3,7 @@
 import type { SimulatorDefinitionId } from "@moltzap/simulator";
 import type { NonEmptyReadonlyArray } from "effect/Array";
 import { AgentAddress, type Content, GroupAddress } from "@moltzap/client";
-import { Array as Arr, Effect, type Option, Schema } from "effect";
+import { Array as Arr, Effect, Schema } from "effect";
 import {
   CriterionDecided,
   type CriterionId,
@@ -56,11 +56,9 @@ export interface CriterionDefinition {
 
 /** Capabilities supplied to one code-defined case program. */
 export interface EvaluationCaseProgramContext<Failure> {
-  readonly instruct: (
+  readonly instruct: (message: string) => Effect.Effect<void, Failure>;
+  readonly ask: (
     message: string,
-  ) => Effect.Effect<Option.Option<EvaluationEvidenceId>, Failure>;
-  readonly selectPrincipalOutput: (
-    output: Option.Option<EvaluationEvidenceId>,
   ) => Effect.Effect<EvaluationEvidenceId, Failure>;
   readonly observePeer: (agent: string) => Effect.Effect<void, Failure>;
   readonly selectSocialOutput: (
@@ -258,10 +256,7 @@ function freezeCriterion(definition: CriterionDefinition): CriterionDefinition {
 
 function principalProgram(instruction: string): EvaluationCaseProgram {
   return <Failure>(context: EvaluationCaseProgramContext<Failure>) =>
-    Effect.gen(function* () {
-      const output = yield* context.instruct(instruction);
-      return yield* context.selectPrincipalOutput(output);
-    });
+    context.ask(instruction);
 }
 
 function directInstruction(peerName: string): string {
@@ -392,8 +387,7 @@ function identityScenario(
     program: <Failure>(context: EvaluationCaseProgramContext<Failure>) =>
       Effect.gen(function* () {
         yield* context.observePeer(PEER_AGENT_NAME);
-        const output = yield* context.instruct(instruction);
-        return yield* context.selectPrincipalOutput(output);
+        return yield* context.ask(instruction);
       }),
   };
 }

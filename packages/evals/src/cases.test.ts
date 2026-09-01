@@ -1,7 +1,7 @@
 /** @file The restored case catalog stays complete and Client-semantic. */
 
 import { assert, it } from "@effect/vitest";
-import { Effect, Option, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import {
   evaluationCase,
   type EvaluationCaseProgramContext,
@@ -26,12 +26,11 @@ function context(operations: string[]): EvaluationCaseProgramContext<never> {
     instruct: (message) =>
       Effect.sync(() => {
         operations.push(`instruct:${message}`);
-        return Option.some(PRINCIPAL_EVIDENCE);
       }),
-    selectPrincipalOutput: (output) =>
+    ask: (message) =>
       Effect.sync(() => {
-        operations.push("select:principal");
-        return Option.getOrThrow(output);
+        operations.push(`ask:${message}`);
+        return PRINCIPAL_EVIDENCE;
       }),
     observePeer: (agent) =>
       Effect.sync(() => {

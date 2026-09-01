@@ -372,19 +372,35 @@ function caseContext<Gateway, DriverFailure>(
   instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
 ): EvaluationCaseProgramContext<EvaluationProgramFailed> {
   return {
-    instruct: (message) => principalInstruction(instrumentation, message),
-    selectPrincipalOutput,
+    instruct: (message) => instructPrincipal(instrumentation, message),
+    ask: (message) => askPrincipal(instrumentation, message),
     observePeer: (agent) => observePeer(instrumentation, agent),
     selectSocialOutput: (agent) => selectSocialOutput(instrumentation, agent),
   };
 }
 
-function principalInstruction<Gateway, DriverFailure>(
+function instructPrincipal<Gateway, DriverFailure>(
   instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
   message: string,
-): Effect.Effect<Option.Option<EvaluationEvidenceId>, EvaluationProgramFailed> {
+): Effect.Effect<void, EvaluationProgramFailed> {
   return instrumentation.driver
-    .drive(
+    .instruct(
+      instrumentation.target,
+      {
+        caseId: instrumentation.definition.id,
+        message,
+      },
+      instrumentation.emit,
+    )
+    .pipe(Effect.mapError((cause) => programFailure("principal", cause)));
+}
+
+function askPrincipal<Gateway, DriverFailure>(
+  instrumentation: EvaluationCaseInstrumentation<Gateway, DriverFailure>,
+  message: string,
+): Effect.Effect<EvaluationEvidenceId, EvaluationProgramFailed> {
+  return instrumentation.driver
+    .ask(
       instrumentation.target,
       {
         caseId: instrumentation.definition.id,
@@ -459,21 +475,6 @@ function selectSocialOutput<Gateway, DriverFailure>(
       }),
     ),
   );
-}
-
-function selectPrincipalOutput(
-  output: Option.Option<EvaluationEvidenceId>,
-): Effect.Effect<EvaluationEvidenceId, EvaluationProgramFailed> {
-  return Option.match(output, {
-    onNone: () =>
-      Effect.fail(
-        programFailure(
-          "principal",
-          "the native principal gateway does not correlate a terminal output with this instruction",
-        ),
-      ),
-    onSome: Effect.succeed,
-  });
 }
 
 function peerExchange<Gateway, DriverFailure>(
