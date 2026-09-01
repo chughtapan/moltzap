@@ -564,11 +564,12 @@ function buildRoutedTurnPlan(
   input: InboundMessageTurnInput,
 ): ChannelInboundTurnPlan {
   const { ctx, endpoint, message, runtime } = input;
+  const peer = inboundRoutePeer(message);
   const route = runtime.routing.resolveAgentRoute({
     cfg: ctx.cfg,
     channel: CHANNEL_ID,
     accountId: ctx.accountId,
-    peer: { kind: message.kind, id: message.address },
+    peer,
   });
   const ctxPayload = buildInboundContext(input, route);
   return {
@@ -638,11 +639,20 @@ function inboundSenderFacts(message: InboundDelivery["message"]) {
 }
 
 function inboundConversationFacts(message: InboundDelivery["message"]) {
+  const routePeer = inboundRoutePeer(message);
   return {
     kind: message.kind,
     id: message.address,
     label: message.address,
-    routePeer: { kind: message.kind, id: message.address },
+    routePeer,
+  };
+}
+
+function inboundRoutePeer(message: InboundDelivery["message"]) {
+  const prefix = message.kind === "group" ? "group:" : "agent:";
+  return {
+    kind: message.kind,
+    id: message.address.slice(prefix.length),
   };
 }
 
