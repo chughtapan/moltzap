@@ -3,6 +3,7 @@
   "pages": [
     "modules/client/src",
     "modules/identity/src",
+    "modules/openclaw-channel/src",
     "modules/router/src",
     "modules/simulator/agents",
     "modules/simulator/ledger",

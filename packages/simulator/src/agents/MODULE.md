@@ -550,13 +550,13 @@ Timed-out terminal result returned by OpenClaw's `agent` gateway RPC.
 OpenClaw treats this as a successful RPC payload rather than a transport
 failure. A run may time out before it has an agent result.
 
-### [`openClawRuntime`](./openclaw/runtime.ts#L149)
+### [`openClawRuntime`](./openclaw/runtime.ts#L151)
 
 _Function_
 
 ```ts
 export function openClawRuntime(
-  options: OpenClawRuntimeOptions = {},
+  options: OpenClawRuntimeOptions,
 ): ContainerAgentRuntime<
   OpenClawGateway,
   RuntimeAcquisitionError,
@@ -564,7 +564,7 @@ export function openClawRuntime(
 >
 ```
 
-Constructs a simulator runtime from the pinned OpenClaw application image.
+Constructs a simulator runtime from a complete, digest-pinned agent image.
 
 ```mermaid
 flowchart LR
@@ -582,6 +582,8 @@ _Interface_
 
 ```ts
 export interface OpenClawRuntimeOptions {
+  /** Digest-pinned complete OpenClaw agent image. */
+  readonly applicationImage: Image;
   readonly startupTimeout?: Duration.Duration;
   readonly workspaceFiles?: readonly WorkspaceFile[];
   readonly modelId?: string;
@@ -597,7 +599,7 @@ export interface OpenClawRuntimeOptions {
 
 Configuration captured by one reusable OpenClaw runtime value.
 
-### [`OpenClawSandboxConfig`](./openclaw/configuration.ts#L25)
+### [`OpenClawSandboxConfig`](./openclaw/configuration.ts#L26)
 
 _TypeAlias_
 
@@ -609,7 +611,7 @@ export type OpenClawSandboxConfig = NonNullable<
 
 Default-agent sandbox configuration accepted by `OpenClawConfig`.
 
-### [`OpenClawToolsConfig`](./openclaw/configuration.ts#L22)
+### [`OpenClawToolsConfig`](./openclaw/configuration.ts#L23)
 
 _TypeAlias_
 
