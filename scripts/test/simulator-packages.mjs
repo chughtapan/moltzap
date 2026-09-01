@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { access, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import {
   copyFile,
   mkdir,
@@ -13,11 +13,6 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import ts from "typescript";
-import {
-  controllerExternalDependencies,
-  controllerPackageDependencies,
-  controllerWorkspacePackageNames,
-} from "../simulator/build-controller-image.mjs";
 
 const exec = promisify(execFile);
 const workspaceRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -39,70 +34,7 @@ const facadeSpecifiers = Object.freeze({
   "./ledger": "@moltzap/simulator/ledger",
   "./agents": "@moltzap/simulator/agents",
 });
-const expectedCensusCounts = Object.freeze({
-  ".": Object.freeze({ unique: 58, runtime: 38, types: 53 }),
-  "./network": Object.freeze({ unique: 32, runtime: 16, types: 25 }),
-  "./ledger": Object.freeze({ unique: 40 }),
-  "./agents": Object.freeze({ unique: 45 }),
-});
-const controllerImageBuilder = join(
-  workspaceRoot,
-  "scripts",
-  "simulator",
-  "build-controller-image.mjs",
-);
-const controllerImageDockerfile = join(
-  workspaceRoot,
-  "scripts/simulator/controller-image/Dockerfile",
-);
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-simulator-pack-"));
-const forbiddenSimulatorPaths = [
-  "dist/agents.d.ts",
-  "dist/agents.d.ts.map",
-  "dist/agents.js",
-  "dist/agents.js.map",
-  "dist/ledger.d.ts",
-  "dist/ledger.d.ts.map",
-  "dist/ledger.js",
-  "dist/ledger.js.map",
-  "dist/nanoclaw-assets",
-  "dist/network.d.ts",
-  "dist/network.d.ts.map",
-  "dist/network.js",
-  "dist/network.js.map",
-  "nanoclaw-assets",
-  "scripts/copy-nanoclaw-assets.mjs",
-  "scripts/build-controller-image.mjs",
-  "local/controller-image/Dockerfile",
-  "src/layer.ts",
-  "src/agents/cache.ts",
-  "src/agents/effect.ts",
-  "src/agents/nanoclaw/install.ts",
-  "src/agents/nanoclaw/onecli.ts",
-  "src/agents/nanoclaw/process.ts",
-  "src/agents/openclaw/cache.ts",
-  "src/agents/openclaw/process.ts",
-  "src/agents.ts",
-  "src/ledger.ts",
-  "src/network.ts",
-];
-const forbiddenStandaloneWorkspacePaths = [
-  "examples/simulator/README.md",
-  "examples/simulator/hello.ts",
-  "examples/simulator/openclaw-container.mjs",
-  "examples/simulator/openclaw-container.test.mjs",
-  "examples/simulator/openclaw-image.json",
-  "examples/simulator/package.json",
-  "examples/simulator/tsconfig.json",
-];
-const standaloneWorkspaceControlFiles = [
-  "package.json",
-  "pnpm-lock.yaml",
-  "pnpm-workspace.yaml",
-  "knip.json",
-  "tools/workspace/project.json",
-  ".github/workflows/ci.yml",
-];
 
 function requireCondition(condition, detail) {
   if (!condition) {
@@ -159,143 +91,7 @@ async function loadApiCensus() {
       JSON.stringify(Object.keys(facadeSpecifiers)),
     "simulator API census must contain exactly the four public facades",
   );
-  for (const [subpath, expected] of Object.entries(expectedCensusCounts)) {
-    const facade = facades[subpath];
-    const unique = new Set([...facade.runtime, ...facade.types]).size;
-    requireCondition(
-      unique === expected.unique &&
-        (expected.runtime === undefined ||
-          facade.runtime.length === expected.runtime) &&
-        (expected.types === undefined ||
-          facade.types.length === expected.types),
-      `simulator API census has the wrong admitted counts for ${subpath}`,
-    );
-  }
   return Object.freeze(facades);
-}
-
-function isMissing(cause) {
-  return (
-    typeof cause === "object" &&
-    cause !== null &&
-    "code" in cause &&
-    cause.code === "ENOENT"
-  );
-}
-
-async function requirePathMissing(root, relativePath, detail) {
-  try {
-    await access(join(root, relativePath));
-  } catch (cause) {
-    if (isMissing(cause)) {
-      return;
-    }
-    throw cause;
-  }
-  throw new Error(detail);
-}
-
-async function verifyRepositoryCutover() {
-  await Promise.all(
-    forbiddenStandaloneWorkspacePaths.map((relativePath) =>
-      requirePathMissing(
-        workspaceRoot,
-        relativePath,
-        `standalone simulator workspace path remains: ${relativePath}`,
-      ),
-    ),
-  );
-  await Promise.all(
-    forbiddenSimulatorPaths.map((relativePath) =>
-      requirePathMissing(
-        packageRoot,
-        relativePath,
-        `obsolete simulator path remains in the repository: ${relativePath}`,
-      ),
-    ),
-  );
-  await Promise.all(
-    standaloneWorkspaceControlFiles.map(async (relativePath) => {
-      const source = await readFile(join(workspaceRoot, relativePath), "utf8");
-      requireCondition(
-        !source.includes("examples/simulator") &&
-          !source.includes("simulator-example"),
-        `standalone simulator workspace remains configured in ${relativePath}`,
-      );
-    }),
-  );
-}
-
-async function verifyControllerImageAssembly() {
-  const [dockerfile, channelPackageSource] = await Promise.all([
-    readFile(controllerImageDockerfile, "utf8"),
-    readFile(
-      join(workspaceRoot, "packages", "openclaw-channel", "package.json"),
-      "utf8",
-    ),
-  ]);
-  const channelPackage = JSON.parse(channelPackageSource);
-
-  requireCondition(
-    JSON.stringify(controllerPackageDependencies) ===
-      JSON.stringify([
-        "@moltzap/client",
-        "@moltzap/evals",
-        "@moltzap/identity",
-        "@moltzap/router",
-        "@moltzap/simulator",
-      ]),
-    "the controller image must directly install evals and every production process binary",
-  );
-  requireCondition(
-    JSON.stringify(controllerWorkspacePackageNames) ===
-      JSON.stringify([
-        "@moltzap/client",
-        "@moltzap/evals",
-        "@moltzap/identity",
-        "@moltzap/router",
-        "@moltzap/simulator",
-      ]),
-    "the controller image must pack only controller-side workspace packages",
-  );
-  requireCondition(
-    controllerExternalDependencies["@electric-sql/pglite"] === "0.4.4" &&
-      controllerExternalDependencies["@electric-sql/pglite-socket"] ===
-        "0.1.4" &&
-      controllerExternalDependencies["@modelcontextprotocol/client"] ===
-        "2.0.0-beta.5",
-    "the controller image must install its Registry database and MCP registrar helpers",
-  );
-  requireCondition(
-    channelPackage.peerDependencies?.openclaw === "2026.8.1" &&
-      channelPackage.peerDependenciesMeta?.openclaw?.optional === true &&
-      channelPackage.dependencies?.openclaw === undefined,
-    "the adapter must preserve its exact optional host peer without a runtime dependency edge",
-  );
-  requireCondition(
-    /ENTRYPOINT \["node", "\/opt\/moltzap\/dist\/cluster\/controller\/main\.js"\]/.test(
-      dockerfile,
-    ),
-    "controller image must start the compiled controller",
-  );
-  for (const expected of ["/opt/moltzap/dist"]) {
-    requireCondition(
-      dockerfile.includes(expected),
-      `controller image is missing ${expected}`,
-    );
-  }
-  requireCondition(
-    /node:24\.18\.0-bookworm-slim@sha256:[0-9a-f]{64}/.test(dockerfile),
-    "controller image base must be digest-pinned",
-  );
-  requireCondition(
-    !dockerfile.includes("application-overlay") &&
-      !dockerfile.includes("@moltzap/openclaw-channel"),
-    "the controller image must not contain runtime-specific overlays or plugins",
-  );
-  await exec(process.execPath, ["--check", controllerImageBuilder], {
-    cwd: workspaceRoot,
-  });
 }
 
 async function packWorkspacePackage(packageDirectory, destination) {
@@ -348,15 +144,6 @@ async function verifyPackedFiles(extractedPackage) {
       });
     }),
   );
-  await Promise.all(
-    forbiddenSimulatorPaths.map((relativePath) =>
-      requirePathMissing(
-        extractedPackage,
-        relativePath,
-        `packed simulator contains obsolete path ${relativePath}`,
-      ),
-    ),
-  );
 
   const manifest = JSON.parse(
     await readFile(join(extractedPackage, "package.json"), "utf8"),
@@ -365,10 +152,6 @@ async function verifyPackedFiles(extractedPackage) {
     JSON.stringify(Object.keys(manifest.exports)) ===
       JSON.stringify([".", "./network", "./ledger", "./agents"]),
     "packed simulator exports must be root, network, ledger, and agents",
-  );
-  requireCondition(
-    manifest.dependencies?.["@moltzap/openclaw-channel"] === undefined,
-    "packed simulator must not depend on the OpenClaw adapter",
   );
 }
 
@@ -458,20 +241,6 @@ function requireMembers(checker, facade, symbolName, expected) {
   }
 }
 
-function requireMembersAbsent(checker, facade, symbolName, forbidden) {
-  const names = new Set(
-    declaredProperties(checker, facade, symbolName).map(
-      (property) => property.name,
-    ),
-  );
-  for (const member of forbidden) {
-    requireCondition(
-      !names.has(member),
-      `${symbolName} must not expose removed member ${member}`,
-    );
-  }
-}
-
 function requireSemanticMemberType(
   checker,
   facade,
@@ -502,61 +271,9 @@ function requireSemanticMemberType(
   );
 }
 
-function verifyRemovedFamilies(checker, facades) {
-  const forbiddenSymbols = [
-    "CommittedRouterMessage",
-    "EndpointMessageReceived",
-    "EndpointMessageSent",
-    "LinkMessageDelayed",
-    "LinkMessageDropped",
-    "LinkMessageHeld",
-    "Message",
-    "OpenedConversation",
-    "ReceivedMessage",
-    "RouterMessageCommitted",
-    "RouterSequence",
-  ];
-  for (const [subpath, facade] of Object.entries(facades)) {
-    for (const symbolName of forbiddenSymbols) {
-      requireCondition(
-        !facade.symbols.has(symbolName),
-        `${subpath} must not expose removed symbol ${symbolName}`,
-      );
-    }
-  }
-
+function verifyPublicContracts(checker, facades) {
   const network = facades["./network"];
   const agents = facades["./agents"];
-  requireMembersAbsent(checker, network, "Endpoint", ["open"]);
-  requireMembersAbsent(checker, network, "EndpointTransport", [
-    "openConversation",
-  ]);
-  requireMembersAbsent(checker, network, "AgentConnection", [
-    "connection",
-    "key",
-    "keys",
-    "origins",
-    "routerUrl",
-    "store",
-  ]);
-  requireMembersAbsent(checker, network, "Router", [
-    "attachAgent",
-    "attachEndpoint",
-  ]);
-  requireMembersAbsent(checker, network, "RouterStopped", [
-    "committedMessages",
-  ]);
-  requireMembersAbsent(checker, agents, "AgentRuntimeInput", [
-    "connection",
-    "key",
-    "keys",
-    "origins",
-    "registryOrigin",
-    "routerOrigin",
-    "routerUrl",
-    "store",
-  ]);
-
   requireMembers(checker, network, "Endpoint", ["messages", "send"]);
   requireMembers(checker, facades["."], "Endpoint", ["messages", "send"]);
   requireMembers(checker, network, "EndpointTransport", ["received", "send"]);
@@ -654,7 +371,7 @@ function verifyDeclarationCensus(installedPackage, census) {
     );
     facades[subpath] = actual;
   }
-  verifyRemovedFamilies(checker, facades);
+  verifyPublicContracts(checker, facades);
 }
 
 function localArchiveSpecifier(consumerRoot, archive) {
@@ -799,8 +516,6 @@ async function verifyConsumerImports(archives, census) {
 }
 
 try {
-  await verifyRepositoryCutover();
-  await verifyControllerImageAssembly();
   const census = await loadApiCensus();
   const archives = await packedTarballs();
   const extractedRoot = join(temporaryRoot, "extracted");

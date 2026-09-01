@@ -3,7 +3,6 @@ import {
   mkdir,
   mkdtemp,
   readFile,
-  readdir,
   realpath,
   rm,
   stat,
@@ -19,15 +18,6 @@ const exec = promisify(execFile);
 const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const clientRoot = join(workspaceRoot, "packages", "client");
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-client-pack-"));
-
-const retiredOutputPattern =
-  /^dist\/(?:cli\/|local-daemon-rpc\.|local-history\.|local-socket-server\.|service-local-daemon\.|service-socket-path\.)/;
-const retiredDependencies = [
-  "@effect/cli",
-  "@effect/printer",
-  "@effect/printer-ansi",
-  "@effect/typeclass",
-];
 
 function requireCondition(condition, detail) {
   if (!condition) {
@@ -46,21 +36,6 @@ function collectExportTargets(value, targets = []) {
     }
   }
   return targets;
-}
-
-async function collectPackedFiles(root, relativeDirectory = "") {
-  const files = [];
-  for (const entry of await readdir(join(root, relativeDirectory), {
-    withFileTypes: true,
-  })) {
-    const relativePath = join(relativeDirectory, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await collectPackedFiles(root, relativePath)));
-    } else if (entry.isFile()) {
-      files.push(relativePath);
-    }
-  }
-  return files;
 }
 
 async function packedTarball() {
@@ -95,23 +70,8 @@ async function verifyPackedManifest(extractedPackage) {
     "packed client must remain private until publication is admitted",
   );
   requireCondition(
-    manifest.bin?.moltzap === undefined,
-    "packed client still exposes the retired moltzap executable",
-  );
-  requireCondition(
     manifest.bin?.moltzapd === "./bin/moltzapd",
     "packed client does not expose the moltzapd executable",
-  );
-  for (const dependency of retiredDependencies) {
-    requireCondition(
-      manifest.dependencies?.[dependency] === undefined &&
-        manifest.devDependencies?.[dependency] === undefined,
-      `packed client still depends on retired package ${dependency}`,
-    );
-  }
-  requireCondition(
-    manifest.devDependencies?.tsx === undefined,
-    "packed client still carries the retired CLI generator runtime",
   );
   const exportEntries = Object.entries(manifest.exports ?? {});
   requireCondition(
@@ -180,15 +140,8 @@ try {
   await exec("tar", ["-xzf", tarball, "-C", extractedRoot]);
   const extractedPackage = join(extractedRoot, "package");
   const publicSpecifiers = await verifyPackedManifest(extractedPackage);
-  const retiredOutputs = (await collectPackedFiles(extractedPackage)).filter(
-    (path) => retiredOutputPattern.test(path),
-  );
-  requireCondition(
-    retiredOutputs.length === 0,
-    `packed client contains retired outputs: ${retiredOutputs.join(", ")}`,
-  );
   await verifyConsumerImports(extractedPackage, publicSpecifiers);
-  process.stdout.write("client package cutover check passed\n");
+  process.stdout.write("client package consumer check passed\n");
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
 }

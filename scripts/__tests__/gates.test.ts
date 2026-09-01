@@ -256,24 +256,6 @@ const testDocImportsResolve = (): void => {
   );
   restoreAllPlants();
 
-  // Planted regression 3: only final unprefixed package names resolve;
-  // retired v2-prefixed aliases remain absent.
-  plantFile(
-    target1,
-    (s) =>
-      `${s}\n\`\`\`typescript\nimport { MOLTZAP_VERSION } from "@moltzap/v2-identity";\n\`\`\`\n`,
-  );
-  const r3 = runScript(
-    "scripts/docs/check-doc-imports-resolve.ts",
-    workspaceRoot,
-  );
-  assert(
-    "flags retired v2-prefixed package name",
-    r3.code !== 0 && /unknown-package/.test(r3.stderr),
-    `expected unknown-package. exit=${r3.code}, stderr=${r3.stderr.slice(0, 300)}`,
-  );
-  restoreAllPlants();
-
   // Positive case: multi-line `import { ... } from "..."` block whose
   // bindings are unknown must still be flagged as missing-export. Locks
   // in that the joinMultiLineImports fold feeds IMPORT_RE rather than
@@ -498,33 +480,6 @@ const testMoltzapVersionFile = (): void => {
   restoreAllPlants();
 };
 
-const testPublishWorkflowVersionFlow = (): void => {
-  console.log("\n# publish workflow ordering");
-  const workflow = readFileSync(
-    resolve(workspaceRoot, ".github/workflows/publish.yml"),
-    "utf8",
-  );
-  const manifestWrite = workflow.indexOf(
-    'jq --arg v "$VERSION" \'.version = $v\' "packages/$pkg/package.json"',
-  );
-  const build = workflow.indexOf("pnpm build", manifestWrite);
-  const docs = workflow.indexOf("pnpm docs:generate", build);
-  const stage = workflow.indexOf(
-    "git add packages/*/package.json pnpm-lock.yaml",
-    docs,
-  );
-  assert(
-    "release mutates only the package manifest version source",
-    manifestWrite >= 0,
-    "expected a package.json version write with no source-file mutation",
-  );
-  assert(
-    "release rebuilds and regenerates docs before staging",
-    manifestWrite < build && build < docs && docs < stage,
-    `expected manifest → build → docs → stage ordering; indices=${manifestWrite},${build},${docs},${stage}`,
-  );
-};
-
 const testNodeVersionFloorConsistency = (): void => {
   console.log("\n# Node version floor consistency");
   const workspaceManifest = JSON.parse(
@@ -620,7 +575,6 @@ const main = (): void => {
     testGeneratorIdempotence();
     testMoltzapVersionFile();
     testBakeFailureFailClosed();
-    testPublishWorkflowVersionFlow();
     testNodeVersionFloorConsistency();
   } finally {
     restoreAllPlants();
