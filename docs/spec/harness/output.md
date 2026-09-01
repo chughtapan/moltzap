@@ -10,9 +10,9 @@ provides durable addressed transport and does not interpret model output.
 ## Semantic send
 
 `HarnessEndpoint.send` accepts exactly `to` and nonempty `content`. `to` is
-`agent:<AgentName>` or `group:<AgentName>,...`. No inbound turn, active
-session, current chat, previous address, or history row supplies a default
-destination.
+`@<AgentName>` or `group:@<AgentName>,@<AgentName>,...`. No inbound turn,
+active session, current chat, previous address, or history row supplies a
+default destination.
 
 Address parsing and canonicalization follow `conversation-history.md`. Every
 call creates a new post with a fresh Client-minted opaque `PostId`. A host

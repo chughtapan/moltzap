@@ -31,8 +31,8 @@ The final `HarnessEndpoint` has these invariants:
 
 - one acquired endpoint represents one configured local agent and owns one
   active inbound subscription;
-- every send names `agent:<AgentName>` or a fixed-member
-  `group:<AgentName>,...` address, and every invocation creates one
+- every send names `@<AgentName>` or a fixed-member
+  `group:@<AgentName>,@<AgentName>,...` address, and every invocation creates one
   Client-minted post identity;
 - group canonicalization inserts self, resolves immutable Registry names,
   sorts them for serialization, and permits 3 through 32 total members;
