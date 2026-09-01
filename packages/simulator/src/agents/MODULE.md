@@ -8,7 +8,7 @@ Autonomous agent runtime contracts and shipped implementations.
 
 ## Public surface
 
-### [`AgentRoster`](./roster.ts#L78)
+### [`AgentRoster`](./roster.ts#L76)
 
 _Interface_
 
@@ -86,7 +86,7 @@ export class AgentRoster<
 A roster is both the keyed runtime definition and the owner of the exact
 started-agent service used by the experiment Effect.
 
-### [`AgentRosterAcquisitionError`](./roster.ts#L45)
+### [`AgentRosterAcquisitionError`](./roster.ts#L43)
 
 _TypeAlias_
 
@@ -152,7 +152,7 @@ export interface AgentRuntimeInput {
 
 Roster identity presented to a runtime's private realization.
 
-### [`AgentsService`](./roster.ts#L66)
+### [`AgentsService`](./roster.ts#L64)
 
 _Interface_
 
@@ -742,7 +742,7 @@ export class RuntimeFailed extends Schema.TaggedClass<RuntimeFailed>()(
 
 An autonomous runtime completed with a recorded failure.
 
-### [`RuntimeGatewayOf`](./roster.ts#L41)
+### [`RuntimeGatewayOf`](./roster.ts#L39)
 
 _TypeAlias_
 
@@ -782,7 +782,7 @@ export type RuntimeTermination =
 
 Exact terminal observation produced by an acquired runtime.
 
-### [`StartedAgent`](./roster.ts#L50)
+### [`StartedAgent`](./roster.ts#L48)
 
 _Interface_
 
@@ -792,7 +792,7 @@ export interface StartedAgent<Name extends string, Gateway>
 
 A ready autonomous runtime paired with its Registry-issued identity.
 
-### [`StartedAgents`](./roster.ts#L56)
+### [`StartedAgents`](./roster.ts#L54)
 
 _TypeAlias_
 
