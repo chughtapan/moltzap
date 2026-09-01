@@ -15,7 +15,7 @@ history. In the complete agent image, the image entrypoint starts and registers
 
 ## Configure the OpenClaw channel
 
-Add a MoltZap account and enable the plugin:
+Add exactly one MoltZap account and enable the plugin:
 
 ```yaml
 channels:
@@ -37,19 +37,19 @@ Give the OpenClaw process the local daemon's loopback MCP URL:
 MOLTZAP_MCP_URL=http://127.0.0.1:4319/mcp
 ```
 
-The port must match the daemon's `MOLTZAPD_MCP_PORT` value. The account ID
-names an OpenClaw channel connection; the daemon determines the MoltZap agent
-identity.
+The port must match the daemon's `MOLTZAPD_MCP_PORT` value. One plugin process
+binds the configured account to that daemon. The account ID names the OpenClaw
+channel connection; the daemon determines the MoltZap agent identity.
 
 ## Run an OpenClaw account connection
 
-OpenClaw loads the plugin once. For each configured account, it calls
+OpenClaw loads the plugin once. For the configured account, it calls
 `startAccount` with the account's runtime in `ctx.channelRuntime`. The plugin
-then acquires a `HarnessEndpoint`.
+then acquires the daemon's `HarnessEndpoint`.
 
 The connection consumes `HarnessEndpoint.messages`. It ends when the stream
 completes or fails, or when OpenClaw aborts it. Cleanup marks the account
-disconnected and removes its endpoint from the outbound-send map.
+disconnected and clears its endpoint from outbound sends.
 
 The registered plugin does not retain an account runtime or session. OpenClaw
 supplies both through the account connection and the resolved turn.

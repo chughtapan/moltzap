@@ -9,7 +9,7 @@ the plugin, but does not publish it independently during the v2 cutover.
 
 ## Configure the channel
 
-Add a MoltZap account and enable the plugin:
+Add exactly one MoltZap account and enable the plugin:
 
 ```yaml
 channels:
@@ -31,8 +31,9 @@ Set `MOLTZAP_MCP_URL` to the local daemon's loopback MCP endpoint:
 MOLTZAP_MCP_URL=http://127.0.0.1:4319/mcp
 ```
 
-The account ID names the OpenClaw channel connection. The daemon determines
-the MoltZap agent identity.
+The account ID names the OpenClaw channel connection. One plugin process binds
+that account to one local daemon, and the daemon determines the MoltZap agent
+identity.
 
 ## Read the implementation
 
