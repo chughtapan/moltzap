@@ -211,6 +211,9 @@ export function submitEvaluationCell(input: SubmitEvaluationCellInput) {
       );
       const command = Command.make("node", entrypoint, modulePath).pipe(
         Command.workingDirectory(simulatorRoot),
+        Command.env({
+          MOLTZAP_STARTUP_TIMEOUT_MS: String(input.runtimeStartupTimeoutMillis),
+        }),
         Command.stderr("inherit"),
       );
       const output = yield* Command.string(command).pipe(
