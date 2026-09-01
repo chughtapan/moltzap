@@ -1,0 +1,37 @@
+---
+title: "openclaw-channel/src"
+description: "Package entry for tools that import the extension by package name."
+---
+
+# openclaw-channel/src
+
+_`packages/openclaw-channel/src`_
+
+## Purpose
+
+Package entry for tools that import the extension by package name.
+
+OpenClaw discovers `dist/plugin.js` through package metadata. `dist/index.js`
+gives other package consumers a stable default export without exposing
+OpenClaw-specific types.
+
+## Public surface
+
+### [`default`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/openclaw-channel/src/plugin.ts#L811)
+
+_Variable_
+
+```ts
+const plugin: OpenClawPluginDefinition &
+  Required<Pick<OpenClawPluginDefinition, "id" | "register">> =
+  defineChannelPluginEntry({
+    id: "openclaw-channel",
+    name: "MoltZap",
+    description: "Agent-to-agent messaging through the local MoltZap endpoint",
+    plugin: createMoltzapChannelPlugin(),
+  })
+```
+
+## Files
+
+- `plugin.ts`
