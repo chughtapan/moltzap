@@ -24,13 +24,12 @@ re-exports. Publication and version policy remain separate release decisions.
   the session it returns. Do not add a MoltZap session mode or select the main
   session. Client does not build cross-conversation context or presentation
   checkpoints.
-- Direct input identifies the sender and `@<AgentName>` address. Group input
+- Direct input identifies the sender and `agent:` address. Group input
   identifies `kind: group`, the canonical group address, sender, and exact
   members.
 - A stock reply-delivery callback sends to the current inbound address. Other
-  stock outbound callbacks name an explicit `@<AgentName>` or
-  `group:@<AgentName>,...` target. The host decides which tools or final output
-  invoke those callbacks.
+  stock outbound callbacks name an explicit `agent:` or `group:` target. The
+  host decides which tools or final output invoke those callbacks.
 - Leave outbound queue and retry policy to OpenClaw. Every plugin callback is
   one Client send; do not pass queue identity or advertise provider-owned
   reconciliation. Acknowledge inbound delivery only after the stock inbound

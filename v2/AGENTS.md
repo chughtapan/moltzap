@@ -81,8 +81,8 @@ not a product conversation store.
   APIs and do not patch host inboxes, ACLs, sessions, prompts, output parsers,
   or sandbox drivers.
 - **Addressed Client boundary.** Applications provide explicit
-  `@<AgentName>` or fixed-member `group:@<AgentName>,...` inputs. Client
-  resolves names and canonicalizes group membership before protocol processing. Each
+  `agent:<AgentName>` or fixed-member `group:<members>` inputs. Client resolves
+  names and canonicalizes group membership before protocol processing. Each
   `HarnessEndpoint.send` invocation creates one Client-minted post and returns
   only after local certification. `HarnessEndpoint.messages` yields
   addressed direct or group deliveries whose transport acknowledgment follows

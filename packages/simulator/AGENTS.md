@@ -40,9 +40,8 @@ create runtime `simulator -> evals`, `simulator -> openclaw-channel`, or
   runtime Registry admission material, endpoint signing keys, raw Router
   credentials, Router attachment capabilities, endpoint stores, or protocol
   internals.
-- The injected Client sends only to explicit `@<AgentName>` or
-  `group:@<AgentName>,...` addresses. Each call creates one post, and the
-  runtime host owns whether to call again.
+- The injected Client sends only to explicit `agent:` or `group:` addresses.
+  Each call creates one post, and the runtime host owns whether to call again.
   Client emits addressed direct or group deliveries and returns `void` after
   local certification. Search, history, status, registration, and proof
   inspection stay on MCP. Simulator evidence may observe public effects but
@@ -107,8 +106,7 @@ old name or persisted event:
 1. Delete content-free conversation open. First explicit addressed send creates
    or reuses deterministic fixed membership and includes nonempty content.
 2. Delete unaddressed or inherited-target send. Every visible output names an
-   `@<AgentName>` or `group:@<AgentName>,...` address through the host's native
-   messaging path.
+   `agent:` or `group:` address through the host's native messaging path.
 3. Replace message-only receive and proof-shaped operation results with public
    addressed delivery and `void` completion facts.
 4. Remove bearer credentials, signing material, raw Router attachment,
