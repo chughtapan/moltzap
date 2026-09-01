@@ -18,13 +18,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { encodeCanonical } from "../representation.js";
-import {
-  type ConversationFoundation,
-  type EndpointStore,
-  openEndpointStore,
-  type StoredOutboundMessage,
-} from "../store.js";
 import {
   batch,
   emptyBatch,
@@ -41,6 +34,13 @@ import {
   unavailableRegistryLayer,
   unreachableOutbox,
 } from "../../__tests__/router-worker-fixtures.js";
+import { encodeCanonical } from "../representation.js";
+import {
+  type ConversationFoundation,
+  type EndpointStore,
+  openEndpointStore,
+  type StoredOutboundMessage,
+} from "../store.js";
 import {
   makeRouterWorker,
   RouterWorkerAuthenticationError,
