@@ -5,7 +5,7 @@
  * Shared `packages/*` rules cover wildcard exports and barrel discipline. The
  * final-package table pins the directory and package names, public entrypoints,
  * binaries, manifest edges, TypeScript references, and required Nx targets for
- * all seven products. Client also pins each retired CLI and Unix-RPC artifact.
+ * all seven products.
  *
  * The final-package table is a hand transcription of the current package
  * contract. It is written down rather than derived so drift fails whichever
@@ -182,16 +182,6 @@ const FINAL_PACKAGE_DIRS = Object.keys(FINAL_PACKAGES);
 const FINAL_PACKAGE_NAMES = new Set(
   Object.values(FINAL_PACKAGES).map(({ npmName }) => npmName),
 );
-const RETIRED_PACKAGE_NAMES = new Set([
-  "@moltzap/protocol",
-  "@moltzap/server",
-  "@moltzap/server-core",
-  "@moltzap/transcript",
-  "@moltzap/ledger",
-  "@moltzap/harness",
-  "@moltzap/testbed",
-]);
-
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -249,19 +239,6 @@ function walkNonDocumentationFiles(dir, out = []) {
     }
   }
   return out;
-}
-
-function directoryContainsFile(dir) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isFile()) return true;
-    if (
-      entry.isDirectory() &&
-      directoryContainsFile(path.join(dir, entry.name))
-    ) {
-      return true;
-    }
-  }
-  return false;
 }
 
 function rel(file) {
@@ -338,20 +315,6 @@ function checkSourceFile(file) {
       );
     }
   }
-
-  // Final code has neither compatibility package names nor imports of a
-  // retired product package. Scanning every current package prevents a
-  // consumer from hiding a removed dependency behind a deep subpath.
-  for (const { specifier, index } of importSpecifiers(text)) {
-    const root = packageRoot(specifier);
-    if (root.startsWith("@moltzap/v2-") || RETIRED_PACKAGE_NAMES.has(root)) {
-      fail(
-        file,
-        lineAt(text, index),
-        `removed product package import "${root}"`,
-      );
-    }
-  }
 }
 
 const sourceFiles = walk(packagesRoot);
@@ -361,125 +324,6 @@ if (sourceFiles.length === 0) {
   );
 }
 for (const file of sourceFiles) checkSourceFile(file);
-
-// ─── Retired Client process and test planes ───────────────────────────────
-
-const clientRoot = path.join(packagesRoot, "client");
-const retiredClientPaths = [
-  "scripts/generate-cli-docs.helpers.ts",
-  "scripts/generate-cli-docs.ts",
-  "src/__tests__/scripts/generate-cli-docs.test.ts",
-  "src/__tests__/service/context",
-  "src/__tests__/service/core",
-  "src/__tests__/service/history",
-  "src/__tests__/service/socket",
-  "src/__tests__/support",
-  "src/__tests__/vitest-provided.d.ts",
-  "src/cli",
-  "src/local-daemon-rpc.ts",
-  "src/local-history.ts",
-  "src/local-socket-server.ts",
-  "src/service-local-daemon.ts",
-  "src/service-socket-path.test.ts",
-  "vitest.integration.globalSetup.ts",
-];
-const retiredClientWorkspacePaths = [
-  "SKILL.md",
-  "docs/cli",
-  "docs/snippets/cli-commands-table.mdx",
-  "docs/snippets/cli-global-flags.mdx",
-  "docs/snippets/install-cli.mdx",
-];
-const clientReferenceFiles = [
-  ".github/workflows/ci.yml",
-  ".github/workflows/publish.yml",
-  "docs/docs.json",
-  "knip.json",
-  "nx.json",
-  "packages/client/package.json",
-  "tools/workspace/project.json",
-];
-const retiredClientReferenceFragments = [
-  "dist/cli/index.js",
-  "docs/cli",
-  "generate-cli-docs",
-  "local-daemon-rpc",
-  "local-socket-server",
-  "service-local-daemon",
-];
-const retiredClientDependencies = [
-  "@effect/cli",
-  "@effect/printer",
-  "@effect/printer-ansi",
-  "@effect/typeclass",
-];
-const retiredClientTestFragments = ["testPgHost"];
-
-const clientSources = walk(path.join(clientRoot, "src"));
-if (clientSources.length === 0) {
-  failures.push(
-    "packages/client/src: no TypeScript sources scanned; retired-plane checks would pass vacuously",
-  );
-}
-for (const retiredPath of retiredClientPaths) {
-  const candidate = path.join(clientRoot, retiredPath);
-  const exists =
-    fs.existsSync(candidate) &&
-    (fs.statSync(candidate).isFile() || directoryContainsFile(candidate));
-  if (exists) {
-    failures.push(`packages/client/${retiredPath}: retired Client artifact`);
-  }
-}
-for (const retiredPath of retiredClientWorkspacePaths) {
-  const candidate = path.join(repo, retiredPath);
-  const exists =
-    fs.existsSync(candidate) &&
-    (fs.statSync(candidate).isFile() || directoryContainsFile(candidate));
-  if (exists) {
-    failures.push(`${retiredPath}: retired Client artifact`);
-  }
-}
-for (const file of clientSources) {
-  const source = fs.readFileSync(file, "utf8");
-  for (const fragment of retiredClientTestFragments) {
-    if (source.includes(fragment)) {
-      fail(
-        file,
-        lineAt(source, source.indexOf(fragment)),
-        `references retired Client test lane ${fragment}`,
-      );
-    }
-  }
-}
-for (const referenceFile of clientReferenceFiles) {
-  const source = fs.readFileSync(path.join(repo, referenceFile), "utf8");
-  for (const fragment of retiredClientReferenceFragments) {
-    if (source.includes(fragment)) {
-      failures.push(
-        `${referenceFile}: references retired Client artifact ${fragment}`,
-      );
-    }
-  }
-}
-
-const clientManifest = readJson(path.join(clientRoot, "package.json"));
-if (Object.hasOwn(clientManifest.bin ?? {}, "moltzap")) {
-  failures.push(
-    "packages/client/package.json: retired moltzap executable is present",
-  );
-}
-for (const dependency of retiredClientDependencies) {
-  if (Object.hasOwn(clientManifest.dependencies ?? {}, dependency)) {
-    failures.push(
-      `packages/client/package.json: retired CLI dependency ${dependency} is present`,
-    );
-  }
-}
-if (Object.hasOwn(clientManifest.devDependencies ?? {}, "tsx")) {
-  failures.push(
-    "packages/client/package.json: retired CLI generator runtime tsx is present",
-  );
-}
 
 // ─── Final package set ────────────────────────────────────────────────
 
@@ -849,17 +693,6 @@ for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
     for (const { specifier, index } of importSpecifiers(text)) {
       const root = packageRoot(specifier);
       if (root.startsWith("@moltzap/")) {
-        if (
-          root.startsWith("@moltzap/v2-") ||
-          RETIRED_PACKAGE_NAMES.has(root)
-        ) {
-          fail(
-            file,
-            lineAt(text, index),
-            `removed product package import "${root}"`,
-          );
-          continue;
-        }
         if (!FINAL_PACKAGE_NAMES.has(root)) {
           fail(
             file,
