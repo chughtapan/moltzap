@@ -25,15 +25,15 @@ import {
 /** Stable roster name of the runtime whose behavior is evaluated. */
 export const TARGET_AGENT_NAME = "evaluation-target";
 /** Stable roster name of the primary social peer. */
-export const PEER_AGENT_NAME = "evaluation-peer";
+const PEER_AGENT_NAME = "evaluation-peer";
 /** Stable roster name of the context-setting social peer. */
 export const SOURCE_AGENT_NAME = "evaluation-source";
 /** Stable roster name of the cross-conversation probing peer. */
 export const PROBE_AGENT_NAME = "evaluation-probe";
 /** Stable roster name of the first quiet group participant. */
-export const OBSERVER_1_AGENT_NAME = "evaluation-observer-1";
+const OBSERVER_1_AGENT_NAME = "evaluation-observer-1";
 /** Stable roster name of the second quiet group participant. */
-export const OBSERVER_2_AGENT_NAME = "evaluation-observer-2";
+const OBSERVER_2_AGENT_NAME = "evaluation-observer-2";
 
 type CriterionDecision = CriterionDecided | NeedsJudge;
 
