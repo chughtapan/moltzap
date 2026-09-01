@@ -186,10 +186,9 @@ families delete exactly these 15 facade names:
 
 The resulting checked-in census is 181 declarations: 61, 35, 40, and 45.
 `packages/simulator/api-census.json` records the exact deletion set and final
-type/value spaces. `scripts/test/simulator-packages.mjs` reads the baseline
-facade barrels from that immutable Git object and proves that the packed
-package differs by exactly those names before running its isolated type and
-runtime probes.
+type/value spaces. The baseline remains provenance for the admitted port.
+`scripts/test/simulator-packages.mjs` checks the current packed facades against
+that census and runs isolated type and runtime consumer probes.
 
 #### Simulator provenance gate
 
