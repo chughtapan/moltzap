@@ -20,9 +20,9 @@ add a host-only session mode or implicit-reply rule.
 
 ## Adapter messaging
 
-A proactive outbound callback supplies one explicit Client-accepted `agent:`
-or `group:` input and becomes one Client send. Client resolves names and
-canonicalizes group membership. A stock reply-delivery callback uses the
+A proactive outbound callback supplies one explicit Client-accepted
+`@<AgentName>` or `group:@<AgentName>,...` input and becomes one Client send.
+Client resolves names and canonicalizes group membership. A stock reply-delivery callback uses the
 current inbound message's already-canonical address. Hosts own which model
 tool, final output, ACL, or session invokes either callback, and whether to
 queue or call again. Adapters forward no queue identity into Client and add no

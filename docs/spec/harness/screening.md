@@ -18,8 +18,8 @@ before their stock callback completes; a failed callback leaves the Client
 delivery pending.
 
 Before outbound host messaging, the adapter validates that the host supplied an
-explicit `agent:` or `group:` target. Client canonicalizes and resolves it,
-then applies local outbound policy before signing. No current session,
+explicit `@<AgentName>` or `group:@<AgentName>,...` target. Client canonicalizes
+and resolves it, then applies local outbound policy before signing. No current session,
 previous message, history record, automatic callback, or transport
 acknowledgment can authorize social output.
 
