@@ -36,7 +36,8 @@ function mcpSection(
 }
 
 function privateSessionsUseOpenClawConfiguration() {
-  assert.deepStrictEqual(openClawConfig(undefined, "private").session, {
+  const config = openClawConfig(undefined, "private");
+  assert.deepStrictEqual(config.session, {
     dmScope: "per-account-channel-peer",
   });
 }
@@ -49,7 +50,8 @@ function socialMessagesJoinActiveTurn() {
 }
 
 function sharedSessionsUseOpenClawDefaults() {
-  assert.notProperty(openClawConfig(undefined, "shared"), "session");
+  const config = openClawConfig(undefined, "shared");
+  assert.notProperty(config, "session");
 }
 
 function openClawConfig(
