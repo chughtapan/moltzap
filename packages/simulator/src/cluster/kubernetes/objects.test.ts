@@ -52,6 +52,8 @@ const PLACEMENT = {
     },
   ],
 };
+const NETWORK = generateSocietyNetworkAuthority("mz-run");
+const DAEMON = generateAgentDaemonAuthority();
 
 function aggregateManifest(withPlacement = false) {
   return aggregateWorkloadManifest({
@@ -88,7 +90,6 @@ function sandboxFixtureForEnvironment(
   environment: Readonly<Record<string, string>>,
   withPlacement = false,
 ) {
-  const network = generateSocietyNetworkAuthority("mz-run");
   return sandboxManifest({
     namespace: "mz-run",
     name: "agent-1-alice",
@@ -96,8 +97,8 @@ function sandboxFixtureForEnvironment(
     owner: OWNER,
     bootstrapSecretName: "agent-1-alice-bootstrap",
     supportImage: SUPPORT_IMAGE,
-    network,
-    daemon: generateAgentDaemonAuthority(),
+    network: NETWORK,
+    daemon: DAEMON,
     endpointStateClaimName: "agent-1-alice-endpoint-state",
     agentName: "alice",
     ...(withPlacement ? { placement: PLACEMENT } : {}),
@@ -252,11 +253,11 @@ it("runs the daemon and host from one fail-fast application container", () => {
                 { name: "MOLTZAP_REGISTRATION_AGENT_NAME", value: "alice" },
                 {
                   name: "MOLTZAP_REGISTRATION_OPERATION_ID",
-                  value: expect.any(String),
+                  value: DAEMON.operationId,
                 },
                 {
                   name: "MOLTZAP_REGISTRATION_PRINCIPAL_ID",
-                  value: expect.any(String),
+                  value: DAEMON.principalId,
                 },
                 {
                   name: "MOLTZAPD_ADMISSION_CREDENTIAL_FILE",
@@ -269,15 +270,15 @@ it("runs the daemon and host from one fail-fast application container", () => {
                 { name: "MOLTZAPD_MCP_PORT", value: "4319" },
                 {
                   name: "MOLTZAPD_REGISTRY_ORIGIN",
-                  value: expect.any(String),
+                  value: NETWORK.registryOrigin,
                 },
                 {
                   name: "MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY",
-                  value: expect.any(String),
+                  value: NETWORK.registrySignerPublicKeyJson,
                 },
                 {
                   name: "MOLTZAPD_ROUTER_ORIGIN",
-                  value: expect.any(String),
+                  value: NETWORK.routerOrigin,
                 },
                 {
                   name: "MOLTZAPD_STATE_DIRECTORY",
