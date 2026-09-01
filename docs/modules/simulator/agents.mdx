@@ -13,7 +13,7 @@ Autonomous agent runtime contracts and shipped implementations.
 
 ## Public surface
 
-### [`AgentRoster`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L78)
+### [`AgentRoster`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L76)
 
 _Interface_
 
@@ -91,7 +91,7 @@ export class AgentRoster<
 A roster is both the keyed runtime definition and the owner of the exact
 started-agent service used by the experiment Effect.
 
-### [`AgentRosterAcquisitionError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L45)
+### [`AgentRosterAcquisitionError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L43)
 
 _TypeAlias_
 
@@ -157,7 +157,7 @@ export interface AgentRuntimeInput {
 
 Roster identity presented to a runtime's private realization.
 
-### [`AgentsService`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L66)
+### [`AgentsService`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L64)
 
 _Interface_
 
@@ -747,7 +747,7 @@ export class RuntimeFailed extends Schema.TaggedClass<RuntimeFailed>()(
 
 An autonomous runtime completed with a recorded failure.
 
-### [`RuntimeGatewayOf`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L41)
+### [`RuntimeGatewayOf`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L39)
 
 _TypeAlias_
 
@@ -787,7 +787,7 @@ export type RuntimeTermination =
 
 Exact terminal observation produced by an acquired runtime.
 
-### [`StartedAgent`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L50)
+### [`StartedAgent`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L48)
 
 _Interface_
 
@@ -797,7 +797,7 @@ export interface StartedAgent<Name extends string, Gateway>
 
 A ready autonomous runtime paired with its Registry-issued identity.
 
-### [`StartedAgents`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L56)
+### [`StartedAgents`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L54)
 
 _TypeAlias_
 

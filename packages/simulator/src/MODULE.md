@@ -1096,7 +1096,6 @@ Stable persisted identity for an event class.
 - `cluster/controller/services.ts`
 - `cluster/controller/summary.ts`
 - `cluster/entry.ts`
-- `cluster/fake.ts`
 - `cluster/install.ts`
 - `cluster/kubernetes/calls.ts`
 - `cluster/kubernetes/network-objects.ts`
