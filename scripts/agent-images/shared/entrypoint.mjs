@@ -11,6 +11,7 @@ import {
   mkdir,
   readFile,
   readdir,
+  stat,
 } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -119,7 +120,7 @@ async function prepareFilesystem(options) {
   );
   for (const source of await readdir(options.secretSource)) {
     const sourcePath = join(options.secretSource, source);
-    if (!(await lstat(sourcePath)).isFile()) continue;
+    if (!(await stat(sourcePath)).isFile()) continue;
     const destination = join(options.secretDirectory, basename(source));
     await copyFile(sourcePath, destination);
     await chmod(destination, 0o400);
