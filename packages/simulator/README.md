@@ -29,9 +29,13 @@ A controller-loadable module exports exactly one named `runSpec`:
 import { RunSpec } from "@moltzap/simulator";
 import { openClawRuntime } from "@moltzap/simulator/agents";
 import { Effect } from "effect";
-import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";
+import {
+  applicationImageFromEnvironment,
+  controllerServicesFromEnvironment,
+} from "/opt/moltzap/dist/cluster/controller/services.js";
 
 const alice = openClawRuntime({
+  applicationImage: applicationImageFromEnvironment(),
   tools: { deny: ["*"], exec: { mode: "deny" } },
   sandbox: { mode: "off" },
   workspaceFiles: [
@@ -83,21 +87,22 @@ per-address sockets or mailboxes. Address membership and durable delivery are
 Client and daemon responsibilities; experiment code only sends and observes
 their public facts.
 
-NanoClaw requires an explicit digest-pinned application image implementing its
-fixed one-container bootstrap and gateway contract. The simulator never
-substitutes a mutable or placeholder image.
+OpenClaw and NanoClaw require explicit, digest-pinned complete agent images.
+Each image owns its host, daemon, registration bootstrap, and fail-fast process
+lifecycle. The simulator never substitutes a mutable or placeholder image.
 
 Build that application image from the pinned NanoClaw source archive:
 
 ```bash
-pnpm nx run workspace:simulator-nanoclaw-image
+pnpm nx run workspace:openclaw-agent-image
+pnpm nx run workspace:nanoclaw-agent-image
 ```
 
 The command prints the immutable `pinnedImage` value accepted by the runtime.
 
 ## Local and GKE profiles
 
-Build the shared controller/support image and create the pinned local profile:
+Build the controller/support image and create the pinned local profile:
 
 ```bash
 pnpm nx run workspace:simulator-controller-image
@@ -109,6 +114,7 @@ Submit a module through Temporal and the local Kubernetes path:
 
 ```bash
 MOLTZAP_CONTROLLER_IMAGE=CONTROLLER_IMAGE_AT_SHA256 \
+MOLTZAP_APPLICATION_IMAGE=AGENT_IMAGE_AT_SHA256 \
 MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
 pnpm nx run @moltzap/simulator:local-run -- path/to/experiment.mjs
 ```

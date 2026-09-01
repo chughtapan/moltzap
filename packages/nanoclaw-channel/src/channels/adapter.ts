@@ -50,6 +50,11 @@ interface DeliveryAddress {
  */
 interface InboundEvent {
   channelType: string;
+  /**
+   * Trusted host routing supplied by an adapter whose upstream transport has
+   * already selected one local agent.
+   */
+  targetAgentGroupId?: string;
   /** Receiving adapter instance; stamped host-side (src/index.ts onInbound) or
    *  carried by the CLI admin transport's `to.instance`. Absent means the
    *  default instance (= channelType). */

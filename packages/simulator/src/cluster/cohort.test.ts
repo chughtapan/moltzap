@@ -862,13 +862,10 @@ test("keeps the actual Router origin private while Sandboxes receive only the ad
         const decoded = Schema.decodeUnknownSync(routedSandboxManifestShape)(
           sandbox,
         );
-        const daemon = decoded.spec.podTemplate.spec.initContainers.find(
-          (container) => container.name === "moltzapd",
-        );
         const application = decoded.spec.podTemplate.spec.containers.find(
           (container) => container.name === APPLICATION_CONTAINER,
         );
-        const daemonRouterOrigin = daemon?.env?.find(
+        const applicationRouterOrigin = application?.env?.find(
           (entry) => entry.name === "MOLTZAPD_ROUTER_ORIGIN",
         )?.value;
         const applicationEnvironment =
@@ -886,13 +883,12 @@ test("keeps the actual Router origin private while Sandboxes receive only the ad
           session.routerFaultProxy.listener.advertisedOrigin?.origin,
           ADVERTISED_PROXY_ORIGIN.origin,
         );
-        assert.strictEqual(daemonRouterOrigin, ADVERTISED_PROXY_ORIGIN.origin);
-        assert.include(applicationEnvironment, "MOLTZAP_MCP_URL");
-        assert.notInclude(applicationEnvironment, "MOLTZAPD_ROUTER_ORIGIN");
-        assert.notInclude(
-          JSON.stringify(application),
+        assert.strictEqual(
+          applicationRouterOrigin,
           ADVERTISED_PROXY_ORIGIN.origin,
         );
+        assert.include(applicationEnvironment, "MOLTZAP_MCP_URL");
+        assert.include(applicationEnvironment, "MOLTZAPD_ROUTER_ORIGIN");
         assert.notInclude(JSON.stringify(application), router.address.origin);
       }),
     ),

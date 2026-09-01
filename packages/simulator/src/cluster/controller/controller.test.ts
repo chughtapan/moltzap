@@ -41,7 +41,10 @@ import {
   type ControllerOperationsService,
   runController,
 } from "./main.js";
-import { supportImageFromEnvironment } from "./services.js";
+import {
+  applicationImageFromEnvironment,
+  supportImageFromEnvironment,
+} from "./services.js";
 import {
   CONTROLLER_SUMMARY_MAX_BYTES,
   CONTROLLER_SUMMARY_PREFIX,
@@ -77,6 +80,7 @@ const VALID_ENVIRONMENT: ControllerEnvironment = Object.freeze({
   MOLTZAP_RUN_OWNER_NAME: "run-root",
   MOLTZAP_RUN_OWNER_UID: "19193f95-73b8-49fb-bbd9-518773ba0331",
   MOLTZAP_SUPPORT_IMAGE: `registry.example/moltzap@sha256:${IMAGE_DIGEST}`,
+  MOLTZAP_APPLICATION_IMAGE: `registry.example/openclaw@sha256:${IMAGE_DIGEST}`,
   MOLTZAP_EXPERIMENT_MODULE: "/var/run/moltzap/experiment/main.mjs",
   MOLTZAP_LEDGER_DIRECTORY: "/var/lib/moltzap/ledger",
 });
@@ -175,6 +179,20 @@ test("projects the same validated support image into generated experiment code",
           ...VALID_ENVIRONMENT,
           MOLTZAP_SUPPORT_IMAGE: "registry.example/moltzap:mutable",
         }),
+      ControllerConfigurationError,
+    );
+  }));
+
+test("projects an explicitly selected application image into an experiment", () =>
+  Effect.sync(() => {
+    assert.strictEqual(
+      applicationImageFromEnvironment(VALID_ENVIRONMENT),
+      VALID_ENVIRONMENT.MOLTZAP_APPLICATION_IMAGE,
+    );
+    const { MOLTZAP_APPLICATION_IMAGE: _, ...withoutApplicationImage } =
+      VALID_ENVIRONMENT;
+    assert.throws(
+      () => applicationImageFromEnvironment(withoutApplicationImage),
       ControllerConfigurationError,
     );
   }));

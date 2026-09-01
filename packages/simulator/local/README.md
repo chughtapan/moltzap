@@ -9,6 +9,7 @@ cluster and image-build tooling here, not a simulator execution backend.
 
 ```bash
 pnpm nx run workspace:simulator-controller-image
+pnpm nx run workspace:openclaw-agent-image
 ```
 
 The builder compiles and packs the workspace packages into one local image and
@@ -22,8 +23,10 @@ The controller and Sandbox initializer use the same image:
 - controller main: `/opt/moltzap/dist/cluster/controller/main.js`;
 - private infrastructure:
   `/opt/moltzap/dist/cluster/controller/services.js`;
-- bootstrap CLI: `/opt/moltzap/dist/cluster/bootstrap.js`;
-- OpenClaw plugin overlay: `/opt/moltzap/application-overlay`.
+- bootstrap CLI: `/opt/moltzap/dist/cluster/bootstrap.js`.
+
+The OpenClaw builder prints a separate `pinnedImage` for the complete agent
+application.
 
 ## Create the cluster
 
@@ -36,7 +39,8 @@ pnpm nx run @moltzap/simulator:local-cluster-create -- \
   --cluster moltzap-cutover \
   --temporal-port 17233 \
   --artifacts "$PWD/.moltzap/cutover-artifacts" \
-  --image PINNED_IMAGE_FROM_BUILD_OUTPUT
+  --image PINNED_CONTROLLER_IMAGE \
+  --extra-image PINNED_OPENCLAW_AGENT_IMAGE
 ```
 
 The default cluster name is `moltzap-simulator` and the default Temporal host
@@ -92,6 +96,7 @@ the same at two agents and at a hundred and only the time to get there differs.
 
 ```bash
 MOLTZAP_CONTROLLER_IMAGE=PINNED_IMAGE_FROM_BUILD_OUTPUT \
+MOLTZAP_APPLICATION_IMAGE=PINNED_OPENCLAW_AGENT_IMAGE \
 MOLTZAP_KUBE_CONTEXT=kind-CLUSTER_NAME \
 MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
 pnpm nx run @moltzap/simulator:local-run -- local/end-to-end.mjs
@@ -149,7 +154,7 @@ The qualification wrapper invokes the built local profile, parses its
 through the public Simulator ledger API. It passes only when the completed
 ledger has exactly one `ProgramSucceeded`, no `ProgramFailed` or
 `ProgramInterrupted`, and one matching `hold` policy set/clear pair in scoped
-order. Success proves the real Registry, Router, fault proxy, daemon sidecars,
+order. Success proves the real Registry, Router, fault proxy, agent images,
 Client certification, controlled endpoint, autonomous applications, bound
 replies, durable run ledger, and scoped teardown completed through one run.
 Unit tests continue to own exhaustive drop, delay, hold, policy, ordering, and

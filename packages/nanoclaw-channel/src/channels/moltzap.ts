@@ -39,6 +39,22 @@ class MoltZapChannelError extends Data.TaggedError("MoltZapChannelError")<{
 }
 
 const MOLTZAP_CHANNEL = "moltzap";
+const DEFAULT_AGENT_GROUP_ID = "agent";
+const MOLTZAP_CHANNEL_DEFAULTS = Object.freeze({
+  dm: {
+    engageMode: "pattern" as const,
+    engagePattern: ".",
+    threads: false,
+    unknownSenderPolicy: "public" as const,
+  },
+  group: {
+    engageMode: "pattern" as const,
+    engagePattern: ".",
+    threads: false,
+    unknownSenderPolicy: "public" as const,
+  },
+  mentions: "platform" as const,
+});
 
 /**
  * Client exposes no post time, so a fixed placeholder keeps replay payloads
@@ -54,9 +70,11 @@ const moltZapChannelEnv = Config.all({
 
 interface MoltZapChannelEnv {
   readonly mcpEndpoint: string | null;
+  readonly agentGroupId?: string;
 }
 
 interface MoltZapAdapterState {
+  readonly agentGroupId: string;
   readonly injectedEndpoint: HarnessEndpoint | null;
   readonly mcpEndpoint: string | null;
 }
@@ -89,7 +107,7 @@ interface MoltZapOutboundMessage {
 export function makeMoltZapAdapter(
   env?: MoltZapChannelEnv,
 ): MoltZapAdapter | null {
-  const resolvedEnv =
+  const resolvedEnv: MoltZapChannelEnv =
     env ??
     Effect.runSync(
       moltZapChannelEnv.pipe(
@@ -98,7 +116,10 @@ export function makeMoltZapAdapter(
     );
   return resolvedEnv.mcpEndpoint === null
     ? null
-    : MoltZapAdapter.fromMcpEndpoint(resolvedEnv.mcpEndpoint);
+    : MoltZapAdapter.fromMcpEndpoint(
+        resolvedEnv.mcpEndpoint,
+        resolvedEnv.agentGroupId ?? DEFAULT_AGENT_GROUP_ID,
+      );
 }
 /* eslint-enable @typescript-eslint/no-use-before-define -- Restore declaration-order checks after the deferred factory. */
 
@@ -207,6 +228,7 @@ export class MoltZapAdapter {
   readonly channelType = MOLTZAP_CHANNEL;
   readonly supportsThreads = false;
 
+  private readonly agentGroupId: string;
   private readonly injectedEndpoint: HarnessEndpoint | null;
   private readonly lifecycleGate = Effect.runSync(Effect.makeSemaphore(1));
   private readonly mcpEndpoint: string | null;
@@ -214,6 +236,7 @@ export class MoltZapAdapter {
   private setupConfig: ChannelSetup | null = null;
 
   private constructor(state: MoltZapAdapterState) {
+    this.agentGroupId = state.agentGroupId;
     this.injectedEndpoint = state.injectedEndpoint;
     this.mcpEndpoint = state.mcpEndpoint;
   }
@@ -223,8 +246,12 @@ export class MoltZapAdapter {
    * @param endpoint Scoped structural Client capability.
    * @returns An adapter that consumes the injected endpoint.
    */
-  static fromEndpoint(endpoint: HarnessEndpoint): MoltZapAdapter {
+  static fromEndpoint(
+    endpoint: HarnessEndpoint,
+    agentGroupId = DEFAULT_AGENT_GROUP_ID,
+  ): MoltZapAdapter {
     return new MoltZapAdapter({
+      agentGroupId,
       injectedEndpoint: endpoint,
       mcpEndpoint: null,
     });
@@ -235,8 +262,12 @@ export class MoltZapAdapter {
    * @param mcpEndpoint Loopback endpoint owned by the local daemon.
    * @returns An adapter that acquires the endpoint when set up.
    */
-  static fromMcpEndpoint(mcpEndpoint: string): MoltZapAdapter {
+  static fromMcpEndpoint(
+    mcpEndpoint: string,
+    agentGroupId: string,
+  ): MoltZapAdapter {
     return new MoltZapAdapter({
+      agentGroupId,
       injectedEndpoint: null,
       mcpEndpoint,
     });
@@ -397,11 +428,22 @@ export class MoltZapAdapter {
     const message = delivery.message;
     const address = message.address;
     const isGroup = message.kind === "group";
+    const inbound = this.toInboundMessage(message);
     return Effect.tryPromise({
       try: () => {
         config.onMetadata(address, address, isGroup);
         return Promise.resolve(
-          config.onInbound(address, null, this.toInboundMessage(message)),
+          config.onInboundEvent({
+            channelType: MOLTZAP_CHANNEL,
+            instance: MOLTZAP_CHANNEL,
+            platformId: address,
+            targetAgentGroupId: this.agentGroupId,
+            threadId: null,
+            message: {
+              ...inbound,
+              content: JSON.stringify(inbound.content),
+            },
+          }),
         );
       },
       catch: (cause) =>
@@ -457,6 +499,7 @@ export class MoltZapAdapter {
 }
 
 registerChannelAdapter(MOLTZAP_CHANNEL, {
+  defaults: MOLTZAP_CHANNEL_DEFAULTS,
   factory: () => makeMoltZapAdapter(),
 });
 

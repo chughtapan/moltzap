@@ -55,6 +55,7 @@ export interface ControllerConfiguration {
     readonly uid: string;
   };
   readonly supportImage: Image;
+  readonly applicationImage?: Image;
   readonly runtimeCredentials: Readonly<
     Partial<Record<"ANTHROPIC_API_KEY" | "OPENAI_API_KEY", string>>
   >;
@@ -92,6 +93,7 @@ export function controllerConfigurationFromEnvironment(
       uid: ownerUid(environment),
     }),
     supportImage: supportImage(environment),
+    applicationImage: optionalImage(environment, "MOLTZAP_APPLICATION_IMAGE"),
     runtimeCredentials: runtimeCredentials(environment),
     rosterPlacement: rosterPlacement(environment),
     experimentModule: experimentModulePath(environment),
@@ -126,8 +128,25 @@ function ownerUid(environment: ControllerEnvironment): string {
 }
 
 function supportImage(environment: ControllerEnvironment): Image {
-  const key = "MOLTZAP_SUPPORT_IMAGE";
-  const value = required(environment, key);
+  return requiredImage(environment, "MOLTZAP_SUPPORT_IMAGE");
+}
+
+function optionalImage(
+  environment: ControllerEnvironment,
+  key: "MOLTZAP_APPLICATION_IMAGE",
+): Image | undefined {
+  const value = environment[key];
+  return value === undefined ? undefined : decodeImage(value, key);
+}
+
+function requiredImage(
+  environment: ControllerEnvironment,
+  key: "MOLTZAP_SUPPORT_IMAGE",
+): Image {
+  return decodeImage(required(environment, key), key);
+}
+
+function decodeImage(value: string, key: string): Image {
   if (!DIGEST_PINNED_IMAGE.test(value)) {
     throw invalid(`${key} must be a lowercase SHA-256 digest-pinned image`);
   }

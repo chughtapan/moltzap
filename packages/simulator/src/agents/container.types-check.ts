@@ -7,6 +7,7 @@ import {
   type Application,
   type ContainerRuntime,
   containerRuntimeFor,
+  image,
 } from "./container.js";
 import { openClawRuntime } from "./openclaw/runtime.js";
 
@@ -23,7 +24,11 @@ type Equal<Left, Right> = [Left] extends [Right]
     : false
   : false;
 
-const runtime = openClawRuntime();
+const runtime = openClawRuntime({
+  applicationImage: image.make(
+    "example.invalid/openclaw-agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  ),
+});
 
 /** Stock OpenClaw preserves its exact private container realization type. */
 export const openClawContainerRuntimeCanary: ContainerRuntime<

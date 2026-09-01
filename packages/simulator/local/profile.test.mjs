@@ -67,6 +67,34 @@ test("local clusters can select a non-conflicting Temporal host port", () => {
   );
 });
 
+test("local clusters accept additional digest-pinned application images", () => {
+  const digest = "a".repeat(64);
+  const controller = `controller@sha256:${digest}`;
+  const openclaw = `openclaw@sha256:${digest}`;
+  const nanoclaw = `nanoclaw@sha256:${digest}`;
+  const options = parseArguments(
+    [
+      "--image",
+      controller,
+      "--extra-image",
+      openclaw,
+      "--extra-image",
+      nanoclaw,
+    ],
+    { clusterName: "moltzap-simulator" },
+  );
+
+  assert.equal(options.image, controller);
+  assert.deepEqual(options.extraImages, [openclaw, nanoclaw]);
+  assert.throws(
+    () =>
+      parseArguments(["--extra-image", "openclaw:latest"], {
+        clusterName: "moltzap-simulator",
+      }),
+    /--extra-image must be a SHA-256 digest-pinned image/,
+  );
+});
+
 test("rendered kind configuration resolves every profile token", async () => {
   const temporary = await mkdtemp(join(tmpdir(), "moltzap-kind-render-test-"));
   try {
@@ -119,7 +147,7 @@ test("the end-to-end run sizes its roster from the run rather than the file", as
   assert.match(endToEnd, /deny: \["\*"\]/);
 });
 
-test("local cluster makes the pinned controller image discoverable", async () => {
+test("local cluster makes every selected image discoverable", async () => {
   const setup = await read("../scripts/local-create-cluster.mjs");
   assert.match(setup, /makePinnedImageDiscoverable/);
   assert.match(
@@ -130,16 +158,17 @@ test("local cluster makes the pinned controller image discoverable", async () =>
     setup,
     /\.replaceAll\(TEMPORAL_HOST_PORT_TOKEN,\s*String\(temporalHostPort\)\)/,
   );
-  assert.match(setup, /"docker-image",\n\s+imageSource,/);
+  assert.match(setup, /"docker-image",\n\s+source,/);
   assert.match(
     setup,
     /"ctr",\n\s+"-n",\n\s+"k8s\.io",\n\s+"images",\n\s+"tag"/,
   );
   assert.match(setup, /"--force",\n\s+"--skip-reference-check"/);
   assert.match(setup, /"crictl", "inspecti", digestReference/);
+  assert.match(setup, /for \(const \{ image, source \} of imageSources\)/);
   assert.match(
     setup,
-    /makePinnedImageDiscoverable\(\n\s+kind,\n\s+options\.cluster,\n\s+imageSource,\n\s+options\.image,/,
+    /makePinnedImageDiscoverable\(\n\s+kind,\n\s+options\.cluster,\n\s+source,\n\s+image,/,
   );
 });
 

@@ -89,7 +89,7 @@ describe("buildOpenClawConfig", () => {
   it("loads and enables the mounted channel adapter", () => {
     assert.deepStrictEqual(openClawConfig(undefined).plugins, {
       load: {
-        paths: ["/var/run/moltzap/bootstrap/openclaw-channel"],
+        paths: ["/opt/moltzap/node_modules/@moltzap/openclaw-channel"],
       },
       entries: { "openclaw-channel": { enabled: true } },
     });

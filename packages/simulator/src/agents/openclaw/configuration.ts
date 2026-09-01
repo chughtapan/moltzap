@@ -16,7 +16,8 @@ const DEFAULT_OPENCLAW_MODEL_ID = "openai/gpt-5.5";
 const OPENCLAW_CHANNEL_ID = "moltzap";
 const OPENCLAW_ACCOUNT_ID = "simulator-agent";
 const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
-const OPENCLAW_EXTENSION_PATH = "/var/run/moltzap/bootstrap/openclaw-channel";
+const OPENCLAW_EXTENSION_PATH =
+  "/opt/moltzap/node_modules/@moltzap/openclaw-channel";
 
 /** Tool configuration accepted by `OpenClawConfig`. */
 export type OpenClawToolsConfig = NonNullable<OpenClawConfig["tools"]>;

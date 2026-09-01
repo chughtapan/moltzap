@@ -249,11 +249,13 @@ OPENAI_API_KEY=... \
 Start or resume a live report:
 
 ```bash
-pnpm nx run workspace:simulator-nanoclaw-image
+pnpm nx run workspace:openclaw-agent-image
+pnpm nx run workspace:nanoclaw-agent-image
 
 ANTHROPIC_API_KEY=... \
 OPENAI_API_KEY=... \
 MOLTZAP_CONTROLLER_IMAGE=CONTROLLER_IMAGE_AT_SHA256 \
+MOLTZAP_OPENCLAW_IMAGE=OPENCLAW_APPLICATION_IMAGE_AT_SHA256 \
 MOLTZAP_NANOCLAW_IMAGE=NANOCLAW_APPLICATION_IMAGE_AT_SHA256 \
 MOLTZAP_LOCAL_ARTIFACTS="$PWD/.moltzap/local-artifacts" \
 MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
@@ -267,6 +269,7 @@ MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
 ANTHROPIC_API_KEY=... \
 OPENAI_API_KEY=... \
 MOLTZAP_CONTROLLER_IMAGE=CONTROLLER_IMAGE_AT_SHA256 \
+MOLTZAP_OPENCLAW_IMAGE=OPENCLAW_APPLICATION_IMAGE_AT_SHA256 \
 MOLTZAP_NANOCLAW_IMAGE=NANOCLAW_APPLICATION_IMAGE_AT_SHA256 \
 MOLTZAP_LOCAL_ARTIFACTS="$PWD/.moltzap/local-artifacts" \
 MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
@@ -279,10 +282,10 @@ MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
 ```
 
 The source worktree must be clean. Each selected runtime's model ID becomes
-part of the immutable native runtime configuration. The controller image and,
-when selected, the NanoClaw application image must be immutable digest
-references. Their presence is an execution prerequisite, not evidence that an
-image or live cluster has passed qualification.
+part of the immutable native runtime configuration. The controller image and
+each selected runtime's application image must be immutable digest references.
+Their presence is an execution prerequisite, not evidence that an image or
+live cluster has passed qualification.
 
 The NanoClaw image uses the outer application container as its simulator
 isolation boundary and supervises the native agent runner as a child process.

@@ -30,7 +30,7 @@ const APPLICATION_IMAGE = image.make(
 const BOOTSTRAP_ROOT = "/var/run/moltzap/bootstrap/";
 const RUNTIME_CONFIG_PATH = `${BOOTSTRAP_ROOT}nanoclaw/runtime.json`;
 const WORKSPACE_PATH = `${BOOTSTRAP_ROOT}workspace/IDENTITY.md`;
-const ENTRYPOINT = "/opt/moltzap/nanoclaw/entrypoint.mjs";
+const ENTRYPOINT = "/opt/moltzap/agent/entrypoint.mjs";
 const GATEWAY_PORT = 18_790;
 const STATE_DIR = "/var/lib/moltzap/nanoclaw";
 const GATEWAY_BIND_HOST = "0.0.0.0";
@@ -124,8 +124,8 @@ function assertApplicationContainer(fixture: Fixture): void {
   assert.notProperty(application, "containers");
   assert.strictEqual(capability.image, APPLICATION_IMAGE);
   assert.deepStrictEqual(capability.resources, {
-    cpuMillis: 1_000,
-    memoryBytes: 1_024 * 1_024 * 1_024,
+    cpuMillis: 1_100,
+    memoryBytes: 1_280 * 1_024 * 1_024,
     ephemeralStorageBytes: 1_024 * 1_024 * 1_024,
   });
   assert.deepStrictEqual(application.entrypoint, ["node", ENTRYPOINT]);

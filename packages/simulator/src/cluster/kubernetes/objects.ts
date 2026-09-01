@@ -42,13 +42,10 @@ import {
 const MAX_KUEUE_POD_SETS = 8;
 const BOOTSTRAP_INPUT_PATH = "/var/run/moltzap/secret";
 const BOOTSTRAP_OUTPUT_PATH = "/var/run/moltzap/bootstrap";
+const DAEMON_SECRET_SOURCE_PATH = "/var/run/moltzap/daemon-source";
 const DAEMON_SECRET_PATH = "/var/run/moltzap/daemon";
 const ENDPOINT_STATE_PATH = "/var/lib/moltzap/endpoint";
-const SANDBOX_USER_ID = 1_000;
 const MCP_URL = `http://127.0.0.1:${String(DAEMON_MCP_PORT)}/mcp`;
-/** Probe inside the container because the daemon listens on pod loopback only. */
-const MCP_PROBE_PROGRAM = `await fetch(${JSON.stringify(MCP_URL)});`;
-const REGISTRAR_ENTRYPOINT = "/opt/moltzap/register-daemon.mjs";
 
 /** Root ConfigMap name shared with controller-created owner references. */
 export const RUN_OWNER_NAME = "run";
@@ -100,7 +97,6 @@ interface AggregateWorkloadInput {
   readonly queueName: string;
   readonly labels: Readonly<Record<string, string>>;
   readonly owner: KubernetesRunOwner;
-  readonly supportImage: Image;
   readonly slots: ReservedCapacity;
   readonly placement?: KubernetesPodPlacement;
 }
@@ -157,7 +153,7 @@ export function aggregateWorkloadManifest(
     spec: {
       active: true,
       queueName: input.queueName,
-      podSets: workloadPodSets(groups, input.supportImage, input.placement),
+      podSets: workloadPodSets(groups, input.placement),
     },
   };
 }
@@ -347,16 +343,9 @@ function sandboxPodSpec(input: SandboxManifestInput) {
     enableServiceLinks: false,
     restartPolicy: "Never",
     securityContext: {
-      runAsUser: SANDBOX_USER_ID,
-      runAsGroup: SANDBOX_USER_ID,
-      fsGroup: SANDBOX_USER_ID,
+      seccompProfile: { type: "RuntimeDefault" },
     },
-    initContainers: [
-      bootstrapContainer(input),
-      endpointStatePermissionsContainer(input),
-      daemonContainer(input),
-      registrarContainer(input),
-    ],
+    initContainers: [bootstrapContainer(input)],
     containers: [applicationContainer(input)],
     volumes: [
       {
@@ -372,12 +361,12 @@ function sandboxPodSpec(input: SandboxManifestInput) {
             {
               key: AGENT_PRIVATE_KEY_SECRET_KEY,
               path: AGENT_PRIVATE_KEY_SECRET_KEY,
-              mode: 0o440,
+              mode: 0o400,
             },
             {
               key: ADMISSION_CREDENTIAL_SECRET_KEY,
               path: ADMISSION_CREDENTIAL_SECRET_KEY,
-              mode: 0o440,
+              mode: 0o400,
             },
           ],
         },
@@ -403,7 +392,6 @@ function podPlacement(placement?: KubernetesPodPlacement) {
 
 function workloadPodSets(
   groups: readonly CapacityGroup[],
-  supportImage: Image,
   placement?: KubernetesPodPlacement,
 ) {
   return groups.map((group, index) => ({
@@ -419,13 +407,6 @@ function workloadPodSets(
             name: "application",
             image: group.image,
             resources: { requests: group.requests },
-          },
-          {
-            name: "moltzapd",
-            image: supportImage,
-            resources: {
-              requests: { cpu: "100m", memory: "256Mi" },
-            },
           },
         ],
       },
@@ -445,8 +426,6 @@ function bootstrapContainer(input: SandboxManifestInput) {
       BOOTSTRAP_INPUT_PATH,
       "--output",
       BOOTSTRAP_OUTPUT_PATH,
-      "--overlay",
-      "/opt/moltzap/application-overlay",
     ],
     volumeMounts: [
       {
@@ -456,38 +435,6 @@ function bootstrapContainer(input: SandboxManifestInput) {
       },
       { name: "bootstrap-output", mountPath: BOOTSTRAP_OUTPUT_PATH },
     ],
-  };
-}
-
-/**
- * Give the daemon ownership of the persistent volume's mount root.
- *
- * Kubernetes projects `fsGroup` onto the volume but leaves its root directory
- * owned by root. The endpoint store narrows that directory to mode 0700, which
- * requires the daemon user to own it rather than merely have group write access.
- *
- * @param input Sandbox settings that provide the support image.
- * @returns The init container that prepares the endpoint-state volume.
- */
-function endpointStatePermissionsContainer(
-  input: SandboxManifestInput,
-): V1Container {
-  return {
-    name: "endpoint-state-permissions",
-    image: input.supportImage,
-    command: ["chown"],
-    args: [
-      `${String(SANDBOX_USER_ID)}:${String(SANDBOX_USER_ID)}`,
-      ENDPOINT_STATE_PATH,
-    ],
-    securityContext: {
-      allowPrivilegeEscalation: false,
-      capabilities: { add: ["CHOWN"], drop: ["ALL"] },
-      readOnlyRootFilesystem: true,
-      runAsNonRoot: false,
-      runAsUser: 0,
-    },
-    volumeMounts: [{ name: "endpoint-state", mountPath: ENDPOINT_STATE_PATH }],
   };
 }
 
@@ -519,6 +466,19 @@ function applicationContainer(input: SandboxManifestInput) {
       ...Object.entries({
         ...input.application.environment,
         MOLTZAP_MCP_URL: MCP_URL,
+        MOLTZAP_REGISTRATION_AGENT_NAME: input.agentName,
+        MOLTZAP_REGISTRATION_OPERATION_ID: input.daemon.operationId,
+        MOLTZAP_REGISTRATION_PRINCIPAL_ID: input.daemon.principalId,
+        MOLTZAPD_ADMISSION_CREDENTIAL_FILE:
+          DAEMON_SECRET_PATH + "/" + ADMISSION_CREDENTIAL_SECRET_KEY,
+        MOLTZAPD_AGENT_PRIVATE_KEY_FILE:
+          DAEMON_SECRET_PATH + "/" + AGENT_PRIVATE_KEY_SECRET_KEY,
+        MOLTZAPD_MCP_PORT: String(DAEMON_MCP_PORT),
+        MOLTZAPD_REGISTRY_ORIGIN: input.network.registryOrigin,
+        MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY:
+          input.network.registrySignerPublicKeyJson,
+        MOLTZAPD_ROUTER_ORIGIN: input.network.routerOrigin,
+        MOLTZAPD_STATE_DIRECTORY: ENDPOINT_STATE_PATH,
       })
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([name, value]) => ({ name, value })),
@@ -532,11 +492,27 @@ function applicationContainer(input: SandboxManifestInput) {
       },
     ],
     resources: { requests: resourceRequests(input.application.resources) },
+    securityContext: {
+      allowPrivilegeEscalation: false,
+      capabilities: {
+        add: ["CHOWN", "DAC_OVERRIDE", "KILL", "SETGID", "SETUID"],
+        drop: ["ALL"],
+      },
+      runAsNonRoot: false,
+      runAsUser: 0,
+    },
+    terminationMessagePolicy: "FallbackToLogsOnError",
     volumeMounts: [
       {
         name: "bootstrap-output",
         mountPath: BOOTSTRAP_OUTPUT_PATH,
       },
+      {
+        name: "daemon-secret",
+        mountPath: DAEMON_SECRET_SOURCE_PATH,
+        readOnly: true,
+      },
+      { name: "endpoint-state", mountPath: ENDPOINT_STATE_PATH },
     ],
   };
 }
@@ -548,70 +524,6 @@ function resourceRequests(
     cpu: `${String(resources.cpuMillis)}m`,
     memory: String(resources.memoryBytes),
     "ephemeral-storage": String(resources.ephemeralStorageBytes),
-  };
-}
-
-function daemonContainer(input: SandboxManifestInput) {
-  return {
-    name: "moltzapd",
-    image: input.supportImage,
-    command: ["/srv/moltzap/node_modules/.bin/moltzapd"],
-    restartPolicy: "Always",
-    env: [
-      { name: "MOLTZAPD_STATE_DIRECTORY", value: ENDPOINT_STATE_PATH },
-      { name: "MOLTZAPD_MCP_PORT", value: String(DAEMON_MCP_PORT) },
-      { name: "MOLTZAPD_REGISTRY_ORIGIN", value: input.network.registryOrigin },
-      {
-        name: "MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY",
-        value: input.network.registrySignerPublicKeyJson,
-      },
-      { name: "MOLTZAPD_ROUTER_ORIGIN", value: input.network.routerOrigin },
-      {
-        name: "MOLTZAPD_AGENT_PRIVATE_KEY_FILE",
-        value: `${DAEMON_SECRET_PATH}/${AGENT_PRIVATE_KEY_SECRET_KEY}`,
-      },
-      {
-        name: "MOLTZAPD_ADMISSION_CREDENTIAL_FILE",
-        value: `${DAEMON_SECRET_PATH}/${ADMISSION_CREDENTIAL_SECRET_KEY}`,
-      },
-    ],
-    resources: { requests: { cpu: "100m", memory: "256Mi" } },
-    startupProbe: {
-      exec: {
-        command: ["node", "--input-type=module", "--eval", MCP_PROBE_PROGRAM],
-      },
-      failureThreshold: 120,
-      periodSeconds: 1,
-      timeoutSeconds: 1,
-    },
-    volumeMounts: [
-      { name: "endpoint-state", mountPath: ENDPOINT_STATE_PATH },
-      {
-        name: "daemon-secret",
-        mountPath: DAEMON_SECRET_PATH,
-        readOnly: true,
-      },
-    ],
-  };
-}
-
-function registrarContainer(input: SandboxManifestInput) {
-  return {
-    name: "register-daemon",
-    image: input.supportImage,
-    command: ["node", REGISTRAR_ENTRYPOINT],
-    env: [
-      { name: "MOLTZAP_MCP_URL", value: MCP_URL },
-      {
-        name: "MOLTZAP_REGISTRATION_OPERATION_ID",
-        value: input.daemon.operationId,
-      },
-      {
-        name: "MOLTZAP_REGISTRATION_PRINCIPAL_ID",
-        value: input.daemon.principalId,
-      },
-      { name: "MOLTZAP_REGISTRATION_AGENT_NAME", value: input.agentName },
-    ],
   };
 }
 
@@ -808,6 +720,14 @@ function controllerEnvironment(
     { name: "MOLTZAP_RUN_OWNER_NAME", value: RUN_OWNER_NAME },
     { name: "MOLTZAP_RUN_OWNER_UID", value: ownerUid },
     { name: "MOLTZAP_SUPPORT_IMAGE", value: input.supportImage },
+    ...(input.applicationImage === undefined
+      ? []
+      : [
+          {
+            name: "MOLTZAP_APPLICATION_IMAGE",
+            value: input.applicationImage,
+          },
+        ]),
     ...(input.runtimeCredentials === undefined
       ? []
       : [

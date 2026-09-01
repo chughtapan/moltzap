@@ -139,6 +139,7 @@ interface PreparedRun {
   readonly path: string;
   readonly controllerImage: string;
   readonly supportImage: string;
+  readonly applicationImage?: string;
   readonly runtimeCredentials?: Readonly<
     Partial<Record<"ANTHROPIC_API_KEY" | "OPENAI_API_KEY", string>>
   >;
@@ -183,6 +184,7 @@ function prepareRun(
       "MOLTZAP_SUPPORT_IMAGE",
       controllerImage,
     ),
+    applicationImage: optionalImage(environment, "MOLTZAP_APPLICATION_IMAGE"),
     runtimeCredentials: runtimeCredentials(environment),
     connection: {
       taskQueue: optionalNonEmpty(
@@ -212,6 +214,23 @@ function requiredImage(
 ): string {
   const value = environment[key] ?? fallback;
   if (value === undefined || !DIGEST_PINNED_IMAGE.test(value)) {
+    throw failure(
+      "configuration",
+      `${key} must be a lowercase SHA-256 digest-pinned image`,
+    );
+  }
+  return value;
+}
+
+function optionalImage(
+  environment: RunEnvironment,
+  key: "MOLTZAP_APPLICATION_IMAGE",
+): string | undefined {
+  const value = environment[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!DIGEST_PINNED_IMAGE.test(value)) {
     throw failure(
       "configuration",
       `${key} must be a lowercase SHA-256 digest-pinned image`,
@@ -385,6 +404,9 @@ function executePreparedRun(
           namespace: identity.namespace,
           controllerImage: prepared.controllerImage,
           supportImage: prepared.supportImage,
+          ...(prepared.applicationImage === undefined
+            ? {}
+            : { applicationImage: prepared.applicationImage }),
           ...(prepared.runtimeCredentials === undefined
             ? {}
             : { runtimeCredentials: prepared.runtimeCredentials }),

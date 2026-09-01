@@ -24,6 +24,7 @@ type WorkflowInputKeysAreClosed = Expect<
     | "namespace"
     | "controllerImage"
     | "supportImage"
+    | "applicationImage"
     | "runtimeCredentials"
     | "experimentModule"
     | "startupTimeoutMs"

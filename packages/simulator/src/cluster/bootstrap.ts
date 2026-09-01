@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 const BOOTSTRAP_API_VERSION = "moltzap.bootstrap/v1";
 const ROOT_KEYS = new Set(["apiVersion", "files"]);
 const FILE_KEYS = new Set(["source", "path", "mode"]);
-const CLI_FLAGS = ["--manifest", "--source", "--output", "--overlay"] as const;
+const CLI_FLAGS = ["--manifest", "--source", "--output"] as const;
 const MAX_FILE_MODE = 0o777;
 
 /** A Secret entry names one file, so a separator or NUL is hostile. */
@@ -24,7 +24,7 @@ type BootstrapFlag = (typeof CLI_FLAGS)[number];
 /**
  * What a path is when its own final symbolic link is not followed.
  *
- * Every check below treats a link as hostile: a Secret or overlay mount
+ * Every check below treats a link as hostile: a Secret or output path
  * escapes the tree it was projected into by pointing somewhere else. `lstat`
  * reports the link itself, so `symlink` satisfies neither the directory nor
  * the regular-file check, while `stat` would report the link's target.
@@ -51,7 +51,6 @@ export interface BootstrapMaterializationOptions {
   readonly manifest: string;
   readonly source: string;
   readonly output: string;
-  readonly overlay: string;
 }
 
 /** A refused bootstrap input or a filesystem call the initializer cannot trust. */
@@ -64,7 +63,7 @@ export class BootstrapError extends Data.TaggedError("BootstrapError")<{
 }
 
 /**
- * Copy the application overlay and then materialize its run-scoped files.
+ * Materialize run-scoped files into a fresh application directory.
  *
  * Every manifest entry is decoded and resolved before the output directory
  * exists, so a refused bootstrap leaves the application with nothing to read.
@@ -81,13 +80,6 @@ export function materializeBootstrap(
     const files = yield* resolveManifestSources(options, manifest);
 
     yield* ensureOutputDirectory(options.output);
-    yield* fileSystem
-      .copy(options.overlay, options.output, { overwrite: true })
-      .pipe(
-        Effect.mapError(() =>
-          bootstrapError("bootstrap overlay cannot be copied"),
-        ),
-      );
     yield* Effect.forEach(files, (file) => placeFile(options.output, file), {
       concurrency: 1,
     });
@@ -433,7 +425,6 @@ function resolveManifestSources(
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     yield* requireDirectory(options.source, "bootstrap source");
-    yield* requireDirectory(options.overlay, "bootstrap overlay");
     const sourceRoot = yield* fileSystem
       .realPath(options.source)
       .pipe(
@@ -528,8 +519,7 @@ function parseArguments(
     const manifest = yield* requiredFlag(values, "--manifest");
     const source = yield* requiredFlag(values, "--source");
     const output = yield* requiredFlag(values, "--output");
-    const overlay = yield* requiredFlag(values, "--overlay");
-    return { manifest, source, output, overlay };
+    return { manifest, source, output };
   });
 }
 

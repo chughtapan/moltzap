@@ -10,6 +10,7 @@ import {
 } from "../kubernetes/calls.js";
 import { ROUTER_FAULT_PROXY_PORT } from "../kubernetes/objects.js";
 import {
+  ControllerConfigurationError,
   type ControllerConfiguration,
   controllerConfigurationFromEnvironment,
   type ControllerEnvironment,
@@ -62,6 +63,25 @@ export function supportImageFromEnvironment(
   const resolvedEnvironment = environment ?? processControllerEnvironment();
   return controllerConfigurationFromEnvironment(resolvedEnvironment)
     .supportImage;
+}
+
+/**
+ * Read the complete agent image selected for an environment-driven experiment.
+ * @param environment Process environment or a deterministic test substitute.
+ * @returns The validated application image supplied with the run.
+ */
+export function applicationImageFromEnvironment(
+  environment?: ControllerEnvironment,
+) {
+  const resolvedEnvironment = environment ?? processControllerEnvironment();
+  const configuration =
+    controllerConfigurationFromEnvironment(resolvedEnvironment);
+  if (configuration.applicationImage === undefined) {
+    throw new ControllerConfigurationError({
+      detail: "MOLTZAP_APPLICATION_IMAGE is required by this experiment",
+    });
+  }
+  return configuration.applicationImage;
 }
 
 function processControllerEnvironment(): ControllerEnvironment {

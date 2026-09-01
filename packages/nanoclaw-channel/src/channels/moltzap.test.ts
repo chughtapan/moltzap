@@ -12,7 +12,7 @@ import {
 import { Deferred, Effect, Fiber, Option, Queue, Schema, Stream } from "effect";
 import { describe, expect, vi, it as vitestIt } from "vitest";
 
-import type { ChannelSetup, InboundMessage } from "./adapter.js";
+import type { ChannelSetup } from "./adapter.js";
 import { getRegisteredChannelAdapter } from "./channel-registry.js";
 import { makeMoltZapAdapter, MoltZapAdapter } from "./moltzap.js";
 
@@ -122,7 +122,7 @@ describe("MoltZapAdapter delivery", () => {
           onMetadata: () => {
             callOrder.push("metadata");
           },
-          onInbound: () => {
+          onInboundEvent: () => {
             callOrder.push("inbound");
             Effect.runSync(Deferred.succeed(inboundStarted, undefined));
             return Effect.runPromise(Deferred.await(allowCallback));
@@ -153,7 +153,7 @@ describe("MoltZapAdapter delivery", () => {
       yield* setupAdapter(
         hostAdapter,
         hostSetup({
-          onInbound: () => Promise.reject(new Error("host collision")),
+          onInboundEvent: () => Promise.reject(new Error("host collision")),
         }),
       );
       yield* Queue.offer(hostFailure.queue, {
@@ -168,7 +168,7 @@ describe("MoltZapAdapter delivery", () => {
       );
       yield* setupAdapter(
         acknowledgeAdapter,
-        hostSetup({ onInbound: () => {} }),
+        hostSetup({ onInboundEvent: () => {} }),
       );
       yield* Queue.offer(acknowledgeFailure.queue, {
         message: directMessage,
@@ -243,7 +243,7 @@ describe("MoltZapAdapter canonical addresses", () => {
     Effect.gen(function* () {
       const fake = yield* createFakeEndpoint();
       const acknowledged = yield* Deferred.make<undefined>();
-      const received: InboundMessage[] = [];
+      const received: Array<Parameters<ChannelSetup["onInboundEvent"]>[0]> = [];
       const metadata: Array<{
         address: string;
         name?: string;
@@ -256,8 +256,8 @@ describe("MoltZapAdapter canonical addresses", () => {
           onMetadata: (address, name, isGroup) => {
             metadata.push({ address, name, isGroup });
           },
-          onInbound: (...[, , message]) => {
-            received.push(message);
+          onInboundEvent: (event) => {
+            received.push(event);
             return Promise.resolve();
           },
         }),
@@ -273,17 +273,24 @@ describe("MoltZapAdapter canonical addresses", () => {
       ]);
       expect(received).toEqual([
         {
-          id: GROUP_POST_ID,
-          kind: "chat",
-          timestamp: "1970-01-01T00:00:00.000Z",
-          isMention: true,
-          isGroup: true,
-          content: {
-            text: 'status\n{"ready":true}',
-            address: GROUP_ADDRESS,
-            sender: "agent:bob",
-            senderId: "agent:bob",
-            members: ["agent:alice", "agent:bob", "agent:local"],
+          channelType: "moltzap",
+          instance: "moltzap",
+          platformId: GROUP_ADDRESS,
+          targetAgentGroupId: "agent",
+          threadId: null,
+          message: {
+            id: GROUP_POST_ID,
+            kind: "chat",
+            timestamp: "1970-01-01T00:00:00.000Z",
+            isMention: true,
+            isGroup: true,
+            content: JSON.stringify({
+              text: 'status\n{"ready":true}',
+              address: GROUP_ADDRESS,
+              sender: "agent:bob",
+              senderId: "agent:bob",
+              members: ["agent:alice", "agent:bob", "agent:local"],
+            }),
           },
         },
       ]);
@@ -428,7 +435,12 @@ describe("MoltZapAdapter canonical addresses", () => {
 
 describe("MoltZapAdapter registration", () => {
   vitestIt("registers its NanoClaw factory", () => {
-    expect(getRegisteredChannelAdapter("moltzap")).toBeDefined();
+    expect(getRegisteredChannelAdapter("moltzap")).toMatchObject({
+      defaults: {
+        dm: { unknownSenderPolicy: "public" },
+        group: { unknownSenderPolicy: "public" },
+      },
+    });
   });
 
   vitestIt("is disabled without a loopback MCP URL", () => {
