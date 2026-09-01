@@ -26,6 +26,14 @@ const DIRECT_ADDRESS = "agent:alice";
 const GROUP_ADDRESS = "group:alice,bob,local";
 const DIRECT_POST_ID = `pst_${"A".repeat(43)}`;
 const GROUP_POST_ID = "pst_AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE";
+const GROUP_MEMBERS = ["agent:alice", "agent:bob", "agent:local"] as const;
+const GROUP_INBOUND_CONTENT = {
+  text: 'status\n{"ready":true}',
+  address: GROUP_ADDRESS,
+  sender: "agent:bob",
+  senderId: "agent:bob",
+  members: GROUP_MEMBERS,
+} as const;
 
 const directMessage = Schema.decodeUnknownSync(MoltZapInboundMessage)({
   kind: "direct",
@@ -40,7 +48,7 @@ const groupMessage = Schema.decodeUnknownSync(MoltZapInboundMessage)({
   postId: GROUP_POST_ID,
   address: GROUP_ADDRESS,
   sender: "agent:bob",
-  members: ["agent:alice", "agent:bob", "agent:local"],
+  members: GROUP_MEMBERS,
   content: [
     { type: "text", text: "status" },
     { type: "data", value: { ready: true } },
@@ -122,7 +130,7 @@ describe("MoltZapAdapter delivery", () => {
           onMetadata: () => {
             callOrder.push("metadata");
           },
-          onInboundEvent: () => {
+          onInbound: () => {
             callOrder.push("inbound");
             Effect.runSync(Deferred.succeed(inboundStarted, undefined));
             return Effect.runPromise(Deferred.await(allowCallback));
@@ -153,7 +161,7 @@ describe("MoltZapAdapter delivery", () => {
       yield* setupAdapter(
         hostAdapter,
         hostSetup({
-          onInboundEvent: () => Promise.reject(new Error("host collision")),
+          onInbound: () => Promise.reject(new Error("host collision")),
         }),
       );
       yield* Queue.offer(hostFailure.queue, {
@@ -168,7 +176,7 @@ describe("MoltZapAdapter delivery", () => {
       );
       yield* setupAdapter(
         acknowledgeAdapter,
-        hostSetup({ onInboundEvent: () => {} }),
+        hostSetup({ onInbound: () => {} }),
       );
       yield* Queue.offer(acknowledgeFailure.queue, {
         message: directMessage,
@@ -243,7 +251,7 @@ describe("MoltZapAdapter canonical addresses", () => {
     Effect.gen(function* () {
       const fake = yield* createFakeEndpoint();
       const acknowledged = yield* Deferred.make<undefined>();
-      const received: Array<Parameters<ChannelSetup["onInboundEvent"]>[0]> = [];
+      const received: Array<Parameters<ChannelSetup["onInbound"]>> = [];
       const metadata: Array<{
         address: string;
         name?: string;
@@ -256,8 +264,8 @@ describe("MoltZapAdapter canonical addresses", () => {
           onMetadata: (address, name, isGroup) => {
             metadata.push({ address, name, isGroup });
           },
-          onInboundEvent: (event) => {
-            received.push(event);
+          onInbound: (...input) => {
+            received.push(input);
             return Promise.resolve();
           },
         }),
@@ -272,27 +280,18 @@ describe("MoltZapAdapter canonical addresses", () => {
         { address: GROUP_ADDRESS, name: GROUP_ADDRESS, isGroup: true },
       ]);
       expect(received).toEqual([
-        {
-          channelType: "moltzap",
-          instance: "moltzap",
-          platformId: GROUP_ADDRESS,
-          targetAgentGroupId: "agent",
-          threadId: null,
-          message: {
+        [
+          GROUP_ADDRESS,
+          null,
+          {
             id: GROUP_POST_ID,
             kind: "chat",
             timestamp: "1970-01-01T00:00:00.000Z",
             isMention: true,
             isGroup: true,
-            content: JSON.stringify({
-              text: 'status\n{"ready":true}',
-              address: GROUP_ADDRESS,
-              sender: "agent:bob",
-              senderId: "agent:bob",
-              members: ["agent:alice", "agent:bob", "agent:local"],
-            }),
+            content: GROUP_INBOUND_CONTENT,
           },
-        },
+        ],
       ]);
       yield* teardownAdapter(adapter);
     }));

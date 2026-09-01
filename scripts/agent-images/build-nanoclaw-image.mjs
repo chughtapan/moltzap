@@ -104,7 +104,6 @@ async function pack(name, packageDirectory, destination) {
 async function copyImageAssets(staging) {
   const assets = [
     "Dockerfile",
-    "nanoclaw-v2.3.0.patch",
     "preload.mjs",
     "prepare.mjs",
     "process-driver.mjs",
@@ -170,7 +169,6 @@ async function stagingFingerprint(staging) {
     "entrypoint.mjs",
     "host-command.json",
     "nanoclaw-entrypoint.mjs",
-    "nanoclaw-v2.3.0.patch",
     "preload.mjs",
     "prepare.mjs",
     "process-driver.mjs",
