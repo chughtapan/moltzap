@@ -48,9 +48,12 @@ cover group canonicalization, fixed-group certification, retry, replay, and
 closed public-surface behavior.
 
 Simulator runs use the same topology: one Registry and Router per run and one
-restartable `moltzapd` sidecar per agent Sandbox. The deployment boundary gives
-applications only the loopback `MOLTZAP_MCP_URL`. Static checks do not claim a
-published application image or live-cluster qualification.
+complete application container per agent Sandbox. Inside that container, the
+agent image starts independent host and `moltzapd` processes, registers before
+starting the host, and exits when either process exits. The host receives only
+the loopback `MOLTZAP_MCP_URL`; daemon credentials stay in the daemon process.
+Static checks do not claim a published application image or live-cluster
+qualification.
 
 The package is still repository-private. This command is the supported
 developer acceptance path, not a published replacement CLI or a promise of

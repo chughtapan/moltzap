@@ -13,6 +13,7 @@ import {
   type ContainerRuntime,
   containerRuntimeFor,
   type File,
+  image,
 } from "../container.js";
 import {
   GatewayOperations,
@@ -26,9 +27,13 @@ import { openClawRuntime } from "./runtime.js";
 const test = effectIt.effect;
 const AGENT_NAME = Schema.decodeUnknownSync(AgentName)("alice");
 const GATEWAY_HOST = "alice.society.svc";
+const APPLICATION_IMAGE = image.make(
+  "example.invalid/openclaw-agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+);
 const BOOTSTRAP_ROOT = "/var/run/moltzap/bootstrap/";
 const OPENCLAW_CONFIG_PATH = `${BOOTSTRAP_ROOT}openclaw.json`;
-const OPENCLAW_EXTENSION_PATH = `${BOOTSTRAP_ROOT}openclaw-channel`;
+const OPENCLAW_EXTENSION_PATH =
+  "/opt/moltzap/node_modules/@moltzap/openclaw-channel";
 const WORKSPACE_PATH = `${BOOTSTRAP_ROOT}workspace/IDENTITY.md`;
 const GATEWAY_PORT = 18_789;
 const APPLICATION_STATE_DIR = `${BOOTSTRAP_ROOT}state`;
@@ -120,6 +125,7 @@ function applicationContainerTest() {
 function makeOpenClawContainerFixture() {
   return Effect.gen(function* () {
     const runtime = openClawRuntime({
+      applicationImage: APPLICATION_IMAGE,
       modelId: "openai/gpt-5.5",
       workspaceFiles: [
         { relativePath: "IDENTITY.md", content: WORKSPACE_CONTENT },
@@ -143,10 +149,7 @@ function assertCredentialFreeReservation(
   }).toLowerCase();
   assert.notInclude(reservation, "credential");
   assert.notInclude(reservation, "bootstrap");
-  assert.strictEqual(
-    capability.image,
-    "ghcr.io/openclaw/openclaw@sha256:e7849cb6c1ef1ead39ab4be7d85edb2df89611f486e283284c7cf35ce39a20d4",
-  );
+  assert.strictEqual(capability.image, APPLICATION_IMAGE);
 }
 
 function assertApplicationContainer(fixture: OpenClawContainerFixture): void {
@@ -160,18 +163,13 @@ function assertApplicationContainer(fixture: OpenClawContainerFixture): void {
   assert.notProperty(application, "containers");
   assert.notProperty(application, "applicationContainers");
   assert.deepStrictEqual(capability.resources, {
-    cpuMillis: 1_000,
-    memoryBytes: 1_024 * 1_024 * 1_024,
+    cpuMillis: 1_100,
+    memoryBytes: 1_280 * 1_024 * 1_024,
     ephemeralStorageBytes: 1_024 * 1_024 * 1_024,
   });
   assert.deepStrictEqual(application.entrypoint, [
     "node",
-    "/app/openclaw.mjs",
-    "gateway",
-    "run",
-    "--allow-unconfigured",
-    "--port",
-    String(GATEWAY_PORT),
+    "/opt/moltzap/agent/entrypoint.mjs",
   ]);
   assert.strictEqual(application.port, GATEWAY_PORT);
   assert.strictEqual(
@@ -218,7 +216,10 @@ function assertMessagingConfiguration(fixture: OpenClawContainerFixture): void {
 
 function privateMessagingModeTest() {
   return Effect.gen(function* () {
-    const runtime = openClawRuntime({ messagingMode: "private" });
+    const runtime = openClawRuntime({
+      applicationImage: APPLICATION_IMAGE,
+      messagingMode: "private",
+    });
     const capability = containerRuntimeFor(runtime);
     const application = yield* capability.render({ agentName: AGENT_NAME });
     const config = Schema.decodeUnknownSync(renderedOpenClawConfig)(

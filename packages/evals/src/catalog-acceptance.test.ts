@@ -149,6 +149,7 @@ function submission(
       modelId: condition === "openclaw/v2" ? "openai/test" : "claude/test",
     },
     messagingMode: "shared",
+    openclawApplicationImage: APPLICATION_IMAGE,
     nanoclawApplicationImage: APPLICATION_IMAGE,
     runtimeStartupTimeoutMillis: 1_000,
     peerObservationTimeoutMillis: 2_000,
@@ -200,7 +201,10 @@ it("materializes every case peer under both concrete runtime conditions", () => 
   } as const;
   const conditions = [
     openClawEvaluationCondition({
-      runtime: { modelId: "openai/test" },
+      runtime: {
+        applicationImage: APPLICATION_IMAGE,
+        modelId: "openai/test",
+      },
       execution,
     }),
     nanoclawEvaluationCondition({

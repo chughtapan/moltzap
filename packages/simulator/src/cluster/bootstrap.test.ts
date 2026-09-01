@@ -22,7 +22,6 @@ interface Fixture {
   readonly root: string;
   readonly source: string;
   readonly output: string;
-  readonly overlay: string;
   readonly manifest: string;
 }
 
@@ -46,11 +45,9 @@ async function makeFixture(): Promise<Fixture> {
   roots.push(root);
   const source = join(root, "source");
   const output = join(root, "output");
-  const overlay = join(root, "overlay");
   const manifest = join(root, "manifest.json");
   await mkdir(source);
-  await mkdir(overlay);
-  return { root, source, output, overlay, manifest };
+  return { root, source, output, manifest };
 }
 
 async function writeManifest(fixture: Fixture, value: unknown): Promise<void> {
@@ -70,7 +67,6 @@ function options(fixture: Fixture) {
     manifest: fixture.manifest,
     source: fixture.source,
     output: fixture.output,
-    overlay: fixture.overlay,
   } as const;
 }
 
@@ -82,19 +78,8 @@ afterEach(async () => {
 });
 
 describe("materializeBootstrap", () => {
-  it("copies the trusted overlay before placing regular Secret files with exact modes", async () => {
+  it("places regular Secret files with exact modes", async () => {
     const fixture = await makeFixture();
-    await mkdir(join(fixture.overlay, "openclaw-channel"));
-    await writeFile(
-      join(fixture.overlay, "openclaw-channel", "package.json"),
-      "overlay",
-      "utf8",
-    );
-    await writeFile(
-      join(fixture.overlay, "openclaw.json"),
-      "placeholder",
-      "utf8",
-    );
     await writeFile(join(fixture.source, "config"), "secret-config", "utf8");
     await writeFile(join(fixture.source, "profile"), "secret-profile", "utf8");
     await chmod(join(fixture.source, "config"), 0o644);
@@ -114,12 +99,6 @@ describe("materializeBootstrap", () => {
     await expect(
       readFile(join(fixture.output, "moltzap", "config.json"), "utf8"),
     ).resolves.toBe("secret-profile");
-    await expect(
-      readFile(
-        join(fixture.output, "openclaw-channel", "package.json"),
-        "utf8",
-      ),
-    ).resolves.toBe("overlay");
     expect(
       (await stat(join(fixture.output, "openclaw.json"))).mode & 0o777,
     ).toBe(0o600);
@@ -242,8 +221,6 @@ describe("materializeBootstrap", () => {
       fixture.source,
       "--output",
       fixture.output,
-      "--overlay",
-      fixture.overlay,
     ]);
 
     await expect(
@@ -299,11 +276,12 @@ describe("materializeBootstrap", () => {
     }
   });
 
-  it("does not follow an overlay symlink when placing a Secret", async () => {
+  it("does not follow an existing output symlink when placing a Secret", async () => {
     const fixture = await makeFixture();
     const outside = join(fixture.root, "outside");
     await mkdir(outside);
-    await symlink(outside, join(fixture.overlay, "redirect"));
+    await mkdir(fixture.output);
+    await symlink(outside, join(fixture.output, "redirect"));
     await writeFile(join(fixture.source, "config"), "secret", "utf8");
     await writeManifest(fixture, {
       apiVersion: "moltzap.bootstrap/v1",

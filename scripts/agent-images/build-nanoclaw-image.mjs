@@ -1,4 +1,4 @@
-/** @file Builds the pinned one-container NanoClaw simulator application. */
+/** @file Builds the pinned, complete NanoClaw agent image. */
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import {
@@ -17,8 +17,9 @@ import { promisify } from "node:util";
 const exec = promisify(execFile);
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = dirname(dirname(scriptRoot));
-const imageRoot = join(scriptRoot, "nanoclaw-image");
-const DEFAULT_REPOSITORY = "moltzap-simulator-nanoclaw";
+const imageRoot = join(scriptRoot, "nanoclaw");
+const sharedRoot = join(scriptRoot, "shared");
+const DEFAULT_REPOSITORY = "moltzap-nanoclaw-agent";
 const BUILD_TIMEOUT_MILLIS = 45 * 60 * 1_000;
 const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/u;
 
@@ -103,8 +104,6 @@ async function pack(name, packageDirectory, destination) {
 async function copyImageAssets(staging) {
   const assets = [
     "Dockerfile",
-    "bootstrap.mjs",
-    "entrypoint.mjs",
     "nanoclaw-v2.3.0.patch",
     "preload.mjs",
     "prepare.mjs",
@@ -119,6 +118,24 @@ async function copyImageAssets(staging) {
     join(workspaceRoot, "packages/nanoclaw-channel/src/channels/moltzap.ts"),
     join(staging, "channel/moltzap.ts"),
   );
+  await Promise.all([
+    copyFile(
+      join(imageRoot, "entrypoint.mjs"),
+      join(staging, "nanoclaw-entrypoint.mjs"),
+    ),
+    copyFile(
+      join(imageRoot, "host-command.json"),
+      join(staging, "host-command.json"),
+    ),
+    copyFile(
+      join(sharedRoot, "entrypoint.mjs"),
+      join(staging, "entrypoint.mjs"),
+    ),
+    copyFile(
+      join(sharedRoot, "register-daemon.mjs"),
+      join(staging, "register-daemon.mjs"),
+    ),
+  ]);
 }
 
 async function stage() {
@@ -149,14 +166,16 @@ async function stagingFingerprint(staging) {
   hash.update(NANOCLAW_SOURCE_ARCHIVE_SHA256);
   for (const path of [
     "Dockerfile",
-    "bootstrap.mjs",
     "channel/moltzap.ts",
     "entrypoint.mjs",
+    "host-command.json",
+    "nanoclaw-entrypoint.mjs",
     "nanoclaw-v2.3.0.patch",
     "preload.mjs",
     "prepare.mjs",
     "process-driver.mjs",
     "provision.mjs",
+    "register-daemon.mjs",
     "tarballs/client.tgz",
     "tarballs/identity.tgz",
     "tarballs/router.tgz",
@@ -301,7 +320,7 @@ async function main() {
         sourceRevision: NANOCLAW_SOURCE_REVISION,
         sourceArchiveDigest: `sha256:${NANOCLAW_SOURCE_ARCHIVE_SHA256}`,
         agentBaseImage,
-        entrypoint: "/opt/moltzap/nanoclaw/entrypoint.mjs",
+        entrypoint: "/opt/moltzap/agent/entrypoint.mjs",
         stateDirectory: "/var/lib/moltzap/nanoclaw",
         gatewayPort: 18_790,
       })}\n`,

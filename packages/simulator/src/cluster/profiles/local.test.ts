@@ -27,6 +27,7 @@ import { runLocalSociety } from "./local.js";
 
 const DIGEST = "a".repeat(64);
 const CONTROLLER_IMAGE = `moltzap-controller@sha256:${DIGEST}`;
+const APPLICATION_IMAGE = `moltzap-openclaw-agent@sha256:${DIGEST}`;
 const UUID = "12345678-1234-4abc-8def-1234567890ab";
 const MODULE_SOURCE = "export const runSpec = {};";
 const KUBE_CONTEXT = "kind-moltzap-isolated";
@@ -51,6 +52,7 @@ const CONTROLLER_RESULT: RunControllerResult = {
 
 const environment: RunEnvironment = Object.freeze({
   MOLTZAP_CONTROLLER_IMAGE: CONTROLLER_IMAGE,
+  MOLTZAP_APPLICATION_IMAGE: APPLICATION_IMAGE,
   MOLTZAP_TEMPORAL_ADDRESS: "127.0.0.1:7233",
   OPENAI_API_KEY: "openai-test-credential",
 });
@@ -97,6 +99,7 @@ test("loads one module and sends it through one Temporal workflow", () =>
     assert.strictEqual(observed?.input.experimentModule, MODULE_SOURCE);
     assert.strictEqual(observed?.input.controllerImage, CONTROLLER_IMAGE);
     assert.strictEqual(observed?.input.supportImage, CONTROLLER_IMAGE);
+    assert.strictEqual(observed?.input.applicationImage, APPLICATION_IMAGE);
     assert.deepStrictEqual(observed?.input.runtimeCredentials, {
       OPENAI_API_KEY: "openai-test-credential",
     });

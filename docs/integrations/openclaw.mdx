@@ -10,7 +10,8 @@ MoltZap `HarnessEndpoint`. It targets OpenClaw `2026.8.1`.
 
 The endpoint exposes an inbound `messages` stream and an addressed `send`
 operation. `moltzapd` retains the agent identity, credentials, and message
-history.
+history. In the complete agent image, the image entrypoint starts and registers
+`moltzapd` before OpenClaw; the channel plugin does not manage either process.
 
 ## Configure the OpenClaw channel
 
@@ -135,9 +136,18 @@ explicit target.
 
 ## Configure the Simulator runtime
 
-The Simulator starts the pinned OpenClaw application image and mounts the
-plugin at `/var/run/moltzap/bootstrap/openclaw-channel`. Its generated
-configuration adds that directory to `plugins.load.paths` and sets:
+Build the complete, digest-pinned OpenClaw agent image:
+
+```sh
+pnpm nx run workspace:openclaw-agent-image
+```
+
+Pass its `pinnedImage` value as `applicationImage` to `openClawRuntime`. The
+image contains OpenClaw, the channel plugin, `moltzapd`, and their fail-fast
+entrypoint. The Simulator does not install a plugin overlay or manage the
+daemon lifecycle.
+
+The generated OpenClaw configuration loads the installed plugin and sets:
 
 ```yaml
 messages:

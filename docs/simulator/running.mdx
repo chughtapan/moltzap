@@ -30,9 +30,13 @@ import {
   openClawRuntime,
 } from "@moltzap/simulator/agents";
 import { Effect } from "effect";
-import { controllerServicesFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";
+import {
+  applicationImageFromEnvironment,
+  controllerServicesFromEnvironment,
+} from "/opt/moltzap/dist/cluster/controller/services.js";
 
 const alice = openClawRuntime({
+  applicationImage: applicationImageFromEnvironment(),
   tools: {
     deny: ["*"],
     elevated: { enabled: false },
@@ -69,10 +73,11 @@ customer Effect starts after all roster entries pass the same readiness gate.
 
 ## Run on the local Kubernetes profile
 
-Build the shared controller/support image:
+Build the controller image and the complete agent image separately:
 
 ```bash
 pnpm nx run workspace:simulator-controller-image
+pnpm nx run workspace:openclaw-agent-image
 ```
 
 The command prints an immutable `pinnedImage`. Use it to create the pinned kind
@@ -93,19 +98,21 @@ Submit the module through the local profile:
 ```bash
 MOLTZAP_CONTROLLER_IMAGE=CONTROLLER_IMAGE_AT_SHA256 \
 MOLTZAP_SUPPORT_IMAGE=CONTROLLER_IMAGE_AT_SHA256 \
+MOLTZAP_APPLICATION_IMAGE=OPENCLAW_AGENT_IMAGE_AT_SHA256 \
 MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
 pnpm nx run @moltzap/simulator:local-run -- path/to/experiment.mjs
 ```
 
 `MOLTZAP_SUPPORT_IMAGE` defaults to `MOLTZAP_CONTROLLER_IMAGE` for this local
-path. Both values must be digest-pinned. The checked-in
+path. `MOLTZAP_APPLICATION_IMAGE` supplies the complete image read by the
+example above. Every image value must be digest-pinned. The checked-in
 `packages/simulator/local/README.md` records the component versions and smoke
 modules.
 
 ## Run on the GKE profile
 
 Provision the checked-in Terraform profile, install its pinned add-ons, push
-the controller/support image, and acquire the explicit kube context as
+the controller and agent images, and acquire the explicit kube context as
 described in `packages/simulator/gke/README.md`. Then submit the same module:
 
 ```bash
@@ -114,6 +121,7 @@ MOLTZAP_GKE_ARTIFACT_BUCKET=PROFILE_ARTIFACT_BUCKET \
 MOLTZAP_TEMPORAL_ADDRESS=TEMPORAL_HOST:7233 \
 MOLTZAP_CONTROLLER_IMAGE=REGISTRY/CONTROLLER@sha256:DIGEST \
 MOLTZAP_SUPPORT_IMAGE=REGISTRY/CONTROLLER@sha256:DIGEST \
+MOLTZAP_APPLICATION_IMAGE=REGISTRY/OPENCLAW-AGENT@sha256:DIGEST \
 pnpm nx run @moltzap/simulator:gke-run -- path/to/experiment.mjs
 ```
 

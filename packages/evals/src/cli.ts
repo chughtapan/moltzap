@@ -140,6 +140,7 @@ interface RuntimeCliOptions {
 
 interface CommonExecutionEnvironment {
   readonly workspaceRoot: string;
+  readonly openclawApplicationImage?: Image;
   readonly nanoclawApplicationImage?: Image;
   readonly controllerImage: Image;
   readonly temporalAddress: string;
@@ -170,6 +171,7 @@ type EvaluationExecutionEnvironment =
 
 interface EvaluationExecutionImages {
   readonly controllerImage: Image;
+  readonly openclawApplicationImage?: Image;
   readonly nanoclawApplicationImage?: Image;
 }
 
@@ -183,6 +185,7 @@ export interface AttemptContext {
 /** Environment key naming one digest-pinned image an evaluation run needs. */
 export type EvaluationImageKey =
   | "MOLTZAP_CONTROLLER_IMAGE"
+  | "MOLTZAP_OPENCLAW_IMAGE"
   | "MOLTZAP_NANOCLAW_IMAGE";
 
 /**
@@ -355,11 +358,21 @@ function resolveRuntimeOptions(options: RuntimeCliOptions): RuntimeOptions {
 
 function evaluationConditions(
   options: RuntimeOptions,
-  environment: Pick<CommonExecutionEnvironment, "nanoclawApplicationImage">,
+  environment: Pick<
+    CommonExecutionEnvironment,
+    "openclawApplicationImage" | "nanoclawApplicationImage"
+  >,
 ): NonEmptyReadonlyArray<EvaluationCondition> {
   switch (options.runtime) {
-    case "openclaw":
-      return [openClawCondition(options)];
+    case "openclaw": {
+      const openclawApplicationImage = environment.openclawApplicationImage;
+      if (openclawApplicationImage === undefined) {
+        throw EvaluationSourceStateError.make({
+          detail: missingImageDetail("MOLTZAP_OPENCLAW_IMAGE"),
+        });
+      }
+      return [openClawCondition(options, openclawApplicationImage)];
+    }
     case "nanoclaw": {
       const nanoclawApplicationImage = environment.nanoclawApplicationImage;
       if (nanoclawApplicationImage === undefined) {
@@ -370,6 +383,12 @@ function evaluationConditions(
       return [nanoClawCondition(options, nanoclawApplicationImage)];
     }
     case "all": {
+      const openclawApplicationImage = environment.openclawApplicationImage;
+      if (openclawApplicationImage === undefined) {
+        throw EvaluationSourceStateError.make({
+          detail: missingImageDetail("MOLTZAP_OPENCLAW_IMAGE"),
+        });
+      }
       const nanoclawApplicationImage = environment.nanoclawApplicationImage;
       if (nanoclawApplicationImage === undefined) {
         throw EvaluationSourceStateError.make({
@@ -377,7 +396,7 @@ function evaluationConditions(
         });
       }
       return [
-        openClawCondition(options),
+        openClawCondition(options, openclawApplicationImage),
         nanoClawCondition(options, nanoclawApplicationImage),
       ];
     }
@@ -388,7 +407,10 @@ function evaluationConditions(
   }
 }
 
-function openClawCondition(options: RuntimeOptions): EvaluationCondition {
+function openClawCondition(
+  options: RuntimeOptions,
+  applicationImage: Image,
+): EvaluationCondition {
   if (options.openclawModel === undefined) {
     throw EvaluationSourceStateError.make({
       detail: "selected OpenClaw condition has no model",
@@ -400,6 +422,7 @@ function openClawCondition(options: RuntimeOptions): EvaluationCondition {
   } as const;
   return openClawEvaluationCondition({
     runtime: {
+      applicationImage,
       startupTimeout: RUNTIME_STARTUP_TIMEOUT,
       modelId: options.openclawModel,
       messagingMode: options.messagingMode,
@@ -495,6 +518,11 @@ function planInfrastructure(
   const shared = {
     controllerImage: environment.controllerImage,
     temporalAddress: environment.temporalAddress,
+    ...(environment.openclawApplicationImage === undefined
+      ? {}
+      : {
+          openclawApplicationImage: environment.openclawApplicationImage,
+        }),
     ...(environment.nanoclawApplicationImage === undefined
       ? {}
       : {
@@ -751,6 +779,11 @@ function submissionInput(
       modelId: conditionModelId(environment.models, condition.id),
     },
     messagingMode: environment.messagingMode,
+    ...(environment.openclawApplicationImage === undefined
+      ? {}
+      : {
+          openclawApplicationImage: environment.openclawApplicationImage,
+        }),
     ...(environment.nanoclawApplicationImage === undefined
       ? {}
       : {
@@ -881,10 +914,24 @@ function executionImages(options: RuntimeOptions) {
   return Effect.gen(function* () {
     const controllerImage = yield* requiredImage("MOLTZAP_CONTROLLER_IMAGE");
     if (options.runtime === "openclaw") {
-      return { controllerImage };
+      return {
+        controllerImage,
+        openclawApplicationImage: yield* requiredImage(
+          "MOLTZAP_OPENCLAW_IMAGE",
+        ),
+      };
+    }
+    if (options.runtime === "nanoclaw") {
+      return {
+        controllerImage,
+        nanoclawApplicationImage: yield* requiredImage(
+          "MOLTZAP_NANOCLAW_IMAGE",
+        ),
+      };
     }
     return {
       controllerImage,
+      openclawApplicationImage: yield* requiredImage("MOLTZAP_OPENCLAW_IMAGE"),
       nanoclawApplicationImage: yield* requiredImage("MOLTZAP_NANOCLAW_IMAGE"),
     };
   });

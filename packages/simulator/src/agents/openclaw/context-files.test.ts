@@ -7,13 +7,19 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 import { AgentRuntimeDefinitionError } from "../agent.js";
+import { image } from "../container.js";
 import { OPENCLAW_CONTEXT_FILENAMES, openClawRuntime } from "./runtime.js";
+
+const APPLICATION_IMAGE = image.make(
+  "example.invalid/openclaw-agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+);
 
 describe("workspace-file reachability guard", () => {
   it("refuses a file the model can provably never see", () => {
     assert.throws(
       () =>
         openClawRuntime({
+          applicationImage: APPLICATION_IMAGE,
           workspaceFiles: [{ relativePath: "BRIEF.md", content: "brief" }],
           tools: { deny: ["*"] },
         }),
@@ -24,6 +30,7 @@ describe("workspace-file reachability guard", () => {
   it("accepts a non-injected file when tools could still read it", () => {
     assert.doesNotThrow(() =>
       openClawRuntime({
+        applicationImage: APPLICATION_IMAGE,
         workspaceFiles: [{ relativePath: "BRIEF.md", content: "brief" }],
       }),
     );
@@ -32,6 +39,7 @@ describe("workspace-file reachability guard", () => {
   it("accepts injected filenames when every tool is denied", () => {
     assert.doesNotThrow(() =>
       openClawRuntime({
+        applicationImage: APPLICATION_IMAGE,
         workspaceFiles: [{ relativePath: "AGENTS.md", content: "brief" }],
         tools: { deny: ["*"] },
       }),
