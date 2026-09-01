@@ -1,4 +1,4 @@
-/** @file Real-daemon acceptance for both public runtime adapters. */
+/** @file Real-daemon acceptance for the OpenClaw runtime adapter. */
 
 import {
   acquireHarnessEndpoint,
@@ -7,7 +7,6 @@ import {
   type InboundDelivery,
   type InboundMessage,
 } from "@moltzap/client";
-import { MoltZapAdapter } from "@moltzap/nanoclaw-channel";
 import openClawPlugin from "@moltzap/openclaw-channel";
 import {
   Deferred,
@@ -34,7 +33,6 @@ const DELIVERY_TIMEOUT = Duration.seconds(60);
 const OPENCLAW_ACCOUNT_ID = "adapter-target";
 const OPENCLAW_MAIN_SESSION_KEY = "agent:primary:main";
 const OPENCLAW_REPLY = "reply from the real OpenClaw adapter";
-const NANOCLAW_REPLY = "reply from the real NanoClaw adapter";
 
 interface Scenario {
   readonly caller: DaemonProcessFixture;
@@ -300,21 +298,6 @@ interface OpenClawReplyFixture {
 }
 
 type OpenClawRuntimeFixture = OpenClawReplyFixture;
-
-const nanoInboundContentSchema = Schema.Struct({
-  text: Schema.String,
-  address: AgentAddress,
-  sender: AgentAddress,
-  senderId: AgentAddress,
-});
-
-interface NanoClawInboundProjection {
-  readonly id: string;
-  readonly platformId: string;
-  readonly threadId: string | null;
-  readonly content: typeof nanoInboundContentSchema.Type;
-  readonly isGroup: boolean;
-}
 
 function textContent(text: string): Content {
   return [{ type: "text", text }];
@@ -796,109 +779,7 @@ function runOpenClawScenario() {
   );
 }
 
-function runNanoClawScenario() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const scenario = yield* acquireScenario("nanoclaw");
-      const caller = yield* acquireHarnessEndpoint(scenario.caller.endpoint);
-      const target = yield* acquireHarnessEndpoint(scenario.target.endpoint);
-      const callerAddress = directAddress(scenario.caller.agentName);
-      const targetAddress = directAddress(scenario.target.agentName);
-      const initial = textContent("hello through the real NanoClaw adapter");
-      const reply = textContent(NANOCLAW_REPLY);
-      const inboundAccepted = yield* Deferred.make<void>();
-      const inbound: NanoClawInboundProjection[] = [];
-      const metadata = new Map<
-        string,
-        {
-          readonly name: string | undefined;
-          readonly isGroup: boolean | undefined;
-        }
-      >();
-      const adapter = MoltZapAdapter.fromEndpoint(target);
-      yield* Effect.acquireRelease(
-        effectFromPromise("NanoClaw setup", () =>
-          adapter.setup({
-            onMetadata: (platformId, name, isGroup) => {
-              metadata.set(platformId, { name, isGroup });
-            },
-            onInbound: (platformId, threadId, message) => {
-              const content = Schema.decodeUnknownSync(
-                nanoInboundContentSchema,
-              )(message.content);
-              expect(metadata.get(platformId)).toEqual({
-                name: platformId,
-                isGroup: false,
-              });
-              inbound.push({
-                id: message.id,
-                platformId,
-                threadId,
-                content,
-                isGroup: message.isGroup === true,
-              });
-              Effect.runSync(Deferred.succeed(inboundAccepted, undefined));
-              return Promise.resolve();
-            },
-            onInboundEvent: () => {},
-            onAction: () => {},
-          }),
-        ),
-        () =>
-          effectFromPromise("NanoClaw teardown", () => adapter.teardown()).pipe(
-            Effect.ignore,
-          ),
-      );
-      expect(adapter.isConnected()).toBe(true);
-
-      const callerDelivery = yield* Effect.forkScoped(
-        nextDelivery(caller.messages),
-      );
-      yield* caller.send({
-        to: targetAddress,
-        content: initial,
-      });
-      yield* awaitSignal(inboundAccepted, "NanoClaw inbound callback");
-      expect(inbound).toEqual([
-        expect.objectContaining({
-          platformId: callerAddress,
-          threadId: null,
-          content: {
-            text: "hello through the real NanoClaw adapter",
-            address: callerAddress,
-            sender: callerAddress,
-            senderId: callerAddress,
-          },
-          isGroup: false,
-        }),
-      ]);
-      const outboundMessage = {
-        kind: "chat",
-        content: { text: NANOCLAW_REPLY },
-      };
-      yield* effectFromPromise("NanoClaw native message", () =>
-        adapter.deliver(callerAddress, null, outboundMessage),
-      );
-      yield* effectFromPromise("NanoClaw repeated native message", () =>
-        adapter.deliver(callerAddress, null, outboundMessage),
-      );
-
-      const returned = yield* Fiber.join(callerDelivery);
-      expect(returned.message).toMatchObject({
-        kind: "direct",
-        address: targetAddress,
-        sender: targetAddress,
-        content: reply,
-      });
-      yield* returned.acknowledge;
-      yield* assertDurableExchange(scenario, initial, [reply, reply]);
-    }),
-  );
-}
-
-it("keeps host identities local while repeated adapter calls create separate posts", () => {
+it("keeps OpenClaw host identities local across a durable exchange", () => {
   expect.hasAssertions();
-  return Effect.runPromise(
-    Effect.zipRight(runOpenClawScenario(), runNanoClawScenario()),
-  );
+  return Effect.runPromise(runOpenClawScenario());
 }, 300_000);
