@@ -47,8 +47,8 @@ create separate conversations, and autonomous source and probe peers react
 only to public addressed inbound messages. The default `shared` messaging mode
 configures OpenClaw's stock session layout; NanoClaw session behavior belongs
 to its supplied application image. Evals injects no Client context bundle.
-This makes the behavior measurable without claiming that a target will
-retain, isolate, or disclose the right information. A peer observation can retain a
+This makes the behavior measurable without claiming that a target will retain,
+isolate, or disclose the right information. A peer observation can retain a
 missing required message as bounded timeout evidence, and an observed but
 unsafe or incorrect response can receive a behavioral failure. The enclosing
 case deadline remains an operational timeout boundary.
@@ -64,13 +64,12 @@ The evaluation event catalog retains three kinds of evidence:
   misses its deadline; and
 - the exact earlier observation selected by case policy for grading.
 
-NanoClaw's owner-local output remains an uncorrelated multi-frame stream. Social
-cases can execute because they select public-client observations rather than a
-gateway response. `EVAL-019` and `EVAL-022` require correlated principal output,
-so their NanoClaw cells terminate as explicit `RunFailedAttempt` values instead
-of treating an arbitrary later frame as the response. The configured NanoClaw
-image is still an execution prerequisite, not evidence that it has passed live
-qualification.
+NanoClaw's owner-local output remains an uncorrelated multi-frame stream. Its
+`ask` path serializes questions and selects the next output observed after the
+input is accepted. That selection is evaluation policy, not proof that the
+frame causally answers the question. Social cases instead select public-client
+observations. The configured NanoClaw image is still an execution prerequisite,
+not evidence that it has passed live qualification.
 
 ## Source organization
 
