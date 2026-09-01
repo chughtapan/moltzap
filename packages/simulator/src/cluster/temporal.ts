@@ -140,6 +140,7 @@ export async function serveRunSocietyWorker(
     address: required(environment, "MOLTZAP_TEMPORAL_ADDRESS"),
   });
   let worker: Worker | undefined;
+  // #ignore-sloppy-code-next-line[promise-type]: Worker.run is an SDK Promise boundary retained so finally can await shutdown
   let running: Promise<void> | undefined;
   try {
     worker = await createRunSocietyWorker({
