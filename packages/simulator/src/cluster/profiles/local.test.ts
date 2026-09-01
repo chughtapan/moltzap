@@ -91,16 +91,17 @@ test("loads one module and sends it through one Temporal workflow", () =>
       }),
     );
 
+    assert.isDefined(observed);
     assert.strictEqual(result.runId, `mz-${UUID.replaceAll("-", "")}`);
     assert.strictEqual(result.namespace, result.runId);
-    assert.strictEqual(observed?.workflowId, result.runId);
-    assert.strictEqual(observed?.taskQueue, DEFAULT_LOCAL_TASK_QUEUE);
-    assert.deepStrictEqual(observed?.executionProfile, { kind: "local" });
-    assert.strictEqual(observed?.input.experimentModule, MODULE_SOURCE);
-    assert.strictEqual(observed?.input.controllerImage, CONTROLLER_IMAGE);
-    assert.strictEqual(observed?.input.supportImage, CONTROLLER_IMAGE);
-    assert.strictEqual(observed?.input.applicationImage, APPLICATION_IMAGE);
-    assert.deepStrictEqual(observed?.input.runtimeCredentials, {
+    assert.strictEqual(observed.workflowId, result.runId);
+    assert.strictEqual(observed.taskQueue, DEFAULT_LOCAL_TASK_QUEUE);
+    assert.deepStrictEqual(observed.executionProfile, { kind: "local" });
+    assert.strictEqual(observed.input.experimentModule, MODULE_SOURCE);
+    assert.strictEqual(observed.input.controllerImage, CONTROLLER_IMAGE);
+    assert.strictEqual(observed.input.supportImage, CONTROLLER_IMAGE);
+    assert.strictEqual(observed.input.applicationImage, APPLICATION_IMAGE);
+    assert.deepStrictEqual(observed.input.runtimeCredentials, {
       OPENAI_API_KEY: "openai-test-credential",
     });
   }));
