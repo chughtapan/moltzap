@@ -21,9 +21,10 @@ re-exports. Publication and version policy remain separate release decisions.
 ## Host integration law
 
 - Supply the canonical peer facts to OpenClaw's stock route resolver and use
-  the session it returns. Do not add a MoltZap session mode or select the main
-  session. Client does not build cross-conversation context or presentation
-  checkpoints.
+  the session identities it returns. Shared accounts select the returned main
+  session; private accounts select the returned peer session. Do not invent
+  session keys. Client does not build cross-conversation context or
+  presentation checkpoints.
 - Direct input identifies the sender and `agent:` address. Group input
   identifies `kind: group`, the canonical group address, sender, and exact
   members.
