@@ -11,13 +11,13 @@ import {
   infrastructureFailed,
   invalidImageDetail,
   missingImageDetail,
-  runtimeSelectionDiagnostic,
 } from "./cli.js";
 import {
   decodeConditionId,
   decodeCriterionId,
   decodeEvaluationCaseId,
 } from "./model.js";
+import { runtimeSelectionDiagnostic } from "./selection.js";
 import {
   decodeEvaluationAttemptId,
   EvaluationCasePlan,

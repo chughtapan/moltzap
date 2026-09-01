@@ -104,8 +104,10 @@ clean committed worktree. `eval` and `resume` accept
 `--runtime all|openclaw|nanoclaw` and default to `all`. Every selected runtime
 requires its matching model option. `--messaging-mode` defaults to `shared`;
 `private` is currently valid only with `--runtime openclaw`. The
-NanoClaw application image uses one native `agent-shared` session. Run `eval`,
-`resume`, `calibrate`, or `publish` through the package's Nx targets.
+NanoClaw application image uses one native `agent-shared` session. Repeat
+`--case EVAL-NNN` to run an exact case subset; omitting `--case` runs the full
+catalog. Run `eval`, `resume`, `calibrate`, or `publish` through the package's
+Nx targets.
 
 SQLite is the mutable report authority. Resume executes only cells missing from
 an exactly matching plan. Completed Simulator artifacts remain the evidence

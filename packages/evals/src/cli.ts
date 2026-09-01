@@ -27,7 +27,6 @@ import {
   type BundledEvaluationCase,
   evaluationCase,
   type EvaluationCaseMetadata,
-  evaluationCases,
 } from "./cases.js";
 import {
   type EvaluationCondition,
@@ -59,8 +58,14 @@ import {
   runEvaluationSweep,
 } from "./results.js";
 import {
+  evaluationRunCliOptions,
+  type EvaluationRunCliOptions,
+  type EvaluationRunOptions,
+  EvaluationSelectionInvalid,
+  resolveEvaluationRunSelection,
+} from "./selection.js";
+import {
   type EvaluationSubmissionResult,
-  type SimulatorProfile,
   submissionDiagnostic,
   submitEvaluationCell,
 } from "./submission.js";
@@ -122,22 +127,6 @@ class SemanticJudgeCalibrationFailed extends Schema.TaggedError<SemanticJudgeCal
   },
 ) {}
 
-interface RuntimeOptions {
-  readonly runtime: "all" | "openclaw" | "nanoclaw";
-  readonly openclawModel?: string;
-  readonly nanoclawModel?: string;
-  readonly messagingMode: "shared" | "private";
-  readonly profile: SimulatorProfile;
-}
-
-interface RuntimeCliOptions {
-  readonly runtime: RuntimeOptions["runtime"];
-  readonly openclawModel: Option.Option<string>;
-  readonly nanoclawModel: Option.Option<string>;
-  readonly messagingMode: RuntimeOptions["messagingMode"];
-  readonly profile: SimulatorProfile;
-}
-
 interface CommonExecutionEnvironment {
   readonly workspaceRoot: string;
   readonly openclawApplicationImage?: Image;
@@ -187,38 +176,6 @@ export type EvaluationImageKey =
   | "MOLTZAP_CONTROLLER_IMAGE"
   | "MOLTZAP_OPENCLAW_IMAGE"
   | "MOLTZAP_NANOCLAW_IMAGE";
-
-/**
- * Return the operator-facing reason one runtime selection is incomplete.
- * @param options Runtime, model, and messaging-mode selection.
- * @param options.runtime Runtime conditions included in the sweep.
- * @param options.openclawModel Exact OpenClaw model when selected.
- * @param options.nanoclawModel Exact NanoClaw model when selected.
- * @param options.messagingMode Native host session layout.
- * @returns A diagnostic, or `undefined` when the selection is executable.
- */
-export function runtimeSelectionDiagnostic(options: {
-  readonly runtime: "all" | "openclaw" | "nanoclaw";
-  readonly openclawModel?: string;
-  readonly nanoclawModel?: string;
-  readonly messagingMode: "shared" | "private";
-}): string | undefined {
-  const selected = new Set(
-    options.runtime === "all"
-      ? (["openclaw", "nanoclaw"] as const)
-      : [options.runtime],
-  );
-  if (selected.has("openclaw") && options.openclawModel === undefined) {
-    return "--openclaw-model is required when --runtime selects OpenClaw";
-  }
-  if (selected.has("nanoclaw") && options.nanoclawModel === undefined) {
-    return "--nanoclaw-model is required when --runtime selects NanoClaw";
-  }
-  if (selected.has("nanoclaw") && options.messagingMode === "private") {
-    return "--messaging-mode private is supported only with --runtime openclaw";
-  }
-  return undefined;
-}
 
 /**
  * Record an infrastructure failure, with whatever account the run left.
@@ -341,23 +298,8 @@ const exactSourceRevision = Effect.fn("evals.exactSourceRevision")(
   },
 );
 
-function resolveRuntimeOptions(options: RuntimeCliOptions): RuntimeOptions {
-  const resolved = {
-    runtime: options.runtime,
-    openclawModel: Option.getOrUndefined(options.openclawModel),
-    nanoclawModel: Option.getOrUndefined(options.nanoclawModel),
-    messagingMode: options.messagingMode,
-    profile: options.profile,
-  } as const;
-  const diagnostic = runtimeSelectionDiagnostic(resolved);
-  if (diagnostic !== undefined) {
-    throw EvaluationSourceStateError.make({ detail: diagnostic });
-  }
-  return resolved;
-}
-
 function evaluationConditions(
-  options: RuntimeOptions,
+  options: EvaluationRunOptions,
   environment: Pick<
     CommonExecutionEnvironment,
     "openclawApplicationImage" | "nanoclawApplicationImage"
@@ -365,36 +307,28 @@ function evaluationConditions(
 ): NonEmptyReadonlyArray<EvaluationCondition> {
   switch (options.runtime) {
     case "openclaw": {
-      const openclawApplicationImage = environment.openclawApplicationImage;
-      if (openclawApplicationImage === undefined) {
-        throw EvaluationSourceStateError.make({
-          detail: missingImageDetail("MOLTZAP_OPENCLAW_IMAGE"),
-        });
-      }
+      const openclawApplicationImage = selectedApplicationImage(
+        "MOLTZAP_OPENCLAW_IMAGE",
+        environment.openclawApplicationImage,
+      );
       return [openClawCondition(options, openclawApplicationImage)];
     }
     case "nanoclaw": {
-      const nanoclawApplicationImage = environment.nanoclawApplicationImage;
-      if (nanoclawApplicationImage === undefined) {
-        throw EvaluationSourceStateError.make({
-          detail: missingImageDetail("MOLTZAP_NANOCLAW_IMAGE"),
-        });
-      }
+      const nanoclawApplicationImage = selectedApplicationImage(
+        "MOLTZAP_NANOCLAW_IMAGE",
+        environment.nanoclawApplicationImage,
+      );
       return [nanoClawCondition(options, nanoclawApplicationImage)];
     }
     case "all": {
-      const openclawApplicationImage = environment.openclawApplicationImage;
-      if (openclawApplicationImage === undefined) {
-        throw EvaluationSourceStateError.make({
-          detail: missingImageDetail("MOLTZAP_OPENCLAW_IMAGE"),
-        });
-      }
-      const nanoclawApplicationImage = environment.nanoclawApplicationImage;
-      if (nanoclawApplicationImage === undefined) {
-        throw EvaluationSourceStateError.make({
-          detail: missingImageDetail("MOLTZAP_NANOCLAW_IMAGE"),
-        });
-      }
+      const openclawApplicationImage = selectedApplicationImage(
+        "MOLTZAP_OPENCLAW_IMAGE",
+        environment.openclawApplicationImage,
+      );
+      const nanoclawApplicationImage = selectedApplicationImage(
+        "MOLTZAP_NANOCLAW_IMAGE",
+        environment.nanoclawApplicationImage,
+      );
       return [
         openClawCondition(options, openclawApplicationImage),
         nanoClawCondition(options, nanoclawApplicationImage),
@@ -407,8 +341,18 @@ function evaluationConditions(
   }
 }
 
+function selectedApplicationImage(
+  key: EvaluationImageKey,
+  selected?: Image,
+): Image {
+  if (selected === undefined) {
+    throw EvaluationSourceStateError.make({ detail: missingImageDetail(key) });
+  }
+  return selected;
+}
+
 function openClawCondition(
-  options: RuntimeOptions,
+  options: EvaluationRunOptions,
   applicationImage: Image,
 ): EvaluationCondition {
   if (options.openclawModel === undefined) {
@@ -432,7 +376,7 @@ function openClawCondition(
 }
 
 function nanoClawCondition(
-  options: RuntimeOptions,
+  options: EvaluationRunOptions,
   applicationImage: Image,
 ): EvaluationCondition {
   if (options.nanoclawModel === undefined) {
@@ -455,10 +399,11 @@ function nanoClawCondition(
 
 function reportPlan(
   sourceRevision: string,
+  cases: NonEmptyReadonlyArray<EvaluationCaseMetadata>,
   conditions: NonEmptyReadonlyArray<EvaluationCondition>,
   environment: EvaluationExecutionEnvironment,
 ): EvaluationReportPlan {
-  const [firstCase, ...remainingCases] = evaluationCases;
+  const [firstCase, ...remainingCases] = cases;
   const [firstCondition, ...remainingConditions] = conditions;
   return EvaluationReportPlan.make({
     sourceRevision,
@@ -877,40 +822,7 @@ const reportIdOption = Options.text("report-id").pipe(
   Options.withDescription("Durable local report identity."),
 );
 const optionalReportIdOption = reportIdOption.pipe(Options.optional);
-const openclawModelOption = Options.text("openclaw-model").pipe(
-  Options.withSchema(Schema.NonEmptyString),
-  Options.withDescription("Exact OpenClaw model ID."),
-  Options.optional,
-);
-const nanoclawModelOption = Options.text("nanoclaw-model").pipe(
-  Options.withSchema(Schema.NonEmptyString),
-  Options.withDescription("Exact NanoClaw model ID."),
-  Options.optional,
-);
-const runtimeOption = Options.text("runtime").pipe(
-  Options.withSchema(Schema.Literal("all", "openclaw", "nanoclaw")),
-  Options.withDefault("all"),
-  Options.withDescription("Agent runtime conditions included in the sweep."),
-);
-const messagingModeOption = Options.text("messaging-mode").pipe(
-  Options.withSchema(Schema.Literal("shared", "private")),
-  Options.withDefault("shared"),
-  Options.withDescription("Native host session layout for addressed messages."),
-);
-const profileOption = Options.text("profile").pipe(
-  Options.withSchema(Schema.Literal("local", "gke")),
-  Options.withDefault("local"),
-  Options.withDescription("Repository-owned Kubernetes execution profile."),
-);
-const runtimeOptions = {
-  runtime: runtimeOption,
-  openclawModel: openclawModelOption,
-  nanoclawModel: nanoclawModelOption,
-  messagingMode: messagingModeOption,
-  profile: profileOption,
-} as const;
-
-function executionImages(options: RuntimeOptions) {
+function executionImages(options: EvaluationRunOptions) {
   return Effect.gen(function* () {
     const controllerImage = yield* requiredImage("MOLTZAP_CONTROLLER_IMAGE");
     if (options.runtime === "openclaw") {
@@ -1005,7 +917,7 @@ function requiredEnvironment(key: string) {
 
 function commonEnvironment(
   root: string,
-  options: RuntimeOptions,
+  options: EvaluationRunOptions,
   images: EvaluationExecutionImages,
 ) {
   return {
@@ -1025,7 +937,7 @@ function commonEnvironment(
 
 function executionEnvironment(
   root: string,
-  options: RuntimeOptions,
+  options: EvaluationRunOptions,
 ): Effect.Effect<
   EvaluationExecutionEnvironment,
   EvaluationSourceStateError,
@@ -1056,23 +968,29 @@ function executionEnvironment(
 function runOrResume(
   mode: "run" | "resume",
   reportId: Option.Option<EvaluationReportId>,
-  cliOptions: RuntimeCliOptions,
+  cliOptions: EvaluationRunCliOptions,
 ) {
   return Effect.gen(function* () {
-    const options = yield* Effect.try({
-      try: () => resolveRuntimeOptions(cliOptions),
+    const selection = yield* Effect.try({
+      try: () => resolveEvaluationRunSelection(cliOptions),
       catch: (cause) =>
-        cause instanceof EvaluationSourceStateError
-          ? cause
+        cause instanceof EvaluationSelectionInvalid
+          ? EvaluationSourceStateError.make({ detail: cause.detail })
           : EvaluationSourceStateError.make({
               detail: describeUnknown(cause),
             }),
     });
+    const { options } = selection;
     const root = yield* workspaceRoot();
     const sourceRevision = yield* exactSourceRevision();
     const environment = yield* executionEnvironment(root, options);
     const conditions = evaluationConditions(options, environment);
-    const plan = reportPlan(sourceRevision, conditions, environment);
+    const plan = reportPlan(
+      sourceRevision,
+      selection.cases,
+      conditions,
+      environment,
+    );
     const resolvedId = Option.isSome(reportId)
       ? reportId.value
       : yield* reportIdNow();
@@ -1094,20 +1012,16 @@ const runCommand = CliCommand.make(
   "run",
   {
     reportId: optionalReportIdOption,
-    ...runtimeOptions,
+    ...evaluationRunCliOptions,
   },
   ({ reportId, ...options }) => runOrResume("run", reportId, options),
-).pipe(
-  CliCommand.withDescription(
-    "Run the complete evaluation matrix for the selected runtime conditions.",
-  ),
-);
+).pipe(CliCommand.withDescription("Run the selected evaluation matrix."));
 
 const resumeCommand = CliCommand.make(
   "resume",
   {
     reportId: reportIdOption,
-    ...runtimeOptions,
+    ...evaluationRunCliOptions,
   },
   ({ reportId, ...options }) =>
     runOrResume("resume", Option.some(reportId), options),
