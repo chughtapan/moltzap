@@ -288,11 +288,6 @@ const packageDefinitions = {
       ],
       facadeFiles: [
         {
-          file: "network/conversation.ts",
-          reason:
-            "Domain-internal conversation boundary shared by endpoint composition and the published Network barrel",
-        },
-        {
           file: "network/router.ts",
           reason:
             "Domain-internal Router fixture boundary shared by cluster composition and the published Network barrel",
