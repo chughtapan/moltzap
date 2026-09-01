@@ -87,22 +87,32 @@
         "command": "node scripts/simulator/build-controller-image.mjs"
       }
     },
-    "simulator-nanoclaw-image": {
+    "openclaw-agent-image": {
       "cache": false,
       "dependsOn": [
-        "simulator-nanoclaw-image-check"
+        "agent-images-check"
       ],
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "node scripts/simulator/build-nanoclaw-image.mjs"
+        "command": "node scripts/agent-images/build-openclaw-image.mjs"
       }
     },
-    "simulator-nanoclaw-image-check": {
+    "nanoclaw-agent-image": {
+      "cache": false,
+      "dependsOn": [
+        "agent-images-check"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "command": "node scripts/agent-images/build-nanoclaw-image.mjs"
+      }
+    },
+    "agent-images-check": {
       "cache": true,
       "inputs": [
-        "{workspaceRoot}/scripts/simulator/build-nanoclaw-image.mjs",
-        "{workspaceRoot}/scripts/simulator/nanoclaw-image/**/*",
+        "{workspaceRoot}/scripts/agent-images/**/*",
         "{workspaceRoot}/packages/nanoclaw-channel/src/channels/moltzap.ts"
       ],
       "executor": "nx:run-commands",
@@ -110,14 +120,16 @@
         "cwd": ".",
         "parallel": false,
         "commands": [
-          "node --test scripts/simulator/nanoclaw-image/*.test.mjs",
-          "node --check scripts/simulator/build-nanoclaw-image.mjs",
-          "node --check scripts/simulator/nanoclaw-image/bootstrap.mjs",
-          "node --check scripts/simulator/nanoclaw-image/entrypoint.mjs",
-          "node --check scripts/simulator/nanoclaw-image/preload.mjs",
-          "node --check scripts/simulator/nanoclaw-image/prepare.mjs",
-          "node --check scripts/simulator/nanoclaw-image/process-driver.mjs",
-          "node --check scripts/simulator/nanoclaw-image/provision.mjs"
+          "node --test scripts/agent-images/shared/*.test.mjs scripts/agent-images/nanoclaw/*.test.mjs",
+          "node --check scripts/agent-images/build-openclaw-image.mjs",
+          "node --check scripts/agent-images/build-nanoclaw-image.mjs",
+          "node --check scripts/agent-images/shared/entrypoint.mjs",
+          "node --check scripts/agent-images/shared/register-daemon.mjs",
+          "node --check scripts/agent-images/nanoclaw/entrypoint.mjs",
+          "node --check scripts/agent-images/nanoclaw/preload.mjs",
+          "node --check scripts/agent-images/nanoclaw/prepare.mjs",
+          "node --check scripts/agent-images/nanoclaw/process-driver.mjs",
+          "node --check scripts/agent-images/nanoclaw/provision.mjs"
         ]
       }
     },

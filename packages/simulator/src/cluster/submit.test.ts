@@ -16,6 +16,7 @@ import {
 } from "./submit.js";
 
 const DIGEST = "b".repeat(64);
+const APPLICATION_IMAGE = `registry/openclaw@sha256:${DIGEST}`;
 const ENTRYPOINT = "society.mjs";
 const STARTUP_TIMEOUT_VARIABLE = "MOLTZAP_STARTUP_TIMEOUT_MS";
 const STARTUP_TIMEOUT_MS = 900_000;
@@ -29,11 +30,45 @@ const RESULT: RunControllerResult = {
 const ENVIRONMENT: RunEnvironment = {
   MOLTZAP_CONTROLLER_IMAGE: `registry/controller@sha256:${DIGEST}`,
   MOLTZAP_SUPPORT_IMAGE: `registry/support@sha256:${DIGEST}`,
+  MOLTZAP_APPLICATION_IMAGE: APPLICATION_IMAGE,
 };
 
 interface Submitted {
   readonly options: RunTemporalSocietyOptions[];
 }
+
+describe("the experiment application image", () => {
+  it("reaches the controller when the environment selects one", async () => {
+    const { submitted } = await Effect.runPromise(submit(ENVIRONMENT));
+
+    expect(submitted.options[0]?.input.applicationImage).toBe(
+      APPLICATION_IMAGE,
+    );
+  });
+
+  it("is optional for experiments that carry their images in source", async () => {
+    const { MOLTZAP_APPLICATION_IMAGE: _, ...withoutApplicationImage } =
+      ENVIRONMENT;
+    const { submitted } = await Effect.runPromise(
+      submit(withoutApplicationImage),
+    );
+
+    expect(submitted.options[0]?.input.applicationImage).toBeUndefined();
+  });
+
+  it("refuses a mutable image reference", async () => {
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        submit({
+          ...ENVIRONMENT,
+          MOLTZAP_APPLICATION_IMAGE: "registry/openclaw:latest",
+        }),
+      ),
+    );
+
+    expect(String(failure)).toContain("MOLTZAP_APPLICATION_IMAGE");
+  });
+});
 
 function submit(
   environment: RunEnvironment,

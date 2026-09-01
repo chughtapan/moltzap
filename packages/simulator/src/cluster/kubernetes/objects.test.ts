@@ -60,7 +60,6 @@ function aggregateManifest(withPlacement = false) {
     queueName: "simulator",
     labels: { "moltzap.dev/run": "run-1" },
     owner: OWNER,
-    supportImage: SUPPORT_IMAGE,
     ...(withPlacement ? { placement: PLACEMENT } : {}),
     slots: [
       {
@@ -104,7 +103,7 @@ function sandboxFixtureForEnvironment(
     ...(withPlacement ? { placement: PLACEMENT } : {}),
     application: {
       image: APPLICATION_IMAGE,
-      entrypoint: ["openclaw", "gateway", "run"],
+      entrypoint: ["node", "/opt/moltzap/agent/entrypoint.mjs"],
       environment,
       credentials: ["OPENAI_API_KEY"],
       port: 18_789,
@@ -137,15 +136,9 @@ it("reserves identical runtimes as one all-or-nothing pod set", () => {
               restartPolicy: "Never",
               containers: [
                 {
+                  image: "registry/openclaw@sha256:abc",
                   name: "application",
                   resources: { requests: { cpu: "1", memory: "1Gi" } },
-                },
-                {
-                  name: "moltzapd",
-                  image: SUPPORT_IMAGE,
-                  resources: {
-                    requests: { cpu: "100m", memory: "256Mi" },
-                  },
                 },
               ],
             },
@@ -214,7 +207,7 @@ it("stores bootstrap content as immutable Secret data", () => {
 });
 
 // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- One whole-object assertion keeps the application isolation contract readable as the exact rendered Pod.
-it("starts a registered daemon sidecar before the isolated application", () => {
+it("runs the daemon and host from one fail-fast application container", () => {
   const manifest = sandboxFixture();
   expect(manifest).toMatchObject({
     apiVersion: "agents.x-k8s.io/v1beta1",
@@ -227,59 +220,68 @@ it("starts a registered daemon sidecar before the isolated application", () => {
           enableServiceLinks: false,
           restartPolicy: "Never",
           securityContext: {
-            runAsUser: 1000,
-            runAsGroup: 1000,
-            fsGroup: 1000,
+            seccompProfile: { type: "RuntimeDefault" },
           },
           initContainers: [
-            { name: "bootstrap", image: SUPPORT_IMAGE },
             {
-              name: "endpoint-state-permissions",
+              name: "bootstrap",
               image: SUPPORT_IMAGE,
-              command: ["chown"],
-              args: ["1000:1000", "/var/lib/moltzap/endpoint"],
-              securityContext: {
-                allowPrivilegeEscalation: false,
-                capabilities: { add: ["CHOWN"], drop: ["ALL"] },
-                readOnlyRootFilesystem: true,
-                runAsNonRoot: false,
-                runAsUser: 0,
-              },
-              volumeMounts: [
-                {
-                  name: "endpoint-state",
-                  mountPath: "/var/lib/moltzap/endpoint",
-                },
+              command: ["node", "/opt/moltzap/dist/cluster/bootstrap.js"],
+              args: [
+                "--manifest",
+                "/var/run/moltzap/secret/manifest.json",
+                "--source",
+                "/var/run/moltzap/secret",
+                "--output",
+                "/var/run/moltzap/bootstrap",
               ],
             },
-            {
-              name: "moltzapd",
-              image: SUPPORT_IMAGE,
-              restartPolicy: "Always",
-              startupProbe: {
-                exec: {
-                  command: [
-                    "node",
-                    "--input-type=module",
-                    "--eval",
-                    `await fetch("http://127.0.0.1:${String(DAEMON_MCP_PORT)}/mcp");`,
-                  ],
-                },
-              },
-            },
-            { name: "register-daemon", image: SUPPORT_IMAGE },
           ],
           containers: [
             {
               name: "application",
               image: APPLICATION_IMAGE,
-              command: ["openclaw"],
-              args: ["gateway", "run"],
+              command: ["node"],
+              args: ["/opt/moltzap/agent/entrypoint.mjs"],
               env: [
                 { name: "HOME", value: "/var/lib/moltzap/openclaw" },
                 {
                   name: "MOLTZAP_MCP_URL",
                   value: `http://127.0.0.1:${String(DAEMON_MCP_PORT)}/mcp`,
+                },
+                { name: "MOLTZAP_REGISTRATION_AGENT_NAME", value: "alice" },
+                {
+                  name: "MOLTZAP_REGISTRATION_OPERATION_ID",
+                  value: expect.any(String),
+                },
+                {
+                  name: "MOLTZAP_REGISTRATION_PRINCIPAL_ID",
+                  value: expect.any(String),
+                },
+                {
+                  name: "MOLTZAPD_ADMISSION_CREDENTIAL_FILE",
+                  value: "/var/run/moltzap/daemon/admission-credential",
+                },
+                {
+                  name: "MOLTZAPD_AGENT_PRIVATE_KEY_FILE",
+                  value: "/var/run/moltzap/daemon/agent-private-key.pem",
+                },
+                { name: "MOLTZAPD_MCP_PORT", value: "4319" },
+                {
+                  name: "MOLTZAPD_REGISTRY_ORIGIN",
+                  value: expect.any(String),
+                },
+                {
+                  name: "MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY",
+                  value: expect.any(String),
+                },
+                {
+                  name: "MOLTZAPD_ROUTER_ORIGIN",
+                  value: expect.any(String),
+                },
+                {
+                  name: "MOLTZAPD_STATE_DIRECTORY",
+                  value: "/var/lib/moltzap/endpoint",
                 },
                 {
                   name: "OPENCLAW_CONFIG_PATH",
@@ -304,12 +306,61 @@ it("starts a registered daemon sidecar before the isolated application", () => {
                   "ephemeral-storage": "2147483648",
                 },
               },
+              securityContext: {
+                allowPrivilegeEscalation: false,
+                capabilities: {
+                  add: ["CHOWN", "DAC_OVERRIDE", "KILL", "SETGID", "SETUID"],
+                  drop: ["ALL"],
+                },
+                runAsNonRoot: false,
+                runAsUser: 0,
+              },
               volumeMounts: [
                 {
                   name: "bootstrap-output",
                   mountPath: "/var/run/moltzap/bootstrap",
                 },
+                {
+                  name: "daemon-secret",
+                  mountPath: "/var/run/moltzap/daemon-source",
+                  readOnly: true,
+                },
+                {
+                  name: "endpoint-state",
+                  mountPath: "/var/lib/moltzap/endpoint",
+                },
               ],
+            },
+          ],
+          volumes: [
+            {
+              name: "bootstrap-input",
+              secret: { secretName: "agent-1-alice-bootstrap" },
+            },
+            { name: "bootstrap-output", emptyDir: {} },
+            {
+              name: "daemon-secret",
+              secret: {
+                secretName: "agent-1-alice-bootstrap",
+                items: [
+                  {
+                    key: "agent-private-key.pem",
+                    path: "agent-private-key.pem",
+                    mode: 0o400,
+                  },
+                  {
+                    key: "admission-credential",
+                    path: "admission-credential",
+                    mode: 0o400,
+                  },
+                ],
+              },
+            },
+            {
+              name: "endpoint-state",
+              persistentVolumeClaim: {
+                claimName: "agent-1-alice-endpoint-state",
+              },
             },
           ],
         },
@@ -321,6 +372,11 @@ it("starts a registered daemon sidecar before the isolated application", () => {
   expect(encoded).not.toContain("runtime-state");
   expect(encoded).not.toContain('"name":"mcp"');
   expect(encoded).not.toContain("/app/dist");
+  expect(encoded).not.toContain("endpoint-state-permissions");
+  expect(encoded).not.toContain('"name":"register-daemon"');
+  expect(encoded).not.toContain('"name":"moltzapd"');
+  expect(encoded).not.toContain("startupProbe");
+  expect(encoded).not.toContain("/opt/moltzap/application-overlay");
 });
 
 it("projects identical GKE placement onto reserved and actual Pods", () => {
@@ -346,6 +402,7 @@ const INPUT: RunSocietyWorkflowInput = {
   namespace: "mz-run-1",
   controllerImage: `registry/controller@sha256:${DIGEST}`,
   supportImage: `registry/support@sha256:${DIGEST}`,
+  applicationImage: `registry/openclaw@sha256:${DIGEST}`,
   experimentModule: EXPERIMENT_SOURCE,
 };
 type GkeKubernetesExecutionProfile = Extract<
@@ -456,6 +513,10 @@ it("launches one controller attempt with the closed environment contract", () =>
       { name: "MOLTZAP_RUN_OWNER_NAME", value: RUN_OWNER_NAME },
       { name: "MOLTZAP_RUN_OWNER_UID", value: "owner-uid" },
       { name: "MOLTZAP_SUPPORT_IMAGE", value: INPUT.supportImage },
+      {
+        name: "MOLTZAP_APPLICATION_IMAGE",
+        value: INPUT.applicationImage,
+      },
       {
         name: "MOLTZAP_EXPERIMENT_MODULE",
         value: "/opt/moltzap/experiment/main.mjs",

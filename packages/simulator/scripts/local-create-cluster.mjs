@@ -188,6 +188,7 @@ export function parseArguments(args, defaults) {
   const options = {
     artifacts: DEFAULT_ARTIFACTS,
     cluster: defaults.clusterName,
+    extraImages: [],
     image: undefined,
     temporalPort: DEFAULT_TEMPORAL_HOST_PORT,
   };
@@ -203,6 +204,8 @@ export function parseArguments(args, defaults) {
       options.cluster = value;
     } else if (flag === "--image") {
       options.image = value;
+    } else if (flag === "--extra-image") {
+      options.extraImages.push(value);
     } else if (flag === "--temporal-port") {
       options.temporalPort = Number(value);
     } else {
@@ -214,6 +217,9 @@ export function parseArguments(args, defaults) {
   }
   if (options.image !== undefined && !PINNED_IMAGE.test(options.image)) {
     throw new TypeError("--image must be a SHA-256 digest-pinned image");
+  }
+  if (options.extraImages.some((image) => !PINNED_IMAGE.test(image))) {
+    throw new TypeError("--extra-image must be a SHA-256 digest-pinned image");
   }
   if (
     !Number.isInteger(options.temporalPort) ||
@@ -271,7 +277,7 @@ export function selectLocalImageTag(tags, pinnedImage) {
     (tag) => typeof tag === "string" && tag.length > 0 && !tag.includes("@"),
   );
   if (candidates.length === 0) {
-    throw new Error("controller image has no local repository tag");
+    throw new Error("image has no local repository tag");
   }
   const repository = normalizeContainerdReference(
     repositoryReference(pinnedImage),
@@ -294,10 +300,10 @@ async function localImageTag(image) {
   try {
     tags = JSON.parse(stdout);
   } catch (cause) {
-    throw new Error("Docker returned invalid controller image tags", { cause });
+    throw new Error("Docker returned invalid image tags", { cause });
   }
   if (!Array.isArray(tags)) {
-    throw new Error("Docker returned invalid controller image tags");
+    throw new Error("Docker returned invalid image tags");
   }
   return selectLocalImageTag(tags, image);
 }
@@ -368,7 +374,7 @@ async function makePinnedImageDiscoverable(kind, cluster, source, image) {
       });
     } catch (cause) {
       throw new Error(
-        `controller image did not become discoverable on kind node ${node}`,
+        `image did not become discoverable on kind node ${node}`,
         { cause },
       );
     }
@@ -507,10 +513,16 @@ async function main() {
     tool("kubectl", profile.kubectl.version, profile.kubectl.asset),
   ]);
   await exec("docker", ["info"], { timeout: 30_000 });
-  const imageSource =
-    options.image === undefined
-      ? undefined
-      : await localImageTag(options.image);
+  const selectedImages = [
+    ...(options.image === undefined ? [] : [options.image]),
+    ...options.extraImages,
+  ];
+  const imageSources = await Promise.all(
+    selectedImages.map(async (image) => ({
+      image,
+      source: await localImageTag(image),
+    })),
+  );
   await assertNewCluster(kind, options.cluster);
   await mkdir(options.artifacts, { recursive: true });
   const artifacts = await realpath(options.artifacts);
@@ -536,21 +548,16 @@ async function main() {
       "5m",
     ]);
     await installProfile(kubectl, context, profile, temporary);
-    if (options.image !== undefined && imageSource !== undefined) {
-      report(`loading controller image ${imageSource}`);
+    for (const { image, source } of imageSources) {
+      report(`loading image ${source}`);
       await run(kind, [
         "load",
         "docker-image",
-        imageSource,
+        source,
         "--name",
         options.cluster,
       ]);
-      await makePinnedImageDiscoverable(
-        kind,
-        options.cluster,
-        imageSource,
-        options.image,
-      );
+      await makePinnedImageDiscoverable(kind, options.cluster, source, image);
     }
   } finally {
     await rm(temporary, { recursive: true, force: true });
@@ -563,6 +570,7 @@ async function main() {
       kindBinary: kind,
       kubectlBinary: kubectl,
       loadedImage: options.image,
+      loadedImages: selectedImages,
       artifacts,
       artifactNodePath: profile.artifactNodePath,
       clusterQueue: profile.clusterQueue,

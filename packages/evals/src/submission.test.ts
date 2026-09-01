@@ -23,6 +23,9 @@ import {
 } from "./submission.js";
 
 const decodeImage = Schema.decodeSync(image);
+const OPENCLAW_IMAGE = decodeImage(
+  "registry.example/openclaw-agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+);
 const NANOCLAW_IMAGE = decodeImage(
   "registry.example/nanoclaw-application@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 );
@@ -40,6 +43,7 @@ function input(condition: EvaluationConditionName): SubmitEvaluationCellInput {
       modelId: condition === "openclaw/v2" ? "openai/gpt-5" : "claude/test",
     },
     messagingMode: "shared",
+    openclawApplicationImage: OPENCLAW_IMAGE,
     nanoclawApplicationImage: NANOCLAW_IMAGE,
     runtimeStartupTimeoutMillis: 300_000,
     peerObservationTimeoutMillis: 300_000,
@@ -65,7 +69,7 @@ it("binds the NanoClaw image into one NanoClaw cell module", () => {
   assert.include(source, "peerApplicationImage: supportImageFromEnvironment()");
 });
 
-it("does not inject the unused NanoClaw application image into an OpenClaw cell", () => {
+it("binds only the OpenClaw image into an OpenClaw cell", () => {
   const openClawInput = input("openclaw/v2");
   Reflect.deleteProperty(openClawInput, "nanoclawApplicationImage");
   const source = evaluationControllerModule({
@@ -74,9 +78,20 @@ it("does not inject the unused NanoClaw application image into an OpenClaw cell"
   });
 
   assert.include(source, "openClawEvaluationCondition({ runtime:");
+  assert.include(source, JSON.stringify(OPENCLAW_IMAGE));
   assert.include(source, 'messagingMode: "private"');
   assert.notInclude(source, NANOCLAW_IMAGE);
   assert.include(source, "peerApplicationImage: supportImageFromEnvironment()");
+});
+
+it("refuses an OpenClaw cell without its application image", () => {
+  const openclawInput = input("openclaw/v2");
+  Reflect.deleteProperty(openclawInput, "openclawApplicationImage");
+
+  assert.throws(
+    () => evaluationControllerModule(openclawInput),
+    /require an OpenClaw application image/u,
+  );
 });
 
 it("refuses a NanoClaw cell without its application image", () => {

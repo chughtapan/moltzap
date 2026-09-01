@@ -26,6 +26,7 @@ import {
   defineContainerRuntime,
   type File,
   image,
+  type Image,
   routableBridgeEndpoint,
   stoppedBeforeAttach,
 } from "../container.js";
@@ -74,14 +75,12 @@ const OPENCLAW_GATEWAY_TOKEN_BYTES = 32;
 const OPENCLAW_DEVICE_TOKEN_BYTES = 32;
 const OPENCLAW_ED25519_PUBLIC_KEY_BYTES = 32;
 const messagingMode = Schema.Literal("shared", "private");
-const PINNED_OPENCLAW_IMAGE = image.make(
-  "ghcr.io/openclaw/openclaw@sha256:e7849cb6c1ef1ead39ab4be7d85edb2df89611f486e283284c7cf35ce39a20d4",
-);
 const APPLICATION_RESOURCES = Object.freeze({
-  cpuMillis: 1_000,
-  memoryBytes: 1_024 * 1_024 * 1_024,
+  cpuMillis: 1_100,
+  memoryBytes: 1_280 * 1_024 * 1_024,
   ephemeralStorageBytes: 1_024 * 1_024 * 1_024,
 });
+const AGENT_IMAGE_ENTRYPOINT = "/opt/moltzap/agent/entrypoint.mjs";
 
 const acquisitionFailure = acquisitionFailureFor(OPENCLAW_RUNTIME_NAME);
 
@@ -103,12 +102,15 @@ export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeCo
   modelOverride: Schema.optional(Schema.String),
   mcpServers: Schema.Array(McpServerConfiguration),
   messagingMode,
+  applicationImage: image,
   tools: Schema.optional(OpenClawPolicySnapshot),
   sandbox: Schema.optional(OpenClawPolicySnapshot),
 }) {}
 
 /** Configuration captured by one reusable OpenClaw runtime value. */
 export interface OpenClawRuntimeOptions {
+  /** Digest-pinned complete OpenClaw agent image. */
+  readonly applicationImage: Image;
   readonly startupTimeout?: Duration.Duration;
   readonly workspaceFiles?: readonly WorkspaceFile[];
   readonly modelId?: string;
@@ -133,7 +135,7 @@ export const OPENCLAW_CONTEXT_FILENAMES: readonly string[] = Object.freeze([
 ]);
 
 /**
- * Constructs a simulator runtime from the pinned OpenClaw application image.
+ * Constructs a simulator runtime from a complete, digest-pinned agent image.
  *
  * ```mermaid
  * flowchart LR
@@ -147,7 +149,7 @@ export const OPENCLAW_CONTEXT_FILENAMES: readonly string[] = Object.freeze([
  * @returns A reusable OpenClaw container runtime definition.
  */
 export function openClawRuntime(
-  options: OpenClawRuntimeOptions = {},
+  options: OpenClawRuntimeOptions,
 ): ContainerAgentRuntime<
   OpenClawGateway,
   RuntimeAcquisitionError,
@@ -172,6 +174,7 @@ const OPENCLAW_CONTEXT_FILENAME_SET: ReadonlySet<string> = new Set(
 );
 
 interface OpenClawRuntimeSettings {
+  readonly applicationImage: Image;
   readonly startupTimeout: Duration.Duration;
   readonly workspaceFiles: readonly CheckedWorkspaceFile[];
   readonly invisibleWorkspaceFiles: readonly string[];
@@ -193,6 +196,7 @@ function snapshotOptions(
     tools?.deny?.includes("*") ?? false,
   );
   return Object.freeze({
+    applicationImage: options.applicationImage,
     startupTimeout: options.startupTimeout ?? DEFAULT_OPENCLAW_STARTUP_TIMEOUT,
     workspaceFiles,
     invisibleWorkspaceFiles: invisibleFiles,
@@ -243,6 +247,7 @@ function runtimeConfiguration(
   const tools = summarizeOpenClawPolicy(settings.tools);
   const sandbox = summarizeOpenClawPolicy(settings.sandbox);
   return OpenClawRuntimeConfiguration.make({
+    applicationImage: settings.applicationImage,
     startupTimeout: settings.startupTimeout,
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
     mcpServers: mcpConfiguration(settings.mcpServers),
@@ -295,15 +300,7 @@ function makeOpenClawApplication(
     invisibleWorkspaceFiles: settings.invisibleWorkspaceFiles,
   };
   return Object.freeze({
-    entrypoint: Object.freeze([
-      "node",
-      "/app/openclaw.mjs",
-      "gateway",
-      "run",
-      "--allow-unconfigured",
-      "--port",
-      String(OPENCLAW_GATEWAY_PORT),
-    ] as const),
+    entrypoint: Object.freeze(["node", AGENT_IMAGE_ENTRYPOINT] as const),
     environment: Object.freeze({
       HOME: APPLICATION_STATE_DIR,
       OPENCLAW_STATE_DIR: APPLICATION_STATE_DIR,
@@ -498,7 +495,7 @@ function openClawCapability(
   acquireGateway: OpenClawGatewayAcquirer,
 ): ContainerRuntime<OpenClawGateway, RuntimeAcquisitionError> {
   return Object.freeze({
-    image: PINNED_OPENCLAW_IMAGE,
+    image: settings.applicationImage,
     resources: APPLICATION_RESOURCES,
     render: (input: AgentRuntimeInput) =>
       renderOpenClaw(settings, acquireGateway, input),

@@ -15,8 +15,6 @@ import { promisify } from "node:util";
 import ts from "typescript";
 import {
   controllerExternalDependencies,
-  controllerOverlayExternalDependencies,
-  controllerOverlayPackageManifest,
   controllerPackageDependencies,
   controllerWorkspacePackageNames,
 } from "../simulator/build-controller-image.mjs";
@@ -237,9 +235,6 @@ async function verifyControllerImageAssembly() {
     ),
   ]);
   const channelPackage = JSON.parse(channelPackageSource);
-  const overlayPackage = controllerOverlayPackageManifest({
-    "@moltzap/openclaw-channel": "moltzap-openclaw-channel.tgz",
-  });
 
   requireCondition(
     JSON.stringify(controllerPackageDependencies) ===
@@ -257,12 +252,11 @@ async function verifyControllerImageAssembly() {
       JSON.stringify([
         "@moltzap/client",
         "@moltzap/evals",
-        "@moltzap/openclaw-channel",
         "@moltzap/identity",
         "@moltzap/router",
         "@moltzap/simulator",
       ]),
-    "the controller image must pack the complete production stack",
+    "the controller image must pack only controller-side workspace packages",
   );
   requireCondition(
     controllerExternalDependencies["@electric-sql/pglite"] === "0.4.4" &&
@@ -271,17 +265,6 @@ async function verifyControllerImageAssembly() {
       controllerExternalDependencies["@modelcontextprotocol/client"] ===
         "2.0.0-beta.5",
     "the controller image must install its Registry database and MCP registrar helpers",
-  );
-  requireCondition(
-    JSON.stringify(controllerOverlayExternalDependencies) ===
-      JSON.stringify({ openclaw: "2026.8.1" }) &&
-      JSON.stringify(overlayPackage.dependencies) ===
-        JSON.stringify({
-          "@moltzap/openclaw-channel":
-            "file:./tarballs/moltzap-openclaw-channel.tgz",
-          openclaw: "2026.8.1",
-        }),
-    "the application overlay must install the exact OpenClaw host",
   );
   requireCondition(
     channelPackage.peerDependencies?.openclaw === "2026.8.1" &&
@@ -296,13 +279,8 @@ async function verifyControllerImageAssembly() {
     "controller image must start the compiled controller",
   );
   for (const expected of [
-    "/opt/moltzap/application-overlay",
     "/opt/moltzap/dist",
     "/opt/moltzap/register-daemon.mjs",
-    'await import("./node_modules/@moltzap/openclaw-channel/dist/plugin.js")',
-    "cp -a node_modules/@moltzap/openclaw-channel/. /application-overlay/openclaw-channel/",
-    "rm -rf node_modules/@moltzap/openclaw-channel",
-    "cp -a node_modules /application-overlay/node_modules",
   ]) {
     requireCondition(
       dockerfile.includes(expected),
@@ -310,12 +288,13 @@ async function verifyControllerImageAssembly() {
     );
   }
   requireCondition(
-    /node:22\.22\.0-bookworm-slim@sha256:[0-9a-f]{64}/.test(dockerfile),
+    /node:24\.18\.0-bookworm-slim@sha256:[0-9a-f]{64}/.test(dockerfile),
     "controller image base must be digest-pinned",
   );
   requireCondition(
-    !dockerfile.includes("--omit=peer"),
-    "controller overlay must install runtime peers",
+    !dockerfile.includes("application-overlay") &&
+      !dockerfile.includes("@moltzap/openclaw-channel"),
+    "the controller image must not contain an agent host or channel plugin",
   );
   await exec(process.execPath, ["--check", controllerImageBuilder], {
     cwd: workspaceRoot,

@@ -47,10 +47,10 @@ const NANOCLAW_BOOTSTRAP_DIR = "/var/run/moltzap/bootstrap";
 const NANOCLAW_CONFIG_PATH = `${NANOCLAW_BOOTSTRAP_DIR}/nanoclaw/runtime.json`;
 const NANOCLAW_WORKSPACE_DIR = `${NANOCLAW_BOOTSTRAP_DIR}/workspace`;
 const NANOCLAW_STATE_DIR = "/var/lib/moltzap/nanoclaw";
-const NANOCLAW_ENTRYPOINT = "/opt/moltzap/nanoclaw/entrypoint.mjs";
+const NANOCLAW_ENTRYPOINT = "/opt/moltzap/agent/entrypoint.mjs";
 const APPLICATION_RESOURCES = Object.freeze({
-  cpuMillis: 1_000,
-  memoryBytes: 1_024 * 1_024 * 1_024,
+  cpuMillis: 1_100,
+  memoryBytes: 1_280 * 1_024 * 1_024,
   ephemeralStorageBytes: 1_024 * 1_024 * 1_024,
 });
 

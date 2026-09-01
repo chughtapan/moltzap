@@ -134,3 +134,55 @@ index 5e2c028..dc58759 100644
      // Resolve the messaging group ORIGIN-SESSION-FIRST: when the message
      // targets the session's own chat address, the origin row wins even if
      // sibling instances share the same (channel_type, platform_id) — so the
+diff --git a/src/channels/adapter.ts b/src/channels/adapter.ts
+--- a/src/channels/adapter.ts
++++ b/src/channels/adapter.ts
+@@ -44,6 +44,11 @@ export interface DeliveryAddress {
+  */
+ export interface InboundEvent {
+   channelType: string;
++  /**
++   * Trusted host routing supplied by an adapter whose upstream transport has
++   * already selected one local agent.
++   */
++  targetAgentGroupId?: string;
+   /** Receiving adapter instance; stamped host-side (src/index.ts onInbound) or
+    *  carried by the CLI admin transport's `to.instance`. Absent means the
+    *  default instance (= channelType). */
+diff --git a/src/router.ts b/src/router.ts
+--- a/src/router.ts
++++ b/src/router.ts
+@@ -293,6 +293,23 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
+     agentCount = found.agentCount;
+   }
+ 
++  const directAgent: MessagingGroupAgent | undefined =
++    event.targetAgentGroupId === undefined
++      ? undefined
++      : {
++          id: 'external-' + event.targetAgentGroupId,
++          messaging_group_id: mg.id,
++          agent_group_id: event.targetAgentGroupId,
++          engage_mode: 'pattern',
++          engage_pattern: '.',
++          sender_scope: 'all',
++          ignored_message_policy: 'drop',
++          session_mode: 'agent-shared',
++          priority: 0,
++          created_at: new Date().toISOString(),
++        };
++  if (directAgent !== undefined) agentCount = 1;
++
+   // 1b. No wirings — either silent drop (plain chatter / denied channel) or
+   //     escalate to owner for channel-registration approval.
+   if (agentCount === 0) {
+@@ -342,7 +359,8 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
+ 
+   // 3. Fetch wired agents in full (we already know the count is > 0; now
+   //    we need their actual rows for fan-out).
+-  const agents = await getMessagingGroupAgents(mg.id);
++  const agents =
++    directAgent === undefined ? await getMessagingGroupAgents(mg.id) : [directAgent];
+ 
+   // 4. Fan-out: evaluate each wired agent independently against engage_mode,
+   //    sender_scope, and access gate. An agent that engages gets its own

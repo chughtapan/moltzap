@@ -628,7 +628,6 @@ function reserveCompleteRoster(
         queueName: options.queueName,
         labels,
         owner: options.owner,
-        supportImage: options.supportImage,
         slots,
         placement: options.rosterPlacement,
       }),

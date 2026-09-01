@@ -106,6 +106,7 @@ export interface SubmitEvaluationCellInput {
   readonly attemptId: string;
   readonly condition: SubmissionCondition;
   readonly messagingMode: "shared" | "private";
+  readonly openclawApplicationImage?: Image;
   readonly nanoclawApplicationImage?: Image;
   readonly runtimeStartupTimeoutMillis: number;
   readonly peerObservationTimeoutMillis: number;
@@ -232,8 +233,16 @@ function conditionExpression(input: SubmitEvaluationCellInput): string {
   // Total over the conditions that exist, so the generated module never has to
   // carry a throw for a condition the caller could not have named.
   const byCondition: Readonly<Record<EvaluationConditionName, () => string>> = {
-    "openclaw/v2": () =>
-      `openClawEvaluationCondition({ runtime: { ${runtime.join(", ")}, messagingMode: ${literal(input.messagingMode)} }, execution: { ${execution.join(", ")} } })`,
+    "openclaw/v2": () => {
+      if (input.openclawApplicationImage === undefined) {
+        throw EvaluationSubmissionFailed.make({
+          stage: "module",
+          detail:
+            "OpenClaw evaluation cells require an OpenClaw application image",
+        });
+      }
+      return `openClawEvaluationCondition({ runtime: { ${runtime.join(", ")}, applicationImage: ${literal(input.openclawApplicationImage)}, messagingMode: ${literal(input.messagingMode)} }, execution: { ${execution.join(", ")} } })`;
+    },
     "nanoclaw/v2": () => {
       if (input.nanoclawApplicationImage === undefined) {
         throw EvaluationSubmissionFailed.make({

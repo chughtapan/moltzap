@@ -1,4 +1,4 @@
-/** @file In-process NanoClaw session driver for the simulator application image. */
+/** @file In-process NanoClaw session driver for the complete agent image. */
 import { spawn as spawnChild } from "node:child_process";
 import {
   lstat,

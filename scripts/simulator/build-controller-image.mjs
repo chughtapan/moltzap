@@ -1,6 +1,5 @@
 /**
- * @file Builds the shared controller and application-overlay image, then
- * prints both its local tag and manifest-digest identity.
+ * @file Builds the shared controller image and prints its digest identity.
  */
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -25,7 +24,7 @@ const simulatorRoot = join(workspaceRoot, "packages", "simulator");
 const dockerfile = join(scriptRoot, "controller-image", "Dockerfile");
 const registrar = join(
   workspaceRoot,
-  "scripts/simulator/controller-image/register-daemon.mjs",
+  "scripts/agent-images/shared/register-daemon.mjs",
 );
 const qualificationProgram = join(
   workspaceRoot,
@@ -40,11 +39,6 @@ const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/;
 const workspacePackages = {
   "@moltzap/client": join(workspaceRoot, "packages", "client"),
   "@moltzap/evals": join(workspaceRoot, "packages", "evals"),
-  "@moltzap/openclaw-channel": join(
-    workspaceRoot,
-    "packages",
-    "openclaw-channel",
-  ),
   "@moltzap/identity": join(workspaceRoot, "packages", "identity"),
   "@moltzap/router": join(workspaceRoot, "packages", "router"),
   "@moltzap/simulator": simulatorRoot,
@@ -66,10 +60,6 @@ export const controllerExternalDependencies = {
   "@electric-sql/pglite": "0.4.4",
   "@electric-sql/pglite-socket": "0.1.4",
   "@modelcontextprotocol/client": "2.0.0-beta.5",
-};
-/** Host installed only in the application overlay for the optional adapter peer. */
-export const controllerOverlayExternalDependencies = {
-  openclaw: "2026.8.1",
 };
 
 function report(message) {
@@ -135,16 +125,6 @@ function packageManifest(
   };
 }
 
-/** Build the install manifest copied into the OpenClaw application overlay. */
-export function controllerOverlayPackageManifest(archives) {
-  return packageManifest(
-    "moltzap-openclaw-overlay",
-    ["@moltzap/openclaw-channel"],
-    archives,
-    controllerOverlayExternalDependencies,
-  );
-}
-
 async function stage() {
   const root = await mkdtemp(join(tmpdir(), "moltzap-controller-image-"));
   const tarballs = join(root, "tarballs");
@@ -173,14 +153,6 @@ async function stage() {
         2,
       )}\n`,
     ),
-    writeFile(
-      join(root, "overlay-package.json"),
-      `${JSON.stringify(
-        controllerOverlayPackageManifest(archives),
-        null,
-        2,
-      )}\n`,
-    ),
   ]);
   return root;
 }
@@ -190,7 +162,6 @@ async function fingerprint(root) {
   const inputs = [
     "Dockerfile",
     "controller-package.json",
-    "overlay-package.json",
     "register-daemon.mjs",
     "simulator-fault-program.mjs",
     ...(await readdir(join(root, "tarballs"))).map(
@@ -229,7 +200,7 @@ async function main() {
       timeout: BUILD_TIMEOUT_MS,
     },
   );
-  report("packing the controller and application-overlay dependencies");
+  report("packing the controller dependencies");
   const staging = await stage();
   try {
     const image = `${options.repository}:${await fingerprint(staging)}`;
@@ -268,7 +239,6 @@ async function main() {
         imageId,
         controllerEntrypoint: "/opt/moltzap/dist/cluster/controller/main.js",
         supportBootstrap: "/opt/moltzap/dist/cluster/bootstrap.js",
-        applicationOverlay: "/opt/moltzap/application-overlay",
         qualificationProgram:
           "/opt/moltzap/qualification/simulator-fault-program.mjs",
       })}\n`,

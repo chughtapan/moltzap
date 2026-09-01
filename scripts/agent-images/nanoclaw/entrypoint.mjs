@@ -1,4 +1,4 @@
-/** @file Starts the one-container NanoClaw simulator application. */
+/** @file Starts the native NanoClaw host inside the complete agent image. */
 import { spawn } from "node:child_process";
 import {
   lstat,
@@ -134,8 +134,7 @@ async function main() {
     ASSISTANT_NAME: config.agentName,
     CONTAINER_IMAGE: "moltzap-nanoclaw-agent:embedded",
     DEFAULT_AGENT_PROVIDER: "claude",
-    MOLTZAP_NANOCLAW_AGENT_GROUP_ID: "eval-agent",
-    NANOCLAW_ADMIN_USER_IDS: "cli:local",
+    MOLTZAP_NANOCLAW_AGENT_GROUP_ID: "agent",
     NANOCLAW_RUNTIME_DRIVER: "moltzap-process",
     NANOCLAW_TEMPLATES_DIR: `${config.stateDirectory}/templates`,
     NODE_ENV: "production",
