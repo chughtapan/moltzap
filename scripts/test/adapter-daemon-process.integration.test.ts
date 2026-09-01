@@ -1,14 +1,20 @@
-/** @file Real-daemon acceptance for the OpenClaw runtime adapter. */
+/** @file Real-daemon acceptance for the runtime adapter boundaries. */
+
+import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import {
   acquireHarnessEndpoint,
   AgentAddress,
   type Content,
+  GroupAddress,
   type InboundDelivery,
   type InboundMessage,
 } from "@moltzap/client";
 import openClawPlugin from "@moltzap/openclaw-channel";
 import {
+  Chunk,
   Deferred,
   Duration,
   Effect,
@@ -33,10 +39,22 @@ const DELIVERY_TIMEOUT = Duration.seconds(60);
 const OPENCLAW_ACCOUNT_ID = "adapter-target";
 const OPENCLAW_MAIN_SESSION_KEY = "agent:primary:main";
 const OPENCLAW_REPLY = "reply from the real OpenClaw adapter";
+const NANOCLAW_DIRECT_REPLY = "direct from NanoClaw send_message";
+const NANOCLAW_GROUP_REPLY = "group from NanoClaw send_message";
+const NANOCLAW_SOURCE_REVISION = "54d9d9a50c0e572fa3969d63ab87a4dd3d75cc6f";
+const LOCAL_NANOCLAW_IMAGE = /^moltzap-nanoclaw-agent:[0-9a-f]{16}$/u;
+const executeFile = promisify(execFile);
+const nanoClawProbePath = fileURLToPath(
+  new URL("nanoclaw-addressed-send-probe.mjs", import.meta.url),
+);
 
 interface Scenario {
   readonly caller: DaemonProcessFixture;
   readonly target: DaemonProcessFixture;
+}
+
+interface NanoClawScenario extends Scenario {
+  readonly peer: DaemonProcessFixture;
 }
 
 interface RecordedSessionSnapshot {
@@ -307,6 +325,12 @@ function directAddress(agentName: string) {
   return Schema.decodeUnknownSync(AgentAddress)(`agent:${agentName}`);
 }
 
+function groupAddress(agentNames: readonly string[]) {
+  return Schema.decodeUnknownSync(GroupAddress)(
+    `group:${[...agentNames].sort().join(",")}`,
+  );
+}
+
 function effectFromPromise<A>(
   operation: string,
   evaluate: () => PromiseLike<A>,
@@ -352,6 +376,24 @@ function nextDelivery<E>(stream: Stream.Stream<InboundDelivery, E>) {
   );
 }
 
+function nextDeliveries<E>(
+  stream: Stream.Stream<InboundDelivery, E>,
+  count: number,
+) {
+  return stream.pipe(
+    Stream.take(count),
+    Stream.runCollect,
+    Effect.map(Chunk.toReadonlyArray),
+    Effect.timeoutFail({
+      duration: DELIVERY_TIMEOUT,
+      onTimeout: () =>
+        new ProcessTestError({
+          message: `timed out awaiting ${String(count)} addressed deliveries`,
+        }),
+    }),
+  );
+}
+
 function registerFixture(fixture: DaemonProcessFixture) {
   return Effect.scoped(
     Effect.gen(function* () {
@@ -385,6 +427,37 @@ function acquireScenario(
       { concurrency: 2, discard: true },
     );
     return { caller, target };
+  });
+}
+
+function acquireNanoClawScenario(): Effect.Effect<
+  NanoClawScenario,
+  ProcessTestError,
+  Scope.Scope
+> {
+  return Effect.gen(function* () {
+    const infrastructure = yield* acquireProcessInfrastructure;
+    const [caller, target, peer] = yield* Effect.all(
+      [
+        makeDaemonProcessFixture(infrastructure, "nanoclaw-caller"),
+        makeDaemonProcessFixture(infrastructure, "nanoclaw-target"),
+        makeDaemonProcessFixture(infrastructure, "nanoclaw-peer"),
+      ] as const,
+      { concurrency: 3 },
+    );
+    yield* Effect.all(
+      [
+        acquireDaemonProcess(caller),
+        acquireDaemonProcess(target),
+        acquireDaemonProcess(peer),
+      ] as const,
+      { concurrency: 3 },
+    );
+    yield* Effect.all(
+      [registerFixture(caller), registerFixture(target), registerFixture(peer)],
+      { concurrency: 3, discard: true },
+    );
+    return { caller, target, peer };
   });
 }
 
@@ -779,7 +852,169 @@ function runOpenClawScenario() {
   );
 }
 
+function findNanoClawImage() {
+  return effectFromPromise("NanoClaw image discovery", async () => {
+    const { stdout } = await executeFile(
+      "docker",
+      [
+        "image",
+        "ls",
+        "--filter",
+        "reference=moltzap-nanoclaw-agent:*",
+        "--format",
+        "{{.Repository}}:{{.Tag}}",
+      ],
+      { maxBuffer: 1024 * 1024, timeout: 30_000 },
+    );
+    for (const image of stdout.split("\n").filter((value) => value !== "")) {
+      if (!LOCAL_NANOCLAW_IMAGE.test(image)) continue;
+      const inspected = await executeFile(
+        "docker",
+        [
+          "image",
+          "inspect",
+          "--format",
+          '{{index .Config.Labels "dev.moltzap.nanoclaw-source-revision"}}',
+          image,
+        ],
+        { maxBuffer: 1024 * 1024, timeout: 30_000 },
+      );
+      if (inspected.stdout.trim() === NANOCLAW_SOURCE_REVISION) return image;
+    }
+    throw new Error(
+      "no built MoltZap NanoClaw image matches the pinned source",
+    );
+  });
+}
+
+function runNanoClawProbe(
+  image: string,
+  endpoint: URL,
+  destinations: readonly { readonly to: string; readonly text: string }[],
+) {
+  return effectFromPromise("NanoClaw send_message process", () =>
+    executeFile(
+      "docker",
+      [
+        "run",
+        "--rm",
+        "--network=host",
+        "--entrypoint=node",
+        "--env",
+        `MOLTZAP_MCP_URL=${endpoint.href}`,
+        "--env",
+        `NANOCLAW_DESTINATIONS_JSON=${JSON.stringify(destinations)}`,
+        "--volume",
+        `${nanoClawProbePath}:/tmp/nanoclaw-addressed-send-probe.mjs:ro`,
+        image,
+        "/tmp/nanoclaw-addressed-send-probe.mjs",
+      ],
+      { maxBuffer: 4 * 1024 * 1024, timeout: 180_000 },
+    ),
+  );
+}
+
+type TestAddress =
+  | ReturnType<typeof directAddress>
+  | ReturnType<typeof groupAddress>;
+
+function assertConversationContents(
+  fixture: DaemonProcessFixture,
+  address: TestAddress,
+  expected: readonly Content[],
+) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const management = yield* acquireDaemonManagementClient(fixture.endpoint);
+      const history = yield* management.readConversation(address);
+      expect(
+        history.records.map(
+          ({ recordCore }) => recordCore.action.postIntent.content,
+        ),
+      ).toEqual(expected);
+    }),
+  );
+}
+
+function runNanoClawScenario() {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const scenario = yield* acquireNanoClawScenario();
+      const caller = yield* acquireHarnessEndpoint(scenario.caller.endpoint);
+      const peer = yield* acquireHarnessEndpoint(scenario.peer.endpoint);
+      const callerAddress = directAddress(scenario.caller.agentName);
+      const targetAddress = directAddress(scenario.target.agentName);
+      const sharedAddress = groupAddress([
+        scenario.caller.agentName,
+        scenario.target.agentName,
+        scenario.peer.agentName,
+      ]);
+      const direct = textContent(NANOCLAW_DIRECT_REPLY);
+      const group = textContent(NANOCLAW_GROUP_REPLY);
+
+      const callerDeliveries = yield* Effect.forkScoped(
+        nextDeliveries(caller.messages, 2),
+      );
+      const peerDeliveries = yield* Effect.forkScoped(
+        nextDeliveries(peer.messages, 1),
+      );
+      const image = yield* findNanoClawImage();
+      yield* runNanoClawProbe(image, scenario.target.endpoint, [
+        { to: callerAddress, text: NANOCLAW_DIRECT_REPLY },
+        { to: sharedAddress, text: NANOCLAW_GROUP_REPLY },
+      ]);
+
+      const callerReceived = yield* Fiber.join(callerDeliveries);
+      const peerReceived = yield* Fiber.join(peerDeliveries);
+      expect(callerReceived.map(({ message }) => message)).toEqual([
+        expect.objectContaining({
+          kind: "direct",
+          address: targetAddress,
+          sender: targetAddress,
+          content: direct,
+        }),
+        expect.objectContaining({
+          kind: "group",
+          address: sharedAddress,
+          sender: targetAddress,
+          content: group,
+        }),
+      ]);
+      expect(peerReceived.map(({ message }) => message)).toEqual([
+        expect.objectContaining({
+          kind: "group",
+          address: sharedAddress,
+          sender: targetAddress,
+          content: group,
+        }),
+      ]);
+      yield* Effect.all(
+        [...callerReceived, ...peerReceived].map(
+          ({ acknowledge }) => acknowledge,
+        ),
+        { discard: true },
+      );
+
+      yield* Effect.all(
+        [
+          assertConversationContents(scenario.caller, targetAddress, [direct]),
+          assertConversationContents(scenario.target, callerAddress, [direct]),
+          assertConversationContents(scenario.caller, sharedAddress, [group]),
+          assertConversationContents(scenario.target, sharedAddress, [group]),
+          assertConversationContents(scenario.peer, sharedAddress, [group]),
+        ],
+        { concurrency: 5, discard: true },
+      );
+    }),
+  );
+}
+
 it("keeps OpenClaw host identities local across a durable exchange", () => {
   expect.hasAssertions();
   return Effect.runPromise(runOpenClawScenario());
+}, 300_000);
+
+it("delivers NanoClaw send_message output through its native host queue", () => {
+  expect.hasAssertions();
+  return Effect.runPromise(runNanoClawScenario());
 }, 300_000);

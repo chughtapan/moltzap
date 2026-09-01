@@ -57,14 +57,19 @@ jobs:
         run: pnpm lint
         timeout-minutes: 30
       # The graph check pins every project, edge, root, and package-specific
-      # target. Exact runs then execute the common floor; run-many and affected
-      # intentionally skip projects that do not define a target.
+      # target. Exact runs execute the common package floor, with unit-test
+      # targets only where a package owns a unit-test surface.
       - name: Verify seven-product Nx graph and target floor
         run: |
           pnpm nx graph --print > "${RUNNER_TEMP}/moltzap-project-graph.json"
           node scripts/architecture/check-boundaries.js --nx-graph "${RUNNER_TEMP}/moltzap-project-graph.json"
           for project in @moltzap/identity @moltzap/router @moltzap/client @moltzap/openclaw-channel @moltzap/nanoclaw-channel @moltzap/simulator @moltzap/evals; do
-            for target in build typecheck:tests test lint arch:check; do
+            for target in build lint arch:check; do
+              pnpm nx run "${project}:${target}"
+            done
+          done
+          for project in @moltzap/identity @moltzap/router @moltzap/client @moltzap/openclaw-channel @moltzap/simulator @moltzap/evals; do
+            for target in typecheck:tests test; do
               pnpm nx run "${project}:${target}"
             done
           done
