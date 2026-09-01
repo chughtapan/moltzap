@@ -162,6 +162,9 @@ export function createProcessSessionDriver({
   resolveContainerPath = (path) => path,
   workingDirectory = "/workspace/agent",
   baseEnvironment = {
+    ...(process.env.ANTHROPIC_API_KEY === undefined
+      ? {}
+      : { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY }),
     HOME: "/home/node",
     NODE_ENV: "production",
     PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",

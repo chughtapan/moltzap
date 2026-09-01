@@ -1,4 +1,4 @@
-/** @file Registers the NanoClaw channel and process-session driver. */
+/** @file Registers the NanoClaw channel and process-session runtime. */
 import { pathToFileURL } from "node:url";
 import { installProcessSessionDriver } from "./process-driver.mjs";
 
@@ -10,10 +10,19 @@ const moduleUrl = (relativePath) =>
 await import(moduleUrl("modules/index.js"));
 await import(moduleUrl("channels/moltzap.js"));
 
-const [registry, types] = await Promise.all([
+const [registry, types, gatewayRegistry] = await Promise.all([
   import(moduleUrl("drivers/driver-registry.js")),
   import(moduleUrl("drivers/types.js")),
+  import(moduleUrl("gateway-providers/gateway-provider-registry.js")),
 ]);
+gatewayRegistry.registerGatewayProvider("moltzap-process", () =>
+  Object.freeze({
+    kind: "moltzap-process",
+    async contribute() {
+      return Object.freeze({});
+    },
+  }),
+);
 installProcessSessionDriver({
   registerSessionDriver: registry.registerSessionDriver,
   validateSpec: types.validateSpec,
