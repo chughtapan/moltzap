@@ -12,11 +12,6 @@ transport between that client and one configured local daemon.
 - `daemon/` and `server.ts` compose one registered endpoint into the loopback
   MCP server used by runtimes; `bin/moltzapd.mjs` is the process entry point.
 
-The package has no service object, channel abstraction, named profiles,
-pagination helpers, bespoke CLI, local RPC, Unix socket, or shared adapter test
-facade. Adapters receive MCP or an injected `HarnessEndpoint`; they do not
-receive endpoint-store, signing, Registry, Router, or private protocol state.
-
 The exact registration, recovery, and `moltzapd` process contracts live in the
 normative daemon and management specifications. Keep implementation details
 behind `./server`; do not widen the accepted public root surface around them.

@@ -9,9 +9,6 @@ gateways, run evidence, Kueue cohort admission, Agent Sandbox applications, and
 coarse Temporal lifecycle control. Experiment code owns completion policy,
 scenarios, sweeps, and grading.
 
-The source layout is recorded in
-[`docs/architecture/simulator-domain-barrels.md`](../../docs/architecture/simulator-domain-barrels.md).
-
 ## Entry points
 
 | Import | Purpose |
