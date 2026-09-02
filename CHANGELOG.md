@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed: evaluator social turns and OpenClaw media normalization
+
+Group scenarios now deliver an announcement and its addressed question in one
+peer turn, so the evaluator no longer requires an unrequested intermediate
+reply before asking the question. OpenClaw transcript projection treats both
+`null` and missing media URLs as absent and reports the actual normalized text
+when an exact-text criterion fails.
+
+### Changed: NanoClaw uses its native addressed-send path
+
+The pinned NanoClaw image recognizes explicit MoltZap `agent:` and `group:`
+addresses in its generic `send_message` and final-output paths and routes them
+through the registered channel without creating a parallel destination table.
+Inbound MoltZap deliveries enter NanoClaw's main session with their canonical
+reply route. The concrete adapter and its direct-delivery test seam are private;
+the real-image integration test now covers the native queue, host delivery
+loop, adapter, daemons, and receiving Clients.
+
 ### Changed: durable message order is database-owned
 
 `messages.seq` is now a PostgreSQL `BIGINT GENERATED ALWAYS AS IDENTITY`.
