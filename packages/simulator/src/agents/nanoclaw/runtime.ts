@@ -25,6 +25,9 @@ import {
   bootstrapFile,
   type CheckedWorkspaceFile,
   harvestTargets,
+  HISTORY_EXPORT_PATH,
+  HISTORY_EXPORT_VARIABLE,
+  historyExportTarget,
   mcpConfiguration,
   type McpServer,
   McpServerConfiguration,
@@ -75,6 +78,7 @@ export class NanoClawRuntimeConfiguration extends Schema.Class<NanoClawRuntimeCo
   startupTimeout: Schema.DurationFromMillis,
   workspaceFiles: Schema.Array(WorkspaceFileConfiguration),
   harvestWorkspaceFiles: Schema.Array(Schema.String),
+  historyExport: Schema.Boolean,
   modelOverride: Schema.optional(Schema.String),
   mcpServers: Schema.Array(McpServerConfiguration),
   applicationImage: image,
@@ -90,6 +94,12 @@ export interface NanoClawRuntimeOptions {
    * grade what its agents wrote without their exiting.
    */
   readonly harvestWorkspaceFiles?: readonly string[];
+  /**
+   * Have the agent's `moltzapd` append every delivery and send it completes
+   * to a history export, harvested into the ledger as
+   * `moltzap-history.ndjson` when the customer program ends.
+   */
+  readonly historyExport?: boolean;
   readonly modelId?: string;
 
   /**
@@ -134,6 +144,7 @@ interface NanoClawRuntimeSettings {
   readonly startupTimeout: Duration.Duration;
   readonly workspaceFiles: readonly CheckedWorkspaceFile[];
   readonly harvestPaths: readonly WorkspaceRelativePath[];
+  readonly historyExport: boolean;
   readonly modelId?: string;
   readonly applicationImage: Image;
   readonly mcpServers?: readonly McpServer[];
@@ -164,6 +175,7 @@ function snapshotOptions(
     startupTimeout: options.startupTimeout ?? DEFAULT_NANOCLAW_STARTUP_TIMEOUT,
     workspaceFiles: snapshotWorkspaceFiles(options.workspaceFiles),
     harvestPaths: snapshotHarvestPaths(options.harvestWorkspaceFiles),
+    historyExport: options.historyExport ?? false,
     applicationImage: options.applicationImage,
     ...(modelId === undefined ? {} : { modelId }),
     ...(mcpServers === undefined ? {} : { mcpServers }),
@@ -189,6 +201,7 @@ function runtimeConfiguration(
     startupTimeout: settings.startupTimeout,
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
     harvestWorkspaceFiles: settings.harvestPaths,
+    historyExport: settings.historyExport,
     mcpServers: mcpConfiguration(settings.mcpServers),
     applicationImage: settings.applicationImage,
     ...(settings.modelId === undefined
@@ -225,15 +238,18 @@ function makeNanoClawApplication(
     agentName: input.agentName,
     acquireGateway: renderer.acquireGateway,
   };
-  const harvest = harvestTargets(
-    NANOCLAW_AGENT_WORKSPACE_DIR,
-    settings.harvestPaths,
-  );
+  const harvest = [
+    ...harvestTargets(NANOCLAW_AGENT_WORKSPACE_DIR, settings.harvestPaths),
+    ...(settings.historyExport ? [historyExportTarget()] : []),
+  ];
   return Object.freeze({
     entrypoint: Object.freeze(["node", NANOCLAW_ENTRYPOINT] as const),
     environment: Object.freeze({
       MOLTZAP_NANOCLAW_CONFIG: NANOCLAW_CONFIG_PATH,
       MOLTZAP_NANOCLAW_STATE: NANOCLAW_STATE_DIR,
+      ...(settings.historyExport
+        ? { [HISTORY_EXPORT_VARIABLE]: HISTORY_EXPORT_PATH }
+        : {}),
     }),
     ...(settings.modelId === undefined
       ? {}

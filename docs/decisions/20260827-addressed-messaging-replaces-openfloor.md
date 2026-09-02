@@ -110,7 +110,9 @@ holds the complete durability-certified post.
 `HarnessClient`, `HarnessTurn`, public `ConversationId`, START, bound reply,
 reply grants, generic current-chat targeting, and reply-by-identifier are
 removed without aliases. History and administrative operations remain on the
-owner-authorized MCP surface and use addresses.
+owner-authorized MCP surface and use addresses; an operator may additionally
+configure the daemon to append its delivered and sent messages to a local file
+it owns (`harness/daemon.md`), which carries no delivery or reply authority.
 
 ### One host-native session and intentional output
 
@@ -228,3 +230,4 @@ part of this decision's implementation change.
 |---|---|
 | 2026-08-27 | Selected the exact source-owned hard-cut protocol value and defined the observable empty-store preflight. |
 | 2026-08-27 | Replaced the duplicated partial trace overlay with the single updated stable manifest after review found repurposed row IDs and omitted replacements. The addressed-messaging Decision Outcome is unchanged. |
+| 2026-09-01 | Recorded the daemon's operator-configured history export (`MOLTZAPD_HISTORY_EXPORT`, `HistoryExportRecord`) beside the history statement it refines. Endpoint history stays endpoint-local and owner-configured, and adapters still receive only `HarnessEndpoint`, so the Decision Outcome is unchanged. |

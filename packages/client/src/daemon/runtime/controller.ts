@@ -4,6 +4,7 @@ import type { VerifiedAgentCard } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Deferred, Effect, Queue, Scope } from "effect";
+import type { HistoryExportPort } from "../../endpoint/engine-types.js";
 import type { DeliveryToken, EndpointStore } from "../../endpoint/store.js";
 import type { HarnessMcpOperations } from "../../harness-mcp-wire.js";
 import type { DaemonBootstrap } from "../configuration.js";
@@ -28,6 +29,7 @@ import {
 interface DaemonControllerInput {
   readonly store: EndpointStore;
   readonly bootstrap: DaemonBootstrap;
+  readonly historyExport?: HistoryExportPort;
   readonly management: DaemonActivationPreparation["management"];
   readonly dependencies: DaemonRuntimeDependencies;
 }
@@ -214,6 +216,9 @@ export const makeDaemonController = (
     const environment: ProtocolEnvironment = {
       store: input.store,
       bootstrap: input.bootstrap,
+      ...(input.historyExport === undefined
+        ? {}
+        : { historyExport: input.historyExport }),
       dependencies: input.dependencies,
       registry,
       router,

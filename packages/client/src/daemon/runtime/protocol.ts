@@ -4,6 +4,7 @@ import type { VerifiedAgentCard } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Cause, type Context, Deferred, Effect, Scope } from "effect";
+import type { HistoryExportPort } from "../../endpoint/engine-types.js";
 import type {
   EndpointEngine,
   EngineInitializationError,
@@ -50,6 +51,7 @@ export interface ProtocolState {
 export interface ProtocolEnvironment {
   readonly store: EndpointStore;
   readonly bootstrap: DaemonBootstrap;
+  readonly historyExport?: HistoryExportPort;
   readonly dependencies: DaemonRuntimeDependencies;
   readonly registry: Context.Tag.Service<typeof Registry>;
   readonly router: Context.Tag.Service<typeof Router>;
@@ -231,6 +233,9 @@ const acquireProtocolEngine = (
       store: environment.store,
       routerWorker: worker,
       actionPolicy: signStructurallyValidAction,
+      ...(environment.historyExport === undefined
+        ? {}
+        : { historyExport: environment.historyExport }),
     })
     .pipe(
       Scope.extend(environment.daemonScope),

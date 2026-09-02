@@ -22,6 +22,7 @@ const registrySigner =
   '{"crv":"Ed25519","kty":"OKP","x":"y1j1FUgbqjCPeQVEnllv-2euwn_s9DeDkfEh3gk_OJ0"}';
 const directories: string[] = [];
 const noOverrides = new Map<string, string>();
+const EXPORT_PATH = "/var/run/moltzap/history.ndjson";
 
 const temporaryDirectory = (): string => {
   const directory = mkdtempSync(join(tmpdir(), "moltzap-daemon-config-"));
@@ -171,6 +172,39 @@ describe("daemon configuration", () => {
     "closes file, UTF-8, key, and credential failures",
     rejectsSecretFileFailures,
   );
+});
+
+describe("history export configuration", () => {
+  it("leaves the export unset when the operator names no file", async () => {
+    const directory = temporaryDirectory();
+    const configuration = await Effect.runPromise(loadConfiguration(directory));
+    expect(configuration.historyExport).toBeUndefined();
+  });
+
+  it("takes the export file the operator names", async () => {
+    const directory = temporaryDirectory();
+    const configuration = await Effect.runPromise(
+      loadConfiguration(
+        directory,
+        new Map([["MOLTZAPD_HISTORY_EXPORT", EXPORT_PATH]]),
+      ),
+    );
+    expect(configuration.historyExport).toBe(EXPORT_PATH);
+  });
+
+  it("refuses an empty export path rather than exporting nowhere", async () => {
+    const directory = temporaryDirectory();
+    expect(
+      await Effect.runPromise(
+        failureReason(
+          loadConfiguration(
+            directory,
+            new Map([["MOLTZAPD_HISTORY_EXPORT", ""]]),
+          ),
+        ),
+      ),
+    ).toBe("environment");
+  });
 });
 
 /* eslint-enable agent-code-guard/async-keyword, agent-code-guard/no-hardcoded-assertion-literals -- Restore repository defaults. */

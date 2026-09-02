@@ -94,6 +94,20 @@ whatever that link names inside its own container into the ledger. The
 container holds only what the experiment gave it, and the ledger is the
 experiment's own, so that is accepted rather than guarded.
 
+## Transcripts
+
+Message content never enters the ledger through the fabric: the Router carries
+opaque packets, and only each agent's own `moltzapd` decodes what it delivers
+and sends. Set `historyExport: true` on either runtime to have that daemon
+append one `HistoryExportRecord` line (the schema `@moltzap/client` exports)
+per certified inbound delivery and per completed send to
+`/var/run/moltzap/history.ndjson`. The file is harvested like an
+experiment-declared file, under the name `moltzap-history.ndjson` with a 1 MiB
+bound, so each agent's transcript lands in the ledger as one
+`AgentWorkspaceFileHarvested` record whose `text` is NDJSON. The agent-eye view
+is that agent's `inbound` records; the wire view is the union of every agent's
+`outbound` records, joined to recipients by `postId`.
+
 ## Controlled endpoints
 
 `network.endpoint(name)` attaches an experiment-controlled participant. Its

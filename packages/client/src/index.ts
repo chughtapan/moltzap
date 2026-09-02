@@ -10,6 +10,7 @@ export {
   GroupAddress,
   type GroupMessage,
   type HarnessEndpoint,
+  HistoryExportRecord,
   type InboundDelivery,
   InboundMessage,
   JsonValue,

@@ -5,7 +5,7 @@ import {
   Ed25519PublicKey,
   type Ed25519PublicKey as Ed25519PublicKeyValue,
 } from "@moltzap/identity";
-import { Config, Data, Effect, Redacted, Schema } from "effect";
+import { Config, Data, Effect, Option, Redacted, Schema } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Bootstrap reads two configured Node files before the daemon composes its platform services.
 import { readFile } from "node:fs/promises";
 
@@ -62,6 +62,9 @@ const configuredValues = Config.all({
   admissionCredentialFile: Config.redacted(
     Schema.Config("MOLTZAPD_ADMISSION_CREDENTIAL_FILE", configuredPath),
   ),
+  historyExport: Config.option(
+    Schema.Config("MOLTZAPD_HISTORY_EXPORT", configuredPath),
+  ),
 });
 
 /** Closed reason that daemon configuration cannot become startup authority. */
@@ -88,6 +91,11 @@ export interface DaemonProcessConfiguration {
   readonly routerOrigin: URL;
   readonly agentPrivateKeyFile: Redacted.Redacted;
   readonly admissionCredentialFile: Redacted.Redacted;
+  /**
+   * File the daemon appends its delivered and sent messages to, one JSON
+   * line each, when the operator asks for that record.
+   */
+  readonly historyExport?: string;
 }
 
 /** Loaded private authority required by daemon registration and network calls. */
@@ -102,12 +110,20 @@ const configurationError = (
   reason: DaemonConfigurationFailure,
 ): DaemonConfigurationError => new DaemonConfigurationError({ reason });
 
-/** Loads exactly the seven declared daemon process inputs. */
+/** Loads exactly the seven required daemon process inputs and the optional export. */
 export const loadDaemonProcessConfiguration: Effect.Effect<
   DaemonProcessConfiguration,
   DaemonConfigurationError
 > = configuredValues.pipe(
-  Effect.map((configuration): DaemonProcessConfiguration => configuration),
+  Effect.map(
+    ({ historyExport, ...configuration }): DaemonProcessConfiguration => ({
+      ...configuration,
+      ...Option.match(historyExport, {
+        onNone: () => ({}),
+        onSome: (path) => ({ historyExport: path }),
+      }),
+    }),
+  ),
   Effect.mapError(() => configurationError("environment")),
   Effect.withSpan("loadDaemonProcessConfiguration"),
 );

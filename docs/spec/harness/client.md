@@ -16,7 +16,9 @@ The Client root exports closed Effect Schemas and corresponding types for:
 - `MessageAddressInput`, either accepted input form;
 - opaque `PostId`;
 - `Content` and its existing closed parts;
-- `InboundMessage` and `InboundDelivery`; and
+- `InboundMessage` and `InboundDelivery`;
+- `HistoryExportRecord`, one line of the daemon's optional history export
+  (`harness/daemon.md`); and
 - closed `SendError`, `ListenError`, `DeliveryAcknowledgeError`, and
   `ConnectError`.
 

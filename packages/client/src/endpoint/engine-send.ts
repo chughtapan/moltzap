@@ -1,7 +1,7 @@
 /** @file Address resolution, immutable intent binding, and proposal creation. */
 
 import { AgentCard, MOLTZAP_VERSION, SignedMessage } from "@moltzap/identity";
-import { Deferred, Duration, Effect, Schema } from "effect";
+import { DateTime, Deferred, Duration, Effect, Schema } from "effect";
 import type {
   EngineConversation,
   EnginePostIntent,
@@ -14,7 +14,12 @@ import type {
   OutboundMessageInput,
   PostIntent as StoredPostIntent,
 } from "./store.js";
-import { SendError, type SendInput } from "../contract.js";
+import {
+  type HistoryExportRecord,
+  type PostId,
+  SendError,
+  type SendInput,
+} from "../contract.js";
 import { resolveMessageAddress } from "./addressing/index.js";
 import { currentRecoveryBarrier } from "./recovery/barrier.js";
 import {
@@ -496,21 +501,70 @@ const awaitRouterAttachment = (
     Effect.asVoid,
   );
 
+/** One durably bound send: its minted identity and its completion latch. */
+export interface PreparedSendHandle {
+  readonly postId: PostId;
+  readonly completion: Deferred.Deferred<undefined, SendError>;
+}
+
+/** How one completed `send` invocation is recorded in the history export. */
+export type SendExportOutcome = Extract<
+  HistoryExportRecord,
+  { readonly kind: "outbound" }
+>["outcome"];
+
 /**
  * Persist an addressed intent and return its durable completion latch.
  * @param runtime Current engine state and protocol dependencies.
  * @param input Explicit addressed send requested by the host.
- * @returns A latch completed when the exact post becomes locally certified.
+ * @returns The minted post identity and a latch completed when that post
+ * becomes locally certified.
  */
 export const prepareSend = (
   runtime: EngineRuntime,
   input: SendInput,
-): Effect.Effect<Deferred.Deferred<undefined, SendError>, SendError> =>
+): Effect.Effect<PreparedSendHandle, SendError> =>
   awaitRouterAttachment(runtime).pipe(
     Effect.zipRight(prepareIntent(runtime, input)),
-    Effect.flatMap((prepared) => activateIntent(runtime, prepared)),
+    Effect.flatMap((prepared) =>
+      activateIntent(runtime, prepared).pipe(
+        Effect.map((completion) => ({
+          postId: prepared.intent.postId,
+          completion,
+        })),
+      ),
+    ),
     Effect.withSpan("prepareSend"),
   );
+
+/**
+ * Record one completed `send` invocation in the history export, if any.
+ * @param runtime Current engine state and protocol dependencies.
+ * @param input The host's own addressed input, as it was given.
+ * @param outcome Certified with the minted post, or the closed failure reason.
+ * @returns Completion; a missing export records nothing.
+ */
+export const exportSend = (
+  runtime: EngineRuntime,
+  input: SendInput,
+  outcome: SendExportOutcome,
+): Effect.Effect<void> => {
+  const historyExport = runtime.input.historyExport;
+  if (historyExport === undefined) {
+    return Effect.void;
+  }
+  return DateTime.now.pipe(
+    Effect.flatMap((at) =>
+      historyExport.record({
+        kind: "outbound",
+        to: input.to,
+        content: input.content,
+        outcome,
+        at,
+      }),
+    ),
+  );
+};
 
 interface PreparedSend {
   readonly membership: VerifiedMembership;

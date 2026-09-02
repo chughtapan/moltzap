@@ -31,6 +31,12 @@ listener. Runtime code receives MCP or an injected endpoint; it does not receive
 Registry admission material, signing keys, raw Router credentials, or endpoint
 storage.
 
+Set `MOLTZAPD_HISTORY_EXPORT=<file>` to have the daemon append one JSON line
+per certified inbound delivery and per completed `send` invocation. Decode the
+file line by line with the root's `HistoryExportRecord` schema. An append that
+fails is recorded once as an `export-failed` line, after which the daemon stops
+exporting and keeps serving the agent.
+
 ## Verification
 
 ```sh

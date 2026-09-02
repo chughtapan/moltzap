@@ -19,6 +19,7 @@ import {
 } from "effect";
 import type {
   DeliveryAcknowledgeError,
+  HistoryExportRecord,
   InboundMessage,
   ListenError,
   SendError,
@@ -100,6 +101,15 @@ export type EngineActionPolicy = (
   input: EngineActionPolicyInput,
 ) => Effect.Effect<EngineActionPolicyDecision>;
 
+/**
+ * Sink for the daemon's optional history export. Recording never fails and
+ * never blocks the protocol on its own outcome: an export that stops is the
+ * sink's business, recorded in the file, not the engine's.
+ */
+export interface HistoryExportPort {
+  readonly record: (record: HistoryExportRecord) => Effect.Effect<void>;
+}
+
 /** Stable private dependencies for one endpoint protocol engine. */
 export interface EndpointEngineInput {
   readonly localAgentCard: VerifiedAgentCard;
@@ -111,6 +121,8 @@ export interface EndpointEngineInput {
   readonly actionPolicy: EngineActionPolicy;
   /** Overrides `ROUTER_ATTACH_TIMEOUT`; tests bound the wait in milliseconds. */
   readonly routerAttachTimeout?: Duration.Duration;
+  /** Present only when the operator configured a history export. */
+  readonly historyExport?: HistoryExportPort;
 }
 
 /** Stable private engine capability consumed by daemon composition. */
