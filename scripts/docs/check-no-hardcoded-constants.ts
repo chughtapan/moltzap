@@ -156,7 +156,7 @@ const buildRules = (constants: readonly ConstantRecord[]): readonly Rule[] => {
     rules.push({
       name: "V2_PROTOCOL_VERSION",
       regex: new RegExp(escape(v2ProtocolVersion.value as string)),
-      hint: "Mark the file with `{/* @bake-constants: V2_PROTOCOL_VERSION */}` so the compatibility value is baked from `v2/VERSION`.",
+      hint: "Mark the file with `{/* @bake-constants: V2_PROTOCOL_VERSION */}` so the compatibility value is baked from `packages/identity/src/version.ts`.",
     });
   }
 

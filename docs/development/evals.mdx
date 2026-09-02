@@ -303,6 +303,14 @@ condition, every terminal attempt, and code or model assessments. The command
 prints a publication receipt containing browser URLs for the condition
 experiments. Set `PHOENIX_API_KEY` when the Phoenix deployment requires one.
 
+## Retained results
+
+`packages/evals/results/` keeps curated reports of live runs whose ledgers
+stay in the GKE artifact bucket. The
+[OpenClaw shared/private evaluation of 2026-09-01](https://github.com/chughtapan/moltzap/blob/main/packages/evals/results/openclaw-gke-shared-private-20260901.md)
+records six assessed attempts with the image digests, run namespaces, ledger
+identities, and artifact digests behind each result.
+
 ## Related
 
 - [Grading typed ledgers](/simulator/grading) — the simulator evidence

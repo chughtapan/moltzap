@@ -118,6 +118,31 @@ at an address the worker Pod cannot resolve leaves submissions pending with no
 error, because a worker that never connects is indistinguishable from a queue
 with nothing on it.
 
+## Published images
+
+No release has published images yet. Until the first release, build and push a
+controller image locally with `./cluster.sh publish-image`, which prints the
+digest reference to pin.
+
+## Release publishing
+
+`.github/workflows/publish.yml` pushes the controller, OpenClaw, and NanoClaw
+images to the `controller_repository` repository tagged with the release
+version, then writes their digests into the table above in the same release
+commit that bumps the npm packages. The workflow authenticates with GitHub's
+OIDC token through Workload Identity Federation; it holds no stored key.
+
+Terraform owns that identity. `setup` creates the `github-actions` pool, its
+`github` provider admitting only this repository, and the `moltzap-release`
+service account with `roles/artifactregistry.writer` on the image repository.
+Copy the two outputs into the repository's Actions variables before the first
+release:
+
+| Terraform output | Actions variable |
+| --- | --- |
+| `release_workload_identity_provider` | `GCP_WORKLOAD_IDENTITY_PROVIDER` |
+| `release_service_account` | `GCP_RELEASE_SERVICE_ACCOUNT` |
+
 ## Immutable simulator image
 
 Push the controller/support image built by the repository to the
@@ -142,8 +167,8 @@ The GKE entry validates `profile.json`, requires every dynamic identity above,
 and invokes the existing `runTemporalSociety` worker. It does not introduce a
 second workflow or simulator backend.
 
-`./cluster.sh publish-image` performs the publish and prints only the digest
-reference, so it can be assigned directly:
+`./cluster.sh publish-image` builds with `--push` and prints only the digest
+reference the registry assigned, so it can be assigned directly:
 
 ```bash
 MOLTZAP_CONTROLLER_IMAGE="$(packages/simulator/gke/cluster.sh publish-image)"
@@ -187,6 +212,12 @@ from a checkout: the run's exported ledger is retained nowhere in the
 repository, as
 [the execution trajectory](../../../docs/decision-evidence/20260801-main-kubernetes-society-execution-trajectory.md)
 records.
+
+The retained post-cutover evidence is the
+[OpenClaw shared/private evaluation of 2026-09-01](../../evals/results/openclaw-gke-shared-private-20260901.md):
+six assessed attempts on this profile, with the controller and OpenClaw image
+digests, run namespaces, ledger identities, and artifact digests a reader can
+check against the bucket.
 
 Runtime evaluations are owned and run by
 [`@moltzap/evals`](../../evals/README.md), which can select this profile as its

@@ -169,10 +169,7 @@ const testNoHardcodedConstants = (): void => {
   }
 
   // Planted regression 2: hardcoded MoltZap version in a non-baked doc.
-  const moltzapVersion = readFileSync(
-    resolve(workspaceRoot, "v2/VERSION"),
-    "utf8",
-  ).trim();
+  const moltzapVersion = readMoltzapVersion();
   plantFile(
     target1,
     (s) =>
@@ -413,11 +410,33 @@ const testBakeFailureFailClosed = (): void => {
 
 // ─── Tests: MoltZap compatibility authority ──────────────────────────────
 
+const MOLTZAP_VERSION_SOURCE = "packages/identity/src/version.ts";
+const MOLTZAP_VERSION_LITERAL = /export const MOLTZAP_VERSION = "([^"]*)";/;
+
+const readMoltzapVersion = (): string => {
+  const source = readFileSync(
+    resolve(workspaceRoot, MOLTZAP_VERSION_SOURCE),
+    "utf8",
+  );
+  const match = MOLTZAP_VERSION_LITERAL.exec(source);
+  if (match === null || match[1] === undefined) {
+    throw new Error(`${MOLTZAP_VERSION_SOURCE} has no MOLTZAP_VERSION literal`);
+  }
+  return match[1];
+};
+
+const withMoltzapVersion =
+  (next: string) =>
+  (source: string): string =>
+    source.replace(
+      MOLTZAP_VERSION_LITERAL,
+      `export const MOLTZAP_VERSION = "${next}";`,
+    );
+
 const testMoltzapVersionFile = (): void => {
   console.log("\n# MoltZap compatibility version source");
-  const versionPath = "v2/VERSION";
 
-  plantFile(versionPath, () => "\n");
+  plantFile(MOLTZAP_VERSION_SOURCE, withMoltzapVersion(""));
   const empty = runGenerateDirect(workspaceRoot);
   assert(
     "empty MoltZap version fails closed",
@@ -426,10 +445,7 @@ const testMoltzapVersionFile = (): void => {
   );
   restoreAllPlants();
 
-  const currentVersion = readFileSync(
-    resolve(workspaceRoot, versionPath),
-    "utf8",
-  ).trim();
+  const currentVersion = readMoltzapVersion();
   const nextVersion = "2099.999.8";
   const marker = "@bake-constants: V2_PROTOCOL_VERSION";
   const consumers = [
@@ -456,7 +472,7 @@ const testMoltzapVersionFile = (): void => {
     const original = readFileSync(path, "utf8");
     planted.push({ path, original });
   }
-  plantFile(versionPath, () => `${nextVersion}\n`);
+  plantFile(MOLTZAP_VERSION_SOURCE, withMoltzapVersion(nextVersion));
   const bumped = runGenerateDirect(workspaceRoot);
   assert(
     "changed MoltZap version regenerates constants",
@@ -477,6 +493,64 @@ const testMoltzapVersionFile = (): void => {
       `${path} did not contain ${nextVersion} after regeneration`,
     );
   }
+  restoreAllPlants();
+};
+
+// ─── Tests: architecture boundaries publication guards ───────────────────
+
+const runBoundaries = (): { code: number; stderr: string } => {
+  const r = spawnSync(
+    process.execPath,
+    [resolve(workspaceRoot, "scripts/architecture/check-boundaries.js")],
+    { cwd: workspaceRoot, encoding: "utf8" },
+  );
+  return { code: r.status ?? -1, stderr: r.stderr ?? "" };
+};
+
+const testPublicationGuards = (): void => {
+  console.log("\n# check-boundaries publication guards");
+  const clean = runBoundaries();
+  assert(
+    "clean tree passes the publication guards",
+    clean.code === 0,
+    `expected exit 0, got ${clean.code}. stderr: ${clean.stderr.slice(0, 300)}`,
+  );
+
+  plantFile("packages/nanoclaw-channel/package.json", (s) =>
+    s.replace(/"version": "[^"]+"/, '"version": "2026.101.0"'),
+  );
+  const unequal = runBoundaries();
+  assert(
+    "flags a published manifest whose version differs from its siblings",
+    unequal.code !== 0 && /must share one version/.test(unequal.stderr),
+    `expected one-version failure. exit=${unequal.code}, stderr=${unequal.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile("packages/evals/package.json", (s) =>
+    s.replace(/\s*"private": true,/, ""),
+  );
+  const publicEvals = runBoundaries();
+  assert(
+    "flags evals losing its private flag",
+    publicEvals.code !== 0 &&
+      /evals\/package\.json: must stay private/.test(publicEvals.stderr),
+    `expected evals-private failure. exit=${publicEvals.code}, stderr=${publicEvals.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile("packages/identity/package.json", (s) =>
+    s.replace('"version"', '"private": true,\n  "version"'),
+  );
+  const privateIdentity = runBoundaries();
+  assert(
+    "flags a published package that carries private",
+    privateIdentity.code !== 0 &&
+      /identity\/package\.json: a published package must not carry "private"/.test(
+        privateIdentity.stderr,
+      ),
+    `expected published-private failure. exit=${privateIdentity.code}, stderr=${privateIdentity.stderr.slice(0, 300)}`,
+  );
   restoreAllPlants();
 };
 
@@ -576,6 +650,7 @@ const main = (): void => {
     testMoltzapVersionFile();
     testBakeFailureFailClosed();
     testNodeVersionFloorConsistency();
+    testPublicationGuards();
   } finally {
     restoreAllPlants();
   }

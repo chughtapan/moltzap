@@ -37,6 +37,7 @@
     "docs:check:gates-test": "pnpm exec tsx scripts/__tests__/gates.test.ts",
     "docs:test": "pnpm nx run workspace:test",
     "test:compute-next-version": "bash scripts/release/compute-next-version.test.sh",
+    "test:write-published-images": "node --test scripts/release/write-published-images.test.mjs",
     "check:agent-setup": "bash scripts/repo/check-agent-setup.sh",
     "test:pack:simulator": "pnpm nx run @moltzap/simulator:test:pack",
     "prepare": "husky && node scripts/setup/restore-tsgo-exec-bit.mjs",
