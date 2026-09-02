@@ -105,9 +105,17 @@ requires its matching model option. `--messaging-mode` defaults to `shared`;
 `private` is currently valid only with `--runtime openclaw`. The
 NanoClaw application image uses one native `agent-shared` session. Repeat
 `--case EVAL-NNN` to run an exact case subset; omitting `--case` runs the full
-catalog. Run `eval`, `resume`, `calibrate`, or `publish` through the package's
-Nx targets.
+catalog. `--concurrency` (1 to 8, default 4) is how many cells are submitted
+at once; it is an execution choice, not part of the plan, so a report may be
+resumed at a different width. Each cell is submitted through the simulator's
+`moltzap-sim` executable with a one-hour admission budget, so cells queued
+behind each other on the cluster wait rather than fail. Run `eval`, `resume`,
+`calibrate`, or `publish` through the package's Nx targets.
 
 SQLite is the mutable report authority. Resume executes only cells missing from
-an exactly matching plan. Completed Simulator artifacts remain the evidence
-authority and are validated before grading.
+an exactly matching plan; finished cells commit in plan order, so an
+interrupted sweep loses at most the cells of its last window that had not yet
+committed. One process holds a report at a time: a second `resume` of the same
+report fails fast with `ReportLocked` while the first is alive. Completed
+Simulator artifacts remain the evidence authority and are validated before
+grading.

@@ -168,7 +168,7 @@ export interface AgentsService<
 
 Describes agents service.
 
-### [`Application`](./container.ts#L125)
+### [`Application`](./container.ts#L157)
 
 _Interface_
 
@@ -180,6 +180,11 @@ export interface Application<Gateway, AcquisitionError> {
   /** The controller bridge port, and the port whose accept means ready. */
   readonly port: number;
   readonly files: readonly File[];
+  /**
+   * Files the cluster reads from the live container after the customer
+   * program ends, absent when the runtime harvests nothing.
+   */
+  readonly harvest?: readonly HarvestTarget[];
   /**
    * Bind the controller to one ready application.
    *
@@ -199,7 +204,7 @@ export interface Application<Gateway, AcquisitionError> {
 
 One rendered application and its runtime-specific controller bridge.
 
-### [`ApplicationEndpoint`](./container.ts#L61)
+### [`ApplicationEndpoint`](./container.ts#L93)
 
 _Interface_
 
@@ -216,7 +221,7 @@ The cluster builds this from the port the application itself declared, so a
 runtime reads the address it asked for instead of re-deriving it: a protocol,
 port, path, or credential the runtime would have to reject cannot be spelled.
 
-### [`ContainerAgentRuntime`](./container.ts#L166)
+### [`ContainerAgentRuntime`](./container.ts#L203)
 
 _Interface_
 
@@ -238,7 +243,7 @@ A runtime that is known to carry a container realization. Only
 `defineContainerRuntime` produces one, so reading its realization back needs
 no absent case.
 
-### [`ContainerRuntime`](./container.ts#L153)
+### [`ContainerRuntime`](./container.ts#L190)
 
 _Interface_
 
@@ -266,7 +271,7 @@ export type CredentialName = "ANTHROPIC_API_KEY" | "OPENAI_API_KEY";
 
 Provider credential a container may request from the run-scoped Secret.
 
-### [`defineContainerRuntime`](./container.ts#L227)
+### [`defineContainerRuntime`](./container.ts#L264)
 
 _Function_
 
@@ -290,7 +295,7 @@ This describes no cross-runtime gateway protocol.
 
 **Returns:** The frozen nominal runtime accepted by a society roster.
 
-### [`File`](./container.ts#L48)
+### [`File`](./container.ts#L68)
 
 _Interface_
 
@@ -303,6 +308,23 @@ export interface File {
 ```
 
 One file materialized into a container from the run-scoped Secret.
+
+### [`HarvestTarget`](./container.ts#L80)
+
+_Interface_
+
+```ts
+export interface HarvestTarget {
+  readonly relativePath: string;
+  readonly path: `/${string}`;
+  readonly limitBytes: number;
+}
+```
+
+One file read back from the running application after the customer program
+ends. `relativePath` is how the ledger names it, `path` is where the runtime
+placed it inside the container, and `limitBytes` bounds what the ledger
+carries for it.
 
 ### [`image`](./container.ts#L29)
 
@@ -393,7 +415,7 @@ export class NanoClawGatewayOutput extends Schema.Class<NanoClawGatewayOutput>(
 
 One native output frame emitted by NanoClaw's owner-local CLI channel.
 
-### [`nanoclawRuntime`](./nanoclaw/runtime.ts#L93)
+### [`nanoclawRuntime`](./nanoclaw/runtime.ts#L121)
 
 _Function_
 
@@ -412,7 +434,7 @@ roster identity and its runtime-owned native gateway bridge.
 
 **Returns:** The nanoclaw runtime result.
 
-### [`NanoClawRuntimeOptions`](./nanoclaw/runtime.ts#L73)
+### [`NanoClawRuntimeOptions`](./nanoclaw/runtime.ts#L89)
 
 _Interface_
 
@@ -420,6 +442,18 @@ _Interface_
 export interface NanoClawRuntimeOptions {
   readonly startupTimeout?: Duration.Duration;
   readonly workspaceFiles?: readonly WorkspaceFile[];
+  /**
+   * Workspace-relative files read back from each running agent after the
+   * customer program ends and recorded in the ledger, so an experiment can
+   * grade what its agents wrote without their exiting.
+   */
+  readonly harvestWorkspaceFiles?: readonly string[];
+  /**
+   * Have the agent's `moltzapd` append every delivery and send it completes
+   * to a history export, harvested into the ledger as
+   * `moltzap-history.ndjson` when the customer program ends.
+   */
+  readonly historyExport?: boolean;
   readonly modelId?: string;
 
   /**
@@ -550,7 +584,7 @@ Timed-out terminal result returned by OpenClaw's `agent` gateway RPC.
 OpenClaw treats this as a successful RPC payload rather than a transport
 failure. A run may time out before it has an agent result.
 
-### [`openClawRuntime`](./openclaw/runtime.ts#L151)
+### [`openClawRuntime`](./openclaw/runtime.ts#L172)
 
 _Function_
 
@@ -576,7 +610,7 @@ flowchart LR
 
 **Returns:** A reusable OpenClaw container runtime definition.
 
-### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L111)
+### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L120)
 
 _Interface_
 
@@ -586,6 +620,18 @@ export interface OpenClawRuntimeOptions {
   readonly applicationImage: Image;
   readonly startupTimeout?: Duration.Duration;
   readonly workspaceFiles?: readonly WorkspaceFile[];
+  /**
+   * Workspace-relative files read back from each running agent after the
+   * customer program ends and recorded in the ledger, so an experiment can
+   * grade what its agents wrote without their exiting.
+   */
+  readonly harvestWorkspaceFiles?: readonly string[];
+  /**
+   * Have the agent's `moltzapd` append every delivery and send it completes
+   * to a history export, harvested into the ledger as
+   * `moltzap-history.ndjson` when the customer program ends.
+   */
+  readonly historyExport?: boolean;
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
 
@@ -621,7 +667,7 @@ export type OpenClawToolsConfig = NonNullable<OpenClawConfig["tools"]>;
 
 Tool configuration accepted by `OpenClawConfig`.
 
-### [`Resources`](./container.ts#L41)
+### [`Resources`](./container.ts#L61)
 
 _Interface_
 
@@ -635,7 +681,7 @@ export interface Resources {
 
 Portable resource request for one application container.
 
-### [`routableBridgeEndpoint`](./container.ts#L93)
+### [`routableBridgeEndpoint`](./container.ts#L125)
 
 _Function_
 
@@ -809,7 +855,7 @@ export type StartedAgents<
 
 Exact keyed agents installed only after every runtime is ready.
 
-### [`stoppedBeforeAttach`](./container.ts#L270)
+### [`stoppedBeforeAttach`](./container.ts#L307)
 
 _Function_
 
