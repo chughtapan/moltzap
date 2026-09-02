@@ -65,6 +65,53 @@ For OpenClaw, the mounted MoltZap channel plugin handles daemon messages. The
 separate `.gateway` starts an OpenClaw `agent` RPC and returns its terminal
 result to experiment code.
 
+## Harvested workspace files
+
+Agents in an experiment never exit, so a file an agent wrote is read back from
+its running container after the customer Effect returns. Name the files, relative
+to the agent's workspace, on either runtime:
+
+```ts
+openClawRuntime({
+  applicationImage,
+  workspaceFiles: [{ relativePath: "CALENDAR.md", content: seed }],
+  harvestWorkspaceFiles: ["CALENDAR.md"],
+});
+```
+
+Each named file becomes one `AgentWorkspaceFileHarvested` record
+(`moltzap.agent-workspace-file/v1`) carrying the agent, the runtime, the
+relative path, and one of four outcomes: `text` with the content and its byte
+length, `oversize` when the file exceeds 64 KiB, `absent` when the agent never
+wrote it, or `unreadable` with the cause. Harvest follows the program event and
+precedes teardown; it never fails the run, and an interrupted program skips it.
+A custom container runtime takes part by setting `Application.harvest` to the
+`HarvestTarget`s it wants read (`@moltzap/simulator/agents`).
+
+The read is a plain `sh` probe (`test -f`, a size check, `cat`) executed in the
+application container through `pods/exec`, so the controller's run-scoped Role
+gains that verb. The probe runs with the application container's root privilege, follows
+symbolic links, and checks the file before reading it, so an agent that
+replaces a harvested file with a link exposes whatever that link names inside
+its own container into the ledger, including the daemon's key and credential
+that the agent's own process cannot read. The
+container holds only what the experiment gave it, and the ledger is the
+experiment's own, so that is accepted rather than guarded.
+
+## Transcripts
+
+Message content never enters the ledger through the fabric: the Router carries
+opaque packets, and only each agent's own `moltzapd` decodes what it delivers
+and sends. Set `historyExport: true` on either runtime to have that daemon
+append one `HistoryExportRecord` line (the schema `@moltzap/client` exports)
+per certified inbound delivery and per completed send to
+`/var/run/moltzap/history.ndjson`. The file is harvested like an
+experiment-declared file, under the name `moltzap-history.ndjson` with a 1 MiB
+bound, so each agent's transcript lands in the ledger as one
+`AgentWorkspaceFileHarvested` record whose `text` is NDJSON. The agent-eye view
+is that agent's `inbound` records; the wire view is the union of every agent's
+`outbound` records, joined to recipients by `postId`.
+
 ## Controlled endpoints
 
 `network.endpoint(name)` attaches an experiment-controlled participant. Its
@@ -103,6 +150,20 @@ them after `--`.
 
 ## Local and GKE profiles
 
+The package ships one executable, `moltzap-sim`, that submits one experiment
+module through either profile:
+
+```bash
+moltzap-sim run --profile local path/to/experiment.mjs
+moltzap-sim run --profile gke path/to/experiment.mjs
+```
+
+It reads the same `MOLTZAP_*` environment either way, prints exactly one
+`ProfileRunResult` JSON line on stdout when the run finishes, and reports every
+failure on stderr with a non-zero exit. Decode that line with the
+`ProfileRunResult` schema the root exports. The repository's `local-run` and
+`gke-run` Nx targets invoke the same executable.
+
 Build the controller/support image and create the pinned local profile:
 
 ```bash
@@ -122,7 +183,9 @@ pnpm nx run @moltzap/simulator:local-run -- path/to/experiment.mjs
 
 The GKE profile uses the same experiment and controller contract with an
 explicit kube context, artifact bucket, and configured Temporal endpoint. See
-[`local/README.md`](local/README.md) and [`gke/README.md`](gke/README.md).
+[`local/README.md`](local/README.md) and [`gke/README.md`](gke/README.md),
+which also cover submitting several runs at once and the admission budget
+(`MOLTZAP_ADMISSION_TIMEOUT_MS`) a queued cohort waits on.
 
 ## Static validation
 

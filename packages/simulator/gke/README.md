@@ -109,8 +109,9 @@ deliberately unselected; this is a single Deployment sized for experiments.
 
 Nothing publishes it. `run` opens a supervised port-forward and sets
 `MOLTZAP_TEMPORAL_ADDRESS` to it, replacing a dropped forward for as long as
-the run lasts. An operator driving `dist/cluster/profiles/gke.js` directly
-supplies that address instead.
+the run lasts. An operator running `moltzap-sim run --profile gke` directly
+supplies that address instead, typically from their own
+`kubectl port-forward -n moltzap-system svc/temporal 7233:7233`.
 
 The in-cluster run worker reaches Temporal by a different route than the
 operator does — a `localhost` port-forward means nothing inside a Pod — so the
@@ -222,6 +223,85 @@ reference the registry assigned, so it can be assigned directly:
 ```bash
 MOLTZAP_CONTROLLER_IMAGE="$(packages/simulator/gke/cluster.sh publish-image)"
 ```
+
+## Running from npm
+
+A consumer that installs `@moltzap/simulator` submits with the package's
+executable rather than a checkout; the environment contract is the same one
+`cluster.sh run` assembles:
+
+```bash
+kubectl port-forward -n moltzap-system svc/temporal 7233:7233 &
+MOLTZAP_KUBE_CONTEXT=EXPLICIT_KUBE_CONTEXT \
+MOLTZAP_GKE_ARTIFACT_BUCKET=PROFILE_ARTIFACT_BUCKET \
+MOLTZAP_TEMPORAL_ADDRESS=127.0.0.1:7233 \
+MOLTZAP_CONTROLLER_IMAGE=REGISTRY/CONTROLLER@sha256:DIGEST \
+MOLTZAP_SUPPORT_IMAGE=REGISTRY/CONTROLLER@sha256:DIGEST \
+MOLTZAP_APPLICATION_IMAGE=REGISTRY/OPENCLAW-AGENT@sha256:DIGEST \
+moltzap-sim run --profile gke path/to/experiment.mjs
+```
+
+| variable | required | selects |
+| --- | --- | --- |
+| `MOLTZAP_KUBE_CONTEXT` | yes | the kubeconfig context of this cluster |
+| `MOLTZAP_GKE_ARTIFACT_BUCKET` | yes | the Terraform-owned ledger bucket |
+| `MOLTZAP_TEMPORAL_ADDRESS` | yes | how this host reaches Temporal |
+| `MOLTZAP_TEMPORAL_CLUSTER_ADDRESS` | no | how the worker reaches Temporal, when not the in-cluster service |
+| `MOLTZAP_TEMPORAL_TASK_QUEUE` | no | the run-lifecycle queue, `moltzap-simulator` by default |
+| `MOLTZAP_CONTROLLER_IMAGE` | yes | the digest-pinned controller image |
+| `MOLTZAP_SUPPORT_IMAGE` | no | the Sandbox initializer image, the controller image by default |
+| `MOLTZAP_APPLICATION_IMAGE` | when the module reads it | the digest-pinned complete agent image |
+| `MOLTZAP_STARTUP_TIMEOUT_MS` | no | how long an admitted cohort may take to become ready |
+| `MOLTZAP_ADMISSION_TIMEOUT_MS` | no | how long the queue may hold the cohort, one hour by default |
+| `MOLTZAP_COHORT_SIZE` | no | the roster size of a run-sized experiment, two by default |
+| `MOLTZAP_TEMPORAL_NAMESPACE` | no | the Temporal namespace, `default` by default |
+| `MOLTZAP_FORCE_WORKER_ROLL` | no | exactly `1` to accept rolling the worker over its open runs |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | when a model needs one | forwarded to containers whose model id names that provider |
+
+The experiment module may import only what the controller image ships:
+`@moltzap/{simulator,client,identity,router,evals}`, `effect`, and
+`/opt/moltzap/dist/cluster/controller/services.js`. Bench-specific code is
+inlined in the `.mjs` or runs outside against the exported ledger. The
+submitter's stdout is one `ProfileRunResult` line; everything else goes to
+stderr. The exit status is the other half of that contract:
+
+| Exit | Meaning |
+|---|---|
+| `0` | the result line was printed; it carries the run's own outcome |
+| `1` | the submission failed before or after the run; stderr says why |
+| `130`, `143` | interrupted by `SIGINT` or `SIGTERM` before a result line; stderr names the signal |
+
+A consumer that sees exit `0` with no result line is reading a submitter built
+before this table existed and should treat it as a failure.
+
+## Parallel submissions
+
+Every run namespaces its own Kubernetes objects, and the run worker serves the
+queue with the Temporal SDK's default concurrency, so submitting several
+experiments at once is ordinary. `ClusterQueue/moltzap` admits cohorts in
+FIFO order against the agent pool's quota; a cohort that does not fit waits
+in the queue. That wait is measured against `MOLTZAP_ADMISSION_TIMEOUT_MS`,
+not the startup budget: a queued cohort has not started, so an hour of queue
+time is the default and `MOLTZAP_STARTUP_TIMEOUT_MS` begins only once Kueue
+admits it.
+
+Three rules bound how wide to go. Concurrent submitters must share one
+controller image: a submission installs the run worker for the image it
+names, and a different image would roll the worker out from under every run
+it is heartbeating, so the submitter refuses that install while runs are open
+(wait for them, or set `MOLTZAP_FORCE_WORKER_ROLL=1` to accept losing them).
+The refusal lives in the submitter, so a submitter built before it existed
+still rolls the worker and interrupts every run in flight; lanes that need
+different controller images are sequenced by the operator, not by the
+cluster. The submitter package and the controller image must also come from
+one revision: the install applies the worker's ClusterRole from the
+submitter's own manifests, so an older submitter narrows the role a newer
+controller needs and every lane's next run fails to create its Role until a
+matching submitter re-applies. A release couples the published npm version
+to the published images table for exactly that reason. And every run keeps a
+Registry, a Router, and a controller Pod on the single `e2-standard-4` system
+node, so about eight runs at once is the practical ceiling; four is a sound
+default.
 
 ## Private platform contract
 

@@ -3,7 +3,7 @@
 import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type {
-  RunControllerResult,
+  ControllerRunResult,
   RunLifecycleActivities,
   RunSocietyWorkflowInput,
 } from "./reclaim.js";
@@ -39,7 +39,7 @@ const INPUT: RunSocietyWorkflowInput = {
   experimentModule: "export const runSpec = society;",
 };
 const DIGEST = Schema.decodeSync(ledgerDigest)("a".repeat(64));
-const PROGRAM_RESULT: RunControllerResult = {
+const PROGRAM_RESULT: ControllerRunResult = {
   exitCode: 0,
   summary: programFinishedSummary(
     CompletedLedgerReceipt.make({
@@ -53,7 +53,7 @@ const PROGRAM_RESULT: RunControllerResult = {
     }),
   ),
 };
-const FAILED_RESULT: RunControllerResult = {
+const FAILED_RESULT: ControllerRunResult = {
   exitCode: 1,
   summary: ledgerAllocationFailedSummary(),
 };

@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`ConnectError`](./contract.ts#L360)
+### [`ConnectError`](./contract.ts#L395)
 
 _Class_
 
@@ -108,7 +108,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./contract.ts#L344)
+### [`DeliveryAcknowledgeError`](./contract.ts#L379)
 
 _Class_
 
@@ -170,7 +170,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./contract.ts#L375)
+### [`HarnessEndpoint`](./contract.ts#L410)
 
 _Interface_
 
@@ -183,7 +183,48 @@ export interface HarnessEndpoint {
 
 Structural runtime capability owned by one scoped endpoint connection.
 
-### [`InboundDelivery`](./contract.ts#L369)
+### [`HistoryExportRecord`](./contract.ts#L346)
+
+_TypeAlias_
+
+```ts
+export type HistoryExportRecord = typeof HistoryExportRecord.Type;
+```
+
+A validated line of the daemon's history export.
+
+### [`HistoryExportRecord`](./contract.ts#L326)
+
+_Variable_
+
+```ts
+export const HistoryExportRecord = Schema.Union(
+  exactStruct({
+    kind: Schema.Literal("inbound"),
+    message: InboundMessage,
+    at: Schema.DateTimeUtc,
+  }),
+  exactStruct({
+    kind: Schema.Literal("outbound"),
+    to: MessageAddressInput,
+    content: Content,
+    outcome: historyExportSendOutcome,
+    at: Schema.DateTimeUtc,
+  }),
+  exactStruct({
+    kind: Schema.Literal("export-failed"),
+    reason: Schema.String,
+    at: Schema.DateTimeUtc,
+  }),
+).annotations({ identifier: "HistoryExportRecord" })
+```
+
+One line of the daemon's optional history export: a certified inbound
+delivery, a completed `send` invocation with its outcome, or the one line
+that says the export stopped. Readers decode the file line by line with
+this schema rather than copying its shape.
+
+### [`InboundDelivery`](./contract.ts#L404)
 
 _Interface_
 
@@ -254,7 +295,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./contract.ts#L329)
+### [`ListenError`](./contract.ts#L364)
 
 _Class_
 
@@ -317,7 +358,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`SendError`](./contract.ts#L314)
+### [`SendError`](./contract.ts#L349)
 
 _Class_
 

@@ -219,8 +219,9 @@ test("the GKE target enters the core Temporal path with explicit identities", as
   const packageManifest = JSON.parse(packageText);
   assert.equal(
     packageManifest.nx.targets["gke-run"].options.command,
-    "node dist/cluster/profiles/gke.js",
+    "node bin/moltzap-sim run --profile gke",
   );
+  assert.equal(packageManifest.bin["moltzap-sim"], "./bin/moltzap-sim");
   assert.match(entrypoint, /runKubernetesSociety/);
   assert.match(entrypoint, /MOLTZAP_GKE_ARTIFACT_BUCKET/);
   assert.match(entrypoint, /MOLTZAP_KUBE_CONTEXT/);

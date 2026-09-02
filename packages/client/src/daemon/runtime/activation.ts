@@ -8,6 +8,7 @@ import {
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import { Data, Deferred, Effect, type Scope } from "effect";
+import type { HistoryExportPort } from "../../endpoint/engine-types.js";
 import type {
   EndpointEngine,
   EndpointEngineInput,
@@ -71,6 +72,10 @@ export interface DaemonRuntimeDependencies {
     readonly port: number;
     readonly handler: SubscriptionHandler;
   }) => Effect.Effect<void, Error, Scope.Scope>;
+  /** Opens the operator-configured history export against one file. */
+  readonly makeHistoryExport: (
+    path: string,
+  ) => Effect.Effect<HistoryExportPort>;
 }
 
 /** Management and durable identity state acquired before protocol startup. */

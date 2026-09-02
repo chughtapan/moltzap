@@ -186,8 +186,11 @@ Each invocation creates one society and then tears it down:
 5. Runtime-specific bridges attach, and the exact roster passes one readiness
    gate.
 6. The controller invokes the customer Effect once.
-7. The simulator finalizes the ledger and run outcome.
-8. Temporal drives cleanup of run-owned Kubernetes resources.
+7. While every application is still up, the controller reads each agent's
+   declared workspace files and, when enabled, its daemon's history export
+   into the ledger.
+8. The simulator finalizes the ledger and run outcome.
+9. Temporal drives cleanup of run-owned Kubernetes resources.
 
 The society is not a reusable warm pool. A backing Pod restart before dispatch
 keeps that slot outside the cohort gate until its current application and
@@ -217,6 +220,15 @@ A completed run owns three artifacts:
 | `manifest.json` | Definition id, run id, exact event tags, provenance, and metadata |
 | `records.ndjson` | Schema-validated event envelopes in one logical sequence |
 | `completion.json` | Record count and SHA-256 digests for the manifest and records |
+
+Agents never exit in an experiment, so what they wrote is read back rather
+than collected on exit. `harvestWorkspaceFiles` on either runtime names
+workspace-relative files; each becomes one `AgentWorkspaceFileHarvested`
+record with a `text`, `oversize`, `absent`, or `unreadable` outcome after the
+program event. `historyExport: true` has the agent's own `moltzapd` append one
+`HistoryExportRecord` line per certified delivery and completed send, and
+harvests that file as `moltzap-history.ndjson`; that is the only place message
+content enters the ledger, because the fabric carries opaque packets.
 
 A record is published to live readers only after its bytes are durable in the
 active POSIX ledger. Local runs write that ledger beneath their retained

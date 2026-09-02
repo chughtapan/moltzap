@@ -15,7 +15,7 @@ import {
   type SendInput,
 } from "../contract.js";
 import { resumeDisseminationObligations } from "./engine-dissemination.js";
-import { prepareSend, proposeIntent } from "./engine-send.js";
+import { exportSend, prepareSend, proposeIntent } from "./engine-send.js";
 import {
   type EndpointEngine,
   type EndpointEngineInput,
@@ -257,10 +257,21 @@ const send = (
   input: SendInput,
 ): Effect.Effect<void, SendError> =>
   Effect.gen(function* () {
-    const completion = yield* prepareSend(runtime, input);
+    const prepared = yield* prepareSend(runtime, input);
     yield* drainOutbound(runtime).pipe(Effect.mapError(outboundSendFailure));
-    yield* Deferred.await(completion);
-  }).pipe(Effect.withSpan("EndpointEngine.send"));
+    yield* Deferred.await(prepared.completion);
+    yield* Effect.uninterruptible(
+      exportSend(runtime, input, {
+        kind: "certified",
+        postId: prepared.postId,
+      }),
+    );
+  }).pipe(
+    Effect.tapError((error) =>
+      exportSend(runtime, input, { kind: "failed", reason: error.reason }),
+    ),
+    Effect.withSpan("EndpointEngine.send"),
+  );
 
 const runOutbound = (
   runtime: EngineRuntime,

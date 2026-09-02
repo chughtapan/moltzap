@@ -2,14 +2,14 @@
 
 import { Cause, Data, Effect, Layer, Logger } from "effect";
 import { describe, expect, it } from "vitest";
-import type { RunControllerResult } from "./reclaim.js";
+import type { ProfileRunResult } from "./profiles/result.js";
+import type { ControllerRunResult } from "./reclaim.js";
 import type { RunTemporalSocietyOptions } from "./temporal.js";
 import { LOCAL_KUBERNETES_EXECUTION_PROFILE } from "./profile.js";
 import {
   boundedDiagnostic,
   type RunEnvironment,
   runKubernetesSociety,
-  type RunSubmission,
   SUBMIT_STAGE,
   SubmitOperations,
   SUBMITTED_DIAGNOSTIC_MAX_BYTES,
@@ -20,9 +20,11 @@ const APPLICATION_IMAGE = `registry/openclaw@sha256:${DIGEST}`;
 const ENTRYPOINT = "society.mjs";
 const STARTUP_TIMEOUT_VARIABLE = "MOLTZAP_STARTUP_TIMEOUT_MS";
 const STARTUP_TIMEOUT_MS = 900_000;
+const ADMISSION_TIMEOUT_VARIABLE = "MOLTZAP_ADMISSION_TIMEOUT_MS";
+const ADMISSION_TIMEOUT_MS = 3_600_000;
 const COHORT_SIZE_VARIABLE = "MOLTZAP_COHORT_SIZE";
 const COHORT_SIZE = 100;
-const RESULT: RunControllerResult = {
+const RESULT: ControllerRunResult = {
   exitCode: 1,
   summary: { _tag: "LedgerAllocationFailed" },
 };
@@ -71,7 +73,7 @@ describe("the experiment application image", () => {
 function submit(
   environment: RunEnvironment,
 ): Effect.Effect<
-  { readonly submission: RunSubmission; readonly submitted: Submitted },
+  { readonly submission: ProfileRunResult; readonly submitted: Submitted },
   unknown
 > {
   const submitted: Submitted = { options: [] };
@@ -210,6 +212,40 @@ describe("the cohort's startup budget", () => {
       );
 
       expect(String(failure)).toContain(STARTUP_TIMEOUT_VARIABLE);
+    }
+  });
+});
+
+describe("the cohort's admission budget", () => {
+  it("reaches the workflow apart from the startup budget when the environment sets one", async () => {
+    const { submitted } = await Effect.runPromise(
+      submit({
+        ...ENVIRONMENT,
+        [ADMISSION_TIMEOUT_VARIABLE]: String(ADMISSION_TIMEOUT_MS),
+      }),
+    );
+
+    expect(submitted.options[0]?.input.admissionTimeoutMs).toBe(
+      ADMISSION_TIMEOUT_MS,
+    );
+    expect(submitted.options[0]?.input.startupTimeoutMs).toBeUndefined();
+  });
+
+  it("is absent when the environment sets none, leaving the controller's default", async () => {
+    const { submitted } = await Effect.runPromise(submit(ENVIRONMENT));
+
+    expect(submitted.options[0]?.input.admissionTimeoutMs).toBeUndefined();
+  });
+
+  it("refuses a budget that is not a positive integer", async () => {
+    for (const encoded of ["0", "-1", "1.5", "an hour"]) {
+      const failure = await Effect.runPromise(
+        Effect.flip(
+          submit({ ...ENVIRONMENT, [ADMISSION_TIMEOUT_VARIABLE]: encoded }),
+        ),
+      );
+
+      expect(String(failure)).toContain(ADMISSION_TIMEOUT_VARIABLE);
     }
   });
 });

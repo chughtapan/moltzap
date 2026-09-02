@@ -1,21 +1,25 @@
 /** @file GKE entry point for the shared Temporal-managed Kubernetes run. */
 
-import { NodeRuntime } from "@effect/platform-node";
 import { Effect, Either, Schema } from "effect";
-import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { KubernetesExecutionProfile } from "../profile.js";
+import type { ProfileRunResult } from "./result.js";
 import { ledgerArtifactFiles } from "../../ledger/index.js";
-import { isEntryModule } from "../entry.js";
 import {
-  liveSubmitOperations,
   type RunEnvironment,
   runKubernetesSociety,
-  type RunSubmission,
   RunSubmissionError,
   SubmitOperations,
 } from "../submit.js";
 
-const PROFILE_PATH = resolve("gke/profile.json");
+/**
+ * The checked-in profile, located from this module rather than from the
+ * working directory: the packed package ships the file beside `dist`, and a
+ * consumer runs the executable from wherever it is.
+ */
+const PROFILE_PATH = fileURLToPath(
+  new URL("../../../gke/profile.json", import.meta.url),
+);
 const BUCKET_NAME = /^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$/u;
 const GKE_GCS_FUSE_ANNOTATION = "gke-gcsfuse/volumes";
 const GKE_GCS_FUSE_DRIVER = "gcsfuse.csi.storage.gke.io";
@@ -141,7 +145,7 @@ export function gkeExecutionProfileFromConfiguration(
 export function runGkeSociety(
   args: readonly string[],
   environment: RunEnvironment,
-): Effect.Effect<RunSubmission, RunSubmissionError, SubmitOperations> {
+): Effect.Effect<ProfileRunResult, RunSubmissionError, SubmitOperations> {
   return Effect.flatMap(SubmitOperations, (operations) =>
     operations.readTextFile(PROFILE_PATH),
   ).pipe(
@@ -195,21 +199,4 @@ function required(environment: RunEnvironment, key: string): string {
 
 function configurationFailure(detail: string): RunSubmissionError {
   return new RunSubmissionError({ stage: "configuration", detail });
-}
-
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Direct-entry detection has no Effect Platform equivalent.
-if (isEntryModule(import.meta.url, process.argv[1])) {
-  // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The executable boundary captures argv once before entering Effect.
-  const args = process.argv.slice(2);
-  // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- The executable boundary injects the environment into the typed GKE configuration.
-  const environment = process.env;
-  runGkeSociety(args, environment).pipe(
-    Effect.tap((result) =>
-      Effect.sync(() => {
-        process.stdout.write(`${JSON.stringify(result)}\n`);
-      }),
-    ),
-    Effect.provide(liveSubmitOperations),
-    NodeRuntime.runMain,
-  );
 }

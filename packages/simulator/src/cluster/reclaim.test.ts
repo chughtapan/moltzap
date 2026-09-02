@@ -4,7 +4,7 @@ import { Effect, Schema } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   CleanupRunInput,
-  RunControllerResult,
+  ControllerRunResult,
   RunSocietyWorkflowInput,
 } from "./reclaim.js";
 import { LedgerCompletion, ledgerDigest, ledgerRef } from "../ledger/schema.js";
@@ -26,7 +26,7 @@ interface MockActivityOptions {
 }
 
 const DIGEST = Schema.decodeSync(ledgerDigest)("b".repeat(64));
-const CONTROLLER_RESULT: RunControllerResult = {
+const CONTROLLER_RESULT: ControllerRunResult = {
   exitCode: 0,
   summary: programFinishedSummary(
     CompletedLedgerReceipt.make({
@@ -67,7 +67,7 @@ vi.mock("@temporalio/workflow", () => ({
     return {
       runControllerOnce: async (
         input: RunSocietyWorkflowInput,
-      ): Promise<RunControllerResult> => {
+      ): Promise<ControllerRunResult> => {
         workflowState.events.push("controller");
         workflowState.controllerInputs.push(input);
         if (workflowState.controllerFailure !== undefined) {

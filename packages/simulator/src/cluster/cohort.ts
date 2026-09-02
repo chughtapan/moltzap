@@ -15,6 +15,7 @@ import {
 } from "effect";
 import { posix } from "node:path";
 import type { AgentRuntimeLike } from "../agents/agent.js";
+import type { HarvestedFileOutcome } from "../events/core.js";
 import type { KubernetesPodPlacement } from "./profile.js";
 import { containerRuntimeFor } from "../agents/container.js";
 import {
@@ -24,6 +25,7 @@ import {
   type ContainerRuntime,
   type CredentialName,
   type File,
+  type HarvestTarget,
   type Image,
   type Resources,
   type RunningAgent,
@@ -49,6 +51,7 @@ import {
   Cluster,
   ClusterError,
   type ClusterService,
+  type HarvestedWorkspaceFile,
   type Slot,
   type Society,
 } from "./cluster.js";
@@ -70,6 +73,7 @@ import {
 } from "./kubernetes/network-objects.js";
 import {
   aggregateWorkloadManifest,
+  APPLICATION_CONTAINER_NAME,
   bootstrapSecretManifest,
   type KubernetesRunOwner,
   type ReservedCapacity,
@@ -96,7 +100,6 @@ import {
 /* eslint-disable max-lines -- This private composition hub keeps one Kubernetes society lifecycle auditable in one place. */
 
 const WORKLOAD_NAME = "society";
-const APPLICATION_CONTAINER_NAME = "application";
 const BOOTSTRAP_ROOT = "/var/run/moltzap/bootstrap/";
 
 /**
@@ -129,11 +132,24 @@ interface KubernetesSession {
   readonly lost: Deferred.Deferred<never, ClusterError>;
 }
 
+/** What the run remembers about one attached application, to read it later. */
+interface AcquiredApplication {
+  readonly sandboxName: string;
+  /** Pod selector the Sandbox reported when it became ready; stable for the run. */
+  readonly selector: string;
+  readonly harvest: readonly HarvestTarget[];
+}
+
+interface AttachedApplication<Gateway> {
+  readonly running: RunningAgent<Gateway>;
+  readonly selector: string;
+}
+
 interface KubernetesSessionState<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > extends KubernetesSession {
   /** Roster entries whose Sandbox reached readiness and attached. */
-  readonly acquired: Set<string>;
+  readonly acquired: Map<string, AcquiredApplication>;
   readonly network: ActiveSocietyNetwork;
   readonly resourceNames: Readonly<
     Record<Extract<keyof Definitions, string>, string>
@@ -177,6 +193,12 @@ export interface KubernetesClusterOptions {
   >;
   readonly rosterPlacement?: KubernetesPodPlacement;
   readonly startupTimeout: Duration.Duration;
+  /**
+   * How long the queue may hold the reservation before admission, apart from
+   * `startupTimeout`: a cohort waiting behind other runs has not started, so
+   * the wait must not spend the budget its readiness is measured against.
+   */
+  readonly admissionTimeout: Duration.Duration;
   /** Controller-private listener and mandatory in-cluster Service identity. */
   readonly routerFaultProxy: AdvertisedRouterFaultProxyPlatform;
   /** How often admission and readiness are observed while the run starts. */
@@ -301,6 +323,20 @@ function workloadAdmission(
   );
 }
 
+function livePodName(
+  sandboxName: string,
+  pods: readonly PodObservation[],
+): Effect.Effect<string, ClusterError> {
+  const podName = liveApplicationPod(pods)?.metadata.name;
+  return podName === undefined
+    ? Effect.fail(
+        clusterError(
+          `agent sandbox "${sandboxName}" has no live application Pod to read`,
+        ),
+      )
+    : Effect.succeed(podName);
+}
+
 function liveApplicationPod(
   pods: readonly PodObservation[],
 ): PodObservation | undefined {
@@ -371,7 +407,7 @@ function observeReadySandbox(
   api: KubernetesSocietyApi,
   sandboxName: string,
   port: number,
-): Effect.Effect<string | undefined, ClusterError> {
+): Effect.Effect<SandboxAddress | undefined, ClusterError> {
   return Effect.gen(function* () {
     const sandbox = yield* api.readSandbox(sandboxName);
     if (currentConditionIsTrue(sandbox, "Finished")) {
@@ -385,7 +421,7 @@ function observeReadySandbox(
       return undefined;
     }
     const pods = yield* api.listPods(address.selector);
-    return liveApplicationPod(pods) === undefined ? undefined : address.fqdn;
+    return liveApplicationPod(pods) === undefined ? undefined : address;
   });
 }
 
@@ -393,18 +429,19 @@ function waitForReadySandbox(
   sandboxName: string,
   port: number,
   session: KubernetesSession,
-): Effect.Effect<string, ClusterError> {
+): Effect.Effect<SandboxAddress, ClusterError> {
   const { api, startupTimeout } = session.options;
-  const observe: Effect.Effect<string, ClusterError> = Effect.suspend(() =>
-    observeReadySandbox(api, sandboxName, port).pipe(
-      Effect.flatMap((fqdn) =>
-        fqdn === undefined
-          ? Effect.sleep(session.readinessInterval).pipe(
-              Effect.zipRight(observe),
-            )
-          : Effect.succeed(fqdn),
+  const observe: Effect.Effect<SandboxAddress, ClusterError> = Effect.suspend(
+    () =>
+      observeReadySandbox(api, sandboxName, port).pipe(
+        Effect.flatMap((address) =>
+          address === undefined
+            ? Effect.sleep(session.readinessInterval).pipe(
+                Effect.zipRight(observe),
+              )
+            : Effect.succeed(address),
+        ),
       ),
-    ),
   );
   return observe.pipe(
     Effect.timeoutFail({
@@ -791,9 +828,69 @@ function makeKubernetesSession<
       input: Slot<Definitions, Name>,
     ) => acquireKubernetesAgent(input, state),
     acquireEndpoint: state.network.controlledEndpoints.acquire,
+    harvestWorkspace: (name: Extract<keyof Definitions, string>) =>
+      harvestWorkspace(name, state),
     cohortReady: cohortReadiness(roster, state),
     failure: sessionFailure(state),
   });
+}
+
+/**
+ * Read every target one attached application declared, from its live Pod.
+ *
+ * The live Pod is found once per agent, through the selector recorded when
+ * its Sandbox became ready, and the targets are read one at a time through
+ * it, so an agent contributes one exec session per file rather than a burst.
+ * A Pod that cannot be found makes every target unreadable with the same
+ * cause; a single read that fails makes only that target unreadable.
+ * @param name Roster key of the agent to read.
+ * @param state Run-scoped acquisition bookkeeping.
+ * @returns One outcome per declared target, in declaration order.
+ */
+function harvestWorkspace(
+  name: string,
+  state: KubernetesSession & {
+    readonly acquired: ReadonlyMap<string, AcquiredApplication>;
+  },
+): Effect.Effect<readonly HarvestedWorkspaceFile[]> {
+  const acquired = state.acquired.get(name);
+  if (acquired === undefined || acquired.harvest.length === 0) {
+    return Effect.succeed([]);
+  }
+  const { api } = state.options;
+  const { harvest } = acquired;
+  return api.listPods(acquired.selector).pipe(
+    Effect.flatMap((pods) => livePodName(acquired.sandboxName, pods)),
+    Effect.flatMap((podName) =>
+      Effect.forEach(harvest, (target) => harvestTarget(api, podName, target), {
+        concurrency: 1,
+      }),
+    ),
+    Effect.catchAll((cause) =>
+      Effect.succeed(
+        harvest.map((target) => ({
+          relativePath: target.relativePath,
+          outcome: unreadable(cause.detail),
+        })),
+      ),
+    ),
+    Effect.withSpan("harvestWorkspace", { attributes: { "agent.name": name } }),
+  );
+}
+
+function harvestTarget(
+  api: KubernetesSocietyApi,
+  podName: string,
+  target: HarvestTarget,
+): Effect.Effect<HarvestedWorkspaceFile> {
+  return api.readApplicationFile(podName, target.path, target.limitBytes).pipe(
+    Effect.catchAll((cause) => Effect.succeed(unreadable(cause.detail))),
+    Effect.map((outcome) => ({ relativePath: target.relativePath, outcome })),
+  );
+}
+
+function unreadable(cause: string): HarvestedFileOutcome {
+  return { _tag: "unreadable", cause };
 }
 
 /**
@@ -902,12 +999,12 @@ function attachReadyApplication<Gateway, AcquisitionError>(
   sandboxName: string,
   session: KubernetesSession,
 ): Effect.Effect<
-  RunningAgent<Gateway>,
+  AttachedApplication<Gateway>,
   AcquisitionError | ClusterError,
   Scope.Scope
 > {
   return Effect.gen(function* () {
-    const fqdn = yield* waitForReadySandbox(
+    const address = yield* waitForReadySandbox(
       sandboxName,
       application.port,
       session,
@@ -918,15 +1015,18 @@ function attachReadyApplication<Gateway, AcquisitionError>(
     // Sandbox would ever show. Whichever stop arrives first is the evidence.
     const reported = yield* Deferred.make<RuntimeTermination>();
     const gateway = yield* application.attach(
-      { host: fqdn, port: application.port },
+      { host: address.fqdn, port: application.port },
       stopped,
       (termination) =>
         Deferred.succeed(reported, termination).pipe(Effect.asVoid),
     );
-    return Object.freeze({
-      gateway,
-      termination: Effect.raceFirst(stopped, Deferred.await(reported)),
-    });
+    return {
+      running: Object.freeze({
+        gateway,
+        termination: Effect.raceFirst(stopped, Deferred.await(reported)),
+      }),
+      selector: address.selector,
+    };
   });
 }
 
@@ -956,15 +1056,19 @@ function acquireKubernetesAgent<
       state.options,
       state.network.authority,
     );
-    const running = yield* attachReadyApplication(
+    const attached = yield* attachReadyApplication(
       application,
       resourceName,
       state,
     );
     const agentId = yield* state.network.resolveAgentId(input.agentName);
-    state.acquired.add(input.name);
+    state.acquired.set(input.name, {
+      sandboxName: resourceName,
+      selector: attached.selector,
+      harvest: application.harvest ?? [],
+    });
     return Object.freeze({
-      ...running,
+      ...attached.running,
       agent: makeAgentHandle(input.name, agentId),
     });
   });
@@ -1188,7 +1292,7 @@ function prepareKubernetesSociety<
       options.readinessInterval ?? DEFAULT_READINESS_INTERVAL;
     yield* workloadAdmission(
       options.api,
-      options.startupTimeout,
+      options.admissionTimeout,
       readinessInterval,
     );
     return makeKubernetesSession(roster, {
@@ -1197,7 +1301,7 @@ function prepareKubernetesSociety<
       resourceNames,
       readinessInterval,
       livenessInterval: options.livenessInterval ?? DEFAULT_LIVENESS_INTERVAL,
-      acquired: new Set(),
+      acquired: new Map(),
       lost: yield* Deferred.make<never, ClusterError>(),
     });
   });

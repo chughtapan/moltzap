@@ -89,6 +89,8 @@ async function verifyConsumerImports(archives, publicSpecifiers) {
     publicSpecifiers
       .map((specifier) => `await import(${JSON.stringify(specifier)});`)
       .join("\n") +
+      `\nconst root = await import("@moltzap/client");\n` +
+      `if (!("HistoryExportRecord" in root)) throw new Error("Client root does not export HistoryExportRecord");\n` +
       `\nconst server = await import("@moltzap/client/server");\n` +
       `if (Object.keys(server).join(",") !== "MoltZapDaemon") throw new Error("unexpected Client server exports");\n` +
       `if (Object.keys(server.MoltZapDaemon).sort().join(",") !== "StartupError,layer") throw new Error("unexpected MoltZapDaemon namespace");\n`,

@@ -29,14 +29,12 @@ import { Effect, Schema, Stream } from "effect";
 
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = dirname(dirname(scriptRoot));
-const localProfile = join(
+const simulatorExecutable = join(
   workspaceRoot,
   "packages",
   "simulator",
-  "dist",
-  "cluster",
-  "profiles",
-  "local.js",
+  "bin",
+  "moltzap-sim",
 );
 const localClusterCreator = join(
   workspaceRoot,
@@ -99,23 +97,23 @@ function parseFinalJsonLine(output, label) {
 export function parseSubmission(output) {
   const decoded = parseFinalJsonLine(output, "local profile");
 
-  const submission = record(decoded, "RunSubmission");
-  const runId = safePathSegment(submission.runId, "RunSubmission.runId");
+  const submission = record(decoded, "ProfileRunResult");
+  const runId = safePathSegment(submission.runId, "ProfileRunResult.runId");
   const namespace = safePathSegment(
     submission.namespace,
-    "RunSubmission.namespace",
+    "ProfileRunResult.namespace",
   );
   requireCondition(
     namespace === runId && /^mz-[0-9a-f]{32}$/u.test(namespace),
-    "RunSubmission identity did not match the local profile contract",
+    "ProfileRunResult identity did not match the local profile contract",
   );
 
-  const result = record(submission.result, "RunSubmission.result");
+  const result = record(submission.result, "ProfileRunResult.result");
   requireCondition(
     result.exitCode === 0,
     "local profile reported an unsuccessful controller process",
   );
-  const summary = record(result.summary, "RunSubmission.result.summary");
+  const summary = record(result.summary, "ProfileRunResult.result.summary");
   requireCondition(
     summary._tag === "ProgramFinished",
     "local profile did not report ProgramFinished",
@@ -405,7 +403,7 @@ async function main() {
   const submission = parseSubmission(
     await runCaptured(
       process.execPath,
-      [localProfile, scenario],
+      [simulatorExecutable, "run", "--profile", "local", scenario],
       {
         cwd: workspaceRoot,
         env: qualificationEnvironment(options, handoff),
@@ -436,7 +434,7 @@ async function main() {
   );
   requireCondition(
     sameCompletion(submission.receipt.completion, opened.completion),
-    "RunSubmission receipt did not match the retained completion artifact",
+    "ProfileRunResult receipt did not match the retained completion artifact",
   );
   const decodedRecords = Array.from(
     await Effect.runPromise(Stream.runCollect(opened.records)),

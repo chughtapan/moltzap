@@ -5,7 +5,11 @@ import type { NonEmptyReadonlyArray } from "effect/Array";
 import { Command as CliCommand, Options } from "@effect/cli";
 import { Command, Path } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import { type CompletedLedgerReceipt, isEntryModule } from "@moltzap/simulator";
+import {
+  type CompletedLedgerReceipt,
+  isEntryModule,
+  type ProfileRunResult,
+} from "@moltzap/simulator";
 import { image, type Image } from "@moltzap/simulator/agents";
 import {
   type CompletedLedgerArtifacts,
@@ -64,11 +68,7 @@ import {
   EvaluationSelectionInvalid,
   resolveEvaluationRunSelection,
 } from "./selection.js";
-import {
-  type EvaluationSubmissionResult,
-  submissionDiagnostic,
-  submitEvaluationCell,
-} from "./submission.js";
+import { submissionDiagnostic, submitEvaluationCell } from "./submission.js";
 import {
   CompletedEvaluationReport,
   decodeEvaluationReportId,
@@ -97,6 +97,11 @@ import {
 
 const CLI_VERSION = "0.0.0";
 const RUNTIME_STARTUP_TIMEOUT = Duration.minutes(5);
+// Concurrent cells queue behind each other for the profile's capacity; an
+// hour lets a full sweep's worth wait without failing as ClusterLost. The
+// evaluation states its own budget rather than inheriting the simulator's
+// default, which happens to be the same today.
+const ADMISSION_TIMEOUT = Duration.hours(1);
 const PEER_OBSERVATION_TIMEOUT = Duration.minutes(5);
 const CASE_TIMEOUT = Duration.minutes(20);
 const JUDGE_POLICY: JudgePolicyId = decodeJudgePolicyId(
@@ -622,7 +627,7 @@ function completeExecution(
 
 /** Summary of a submission that never reached a gradeable run. */
 type InfrastructureSummary = Exclude<
-  EvaluationSubmissionResult["result"]["summary"],
+  ProfileRunResult["result"]["summary"],
   { readonly _tag: "ProgramFinished" }
 >;
 
@@ -644,7 +649,7 @@ function infrastructureFailureDetail(summary: InfrastructureSummary): string {
 function completeSubmission(
   environment: EvaluationExecutionEnvironment,
   context: AttemptContext,
-  submission: EvaluationSubmissionResult,
+  submission: ProfileRunResult,
 ) {
   const summary = submission.result.summary;
   return summary._tag === "ProgramFinished"
@@ -735,6 +740,7 @@ function submissionInput(
           nanoclawApplicationImage: environment.nanoclawApplicationImage,
         }),
     runtimeStartupTimeoutMillis: Duration.toMillis(RUNTIME_STARTUP_TIMEOUT),
+    admissionTimeoutMillis: Duration.toMillis(ADMISSION_TIMEOUT),
     peerObservationTimeoutMillis: Duration.toMillis(PEER_OBSERVATION_TIMEOUT),
     caseTimeoutMillis: Duration.toMillis(CASE_TIMEOUT),
   } as const;
@@ -802,9 +808,11 @@ function reportIdNow() {
 function executeReport(
   environment: EvaluationExecutionEnvironment,
   conditions: readonly EvaluationCondition[],
+  concurrency: number,
 ) {
-  return runEvaluationSweep((cell) =>
-    executeCell(environment, conditions, cell),
+  return runEvaluationSweep(
+    (cell) => executeCell(environment, conditions, cell),
+    { concurrency },
   ).pipe(Effect.provide(SemanticJudgeOpenAi));
 }
 
@@ -1001,7 +1009,11 @@ function runOrResume(
       } else {
         yield* resumeStoredEvaluationReport(plan);
       }
-      const completed = yield* executeReport(environment, conditions);
+      const completed = yield* executeReport(
+        environment,
+        conditions,
+        selection.concurrency,
+      );
       yield* logReport(completed, databasePath);
       return yield* ensureSweepOperationallyComplete(completed);
     }).pipe(Effect.provide(evaluationResultStoreLayer(databasePath)));

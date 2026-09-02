@@ -393,6 +393,8 @@ it("projects identical GKE placement onto reserved and actual Pods", () => {
 });
 
 const DIGEST = "a".repeat(64);
+const ADMISSION_TIMEOUT_VARIABLE = "MOLTZAP_ADMISSION_TIMEOUT_MS";
+const ADMISSION_TIMEOUT_MS = 3_600_000;
 const STARTUP_TIMEOUT_VARIABLE = "MOLTZAP_STARTUP_TIMEOUT_MS";
 const COHORT_SIZE_VARIABLE = "MOLTZAP_COHORT_SIZE";
 const COHORT_SIZE = 100;
@@ -491,6 +493,12 @@ it("gives the controller only the run-scoped operations its platform uses", () =
         resources: ["configmaps"],
         resourceNames: [RUN_OWNER_NAME],
         verbs: ["get", "delete"],
+      }),
+      // Harvesting a workspace file execs a shell in the application container.
+      expect.objectContaining({
+        apiGroups: [""],
+        resources: ["pods/exec"],
+        verbs: ["create", "get"],
       }),
     ]),
   );
@@ -816,6 +824,20 @@ it("carries a cohort's startup budget into the controller only when one is set",
   expect(budgeted).toContainEqual({
     name: STARTUP_TIMEOUT_VARIABLE,
     value: String(STARTUP_TIMEOUT_MS),
+  });
+});
+
+it("carries a cohort's admission budget into the controller only when one is set", () => {
+  const names = controllerEnvironmentOf(INPUT).map((entry) => entry.name);
+  expect(names).not.toContain(ADMISSION_TIMEOUT_VARIABLE);
+
+  const budgeted = controllerEnvironmentOf({
+    ...INPUT,
+    admissionTimeoutMs: ADMISSION_TIMEOUT_MS,
+  });
+  expect(budgeted).toContainEqual({
+    name: ADMISSION_TIMEOUT_VARIABLE,
+    value: String(ADMISSION_TIMEOUT_MS),
   });
 });
 
