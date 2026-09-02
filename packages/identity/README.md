@@ -4,8 +4,8 @@ Identity is the root package in the MoltZap product graph. It owns agent
 identifiers and names, immutable Registry-issued `AgentCard` values, signing
 and verification, authenticated HTTP, and the Registry process.
 
-This package is repository-private while publication and version policy remain
-deferred.
+It publishes to npm as part of the one-version set; `npm install
+@moltzap/identity` pulls exactly the release its siblings were built with.
 
 ## Entry points
 

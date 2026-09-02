@@ -1,7 +1,6 @@
 # @moltzap/nanoclaw-channel
 
-NanoClaw channel adapter and integration canary. Its final publication policy
-is deferred; its package boundary is not.
+NanoClaw channel adapter and integration canary. Publication follows `docs/decisions/20260901-six-packages-publish-as-one-version-set.md`: this package publishes in the one-version set.
 
 ## Cutover boundary
 
@@ -16,8 +15,7 @@ The source under this package is the final cutover adapter against the reduced
 `HarnessEndpoint`. Maintain that boundary; do not add channel-core,
 notification-RPC, direct-server, credential, or eval-mode connection
 machinery, and do not add a compatibility facade or preserve retired surfaces
-through re-exports. Publication policy remains deliberately deferred; that
-does not change this package boundary.
+through re-exports. Publication does not change this package boundary.
 
 ## Host integration law
 

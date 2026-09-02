@@ -1,8 +1,9 @@
 # `@moltzap/evals`
 
-Evals is a retained private product. Preserve its grading and report behavior,
-CLI modes, deployment behavior, artifacts, and container-consumed entry points
-while rewiring it to the final four-layer harness.
+Evals is a retained private product: it stays out of the published set under
+`docs/decisions/20260901-six-packages-publish-as-one-version-set.md`. Preserve
+its grading and report behavior, CLI modes, deployment behavior, artifacts, and
+container-consumed entry points.
 
 - Production code consumes only the public surfaces of `@moltzap/client` and
   `@moltzap/simulator`.

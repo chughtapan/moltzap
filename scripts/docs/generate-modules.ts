@@ -22,7 +22,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const WORKSPACE_ROOT = resolve(SCRIPT_DIR, "..", "..");
 const CACHE_PATH = resolve(WORKSPACE_ROOT, "node_modules/.cache/typedoc.json");
 const DOCS_MODULES_DIR = resolve(WORKSPACE_ROOT, "docs", "modules");
-const NAV_PATH = resolve(DOCS_MODULES_DIR, "_nav.json");
+const DOCS_CONFIG_PATH = resolve(WORKSPACE_ROOT, "docs", "docs.json");
 
 const program = Effect.gen(function* () {
   const cache = yield* loadTypeDoc(CACHE_PATH, {
@@ -33,12 +33,12 @@ const program = Effect.gen(function* () {
     docsModulesDir: DOCS_MODULES_DIR,
   });
   yield* writeModulesNav(
-    NAV_PATH,
+    DOCS_CONFIG_PATH,
     results.map((r) => r.pageSlug),
   );
   yield* Effect.sync(() => {
     process.stdout.write(
-      `Rendered ${results.length} MODULE.md + MDX page(s); wrote ${NAV_PATH}.\n`,
+      `Rendered ${results.length} MODULE.md + MDX page(s); wrote the Modules group in ${DOCS_CONFIG_PATH}.\n`,
     );
     for (const r of results) {
       process.stdout.write(`  ${r.folder} → ${r.pageSlug}\n`);
