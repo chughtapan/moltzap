@@ -13,7 +13,7 @@ Simulator network contracts and run-scoped services.
 
 ## Public surface
 
-### [`AgentConnection`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/router.ts#L50)
+### [`AgentConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/router.ts#L50)
 
 _Interface_
 
@@ -25,7 +25,7 @@ export interface AgentConnection<Name extends string = string> {
 
 Runtime identity issued for one scope-owned autonomous agent.
 
-### [`AgentHandle`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/participant.ts#L58)
+### [`AgentHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/participant.ts#L58)
 
 _Class_
 
@@ -50,7 +50,7 @@ export class AgentHandle<
 
 A participant whose autonomous runtime is owned by the run scope.
 
-### [`AttachedEndpoint`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/router.ts#L55)
+### [`AttachedEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/router.ts#L55)
 
 _Interface_
 
@@ -63,7 +63,7 @@ export interface AttachedEndpoint<Name extends string> {
 
 Router output used by an experiment-controlled endpoint.
 
-### [`Endpoint`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/endpoint.ts#L21)
+### [`Endpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/endpoint.ts#L21)
 
 _Class_
 
@@ -113,7 +113,7 @@ export class Endpoint<Name extends string = string> {
 
 A run-scoped participant controlled directly by the experiment program.
 
-### [`EndpointInbox`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/endpoint.ts#L15)
+### [`EndpointInbox`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/endpoint.ts#L15)
 
 _Interface_
 
@@ -126,7 +126,7 @@ export interface EndpointInbox {
 
 Run-scoped delivery stream maintained by the simulator kernel.
 
-### [`EndpointTransport`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/router.ts#L44)
+### [`EndpointTransport`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/router.ts#L44)
 
 _Interface_
 
@@ -140,7 +140,7 @@ export interface EndpointTransport {
 A ready, scope-owned endpoint attachment. The receive ingress is subscribed
 before acquisition returns and retains deliveries until its consumer advances.
 
-### [`InboundLinkStage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L69)
+### [`InboundLinkStage`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L69)
 
 _TypeAlias_
 
@@ -157,7 +157,7 @@ Wraps one in-process inbound delivery stream with the active policies of its
 receiver. The stage preserves per-sender FIFO order while letting deliveries
 from different senders progress independently.
 
-### [`LinkController`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L155)
+### [`LinkController`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L155)
 
 _Class_
 
@@ -169,7 +169,7 @@ export class LinkController extends Context.Tag(
 
 Experiment-facing directed-link control installed by the run kernel.
 
-### [`LinkControllerService`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L125)
+### [`LinkControllerService`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L125)
 
 _Interface_
 
@@ -206,7 +206,7 @@ export interface LinkControllerService {
 
 Run-scoped, evidence-producing directed-link control.
 
-### [`LinkDelivery`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L16)
+### [`LinkDelivery`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L16)
 
 _Interface_
 
@@ -223,7 +223,7 @@ export interface LinkDelivery {
 
 One opaque signed message about to cross a directed link.
 
-### [`LinkDriver`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L119)
+### [`LinkDriver`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L119)
 
 _Class_
 
@@ -237,7 +237,7 @@ export class LinkDriver extends Context.Tag("@moltzap/simulator/LinkDriver")<
 Platform link implementation. A program only requires this service when it
 actually acquires a disabled-link scope.
 
-### [`LinkDriverService`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L93)
+### [`LinkDriverService`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L93)
 
 _Interface_
 
@@ -276,7 +276,7 @@ pre-call state. A caller that must own or compensate a committed mutation
 masks the driver call through scope-finalizer registration. Scoped release
 awaits `enable` instead of detaching cleanup.
 
-### [`linkPolicy`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L44)
+### [`linkPolicy`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L44)
 
 _Variable_
 
@@ -286,7 +286,7 @@ export const linkPolicy:
 
 Canonical link policies for the common traffic shapes.
 
-### [`LinkPolicy`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L41)
+### [`LinkPolicy`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L41)
 
 _TypeAlias_
 
@@ -298,7 +298,7 @@ Decides one delivery on a directed link. A policy reads only its input and
 the ambient Clock; the link interpreter, never the policy, spends time and
 records evidence.
 
-### [`LinkPolicyLease`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L77)
+### [`LinkPolicyLease`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L77)
 
 _Interface_
 
@@ -310,7 +310,7 @@ export interface LinkPolicyLease {
 
 Removes one installed policy from its directed link.
 
-### [`linkVerdict`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L34)
+### [`linkVerdict`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L34)
 
 _Variable_
 
@@ -320,7 +320,7 @@ export const linkVerdict = Data.taggedEnum<LinkVerdict>()
 
 Constructors and matchers for the closed verdict union.
 
-### [`LinkVerdict`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L26)
+### [`LinkVerdict`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L26)
 
 _TypeAlias_
 
@@ -335,7 +335,7 @@ export type LinkVerdict = Data.TaggedEnum<{
 
 Closed per-delivery decision returned by a link policy.
 
-### [`makeAgentHandle`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/participant.ts#L81)
+### [`makeAgentHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/participant.ts#L81)
 
 _Function_
 
@@ -350,7 +350,7 @@ Construct an agent handle at the simulator network boundary.
 
 **Returns:** Nominal autonomous-agent identity.
 
-### [`makeEndpoint`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/endpoint.ts#L69)
+### [`makeEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/endpoint.ts#L69)
 
 _Function_
 
@@ -365,7 +365,7 @@ Construct a controlled endpoint from one ready attachment and its inbox.
 
 **Returns:** The immutable controlled endpoint capability.
 
-### [`makeParticipantHandle`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/participant.ts#L47)
+### [`makeParticipantHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/participant.ts#L47)
 
 _Function_
 
@@ -380,7 +380,7 @@ Construct a participant handle at the simulator network boundary.
 
 **Returns:** Nominal participant identity.
 
-### [`makeRouterStopReport`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/router.ts#L33)
+### [`makeRouterStopReport`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/router.ts#L33)
 
 _Function_
 
@@ -392,7 +392,7 @@ Construct a nominal stop report at a platform boundary.
 
 **Returns:** Immutable evidence that the Router scope released.
 
-### [`Network`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/endpoint.ts#L86)
+### [`Network`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/endpoint.ts#L86)
 
 _Class_
 
@@ -405,7 +405,7 @@ export class Network extends Context.Tag("@moltzap/simulator/Network")<
 
 Network operations available to the customer program.
 
-### [`networkError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/failure.ts#L39)
+### [`networkError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/failure.ts#L39)
 
 _Function_
 
@@ -422,7 +422,7 @@ the boundary raised a thrown Error or a plain description.
 
 **Returns:** Typed network failure.
 
-### [`NetworkError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/failure.ts#L19)
+### [`NetworkError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/failure.ts#L19)
 
 _Class_
 
@@ -442,7 +442,7 @@ export class NetworkError extends Schema.TaggedError<NetworkError>()(
 
 An operational failure at a simulator network boundary.
 
-### [`NetworkOperation`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/failure.ts#L16)
+### [`NetworkOperation`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/failure.ts#L16)
 
 _TypeAlias_
 
@@ -452,7 +452,7 @@ export type NetworkOperation = typeof networkOperation.Type;
 
 Network operation names used by typed failures.
 
-### [`NetworkService`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/endpoint.ts#L79)
+### [`NetworkService`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/endpoint.ts#L79)
 
 _Interface_
 
@@ -466,7 +466,7 @@ export interface NetworkService {
 
 Controlled endpoint operations installed for one run scope.
 
-### [`ParticipantHandle`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/participant.ts#L22)
+### [`ParticipantHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/participant.ts#L22)
 
 _Class_
 
@@ -494,7 +494,7 @@ export class ParticipantHandle<Name extends string = string> {
 A network participant identity. The hidden symbol prevents structurally
 similar identity data from being used as a simulator handle.
 
-### [`ParticipantIds`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/router.ts#L38)
+### [`ParticipantIds`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/router.ts#L38)
 
 _TypeAlias_
 
@@ -504,7 +504,7 @@ export type ParticipantIds = readonly [AgentId, ...(readonly AgentId[])];
 
 Nonempty participant identities accepted by a transport boundary.
 
-### [`Router`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/router.ts#L61)
+### [`Router`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/router.ts#L61)
 
 _Interface_
 
@@ -519,7 +519,7 @@ export interface Router {
 
 Run-scoped Router fixture lifecycle.
 
-### [`RouterProvider`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/router.ts#L74)
+### [`RouterProvider`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/router.ts#L74)
 
 _Class_
 
@@ -531,7 +531,7 @@ export class RouterProvider extends Context.Tag(
 
 Router acquisition service supplied by the platform Layer.
 
-### [`RouterProviderService`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/router.ts#L69)
+### [`RouterProviderService`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/router.ts#L69)
 
 _Interface_
 
@@ -543,7 +543,7 @@ export interface RouterProviderService {
 
 Router acquisition service supplied by the platform Layer.
 
-### [`RouterStopped`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/router.ts#L17)
+### [`RouterStopped`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/router.ts#L17)
 
 _Class_
 

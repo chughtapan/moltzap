@@ -21,7 +21,7 @@ import {
 } from "../modules.js";
 import { folderOf, loadTypeDoc, type TypeDocCache } from "../typedoc-load.js";
 
-const GITHUB_SOURCE = "https://github.com/chughtapan/moltzap/blob";
+const GITHUB_SOURCE = "https://github.com/chughtapan/moltzap/blob/main";
 
 let sandbox = "";
 let rendered: readonly ModuleRenderResult[] = [];
@@ -142,10 +142,8 @@ beforeAll(async () => {
     "/** @file Public network values. */\nexport class NetworkBoundary {}\n",
   );
 
-  writeFixture("docs/modules/v2/identity/src.mdx", "stale identity page\n");
-  writeFixture("docs/modules/v2/router/src.mdx", "stale router page\n");
-  writeFixture("v2/identity/src/MODULE.md", "# stale identity module\n");
-  writeFixture("v2/router/src/MODULE.md", "# stale router module\n");
+  writeFixture("docs/modules/legacy/src.mdx", "stale page\n");
+  writeFixture("packages/legacy/src/MODULE.md", "# stale module\n");
 
   writeFileSync(
     cachePath,
@@ -509,7 +507,7 @@ describe("module documentation", () => {
     );
   });
 
-  it("uses final package paths and cutover-branch source links", () => {
+  it("uses final package paths and main-branch source links", () => {
     expect(rendered.map(({ folder, pageSlug }) => [folder, pageSlug])).toEqual([
       ["packages/identity/src", "identity/src"],
       ["packages/router/src", "router/src"],
@@ -522,7 +520,7 @@ describe("module documentation", () => {
     expect(identityModule).toContain("_`packages/identity/src`_");
     expect(existsSync(join(sandbox, "docs/modules/router/src.mdx"))).toBe(true);
     expect(identityMdx).toContain(
-      `${GITHUB_SOURCE}/cutover/four-layer-v2/packages/identity/src/registry/server.ts#L1`,
+      `${GITHUB_SOURCE}/packages/identity/src/registry/server.ts#L1`,
     );
   });
 
@@ -553,10 +551,10 @@ describe("module documentation", () => {
       expect(page).toContain("### [`LedgerEventCatalog`]");
     }
     expect(agentsMdx).toContain(
-      `${GITHUB_SOURCE}/cutover/four-layer-v2/packages/simulator/src/agents/openclaw/runtime.ts#L1`,
+      `${GITHUB_SOURCE}/packages/simulator/src/agents/openclaw/runtime.ts#L1`,
     );
     expect(ledgerMdx).toContain(
-      `${GITHUB_SOURCE}/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L1`,
+      `${GITHUB_SOURCE}/packages/simulator/src/events/catalog.ts#L1`,
     );
     for (const rootPage of [simulatorModule, simulatorMdx]) {
       expect(rootPage).not.toContain("OpenClawRuntime");
@@ -601,14 +599,12 @@ describe("module documentation", () => {
     );
   });
 
-  it("prunes generated pages for retired v2 source roots", () => {
-    expect(existsSync(join(sandbox, "docs/modules/v2/identity/src.mdx"))).toBe(
+  it("prunes generated pages whose source folder is gone", () => {
+    expect(existsSync(join(sandbox, "docs/modules/legacy/src.mdx"))).toBe(
       false,
     );
-    expect(existsSync(join(sandbox, "docs/modules/v2/router/src.mdx"))).toBe(
+    expect(existsSync(join(sandbox, "packages/legacy/src/MODULE.md"))).toBe(
       false,
     );
-    expect(existsSync(join(sandbox, "v2/identity/src/MODULE.md"))).toBe(false);
-    expect(existsSync(join(sandbox, "v2/router/src/MODULE.md"))).toBe(false);
   });
 });

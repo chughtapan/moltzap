@@ -5,9 +5,21 @@ description: Run the four-layer endpoint acceptance path
 
 # Quickstart
 
-The cutover branch implements the frozen addressed `HarnessEndpoint` contract
-and native OpenClaw and NanoClaw adapters. The v1 `moltzap` CLI, named profiles,
-and local Unix-socket RPC transport remain retired.
+`@moltzap/client` implements the addressed `HarnessEndpoint` contract behind
+the `moltzapd` daemon; `@moltzap/openclaw-channel` and
+`@moltzap/nanoclaw-channel` are its native host adapters. The v1 `moltzap`
+CLI, named profiles, and local Unix-socket RPC transport are retired.
+
+## Install from npm
+
+```bash
+npm install @moltzap/simulator
+```
+
+The simulator's dependencies `@moltzap/identity`, `@moltzap/router`, and
+`@moltzap/client` install with it at the same version. Run a society on a
+local kind cluster or the GKE profile as described in
+[Running the simulator](/simulator/running).
 
 ## Prerequisites
 
@@ -31,7 +43,7 @@ OpenClaw and NanoClaw own session, output, inbox, and retry policy through their
 stock APIs. MoltZap forwards each stock output callback once and acknowledges
 inbound delivery only after the stock inbound callback completes successfully.
 
-## Run the current repository check
+## Run the repository acceptance check
 
 From a bootstrapped repository checkout, run:
 
@@ -52,21 +64,16 @@ complete application container per agent Sandbox. Inside that container, the
 agent image starts independent host and `moltzapd` processes, registers before
 starting the host, and exits when either process exits. The host receives only
 the loopback `MOLTZAP_MCP_URL`; daemon credentials stay in the daemon process.
-Static checks do not claim a published application image or live-cluster
-qualification.
-
-The package is still repository-private. This command is the supported
-developer acceptance path, not a published replacement CLI or a promise of
-standalone distribution flags.
+Static checks do not claim live-cluster qualification; each release records
+the controller and agent image digests it pushed in the GKE profile README.
 
 Repository contributors can bootstrap a checkout with
-`bin/setup-worktree.sh`. There is no retained server seed helper or hidden v1
-testbed behind this page.
+`bin/setup-worktree.sh`.
 
 ## Next steps
 
 - Read the [Architecture](/architecture) guide for the four-layer model.
-- Build adapters against the frozen `HarnessEndpoint` contract, not
-  daemon-private state.
+- Build adapters against the `HarnessEndpoint` contract, not daemon-private
+  state.
 - Read [User-agent communication](/guides/user-agent-communication) for native
   messaging, session-mode, and durable-delivery rules.

@@ -34,8 +34,7 @@ export interface ModuleRenderConfig {
  * needs an absolute permalink so the rendered page resolves under
  * Mintlify.
  */
-const SOURCE_LINK_BASE = "https://github.com/chughtapan/moltzap/blob";
-const CUTOVER_SOURCE_BRANCH = "cutover/four-layer-v2";
+const SOURCE_LINK_BASE = "https://github.com/chughtapan/moltzap/blob/main";
 
 /**
  * Final package roots are required generator inputs even before their
@@ -49,9 +48,6 @@ const REQUIRED_MODULE_FOLDERS = [
   "packages/simulator/src/ledger",
   "packages/simulator/src/network",
 ] as const;
-
-/** Retired source roots included in orphan MODULE discovery. */
-const RETIRED_MODULE_FOLDERS = ["v2/identity/src", "v2/router/src"] as const;
 
 /** TypeDoc package projects required by the final MODULE pages. */
 const REQUIRED_PACKAGE_NAMES = [
@@ -184,7 +180,7 @@ export const generateModuleDocs = (
  * Delete docs/modules MDX files whose slug is not produced by this
  * pass, and delete `MODULE.md` siblings whose folder is no longer in
  * the rendered set. Stale pages from a previous generator shape stay
- * referenced from no `_nav.json` entry and confuse `docs:check:drift`;
+ * referenced from no navigation entry and confuse `docs:check:drift`;
  * pruning closes the loop.
  * @param rendered Rendered module documentation.
  * @param config Documentation generation configuration.
@@ -214,15 +210,11 @@ function pruneOrphans(
       yield* fs.remove(abs).pipe(Effect.orDie);
       process.stdout.write(`  pruned orphan MDX: ${rel}\n`);
     }
-    const moduleRoots = [
+    const modulePaths = yield* listFilesWithSuffix(
+      fs,
       path.resolve(config.workspaceRoot, "packages"),
-      ...RETIRED_MODULE_FOLDERS.map((folder) =>
-        path.resolve(config.workspaceRoot, folder),
-      ),
-    ];
-    const modulePaths = (yield* Effect.all(
-      moduleRoots.map((root) => listFilesWithSuffix(fs, root, "MODULE.md")),
-    )).flat();
+      "MODULE.md",
+    );
     for (const abs of modulePaths) {
       const folder = path.relative(config.workspaceRoot, path.dirname(abs));
       if (liveFolders.has(folder)) {
@@ -478,7 +470,7 @@ function collectProductionSourceFiles(
 }
 
 /**
- * Returns the documented public subpaths exported by one active v2 package.
+ * Returns the documented public subpaths exported by one package.
  *
  * @param cache Loaded TypeDoc reflection cache.
  * @param packageName Package whose approved public subpaths are requested.
@@ -608,12 +600,7 @@ function resolveExportDeclarationWithCache(
   const text = sourceByFile.get(fallbackSource.fileName) ?? "";
   return {
     source: fallbackSource,
-    signatureText: extractSignatureText(
-      text,
-      fallbackSource.line,
-      ex.kind,
-      isCutoverSourceFile(fallbackSource.fileName),
-    ),
+    signatureText: extractSignatureText(text, fallbackSource.line, ex.kind),
   };
 }
 
@@ -1039,18 +1026,13 @@ function sourcePathParts(folder: string): readonly string[] {
 }
 
 /**
- * Build a source permalink on the branch that owns the source track.
+ * Build a source permalink on `main`, the only branch documentation cites.
  * @param fileName Workspace-relative source file.
  * @param line One-based source line.
  * @returns GitHub source permalink.
  */
 function sourcePermalink(fileName: string, line: number): string {
-  const branch = isCutoverSourceFile(fileName) ? CUTOVER_SOURCE_BRANCH : "main";
-  return `${SOURCE_LINK_BASE}/${branch}/${fileName}#L${line}`;
-}
-
-function isCutoverSourceFile(fileName: string): boolean {
-  return fileName.startsWith("packages/");
+  return `${SOURCE_LINK_BASE}/${fileName}#L${line}`;
 }
 
 function isBehavioral(ex: TypeDocExport): boolean {
@@ -1103,21 +1085,19 @@ const KEEP_BODY_KINDS = new Set<number>([
 /**
  * Extract the source text of an export declaration starting at the
  * given 1-based line number. For Function / Method / Variable the cut
- * is at the body's `=>` or `{`. For Class / Interface / TypeAlias /
- * Enum the cut keeps the full balanced body. Returns null when the
- * file is empty or the line is out of range.
+ * is at the body's `=>` or `{`. A TypeAlias runs through its top-level
+ * semicolon so a multiline union keeps every member. For Class /
+ * Interface / Enum the cut keeps the full balanced body. Returns null
+ * when the file is empty or the line is out of range.
  * @param source Source text to process.
  * @param oneBasedLine Value supplied to the operation.
  * @param kind Value supplied to the operation.
- * @param completeTypeAlias Whether a multiline alias must run through its
- * top-level semicolon.
  * @returns The extract signature text result.
  */
 export function extractSignatureText(
   source: string,
   oneBasedLine: number,
   kind: number,
-  completeTypeAlias = false,
 ): string | null {
   if (source.length === 0) {
     return null;
@@ -1127,7 +1107,7 @@ export function extractSignatureText(
     return null;
   }
   const startIx = skipLeadingJsDoc(lines, oneBasedLine - 1);
-  if (kind === ReflectionKind.TypeAlias && completeTypeAlias) {
+  if (kind === ReflectionKind.TypeAlias) {
     return extractTypeAlias(lines, startIx);
   }
   if (KEEP_BODY_KINDS.has(kind)) {

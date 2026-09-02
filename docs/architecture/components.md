@@ -1,7 +1,7 @@
 # Four-layer runtime components
 
 This page orients implementers to the current constitution. Normative behavior
-lives in `v2/VISION.md`, current ADR outcomes, and `docs/spec/`.
+lives in `docs/vision.md`, current ADR outcomes, and `docs/spec/`.
 
 ## Runtime topology
 
