@@ -463,9 +463,10 @@ Conventions).
   says *why* it was fail-closed, not merely *that* it was.
 
 - **`PolicyError`** (load-time, closed) — an ill-formed policy rejected before it
-  is ever evaluated, keeping `decide` total: `{ _tag: "unparsable" } |
-  { _tag: "unknown-attribute" }` (a rule references an attribute outside the
-  vocabulary) `| { _tag: "ill-formed-effect" }`. A policy that fails to load
+  is ever evaluated, keeping `decide` total:
+  `{ _tag: "unparsable" } | { _tag: "unknown-attribute" }` (a rule references
+  an attribute outside the vocabulary) `| { _tag: "ill-formed-effect" }`. A
+  policy that fails to load
   leaves the previous policy in force; a first load that fails runs the
   declared `posture` alone (closed posture ⇒ everything withheld — fail-closed).
 

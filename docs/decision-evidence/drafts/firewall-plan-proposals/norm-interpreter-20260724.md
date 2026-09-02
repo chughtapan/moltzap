@@ -56,8 +56,8 @@ facts)` — the monitors' determinism envelope
 (`20260724-monitors-are-deterministic-contracts.md`). The firewall runs
 it live to filter attention; an L6 monitor runs the *same* fragment over
 the committed ledger to evidence a violation. A finding is therefore a
-**recomputation certificate** — `{bundle digest, evaluator hash,
-fold-library hash, chain range, fact version, frame reference}` — that
+**recomputation certificate** — `\{bundle digest, evaluator hash,
+fold-library hash, chain range, fact version, frame reference\}` — that
 any reader re-executes to the identical verdict. "Sender X's frame at
 offset N violates norm N section S" is provable, not asserted.
 
@@ -652,9 +652,9 @@ escalation target.
    allow/limit and default posture), as an ordinary `RuleSetProvider`
    input — never a privileged special case. Escalation: none;
    `endpoints/contacts.md` remains the stopgap data source.
-7. **Are the gate-verdict sets closed** at inbound `{admit,
-   admit-under-limits, withhold}` and outbound `{allow,
-   allow-under-limits, refuse}`. Default: yes; the five clause-9
+7. **Are the gate-verdict sets closed** at inbound `\{admit,
+   admit-under-limits, withhold\}` and outbound `\{allow,
+   allow-under-limits, refuse\}`. Default: yes; the five clause-9
    responses are a separate agent-*action* taxonomy (`Response`), not
    gate verdicts. Escalation: `screening.md` OQ2.
 8. **Semantic screening stays outside the norm contract.** Default:

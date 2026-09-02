@@ -101,6 +101,8 @@ They are evidence in the sense above, never authority.
 | `inputs/simulator-handoff-20260728.md` | `../decisions/20260729-effect-native-evaluation-results.md` |
 | `drafts/firewall-plan-proposals/` | `../decisions/20260724-firewall-starts-as-mcp-middleware.md`; see `drafts/README.md` |
 
+These files are reproduced as they stood in `v2/`, with one mechanical change: MDX syntax characters in prose (`{`, `}`, and `<` before a name) carry a backslash escape so the documentation site's parser reads them as text. The words are unchanged; the escapes are invisible in rendered output.
+
 Inputs no record cites were deleted with `v2/`; git history retains them.
 
 ## Reading responsibility

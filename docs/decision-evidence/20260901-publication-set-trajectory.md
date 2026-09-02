@@ -29,6 +29,11 @@ Where the retained events state no reason for a selection, none is recorded
 here: `No source event located` marks each such gap rather than a
 reconstruction.
 
+Quoted text is reproduced character for character. Code formatting was added
+around three tokens that the documentation site's MDX parser would otherwise
+read as tags (`<=2026.811.0` in Event 4 and `<version>` in Events 8 and 9);
+the characters inside are unchanged.
+
 ## Publication set and version policy
 
 ### Event 1
@@ -160,7 +165,7 @@ No source event located for a reason behind either selection.
   > apply)
   >
   > - Deprecate old simulator/openclaw-channel — npm deprecate
-  >   @moltzap/simulator and @moltzap/openclaw-channel <=2026.811.0 with a
+  >   @moltzap/simulator and @moltzap/openclaw-channel `<=2026.811.0` with a
   >   pointer to the ADR (their public surfaces changed in the cutover).
   > - Reset CHANGELOG to CalVer — Replace the 1,800-line v1 [Unreleased]
   >   backlog with one cutover entry and fix the header from SemVer to
@@ -281,7 +286,7 @@ decision-maker's admission of the record is its only attribution.
   > Recommendation: A because it names one commit point and makes reruns
   > converge on the registry's own digests. Completeness: A=10/10, B=6/10.
   >
-  > - A Fixed order: bump → build+push images tagged <version> (reuse digest
+  > - A Fixed order: bump → build+push images tagged `<version>` (reuse digest
   >   if tag exists) → write table → release commit → npm publish (skip
   >   existing) (recommended)
   > - B Publish npm first, images best-effort, table hand-edited later
@@ -315,7 +320,7 @@ decision-maker's admission of the record is its only attribution.
   > "A workflow_dispatch only in PR-R; enable push in a follow-up
   > (recommended)"
   >
-  > "A Fixed order: bump → build+push images tagged <version> (reuse digest
+  > "A Fixed order: bump → build+push images tagged `<version>` (reuse digest
   > if tag exists) → write table → release commit → npm publish (skip
   > existing) (recommended)"
   >
