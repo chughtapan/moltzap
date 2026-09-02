@@ -18,21 +18,26 @@ import {
   type File,
   image,
   type Image,
+  providerCredential,
   routableBridgeEndpoint,
   stoppedBeforeAttach,
 } from "../container.js";
 import {
   bootstrapFile,
   type CheckedWorkspaceFile,
+  harvestTargets,
+  historyExport,
   mcpConfiguration,
   type McpServer,
   McpServerConfiguration,
+  snapshotHarvestPaths,
   snapshotMcpServers,
   snapshotWorkspaceFiles,
   workspaceConfiguration,
   type WorkspaceFile,
   WorkspaceFileConfiguration,
   workspaceFilePath,
+  type WorkspaceRelativePath,
 } from "../workspace.js";
 import {
   acquireDistributedNanoClawGateway,
@@ -47,6 +52,13 @@ const NANOCLAW_BOOTSTRAP_DIR = "/var/run/moltzap/bootstrap";
 const NANOCLAW_CONFIG_PATH = `${NANOCLAW_BOOTSTRAP_DIR}/nanoclaw/runtime.json`;
 const NANOCLAW_WORKSPACE_DIR = `${NANOCLAW_BOOTSTRAP_DIR}/workspace`;
 const NANOCLAW_STATE_DIR = "/var/lib/moltzap/nanoclaw";
+/**
+ * Where the image's provisioner copies the seeded workspace before the agent
+ * starts. The agent reads and writes this copy on the container's writable
+ * layer, not the bootstrap mount it was seeded from, so a file read back
+ * after the run has to come from here.
+ */
+const NANOCLAW_AGENT_WORKSPACE_DIR = `${NANOCLAW_STATE_DIR}/groups/agent`;
 const NANOCLAW_ENTRYPOINT = "/opt/moltzap/agent/entrypoint.mjs";
 const APPLICATION_RESOURCES = Object.freeze({
   cpuMillis: 1_100,
@@ -64,6 +76,8 @@ export class NanoClawRuntimeConfiguration extends Schema.Class<NanoClawRuntimeCo
 )({
   startupTimeout: Schema.DurationFromMillis,
   workspaceFiles: Schema.Array(WorkspaceFileConfiguration),
+  harvestWorkspaceFiles: Schema.Array(Schema.String),
+  historyExport: Schema.Boolean,
   modelOverride: Schema.optional(Schema.String),
   mcpServers: Schema.Array(McpServerConfiguration),
   applicationImage: image,
@@ -73,6 +87,23 @@ export class NanoClawRuntimeConfiguration extends Schema.Class<NanoClawRuntimeCo
 export interface NanoClawRuntimeOptions {
   readonly startupTimeout?: Duration.Duration;
   readonly workspaceFiles?: readonly WorkspaceFile[];
+  /**
+   * Workspace-relative files read back from each running agent after the
+   * customer program ends and recorded in the ledger, so an experiment can
+   * grade what its agents wrote without their exiting.
+   */
+  readonly harvestWorkspaceFiles?: readonly string[];
+  /**
+   * Have the agent's `moltzapd` append every delivery and send it completes
+   * to a history export, harvested into the ledger as
+   * `moltzap-history.ndjson` when the customer program ends.
+   */
+  readonly historyExport?: boolean;
+  /**
+   * Model the runtime asks for. Its provider prefix (`anthropic/`, `openai/`)
+   * names the credential forwarded from the run's Secret; an unknown prefix
+   * forwards none.
+   */
   readonly modelId?: string;
 
   /**
@@ -116,6 +147,8 @@ export function nanoclawRuntime(
 interface NanoClawRuntimeSettings {
   readonly startupTimeout: Duration.Duration;
   readonly workspaceFiles: readonly CheckedWorkspaceFile[];
+  readonly harvestPaths: readonly WorkspaceRelativePath[];
+  readonly historyExport: boolean;
   readonly modelId?: string;
   readonly applicationImage: Image;
   readonly mcpServers?: readonly McpServer[];
@@ -145,6 +178,8 @@ function snapshotOptions(
   return Object.freeze({
     startupTimeout: options.startupTimeout ?? DEFAULT_NANOCLAW_STARTUP_TIMEOUT,
     workspaceFiles: snapshotWorkspaceFiles(options.workspaceFiles),
+    harvestPaths: snapshotHarvestPaths(options.harvestWorkspaceFiles),
+    historyExport: options.historyExport ?? false,
     applicationImage: options.applicationImage,
     ...(modelId === undefined ? {} : { modelId }),
     ...(mcpServers === undefined ? {} : { mcpServers }),
@@ -169,6 +204,8 @@ function runtimeConfiguration(
   return NanoClawRuntimeConfiguration.make({
     startupTimeout: settings.startupTimeout,
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
+    harvestWorkspaceFiles: settings.harvestPaths,
+    historyExport: settings.historyExport,
     mcpServers: mcpConfiguration(settings.mcpServers),
     applicationImage: settings.applicationImage,
     ...(settings.modelId === undefined
@@ -205,17 +242,30 @@ function makeNanoClawApplication(
     agentName: input.agentName,
     acquireGateway: renderer.acquireGateway,
   };
+  const transcript = historyExport(settings.historyExport);
+  const harvest = [
+    ...harvestTargets(NANOCLAW_AGENT_WORKSPACE_DIR, settings.harvestPaths),
+    ...transcript.harvest,
+  ];
   return Object.freeze({
     entrypoint: Object.freeze(["node", NANOCLAW_ENTRYPOINT] as const),
     environment: Object.freeze({
       MOLTZAP_NANOCLAW_CONFIG: NANOCLAW_CONFIG_PATH,
       MOLTZAP_NANOCLAW_STATE: NANOCLAW_STATE_DIR,
+      ...transcript.environment,
     }),
     ...(settings.modelId === undefined
       ? {}
-      : { credentials: Object.freeze(["ANTHROPIC_API_KEY"] as const) }),
+      : {
+          // NanoClaw hosts Claude, so a model id with no provider prefix is
+          // still an Anthropic model.
+          credentials: Object.freeze([
+            providerCredential(settings.modelId) ?? "ANTHROPIC_API_KEY",
+          ]),
+        }),
     port: NANOCLAW_GATEWAY_PORT,
     files: bootstrapFiles(settings, input),
+    ...(harvest.length === 0 ? {} : { harvest }),
     attach: (
       endpoint: ApplicationEndpoint,
       stopped: Effect.Effect<RuntimeTermination>,

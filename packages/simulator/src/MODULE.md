@@ -150,7 +150,28 @@ export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStar
 
 A roster runtime failed before it established readiness.
 
-### [`ClusterError`](./cluster/cluster.ts#L17)
+### [`AgentWorkspaceFileHarvested`](./events/core.ts#L129)
+
+_Class_
+
+```ts
+export class AgentWorkspaceFileHarvested extends Schema.TaggedClass<AgentWorkspaceFileHarvested>()(
+  "moltzap.agent-workspace-file/v1",
+  {
+    agentName: agentName,
+    agentId: agentId,
+    runtime: Schema.NonEmptyString,
+    relativePath: Schema.NonEmptyString,
+    outcome: harvestedFileOutcome,
+  },
+) {}
+```
+
+One workspace file read back from a live application after the customer
+program ended. `relativePath` is the experiment's own name for the file, or
+the runtime's label for a file it harvests on the experiment's behalf.
+
+### [`ClusterError`](./cluster/cluster.ts#L18)
 
 _Class_
 
@@ -166,7 +187,7 @@ export class ClusterError extends Data.TaggedError("ClusterError")<{
 
 Cluster loss that ends a run without exposing its backend.
 
-### [`ClusterLost`](./run/execute.ts#L106)
+### [`ClusterLost`](./run/execute.ts#L115)
 
 _Class_
 
@@ -191,7 +212,7 @@ export type ClusterServices = LedgerStorage | RouterProvider | Cluster;
 
 Opaque service set supplied by a local-Kubernetes or GKE Layer.
 
-### [`CompletedLedgerReceipt`](./run/execute.ts#L73)
+### [`CompletedLedgerReceipt`](./run/execute.ts#L82)
 
 _Class_
 
@@ -207,7 +228,7 @@ export class CompletedLedgerReceipt extends Schema.TaggedClass<CompletedLedgerRe
 
 Physical receipt for a ledger whose completion marker is durable.
 
-### [`coreEvents`](./events/core.ts#L193)
+### [`coreEvents`](./events/core.ts#L232)
 
 _Variable_
 
@@ -470,7 +491,17 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
-### [`IncompleteLedgerReceipt`](./run/execute.ts#L82)
+### [`HarvestedFileOutcome`](./events/core.ts#L122)
+
+_TypeAlias_
+
+```ts
+export type HarvestedFileOutcome = typeof harvestedFileOutcome.Type;
+```
+
+Decoded outcome of reading one harvest target.
+
+### [`IncompleteLedgerReceipt`](./run/execute.ts#L91)
 
 _Class_
 
@@ -521,7 +552,7 @@ export type LedgerFailure =
 
 Represents ledger failure conditions.
 
-### [`LedgerReceipt (type)`](./run/execute.ts#L97)
+### [`LedgerReceipt (type)`](./run/execute.ts#L106)
 
 _TypeAlias_
 
@@ -531,7 +562,7 @@ export type LedgerReceipt = typeof LedgerReceipt.Type;
 
 Decoded physical ledger receipt.
 
-### [`LedgerReceipt (value)`](./run/execute.ts#L91)
+### [`LedgerReceipt (value)`](./run/execute.ts#L100)
 
 _Variable_
 
@@ -610,7 +641,7 @@ export interface LinkDelivery {
 
 One opaque signed message about to cross a directed link.
 
-### [`LinkDown`](./events/core.ts#L103)
+### [`LinkDown`](./events/core.ts#L141)
 
 _Class_
 
@@ -648,7 +679,7 @@ Decides one delivery on a directed link. A policy reads only its input and
 the ambient Clock; the link interpreter, never the policy, spends time and
 records evidence.
 
-### [`LinkPolicyCleared`](./events/core.ts#L128)
+### [`LinkPolicyCleared`](./events/core.ts#L166)
 
 _Class_
 
@@ -665,7 +696,7 @@ export class LinkPolicyCleared extends Schema.TaggedClass<LinkPolicyCleared>()(
 
 A described policy stopped shaping one directed participant link.
 
-### [`LinkPolicySet`](./events/core.ts#L118)
+### [`LinkPolicySet`](./events/core.ts#L156)
 
 _Class_
 
@@ -682,7 +713,7 @@ export class LinkPolicySet extends Schema.TaggedClass<LinkPolicySet>()(
 
 A described policy became active on one directed participant link.
 
-### [`LinkUp`](./events/core.ts#L112)
+### [`LinkUp`](./events/core.ts#L150)
 
 _Class_
 
@@ -795,7 +826,37 @@ export class ParticipantHandle<Name extends string = string> {
 A network participant identity. The hidden symbol prevents structurally
 similar identity data from being used as a simulator handle.
 
-### [`ProgramFailed`](./events/core.ts#L144)
+### [`ProfileRunResult (type)`](./cluster/profiles/result.ts#L24)
+
+_TypeAlias_
+
+```ts
+export type ProfileRunResult = typeof ProfileRunResult.Type;
+```
+
+Decoded final line of one profile submission.
+
+### [`ProfileRunResult (value)`](./cluster/profiles/result.ts#L17)
+
+_Variable_
+
+```ts
+export const ProfileRunResult = Schema.Struct({
+  runId: Schema.NonEmptyString,
+  namespace: Schema.NonEmptyString,
+  result: controllerRunResult,
+})
+```
+
+Schema of the final line `moltzap-sim run` prints for one submission.
+
+A consumer that spawns the executable decodes its stdout with this schema
+rather than copying the shape: the submitter is a separate process, so
+nothing else would notice the two sides disagreeing until a live run
+produced an undecodable line. The submitter's own result type derives from
+this schema, so the two cannot drift.
+
+### [`ProgramFailed`](./events/core.ts#L182)
 
 _Class_
 
@@ -810,7 +871,7 @@ export class ProgramFailed extends Schema.TaggedClass<ProgramFailed>()(
 
 The customer program failed with a typed failure or defect.
 
-### [`ProgramFinished`](./run/execute.ts#L100)
+### [`ProgramFinished`](./run/execute.ts#L109)
 
 _Class_
 
@@ -823,7 +884,7 @@ export class ProgramFinished<A, E> extends Data.TaggedClass("ProgramFinished")<{
 
 Customer-program completion plus its complete durable evidence.
 
-### [`ProgramInterrupted`](./events/core.ts#L152)
+### [`ProgramInterrupted`](./events/core.ts#L190)
 
 _Class_
 
@@ -838,7 +899,7 @@ export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()
 
 The customer program was interrupted.
 
-### [`ProgramSucceeded`](./events/core.ts#L138)
+### [`ProgramSucceeded`](./events/core.ts#L176)
 
 _Class_
 
@@ -1034,7 +1095,7 @@ export type SimulatorDefinitionId = `${string}.${string}/v${number}`;
 
 Stable code identity persisted in every ledger manifest.
 
-### [`SimulatorRunFailure`](./run/execute.ts#L121)
+### [`SimulatorRunFailure`](./run/execute.ts#L130)
 
 _TypeAlias_
 
@@ -1050,7 +1111,7 @@ export type SimulatorRunFailure<
 
 Represents simulator run failure conditions.
 
-### [`SimulatorRunOutcome`](./run/execute.ts#L114)
+### [`SimulatorRunOutcome`](./run/execute.ts#L123)
 
 _TypeAlias_
 
@@ -1098,11 +1159,14 @@ Stable persisted identity for an event class.
 - `cluster/entry.ts`
 - `cluster/install.ts`
 - `cluster/kubernetes/calls.ts`
+- `cluster/kubernetes/harvest.ts`
 - `cluster/kubernetes/network-objects.ts`
 - `cluster/kubernetes/objects.ts`
 - `cluster/profile.ts`
+- `cluster/profiles/cli.ts`
 - `cluster/profiles/gke.ts`
 - `cluster/profiles/local.ts`
+- `cluster/profiles/result.ts`
 - `cluster/reclaim.ts`
 - `cluster/scaffold.ts`
 - `cluster/society-network.ts`

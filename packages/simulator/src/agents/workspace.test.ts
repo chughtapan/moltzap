@@ -2,8 +2,11 @@
 
 import { assert, describe, it } from "@effect/vitest";
 import {
+  harvestTargets,
+  MAX_HARVESTED_FILE_BYTES,
   mcpConfiguration,
   type McpServer,
+  snapshotHarvestPaths,
   snapshotMcpServers,
 } from "./workspace.js";
 
@@ -60,5 +63,64 @@ describe("mcpConfiguration", () => {
 
     assert.strictEqual(alpha?.definitionDigest, beta?.definitionDigest);
     assert.notStrictEqual(alpha?.definitionDigest, other?.definitionDigest);
+  });
+});
+
+describe("snapshotHarvestPaths", () => {
+  it("normalizes each path and freezes the snapshot", () => {
+    const snapshot = snapshotHarvestPaths(["./CALENDAR.md", "notes//log.md"]);
+
+    assert.deepStrictEqual([...snapshot], ["CALENDAR.md", "notes/log.md"]);
+    assert.isTrue(Object.isFrozen(snapshot));
+  });
+
+  it("is empty when the experiment names nothing", () => {
+    assert.deepStrictEqual([...snapshotHarvestPaths()], []);
+  });
+
+  it("refuses paths that leave the workspace at definition time", () => {
+    for (const relativePath of [
+      "",
+      "..",
+      "../escape.md",
+      "/etc/passwd",
+      "a\\b",
+    ]) {
+      assert.throws(() => snapshotHarvestPaths([relativePath]));
+    }
+  });
+
+  it("refuses two spellings of one file", () => {
+    assert.throws(() => snapshotHarvestPaths(["CALENDAR.md", "./CALENDAR.md"]));
+  });
+
+  it("refuses the daemon transcript's own label", () => {
+    assert.throws(
+      () => snapshotHarvestPaths(["moltzap-history.ndjson"]),
+      /daemon transcript/u,
+    );
+  });
+});
+
+describe("harvestTargets", () => {
+  it("places each checked path under the runtime's effective workspace with the bound", () => {
+    const targets = harvestTargets(
+      "/var/lib/moltzap/nanoclaw/groups/agent",
+      snapshotHarvestPaths(["CALENDAR.md", "notes/log.md"]),
+    );
+
+    assert.deepStrictEqual(targets, [
+      {
+        relativePath: "CALENDAR.md",
+        path: "/var/lib/moltzap/nanoclaw/groups/agent/CALENDAR.md",
+        limitBytes: MAX_HARVESTED_FILE_BYTES,
+      },
+      {
+        relativePath: "notes/log.md",
+        path: "/var/lib/moltzap/nanoclaw/groups/agent/notes/log.md",
+        limitBytes: MAX_HARVESTED_FILE_BYTES,
+      },
+    ]);
+    assert.isTrue(Object.isFrozen(targets));
   });
 });

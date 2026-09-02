@@ -103,7 +103,9 @@ attempt plan and defaults to `all`. Every selected condition requires its
 matching model option. `--messaging-mode shared|private` selects OpenClaw's
 session configuration. `private` is currently accepted only with
 `--runtime openclaw`; NanoClaw qualification uses the application image's
-`agent-shared` session.
+`agent-shared` session. `--concurrency` (1 to 8, default 4) is how many cells
+are submitted at once. It is an execution choice rather than part of the plan,
+so a report may be resumed at a different width.
 
 ## Principal input is runtime-native
 
@@ -193,9 +195,11 @@ behavioral `failed` verdict. `undecided` is a valid semantic verdict.
 
 The default plan contains 16 cases, two runtime conditions, and one sample per
 cell: 32 cells in canonical catalog and condition order. `results.ts →
-runEvaluationSweep` advances that matrix deterministically. Each cell owns one
-SQLite write transaction from cell selection through terminal-attempt commit;
-interruption rolls back that cell while earlier attempts remain durable.
+runEvaluationSweep` runs up to `--concurrency` cells of that matrix at once in
+plan order and commits each finished attempt in its own uninterruptible SQLite
+transaction, also in plan order. The durable report is therefore always a
+plan-order prefix; interruption loses at most `--concurrency` finished but
+uncommitted attempts, which a resume reruns.
 
 The SQLite bundle under `.moltzap/evals/results/` stores:
 
@@ -208,7 +212,9 @@ The SQLite bundle under `.moltzap/evals/results/` stores:
 `results.ts → resumeStoredEvaluationReport` validates every immutable plan
 component, including the selected profile, images, Temporal address, and ledger
 artifact location, before executing only the missing suffix. The report cannot
-skip, reorder, or silently move a matrix cell.
+skip, reorder, or silently move a matrix cell. One process holds a report at a
+time: `eval`, `resume`, and `publish` take a lease on the bundle, so a second
+opener fails fast with `ReportLocked` while the holder is alive.
 
 Live failures remain results. OpenClaw or NanoClaw may fail to start,
 terminate, time out, produce evidence that grading rejects, or fail semantic

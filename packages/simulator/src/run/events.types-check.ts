@@ -6,7 +6,11 @@
  */
 import { Schema } from "effect";
 import { EventCatalog } from "../events/catalog.js";
-import { type ProgramSucceeded, RunStarted } from "../events/core.js";
+import {
+  type AgentWorkspaceFileHarvested,
+  type ProgramSucceeded,
+  RunStarted,
+} from "../events/core.js";
 import { makeDefinitionEventServices } from "./events.js";
 
 class CustomerObservation extends Schema.TaggedClass<CustomerObservation>()(
@@ -59,6 +63,17 @@ type CustomerEventIsWritable = Expect<
 type CoreEventIsKernelOwned = Expect<
   Equal<ProgramSucceeded extends WritableEvent ? true : false, false>
 >;
+type HarvestEventIsKernelOwned = Expect<
+  Equal<AgentWorkspaceFileHarvested extends WritableEvent ? true : false, false>
+>;
+type HarvestEventIsReadable = Expect<
+  Equal<
+    typeof AgentWorkspaceFileHarvested extends ReadableEventClass
+      ? true
+      : false,
+    true
+  >
+>;
 type CustomerEventIsReadable = Expect<
   Equal<
     typeof CustomerObservation extends ReadableEventClass ? true : false,
@@ -76,6 +91,8 @@ type ForeignEventIsNotReadable = Expect<
 export type DefinitionEventServiceCanaries = [
   CustomerEventIsWritable,
   CoreEventIsKernelOwned,
+  HarvestEventIsKernelOwned,
   CustomerEventIsReadable,
+  HarvestEventIsReadable,
   ForeignEventIsNotReadable,
 ];

@@ -5,6 +5,7 @@ import {
   readFile,
   realpath,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -93,6 +94,10 @@ async function loadApiCensus() {
   return Object.freeze(facades);
 }
 
+const SIMULATOR_EXECUTABLE = "bin/moltzap-sim";
+const PROFILE_CLI_USAGE =
+  "usage: moltzap-sim run --profile local|gke <spec.mjs>";
+
 async function verifyPackedFiles(extractedPackage, manifest) {
   const required = [
     "dist/index.js",
@@ -103,6 +108,13 @@ async function verifyPackedFiles(extractedPackage, manifest) {
     "dist/ledger/index.d.ts",
     "dist/agents/index.js",
     "dist/agents/index.d.ts",
+    // What the executable reaches at run time: the profile modules it routes
+    // to and the checked-in GKE profile the GKE module reads beside `dist`.
+    "dist/cluster/profiles/cli.js",
+    "dist/cluster/profiles/local.js",
+    "dist/cluster/profiles/gke.js",
+    "gke/profile.json",
+    SIMULATOR_EXECUTABLE,
   ];
   await Promise.all(
     required.map(async (relativePath) => {
@@ -119,6 +131,50 @@ async function verifyPackedFiles(extractedPackage, manifest) {
     JSON.stringify(Object.keys(manifest.exports)) ===
       JSON.stringify([".", "./network", "./ledger", "./agents"]),
     "packed simulator exports must be root, network, ledger, and agents",
+  );
+  requireCondition(
+    manifest.bin?.["moltzap-sim"] === `./${SIMULATOR_EXECUTABLE}`,
+    "packed simulator does not expose the moltzap-sim executable",
+  );
+  const executablePath = join(extractedPackage, SIMULATOR_EXECUTABLE);
+  requireCondition(
+    (await readFile(executablePath, "utf8")).startsWith(
+      "#!/usr/bin/env node\n",
+    ),
+    "packed moltzap-sim executable has no Node shebang",
+  );
+  requireCondition(
+    ((await stat(executablePath)).mode & 0o111) !== 0,
+    "packed moltzap-sim executable is not executable",
+  );
+}
+
+// The executable is the one thing in the tarball that resolves its own dist
+// imports at run time, so it is started from the isolated install. A usage
+// error is the cheapest proof that it loaded: it exercises every import and
+// asks the cluster for nothing.
+async function verifyExecutableStarts(consumerRoot) {
+  const executable = join(
+    consumerRoot,
+    "node_modules",
+    "@moltzap",
+    "simulator",
+    SIMULATOR_EXECUTABLE,
+  );
+  const outcome = await exec(process.execPath, [executable], {
+    cwd: consumerRoot,
+    env: { ...process.env, NODE_PATH: undefined },
+  }).then(
+    () => undefined,
+    (failure) => failure,
+  );
+  requireCondition(
+    outcome !== undefined && outcome.code === 1,
+    `packed moltzap-sim did not refuse an empty command line: ${String(outcome?.stderr ?? outcome)}`,
+  );
+  requireCondition(
+    String(outcome.stderr).includes(PROFILE_CLI_USAGE),
+    `packed moltzap-sim did not print its usage: ${String(outcome.stderr)}`,
   );
 }
 
@@ -350,6 +406,7 @@ async function verifyConsumerImports(archives, census) {
     dependencies: { effect: "3.22.0" },
     devDependencies: { typescript: "6.0.2" },
   });
+  await verifyExecutableStarts(consumerRoot);
   await Promise.all([
     writeFile(
       join(consumerRoot, "tsconfig.json"),

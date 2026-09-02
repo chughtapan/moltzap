@@ -2,10 +2,13 @@
 
 import { CancellationScope, proxyActivities } from "@temporalio/workflow";
 // safer-arch-ignore no-upward-layer-import: the controller's serializable run summary is the contract this workflow carries back to its caller, so the summary shape is owned where the controller writes it.
-import type {
-  ControllerFailedRunSummary,
-  ControllerProgramFinishedSummary,
-} from "./controller/summary.js";
+import type { ControllerRunResult } from "./controller/summary.js";
+
+/**
+ * The controller's coarse result, taken by cluster modules through this one
+ * waived crossing rather than each importing the controller layer.
+ */
+export type { ControllerRunResult } from "./controller/summary.js";
 
 /** Private data needed to start one in-cluster experiment controller. */
 export interface RunSocietyWorkflowInput {
@@ -23,6 +26,12 @@ export interface RunSocietyWorkflowInput {
   readonly experimentModule: string;
   /** Budget for a cohort to become ready, when the default is too small. */
   readonly startupTimeoutMs?: number;
+  /**
+   * Budget for the queue to admit the cohort's capacity, kept apart from the
+   * readiness budget because a cohort waiting behind other runs has not begun
+   * to start.
+   */
+  readonly admissionTimeoutMs?: number;
   /** Agents an experiment sizes its roster from, when its run chooses. */
   readonly cohortSize?: number;
 }
@@ -32,31 +41,12 @@ export type CleanupRunInput = Readonly<
   Pick<RunSocietyWorkflowInput, "runId" | "namespace">
 >;
 
-/**
- * Closed controller process result retained by the coarse workflow.
- *
- * The failed branch carries the sanitized controller output the host activity
- * already collected. A failure summary names what ended the run and nothing
- * about why, so without this the operator's only copy of the reason is a Pod
- * log in a namespace the workflow deletes on its way out.
- */
-export type RunControllerResult =
-  | {
-      readonly exitCode: 0;
-      readonly summary: ControllerProgramFinishedSummary;
-    }
-  | {
-      readonly exitCode: 1;
-      readonly summary: ControllerFailedRunSummary;
-      readonly diagnostic?: string;
-    };
-
 /* eslint-disable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Temporal activity implementations are Promise-native functions consumed directly by proxyActivities. */
 /** Activities owned by the worker for one complete run lifecycle. */
 export interface RunLifecycleActivities {
   readonly runControllerOnce: (
     input: RunSocietyWorkflowInput,
-  ) => Promise<RunControllerResult>;
+  ) => Promise<ControllerRunResult>;
   readonly cleanupRun: (input: CleanupRunInput) => Promise<void>;
 }
 /* eslint-enable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Restore Effect-first contract rules after the Temporal activity boundary. */
@@ -96,7 +86,7 @@ const { cleanupRun } = proxyActivities<
 export async function runSocietyWorkflow(
   input: RunSocietyWorkflowInput,
   // #ignore-sloppy-code-next-line[promise-type]: Temporal workflows are SDK-required Promise boundaries
-): Promise<RunControllerResult> {
+): Promise<ControllerRunResult> {
   try {
     return await runControllerOnce(input);
   } finally {

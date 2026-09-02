@@ -6,7 +6,11 @@ import { type Cause, Context, Data, Effect, Layer } from "effect";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import type { KubernetesExecutionProfile } from "./profile.js";
-import type { RunControllerResult } from "./reclaim.js";
+import type { ProfileRunResult } from "./profiles/result.js";
+import type {
+  ControllerRunResult,
+  RunSocietyWorkflowInput,
+} from "./reclaim.js";
 import { FORCE_WORKER_ROLL_VARIABLE, RunWorkerRollRefused } from "./install.js";
 import {
   runTemporalSociety,
@@ -39,7 +43,7 @@ export interface SubmitOperationsService {
   readonly randomUuid: () => string;
   readonly runTemporalSociety: (
     options: RunTemporalSocietyOptions,
-  ) => Promise<RunControllerResult>;
+  ) => Promise<ControllerRunResult>;
 }
 
 /** Native submission boundaries every profile reads from its environment. */
@@ -56,11 +60,6 @@ export class SubmitOperations extends Context.Tag(
 export const SUBMITTED_DIAGNOSTIC_MAX_BYTES = 8 * 1_024;
 
 /** Successful submission reported to the operator. */
-export interface RunSubmission {
-  readonly runId: string;
-  readonly namespace: string;
-  readonly result: RunControllerResult;
-}
 
 /** Sanitized failure at the repository-owned submission boundary. */
 export class RunSubmissionError extends Data.TaggedError("RunSubmissionError")<{
@@ -95,7 +94,7 @@ export function runKubernetesSociety(
   args: readonly string[],
   environment: RunEnvironment,
   executionProfile: KubernetesExecutionProfile,
-): Effect.Effect<RunSubmission, RunSubmissionError, SubmitOperations> {
+): Effect.Effect<ProfileRunResult, RunSubmissionError, SubmitOperations> {
   return Effect.try({
     try: () => prepareRun(args, environment, executionProfile),
     catch: (cause) =>
@@ -135,6 +134,12 @@ export function boundedDiagnostic(value: string): string {
   return new TextDecoder().decode(bytes.subarray(start));
 }
 
+/** Run sizing the operator may override, absent where the controller's default applies. */
+type RunSizing = Pick<
+  RunSocietyWorkflowInput,
+  "startupTimeoutMs" | "admissionTimeoutMs" | "cohortSize"
+>;
+
 interface PreparedRun {
   readonly path: string;
   readonly controllerImage: string;
@@ -144,8 +149,7 @@ interface PreparedRun {
     Partial<Record<"ANTHROPIC_API_KEY" | "OPENAI_API_KEY", string>>
   >;
   readonly executionProfile: KubernetesExecutionProfile;
-  readonly startupTimeoutMs?: number;
-  readonly cohortSize?: number;
+  readonly sizing: RunSizing;
   readonly forceWorkerRoll: boolean;
   readonly connection: {
     readonly taskQueue: string;
@@ -178,7 +182,7 @@ function prepareRun(
     // Exactly "1", so that an operator who exported the variable to something
     // else has not silently accepted losing a run.
     forceWorkerRoll: environment[FORCE_WORKER_ROLL_VARIABLE] === "1",
-    ...runSizing(environment),
+    sizing: runSizing(environment),
     supportImage: requiredImage(
       environment,
       "MOLTZAP_SUPPORT_IMAGE",
@@ -303,8 +307,13 @@ function submissionFailure(cause: Cause.UnknownException): RunSubmissionError {
 function executeTemporalRun(
   options: RunTemporalSocietyOptions,
   operations: SubmitOperationsService,
-): Effect.Effect<RunControllerResult, RunSubmissionError> {
-  return Effect.tryPromise(() => operations.runTemporalSociety(options)).pipe(
+): Effect.Effect<ControllerRunResult, RunSubmissionError> {
+  return Effect.runtime().pipe(
+    Effect.flatMap((runtime) =>
+      Effect.tryPromise(() =>
+        operations.runTemporalSociety({ ...options, runtime }),
+      ),
+    ),
     Effect.tapErrorCause(Effect.logError),
     Effect.mapError(submissionFailure),
   );
@@ -324,17 +333,19 @@ function runtimeCredentials(
     : Object.freeze(credentials);
 }
 
-function runSizing(environment: RunEnvironment): {
-  readonly startupTimeoutMs?: number;
-  readonly cohortSize?: number;
-} {
+function runSizing(environment: RunEnvironment): RunSizing {
   const startupTimeoutMs = countOverride(
     environment,
     "MOLTZAP_STARTUP_TIMEOUT_MS",
   );
+  const admissionTimeoutMs = countOverride(
+    environment,
+    "MOLTZAP_ADMISSION_TIMEOUT_MS",
+  );
   const cohortSize = countOverride(environment, "MOLTZAP_COHORT_SIZE");
   return {
     ...(startupTimeoutMs === undefined ? {} : { startupTimeoutMs }),
+    ...(admissionTimeoutMs === undefined ? {} : { admissionTimeoutMs }),
     ...(cohortSize === undefined ? {} : { cohortSize }),
   };
 }
@@ -366,7 +377,7 @@ function optionalOverride(
 
 // The value crossed Temporal and a worker this process does not own, so the
 // bound is enforced here rather than trusted.
-function boundedResult(result: RunControllerResult): RunControllerResult {
+function boundedResult(result: ControllerRunResult): ControllerRunResult {
   if (result.exitCode === 0 || result.diagnostic === undefined) {
     return result;
   }
@@ -388,7 +399,7 @@ function createRunIdentity(
 function executePreparedRun(
   prepared: PreparedRun,
   operations: SubmitOperationsService,
-): Effect.Effect<RunSubmission, RunSubmissionError> {
+): Effect.Effect<ProfileRunResult, RunSubmissionError> {
   return Effect.gen(function* () {
     const identity = yield* createRunIdentity(operations);
     const experimentModule = yield* readExperiment(prepared.path, operations);
@@ -417,12 +428,7 @@ function executePreparedRun(
             ? {}
             : { runtimeCredentials: prepared.runtimeCredentials }),
           experimentModule,
-          ...(prepared.startupTimeoutMs === undefined
-            ? {}
-            : { startupTimeoutMs: prepared.startupTimeoutMs }),
-          ...(prepared.cohortSize === undefined
-            ? {}
-            : { cohortSize: prepared.cohortSize }),
+          ...prepared.sizing,
         },
       },
       operations,

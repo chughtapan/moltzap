@@ -14,6 +14,7 @@ import type {
 import type {
   ClusterError,
   ClusterService,
+  HarvestedWorkspaceFile,
   RouterFaultProxyPlatform,
   Slot,
   Society,
@@ -102,6 +103,10 @@ export interface FakeClusterOptions {
   }) => Effect.Effect<AttachedEndpoint<Name>, NetworkError, Scope.Scope>;
   readonly cohortReady?: Effect.Effect<void, ClusterError>;
   readonly failure?: Effect.Effect<never, ClusterError>;
+  /** What each agent's workspace answers when harvested; nothing by default. */
+  readonly harvestWorkspace?: (
+    name: string,
+  ) => Effect.Effect<readonly HarvestedWorkspaceFile[]>;
   readonly onAcquire?: (name: string) => Effect.Effect<void>;
   readonly onPrepare?: (names: readonly string[]) => Effect.Effect<void>;
   readonly onRelease?: Effect.Effect<void>;
@@ -178,6 +183,8 @@ function makeFakeSociety<
           )
         : acquire(input);
     },
+    harvestWorkspace: (name: string) =>
+      options.harvestWorkspace?.(name) ?? Effect.succeed([]),
     cohortReady: options.cohortReady ?? Effect.void,
     failure: options.failure ?? Effect.never,
   });

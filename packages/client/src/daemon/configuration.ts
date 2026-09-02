@@ -62,6 +62,9 @@ const configuredValues = Config.all({
   admissionCredentialFile: Config.redacted(
     Schema.Config("MOLTZAPD_ADMISSION_CREDENTIAL_FILE", configuredPath),
   ),
+  historyExport: Schema.Config("MOLTZAPD_HISTORY_EXPORT", configuredPath).pipe(
+    Config.withDefault(undefined),
+  ),
 });
 
 /** Closed reason that daemon configuration cannot become startup authority. */
@@ -88,6 +91,11 @@ export interface DaemonProcessConfiguration {
   readonly routerOrigin: URL;
   readonly agentPrivateKeyFile: Redacted.Redacted;
   readonly admissionCredentialFile: Redacted.Redacted;
+  /**
+   * File the daemon appends its delivered and sent messages to, one JSON
+   * line each, when the operator asks for that record.
+   */
+  readonly historyExport?: string;
 }
 
 /** Loaded private authority required by daemon registration and network calls. */
@@ -102,7 +110,7 @@ const configurationError = (
   reason: DaemonConfigurationFailure,
 ): DaemonConfigurationError => new DaemonConfigurationError({ reason });
 
-/** Loads exactly the seven declared daemon process inputs. */
+/** Loads exactly the seven required daemon process inputs and the optional export. */
 export const loadDaemonProcessConfiguration: Effect.Effect<
   DaemonProcessConfiguration,
   DaemonConfigurationError

@@ -16,6 +16,7 @@ import {
   type Society,
 } from "../cluster/cluster.js";
 import {
+  AgentWorkspaceFileHarvested,
   linkEvents,
   routerEvents,
   RouterStarted,
@@ -60,6 +61,14 @@ import {
 // safer-arch-ignore no-cross-domain-sibling-import: The run kernel wires ledger, Router lifecycle, fault control, agents, and cluster into one customer program.
 
 type CatalogSchema = Schema.Schema.AnyNoContext;
+
+/**
+ * Agents whose workspaces are read at once after the customer program ends.
+ * Every file is one exec session against the cluster API, so the bound keeps
+ * a hundred-agent cohort from opening a hundred sessions at once while a
+ * small cohort still finishes in one round.
+ */
+const HARVEST_CONCURRENCY = 8;
 
 type DefinitionEventServices<
   Id extends string,
@@ -478,17 +487,74 @@ function runSocietyProgram<
     R
   >,
 ) {
-  const { context } = input;
+  const { context, session } = input;
   return Effect.gen(function* () {
-    const layer = yield* makeSocietyProgramLayer(input);
+    const { layer, agents } = yield* makeSocietyProgramLayer(input);
     const exit = yield* context.input.program.pipe(
       Effect.provide(layer),
       Effect.exit,
       Effect.scoped,
     );
     yield* context.runWriter.write({ event: programEvent(exit) });
+    // An interrupted program is a run being cancelled; reading workspaces
+    // then would hold the cancellation on the cluster API.
+    if (Exit.isSuccess(exit) || !Cause.isInterruptedOnly(exit.cause)) {
+      yield* harvestWorkspaces({
+        roster: context.input.roster,
+        agents,
+        session,
+        writer: context.runtimeWriter,
+      });
+    }
     return exit;
   });
+}
+
+interface HarvestWorkspacesInput<
+  Id extends string,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+> {
+  readonly roster: AgentRoster<Id, Definitions>;
+  readonly agents: StartedAgents<Definitions>;
+  readonly session: Society<Definitions>;
+  readonly writer: LedgerWriter<typeof runtimeEvents>;
+}
+
+/**
+ * Record every declared workspace file of every agent while the society is
+ * still up. Agents are read concurrently, so records land in completion
+ * order; each agent's own files keep their declaration order. A file that
+ * cannot be read is a typed outcome and never ends the run.
+ * @param input Roster, its started agents, the live society, and the writer.
+ * @returns Completion once every record is durable.
+ */
+function harvestWorkspaces<
+  Id extends string,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+>(input: HarvestWorkspacesInput<Id, Definitions>) {
+  return Effect.forEach(
+    input.roster.validatedDefinitions,
+    (entry) =>
+      input.session.harvestWorkspace(entry.name).pipe(
+        Effect.flatMap((files) =>
+          Effect.forEach(
+            files,
+            (file) =>
+              input.writer.write({
+                event: AgentWorkspaceFileHarvested.make({
+                  agentName: entry.agentName,
+                  agentId: input.agents[entry.name].agent.id,
+                  runtime: entry.runtime.name,
+                  relativePath: file.relativePath,
+                  outcome: file.outcome,
+                }),
+              }),
+            { concurrency: 1, discard: true },
+          ),
+        ),
+      ),
+    { concurrency: HARVEST_CONCURRENCY, discard: true },
+  ).pipe(Effect.withSpan("Simulator.harvestWorkspaces"));
 }
 
 function makeSocietyProgramLayer<
@@ -524,13 +590,14 @@ function makeSocietyProgramLayer<
       interceptor: fabric.interceptor,
     });
     const links = yield* makeLinkController(context.linkWriter);
-    return makeProgramLayer({
+    const layer = makeProgramLayer({
       eventServices: context.input.eventServices,
       roster: context.input.roster,
       active: context.active,
       services: { driver: fabric.driver, links, network },
       agents,
     });
+    return { layer, agents };
   });
 }
 

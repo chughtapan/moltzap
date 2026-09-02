@@ -71,6 +71,21 @@ realization. Its bridge resolves only after the application is usable and
 returns that runtime's exact `.gateway` plus `.termination` observation. The
 customer Effect starts after all roster entries pass the same readiness gate.
 
+## Run from the published package
+
+`@moltzap/simulator` ships the `moltzap-sim` executable. It takes the profile
+and the module, reads the same `MOLTZAP_*` environment the Nx targets below
+pass through, prints exactly one `ProfileRunResult` JSON line on stdout when
+the run finishes, and reports every failure on stderr with a non-zero exit:
+
+```bash
+moltzap-sim run --profile local path/to/experiment.mjs
+```
+
+Decode the last stdout line with the `ProfileRunResult` schema exported from
+the package root; a consumer that copies the shape instead will not notice
+the two sides drifting until a live run produces a line it cannot read.
+
 ## Run on the local Kubernetes profile
 
 Build the controller image and the complete agent image separately:
@@ -139,6 +154,27 @@ pnpm nx run @moltzap/simulator:gke-profile-check
 Passing that check is not a live qualification claim. The GKE acceptance gate
 still requires a caller-authorized project, the small smoke, an OpenClaw
 evaluation, readable retained artifacts, and zero run-owned residue.
+
+## Submit runs in parallel
+
+Every run owns its namespace and every submission goes through one shared run
+worker, so several submissions at once are ordinary. Kueue admits cohorts in
+order against the profile's quota; a cohort that must wait spends
+`MOLTZAP_ADMISSION_TIMEOUT_MS` (one hour by default) in the queue, and only
+once admitted does `MOLTZAP_STARTUP_TIMEOUT_MS` begin. Concurrent submitters
+must name the same controller image, because a submission installs the worker
+with its image and a different one would roll the worker over the runs it is
+serving. On the GKE profile about eight runs at once is the practical ceiling.
+
+## Read back agent files and transcripts
+
+Name workspace-relative files with `harvestWorkspaceFiles` on either runtime
+to have them read from the live containers after `execute` returns, each as
+one `AgentWorkspaceFileHarvested` record. Set `historyExport: true` to have
+each agent's `moltzapd` append its deliveries and sends as
+`HistoryExportRecord` lines and harvest that file as `moltzap-history.ndjson`.
+`packages/simulator/README.md` describes the outcomes and the trust the read
+assumes.
 
 ## Express completion policy in `execute`
 

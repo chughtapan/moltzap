@@ -3,7 +3,7 @@
 import { Duration, Effect } from "effect";
 import { stripVTControlCharacters } from "node:util";
 import type {
-  RunControllerResult,
+  ControllerRunResult,
   RunSocietyWorkflowInput,
 } from "./reclaim.js";
 import {
@@ -43,7 +43,7 @@ export type ControllerObservation =
   | { readonly _tag: "running" }
   | {
       readonly _tag: "completed";
-      readonly result: RunControllerResult;
+      readonly result: ControllerRunResult;
     }
   | {
       readonly _tag: "failed";
@@ -251,7 +251,7 @@ function failedControllerObservation(
 }
 
 type FailedControllerResult = Extract<
-  RunControllerResult,
+  ControllerRunResult,
   { readonly exitCode: 1 }
 >;
 

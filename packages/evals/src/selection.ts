@@ -28,13 +28,34 @@ export interface EvaluationRunCliOptions {
   readonly messagingMode: EvaluationRunOptions["messagingMode"];
   readonly profile: SimulatorProfile;
   readonly caseIds: readonly EvaluationCaseId[];
+  readonly concurrency: number;
 }
 
 /** One command's validated runtime options and ordered case subset. */
 export interface EvaluationRunSelection {
   readonly options: EvaluationRunOptions;
   readonly cases: NonEmptyReadonlyArray<BundledEvaluationCase>;
+  /**
+   * Cells submitted at once. Concurrency is an execution choice, not part of
+   * the immutable plan: a report resumed at a different width is the same
+   * report, so it lives beside the plan rather than in its digest.
+   */
+  readonly concurrency: number;
 }
+
+/** Cells submitted at once when the operator chooses no width. */
+export const DEFAULT_EVALUATION_CONCURRENCY = 4;
+/**
+ * Most cells one sweep submits at once. Every run keeps a Registry, a Router,
+ * and a controller on the profile's single system node, which is what runs
+ * out first.
+ */
+export const MAX_EVALUATION_CONCURRENCY = 8;
+
+/** Accepted `--concurrency` values. */
+export const evaluationConcurrency = Schema.Int.pipe(
+  Schema.between(1, MAX_EVALUATION_CONCURRENCY),
+);
 
 /** A command-line selection cannot produce an executable evaluation plan. */
 export class EvaluationSelectionInvalid extends Schema.TaggedError<EvaluationSelectionInvalid>()(
@@ -74,6 +95,13 @@ const profileOption = Options.text("profile").pipe(
   Options.withDefault("local"),
   Options.withDescription("Repository-owned Kubernetes execution profile."),
 );
+const concurrencyOption = Options.integer("concurrency").pipe(
+  Options.withSchema(evaluationConcurrency),
+  Options.withDefault(DEFAULT_EVALUATION_CONCURRENCY),
+  Options.withDescription(
+    `Cells submitted at once, 1 to ${String(MAX_EVALUATION_CONCURRENCY)}.`,
+  ),
+);
 
 /** Options shared by the run and resume commands. */
 export const evaluationRunCliOptions = {
@@ -83,6 +111,7 @@ export const evaluationRunCliOptions = {
   messagingMode: messagingModeOption,
   profile: profileOption,
   caseIds: caseOption,
+  concurrency: concurrencyOption,
 } as const;
 
 /**
@@ -107,6 +136,7 @@ export function resolveEvaluationRunSelection(
   return {
     options,
     cases: selectedCases(cliOptions.caseIds),
+    concurrency: cliOptions.concurrency,
   };
 }
 

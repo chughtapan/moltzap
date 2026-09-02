@@ -79,7 +79,9 @@ they no longer block Client, Simulator, or eval migration.
   `moltzapd` executable. Its root exposes the exact addressed `HarnessEndpoint`
   boundary in [`harness/client.md`](./harness/client.md).
 - Simulator retains `.`, `./network`, `./ledger`, and `./agents` plus
-  `Run.execute(RunSpec)` and every declaration compatible with the final
+  `Run.execute(RunSpec)`, the `moltzap-sim` executable
+  (`moltzap-sim run --profile local|gke <spec.mjs>`, printing one
+  `ProfileRunResult` line), and every declaration compatible with the final
   HarnessEndpoint/daemon semantics below.
 - Adapter and eval entry points retain compatible host/build behavior while
   using the real daemon-backed Client.
@@ -332,7 +334,8 @@ these five rules:
    `HarnessEndpoint`.
 5. Delete `CommittedRouterMessage`, `RouterMessageCommitted`, `RouterSequence`,
    and `RouterStopped.committedMessages`. `RunLedger` records simulation
-   lifecycle and public semantic effects, never durable Router commit/order.
+   lifecycle, public semantic effects, and experiment-declared workspace
+   files, never durable Router commit/order.
 
 ### Simulator fault boundary
 

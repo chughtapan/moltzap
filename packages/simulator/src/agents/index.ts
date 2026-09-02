@@ -23,6 +23,7 @@ export {
   type CredentialName,
   defineContainerRuntime,
   type File,
+  type HarvestTarget,
   image,
   type Image,
   type Resources,

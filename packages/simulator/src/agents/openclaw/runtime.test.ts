@@ -349,3 +349,152 @@ describe("OpenClaw container runtime", () => {
     privateMessagingModeTest,
   );
 });
+
+const harvestProjection = Schema.Struct({
+  harvestWorkspaceFiles: Schema.Array(Schema.String),
+});
+
+function renderHarvest(harvestWorkspaceFiles?: readonly string[]) {
+  const runtime = openClawRuntime({
+    applicationImage: APPLICATION_IMAGE,
+    ...(harvestWorkspaceFiles === undefined ? {} : { harvestWorkspaceFiles }),
+  });
+  return containerRuntimeFor(runtime)
+    .render({ agentName: AGENT_NAME })
+    .pipe(Effect.map((application) => ({ runtime, application })));
+}
+
+function harvestTargetsTest() {
+  return Effect.gen(function* () {
+    const { runtime, application } = yield* renderHarvest([
+      "CALENDAR.md",
+      "./notes/log.md",
+    ]);
+
+    assert.deepStrictEqual(application.harvest, [
+      {
+        relativePath: "CALENDAR.md",
+        path: `${BOOTSTRAP_ROOT}workspace/CALENDAR.md`,
+        limitBytes: 65_536,
+      },
+      {
+        relativePath: "notes/log.md",
+        path: `${BOOTSTRAP_ROOT}workspace/notes/log.md`,
+        limitBytes: 65_536,
+      },
+    ]);
+    assert.deepStrictEqual(
+      Schema.decodeUnknownSync(harvestProjection)(
+        runtimeConfigurationProjection(runtime),
+      ).harvestWorkspaceFiles,
+      ["CALENDAR.md", "notes/log.md"],
+    );
+  });
+}
+
+function noHarvestTest() {
+  return Effect.gen(function* () {
+    const { runtime, application } = yield* renderHarvest();
+
+    assert.notProperty(application, "harvest");
+    assert.deepStrictEqual(
+      Schema.decodeUnknownSync(harvestProjection)(
+        runtimeConfigurationProjection(runtime),
+      ).harvestWorkspaceFiles,
+      [],
+    );
+  });
+}
+
+function rejectedHarvestPathTest(): void {
+  assert.throws(() =>
+    openClawRuntime({
+      applicationImage: APPLICATION_IMAGE,
+      harvestWorkspaceFiles: ["../secrets.md"],
+    }),
+  );
+}
+
+describe("OpenClaw workspace harvest", () => {
+  test(
+    "renders each declared file under the OpenClaw workspace and records the names",
+    harvestTargetsTest,
+  );
+  test("declares no harvest when the experiment names no files", noHarvestTest);
+  test("refuses a harvest path that leaves the workspace", () =>
+    Effect.sync(rejectedHarvestPathTest));
+});
+
+const historyExportProjection = Schema.Struct({
+  historyExport: Schema.Boolean,
+});
+
+function historyExportTest() {
+  return Effect.gen(function* () {
+    const runtime = openClawRuntime({
+      applicationImage: APPLICATION_IMAGE,
+      harvestWorkspaceFiles: ["CALENDAR.md"],
+      historyExport: true,
+    });
+    const application = yield* containerRuntimeFor(runtime).render({
+      agentName: AGENT_NAME,
+    });
+
+    assert.strictEqual(
+      application.environment.MOLTZAPD_HISTORY_EXPORT,
+      "/var/run/moltzap/history.ndjson",
+    );
+    assert.deepStrictEqual(application.harvest?.at(-1), {
+      relativePath: "moltzap-history.ndjson",
+      path: "/var/run/moltzap/history.ndjson",
+      limitBytes: 1_048_576,
+    });
+    assert.strictEqual(application.harvest?.length, 2);
+    assert.isTrue(
+      Schema.decodeUnknownSync(historyExportProjection)(
+        runtimeConfigurationProjection(runtime),
+      ).historyExport,
+    );
+  });
+}
+
+function noHistoryExportTest() {
+  return Effect.gen(function* () {
+    const { runtime, application } = yield* renderHarvest();
+
+    assert.notProperty(application.environment, "MOLTZAPD_HISTORY_EXPORT");
+    assert.notProperty(application, "harvest");
+    assert.isFalse(
+      Schema.decodeUnknownSync(historyExportProjection)(
+        runtimeConfigurationProjection(runtime),
+      ).historyExport,
+    );
+  });
+}
+
+describe("OpenClaw history export", () => {
+  test(
+    "turns the daemon export on and harvests it beside the experiment's files",
+    historyExportTest,
+  );
+  test("leaves the daemon export off by default", noHistoryExportTest);
+});
+
+function renderWithModel(modelId: string) {
+  return containerRuntimeFor(
+    openClawRuntime({ applicationImage: APPLICATION_IMAGE, modelId }),
+  ).render({ agentName: AGENT_NAME });
+}
+
+describe("OpenClaw provider credentials", () => {
+  test("requests the credential the model's provider prefix names", () =>
+    Effect.gen(function* () {
+      const anthropic = yield* renderWithModel("anthropic/claude-sonnet-4");
+      const openai = yield* renderWithModel("openai/gpt-5.5");
+      const other = yield* renderWithModel("google/gemini-2");
+
+      assert.deepStrictEqual(anthropic.credentials, ["ANTHROPIC_API_KEY"]);
+      assert.deepStrictEqual(openai.credentials, ["OPENAI_API_KEY"]);
+      assert.notProperty(other, "credentials");
+    }));
+});

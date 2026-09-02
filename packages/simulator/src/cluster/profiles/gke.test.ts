@@ -2,7 +2,14 @@
 
 import { assert, effect as test } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
+import { isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { RunTemporalSocietyOptions } from "../temporal.js";
+import type { ProfileRunResult } from "./result.js";
+import {
+  PLACEMENT,
+  PROFILE_SOURCE,
+} from "../../__tests__/gke-profile-source.js";
 import {
   LedgerCompletion,
   ledgerDigest,
@@ -12,57 +19,11 @@ import { CompletedLedgerReceipt } from "../../run/execute.js";
 import { programFinishedSummary } from "../controller/summary.js";
 import {
   type RunEnvironment,
-  type RunSubmission,
   SubmitOperations,
   type SubmitOperationsService,
 } from "../submit.js";
 import { gkeExecutionProfileFromConfiguration, runGkeSociety } from "./gke.js";
 
-const PLACEMENT = {
-  nodeSelector: { "moltzap.dev/pool": "agents" },
-  tolerations: [
-    {
-      key: "moltzap.dev/agents",
-      operator: "Equal",
-      value: "true",
-      effect: "NoSchedule",
-    },
-  ],
-} as const;
-const PROFILE_SOURCE = JSON.stringify({
-  apiVersion: "moltzap.gke-profile/v1",
-  cluster: { contextEnvironment: "MOLTZAP_KUBE_CONTEXT" },
-  rosterPlacement: {
-    applyTo: ["aggregateWorkloadPodSets", "sandboxPodTemplates"],
-    ...PLACEMENT,
-  },
-  ledger: {
-    active: {
-      kind: "empty-dir",
-      volume: { name: "ledger", emptyDir: {} },
-      mountPath: "/var/lib/moltzap/ledger",
-      permissionsInitContainer: true,
-    },
-    retained: {
-      kind: "gcs-fuse-csi-ephemeral",
-      bucketEnvironment: "MOLTZAP_GKE_ARTIFACT_BUCKET",
-      podAnnotations: { "gke-gcsfuse/volumes": "true" },
-      volume: {
-        name: "artifacts",
-        csi: {
-          driver: "gcsfuse.csi.storage.gke.io",
-          readOnly: false,
-          volumeAttributes: {
-            mountOptions: "uid=1000,gid=1000,file-mode=0640,dir-mode=0750",
-          },
-        },
-      },
-      mountPath: "/var/lib/moltzap-artifacts",
-      directoryTemplate: "/var/lib/moltzap-artifacts/{runNamespace}/ledger",
-      publicationOrder: ["manifest.json", "records.ndjson", "completion.json"],
-    },
-  },
-});
 const ENVIRONMENT: RunEnvironment = Object.freeze({
   MOLTZAP_CONTROLLER_IMAGE: `controller@sha256:${"a".repeat(64)}`,
   MOLTZAP_GKE_ARTIFACT_BUCKET: "moltzap-artifacts-test",
@@ -72,7 +33,7 @@ const ENVIRONMENT: RunEnvironment = Object.freeze({
 const RUN_UUID = "12345678-1234-4abc-8def-1234567890ab";
 const EXPECTED_RUN_ID = `mz-${RUN_UUID.replaceAll("-", "")}`;
 const DIGEST = Schema.decodeSync(ledgerDigest)("b".repeat(64));
-const RESULT: RunSubmission = {
+const RESULT: ProfileRunResult = {
   runId: "mz-run",
   namespace: "mz-run",
   result: {
@@ -109,13 +70,17 @@ test("binds the checked-in GKE shape to operator-selected identities", () =>
 test("submits once through the shared Kubernetes society entry", () =>
   Effect.gen(function* () {
     let observedTemporal: RunTemporalSocietyOptions | undefined;
+    const reads: string[] = [];
     // One read seam serves both files the GKE profile submits: its checked-in
     // profile JSON and the experiment entrypoint.
     const operations: SubmitOperationsService = {
       readTextFile: (path) =>
-        Effect.succeed(
-          path.endsWith(".mjs") ? "export const runSpec = {};" : PROFILE_SOURCE,
-        ),
+        Effect.sync(() => {
+          reads.push(path);
+          return path.endsWith(".mjs")
+            ? "export const runSpec = {};"
+            : PROFILE_SOURCE;
+        }),
       randomUuid: () => RUN_UUID,
       runTemporalSociety: (options) => {
         observedTemporal = options;
@@ -129,6 +94,16 @@ test("submits once through the shared Kubernetes society entry", () =>
 
     assert.strictEqual(result.runId, EXPECTED_RUN_ID);
     assert.deepStrictEqual(result.result, RESULT.result);
+    // The profile is read from beside the package, never from the working
+    // directory: this test file sits beside the module, so the same relative
+    // URL names the same checked-in file.
+    const [profilePath] = reads;
+    assert.isDefined(profilePath);
+    assert.isTrue(isAbsolute(profilePath));
+    assert.strictEqual(
+      profilePath,
+      fileURLToPath(new URL("../../../gke/profile.json", import.meta.url)),
+    );
     assert.strictEqual(observedTemporal?.executionProfile?.kind, "gke");
     assert.deepStrictEqual(
       observedTemporal?.executionProfile?.kind === "gke"

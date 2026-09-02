@@ -19,7 +19,9 @@ export {
   AgentRuntimeFailed,
   AgentRuntimeReady,
   AgentRuntimeStartFailed,
+  AgentWorkspaceFileHarvested,
   coreEvents,
+  type HarvestedFileOutcome,
   LinkDown,
   LinkPolicyCleared,
   LinkPolicySet,
@@ -84,6 +86,9 @@ export {
 
 /** Re-exports the mechanism-neutral cluster error. */
 export { ClusterError } from "./cluster/cluster.js";
+
+/** Re-exports the final line printed by `moltzap-sim run`. */
+export { ProfileRunResult } from "./cluster/profiles/result.js";
 
 /** Re-exports the direct-invocation check every shipped entrypoint needs. */
 export { isEntryModule } from "./cluster/entry.js";
