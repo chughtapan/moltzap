@@ -27,10 +27,9 @@ export type SimulatorProfile = "local" | "gke";
 export const SIMULATOR_EXECUTABLE = "bin/moltzap-sim";
 
 /**
- * The command line that submits one module through one profile.
- * @param profile Kubernetes profile the executable routes to.
- * @param modulePath Absolute path of the generated RunSpec module.
- * @returns Arguments after the executable name.
+ * The command line that submits one module through one profile: the
+ * arguments that follow the executable name, naming the generated RunSpec
+ * module by absolute path.
  */
 export function simulatorRunArguments(
   profile: SimulatorProfile,

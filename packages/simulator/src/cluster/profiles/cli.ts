@@ -45,17 +45,15 @@ const SUBMITTERS: Readonly<Record<ProfileName, ProfileSubmitter>> = {
 };
 
 /**
- * The executable's whole behaviour against the live cluster boundaries.
+ * The executable's whole behaviour against the live cluster boundaries. The
+ * words are the command line after the executable name, as
+ * `process.argv.slice(2)` gives them.
  *
  * Its stdout carries exactly one result line, so everything else goes to
  * stderr: the submitter's log lines, and a failure as its sanitized typed
  * message or, for anything else, the pretty cause. The process exit code is
  * the runtime's: zero after the line is printed, and non-zero for any
  * failure, including a submission the cluster refused.
- *
- * @param args Command-line words after the executable name.
- * @param environment Process environment the selected profile reads.
- * @returns Completion once the result line is written.
  */
 export function runProfileExecutable(
   args: readonly string[],
@@ -89,11 +87,9 @@ export function runProfileExecutable(
  * submitter killed by SIGTERM would exit zero with no result line, which a
  * consumer that reads the exit code cannot tell from success. Interruption
  * exits with the signal's conventional code instead, after one stderr line
- * naming the signal; stdout stays empty.
- *
- * @param received Reads the signal that arrived, if one did.
- * @param report Writes one line to stderr.
- * @returns The runtime's teardown.
+ * naming the signal; stdout stays empty. The reporter writes that line to
+ * stderr. A teardown that finds no recorded signal still reports an
+ * interruption, and still exits with SIGINT's code.
  */
 export function executableTeardown(
   received: () => ExecutableSignal | undefined,
@@ -120,9 +116,9 @@ export function executableTeardown(
  * the repository's Nx targets invoke it, so a consumer running the packed
  * package and an operator running a checkout reach the same code.
  *
- * @param args Command-line words after the executable name.
- * @param environment Process environment the selected profile reads.
- * @returns The coarse run result and ephemeral run identity.
+ * The words are the command line after the executable name, so `run` is the
+ * first of them.
+ *
  * @failure RunSubmissionError at stage `arguments` for any other command line.
  */
 export function runProfileCli(

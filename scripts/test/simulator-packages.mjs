@@ -98,6 +98,15 @@ const SIMULATOR_EXECUTABLE = "bin/moltzap-sim";
 const PROFILE_CLI_USAGE =
   "usage: moltzap-sim run --profile local|gke <spec.mjs>";
 
+/**
+ * Everything the tarball must carry, including what the executable reaches at
+ * run time: the profile modules it routes to, and the checked-in GKE profile
+ * the GKE module reads beside `dist`.
+ *
+ * @param {string} extractedPackage Root of the unpacked tarball.
+ * @param {Record<string, unknown>} manifest The package manifest it shipped.
+ * @returns {Promise<void>}
+ */
 async function verifyPackedFiles(extractedPackage, manifest) {
   const required = [
     "dist/index.js",
@@ -108,8 +117,6 @@ async function verifyPackedFiles(extractedPackage, manifest) {
     "dist/ledger/index.d.ts",
     "dist/agents/index.js",
     "dist/agents/index.d.ts",
-    // What the executable reaches at run time: the profile modules it routes
-    // to and the checked-in GKE profile the GKE module reads beside `dist`.
     "dist/cluster/profiles/cli.js",
     "dist/cluster/profiles/local.js",
     "dist/cluster/profiles/gke.js",
@@ -149,10 +156,15 @@ async function verifyPackedFiles(extractedPackage, manifest) {
   );
 }
 
-// The executable is the one thing in the tarball that resolves its own dist
-// imports at run time, so it is started from the isolated install. A usage
-// error is the cheapest proof that it loaded: it exercises every import and
-// asks the cluster for nothing.
+/**
+ * The executable is the one thing in the tarball that resolves its own dist
+ * imports at run time, so it is started from the isolated install. A usage
+ * error is the cheapest proof that it loaded: it exercises every import and
+ * asks the cluster for nothing.
+ *
+ * @param {string} consumerRoot Root of the isolated packed-consumer install.
+ * @returns {Promise<void>}
+ */
 async function verifyExecutableStarts(consumerRoot) {
   const executable = join(
     consumerRoot,

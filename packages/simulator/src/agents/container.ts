@@ -45,10 +45,9 @@ const CREDENTIAL_BY_PROVIDER: Readonly<Record<string, CredentialName>> = {
 /**
  * The credential a model's provider prefix asks for, when the run can carry
  * one. A model id names its provider ahead of a slash, as OpenClaw spells
- * them; a prefix the run has no credential for yields nothing rather than a
- * guess, so a container never receives a key it did not need.
- * @param modelId Provider-prefixed model id, such as `anthropic/claude-4`.
- * @returns The one credential to request, or undefined for another provider.
+ * them (`anthropic/claude-4`); a prefix the run has no credential for yields
+ * nothing rather than a guess, so a container never receives a key it did not
+ * need.
  */
 export function providerCredential(
   modelId: string,

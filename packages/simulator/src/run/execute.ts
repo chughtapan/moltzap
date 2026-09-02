@@ -468,6 +468,13 @@ function executeSociety<
   });
 }
 
+/**
+ * Run the customer program against the started society and record what it
+ * left. A program that ended in interruption alone is a run being cancelled,
+ * so workspaces are not read then: the read would hold the cancellation on
+ * the cluster API. A cause carrying a failure as well is still harvested,
+ * because that run has something to explain.
+ */
 function runSocietyProgram<
   Id extends string,
   CustomerSchema extends CatalogSchema,
@@ -496,8 +503,6 @@ function runSocietyProgram<
       Effect.scoped,
     );
     yield* context.runWriter.write({ event: programEvent(exit) });
-    // An interrupted program is a run being cancelled; reading workspaces
-    // then would hold the cancellation on the cluster API.
     if (Exit.isSuccess(exit) || !Cause.isInterruptedOnly(exit.cause)) {
       yield* harvestWorkspaces({
         roster: context.input.roster,
@@ -524,9 +529,8 @@ interface HarvestWorkspacesInput<
  * Record every declared workspace file of every agent while the society is
  * still up. Agents are read concurrently, so records land in completion
  * order; each agent's own files keep their declaration order. A file that
- * cannot be read is a typed outcome and never ends the run.
- * @param input Roster, its started agents, the live society, and the writer.
- * @returns Completion once every record is durable.
+ * cannot be read is a typed outcome and never ends the run. Completion means
+ * every record is durable.
  */
 function harvestWorkspaces<
   Id extends string,
