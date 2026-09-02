@@ -164,7 +164,7 @@ above and records the gate decision.
 
 | Field | Value |
 |---|---|
-| Superseded by review run | `_fill new review run ID_` |
+| Superseded by review run | `20260901-six-packages-publish-as-one-version-set-979cecaa-invalid-review` |
 | Superseded candidate commit | `379a113e00f82ef70a4415511345752a2e8c501a` |
 | Superseded candidate content digest | sha256 `5449a7ccde8c488cdf9cff80efa83011f232a834dd747a8e9bf35801ff4cfd6a` |
 | Reason a rerun was required | Blockers B1–B3: the record's convergence sentence is qualified to match the workflow, the changelog row no longer names a review run, and the ledger records the external-consumer deferral's missing source event; these change the candidate. |
