@@ -1,42 +1,47 @@
 #!/usr/bin/env bash
-# Compute the next date-based version for a @moltzap package.
-# Usage: compute-next-version.sh <package-name>
-# Output: YYYY.MDD.N (e.g., 2026.318.0 for March 18, build 0)
-# Exit 1 on error (e.g., npm unreachable)
+# Print the next calendar version for one release of every named package.
+#
+# Usage: compute-next-version.sh <package-dir>...
+# Output: YYYY.MDD.N — today's UTC date (month without a leading zero) and one
+# past the highest build counter any of the named packages has published for
+# that day. The release writes that one string into every manifest, so the
+# counter is taken over the union of the packages' npm histories rather than
+# any single one. TAKEN_VERSIONS, whitespace-separated, adds versions npm has
+# never seen but that are claimed anyway: the pushed release tags, so a
+# release whose commit landed but whose publish never completed keeps its
+# number.
+#
+# A package that has never been published answers 404 and contributes nothing
+# to the union. Any other npm failure aborts: a registry outage read as "never
+# published" would reuse a counter that is already taken.
 set -euo pipefail
 
-PKG="$1"
-PKG_JSON="packages/${PKG}/package.json"
-if [ -f "$PKG_JSON" ]; then
-  NPM_PACKAGE=$(node -p "require('./${PKG_JSON}').name")
-else
-  NPM_PACKAGE="@moltzap/${PKG}"
-fi
-YEAR=$(date -u +%Y)
-# MDD = month (no leading zero) * 100 + day (e.g., March 18 = 318, December 1 = 1201)
-MDD=$(date -u +%-m%d)
-PREFIX="${YEAR}.${MDD}."
+[ "$#" -ge 1 ] || { echo "usage: $0 <package-dir>..." >&2; exit 2; }
 
-# Query npm for all published versions
-# On 404 (deleted/new packages), npm exits non-zero — fall back to empty array
-set +e
-VERSIONS=$(npm view "$NPM_PACKAGE" versions --json 2>/dev/null)
-NPM_EXIT=$?
-set -e
-if [ "$NPM_EXIT" -ne 0 ]; then
-  VERSIONS="[]"
-fi
+PREFIX="$(date -u +%Y.%-m%d)."
 
-# Filter for today's versions and find the max build counter
-MAX_N=$(echo "$VERSIONS" | node -e "
-  const versions = JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8'));
-  const arr = Array.isArray(versions) ? versions : [versions];
-  const prefix = '${PREFIX}';
-  const todayVersions = arr.filter(v => v.startsWith(prefix));
-  if (todayVersions.length === 0) { console.log(-1); process.exit(0); }
-  const maxN = Math.max(...todayVersions.map(v => parseInt(v.slice(prefix.length), 10)));
-  console.log(maxN);
-")
+RESPONSES=("$(node -e 'console.log(JSON.stringify(process.argv[1].split(/\s+/u).filter(Boolean)))' "${TAKEN_VERSIONS:-}")")
+for PKG in "$@"; do
+  NPM_PACKAGE=$(node -p "require('./packages/$PKG/package.json').name")
+  if VERSIONS=$(npm view "$NPM_PACKAGE" versions --json 2>/dev/null); then
+    RESPONSES+=("$VERSIONS")
+  elif node -e 'process.exit(JSON.parse(process.argv[1])?.error?.code === "E404" ? 0 : 1)' "$VERSIONS" 2>/dev/null; then
+    RESPONSES+=("[]")
+  else
+    echo "npm view $NPM_PACKAGE failed without a 404: ${VERSIONS:-no output}" >&2
+    exit 1
+  fi
+done
 
-NEXT_N=$((MAX_N + 1))
-echo "${PREFIX}${NEXT_N}"
+MAX_N=$(node -e '
+  const [prefix, ...responses] = process.argv.slice(1);
+  // A package with exactly one published version comes back as a bare string.
+  const counters = responses
+    .flatMap((text) => [JSON.parse(text)].flat())
+    .filter((version) => version.startsWith(prefix))
+    .map((version) => Number.parseInt(version.slice(prefix.length), 10))
+    .filter(Number.isInteger);
+  console.log(counters.length === 0 ? -1 : Math.max(...counters));
+' "$PREFIX" "${RESPONSES[@]}")
+
+echo "${PREFIX}$((MAX_N + 1))"

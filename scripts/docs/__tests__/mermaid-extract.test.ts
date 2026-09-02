@@ -20,10 +20,6 @@ describe("MERMAID_ROOTS", () => {
   it.each(MERMAID_ROOTS)("resolves %s to a real directory", (root) => {
     expect(statSync(resolve(WORKSPACE_ROOT, root)).isDirectory()).toBe(true);
   });
-
-  it("covers the v2 track", () => {
-    expect(MERMAID_ROOTS).toContain("v2");
-  });
 });
 
 describe("extractMermaidBlocks", () => {

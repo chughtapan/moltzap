@@ -2,7 +2,7 @@
   "name": "@moltzap/simulator",
   "version": "2026.811.0",
   "description": "Code-first lifecycle simulator for agentic societies",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/chughtapan/moltzap.git"
@@ -17,7 +17,9 @@
     "!src/**/*.test.ts",
     "!src/**/*.types-check.ts",
     "!src/**/__tests__/**",
-    "!dist/tsconfig.tsbuildinfo"
+    "!dist/tsconfig.tsbuildinfo",
+    "LICENSE",
+    "NOTICE"
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -48,6 +50,7 @@
     "local:run": "nx run @moltzap/simulator:local-run",
     "local:cluster:test": "nx run @moltzap/simulator:local-cluster-test",
     "gke:profile:check": "nx run @moltzap/simulator:gke-profile-check",
+    "gke:terraform:check": "nx run @moltzap/simulator:gke-terraform-check",
     "gke:run": "nx run @moltzap/simulator:gke-run",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
@@ -132,6 +135,21 @@
         "options": {
           "cwd": "packages/simulator",
           "command": "node --test gke/profile.test.mjs && bash -n gke/install-addons.sh && bash -n gke/cluster.sh && node --check dist/cluster/profiles/gke.js"
+        }
+      },
+      "gke-terraform-check": {
+        "executor": "nx:run-commands",
+        "cache": true,
+        "inputs": [
+          "{projectRoot}/gke/terraform/**/*",
+          "{projectRoot}/gke/terraform-check.sh",
+          {
+            "runtime": "terraform version 2>/dev/null || echo none"
+          }
+        ],
+        "options": {
+          "cwd": "packages/simulator",
+          "command": "bash gke/terraform-check.sh"
         }
       },
       "gke-run": {

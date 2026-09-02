@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, v2, cutover/four-layer-v2]
+    branches: [main]
   pull_request:
 
 # Self-hosted Nx remote cache (Railway). Trusted events -- pushes to maintained branches and
@@ -24,11 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          # The Simulator package gate derives its public baseline from the
-          # immutable pre-cutover commit rather than trusting a second mutable
-          # copy of that API census.
-          fetch-depth: 0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -37,19 +32,28 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.15.8
+      # Both Terraform checks pin the same Google provider; one plugin cache
+      # downloads it once per run instead of once per module. The `runner`
+      # context is not available to job-level `env`, so the path is exported
+      # from a step.
+      - name: Share one Terraform plugin cache between the module checks
+        run: |
+          mkdir -p "$RUNNER_TEMP/terraform-plugin-cache"
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-plugin-cache" >> "$GITHUB_ENV"
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - name: Verify Client package cutover
-        run: pnpm nx run @moltzap/client:test:pack
-      - name: Verify OpenClaw package consumers
-        run: pnpm nx run @moltzap/openclaw-channel:test:pack
-      - name: Verify Simulator package cutover
-        run: pnpm nx run @moltzap/simulator:test:pack
+      # The four gates pack all six published packages (identity and router
+      # travel in every closure) and each gate is a boundary-check floor, so
+      # run-many cannot silently skip one; the gates spawn pnpm and the
+      # OpenClaw host, so they run one at a time.
+      - name: Verify the published closure installs from tarballs
+        run: pnpm nx run-many -t test:pack --parallel=1
       - name: Verify simulator infrastructure profiles
         run: |
           pnpm nx run @moltzap/simulator:local-profile-check
           pnpm nx run @moltzap/simulator:gke-profile-check
+          pnpm nx run @moltzap/simulator:gke-terraform-check
       - name: Verify Phoenix infrastructure module
         run: pnpm nx run @moltzap/evals:phoenix-terraform-check
       - run: pnpm typecheck
@@ -86,6 +90,8 @@ jobs:
       - run: pnpm docs:check:mermaid
       - run: pnpm docs:check:gates-test
       - run: pnpm test:compute-next-version
+      - run: pnpm test:npm-version-exists
+      - run: pnpm test:write-published-images
 
   test:
     runs-on: ubuntu-latest

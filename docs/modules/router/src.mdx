@@ -19,7 +19,7 @@ belong to the endpoint Harness in `@moltzap/client`.
 
 ## Public surface
 
-### [`PollCursor (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L97)
+### [`PollCursor (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L97)
 
 _TypeAlias_
 
@@ -29,7 +29,7 @@ export type PollCursor = typeof PollCursor.Type;
 
 Validated opaque Router poll continuation.
 
-### [`PollCursor (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L85)
+### [`PollCursor (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L85)
 
 _Variable_
 
@@ -49,7 +49,7 @@ export const PollCursor = Schema.String.pipe(
 
 Opaque, authenticated continuation for one caller and Router instance.
 
-### [`Router`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router.ts#L66)
+### [`Router`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router.ts#L66)
 
 _Class_
 
@@ -83,7 +83,7 @@ export class Router extends Context.Tag("@moltzap/router/Router")<
 
 Opaque message acceptance and endpoint-wide bounded polling.
 
-### [`RouterConnectionError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L273)
+### [`RouterConnectionError`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L273)
 
 _Class_
 
@@ -95,7 +95,7 @@ export class RouterConnectionError extends Data.TaggedError(
 
 The Router connection could not be established or used.
 
-### [`RouterInstanceId (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L73)
+### [`RouterInstanceId (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L73)
 
 _TypeAlias_
 
@@ -105,7 +105,7 @@ export type RouterInstanceId = typeof RouterInstanceId.Type;
 
 Validated Router process identity.
 
-### [`RouterInstanceId (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L67)
+### [`RouterInstanceId (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L67)
 
 _Variable_
 
@@ -119,7 +119,7 @@ export const RouterInstanceId = canonicalValue(
 
 Identifies one volatile Router process instance.
 
-### [`RouterInvalidResponseError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L283)
+### [`RouterInvalidResponseError`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L283)
 
 _Class_
 
@@ -131,7 +131,7 @@ export class RouterInvalidResponseError extends Data.TaggedError(
 
 A Router response did not match the selected operation contract.
 
-### [`RouterPollRequest (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L205)
+### [`RouterPollRequest (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L205)
 
 _Interface_
 
@@ -143,7 +143,7 @@ export interface RouterPollRequest {
 
 One authenticated endpoint-wide poll request.
 
-### [`RouterPollRequest (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L214)
+### [`RouterPollRequest (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L214)
 
 _Variable_
 
@@ -158,7 +158,7 @@ export const RouterPollRequest: Schema.Schema<
 
 Exact Schema for one endpoint-wide poll request.
 
-### [`RouterPollResult (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L236)
+### [`RouterPollResult (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L236)
 
 _TypeAlias_
 
@@ -179,7 +179,7 @@ export type RouterPollResult =
 
 Closed outcome of one endpoint-wide bounded poll.
 
-### [`RouterPollResult (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L263)
+### [`RouterPollResult (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L263)
 
 _Variable_
 
@@ -194,7 +194,7 @@ export const RouterPollResult: Schema.Schema<
 
 Exact Schema for every closed poll outcome.
 
-### [`RouterRequestTimeoutError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L278)
+### [`RouterRequestTimeoutError`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L278)
 
 _Class_
 
@@ -206,7 +206,7 @@ export class RouterRequestTimeoutError extends Data.TaggedError(
 
 The configured complete Router call deadline expired.
 
-### [`RouterSendRequest (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L100)
+### [`RouterSendRequest (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L100)
 
 _Interface_
 
@@ -220,7 +220,7 @@ export interface RouterSendRequest {
 
 One authenticated request to accept or recover an opaque message.
 
-### [`RouterSendRequest (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L135)
+### [`RouterSendRequest (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L135)
 
 _Variable_
 
@@ -237,7 +237,7 @@ export const RouterSendRequest: Schema.Schema<
 
 Exact Schema for one send request.
 
-### [`RouterSendResult (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L164)
+### [`RouterSendResult (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L164)
 
 _TypeAlias_
 
@@ -259,7 +259,7 @@ export type RouterSendResult =
 
 Closed outcome of accepting or recovering an opaque message.
 
-### [`RouterSendResult (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L193)
+### [`RouterSendResult (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L193)
 
 _Variable_
 
@@ -278,7 +278,7 @@ export const RouterSendResult: Schema.Schema<
 
 Exact Schema for every closed send outcome.
 
-### [`SignedMessageDigest (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L82)
+### [`SignedMessageDigest (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L82)
 
 _TypeAlias_
 
@@ -288,7 +288,7 @@ export type SignedMessageDigest = typeof SignedMessageDigest.Type;
 
 Validated SignedMessage equality receipt.
 
-### [`SignedMessageDigest (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/router/contract.ts#L76)
+### [`SignedMessageDigest (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/router/contract.ts#L76)
 
 _Variable_
 
@@ -306,11 +306,11 @@ Equality receipt for one complete retained SignedMessage.
 
 ### `@moltzap/router/server`
 
-#### [`RouterServer`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/server.ts#L28)
+#### [`RouterServer`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/server.ts#L28)
 
 _Namespace_
 
-#### [`RouterServer.StartupError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/server.ts#L30)
+#### [`RouterServer.StartupError`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/server.ts#L30)
 
 _Class_
 
@@ -324,7 +324,7 @@ _Class_
 
 Closed Router startup phase.
 
-#### [`RouterServer.layer`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/router/src/server.ts#L67)
+#### [`RouterServer.layer`](https://github.com/chughtapan/moltzap/blob/main/packages/router/src/server.ts#L67)
 
 _Variable_
 

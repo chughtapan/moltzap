@@ -22,6 +22,11 @@ import {
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  MOLTZAP_VERSION_LITERAL,
+  MOLTZAP_VERSION_SOURCE,
+  readMoltzapVersion as readMoltzapVersionSource,
+} from "../docs/moltzap-version.js";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(scriptDir, "..", "..");
@@ -73,27 +78,31 @@ const runGenerate = (
 };
 
 /**
- * Run the generator directly so version-file failure tests exercise the
- * generator rather than package-manager behavior.
+ * Run a workspace script under Node directly, without the package manager,
+ * so a failing gate reports its own exit code rather than pnpm's.
  */
-const runGenerateDirect = (
-  cwd: string,
+const runNode = (
+  args: readonly string[],
 ): { code: number; stdout: string; stderr: string } => {
-  const tsxCli = resolve(workspaceRoot, "node_modules/tsx/dist/cli.mjs");
-  const r = spawnSync(
-    process.execPath,
-    [
-      tsxCli,
-      resolve(workspaceRoot, "scripts/docs/generate-constants-snippets.ts"),
-    ],
-    { cwd, encoding: "utf8" },
-  );
+  const r = spawnSync(process.execPath, [...args], {
+    cwd: workspaceRoot,
+    encoding: "utf8",
+  });
   return {
     code: r.status ?? -1,
     stdout: r.stdout ?? "",
     stderr: r.stderr ?? "",
   };
 };
+
+const runGenerateDirect = (): { code: number; stderr: string } =>
+  runNode([
+    resolve(workspaceRoot, "node_modules/tsx/dist/cli.mjs"),
+    resolve(workspaceRoot, "scripts/docs/generate-constants-snippets.ts"),
+  ]);
+
+const runBoundaries = (): { code: number; stderr: string } =>
+  runNode([resolve(workspaceRoot, "scripts/architecture/check-boundaries.js")]);
 
 // ─── Plant / restore helpers ──────────────────────────────────────────────
 //
@@ -169,10 +178,7 @@ const testNoHardcodedConstants = (): void => {
   }
 
   // Planted regression 2: hardcoded MoltZap version in a non-baked doc.
-  const moltzapVersion = readFileSync(
-    resolve(workspaceRoot, "v2/VERSION"),
-    "utf8",
-  ).trim();
+  const moltzapVersion = readMoltzapVersion();
   plantFile(
     target1,
     (s) =>
@@ -413,12 +419,28 @@ const testBakeFailureFailClosed = (): void => {
 
 // ─── Tests: MoltZap compatibility authority ──────────────────────────────
 
+const readMoltzapVersion = (): string => {
+  const read = readMoltzapVersionSource(workspaceRoot);
+  if ("error" in read) {
+    throw new Error(read.error);
+  }
+  return read.value;
+};
+
+/** Rewrite the literal with the same pattern the readers match. */
+const withMoltzapVersion =
+  (next: string) =>
+  (source: string): string =>
+    source.replace(
+      MOLTZAP_VERSION_LITERAL,
+      `export const MOLTZAP_VERSION = "${next}"`,
+    );
+
 const testMoltzapVersionFile = (): void => {
   console.log("\n# MoltZap compatibility version source");
-  const versionPath = "v2/VERSION";
 
-  plantFile(versionPath, () => "\n");
-  const empty = runGenerateDirect(workspaceRoot);
+  plantFile(MOLTZAP_VERSION_SOURCE, withMoltzapVersion(""));
+  const empty = runGenerateDirect();
   assert(
     "empty MoltZap version fails closed",
     empty.code !== 0 && /expected a nonempty version/.test(empty.stderr),
@@ -426,10 +448,7 @@ const testMoltzapVersionFile = (): void => {
   );
   restoreAllPlants();
 
-  const currentVersion = readFileSync(
-    resolve(workspaceRoot, versionPath),
-    "utf8",
-  ).trim();
+  const currentVersion = readMoltzapVersion();
   const nextVersion = "2099.999.8";
   const marker = "@bake-constants: V2_PROTOCOL_VERSION";
   const consumers = [
@@ -456,8 +475,8 @@ const testMoltzapVersionFile = (): void => {
     const original = readFileSync(path, "utf8");
     planted.push({ path, original });
   }
-  plantFile(versionPath, () => `${nextVersion}\n`);
-  const bumped = runGenerateDirect(workspaceRoot);
+  plantFile(MOLTZAP_VERSION_SOURCE, withMoltzapVersion(nextVersion));
+  const bumped = runGenerateDirect();
   assert(
     "changed MoltZap version regenerates constants",
     bumped.code === 0,
@@ -477,6 +496,134 @@ const testMoltzapVersionFile = (): void => {
       `${path} did not contain ${nextVersion} after regeneration`,
     );
   }
+  restoreAllPlants();
+};
+
+// ─── Tests: architecture boundaries publication guards ───────────────────
+
+const testPublicationGuards = (): void => {
+  console.log("\n# check-boundaries publication guards");
+  const clean = runBoundaries();
+  assert(
+    "clean tree passes the publication guards",
+    clean.code === 0,
+    `expected exit 0, got ${clean.code}. stderr: ${clean.stderr.slice(0, 300)}`,
+  );
+
+  plantFile("packages/nanoclaw-channel/package.json", (s) =>
+    s.replace(/"version": "[^"]+"/, '"version": "2026.101.0"'),
+  );
+  const unequal = runBoundaries();
+  assert(
+    "flags a published manifest whose version differs from its siblings",
+    unequal.code !== 0 && /must share one version/.test(unequal.stderr),
+    `expected one-version failure. exit=${unequal.code}, stderr=${unequal.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile("packages/evals/package.json", (s) =>
+    s.replace(/\s*"private": true,/, ""),
+  );
+  const publicEvals = runBoundaries();
+  assert(
+    "flags evals losing its private flag",
+    publicEvals.code !== 0 &&
+      /evals\/package\.json: must stay private/.test(publicEvals.stderr),
+    `expected evals-private failure. exit=${publicEvals.code}, stderr=${publicEvals.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile("packages/identity/package.json", (s) =>
+    s.replace('"version"', '"private": true,\n  "version"'),
+  );
+  const privateIdentity = runBoundaries();
+  assert(
+    "flags a published package that carries private",
+    privateIdentity.code !== 0 &&
+      /identity\/package\.json: a published package must not carry "private"/.test(
+        privateIdentity.stderr,
+      ),
+    `expected published-private failure. exit=${privateIdentity.code}, stderr=${privateIdentity.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile("packages/router/package.json", (s) =>
+    s.replace('"license": "Apache-2.0"', '"license": "MIT"'),
+  );
+  const wrongLicense = runBoundaries();
+  assert(
+    "flags a published package with another license",
+    wrongLicense.code !== 0 &&
+      /router\/package\.json: license is "MIT"/.test(wrongLicense.stderr),
+    `expected license failure. exit=${wrongLicense.code}, stderr=${wrongLicense.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile("packages/router/NOTICE", (s) => `${s}Extra line.\n`);
+  const driftedNotice = runBoundaries();
+  assert(
+    "flags a packaged NOTICE that differs from the repository NOTICE",
+    driftedNotice.code !== 0 &&
+      /router\/NOTICE: must be an identical copy/.test(driftedNotice.stderr),
+    `expected NOTICE drift failure. exit=${driftedNotice.code}, stderr=${driftedNotice.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile("packages/router/package.json", (s) =>
+    s.replace(
+      "git+https://github.com/chughtapan/moltzap.git",
+      "https://example.invalid/fork.git",
+    ),
+  );
+  const foreignRepository = runBoundaries();
+  assert(
+    "flags a published package pointing at another repository",
+    foreignRepository.code !== 0 &&
+      /router\/package\.json: repository\.url must be/.test(
+        foreignRepository.stderr,
+      ),
+    `expected repository failure. exit=${foreignRepository.code}, stderr=${foreignRepository.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile("packages/router/package.json", (s) =>
+    s.replace(/"version": "[^"]+"/, '"version": "1.2.3"'),
+  );
+  const semver = runBoundaries();
+  assert(
+    "flags a published manifest whose version is not a calendar version",
+    semver.code !== 0 &&
+      /router\/package\.json: version "1\.2\.3" is not a YYYY\.MDD\.N CalVer/.test(
+        semver.stderr,
+      ),
+    `expected calver failure. exit=${semver.code}, stderr=${semver.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile(MOLTZAP_VERSION_SOURCE, withMoltzapVersion("1.2.3"));
+  const wireSemver = runBoundaries();
+  assert(
+    "flags a wire compatibility literal that is not a calendar version",
+    wireSemver.code !== 0 &&
+      /MOLTZAP_VERSION "1\.2\.3" is not a YYYY\.MDD\.N CalVer/.test(
+        wireSemver.stderr,
+      ),
+    `expected wire-literal failure. exit=${wireSemver.code}, stderr=${wireSemver.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile(".github/workflows/publish.yml", (s) =>
+    s.replace(/^(\s*RELEASE_PACKAGES:\s*).+$/m, "$1identity router"),
+  );
+  const driftedList = runBoundaries();
+  assert(
+    "flags a release package list that drifted from the published set",
+    driftedList.code !== 0 &&
+      /RELEASE_PACKAGES drifted from the published set/.test(
+        driftedList.stderr,
+      ),
+    `expected release-list failure. exit=${driftedList.code}, stderr=${driftedList.stderr.slice(0, 300)}`,
+  );
   restoreAllPlants();
 };
 
@@ -576,6 +723,7 @@ const main = (): void => {
     testMoltzapVersionFile();
     testBakeFailureFailClosed();
     testNodeVersionFloorConsistency();
+    testPublicationGuards();
   } finally {
     restoreAllPlants();
   }

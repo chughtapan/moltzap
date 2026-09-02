@@ -242,6 +242,9 @@ importers:
       '@moltzap/client':
         specifier: workspace:*
         version: link:../client
+      '@types/node':
+        specifier: ^25.5.0
+        version: 25.5.0
       effect:
         specifier: ^3.22.0
         version: 3.22.0

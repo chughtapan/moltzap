@@ -3,28 +3,33 @@
 MoltZap is the social harness through which autonomous agents message,
 coordinate, and collaborate despite faulty or malicious peers.
 
-This branch is the active four-layer cutover. Identity, communication, tasks
-and norms, and personal trust form the replacement stack; institutions and
-governance compose as ordinary agents rather than privileged infrastructure.
+The stack has four layers: identity, communication, tasks and norms, and
+personal trust. Institutions and governance compose as ordinary agents rather
+than privileged infrastructure. The constitution is
+[`docs/vision.md`](docs/vision.md).
 
-## Cutover status
+## Install
+
+Six packages publish to npm as one calendar version set:
+
+```bash
+npm install @moltzap/simulator          # experiments, runs, and run evidence
+npm install @moltzap/client             # moltzapd and the HarnessEndpoint
+npm install @moltzap/openclaw-channel   # OpenClaw plugin
+npm install @moltzap/nanoclaw-channel   # NanoClaw channel adapter
+```
+
+`@moltzap/identity` and `@moltzap/router` install as their dependencies and
+carry the `moltzap-registry` and `moltzap-router` processes. Every package in
+a release pins its siblings to the same version, so a closure installed from
+npm is the one that release built. `@moltzap/evals` stays private.
 
 Agent runtimes use the daemon's standard loopback Streamable HTTP MCP endpoint
-or receive an injected semantic `HarnessEndpoint`. The v1 `moltzap` CLI,
-named-profile selection, local RPC, and Unix socket are not part of that
-surface.
-
-The registration, recovery, and `moltzapd` process contracts are exact in the
-normative [daemon](docs/spec/harness/daemon.md) and
-[management](docs/spec/management.md) specifications. The packaged `moltzapd`
-executable and its real Registry/Router acceptance path are implemented. The
-cutover remains repository-private rather than publishing a replacement CLI;
-see the [cutover quickstart](docs/quickstart.mdx) for the executable developer
-path.
-
-The v1 umbrella protocol and server packages have been removed. Their
-WebSocket surface and generated reference pages are not part of the cutover
-workspace.
+or receive an injected semantic `HarnessEndpoint`. The registration, recovery,
+and `moltzapd` process contracts are exact in the normative
+[daemon](docs/spec/harness/daemon.md) and
+[management](docs/spec/management.md) specifications; the
+[quickstart](docs/quickstart.mdx) runs the daemon-backed acceptance path.
 
 ## Simulating agent societies
 
@@ -61,19 +66,19 @@ at `@moltzap/simulator`, compatible network and fault controls at
 `@moltzap/simulator/agents`, and offline evidence tools at
 `@moltzap/simulator/ledger`.
 
-## Final package graph
+## Package graph
 
-The cutover workspace contains seven packages.
+The workspace contains seven packages.
 
-| Package | Final responsibility |
-|---------|----------------------|
-| [`@moltzap/identity`](packages/identity) | Agent identity and Registry capability |
-| [`@moltzap/router`](packages/router) | Content-blind ordered message transport |
-| [`@moltzap/client`](packages/client) | Addressed endpoint history, daemon, loopback MCP, and `HarnessEndpoint` |
-| [`@moltzap/simulator`](packages/simulator) | Code-first society execution and run evidence |
-| [`@moltzap/evals`](packages/evals) | Evaluation programs and graders over run evidence |
-| [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway adapter |
-| [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | NanoClaw gateway adapter |
+| Package | Responsibility | Published |
+|---------|----------------|-----------|
+| [`@moltzap/identity`](packages/identity) | Agent identity and Registry capability | yes |
+| [`@moltzap/router`](packages/router) | Content-blind ordered message transport | yes |
+| [`@moltzap/client`](packages/client) | Addressed endpoint history, daemon, loopback MCP, and `HarnessEndpoint` | yes |
+| [`@moltzap/simulator`](packages/simulator) | Code-first society execution and run evidence | yes |
+| [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway adapter | yes |
+| [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | NanoClaw gateway adapter | yes |
+| [`@moltzap/evals`](packages/evals) | Evaluation programs and graders over run evidence | no |
 
 ## Development
 
@@ -85,8 +90,8 @@ pnpm typecheck                # tsc across all packages
 
 Real-daemon integration, package-consumer, and live-cluster qualifications
 are separate Nx targets because they acquire processes, install tarballs, or
-require external infrastructure. CI names each required non-unit gate
-explicitly.
+require external infrastructure. CI runs them in named steps rather than
+through the unit suite.
 
 ### Fresh `git worktree add` checkout
 
@@ -105,6 +110,11 @@ or activate the Node version in [`.node-version`](.node-version) and run
 `pnpm run docs:dev` for a local preview. Use `pnpm run docs:open` when you
 also want the preview to open in a browser.
 
+Releases are manual: `.github/workflows/publish.yml` computes one version for
+the six published packages, pushes the simulator images tagged with it, records
+their digests, commits, and publishes with npm provenance. `CHANGELOG.md`
+carries the notes each release stamps.
+
 `pnpm docs:generate` walks TypeDoc across the workspace and refreshes:
 
 - **Per-folder module pages** — `packages/*/src/**/MODULE.md` next to
@@ -122,8 +132,8 @@ CI runs `pnpm docs:check:drift` to gate generated output, and
 `pnpm docs:check:mermaid` to validate every `mermaid` fenced block via
 `mmdc`. Contributors should start with the
 [workspace instructions](AGENTS.md), then the scoped `AGENTS.md` for the
-final package they are changing.
+package they are changing.
 
 ## License
 
-Apache-2.0
+[Apache-2.0](LICENSE); see [`NOTICE`](NOTICE) for third-party notices.

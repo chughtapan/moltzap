@@ -15,6 +15,11 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import {
+  localImageId,
+  metadataDigest,
+  parseImageBuildArguments,
+} from "../images/build.mjs";
 
 const exec = promisify(execFile);
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
@@ -24,7 +29,6 @@ const sharedRoot = join(scriptRoot, "shared");
 const DEFAULT_REPOSITORY = "moltzap-openclaw-agent";
 const BUILD_TIMEOUT_MILLIS = 30 * 60 * 1_000;
 const PACK_TIMEOUT_MILLIS = 5 * 60 * 1_000;
-const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/u;
 
 export const OPENCLAW_BASE_IMAGE =
   "ghcr.io/openclaw/openclaw@sha256:e7849cb6c1ef1ead39ab4be7d85edb2df89611f486e283284c7cf35ce39a20d4";
@@ -40,19 +44,6 @@ export const openClawWorkspacePackageNames = Object.freeze(
 
 function report(message) {
   process.stderr.write("[moltzap openclaw image] " + message + "\n");
-}
-
-function parseArguments(args) {
-  if (args.length === 0) return { repository: DEFAULT_REPOSITORY };
-  if (args.length !== 2 || args[0] !== "--repository") {
-    throw new TypeError("usage: build-openclaw-image.mjs [--repository NAME]");
-  }
-  if (args[1].length === 0 || args[1].includes("@")) {
-    throw new TypeError(
-      "OpenClaw image repository must not be empty or contain a digest",
-    );
-  }
-  return { repository: args[1] };
 }
 
 async function pack(packageDirectory, destination) {
@@ -135,16 +126,12 @@ async function fingerprint(root) {
   return hash.digest("hex").slice(0, 16);
 }
 
-function metadataDigest(metadata) {
-  const digest = metadata["containerimage.digest"];
-  if (typeof digest !== "string" || !SHA256_DIGEST.test(digest)) {
-    throw new Error("docker buildx returned no manifest digest");
-  }
-  return digest;
-}
-
 async function main() {
-  const options = parseArguments(process.argv.slice(2));
+  const options = parseImageBuildArguments(process.argv.slice(2), {
+    script: "build-openclaw-image.mjs",
+    label: "OpenClaw image",
+    defaultRepository: DEFAULT_REPOSITORY,
+  });
   report("building MoltZap workspace dependencies");
   await exec(
     "pnpm",
@@ -154,19 +141,24 @@ async function main() {
       "--target=build",
       "--projects=" + openClawWorkspacePackageNames.join(","),
     ],
-    { cwd: workspaceRoot, timeout: BUILD_TIMEOUT_MILLIS },
+    {
+      cwd: workspaceRoot,
+      timeout: BUILD_TIMEOUT_MILLIS,
+      maxBuffer: 16 * 1024 * 1024,
+    },
   );
   const staging = await stage();
   try {
-    const image = options.repository + ":" + (await fingerprint(staging));
+    const image =
+      options.repository + ":" + (options.tag ?? (await fingerprint(staging)));
     const metadataPath = join(staging, "build-metadata.json");
-    report("building " + image);
+    report((options.push ? "building and pushing " : "building ") + image);
     await exec(
       "docker",
       [
         "buildx",
         "build",
-        "--load",
+        options.push ? "--push" : "--load",
         "--metadata-file",
         metadataPath,
         "--tag",
@@ -180,21 +172,14 @@ async function main() {
     const imageDigest = metadataDigest(
       JSON.parse(await readFile(metadataPath, "utf8")),
     );
-    const { stdout } = await exec(
-      "docker",
-      ["image", "inspect", "--format", "{{.Id}}", image],
-      { timeout: 30_000 },
-    );
-    const imageId = stdout.trim();
-    if (!SHA256_DIGEST.test(imageId)) {
-      throw new Error("docker returned no local OpenClaw image id");
-    }
     process.stdout.write(
       JSON.stringify({
         image,
         pinnedImage: options.repository + "@" + imageDigest,
         imageDigest,
-        imageId,
+        ...(options.push
+          ? {}
+          : { imageId: await localImageId(image, "OpenClaw image") }),
         baseImage: OPENCLAW_BASE_IMAGE,
         entrypoint: "/opt/moltzap/agent/entrypoint.mjs",
         gatewayPort: 18_789,
