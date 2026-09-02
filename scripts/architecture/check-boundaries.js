@@ -152,7 +152,7 @@ const FINAL_PACKAGES = {
         import: "./dist/agents/index.js",
       },
     },
-    bin: {},
+    bin: { "moltzap-sim": "./bin/moltzap-sim" },
     targets: [
       "arch:check",
       "build",

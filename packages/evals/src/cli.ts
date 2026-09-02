@@ -5,7 +5,11 @@ import type { NonEmptyReadonlyArray } from "effect/Array";
 import { Command as CliCommand, Options } from "@effect/cli";
 import { Command, Path } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import { type CompletedLedgerReceipt, isEntryModule } from "@moltzap/simulator";
+import {
+  type CompletedLedgerReceipt,
+  isEntryModule,
+  type ProfileRunResult,
+} from "@moltzap/simulator";
 import { image, type Image } from "@moltzap/simulator/agents";
 import {
   type CompletedLedgerArtifacts,
@@ -64,11 +68,7 @@ import {
   EvaluationSelectionInvalid,
   resolveEvaluationRunSelection,
 } from "./selection.js";
-import {
-  type EvaluationSubmissionResult,
-  submissionDiagnostic,
-  submitEvaluationCell,
-} from "./submission.js";
+import { submissionDiagnostic, submitEvaluationCell } from "./submission.js";
 import {
   CompletedEvaluationReport,
   decodeEvaluationReportId,
@@ -622,7 +622,7 @@ function completeExecution(
 
 /** Summary of a submission that never reached a gradeable run. */
 type InfrastructureSummary = Exclude<
-  EvaluationSubmissionResult["result"]["summary"],
+  ProfileRunResult["result"]["summary"],
   { readonly _tag: "ProgramFinished" }
 >;
 
@@ -644,7 +644,7 @@ function infrastructureFailureDetail(summary: InfrastructureSummary): string {
 function completeSubmission(
   environment: EvaluationExecutionEnvironment,
   context: AttemptContext,
-  submission: EvaluationSubmissionResult,
+  submission: ProfileRunResult,
 ) {
   const summary = submission.result.summary;
   return summary._tag === "ProgramFinished"

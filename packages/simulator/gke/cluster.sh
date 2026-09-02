@@ -189,7 +189,8 @@ case "$command" in
   run)
     [[ -n "$run_spec" ]] || usage
     [[ -f "$run_spec" ]] || { echo "no such run spec: $run_spec" >&2; exit 66; }
-    # gke/profile.json is read from the package root, so resolve before moving.
+    # The executable is invoked from the package root, so the spec path must
+    # survive the move.
     run_spec="$(absolute_path "$run_spec")"
     begin_cluster_session
 
@@ -199,7 +200,7 @@ case "$command" in
     MOLTZAP_TEMPORAL_ADDRESS="localhost:${forward_port}" \
     MOLTZAP_CONTROLLER_IMAGE="$controller_image" \
     MOLTZAP_SUPPORT_IMAGE="$controller_image" \
-      node dist/cluster/profiles/gke.js "$run_spec"
+      node bin/moltzap-sim run --profile gke "$run_spec"
     ;;
 
   up)

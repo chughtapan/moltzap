@@ -183,9 +183,10 @@ operational observations, not replacements for the simulator ledger.
 
 The repository owns one local Kubernetes profile for development and CI and
 one GKE profile for cloud qualification. Both install or connect to the same
-required components and invoke the same `Run.execute` path. A small
-repository-local CLI accepts a RunSpec entrypoint and calls that same library
-path; it does not define a separate execution protocol.
+required components and invoke the same `Run.execute` path. The package's
+`moltzap-sim` executable accepts a profile name and a RunSpec entrypoint and
+calls that same library path; it does not define a separate execution
+protocol.
 
 The local profile uses a repository-owned local cluster and a development
 Temporal deployment. The GKE reference is regional GKE Standard and uses
@@ -312,3 +313,4 @@ the outcome is a supersession, not a row here.
 | 2026-08-06 | Scoped the `autoscaling` non-goal to a run's cohort. A profile's node pool may autoscale; it was selected because it is the simpler thing to operate. |
 | 2026-08-11 | Recorded that the transitional host entry point and in-process Effect runtime are gone. Both were described in the present tense after the cutover that removed them, leaving a reader unable to tell whether either still existed. The Decision Outcome and its removal condition are unchanged. |
 | 2026-08-27 | Recorded the addressed Client and native-session adapter replacement in the visible supersession. The Kubernetes society-execution Decision Outcome is untouched. |
+| 2026-09-01 | Recorded that the profile CLI is the published `moltzap-sim` executable (`moltzap-sim run --profile local\|gke <spec.mjs>`) rather than a repository-local script, so a consumer of the packed package submits through the same path. Its environment contract, the checked-in profiles, and the one-workflow submission are unchanged. |

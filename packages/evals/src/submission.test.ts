@@ -6,7 +6,7 @@ import { NodeContext } from "@effect/platform-node";
 import { assert, effect, it } from "@effect/vitest";
 import { image } from "@moltzap/simulator/agents";
 import { Effect, Schema } from "effect";
-import { join, sep } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   decodeEvaluationCaseId,
@@ -16,8 +16,9 @@ import {
 import {
   decodeSubmissionOutput,
   evaluationControllerModule,
+  SIMULATOR_EXECUTABLE,
   type SimulatorProfile,
-  simulatorProfileEntrypoint,
+  simulatorRunArguments,
   submissionDiagnostic,
   type SubmitEvaluationCellInput,
 } from "./submission.js";
@@ -104,37 +105,45 @@ it("refuses a NanoClaw cell without its application image", () => {
   );
 });
 
-effect.each(["local", "gke"] as const)(
-  "spawns the %s profile executable the simulator package actually ships",
-  (profile: SimulatorProfile) =>
-    Effect.gen(function* () {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const simulatorRoot = fileURLToPath(
-        new URL("../../simulator", import.meta.url),
-      );
-      const entrypoint = join(
-        simulatorRoot,
-        ...simulatorProfileEntrypoint(profile),
-      );
+effect("spawns the executable the simulator package actually ships", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const simulatorRoot = fileURLToPath(
+      new URL("../../simulator", import.meta.url),
+    );
+    const executable = join(simulatorRoot, ...SIMULATOR_EXECUTABLE);
 
-      // The submitter spawns this file by path, so no import checks the
-      // spelling. Pin it against the source module the build compiles it from,
-      // and against the same path in the simulator's own scripts, so a rename
-      // cannot move one and leave the other naming a file that never appears.
-      const source = entrypoint
-        .replace(`${sep}dist${sep}`, `${sep}src${sep}`)
-        .replace(/\.js$/u, ".ts");
-      assert.isTrue(
-        yield* fileSystem.exists(source),
-        `no source module compiles to ${entrypoint}`,
-      );
-
-      const scripts = yield* fileSystem.readFileString(
-        join(simulatorRoot, "package.json"),
-      );
-      assert.include(scripts, simulatorProfileEntrypoint(profile).join("/"));
-    }).pipe(Effect.provide(NodeContext.layer)),
+    // The submitter spawns this file by path, so no import checks the
+    // spelling. Pin it against the checked-in file and against the `bin` entry
+    // the simulator's manifest publishes, so a rename cannot move one and leave
+    // the other naming a file that never appears.
+    assert.isTrue(
+      yield* fileSystem.exists(executable),
+      `the simulator package ships no ${executable}`,
+    );
+    const manifest = yield* Schema.decodeUnknown(
+      Schema.parseJson(
+        Schema.Struct({
+          bin: Schema.Record({ key: Schema.String, value: Schema.String }),
+        }),
+      ),
+    )(yield* fileSystem.readFileString(join(simulatorRoot, "package.json")));
+    assert.strictEqual(
+      manifest.bin["moltzap-sim"],
+      `./${SIMULATOR_EXECUTABLE.join("/")}`,
+    );
+  }).pipe(Effect.provide(NodeContext.layer)),
 );
+
+it("names the profile and module on the executable's command line", () => {
+  const profiles: readonly SimulatorProfile[] = ["local", "gke"];
+  for (const profile of profiles) {
+    assert.deepStrictEqual(
+      simulatorRunArguments(profile, "/var/lib/moltzap/cells/main.mjs"),
+      ["run", "--profile", profile, "/var/lib/moltzap/cells/main.mjs"],
+    );
+  }
+});
 
 // Exactly what the simulator's submitter prints for a cluster-lost cell, so a
 // consumer that stops accepting the real line fails here first.
