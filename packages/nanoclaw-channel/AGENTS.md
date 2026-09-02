@@ -23,22 +23,24 @@ does not change this package boundary.
 
 - Keep NanoClaw's `ChannelAdapter` entry point and host-relative stub modules
   aligned with the stock NanoClaw API. The pinned source overlay may only let
-  outbound `send_message` and `<message to>` destinations resolve canonical
-  MoltZap addresses and let those validated routes reach this channel. Do not
-  extend the host ABI, inbound router, inbox, session model, prompt, output
-  parser, or runtime driver.
+  outbound `send_message` and `<message to>` destinations recognize a
+  syntactically valid Client `MessageAddressInput` before friendly aliases and
+  let that validated route reach this channel, with an accurate capability line
+  in the existing destination prompt. Do not extend the host ABI, inbound
+  router, inbox, session model, persistence, retry policy, or runtime driver.
 - Direct input identifies the sender and `agent:` address. Group input retains
   the canonical group address, sender, exact members, and native group flag.
 - NanoClaw owns friendly-name discovery and its own destination permissions.
-  An explicit canonical `agent:` or `group:` MoltZap address needs no prior
-  NanoClaw conversation or ACL row.
+  An explicit `agent:` or `group:` MoltZap address input needs no prior
+  NanoClaw conversation or ACL row; Client validates and canonicalizes it.
 - Leave outbound queue and retry policy to NanoClaw. Every adapter call is one
   Client send; do not pass `messages_out.id` or add adapter deduplication.
   Project metadata before content, await the stock `onInbound` callback, and
   only then acknowledge Client delivery. Do not add `accepted`/`pending`
   results or inspect NanoClaw persistence.
-- NanoClaw owns sessions, implicit replies, model prompt and final-text
-  behavior, inbox replay, scheduling, and runtime isolation.
+- NanoClaw owns sessions, implicit replies, prompt and final-text behavior
+  beyond the explicit-address capability and route, inbox replay, scheduling,
+  and runtime isolation.
 - Discovery, search, history, status, registration, and proof inspection use
   MCP rather than `HarnessEndpoint`.
 - Keep host-shape failures distinct from closed Client failures without

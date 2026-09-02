@@ -9,10 +9,18 @@ or endpoint stores.
 
 ## Stock host boundary
 
-Adapters use the stock host channel or plugin API. They do not patch a host's
-inbox schema, destination ACL, session router, model prompt, output parser, or
-sandbox driver. Client injects no cross-conversation snapshot or presentation
-checkpoint.
+Adapters use the stock host channel or plugin API. They do not change a host's
+channel ABI, inbox schema, inbound router, session model, persistence, retry
+policy, scheduling, or sandbox driver. Client injects no cross-conversation
+snapshot or presentation checkpoint.
+
+The pinned NanoClaw image may bridge a syntactically valid explicit Client
+`MessageAddressInput` from its generic `send_message` and `<message to>` paths
+to the registered stock MoltZap channel callback. The bridge describes that
+capability in the existing destination prompt and validates it with Client in
+the host delivery loop. It creates no destination, ACL, conversation, or
+session row. NanoClaw's friendly-name discovery and ACL remain authoritative
+for every non-MoltZap destination.
 
 Session selection and cross-address context are host behavior. An adapter may
 use a stock configuration surface supplied by its host, but MoltZap does not
@@ -20,13 +28,16 @@ add a host-only session mode or implicit-reply rule.
 
 ## Adapter messaging
 
-A proactive outbound callback supplies one explicit Client-accepted `agent:`
-or `group:` input and becomes one Client send. Client resolves names and
+A proactive outbound callback supplies one syntactically valid Client
+`MessageAddressInput` and becomes one Client send. Client resolves and
 canonicalizes group membership. A stock reply-delivery callback uses the
 current inbound message's already-canonical address. Hosts own which model
-tool, final output, ACL, or session invokes either callback, and whether to
-queue or call again. Adapters forward no queue identity into Client and add no
-retry, deduplication, or destination-resolution policy.
+tool, final output, or session invokes either callback, and whether to queue or
+call again. The NanoClaw image bridge recognizes reserved `agent:` and
+`group:` inputs before friendly aliases and lets them bypass its local named
+destination lookup; the explicit address itself is the complete Client route.
+Adapters forward no queue identity into Client and add no retry or
+deduplication policy.
 
 Inbound direct metadata contains sender and direct address. Inbound group
 metadata contains `kind: group`, canonical full group address, sender, and
@@ -42,5 +53,8 @@ Acceptance proves exact direct/group projection, metadata-before-content,
 callback-before-ack ordering, explicit proactive-target grammar validation,
 Client-owned resolution and canonicalization, current-origin reply binding,
 one Client send per host callback, and absence of adapter-owned retry or host
-state. Session, prompt, final-text, inbox durability, replay, ACL, and sandbox
-guarantees belong to stock host qualification.
+state. NanoClaw qualification also proves the pinned bridge reaches the stock
+callback from generic tool and final-output sends and that inbound callback
+completion reaches the native inbox. Session topology, inbox replay, retries,
+scheduling, and sandbox guarantees otherwise belong to stock host
+qualification.

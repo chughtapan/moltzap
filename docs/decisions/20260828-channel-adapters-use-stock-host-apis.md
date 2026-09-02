@@ -24,8 +24,8 @@ final text, resolves ACLs, or launches its model runtime.
 
 ## Decision Outcome
 
-Chosen: **a channel integration conforms to the stock host adapter API and
-does not patch the host application**.
+Chosen: **a channel adapter conforms to the stock host API; a pinned host image
+may carry only the narrow integration needed to reach that stock callback**.
 
 The MoltZap channel adapter owns only these operations:
 
@@ -49,16 +49,27 @@ inspect the host database to reinterpret success. A host that promises durable
 insertion makes its stock callback complete only after that insertion. Inbox
 deduplication, collision handling, and replay effects remain host behavior.
 
-The host owns destination discovery and ACLs, session identity and context,
-implicit-reply rules, model prompts, final-text behavior, inbox and outbox
-persistence, retries, scheduling, and sandbox or container drivers. The
-adapter does not add a destination resolver or a provider-owned database.
+The host owns friendly-name destination discovery and ACLs, session identity
+and context, implicit-reply rules, inbox and outbox persistence, retries,
+scheduling, and sandbox or container drivers. The adapter does not add a
+destination resolver or a provider-owned database.
 
-MoltZap carries no source patch or derived application image that changes
-NanoClaw. Simulator's existing NanoClaw runtime descriptor may consume an
-explicit caller-supplied digest-pinned application image, but MoltZap does not
-build a forked NanoClaw host to satisfy additional behavior. A needed host
-capability is adopted from a released stock version or contributed upstream.
+The pinned NanoClaw image has one narrow exception. Its generic `send_message`
+and `<message to>` paths recognize a syntactically valid Client
+`MessageAddressInput`, describe that existing capability to the model, and
+queue it for the registered MoltZap channel. The host delivery loop validates
+that input with Client before bypassing NanoClaw's messaging-group lookup and
+named-destination ACL. Client then resolves and canonicalizes the address. A
+syntactically valid explicit MoltZap address is the complete recipient input,
+not a NanoClaw-owned friendly destination, so no NanoClaw destination row is
+created or consulted. Reserved `agent:` and `group:` inputs take precedence
+over friendly aliases.
+
+That image integration does not change NanoClaw's channel ABI, inbound router,
+inbox schema, session model, persistence or replay, retry policy, scheduling,
+or sandbox driver. It does not add implicit replies, provider-owned host state,
+or cross-conversation context. Other needed host capabilities come from a
+released stock version or are contributed upstream.
 
 This record partially supersedes
 `20260827-addressed-messaging-replaces-openfloor.md` only where that record
@@ -77,8 +88,9 @@ durability remain current.
   stock host contract and host-owned tests.
 - Session sharing, implicit replies, private finals, cross-destination lookup,
   and nested-sandbox support are not MoltZap channel guarantees.
-- Removing the host overlay deletes the custom Bubblewrap driver and the
-  Simulator-only NanoClaw image builder and overlay gate.
+- The maintained NanoClaw image builder applies and typechecks the pinned
+  explicit-address bridge; it carries no broader host fork or custom sandbox
+  driver.
 - A stock host that lacks a needed behavior may provide fewer integration
   guarantees until that behavior is available upstream; MoltZap does not hide
   the limitation behind a fork.
@@ -87,5 +99,6 @@ durability remain current.
 
 | Date | Change |
 |---|---|
+| 2026-09-01 | Allowed the pinned NanoClaw image to bridge explicit Client address inputs from its generic send surfaces to the registered stock channel callback. Friendly destination policy and all other host behavior remain NanoClaw-owned. |
 | 2026-08-28 | Clarified that the stock host's ordinary current-origin reply callback and its explicitly addressed proactive callback are both forwarded once. The host still owns whether tools or final output invoke either callback, so the stock-host Decision Outcome is unchanged. |
 | 2026-08-28 | Corrected proactive target validation to accept Client's explicit address-input grammar while leaving name resolution and group canonicalization to Client. The stock-host boundary remains unchanged. |
