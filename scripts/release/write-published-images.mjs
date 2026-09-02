@@ -8,7 +8,7 @@
  * the digests consumers pin next to the npm version that pushed them; a
  * hand-edited table can name an image that no release built.
  *
- * Usage: write-published-images.mjs --digests <file.json> [--readme <path>]
+ * Usage: write-published-images.mjs --digests <file.json>
  *
  * The digest file carries `{ version, sourceRevision, images }` where `images`
  * holds one `{ name, repository, digest }` entry for each of the three image
@@ -19,14 +19,14 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const workspaceRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
-const DEFAULT_README = join(workspaceRoot, "packages/simulator/gke/README.md");
+const README_PATH = join(workspaceRoot, "packages/simulator/gke/README.md");
 const SECTION_HEADING = "## Published images";
 const CALENDAR_VERSION = /^\d{4}\.\d{3,4}\.\d+$/u;
 const GIT_REVISION = /^[0-9a-f]{40}$/u;
 const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/u;
 
 /** Image names a release publishes, in table order. */
-export const PUBLISHED_IMAGE_NAMES = Object.freeze([
+const PUBLISHED_IMAGE_NAMES = Object.freeze([
   "controller",
   "openclaw-agent",
   "nanoclaw-agent",
@@ -138,38 +138,26 @@ export function replacePublishedImagesSection(markdown, body) {
 }
 
 function parseArguments(args) {
-  const options = { digests: null, readme: DEFAULT_README };
-  for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index];
-    const value = args[index + 1];
-    if (argument === "--digests" && value !== undefined) {
-      options.digests = resolve(value);
-      index += 1;
-    } else if (argument === "--readme" && value !== undefined) {
-      options.readme = resolve(value);
-      index += 1;
-    } else {
-      throw new TypeError(
-        "usage: write-published-images.mjs --digests <file.json> [--readme <path>]",
-      );
-    }
-  }
-  requireCondition(options.digests !== null, "--digests is required");
-  return options;
+  requireCondition(
+    args.length === 2 && args[0] === "--digests",
+    "usage: write-published-images.mjs --digests <file.json>",
+  );
+  return { digests: resolve(args[1]) };
 }
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
-  const published = decodePublishedImages(
-    JSON.parse(await readFile(options.digests, "utf8")),
-  );
-  const readme = await readFile(options.readme, "utf8");
+  const [digests, readme] = await Promise.all([
+    readFile(options.digests, "utf8"),
+    readFile(README_PATH, "utf8"),
+  ]);
+  const published = decodePublishedImages(JSON.parse(digests));
   await writeFile(
-    options.readme,
+    README_PATH,
     replacePublishedImagesSection(readme, renderPublishedImages(published)),
   );
   process.stdout.write(
-    `wrote ${published.images.length} published image digests for ${published.version} to ${options.readme}\n`,
+    `wrote ${published.images.length} published image digests for ${published.version} to ${README_PATH}\n`,
   );
 }
 

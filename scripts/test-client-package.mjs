@@ -1,37 +1,24 @@
 import { execFile } from "node:child_process";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
-  packWorkspacePackages,
-  readPackedManifests,
+  extractPackedArchive,
+  installPackedConsumer,
+  packWorkspaceClosure,
+  requireCondition,
 } from "./test/packed-workspace.mjs";
 
 const exec = promisify(execFile);
 const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const clientRoot = join(workspaceRoot, "packages", "client");
 const workspacePackageRoots = Object.freeze({
-  "@moltzap/client": clientRoot,
+  "@moltzap/client": join(workspaceRoot, "packages", "client"),
   "@moltzap/identity": join(workspaceRoot, "packages", "identity"),
   "@moltzap/router": join(workspaceRoot, "packages", "router"),
 });
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-client-pack-"));
-
-function requireCondition(condition, detail) {
-  if (!condition) {
-    throw new Error(detail);
-  }
-}
 
 function collectExportTargets(value, targets = []) {
   if (typeof value === "string") {
@@ -46,14 +33,8 @@ function collectExportTargets(value, targets = []) {
   return targets;
 }
 
-async function verifyPackedManifest(extractedPackage) {
-  const manifest = JSON.parse(
-    await readFile(join(extractedPackage, "package.json"), "utf8"),
-  );
-  requireCondition(
-    manifest.name === "@moltzap/client",
-    "packed client manifest has the wrong package name",
-  );
+async function verifyPackedManifest(archive, manifest) {
+  const extractedPackage = await extractPackedArchive(archive, temporaryRoot);
   requireCondition(
     manifest.bin?.moltzapd === "./bin/moltzapd",
     "packed client does not expose the moltzapd executable",
@@ -95,88 +76,23 @@ async function verifyPackedManifest(extractedPackage) {
   );
 }
 
-function localArchiveSpecifier(consumerRoot, archive) {
-  return `file:${relative(consumerRoot, archive)}`;
-}
-
-async function verifyIsolatedInstall(consumerRoot) {
-  const installedRoot = await realpath(consumerRoot);
-  for (const packageName of [
-    "@moltzap/client",
-    "@moltzap/identity",
-    "@moltzap/router",
-  ]) {
-    const installed = await realpath(
-      join(consumerRoot, "node_modules", ...packageName.split("/")),
-    );
-    requireCondition(
-      installed.startsWith(`${installedRoot}/`),
-      `packed consumer resolved ${packageName} outside its isolated install`,
-    );
-  }
-  const lockfile = await readFile(join(consumerRoot, "pnpm-lock.yaml"), "utf8");
-  requireCondition(
-    !lockfile.includes(workspaceRoot) &&
-      !lockfile.includes("workspace:") &&
-      !lockfile.includes("link:"),
-    "packed client consumer lockfile escaped to the source workspace",
-  );
-}
-
 async function verifyConsumerImports(archives, publicSpecifiers) {
-  const consumerRoot = join(temporaryRoot, "consumer");
-  await mkdir(consumerRoot);
-  const localPackages = Object.fromEntries(
-    Object.entries(archives).map(([name, archive]) => [
-      name,
-      localArchiveSpecifier(consumerRoot, archive),
-    ]),
-  );
+  const consumerRoot = await installPackedConsumer({
+    temporaryRoot,
+    workspaceRoot,
+    name: "moltzap-client-packed-consumer",
+    archives,
+  });
   const checkPath = join(consumerRoot, "check.mjs");
-  await Promise.all([
-    writeFile(
-      join(consumerRoot, "package.json"),
-      `${JSON.stringify(
-        {
-          name: "moltzap-client-packed-consumer",
-          version: "0.0.0",
-          private: true,
-          type: "module",
-          dependencies: localPackages,
-        },
-        null,
-        2,
-      )}\n`,
-    ),
-    writeFile(
-      join(consumerRoot, "pnpm-workspace.yaml"),
-      [
-        "packages:",
-        '  - "."',
-        "overrides:",
-        ...Object.entries(localPackages).map(
-          ([name, specifier]) =>
-            `  ${JSON.stringify(name)}: ${JSON.stringify(specifier)}`,
-        ),
-        "",
-      ].join("\n"),
-    ),
-    writeFile(
-      checkPath,
-      publicSpecifiers
-        .map((specifier) => `await import(${JSON.stringify(specifier)});`)
-        .join("\n") +
-        `\nconst server = await import("@moltzap/client/server");\n` +
-        `if (Object.keys(server).join(",") !== "MoltZapDaemon") throw new Error("unexpected Client server exports");\n` +
-        `if (Object.keys(server.MoltZapDaemon).sort().join(",") !== "StartupError,layer") throw new Error("unexpected MoltZapDaemon namespace");\n`,
-    ),
-  ]);
-  await exec(
-    "pnpm",
-    ["install", "--no-frozen-lockfile", "--ignore-scripts", "--prefer-offline"],
-    { cwd: consumerRoot, maxBuffer: 16 * 1024 * 1024 },
+  await writeFile(
+    checkPath,
+    publicSpecifiers
+      .map((specifier) => `await import(${JSON.stringify(specifier)});`)
+      .join("\n") +
+      `\nconst server = await import("@moltzap/client/server");\n` +
+      `if (Object.keys(server).join(",") !== "MoltZapDaemon") throw new Error("unexpected Client server exports");\n` +
+      `if (Object.keys(server.MoltZapDaemon).sort().join(",") !== "StartupError,layer") throw new Error("unexpected MoltZapDaemon namespace");\n`,
   );
-  await verifyIsolatedInstall(consumerRoot);
   await exec(process.execPath, [checkPath], {
     cwd: consumerRoot,
     env: { ...process.env, NODE_PATH: undefined },
@@ -184,15 +100,14 @@ async function verifyConsumerImports(archives, publicSpecifiers) {
 }
 
 try {
-  const tarballs = join(temporaryRoot, "tarballs");
-  await mkdir(tarballs);
-  const archives = await packWorkspacePackages(workspacePackageRoots, tarballs);
-  await readPackedManifests(archives, workspacePackageRoots);
-  const extractedRoot = join(temporaryRoot, "extracted");
-  await mkdir(extractedRoot);
-  await exec("tar", ["-xzf", archives["@moltzap/client"], "-C", extractedRoot]);
-  const extractedPackage = join(extractedRoot, "package");
-  const publicSpecifiers = await verifyPackedManifest(extractedPackage);
+  const { archives, manifests } = await packWorkspaceClosure(
+    workspacePackageRoots,
+    temporaryRoot,
+  );
+  const publicSpecifiers = await verifyPackedManifest(
+    archives["@moltzap/client"],
+    manifests["@moltzap/client"],
+  );
   await verifyConsumerImports(archives, publicSpecifiers);
   process.stdout.write("client package consumer check passed\n");
 } finally {

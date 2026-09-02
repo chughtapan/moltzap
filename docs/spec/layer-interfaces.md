@@ -431,7 +431,9 @@ private. The current record is
   NanoClaw images tagged with the version and records their digests.
 - `scripts/architecture/check-boundaries.js` fails when a published manifest
   is private, when the six versions differ, or when evals is not private;
-  each package's `test:pack` gate proves the packed closure installs.
+  each package's `test:pack` gate proves through
+  `scripts/test/packed-workspace.mjs` that the packed closure installs with
+  exact sibling pins.
 
 ## Deliberate deferrals
 

@@ -11,12 +11,14 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
-  packWorkspacePackages,
-  readPackedManifests,
+  extractPackedArchive,
+  installPackedConsumer,
+  packWorkspaceClosure,
+  requireCondition,
 } from "./test/packed-workspace.mjs";
 
 const exec = promisify(execFile);
@@ -35,22 +37,9 @@ const OPENCLAW_VERSION = "2026.8.1";
 const OPENCLAW_COMMIT_SHA = "ea806575e6450e4d1efdfc72c19f04be982a1b9b";
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-openclaw-pack-"));
 
-function requireCondition(condition, detail) {
-  if (!condition) {
-    throw new Error(detail);
-  }
-}
-
 async function verifyPackedManifest(archive, manifests) {
-  const extractedRoot = join(temporaryRoot, "extracted");
-  await mkdir(extractedRoot);
-  await exec("tar", ["-xzf", archive, "-C", extractedRoot]);
-  const extractedPackage = join(extractedRoot, "package");
+  const extractedPackage = await extractPackedArchive(archive, temporaryRoot);
   const manifest = manifests["@moltzap/openclaw-channel"];
-  requireCondition(
-    manifest.name === "@moltzap/openclaw-channel",
-    "packed OpenClaw manifest has the wrong package name",
-  );
   requireCondition(
     manifest.main === "./dist/index.js" &&
       manifest.types === "./dist/index.d.ts",
@@ -98,38 +87,6 @@ async function verifyPackedManifest(archive, manifests) {
       JSON.stringify(pluginManifest.channels) === JSON.stringify(["moltzap"]),
     "packed OpenClaw discovery manifest drifted",
   );
-}
-
-function archiveSpecifier(consumerRoot, archive) {
-  return `file:${relative(consumerRoot, archive)}`;
-}
-
-async function verifyIsolatedInstall(consumerRoot) {
-  const installedRoot = await realpath(consumerRoot);
-  const lockfile = await readFile(join(consumerRoot, "pnpm-lock.yaml"), "utf8");
-  requireCondition(
-    !lockfile.includes(workspaceRoot) &&
-      !lockfile.includes("workspace:") &&
-      !lockfile.includes("link:"),
-    "packed consumer lockfile escaped to a workspace or linked dependency",
-  );
-  for (const packageName of [
-    "@moltzap/client",
-    "@moltzap/identity",
-    "@moltzap/openclaw-channel",
-    "@moltzap/router",
-    "effect",
-    "openclaw",
-    "typescript",
-  ]) {
-    const installed = await realpath(
-      join(consumerRoot, "node_modules", ...packageName.split("/")),
-    );
-    requireCondition(
-      installed.startsWith(`${installedRoot}/`),
-      `packed consumer resolved ${packageName} outside its isolated install`,
-    );
-  }
 }
 
 async function verifyStableOpenClaw(openclawRoot) {
@@ -267,46 +224,15 @@ async function verifyBundledHost(consumerRoot) {
 }
 
 async function verifyConsumer(archives) {
-  const consumerRoot = join(temporaryRoot, "consumer");
-  await mkdir(consumerRoot);
-  const localPackages = Object.fromEntries(
-    Object.entries(archives).map(([name, archive]) => [
-      name,
-      archiveSpecifier(consumerRoot, archive),
-    ]),
-  );
+  const consumerRoot = await installPackedConsumer({
+    temporaryRoot,
+    workspaceRoot,
+    name: "moltzap-openclaw-packed-consumer",
+    archives,
+    dependencies: { effect: "3.22.0", openclaw: OPENCLAW_VERSION },
+    devDependencies: { typescript: "6.0.2" },
+  });
   await Promise.all([
-    writeFile(
-      join(consumerRoot, "package.json"),
-      `${JSON.stringify(
-        {
-          name: "moltzap-openclaw-packed-consumer",
-          version: "0.0.0",
-          private: true,
-          type: "module",
-          dependencies: {
-            ...localPackages,
-            effect: "3.22.0",
-            openclaw: OPENCLAW_VERSION,
-          },
-          devDependencies: { typescript: "6.0.2" },
-        },
-        null,
-        2,
-      )}\n`,
-    ),
-    writeFile(
-      join(consumerRoot, "pnpm-workspace.yaml"),
-      [
-        'packages: ["."]',
-        "overrides:",
-        ...Object.entries(localPackages).map(
-          ([name, archive]) =>
-            `  ${JSON.stringify(name)}: ${JSON.stringify(archive)}`,
-        ),
-        "",
-      ].join("\n"),
-    ),
     writeFile(
       join(consumerRoot, "tsconfig.json"),
       `${JSON.stringify(
@@ -340,12 +266,6 @@ async function verifyConsumer(archives) {
     ),
   ]);
   await exec(
-    "pnpm",
-    ["install", "--no-frozen-lockfile", "--ignore-scripts", "--prefer-offline"],
-    { cwd: consumerRoot, maxBuffer: 16 * 1024 * 1024 },
-  );
-  await verifyIsolatedInstall(consumerRoot);
-  await exec(
     join(consumerRoot, "node_modules", ".bin", "tsc"),
     ["--project", join(consumerRoot, "tsconfig.json")],
     { cwd: consumerRoot, maxBuffer: 16 * 1024 * 1024 },
@@ -354,10 +274,10 @@ async function verifyConsumer(archives) {
 }
 
 try {
-  const tarballs = join(temporaryRoot, "tarballs");
-  await mkdir(tarballs);
-  const archives = await packWorkspacePackages(packageRoots, tarballs);
-  const manifests = await readPackedManifests(archives, packageRoots);
+  const { archives, manifests } = await packWorkspaceClosure(
+    packageRoots,
+    temporaryRoot,
+  );
   await verifyPackedManifest(archives["@moltzap/openclaw-channel"], manifests);
   await verifyConsumer(archives);
   process.stdout.write("OpenClaw packed consumer check passed\n");

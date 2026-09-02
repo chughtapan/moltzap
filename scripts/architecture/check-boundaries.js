@@ -531,6 +531,11 @@ for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
     if (manifest.repository?.url !== REPOSITORY_URL) {
       failures.push(`${where}: repository.url must be "${REPOSITORY_URL}"`);
     }
+    if (!CALENDAR_VERSION.test(manifest.version)) {
+      failures.push(
+        `${where}: version "${manifest.version}" is not a YYYY.MDD.N CalVer`,
+      );
+    }
     publishedVersions.set(where, manifest.version);
   } else if (manifest.private !== true) {
     failures.push(
@@ -712,13 +717,6 @@ if (distinctPublishedVersions.size !== 1) {
       .map(([where, version]) => `${where}=${version}`)
       .join(", ")}`,
   );
-}
-for (const version of distinctPublishedVersions) {
-  if (!CALENDAR_VERSION.test(version)) {
-    failures.push(
-      `packages/*/package.json: published version "${version}" is not a YYYY.MDD.N CalVer`,
-    );
-  }
 }
 
 // ─── Final import rules ───────────────────────────────────────────────

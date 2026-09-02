@@ -12,14 +12,8 @@
         "scripts/docs/vitest.config.ts",
         "scripts/docs/__tests__/*.test.ts"
       ],
-      "project": [
-        "*.mjs",
-        "*.ts",
-        "scripts/docs/**/*.ts"
-      ],
-      "ignoreUnresolved": [
-        "/opt/moltzap/qualification/simulator-fault-program.mjs"
-      ],
+      "project": ["*.mjs", "*.ts", "scripts/docs/**/*.ts"],
+      "ignoreUnresolved": ["/opt/moltzap/qualification/simulator-fault-program.mjs"],
       "ignoreDependencies": [
         "@effect/tsgo",
         "@mermaid-js/mermaid-cli",
@@ -33,11 +27,7 @@
         "src/**/*.types-check.ts",
         "vitest*.config.mjs"
       ],
-      "project": [
-        "src/**/*.ts",
-        "*.mjs",
-        "vitest*.config.mjs"
-      ]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "packages/nanoclaw-channel": {
       "project": ["src/**/*.ts"]
@@ -47,11 +37,7 @@
         "src/**/*.test.ts",
         "vitest*.config.mjs"
       ],
-      "project": [
-        "src/**/*.ts",
-        "*.mjs",
-        "vitest*.config.mjs"
-      ]
+      "project": ["src/**/*.ts", "*.mjs", "vitest*.config.mjs"]
     },
     "packages/evals": {
       "entry": [
@@ -61,10 +47,7 @@
         "src/**/*.test.ts",
         "src/**/*.types-check.ts"
       ],
-      "project": [
-        "src/**/*.ts",
-        "*.mjs"
-      ]
+      "project": ["src/**/*.ts", "*.mjs"]
     },
     "packages/simulator": {
       "entry": [
@@ -77,14 +60,8 @@
         "src/**/*.types-check.ts",
         "vitest*.config.mjs"
       ],
-      "project": [
-        "src/**/*.ts",
-        "scripts/*.mjs",
-        "vitest*.config.mjs"
-      ],
-      "ignoreDependencies": [
-        "@types/ws"
-      ]
+      "project": ["src/**/*.ts", "scripts/*.mjs", "vitest*.config.mjs"],
+      "ignoreDependencies": ["@types/ws"]
     },
     "packages/identity": {
       "entry": [
@@ -92,10 +69,7 @@
         "src/**/*.types-check.ts",
         "vitest*.config.mjs"
       ],
-      "project": [
-        "src/**/*.ts",
-        "*.mjs"
-      ],
+      "project": ["src/**/*.ts", "*.mjs"],
       "ignoreDependencies": [
         "@electric-sql/pglite",
         "@electric-sql/pglite-socket"
@@ -107,51 +81,26 @@
         "src/**/*.types-check.ts",
         "vitest*.config.mjs"
       ],
-      "project": [
-        "src/**/*.ts",
-        "*.mjs"
-      ]
+      "project": ["src/**/*.ts", "*.mjs"]
     }
   },
   "ignoreIssues": {
-    "packages/client/src/endpoint/engine-types.ts": [
-      "types"
-    ],
-    "packages/client/src/endpoint/engine.ts": [
-      "exports",
-      "types"
-    ],
-    "packages/client/src/endpoint/representation-canonical.ts": [
-      "exports"
-    ],
-    "packages/client/src/endpoint/representation-codec.ts": [
-      "exports"
-    ],
-    "packages/client/src/endpoint/representation-schemas.ts": [
-      "exports"
-    ],
+    "packages/client/src/endpoint/engine-types.ts": ["types"],
+    "packages/client/src/endpoint/engine.ts": ["exports", "types"],
+    "packages/client/src/endpoint/representation-canonical.ts": ["exports"],
+    "packages/client/src/endpoint/representation-codec.ts": ["exports"],
+    "packages/client/src/endpoint/representation-schemas.ts": ["exports"],
     "packages/client/src/endpoint/representation-verification.ts": [
       "exports"
     ],
-    "packages/client/src/endpoint/representation.ts": [
-      "exports",
-      "types"
-    ],
-    "packages/client/src/endpoint/store.ts": [
-      "types"
-    ],
+    "packages/client/src/endpoint/representation.ts": ["exports", "types"],
+    "packages/client/src/endpoint/store.ts": ["types"],
     "packages/client/src/endpoint/store/database/index.ts": [
       "exports",
       "types"
     ],
-    "packages/client/src/endpoint/store/database/schema.ts": [
-      "types"
-    ],
-    "packages/client/src/endpoint/store/rows/index.ts": [
-      "exports"
-    ],
-    "packages/client/src/management-runtime.ts": [
-      "exports"
-    ]
+    "packages/client/src/endpoint/store/database/schema.ts": ["types"],
+    "packages/client/src/endpoint/store/rows/index.ts": ["exports"],
+    "packages/client/src/management-runtime.ts": ["exports"]
   }
 }
