@@ -1,5 +1,8 @@
 import { defineConfig } from "vitest/config";
-import { workspaceSourceAliases } from "../../vitest.workspace-aliases.js";
+import {
+  builtWorkspaceDependencies,
+  workspaceSourceAliases,
+} from "../../vitest.workspace-aliases.js";
 
 // Opt-in suites that assert against a live local cluster. They are not part of
 // the default test target: each one creates real Kubernetes objects, kills real
@@ -9,6 +12,11 @@ export default defineConfig({
     alias: workspaceSourceAliases,
   },
   test: {
+    server: {
+      deps: {
+        external: builtWorkspaceDependencies,
+      },
+    },
     include: ["src/**/*.cluster.test.ts"],
     // One run's controller Job, its reclamation, and the Kubernetes deletion
     // that follows are all measured in minutes.
