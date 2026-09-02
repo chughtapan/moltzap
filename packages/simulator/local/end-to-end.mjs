@@ -19,6 +19,9 @@ const APPLICATION_IMAGE = applicationImageFromEnvironment();
 // stays up rather than how fast it starts.
 const HOLD = Duration.seconds(30);
 
+// The seeded identity is read back after the hold, and each daemon's history
+// export is harvested beside it, so one run proves the whole harvest path even
+// though nothing is sent: an empty transcript is still one record per agent.
 const runtime = (identity) =>
   openClawRuntime({
     applicationImage: APPLICATION_IMAGE,
@@ -29,6 +32,8 @@ const runtime = (identity) =>
     },
     sandbox: { mode: "off" },
     workspaceFiles: [{ relativePath: "IDENTITY.md", content: identity }],
+    harvestWorkspaceFiles: ["IDENTITY.md"],
+    historyExport: true,
   });
 
 const name = (index) => `agent${String(index + 1).padStart(3, "0")}`;
