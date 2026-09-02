@@ -3,8 +3,7 @@
 import type { Image } from "@moltzap/simulator/agents";
 import { Command, FileSystem, Path } from "@effect/platform";
 import {
-  CompletedLedgerReceipt,
-  LedgerReceipt,
+  ProfileRunResult,
   type SimulatorDefinitionId,
 } from "@moltzap/simulator";
 import { Effect, Either, Schema } from "effect";
@@ -18,55 +17,30 @@ import type {
 export type SimulatorProfile = "local" | "gke";
 
 /**
- * Path segments, below the simulator package root, of a profile's executable.
+ * Path segments, below the simulator package root, of the `moltzap-sim`
+ * executable.
  *
  * The submitter spawns this file by path rather than importing it, so nothing
  * typechecks the spelling. It is exported so a drift canary can compare it
- * against the same path in the simulator's own package scripts.
- *
- * @param profile Kubernetes profile whose executable is being located.
- * @returns Segments to join onto `packages/simulator`.
+ * against the `bin` entry in the simulator's own manifest.
  */
-export function simulatorProfileEntrypoint(
-  profile: SimulatorProfile,
-): readonly string[] {
-  return ["dist", "cluster", "profiles", `${profile}.js`];
-}
+export const SIMULATOR_EXECUTABLE: readonly string[] = Object.freeze([
+  "bin",
+  "moltzap-sim",
+]);
 
-const programFinishedSummary = Schema.Struct({
-  _tag: Schema.Literal("ProgramFinished"),
-  receipt: CompletedLedgerReceipt,
-});
-const runInfrastructureFailedSummary = Schema.Struct({
-  _tag: Schema.Literal("ClusterLost"),
-  receipt: LedgerReceipt,
-});
-const ledgerAllocationFailedSummary = Schema.Struct({
-  _tag: Schema.Literal("LedgerAllocationFailed"),
-});
-const evaluationSubmissionResult = Schema.Struct({
-  runId: Schema.NonEmptyString,
-  namespace: Schema.NonEmptyString,
-  result: Schema.Union(
-    Schema.Struct({
-      exitCode: Schema.Literal(0),
-      summary: programFinishedSummary,
-    }),
-    Schema.Struct({
-      exitCode: Schema.Literal(1),
-      summary: Schema.Union(
-        runInfrastructureFailedSummary,
-        ledgerAllocationFailedSummary,
-      ),
-      // Optional because the submitter carries one only when the controller
-      // Job's own output was still readable, and this decode rejects excess
-      // properties: a submitter that never learned the reason still decodes.
-      diagnostic: Schema.optional(Schema.String),
-    }),
-  ),
-});
-/** Decoded result printed by the simulator's local or GKE submitter. */
-export type EvaluationSubmissionResult = typeof evaluationSubmissionResult.Type;
+/**
+ * The command line that submits one module through one profile.
+ * @param profile Kubernetes profile the executable routes to.
+ * @param modulePath Absolute path of the generated RunSpec module.
+ * @returns Arguments after the executable name.
+ */
+export function simulatorRunArguments(
+  profile: SimulatorProfile,
+  modulePath: string,
+): readonly string[] {
+  return ["run", "--profile", profile, modulePath];
+}
 
 /**
  * The controller's own account of why one submission failed.
@@ -74,7 +48,7 @@ export type EvaluationSubmissionResult = typeof evaluationSubmissionResult.Type;
  * @returns The diagnostic the submitter published, or undefined when it carried none.
  */
 export function submissionDiagnostic(
-  submission: EvaluationSubmissionResult,
+  submission: ProfileRunResult,
 ): string | undefined {
   const diagnostic =
     submission.result.exitCode === 1 ? submission.result.diagnostic : undefined;
@@ -153,7 +127,7 @@ export function evaluationControllerModule(
  */
 export function decodeSubmissionOutput(
   output: string,
-): Effect.Effect<EvaluationSubmissionResult, EvaluationSubmissionFailed> {
+): Effect.Effect<ProfileRunResult, EvaluationSubmissionFailed> {
   const lines = output.split(/\r?\n/u);
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const line = lines[index]?.trim();
@@ -161,7 +135,7 @@ export function decodeSubmissionOutput(
       continue;
     }
     const decoded = Schema.decodeUnknownEither(
-      Schema.parseJson(evaluationSubmissionResult),
+      Schema.parseJson(ProfileRunResult),
     )(line, { onExcessProperty: "error" });
     const result = Either.getOrUndefined(decoded);
     if (result !== undefined) {
@@ -200,17 +174,17 @@ export function submitEvaluationCell(input: SubmitEvaluationCellInput) {
           }),
       });
       yield* fileSystem.writeFileString(modulePath, source);
-      const simulatorRoot = path.join(
+      const executable = path.join(
         input.workspaceRoot,
         "packages",
         "simulator",
+        ...SIMULATOR_EXECUTABLE,
       );
-      const entrypoint = path.join(
-        simulatorRoot,
-        ...simulatorProfileEntrypoint(input.profile),
-      );
-      const command = Command.make("node", entrypoint, modulePath).pipe(
-        Command.workingDirectory(simulatorRoot),
+      const command = Command.make(
+        "node",
+        executable,
+        ...simulatorRunArguments(input.profile, modulePath),
+      ).pipe(
         Command.env({
           MOLTZAP_STARTUP_TIMEOUT_MS: String(input.runtimeStartupTimeoutMillis),
         }),
