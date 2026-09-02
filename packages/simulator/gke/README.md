@@ -131,9 +131,15 @@ with nothing on it.
 
 ## Published images
 
-No release has published images yet. Until the first release, build and push a
-controller image locally with `./cluster.sh publish-image`, which prints the
-digest reference to pin.
+Release `2026.902.0` (source revision
+`27d9e4f57c5143376223b90b330a8971d82aaa2b`) pushed these images. Pin a run to the digest
+reference; the tag is a lookup key, not an input the profile accepts.
+
+| Image | Tag | Digest reference |
+| --- | --- | --- |
+| controller | `2026.902.0` | `us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator/controller@sha256:1e4d285802314c20d257af86f47784dc8ff4c31ee6cd361706a49957c826a667` |
+| openclaw-agent | `2026.902.0` | `us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator/openclaw-agent@sha256:4e8b254b5fa555e6b2d5fe032c03b45bcc2308217ac396ae7fbd2f173f8fcfbc` |
+| nanoclaw-agent | `2026.902.0` | `us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator/nanoclaw-agent@sha256:f17bef19a35d221b5141552fca1c4f48560737ecbe04f3bb9896c42cabf9226c` |
 
 ## Release publishing
 

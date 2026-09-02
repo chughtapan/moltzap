@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.902.0] - 2026-09-02
+
 ### Added: `moltzap-sim`, harvested workspace files, transcripts, parallel runs
 
 `@moltzap/simulator` publishes `moltzap-sim run --profile local|gke <spec.mjs>`,
