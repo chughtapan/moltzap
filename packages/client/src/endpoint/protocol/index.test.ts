@@ -19,10 +19,12 @@ import { PollCursor, RouterInstanceId } from "@moltzap/router";
 import canonicalize from "canonicalize";
 import {
   Deferred,
+  Duration,
   Effect,
   Either,
   Encoding,
   Fiber,
+  Option,
   Queue,
   Redacted,
   Schema,
@@ -39,8 +41,9 @@ import type {
   EndpointEngineInput,
   EngineActionFold,
   EngineRegistryPort,
+  EngineRouterPort,
 } from "../engine-types.js";
-import { SendInput } from "../../contract.js";
+import { SendError, SendInput } from "../../contract.js";
 import { type EndpointEngine, makeEndpointEngine } from "../engine.js";
 import { recoverFoldEvidence } from "../recovery/store-evidence.js";
 import {
@@ -66,8 +69,10 @@ import {
 } from "../representation.js";
 import {
   type RouterIngressDisposition,
+  type RouterTailAnchor,
   type RouterWorkerIngress,
   RouterWorkerPersistenceError,
+  RouterWorkerUnavailableError,
 } from "../router-worker/index.js";
 import { type EndpointStore, openEndpointStore } from "../store.js";
 
@@ -324,12 +329,38 @@ function signEveryAction(): Effect.Effect<"sign"> {
   return Effect.succeed("sign");
 }
 
+type WorkerAttachment = Pick<EngineRouterPort, "awaitAnchor" | "currentAnchor">;
+
+function attachesWhenResolved(
+  attached: Deferred.Deferred<RouterTailAnchor>,
+): WorkerAttachment {
+  return {
+    currentAnchor: Deferred.poll(attached).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.fail(new RouterWorkerUnavailableError()),
+          onSome: (anchor: Effect.Effect<RouterTailAnchor>) => anchor,
+        }),
+      ),
+    ),
+    awaitAnchor: Deferred.await(attached),
+  };
+}
+
+const neverAttaches: WorkerAttachment = {
+  currentAnchor: Effect.fail(new RouterWorkerUnavailableError()),
+  awaitAnchor: Effect.never,
+};
+
 function scriptedRouterWorker(
   store: EndpointStore,
   outbound: Queue.Queue<typeof SignedMessage.Type>,
-) {
+  attachment?: WorkerAttachment,
+): EngineRouterPort {
+  const anchor = { routerInstanceId, pollCursor };
   return {
-    currentAnchor: Effect.succeed({ routerInstanceId, pollCursor }),
+    currentAnchor: attachment?.currentAnchor ?? Effect.succeed(anchor),
+    awaitAnchor: attachment?.awaitAnchor ?? Effect.succeed(anchor),
     send: (outboundId: string) =>
       forwardStoredOutbound(store, outbound, outboundId),
   };
@@ -385,8 +416,15 @@ function drainEngines(
   ).pipe(Effect.orDie);
 }
 
+interface HarnessOptions {
+  readonly actionPolicy?: EndpointEngineInput["actionPolicy"];
+  /** Present when the author's Router worker has not attached yet. */
+  readonly attachment?: WorkerAttachment;
+  readonly attachTimeout?: Duration.Duration;
+}
+
 function makeProtocolHarness(
-  authorActionPolicy: EndpointEngineInput["actionPolicy"] = signEveryAction,
+  options: HarnessOptions = {},
 ): Effect.Effect<ProtocolHarness, never, Scope.Scope> {
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -427,8 +465,18 @@ function makeProtocolHarness(
               registrySignerPublicKey,
               registry,
               store,
-              actionPolicy: index === 0 ? authorActionPolicy : signEveryAction,
-              routerWorker: scriptedRouterWorker(store, outbound),
+              actionPolicy:
+                index === 0
+                  ? (options.actionPolicy ?? signEveryAction)
+                  : signEveryAction,
+              routerWorker: scriptedRouterWorker(
+                store,
+                outbound,
+                index === 0 ? options.attachment : undefined,
+              ),
+              ...(options.attachTimeout === undefined
+                ? {}
+                : { routerAttachTimeout: options.attachTimeout }),
             }),
           ),
         ),
@@ -576,12 +624,11 @@ function pump(
   });
 }
 
-function certifyGenesis(harness: ProtocolHarness): Effect.Effect<void> {
+function certifyGenesisOf(
+  harness: ProtocolHarness,
+  sending: Fiber.RuntimeFiber<void, SendError>,
+): Effect.Effect<void> {
   return Effect.gen(function* () {
-    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
-    const sending = yield* Effect.fork(
-      author.send(yield* sendInput(harness, "open group")),
-    );
     const initial = yield* takeReadyBatch(harness);
     const proposalMessage = yield* requireAt(initial, 0, "genesis proposal");
     const proposal = yield* decodeActionProposal(proposalMessage);
@@ -598,6 +645,16 @@ function certifyGenesis(harness: ProtocolHarness): Effect.Effect<void> {
       recoveries.map(({ certifiedRecords }) => certifiedRecords.length),
     ).toEqual([1, 1, 1, 1]);
     yield* Fiber.join(sending).pipe(Effect.timeout("1 second"), Effect.orDie);
+  });
+}
+
+function certifyGenesis(harness: ProtocolHarness): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const sending = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "open group")),
+    );
+    yield* certifyGenesisOf(harness, sending);
   });
 }
 
@@ -1092,12 +1149,13 @@ function retainsInterruptedDurableSend() {
       Effect.gen(function* () {
         const policyEntered = yield* Deferred.make<undefined>();
         const releasePolicy = yield* Deferred.make<undefined>();
-        const harness = yield* makeProtocolHarness(() =>
-          Deferred.succeed(policyEntered, undefined).pipe(
-            Effect.zipRight(Deferred.await(releasePolicy)),
-            Effect.as("sign" as const),
-          ),
-        );
+        const harness = yield* makeProtocolHarness({
+          actionPolicy: () =>
+            Deferred.succeed(policyEntered, undefined).pipe(
+              Effect.zipRight(Deferred.await(releasePolicy)),
+              Effect.as("sign" as const),
+            ),
+        });
         const author = yield* requireAt(harness.engines, 0, "endpoint engine");
         const sending = yield* Effect.fork(
           author.send(yield* sendInput(harness, "retained send")),
@@ -1171,3 +1229,88 @@ describe("fixed-post endpoint protocol", () => {
 });
 
 /* eslint-enable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- Restore repository defaults. */
+
+function sendHeldUntilAttached(): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    const attached = yield* Deferred.make<RouterTailAnchor>();
+    const harness = yield* makeProtocolHarness({
+      attachment: attachesWhenResolved(attached),
+    });
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const sending = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "open group")),
+    );
+    yield* Effect.sleep("50 millis");
+    expect(yield* Fiber.poll(sending)).toEqual(Option.none());
+    expect(yield* Queue.size(harness.outbound)).toBe(0);
+
+    yield* Deferred.succeed(attached, { routerInstanceId, pollCursor });
+    yield* certifyGenesisOf(harness, sending);
+  });
+}
+
+function sendFailsAfterAttachBound(): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness({
+      attachment: neverAttaches,
+      attachTimeout: Duration.millis(50),
+    });
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const failure = yield* author
+      .send(yield* sendInput(harness, "never attached"))
+      .pipe(Effect.flip, Effect.orDie);
+    expect(failure).toStrictEqual(
+      new SendError({ reason: "network-unavailable" }),
+    );
+    expect(failure.message).toContain(failure.reason);
+  });
+}
+
+function attachmentWaitLeavesTheEngineGateFree(): Effect.Effect<
+  void,
+  never,
+  Scope.Scope
+> {
+  return Effect.gen(function* () {
+    const attached = yield* Deferred.make<RouterTailAnchor>();
+    const harness = yield* makeProtocolHarness({
+      attachment: attachesWhenResolved(attached),
+    });
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const sending = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "open group")),
+    );
+    yield* Effect.sleep("50 millis");
+    expect(yield* Fiber.poll(sending)).toEqual(Option.none());
+
+    // A worker reaches `active` only after a recovery that abandons the
+    // engine's volatile folds under the engine gate. A wait holding that gate
+    // would stall the attachment it waits for, so this must complete while
+    // the send above is still parked.
+    yield* author
+      .abandonVolatileFolds("router_restarted")
+      .pipe(Effect.timeout("2 seconds"), Effect.orDie);
+    yield* Fiber.interrupt(sending);
+  });
+}
+
+describe("engine sends and Router-worker attachment", () => {
+  it(
+    "holds a send issued before the worker attaches and completes it on attachment",
+    () => Effect.runPromise(Effect.scoped(sendHeldUntilAttached())),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "fails a send as network-unavailable once the attachment bound elapses",
+    () => Effect.runPromise(Effect.scoped(sendFailsAfterAttachBound())),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "waits for attachment without holding the engine gate recovery needs",
+    () =>
+      Effect.runPromise(Effect.scoped(attachmentWaitLeavesTheEngineGateFree())),
+    TEST_TIMEOUT_MS,
+  );
+});

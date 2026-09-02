@@ -11,7 +11,16 @@ import {
   type RouterSendResult,
   SignedMessageDigest,
 } from "@moltzap/router";
-import { Deferred, Effect, Encoding, Fiber, Layer, Ref, Schema } from "effect";
+import {
+  Deferred,
+  Effect,
+  Encoding,
+  Fiber,
+  Layer,
+  Option,
+  Ref,
+  Schema,
+} from "effect";
 import { createHash } from "node:crypto";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests own isolated real-SQLite directories around scoped store acquisition.
 import { mkdtempSync, rmSync } from "node:fs";
@@ -1121,6 +1130,36 @@ const coldStartRecoversBeforeActivation = async (): Promise<void> => {
   );
 };
 
+const awaitAnchorResolvesOnActivation = async (): Promise<void> => {
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const instance = routerInstanceId(101);
+      const router = yield* makeScriptedRouter({
+        polls: [emptyBatch(instance, pollCursor(19))],
+        fallbackPoll: Effect.never,
+      });
+      const worker = yield* provide(
+        makeRouterWorker(makeInput(fixture, callbacks())),
+        router.layer,
+        fixture,
+      );
+
+      const attached = {
+        routerInstanceId: instance,
+        pollCursor: pollCursor(19),
+      };
+      const waiting = yield* Effect.fork(worker.awaitAnchor);
+      expect(yield* Fiber.poll(waiting)).toEqual(Option.none());
+
+      yield* provide(worker.pollOnce, router.layer, fixture);
+
+      expect(yield* Fiber.join(waiting)).toEqual(attached);
+      expect(yield* worker.awaitAnchor).toEqual(attached);
+    }),
+  );
+};
+
 // @agent-code-guard/regression-only: these scenarios pin the endpoint cursor and recovery safety boundary.
 describe("private Router worker", () => {
   it("requires the decoder for the declared payload type", () => {
@@ -1186,6 +1225,10 @@ describe("private Router worker", () => {
   it(
     "authenticates pinned history senders while Registry is unavailable",
     pinnedCardsSurviveRegistryOutage,
+  );
+  it(
+    "answers awaitAnchor once cold-start recovery activates the worker",
+    awaitAnchorResolvesOnActivation,
   );
 });
 

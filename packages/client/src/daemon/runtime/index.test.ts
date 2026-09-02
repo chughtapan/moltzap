@@ -415,6 +415,7 @@ function makeWorker(
     Effect.zipRight(Effect.fail(new RouterWorkerTransportError())),
   );
   return {
+    awaitAnchor: outsideRuntimeTest(),
     currentAnchor: outsideRuntimeTest(),
     pollOnce: outsideRuntimeTest(),
     run: background === "worker" ? failure : Effect.never,
