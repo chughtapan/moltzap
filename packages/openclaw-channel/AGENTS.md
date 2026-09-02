@@ -16,7 +16,7 @@ The source under this package is the final cutover adapter against the reduced
 `HarnessEndpoint`. Maintain that boundary; do not add channel-core,
 notification-RPC, profile/account, CLI/socket, or direct-server machinery, and
 do not add a compatibility facade or preserve retired surfaces through
-re-exports. Publication and version policy remain separate release decisions.
+re-exports. Publication follows `docs/decisions/20260901-six-packages-publish-as-one-version-set.md`: this package publishes in the one-version set.
 
 ## Host integration law
 

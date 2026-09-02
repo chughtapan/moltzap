@@ -1,50 +1,83 @@
 /**
- * @file Workspace writer for the generator-owned Mintlify navigation slice.
+ * @file Workspace writer for the generator-owned Mintlify navigation group.
  *
- * Emits `docs/modules/_nav.json` containing the Modules group with
- * one entry per generated MDX page. `docs/docs.json` references this
- * file once via `{ "$ref": "./modules/_nav.json" }`; Mintlify resolves
- * the reference at build time.
+ * Mintlify resolves no file references inside `docs/docs.json`, so the
+ * Modules group is written into that file in place: one entry per generated
+ * MDX page, sorted, so the navigation and the pages it names come from the
+ * same generator run and `docs:check:drift` catches either one moving alone.
  */
 import { FileSystem } from "@effect/platform";
-import { Effect, String as StringOps } from "effect";
-import { dirname } from "node:path";
+import { Effect, Schema, String as StringOps } from "effect";
 
-interface MintlifyGroup {
-  readonly group: string;
-  readonly pages: readonly string[];
-}
+const MODULES_GROUP = "Modules";
+
+const navigationGroup = Schema.Struct({
+  group: Schema.String,
+  pages: Schema.Array(Schema.Unknown),
+});
+
+/** The one shape the writer relies on; every other key passes through. */
+const docsConfig = Schema.parseJson(
+  Schema.Struct({
+    navigation: Schema.Struct({
+      tabs: Schema.Array(
+        Schema.Struct({
+          tab: Schema.String,
+          groups: Schema.Array(navigationGroup),
+        }),
+      ),
+    }),
+  }),
+);
 
 /**
- * Write the Modules navigation group to the given absolute path.
- * Pages are sorted lexically and emitted with stable 2-space indent +
- * LF line endings so the file stays diff-stable across runs.
- * @param absolutePath Value supplied to the operation.
- * @param pageSlugs Value supplied to the operation.
+ * Write the Modules navigation group into the first tab of `docs.json`,
+ * replacing an existing group of that name or appending one. Pages are
+ * emitted sorted with a stable 2-space indent and LF endings so the file
+ * stays diff-stable across runs.
+ * @param docsJsonPath Absolute path of `docs/docs.json`.
+ * @param pageSlugs Generated page slugs relative to `docs/modules/`.
  * @returns The write modules nav result.
  */
 export const writeModulesNav = (
-  absolutePath: string,
+  docsJsonPath: string,
   pageSlugs: readonly string[],
 ): Effect.Effect<void, never, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const group: MintlifyGroup = {
-      group: "Modules",
+    const source = yield* fs.readFileString(docsJsonPath).pipe(Effect.orDie);
+    const parsed = yield* Schema.decodeUnknown(docsConfig)(source).pipe(
+      Effect.orDie,
+    );
+    const modules = {
+      group: MODULES_GROUP,
       pages: [...pageSlugs]
         .map((slug) => `modules/${slug}`)
         .sort((left, right) => StringOps.localeCompare(right)(left)),
     };
-    const json = `${JSON.stringify(group, null, 2)}\n`;
-    const dir = dirname(absolutePath);
-    yield* fs
-      .makeDirectory(dir, { recursive: true })
-      .pipe(Effect.catchAll(() => Effect.void));
-    const tmp = `${absolutePath}.tmp.${process.pid}`;
-    yield* fs
-      .writeFileString(tmp, json)
-      .pipe(Effect.catchAll(() => Effect.void));
-    yield* fs
-      .rename(tmp, absolutePath)
-      .pipe(Effect.catchAll(() => Effect.void));
+    const [firstTab, ...otherTabs] = parsed.navigation.tabs;
+    if (firstTab === undefined) {
+      return yield* Effect.dieMessage(`${docsJsonPath} has no navigation tab`);
+    }
+    const groups = firstTab.groups.some(
+      (group) => group.group === MODULES_GROUP,
+    )
+      ? firstTab.groups.map((group) =>
+          group.group === MODULES_GROUP ? modules : group,
+        )
+      : [...firstTab.groups, modules];
+    const updated = {
+      ...(JSON.parse(source) as Record<string, unknown>),
+      navigation: {
+        ...parsed.navigation,
+        tabs: [{ ...firstTab, groups }, ...otherTabs],
+      },
+    };
+    const json = `${JSON.stringify(updated, null, 2)}\n`;
+    if (json === source) {
+      return;
+    }
+    const tmp = `${docsJsonPath}.tmp.${process.pid}`;
+    yield* fs.writeFileString(tmp, json).pipe(Effect.orDie);
+    yield* fs.rename(tmp, docsJsonPath).pipe(Effect.orDie);
   }).pipe(Effect.withSpan("writeModulesNav"));

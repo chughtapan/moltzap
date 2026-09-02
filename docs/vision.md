@@ -1,29 +1,31 @@
-# MoltZap v2 — vision and constitution
+# MoltZap — vision and constitution
 
-Status: APPROVED FOR FOUR-LAYER CUTOVER
+Status: the constitution of the four-layer harness on `main`.
 
-Current cutover decisions:
+Current decisions:
 the current manifest and explicitly retained four-layer outcome in
-[`20260811-four-layer-endpoint-replicated-harness.md`](../docs/decisions/20260811-four-layer-endpoint-replicated-harness.md),
-[`20260827-addressed-messaging-replaces-openfloor.md`](../docs/decisions/20260827-addressed-messaging-replaces-openfloor.md),
-[`20260828-hosts-own-send-retry-policy.md`](../docs/decisions/20260828-hosts-own-send-retry-policy.md),
-[`20260828-action-signatures-follow-router-order.md`](../docs/decisions/20260828-action-signatures-follow-router-order.md),
-[`20260828-channel-adapters-use-stock-host-apis.md`](../docs/decisions/20260828-channel-adapters-use-stock-host-apis.md),
+[`20260811-four-layer-endpoint-replicated-harness.md`](decisions/20260811-four-layer-endpoint-replicated-harness.md),
+[`20260827-addressed-messaging-replaces-openfloor.md`](decisions/20260827-addressed-messaging-replaces-openfloor.md),
+[`20260828-hosts-own-send-retry-policy.md`](decisions/20260828-hosts-own-send-retry-policy.md),
+[`20260828-action-signatures-follow-router-order.md`](decisions/20260828-action-signatures-follow-router-order.md),
+[`20260828-channel-adapters-use-stock-host-apis.md`](decisions/20260828-channel-adapters-use-stock-host-apis.md),
 the explicitly retained Client ownership, persistence, recovery, management,
 catch-up, re-anchor, and daemon-configuration scope in
-[`20260813-client-protocol-and-attention.md`](../docs/decisions/20260813-client-protocol-and-attention.md),
-and
-[`20260813-simulator-link-faults-perturb-delivery.md`](../docs/decisions/20260813-simulator-link-faults-perturb-delivery.md).
+[`20260813-client-protocol-and-attention.md`](decisions/20260813-client-protocol-and-attention.md),
+[`20260813-simulator-link-faults-perturb-delivery.md`](decisions/20260813-simulator-link-faults-perturb-delivery.md),
+and the publication set in
+[`20260901-six-packages-publish-as-one-version-set.md`](decisions/20260901-six-packages-publish-as-one-version-set.md).
 
 Decision provenance:
-[`20260811-four-layer-v2-cutover-trajectory.md`](../docs/decision-evidence/20260811-four-layer-v2-cutover-trajectory.md),
-[`20260813-client-protocol-and-attention-trajectory.md`](../docs/decision-evidence/20260813-client-protocol-and-attention-trajectory.md),
-[`20260827-addressed-messaging-trajectory.md`](../docs/decision-evidence/20260827-addressed-messaging-trajectory.md),
-[`20260828-host-owned-retry-policy-source-gap.md`](../docs/decision-evidence/20260828-host-owned-retry-policy-source-gap.md),
-[`20260828-router-ordered-action-signatures-source-gap.md`](../docs/decision-evidence/20260828-router-ordered-action-signatures-source-gap.md),
-[`20260828-stock-host-adapter-source-gap.md`](../docs/decision-evidence/20260828-stock-host-adapter-source-gap.md),
+[`20260811-four-layer-v2-cutover-trajectory.md`](decision-evidence/20260811-four-layer-v2-cutover-trajectory.md),
+[`20260813-client-protocol-and-attention-trajectory.md`](decision-evidence/20260813-client-protocol-and-attention-trajectory.md),
+[`20260827-addressed-messaging-trajectory.md`](decision-evidence/20260827-addressed-messaging-trajectory.md),
+[`20260828-host-owned-retry-policy-source-gap.md`](decision-evidence/20260828-host-owned-retry-policy-source-gap.md),
+[`20260828-router-ordered-action-signatures-source-gap.md`](decision-evidence/20260828-router-ordered-action-signatures-source-gap.md),
+[`20260828-stock-host-adapter-source-gap.md`](decision-evidence/20260828-stock-host-adapter-source-gap.md),
+[`20260813-simulator-link-fault-ordering-trajectory.md`](decision-evidence/20260813-simulator-link-fault-ordering-trajectory.md),
 and
-[`20260813-simulator-link-fault-ordering-trajectory.md`](../docs/decision-evidence/20260813-simulator-link-fault-ordering-trajectory.md).
+[`20260901-publication-set-trajectory.md`](decision-evidence/20260901-publication-set-trajectory.md).
 
 ## Problem
 
@@ -77,26 +79,24 @@ public interface is incomplete.
 
 ## Authority
 
-Read v2 sources in this order:
+Read sources in this order:
 
 1. `AGENTS.md` and this constitution;
 2. current ADR outcomes in `docs/decisions/`, including explicitly retained
    portions of partially superseded records;
 3. normative chapters in `docs/spec/`;
 4. orientation and execution material in `docs/architecture/`; and
-5. provenance and historical input in `docs/decision-evidence/`, `v2/inputs/`,
-   and `v2/drafts/`.
+5. provenance and historical input in `docs/decision-evidence/`, including
+   its `inputs/` and `drafts/` directories.
 
 A binding decision is checked into this chain. Chat, issues, execution
 handoffs, and agent-private state are not implementation authority. Questions
 listed as deliberate deferrals remain questions even when an earlier package
 happens to expose an answer.
 
-The long-lived cutover branch integrates the accepted PR #974 state and its
-pinned `main` base once. Routine `main`-to-cutover merges then stop. Later v1
-fixes move only by deliberate port so the replacement cannot silently regain a
-retired contract. npm continues publishing from `main` until publication and
-release cutover are separately admitted.
+`main` is the only track. The four-layer harness replaced the v1 stack there,
+and the six published packages release from `main` through the workflow the
+publication record names.
 
 ## The constitution
 
@@ -366,10 +366,12 @@ The cutover finishes with exactly seven products under `packages/*`:
 | `@moltzap/evals` | Evaluations, grading, reports | client, simulator |
 
 There are no compatibility package names or forwarding exports. Identity and
-Router move from their accepted `v2/*` implementations into final homes.
-Client replaces the transitional v1 client. Protocol, server, central Ledger,
-profile, CLI/socket, obsolete v2 implementation, and standalone testbed code
-are deleted as their final owners become usable.
+Router live in their final homes, Client replaced the transitional v1 client,
+and the protocol, server, central Ledger, profile, CLI/socket, interim `v2/*`
+implementation, and standalone testbed code are deleted. Six of the seven
+packages publish to npm as one version set and `@moltzap/evals` stays private,
+as `20260901-six-packages-publish-as-one-version-set.md` records; the package
+version is independent of the wire compatibility value.
 
 The simulation `RunLedger` remains run evidence. Its name does not reintroduce
 a product Ledger or a privileged view of private conversation history.
@@ -384,17 +386,16 @@ the control path and no production package gains a hook or alternate service.
 
 An implementation must not answer these choices accidentally:
 
-1. Which of the seven products publish and whether publication uses one
-   compatibility version or independent package versions.
-2. Dynamic membership, pruning and garbage collection, encryption, public
+1. Dynamic membership, pruning and garbage collection, encryption, public
    observers, malicious or replicated Registry/Router profiles, richer norm
    vocabularies, dispute protocols, and cross-history audit conventions.
-3. Fragmentation or a larger resource profile, richer task action mapping,
+2. Fragmentation or a larger resource profile, richer task action mapping,
    remote administration, and mutable or named groups.
 
 Identity and Router relocation, final package naming, removal of superseded
 Ledger/profile/testbed scaffolds, and graph/tooling cutover do not decide these
-questions. The Client protocol and Simulator compatibility cuts are current
+questions. Publication membership and version policy were deliberate deferrals
+until `20260901-six-packages-publish-as-one-version-set.md` selected them. The Client protocol and Simulator compatibility cuts are current
 decisions, not deferrals. Simulator removes content-free open, unaddressed
 send, message-only receive, runtime Router authority, and persisted
 Router-order claims; it does not preserve them through inert fields or
@@ -418,7 +419,7 @@ The current replacement ADRs own their binding outcomes, supersession map,
 stable trace rows, assumptions, and deferrals. Prior records remain visible
 for history; their Supersession sections identify what still binds.
 
-Execution proceeds in dependency order:
+Execution proceeded in dependency order:
 
 1. freeze this authority candidate and pass the isolated six-question blind
    review;
@@ -432,7 +433,7 @@ Execution proceeds in dependency order:
    non-conflicting behavior, deleting the five incompatible contracts, and
    placing explicitly activated link faults at the private post-Router
    delivery boundary;
-7. delete every displaced implementation and compatibility surface; and
+7. delete every displaced implementation and compatibility surface;
 8. pass full Nx, protocol, fault, recovery, MCP, adapter, simulator,
-   packaging, documentation, provenance, and absence gates before release
-   cutover.
+   packaging, documentation, provenance, and absence gates; and
+9. land the replacement on `main` and admit the publication set.

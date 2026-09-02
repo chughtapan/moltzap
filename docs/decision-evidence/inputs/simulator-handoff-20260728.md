@@ -3,10 +3,10 @@
 Status: pending upstream landing
 
 Decision owner:
-[`20260728-simulator-is-the-system-driver.md`](../../docs/decisions/20260728-simulator-is-the-system-driver.md)
+[`20260728-simulator-is-the-system-driver.md`](../../decisions/20260728-simulator-is-the-system-driver.md)
 
 Execution owner:
-[`docs/architecture/first-implementation.md`](../../docs/architecture/first-implementation.md)
+[`docs/architecture/first-implementation.md`](../../architecture/first-implementation.md)
 
 ## Purpose
 

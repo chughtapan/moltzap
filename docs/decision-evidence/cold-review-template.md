@@ -68,7 +68,7 @@ with an author hint.
 The six questions are **not** restated here. They live in
 `.claude/skills/cold-read/references/questions.md`, which is their normative
 owner. A second copy would drift, and the drift would be invisible — the
-same failure that stopped `AGENTS.md` paraphrasing `v2/VISION.md`.
+same failure that stopped `AGENTS.md` paraphrasing `docs/vision.md`.
 
 Record one section per question, numbered 1 to 6, each carrying the
 reviewer's unedited answer and the paths and headings it independently

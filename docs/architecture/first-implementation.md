@@ -1,6 +1,6 @@
 # Four-layer cutover implementation order
 
-This is execution orientation. `v2/VISION.md`, current ADR outcomes, and
+This is execution orientation. `docs/vision.md`, current ADR outcomes, and
 `docs/spec/` decide behavior.
 
 ## Constraints on every lane

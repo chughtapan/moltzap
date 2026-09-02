@@ -16,7 +16,7 @@ product dependency graph and imports no other workspace package.
 
 ## Public surface
 
-### [`AgentCard (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/agent-card.ts#L145)
+### [`AgentCard (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-card.ts#L145)
 
 _Interface_
 
@@ -32,7 +32,7 @@ export interface AgentCard {
 
 Immutable public identity fields carried by an AgentCard.
 
-### [`AgentCard (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/agent-card.ts#L440)
+### [`AgentCard (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-card.ts#L440)
 
 _Variable_
 
@@ -47,7 +47,7 @@ export const AgentCard = Object.assign(agentCardSchema, {
 
 Verifies immutable Registry attestation without exposing JOSE mechanics.
 
-### [`AgentCardDigest (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/agent-card.ts#L62)
+### [`AgentCardDigest (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-card.ts#L62)
 
 _TypeAlias_
 
@@ -57,7 +57,7 @@ export type AgentCardDigest = typeof AgentCardDigest.Type;
 
 Validated nominal value decoded by AgentCardDigest.
 
-### [`AgentCardDigest (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/agent-card.ts#L55)
+### [`AgentCardDigest (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-card.ts#L55)
 
 _Variable_
 
@@ -71,7 +71,7 @@ export const AgentCardDigest = canonicalIdentifier(
 
 Digest binding a message to one complete immutable AgentCard.
 
-### [`AgentCardVerificationError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/agent-card.ts#L284)
+### [`AgentCardVerificationError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-card.ts#L284)
 
 _Class_
 
@@ -83,7 +83,7 @@ export class AgentCardVerificationError extends Data.TaggedError(
 
 A parsed AgentCard does not verify against the pinned Registry signer.
 
-### [`AgentId (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/identifiers.ts#L73)
+### [`AgentId (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/identifiers.ts#L73)
 
 _TypeAlias_
 
@@ -93,7 +93,7 @@ export type AgentId = typeof AgentId.Type;
 
 Validated nominal value decoded by AgentId.
 
-### [`AgentId (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/identifiers.ts#L67)
+### [`AgentId (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/identifiers.ts#L67)
 
 _Variable_
 
@@ -107,7 +107,7 @@ export const AgentId = canonicalIdentifier(
 
 Canonical network identity minted by the Registry.
 
-### [`AgentName (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/identifiers.ts#L96)
+### [`AgentName (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/identifiers.ts#L96)
 
 _TypeAlias_
 
@@ -117,7 +117,7 @@ export type AgentName = typeof AgentName.Type;
 
 Validated nominal value decoded by AgentName.
 
-### [`AgentName (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/identifiers.ts#L85)
+### [`AgentName (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/identifiers.ts#L85)
 
 _Variable_
 
@@ -136,7 +136,7 @@ export const AgentName = Schema.String.pipe(
 
 Immutable Registry-wide human-facing agent handle.
 
-### [`AgentSigningAuthority (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/agent-key.ts#L274)
+### [`AgentSigningAuthority (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L274)
 
 _Interface_
 
@@ -148,7 +148,7 @@ export interface AgentSigningAuthority {
 
 Opaque authority over one imported Ed25519 private key.
 
-### [`AgentSigningAuthority (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/agent-key.ts#L361)
+### [`AgentSigningAuthority (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L361)
 
 _Variable_
 
@@ -162,7 +162,7 @@ export const AgentSigningAuthority = Object.freeze({
 Loads and identifies one Ed25519 signing authority without exposing its
 private key or a generic signing operation.
 
-### [`AgentSigningError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/http-signature.ts#L31)
+### [`AgentSigningError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/http-signature.ts#L31)
 
 _Class_
 
@@ -172,7 +172,7 @@ export class AgentSigningError extends Data.TaggedError("AgentSigningError") {}
 
 An agent-owned HTTP request could not be signed.
 
-### [`AuthenticatedHttp`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/authenticated-http.ts#L57)
+### [`AuthenticatedHttp`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/authenticated-http.ts#L57)
 
 _Class_
 
@@ -205,7 +205,7 @@ export class AuthenticatedHttp extends Context.Tag(
 
 Registered-agent request signing and verification.
 
-### [`AuthenticationFailedError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/http-errors.ts#L12)
+### [`AuthenticationFailedError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/http-errors.ts#L12)
 
 _Class_
 
@@ -218,7 +218,7 @@ export class AuthenticationFailedError extends Schema.TaggedError<Authentication
 
 The request does not prove the required identity or admission authority.
 
-### [`Ed25519PublicKey (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/agent-key.ts#L240)
+### [`Ed25519PublicKey (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L240)
 
 _TypeAlias_
 
@@ -228,7 +228,7 @@ export type Ed25519PublicKey = typeof Ed25519PublicKey.Type;
 
 Validated immutable Ed25519 public JWK.
 
-### [`Ed25519PublicKey (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/agent-key.ts#L209)
+### [`Ed25519PublicKey (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L209)
 
 _Variable_
 
@@ -265,7 +265,7 @@ export const Ed25519PublicKey = Schema.transform(
 
 Exact immutable Ed25519 public JWK.
 
-### [`InternalServerError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/http-errors.ts#L60)
+### [`InternalServerError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/http-errors.ts#L60)
 
 _Class_
 
@@ -278,7 +278,7 @@ export class InternalServerError extends Schema.TaggedError<InternalServerError>
 
 An unexpected implementation failure prevented a closed result.
 
-### [`InvalidAgentPrivateKeyError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/agent-key.ts#L279)
+### [`InvalidAgentPrivateKeyError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L279)
 
 _Class_
 
@@ -290,7 +290,7 @@ export class InvalidAgentPrivateKeyError extends Data.TaggedError(
 
 The supplied private-key material cannot act as an Ed25519 signer.
 
-### [`MalformedRequestError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/http-errors.ts#L6)
+### [`MalformedRequestError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/http-errors.ts#L6)
 
 _Class_
 
@@ -303,7 +303,7 @@ export class MalformedRequestError extends Schema.TaggedError<MalformedRequestEr
 
 The request representation is not valid for the selected operation.
 
-### [`MessageId (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/signed-message.ts#L40)
+### [`MessageId (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L40)
 
 _TypeAlias_
 
@@ -313,7 +313,7 @@ export type MessageId = typeof MessageId.Type;
 
 Validated nominal value decoded by MessageId.
 
-### [`MessageId (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/signed-message.ts#L37)
+### [`MessageId (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L37)
 
 _Variable_
 
@@ -323,7 +323,7 @@ export const MessageId = canonicalIdentifier("MessageId", "msg_", 16)
 
 Sender-scoped identity of one attributed message.
 
-### [`MethodNotAllowedError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/http-errors.ts#L24)
+### [`MethodNotAllowedError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/http-errors.ts#L24)
 
 _Class_
 
@@ -336,7 +336,7 @@ export class MethodNotAllowedError extends Schema.TaggedError<MethodNotAllowedEr
 
 The selected route does not accept the request method.
 
-### [`MOLTZAP_VERSION`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/version.ts#L4)
+### [`MOLTZAP_VERSION`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/version.ts#L4)
 
 _Variable_
 
@@ -346,7 +346,7 @@ export const MOLTZAP_VERSION = "2026.827.1"
 
 Sole compatibility value for MoltZap-owned network boundaries.
 
-### [`OverloadedError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/http-errors.ts#L48)
+### [`OverloadedError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/http-errors.ts#L48)
 
 _Class_
 
@@ -359,7 +359,7 @@ export class OverloadedError extends Schema.TaggedError<OverloadedError>()(
 
 A finite immediate resource permit is unavailable.
 
-### [`PayloadTooLargeError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/http-errors.ts#L36)
+### [`PayloadTooLargeError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/http-errors.ts#L36)
 
 _Class_
 
@@ -372,7 +372,7 @@ export class PayloadTooLargeError extends Schema.TaggedError<PayloadTooLargeErro
 
 The received body exceeds the selected route's derived representation cap.
 
-### [`PrincipalId (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/identifiers.ts#L82)
+### [`PrincipalId (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/identifiers.ts#L82)
 
 _TypeAlias_
 
@@ -382,7 +382,7 @@ export type PrincipalId = typeof PrincipalId.Type;
 
 Validated nominal value decoded by PrincipalId.
 
-### [`PrincipalId (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/identifiers.ts#L76)
+### [`PrincipalId (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/identifiers.ts#L76)
 
 _Variable_
 
@@ -396,7 +396,7 @@ export const PrincipalId = canonicalIdentifier(
 
 Opaque identity of the principal represented by an agent.
 
-### [`RouteNotFoundError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/http-errors.ts#L18)
+### [`RouteNotFoundError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/http-errors.ts#L18)
 
 _Class_
 
@@ -409,7 +409,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SignedMessage (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/signed-message.ts#L154)
+### [`SignedMessage (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L154)
 
 _Interface_
 
@@ -425,7 +425,7 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/signed-message.ts#L469)
+### [`SignedMessage (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L469)
 
 _Variable_
 
@@ -446,7 +446,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
 
 Opaque attributed message operations and exact representation Schema.
 
-### [`SignedMessageSigningError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/signed-message.ts#L298)
+### [`SignedMessageSigningError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L298)
 
 _Class_
 
@@ -458,7 +458,7 @@ export class SignedMessageSigningError extends Data.TaggedError(
 
 A message cannot be signed under the supplied immutable identity.
 
-### [`SignedMessageVerificationError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/signed-message.ts#L303)
+### [`SignedMessageVerificationError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L303)
 
 _Class_
 
@@ -470,7 +470,7 @@ export class SignedMessageVerificationError extends Data.TaggedError(
 
 A SignedMessage does not bind to the supplied verified AgentCard.
 
-### [`UnavailableError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/http-errors.ts#L54)
+### [`UnavailableError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/http-errors.ts#L54)
 
 _Class_
 
@@ -483,7 +483,7 @@ export class UnavailableError extends Schema.TaggedError<UnavailableError>()(
 
 A required service or durable operation cannot currently complete.
 
-### [`UnsupportedMediaTypeError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/http-errors.ts#L42)
+### [`UnsupportedMediaTypeError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/http-errors.ts#L42)
 
 _Class_
 
@@ -496,7 +496,7 @@ export class UnsupportedMediaTypeError extends Schema.TaggedError<UnsupportedMed
 
 The selected route cannot consume the request content framing.
 
-### [`VerifiedAgentCard`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/agent-card.ts#L269)
+### [`VerifiedAgentCard`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-card.ts#L269)
 
 _TypeAlias_
 
@@ -506,7 +506,7 @@ export type VerifiedAgentCard = AgentCard & Brand.Brand<"VerifiedAgentCard">;
 
 AgentCard verified against a deployment-pinned Registry signer.
 
-### [`VerifiedAgentRequest`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/authenticated-http.ts#L35)
+### [`VerifiedAgentRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/authenticated-http.ts#L35)
 
 _TypeAlias_
 
@@ -521,7 +521,7 @@ export type VerifiedAgentRequest = Readonly<{
 
 Request body and caller identity established by AuthenticatedHttp.
 
-### [`VerifiedSignedMessage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/signed-message.ts#L292)
+### [`VerifiedSignedMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L292)
 
 _TypeAlias_
 
@@ -532,7 +532,7 @@ export type VerifiedSignedMessage = SignedMessage &
 
 SignedMessage whose sender attribution and signature are verified.
 
-### [`VersionMismatchError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/http-errors.ts#L30)
+### [`VersionMismatchError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/http-errors.ts#L30)
 
 _Class_
 
@@ -549,7 +549,7 @@ The request carries a different MoltZap compatibility value.
 
 ### `@moltzap/identity/registry`
 
-#### [`Registry`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry.ts#L24)
+#### [`Registry`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry.ts#L24)
 
 _Class_
 
@@ -584,7 +584,7 @@ export class Registry extends Context.Tag("@moltzap/identity/Registry")<
 
 Bootstrap registration and immutable identity resolution.
 
-#### [`RegistryConnectionError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/contract.ts#L27)
+#### [`RegistryConnectionError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/contract.ts#L27)
 
 _Class_
 
@@ -596,7 +596,7 @@ export class RegistryConnectionError extends Data.TaggedError(
 
 The Registry connection could not be established or used.
 
-#### [`RegistryInvalidResponseError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/contract.ts#L37)
+#### [`RegistryInvalidResponseError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/contract.ts#L37)
 
 _Class_
 
@@ -608,7 +608,7 @@ export class RegistryInvalidResponseError extends Data.TaggedError(
 
 A Registry response did not match the selected operation contract.
 
-#### [`RegistryRequestTimeoutError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/contract.ts#L32)
+#### [`RegistryRequestTimeoutError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/contract.ts#L32)
 
 _Class_
 
@@ -620,7 +620,7 @@ export class RegistryRequestTimeoutError extends Data.TaggedError(
 
 The configured complete Registry call deadline expired.
 
-#### [`OperationId (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/contract.ts#L24)
+#### [`OperationId (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/contract.ts#L24)
 
 _TypeAlias_
 
@@ -630,7 +630,7 @@ export type OperationId = typeof OperationId.Type;
 
 Validated nominal value decoded by OperationId.
 
-#### [`RegistryListRequest (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/contract.ts#L84)
+#### [`RegistryListRequest (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/contract.ts#L84)
 
 _TypeAlias_
 
@@ -640,7 +640,7 @@ export type RegistryListRequest = typeof RegistryListRequest.Type;
 
 Validated Registry list continuation request.
 
-#### [`RegistryListResult`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/contract.ts#L99)
+#### [`RegistryListResult`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/contract.ts#L99)
 
 _TypeAlias_
 
@@ -654,7 +654,7 @@ export type RegistryListResult = Readonly<{
 
 One deterministic page of complete immutable AgentCards.
 
-#### [`RegistryLookupRequest (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/contract.ts#L75)
+#### [`RegistryLookupRequest (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/contract.ts#L75)
 
 _TypeAlias_
 
@@ -664,7 +664,7 @@ export type RegistryLookupRequest = typeof RegistryLookupRequest.Type;
 
 Validated Registry lookup selector.
 
-#### [`RegistryLookupResult`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/contract.ts#L94)
+#### [`RegistryLookupResult`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/contract.ts#L94)
 
 _TypeAlias_
 
@@ -676,7 +676,7 @@ export type RegistryLookupResult =
 
 Closed domain outcome from one public identity lookup.
 
-#### [`RegistryRegisterRequest (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/contract.ts#L59)
+#### [`RegistryRegisterRequest (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/contract.ts#L59)
 
 _TypeAlias_
 
@@ -686,7 +686,7 @@ export type RegistryRegisterRequest = typeof RegistryRegisterRequest.Type;
 
 Validated Registry bootstrap registration request.
 
-#### [`RegistryRegisterResult`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/contract.ts#L87)
+#### [`RegistryRegisterResult`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/contract.ts#L87)
 
 _TypeAlias_
 
@@ -700,7 +700,7 @@ export type RegistryRegisterResult =
 
 Closed domain outcome from one bootstrap registration attempt.
 
-#### [`OperationId (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/contract.ts#L21)
+#### [`OperationId (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/contract.ts#L21)
 
 _Variable_
 
@@ -710,7 +710,7 @@ export const OperationId = canonicalIdentifier("OperationId", "opn_", 16)
 
 Idempotency identity for a registration operation.
 
-#### [`RegistryListRequest (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/contract.ts#L79)
+#### [`RegistryListRequest (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/contract.ts#L79)
 
 _Variable_
 
@@ -722,7 +722,7 @@ export const RegistryListRequest = exactStruct({
 
 Closed Registry list continuation request.
 
-#### [`RegistryLookupRequest (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/contract.ts#L63)
+#### [`RegistryLookupRequest (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/contract.ts#L63)
 
 _Variable_
 
@@ -741,7 +741,7 @@ export const RegistryLookupRequest = Schema.Union(
 
 Closed Registry lookup selector.
 
-#### [`RegistryRegisterRequest (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/contract.ts#L51)
+#### [`RegistryRegisterRequest (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/contract.ts#L51)
 
 _Variable_
 
@@ -758,7 +758,7 @@ Closed Registry bootstrap registration request.
 
 ### `@moltzap/identity/registry/server`
 
-#### [`StartupError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/server.ts#L142)
+#### [`StartupError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/server.ts#L142)
 
 _Class_
 
@@ -772,7 +772,7 @@ export class StartupError extends Data.TaggedError(
 
 Closed Registry startup failure.
 
-#### [`layer`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/identity/src/registry/server.ts#L182)
+#### [`layer`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/registry/server.ts#L182)
 
 _Variable_
 

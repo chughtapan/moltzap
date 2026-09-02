@@ -1,9 +1,9 @@
 # moltzap — agent instructions
 
 Every `CLAUDE.md` is a symlink to the `AGENTS.md` beside it. `packages/*/AGENTS.md` adds
-package specifics; `v2/AGENTS.md` adds cutover-track rules. Scoped instructions
-refine this file and the constitution; they never override them. A conflict is
-an authority defect, so work in that scope stops until the instructions agree.
+package specifics. Scoped instructions refine this file and the constitution;
+they never override them. A conflict is an authority defect, so work in that
+scope stops until the instructions agree.
 
 State only what a check cannot. If `pnpm lint` fails on it, name the check
 rather than repeating the rule — prose that duplicates a linter costs context
@@ -16,23 +16,13 @@ infrastructure through which autonomous agents representing different
 principals message, coordinate, and collaborate despite faulty or
 malicious peers.
 
-The cutover keeps two histories in one repository while the replacement stack
-is assembled:
+`main` is the only track. The four-layer harness lives in seven packages under
+`packages/*`; six publish to npm as one calendar version set and
+`@moltzap/evals` stays private, per
+`docs/decisions/20260901-six-packages-publish-as-one-version-set.md`.
+Releases run from `main` through `.github/workflows/publish.yml`.
 
-| Track | Branch | What |
-|---|---|---|
-| Retiring v1 | `main` | Published production baseline and source for fixes that are deliberately ported |
-| Four-layer cutover | `cutover/four-layer-v2` | Replacement authority and the seven final packages under `packages/*` |
-
-The cutover branch takes one final pinned integration of the accepted PR #974
-state and its `main` base. Routine `main`-to-cutover merges are then frozen:
-later v1 fixes move only by deliberate, reviewed port. The cutover never merges
-back before replacement. npm continues publishing from `main` until the
-release cutover is admitted. `v2/*` is authority and historical input, not a
-second implementation tree; executable product code finishes under
-`packages/*`.
-
-**The v2 constitution is `v2/VISION.md` → The constitution.** It is canonical
+**The constitution is `docs/vision.md` → The constitution.** It is canonical
 there and paraphrased nowhere, this file included: two copies at the top of the
 same authority order drift, and the drift is invisible.
 
@@ -76,9 +66,10 @@ explain.
 
 ## Issues
 
-`v2` = input to the v2 track. `wontfix-v2` = dies with retired v1
-machinery; fixing it on main stays a v1 call. Epic #755 owns bootstrap
-and debt-zero work.
+Labels `v2` and `wontfix-v2` are historical: `v2` marked input to the
+four-layer replacement that is now `main`; `wontfix-v2` marked defects that
+died with the retired v1 machinery. Epic #755 owns bootstrap and debt-zero
+work.
 
 ## Decisions
 
@@ -108,9 +99,9 @@ review gate. `scripts/docs/adr/check-shape.ts` enforces the mechanical half in
   alternatives, or restating the next lines. Rewrite touched comments
   in the same PR; history lives in git, not code.
 - Fix every instance, not the reported one. When a pattern is wrong,
-  grep `packages/`, `v2/`, `scripts/`, and `test/` and fix all of it in
-  the same change; one corrected call site with five untouched siblings
-  is a regression waiting to be rediscovered.
+  grep `packages/`, `scripts/`, and `docs/` and fix all of it in the
+  same change; one corrected call site with five untouched siblings is
+  a regression waiting to be rediscovered.
 - A fix should shrink the system. Prefer removing or consolidating over
   adding a layer, flag, or special case.
 
@@ -135,12 +126,13 @@ everything when you cannot tell what a change reaches.
 
 ## Docs
 
-- Authority order for v2 is: this agent law and `v2/VISION.md`; current
-  ADR outcomes, including explicitly retained portions of
+- Authority order is: this agent law and `docs/vision.md`; current ADR
+  outcomes, including explicitly retained portions of
   partially-superseded records; normative `docs/spec/` chapters;
-  architecture orientation and execution plans; historical inputs. A
-  lower source must not contradict a higher source.
-- Before cutover implementation changes, the governing spec and decision
+  architecture orientation and execution plans; historical inputs under
+  `docs/decision-evidence/`. A lower source must not contradict a higher
+  source.
+- Before a public-boundary change, the governing spec and decision
   traceability must be complete. No binding decision may exist only in
   chat, an issue comment, or an agent-private state directory.
 

@@ -22,8 +22,7 @@ catalog.
 
 Further work may harden or validate the implementation without widening its
 public surface or relocating its admitted Identity and Router dependencies.
-Publication and version policy remain separate release decisions; they do not
-change this package boundary.
+Publication follows `docs/decisions/20260901-six-packages-publish-as-one-version-set.md`: this package publishes in the one-version set. Publication does not change this package boundary.
 
 ## Stable Client law
 
