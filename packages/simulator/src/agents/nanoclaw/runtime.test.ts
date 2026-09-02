@@ -374,3 +374,22 @@ describe("NanoClaw history export", () => {
       ]);
     }));
 });
+
+function renderWithModel(modelId: string) {
+  return containerRuntimeFor(
+    nanoclawRuntime({ applicationImage: APPLICATION_IMAGE, modelId }),
+  ).render({ agentName: AGENT_NAME });
+}
+
+describe("NanoClaw provider credentials", () => {
+  test("requests the prefix's credential, and Anthropic's for a bare Claude model", () =>
+    Effect.gen(function* () {
+      const anthropic = yield* renderWithModel("anthropic/claude-sonnet-4");
+      const openai = yield* renderWithModel("openai/gpt-5.5");
+      const bare = yield* renderWithModel("claude-sonnet-4");
+
+      assert.deepStrictEqual(anthropic.credentials, ["ANTHROPIC_API_KEY"]);
+      assert.deepStrictEqual(openai.credentials, ["OPENAI_API_KEY"]);
+      assert.deepStrictEqual(bare.credentials, ["ANTHROPIC_API_KEY"]);
+    }));
+});

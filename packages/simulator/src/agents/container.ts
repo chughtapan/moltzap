@@ -37,6 +37,26 @@ export type Image = typeof image.Type;
 /** Provider credential a container may request from the run-scoped Secret. */
 export type CredentialName = "ANTHROPIC_API_KEY" | "OPENAI_API_KEY";
 
+const CREDENTIAL_BY_PROVIDER: Readonly<Record<string, CredentialName>> = {
+  anthropic: "ANTHROPIC_API_KEY",
+  openai: "OPENAI_API_KEY",
+};
+
+/**
+ * The credential a model's provider prefix asks for, when the run can carry
+ * one. A model id names its provider ahead of a slash, as OpenClaw spells
+ * them; a prefix the run has no credential for yields nothing rather than a
+ * guess, so a container never receives a key it did not need.
+ * @param modelId Provider-prefixed model id, such as `anthropic/claude-4`.
+ * @returns The one credential to request, or undefined for another provider.
+ */
+export function providerCredential(
+  modelId: string,
+): CredentialName | undefined {
+  const [provider] = modelId.split("/", 1);
+  return provider === undefined ? undefined : CREDENTIAL_BY_PROVIDER[provider];
+}
+
 /** Portable resource request for one application container. */
 export interface Resources {
   readonly cpuMillis: number;

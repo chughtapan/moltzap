@@ -1,10 +1,15 @@
 /** @file Evaluation command selection preserves an exact executable subset. */
 
 import { assert, it } from "@effect/vitest";
-import { Option } from "effect";
+import { Either, Option, Schema } from "effect";
 import { evaluationCases } from "./cases.js";
 import { decodeEvaluationCaseId } from "./model.js";
-import { resolveEvaluationRunSelection } from "./selection.js";
+import {
+  DEFAULT_EVALUATION_CONCURRENCY,
+  evaluationConcurrency,
+  MAX_EVALUATION_CONCURRENCY,
+  resolveEvaluationRunSelection,
+} from "./selection.js";
 
 const OPENCLAW_SELECTION = {
   runtime: "openclaw",
@@ -12,8 +17,10 @@ const OPENCLAW_SELECTION = {
   nanoclawModel: Option.none<string>(),
   messagingMode: "shared",
   profile: "local",
+  concurrency: DEFAULT_EVALUATION_CONCURRENCY,
 } as const;
 
+// @agent-code-guard/regression-only: command-line selection pins exact ordered case subsets and the closed concurrency range.
 it("selects repeated case options in command order", () => {
   const selection = resolveEvaluationRunSelection({
     ...OPENCLAW_SELECTION,
@@ -59,4 +66,28 @@ it("rejects unknown and duplicate case options", () => {
       }),
     /selected more than once/u,
   );
+});
+
+it("accepts a concurrency from one to the ceiling and refuses the rest", () => {
+  const decode = Schema.decodeUnknownEither(evaluationConcurrency);
+  const accepted = (value: number) =>
+    Either.match(decode(value), { onLeft: () => false, onRight: () => true });
+
+  assert.isTrue(accepted(1));
+  assert.isTrue(accepted(DEFAULT_EVALUATION_CONCURRENCY));
+  assert.isTrue(accepted(MAX_EVALUATION_CONCURRENCY));
+  assert.isFalse(accepted(0));
+  assert.isFalse(accepted(MAX_EVALUATION_CONCURRENCY + 1));
+  assert.isFalse(accepted(2.5));
+});
+
+it("carries the concurrency beside the selection rather than in the plan options", () => {
+  const selection = resolveEvaluationRunSelection({
+    ...OPENCLAW_SELECTION,
+    caseIds: [],
+    concurrency: 2,
+  });
+
+  assert.strictEqual(selection.concurrency, 2);
+  assert.notProperty(selection.options, "concurrency");
 });

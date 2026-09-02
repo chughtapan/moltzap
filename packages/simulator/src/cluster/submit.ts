@@ -145,6 +145,7 @@ interface PreparedRun {
   >;
   readonly executionProfile: KubernetesExecutionProfile;
   readonly startupTimeoutMs?: number;
+  readonly admissionTimeoutMs?: number;
   readonly cohortSize?: number;
   readonly forceWorkerRoll: boolean;
   readonly connection: {
@@ -326,15 +327,21 @@ function runtimeCredentials(
 
 function runSizing(environment: RunEnvironment): {
   readonly startupTimeoutMs?: number;
+  readonly admissionTimeoutMs?: number;
   readonly cohortSize?: number;
 } {
   const startupTimeoutMs = countOverride(
     environment,
     "MOLTZAP_STARTUP_TIMEOUT_MS",
   );
+  const admissionTimeoutMs = countOverride(
+    environment,
+    "MOLTZAP_ADMISSION_TIMEOUT_MS",
+  );
   const cohortSize = countOverride(environment, "MOLTZAP_COHORT_SIZE");
   return {
     ...(startupTimeoutMs === undefined ? {} : { startupTimeoutMs }),
+    ...(admissionTimeoutMs === undefined ? {} : { admissionTimeoutMs }),
     ...(cohortSize === undefined ? {} : { cohortSize }),
   };
 }
@@ -420,6 +427,9 @@ function executePreparedRun(
           ...(prepared.startupTimeoutMs === undefined
             ? {}
             : { startupTimeoutMs: prepared.startupTimeoutMs }),
+          ...(prepared.admissionTimeoutMs === undefined
+            ? {}
+            : { admissionTimeoutMs: prepared.admissionTimeoutMs }),
           ...(prepared.cohortSize === undefined
             ? {}
             : { cohortSize: prepared.cohortSize }),

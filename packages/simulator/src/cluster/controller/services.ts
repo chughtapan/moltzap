@@ -102,6 +102,7 @@ function makeControllerServices(
   const societyApi =
     api ?? makeInClusterKubernetesSocietyApi(configuration.namespace);
   const startupTimeout = Duration.millis(configuration.startupTimeoutMs);
+  const admissionTimeout = Duration.millis(configuration.admissionTimeoutMs);
   const host = Layer.merge(NodeContext.layer, NodeHttpClient.layer);
   const run = Layer.mergeAll(
     filesystemLedgerStorageLayer(configuration.ledgerDirectory),
@@ -114,6 +115,7 @@ function makeControllerServices(
       runtimeCredentials: configuration.runtimeCredentials,
       rosterPlacement: configuration.rosterPlacement,
       startupTimeout,
+      admissionTimeout,
       routerFaultProxy: {
         listener: {
           bindHost: "0.0.0.0",
