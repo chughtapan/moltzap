@@ -70,13 +70,16 @@ Releases run from `main` through `.github/workflows/publish.yml`, triggered
 manually. One run computes the version, writes it into the six manifests,
 builds, proves the packed closure installs, pushes the simulator controller,
 OpenClaw, and NanoClaw images tagged with the version to Artifact Registry
-(reusing an existing tag's digest rather than rebuilding), records the image
-digests in `packages/simulator/gke/README.md`, regenerates documentation,
+(reusing an image an earlier attempt pushed from the same source revision
+rather than rebuilding), records the image digests in
+`packages/simulator/gke/README.md`, regenerates documentation,
 stamps `CHANGELOG.md`, commits `chore(release): moltzap@<version>`, and
 publishes every package not yet on npm at that version with provenance. A
 rerun after a partial failure converges on the same version, digests, and
-commit. The workflow authenticates to Google Cloud through Workload Identity
-Federation and to npm through trusted publishing; it holds no stored key.
+commit. Only one release runs at a time, and only from the tip of `main`. The
+workflow authenticates to Google Cloud through Workload Identity Federation,
+whose trust admits only this workflow on `main`, and to npm through trusted
+publishing; it holds no stored key.
 
 ### License
 
@@ -117,17 +120,28 @@ and versions` section is the normative owner of the rules above.
 ## Consequences
 
 - `scripts/architecture/check-boundaries.js` fails when a published manifest
-  carries `private`, when the six versions differ, or when evals is not
-  private. Each published package's `test:pack` gate proves that its packed
-  closure installs from tarballs with exact sibling pins.
+  carries `private`, when the six versions differ, when evals is not private,
+  or when the release workflow's package list drifts from the published set.
+  The client, OpenClaw, NanoClaw, and simulator `test:pack` gates pack all six
+  packages and prove the closure installs from tarballs with exact sibling
+  pins and every declared executable present.
 - A downstream consumer pins one version and one set of image digests per
   release, read from the release commit rather than a hand-edited table.
 - The first release needs maintainer-held prerequisites the repository cannot
   supply: npm trusted publishers for the six packages, the release App
-  credentials, and the two Workload Identity variables that the GKE
-  Terraform module outputs. The deprecations are run by the maintainer after
-  the first release publishes.
+  credentials, and the three repository variables that the GKE Terraform
+  module outputs (the Workload Identity provider, the release service
+  account, and the image repository). The deprecations are run by the
+  maintainer after the first release publishes.
 - A push-triggered release is a later, separate change once a manual release
   has proven the prerequisites.
 - External-consumer cutover remains the one open release question; it is
   named in `docs/spec/layer-interfaces.md` → Deliberate deferrals.
+
+## Record changelog
+
+Point corrections that leave the Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-09-01 | Pre-admission review revision: the release path names the three repository variables the Terraform module outputs (provider, service account, image repository), image reuse keyed on the source revision, and the main-only serialized run. The six-package one-version Decision Outcome is unchanged. |

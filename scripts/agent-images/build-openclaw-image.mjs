@@ -141,7 +141,11 @@ async function main() {
       "--target=build",
       "--projects=" + openClawWorkspacePackageNames.join(","),
     ],
-    { cwd: workspaceRoot, timeout: BUILD_TIMEOUT_MILLIS },
+    {
+      cwd: workspaceRoot,
+      timeout: BUILD_TIMEOUT_MILLIS,
+      maxBuffer: 16 * 1024 * 1024,
+    },
   );
   const staging = await stage();
   try {

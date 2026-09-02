@@ -52,7 +52,7 @@ Chosen: **V2 authority lives with the V2 track**.
 The `v2` branch contains the authoritative repository-native contract
 for code under `v2/*`. Its authority order is:
 
-1. `AGENTS.md` and `v2/VISION.md`;
+1. `AGENTS.md` and the constitution (`docs/vision.md`);
 2. current ADR outcomes, including explicitly retained portions of
    partially-superseded records;
 3. normative `docs/spec/` chapters;
@@ -102,3 +102,4 @@ Point corrections that leave the historical Decision Outcome intact.
 | Date | Change |
 |---|---|
 | 2026-09-01 | Recorded that the publication and version-transition deferral in the Supersession section is selected by `20260901-six-packages-publish-as-one-version-set.md`, and repointed the constitution path from `v2/VISION.md` to `docs/vision.md` after the `v2/` directory was retired. The historical Decision Outcome is unchanged. |
+| 2026-09-01 | Repointed the constitution path in the historical authority order to `docs/vision.md`. The historical Decision Outcome is unchanged. |

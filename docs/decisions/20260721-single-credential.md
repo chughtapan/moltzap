@@ -47,8 +47,8 @@ dormant until message signing ships.
 Chosen: **proof-of-possession of the card key**. Every request on
 either plane is signed with the identity's card key in the HTTP
 message-signature shape — method, path, body digest; the exact
-profile is key-model work (the `v2/VISION.md` open-question
-register, item 5) — and the plane
+profile is key-model work (a deliberate deferral in
+`docs/vision.md` → Deliberate deferrals) — and the plane
 verifies against the registered public key. Bearer secrets never
 exist. Registration submits the public key; the registry issues the
 card. There is no second key: the card key is the only credential the
@@ -63,3 +63,11 @@ request becomes sign the message — with the same key; endpoints hold
 their private key from day one (message signing requires it
 eventually anyway); v1's bearer credential-key toolkit is not
 salvaged; rotation and revocation remain register item 5.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-09-01 | Repointed the deferral locator from the deleted `v2/VISION.md` open-question register to `docs/vision.md` → Deliberate deferrals. The historical Decision Outcome is unchanged. |

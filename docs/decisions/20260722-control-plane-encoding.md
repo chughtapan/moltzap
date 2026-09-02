@@ -50,8 +50,8 @@ the salvage analyses — `docs/decision-evidence/inputs/v1-code-audit-20260717.m
 `docs/decision-evidence/inputs/debt-inventory-20260718.md` — say which pieces are worth
 carrying). Naming
 that machinery decides no open question: wire discipline — v1's
-strict excess-key rejection — stays register-open (`v2/VISION.md`,
-register item 9). The target is proper REST resource operations
+strict excess-key rejection — stays a deliberate deferral
+(`docs/vision.md` → Deliberate deferrals). The target is proper REST resource operations
 with OpenAPI contracts the CLI integrates directly: the OpenAPI
 document becomes the wire contract — the spec's guarantees stay the
 governing interface — and clients are generated from it, instead of
@@ -71,3 +71,4 @@ Point corrections that leave the historical Decision Outcome intact.
 | Date | Change |
 |---|---|
 | 2026-09-01 | Repointed the cited historical input from `v2/` to `docs/decision-evidence/` after the `v2/` directory was retired. The historical Decision Outcome is unchanged. |
+| 2026-09-01 | Repointed the deferral locator from the deleted `v2/VISION.md` open-question register to `docs/vision.md` → Deliberate deferrals. The historical Decision Outcome is unchanged. |

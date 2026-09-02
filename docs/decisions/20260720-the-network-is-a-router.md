@@ -49,7 +49,7 @@ Consequences: app principals, manifests, hooks, reverse callbacks,
 and network-side task owners do not exist in v2; tasks are endpoint
 conventions with no network representation; guardrails are
 endpoint-only; whether the router keeps any reachability role at all
-remains an open register question in `v2/VISION.md`.
+remains a deliberate deferral in `docs/vision.md` → Deliberate deferrals.
 
 ## Record changelog
 
@@ -58,3 +58,4 @@ Point corrections that leave the historical Decision Outcome intact.
 | Date | Change |
 |---|---|
 | 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |
+| 2026-09-01 | Repointed the deferral locator from the deleted `v2/VISION.md` open-question register to `docs/vision.md` → Deliberate deferrals. The historical Decision Outcome is unchanged. |

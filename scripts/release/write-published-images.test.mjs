@@ -1,5 +1,6 @@
 /** @file Tests for the published-images table writer. */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   decodePublishedImages,
@@ -141,4 +142,23 @@ test("refuses a missing, duplicate, unknown, or malformed image", () => {
     () => decodePublishedImages({ ...fixture(), sourceRevision: "abc" }),
     /sourceRevision must be/u,
   );
+});
+
+test("the checked-in GKE README carries the section the release writes into", () => {
+  const readme = readFileSync(
+    new URL("../../packages/simulator/gke/README.md", import.meta.url),
+    "utf8",
+  );
+  const updated = replacePublishedImagesSection(
+    readme,
+    renderPublishedImages(decodePublishedImages(fixture())),
+  );
+  assert.match(updated, /^## Published images\n/mu);
+  assert.match(
+    updated,
+    /^## Release publishing\n/mu,
+    "the next section survives",
+  );
+  assert.match(updated, /^## Qualification\n/mu);
+  assert.equal(updated.split("## Published images").length, 2, "one section");
 });

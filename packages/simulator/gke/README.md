@@ -22,7 +22,7 @@ costs, because creating the cluster is slow and keeping nodes is expensive:
 | `./cluster.sh run SPEC.mjs` | submit one RunSpec | run-sized |
 | `./cluster.sh publish-image` | publish the controller image and print its digest | ~3 min |
 | `./cluster.sh down` | park the controller | ~1 min |
-| `./cluster.sh delete` | destroy the substrate | ~8 min |
+| `./cluster.sh delete` | destroy the substrate, including the image repository releases record and the release identity | ~8 min |
 
 Agent nodes are not managed by any of these. That pool autoscales from zero:
 Kueue admits a cohort, its pods go pending, and the autoscaler provisions nodes
@@ -40,6 +40,10 @@ nothing recovers on its own, and a submission stays pending until `up`.
 `down` refuses while any Kueue `Workload` is still in flight, and `delete`
 refuses while the artifact bucket holds objects, since that bucket holds run
 ledgers rather than cluster state. Pass `--delete-artifacts` to discard them.
+`delete` does destroy the Artifact Registry repository and the release
+identity below, so the image digests every release recorded stop resolving
+and the next release cannot authenticate until `setup` recreates them; do not
+run it while a published release still points at this profile.
 
 Resident cost with the controller up is one `e2-standard-4` node plus disks;
 the zonal control plane is free. Parking the controller with `down` leaves only
@@ -128,20 +132,29 @@ digest reference to pin.
 
 `.github/workflows/publish.yml` pushes the controller, OpenClaw, and NanoClaw
 images to the `controller_repository` repository tagged with the release
-version, then writes their digests into the table above in the same release
-commit that bumps the npm packages. The workflow authenticates with GitHub's
+version, then writes their digests into the Published images section above in
+the same release commit that bumps the npm packages. The workflow authenticates with GitHub's
 OIDC token through Workload Identity Federation; it holds no stored key.
 
 Terraform owns that identity. `setup` creates the `github-actions` pool, its
-`github` provider admitting only this repository, and the `moltzap-release`
-service account with `roles/artifactregistry.writer` on the image repository.
-Copy the two outputs into the repository's Actions variables before the first
-release:
+`github` provider admitting only tokens minted for `publish.yml` on this
+repository's `main` branch, and the `moltzap-release` service account with
+`roles/artifactregistry.writer` on the image repository. Copy the three
+outputs into the repository's Actions variables before the first release:
 
 | Terraform output | Actions variable |
 | --- | --- |
 | `release_workload_identity_provider` | `GCP_WORKLOAD_IDENTITY_PROVIDER` |
 | `release_service_account` | `GCP_RELEASE_SERVICE_ACCOUNT` |
+| `controller_repository` | `GCP_IMAGE_REPOSITORY` |
+
+The job runs in the `release` GitHub environment, which GitHub creates on the
+first run; required reviewers added to that environment gate every release.
+
+A release pushes each image under `sha-<commit>` and then adds the
+`<version>` tag to that digest. A rerun reuses the `sha-<commit>` image and
+completes the version tag; a version tag that names any other digest fails the
+release instead of being recorded.
 
 ## Immutable simulator image
 
