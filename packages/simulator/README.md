@@ -146,6 +146,20 @@ them after `--`.
 
 ## Local and GKE profiles
 
+The package ships one executable, `moltzap-sim`, that submits one experiment
+module through either profile:
+
+```bash
+moltzap-sim run --profile local path/to/experiment.mjs
+moltzap-sim run --profile gke path/to/experiment.mjs
+```
+
+It reads the same `MOLTZAP_*` environment either way, prints exactly one
+`ProfileRunResult` JSON line on stdout when the run finishes, and reports every
+failure on stderr with a non-zero exit. Decode that line with the
+`ProfileRunResult` schema the root exports. The repository's `local-run` and
+`gke-run` Nx targets invoke the same executable.
+
 Build the controller/support image and create the pinned local profile:
 
 ```bash
@@ -165,7 +179,9 @@ pnpm nx run @moltzap/simulator:local-run -- path/to/experiment.mjs
 
 The GKE profile uses the same experiment and controller contract with an
 explicit kube context, artifact bucket, and configured Temporal endpoint. See
-[`local/README.md`](local/README.md) and [`gke/README.md`](gke/README.md).
+[`local/README.md`](local/README.md) and [`gke/README.md`](gke/README.md),
+which also cover submitting several runs at once and the admission budget
+(`MOLTZAP_ADMISSION_TIMEOUT_MS`) a queued cohort waits on.
 
 ## Static validation
 
