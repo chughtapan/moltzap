@@ -38,16 +38,22 @@ the setup itself.
 | Node per `.node-version`, pnpm | do anything |
 | `pnpm nx` for every task, never the underlying tool | build, test, lint, typecheck |
 | Effect and `@effect/*` as the runtime idiom | add a non-Effect alternative |
-| `/simplify`, `/ship`, `/review` | open a PR |
+| `/simplify` on Opus, then `/ship` | open a PR |
 | `/plan-eng-review` | start implementing a feature |
 | `/land-and-deploy` | merge |
 | `codex`, authenticated and in quota | call review complete |
 | `gbrain`, connected | verify decision provenance, or run the blind gate |
 
 **Refuse where the failure is silent; warn where it is loud.** A missing binary
-that errors on first use needs no rule. `/review` without codex quietly becomes
-a single-model pass *and `/ship` still records a clean Eng Review entry* — the
-bar drops and nothing says so.
+that errors on first use needs no rule. `/ship` without codex quietly downgrades
+its own pre-landing review to a single-model pass *and still records a clean Eng
+Review entry* — the bar drops and nothing says so.
+
+`/ship` carries the pre-landing review, the specialist fan-out, and the always-on
+adversarial pass, so a separate `/review` ahead of it repeats that work at the
+same bar. `/simplify` covers the axis review does not, and it runs on Opus: it
+fans several reviewers over the whole diff, and the Fable limit is account-wide,
+so a Fable `/simplify` stalls every other agent in the workspace.
 
 Name your connected sources (Notion, Gmail, Discord, GitHub) when work may have
 been decided elsewhere, and offer to read them directly. This is agent law
