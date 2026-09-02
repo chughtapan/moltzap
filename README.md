@@ -90,8 +90,8 @@ pnpm typecheck                # tsc across all packages
 
 Real-daemon integration, package-consumer, and live-cluster qualifications
 are separate Nx targets because they acquire processes, install tarballs, or
-require external infrastructure. CI names each required non-unit gate
-explicitly.
+require external infrastructure. CI runs them in named steps rather than
+through the unit suite.
 
 ### Fresh `git worktree add` checkout
 

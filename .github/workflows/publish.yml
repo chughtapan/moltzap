@@ -8,12 +8,23 @@ name: Publish to npm
 #
 # A rerun after a partial failure converges rather than minting a second
 # release. Before the release commit exists, the version is recomputed from
-# npm (unchanged while nothing is published at it) and an image an earlier
-# attempt pushed from the same revision is reused by digest. Once the release
-# commit is on main, any run finds it, checks out its tree, and publishes
-# whatever that version still lacks on npm, however many commits landed since.
+# npm and the release tags (unchanged while nothing is published at it and
+# the UTC day has not turned) and an image an earlier attempt pushed for that
+# version from the same revision is reused by digest. Once the release commit
+# is on main, any run finds it, checks out its tree, and publishes whatever
+# that version still lacks on npm, however many commits landed since. A
+# release that can never complete is left behind by dispatching with
+# `start_new_version`, which mints the next version from the tip instead.
 on:
   workflow_dispatch:
+    inputs:
+      start_new_version:
+        description: >-
+          Abandon an incomplete release commit on main instead of resuming it
+          and mint the next version from the tip. Deprecate by hand whatever
+          the abandoned version did publish.
+        type: boolean
+        default: false
 
 # Two releases must never interleave: both would compute the same version and
 # push different builds to the same image tags before either commits.
@@ -76,6 +87,8 @@ jobs:
       # revision, and npm's provenance all describe one tree.
       - name: Decide whether this run bumps or resumes a release
         id: plan
+        env:
+          START_NEW_VERSION: ${{ inputs.start_new_version }}
         run: |
           test -n "$IMAGE_REPOSITORY" || {
             echo "ERROR: the GCP_IMAGE_REPOSITORY repository variable is unset; copy the Terraform controller_repository output"
@@ -93,9 +106,17 @@ jobs:
             MISSING=""
             for pkg in $RELEASE_PACKAGES; do
               NAME=$(jq -r .name "packages/$pkg/package.json")
-              npm view "${NAME}@${VERSION}" version >/dev/null 2>&1 || MISSING="$MISSING $NAME"
+              STATUS=0
+              scripts/release/npm-version-exists.sh "${NAME}@${VERSION}" || STATUS=$?
+              case $STATUS in
+                0) ;;
+                1) MISSING="$MISSING $NAME" ;;
+                *) exit "$STATUS" ;;
+              esac
             done
-            if [ -n "$MISSING" ]; then
+            if [ -n "$MISSING" ] && [ "$START_NEW_VERSION" = "true" ]; then
+              echo "Abandoning release $VERSION from $RELEASE_COMMIT; not yet on npm:$MISSING"
+            elif [ -n "$MISSING" ]; then
               echo "Resuming release $VERSION from $RELEASE_COMMIT; not yet on npm:$MISSING"
               git checkout --quiet "$RELEASE_COMMIT"
               echo "mode=resume" >> "$GITHUB_OUTPUT"
@@ -108,6 +129,10 @@ jobs:
             echo "ERROR: main moved past the dispatched commit $GITHUB_SHA; dispatch the release again from the tip"
             exit 1
           }
+          # A version whose release commit and tag reached main but whose
+          # publish never completed is taken even though npm has never seen it.
+          TAKEN_VERSIONS=$(git ls-remote --tags --refs origin 'refs/tags/v*' | sed 's#.*refs/tags/v##')
+          export TAKEN_VERSIONS
           VERSION=$(scripts/release/compute-next-version.sh $RELEASE_PACKAGES)
           echo "Next version: $VERSION"
           echo "mode=bump" >> "$GITHUB_OUTPUT"
@@ -152,20 +177,23 @@ jobs:
         run: |
           gcloud auth configure-docker "${IMAGE_REPOSITORY%%/*}" --quiet
           # Docker builds are not byte-reproducible, so an earlier attempt's
-          # image is reused rather than rebuilt. The image is pushed under its
-          # source revision first and the version tag is added to that digest
-          # second, so a failure between the two leaves nothing a rerun cannot
-          # complete; a version tag that names any other digest was pushed
-          # from another tree or by something other than this workflow and
-          # fails the release instead of being blessed by it.
-          # Only a missing tag reads as empty; any other gcloud failure aborts,
-          # because "absent" is what would justify a fresh push.
+          # image is reused rather than rebuilt. The attempt tag names the
+          # version and the source revision, because the packed workspace
+          # inside each image carries the stamped version: the same revision
+          # released on a later day is a different image. The version tag is
+          # then created or moved to that digest. Until the release commit is
+          # on main the version tag is not authoritative, so a leftover from
+          # an attempt on another revision is overwritten rather than trusted.
+          # gcloud reports a missing tag or image name as "Image not found";
+          # only that reads as empty. Any other failure, including a missing
+          # repository, aborts, because "absent" is what would justify a
+          # fresh push.
           tag_digest() {
             local output
             if output=$(gcloud artifacts docker images describe "$1" \
                 --format='value(image_summary.digest)' 2>&1); then
               printf '%s' "$output"
-            elif grep -q "NOT_FOUND" <<< "$output"; then
+            elif grep -q "Image not found" <<< "$output"; then
               printf ''
             else
               echo "ERROR: could not describe $1: $output" >&2
@@ -173,22 +201,16 @@ jobs:
             fi
           }
           resolve_or_build() {
-            local name="$1" builder="$2" repository="$IMAGE_REPOSITORY/$1" digest version_digest
-            local source_tag="$repository:sha-$GITHUB_SHA" version_tag="$repository:$VERSION"
-            digest=$(tag_digest "$source_tag")
+            local name="$1" builder="$2" repository="$IMAGE_REPOSITORY/$1" digest
+            local attempt_tag="$repository:$VERSION-$GITHUB_SHA" version_tag="$repository:$VERSION"
+            digest=$(tag_digest "$attempt_tag")
             if [ -n "$digest" ]; then
-              echo "reusing $source_tag@$digest" >&2
+              echo "reusing $attempt_tag@$digest" >&2
             else
-              digest=$(node "$builder" --repository "$repository" --tag "sha-$GITHUB_SHA" --push \
+              digest=$(node "$builder" --repository "$repository" --tag "$VERSION-$GITHUB_SHA" --push \
                 | tail -1 | jq -r .imageDigest)
             fi
-            version_digest=$(tag_digest "$version_tag")
-            if [ -z "$version_digest" ]; then
-              gcloud artifacts docker tags add "$source_tag" "$version_tag" --quiet
-            elif [ "$version_digest" != "$digest" ]; then
-              echo "ERROR: $version_tag names $version_digest, not the $GITHUB_SHA build $digest" >&2
-              exit 1
-            fi
+            gcloud artifacts docker tags add "$repository@$digest" "$version_tag" --quiet
             jq -n --arg name "$name" --arg repository "$repository" --arg digest "$digest" \
               '{name: $name, repository: $repository, digest: $digest}'
           }
@@ -254,10 +276,13 @@ jobs:
           for pkg in $RELEASE_PACKAGES; do
             NAME=$(jq -r .name "packages/$pkg/package.json")
             VER=$VERSION
-            if npm view "${NAME}@${VER}" version 2>/dev/null | grep -q "$VER"; then
+            STATUS=0
+            scripts/release/npm-version-exists.sh "${NAME}@${VER}" || STATUS=$?
+            if [ "$STATUS" -eq 0 ]; then
               echo "${NAME}@${VER} already on npm — skipping"
               continue
             fi
+            [ "$STATUS" -eq 1 ] || exit "$STATUS"
             echo "Publishing ${NAME}@${VER}..."
             (
               cd "packages/$pkg"

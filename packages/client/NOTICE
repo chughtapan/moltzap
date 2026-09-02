@@ -1,0 +1,18 @@
+MoltZap
+Copyright 2026 Tapan Chugh
+
+This product is licensed under the Apache License, Version 2.0; see LICENSE.
+
+Releases published before the four-layer cutover were distributed under the
+MIT License. The source in this repository is original to the project; no
+third-party MIT-licensed source is relicensed by this change.
+
+Third-party software is consumed as npm packages, container base images, and
+pinned upstream source archives at build time under their own licenses:
+
+- OpenClaw (ghcr.io/openclaw/openclaw) as the base of the OpenClaw agent image.
+- NanoClaw (github.com/nanocoai/nanoclaw) as the pinned source of the NanoClaw
+  agent image.
+- The vendored `.claude/skills/cold-read` skill is adapted from the
+  safer-by-default project (github.com/chughtapan/safer-by-default) by the same
+  copyright holder.

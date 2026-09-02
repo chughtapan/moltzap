@@ -9,7 +9,9 @@
   },
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "NOTICE"
   ],
   "main": "./dist/channels/moltzap.js",
   "types": "./dist/channels/moltzap.d.ts",
