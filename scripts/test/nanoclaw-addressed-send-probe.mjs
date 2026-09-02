@@ -115,14 +115,9 @@ async function main() {
 
   await import(`${APP_ROOT}/mailbox/compose.js`);
   await import(`${APP_ROOT}/channels/moltzap.js`);
-  const {
-    closeDb,
-    createAgentGroup,
-    createMessagingGroup,
-    createMessagingGroupAgent,
-    initTestDb,
-    runMigrations,
-  } = await import(`${APP_ROOT}/db/index.js`);
+  const { closeDb, createAgentGroup, initTestDb, runMigrations } = await import(
+    `${APP_ROOT}/db/index.js`
+  );
   const {
     createChannelDeliveryAdapter,
     getActiveAdapters,
@@ -155,29 +150,6 @@ async function main() {
     );
     await replaceWorkspace(sessionDir("agent", session.id));
 
-    await createMessagingGroup({
-      id: "moltzap-inbound",
-      channel_type: "moltzap",
-      platform_id: expectedInbound.platformId,
-      instance: "moltzap",
-      name: "MoltZap inbound",
-      is_group: 0,
-      unknown_sender_policy: "public",
-      created_at: new Date().toISOString(),
-    });
-    await createMessagingGroupAgent({
-      id: "moltzap-inbound-agent",
-      messaging_group_id: "moltzap-inbound",
-      agent_group_id: "agent",
-      engage_mode: "pattern",
-      engage_pattern: "(?!)",
-      sender_scope: "all",
-      ignored_message_policy: "accumulate",
-      session_mode: "agent-shared",
-      priority: 0,
-      created_at: new Date().toISOString(),
-    });
-
     let metadataObserved = false;
     await initChannelAdapters((adapter) => ({
       onInbound: (platformId, threadId, message) => {
@@ -188,6 +160,7 @@ async function main() {
         }
         return routeInbound({
           channelType: adapter.channelType,
+          targetAgentGroupId: adapter.targetAgentGroupId,
           instance: adapter.instance ?? adapter.channelType,
           platformId,
           threadId,

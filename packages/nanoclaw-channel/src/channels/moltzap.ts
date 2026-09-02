@@ -190,6 +190,7 @@ class MoltZapChannelAdapter {
   readonly name = MOLTZAP_CHANNEL;
   readonly channelType = MOLTZAP_CHANNEL;
   readonly supportsThreads = false;
+  readonly targetAgentGroupId = "agent";
 
   private readonly lifecycleGate = Effect.runSync(Effect.makeSemaphore(1));
   private readonly mcpEndpoint: string;
