@@ -1243,10 +1243,44 @@ function exportsCertifiedSendAndDeliveries() {
   );
 }
 
+function exportsFailedSend() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const engine = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const input = Schema.decodeUnknownSync(SendInput)({
+          to: "agent:nobody",
+          content: [{ type: "text", text: "to nobody" }],
+        });
+
+        const failure = yield* engine.send(input).pipe(Effect.flip);
+
+        const records = yield* requireAt(harness.exported, 0, "records");
+        const failed = records.at(-1);
+        if (failed?.kind !== "outbound" || failed.outcome.kind !== "failed") {
+          return yield* Effect.dieMessage(
+            "the author did not export the failed send",
+          );
+        }
+        expect(failed.outcome.reason).toBe(failure.reason);
+        expect(failed.to).toBe(input.to);
+        expect(failed.content).toEqual(input.content);
+      }),
+    ),
+  );
+}
+
 describe("fixed-post endpoint protocol", () => {
   it(
     "exports the author's certified send and every member's delivery",
     exportsCertifiedSendAndDeliveries,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "exports a send that failed with its reason",
+    exportsFailedSend,
     TEST_TIMEOUT_MS,
   );
   it(

@@ -89,6 +89,8 @@ const controllerFailedRunSummary = Schema.Union(
  * printed, plus the Job's own diagnostic when the run failed and that output
  * was still readable. The worker's activity result and the submitter's final
  * line are this one shape.
+ *
+ * Closed controller process result retained by the coarse workflow. The failed branch carries the sanitized controller output the host activity already collected. A failure summary names what ended the run and nothing about why, so without this the operator's only copy of the reason is a Pod log in a namespace the workflow deletes on its way out.
  */
 // eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- the worker's activity result and the submitter's final line embed this exact closed shape, so it is defined beside the summaries it wraps.
 export const controllerRunResult = Schema.Union(

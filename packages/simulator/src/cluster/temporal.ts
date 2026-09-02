@@ -17,7 +17,7 @@ import { rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type {
   CleanupRunInput,
-  RunControllerResult,
+  ControllerRunResult,
   RunLifecycleActivities,
   runSocietyWorkflow,
   RunSocietyWorkflowInput,
@@ -211,7 +211,7 @@ export function kubernetesLifecycleOperations(
 export async function runTemporalSociety(
   options: RunTemporalSocietyOptions,
   // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
-): Promise<RunControllerResult> {
+): Promise<ControllerRunResult> {
   const namespace = options.temporalNamespace ?? DEFAULT_TEMPORAL_NAMESPACE;
   await runAtPromiseBoundary(
     Effect.logInfo("connecting Temporal"),
@@ -256,7 +256,7 @@ export async function executeRunSocietyWorkflow(
   input: RunSocietyWorkflowInput,
   options: RunSocietyWorkflowExecutionOptions,
   // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
-): Promise<RunControllerResult> {
+): Promise<ControllerRunResult> {
   return await options.client.execute<typeof runSocietyWorkflow>(
     WORKFLOW_TYPE,
     {
@@ -301,7 +301,7 @@ function runControllerOnce(
   heartbeat: ControllerHeartbeat,
   input: RunSocietyWorkflowInput,
 ): Effect.Effect<
-  RunControllerResult,
+  ControllerRunResult,
   ControllerAttemptFailed | KubernetesCallFailed
 > {
   // Preparing a cohort outlasts the heartbeat deadline, so proof of life

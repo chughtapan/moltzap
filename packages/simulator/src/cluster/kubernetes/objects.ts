@@ -1113,6 +1113,9 @@ function delegatedControllerRules(): PolicyRules {
       resources: ["sandboxes"],
       verbs: ["create", "get", "delete"],
     },
+    // Cluster-wide like every delegated grant, because the worker must hold
+    // what it writes into each run's Role; the worker is the one trusted
+    // process that already creates the run's Secrets and Sandboxes.
     { apiGroups: [""], resources: ["pods/exec"], verbs: ["create", "get"] },
   ];
 }

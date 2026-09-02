@@ -206,19 +206,13 @@ function memoryStorage(
 }
 
 function eventTags(records: readonly string[]): readonly string[] {
-  return records.map((record) => {
-    const decoded: unknown = JSON.parse(record);
-    if (typeof decoded !== "object" || decoded === null) {
-      throw new TypeError("test ledger record has no event tag");
-    }
-    if (!("event" in decoded)) {
-      throw new TypeError("test ledger record has no event tag");
-    }
-    const { event } = decoded;
-    if (typeof event !== "object" || event === null || !("_tag" in event)) {
-      throw new TypeError("test ledger record has no event tag");
-    }
-    if (typeof event._tag !== "string") {
+  return ledgerEvents(records).map((event) => {
+    if (
+      typeof event !== "object" ||
+      event === null ||
+      !("_tag" in event) ||
+      typeof event._tag !== "string"
+    ) {
       throw new TypeError("test ledger record has no event tag");
     }
     return event._tag;
@@ -956,20 +950,10 @@ interface HarvestRecord {
 // Harvest records land in completion order across agents, so they are compared
 // as a sorted set rather than as a sequence.
 function harvestRecords(records: readonly string[]): readonly HarvestRecord[] {
-  return records
-    .map((record): unknown => JSON.parse(record))
-    .flatMap((record) => {
-      if (
-        typeof record !== "object" ||
-        record === null ||
-        !("event" in record)
-      ) {
-        return [];
-      }
-      const event = Schema.decodeUnknownOption(AgentWorkspaceFileHarvested)(
-        record.event,
-      );
-      return Option.match(event, {
+  return ledgerEvents(records).flatMap((event) =>
+    Option.match(
+      Schema.decodeUnknownOption(AgentWorkspaceFileHarvested)(event),
+      {
         onNone: () => [],
         onSome: (harvested) => [
           {
@@ -978,13 +962,24 @@ function harvestRecords(records: readonly string[]): readonly HarvestRecord[] {
             outcome: harvested.outcome,
           },
         ],
-      });
-    })
-    .sort((left, right) =>
-      `${left.agentName}/${left.relativePath}`.localeCompare(
-        `${right.agentName}/${right.relativePath}`,
-      ),
-    );
+      },
+    ),
+  );
+}
+
+// Each ledger record reduced to the event it carries.
+function ledgerEvents(records: readonly string[]): readonly unknown[] {
+  return records.map((record) => {
+    const decoded: unknown = JSON.parse(record);
+    if (
+      typeof decoded !== "object" ||
+      decoded === null ||
+      !("event" in decoded)
+    ) {
+      throw new TypeError("test ledger record carries no event");
+    }
+    return decoded.event;
+  });
 }
 
 test("harvests every agent's workspace after the program event and before the cluster is released", () =>
@@ -1036,11 +1031,11 @@ test("harvests every agent's workspace after the program event and before the cl
     ]);
   }));
 
-test("skips harvest when the program was interrupted", () =>
-  Effect.gen(function* () {
-    const records: string[] = [];
-    let harvests = 0;
-    const cluster = makeFakeCluster({
+// A cluster that counts the harvests the kernel asks for.
+function countingHarvestCluster() {
+  let harvests = 0;
+  return {
+    cluster: makeFakeCluster({
       agentIdFor: (agentName) =>
         agentName === "alice" ? ENDPOINT_ID : SENDER_ID,
       harvestWorkspace: () =>
@@ -1048,7 +1043,16 @@ test("skips harvest when the program was interrupted", () =>
           harvests += 1;
           return [CALENDAR];
         }),
-    });
+    }),
+    harvests: () => harvests,
+  };
+}
+
+test("skips harvest when the program was interrupted", () =>
+  Effect.gen(function* () {
+    const records: string[] = [];
+    const counting = countingHarvestCluster();
+    const cluster = counting.cluster;
 
     const result = yield* runSociety({
       definitionId: DEFINITION_ID,
@@ -1062,9 +1066,35 @@ test("skips harvest when the program was interrupted", () =>
     );
 
     assert.instanceOf(result, ProgramFinished);
-    assert.strictEqual(harvests, 0);
+    assert.strictEqual(counting.harvests(), 0);
     assert.include(eventTags(records), ProgramInterrupted._tag);
     assert.notInclude(eventTags(records), AgentWorkspaceFileHarvested._tag);
+  }));
+
+test("still harvests when the program fails with a value", () =>
+  Effect.gen(function* () {
+    const records: string[] = [];
+    const counting = countingHarvestCluster();
+    const cluster = counting.cluster;
+
+    const result = yield* runSociety({
+      definitionId: DEFINITION_ID,
+      eventServices,
+      roster: harvestedRoster(),
+      program: Effect.fail("customer rejected the run"),
+    }).pipe(
+      Effect.provideService(Cluster, cluster),
+      Effect.provideService(RouterProvider, successfulRouterProvider()),
+      Effect.provideService(LedgerStorage, memoryStorage(records)),
+    );
+
+    assert.instanceOf(result, ProgramFinished);
+    assert.strictEqual(counting.harvests(), 2);
+    const tags = eventTags(records);
+    assert.isAbove(
+      tags.indexOf(AgentWorkspaceFileHarvested._tag),
+      tags.indexOf(ProgramFailed._tag),
+    );
   }));
 
 test("records an unreadable file and still finishes the program", () =>

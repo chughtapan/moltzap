@@ -5,13 +5,12 @@ import type { KubernetesExecutionProfile } from "../profile.js";
 import {
   liveSubmitOperations,
   type RunEnvironment,
-  type RunSubmission,
   RunSubmissionError,
   type SubmitOperations,
 } from "../submit.js";
 import { runGkeSociety } from "./gke.js";
 import { runLocalSociety } from "./local.js";
-import { encodeProfileRunResult } from "./result.js";
+import { encodeProfileRunResult, type ProfileRunResult } from "./result.js";
 
 /** The one command line the executable accepts. */
 export const PROFILE_CLI_USAGE =
@@ -36,7 +35,7 @@ export type ProfileName = KubernetesExecutionProfile["kind"];
 type ProfileSubmitter = (
   args: readonly string[],
   environment: RunEnvironment,
-) => Effect.Effect<RunSubmission, RunSubmissionError, SubmitOperations>;
+) => Effect.Effect<ProfileRunResult, RunSubmissionError, SubmitOperations>;
 
 // Total over the profile kinds, so adding a profile without a submitter is a
 // compile error rather than a usage error at the first live invocation.
@@ -129,7 +128,7 @@ export function executableTeardown(
 export function runProfileCli(
   args: readonly string[],
   environment: RunEnvironment,
-): Effect.Effect<RunSubmission, RunSubmissionError, SubmitOperations> {
+): Effect.Effect<ProfileRunResult, RunSubmissionError, SubmitOperations> {
   return Effect.suspend(() => {
     const [command, flag, profile, ...experiment] = args;
     const shaped =

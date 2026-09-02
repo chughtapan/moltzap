@@ -2,7 +2,7 @@
 
 import { assert, effect as test } from "@effect/vitest";
 import { Effect, Either, Schema } from "effect";
-import type { RunSubmission } from "../submit.js";
+
 import {
   LedgerCompletion,
   ledgerDigest,
@@ -26,7 +26,7 @@ const RECEIPT = CompletedLedgerReceipt.make({
     artifacts: { manifest: DIGEST, records: DIGEST },
   }),
 });
-const FINISHED: RunSubmission = {
+const FINISHED: ProfileRunResult = {
   runId: RUN_ID,
   namespace: RUN_ID,
   result: {
@@ -34,7 +34,7 @@ const FINISHED: RunSubmission = {
     summary: { _tag: "ProgramFinished", receipt: RECEIPT },
   },
 };
-const LOST: RunSubmission = {
+const LOST: ProfileRunResult = {
   runId: RUN_ID,
   namespace: RUN_ID,
   result: {

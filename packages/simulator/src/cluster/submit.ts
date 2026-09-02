@@ -8,7 +8,7 @@ import { resolve } from "node:path";
 import type { KubernetesExecutionProfile } from "./profile.js";
 import type { ProfileRunResult } from "./profiles/result.js";
 import type {
-  RunControllerResult,
+  ControllerRunResult,
   RunSocietyWorkflowInput,
 } from "./reclaim.js";
 import { FORCE_WORKER_ROLL_VARIABLE, RunWorkerRollRefused } from "./install.js";
@@ -43,7 +43,7 @@ export interface SubmitOperationsService {
   readonly randomUuid: () => string;
   readonly runTemporalSociety: (
     options: RunTemporalSocietyOptions,
-  ) => Promise<RunControllerResult>;
+  ) => Promise<ControllerRunResult>;
 }
 
 /** Native submission boundaries every profile reads from its environment. */
@@ -60,7 +60,6 @@ export class SubmitOperations extends Context.Tag(
 export const SUBMITTED_DIAGNOSTIC_MAX_BYTES = 8 * 1_024;
 
 /** Successful submission reported to the operator. */
-export type RunSubmission = ProfileRunResult;
 
 /** Sanitized failure at the repository-owned submission boundary. */
 export class RunSubmissionError extends Data.TaggedError("RunSubmissionError")<{
@@ -95,7 +94,7 @@ export function runKubernetesSociety(
   args: readonly string[],
   environment: RunEnvironment,
   executionProfile: KubernetesExecutionProfile,
-): Effect.Effect<RunSubmission, RunSubmissionError, SubmitOperations> {
+): Effect.Effect<ProfileRunResult, RunSubmissionError, SubmitOperations> {
   return Effect.try({
     try: () => prepareRun(args, environment, executionProfile),
     catch: (cause) =>
@@ -308,7 +307,7 @@ function submissionFailure(cause: Cause.UnknownException): RunSubmissionError {
 function executeTemporalRun(
   options: RunTemporalSocietyOptions,
   operations: SubmitOperationsService,
-): Effect.Effect<RunControllerResult, RunSubmissionError> {
+): Effect.Effect<ControllerRunResult, RunSubmissionError> {
   return Effect.runtime().pipe(
     Effect.flatMap((runtime) =>
       Effect.tryPromise(() =>
@@ -378,7 +377,7 @@ function optionalOverride(
 
 // The value crossed Temporal and a worker this process does not own, so the
 // bound is enforced here rather than trusted.
-function boundedResult(result: RunControllerResult): RunControllerResult {
+function boundedResult(result: ControllerRunResult): ControllerRunResult {
   if (result.exitCode === 0 || result.diagnostic === undefined) {
     return result;
   }
@@ -400,7 +399,7 @@ function createRunIdentity(
 function executePreparedRun(
   prepared: PreparedRun,
   operations: SubmitOperationsService,
-): Effect.Effect<RunSubmission, RunSubmissionError> {
+): Effect.Effect<ProfileRunResult, RunSubmissionError> {
   return Effect.gen(function* () {
     const identity = yield* createRunIdentity(operations);
     const experimentModule = yield* readExperiment(prepared.path, operations);

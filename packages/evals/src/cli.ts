@@ -98,7 +98,9 @@ import {
 const CLI_VERSION = "0.0.0";
 const RUNTIME_STARTUP_TIMEOUT = Duration.minutes(5);
 // Concurrent cells queue behind each other for the profile's capacity; an
-// hour lets a full sweep's worth wait without failing as ClusterLost.
+// hour lets a full sweep's worth wait without failing as ClusterLost. The
+// evaluation states its own budget rather than inheriting the simulator's
+// default, which happens to be the same today.
 const ADMISSION_TIMEOUT = Duration.hours(1);
 const PEER_OBSERVATION_TIMEOUT = Duration.minutes(5);
 const CASE_TIMEOUT = Duration.minutes(20);

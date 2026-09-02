@@ -10,6 +10,14 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Changed: ledgers written before the workspace-file record no longer open
+
+`@moltzap/simulator` adds `moltzap.agent-workspace-file/v1` to its core event
+catalog, and `openLedgerArtifacts` keeps exact catalog equality by design, so
+a ledger whose manifest predates that record is refused with
+`LedgerCatalogMismatch`. Regenerate such ledgers with the current simulator;
+retained artifact sets from earlier runs stay historical.
+
 ### Fixed: sends wait for the Router worker to attach
 
 A daemon reported itself active as soon as registration completed, while its

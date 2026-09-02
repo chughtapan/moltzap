@@ -25,6 +25,19 @@ Router-commit/order evidence without an inert or lazy compatibility shim. The
 replacement record and `docs/spec/layer-interfaces.md` own the cutover scope;
 this record continues to own its retained execution contract.
 
+## Current execution entry
+
+The repository-local CLI named in the Decision Outcome has become a public
+boundary: the execution entry is the `moltzap-sim` executable
+(`moltzap-sim run --profile local|gke <spec.mjs>`) that `@moltzap/simulator`
+publishes as its `bin`, printing one `ProfileRunResult` line on stdout.
+`docs/spec/layer-interfaces.md → Public boundaries` names that executable and
+the result schema as the Simulator boundary, and
+`scripts/architecture/check-boundaries.js` pins the `bin` entry. The
+executable calls the same `Run.execute` path and defines no separate
+execution protocol, so the Decision Outcome above is unchanged; only the
+owner and the visibility of its entry point are current here.
+
 ## Scope and authority
 
 This decision governs the production v1 simulator on `main`, implemented in
@@ -183,10 +196,9 @@ operational observations, not replacements for the simulator ledger.
 
 The repository owns one local Kubernetes profile for development and CI and
 one GKE profile for cloud qualification. Both install or connect to the same
-required components and invoke the same `Run.execute` path. The package's
-`moltzap-sim` executable accepts a profile name and a RunSpec entrypoint and
-calls that same library path; it does not define a separate execution
-protocol.
+required components and invoke the same `Run.execute` path. A small
+repository-local CLI accepts a RunSpec entrypoint and calls that same library
+path; it does not define a separate execution protocol.
 
 The local profile uses a repository-owned local cluster and a development
 Temporal deployment. The GKE reference is regional GKE Standard and uses
@@ -314,3 +326,4 @@ the outcome is a supersession, not a row here.
 | 2026-08-11 | Recorded that the transitional host entry point and in-process Effect runtime are gone. Both were described in the present tense after the cutover that removed them, leaving a reader unable to tell whether either still existed. The Decision Outcome and its removal condition are unchanged. |
 | 2026-08-27 | Recorded the addressed Client and native-session adapter replacement in the visible supersession. The Kubernetes society-execution Decision Outcome is untouched. |
 | 2026-09-01 | Recorded that the profile CLI is the published `moltzap-sim` executable (`moltzap-sim run --profile local\|gke <spec.mjs>`) rather than a repository-local script, so a consumer of the packed package submits through the same path. Its environment contract, the checked-in profiles, and the one-workflow submission are unchanged. |
+| 2026-09-02 | Restored the Decision Outcome's original "small repository-local CLI" sentence verbatim and moved the published executable into the new `Current execution entry` section, which names it as a public boundary owned by `@moltzap/simulator` per `docs/spec/layer-interfaces.md`. An admitted outcome keeps its historical text; the current state is visible beside the supersession. The Decision Outcome is unchanged. |

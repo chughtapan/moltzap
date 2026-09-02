@@ -260,10 +260,12 @@ const send = (
     const prepared = yield* prepareSend(runtime, input);
     yield* drainOutbound(runtime).pipe(Effect.mapError(outboundSendFailure));
     yield* Deferred.await(prepared.completion);
-    yield* exportSend(runtime, input, {
-      kind: "certified",
-      postId: prepared.postId,
-    });
+    yield* Effect.uninterruptible(
+      exportSend(runtime, input, {
+        kind: "certified",
+        postId: prepared.postId,
+      }),
+    );
   }).pipe(
     Effect.tapError((error) =>
       exportSend(runtime, input, { kind: "failed", reason: error.reason }),
