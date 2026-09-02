@@ -1,11 +1,13 @@
 /** @file Drives NanoClaw's native inbox and outbound queue through its registered channel. */
 
 import { spawn } from "node:child_process";
-import { mkdtemp, unlink, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, unlink, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const APP_ROOT = "/opt/moltzap/nanoclaw/app/dist";
+const NANOCLAW_ROOT = "/opt/moltzap/nanoclaw";
+const APP_ROOT = `${NANOCLAW_ROOT}/app`;
+const APP_DIST = `${APP_ROOT}/dist`;
 const RUNNER_ROOT = "/opt/moltzap/nanoclaw/app/container/agent-runner/src";
 const CURRENT_WORKSPACE = "/var/lib/moltzap/nanoclaw/current-workspace";
 
@@ -81,9 +83,18 @@ async function invokeOutboundPaths(destinations) {
   await waitForChild(child);
 }
 
-async function waitForInbound(session, expected, withMailboxSession) {
+async function waitForInbound(
+  expected,
+  findSessionByAgentGroup,
+  withMailboxSession,
+) {
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
+    const session = await findSessionByAgentGroup("agent");
+    if (session === undefined) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      continue;
+    }
     const history = await withMailboxSession("agent", session.id, (mailbox) =>
       mailbox.getInboundHistory(10),
     );
@@ -96,7 +107,7 @@ async function waitForInbound(session, expected, withMailboxSession) {
         decoded.senderId === expected.sender
       );
     });
-    if (observed) return;
+    if (observed) return session;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error("NanoClaw native inbox did not receive the MoltZap message");
@@ -111,45 +122,53 @@ async function main() {
   }
 
   const stateRoot = await mkdtemp(join(tmpdir(), "nanoclaw-send-probe-"));
+  const workspaceDirectory = join(stateRoot, "workspace-seed");
+  await Promise.all(
+    ["data", "groups", "store", "tmp"].map((directory) =>
+      mkdir(join(stateRoot, directory), { recursive: true }),
+    ),
+  );
+  await mkdir(workspaceDirectory, { recursive: true });
+  await symlink(
+    join(APP_ROOT, "package.json"),
+    join(stateRoot, "package.json"),
+  );
   process.chdir(stateRoot);
 
-  await import(`${APP_ROOT}/mailbox/compose.js`);
-  await import(`${APP_ROOT}/channels/moltzap.js`);
-  const { closeDb, createAgentGroup, initTestDb, runMigrations } = await import(
-    `${APP_ROOT}/db/index.js`
+  const { provisionNanoClaw } = await import(`${NANOCLAW_ROOT}/provision.mjs`);
+  await provisionNanoClaw(
+    {
+      agentName: "NanoClaw integration",
+      stateDirectory: stateRoot,
+      workspaceDirectory,
+      mcpServers: [],
+    },
+    { appRoot: APP_ROOT },
   );
+
+  await import(`${APP_DIST}/mailbox/compose.js`);
+  await import(`${APP_DIST}/channels/moltzap.js`);
+  const { CENTRAL_DB_PATH } = await import(`${APP_DIST}/config.js`);
+  const { closeDb, initDb } = await import(`${APP_DIST}/db/connection.js`);
   const {
     createChannelDeliveryAdapter,
     getActiveAdapters,
     initChannelAdapters,
     teardownChannelAdapters,
-  } = await import(`${APP_ROOT}/channels/channel-registry.js`);
+  } = await import(`${APP_DIST}/channels/channel-registry.js`);
   const { deliverSessionMessages, setDeliveryAdapter } = await import(
-    `${APP_ROOT}/delivery.js`
+    `${APP_DIST}/delivery.js`
   );
-  const { routeInbound } = await import(`${APP_ROOT}/router.js`);
-  const { resolveSession, sessionDir, withMailboxSession } = await import(
-    `${APP_ROOT}/session-manager.js`
+  const { routeInbound } = await import(`${APP_DIST}/router.js`);
+  const { findSessionByAgentGroup } = await import(
+    `${APP_DIST}/db/sessions.js`
+  );
+  const { sessionDir, withMailboxSession } = await import(
+    `${APP_DIST}/session-manager.js`
   );
 
-  const database = await initTestDb();
-  await runMigrations(database);
+  await initDb(CENTRAL_DB_PATH, { role: "tool" });
   try {
-    await createAgentGroup({
-      id: "agent",
-      name: "NanoClaw integration",
-      folder: "agent",
-      agent_provider: null,
-      created_at: new Date().toISOString(),
-    });
-    const { session } = await resolveSession(
-      "agent",
-      null,
-      null,
-      "agent-shared",
-    );
-    await replaceWorkspace(sessionDir("agent", session.id));
-
     let metadataObserved = false;
     await initChannelAdapters((adapter) => ({
       onInbound: (platformId, threadId, message) => {
@@ -160,7 +179,6 @@ async function main() {
         }
         return routeInbound({
           channelType: adapter.channelType,
-          targetAgentGroupId: adapter.targetAgentGroupId,
           instance: adapter.instance ?? adapter.channelType,
           platformId,
           threadId,
@@ -174,7 +192,7 @@ async function main() {
           },
         });
       },
-      onInboundEvent: () => Promise.resolve(),
+      onInboundEvent: (event) => routeInbound(event),
       onMetadata: (platformId, name, isGroup) => {
         if (
           platformId === expectedInbound.platformId &&
@@ -193,7 +211,12 @@ async function main() {
     }
     setDeliveryAdapter(createChannelDeliveryAdapter());
 
-    await waitForInbound(session, expectedInbound, withMailboxSession);
+    const session = await waitForInbound(
+      expectedInbound,
+      findSessionByAgentGroup,
+      withMailboxSession,
+    );
+    await replaceWorkspace(sessionDir("agent", session.id));
     await invokeOutboundPaths(destinations);
     await deliverSessionMessages(session);
 
@@ -212,3 +235,4 @@ async function main() {
 }
 
 await main();
+process.exit(0);

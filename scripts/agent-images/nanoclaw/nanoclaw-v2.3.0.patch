@@ -215,76 +215,22 @@ index 5e2c028..71f8abd 100644
      // Resolve the messaging group ORIGIN-SESSION-FIRST: when the message
      // targets the session's own chat address, the origin row wins even if
      // sibling instances share the same (channel_type, platform_id) — so the
-diff --git a/src/channels/adapter.ts b/src/channels/adapter.ts
-index e28eeda..a1b0723 100644
---- a/src/channels/adapter.ts
-+++ b/src/channels/adapter.ts
-@@ -46,2 +46,4 @@ export interface InboundEvent {
-   channelType: string;
-+  /** Fixed local agent selected by the receiving adapter, never by content. */
-+  targetAgentGroupId?: string;
-   /** Receiving adapter instance; stamped host-side (src/index.ts onInbound) or
-@@ -199,4 +201,7 @@ export interface ChannelAdapter {
-    */
-   instance?: string;
--
-+
-+  /** Fixed local agent that receives ordinary inbound events from this adapter. */
-+  targetAgentGroupId?: string;
-+
-   /**
 diff --git a/src/index.ts b/src/index.ts
-index 8e03a89..522aca9 100644
+index 8e03a89..583efe4 100644
 --- a/src/index.ts
 +++ b/src/index.ts
-@@ -91,4 +91,5 @@ async function main(): Promise<void> {
-       onInbound(platformId, threadId, message) {
--        routeInbound({
-+        return routeInbound({
-           channelType: adapter.channelType,
-+          targetAgentGroupId: adapter.targetAgentGroupId,
-           // The one host-side stamping seam: adapters stay instance-blind,
-@@ -108,2 +109,3 @@ async function main(): Promise<void> {
-           log.error('Failed to route inbound message', { channelType: adapter.channelType, err });
+@@ -109,12 +109,13 @@ async function main(): Promise<void> {
+         });
+       },
+       onInboundEvent(event) {
+-        routeInbound(event).catch((err) => {
++        return routeInbound(event).catch((err) => {
+           log.error('Failed to route inbound event', {
+             sourceAdapter: adapter.channelType,
+             targetChannelType: event.channelType,
+             err,
+           });
 +          throw err;
          });
-diff --git a/src/router.ts b/src/router.ts
-index 0bbaeff..755848d 100644
---- a/src/router.ts
-+++ b/src/router.ts
-@@ -294,6 +294,23 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
-     agentCount = found.agentCount;
-   }
--
-+
-+  const transientAgent: MessagingGroupAgent | undefined =
-+    event.targetAgentGroupId === undefined
-+      ? undefined
-+      : {
-+          id: `adapter-${event.targetAgentGroupId}`,
-+          messaging_group_id: mg.id,
-+          agent_group_id: event.targetAgentGroupId,
-+          engage_mode: 'pattern',
-+          engage_pattern: '.',
-+          sender_scope: 'all',
-+          ignored_message_policy: 'drop',
-+          session_mode: 'agent-shared',
-+          priority: 0,
-+          created_at: new Date().toISOString(),
-+        };
-+  if (transientAgent !== undefined) agentCount = 1;
-+
-   // 1b. No wirings — either silent drop (plain chatter / denied channel) or
-   //     escalate to owner for channel-registration approval.
-   if (agentCount === 0) {
-@@ -343,5 +360,8 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
-   // 3. Fetch wired agents in full (we already know the count is > 0; now
-   //    we need their actual rows for fan-out).
--  const agents = await getMessagingGroupAgents(mg.id);
-+  const agents =
-+    transientAgent === undefined
-+      ? await getMessagingGroupAgents(mg.id)
-+      : [transientAgent];
--
-+
-   // 4. Fan-out: evaluate each wired agent independently against engage_mode,
+       },
+       onMetadata(platformId, name, isGroup) {

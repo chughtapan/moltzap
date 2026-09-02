@@ -39,6 +39,8 @@ class MoltZapChannelError extends Data.TaggedError("MoltZapChannelError")<{
 }
 
 const MOLTZAP_CHANNEL = "moltzap";
+const NANOCLAW_MAIN_CHANNEL = "cli";
+const NANOCLAW_MAIN_PLATFORM_ID = "local";
 const MOLTZAP_CHANNEL_DEFAULTS = Object.freeze({
   dm: {
     engageMode: "pattern" as const,
@@ -178,7 +180,7 @@ function renderContentPart(part: ContentPart): string {
  *   participant Host as NanoClaw host
  *   Client->>Adapter: InboundDelivery
  *   Adapter->>Host: onMetadata<br>address and group shape
- *   Adapter->>Host: await onInbound<br>stable PostId
+ *   Adapter->>Host: await onInboundEvent<br>main session and MoltZap reply route
  *   Adapter->>Client: acknowledge delivery
  *   Host->>Adapter: deliver<br>address and content
  *   Adapter->>Client: send addressed content
@@ -190,7 +192,6 @@ class MoltZapChannelAdapter {
   readonly name = MOLTZAP_CHANNEL;
   readonly channelType = MOLTZAP_CHANNEL;
   readonly supportsThreads = false;
-  readonly targetAgentGroupId = "agent";
 
   private readonly lifecycleGate = Effect.runSync(Effect.makeSemaphore(1));
   private readonly mcpEndpoint: string;
@@ -346,10 +347,34 @@ class MoltZapChannelAdapter {
     const address = message.address;
     const isGroup = message.kind === "group";
     const inbound = this.toInboundMessage(message);
+    const content = JSON.stringify(inbound.content);
+    if (content === undefined) {
+      return Effect.fail(
+        new MoltZapChannelError({
+          reason: `NanoClaw could not serialize inbound content for ${address}`,
+        }),
+      );
+    }
     return Effect.tryPromise({
       try: () => {
         config.onMetadata(address, address, isGroup);
-        return Promise.resolve(config.onInbound(address, null, inbound));
+        return Promise.resolve(
+          config.onInboundEvent({
+            channelType: NANOCLAW_MAIN_CHANNEL,
+            instance: NANOCLAW_MAIN_CHANNEL,
+            platformId: NANOCLAW_MAIN_PLATFORM_ID,
+            threadId: null,
+            message: {
+              ...inbound,
+              content,
+            },
+            replyTo: {
+              channelType: MOLTZAP_CHANNEL,
+              platformId: address,
+              threadId: null,
+            },
+          }),
+        );
       },
       catch: (cause) =>
         new MoltZapChannelError({

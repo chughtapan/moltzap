@@ -35,8 +35,9 @@ does not change this package boundary.
   NanoClaw conversation or ACL row; Client validates and canonicalizes it.
 - Leave outbound queue and retry policy to NanoClaw. Every adapter call is one
   Client send; do not pass `messages_out.id` or add adapter deduplication.
-  Project metadata before content, await the stock `onInbound` callback, and
-  only then acknowledge Client delivery. Do not add `accepted`/`pending`
+  Project metadata before content, route through the bootstrap-owned main
+  session with NanoClaw's native reply override, and await the host callback
+  before acknowledging Client delivery. Do not add `accepted`/`pending`
   results or inspect NanoClaw persistence.
 - NanoClaw owns sessions, implicit replies, prompt and final-text behavior
   beyond the explicit-address capability and route, inbox replay, scheduling,
