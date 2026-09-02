@@ -140,10 +140,8 @@ export class KubernetesCallFailed extends Error {
  *
  * The operator message already names an API status or an unanswered call;
  * the transport's own line, which is where a refused exec session ends up,
- * is appended when there is one.
- *
- * @param failure The failed call.
- * @returns One line naming the operation and what refused it.
+ * is appended when there is one. The result is one line naming the operation
+ * and what refused it.
  */
 export function readFailureDetail(failure: KubernetesCallFailed): string {
   return failure.transport === undefined

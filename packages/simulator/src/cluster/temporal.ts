@@ -362,11 +362,9 @@ function cleanupRun(
  *
  * This is the only place a run's Effect becomes a Promise. Rejecting with the
  * run's own failure rather than the runtime's wrapper is what lets Temporal
- * record the error the activity actually produced.
- *
- * @param effect The complete operation whose failure the SDK should observe.
- * @param runtime The caller's runtime when it has one; the default otherwise.
- * @returns The operation's success, or a rejection carrying its failure.
+ * record the error the activity actually produced. The caller passes its own
+ * runtime when it has one, so what the boundary logs reaches the logger that
+ * caller configured; otherwise the default runtime applies.
  */
 // #ignore-sloppy-code-next-line[async-keyword]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 async function runAtPromiseBoundary<Result, Failure extends Error>(

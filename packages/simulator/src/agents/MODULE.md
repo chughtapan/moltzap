@@ -168,7 +168,7 @@ export interface AgentsService<
 
 Describes agents service.
 
-### [`Application`](./container.ts#L160)
+### [`Application`](./container.ts#L159)
 
 _Interface_
 
@@ -204,7 +204,7 @@ export interface Application<Gateway, AcquisitionError> {
 
 One rendered application and its runtime-specific controller bridge.
 
-### [`ApplicationEndpoint`](./container.ts#L96)
+### [`ApplicationEndpoint`](./container.ts#L95)
 
 _Interface_
 
@@ -221,7 +221,7 @@ The cluster builds this from the port the application itself declared, so a
 runtime reads the address it asked for instead of re-deriving it: a protocol,
 port, path, or credential the runtime would have to reject cannot be spelled.
 
-### [`ContainerAgentRuntime`](./container.ts#L206)
+### [`ContainerAgentRuntime`](./container.ts#L205)
 
 _Interface_
 
@@ -243,7 +243,7 @@ A runtime that is known to carry a container realization. Only
 `defineContainerRuntime` produces one, so reading its realization back needs
 no absent case.
 
-### [`ContainerRuntime`](./container.ts#L193)
+### [`ContainerRuntime`](./container.ts#L192)
 
 _Interface_
 
@@ -271,7 +271,7 @@ export type CredentialName = "ANTHROPIC_API_KEY" | "OPENAI_API_KEY";
 
 Provider credential a container may request from the run-scoped Secret.
 
-### [`defineContainerRuntime`](./container.ts#L267)
+### [`defineContainerRuntime`](./container.ts#L266)
 
 _Function_
 
@@ -295,7 +295,7 @@ This describes no cross-runtime gateway protocol.
 
 **Returns:** The frozen nominal runtime accepted by a society roster.
 
-### [`File`](./container.ts#L71)
+### [`File`](./container.ts#L70)
 
 _Interface_
 
@@ -309,7 +309,7 @@ export interface File {
 
 One file materialized into a container from the run-scoped Secret.
 
-### [`HarvestTarget`](./container.ts#L83)
+### [`HarvestTarget`](./container.ts#L82)
 
 _Interface_
 
@@ -677,7 +677,7 @@ export type OpenClawToolsConfig = NonNullable<OpenClawConfig["tools"]>;
 
 Tool configuration accepted by `OpenClawConfig`.
 
-### [`Resources`](./container.ts#L64)
+### [`Resources`](./container.ts#L63)
 
 _Interface_
 
@@ -691,7 +691,7 @@ export interface Resources {
 
 Portable resource request for one application container.
 
-### [`routableBridgeEndpoint`](./container.ts#L128)
+### [`routableBridgeEndpoint`](./container.ts#L127)
 
 _Function_
 
@@ -865,7 +865,7 @@ export type StartedAgents<
 
 Exact keyed agents installed only after every runtime is ready.
 
-### [`stoppedBeforeAttach`](./container.ts#L310)
+### [`stoppedBeforeAttach`](./container.ts#L309)
 
 _Function_
 

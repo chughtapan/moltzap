@@ -150,7 +150,7 @@ export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStar
 
 A roster runtime failed before it established readiness.
 
-### [`AgentWorkspaceFileHarvested`](./events/core.ts#L129)
+### [`AgentWorkspaceFileHarvested`](./events/core.ts#L132)
 
 _Class_
 
@@ -228,7 +228,7 @@ export class CompletedLedgerReceipt extends Schema.TaggedClass<CompletedLedgerRe
 
 Physical receipt for a ledger whose completion marker is durable.
 
-### [`coreEvents`](./events/core.ts#L232)
+### [`coreEvents`](./events/core.ts#L235)
 
 _Variable_
 
@@ -491,7 +491,7 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
-### [`HarvestedFileOutcome`](./events/core.ts#L122)
+### [`HarvestedFileOutcome`](./events/core.ts#L125)
 
 _TypeAlias_
 
@@ -499,7 +499,8 @@ _TypeAlias_
 export type HarvestedFileOutcome = typeof harvestedFileOutcome.Type;
 ```
 
-Decoded outcome of reading one harvest target.
+How the ledger records one read: the file's text, its size when it ran past
+the bound, its absence, or why it could not be read.
 
 ### [`IncompleteLedgerReceipt`](./run/execute.ts#L91)
 
@@ -641,7 +642,7 @@ export interface LinkDelivery {
 
 One opaque signed message about to cross a directed link.
 
-### [`LinkDown`](./events/core.ts#L141)
+### [`LinkDown`](./events/core.ts#L144)
 
 _Class_
 
@@ -679,7 +680,7 @@ Decides one delivery on a directed link. A policy reads only its input and
 the ambient Clock; the link interpreter, never the policy, spends time and
 records evidence.
 
-### [`LinkPolicyCleared`](./events/core.ts#L166)
+### [`LinkPolicyCleared`](./events/core.ts#L169)
 
 _Class_
 
@@ -696,7 +697,7 @@ export class LinkPolicyCleared extends Schema.TaggedClass<LinkPolicyCleared>()(
 
 A described policy stopped shaping one directed participant link.
 
-### [`LinkPolicySet`](./events/core.ts#L156)
+### [`LinkPolicySet`](./events/core.ts#L159)
 
 _Class_
 
@@ -713,7 +714,7 @@ export class LinkPolicySet extends Schema.TaggedClass<LinkPolicySet>()(
 
 A described policy became active on one directed participant link.
 
-### [`LinkUp`](./events/core.ts#L150)
+### [`LinkUp`](./events/core.ts#L153)
 
 _Class_
 
@@ -834,7 +835,7 @@ _TypeAlias_
 export type ProfileRunResult = typeof ProfileRunResult.Type;
 ```
 
-Decoded final line of one profile submission.
+Decoded form of the one result line `moltzap-sim run` prints.
 
 ### [`ProfileRunResult (value)`](./cluster/profiles/result.ts#L17)
 
@@ -856,7 +857,7 @@ nothing else would notice the two sides disagreeing until a live run
 produced an undecodable line. The submitter's own result type derives from
 this schema, so the two cannot drift.
 
-### [`ProgramFailed`](./events/core.ts#L182)
+### [`ProgramFailed`](./events/core.ts#L185)
 
 _Class_
 
@@ -884,7 +885,7 @@ export class ProgramFinished<A, E> extends Data.TaggedClass("ProgramFinished")<{
 
 Customer-program completion plus its complete durable evidence.
 
-### [`ProgramInterrupted`](./events/core.ts#L190)
+### [`ProgramInterrupted`](./events/core.ts#L193)
 
 _Class_
 
@@ -899,7 +900,7 @@ export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()
 
 The customer program was interrupted.
 
-### [`ProgramSucceeded`](./events/core.ts#L176)
+### [`ProgramSucceeded`](./events/core.ts#L179)
 
 _Class_
 

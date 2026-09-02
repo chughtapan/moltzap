@@ -257,8 +257,9 @@ function makeNanoClawApplication(
     ...(settings.modelId === undefined
       ? {}
       : {
-          // NanoClaw hosts Claude, so a model id with no provider prefix is
-          // still an Anthropic model.
+          // NanoClaw hosts Claude, so a model id with no provider prefix is still
+          // an Anthropic model, and a prefix this run cannot supply falls back to
+          // the same key rather than to none.
           credentials: Object.freeze([
             providerCredential(settings.modelId) ?? "ANTHROPIC_API_KEY",
           ]),

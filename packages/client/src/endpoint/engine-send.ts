@@ -515,10 +515,7 @@ export type SendExportOutcome = Extract<
 
 /**
  * Persist an addressed intent and return its durable completion latch.
- * @param runtime Current engine state and protocol dependencies.
- * @param input Explicit addressed send requested by the host.
- * @returns The minted post identity and a latch completed when that post
- * becomes locally certified.
+ * The latch completes when the minted post becomes locally certified.
  */
 export const prepareSend = (
   runtime: EngineRuntime,
@@ -538,11 +535,9 @@ export const prepareSend = (
   );
 
 /**
- * Record one completed `send` invocation in the history export, if any.
- * @param runtime Current engine state and protocol dependencies.
- * @param input The host's own addressed input, as it was given.
- * @param outcome Certified with the minted post, or the closed failure reason.
- * @returns Completion; a missing export records nothing.
+ * Record one completed `send` invocation in the history export, keeping the
+ * host's addressed input as it was given. When no export is configured the
+ * no-op port records nothing.
  */
 export const exportSend = (
   runtime: EngineRuntime,
