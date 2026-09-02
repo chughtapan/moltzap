@@ -50,6 +50,8 @@ interface DeliveryAddress {
  */
 interface InboundEvent {
   channelType: string;
+  /** Fixed local agent selected by the receiving adapter, never by content. */
+  targetAgentGroupId?: string;
   /** Receiving adapter instance; stamped host-side (src/index.ts onInbound) or
    *  carried by the CLI admin transport's `to.instance`. Absent means the
    *  default instance (= channelType). */
@@ -207,6 +209,9 @@ interface ChannelAdapter {
    * Must be unique across active adapters and URL-safe (no '/', '?', ':').
    */
   instance?: string;
+
+  /** Fixed local agent that receives ordinary inbound events from this adapter. */
+  targetAgentGroupId?: string;
 
   /**
    * Whether this adapter models conversations as threads.
