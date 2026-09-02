@@ -1,7 +1,7 @@
 import { packageEslintConfig } from "../../eslint.shared.mjs";
 
 export default [
-  ...packageEslintConfig(),
+  ...packageEslintConfig({ tsconfigRootDir: import.meta.dirname }),
   {
     files: ["src/*.integration.test.ts"],
     rules: {
