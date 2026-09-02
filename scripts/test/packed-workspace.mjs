@@ -66,16 +66,28 @@ async function listPackedFiles(archive) {
 
 /**
  * Pack every package in `packageRoots` under `temporaryRoot/tarballs` and
- * prove the packed manifests form a registry-installable closure: each keeps
- * its source name and version, carries no `private` flag, ships the Apache
- * `LICENSE` and `NOTICE` files, ships every executable its `bin` map names,
- * and pins every packed sibling to that sibling's exact packed version.
+ * prove the packed manifests form an installable closure: each keeps its
+ * source name and version, carries the publishability the caller declares,
+ * ships the Apache `LICENSE` and `NOTICE` files, ships every executable its
+ * `bin` map names, and pins every packed sibling to that sibling's exact
+ * packed version.
+ *
+ * `publishable` is passed in rather than read off the packed manifest,
+ * because a manifest compared against itself cannot fail. The boundary check
+ * enforces the same rule on the source manifests; this one enforces it on
+ * what `pnpm pack` actually produced, and those are different artifacts.
  * @param {Readonly<Record<string, string>>} packageRoots Package name to source root.
  * @param {string} temporaryRoot Scratch directory owned by the caller.
+ * @param {ReadonlySet<string>} publishable Names that must pack publishable; every
+ * other name in `packageRoots` must pack private.
  * @returns {Promise<{ archives: Record<string, string>, manifests: Record<string, Record<string, unknown>> }>}
  * Package name to tarball path and to packed manifest.
  */
-export async function packWorkspaceClosure(packageRoots, temporaryRoot) {
+export async function packWorkspaceClosure(
+  packageRoots,
+  temporaryRoot,
+  publishable,
+) {
   const destination = join(temporaryRoot, "tarballs");
   await mkdir(destination);
   const packed = await Promise.all(
@@ -103,10 +115,17 @@ export async function packWorkspaceClosure(packageRoots, temporaryRoot) {
       manifest?.name === name && manifest.version === sourceManifest.version,
       `packed ${name} manifest identity drifted`,
     );
-    requireCondition(
-      manifest.private === undefined,
-      `packed ${name} carries a private flag and cannot be published`,
-    );
+    if (publishable.has(name)) {
+      requireCondition(
+        manifest.private === undefined,
+        `packed ${name} carries a private flag and cannot be published`,
+      );
+    } else {
+      requireCondition(
+        manifest.private === true,
+        `packed ${name} must stay private; it is not in the published set`,
+      );
+    }
     for (const notice of ["LICENSE", "NOTICE"]) {
       requireCondition(
         files.has(`package/${notice}`),
