@@ -261,7 +261,16 @@ The experiment module may import only what the controller image ships:
 `/opt/moltzap/dist/cluster/controller/services.js`. Bench-specific code is
 inlined in the `.mjs` or runs outside against the exported ledger. The
 submitter's stdout is one `ProfileRunResult` line; everything else goes to
-stderr.
+stderr. The exit status is the other half of that contract:
+
+| Exit | Meaning |
+|---|---|
+| `0` | the result line was printed; it carries the run's own outcome |
+| `1` | the submission failed before or after the run; stderr says why |
+| `130`, `143` | interrupted by `SIGINT` or `SIGTERM` before a result line; stderr names the signal |
+
+A consumer that sees exit `0` with no result line is reading a submitter built
+before this table existed and should treat it as a failure.
 
 ## Parallel submissions
 
@@ -281,6 +290,14 @@ heartbeating, which `guardWorkerRoll` refuses while runs are open. And every
 run keeps a Registry, a Router, and a controller Pod on the single
 `e2-standard-4` system node, so about eight runs at once is the practical
 ceiling; four is a sound default.
+
+One controller image at a time: a submission installs the run worker for the
+controller image it names, and the submitter refuses to replace a worker that
+is still serving runs on a different image (wait for them, or set
+`MOLTZAP_FORCE_WORKER_ROLL=1` to accept losing them). That refusal lives in
+the submitter, so a submitter built before it existed still rolls the worker
+and interrupts every run in flight; lanes that need different controller
+images are sequenced by the operator, not by the cluster.
 
 ## Private platform contract
 

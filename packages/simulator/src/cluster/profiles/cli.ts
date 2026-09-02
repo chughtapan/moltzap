@@ -1,6 +1,6 @@
 /** @file The `moltzap-sim` executable: one submission through a named profile. */
 
-import { Cause, Effect, Logger, Option } from "effect";
+import { Cause, Effect, Exit, Logger, Option } from "effect";
 import type { KubernetesExecutionProfile } from "../profile.js";
 import {
   liveSubmitOperations,
@@ -16,6 +16,19 @@ import { encodeProfileRunResult } from "./result.js";
 /** The one command line the executable accepts. */
 export const PROFILE_CLI_USAGE =
   "usage: moltzap-sim run --profile local|gke <spec.mjs>";
+
+/** Signals the executable ends on, named so its last stderr line can say which. */
+export type ExecutableSignal = "SIGINT" | "SIGTERM";
+
+/** Every signal the executable turns into an exit status. */
+export const EXECUTABLE_SIGNALS: readonly ExecutableSignal[] = Object.freeze([
+  "SIGINT",
+  "SIGTERM",
+]);
+
+// The shell convention: 128 plus the signal number.
+const SIGNAL_EXIT_CODES: Readonly<Record<ExecutableSignal, number>> =
+  Object.freeze({ SIGINT: 130, SIGTERM: 143 });
 
 /** Repository-owned Kubernetes profile a submission names on its command line. */
 export type ProfileName = KubernetesExecutionProfile["kind"];
@@ -68,6 +81,36 @@ export function runProfileExecutable(
       ),
     ),
   );
+}
+
+/**
+ * Decide the process exit from the main fiber's outcome.
+ *
+ * The runtime treats an interrupted main fiber as a clean exit, so a
+ * submitter killed by SIGTERM would exit zero with no result line, which a
+ * consumer that reads the exit code cannot tell from success. Interruption
+ * exits with the signal's conventional code instead, after one stderr line
+ * naming the signal; stdout stays empty.
+ *
+ * @param received Reads the signal that arrived, if one did.
+ * @param report Writes one line to stderr.
+ * @returns The runtime's teardown.
+ */
+export function executableTeardown(
+  received: () => ExecutableSignal | undefined,
+  report: (line: string) => void,
+): (exit: Exit.Exit<unknown, unknown>, onExit: (code: number) => void) => void {
+  return (exit, onExit) => {
+    if (Exit.isFailure(exit) && Cause.isInterruptedOnly(exit.cause)) {
+      const signal = received();
+      report(
+        `${signal ?? "interrupted"}: the submission ended before it printed a result line\n`,
+      );
+      onExit(SIGNAL_EXIT_CODES[signal ?? "SIGINT"]);
+      return;
+    }
+    onExit(Exit.isFailure(exit) ? 1 : 0);
+  };
 }
 
 /**

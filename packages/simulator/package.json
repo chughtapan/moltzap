@@ -84,7 +84,11 @@
         "options": {
           "cwd": "packages/simulator",
           "command": "vitest run"
-        }
+        },
+        "dependsOn": [
+          "build",
+          "^build"
+        ]
       },
       "local-profile-check": {
         "executor": "nx:run-commands",

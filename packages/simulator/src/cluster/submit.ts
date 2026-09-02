@@ -309,7 +309,12 @@ function executeTemporalRun(
   options: RunTemporalSocietyOptions,
   operations: SubmitOperationsService,
 ): Effect.Effect<RunControllerResult, RunSubmissionError> {
-  return Effect.tryPromise(() => operations.runTemporalSociety(options)).pipe(
+  return Effect.runtime().pipe(
+    Effect.flatMap((runtime) =>
+      Effect.tryPromise(() =>
+        operations.runTemporalSociety({ ...options, runtime }),
+      ),
+    ),
     Effect.tapErrorCause(Effect.logError),
     Effect.mapError(submissionFailure),
   );
