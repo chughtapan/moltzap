@@ -121,6 +121,15 @@ packages/simulator/gke/cluster.sh run \
 Leaving the budget at its default is the failure a large cold cohort hits first,
 and it reports as `agent sandbox "…" was not ready within 2m`.
 
+A cohort that waits in the queue behind other runs spends
+`MOLTZAP_ADMISSION_TIMEOUT_MS` instead, one hour by default; the startup budget
+starts only once Kueue admits it. Several submissions at once are ordinary as
+long as they name the same controller image, since each installs the run
+worker with the image it names and a different one would roll the worker over
+the runs it is serving. The `local-run` target and `moltzap-sim run --profile
+local` are the same submission; the executable is what a consumer of the
+published package runs.
+
 The checked-in module and profile tests do not by themselves prove that a run
 completed on a live cluster.
 
