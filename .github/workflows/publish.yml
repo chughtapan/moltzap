@@ -59,7 +59,7 @@ jobs:
           HEAD_SUBJECT=$(git log -1 --format=%s)
           if [[ "$HEAD_SUBJECT" == "chore(release): moltzap@"* ]]; then
             # A previous run committed the release and failed later; publish it.
-            VERSION=$(node -p "require('./packages/simulator/package.json').version")
+            VERSION=${HEAD_SUBJECT#chore(release): moltzap@}
             echo "Resuming release $VERSION from the head release commit"
             echo "mode=resume" >> "$GITHUB_OUTPUT"
             echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -72,7 +72,7 @@ jobs:
             echo "Affected build projects since $BASE: $AFFECTED"
             RELEASE=0
             for pkg in $RELEASE_PACKAGES; do
-              NAME=$(node -p "require('./packages/$pkg/package.json').name")
+              NAME=$(jq -r .name "packages/$pkg/package.json")
               if jq -e --arg project "$NAME" 'index($project) != null' <<< "$AFFECTED" >/dev/null; then
                 RELEASE=1
               fi
@@ -100,20 +100,19 @@ jobs:
             jq --arg v "$VERSION" '.version = $v' "packages/$pkg/package.json" > tmp.json
             mv tmp.json "packages/$pkg/package.json"
           done
-          pnpm exec oxfmt packages/*/package.json
           pnpm install --no-frozen-lockfile --ignore-scripts
 
       - name: Build all packages
         if: steps.plan.outputs.mode != 'skip'
         run: pnpm build
 
+      # Every published package declares test:pack (a boundary-check floor),
+      # so run-many cannot silently skip one. The gates install into private
+      # temporary directories, but each spawns pnpm and the OpenClaw host, so
+      # they run one at a time.
       - name: Verify the published closure installs from tarballs
         if: steps.plan.outputs.mode != 'skip'
-        run: |
-          pnpm nx run @moltzap/client:test:pack
-          pnpm nx run @moltzap/openclaw-channel:test:pack
-          pnpm nx run @moltzap/nanoclaw-channel:test:pack
-          pnpm nx run @moltzap/simulator:test:pack
+        run: pnpm nx run-many -t test:pack --parallel=1
 
       - uses: google-github-actions/auth@v2
         if: steps.plan.outputs.mode == 'bump'
@@ -162,15 +161,8 @@ jobs:
           node scripts/release/write-published-images.mjs \
             --digests "$RUNNER_TEMP/published-images.json"
           pnpm docs:generate
-          node -e '
-            const fs = require("node:fs");
-            const [version, date] = process.argv.slice(1);
-            const path = "CHANGELOG.md";
-            const marker = "## [Unreleased]\n";
-            const text = fs.readFileSync(path, "utf8");
-            if (!text.includes(marker)) throw new Error("CHANGELOG.md has no [Unreleased] section");
-            fs.writeFileSync(path, text.replace(marker, `${marker}\n## [${version}] - ${date}\n`));
-          ' "$VERSION" "$(date -u +%F)"
+          grep -qx '## \[Unreleased\]' CHANGELOG.md || { echo "CHANGELOG.md has no [Unreleased] section"; exit 1; }
+          sed -i "s/^## \[Unreleased\]$/&\n\n## [$VERSION] - $(date -u +%F)/" CHANGELOG.md
 
           git config user.name "moltzap-release[bot]"
           git config user.email "moltzap-release[bot]@users.noreply.github.com"
@@ -190,9 +182,8 @@ jobs:
             exit 1
           }
           for pkg in $RELEASE_PACKAGES; do
-            PKG_JSON="./packages/$pkg/package.json"
-            NAME=$(node -p "require('$PKG_JSON').name")
-            VER=$(node -p "require('$PKG_JSON').version")
+            NAME=$(jq -r .name "packages/$pkg/package.json")
+            VER=$(jq -r .version "packages/$pkg/package.json")
             [ "$VER" = "$VERSION" ] || { echo "ERROR: $NAME is at $VER, expected $VERSION"; exit 1; }
             if npm view "${NAME}@${VER}" version 2>/dev/null | grep -q "$VER"; then
               echo "${NAME}@${VER} already on npm — skipping"

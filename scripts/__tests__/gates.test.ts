@@ -22,6 +22,11 @@ import {
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  MOLTZAP_VERSION_LITERAL,
+  MOLTZAP_VERSION_SOURCE,
+  readMoltzapVersion as readMoltzapVersionSource,
+} from "../docs/moltzap-version.js";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(scriptDir, "..", "..");
@@ -73,27 +78,31 @@ const runGenerate = (
 };
 
 /**
- * Run the generator directly so version-file failure tests exercise the
- * generator rather than package-manager behavior.
+ * Run a workspace script under Node directly, without the package manager,
+ * so a failing gate reports its own exit code rather than pnpm's.
  */
-const runGenerateDirect = (
-  cwd: string,
+const runNode = (
+  args: readonly string[],
 ): { code: number; stdout: string; stderr: string } => {
-  const tsxCli = resolve(workspaceRoot, "node_modules/tsx/dist/cli.mjs");
-  const r = spawnSync(
-    process.execPath,
-    [
-      tsxCli,
-      resolve(workspaceRoot, "scripts/docs/generate-constants-snippets.ts"),
-    ],
-    { cwd, encoding: "utf8" },
-  );
+  const r = spawnSync(process.execPath, [...args], {
+    cwd: workspaceRoot,
+    encoding: "utf8",
+  });
   return {
     code: r.status ?? -1,
     stdout: r.stdout ?? "",
     stderr: r.stderr ?? "",
   };
 };
+
+const runGenerateDirect = (): { code: number; stderr: string } =>
+  runNode([
+    resolve(workspaceRoot, "node_modules/tsx/dist/cli.mjs"),
+    resolve(workspaceRoot, "scripts/docs/generate-constants-snippets.ts"),
+  ]);
+
+const runBoundaries = (): { code: number; stderr: string } =>
+  runNode([resolve(workspaceRoot, "scripts/architecture/check-boundaries.js")]);
 
 // ─── Plant / restore helpers ──────────────────────────────────────────────
 //
@@ -410,34 +419,28 @@ const testBakeFailureFailClosed = (): void => {
 
 // ─── Tests: MoltZap compatibility authority ──────────────────────────────
 
-const MOLTZAP_VERSION_SOURCE = "packages/identity/src/version.ts";
-const MOLTZAP_VERSION_LITERAL = /export const MOLTZAP_VERSION = "([^"]*)";/;
-
 const readMoltzapVersion = (): string => {
-  const source = readFileSync(
-    resolve(workspaceRoot, MOLTZAP_VERSION_SOURCE),
-    "utf8",
-  );
-  const match = MOLTZAP_VERSION_LITERAL.exec(source);
-  if (match === null || match[1] === undefined) {
-    throw new Error(`${MOLTZAP_VERSION_SOURCE} has no MOLTZAP_VERSION literal`);
+  const read = readMoltzapVersionSource(workspaceRoot);
+  if ("error" in read) {
+    throw new Error(read.error);
   }
-  return match[1];
+  return read.value;
 };
 
+/** Rewrite the literal with the same pattern the readers match. */
 const withMoltzapVersion =
   (next: string) =>
   (source: string): string =>
     source.replace(
       MOLTZAP_VERSION_LITERAL,
-      `export const MOLTZAP_VERSION = "${next}";`,
+      `export const MOLTZAP_VERSION = "${next}"`,
     );
 
 const testMoltzapVersionFile = (): void => {
   console.log("\n# MoltZap compatibility version source");
 
   plantFile(MOLTZAP_VERSION_SOURCE, withMoltzapVersion(""));
-  const empty = runGenerateDirect(workspaceRoot);
+  const empty = runGenerateDirect();
   assert(
     "empty MoltZap version fails closed",
     empty.code !== 0 && /expected a nonempty version/.test(empty.stderr),
@@ -473,7 +476,7 @@ const testMoltzapVersionFile = (): void => {
     planted.push({ path, original });
   }
   plantFile(MOLTZAP_VERSION_SOURCE, withMoltzapVersion(nextVersion));
-  const bumped = runGenerateDirect(workspaceRoot);
+  const bumped = runGenerateDirect();
   assert(
     "changed MoltZap version regenerates constants",
     bumped.code === 0,
@@ -497,15 +500,6 @@ const testMoltzapVersionFile = (): void => {
 };
 
 // ─── Tests: architecture boundaries publication guards ───────────────────
-
-const runBoundaries = (): { code: number; stderr: string } => {
-  const r = spawnSync(
-    process.execPath,
-    [resolve(workspaceRoot, "scripts/architecture/check-boundaries.js")],
-    { cwd: workspaceRoot, encoding: "utf8" },
-  );
-  return { code: r.status ?? -1, stderr: r.stderr ?? "" };
-};
 
 const testPublicationGuards = (): void => {
   console.log("\n# check-boundaries publication guards");

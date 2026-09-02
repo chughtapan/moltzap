@@ -9,8 +9,9 @@
  * The sole MoltZap wire compatibility value. Every MoltZap-owned network
  * schema carries exactly this value; there is no range negotiation or
  * per-layer wire version. `version.ts` is its source of truth: the
- * architecture boundary check and the documentation constants generator read
- * the literal from there.
+ * architecture boundary check reads the literal from there, and
+ * `scripts/docs/moltzap-version.ts` reads it for the documentation
+ * constants generator and its gate tests.
  *
  * The npm package version, the MCP revision, simulator definition ID,
  * EventCatalog schema, and RunLedger storage version are independent

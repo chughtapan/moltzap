@@ -4,7 +4,7 @@
 # The mock answers `npm view <name> versions --json` from NPM_MOCK_RESPONSES, a
 # JSON object keyed by package name whose values are either the versions npm
 # would print or `{ "exit": N, "body": "..." }` for a failing lookup. A package
-# absent from the object answers with NPM_MOCK_RESPONSE and NPM_MOCK_EXIT.
+# absent from the object fails the way npm fails for an unpublished name.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -30,13 +30,10 @@ MOCK_DIR=$(mktemp -d)
 cat > "$MOCK_DIR/npm" <<'MOCK'
 #!/usr/bin/env bash
 node -e '
-  const name = process.argv[1];
-  const byName = JSON.parse(process.env.NPM_MOCK_RESPONSES ?? "{}");
-  const entry = byName[name];
-  if (entry === undefined) {
-    console.log(process.env.NPM_MOCK_RESPONSE ?? "[]");
-    process.exit(Number(process.env.NPM_MOCK_EXIT ?? 0));
-  }
+  const entry = JSON.parse(process.env.NPM_MOCK_RESPONSES)[process.argv[1]] ?? {
+    exit: 1,
+    body: JSON.stringify({ error: { code: "E404" } }),
+  };
   if (!Array.isArray(entry) && typeof entry === "object" && "exit" in entry) {
     console.log(entry.body ?? "");
     process.exit(entry.exit);
@@ -53,45 +50,42 @@ trap cleanup EXIT
 SIX="identity router client openclaw-channel nanoclaw-channel simulator"
 
 echo "--- Test 1: No existing versions ---"
-export NPM_MOCK_RESPONSE='[]'
+export NPM_MOCK_RESPONSES='{"@moltzap/client":[]}'
 RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "no existing versions" "${TODAY}.0" "$RESULT"
 
 echo "--- Test 2: One existing version today ---"
-export NPM_MOCK_RESPONSE="[\"${TODAY}.0\"]"
+export NPM_MOCK_RESPONSES="{\"@moltzap/client\":[\"${TODAY}.0\"]}"
 RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "one existing version" "${TODAY}.1" "$RESULT"
 
 echo "--- Test 3: Multiple versions today ---"
-export NPM_MOCK_RESPONSE="[\"${TODAY}.0\", \"${TODAY}.1\", \"${TODAY}.2\"]"
+export NPM_MOCK_RESPONSES="{\"@moltzap/client\":[\"${TODAY}.0\", \"${TODAY}.1\", \"${TODAY}.2\"]}"
 RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "multiple versions" "${TODAY}.3" "$RESULT"
 
 echo "--- Test 4: Mixed old and today versions ---"
-export NPM_MOCK_RESPONSE="[\"2026.101.0\", \"2026.101.1\", \"${TODAY}.0\"]"
+export NPM_MOCK_RESPONSES="{\"@moltzap/client\":[\"2026.101.0\", \"2026.101.1\", \"${TODAY}.0\"]}"
 RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "mixed versions" "${TODAY}.1" "$RESULT"
 
 echo "--- Test 5: npm returns single string ---"
-export NPM_MOCK_RESPONSE="\"${TODAY}.0\""
+export NPM_MOCK_RESPONSES="{\"@moltzap/client\":\"${TODAY}.0\"}"
 RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "single string response" "${TODAY}.1" "$RESULT"
 
 echo "--- Test 6: Only old versions ---"
-export NPM_MOCK_RESPONSE='["2026.101.0", "2026.102.0"]'
+export NPM_MOCK_RESPONSES='{"@moltzap/client":["2026.101.0", "2026.102.0"]}'
 RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "only old versions" "${TODAY}.0" "$RESULT"
 
 echo "--- Test 7: npm 404 (deleted package) ---"
-export NPM_MOCK_RESPONSE='{"error":{"code":"E404"}}'
-export NPM_MOCK_EXIT=1
+export NPM_MOCK_RESPONSES='{}'
 RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "npm 404" "${TODAY}.0" "$RESULT"
-unset NPM_MOCK_EXIT
 
 echo "--- Test 8: One version over the union of six histories ---"
 export NPM_MOCK_RESPONSES="{\"@moltzap/simulator\":[\"${TODAY}.0\",\"${TODAY}.2\"],\"@moltzap/openclaw-channel\":[\"${TODAY}.1\"],\"@moltzap/client\":[\"2026.812.0\"]}"
-export NPM_MOCK_RESPONSE='[]'
 # shellcheck disable=SC2086 -- the package list is deliberately word-split.
 RESULT=$("$SCRIPT_DIR/compute-next-version.sh" $SIX)
 assert_eq "union takes the highest counter across packages" "${TODAY}.3" "$RESULT"
@@ -104,12 +98,9 @@ assert_eq "404 packages do not block a published sibling's counter" "${TODAY}.1"
 
 echo "--- Test 10: Every package unpublished ---"
 export NPM_MOCK_RESPONSES='{}'
-export NPM_MOCK_RESPONSE='{"error":{"code":"E404"}}'
-export NPM_MOCK_EXIT=1
 # shellcheck disable=SC2086
 RESULT=$("$SCRIPT_DIR/compute-next-version.sh" $SIX)
 assert_eq "all-404 union starts at build 0" "${TODAY}.0" "$RESULT"
-unset NPM_MOCK_EXIT NPM_MOCK_RESPONSES
 
 echo "--- Test 11: No package argument is an error ---"
 set +e

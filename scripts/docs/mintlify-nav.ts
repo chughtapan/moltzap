@@ -11,23 +11,34 @@ import { Effect, Schema, String as StringOps } from "effect";
 
 const MODULES_GROUP = "Modules";
 
-const navigationGroup = Schema.Struct({
-  group: Schema.String,
-  pages: Schema.Array(Schema.Unknown),
-});
+/** Every level keeps the keys the writer does not touch. */
+const passthrough = { key: Schema.String, value: Schema.Unknown };
 
-/** The one shape the writer relies on; every other key passes through. */
-const docsConfig = Schema.parseJson(
-  Schema.Struct({
-    navigation: Schema.Struct({
-      tabs: Schema.Array(
-        Schema.Struct({
-          tab: Schema.String,
-          groups: Schema.Array(navigationGroup),
-        }),
-      ),
-    }),
-  }),
+const navigationGroup = Schema.Struct(
+  { group: Schema.String, pages: Schema.Array(Schema.Unknown) },
+  passthrough,
+);
+
+/** The document as written, in source key order. */
+const jsonRecord = Schema.parseJson(
+  Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+);
+
+const docsConfig = Schema.Struct(
+  {
+    navigation: Schema.Struct(
+      {
+        tabs: Schema.NonEmptyArray(
+          Schema.Struct(
+            { tab: Schema.String, groups: Schema.Array(navigationGroup) },
+            passthrough,
+          ),
+        ),
+      },
+      passthrough,
+    ),
+  },
+  passthrough,
 );
 
 /**
@@ -46,7 +57,10 @@ export const writeModulesNav = (
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const source = yield* fs.readFileString(docsJsonPath).pipe(Effect.orDie);
-    const parsed = yield* Schema.decodeUnknown(docsConfig)(source).pipe(
+    const document = yield* Schema.decodeUnknown(jsonRecord)(source).pipe(
+      Effect.orDie,
+    );
+    const config = yield* Schema.decodeUnknown(docsConfig)(document).pipe(
       Effect.orDie,
     );
     const modules = {
@@ -55,10 +69,7 @@ export const writeModulesNav = (
         .map((slug) => `modules/${slug}`)
         .sort((left, right) => StringOps.localeCompare(right)(left)),
     };
-    const [firstTab, ...otherTabs] = parsed.navigation.tabs;
-    if (firstTab === undefined) {
-      return yield* Effect.dieMessage(`${docsJsonPath} has no navigation tab`);
-    }
+    const [firstTab, ...otherTabs] = config.navigation.tabs;
     const groups = firstTab.groups.some(
       (group) => group.group === MODULES_GROUP,
     )
@@ -66,13 +77,18 @@ export const writeModulesNav = (
           group.group === MODULES_GROUP ? modules : group,
         )
       : [...firstTab.groups, modules];
-    const updated = {
-      ...(JSON.parse(source) as Record<string, unknown>),
-      navigation: {
-        ...parsed.navigation,
-        tabs: [{ ...firstTab, groups }, ...otherTabs],
-      },
+    const navigation = {
+      ...config.navigation,
+      tabs: [{ ...firstTab, groups }, ...otherTabs],
     };
+    // A decoded struct lists its declared fields first; re-key from the
+    // document so every other key keeps the position it was written in.
+    const updated = Object.fromEntries(
+      Object.keys(document).map((key) => [
+        key,
+        key === "navigation" ? navigation : document[key],
+      ]),
+    );
     const json = `${JSON.stringify(updated, null, 2)}\n`;
     if (json === source) {
       return;

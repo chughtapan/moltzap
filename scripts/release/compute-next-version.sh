@@ -13,41 +13,24 @@ set -euo pipefail
 
 [ "$#" -ge 1 ] || { echo "usage: $0 <package-dir>..." >&2; exit 2; }
 
-YEAR=$(date -u +%Y)
-MDD=$(date -u +%-m%d)
-PREFIX="${YEAR}.${MDD}."
+PREFIX="$(date -u +%Y).$(date -u +%-m%d)."
 
-PUBLISHED="[]"
+RESPONSES=()
 for PKG in "$@"; do
-  PKG_JSON="packages/${PKG}/package.json"
-  if [ -f "$PKG_JSON" ]; then
-    NPM_PACKAGE=$(node -p "require('./${PKG_JSON}').name")
-  else
-    NPM_PACKAGE="@moltzap/${PKG}"
-  fi
-
-  set +e
-  VERSIONS=$(npm view "$NPM_PACKAGE" versions --json 2>/dev/null)
-  NPM_EXIT=$?
-  set -e
-  if [ "$NPM_EXIT" -ne 0 ]; then
-    VERSIONS="[]"
-  fi
-
-  # A package with exactly one published version comes back as a bare string.
-  PUBLISHED=$(node -e '
-    const [union, next] = process.argv.slice(1).map((text) => JSON.parse(text));
-    console.log(JSON.stringify([...union, ...(Array.isArray(next) ? next : [next])]));
-  ' "$PUBLISHED" "$VERSIONS")
+  NPM_PACKAGE=$(node -p "require('./packages/$PKG/package.json').name")
+  VERSIONS=$(npm view "$NPM_PACKAGE" versions --json 2>/dev/null) || VERSIONS="[]"
+  RESPONSES+=("$VERSIONS")
 done
 
 MAX_N=$(node -e '
-  const [prefix, published] = process.argv.slice(1);
-  const counters = JSON.parse(published)
+  const [prefix, ...responses] = process.argv.slice(1);
+  // A package with exactly one published version comes back as a bare string.
+  const counters = responses
+    .flatMap((text) => [JSON.parse(text)].flat())
     .filter((version) => version.startsWith(prefix))
     .map((version) => Number.parseInt(version.slice(prefix.length), 10))
-    .filter((counter) => Number.isInteger(counter));
+    .filter(Number.isInteger);
   console.log(counters.length === 0 ? -1 : Math.max(...counters));
-' "$PREFIX" "$PUBLISHED")
+' "$PREFIX" "${RESPONSES[@]}")
 
 echo "${PREFIX}$((MAX_N + 1))"
