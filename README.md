@@ -64,7 +64,9 @@ The package has four supported entry points: experiment definitions and runs
 at `@moltzap/simulator`, compatible network and fault controls at
 `@moltzap/simulator/network`, container runtimes at
 `@moltzap/simulator/agents`, and offline evidence tools at
-`@moltzap/simulator/ledger`.
+`@moltzap/simulator/ledger`. The published package also ships the
+`moltzap-sim` executable, which submits one experiment module through the
+local or GKE profile and prints one `ProfileRunResult` line.
 
 ## Package graph
 
