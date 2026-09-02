@@ -107,6 +107,9 @@
     },
     "nanoclaw-agent-image": {
       "cache": false,
+      "outputs": [
+        "{workspaceRoot}/.moltzap/agent-images/nanoclaw.json"
+      ],
       "dependsOn": [
         "agent-images-check"
       ],
