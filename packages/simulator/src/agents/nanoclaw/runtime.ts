@@ -99,6 +99,11 @@ export interface NanoClawRuntimeOptions {
    * `moltzap-history.ndjson` when the customer program ends.
    */
   readonly historyExport?: boolean;
+  /**
+   * Model the runtime asks for. Its provider prefix (`anthropic/`, `openai/`)
+   * names the credential forwarded from the run's Secret; an unknown prefix
+   * forwards none.
+   */
   readonly modelId?: string;
 
   /**

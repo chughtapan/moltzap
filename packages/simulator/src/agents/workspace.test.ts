@@ -93,6 +93,13 @@ describe("snapshotHarvestPaths", () => {
   it("refuses two spellings of one file", () => {
     assert.throws(() => snapshotHarvestPaths(["CALENDAR.md", "./CALENDAR.md"]));
   });
+
+  it("refuses the daemon transcript's own label", () => {
+    assert.throws(
+      () => snapshotHarvestPaths(["moltzap-history.ndjson"]),
+      /daemon transcript/u,
+    );
+  });
 });
 
 describe("harvestTargets", () => {

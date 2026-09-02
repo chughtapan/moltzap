@@ -3,7 +3,7 @@
 import type { ControllerFailedRunSummary } from "./controller/summary.js";
 import type {
   CleanupRunInput,
-  RunControllerResult,
+  ControllerRunResult,
   RunLifecycleActivities,
   runSocietyWorkflow,
   RunSocietyWorkflowInput,
@@ -48,7 +48,7 @@ type CleanupActivityInputIsExact = Expect<
   >
 >;
 type WorkflowResultIsOperational = Expect<
-  Equal<Awaited<ReturnType<typeof runSocietyWorkflow>>, RunControllerResult>
+  Equal<Awaited<ReturnType<typeof runSocietyWorkflow>>, ControllerRunResult>
 >;
 
 // A whole-shape equality rather than a key list: with exactOptionalPropertyTypes
@@ -57,7 +57,7 @@ type WorkflowResultIsOperational = Expect<
 // that keeps every existing producer of the failed branch compiling.
 type FailedResultIsClosed = Expect<
   Equal<
-    Extract<RunControllerResult, { readonly exitCode: 1 }>,
+    Extract<ControllerRunResult, { readonly exitCode: 1 }>,
     {
       readonly exitCode: 1;
       readonly summary: ControllerFailedRunSummary;

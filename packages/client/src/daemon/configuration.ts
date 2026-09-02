@@ -5,7 +5,7 @@ import {
   Ed25519PublicKey,
   type Ed25519PublicKey as Ed25519PublicKeyValue,
 } from "@moltzap/identity";
-import { Config, Data, Effect, Option, Redacted, Schema } from "effect";
+import { Config, Data, Effect, Redacted, Schema } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Bootstrap reads two configured Node files before the daemon composes its platform services.
 import { readFile } from "node:fs/promises";
 
@@ -62,8 +62,8 @@ const configuredValues = Config.all({
   admissionCredentialFile: Config.redacted(
     Schema.Config("MOLTZAPD_ADMISSION_CREDENTIAL_FILE", configuredPath),
   ),
-  historyExport: Config.option(
-    Schema.Config("MOLTZAPD_HISTORY_EXPORT", configuredPath),
+  historyExport: Schema.Config("MOLTZAPD_HISTORY_EXPORT", configuredPath).pipe(
+    Config.withDefault(undefined),
   ),
 });
 
@@ -115,15 +115,7 @@ export const loadDaemonProcessConfiguration: Effect.Effect<
   DaemonProcessConfiguration,
   DaemonConfigurationError
 > = configuredValues.pipe(
-  Effect.map(
-    ({ historyExport, ...configuration }): DaemonProcessConfiguration => ({
-      ...configuration,
-      ...Option.match(historyExport, {
-        onNone: () => ({}),
-        onSome: (path) => ({ historyExport: path }),
-      }),
-    }),
-  ),
+  Effect.map((configuration): DaemonProcessConfiguration => configuration),
   Effect.mapError(() => configurationError("environment")),
   Effect.withSpan("loadDaemonProcessConfiguration"),
 );

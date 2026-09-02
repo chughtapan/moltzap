@@ -3,11 +3,11 @@
 import { Effect, Either, Schema } from "effect";
 import { fileURLToPath } from "node:url";
 import type { KubernetesExecutionProfile } from "../profile.js";
+import type { ProfileRunResult } from "./result.js";
 import { ledgerArtifactFiles } from "../../ledger/index.js";
 import {
   type RunEnvironment,
   runKubernetesSociety,
-  type RunSubmission,
   RunSubmissionError,
   SubmitOperations,
 } from "../submit.js";
@@ -145,7 +145,7 @@ export function gkeExecutionProfileFromConfiguration(
 export function runGkeSociety(
   args: readonly string[],
   environment: RunEnvironment,
-): Effect.Effect<RunSubmission, RunSubmissionError, SubmitOperations> {
+): Effect.Effect<ProfileRunResult, RunSubmissionError, SubmitOperations> {
   return Effect.flatMap(SubmitOperations, (operations) =>
     operations.readTextFile(PROFILE_PATH),
   ).pipe(

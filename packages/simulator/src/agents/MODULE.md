@@ -168,7 +168,7 @@ export interface AgentsService<
 
 Describes agents service.
 
-### [`Application`](./container.ts#L157)
+### [`Application`](./container.ts#L160)
 
 _Interface_
 
@@ -204,7 +204,7 @@ export interface Application<Gateway, AcquisitionError> {
 
 One rendered application and its runtime-specific controller bridge.
 
-### [`ApplicationEndpoint`](./container.ts#L93)
+### [`ApplicationEndpoint`](./container.ts#L96)
 
 _Interface_
 
@@ -221,7 +221,7 @@ The cluster builds this from the port the application itself declared, so a
 runtime reads the address it asked for instead of re-deriving it: a protocol,
 port, path, or credential the runtime would have to reject cannot be spelled.
 
-### [`ContainerAgentRuntime`](./container.ts#L203)
+### [`ContainerAgentRuntime`](./container.ts#L206)
 
 _Interface_
 
@@ -243,7 +243,7 @@ A runtime that is known to carry a container realization. Only
 `defineContainerRuntime` produces one, so reading its realization back needs
 no absent case.
 
-### [`ContainerRuntime`](./container.ts#L190)
+### [`ContainerRuntime`](./container.ts#L193)
 
 _Interface_
 
@@ -271,7 +271,7 @@ export type CredentialName = "ANTHROPIC_API_KEY" | "OPENAI_API_KEY";
 
 Provider credential a container may request from the run-scoped Secret.
 
-### [`defineContainerRuntime`](./container.ts#L264)
+### [`defineContainerRuntime`](./container.ts#L267)
 
 _Function_
 
@@ -295,7 +295,7 @@ This describes no cross-runtime gateway protocol.
 
 **Returns:** The frozen nominal runtime accepted by a society roster.
 
-### [`File`](./container.ts#L68)
+### [`File`](./container.ts#L71)
 
 _Interface_
 
@@ -309,7 +309,7 @@ export interface File {
 
 One file materialized into a container from the run-scoped Secret.
 
-### [`HarvestTarget`](./container.ts#L80)
+### [`HarvestTarget`](./container.ts#L83)
 
 _Interface_
 
@@ -415,7 +415,7 @@ export class NanoClawGatewayOutput extends Schema.Class<NanoClawGatewayOutput>(
 
 One native output frame emitted by NanoClaw's owner-local CLI channel.
 
-### [`nanoclawRuntime`](./nanoclaw/runtime.ts#L119)
+### [`nanoclawRuntime`](./nanoclaw/runtime.ts#L124)
 
 _Function_
 
@@ -454,6 +454,11 @@ export interface NanoClawRuntimeOptions {
    * `moltzap-history.ndjson` when the customer program ends.
    */
   readonly historyExport?: boolean;
+  /**
+   * Model the runtime asks for. Its provider prefix (`anthropic/`, `openai/`)
+   * names the credential forwarded from the run's Secret; an unknown prefix
+   * forwards none.
+   */
   readonly modelId?: string;
 
   /**
@@ -584,7 +589,7 @@ Timed-out terminal result returned by OpenClaw's `agent` gateway RPC.
 OpenClaw treats this as a successful RPC payload rather than a transport
 failure. A run may time out before it has an agent result.
 
-### [`openClawRuntime`](./openclaw/runtime.ts#L170)
+### [`openClawRuntime`](./openclaw/runtime.ts#L175)
 
 _Function_
 
@@ -632,6 +637,11 @@ export interface OpenClawRuntimeOptions {
    * `moltzap-history.ndjson` when the customer program ends.
    */
   readonly historyExport?: boolean;
+  /**
+   * Model the runtime asks for. Its provider prefix (`anthropic/`, `openai/`)
+   * names the credential forwarded from the run's Secret; an unknown prefix
+   * forwards none.
+   */
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
 
@@ -667,7 +677,7 @@ export type OpenClawToolsConfig = NonNullable<OpenClawConfig["tools"]>;
 
 Tool configuration accepted by `OpenClawConfig`.
 
-### [`Resources`](./container.ts#L61)
+### [`Resources`](./container.ts#L64)
 
 _Interface_
 
@@ -681,7 +691,7 @@ export interface Resources {
 
 Portable resource request for one application container.
 
-### [`routableBridgeEndpoint`](./container.ts#L125)
+### [`routableBridgeEndpoint`](./container.ts#L128)
 
 _Function_
 
@@ -855,7 +865,7 @@ export type StartedAgents<
 
 Exact keyed agents installed only after every runtime is ready.
 
-### [`stoppedBeforeAttach`](./container.ts#L307)
+### [`stoppedBeforeAttach`](./container.ts#L310)
 
 _Function_
 

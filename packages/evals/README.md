@@ -115,7 +115,12 @@ behind each other on the cluster wait rather than fail. Run `eval`, `resume`,
 SQLite is the mutable report authority. Resume executes only cells missing from
 an exactly matching plan; finished cells commit in plan order, so an
 interrupted sweep loses at most `--concurrency` finished cells that had not yet
-committed. One process holds a report at a time: a second `resume` of the same
-report fails fast with `ReportLocked` while the first is alive. Completed
+committed. One process holds a report at a time: every command that opens the
+bundle (`eval`, `resume`, `publish`) takes the lease, so a second `resume`, or
+a `publish` while a sweep is live, fails fast with `ReportLocked` while the
+holder is alive. The lease names the holder's process id on this host; a lease
+whose process has died is taken over, while one whose id an unrelated process
+now carries stays locked until its row is deleted from
+`evaluation_report_lease`. Completed
 Simulator artifacts remain the evidence authority and are validated before
 grading.

@@ -75,7 +75,7 @@ export interface DaemonRuntimeDependencies {
   /** Opens the operator-configured history export against one file. */
   readonly makeHistoryExport: (
     path: string,
-  ) => Effect.Effect<HistoryExportPort, never, Scope.Scope>;
+  ) => Effect.Effect<HistoryExportPort>;
 }
 
 /** Management and durable identity state acquired before protocol startup. */

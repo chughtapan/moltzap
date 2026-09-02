@@ -115,7 +115,7 @@ const MISSED_TIMEOUT = Duration.millis(50);
 /** How long the fake queue holds a cohort before admitting it. */
 const QUEUED_FOR = Duration.millis(300);
 /** A startup budget the queue wait alone would exhaust. */
-const STARTUP_WHILE_QUEUED = Duration.millis(150);
+const STARTUP_WHILE_QUEUED = Duration.millis(250);
 const READY_AFTER_PROBES = 4;
 const INJECTED_READ_FAILURES = 3;
 /** A readiness probe the poll budget can never reach. */

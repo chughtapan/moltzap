@@ -2,14 +2,14 @@
 
 import { Cause, Data, Effect, Layer, Logger } from "effect";
 import { describe, expect, it } from "vitest";
-import type { RunControllerResult } from "./reclaim.js";
+import type { ProfileRunResult } from "./profiles/result.js";
+import type { ControllerRunResult } from "./reclaim.js";
 import type { RunTemporalSocietyOptions } from "./temporal.js";
 import { LOCAL_KUBERNETES_EXECUTION_PROFILE } from "./profile.js";
 import {
   boundedDiagnostic,
   type RunEnvironment,
   runKubernetesSociety,
-  type RunSubmission,
   SUBMIT_STAGE,
   SubmitOperations,
   SUBMITTED_DIAGNOSTIC_MAX_BYTES,
@@ -24,7 +24,7 @@ const ADMISSION_TIMEOUT_VARIABLE = "MOLTZAP_ADMISSION_TIMEOUT_MS";
 const ADMISSION_TIMEOUT_MS = 3_600_000;
 const COHORT_SIZE_VARIABLE = "MOLTZAP_COHORT_SIZE";
 const COHORT_SIZE = 100;
-const RESULT: RunControllerResult = {
+const RESULT: ControllerRunResult = {
   exitCode: 1,
   summary: { _tag: "LedgerAllocationFailed" },
 };
@@ -73,7 +73,7 @@ describe("the experiment application image", () => {
 function submit(
   environment: RunEnvironment,
 ): Effect.Effect<
-  { readonly submission: RunSubmission; readonly submitted: Submitted },
+  { readonly submission: ProfileRunResult; readonly submitted: Submitted },
   unknown
 > {
   const submitted: Submitted = { options: [] };

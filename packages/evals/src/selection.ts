@@ -31,14 +31,15 @@ export interface EvaluationRunCliOptions {
   readonly concurrency: number;
 }
 
-/**
- * Cells submitted at once. Concurrency is an execution choice, not part of
- * the immutable plan: a report resumed at a different width is the same
- * report, so it lives beside the plan rather than in its digest.
- */
+/** One command's validated runtime options and ordered case subset. */
 export interface EvaluationRunSelection {
   readonly options: EvaluationRunOptions;
   readonly cases: NonEmptyReadonlyArray<BundledEvaluationCase>;
+  /**
+   * Cells submitted at once. Concurrency is an execution choice, not part of
+   * the immutable plan: a report resumed at a different width is the same
+   * report, so it lives beside the plan rather than in its digest.
+   */
   readonly concurrency: number;
 }
 

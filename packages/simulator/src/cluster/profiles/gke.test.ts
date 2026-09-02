@@ -5,6 +5,7 @@ import { Effect, Layer, Schema } from "effect";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RunTemporalSocietyOptions } from "../temporal.js";
+import type { ProfileRunResult } from "./result.js";
 import {
   PLACEMENT,
   PROFILE_SOURCE,
@@ -18,7 +19,6 @@ import { CompletedLedgerReceipt } from "../../run/execute.js";
 import { programFinishedSummary } from "../controller/summary.js";
 import {
   type RunEnvironment,
-  type RunSubmission,
   SubmitOperations,
   type SubmitOperationsService,
 } from "../submit.js";
@@ -33,7 +33,7 @@ const ENVIRONMENT: RunEnvironment = Object.freeze({
 const RUN_UUID = "12345678-1234-4abc-8def-1234567890ab";
 const EXPECTED_RUN_ID = `mz-${RUN_UUID.replaceAll("-", "")}`;
 const DIGEST = Schema.decodeSync(ledgerDigest)("b".repeat(64));
-const RESULT: RunSubmission = {
+const RESULT: ProfileRunResult = {
   runId: "mz-run",
   namespace: "mz-run",
   result: {
