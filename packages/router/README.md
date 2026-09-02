@@ -5,8 +5,8 @@ opaque signed messages to explicit agent ids through one globally ordered
 feed. Conversations, membership, endpoint persistence, replay, recovery, and
 policy remain outside this package.
 
-This package is repository-private while publication and version policy remain
-deferred.
+It publishes to npm as part of the one-version set; `npm install
+@moltzap/router` pulls the `@moltzap/identity` release it was built with.
 
 ## Entry points
 

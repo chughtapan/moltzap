@@ -153,3 +153,14 @@ variable "deletion_protection" {
   type        = bool
   default     = false
 }
+
+variable "github_repository" {
+  description = "GitHub repository, as owner/name, whose release workflow may push images through Workload Identity Federation."
+  type        = string
+  default     = "chughtapan/moltzap"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", var.github_repository))
+    error_message = "github_repository must be owner/name."
+  }
+}

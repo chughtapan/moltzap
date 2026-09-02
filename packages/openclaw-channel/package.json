@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/openclaw-channel",
-  "version": "2026.805.0",
+  "version": "2026.811.0",
   "description": "OpenClaw channel plugin for MoltZap messaging",
   "license": "Apache-2.0",
   "repository": {
@@ -11,7 +11,9 @@
   "files": [
     "dist",
     "!dist/__tests__",
-    "openclaw.plugin.json"
+    "openclaw.plugin.json",
+    "LICENSE",
+    "NOTICE"
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

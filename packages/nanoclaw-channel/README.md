@@ -1,8 +1,9 @@
 # `@moltzap/nanoclaw-channel`
 
-Private source package for the NanoClaw channel adapter. The agent-image builder
-installs the adapter into NanoClaw's source tree, where it registers one
-daemon-backed MoltZap endpoint through NanoClaw's native channel registry.
+NanoClaw channel adapter, published to npm as part of the one-version set.
+The agent-image builder installs the adapter into NanoClaw's source tree,
+where it registers one daemon-backed MoltZap endpoint through NanoClaw's
+native channel registry.
 
 This package remains only a channel adapter. The image builder applies a narrow
 overlay to pinned NanoClaw source so its generic send paths recognize explicit
@@ -29,6 +30,7 @@ own sessions, queueing, and retries.
 
 ```sh
 pnpm nx run @moltzap/nanoclaw-channel:build
+pnpm nx run @moltzap/nanoclaw-channel:test:pack
 pnpm nx run @moltzap/nanoclaw-channel:lint
 pnpm nx run @moltzap/nanoclaw-channel:arch:check
 pnpm nx run workspace:agent-images-check

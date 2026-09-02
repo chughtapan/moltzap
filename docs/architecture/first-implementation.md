@@ -1,6 +1,6 @@
 # Four-layer cutover implementation order
 
-This is execution orientation. `v2/VISION.md`, current ADR outcomes, and
+This is execution orientation. `docs/vision.md`, current ADR outcomes, and
 `docs/spec/` decide behavior.
 
 ## Constraints on every lane
@@ -273,6 +273,7 @@ Before release cutover:
 - pack and install every publishable product in isolated consumers;
 - prove the exact seven-package graph and absence of every retired public
   surface;
-- resolve publication/version policy and update release automation; and
+- publish under the policy `docs/decisions/20260901-six-packages-publish-as-one-version-set.md`
+  selects, through `.github/workflows/publish.yml`; and
 - freeze and accept any final semantic authority candidate through a fresh
   blind review.

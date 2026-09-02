@@ -1,8 +1,8 @@
 #!/usr/bin/env tsx
 /**
  * @file Source-of-truth generator for the doc-embedded MoltZap compatibility
- * value. Reads the canonical version file and emits two sibling files under
- * `docs/snippets/constants/`:
+ * value. Reads `MOLTZAP_VERSION` from its owning Identity source file and
+ * emits two sibling files under `docs/snippets/constants/`:
  *
  *   - `values.json` — JSON record consumed by
  *     `scripts/docs/check-no-hardcoded-constants.ts` (the drift gate).
@@ -35,38 +35,15 @@ import {
 } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  MOLTZAP_VERSION_SOURCE,
+  readMoltzapVersion,
+} from "./moltzap-version.js";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(scriptDir, "..", "..");
 const docsDir = resolve(workspaceRoot, "docs");
 const constantsDir = resolve(docsDir, "snippets", "constants");
-
-// ─── Typed result + reader primitives ─────────────────────────────────────
-
-type ReadResult<T> =
-  | { readonly _tag: "ok"; readonly value: T }
-  | { readonly _tag: "err"; readonly reason: string };
-
-const ok = <T>(value: T): ReadResult<T> => ({ _tag: "ok", value });
-const err = (reason: string): ReadResult<never> => ({
-  _tag: "err",
-  reason,
-});
-
-/** Read one nonempty trimmed string from a repository version file. */
-const readVersionFile = (filePath: string): ReadResult<string> => {
-  let value: string;
-  try {
-    value = readFileSync(filePath, "utf8").trim();
-  } catch (cause) {
-    return err(
-      `could not read ${filePath}: ${cause instanceof Error ? cause.message : String(cause)}`,
-    );
-  }
-  return value.length === 0
-    ? err(`expected a nonempty version in ${filePath}`)
-    : ok(value);
-};
 
 // ─── Constant specs ───────────────────────────────────────────────────────
 
@@ -79,33 +56,25 @@ interface Constant {
 }
 
 const collect = (): readonly Constant[] => {
-  const moltzapVersion = readVersionFile(resolve(workspaceRoot, "v2/VERSION"));
-
   const failures: string[] = [];
   const requireString = (
     name: string,
     sourcePath: string,
-    res: ReadResult<string | number>,
+    read: ReturnType<typeof readMoltzapVersion>,
     note: string,
   ): Constant | null => {
-    if (res._tag === "err") {
-      failures.push(`${name}: ${res.reason}`);
+    if ("error" in read) {
+      failures.push(`${name}: ${read.error}`);
       return null;
     }
-    if (typeof res.value !== "string") {
-      failures.push(
-        `${name}: expected string literal, got ${typeof res.value}`,
-      );
-      return null;
-    }
-    return { kind: "string", name, value: res.value, sourcePath, note };
+    return { kind: "string", name, value: read.value, sourcePath, note };
   };
   const constants: ReadonlyArray<Constant | null> = [
     requireString(
       "V2_PROTOCOL_VERSION",
-      "v2/VERSION",
-      moltzapVersion,
-      "Current MoltZap wire compatibility value for Identity and Router representations; package release versioning is independent and deferred.",
+      MOLTZAP_VERSION_SOURCE,
+      readMoltzapVersion(workspaceRoot),
+      "Current MoltZap wire compatibility value for Identity and Router representations; package release versions are independent of it.",
     ),
   ];
 

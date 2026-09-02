@@ -13,6 +13,7 @@
         "scripts/docs/__tests__/*.test.ts"
       ],
       "project": ["*.mjs", "*.ts", "scripts/docs/**/*.ts"],
+      "ignoreUnresolved": ["/opt/moltzap/qualification/simulator-fault-program.mjs"],
       "ignoreDependencies": [
         "@effect/tsgo",
         "@mermaid-js/mermaid-cli",

@@ -86,6 +86,25 @@ trajectory. Add a dated correction tied to newly located source events.
 A security or privacy removal uses an explicit redaction marker and
 maintainer review.
 
+## Historical inputs
+
+`inputs/` and `drafts/` hold the research, audits, handoffs, and proposals
+that decision records cite. They moved here from the retired `v2/` directory
+on 2026-09-01 with their text unchanged, so paths inside them describe the
+tree as it was; only the relative links that the move broke were repointed.
+They are evidence in the sense above, never authority.
+
+| File | Cited by |
+|---|---|
+| `inputs/v1-code-audit-20260717.md` | `../decisions/20260722-control-plane-encoding.md` |
+| `inputs/debt-inventory-20260718.md` | `../decisions/20260722-control-plane-encoding.md` |
+| `inputs/simulator-handoff-20260728.md` | `../decisions/20260729-effect-native-evaluation-results.md` |
+| `drafts/firewall-plan-proposals/` | `../decisions/20260724-firewall-starts-as-mcp-middleware.md`; see `drafts/README.md` |
+
+These files are reproduced as they stood in `v2/`, with one mechanical change: MDX syntax characters in prose (`{`, `}`, and `<` before a name) carry a backslash escape so the documentation site's parser reads them as text. The words are unchanged; the escapes are invisible in rendered output.
+
+Inputs no record cites were deleted with `v2/`; git history retains them.
+
 ## Reading responsibility
 
 Use a trajectory like `git blame`: find the source events and repository

@@ -1,18 +1,23 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
 import {
   copyFile,
-  mkdir,
   mkdtemp,
+  readFile,
   realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import ts from "typescript";
+import {
+  extractPackedArchive,
+  installPackedConsumer,
+  packWorkspaceClosure,
+  requireCondition,
+} from "./packed-workspace.mjs";
 
 const exec = promisify(execFile);
 const workspaceRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -35,12 +40,6 @@ const facadeSpecifiers = Object.freeze({
   "./agents": "@moltzap/simulator/agents",
 });
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-simulator-pack-"));
-
-function requireCondition(condition, detail) {
-  if (!condition) {
-    throw new Error(detail);
-  }
-}
 
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -94,36 +93,7 @@ async function loadApiCensus() {
   return Object.freeze(facades);
 }
 
-async function packWorkspacePackage(packageDirectory, destination) {
-  const { stdout } = await exec(
-    "pnpm",
-    ["pack", "--pack-destination", destination],
-    { cwd: packageDirectory },
-  );
-  const printed = stdout
-    .trim()
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .at(-1);
-  requireCondition(printed !== undefined, "pnpm pack returned no tarball");
-  return resolve(packageDirectory, printed);
-}
-
-async function packedTarballs() {
-  const destination = join(temporaryRoot, "tarballs");
-  await mkdir(destination);
-  return Object.fromEntries(
-    await Promise.all(
-      Object.entries(workspacePackageRoots).map(async ([name, root]) => [
-        name,
-        await packWorkspacePackage(root, destination),
-      ]),
-    ),
-  );
-}
-
-async function verifyPackedFiles(extractedPackage) {
+async function verifyPackedFiles(extractedPackage, manifest) {
   const required = [
     "dist/index.js",
     "dist/index.d.ts",
@@ -145,9 +115,6 @@ async function verifyPackedFiles(extractedPackage) {
     }),
   );
 
-  const manifest = JSON.parse(
-    await readFile(join(extractedPackage, "package.json"), "utf8"),
-  );
   requireCondition(
     JSON.stringify(Object.keys(manifest.exports)) ===
       JSON.stringify([".", "./network", "./ledger", "./agents"]),
@@ -374,81 +341,16 @@ function verifyDeclarationCensus(installedPackage, census) {
   verifyPublicContracts(checker, facades);
 }
 
-function localArchiveSpecifier(consumerRoot, archive) {
-  return `file:${relative(consumerRoot, archive)}`;
-}
-
-async function verifyIsolatedInstall(consumerRoot) {
-  const installedRoot = await realpath(consumerRoot);
-  for (const packageName of [
-    "@moltzap/client",
-    "@moltzap/identity",
-    "@moltzap/router",
-    "@moltzap/simulator",
-    "effect",
-    "typescript",
-  ]) {
-    const installed = await realpath(
-      join(consumerRoot, "node_modules", ...packageName.split("/")),
-    );
-    requireCondition(
-      installed.startsWith(`${installedRoot}/`),
-      `packed consumer resolved ${packageName} outside its isolated install`,
-    );
-  }
-  const lockfile = await readFile(join(consumerRoot, "pnpm-lock.yaml"), "utf8");
-  requireCondition(
-    !lockfile.includes(workspaceRoot) &&
-      !lockfile.includes("workspace:") &&
-      !lockfile.includes("link:"),
-    "packed simulator consumer lockfile escaped to the source workspace",
-  );
-}
-
 async function verifyConsumerImports(archives, census) {
-  const consumerRoot = join(temporaryRoot, "consumer");
-  await mkdir(consumerRoot);
-  const localPackages = Object.fromEntries(
-    Object.entries(archives).map(([name, archive]) => [
-      name,
-      localArchiveSpecifier(consumerRoot, archive),
-    ]),
-  );
+  const consumerRoot = await installPackedConsumer({
+    temporaryRoot,
+    workspaceRoot,
+    name: "moltzap-simulator-packed-consumer",
+    archives,
+    dependencies: { effect: "3.22.0" },
+    devDependencies: { typescript: "6.0.2" },
+  });
   await Promise.all([
-    writeFile(
-      join(consumerRoot, "package.json"),
-      `${JSON.stringify(
-        {
-          name: "moltzap-simulator-packed-consumer",
-          version: "0.0.0",
-          private: true,
-          type: "module",
-          dependencies: {
-            ...localPackages,
-            effect: "3.22.0",
-          },
-          devDependencies: { typescript: "6.0.2" },
-          pnpm: {
-            overrides: localPackages,
-          },
-        },
-        null,
-        2,
-      )}\n`,
-    ),
-    writeFile(
-      join(consumerRoot, "pnpm-workspace.yaml"),
-      [
-        "packages:",
-        '  - "."',
-        "overrides:",
-        ...Object.entries(localPackages).map(
-          ([name, specifier]) =>
-            `  ${JSON.stringify(name)}: ${JSON.stringify(specifier)}`,
-        ),
-        "",
-      ].join("\n"),
-    ),
     writeFile(
       join(consumerRoot, "tsconfig.json"),
       `${JSON.stringify(
@@ -474,12 +376,6 @@ async function verifyConsumerImports(archives, census) {
     copyFile(packedConsumerPath, join(consumerRoot, "check.ts")),
     copyFile(apiCensusPath, join(consumerRoot, "api-census.json")),
   ]);
-  await exec(
-    "pnpm",
-    ["install", "--no-frozen-lockfile", "--ignore-scripts", "--prefer-offline"],
-    { cwd: consumerRoot, maxBuffer: 16 * 1024 * 1024 },
-  );
-  await verifyIsolatedInstall(consumerRoot);
   await exec(
     join(consumerRoot, "node_modules", ".bin", "tsc"),
     ["--project", join(consumerRoot, "tsconfig.json")],
@@ -517,17 +413,14 @@ async function verifyConsumerImports(archives, census) {
 
 try {
   const census = await loadApiCensus();
-  const archives = await packedTarballs();
-  const extractedRoot = join(temporaryRoot, "extracted");
-  await mkdir(extractedRoot);
-  await exec("tar", [
-    "-xzf",
-    archives["@moltzap/simulator"],
-    "-C",
-    extractedRoot,
-  ]);
-  const extractedPackage = join(extractedRoot, "package");
-  await verifyPackedFiles(extractedPackage);
+  const { archives, manifests } = await packWorkspaceClosure(
+    workspacePackageRoots,
+    temporaryRoot,
+  );
+  await verifyPackedFiles(
+    await extractPackedArchive(archives["@moltzap/simulator"], temporaryRoot),
+    manifests["@moltzap/simulator"],
+  );
   await verifyConsumerImports(archives, census);
   process.stdout.write("simulator package consumer check passed\n");
 } finally {

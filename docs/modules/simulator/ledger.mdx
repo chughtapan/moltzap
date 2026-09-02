@@ -13,7 +13,7 @@ Typed live and completed simulator ledgers.
 
 ## Public surface
 
-### [`CompletedLedgerArtifacts`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/read.ts#L104)
+### [`CompletedLedgerArtifacts`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/read.ts#L104)
 
 _Interface_
 
@@ -27,7 +27,7 @@ export interface CompletedLedgerArtifacts {
 
 Complete immutable artifact text retrieved from a profile-owned store.
 
-### [`CompletedRunLedger`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/read.ts#L93)
+### [`CompletedRunLedger`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/read.ts#L93)
 
 _Interface_
 
@@ -45,7 +45,7 @@ export interface CompletedRunLedger<Catalog> {
 
 Fully validated immutable ledger whose streams cannot fail.
 
-### [`EncodedEventOf`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L45)
+### [`EncodedEventOf`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L45)
 
 _TypeAlias_
 
@@ -57,7 +57,7 @@ export type EncodedEventOf<Catalog> = Schema.Schema.Encoded<
 
 The closed encoded union persisted for a catalog.
 
-### [`EventCatalog`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L132)
+### [`EventCatalog`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L132)
 
 _Class_
 
@@ -152,7 +152,7 @@ The exact immutable event universe for one definition.
 The private type identifier makes catalog arguments nominal: a structural
 object cannot claim a schema, constructor list, and tag list that disagree.
 
-### [`EventCatalogDefinitionError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L61)
+### [`EventCatalogDefinitionError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L61)
 
 _Class_
 
@@ -172,7 +172,7 @@ export class EventCatalogDefinitionError extends Schema.TaggedError<EventCatalog
 
 Invalid catalogs fail during definition construction, before a run starts.
 
-### [`EventCatalogDefinitionFailure`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L50)
+### [`EventCatalogDefinitionFailure`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L50)
 
 _TypeAlias_
 
@@ -182,7 +182,7 @@ export type EventCatalogDefinitionFailure = "duplicate-tag" | "invalid-tag";
 
 Represents event catalog definition failure conditions.
 
-### [`EventClass`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L12)
+### [`EventClass`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L12)
 
 _TypeAlias_
 
@@ -195,7 +195,7 @@ export type EventClass = Schema.Schema.AnyNoContext & {
 A schema-backed event constructor. The catalog retains both the schema and
 constructor faces so persisted values decode back into their exact class.
 
-### [`EventClassOf`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L42)
+### [`EventClassOf`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L42)
 
 _TypeAlias_
 
@@ -205,7 +205,7 @@ export type EventClassOf<Catalog> = CatalogClassesOf<Catalog>;
 
 The closed constructor union declared by a catalog.
 
-### [`EventOf`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L39)
+### [`EventOf`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L39)
 
 _TypeAlias_
 
@@ -215,7 +215,7 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
-### [`JsonObject`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/schema.ts#L47)
+### [`JsonObject`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/schema.ts#L47)
 
 _TypeAlias_
 
@@ -225,7 +225,7 @@ export type JsonObject = typeof jsonObjectSchema.Type;
 
 Represents json object values.
 
-### [`jsonValue`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/schema.ts#L31)
+### [`jsonValue`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/schema.ts#L31)
 
 _Variable_
 
@@ -244,7 +244,7 @@ export const jsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Validates and decodes json value values.
 
-### [`JsonValue`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/schema.ts#L21)
+### [`JsonValue`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/schema.ts#L21)
 
 _TypeAlias_
 
@@ -260,7 +260,7 @@ export type JsonValue =
 
 Represents json value values.
 
-### [`LEDGER_FORMAT_VERSION`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/schema.ts#L12)
+### [`LEDGER_FORMAT_VERSION`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/schema.ts#L12)
 
 _Variable_
 
@@ -270,7 +270,7 @@ export const LEDGER_FORMAT_VERSION = 1
 
 Provides the ledger format version runtime value.
 
-### [`LedgerAllocation`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/storage.ts#L73)
+### [`LedgerAllocation`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/storage.ts#L73)
 
 _Interface_
 
@@ -290,7 +290,7 @@ export interface LedgerAllocation {
 
 One storage-owned live allocation.
 
-### [`LedgerAllocationInput`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/storage.ts#L65)
+### [`LedgerAllocationInput`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/storage.ts#L65)
 
 _Interface_
 
@@ -305,7 +305,7 @@ export interface LedgerAllocationInput {
 
 Describes ledger allocation input.
 
-### [`LedgerArtifact`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/storage.ts#L20)
+### [`LedgerArtifact`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/storage.ts#L20)
 
 _TypeAlias_
 
@@ -315,7 +315,7 @@ export type LedgerArtifact = typeof ledgerArtifactSchema.Type;
 
 Represents ledger artifact values.
 
-### [`ledgerArtifactFiles`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/storage.ts#L30)
+### [`ledgerArtifactFiles`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/storage.ts#L30)
 
 _Variable_
 
@@ -325,7 +325,7 @@ export const ledgerArtifactFiles =
 
 The durable file name each ledger artifact is published under.
 
-### [`LedgerCatalogMismatch`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/read.ts#L60)
+### [`LedgerCatalogMismatch`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/read.ts#L60)
 
 _Class_
 
@@ -345,7 +345,7 @@ export class LedgerCatalogMismatch extends Schema.TaggedError<LedgerCatalogMisma
 
 Implements ledger catalog mismatch.
 
-### [`LedgerCompletion`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/schema.ts#L77)
+### [`LedgerCompletion`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/schema.ts#L77)
 
 _Class_
 
@@ -365,7 +365,7 @@ export class LedgerCompletion extends Schema.Class<LedgerCompletion>(
 
 The immutable publication marker for a completed ledger.
 
-### [`LedgerDefinitionMismatch`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/read.ts#L73)
+### [`LedgerDefinitionMismatch`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/read.ts#L73)
 
 _Class_
 
@@ -385,7 +385,7 @@ export class LedgerDefinitionMismatch extends Schema.TaggedError<LedgerDefinitio
 
 Implements ledger definition mismatch.
 
-### [`ledgerDigest`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/schema.ts#L56)
+### [`ledgerDigest`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/schema.ts#L56)
 
 _Variable_
 
@@ -398,7 +398,7 @@ export const ledgerDigest = Schema.String.pipe(
 
 Validates and decodes ledger digest values.
 
-### [`LedgerDigest`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/schema.ts#L61)
+### [`LedgerDigest`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/schema.ts#L61)
 
 _TypeAlias_
 
@@ -408,7 +408,7 @@ export type LedgerDigest = typeof ledgerDigest.Type;
 
 Represents ledger digest values.
 
-### [`LedgerFailure`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/append.ts#L59)
+### [`LedgerFailure`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/append.ts#L59)
 
 _TypeAlias_
 
@@ -421,7 +421,7 @@ export type LedgerFailure =
 
 Represents ledger failure conditions.
 
-### [`LedgerInvalid`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/read.ts#L46)
+### [`LedgerInvalid`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/read.ts#L46)
 
 _Class_
 
@@ -442,7 +442,7 @@ export class LedgerInvalid extends Schema.TaggedError<LedgerInvalid>()(
 
 Implements ledger invalid.
 
-### [`LedgerInvalidReason`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/read.ts#L43)
+### [`LedgerInvalidReason`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/read.ts#L43)
 
 _TypeAlias_
 
@@ -452,7 +452,7 @@ export type LedgerInvalidReason = typeof ledgerInvalidReasonSchema.Type;
 
 Represents ledger invalid reason values.
 
-### [`LedgerManifest`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/schema.ts#L64)
+### [`LedgerManifest`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/schema.ts#L64)
 
 _Class_
 
@@ -472,7 +472,7 @@ export class LedgerManifest extends Schema.Class<LedgerManifest>(
 
 Definition and provenance bound to every completed ledger.
 
-### [`LedgerOpenError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/read.ts#L86)
+### [`LedgerOpenError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/read.ts#L86)
 
 _TypeAlias_
 
@@ -486,7 +486,7 @@ export type LedgerOpenError =
 
 Represents ledger open error conditions.
 
-### [`LedgerRecord`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/schema.ts#L90)
+### [`LedgerRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/schema.ts#L90)
 
 _Interface_
 
@@ -506,7 +506,7 @@ export interface LedgerRecord<Catalog> {
 
 One exact event envelope in a run ledger.
 
-### [`ledgerRef`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/schema.ts#L15)
+### [`ledgerRef`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/schema.ts#L15)
 
 _Variable_
 
@@ -516,7 +516,7 @@ export const ledgerRef = Schema.NonEmptyString.pipe(Schema.brand("LedgerRef"))
 
 Storage-owned identity that never exposes a filesystem path.
 
-### [`LedgerRef`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/schema.ts#L17)
+### [`LedgerRef`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/schema.ts#L17)
 
 _TypeAlias_
 
@@ -526,7 +526,7 @@ export type LedgerRef = typeof ledgerRef.Type;
 
 Represents ledger ref values.
 
-### [`LedgerSerializationError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/append.ts#L50)
+### [`LedgerSerializationError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/append.ts#L50)
 
 _Class_
 
@@ -542,7 +542,7 @@ export class LedgerSerializationError extends Schema.TaggedError<LedgerSerializa
 
 Reports ledger serialization failures.
 
-### [`LedgerStorage`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/storage.ts#L129)
+### [`LedgerStorage`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/storage.ts#L129)
 
 _Class_
 
@@ -554,7 +554,7 @@ export class LedgerStorage extends Context.Tag(
 
 Outer layers provide the concrete ledger persistence implementation.
 
-### [`LedgerStorageError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/storage.ts#L49)
+### [`LedgerStorageError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/storage.ts#L49)
 
 _Class_
 
@@ -577,7 +577,7 @@ export class LedgerStorageError extends Schema.TaggedError<LedgerStorageError>()
 
 Stable failure at the ledger storage boundary.
 
-### [`LedgerStorageService`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/storage.ts#L99)
+### [`LedgerStorageService`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/storage.ts#L99)
 
 _Interface_
 
@@ -598,7 +598,7 @@ export interface LedgerStorageService {
 
 Describes ledger storage service.
 
-### [`makeLedgerRecordSchema`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/schema.ts#L107)
+### [`makeLedgerRecordSchema`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/schema.ts#L107)
 
 _Function_
 
@@ -613,7 +613,7 @@ The envelope schema shared by live commits and completed-ledger inspection.
 
 **Returns:** The created ledger record schema.
 
-### [`openLedger`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/read.ts#L136)
+### [`openLedger`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/read.ts#L136)
 
 _Function_
 
@@ -637,7 +637,7 @@ stream. The exact catalog is required; no unknown-event branch escapes.
 
 **Returns:** The open ledger result.
 
-### [`openLedgerArtifacts`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/read.ts#L163)
+### [`openLedgerArtifacts`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/read.ts#L163)
 
 _Function_
 
@@ -661,7 +661,7 @@ backend through the customer program.
 
 **Returns:** A validated completed ledger with infallible record streams.
 
-### [`readLedgerManifest`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/read.ts#L114)
+### [`readLedgerManifest`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/read.ts#L114)
 
 _Variable_
 
@@ -684,7 +684,7 @@ export const readLedgerManifest = Effect.fn("readLedgerManifest")(function* (
 Inspect definition and provenance without granting access to unverified
 records.
 
-### [`RunLedger`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/append.ts#L65)
+### [`RunLedger`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/append.ts#L65)
 
 _Interface_
 
@@ -701,7 +701,7 @@ export interface RunLedger<Catalog> {
 
 Readable, definition-bound live ledger capability.
 
-### [`VersionedEventTag`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L6)
+### [`VersionedEventTag`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L6)
 
 _TypeAlias_
 

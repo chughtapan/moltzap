@@ -11,10 +11,12 @@ Decision provenance: [compacted trajectory](../decision-evidence/20260720-202607
 
 ## Supersession
 
-This record is fully superseded. There is no protocol package. One
-CalVer in `v2/VERSION` governs all six package manifests and Moltzap
-wire compatibility; the MCP revision and simulator persisted-schema
-versions are independently pinned.
+This record is fully superseded. There is no protocol package. The
+MoltZap wire compatibility value is the `MOLTZAP_VERSION` literal in
+`packages/identity/src/version.ts`; the npm package version is a separate
+release namespace under
+`20260901-six-packages-publish-as-one-version-set.md`; the MCP revision and
+simulator persisted-schema versions are independently pinned.
 
 ## Context and Problem Statement
 
@@ -57,3 +59,11 @@ pairs and never accepts incompatible ones — and is today's behavior
 already. If independent endpoint upgrade cadence ever makes it too
 brittle, decoupling the wire version from the package version is
 the recorded future refinement.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-09-01 | Repointed the Supersession section from the deleted `v2/VERSION` file to the Identity-owned literal and the publication record that now owns package versions. The historical Decision Outcome is unchanged. |

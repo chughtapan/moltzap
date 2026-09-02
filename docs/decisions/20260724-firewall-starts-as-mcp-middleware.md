@@ -64,7 +64,7 @@ Chosen, **as the initial hypothesis** alongside the norm-form record:
   active bit; `20260724-l7-is-policy-attached-to-identity.md`). Rule
   vocabularies, fragment kinds, crossing alphabets, and policy
   engines stay undesigned; the three proposal drafts
-  (`v2/drafts/firewall-plan-proposals/`) are recorded inputs for when
+  (`docs/decision-evidence/drafts/firewall-plan-proposals/`) are recorded inputs for when
   evidence demands logic, their triple convergences (most-restrictive
   as the only combinator; admit / admit-under-limits /
   withhold-preserving-record; deterministic checks as certificates,
@@ -78,3 +78,11 @@ reused rather than built; nothing interpretive is added to the
 router; and the firewall plan stops being a blocking design item —
 the mounts are buildable now, and the logic arrives increment by
 increment behind them.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-09-01 | Repointed the cited historical input from `v2/` to `docs/decision-evidence/` after the `v2/` directory was retired. The historical Decision Outcome is unchanged. |

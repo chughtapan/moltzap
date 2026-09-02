@@ -163,7 +163,7 @@ Strictness is accepted. There is no extension bag, no
 reserved-for-future field, and no unknown-field tolerance, so no wire
 meaning can be added compatibly. Every wire change updates the
 catalog, a new accepted ADR, the vector corpus, and the exact
-`v2/VERSION` value together.
+`MOLTZAP_VERSION` literal in `packages/identity/src/version.ts` together.
 
 Three narrower consequences follow from named choices. Marking the
 routing extension critical means a generic PKIX validator rejects a
@@ -180,3 +180,11 @@ The `moltzap.xyz`-derived OID arc, the identifier prefixes, and the
 `openfloor.v1.speak` action identifier are public namespace choices
 made in this record. Replacing any of them later is a wire change with
 a version bump, not a refactor.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-09-01 | Repointed the wire-value locator from the deleted `v2/VERSION` to the Identity-owned literal. The historical Decision Outcome is unchanged. |

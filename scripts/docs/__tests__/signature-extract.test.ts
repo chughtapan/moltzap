@@ -143,9 +143,7 @@ describe("extractSignatureText", () => {
       "",
     ].join("\n");
 
-    expect(
-      extractSignatureText(source, 1, ReflectionKind.TypeAlias, true),
-    ).toBe(
+    expect(extractSignatureText(source, 1, ReflectionKind.TypeAlias)).toBe(
       [
         "export type RegistryLookupResult =",
         '  | Readonly<{ kind: "found"; agentCard: VerifiedAgentCard }>',
@@ -164,9 +162,9 @@ describe("extractSignatureText", () => {
       "",
     ].join("\n");
 
-    expect(
-      extractSignatureText(source, 1, ReflectionKind.TypeAlias, true),
-    ).toBe(source.trim());
+    expect(extractSignatureText(source, 1, ReflectionKind.TypeAlias)).toBe(
+      source.trim(),
+    );
   });
 
   it("returns null when the line is out of range", () => {
