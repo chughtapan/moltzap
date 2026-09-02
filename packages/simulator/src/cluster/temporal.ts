@@ -76,6 +76,11 @@ export interface RunTemporalSocietyOptions {
   readonly workerTemporalAddress?: string;
   /** Whether the operator accepted rolling the worker over its open runs. */
   readonly forceWorkerRoll?: boolean;
+  /**
+   * The submitter's own runtime, so what this boundary logs reaches the
+   * logger the submitter configured rather than the default one.
+   */
+  readonly runtime?: Runtime.Runtime<never>;
 }
 
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Temporal activities, workers, clients, and their host-operation dependencies are SDK-required Promise boundaries. */
@@ -208,7 +213,10 @@ export async function runTemporalSociety(
   // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 ): Promise<RunControllerResult> {
   const namespace = options.temporalNamespace ?? DEFAULT_TEMPORAL_NAMESPACE;
-  await runAtPromiseBoundary(Effect.logInfo("connecting Temporal"));
+  await runAtPromiseBoundary(
+    Effect.logInfo("connecting Temporal"),
+    options.runtime,
+  );
   const connection = await Connection.connect(
     options.temporalAddress === undefined
       ? undefined
@@ -221,8 +229,12 @@ export async function runTemporalSociety(
         runWorkerInstallApi(options, namespace),
         installRequest(options, client.workflow),
       ),
+      options.runtime,
     );
-    await runAtPromiseBoundary(Effect.logInfo("starting workflow"));
+    await runAtPromiseBoundary(
+      Effect.logInfo("starting workflow"),
+      options.runtime,
+    );
     return await executeRunSocietyWorkflow(options.input, {
       client: client.workflow,
       taskQueue: options.taskQueue,
@@ -353,14 +365,18 @@ function cleanupRun(
  * record the error the activity actually produced.
  *
  * @param effect The complete operation whose failure the SDK should observe.
+ * @param runtime The caller's runtime when it has one; the default otherwise.
  * @returns The operation's success, or a rejection carrying its failure.
  */
 // #ignore-sloppy-code-next-line[async-keyword]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 async function runAtPromiseBoundary<Result, Failure extends Error>(
   effect: Effect.Effect<Result, Failure>,
+  runtime?: Runtime.Runtime<never>,
   // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 ): Promise<Result> {
-  const exit = await Effect.runPromiseExit(effect);
+  const exit = await Runtime.runPromiseExit(runtime ?? Runtime.defaultRuntime)(
+    effect,
+  );
   if (Exit.isSuccess(exit)) {
     return exit.value;
   }

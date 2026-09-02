@@ -1,10 +1,33 @@
 #!/usr/bin/env node
 import { NodeRuntime } from "@effect/platform-node";
-import { runProfileExecutable } from "../dist/cluster/profiles/cli.js";
+import {
+  EXECUTABLE_SIGNALS,
+  executableTeardown,
+  runProfileExecutable,
+} from "../dist/cluster/profiles/cli.js";
 
-// The executable reports its own failures on stderr, so the runtime's
-// reporter, which would repeat them on stdout, stays off.
+// The runtime interrupts the main fiber on these signals; the teardown needs
+// to know which one arrived to name it and to choose the exit status.
+let received;
+for (const signal of EXECUTABLE_SIGNALS) {
+  process.once(signal, () => {
+    received = signal;
+  });
+}
+
+// The executable reports its own failures on stderr and installs its own
+// stderr logger, so the runtime's reporter and pretty logger, which would
+// repeat both on stdout, stay off.
 NodeRuntime.runMain(
   runProfileExecutable(process.argv.slice(2), process.env),
-  { disableErrorReporting: true },
+  {
+    disableErrorReporting: true,
+    disablePrettyLogger: true,
+    teardown: executableTeardown(
+      () => received,
+      (line) => {
+        process.stderr.write(line);
+      },
+    ),
+  },
 );
