@@ -117,6 +117,14 @@ const TAG_CLASS_FACTORIES = [
 const makeStrictRules = ({ maxLines = 1050 } = {}) => ({
   ...guard.configs.strict.rules,
   "agent-code-guard/no-vacuous-jsdoc": "error",
+  // The requirements preset demands a `@param` for every parameter and a
+  // `@returns` on every documented function. Types live in the signature here,
+  // so those tags carry only prose, and on a well-named parameter the only
+  // prose available restates the name — the litter `no-vacuous-jsdoc` and
+  // `require-description` exist to keep out. Write either tag where it says
+  // what the name cannot: units, format, preconditions, ordering.
+  "jsdoc/require-param": "off",
+  "jsdoc/require-returns": "off",
   "agent-code-guard/prefer-stepdown-function-order": "error",
   "agent-code-guard/require-stable-file-shell": "error",
   // The architecture analyzer owns deterministic file, folder, domain, and
