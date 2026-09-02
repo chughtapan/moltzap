@@ -3,7 +3,7 @@
 import canonicalize from "canonicalize";
 import { Data, Effect, Schema } from "effect";
 
-/* eslint-disable jsdoc/require-jsdoc, jsdoc/require-param, jsdoc/require-returns -- This package-private codec is named and documented at its representation facade. */
+/* eslint-disable jsdoc/require-jsdoc -- This package-private codec is named and documented at its representation facade. */
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const utf8Encoder = new TextEncoder();
@@ -77,4 +77,4 @@ export const decodeCanonical = <A, I, R>(
     return decoded;
   }).pipe(Effect.withSpan("decodeCanonical"));
 
-/* eslint-enable jsdoc/require-jsdoc, jsdoc/require-param, jsdoc/require-returns -- Restore package documentation rules. */
+/* eslint-enable jsdoc/require-jsdoc -- Restore package documentation rules. */
