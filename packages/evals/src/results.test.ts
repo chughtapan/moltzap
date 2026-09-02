@@ -329,6 +329,10 @@ function processDeathResumeTest() {
     )).trim();
 
     yield* child.kill("SIGKILL");
+    // The killed child stays a zombie until its parent reaps it, and a zombie
+    // still answers a liveness signal: resume only once it is truly gone, as
+    // any real parent shell would have made it by the time an operator retries.
+    yield* child.exitCode.pipe(Effect.ignore);
 
     const completed = yield* resumeAfterProcessDeath(
       fixture.databasePath,
