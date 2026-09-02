@@ -20,7 +20,8 @@ malicious peers.
 `packages/*`; six publish to npm as one calendar version set and
 `@moltzap/evals` stays private, per
 `docs/decisions/20260901-six-packages-publish-as-one-version-set.md`.
-Releases run from `main` through `.github/workflows/publish.yml`.
+Releases run from `main` through `.github/workflows/publish.yml` on manual
+dispatch.
 
 **The constitution is `docs/vision.md` → The constitution.** It is canonical
 there and paraphrased nowhere, this file included: two copies at the top of the
@@ -42,7 +43,7 @@ the setup itself.
 | `/plan-eng-review` | start implementing a feature |
 | `/land-and-deploy` | merge |
 | `codex`, authenticated and in quota | call review complete |
-| `gbrain`, connected | verify decision provenance, or run the blind gate |
+| `gbrain` reachable (`gbrain doctor`) | verify decision provenance |
 
 **Refuse where the failure is silent; warn where it is loud.** A missing binary
 that errors on first use needs no rule. `/ship` without codex quietly downgrades
@@ -80,7 +81,7 @@ gstack reviews compose with the Google guides where they apply.
 |---|---|
 | `google-code-review-reviewer` | `/ship`'s structured review |
 | `google-swe-testing` | `/ship`'s testing specialist; `/plan-eng-review`'s test review |
-| the language guide per changed file | `/ship`'s maintainability specialist; `/plan-eng-review`'s code-quality review |
+| the same language guides | `/ship`'s maintainability specialist; `/plan-eng-review`'s code-quality review |
 | `google-swe-engineering-standards` | the same two, for changes to the lint or architecture gates |
 | `google-swe-builds-dependencies-and-ci` | `/plan-eng-review`'s architecture review; `/ship` for workflow, Nx, manifest, or release-script changes |
 | `google-swe-compute-platforms` | either, for cluster execution: profiles, admission, run namespaces, images, Temporal |
@@ -92,7 +93,7 @@ gstack reviews compose with the Google guides where they apply.
 
 Labels `v2` and `wontfix-v2` are historical: `v2` marked input to the
 four-layer replacement that is now `main`; `wontfix-v2` marked defects that
-died with the retired v1 machinery. Epic #755 owns bootstrap and debt-zero
+died with the retired v1 machinery. Epic #755 tracks bootstrap and debt-zero
 work.
 
 ## Decisions
@@ -113,19 +114,24 @@ review gate. `scripts/docs/adr/check-shape.ts` enforces the mechanical half in
 - Symbol questions (where is X defined, who calls it, what type is
   this) → LSP. Grep/Explore only for breadth or text search.
 - Cite by symbol name (`file.ts → handleFrame`), never by line;
-  `file.ts:NNN` only in PRs and reviews.
+  `file.ts:NNN` only in PRs, reviews, and issues.
 - Rationale goes in JSDoc on the symbol it explains, in the commit
   message, or in a docs file — never scattered inline through a body.
-  A shell script's header block is its JSDoc. Write for a cold reader
+  A shell script's header block is its JSDoc. In `.ts` the signature
+  carries the types and JSDoc carries only rationale; in `.mjs` and
+  `.js` the JavaScript guide's typed annotations are the exception.
+  Write for a cold reader
   in present tense: why the code is shaped this way, non-obvious
   invariants, surprising constants. Never issue/spec/phase numbers,
   change narration (formerly, no longer, renamed from), design
   alternatives, or restating the next lines. Rewrite touched comments
   in the same PR; history lives in git, not code.
-- Fix every instance, not the reported one. When a pattern is wrong,
-  grep `packages/`, `scripts/`, and `docs/` and fix all of it in the
-  same change; one corrected call site with five untouched siblings is
-  a regression waiting to be rediscovered.
+- Fix every instance of a defect or wrong pattern, not the reported
+  one: grep `packages/`, `scripts/`, `tools/`, `bin/`, `.github/`, and
+  `docs/`, and fix all of it in the same change; one corrected call
+  site with five untouched siblings is a regression waiting to be
+  rediscovered. Style and guide conformance is the exception, and
+  follows the file the change touches.
 - A fix should shrink the system. Prefer removing or consolidating over
   adding a layer, flag, or special case.
 
