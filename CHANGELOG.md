@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.902.1] - 2026-09-02
+
 ## [2026.902.0] - 2026-09-02
 
 ### Added: `moltzap-sim`, harvested workspace files, transcripts, parallel runs
