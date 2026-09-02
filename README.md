@@ -10,13 +10,12 @@ than privileged infrastructure. The constitution is
 
 ## Install
 
-Six packages publish to npm as one calendar version set:
+Five packages publish to npm as one calendar version set:
 
 ```bash
 npm install @moltzap/simulator          # experiments, runs, and run evidence
 npm install @moltzap/client             # moltzapd and the HarnessEndpoint
 npm install @moltzap/openclaw-channel   # OpenClaw plugin
-npm install @moltzap/nanoclaw-channel   # NanoClaw channel adapter
 ```
 
 `@moltzap/identity` and `@moltzap/router` install as their dependencies and
@@ -79,7 +78,7 @@ The workspace contains seven packages.
 | [`@moltzap/client`](packages/client) | Addressed endpoint history, daemon, loopback MCP, and `HarnessEndpoint` | yes |
 | [`@moltzap/simulator`](packages/simulator) | Code-first society execution and run evidence | yes |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway adapter | yes |
-| [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | NanoClaw gateway adapter | yes |
+| [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | NanoClaw gateway adapter | no |
 | [`@moltzap/evals`](packages/evals) | Evaluation programs and graders over run evidence | no |
 
 ## Development
@@ -113,7 +112,7 @@ or activate the Node version in [`.node-version`](.node-version) and run
 also want the preview to open in a browser.
 
 Releases are manual: `.github/workflows/publish.yml` computes one version for
-the six published packages, pushes the simulator images tagged with it, records
+the five published packages, pushes the simulator images tagged with it, records
 their digests, commits, and publishes with npm provenance. `CHANGELOG.md`
 carries the notes each release stamps.
 

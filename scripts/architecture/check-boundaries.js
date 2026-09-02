@@ -122,7 +122,7 @@ const FINAL_PACKAGES = {
   },
   "nanoclaw-channel": {
     npmName: "@moltzap/nanoclaw-channel",
-    published: true,
+    published: false,
     deps: ["client"],
     exports: {
       ".": {
@@ -517,25 +517,33 @@ for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
 
   // A published manifest goes to npm as written: no private flag, the one
   // license, and the repository npm links provenance to. `pnpm pack` pins
-  // sibling dependencies to their manifest versions, so the six must agree
+  // sibling dependencies to their manifest versions, so the five must agree
   // before a release can install. Each tarball carries its own LICENSE and
   // NOTICE because npm packs only the package root; they are copies of the
   // repository files (pnpm pack drops symlinks) and must stay identical.
+  // Keyed on what the package ships rather than on whether it publishes: a
+  // private package that redistributes these files owes the same identity, and
+  // a package that ships neither owes nothing. `pnpm pack` drops symlinks, so
+  // they are copies that must not drift.
+  for (const notice of ["LICENSE", "NOTICE"]) {
+    if (!(manifest.files ?? []).includes(notice)) {
+      continue;
+    }
+    const packaged = path.join(packagesRoot, dir, notice);
+    if (
+      !fs.existsSync(packaged) ||
+      fs.readFileSync(packaged, "utf8") !==
+        fs.readFileSync(path.join(packagesRoot, "..", notice), "utf8")
+    ) {
+      failures.push(
+        `packages/${dir}/${notice}: must be an identical copy of the repository ${notice}`,
+      );
+    }
+  }
+
   if (expected.published) {
     if (manifest.private !== undefined) {
       failures.push(`${where}: a published package must not carry "private"`);
-    }
-    for (const notice of ["LICENSE", "NOTICE"]) {
-      const packaged = path.join(packagesRoot, dir, notice);
-      if (
-        !fs.existsSync(packaged) ||
-        fs.readFileSync(packaged, "utf8") !==
-          fs.readFileSync(path.join(packagesRoot, "..", notice), "utf8")
-      ) {
-        failures.push(
-          `packages/${dir}/${notice}: must be an identical copy of the repository ${notice}`,
-        );
-      }
     }
     if (manifest.license !== "Apache-2.0") {
       failures.push(
