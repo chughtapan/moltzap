@@ -56,6 +56,9 @@ import {
 const IMAGE_DIGEST = "a".repeat(64);
 const EXPECTED_NAMESPACE = "mz-run-1";
 const EXPECTED_STARTUP_TIMEOUT_MS = 120_000;
+const EXPECTED_ADMISSION_TIMEOUT_MS = 3_600_000;
+const CHOSEN_ADMISSION_TIMEOUT_MS = 7_200_000;
+const REJECTED_TIMEOUTS = ["0", "-1", "2.5", "86400001", "an hour"];
 const EXPECTED_COHORT_SIZE = 2;
 const CHOSEN_COHORT_SIZE = 100;
 const REJECTED_COHORT_SIZES = ["0", "-1", "2.5", "1000", "many"];
@@ -159,6 +162,10 @@ test("decodes the closed controller environment without retaining mutable input"
       configuration.startupTimeoutMs,
       EXPECTED_STARTUP_TIMEOUT_MS,
     );
+    assert.strictEqual(
+      configuration.admissionTimeoutMs,
+      EXPECTED_ADMISSION_TIMEOUT_MS,
+    );
     assert.strictEqual(configuration.cohortSize, EXPECTED_COHORT_SIZE);
     assert.isUndefined(configuration.rosterPlacement);
     assert.isUndefined(configuration.ledgerExportDirectory);
@@ -197,6 +204,31 @@ test("projects an explicitly selected application image into an experiment", () 
         }),
       ControllerConfigurationError,
     );
+  }));
+
+test("reads a run-chosen admission budget apart from the startup budget", () =>
+  Effect.sync(() => {
+    const budgeted = controllerConfigurationFromEnvironment({
+      ...VALID_ENVIRONMENT,
+      MOLTZAP_ADMISSION_TIMEOUT_MS: String(CHOSEN_ADMISSION_TIMEOUT_MS),
+    });
+
+    assert.strictEqual(
+      budgeted.admissionTimeoutMs,
+      CHOSEN_ADMISSION_TIMEOUT_MS,
+    );
+    assert.strictEqual(budgeted.startupTimeoutMs, EXPECTED_STARTUP_TIMEOUT_MS);
+
+    for (const encoded of REJECTED_TIMEOUTS) {
+      assert.throws(
+        () =>
+          controllerConfigurationFromEnvironment({
+            ...VALID_ENVIRONMENT,
+            MOLTZAP_ADMISSION_TIMEOUT_MS: encoded,
+          }),
+        /MOLTZAP_ADMISSION_TIMEOUT_MS/u,
+      );
+    }
   }));
 
 test("reads a run-chosen cohort size and refuses one no roster could have", () =>

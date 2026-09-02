@@ -83,6 +83,8 @@ export interface SubmitEvaluationCellInput {
   readonly openclawApplicationImage?: Image;
   readonly nanoclawApplicationImage?: Image;
   readonly runtimeStartupTimeoutMillis: number;
+  /** How long the cell may wait in the profile's queue behind other runs. */
+  readonly admissionTimeoutMillis: number;
   readonly peerObservationTimeoutMillis: number;
   readonly caseTimeoutMillis: number;
 }
@@ -187,6 +189,7 @@ export function submitEvaluationCell(input: SubmitEvaluationCellInput) {
       ).pipe(
         Command.env({
           MOLTZAP_STARTUP_TIMEOUT_MS: String(input.runtimeStartupTimeoutMillis),
+          MOLTZAP_ADMISSION_TIMEOUT_MS: String(input.admissionTimeoutMillis),
         }),
         Command.stderr("inherit"),
       );

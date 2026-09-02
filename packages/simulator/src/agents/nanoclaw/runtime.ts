@@ -18,6 +18,7 @@ import {
   type File,
   image,
   type Image,
+  providerCredential,
   routableBridgeEndpoint,
   stoppedBeforeAttach,
 } from "../container.js";
@@ -253,7 +254,13 @@ function makeNanoClawApplication(
     }),
     ...(settings.modelId === undefined
       ? {}
-      : { credentials: Object.freeze(["ANTHROPIC_API_KEY"] as const) }),
+      : {
+          // NanoClaw hosts Claude, so a model id with no provider prefix is
+          // still an Anthropic model.
+          credentials: Object.freeze([
+            providerCredential(settings.modelId) ?? "ANTHROPIC_API_KEY",
+          ]),
+        }),
     port: NANOCLAW_GATEWAY_PORT,
     files: bootstrapFiles(settings, input),
     ...(harvest.length === 0 ? {} : { harvest }),

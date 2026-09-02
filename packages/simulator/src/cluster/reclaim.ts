@@ -23,6 +23,12 @@ export interface RunSocietyWorkflowInput {
   readonly experimentModule: string;
   /** Budget for a cohort to become ready, when the default is too small. */
   readonly startupTimeoutMs?: number;
+  /**
+   * Budget for the queue to admit the cohort's capacity, kept apart from the
+   * readiness budget because a cohort waiting behind other runs has not begun
+   * to start.
+   */
+  readonly admissionTimeoutMs?: number;
   /** Agents an experiment sizes its roster from, when its run chooses. */
   readonly cohortSize?: number;
 }

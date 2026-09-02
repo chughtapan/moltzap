@@ -479,3 +479,22 @@ describe("OpenClaw history export", () => {
   );
   test("leaves the daemon export off by default", noHistoryExportTest);
 });
+
+function renderWithModel(modelId: string) {
+  return containerRuntimeFor(
+    openClawRuntime({ applicationImage: APPLICATION_IMAGE, modelId }),
+  ).render({ agentName: AGENT_NAME });
+}
+
+describe("OpenClaw provider credentials", () => {
+  test("requests the credential the model's provider prefix names", () =>
+    Effect.gen(function* () {
+      const anthropic = yield* renderWithModel("anthropic/claude-sonnet-4");
+      const openai = yield* renderWithModel("openai/gpt-5.5");
+      const other = yield* renderWithModel("google/gemini-2");
+
+      assert.deepStrictEqual(anthropic.credentials, ["ANTHROPIC_API_KEY"]);
+      assert.deepStrictEqual(openai.credentials, ["OPENAI_API_KEY"]);
+      assert.notProperty(other, "credentials");
+    }));
+});

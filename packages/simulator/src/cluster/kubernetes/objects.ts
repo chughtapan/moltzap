@@ -725,37 +725,39 @@ function controllerEnvironment(
     { name: "MOLTZAP_RUN_OWNER_NAME", value: RUN_OWNER_NAME },
     { name: "MOLTZAP_RUN_OWNER_UID", value: ownerUid },
     { name: "MOLTZAP_SUPPORT_IMAGE", value: input.supportImage },
-    ...(input.applicationImage === undefined
-      ? []
-      : [
-          {
-            name: "MOLTZAP_APPLICATION_IMAGE",
-            value: input.applicationImage,
-          },
-        ]),
-    ...(input.runtimeCredentials === undefined
-      ? []
-      : [
-          {
-            name: "MOLTZAP_RUNTIME_CREDENTIALS",
-            value: JSON.stringify(input.runtimeCredentials),
-          },
-        ]),
+    ...optionalEnvironment("MOLTZAP_APPLICATION_IMAGE", input.applicationImage),
+    ...optionalEnvironment(
+      "MOLTZAP_RUNTIME_CREDENTIALS",
+      input.runtimeCredentials === undefined
+        ? undefined
+        : JSON.stringify(input.runtimeCredentials),
+    ),
     { name: "MOLTZAP_EXPERIMENT_MODULE", value: EXPERIMENT_PATH },
-    ...(input.startupTimeoutMs === undefined
-      ? []
-      : [
-          {
-            name: "MOLTZAP_STARTUP_TIMEOUT_MS",
-            value: String(input.startupTimeoutMs),
-          },
-        ]),
-    ...(input.cohortSize === undefined
-      ? []
-      : [{ name: "MOLTZAP_COHORT_SIZE", value: String(input.cohortSize) }]),
+    ...optionalEnvironment(
+      "MOLTZAP_STARTUP_TIMEOUT_MS",
+      input.startupTimeoutMs === undefined
+        ? undefined
+        : String(input.startupTimeoutMs),
+    ),
+    ...optionalEnvironment(
+      "MOLTZAP_ADMISSION_TIMEOUT_MS",
+      input.admissionTimeoutMs === undefined
+        ? undefined
+        : String(input.admissionTimeoutMs),
+    ),
+    ...optionalEnvironment(
+      "MOLTZAP_COHORT_SIZE",
+      input.cohortSize === undefined ? undefined : String(input.cohortSize),
+    ),
     { name: "MOLTZAP_LEDGER_DIRECTORY", value: LOCAL_LEDGER_DIRECTORY },
     ...profileControllerEnvironment(input, profile),
   ];
+}
+
+// An input the submission did not set is left unset, so the controller's own
+// default applies rather than a second copy of it here.
+function optionalEnvironment(name: string, value?: string) {
+  return value === undefined ? [] : [{ name, value }];
 }
 
 function profileControllerEnvironment(

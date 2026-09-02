@@ -47,6 +47,7 @@ function input(condition: EvaluationConditionName): SubmitEvaluationCellInput {
     openclawApplicationImage: OPENCLAW_IMAGE,
     nanoclawApplicationImage: NANOCLAW_IMAGE,
     runtimeStartupTimeoutMillis: 300_000,
+    admissionTimeoutMillis: 3_600_000,
     peerObservationTimeoutMillis: 300_000,
     caseTimeoutMillis: 1_200_000,
   };
