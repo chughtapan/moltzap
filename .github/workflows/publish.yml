@@ -129,7 +129,7 @@ jobs:
             echo "ERROR: main moved past the dispatched commit $GITHUB_SHA; dispatch the release again from the tip"
             exit 1
           }
-          # A version whose release commit and tag reached main but whose
+          # A version whose release commit and tag were pushed but whose
           # publish never completed is taken even though npm has never seen it.
           TAKEN_VERSIONS=$(git ls-remote --tags --refs origin 'refs/tags/v*' | sed 's#.*refs/tags/v##')
           export TAKEN_VERSIONS
