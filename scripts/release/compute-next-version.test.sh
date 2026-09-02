@@ -54,6 +54,14 @@ export NPM_MOCK_RESPONSES='{"@moltzap/client":[]}'
 RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "no existing versions" "${TODAY}.0" "$RESULT"
 
+echo "--- Test 1b: TAKEN_VERSIONS claims counters npm has never seen ---"
+export NPM_MOCK_RESPONSES='{"@moltzap/client":[]}'
+RESULT=$(TAKEN_VERSIONS="${TODAY}.0
+${TODAY}.3 2025.101.9" "$SCRIPT_DIR/compute-next-version.sh" client)
+assert_eq "taken versions join the union" "${TODAY}.4" "$RESULT"
+RESULT=$(TAKEN_VERSIONS="" "$SCRIPT_DIR/compute-next-version.sh" client)
+assert_eq "empty taken versions change nothing" "${TODAY}.0" "$RESULT"
+
 echo "--- Test 2: One existing version today ---"
 export NPM_MOCK_RESPONSES="{\"@moltzap/client\":[\"${TODAY}.0\"]}"
 RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)

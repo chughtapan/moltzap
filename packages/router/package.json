@@ -11,7 +11,9 @@
   "files": [
     "dist",
     "!dist/tsconfig.tsbuildinfo",
-    "bin"
+    "bin",
+    "LICENSE",
+    "NOTICE"
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -52,10 +52,10 @@ set by this record.
 ### One version
 
 Every release carries one version, `YYYY.MDD.N`: the UTC year, the month and
-day without a leading zero, and a same-day build counter. The counter is the
-smallest not yet published by any of the six packages, so one string is
-written into all six manifests and published without colliding on any of
-them. Each packed manifest pins its workspace siblings to that exact version,
+day without a leading zero, and a same-day build counter. The counter is one
+past the highest that any of the six packages has published for that day or
+that a `v<version>` tag on `main` already claims, so one string is written
+into all six manifests and published without colliding on any of them. Each packed manifest pins its workspace siblings to that exact version,
 so a consumer who installs one package resolves the closure the same release
 built, never a mix of releases.
 
@@ -70,16 +70,19 @@ Releases run from `main` through `.github/workflows/publish.yml`, triggered
 manually. One run computes the version, writes it into the six manifests,
 builds, proves the packed closure installs, pushes the simulator controller,
 OpenClaw, and NanoClaw images tagged with the version to Artifact Registry
-(reusing an image an earlier attempt pushed from the same source revision
-rather than rebuilding), records the image digests in
+(reusing an image an earlier attempt pushed for the same version from the
+same source revision rather than rebuilding), records the image digests in
 `packages/simulator/gke/README.md`, regenerates documentation,
 stamps `CHANGELOG.md`, commits `chore(release): moltzap@<version>`, and
 publishes every package not yet on npm at that version with provenance. A
 rerun after a partial failure converges on the same version, digests, and
-commit. Only one release runs at a time, and only from the tip of `main`. The
-workflow authenticates to Google Cloud through Workload Identity Federation,
-whose trust admits only this workflow on `main`, and to npm through trusted
-publishing; it holds no stored key.
+commit; a run dispatched with `start_new_version` abandons an incomplete
+release commit and mints the next version from the tip instead. Only one
+release runs at a time, and only from the tip of `main`. The workflow
+authenticates to Google Cloud through Workload Identity Federation, whose
+trust admits only this workflow on `main`, and to npm through trusted
+publishing; the only stored secret is the release App's private key, which
+signs the one push to `main`.
 
 ### License
 
@@ -145,3 +148,4 @@ Point corrections that leave the Decision Outcome intact.
 | Date | Change |
 |---|---|
 | 2026-09-01 | Pre-admission review revision: the release path names the three repository variables the Terraform module outputs (provider, service account, image repository), image reuse keyed on the source revision, and the main-only serialized run. The six-package one-version Decision Outcome is unchanged. |
+| 2026-09-02 | Pre-admission review revision: the counter is one past the highest published or tagged, image reuse is keyed on version and source revision, the release App key is named as the one stored secret, and `start_new_version` abandons an incomplete release. The six-package one-version Decision Outcome is unchanged. |

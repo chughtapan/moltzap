@@ -518,10 +518,24 @@ for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
   // A published manifest goes to npm as written: no private flag, the one
   // license, and the repository npm links provenance to. `pnpm pack` pins
   // sibling dependencies to their manifest versions, so the six must agree
-  // before a release can install.
+  // before a release can install. Each tarball carries its own LICENSE and
+  // NOTICE because npm packs only the package root; they are copies of the
+  // repository files (pnpm pack drops symlinks) and must stay identical.
   if (expected.published) {
     if (manifest.private !== undefined) {
       failures.push(`${where}: a published package must not carry "private"`);
+    }
+    for (const notice of ["LICENSE", "NOTICE"]) {
+      const packaged = path.join(packagesRoot, dir, notice);
+      if (
+        !fs.existsSync(packaged) ||
+        fs.readFileSync(packaged, "utf8") !==
+          fs.readFileSync(path.join(packagesRoot, "..", notice), "utf8")
+      ) {
+        failures.push(
+          `packages/${dir}/${notice}: must be an identical copy of the repository ${notice}`,
+        );
+      }
     }
     if (manifest.license !== "Apache-2.0") {
       failures.push(

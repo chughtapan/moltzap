@@ -559,6 +559,16 @@ const testPublicationGuards = (): void => {
   );
   restoreAllPlants();
 
+  plantFile("packages/router/NOTICE", (s) => `${s}Extra line.\n`);
+  const driftedNotice = runBoundaries();
+  assert(
+    "flags a packaged NOTICE that differs from the repository NOTICE",
+    driftedNotice.code !== 0 &&
+      /router\/NOTICE: must be an identical copy/.test(driftedNotice.stderr),
+    `expected NOTICE drift failure. exit=${driftedNotice.code}, stderr=${driftedNotice.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
   plantFile("packages/router/package.json", (s) =>
     s.replace(
       "git+https://github.com/chughtapan/moltzap.git",

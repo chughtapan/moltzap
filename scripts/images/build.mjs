@@ -76,6 +76,40 @@ export function metadataDigest(metadata) {
 }
 
 /**
+ * The driver name `docker buildx inspect` reports for the current builder.
+ * @param {string} inspectOutput The command's stdout.
+ * @returns {string} The driver, for example `docker` or `docker-container`.
+ */
+export function buildxDriver(inspectOutput) {
+  const match = /^Driver:\s*(\S+)/mu.exec(inspectOutput);
+  if (match === null) {
+    throw new Error("docker buildx inspect reported no driver");
+  }
+  return match[1];
+}
+
+/**
+ * Fail before any work when the current builder cannot see the daemon's
+ * image store. The NanoClaw image is built FROM a base that is only loaded
+ * locally, which the `docker-container` and `kubernetes` drivers cannot
+ * resolve; with `--push` that failure would otherwise surface only after the
+ * base build.
+ * @param {string} label Builder label for the error message.
+ * @returns {Promise<void>}
+ */
+export async function requireDockerBuildxDriver(label) {
+  const { stdout } = await exec("docker", ["buildx", "inspect"], {
+    timeout: 30_000,
+  });
+  const driver = buildxDriver(stdout);
+  if (driver !== "docker") {
+    throw new Error(
+      `${label} needs buildx's docker driver, but the current builder uses ${driver}`,
+    );
+  }
+}
+
+/**
  * The local daemon's id for a loaded image.
  * @param {string} image Repository and tag of a loaded image.
  * @param {string} label Builder label for the error message.

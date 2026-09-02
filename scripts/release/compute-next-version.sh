@@ -2,10 +2,14 @@
 # Print the next calendar version for one release of every named package.
 #
 # Usage: compute-next-version.sh <package-dir>...
-# Output: YYYY.MDD.N — today's UTC date (month without a leading zero) and the
-# smallest build counter that none of the named packages has published yet. The
-# release writes that one string into every manifest, so the counter is taken
-# over the union of the packages' npm histories rather than any single one.
+# Output: YYYY.MDD.N — today's UTC date (month without a leading zero) and one
+# past the highest build counter any of the named packages has published for
+# that day. The release writes that one string into every manifest, so the
+# counter is taken over the union of the packages' npm histories rather than
+# any single one. TAKEN_VERSIONS, whitespace-separated, adds versions npm has
+# never seen but that are claimed anyway: the release tags on main, so a
+# release whose commit landed but whose publish never completed keeps its
+# number.
 #
 # A package that has never been published answers 404 and contributes nothing
 # to the union. Any other npm failure aborts: a registry outage read as "never
@@ -16,7 +20,7 @@ set -euo pipefail
 
 PREFIX="$(date -u +%Y.%-m%d)."
 
-RESPONSES=()
+RESPONSES=("$(node -e 'console.log(JSON.stringify(process.argv[1].split(/\s+/u).filter(Boolean)))' "${TAKEN_VERSIONS:-}")")
 for PKG in "$@"; do
   NPM_PACKAGE=$(node -p "require('./packages/$PKG/package.json').name")
   if VERSIONS=$(npm view "$NPM_PACKAGE" versions --json 2>/dev/null); then

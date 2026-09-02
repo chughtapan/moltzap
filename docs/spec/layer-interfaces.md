@@ -420,8 +420,9 @@ Six packages publish to npm as one version set: `@moltzap/identity`,
 private. The current record is
 `../decisions/20260901-six-packages-publish-as-one-version-set.md`.
 
-- One release computes one calendar version, `YYYY.MDD.N`, from the union of
-  the six packages' npm histories and writes it into every published manifest.
+- One release computes one calendar version, `YYYY.MDD.N`, one past the
+  highest counter in the union of the six packages' npm histories and the
+  `v<version>` tags on `main`, and writes it into every published manifest.
 - `pnpm pack` pins each workspace sibling to that exact version, so an
   installed closure resolves the packages one release built, never a mix.
 - The package version is independent of `MOLTZAP_VERSION`, the MCP revision,

@@ -17,7 +17,9 @@
     "!src/**/*.test.ts",
     "!src/**/*.types-check.ts",
     "!src/**/__tests__/**",
-    "!dist/tsconfig.tsbuildinfo"
+    "!dist/tsconfig.tsbuildinfo",
+    "LICENSE",
+    "NOTICE"
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

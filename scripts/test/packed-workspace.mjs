@@ -67,9 +67,9 @@ async function listPackedFiles(archive) {
 /**
  * Pack every package in `packageRoots` under `temporaryRoot/tarballs` and
  * prove the packed manifests form a registry-installable closure: each keeps
- * its source name and version, carries no `private` flag, ships every
- * executable its `bin` map names, and pins every packed sibling to that
- * sibling's exact packed version.
+ * its source name and version, carries no `private` flag, ships the Apache
+ * `LICENSE` and `NOTICE` files, ships every executable its `bin` map names,
+ * and pins every packed sibling to that sibling's exact packed version.
  * @param {Readonly<Record<string, string>>} packageRoots Package name to source root.
  * @param {string} temporaryRoot Scratch directory owned by the caller.
  * @returns {Promise<{ archives: Record<string, string>, manifests: Record<string, Record<string, unknown>> }>}
@@ -107,6 +107,12 @@ export async function packWorkspaceClosure(packageRoots, temporaryRoot) {
       manifest.private === undefined,
       `packed ${name} carries a private flag and cannot be published`,
     );
+    for (const notice of ["LICENSE", "NOTICE"]) {
+      requireCondition(
+        files.has(`package/${notice}`),
+        `packed ${name} does not ship ${notice}`,
+      );
+    }
     for (const [executable, target] of Object.entries(manifest.bin ?? {})) {
       requireCondition(
         typeof target === "string" &&

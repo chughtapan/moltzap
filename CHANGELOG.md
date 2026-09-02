@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions are calendar versions, `YYYY.MDD.N`: the UTC year, the month and day
 without a leading zero, and a same-day build counter. Every published package
 carries the same version in a release, and the release workflow stamps the
-heading below when it publishes.
+heading below in its release commit.
 
 ## [Unreleased]
 
@@ -41,7 +41,8 @@ bespoke CLI, or Unix socket. The constitution lives in `docs/vision.md`.
 
 `@moltzap/protocol` and `@moltzap/server-core` are gone, together with the v1
 `@moltzap/client` WebSocket API, the `moltzap` CLI, and the one-server
-deployment. Their npm releases are deprecated in favour of the packages below.
+deployment. Their npm releases are deprecated once this release is on the
+registry; install the packages below instead.
 
 ### Added: six packages published as one version set
 

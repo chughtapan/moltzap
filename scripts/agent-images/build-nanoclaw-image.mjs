@@ -17,6 +17,7 @@ import {
   localImageId,
   metadataDigest,
   parseImageBuildArguments,
+  requireDockerBuildxDriver,
 } from "../images/build.mjs";
 
 const exec = promisify(execFile);
@@ -248,6 +249,7 @@ async function main() {
     label: "NanoClaw image",
     defaultRepository: DEFAULT_REPOSITORY,
   });
+  await requireDockerBuildxDriver("NanoClaw image");
   report("building MoltZap workspace dependencies");
   await exec(
     "pnpm",
