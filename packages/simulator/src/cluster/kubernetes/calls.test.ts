@@ -1,6 +1,7 @@
 /** @file Kubernetes condition freshness, call deadlines, and context-selection regressions. */
 
-import { Duration, Effect } from "effect";
+import { ApiException } from "@kubernetes/client-node";
+import { Cause, Duration, Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   currentConditionIsTrue,
@@ -8,6 +9,7 @@ import {
   kubernetesCall,
   KubernetesCallFailed,
   kubernetesCallTimeout,
+  readFailureDetail,
   selectConfiguredKubeContext,
 } from "./calls.js";
 
@@ -162,5 +164,48 @@ describe("selectConfiguredKubeContext", () => {
     );
 
     expect(consulted).toBe(false);
+  });
+});
+
+describe("readFailureDetail", () => {
+  const operation = "read application file";
+
+  it("names an API status and says nothing else the server sent", () => {
+    const failure = new KubernetesCallFailed(
+      operation,
+      new ApiException(403, "Forbidden", { secret: "body" }, {}),
+    );
+
+    expect(readFailureDetail(failure)).toBe(
+      "read application file failed (Kubernetes 403)",
+    );
+  });
+
+  it("appends what the transport said when the session was refused", () => {
+    const failure = new KubernetesCallFailed(
+      operation,
+      new Error("Unexpected server response: 403"),
+    );
+
+    expect(readFailureDetail(failure)).toBe(
+      "read application file failed: Unexpected server response: 403",
+    );
+  });
+
+  it("reports an unanswered call once, without the timeout's own text", () => {
+    const failure = new KubernetesCallFailed(
+      operation,
+      new Cause.TimeoutException(),
+    );
+
+    expect(readFailureDetail(failure)).toBe(
+      "read application file did not answer in time",
+    );
+  });
+
+  it("keeps the operator message when the cause is not an error", () => {
+    expect(readFailureDetail(new KubernetesCallFailed(operation))).toBe(
+      "read application file failed",
+    );
   });
 });

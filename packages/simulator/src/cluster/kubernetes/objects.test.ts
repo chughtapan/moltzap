@@ -498,7 +498,7 @@ it("gives the controller only the run-scoped operations its platform uses", () =
       expect.objectContaining({
         apiGroups: [""],
         resources: ["pods/exec"],
-        verbs: ["create"],
+        verbs: ["create", "get"],
       }),
     ]),
   );
