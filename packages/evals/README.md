@@ -99,7 +99,9 @@ mise x node@24.18.0 -- pnpm nx run @moltzap/evals:lint
 Live runs require digest-pinned `MOLTZAP_CONTROLLER_IMAGE` and
 `MOLTZAP_NANOCLAW_IMAGE` when NanoClaw is selected, the selected Simulator
 profile's artifact location and Temporal address, model credentials, and a
-clean committed worktree. `eval` and `resume` accept
+clean committed worktree. A container receives the credential its model id's
+provider prefix names (`openai/…` forwards `OPENAI_API_KEY`, `anthropic/…`
+forwards `ANTHROPIC_API_KEY`); an id without a known prefix forwards none. `eval` and `resume` accept
 `--runtime all|openclaw|nanoclaw` and default to `all`. Every selected runtime
 requires its matching model option. `--messaging-mode` defaults to `shared`;
 `private` is currently valid only with `--runtime openclaw`. The
