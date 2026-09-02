@@ -178,6 +178,12 @@ class FakeSocket extends EventEmitter implements FakeSession {
  * `drive` plays the server's side once the session is handed out. It runs a
  * turn later than the probe's own continuation, so the probe's listeners are
  * attached before the server speaks.
+ *
+ * Delivering the status frame ends both output streams before the frame
+ * reaches the observer, because that is what the real client does, and that
+ * frame necessarily precedes the socket's close. A fake that leaves the
+ * streams open models a session no client produces, and cannot reproduce
+ * anything the probe does after that point.
  */
 function fakeExec(
   drive: (
@@ -189,11 +195,16 @@ function fakeExec(
   return {
     exec: (...args) => {
       const stdout = args[4];
+      const stderr = args[5];
       const status = args[8];
       const session = new FakeSocket();
       setTimeout(() => {
         if (stdout instanceof PassThrough && status !== undefined) {
-          drive(session, stdout, status);
+          drive(session, stdout, (frame) => {
+            stdout.end();
+            stderr?.end();
+            status(frame);
+          });
         }
       }, 0);
       return Promise.resolve(session);
@@ -204,7 +215,7 @@ function fakeExec(
 const READ = { namespace: "n", podName: "p", path: "/f", limitBytes: 16 };
 
 describe("execHarvestProbe", () => {
-  it("settles on close with the status frame's exit and the captured output", async () => {
+  it("settles once the client has ended both streams and closed", async () => {
     const exec = fakeExec((session, stdout, status) => {
       stdout.write("hi");
       status({ status: "Success" });

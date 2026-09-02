@@ -220,24 +220,35 @@ function makeSession(limitBytes: number): ProbeSession {
   };
 }
 
-// Ends both streams and waits for each to report that every chunk written
-// into it has been handed to its collector.
+// Ends both streams and waits for each to report that every chunk written into
+// it has been handed to its collector. Ending a stream the client has already
+// ended is a no-op.
 function drained(
   stdout: PassThrough,
   stderr: PassThrough,
 ): Effect.Effect<void> {
-  return Effect.async<undefined>((resume) => {
-    let pending = 2;
-    const done = () => {
-      pending -= 1;
-      if (pending === 0) {
-        resume(Effect.succeed(undefined));
-      }
-    };
-    stdout.once("end", done);
-    stderr.once("end", done);
+  return Effect.suspend(() => {
     stdout.end();
     stderr.end();
+    return Effect.zipRight(ended(stdout), ended(stderr));
+  });
+}
+
+// Completes once the stream has handed every chunk to its collector, whether or
+// not that has already happened. The client ends both output streams when the
+// status frame arrives, and that frame precedes the socket's close, so a bare
+// subscription taken after the close waits on an event already in the past and
+// is never answered. `readableEnded` outlives the event it records: Node sets
+// it as `end` is emitted, which is after the last chunk has been read.
+function ended(stream: PassThrough): Effect.Effect<void> {
+  return Effect.async<undefined>((resume) => {
+    if (stream.readableEnded) {
+      resume(Effect.succeed(undefined));
+      return;
+    }
+    stream.once("end", () => {
+      resume(Effect.succeed(undefined));
+    });
   });
 }
 
