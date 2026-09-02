@@ -62,7 +62,9 @@ digests in `packages/simulator/gke/README.md`.
 ### Changed: license
 
 The repository and every published package are licensed under Apache-2.0.
-Releases before this one were published under MIT.
+Earlier releases keep the license their published manifests declared: the
+repository `LICENSE` and `@moltzap/simulator` were MIT, and the other
+published manifests already said Apache-2.0.
 
 ### Removed: the `v2/` directory
 
