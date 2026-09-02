@@ -151,6 +151,14 @@ outputs into the repository's Actions variables before the first release:
 The job runs in the `release` GitHub environment, which GitHub creates on the
 first run; required reviewers added to that environment gate every release.
 
+Two more prerequisites live outside Terraform. The release commit and tag are
+pushed with a GitHub App token: set `RELEASE_APP_ID` as an Actions variable and
+`RELEASE_APP_PRIVATE_KEY` as an Actions secret for an App installed on this
+repository with contents write access and allowed to push `main`. npm
+publishes with trusted publishing rather than a token, so each of the six
+published packages lists `publish.yml` on this repository as a trusted
+publisher before the first run.
+
 A release pushes each image under `sha-<commit>` and then adds the
 `<version>` tag to that digest. A rerun reuses the `sha-<commit>` image and
 completes the version tag; a version tag that names any other digest fails the

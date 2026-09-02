@@ -30,6 +30,7 @@ own sessions, queueing, and retries.
 
 ```sh
 pnpm nx run @moltzap/nanoclaw-channel:build
+pnpm nx run @moltzap/nanoclaw-channel:test:pack
 pnpm nx run @moltzap/nanoclaw-channel:lint
 pnpm nx run @moltzap/nanoclaw-channel:arch:check
 pnpm nx run workspace:agent-images-check
