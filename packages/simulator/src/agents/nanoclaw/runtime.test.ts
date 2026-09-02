@@ -306,3 +306,46 @@ describe("NanoClaw container runtime", () => {
     descriptorRegistrationTest,
   );
 });
+
+const harvestProjection = Schema.Struct({
+  harvestWorkspaceFiles: Schema.Array(Schema.String),
+});
+
+describe("NanoClaw workspace harvest", () => {
+  // The provisioner copies the seeded workspace onto the writable layer, so
+  // the target is the copy the agent writes, not the bootstrap mount.
+  test("renders each declared file under the provisioned agent workspace", () =>
+    Effect.gen(function* () {
+      const runtime = nanoclawRuntime({
+        applicationImage: APPLICATION_IMAGE,
+        harvestWorkspaceFiles: ["CALENDAR.md"],
+      });
+      const application = yield* containerRuntimeFor(runtime).render({
+        agentName: AGENT_NAME,
+      });
+
+      assert.deepStrictEqual(application.harvest, [
+        {
+          relativePath: "CALENDAR.md",
+          path: "/var/lib/moltzap/nanoclaw/groups/agent/CALENDAR.md",
+          limitBytes: 65_536,
+        },
+      ]);
+      assert.deepStrictEqual(
+        Schema.decodeUnknownSync(harvestProjection)(
+          runtimeConfigurationProjection(runtime),
+        ).harvestWorkspaceFiles,
+        ["CALENDAR.md"],
+      );
+    }));
+
+  test("declares no harvest when the experiment names no files", () =>
+    Effect.gen(function* () {
+      const runtime = nanoclawRuntime({ applicationImage: APPLICATION_IMAGE });
+      const application = yield* containerRuntimeFor(runtime).render({
+        agentName: AGENT_NAME,
+      });
+
+      assert.notProperty(application, "harvest");
+    }));
+});

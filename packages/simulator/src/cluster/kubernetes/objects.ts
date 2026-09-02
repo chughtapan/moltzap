@@ -48,6 +48,8 @@ const MCP_URL = `http://127.0.0.1:${String(DAEMON_MCP_PORT)}/mcp`;
 
 /** Root ConfigMap name shared with controller-created owner references. */
 export const RUN_OWNER_NAME = "run";
+/** The one container in a Sandbox Pod that runs the rendered application. */
+export const APPLICATION_CONTAINER_NAME = "application";
 
 /** Run root created by the Temporal activity before the controller starts. */
 export interface KubernetesRunOwner {
@@ -440,7 +442,7 @@ function bootstrapContainer(input: SandboxManifestInput) {
 function applicationContainer(input: SandboxManifestInput) {
   const [command, ...args] = input.application.entrypoint;
   return {
-    name: "application",
+    name: APPLICATION_CONTAINER_NAME,
     image: input.application.image,
     command: [command],
     args,
@@ -822,6 +824,17 @@ function controllerServiceAccount(
   };
 }
 
+/**
+ * The controller's complete authority inside its own run namespace.
+ *
+ * `pods/exec` is the one verb that reaches inside an application container:
+ * harvesting a workspace file runs a shell there after the customer program
+ * ends. The grant is namespace-scoped, owned by the run root, and deleted with
+ * the run, so it never outlives the society it can read.
+ * @param input Workflow input carrying the run namespace.
+ * @param owner Run root every namespaced control object hangs from.
+ * @returns The Role bound to the controller's service account.
+ */
 // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The controller's closed RBAC grant stays in one manifest so reviewers can audit the exact authority set.
 function controllerRole(
   input: RunSocietyWorkflowInput,
@@ -871,6 +884,11 @@ function controllerRole(
         apiGroups: [""],
         resources: ["pods/log"],
         verbs: ["get"],
+      },
+      {
+        apiGroups: [""],
+        resources: ["pods/exec"],
+        verbs: ["create"],
       },
     ],
   };
@@ -1096,6 +1114,7 @@ function delegatedControllerRules(): PolicyRules {
       resources: ["sandboxes"],
       verbs: ["create", "get", "delete"],
     },
+    { apiGroups: [""], resources: ["pods/exec"], verbs: ["create"] },
   ];
 }
 

@@ -65,6 +65,35 @@ For OpenClaw, the mounted MoltZap channel plugin handles daemon messages. The
 separate `.gateway` starts an OpenClaw `agent` RPC and returns its terminal
 result to experiment code.
 
+## Harvested workspace files
+
+Agents in an experiment never exit, so a file an agent wrote is read back from
+its running container after the customer Effect returns. Name the files, relative
+to the agent's workspace, on either runtime:
+
+```ts
+openClawRuntime({
+  applicationImage,
+  workspaceFiles: [{ relativePath: "CALENDAR.md", content: seed }],
+  harvestWorkspaceFiles: ["CALENDAR.md"],
+});
+```
+
+Each named file becomes one `AgentWorkspaceFileHarvested` record
+(`moltzap.agent-workspace-file/v1`) carrying the agent, the runtime, the
+relative path, and one of four outcomes: `text` with the content and its byte
+length, `oversize` when the file exceeds 64 KiB, `absent` when the agent never
+wrote it, or `unreadable` with the cause. Harvest follows the program event and
+precedes teardown; it never fails the run, and an interrupted program skips it.
+
+The read is a plain `sh` probe (`test -f`, a size check, `cat`) executed in the
+application container through `pods/exec`, so the controller's run-scoped Role
+gains that verb. The probe follows symbolic links and checks the file before
+reading it, so an agent that replaces a harvested file with a link exposes
+whatever that link names inside its own container into the ledger. The
+container holds only what the experiment gave it, and the ledger is the
+experiment's own, so that is accepted rather than guarded.
+
 ## Controlled endpoints
 
 `network.endpoint(name)` attaches an experiment-controlled participant. Its

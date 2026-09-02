@@ -349,3 +349,78 @@ describe("OpenClaw container runtime", () => {
     privateMessagingModeTest,
   );
 });
+
+const harvestProjection = Schema.Struct({
+  harvestWorkspaceFiles: Schema.Array(Schema.String),
+});
+
+function renderHarvest(harvestWorkspaceFiles?: readonly string[]) {
+  const runtime = openClawRuntime({
+    applicationImage: APPLICATION_IMAGE,
+    ...(harvestWorkspaceFiles === undefined ? {} : { harvestWorkspaceFiles }),
+  });
+  return containerRuntimeFor(runtime)
+    .render({ agentName: AGENT_NAME })
+    .pipe(Effect.map((application) => ({ runtime, application })));
+}
+
+function harvestTargetsTest() {
+  return Effect.gen(function* () {
+    const { runtime, application } = yield* renderHarvest([
+      "CALENDAR.md",
+      "./notes/log.md",
+    ]);
+
+    assert.deepStrictEqual(application.harvest, [
+      {
+        relativePath: "CALENDAR.md",
+        path: `${BOOTSTRAP_ROOT}workspace/CALENDAR.md`,
+        limitBytes: 65_536,
+      },
+      {
+        relativePath: "notes/log.md",
+        path: `${BOOTSTRAP_ROOT}workspace/notes/log.md`,
+        limitBytes: 65_536,
+      },
+    ]);
+    assert.deepStrictEqual(
+      Schema.decodeUnknownSync(harvestProjection)(
+        runtimeConfigurationProjection(runtime),
+      ).harvestWorkspaceFiles,
+      ["CALENDAR.md", "notes/log.md"],
+    );
+  });
+}
+
+function noHarvestTest() {
+  return Effect.gen(function* () {
+    const { runtime, application } = yield* renderHarvest();
+
+    assert.notProperty(application, "harvest");
+    assert.deepStrictEqual(
+      Schema.decodeUnknownSync(harvestProjection)(
+        runtimeConfigurationProjection(runtime),
+      ).harvestWorkspaceFiles,
+      [],
+    );
+  });
+}
+
+function rejectedHarvestPathTest(): void {
+  assert.throws(() =>
+    openClawRuntime({
+      applicationImage: APPLICATION_IMAGE,
+      harvestWorkspaceFiles: ["../secrets.md"],
+    }),
+  );
+}
+
+describe("OpenClaw workspace harvest", () => {
+  test(
+    "renders each declared file under the OpenClaw workspace and records the names",
+    harvestTargetsTest,
+  );
+  test("declares no harvest when the experiment names no files", noHarvestTest);
+  test("refuses a harvest path that leaves the workspace", () =>
+    Effect.sync(rejectedHarvestPathTest));
+});

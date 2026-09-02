@@ -10,6 +10,7 @@ import {
   BatchV1Api,
   CoreV1Api,
   CustomObjectsApi,
+  Exec,
   KubeConfig,
   PatchStrategy,
   RbacAuthorizationV1Api,
@@ -22,9 +23,11 @@ import {
 } from "@kubernetes/client-node";
 import { Cause, Duration, Effect, Schema } from "effect";
 import { connect } from "node:net";
+import type { HarvestedFileOutcome } from "../../events/core.js";
 import type { KubernetesExecutionProfile } from "../profile.js";
 import type { RunSocietyWorkflowInput } from "../reclaim.js";
 import { ClusterError, clusterError } from "../cluster.js";
+import { applicationFileOutcome, execHarvestProbe } from "./harvest.js";
 import {
   CONTROLLER_NAME,
   type KubernetesManifest,
@@ -169,6 +172,7 @@ export function makeInClusterKubernetesSocietyApi(
     ...coreOperations(namespace, core),
     ...deploymentOperations(namespace, apps),
     ...sandboxOperations(namespace, custom),
+    ...harvestOperations(namespace, new Exec(config)),
     bridgeAccepts,
     serviceAccepts: bridgeAccepts,
   });
@@ -423,6 +427,16 @@ export interface KubernetesSocietyApi {
   readonly listPods: (
     selector: string,
   ) => Effect.Effect<readonly PodObservation[], ClusterError>;
+  /**
+   * Read one file from a running application container, bounded in size.
+   * The outcome names a missing, oversize, or unreadable file; the failure
+   * channel is only for an exec the cluster refused or never answered.
+   */
+  readonly readApplicationFile: (
+    podName: string,
+    path: string,
+    limitBytes: number,
+  ) => Effect.Effect<HarvestedFileOutcome, ClusterError>;
   /**
    * Whether an application's controller bridge port accepts a connection.
    * Refusal is an ordinary not-yet-ready observation, never a cluster failure,
@@ -728,6 +742,32 @@ function sandboxOperations(
           name,
           propagationPolicy: "Foreground",
         }),
+      ),
+  };
+}
+
+// The session is an Effect rather than a Promise thunk, so the call bound is
+// applied here rather than through kubernetesCall; it covers the whole exec.
+function harvestOperations(
+  namespace: string,
+  exec: Exec,
+): Pick<KubernetesSocietyApi, "readApplicationFile"> {
+  const operation = "read application file";
+  return {
+    readApplicationFile: (podName, path, limitBytes) =>
+      execHarvestProbe(exec, { namespace, podName, path, limitBytes }).pipe(
+        Effect.catchTag("ExecSessionFailed", (failure) =>
+          Effect.fail(new KubernetesCallFailed(operation, failure.cause)),
+        ),
+        Effect.timeoutFail({
+          duration: KUBERNETES_CALL_TIMEOUT,
+          onTimeout: () =>
+            new KubernetesCallFailed(operation, new Cause.TimeoutException()),
+        }),
+        Effect.mapError(societyFailure),
+        Effect.map((observation) =>
+          applicationFileOutcome(observation, limitBytes),
+        ),
       ),
   };
 }

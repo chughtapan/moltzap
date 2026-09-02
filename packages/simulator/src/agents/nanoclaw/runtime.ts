@@ -24,15 +24,18 @@ import {
 import {
   bootstrapFile,
   type CheckedWorkspaceFile,
+  harvestTargets,
   mcpConfiguration,
   type McpServer,
   McpServerConfiguration,
+  snapshotHarvestPaths,
   snapshotMcpServers,
   snapshotWorkspaceFiles,
   workspaceConfiguration,
   type WorkspaceFile,
   WorkspaceFileConfiguration,
   workspaceFilePath,
+  type WorkspaceRelativePath,
 } from "../workspace.js";
 import {
   acquireDistributedNanoClawGateway,
@@ -47,6 +50,13 @@ const NANOCLAW_BOOTSTRAP_DIR = "/var/run/moltzap/bootstrap";
 const NANOCLAW_CONFIG_PATH = `${NANOCLAW_BOOTSTRAP_DIR}/nanoclaw/runtime.json`;
 const NANOCLAW_WORKSPACE_DIR = `${NANOCLAW_BOOTSTRAP_DIR}/workspace`;
 const NANOCLAW_STATE_DIR = "/var/lib/moltzap/nanoclaw";
+/**
+ * Where the image's provisioner copies the seeded workspace before the agent
+ * starts. The agent reads and writes this copy on the container's writable
+ * layer, not the bootstrap mount it was seeded from, so a file read back
+ * after the run has to come from here.
+ */
+const NANOCLAW_AGENT_WORKSPACE_DIR = `${NANOCLAW_STATE_DIR}/groups/agent`;
 const NANOCLAW_ENTRYPOINT = "/opt/moltzap/agent/entrypoint.mjs";
 const APPLICATION_RESOURCES = Object.freeze({
   cpuMillis: 1_100,
@@ -64,6 +74,7 @@ export class NanoClawRuntimeConfiguration extends Schema.Class<NanoClawRuntimeCo
 )({
   startupTimeout: Schema.DurationFromMillis,
   workspaceFiles: Schema.Array(WorkspaceFileConfiguration),
+  harvestWorkspaceFiles: Schema.Array(Schema.String),
   modelOverride: Schema.optional(Schema.String),
   mcpServers: Schema.Array(McpServerConfiguration),
   applicationImage: image,
@@ -73,6 +84,12 @@ export class NanoClawRuntimeConfiguration extends Schema.Class<NanoClawRuntimeCo
 export interface NanoClawRuntimeOptions {
   readonly startupTimeout?: Duration.Duration;
   readonly workspaceFiles?: readonly WorkspaceFile[];
+  /**
+   * Workspace-relative files read back from each running agent after the
+   * customer program ends and recorded in the ledger, so an experiment can
+   * grade what its agents wrote without their exiting.
+   */
+  readonly harvestWorkspaceFiles?: readonly string[];
   readonly modelId?: string;
 
   /**
@@ -116,6 +133,7 @@ export function nanoclawRuntime(
 interface NanoClawRuntimeSettings {
   readonly startupTimeout: Duration.Duration;
   readonly workspaceFiles: readonly CheckedWorkspaceFile[];
+  readonly harvestPaths: readonly WorkspaceRelativePath[];
   readonly modelId?: string;
   readonly applicationImage: Image;
   readonly mcpServers?: readonly McpServer[];
@@ -145,6 +163,7 @@ function snapshotOptions(
   return Object.freeze({
     startupTimeout: options.startupTimeout ?? DEFAULT_NANOCLAW_STARTUP_TIMEOUT,
     workspaceFiles: snapshotWorkspaceFiles(options.workspaceFiles),
+    harvestPaths: snapshotHarvestPaths(options.harvestWorkspaceFiles),
     applicationImage: options.applicationImage,
     ...(modelId === undefined ? {} : { modelId }),
     ...(mcpServers === undefined ? {} : { mcpServers }),
@@ -169,6 +188,7 @@ function runtimeConfiguration(
   return NanoClawRuntimeConfiguration.make({
     startupTimeout: settings.startupTimeout,
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
+    harvestWorkspaceFiles: settings.harvestPaths,
     mcpServers: mcpConfiguration(settings.mcpServers),
     applicationImage: settings.applicationImage,
     ...(settings.modelId === undefined
@@ -205,6 +225,10 @@ function makeNanoClawApplication(
     agentName: input.agentName,
     acquireGateway: renderer.acquireGateway,
   };
+  const harvest = harvestTargets(
+    NANOCLAW_AGENT_WORKSPACE_DIR,
+    settings.harvestPaths,
+  );
   return Object.freeze({
     entrypoint: Object.freeze(["node", NANOCLAW_ENTRYPOINT] as const),
     environment: Object.freeze({
@@ -216,6 +240,7 @@ function makeNanoClawApplication(
       : { credentials: Object.freeze(["ANTHROPIC_API_KEY"] as const) }),
     port: NANOCLAW_GATEWAY_PORT,
     files: bootstrapFiles(settings, input),
+    ...(harvest.length === 0 ? {} : { harvest }),
     attach: (
       endpoint: ApplicationEndpoint,
       stopped: Effect.Effect<RuntimeTermination>,

@@ -99,6 +99,44 @@ export class AgentProcessSignaled extends Schema.TaggedClass<AgentProcessSignale
   },
 ) {}
 
+/** Every way one harvest target resolves when the live application is read. */
+const harvestedFileOutcome = Schema.Union(
+  Schema.Struct({
+    _tag: Schema.Literal("text"),
+    content: Schema.String,
+    byteLength: Schema.NonNegativeInt,
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal("oversize"),
+    byteLength: Schema.NonNegativeInt,
+    limitBytes: Schema.NonNegativeInt,
+  }),
+  Schema.Struct({ _tag: Schema.Literal("absent") }),
+  Schema.Struct({
+    _tag: Schema.Literal("unreadable"),
+    cause: Schema.NonEmptyString,
+  }),
+);
+
+/** Decoded outcome of reading one harvest target. */
+export type HarvestedFileOutcome = typeof harvestedFileOutcome.Type;
+
+/**
+ * One workspace file read back from a live application after the customer
+ * program ended. `relativePath` is the experiment's own name for the file, or
+ * the runtime's label for a file it harvests on the experiment's behalf.
+ */
+export class AgentWorkspaceFileHarvested extends Schema.TaggedClass<AgentWorkspaceFileHarvested>()(
+  "moltzap.agent-workspace-file/v1",
+  {
+    agentName: agentName,
+    agentId: agentId,
+    runtime: Schema.NonEmptyString,
+    relativePath: Schema.NonEmptyString,
+    outcome: harvestedFileOutcome,
+  },
+) {}
+
 /** A directed participant link transitioned from available to unavailable. */
 export class LinkDown extends Schema.TaggedClass<LinkDown>()(
   "moltzap.link-down/v1",
@@ -179,6 +217,7 @@ export const runtimeEvents = EventCatalog.make(
   AgentRuntimeFailed,
   AgentProcessExited,
   AgentProcessSignaled,
+  AgentWorkspaceFileHarvested,
 );
 
 /** Directed-link state events emitted by link control. */
