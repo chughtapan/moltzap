@@ -253,9 +253,7 @@ export function evaluationResultStoreLayer(databasePath: string) {
  * Finished attempts commit in plan order, so the durable report is always a
  * plan-order prefix and interruption or process failure loses at most
  * `concurrency` finished but uncommitted attempts, which a resume reruns.
- * @param execute Customer cell execution policy.
- * @param options How many cells run at once; one at a time when omitted.
- * @returns The completed report Effect.
+ * Omitting `concurrency` runs one cell at a time.
  */
 export function runEvaluationSweep<E, R>(
   execute: ExecuteCell<E, R>,

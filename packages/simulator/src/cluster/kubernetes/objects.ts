@@ -829,10 +829,8 @@ function controllerServiceAccount(
  * SPDY form kubectl uses is a POST authorized as `create`; the rule grants
  * both so the read does not depend on which transport the client picks. The
  * grant is namespace-scoped, owned by the run root, and deleted with the run,
- * so it never outlives the society it can read.
- * @param input Workflow input carrying the run namespace.
- * @param owner Run root every namespaced control object hangs from.
- * @returns The Role bound to the controller's service account.
+ * so it never outlives the society it can read. The owner is the run root
+ * every namespaced control object hangs from.
  */
 // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The controller's closed RBAC grant stays in one manifest so reviewers can audit the exact authority set.
 function controllerRole(
@@ -1088,9 +1086,14 @@ function runPreparationRules(): PolicyRules {
   ];
 }
 
-// Kubernetes refuses to let a subject create a Role carrying permissions the
-// subject does not itself hold, so the run-scoped controller Role is a lower
-// bound on what the worker must be granted.
+/**
+ * Kubernetes refuses to let a subject create a Role carrying permissions the
+ * subject does not itself hold, so the run-scoped controller Role is a lower
+ * bound on what the worker must be granted. Every grant here is therefore
+ * cluster-wide, `pods/exec` included. The worker holds them only to delegate
+ * them through the Role it creates; the controller is the process that
+ * exercises them inside the run.
+ */
 function delegatedControllerRules(): PolicyRules {
   return [
     {
@@ -1113,9 +1116,6 @@ function delegatedControllerRules(): PolicyRules {
       resources: ["sandboxes"],
       verbs: ["create", "get", "delete"],
     },
-    // Cluster-wide like every delegated grant, because the worker must hold
-    // what it writes into each run's Role; the worker is the one trusted
-    // process that already creates the run's Secrets and Sandboxes.
     { apiGroups: [""], resources: ["pods/exec"], verbs: ["create", "get"] },
   ];
 }

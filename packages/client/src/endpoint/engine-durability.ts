@@ -326,11 +326,10 @@ export interface InboundDeliveryProjection {
 
 /**
  * Encode the remote projection atomically retained during promotion.
- * @param conversation Verified local conversation state and member cards.
- * @param record Complete remote-authored certified record.
- * @param recipientAgentId Local recipient that owns the pending delivery.
- * @returns Canonical pending-delivery input for atomic record promotion, with
- * the decoded message it was encoded from.
+ * The recipient is the local agent that owns the pending delivery, which
+ * `AgentId` cannot express and nothing here checks. The result carries both
+ * the canonical input that record promotion commits atomically and the
+ * decoded message it was encoded from.
  */
 export const inboundDelivery = (
   conversation: EngineConversation,
@@ -349,10 +348,9 @@ export const inboundDelivery = (
   );
 
 /**
- * Record one durable inbound delivery in the history export, if any.
- * @param runtime Current engine state and protocol dependencies.
- * @param message The exact host-visible message the store now holds.
- * @returns Completion; a missing export records nothing.
+ * Record one durable inbound delivery in the history export: exactly the
+ * host-visible message the store now holds. When no export is configured the
+ * no-op port records nothing.
  */
 export const exportInbound = (
   runtime: EngineRuntime,

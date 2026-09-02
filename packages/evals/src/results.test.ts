@@ -294,6 +294,12 @@ function resumeAfterProcessDeath(
   }).pipe(Effect.provide(evaluationResultStoreLayer(databasePath)));
 }
 
+/**
+ * A SIGKILLed child stays a zombie until its parent reaps it, and a zombie
+ * still answers a liveness signal, so this resumes only once the process is
+ * truly gone, as any real parent shell would have made it by the time an
+ * operator retries.
+ */
 function processDeathResumeTest() {
   return Effect.gen(function* () {
     const fixture = yield* resultFixture("moltzap-evals-process-death-");
@@ -324,9 +330,6 @@ function processDeathResumeTest() {
     )).trim();
 
     yield* child.kill("SIGKILL");
-    // The killed child stays a zombie until its parent reaps it, and a zombie
-    // still answers a liveness signal: resume only once it is truly gone, as
-    // any real parent shell would have made it by the time an operator retries.
     yield* child.exitCode.pipe(Effect.ignore);
 
     const completed = yield* resumeAfterProcessDeath(

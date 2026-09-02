@@ -155,7 +155,7 @@ export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStar
 
 A roster runtime failed before it established readiness.
 
-### [`AgentWorkspaceFileHarvested`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L129)
+### [`AgentWorkspaceFileHarvested`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L132)
 
 _Class_
 
@@ -233,7 +233,7 @@ export class CompletedLedgerReceipt extends Schema.TaggedClass<CompletedLedgerRe
 
 Physical receipt for a ledger whose completion marker is durable.
 
-### [`coreEvents`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L232)
+### [`coreEvents`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L235)
 
 _Variable_
 
@@ -496,7 +496,7 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
-### [`HarvestedFileOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L122)
+### [`HarvestedFileOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L125)
 
 _TypeAlias_
 
@@ -504,7 +504,8 @@ _TypeAlias_
 export type HarvestedFileOutcome = typeof harvestedFileOutcome.Type;
 ```
 
-Decoded outcome of reading one harvest target.
+How the ledger records one read: the file's text, its size when it ran past
+the bound, its absence, or why it could not be read.
 
 ### [`IncompleteLedgerReceipt`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L91)
 
@@ -646,7 +647,7 @@ export interface LinkDelivery {
 
 One opaque signed message about to cross a directed link.
 
-### [`LinkDown`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L141)
+### [`LinkDown`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L144)
 
 _Class_
 
@@ -684,7 +685,7 @@ Decides one delivery on a directed link. A policy reads only its input and
 the ambient Clock; the link interpreter, never the policy, spends time and
 records evidence.
 
-### [`LinkPolicyCleared`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L166)
+### [`LinkPolicyCleared`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L169)
 
 _Class_
 
@@ -701,7 +702,7 @@ export class LinkPolicyCleared extends Schema.TaggedClass<LinkPolicyCleared>()(
 
 A described policy stopped shaping one directed participant link.
 
-### [`LinkPolicySet`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L156)
+### [`LinkPolicySet`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L159)
 
 _Class_
 
@@ -718,7 +719,7 @@ export class LinkPolicySet extends Schema.TaggedClass<LinkPolicySet>()(
 
 A described policy became active on one directed participant link.
 
-### [`LinkUp`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L150)
+### [`LinkUp`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L153)
 
 _Class_
 
@@ -839,7 +840,7 @@ _TypeAlias_
 export type ProfileRunResult = typeof ProfileRunResult.Type;
 ```
 
-Decoded final line of one profile submission.
+Decoded form of the one result line `moltzap-sim run` prints.
 
 ### [`ProfileRunResult (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/cluster/profiles/result.ts#L17)
 
@@ -861,7 +862,7 @@ nothing else would notice the two sides disagreeing until a live run
 produced an undecodable line. The submitter's own result type derives from
 this schema, so the two cannot drift.
 
-### [`ProgramFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L182)
+### [`ProgramFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L185)
 
 _Class_
 
@@ -889,7 +890,7 @@ export class ProgramFinished<A, E> extends Data.TaggedClass("ProgramFinished")<{
 
 Customer-program completion plus its complete durable evidence.
 
-### [`ProgramInterrupted`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L190)
+### [`ProgramInterrupted`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L193)
 
 _Class_
 
@@ -904,7 +905,7 @@ export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()
 
 The customer program was interrupted.
 
-### [`ProgramSucceeded`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L176)
+### [`ProgramSucceeded`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L179)
 
 _Class_
 
