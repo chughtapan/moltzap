@@ -22,10 +22,6 @@ env:
 jobs:
   ci:
     runs-on: ubuntu-latest
-    env:
-      # Both Terraform checks pin the same Google provider; one plugin cache
-      # downloads it once per run instead of once per module.
-      TF_PLUGIN_CACHE_DIR: ${{ runner.temp }}/terraform-plugin-cache
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -36,7 +32,14 @@ jobs:
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.15.8
-      - run: mkdir -p "$TF_PLUGIN_CACHE_DIR"
+      # Both Terraform checks pin the same Google provider; one plugin cache
+      # downloads it once per run instead of once per module. The `runner`
+      # context is not available to job-level `env`, so the path is exported
+      # from a step.
+      - name: Share one Terraform plugin cache between the module checks
+        run: |
+          mkdir -p "$RUNNER_TEMP/terraform-plugin-cache"
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-plugin-cache" >> "$GITHUB_ENV"
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
