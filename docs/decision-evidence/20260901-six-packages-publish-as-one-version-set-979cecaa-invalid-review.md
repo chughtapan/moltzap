@@ -199,7 +199,7 @@ above and records the gate decision.
 
 | Field | Value |
 |---|---|
-| Superseded by review run | `_fill new review run ID_` |
+| Superseded by review run | `20260901-six-packages-publish-as-one-version-set-0d65b4af-cold-review` |
 | Superseded candidate commit | `979cecaa29fb4a0794873c5547480b3fd02d9ea1` |
 | Superseded candidate content digest | sha256 `3576716965bc7d7ccd375fb16ef0f05d3e191d7d3c2e95df4f475b8757a4b269` |
 | Reason a rerun was required | The reviewer received the checkout's `AGENTS.md` before navigation (invalidating strict isolation); the next run disables the harness's project-document rendering. The stale `Final gate` sentence the reviewer resolved through the authority order is corrected before the next candidate is frozen. |
