@@ -101,7 +101,9 @@ Live runs require digest-pinned `MOLTZAP_CONTROLLER_IMAGE` and
 profile's artifact location and Temporal address, model credentials, and a
 clean committed worktree. A container receives the credential its model id's
 provider prefix names (`openai/…` forwards `OPENAI_API_KEY`, `anthropic/…`
-forwards `ANTHROPIC_API_KEY`); an id without a known prefix forwards none. `eval` and `resume` accept
+forwards `ANTHROPIC_API_KEY`); an id without a known prefix forwards none to
+OpenClaw and `ANTHROPIC_API_KEY` to NanoClaw, which hosts Claude. `eval` and
+`resume` accept
 `--runtime all|openclaw|nanoclaw` and default to `all`. Every selected runtime
 requires its matching model option. `--messaging-mode` defaults to `shared`;
 `private` is currently valid only with `--runtime openclaw`. The
