@@ -43,7 +43,11 @@ ledgers rather than cluster state. Pass `--delete-artifacts` to discard them.
 `delete` does destroy the Artifact Registry repository and the release
 identity below, so the image digests every release recorded stop resolving
 and the next release cannot authenticate until `setup` recreates them; do not
-run it while a published release still points at this profile.
+run it while a published release still points at this profile. A deleted
+Workload Identity pool and provider stay soft-deleted for thirty days, during
+which `setup` cannot recreate them under the same ids: restore them with
+`gcloud iam workload-identity-pools undelete`, the matching provider
+undelete, and `terraform import` instead.
 
 Resident cost with the controller up is one `e2-standard-4` node plus disks;
 the zonal control plane is free. Parking the controller with `down` leaves only
@@ -54,7 +58,9 @@ and gives them back when it ends.
 
 Copy `terraform/terraform.tfvars.example`, set the Google Cloud project and a
 globally unique artifact bucket, then run setup, which plans and prompts before
-it creates anything:
+it creates anything. A fork also sets `github_repository` to its own
+`owner/name`: the release identity below trusts only that repository, and the
+default is `chughtapan/moltzap`.
 
 ```bash
 packages/simulator/gke/cluster.sh setup
@@ -133,8 +139,10 @@ digest reference to pin.
 `.github/workflows/publish.yml` pushes the controller, OpenClaw, and NanoClaw
 images to the `controller_repository` repository tagged with the release
 version, then writes their digests into the Published images section above in
-the same release commit that bumps the npm packages. The workflow authenticates with GitHub's
-OIDC token through Workload Identity Federation; it holds no stored key.
+the same release commit that bumps the npm packages. The workflow
+authenticates to Google Cloud with GitHub's OIDC token through Workload
+Identity Federation and to npm through trusted publishing; the only stored
+secret is the release App's private key, which signs the one push to `main`.
 
 Terraform owns that identity. `setup` creates the `github-actions` pool, its
 `github` provider admitting only tokens minted for `publish.yml` on this
@@ -155,14 +163,23 @@ Two more prerequisites live outside Terraform. The release commit and tag are
 pushed with a GitHub App token: set `RELEASE_APP_ID` as an Actions variable and
 `RELEASE_APP_PRIVATE_KEY` as an Actions secret for an App installed on this
 repository with contents write access and allowed to push `main`. npm
-publishes with trusted publishing rather than a token, so each of the six
-published packages lists `publish.yml` on this repository as a trusted
-publisher before the first run.
+publishes without a token, so each of the six published packages lists
+`publish.yml` on this repository as a trusted publisher before the first run.
 
-A release pushes each image under `sha-<commit>` and then adds the
-`<version>` tag to that digest. A rerun reuses the `sha-<commit>` image and
-completes the version tag; a version tag that names any other digest fails the
-release instead of being recorded.
+A release pushes each image under `<version>-<commit>` and then points the
+`<version>` tag at that digest. A rerun on the same UTC day reuses the
+`<version>-<commit>` image; a rerun on a later day mints that day's version
+and rebuilds, because the packed workspace inside each image carries the
+stamped version. Until the release commit is on `main` the `<version>` tag
+follows the current build; after that, the digests recorded in the commit are
+the release.
+
+A release commit on `main` whose version some package still lacks on npm is
+resumed by every later run. When that release can never complete, because npm
+refused the tree or a package at that version was unpublished, dispatch with
+**Start a new version** checked: the run leaves the release commit alone,
+takes the next free version from the tip, and the maintainer deprecates
+whatever the abandoned version did publish.
 
 ## Immutable simulator image
 
@@ -247,10 +264,13 @@ qualification until the resulting ledgers are readable in the artifact bucket,
 run-owned Kubernetes residue is zero, and that evidence is retained where a
 reader can find it.
 
-Static validation does not contact Google Cloud or a Kubernetes cluster:
+Static validation does not contact Google Cloud or a Kubernetes cluster;
+`gke-terraform-check` formats, initialises without a backend, and validates
+the Terraform module:
 
 ```bash
 pnpm nx run @moltzap/simulator:gke-profile-check
+pnpm nx run @moltzap/simulator:gke-terraform-check
 ```
 
 Upstream contracts used here:

@@ -1,7 +1,11 @@
 /** @file Tests for the shared image-build helpers. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { metadataDigest, parseImageBuildArguments } from "./build.mjs";
+import {
+  buildxDriver,
+  metadataDigest,
+  parseImageBuildArguments,
+} from "./build.mjs";
 
 const builder = {
   script: "x.mjs",
@@ -70,4 +74,23 @@ test("metadataDigest requires a sha256 containerimage.digest", () => {
     () => metadataDigest({ "containerimage.digest": "sha256:short" }),
     /no manifest digest/u,
   );
+});
+
+test("reads the driver from buildx inspect output", () => {
+  assert.equal(
+    buildxDriver("Name:          default\nDriver:        docker\n\nNodes:\n"),
+    "docker",
+  );
+  assert.equal(
+    buildxDriver(
+      "Name:   builder0\nDriver: docker-container\nLast Activity: x\n",
+    ),
+    "docker-container",
+  );
+});
+
+test("rejects inspect output without a driver line", () => {
+  assert.throws(() => buildxDriver("Name: default\n"), {
+    message: "docker buildx inspect reported no driver",
+  });
 });

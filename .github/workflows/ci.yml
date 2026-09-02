@@ -87,6 +87,7 @@ jobs:
       - run: pnpm docs:check:mermaid
       - run: pnpm docs:check:gates-test
       - run: pnpm test:compute-next-version
+      - run: pnpm test:npm-version-exists
       - run: pnpm test:write-published-images
 
   test:
