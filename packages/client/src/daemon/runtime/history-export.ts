@@ -24,8 +24,7 @@ const encodeLine = Schema.encode(Schema.parseJson(HistoryExportRecord));
  * agent. An experiment must not die because its transcript file did, and the
  * truncation is explicit in the file rather than silent.
  *
- * @param path File the records are appended to; created on first write.
- * @returns A sink the endpoint engine records into.
+ * The file is created on the first write.
  */
 export function makeHistoryExport(
   path: string,

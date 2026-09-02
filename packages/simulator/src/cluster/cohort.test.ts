@@ -1561,6 +1561,10 @@ function harvestInOrderTest() {
   });
 }
 
+/**
+ * The application vanished after dispatch; harvest still answers, with every
+ * declared target unreadable rather than a failed run.
+ */
 function harvestWithoutPodTest() {
   return Effect.gen(function* () {
     const state = makeState(yield* Deferred.make<undefined>());
@@ -1575,7 +1579,6 @@ function harvestWithoutPodTest() {
         const session = yield* makePlatform(state).prepare(roster);
         yield* acquireAll(session, roster);
         yield* session.cohortReady;
-        // The application vanished after dispatch; harvest still answers.
         state.podsFor = () => [];
         return yield* session.harvestWorkspace("alice");
       }),

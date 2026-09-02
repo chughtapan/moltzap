@@ -19,7 +19,7 @@ export const ProfileRunResult = Schema.Struct({
   namespace: Schema.NonEmptyString,
   result: controllerRunResult,
 });
-/** Decoded final line of one profile submission. */
+/** Decoded form of the one result line `moltzap-sim run` prints. */
 // eslint-disable-next-line @typescript-eslint/no-redeclare -- the value is the runtime Schema and the type is its decoded result.
 export type ProfileRunResult = typeof ProfileRunResult.Type;
 
