@@ -1,6 +1,6 @@
 name: Publish to npm
 
-# One release publishes six packages at one calendar version, pushes the three
+# One release publishes five packages at one calendar version, pushes the three
 # simulator images tagged with that version, and records the image digests
 # beside the version in one release commit. The trigger is manual: the first
 # release proves the npm trusted publishers, the Workload Identity provider,
@@ -45,7 +45,7 @@ defaults:
     shell: bash
 
 env:
-  RELEASE_PACKAGES: identity router client openclaw-channel nanoclaw-channel simulator
+  RELEASE_PACKAGES: identity router client openclaw-channel simulator
   # The Terraform `controller_repository` output of packages/simulator/gke,
   # copied into a repository variable next to the Workload Identity ones.
   IMAGE_REPOSITORY: ${{ vars.GCP_IMAGE_REPOSITORY }}
@@ -154,8 +154,11 @@ jobs:
       - name: Build all packages
         run: pnpm build
 
-      # The four gates pack all six packages (identity and router travel in
-      # every closure) and each gate is a boundary-check floor, so run-many
+      # The four gates pack the five published packages and the NanoClaw
+      # adapter, whose gate proves it still compiles against the Client ABI in
+      # isolation (the image build copies its source, not a tarball); identity
+      # and router travel in every closure, and each gate is a boundary-check
+      # floor, so run-many
       # cannot silently skip one. Each gate spawns pnpm and the OpenClaw host,
       # so they run one at a time.
       - name: Verify the published closure installs from tarballs
