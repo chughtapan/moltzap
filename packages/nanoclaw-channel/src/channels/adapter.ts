@@ -1,11 +1,15 @@
 /**
- * @file NanoClaw v2.3.0 channel adapter interface.
+ * @file NanoClaw v2.3.0 channel adapter interface. The host ABI carries Node's
+ * `Buffer`, and the preserved types directive below travels into the published
+ * declaration so a consumer resolves it from this package's own `@types/node`.
  *
  * Channel adapters bridge NanoClaw with messaging platforms (Discord, Slack, etc.).
  * Two patterns: native adapters (implement directly) or Chat SDK bridge (wrap a Chat SDK adapter).
  */
 
 /* eslint-disable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type, jsdoc/require-description-complete-sentence, jsdoc/text-escaping -- This file mirrors NanoClaw's Promise-native host ABI and upstream API prose. */
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference -- An import of `Buffer` is erased from the emitted declaration; only a preserved directive reaches consumers.
+/// <reference types="node" preserve="true" />
 
 /** Passed to the adapter at setup time. */
 export interface ChannelSetup {

@@ -52,11 +52,24 @@ async function readPackedManifest(archive) {
   return JSON.parse(stdout);
 }
 
+async function listPackedFiles(archive) {
+  const { stdout } = await exec("tar", ["-tzf", archive], {
+    maxBuffer: MAX_BUFFER,
+  });
+  return new Set(
+    stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0),
+  );
+}
+
 /**
  * Pack every package in `packageRoots` under `temporaryRoot/tarballs` and
  * prove the packed manifests form a registry-installable closure: each keeps
- * its source name and version, carries no `private` flag, and pins every
- * packed sibling to that sibling's exact packed version.
+ * its source name and version, carries no `private` flag, ships every
+ * executable its `bin` map names, and pins every packed sibling to that
+ * sibling's exact packed version.
  * @param {Readonly<Record<string, string>>} packageRoots Package name to source root.
  * @param {string} temporaryRoot Scratch directory owned by the caller.
  * @returns {Promise<{ archives: Record<string, string>, manifests: Record<string, Record<string, unknown>> }>}
@@ -68,17 +81,24 @@ export async function packWorkspaceClosure(packageRoots, temporaryRoot) {
   const packed = await Promise.all(
     Object.entries(packageRoots).map(async ([name, root]) => {
       const archive = await packWorkspacePackage(root, destination);
-      const [manifest, source] = await Promise.all([
+      const [manifest, files, source] = await Promise.all([
         readPackedManifest(archive),
+        listPackedFiles(archive),
         readFile(join(root, "package.json"), "utf8"),
       ]);
-      return { name, archive, manifest, sourceManifest: JSON.parse(source) };
+      return {
+        name,
+        archive,
+        manifest,
+        files,
+        sourceManifest: JSON.parse(source),
+      };
     }),
   );
   const manifests = Object.fromEntries(
     packed.map(({ name, manifest }) => [name, manifest]),
   );
-  for (const { name, manifest, sourceManifest } of packed) {
+  for (const { name, manifest, files, sourceManifest } of packed) {
     requireCondition(
       manifest?.name === name && manifest.version === sourceManifest.version,
       `packed ${name} manifest identity drifted`,
@@ -87,6 +107,13 @@ export async function packWorkspaceClosure(packageRoots, temporaryRoot) {
       manifest.private === undefined,
       `packed ${name} carries a private flag and cannot be published`,
     );
+    for (const [executable, target] of Object.entries(manifest.bin ?? {})) {
+      requireCondition(
+        typeof target === "string" &&
+          files.has(`package/${target.replace(/^\.\//u, "")}`),
+        `packed ${name} does not ship its ${executable} executable at ${String(target)}`,
+      );
+    }
     for (const dependency of Object.keys(manifest.dependencies ?? {}).filter(
       (candidate) => candidate in manifests,
     )) {

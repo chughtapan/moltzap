@@ -45,18 +45,6 @@ const workspaceRoot = resolve(scriptDir, "..", "..");
 const docsDir = resolve(workspaceRoot, "docs");
 const constantsDir = resolve(docsDir, "snippets", "constants");
 
-// ─── Typed result + reader primitives ─────────────────────────────────────
-
-type ReadResult<T> =
-  | { readonly _tag: "ok"; readonly value: T }
-  | { readonly _tag: "err"; readonly reason: string };
-
-const ok = <T>(value: T): ReadResult<T> => ({ _tag: "ok", value });
-const err = (reason: string): ReadResult<never> => ({
-  _tag: "err",
-  reason,
-});
-
 // ─── Constant specs ───────────────────────────────────────────────────────
 
 interface Constant {
@@ -68,34 +56,24 @@ interface Constant {
 }
 
 const collect = (): readonly Constant[] => {
-  const read = readMoltzapVersion(workspaceRoot);
-  const moltzapVersion: ReadResult<string> =
-    "value" in read ? ok(read.value) : err(read.error);
-
   const failures: string[] = [];
   const requireString = (
     name: string,
     sourcePath: string,
-    res: ReadResult<string | number>,
+    read: ReturnType<typeof readMoltzapVersion>,
     note: string,
   ): Constant | null => {
-    if (res._tag === "err") {
-      failures.push(`${name}: ${res.reason}`);
+    if ("error" in read) {
+      failures.push(`${name}: ${read.error}`);
       return null;
     }
-    if (typeof res.value !== "string") {
-      failures.push(
-        `${name}: expected string literal, got ${typeof res.value}`,
-      );
-      return null;
-    }
-    return { kind: "string", name, value: res.value, sourcePath, note };
+    return { kind: "string", name, value: read.value, sourcePath, note };
   };
   const constants: ReadonlyArray<Constant | null> = [
     requireString(
       "V2_PROTOCOL_VERSION",
       MOLTZAP_VERSION_SOURCE,
-      moltzapVersion,
+      readMoltzapVersion(workspaceRoot),
       "Current MoltZap wire compatibility value for Identity and Router representations; package release versions are independent of it.",
     ),
   ];

@@ -546,6 +546,75 @@ const testPublicationGuards = (): void => {
     `expected published-private failure. exit=${privateIdentity.code}, stderr=${privateIdentity.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
+
+  plantFile("packages/router/package.json", (s) =>
+    s.replace('"license": "Apache-2.0"', '"license": "MIT"'),
+  );
+  const wrongLicense = runBoundaries();
+  assert(
+    "flags a published package with another license",
+    wrongLicense.code !== 0 &&
+      /router\/package\.json: license is "MIT"/.test(wrongLicense.stderr),
+    `expected license failure. exit=${wrongLicense.code}, stderr=${wrongLicense.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile("packages/router/package.json", (s) =>
+    s.replace(
+      "git+https://github.com/chughtapan/moltzap.git",
+      "https://example.invalid/fork.git",
+    ),
+  );
+  const foreignRepository = runBoundaries();
+  assert(
+    "flags a published package pointing at another repository",
+    foreignRepository.code !== 0 &&
+      /router\/package\.json: repository\.url must be/.test(
+        foreignRepository.stderr,
+      ),
+    `expected repository failure. exit=${foreignRepository.code}, stderr=${foreignRepository.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile("packages/router/package.json", (s) =>
+    s.replace(/"version": "[^"]+"/, '"version": "1.2.3"'),
+  );
+  const semver = runBoundaries();
+  assert(
+    "flags a published manifest whose version is not a calendar version",
+    semver.code !== 0 &&
+      /router\/package\.json: version "1\.2\.3" is not a YYYY\.MDD\.N CalVer/.test(
+        semver.stderr,
+      ),
+    `expected calver failure. exit=${semver.code}, stderr=${semver.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile(MOLTZAP_VERSION_SOURCE, withMoltzapVersion("1.2.3"));
+  const wireSemver = runBoundaries();
+  assert(
+    "flags a wire compatibility literal that is not a calendar version",
+    wireSemver.code !== 0 &&
+      /MOLTZAP_VERSION "1\.2\.3" is not a YYYY\.MDD\.N CalVer/.test(
+        wireSemver.stderr,
+      ),
+    `expected wire-literal failure. exit=${wireSemver.code}, stderr=${wireSemver.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
+
+  plantFile(".github/workflows/publish.yml", (s) =>
+    s.replace(/^(\s*RELEASE_PACKAGES:\s*).+$/m, "$1identity router"),
+  );
+  const driftedList = runBoundaries();
+  assert(
+    "flags a release package list that drifted from the published set",
+    driftedList.code !== 0 &&
+      /RELEASE_PACKAGES drifted from the published set/.test(
+        driftedList.stderr,
+      ),
+    `expected release-list failure. exit=${driftedList.code}, stderr=${driftedList.stderr.slice(0, 300)}`,
+  );
+  restoreAllPlants();
 };
 
 const testNodeVersionFloorConsistency = (): void => {

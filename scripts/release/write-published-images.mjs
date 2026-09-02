@@ -125,15 +125,16 @@ export function renderPublishedImages(published) {
  * @returns {string} Updated README contents.
  */
 export function replacePublishedImagesSection(markdown, body) {
-  const headingLine = `${SECTION_HEADING}\n`;
-  const start = markdown.indexOf(headingLine);
+  const heading = new RegExp(`^${SECTION_HEADING}\\n`, "mu");
+  const start = markdown.search(heading);
   requireCondition(
     start !== -1,
     `README has no "${SECTION_HEADING}" section to write into`,
   );
-  const bodyStart = start + headingLine.length;
-  const nextHeading = markdown.indexOf("\n## ", bodyStart);
-  const tail = nextHeading === -1 ? "" : markdown.slice(nextHeading + 1);
+  const bodyStart = start + SECTION_HEADING.length + 1;
+  const rest = markdown.slice(bodyStart);
+  const nextHeading = rest.search(/^## /mu);
+  const tail = nextHeading === -1 ? "" : rest.slice(nextHeading);
   return `${markdown.slice(0, bodyStart)}\n${body}${tail.length > 0 ? `\n${tail}` : ""}`;
 }
 

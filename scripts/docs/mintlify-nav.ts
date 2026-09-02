@@ -45,7 +45,9 @@ const docsConfig = Schema.Struct(
  * Write the Modules navigation group into the first tab of `docs.json`,
  * replacing an existing group of that name or appending one. Pages are
  * emitted sorted with a stable 2-space indent and LF endings so the file
- * stays diff-stable across runs.
+ * stays diff-stable across runs. Top-level keys keep the order they were
+ * written in; a tab or group is re-emitted with its declared keys first, so
+ * an extra key added to one lands after them once and then stays put.
  * @param docsJsonPath Absolute path of `docs/docs.json`.
  * @param pageSlugs Generated page slugs relative to `docs/modules/`.
  * @returns The write modules nav result.
@@ -81,14 +83,9 @@ export const writeModulesNav = (
       ...config.navigation,
       tabs: [{ ...firstTab, groups }, ...otherTabs],
     };
-    // A decoded struct lists its declared fields first; re-key from the
-    // document so every other key keeps the position it was written in.
-    const updated = Object.fromEntries(
-      Object.keys(document).map((key) => [
-        key,
-        key === "navigation" ? navigation : document[key],
-      ]),
-    );
+    // Spreading the document as written keeps every key in its position;
+    // the decoded struct would list its declared fields first.
+    const updated = { ...document, navigation };
     const json = `${JSON.stringify(updated, null, 2)}\n`;
     if (json === source) {
       return;

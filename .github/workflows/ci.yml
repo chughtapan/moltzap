@@ -40,8 +40,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      # Every published package declares test:pack (a boundary-check floor),
-      # so run-many cannot silently skip one; the gates spawn pnpm and the
+      # The four gates pack all six published packages (identity and router
+      # travel in every closure) and each gate is a boundary-check floor, so
+      # run-many cannot silently skip one; the gates spawn pnpm and the
       # OpenClaw host, so they run one at a time.
       - name: Verify the published closure installs from tarballs
         run: pnpm nx run-many -t test:pack --parallel=1

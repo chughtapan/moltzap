@@ -19,7 +19,7 @@ output "artifact_bucket_name" {
 }
 
 output "controller_repository" {
-  description = "Repository prefix to which the controller/support image is pushed before selecting its digest."
+  description = "Repository prefix the controller, OpenClaw, and NanoClaw images are pushed to before their digests are selected; the value of the GCP_IMAGE_REPOSITORY repository variable."
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.simulator.repository_id}"
 }
 

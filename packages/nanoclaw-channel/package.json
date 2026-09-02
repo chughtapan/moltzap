@@ -61,6 +61,7 @@
   },
   "dependencies": {
     "@moltzap/client": "workspace:*",
+    "@types/node": "^25.5.0",
     "effect": "^3.22.0"
   },
   "devDependencies": {

@@ -193,6 +193,7 @@ async function main() {
     {
       cwd: workspaceRoot,
       timeout: BUILD_TIMEOUT_MS,
+      maxBuffer: 16 * 1024 * 1024,
     },
   );
   report("packing the controller dependencies");

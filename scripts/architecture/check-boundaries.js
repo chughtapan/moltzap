@@ -411,14 +411,14 @@ if (!fs.existsSync(identityVersion)) {
 } else {
   const match = fs
     .readFileSync(identityVersion, "utf8")
-    .match(/export\s+const\s+MOLTZAP_VERSION\s*=\s*["']([^"']+)["']/);
+    .match(/export\s+const\s+MOLTZAP_VERSION\s*=\s*["']([^"']*)["']/);
   if (match === null) {
     failures.push(
       "packages/identity/src/version.ts: must export the literal MOLTZAP_VERSION",
     );
   } else if (!CALENDAR_VERSION.test(match[1])) {
     failures.push(
-      `packages/identity/src/version.ts: MOLTZAP_VERSION "${match[1]}" is not a YYYY.MDD.PATCH CalVer`,
+      `packages/identity/src/version.ts: MOLTZAP_VERSION "${match[1]}" is not a YYYY.MDD.N CalVer`,
     );
   } else {
     compatibilityVersion = match[1];
@@ -706,6 +706,25 @@ for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
 if (publishedVersions.size === 0) {
   failures.push(
     "packages/*/package.json: no published package scanned; the one-version rule would pass vacuously",
+  );
+}
+// The release workflow carries its own list of the packages it publishes;
+// the two must name the same set or a package silently never releases.
+const releaseWorkflow = fs.readFileSync(
+  path.join(repo, ".github", "workflows", "publish.yml"),
+  "utf8",
+);
+const releasePackages = releaseWorkflow.match(/^\s*RELEASE_PACKAGES:\s*(.+)$/m);
+if (releasePackages === null) {
+  failures.push(".github/workflows/publish.yml: no RELEASE_PACKAGES line");
+} else {
+  failOnSetDrift(
+    ".github/workflows/publish.yml",
+    "RELEASE_PACKAGES drifted from the published set",
+    releasePackages[1].trim().split(/\s+/),
+    Object.entries(FINAL_PACKAGES)
+      .filter(([, contract]) => contract.published)
+      .map(([dir]) => dir),
   );
 }
 const distinctPublishedVersions = new Set(publishedVersions.values());
