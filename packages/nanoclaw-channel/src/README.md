@@ -6,7 +6,8 @@ into NanoClaw's native messaging contract. The image builder installs
 host's native channel registry and adapter ABI.
 
 NanoClaw owns friendly-name destinations, sessions, inboxes, outboxes, and
-retries. The pinned image overlay recognizes explicit canonical MoltZap
-addresses in NanoClaw's outbound send paths; the adapter owns no parallel
-routing or persistence state. Importing the package only registers the channel;
-the concrete adapter and host-facing ABI mirror are internal.
+retries. The pinned image overlay recognizes explicit MoltZap address inputs
+before friendly aliases in NanoClaw's outbound send paths; Client validates and
+canonicalizes them, and the adapter owns no parallel routing or persistence
+state. Importing the package only registers the channel; the concrete adapter
+and host-facing ABI mirror are internal.
