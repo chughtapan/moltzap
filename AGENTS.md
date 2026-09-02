@@ -62,13 +62,17 @@ servers and a shell hook cannot.
 
 ## Change guidance
 
-Load `google-typescript-style`, `google-swe-testing`,
-`google-documentation-guide`, `google-swe-change-management`, and the
-applicable Google code-review author or reviewer guide for work in those
-domains. Repository law, Effect conventions, Nx, ESLint, oxfmt, and scoped
-package instructions take precedence. Link to the guide rather than copying it
-into the repository, and keep tests and documentation in the change they
-explain.
+Load the Google guide that matches the work: `google-typescript-style` for
+`.ts`, `google-javascript-style` for the `.mjs` tooling, `google-shell-style`
+for `.sh`, `google-swe-testing`, `google-documentation-guide`,
+`google-swe-change-management`, `google-swe-builds-dependencies-and-ci` for
+build, dependency, and CI policy, `google-swe-engineering-standards` for the
+lint and architecture gates themselves, and the applicable Google code-review
+author or reviewer guide. New code meets its guide in the commit that
+introduces it; existing code is brought along by the change that touches it.
+Repository law, Effect conventions, Nx, ESLint, oxfmt, and scoped package
+instructions take precedence. Link to the guide rather than copying it into the
+repository, and keep tests and documentation in the change they explain.
 
 ## Issues
 
