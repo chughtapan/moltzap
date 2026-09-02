@@ -1,6 +1,6 @@
 /** @file The `moltzap-sim` executable: one submission through a named profile. */
 
-import { Cause, Effect, Option } from "effect";
+import { Cause, Effect, Logger, Option } from "effect";
 import {
   liveSubmitOperations,
   type RunEnvironment,
@@ -36,11 +36,11 @@ const SUBMITTERS: Readonly<Record<ProfileName, ProfileSubmitter>> = {
 /**
  * The executable's whole behaviour against the live cluster boundaries.
  *
- * Its stdout carries exactly one result line, so every failure goes to
- * stderr: a typed failure as its sanitized message, anything else as the
- * pretty cause. The process exit code is the runtime's: zero after the line
- * is printed, and non-zero for any failure, including a submission the
- * cluster refused.
+ * Its stdout carries exactly one result line, so everything else goes to
+ * stderr: the submitter's log lines, and a failure as its sanitized typed
+ * message or, for anything else, the pretty cause. The process exit code is
+ * the runtime's: zero after the line is printed, and non-zero for any
+ * failure, including a submission the cluster refused.
  *
  * @param args Command-line words after the executable name.
  * @param environment Process environment the selected profile reads.
@@ -62,6 +62,12 @@ export function runProfileExecutable(
       }),
     ),
     Effect.provide(liveSubmitOperations),
+    Effect.provide(
+      Logger.replace(
+        Logger.defaultLogger,
+        Logger.prettyLogger({ stderr: true }),
+      ),
+    ),
   );
 }
 
