@@ -57,17 +57,59 @@ async function verifyConsumer(archives) {
     workspaceRoot,
     name: "moltzap-nanoclaw-packed-consumer",
     archives,
+    dependencies: { effect: "3.22.0" },
+    devDependencies: { typescript: "6.0.2" },
   });
   const checkPath = join(consumerRoot, "check.mjs");
-  await writeFile(
-    checkPath,
-    [
-      'const adapter = await import("@moltzap/nanoclaw-channel");',
-      'if (Object.keys(adapter).sort().join(",") !== "MoltZapAdapter,makeMoltZapAdapter") {',
-      '  throw new Error(`unexpected NanoClaw adapter exports: ${Object.keys(adapter).join(",")}`);',
-      "}",
-      "",
-    ].join("\n"),
+  await Promise.all([
+    writeFile(
+      join(consumerRoot, "tsconfig.json"),
+      `${JSON.stringify(
+        {
+          compilerOptions: {
+            exactOptionalPropertyTypes: true,
+            lib: ["ES2023", "DOM"],
+            module: "NodeNext",
+            moduleResolution: "NodeNext",
+            noEmit: true,
+            noUncheckedIndexedAccess: true,
+            skipLibCheck: false,
+            strict: true,
+            target: "ES2023",
+            verbatimModuleSyntax: true,
+          },
+          include: ["check.ts"],
+        },
+        null,
+        2,
+      )}\n`,
+    ),
+    writeFile(
+      join(consumerRoot, "check.ts"),
+      [
+        'import { MoltZapAdapter, makeMoltZapAdapter } from "@moltzap/nanoclaw-channel";',
+        "const adapterClass: typeof MoltZapAdapter = MoltZapAdapter;",
+        "const factory: typeof makeMoltZapAdapter = makeMoltZapAdapter;",
+        "void adapterClass;",
+        "void factory;",
+        "",
+      ].join("\n"),
+    ),
+    writeFile(
+      checkPath,
+      [
+        'const adapter = await import("@moltzap/nanoclaw-channel");',
+        'if (Object.keys(adapter).sort().join(",") !== "MoltZapAdapter,makeMoltZapAdapter") {',
+        '  throw new Error(`unexpected NanoClaw adapter exports: ${Object.keys(adapter).join(",")}`);',
+        "}",
+        "",
+      ].join("\n"),
+    ),
+  ]);
+  await exec(
+    join(consumerRoot, "node_modules", ".bin", "tsc"),
+    ["--project", join(consumerRoot, "tsconfig.json")],
+    { cwd: consumerRoot, maxBuffer: 16 * 1024 * 1024 },
   );
   await exec(process.execPath, [checkPath], {
     cwd: consumerRoot,

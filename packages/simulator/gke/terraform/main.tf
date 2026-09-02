@@ -244,9 +244,9 @@ resource "google_storage_bucket_iam_member" "cluster_artifact_writer" {
 }
 
 # The release workflow pushes controller and agent images with GitHub's OIDC
-# token rather than a stored key: the provider admits only tokens whose
-# repository claim names this repository, and the release identity may write
-# nothing but this profile's image repository.
+# token rather than a stored key: the provider admits only tokens minted for
+# the publish workflow running on this repository's main branch, and the
+# release identity may write nothing but this profile's image repository.
 resource "google_iam_workload_identity_pool" "github_actions" {
   project                   = var.project_id
   workload_identity_pool_id = "github-actions"
@@ -262,10 +262,16 @@ resource "google_iam_workload_identity_pool_provider" "github_actions" {
   display_name                       = "GitHub OIDC"
 
   attribute_mapping = {
-    "google.subject"       = "assertion.sub"
-    "attribute.repository" = "assertion.repository"
+    "google.subject"         = "assertion.sub"
+    "attribute.repository"   = "assertion.repository"
+    "attribute.ref"          = "assertion.ref"
+    "attribute.workflow_ref" = "assertion.workflow_ref"
   }
-  attribute_condition = "assertion.repository == \"${var.github_repository}\""
+  attribute_condition = join(" && ", [
+    "assertion.repository == \"${var.github_repository}\"",
+    "assertion.ref == \"refs/heads/main\"",
+    "assertion.workflow_ref == \"${var.github_repository}/.github/workflows/publish.yml@refs/heads/main\"",
+  ])
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
@@ -288,8 +294,11 @@ resource "google_artifact_registry_repository_iam_member" "release_image_writer"
   member     = "serviceAccount:${google_service_account.release.email}"
 }
 
+# The binding names the publish workflow on main, the same identity the
+# provider's condition admits, so a second provider on this pool cannot widen
+# it to another workflow.
 resource "google_service_account_iam_member" "release_workload_identity_user" {
   service_account_id = google_service_account.release.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github_actions.name}/attribute.repository/${var.github_repository}"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github_actions.name}/attribute.workflow_ref/${var.github_repository}/.github/workflows/publish.yml@refs/heads/main"
 }

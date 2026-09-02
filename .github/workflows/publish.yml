@@ -7,41 +7,59 @@ name: Publish to npm
 # and the release App before any push-triggered variant is considered.
 #
 # A rerun after a partial failure converges rather than minting a second
-# release: the version is recomputed from npm (unchanged while nothing is
-# published at it), an image whose tag already exists is reused by digest, a
-# head that is already the release commit skips the bump, and every package
-# already on npm at that version is skipped.
+# release. Before the release commit exists, the version is recomputed from
+# npm (unchanged while nothing is published at it) and an image an earlier
+# attempt pushed from the same revision is reused by digest. Once the release
+# commit is on main, any run finds it, checks out its tree, and publishes
+# whatever that version still lacks on npm, however many commits landed since.
 on:
   workflow_dispatch:
 
+# Two releases must never interleave: both would compute the same version and
+# push different builds to the same image tags before either commits.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+# The push to main uses the release App token; the workflow token only needs
+# to read the repository and mint the OIDC token npm and Google verify.
 permissions:
-  contents: write
+  contents: read
   id-token: write
+
+# `bash` here means `bash -eo pipefail`, so a builder that fails inside a
+# pipeline fails its step instead of handing a partial result to the next.
+defaults:
+  run:
+    shell: bash
 
 env:
   RELEASE_PACKAGES: identity router client openclaw-channel nanoclaw-channel simulator
-  # The Terraform `controller_repository` output of packages/simulator/gke.
-  IMAGE_REPOSITORY: us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator
+  # The Terraform `controller_repository` output of packages/simulator/gke,
+  # copied into a repository variable next to the Workload Identity ones.
+  IMAGE_REPOSITORY: ${{ vars.GCP_IMAGE_REPOSITORY }}
 
 jobs:
   publish:
+    # Only main releases. A dispatch may name any branch, and this job pushes
+    # with the release App token, so an unreviewed branch must not reach here.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # The environment is where required reviewers for a release live; GitHub
+    # creates it on first use, and the maintainer can add reviewers there.
+    environment: release
     permissions:
-      contents: write
+      contents: read
       id-token: write
     steps:
-      - uses: actions/create-github-app-token@v2
-        id: app-token
-        with:
-          app-id: ${{ vars.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
-
-      # The App token on checkout makes the release push use it. Full history
-      # is needed to find the previous release commit.
+      # Full history: the plan step looks for the last release commit.
+      # Credentials are not persisted, so nothing that runs before the push
+      # (installs, builds, the pack gates' consumer installs) holds a token
+      # that can write to main.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v4
       # The repository Node pin ships npm >=11.5 for OIDC trusted publishing.
@@ -51,45 +69,51 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
-      - run: pnpm install --frozen-lockfile
-
+      # The last release commit on main decides whether this run resumes it:
+      # a version some package still lacks on npm is published from that
+      # commit's own tree. Otherwise the run releases the dispatched commit,
+      # which must still be the tip of main so that the images, the recorded
+      # revision, and npm's provenance all describe one tree.
       - name: Decide whether this run bumps or resumes a release
         id: plan
         run: |
-          HEAD_SUBJECT=$(git log -1 --format=%s)
-          if [[ "$HEAD_SUBJECT" == "chore(release): moltzap@"* ]]; then
-            # A previous run committed the release and failed later; publish it.
-            VERSION=${HEAD_SUBJECT#chore(release): moltzap@}
-            echo "Resuming release $VERSION from the head release commit"
-            echo "mode=resume" >> "$GITHUB_OUTPUT"
-            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          BASE=$(git log --grep="^chore(release): moltzap@" --format="%H" -1 2>/dev/null || true)
-          if [ -n "$BASE" ]; then
-            AFFECTED=$(pnpm exec nx show projects --affected --withTarget=build --base="$BASE" --head=HEAD --json)
-            echo "Affected build projects since $BASE: $AFFECTED"
-            RELEASE=0
+          test -n "$IMAGE_REPOSITORY" || {
+            echo "ERROR: the GCP_IMAGE_REPOSITORY repository variable is unset; copy the Terraform controller_repository output"
+            exit 1
+          }
+          git fetch origin main --quiet
+          RELEASE_LINE=$(git log origin/main --format='%H %s' | grep -m1 ' chore(release): moltzap@' || true)
+          if [ -n "$RELEASE_LINE" ]; then
+            RELEASE_COMMIT=${RELEASE_LINE%% *}
+            VERSION=${RELEASE_LINE#* chore(release): moltzap@}
+            [[ "$VERSION" =~ ^[0-9]{4}\.[0-9]{3,4}\.[0-9]+$ ]] || {
+              echo "ERROR: release commit $RELEASE_COMMIT has an unreadable version '$VERSION'"
+              exit 1
+            }
+            MISSING=""
             for pkg in $RELEASE_PACKAGES; do
               NAME=$(jq -r .name "packages/$pkg/package.json")
-              if jq -e --arg project "$NAME" 'index($project) != null' <<< "$AFFECTED" >/dev/null; then
-                RELEASE=1
-              fi
+              npm view "${NAME}@${VERSION}" version >/dev/null 2>&1 || MISSING="$MISSING $NAME"
             done
-            if [ "$RELEASE" -eq 0 ]; then
-              echo "No published package changed since $BASE — nothing to release"
-              echo "mode=skip" >> "$GITHUB_OUTPUT"
+            if [ -n "$MISSING" ]; then
+              echo "Resuming release $VERSION from $RELEASE_COMMIT; not yet on npm:$MISSING"
+              git checkout --quiet "$RELEASE_COMMIT"
+              echo "mode=resume" >> "$GITHUB_OUTPUT"
+              echo "version=$VERSION" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-          else
-            echo "No previous release commit — bootstrapping the one-version set"
           fi
 
+          [ "$(git rev-parse origin/main)" = "$GITHUB_SHA" ] || {
+            echo "ERROR: main moved past the dispatched commit $GITHUB_SHA; dispatch the release again from the tip"
+            exit 1
+          }
           VERSION=$(scripts/release/compute-next-version.sh $RELEASE_PACKAGES)
           echo "Next version: $VERSION"
           echo "mode=bump" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - run: pnpm install --frozen-lockfile
 
       - name: Write the version into every published manifest
         if: steps.plan.outputs.mode == 'bump'
@@ -103,15 +127,13 @@ jobs:
           pnpm install --no-frozen-lockfile --ignore-scripts
 
       - name: Build all packages
-        if: steps.plan.outputs.mode != 'skip'
         run: pnpm build
 
-      # Every published package declares test:pack (a boundary-check floor),
-      # so run-many cannot silently skip one. The gates install into private
-      # temporary directories, but each spawns pnpm and the OpenClaw host, so
-      # they run one at a time.
+      # The four gates pack all six packages (identity and router travel in
+      # every closure) and each gate is a boundary-check floor, so run-many
+      # cannot silently skip one. Each gate spawns pnpm and the OpenClaw host,
+      # so they run one at a time.
       - name: Verify the published closure installs from tarballs
-        if: steps.plan.outputs.mode != 'skip'
         run: pnpm nx run-many -t test:pack --parallel=1
 
       - uses: google-github-actions/auth@v2
@@ -129,17 +151,43 @@ jobs:
           VERSION: ${{ steps.plan.outputs.version }}
         run: |
           gcloud auth configure-docker "${IMAGE_REPOSITORY%%/*}" --quiet
-          # Docker builds are not byte-reproducible: a tag that already exists
-          # was pushed by an earlier attempt at this version and is reused so
-          # one release never has two digests.
-          resolve_or_build() {
-            local name="$1" builder="$2" repository="$IMAGE_REPOSITORY/$1" digest
-            if digest=$(gcloud artifacts docker images describe "$repository:$VERSION" \
-                --format='value(image_summary.digest)' 2>/dev/null) && [ -n "$digest" ]; then
-              echo "reusing $repository:$VERSION@$digest" >&2
+          # Docker builds are not byte-reproducible, so an earlier attempt's
+          # image is reused rather than rebuilt. The image is pushed under its
+          # source revision first and the version tag is added to that digest
+          # second, so a failure between the two leaves nothing a rerun cannot
+          # complete; a version tag that names any other digest was pushed
+          # from another tree or by something other than this workflow and
+          # fails the release instead of being blessed by it.
+          # Only a missing tag reads as empty; any other gcloud failure aborts,
+          # because "absent" is what would justify a fresh push.
+          tag_digest() {
+            local output
+            if output=$(gcloud artifacts docker images describe "$1" \
+                --format='value(image_summary.digest)' 2>&1); then
+              printf '%s' "$output"
+            elif grep -q "NOT_FOUND" <<< "$output"; then
+              printf ''
             else
-              digest=$(node "$builder" --repository "$repository" --tag "$VERSION" --push \
+              echo "ERROR: could not describe $1: $output" >&2
+              return 1
+            fi
+          }
+          resolve_or_build() {
+            local name="$1" builder="$2" repository="$IMAGE_REPOSITORY/$1" digest version_digest
+            local source_tag="$repository:sha-$GITHUB_SHA" version_tag="$repository:$VERSION"
+            digest=$(tag_digest "$source_tag")
+            if [ -n "$digest" ]; then
+              echo "reusing $source_tag@$digest" >&2
+            else
+              digest=$(node "$builder" --repository "$repository" --tag "sha-$GITHUB_SHA" --push \
                 | tail -1 | jq -r .imageDigest)
+            fi
+            version_digest=$(tag_digest "$version_tag")
+            if [ -z "$version_digest" ]; then
+              gcloud artifacts docker tags add "$source_tag" "$version_tag" --quiet
+            elif [ "$version_digest" != "$digest" ]; then
+              echo "ERROR: $version_tag names $version_digest, not the $GITHUB_SHA build $digest" >&2
+              exit 1
             fi
             jq -n --arg name "$name" --arg repository "$repository" --arg digest "$digest" \
               '{name: $name, repository: $repository, digest: $digest}'
@@ -153,26 +201,42 @@ jobs:
             > "$RUNNER_TEMP/published-images.json"
           cat "$RUNNER_TEMP/published-images.json"
 
+      # The release App token is minted only now, scoped to contents, and
+      # used for exactly one push.
+      - uses: actions/create-github-app-token@v2
+        if: steps.plan.outputs.mode == 'bump'
+        id: app-token
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      # The runner's pnpm install wired the husky hooks; the release commit
+      # is made of generated output CI already gated, so the hooks stay out.
       - name: Record digests, regenerate docs, and commit the release
         if: steps.plan.outputs.mode == 'bump'
         env:
           VERSION: ${{ steps.plan.outputs.version }}
+          RELEASE_TOKEN: ${{ steps.app-token.outputs.token }}
+          HUSKY: "0"
         run: |
           node scripts/release/write-published-images.mjs \
             --digests "$RUNNER_TEMP/published-images.json"
           pnpm docs:generate
           grep -qx '## \[Unreleased\]' CHANGELOG.md || { echo "CHANGELOG.md has no [Unreleased] section"; exit 1; }
-          sed -i "s/^## \[Unreleased\]$/&\n\n## [$VERSION] - $(date -u +%F)/" CHANGELOG.md
+          grep -q "^## \[$VERSION\]" CHANGELOG.md \
+            || sed -i "s/^## \[Unreleased\]$/&\n\n## [$VERSION] - $(date -u +%F)/" CHANGELOG.md
 
           git config user.name "moltzap-release[bot]"
           git config user.email "moltzap-release[bot]@users.noreply.github.com"
           git add packages/*/package.json pnpm-lock.yaml CHANGELOG.md \
             packages/simulator/gke/README.md docs/ 'packages/**/MODULE.md' README.md
           git commit -m "chore(release): moltzap@$VERSION"
-          git push --atomic origin HEAD:main
+          git tag "v$VERSION"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$RELEASE_TOKEN" | base64 -w0)" \
+            push --atomic origin HEAD:main "refs/tags/v$VERSION"
 
       - name: Publish every package not yet on npm at this version
-        if: steps.plan.outputs.mode != 'skip'
         env:
           VERSION: ${{ steps.plan.outputs.version }}
         run: |
@@ -181,10 +245,15 @@ jobs:
             echo "ERROR: GitHub OIDC token request env is missing; check id-token: write permissions"
             exit 1
           }
+          # Every manifest is checked before the first publish, so a drifted
+          # one cannot leave the set half-published.
+          for pkg in $RELEASE_PACKAGES; do
+            VER=$(jq -r .version "packages/$pkg/package.json")
+            [ "$VER" = "$VERSION" ] || { echo "ERROR: packages/$pkg is at $VER, expected $VERSION"; exit 1; }
+          done
           for pkg in $RELEASE_PACKAGES; do
             NAME=$(jq -r .name "packages/$pkg/package.json")
-            VER=$(jq -r .version "packages/$pkg/package.json")
-            [ "$VER" = "$VERSION" ] || { echo "ERROR: $NAME is at $VER, expected $VERSION"; exit 1; }
+            VER=$VERSION
             if npm view "${NAME}@${VER}" version 2>/dev/null | grep -q "$VER"; then
               echo "${NAME}@${VER} already on npm — skipping"
               continue

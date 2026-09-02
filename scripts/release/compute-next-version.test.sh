@@ -84,14 +84,31 @@ export NPM_MOCK_RESPONSES='{}'
 RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client)
 assert_eq "npm 404" "${TODAY}.0" "$RESULT"
 
+echo "--- Test 7b: npm failure that is not a 404 aborts ---"
+export NPM_MOCK_RESPONSES='{"@moltzap/client":{"exit":1,"body":"{\"error\":{\"code\":\"E503\"}}"}}'
+set +e
+RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client 2>/dev/null)
+STATUS=$?
+set -e
+assert_eq "registry error exits 1" "1" "$STATUS"
+assert_eq "registry error prints no version" "" "$RESULT"
+
+echo "--- Test 7c: npm failure with no JSON body aborts ---"
+export NPM_MOCK_RESPONSES='{"@moltzap/client":{"exit":1,"body":""}}'
+set +e
+RESULT=$("$SCRIPT_DIR/compute-next-version.sh" client 2>/dev/null)
+STATUS=$?
+set -e
+assert_eq "empty-body failure exits 1" "1" "$STATUS"
+
 echo "--- Test 8: One version over the union of six histories ---"
 export NPM_MOCK_RESPONSES="{\"@moltzap/simulator\":[\"${TODAY}.0\",\"${TODAY}.2\"],\"@moltzap/openclaw-channel\":[\"${TODAY}.1\"],\"@moltzap/client\":[\"2026.812.0\"]}"
 # shellcheck disable=SC2086 -- the package list is deliberately word-split.
 RESULT=$("$SCRIPT_DIR/compute-next-version.sh" $SIX)
 assert_eq "union takes the highest counter across packages" "${TODAY}.3" "$RESULT"
 
-echo "--- Test 9: Never-published packages alongside published ones ---"
-export NPM_MOCK_RESPONSES="{\"@moltzap/identity\":{\"exit\":1,\"body\":\"{\\\"error\\\":{\\\"code\\\":\\\"E404\\\"}}\"},\"@moltzap/router\":{\"exit\":1},\"@moltzap/nanoclaw-channel\":{\"exit\":1},\"@moltzap/simulator\":[\"${TODAY}.0\"],\"@moltzap/openclaw-channel\":\"${TODAY}.0\",\"@moltzap/client\":[\"${TODAY}.0\"]}"
+echo "--- Test 9: Never-published packages (mock 404) alongside published ones ---"
+export NPM_MOCK_RESPONSES="{\"@moltzap/simulator\":[\"${TODAY}.0\"],\"@moltzap/openclaw-channel\":\"${TODAY}.0\",\"@moltzap/client\":[\"${TODAY}.0\"]}"
 # shellcheck disable=SC2086
 RESULT=$("$SCRIPT_DIR/compute-next-version.sh" $SIX)
 assert_eq "404 packages do not block a published sibling's counter" "${TODAY}.1" "$RESULT"

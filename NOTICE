@@ -4,8 +4,8 @@ Copyright 2026 Tapan Chugh
 This product is licensed under the Apache License, Version 2.0; see LICENSE.
 
 Releases published before the four-layer cutover were distributed under the
-MIT License. Every source file in this repository was written by the copyright
-holder above; no third-party MIT-licensed source is relicensed by this change.
+MIT License. The source in this repository is original to the project; no
+third-party MIT-licensed source is relicensed by this change.
 
 Third-party software is consumed as npm packages, container base images, and
 pinned upstream source archives at build time under their own licenses:

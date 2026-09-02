@@ -136,7 +136,7 @@ current decisions rather than deliberate deferrals.
   `./network` public barrel at `src/network/index.ts`. It is transitional where
   it still exposes any of the five admitted removals. Do not add public
   authority there; delete those contracts and move compatible production-stack
-  composition behind Identity, Router, and Client as the cutover proceeds.
+  composition behind Identity, Router, and Client.
 
 Only `src/index.ts`, `src/agents/index.ts`, `src/network/index.ts`, and
 `src/ledger/index.ts` own the current published facades. Publication follows `docs/decisions/20260901-six-packages-publish-as-one-version-set.md`: this package publishes in the one-version set.

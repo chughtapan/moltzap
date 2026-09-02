@@ -430,10 +430,11 @@ private. The current record is
   provenance; the same run pushes the simulator controller, OpenClaw, and
   NanoClaw images tagged with the version and records their digests.
 - `scripts/architecture/check-boundaries.js` fails when a published manifest
-  is private, when the six versions differ, or when evals is not private;
-  each package's `test:pack` gate proves through
-  `scripts/test/packed-workspace.mjs` that the packed closure installs with
-  exact sibling pins.
+  is private, when the six versions differ, when evals is not private, or when
+  the release workflow's package list drifts from the published set. The
+  client, OpenClaw, NanoClaw, and simulator `test:pack` gates pack all six
+  packages through `scripts/test/packed-workspace.mjs` and prove the closure
+  installs with exact sibling pins and every declared executable present.
 
 ## Deliberate deferrals
 

@@ -1,11 +1,13 @@
 /**
- * @file The one reader of the MoltZap wire compatibility literal.
+ * @file The documentation reader of the MoltZap wire compatibility literal.
  *
  * `packages/identity/src/version.ts` owns the value. Documentation baking
  * reads it without executing the module, so the export must be a literal, and
  * the gate test that plants replacement values rewrites it with the same
  * pattern it is read with — a pattern that drifted between reader and planter
- * would let the plant become a silent no-op.
+ * would let the plant become a silent no-op. The CommonJS architecture check
+ * in `scripts/architecture/check-boundaries.js` carries the same pattern and
+ * must keep matching it.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

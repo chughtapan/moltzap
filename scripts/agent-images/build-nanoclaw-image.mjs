@@ -265,9 +265,8 @@ async function main() {
   );
   const staging = await stage();
   try {
-    const fingerprint = await stagingFingerprint(staging);
     const agentBaseImage = await buildAgentBase(staging);
-    const image = `${options.repository}:${options.tag ?? fingerprint}`;
+    const image = `${options.repository}:${options.tag ?? (await stagingFingerprint(staging))}`;
     const metadataPath = join(staging, "build-metadata.json");
     report(
       `${options.push ? "building and pushing" : "building"} application image ${image}`,
