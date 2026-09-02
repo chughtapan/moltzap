@@ -1,0 +1,10 @@
+#!/usr/bin/env node
+import { NodeRuntime } from "@effect/platform-node";
+import { runProfileExecutable } from "../dist/cluster/profiles/cli.js";
+
+// The executable reports its own failures on stderr, so the runtime's
+// reporter, which would repeat them on stdout, stays off.
+NodeRuntime.runMain(
+  runProfileExecutable(process.argv.slice(2), process.env),
+  { disableErrorReporting: true },
+);

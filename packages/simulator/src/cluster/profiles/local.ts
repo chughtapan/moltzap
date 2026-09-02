@@ -1,20 +1,19 @@
-/** @file Repository-local profile entry point for one Temporal-managed run. */
+/** @file The local kind profile's submission, one of the two the executable routes to. */
 
-import { NodeRuntime } from "@effect/platform-node";
 import { Effect } from "effect";
-import { isEntryModule } from "../entry.js";
 import {
   type KubernetesExecutionProfile,
   LOCAL_KUBERNETES_EXECUTION_PROFILE,
 } from "../profile.js";
 import {
-  liveSubmitOperations,
   type RunEnvironment,
   runKubernetesSociety,
   type RunSubmission,
   RunSubmissionError,
   type SubmitOperations,
 } from "../submit.js";
+
+// safer-arch-ignore no-trivial-sink-file: The local profile stays a module beside the GKE profile so the executable routes to two symmetric, separately tested submitters rather than carrying one of them inline.
 
 type LocalKubernetesExecutionProfile = Extract<
   KubernetesExecutionProfile,
@@ -54,21 +53,4 @@ function localExecutionProfile(
     );
   }
   return Effect.succeed(Object.freeze({ kind: "local", kubeContext }));
-}
-
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Direct-entry detection has no Effect Platform equivalent.
-if (isEntryModule(import.meta.url, process.argv[1])) {
-  // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The executable boundary captures argv once before entering Effect.
-  const args = process.argv.slice(2);
-  // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- The executable boundary injects the environment into the typed local configuration.
-  const environment = process.env;
-  runLocalSociety(args, environment).pipe(
-    Effect.tap((result) =>
-      Effect.sync(() => {
-        process.stdout.write(`${JSON.stringify(result)}\n`);
-      }),
-    ),
-    Effect.provide(liveSubmitOperations),
-    NodeRuntime.runMain,
-  );
 }

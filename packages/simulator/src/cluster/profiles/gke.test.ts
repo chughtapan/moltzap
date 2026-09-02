@@ -2,6 +2,8 @@
 
 import { assert, effect as test } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
+import { isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { RunTemporalSocietyOptions } from "../temporal.js";
 import {
   LedgerCompletion,
@@ -109,13 +111,17 @@ test("binds the checked-in GKE shape to operator-selected identities", () =>
 test("submits once through the shared Kubernetes society entry", () =>
   Effect.gen(function* () {
     let observedTemporal: RunTemporalSocietyOptions | undefined;
+    const reads: string[] = [];
     // One read seam serves both files the GKE profile submits: its checked-in
     // profile JSON and the experiment entrypoint.
     const operations: SubmitOperationsService = {
       readTextFile: (path) =>
-        Effect.succeed(
-          path.endsWith(".mjs") ? "export const runSpec = {};" : PROFILE_SOURCE,
-        ),
+        Effect.sync(() => {
+          reads.push(path);
+          return path.endsWith(".mjs")
+            ? "export const runSpec = {};"
+            : PROFILE_SOURCE;
+        }),
       randomUuid: () => RUN_UUID,
       runTemporalSociety: (options) => {
         observedTemporal = options;
@@ -129,6 +135,16 @@ test("submits once through the shared Kubernetes society entry", () =>
 
     assert.strictEqual(result.runId, EXPECTED_RUN_ID);
     assert.deepStrictEqual(result.result, RESULT.result);
+    // The profile is read from beside the package, never from the working
+    // directory: this test file sits beside the module, so the same relative
+    // URL names the same checked-in file.
+    const [profilePath] = reads;
+    assert.isDefined(profilePath);
+    assert.isTrue(isAbsolute(profilePath));
+    assert.strictEqual(
+      profilePath,
+      fileURLToPath(new URL("../../../gke/profile.json", import.meta.url)),
+    );
     assert.strictEqual(observedTemporal?.executionProfile?.kind, "gke");
     assert.deepStrictEqual(
       observedTemporal?.executionProfile?.kind === "gke"

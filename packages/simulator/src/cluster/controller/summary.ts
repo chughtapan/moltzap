@@ -8,6 +8,7 @@ import {
 } from "../../run/execute.js";
 
 // safer-arch-ignore no-cross-domain-sibling-import: Projects run outcomes, which name ledger receipts, into the controller's bounded result.
+// safer-arch-ignore shared-kernel-cohesion: The closed controller result is one contract read by three processes — the controller that prints it, the worker that decodes its log line, and the submitter that echoes it — so its readers overlap by design rather than by accident.
 
 /** Prefix distinguishing the controller-owned final line from application logs. */
 export const CONTROLLER_SUMMARY_PREFIX = "moltzap.controller-result/v1 ";
@@ -66,39 +67,38 @@ export function decodeControllerRunSummary(
   return decodeSummary(output);
 }
 
-const programFinishedSummarySchema = Schema.Struct({
+/** Successful customer-program projection, deliberately excluding its Exit. */
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- the submitter's final line embeds this exact closed projection, so the schema is shared with the module that prints it.
+export const controllerProgramFinishedSummary = Schema.Struct({
   _tag: Schema.Literal("ProgramFinished"),
   receipt: CompletedLedgerReceipt,
 });
 
-const clusterLostSummarySchema = Schema.Struct({
-  _tag: Schema.Literal("ClusterLost"),
-  receipt: LedgerReceipt,
-});
-
-const ledgerAllocationFailedSummarySchema = Schema.Struct({
-  _tag: Schema.Literal("LedgerAllocationFailed"),
-});
+/** Failed controller projections, which carry no customer failure value. */
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- the submitter's final line embeds this exact closed projection, so the schema is shared with the module that prints it.
+export const controllerFailedRunSummary = Schema.Union(
+  Schema.Struct({
+    _tag: Schema.Literal("ClusterLost"),
+    receipt: LedgerReceipt,
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal("LedgerAllocationFailed"),
+  }),
+);
 
 /** Complete result information permitted to leave the controller process. */
 const controllerRunSummarySchema = Schema.Union(
-  programFinishedSummarySchema,
-  clusterLostSummarySchema,
-  ledgerAllocationFailedSummarySchema,
+  controllerProgramFinishedSummary,
+  controllerFailedRunSummary,
 );
 /** Decoded controller result projection. */
 export type ControllerRunSummary = typeof controllerRunSummarySchema.Type;
 
 /** Successful customer-program projection, deliberately excluding its Exit. */
-export type ControllerProgramFinishedSummary = Extract<
-  ControllerRunSummary,
-  { readonly _tag: "ProgramFinished" }
->;
+export type ControllerProgramFinishedSummary =
+  typeof controllerProgramFinishedSummary.Type;
 /** Failed controller projection that carries no customer failure value. */
-export type ControllerFailedRunSummary = Exclude<
-  ControllerRunSummary,
-  ControllerProgramFinishedSummary
->;
+export type ControllerFailedRunSummary = typeof controllerFailedRunSummary.Type;
 
 const parseSummary = Schema.decodeUnknownEither(
   Schema.parseJson(controllerRunSummarySchema),

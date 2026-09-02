@@ -12,7 +12,9 @@
   },
   "type": "module",
   "files": [
+    "bin",
     "dist",
+    "gke/profile.json",
     "src/**/*.ts",
     "!src/**/*.test.ts",
     "!src/**/*.types-check.ts",
@@ -23,6 +25,9 @@
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "moltzap-sim": "./bin/moltzap-sim"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -109,7 +114,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/simulator",
-          "command": "node dist/cluster/profiles/local.js"
+          "command": "node bin/moltzap-sim run --profile local"
         }
       },
       "local-cluster-test": {
@@ -134,7 +139,7 @@
         ],
         "options": {
           "cwd": "packages/simulator",
-          "command": "node --test gke/profile.test.mjs && bash -n gke/install-addons.sh && bash -n gke/cluster.sh && node --check dist/cluster/profiles/gke.js"
+          "command": "node --test gke/profile.test.mjs && bash -n gke/install-addons.sh && bash -n gke/cluster.sh && node --check dist/cluster/profiles/gke.js && node --check bin/moltzap-sim"
         }
       },
       "gke-terraform-check": {
@@ -160,7 +165,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/simulator",
-          "command": "node dist/cluster/profiles/gke.js"
+          "command": "node bin/moltzap-sim run --profile gke"
         }
       },
       "typecheck:tests": {
