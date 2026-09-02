@@ -209,7 +209,7 @@ FAIL or INVALID; either way it does not admit the candidate.
 
 | Field | Value |
 |---|---|
-| Superseded by review run | `_fill new review run ID_` |
+| Superseded by review run | `20260901-six-packages-publish-as-one-version-set-81008c9a-invalid-review` |
 | Superseded candidate commit | `39284b483e93a92ce3fd5c58f37e9d9b0c70482e` |
 | Superseded candidate content digest | sha256 `0e96f8f4faeef66d7e60bed6e7c83bbb978a9171c4fd71a1834709f7dee78b40` |
 | Reason a rerun was required | Blockers B1 and B2 above: the License section's claim about pre-record releases and the unattributed `@moltzap/client` deprecation are corrected in the record, trajectory, CHANGELOG, and NOTICE, which changes the candidate. |
