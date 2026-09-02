@@ -6,7 +6,9 @@ import { EventCatalog, EventCatalogDefinitionError } from "./catalog.js";
 import {
   AgentProcessExited,
   AgentProcessSignaled,
+  AgentWorkspaceFileHarvested,
   coreEvents,
+  type HarvestedFileOutcome,
   linkEvents,
   routerEvents,
   runEvents,
@@ -96,6 +98,49 @@ test("represents process exit and signal as distinct lifecycle facts", () =>
     assert.instanceOf(signaled, AgentProcessSignaled);
     assert.isTrue(
       Either.match(ambiguous, {
+        onLeft: () => true,
+        onRight: () => false,
+      }),
+    );
+  }));
+
+const HARVEST_OUTCOMES: readonly HarvestedFileOutcome[] = [
+  { _tag: "text", content: "# Calendar", byteLength: 10 },
+  { _tag: "oversize", byteLength: 70_000, limitBytes: 65_536 },
+  { _tag: "absent" },
+  { _tag: "unreadable", cause: "the read exited 1" },
+];
+
+test("round-trips every way a harvested workspace file resolves", () =>
+  Effect.gen(function* () {
+    for (const outcome of HARVEST_OUTCOMES) {
+      const decoded = yield* coreEvents.decode({
+        _tag: "moltzap.agent-workspace-file/v1",
+        agentName: "alice",
+        agentId: "agt_AAAAAAAAAAAAAAAAAAAAAA",
+        runtime: "openclaw",
+        relativePath: "CALENDAR.md",
+        outcome,
+      });
+
+      assert.instanceOf(decoded, AgentWorkspaceFileHarvested);
+      if (decoded instanceof AgentWorkspaceFileHarvested) {
+        assert.deepStrictEqual(decoded.outcome, outcome);
+      }
+    }
+    const unknownOutcome = yield* coreEvents
+      .decode({
+        _tag: "moltzap.agent-workspace-file/v1",
+        agentName: "alice",
+        agentId: "agt_AAAAAAAAAAAAAAAAAAAAAA",
+        runtime: "openclaw",
+        relativePath: "CALENDAR.md",
+        outcome: { _tag: "binary", bytes: "AAAA" },
+      })
+      .pipe(Effect.either);
+
+    assert.isTrue(
+      Either.match(unknownOutcome, {
         onLeft: () => true,
         onRight: () => false,
       }),

@@ -3,7 +3,7 @@
 import { Schema } from "effect";
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
-import type { File } from "./container.js";
+import type { File, HarvestTarget } from "./container.js";
 
 /**
  * A workspace path proven to land inside its runtime's workspace root, held in
@@ -29,6 +29,19 @@ const workspaceRelativePath = Schema.transform(
 
 /** A workspace path proven to land inside its runtime's workspace root. */
 export type WorkspaceRelativePath = typeof workspaceRelativePath.Type;
+
+/**
+ * Upper bound on one experiment-declared harvested file. The content travels
+ * inside a ledger record, and a record is one line of `records.ndjson`, so the
+ * bound keeps a grader's file from turning the ledger into a blob store.
+ */
+export const MAX_HARVESTED_FILE_BYTES = 64 * 1_024;
+
+const harvestPaths = Schema.Array(workspaceRelativePath).pipe(
+  Schema.filter((paths) => new Set(paths).size === paths.length, {
+    message: () => "harvested workspace paths must be distinct",
+  }),
+);
 
 /** One file a runtime's options ask to mount into the agent workspace. */
 export interface WorkspaceFile {
@@ -71,6 +84,7 @@ export function isHttpMcpServer(server: McpServer): server is HttpMcpServer {
 const decodeWorkspaceRelativePath = Schema.decodeUnknownSync(
   workspaceRelativePath,
 );
+const decodeHarvestPaths = Schema.decodeUnknownSync(harvestPaths);
 
 const mcpServerUrl = Schema.String.pipe(
   Schema.filter((value) => URL.canParse(value), {
@@ -127,6 +141,40 @@ export function snapshotWorkspaceFiles(
       Object.freeze({
         relativePath: decodeWorkspaceRelativePath(file.relativePath),
         content: file.content,
+      }),
+    ),
+  );
+}
+
+/**
+ * Check and normalize every path an experiment asks to read back, once, at
+ * definition time. Two spellings of one file are refused here because the
+ * ledger would otherwise carry the same content twice under two names.
+ * @param paths Workspace-relative files requested by a runtime's options.
+ * @returns The frozen, distinct snapshot the runtime renders targets from.
+ */
+export function snapshotHarvestPaths(
+  paths?: readonly string[],
+): readonly WorkspaceRelativePath[] {
+  return Object.freeze([...decodeHarvestPaths(paths ?? [])]);
+}
+
+/**
+ * Place every checked harvest path under a runtime's effective workspace.
+ * @param root Absolute directory the application actually reads and writes.
+ * @param paths Paths already proven to stay below a workspace root.
+ * @returns Targets the cluster reads after the customer program ends.
+ */
+export function harvestTargets(
+  root: `/${string}`,
+  paths: readonly WorkspaceRelativePath[],
+): readonly HarvestTarget[] {
+  return Object.freeze(
+    paths.map((relativePath) =>
+      Object.freeze({
+        relativePath,
+        path: workspaceFilePath(root, relativePath),
+        limitBytes: MAX_HARVESTED_FILE_BYTES,
       }),
     ),
   );

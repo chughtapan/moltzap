@@ -334,7 +334,8 @@ these five rules:
    `HarnessEndpoint`.
 5. Delete `CommittedRouterMessage`, `RouterMessageCommitted`, `RouterSequence`,
    and `RouterStopped.committedMessages`. `RunLedger` records simulation
-   lifecycle and public semantic effects, never durable Router commit/order.
+   lifecycle, public semantic effects, and experiment-declared workspace
+   files, never durable Router commit/order.
 
 ### Simulator fault boundary
 

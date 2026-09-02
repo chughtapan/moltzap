@@ -30,12 +30,15 @@ import {
   Cluster,
   ClusterError,
   type ClusterService,
+  type HarvestedWorkspaceFile,
 } from "../cluster/cluster.js";
 import { EventCatalog } from "../events/catalog.js";
 import {
   AgentRuntimeStartFailed,
+  AgentWorkspaceFileHarvested,
   LinkDown,
   ProgramFailed,
+  ProgramInterrupted,
   ProgramSucceeded,
   RouterStarted,
   RouterStartFailed,
@@ -917,3 +920,180 @@ test("reports compensated link-evidence failure as ledger-backed cluster loss", 
     assert.notInclude(eventTags(records), LinkDown._tag);
   });
 });
+
+const CALENDAR: HarvestedWorkspaceFile = {
+  relativePath: "CALENDAR.md",
+  outcome: { _tag: "text", content: "# Calendar", byteLength: 10 },
+};
+const NOTES: HarvestedWorkspaceFile = {
+  relativePath: "NOTES.md",
+  outcome: { _tag: "absent" },
+};
+const UNREADABLE: HarvestedWorkspaceFile = {
+  relativePath: "CALENDAR.md",
+  outcome: { _tag: "unreadable", cause: "the read exited 1" },
+};
+
+function harvestedRoster() {
+  const runtime = defineFakeRuntime({
+    name: "harvest-runtime",
+    configuration: { schema: Schema.Struct({}), value: {} },
+    acquire: () =>
+      Effect.succeed({ gateway: undefined, termination: Effect.never }),
+  });
+  return AgentRoster.make(DEFINITION_ID, {
+    alice: runtime,
+    bob: runtime,
+  });
+}
+
+interface HarvestRecord {
+  readonly agentName: string;
+  readonly relativePath: string;
+  readonly outcome: HarvestedWorkspaceFile["outcome"];
+}
+
+// Harvest records land in completion order across agents, so they are compared
+// as a sorted set rather than as a sequence.
+function harvestRecords(records: readonly string[]): readonly HarvestRecord[] {
+  return records
+    .map((record): unknown => JSON.parse(record))
+    .flatMap((record) => {
+      if (
+        typeof record !== "object" ||
+        record === null ||
+        !("event" in record)
+      ) {
+        return [];
+      }
+      const event = Schema.decodeUnknownOption(AgentWorkspaceFileHarvested)(
+        record.event,
+      );
+      return Option.match(event, {
+        onNone: () => [],
+        onSome: (harvested) => [
+          {
+            agentName: harvested.agentName,
+            relativePath: harvested.relativePath,
+            outcome: harvested.outcome,
+          },
+        ],
+      });
+    })
+    .sort((left, right) =>
+      `${left.agentName}/${left.relativePath}`.localeCompare(
+        `${right.agentName}/${right.relativePath}`,
+      ),
+    );
+}
+
+test("harvests every agent's workspace after the program event and before the cluster is released", () =>
+  Effect.gen(function* () {
+    const records: string[] = [];
+    const timeline = yield* Ref.make<readonly string[]>([]);
+    const cluster = makeFakeCluster({
+      agentIdFor: (agentName) =>
+        agentName === "alice" ? ENDPOINT_ID : SENDER_ID,
+      harvestWorkspace: (name) =>
+        Ref.update(timeline, (entries) => [...entries, `harvest:${name}`]).pipe(
+          Effect.as(name === "alice" ? [CALENDAR, NOTES] : [CALENDAR]),
+        ),
+      onRelease: Ref.update(timeline, (entries) => [
+        ...entries,
+        "cluster-release",
+      ]),
+    });
+
+    const result = yield* runSociety({
+      definitionId: DEFINITION_ID,
+      eventServices,
+      roster: harvestedRoster(),
+      program: Ref.update(timeline, (entries) => [...entries, "program"]),
+    }).pipe(
+      Effect.provideService(Cluster, cluster),
+      Effect.provideService(RouterProvider, successfulRouterProvider()),
+      Effect.provideService(LedgerStorage, memoryStorage(records)),
+    );
+
+    assert.instanceOf(result, ProgramFinished);
+    const observed = yield* Ref.get(timeline);
+    assert.strictEqual(observed[0], "program");
+    assert.strictEqual(observed.at(-1), "cluster-release");
+    assert.sameMembers(observed.slice(1, -1), ["harvest:alice", "harvest:bob"]);
+    const tags = eventTags(records);
+    const programIndex = tags.indexOf(ProgramSucceeded._tag);
+    assert.isAbove(programIndex, -1);
+    assert.isTrue(
+      tags.every(
+        (tag, index) =>
+          tag !== AgentWorkspaceFileHarvested._tag || index > programIndex,
+      ),
+    );
+    assert.deepStrictEqual(harvestRecords(records), [
+      { agentName: "alice", ...CALENDAR },
+      { agentName: "alice", ...NOTES },
+      { agentName: "bob", ...CALENDAR },
+    ]);
+  }));
+
+test("skips harvest when the program was interrupted", () =>
+  Effect.gen(function* () {
+    const records: string[] = [];
+    let harvests = 0;
+    const cluster = makeFakeCluster({
+      agentIdFor: (agentName) =>
+        agentName === "alice" ? ENDPOINT_ID : SENDER_ID,
+      harvestWorkspace: () =>
+        Effect.sync(() => {
+          harvests += 1;
+          return [CALENDAR];
+        }),
+    });
+
+    const result = yield* runSociety({
+      definitionId: DEFINITION_ID,
+      eventServices,
+      roster: harvestedRoster(),
+      program: Effect.interrupt,
+    }).pipe(
+      Effect.provideService(Cluster, cluster),
+      Effect.provideService(RouterProvider, successfulRouterProvider()),
+      Effect.provideService(LedgerStorage, memoryStorage(records)),
+    );
+
+    assert.instanceOf(result, ProgramFinished);
+    assert.strictEqual(harvests, 0);
+    assert.include(eventTags(records), ProgramInterrupted._tag);
+    assert.notInclude(eventTags(records), AgentWorkspaceFileHarvested._tag);
+  }));
+
+test("records an unreadable file and still finishes the program", () =>
+  Effect.gen(function* () {
+    const records: string[] = [];
+    const cluster = makeFakeCluster({
+      agentIdFor: (agentName) =>
+        agentName === "alice" ? ENDPOINT_ID : SENDER_ID,
+      harvestWorkspace: () => Effect.succeed([UNREADABLE]),
+    });
+
+    const result = yield* runSociety({
+      definitionId: DEFINITION_ID,
+      eventServices,
+      roster: harvestedRoster(),
+      program: Effect.void,
+    }).pipe(
+      Effect.provideService(Cluster, cluster),
+      Effect.provideService(RouterProvider, successfulRouterProvider()),
+      Effect.provideService(LedgerStorage, memoryStorage(records)),
+    );
+
+    assert.instanceOf(result, ProgramFinished);
+    if (result instanceof ProgramFinished) {
+      assert.deepStrictEqual(result.exit, Exit.void);
+      assert.strictEqual(result.receipt.completion.recordCount, records.length);
+    }
+    assert.deepStrictEqual(harvestRecords(records), [
+      { agentName: "alice", ...UNREADABLE },
+      { agentName: "bob", ...UNREADABLE },
+    ]);
+  }));

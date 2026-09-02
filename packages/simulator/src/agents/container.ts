@@ -52,6 +52,18 @@ export interface File {
 }
 
 /**
+ * One file read back from the running application after the customer program
+ * ends. `relativePath` is how the ledger names it, `path` is where the runtime
+ * placed it inside the container, and `limitBytes` bounds what the ledger
+ * carries for it.
+ */
+export interface HarvestTarget {
+  readonly relativePath: string;
+  readonly path: `/${string}`;
+  readonly limitBytes: number;
+}
+
+/**
  * Where the cluster reached one ready application's controller bridge.
  *
  * The cluster builds this from the port the application itself declared, so a
@@ -129,6 +141,11 @@ export interface Application<Gateway, AcquisitionError> {
   /** The controller bridge port, and the port whose accept means ready. */
   readonly port: number;
   readonly files: readonly File[];
+  /**
+   * Files the cluster reads from the live container after the customer
+   * program ends, absent when the runtime harvests nothing.
+   */
+  readonly harvest?: readonly HarvestTarget[];
   /**
    * Bind the controller to one ready application.
    *

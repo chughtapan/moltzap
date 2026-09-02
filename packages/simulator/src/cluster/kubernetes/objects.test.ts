@@ -492,6 +492,12 @@ it("gives the controller only the run-scoped operations its platform uses", () =
         resourceNames: [RUN_OWNER_NAME],
         verbs: ["get", "delete"],
       }),
+      // Harvesting a workspace file execs a shell in the application container.
+      expect.objectContaining({
+        apiGroups: [""],
+        resources: ["pods/exec"],
+        verbs: ["create"],
+      }),
     ]),
   );
 });
