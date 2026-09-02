@@ -64,7 +64,7 @@ planning database as continuing authority.
 
 | Decision | Date | Status | Superseded by |
 |---|---|---|---|
-| [Six packages publish as one version set](20260901-six-packages-publish-as-one-version-set.md) | 2026-09-01 | accepted | — |
+| [Five packages publish as one version set](20260901-six-packages-publish-as-one-version-set.md) | 2026-09-01 | accepted | — |
 | [Channel adapters use stock host APIs](20260828-channel-adapters-use-stock-host-apis.md) | 2026-08-28 | accepted | — |
 | [Action signatures follow Router-ordered proposal locking](20260828-action-signatures-follow-router-order.md) | 2026-08-28 | accepted | — |
 | [Hosts own addressed-send retry policy](20260828-hosts-own-send-retry-policy.md) | 2026-08-28 | accepted | — |

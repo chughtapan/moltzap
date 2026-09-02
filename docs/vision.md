@@ -95,7 +95,7 @@ listed as deliberate deferrals remain questions even when an earlier package
 happens to expose an answer.
 
 `main` is the only track. The four-layer harness replaced the v1 stack there,
-and the six published packages release from `main` through the workflow the
+and the five published packages release from `main` through the workflow the
 publication record names.
 
 ## The constitution
@@ -368,9 +368,9 @@ The cutover finishes with exactly seven products under `packages/*`:
 There are no compatibility package names or forwarding exports. Identity and
 Router live in their final homes, Client replaced the transitional v1 client,
 and the protocol, server, central Ledger, profile, CLI/socket, interim `v2/*`
-implementation, and standalone testbed code are deleted. Six of the seven
-packages publish to npm as one version set and `@moltzap/evals` stays private,
-as `20260901-six-packages-publish-as-one-version-set.md` records; the package
+implementation, and standalone testbed code are deleted. Five of the seven
+packages publish to npm as one version set while `@moltzap/nanoclaw-channel`
+and `@moltzap/evals` stay private, as `20260901-six-packages-publish-as-one-version-set.md` records; the package
 version is independent of the wire compatibility value.
 
 The simulation `RunLedger` remains run evidence. Its name does not reintroduce

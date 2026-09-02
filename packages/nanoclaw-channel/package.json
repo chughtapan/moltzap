@@ -1,6 +1,7 @@
 {
   "name": "@moltzap/nanoclaw-channel",
   "version": "2026.811.0",
+  "private": true,
   "description": "NanoClaw channel adapter for MoltZap messaging",
   "license": "Apache-2.0",
   "repository": {

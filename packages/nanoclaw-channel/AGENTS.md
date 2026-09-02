@@ -1,6 +1,6 @@
 # @moltzap/nanoclaw-channel
 
-NanoClaw channel adapter and integration canary. Publication follows `docs/decisions/20260901-six-packages-publish-as-one-version-set.md`: this package publishes in the one-version set.
+NanoClaw channel adapter and integration canary. Publication follows `docs/decisions/20260901-six-packages-publish-as-one-version-set.md`: this package stays private and is consumed by the NanoClaw image build, not from npm.
 
 ## Cutover boundary
 

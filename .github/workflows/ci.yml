@@ -43,8 +43,11 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      # The four gates pack all six published packages (identity and router
-      # travel in every closure) and each gate is a boundary-check floor, so
+      # The four gates pack the five published packages and the NanoClaw
+      # adapter, whose gate proves it still compiles against the Client ABI in
+      # isolation (the image build copies its source, not a tarball); identity
+      # and router travel in every closure, and each gate is a boundary-check
+      # floor, so
       # run-many cannot silently skip one; the gates spawn pnpm and the
       # OpenClaw host, so they run one at a time.
       - name: Verify the published closure installs from tarballs

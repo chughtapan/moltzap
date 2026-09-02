@@ -22,9 +22,10 @@ exports and binaries, shared six-package CalVer rule, and old dependency DAG
 with exactly seven final `packages/*` products: `@moltzap/identity`,
 `@moltzap/router`, `@moltzap/client`, `@moltzap/simulator`, `@moltzap/evals`,
 `@moltzap/openclaw-channel`, and `@moltzap/nanoclaw-channel`. `20260901-six-packages-publish-as-one-version-set.md` selects
-the publication and version policy this record left deferred: six packages
-publish as one calendar version set, evals stays private, and the package
-version is independent of the wire compatibility value. The replacement
+the publication and version policy this record left deferred: five packages
+publish as one calendar version set, evals and the NanoClaw adapter stay
+private, and the package version is independent of the wire compatibility
+value. The replacement
 record and `docs/spec/layer-interfaces.md` own the current package map.
 
 ## Context and Problem Statement
@@ -76,3 +77,4 @@ Point corrections that leave the historical Decision Outcome intact.
 |---|---|
 | 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |
 | 2026-09-01 | Recorded that `20260901-six-packages-publish-as-one-version-set.md` selects the publication and version policy the Supersession section deferred. The historical Decision Outcome is unchanged. |
+| 2026-09-02 | The Supersession summary of `20260901-six-packages-publish-as-one-version-set.md` names five publishing packages with the NanoClaw adapter private, matching that record's corrected outcome. This record's own Decision Outcome is unchanged. |

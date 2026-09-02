@@ -277,6 +277,8 @@ try {
   const { archives, manifests } = await packWorkspaceClosure(
     packageRoots,
     temporaryRoot,
+    // every package in this closure publishes
+    new Set(Object.keys(packageRoots)),
   );
   await verifyPackedManifest(archives["@moltzap/openclaw-channel"], manifests);
   await verifyConsumer(archives);
