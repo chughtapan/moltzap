@@ -21,9 +21,9 @@
 # absence. codex quota is not probed either: a rate-limited codex fails exactly
 # like a missing one, quietly, but detecting it costs a request per session.
 #
-# gbrain carries the decision-evidence corpus, so provenance verification and
-# the blind gate's source-event question both resolve against it. An absent
-# brain is not a degraded experience, it is an unanswerable question.
+# gbrain carries the decision-evidence corpus, so provenance verification
+# resolves against it. An absent brain is not a degraded experience, it is an
+# unanswerable question.
 #
 # Hook freshness is advisory. .husky/pre-commit is tracked, so every branch
 # carries its own copy and a fix on main reaches nobody until they merge; this
@@ -83,7 +83,7 @@ if command -v gbrain >/dev/null 2>&1; then
     gone "gbrain" "installed but not reachable — run 'gbrain doctor' for the engine error"
   fi
 else
-  gone "gbrain" "not on PATH — run /setup-gbrain; provenance and the blind gate resolve against it"
+  gone "gbrain" "not on PATH — run /setup-gbrain; provenance lookups resolve against it"
 fi
 
 # ── hook freshness ──────────────────────────────────────────────────────────
