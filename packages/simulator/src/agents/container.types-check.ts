@@ -7,6 +7,7 @@ import {
   type Application,
   type ContainerRuntime,
   containerRuntimeFor,
+  type HarvestTarget,
   image,
 } from "./container.js";
 import { openClawRuntime } from "./openclaw/runtime.js";
@@ -60,4 +61,10 @@ export const attachReturnsExactGateway: Equal<
 export const attachPreservesAcquisitionError: Equal<
   Effect.Effect.Error<ReturnType<OpenClawApplication["attach"]>>,
   RuntimeAcquisitionError
+> = true;
+
+/** A rendered application declares harvest targets or nothing, never a mixed shape. */
+export const harvestTargetsAreOptional: Equal<
+  OpenClawApplication["harvest"],
+  readonly HarvestTarget[] | undefined
 > = true;

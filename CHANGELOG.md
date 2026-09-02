@@ -10,6 +10,34 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Added: `moltzap-sim`, harvested workspace files, transcripts, parallel runs
+
+`@moltzap/simulator` publishes `moltzap-sim run --profile local|gke <spec.mjs>`,
+which submits one experiment and prints one `ProfileRunResult` line, so you
+can run the simulator from npm and decode the result instead of copying its
+shape (`packages/simulator/gke/README.md` has the environment and exit-status
+contract). Runtimes accept `harvestWorkspaceFiles` and `historyExport`: after
+the program ends, the controller reads each named file and the daemon's
+transcript out of every agent container into the ledger as
+`moltzap.agent-workspace-file/v1` records. `@moltzap/client`'s daemon takes
+`MOLTZAPD_HISTORY_EXPORT=<file>` and appends one `HistoryExportRecord` line
+per delivered message and per send, certified or failed, with one
+`export-failed` line if the file itself ever fails. Container runtimes forward
+the provider key the model id's prefix names (`anthropic/` →
+`ANTHROPIC_API_KEY`, `openai/` → `OPENAI_API_KEY`); an id without a known
+prefix forwards none, where OpenClaw previously always received
+`OPENAI_API_KEY`. `MOLTZAP_ADMISSION_TIMEOUT_MS` keeps a cohort queued in
+Kueue from spending its startup budget, and `@moltzap/evals` runs
+`--concurrency` cells at once while committing them in plan order.
+
+### Changed: ledgers written before the workspace-file record no longer open
+
+`@moltzap/simulator` adds `moltzap.agent-workspace-file/v1` to its core event
+catalog, and `openLedgerArtifacts` keeps exact catalog equality by design, so
+a ledger whose manifest predates that record is refused with
+`LedgerCatalogMismatch`. Regenerate such ledgers with the current simulator;
+retained artifact sets from earlier runs stay historical.
+
 ### Fixed: sends wait for the Router worker to attach
 
 A daemon reported itself active as soon as registration completed, while its

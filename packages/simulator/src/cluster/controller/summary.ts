@@ -8,6 +8,7 @@ import {
 } from "../../run/execute.js";
 
 // safer-arch-ignore no-cross-domain-sibling-import: Projects run outcomes, which name ledger receipts, into the controller's bounded result.
+// safer-arch-ignore shared-kernel-cohesion: The closed controller result is one contract read by three processes — the controller that prints it, the worker that decodes its log line, and the submitter that echoes it — so its readers overlap by design rather than by accident.
 
 /** Prefix distinguishing the controller-owned final line from application logs. */
 export const CONTROLLER_SUMMARY_PREFIX = "moltzap.controller-result/v1 ";
@@ -66,39 +67,59 @@ export function decodeControllerRunSummary(
   return decodeSummary(output);
 }
 
-const programFinishedSummarySchema = Schema.Struct({
+/** Successful customer-program projection, deliberately excluding its Exit. */
+const controllerProgramFinishedSummary = Schema.Struct({
   _tag: Schema.Literal("ProgramFinished"),
   receipt: CompletedLedgerReceipt,
 });
 
-const clusterLostSummarySchema = Schema.Struct({
-  _tag: Schema.Literal("ClusterLost"),
-  receipt: LedgerReceipt,
-});
+/** Failed controller projections, which carry no customer failure value. */
+const controllerFailedRunSummary = Schema.Union(
+  Schema.Struct({
+    _tag: Schema.Literal("ClusterLost"),
+    receipt: LedgerReceipt,
+  }),
+  Schema.Struct({
+    _tag: Schema.Literal("LedgerAllocationFailed"),
+  }),
+);
 
-const ledgerAllocationFailedSummarySchema = Schema.Struct({
-  _tag: Schema.Literal("LedgerAllocationFailed"),
-});
+/**
+ * Coarse outcome of one controller Job: its exit code and the summary it
+ * printed, plus the Job's own diagnostic when the run failed and that output
+ * was still readable. The worker's activity result and the submitter's final
+ * line are this one shape.
+ *
+ * Closed controller process result retained by the coarse workflow. The failed branch carries the sanitized controller output the host activity already collected. A failure summary names what ended the run and nothing about why, so without this the operator's only copy of the reason is a Pod log in a namespace the workflow deletes on its way out.
+ */
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- the worker's activity result and the submitter's final line embed this exact closed shape, so it is defined beside the summaries it wraps.
+export const controllerRunResult = Schema.Union(
+  Schema.Struct({
+    exitCode: Schema.Literal(0),
+    summary: controllerProgramFinishedSummary,
+  }),
+  Schema.Struct({
+    exitCode: Schema.Literal(1),
+    summary: controllerFailedRunSummary,
+    diagnostic: Schema.optional(Schema.String),
+  }),
+);
+/** Decoded coarse outcome of one controller Job. */
+export type ControllerRunResult = typeof controllerRunResult.Type;
 
 /** Complete result information permitted to leave the controller process. */
 const controllerRunSummarySchema = Schema.Union(
-  programFinishedSummarySchema,
-  clusterLostSummarySchema,
-  ledgerAllocationFailedSummarySchema,
+  controllerProgramFinishedSummary,
+  controllerFailedRunSummary,
 );
 /** Decoded controller result projection. */
 export type ControllerRunSummary = typeof controllerRunSummarySchema.Type;
 
 /** Successful customer-program projection, deliberately excluding its Exit. */
-export type ControllerProgramFinishedSummary = Extract<
-  ControllerRunSummary,
-  { readonly _tag: "ProgramFinished" }
->;
+export type ControllerProgramFinishedSummary =
+  typeof controllerProgramFinishedSummary.Type;
 /** Failed controller projection that carries no customer failure value. */
-export type ControllerFailedRunSummary = Exclude<
-  ControllerRunSummary,
-  ControllerProgramFinishedSummary
->;
+export type ControllerFailedRunSummary = typeof controllerFailedRunSummary.Type;
 
 const parseSummary = Schema.decodeUnknownEither(
   Schema.parseJson(controllerRunSummarySchema),

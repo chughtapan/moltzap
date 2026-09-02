@@ -16,7 +16,9 @@ The final package consumes public `@moltzap/identity`, `@moltzap/router`, and
 - live and completed simulation `RunLedger` evidence;
 - production-stack acquisition, fault control, and run-scoped fixtures;
 - local-Kubernetes and GKE execution through Kubernetes, Kueue, Agent
-  Sandbox, and Temporal; and
+  Sandbox, and Temporal;
+- the `moltzap-sim` executable, which submits one experiment module through
+  either checked-in profile; and
 - the compatible root, `./network`, `./ledger`, and `./agents` facades.
 
 `RunLedger` records simulation configuration, events, and outcomes. It is not a

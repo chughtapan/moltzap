@@ -173,7 +173,7 @@ export interface AgentsService<
 
 Describes agents service.
 
-### [`Application`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L125)
+### [`Application`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L160)
 
 _Interface_
 
@@ -185,6 +185,11 @@ export interface Application<Gateway, AcquisitionError> {
   /** The controller bridge port, and the port whose accept means ready. */
   readonly port: number;
   readonly files: readonly File[];
+  /**
+   * Files the cluster reads from the live container after the customer
+   * program ends, absent when the runtime harvests nothing.
+   */
+  readonly harvest?: readonly HarvestTarget[];
   /**
    * Bind the controller to one ready application.
    *
@@ -204,7 +209,7 @@ export interface Application<Gateway, AcquisitionError> {
 
 One rendered application and its runtime-specific controller bridge.
 
-### [`ApplicationEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L61)
+### [`ApplicationEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L96)
 
 _Interface_
 
@@ -221,7 +226,7 @@ The cluster builds this from the port the application itself declared, so a
 runtime reads the address it asked for instead of re-deriving it: a protocol,
 port, path, or credential the runtime would have to reject cannot be spelled.
 
-### [`ContainerAgentRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L166)
+### [`ContainerAgentRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L206)
 
 _Interface_
 
@@ -243,7 +248,7 @@ A runtime that is known to carry a container realization. Only
 `defineContainerRuntime` produces one, so reading its realization back needs
 no absent case.
 
-### [`ContainerRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L153)
+### [`ContainerRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L193)
 
 _Interface_
 
@@ -271,7 +276,7 @@ export type CredentialName = "ANTHROPIC_API_KEY" | "OPENAI_API_KEY";
 
 Provider credential a container may request from the run-scoped Secret.
 
-### [`defineContainerRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L227)
+### [`defineContainerRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L267)
 
 _Function_
 
@@ -295,7 +300,7 @@ This describes no cross-runtime gateway protocol.
 
 **Returns:** The frozen nominal runtime accepted by a society roster.
 
-### [`File`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L48)
+### [`File`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L71)
 
 _Interface_
 
@@ -308,6 +313,23 @@ export interface File {
 ```
 
 One file materialized into a container from the run-scoped Secret.
+
+### [`HarvestTarget`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L83)
+
+_Interface_
+
+```ts
+export interface HarvestTarget {
+  readonly relativePath: string;
+  readonly path: `/${string}`;
+  readonly limitBytes: number;
+}
+```
+
+One file read back from the running application after the customer program
+ends. `relativePath` is how the ledger names it, `path` is where the runtime
+placed it inside the container, and `limitBytes` bounds what the ledger
+carries for it.
 
 ### [`image`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L29)
 
@@ -398,7 +420,7 @@ export class NanoClawGatewayOutput extends Schema.Class<NanoClawGatewayOutput>(
 
 One native output frame emitted by NanoClaw's owner-local CLI channel.
 
-### [`nanoclawRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/nanoclaw/runtime.ts#L93)
+### [`nanoclawRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/nanoclaw/runtime.ts#L124)
 
 _Function_
 
@@ -417,7 +439,7 @@ roster identity and its runtime-owned native gateway bridge.
 
 **Returns:** The nanoclaw runtime result.
 
-### [`NanoClawRuntimeOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/nanoclaw/runtime.ts#L73)
+### [`NanoClawRuntimeOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/nanoclaw/runtime.ts#L87)
 
 _Interface_
 
@@ -425,6 +447,23 @@ _Interface_
 export interface NanoClawRuntimeOptions {
   readonly startupTimeout?: Duration.Duration;
   readonly workspaceFiles?: readonly WorkspaceFile[];
+  /**
+   * Workspace-relative files read back from each running agent after the
+   * customer program ends and recorded in the ledger, so an experiment can
+   * grade what its agents wrote without their exiting.
+   */
+  readonly harvestWorkspaceFiles?: readonly string[];
+  /**
+   * Have the agent's `moltzapd` append every delivery and send it completes
+   * to a history export, harvested into the ledger as
+   * `moltzap-history.ndjson` when the customer program ends.
+   */
+  readonly historyExport?: boolean;
+  /**
+   * Model the runtime asks for. Its provider prefix (`anthropic/`, `openai/`)
+   * names the credential forwarded from the run's Secret; an unknown prefix
+   * forwards none.
+   */
   readonly modelId?: string;
 
   /**
@@ -555,7 +594,7 @@ Timed-out terminal result returned by OpenClaw's `agent` gateway RPC.
 OpenClaw treats this as a successful RPC payload rather than a transport
 failure. A run may time out before it has an agent result.
 
-### [`openClawRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/runtime.ts#L151)
+### [`openClawRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/runtime.ts#L175)
 
 _Function_
 
@@ -581,7 +620,7 @@ flowchart LR
 
 **Returns:** A reusable OpenClaw container runtime definition.
 
-### [`OpenClawRuntimeOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/runtime.ts#L111)
+### [`OpenClawRuntimeOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/runtime.ts#L118)
 
 _Interface_
 
@@ -591,6 +630,23 @@ export interface OpenClawRuntimeOptions {
   readonly applicationImage: Image;
   readonly startupTimeout?: Duration.Duration;
   readonly workspaceFiles?: readonly WorkspaceFile[];
+  /**
+   * Workspace-relative files read back from each running agent after the
+   * customer program ends and recorded in the ledger, so an experiment can
+   * grade what its agents wrote without their exiting.
+   */
+  readonly harvestWorkspaceFiles?: readonly string[];
+  /**
+   * Have the agent's `moltzapd` append every delivery and send it completes
+   * to a history export, harvested into the ledger as
+   * `moltzap-history.ndjson` when the customer program ends.
+   */
+  readonly historyExport?: boolean;
+  /**
+   * Model the runtime asks for. Its provider prefix (`anthropic/`, `openai/`)
+   * names the credential forwarded from the run's Secret; an unknown prefix
+   * forwards none.
+   */
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
 
@@ -626,7 +682,7 @@ export type OpenClawToolsConfig = NonNullable<OpenClawConfig["tools"]>;
 
 Tool configuration accepted by `OpenClawConfig`.
 
-### [`Resources`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L41)
+### [`Resources`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L64)
 
 _Interface_
 
@@ -640,7 +696,7 @@ export interface Resources {
 
 Portable resource request for one application container.
 
-### [`routableBridgeEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L93)
+### [`routableBridgeEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L128)
 
 _Function_
 
@@ -814,7 +870,7 @@ export type StartedAgents<
 
 Exact keyed agents installed only after every runtime is ready.
 
-### [`stoppedBeforeAttach`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L270)
+### [`stoppedBeforeAttach`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L310)
 
 _Function_
 

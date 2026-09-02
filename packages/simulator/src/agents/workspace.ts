@@ -3,7 +3,7 @@
 import { Schema } from "effect";
 import { createHash } from "node:crypto";
 import { posix } from "node:path";
-import type { File } from "./container.js";
+import type { File, HarvestTarget } from "./container.js";
 
 /**
  * A workspace path proven to land inside its runtime's workspace root, held in
@@ -29,6 +29,39 @@ const workspaceRelativePath = Schema.transform(
 
 /** A workspace path proven to land inside its runtime's workspace root. */
 export type WorkspaceRelativePath = typeof workspaceRelativePath.Type;
+
+/**
+ * Upper bound on one experiment-declared harvested file. The content travels
+ * inside a ledger record, and a record is one line of `records.ndjson`, so the
+ * bound keeps a grader's file from turning the ledger into a blob store.
+ */
+export const MAX_HARVESTED_FILE_BYTES = 64 * 1_024;
+
+/**
+ * Upper bound on the daemon's harvested history export. A transcript of one
+ * agent's deliveries and sends over a run is larger than one grader's file but
+ * still one ledger line, so the bound is generous without being unbounded.
+ */
+const MAX_HARVESTED_EXPORT_BYTES = 1_024 * 1_024;
+/** Where `moltzapd` appends its history export inside the application container. */
+const HISTORY_EXPORT_PATH = "/var/run/moltzap/history.ndjson";
+/** The daemon input that turns its history export on. */
+const HISTORY_EXPORT_VARIABLE = "MOLTZAPD_HISTORY_EXPORT";
+/** How the ledger names the harvested export, beside experiment-declared files. */
+const HISTORY_EXPORT_LABEL = "moltzap-history.ndjson";
+
+const harvestPaths = Schema.Array(workspaceRelativePath).pipe(
+  Schema.filter(
+    (paths) => paths.every((path) => path !== HISTORY_EXPORT_LABEL),
+    {
+      message: () =>
+        `"${HISTORY_EXPORT_LABEL}" is the daemon transcript's own label and cannot name a harvested file`,
+    },
+  ),
+  Schema.filter((paths) => new Set(paths).size === paths.length, {
+    message: () => "harvested workspace paths must be distinct",
+  }),
+);
 
 /** One file a runtime's options ask to mount into the agent workspace. */
 export interface WorkspaceFile {
@@ -71,6 +104,7 @@ export function isHttpMcpServer(server: McpServer): server is HttpMcpServer {
 const decodeWorkspaceRelativePath = Schema.decodeUnknownSync(
   workspaceRelativePath,
 );
+const decodeHarvestPaths = Schema.decodeUnknownSync(harvestPaths);
 
 const mcpServerUrl = Schema.String.pipe(
   Schema.filter((value) => URL.canParse(value), {
@@ -130,6 +164,70 @@ export function snapshotWorkspaceFiles(
       }),
     ),
   );
+}
+
+/**
+ * Check and normalize every path an experiment asks to read back, once, at
+ * definition time. Two spellings of one file are refused here because the
+ * ledger would otherwise carry the same content twice under two names.
+ * @param paths Workspace-relative files requested by a runtime's options.
+ * @returns The frozen, distinct snapshot the runtime renders targets from.
+ */
+export function snapshotHarvestPaths(
+  paths?: readonly string[],
+): readonly WorkspaceRelativePath[] {
+  return Object.freeze([...decodeHarvestPaths(paths ?? [])]);
+}
+
+/**
+ * Place every checked harvest path under a runtime's effective workspace.
+ * @param root Absolute directory the application actually reads and writes.
+ * @param paths Paths already proven to stay below a workspace root.
+ * @returns Targets the cluster reads after the customer program ends.
+ */
+export function harvestTargets(
+  root: `/${string}`,
+  paths: readonly WorkspaceRelativePath[],
+): readonly HarvestTarget[] {
+  return Object.freeze(
+    paths.map((relativePath) =>
+      Object.freeze({
+        relativePath,
+        path: workspaceFilePath(root, relativePath),
+        limitBytes: MAX_HARVESTED_FILE_BYTES,
+      }),
+    ),
+  );
+}
+
+/**
+ * What an application carries when its daemon's transcript is exported: the
+ * harvest target the ledger reads it back through, and the daemon input that
+ * turns the export on. Both are empty when it is not.
+ */
+export interface HistoryExportRendering {
+  readonly harvest: readonly HarvestTarget[];
+  readonly environment: Readonly<Record<string, string>>;
+}
+
+const HISTORY_EXPORT_TARGET: HarvestTarget = Object.freeze({
+  relativePath: HISTORY_EXPORT_LABEL,
+  path: HISTORY_EXPORT_PATH,
+  limitBytes: MAX_HARVESTED_EXPORT_BYTES,
+});
+
+/**
+ * Render one runtime's transcript setting for the application it builds.
+ * @param enabled Whether the experiment asked for the daemon's history export.
+ * @returns The harvest target and daemon environment, or nothing at all.
+ */
+export function historyExport(enabled: boolean): HistoryExportRendering {
+  return enabled
+    ? {
+        harvest: [HISTORY_EXPORT_TARGET],
+        environment: { [HISTORY_EXPORT_VARIABLE]: HISTORY_EXPORT_PATH },
+      }
+    : { harvest: [], environment: {} };
 }
 
 /**

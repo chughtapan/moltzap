@@ -15,6 +15,7 @@ import type {
   ProposalLock,
 } from "../store.js";
 import {
+  exportInbound,
   inboundDelivery,
   makeActionCertifiedRecord,
   makeCertifiedRecord,
@@ -498,7 +499,7 @@ function persistPromotionWithDelivery(
   runtime: EngineRuntime,
   record: Effect.Effect.Success<ReturnType<typeof storedCertifiedRecord>>,
   source: RecordSource,
-  delivery: Effect.Effect.Success<ReturnType<typeof inboundDelivery>>,
+  delivery: Effect.Effect.Success<ReturnType<typeof inboundDelivery>>["input"],
 ) {
   switch (source) {
     case "assembled":
@@ -547,7 +548,10 @@ const promote = (
       : undefined;
     yield* delivery === undefined
       ? persistPromotionWithoutDelivery(runtime, stored, source)
-      : persistPromotionWithDelivery(runtime, stored, source, delivery);
+      : persistPromotionWithDelivery(runtime, stored, source, delivery.input);
+    if (delivery !== undefined) {
+      yield* exportInbound(runtime, delivery.message);
+    }
     const queuePromotion =
       source === "assembled"
         ? queueCertifiedPacket(runtime, fold.conversation, record).pipe(

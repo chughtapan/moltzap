@@ -48,6 +48,8 @@ const MCP_URL = `http://127.0.0.1:${String(DAEMON_MCP_PORT)}/mcp`;
 
 /** Root ConfigMap name shared with controller-created owner references. */
 export const RUN_OWNER_NAME = "run";
+/** The one container in a Sandbox Pod that runs the rendered application. */
+export const APPLICATION_CONTAINER_NAME = "application";
 
 /** Run root created by the Temporal activity before the controller starts. */
 export interface KubernetesRunOwner {
@@ -440,7 +442,7 @@ function bootstrapContainer(input: SandboxManifestInput) {
 function applicationContainer(input: SandboxManifestInput) {
   const [command, ...args] = input.application.entrypoint;
   return {
-    name: "application",
+    name: APPLICATION_CONTAINER_NAME,
     image: input.application.image,
     command: [command],
     args,
@@ -723,37 +725,32 @@ function controllerEnvironment(
     { name: "MOLTZAP_RUN_OWNER_NAME", value: RUN_OWNER_NAME },
     { name: "MOLTZAP_RUN_OWNER_UID", value: ownerUid },
     { name: "MOLTZAP_SUPPORT_IMAGE", value: input.supportImage },
-    ...(input.applicationImage === undefined
-      ? []
-      : [
-          {
-            name: "MOLTZAP_APPLICATION_IMAGE",
-            value: input.applicationImage,
-          },
-        ]),
-    ...(input.runtimeCredentials === undefined
-      ? []
-      : [
-          {
-            name: "MOLTZAP_RUNTIME_CREDENTIALS",
-            value: JSON.stringify(input.runtimeCredentials),
-          },
-        ]),
+    ...optionalEnvironment("MOLTZAP_APPLICATION_IMAGE", input.applicationImage),
+    ...optionalEnvironment(
+      "MOLTZAP_RUNTIME_CREDENTIALS",
+      input.runtimeCredentials === undefined
+        ? undefined
+        : JSON.stringify(input.runtimeCredentials),
+    ),
     { name: "MOLTZAP_EXPERIMENT_MODULE", value: EXPERIMENT_PATH },
-    ...(input.startupTimeoutMs === undefined
-      ? []
-      : [
-          {
-            name: "MOLTZAP_STARTUP_TIMEOUT_MS",
-            value: String(input.startupTimeoutMs),
-          },
-        ]),
-    ...(input.cohortSize === undefined
-      ? []
-      : [{ name: "MOLTZAP_COHORT_SIZE", value: String(input.cohortSize) }]),
+    ...optionalEnvironment(
+      "MOLTZAP_STARTUP_TIMEOUT_MS",
+      input.startupTimeoutMs?.toString(),
+    ),
+    ...optionalEnvironment(
+      "MOLTZAP_ADMISSION_TIMEOUT_MS",
+      input.admissionTimeoutMs?.toString(),
+    ),
+    ...optionalEnvironment("MOLTZAP_COHORT_SIZE", input.cohortSize?.toString()),
     { name: "MOLTZAP_LEDGER_DIRECTORY", value: LOCAL_LEDGER_DIRECTORY },
     ...profileControllerEnvironment(input, profile),
   ];
+}
+
+// An input the submission did not set is left unset, so the controller's own
+// default applies rather than a second copy of it here.
+function optionalEnvironment(name: string, value?: string) {
+  return value === undefined ? [] : [{ name, value }];
 }
 
 function profileControllerEnvironment(
@@ -822,6 +819,21 @@ function controllerServiceAccount(
   };
 }
 
+/**
+ * The controller's complete authority inside its own run namespace.
+ *
+ * `pods/exec` is the one resource that reaches inside an application
+ * container: harvesting a workspace file runs a shell there after the customer
+ * program ends. The client opens that session over a WebSocket, whose HTTP
+ * upgrade is a GET the API server authorizes as the `get` verb, while the
+ * SPDY form kubectl uses is a POST authorized as `create`; the rule grants
+ * both so the read does not depend on which transport the client picks. The
+ * grant is namespace-scoped, owned by the run root, and deleted with the run,
+ * so it never outlives the society it can read.
+ * @param input Workflow input carrying the run namespace.
+ * @param owner Run root every namespaced control object hangs from.
+ * @returns The Role bound to the controller's service account.
+ */
 // eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- The controller's closed RBAC grant stays in one manifest so reviewers can audit the exact authority set.
 function controllerRole(
   input: RunSocietyWorkflowInput,
@@ -871,6 +883,11 @@ function controllerRole(
         apiGroups: [""],
         resources: ["pods/log"],
         verbs: ["get"],
+      },
+      {
+        apiGroups: [""],
+        resources: ["pods/exec"],
+        verbs: ["create", "get"],
       },
     ],
   };
@@ -1096,6 +1113,10 @@ function delegatedControllerRules(): PolicyRules {
       resources: ["sandboxes"],
       verbs: ["create", "get", "delete"],
     },
+    // Cluster-wide like every delegated grant, because the worker must hold
+    // what it writes into each run's Role; the worker is the one trusted
+    // process that already creates the run's Secrets and Sandboxes.
+    { apiGroups: [""], resources: ["pods/exec"], verbs: ["create", "get"] },
   ];
 }
 

@@ -13,6 +13,7 @@ import {
   Scope,
 } from "effect";
 import { assert, describe, it as test } from "vitest";
+import type { HarvestedFileOutcome } from "../events/core.js";
 import type {
   KubernetesManifest,
   KubernetesSocietyApi,
@@ -33,6 +34,7 @@ import {
   type CredentialName,
   defineContainerRuntime,
   type File,
+  type HarvestTarget,
   image,
 } from "../agents/container.js";
 import { AgentRoster } from "../agents/roster.js";
@@ -65,6 +67,23 @@ const WORKLOAD_DELETED = "delete:workload";
 const SECRET_CREATED = "create:secret:";
 const SANDBOX_CREATED = "create:sandbox:";
 const SANDBOX_DELETED = "delete:sandbox:";
+const FILE_READ = "read:";
+const CALENDAR_TARGET: HarvestTarget = {
+  relativePath: "CALENDAR.md",
+  path: "/var/lib/moltzap/nanoclaw/groups/agent/CALENDAR.md",
+  limitBytes: 65_536,
+};
+const NOTES_TARGET: HarvestTarget = {
+  relativePath: "NOTES.md",
+  path: "/var/lib/moltzap/nanoclaw/groups/agent/NOTES.md",
+  limitBytes: 65_536,
+};
+const CALENDAR_TEXT: HarvestedFileOutcome = {
+  _tag: "text",
+  content: "# Calendar",
+  byteLength: 10,
+};
+const NO_LIVE_POD = "has no live application Pod to read";
 const SECRET_KIND = "Secret";
 const SANDBOX_KIND = "Sandbox";
 const SELECTOR_PREFIX = "sandbox=";
@@ -93,6 +112,10 @@ const SETTLED = Duration.millis(5);
 const GENEROUS_TIMEOUT = Duration.seconds(1);
 /** Long enough for the poll loop to run many times, short enough to expire. */
 const MISSED_TIMEOUT = Duration.millis(50);
+/** How long the fake queue holds a cohort before admitting it. */
+const QUEUED_FOR = Duration.millis(300);
+/** A startup budget the queue wait alone would exhaust. */
+const STARTUP_WHILE_QUEUED = Duration.millis(250);
 const READY_AFTER_PROBES = 4;
 const INJECTED_READ_FAILURES = 3;
 /** A readiness probe the poll budget can never reach. */
@@ -183,6 +206,11 @@ interface FakeKubernetesState {
   terminationSignal?: number;
   /** Replaces the Pod list one Sandbox selector resolves to. */
   podsFor?: (sandboxName: string) => readonly PodObservation[];
+  /** What reading one file from one application Pod answers. */
+  readFile?: (
+    podName: string,
+    path: string,
+  ) => Effect.Effect<HarvestedFileOutcome, ClusterError>;
   readonly events: string[];
   readonly manifests: KubernetesManifest[];
   readonly workloadObserved: Deferred.Deferred<undefined>;
@@ -361,6 +389,7 @@ function bridgeAcceptsOperation(state: FakeKubernetesState) {
 
 interface PlatformOptions {
   readonly startupTimeout?: Duration.Duration;
+  readonly admissionTimeout?: Duration.Duration;
   readonly livenessInterval?: Duration.Duration;
   readonly runtimeCredentials?: KubernetesClusterOptions["runtimeCredentials"];
   readonly resolveAgentId?: SocietyAgentIdResolver;
@@ -401,6 +430,7 @@ function makeRawPlatform(
       supportImage: SUPPORT_IMAGE,
       runtimeCredentials: options.runtimeCredentials,
       startupTimeout: options.startupTimeout ?? GENEROUS_TIMEOUT,
+      admissionTimeout: options.admissionTimeout ?? GENEROUS_TIMEOUT,
       routerFaultProxy: options.routerFaultProxy ?? {
         listener: {
           bindHost: "127.0.0.1",
@@ -467,6 +497,13 @@ function fakeApi(state: FakeKubernetesState): KubernetesSocietyApi {
     readSandbox: (name) => readSandboxOperation(state, name),
     deleteSandbox: (name) => record(state, `${SANDBOX_DELETED}${name}`),
     listPods: (selector) => Effect.sync(() => pods(state, selector)),
+    readApplicationFile: (podName, path) =>
+      record(state, `${FILE_READ}${podName}:${path}`).pipe(
+        Effect.zipRight(
+          state.readFile?.(podName, path) ??
+            Effect.succeed<HarvestedFileOutcome>({ _tag: "absent" }),
+        ),
+      ),
     bridgeAccepts: () => bridgeAcceptsOperation(state),
     serviceAccepts: () => Effect.succeed(true),
   };
@@ -574,6 +611,7 @@ const REFUSED_BOOTSTRAPS: readonly RefusedBootstrap[] = [
 interface FakeRuntimeOptions {
   readonly files?: readonly File[];
   readonly credentials?: readonly CredentialName[];
+  readonly harvest?: readonly HarvestTarget[];
   readonly onAttach?: (endpoint: ApplicationEndpoint) => void;
   /** A stop only the runtime can see, reported the moment it attaches. */
   readonly reportedStop?: RuntimeTermination;
@@ -595,6 +633,7 @@ function fakeRuntime(options: FakeRuntimeOptions = {}) {
         credentials: options.credentials,
         port: GATEWAY_PORT,
         files: options.files ?? DEFAULT_BOOTSTRAP_FILES,
+        ...(options.harvest === undefined ? {} : { harvest: options.harvest }),
         attach: (
           endpoint: ApplicationEndpoint,
           stopped: Effect.Effect<RuntimeTermination>,
@@ -1068,7 +1107,7 @@ describe("aggregate capacity admission", () => {
           });
 
           const exit = yield* acquireCohort(
-            makePlatform(state, { startupTimeout: MISSED_TIMEOUT }),
+            makePlatform(state, { admissionTimeout: MISSED_TIMEOUT }),
             roster,
           );
 
@@ -1076,6 +1115,40 @@ describe("aggregate capacity admission", () => {
           assert.lengthOf(created(state, SANDBOX_CREATED), 0, refused.reason);
           assert.include(state.events, WORKLOAD_DELETED, refused.reason);
         }
+      }),
+    ));
+});
+
+describe("queued admission", () => {
+  // A queued cohort has not started, so the startup budget must not run
+  // while the queue holds it: admission arrives only after that budget would
+  // have expired, and the run still seats.
+  test("waits for admission on its own budget, not the startup budget", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const state = makeState(yield* Deferred.make<undefined>());
+        const roster = AgentRoster.make("acme.kubernetes-queued/v1", {
+          alice: fakeRuntime(),
+        });
+        yield* Effect.sleep(QUEUED_FOR).pipe(
+          Effect.zipRight(
+            Effect.sync(() => {
+              state.admitted = true;
+            }),
+          ),
+          Effect.fork,
+        );
+
+        const exit = yield* acquireCohort(
+          makePlatform(state, {
+            startupTimeout: STARTUP_WHILE_QUEUED,
+            admissionTimeout: GENEROUS_TIMEOUT,
+          }),
+          roster,
+        );
+
+        assert.isTrue(Exit.isSuccess(exit), failureDetail(exit));
+        assert.lengthOf(created(state, SANDBOX_CREATED), 1);
       }),
     ));
 });
@@ -1449,3 +1522,113 @@ describe("observation cadence", () => {
 });
 
 /* eslint-enable max-lines, max-lines-per-function, max-nested-callbacks, sonarjs/max-lines-per-function -- Restore project limits after ordered lifecycle regressions. */
+
+function harvestInOrderTest() {
+  return Effect.gen(function* () {
+    const state = makeState(yield* Deferred.make<undefined>());
+    state.admitted = true;
+    state.readFile = (...[, path]) =>
+      Effect.succeed(
+        path === CALENDAR_TARGET.path ? CALENDAR_TEXT : { _tag: "absent" },
+      );
+    const roster = AgentRoster.make("acme.kubernetes-harvest/v1", {
+      alice: fakeRuntime({ harvest: [CALENDAR_TARGET, NOTES_TARGET] }),
+      bob: fakeRuntime(),
+    });
+
+    const harvested = yield* runWithin(
+      state,
+      Effect.gen(function* () {
+        const session = yield* makePlatform(state).prepare(roster);
+        yield* acquireAll(session, roster);
+        yield* session.cohortReady;
+        return {
+          alice: yield* session.harvestWorkspace("alice"),
+          bob: yield* session.harvestWorkspace("bob"),
+        };
+      }),
+    );
+
+    assert.deepStrictEqual(harvested.alice, [
+      { relativePath: "CALENDAR.md", outcome: CALENDAR_TEXT },
+      { relativePath: "NOTES.md", outcome: { _tag: "absent" } },
+    ]);
+    assert.deepStrictEqual(harvested.bob, []);
+    assert.deepStrictEqual(created(state, FILE_READ), [
+      `${FILE_READ}agent-1-alice-pod:${CALENDAR_TARGET.path}`,
+      `${FILE_READ}agent-1-alice-pod:${NOTES_TARGET.path}`,
+    ]);
+  });
+}
+
+function harvestWithoutPodTest() {
+  return Effect.gen(function* () {
+    const state = makeState(yield* Deferred.make<undefined>());
+    state.admitted = true;
+    const roster = AgentRoster.make("acme.kubernetes-harvest-no-pod/v1", {
+      alice: fakeRuntime({ harvest: [CALENDAR_TARGET, NOTES_TARGET] }),
+    });
+
+    const harvested = yield* runWithin(
+      state,
+      Effect.gen(function* () {
+        const session = yield* makePlatform(state).prepare(roster);
+        yield* acquireAll(session, roster);
+        yield* session.cohortReady;
+        // The application vanished after dispatch; harvest still answers.
+        state.podsFor = () => [];
+        return yield* session.harvestWorkspace("alice");
+      }),
+    );
+
+    assert.lengthOf(harvested, 2);
+    for (const file of harvested) {
+      assert.strictEqual(file.outcome._tag, "unreadable");
+      if (file.outcome._tag === "unreadable") {
+        assert.include(file.outcome.cause, NO_LIVE_POD);
+      }
+    }
+    assert.deepStrictEqual(created(state, FILE_READ), []);
+  });
+}
+
+function harvestPartialFailureTest() {
+  return Effect.gen(function* () {
+    const state = makeState(yield* Deferred.make<undefined>());
+    state.admitted = true;
+    state.readFile = (...[, path]) =>
+      path === CALENDAR_TARGET.path
+        ? Effect.fail(new ClusterError({ detail: INJECTED_API_DETAIL }))
+        : Effect.succeed(CALENDAR_TEXT);
+    const roster = AgentRoster.make("acme.kubernetes-harvest-partial/v1", {
+      alice: fakeRuntime({ harvest: [CALENDAR_TARGET, NOTES_TARGET] }),
+    });
+
+    const harvested = yield* runWithin(
+      state,
+      Effect.gen(function* () {
+        const session = yield* makePlatform(state).prepare(roster);
+        yield* acquireAll(session, roster);
+        yield* session.cohortReady;
+        return yield* session.harvestWorkspace("alice");
+      }),
+    );
+
+    assert.deepStrictEqual(harvested, [
+      {
+        relativePath: "CALENDAR.md",
+        outcome: { _tag: "unreadable", cause: INJECTED_API_DETAIL },
+      },
+      { relativePath: "NOTES.md", outcome: CALENDAR_TEXT },
+    ]);
+  });
+}
+
+describe("workspace harvest", () => {
+  test("reads each declared target from the live application Pod in order", () =>
+    Effect.runPromise(harvestInOrderTest()));
+  test("reports every target unreadable when no live Pod backs the Sandbox", () =>
+    Effect.runPromise(harvestWithoutPodTest()));
+  test("keeps reading after one target's read fails", () =>
+    Effect.runPromise(harvestPartialFailureTest()));
+});

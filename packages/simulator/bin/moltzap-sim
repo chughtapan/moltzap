@@ -1,0 +1,49 @@
+#!/usr/bin/env node
+/** @file The published executable: one submission through a named profile. */
+
+import { NodeRuntime } from "@effect/platform-node";
+import {
+  EXECUTABLE_SIGNALS,
+  executableTeardown,
+  runProfileExecutable,
+} from "../dist/cluster/profiles/cli.js";
+
+// The runtime interrupts the main fiber on these signals; the teardown needs
+// to know which one arrived to name it and to choose the exit status.
+let received;
+const listeners = new Map(
+  EXECUTABLE_SIGNALS.map((signal) => [
+    signal,
+    () => {
+      received = signal;
+    },
+  ]),
+);
+for (const [signal, listener] of listeners) {
+  process.once(signal, listener);
+}
+// Once the main fiber has ended, a later signal should end the process the
+// default way rather than be recorded by a listener nothing reads any more.
+const teardown = executableTeardown(
+  () => received,
+  (line) => {
+    process.stderr.write(line);
+  },
+);
+
+// The executable reports its own failures on stderr and installs its own
+// stderr logger, so the runtime's reporter and pretty logger, which would
+// repeat both on stdout, stay off.
+NodeRuntime.runMain(
+  runProfileExecutable(process.argv.slice(2), process.env),
+  {
+    disableErrorReporting: true,
+    disablePrettyLogger: true,
+    teardown: (exit, onExit) => {
+      for (const [signal, listener] of listeners) {
+        process.removeListener(signal, listener);
+      }
+      teardown(exit, onExit);
+    },
+  },
+);

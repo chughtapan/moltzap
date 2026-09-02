@@ -99,15 +99,32 @@ mise x node@24.18.0 -- pnpm nx run @moltzap/evals:lint
 Live runs require digest-pinned `MOLTZAP_CONTROLLER_IMAGE` and
 `MOLTZAP_NANOCLAW_IMAGE` when NanoClaw is selected, the selected Simulator
 profile's artifact location and Temporal address, model credentials, and a
-clean committed worktree. `eval` and `resume` accept
+clean committed worktree. A container receives the credential its model id's
+provider prefix names (`openai/…` forwards `OPENAI_API_KEY`, `anthropic/…`
+forwards `ANTHROPIC_API_KEY`); an id without a known prefix forwards none to
+OpenClaw and `ANTHROPIC_API_KEY` to NanoClaw, which hosts Claude. `eval` and
+`resume` accept
 `--runtime all|openclaw|nanoclaw` and default to `all`. Every selected runtime
 requires its matching model option. `--messaging-mode` defaults to `shared`;
 `private` is currently valid only with `--runtime openclaw`. The
 NanoClaw application image uses one native `agent-shared` session. Repeat
 `--case EVAL-NNN` to run an exact case subset; omitting `--case` runs the full
-catalog. Run `eval`, `resume`, `calibrate`, or `publish` through the package's
-Nx targets.
+catalog. `--concurrency` (1 to 8, default 4) is how many cells are submitted
+at once; it is an execution choice, not part of the plan, so a report may be
+resumed at a different width. Each cell is submitted through the simulator's
+`moltzap-sim` executable with a one-hour admission budget, so cells queued
+behind each other on the cluster wait rather than fail. Run `eval`, `resume`,
+`calibrate`, or `publish` through the package's Nx targets.
 
 SQLite is the mutable report authority. Resume executes only cells missing from
-an exactly matching plan. Completed Simulator artifacts remain the evidence
-authority and are validated before grading.
+an exactly matching plan; finished cells commit in plan order, so an
+interrupted sweep loses at most `--concurrency` finished cells that had not yet
+committed. One process holds a report at a time: every command that opens the
+bundle (`eval`, `resume`, `publish`) takes the lease, so a second `resume`, or
+a `publish` while a sweep is live, fails fast with `ReportLocked` while the
+holder is alive. The lease names the holder's process id on this host; a lease
+whose process has died is taken over, while one whose id an unrelated process
+now carries stays locked until its row is deleted from
+`evaluation_report_lease`. Completed
+Simulator artifacts remain the evidence authority and are validated before
+grading.

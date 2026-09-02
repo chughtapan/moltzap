@@ -21,7 +21,7 @@ import { SYSTEM_NAMESPACE } from "./kubernetes/objects.js";
 
 const RUN_NAMESPACE_PREFIX = "mz-";
 const EXPERIMENT = resolve("local/end-to-end.mjs");
-const SUBMITTER = resolve("dist/cluster/profiles/local.js");
+const SUBMITTER = resolve("bin/moltzap-sim");
 const POLL_INTERVAL_MS = 2_000;
 const SUBMISSION_ATTEMPTS = 150;
 const RECLAMATION_ATTEMPTS = 150;
@@ -93,10 +93,14 @@ it("reclaims a run whose submitter is killed mid-flight", async () => {
   const controllerImage = requiredEnvironment("MOLTZAP_CONTROLLER_IMAGE");
   const before = new Set(await runNamespaces(reader));
 
-  const submitter = spawn(process.execPath, [SUBMITTER, EXPERIMENT], {
-    stdio: "ignore",
-    env: { ...process.env, MOLTZAP_CONTROLLER_IMAGE: controllerImage },
-  });
+  const submitter = spawn(
+    process.execPath,
+    [SUBMITTER, "run", "--profile", "local", EXPERIMENT],
+    {
+      stdio: "ignore",
+      env: { ...process.env, MOLTZAP_CONTROLLER_IMAGE: controllerImage },
+    },
+  );
 
   let submitted = "";
   try {

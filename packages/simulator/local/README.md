@@ -121,6 +121,15 @@ packages/simulator/gke/cluster.sh run \
 Leaving the budget at its default is the failure a large cold cohort hits first,
 and it reports as `agent sandbox "…" was not ready within 2m`.
 
+A cohort that waits in the queue behind other runs spends
+`MOLTZAP_ADMISSION_TIMEOUT_MS` instead, one hour by default; the startup budget
+starts only once Kueue admits it. Several submissions at once are ordinary as
+long as they name the same controller image, since each installs the run
+worker with the image it names and a different one would roll the worker over
+the runs it is serving. The `local-run` target and `moltzap-sim run --profile
+local` are the same submission; the executable is what a consumer of the
+published package runs.
+
 The checked-in module and profile tests do not by themselves prove that a run
 completed on a live cluster.
 
@@ -149,8 +158,9 @@ pnpm nx run workspace:simulator-local-fault-qualification -- \
   --image PINNED_IMAGE_FROM_BUILD_OUTPUT
 ```
 
-The qualification wrapper invokes the built local profile, parses its
-`RunSubmission`, then opens the retained manifest, records, and completion
+The qualification wrapper submits through `bin/moltzap-sim run --profile
+local`, parses its `ProfileRunResult` line, then opens the retained manifest,
+records, and completion
 through the public Simulator ledger API. It passes only when the completed
 ledger has exactly one `ProgramSucceeded`, no `ProgramFailed` or
 `ProgramInterrupted`, and one matching `hold` policy set/clear pair in scoped

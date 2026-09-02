@@ -27,6 +27,7 @@ import {
   type File,
   image,
   type Image,
+  providerCredential,
   routableBridgeEndpoint,
   stoppedBeforeAttach,
 } from "../container.js";
@@ -35,15 +36,19 @@ import {
   type CheckedWorkspaceFile,
   configurationDigest,
   digestText,
+  harvestTargets,
+  historyExport,
   mcpConfiguration,
   type McpServer,
   McpServerConfiguration,
+  snapshotHarvestPaths,
   snapshotMcpServers,
   snapshotWorkspaceFiles,
   workspaceConfiguration,
   type WorkspaceFile,
   WorkspaceFileConfiguration,
   workspaceFilePath,
+  type WorkspaceRelativePath,
 } from "../workspace.js";
 import {
   buildOpenClawConfig,
@@ -99,6 +104,8 @@ export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeCo
 )({
   startupTimeout: Schema.DurationFromMillis,
   workspaceFiles: Schema.Array(WorkspaceFileConfiguration),
+  harvestWorkspaceFiles: Schema.Array(Schema.String),
+  historyExport: Schema.Boolean,
   modelOverride: Schema.optional(Schema.String),
   mcpServers: Schema.Array(McpServerConfiguration),
   messagingMode,
@@ -113,6 +120,23 @@ export interface OpenClawRuntimeOptions {
   readonly applicationImage: Image;
   readonly startupTimeout?: Duration.Duration;
   readonly workspaceFiles?: readonly WorkspaceFile[];
+  /**
+   * Workspace-relative files read back from each running agent after the
+   * customer program ends and recorded in the ledger, so an experiment can
+   * grade what its agents wrote without their exiting.
+   */
+  readonly harvestWorkspaceFiles?: readonly string[];
+  /**
+   * Have the agent's `moltzapd` append every delivery and send it completes
+   * to a history export, harvested into the ledger as
+   * `moltzap-history.ndjson` when the customer program ends.
+   */
+  readonly historyExport?: boolean;
+  /**
+   * Model the runtime asks for. Its provider prefix (`anthropic/`, `openai/`)
+   * names the credential forwarded from the run's Secret; an unknown prefix
+   * forwards none.
+   */
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
 
@@ -178,6 +202,8 @@ interface OpenClawRuntimeSettings {
   readonly startupTimeout: Duration.Duration;
   readonly workspaceFiles: readonly CheckedWorkspaceFile[];
   readonly invisibleWorkspaceFiles: readonly string[];
+  readonly harvestPaths: readonly WorkspaceRelativePath[];
+  readonly historyExport: boolean;
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
   readonly messagingMode: typeof messagingMode.Type;
@@ -200,6 +226,8 @@ function snapshotOptions(
     startupTimeout: options.startupTimeout ?? DEFAULT_OPENCLAW_STARTUP_TIMEOUT,
     workspaceFiles,
     invisibleWorkspaceFiles: invisibleFiles,
+    harvestPaths: snapshotHarvestPaths(options.harvestWorkspaceFiles),
+    historyExport: options.historyExport ?? false,
     modelId: options.modelId,
     mcpServers: snapshotMcpServers(options.mcpServers),
     messagingMode: options.messagingMode ?? "shared",
@@ -250,6 +278,8 @@ function runtimeConfiguration(
     applicationImage: settings.applicationImage,
     startupTimeout: settings.startupTimeout,
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
+    harvestWorkspaceFiles: settings.harvestPaths,
+    historyExport: settings.historyExport,
     mcpServers: mcpConfiguration(settings.mcpServers),
     messagingMode: settings.messagingMode,
     ...(tools === undefined ? {} : { tools }),
@@ -299,6 +329,15 @@ function makeOpenClawApplication(
     acquireGateway,
     invisibleWorkspaceFiles: settings.invisibleWorkspaceFiles,
   };
+  const transcript = historyExport(settings.historyExport);
+  const harvest = [
+    ...harvestTargets(OPENCLAW_WORKSPACE_DIR, settings.harvestPaths),
+    ...transcript.harvest,
+  ];
+  const credential =
+    settings.modelId === undefined
+      ? undefined
+      : providerCredential(settings.modelId);
   return Object.freeze({
     entrypoint: Object.freeze(["node", AGENT_IMAGE_ENTRYPOINT] as const),
     environment: Object.freeze({
@@ -306,12 +345,14 @@ function makeOpenClawApplication(
       OPENCLAW_STATE_DIR: APPLICATION_STATE_DIR,
       OPENCLAW_CONFIG_PATH: APPLICATION_CONFIG_PATH,
       OPENCLAW_DISABLE_BONJOUR: "1",
+      ...transcript.environment,
     }),
-    ...(settings.modelId === undefined
+    ...(credential === undefined
       ? {}
-      : { credentials: Object.freeze(["OPENAI_API_KEY"] as const) }),
+      : { credentials: Object.freeze([credential]) }),
     port: OPENCLAW_GATEWAY_PORT,
     files: bootstrapFiles(settings, input, gatewayToken, pairing),
+    ...(harvest.length === 0 ? {} : { harvest }),
     attach: (
       endpoint: ApplicationEndpoint,
       stopped: Effect.Effect<RuntimeTermination>,

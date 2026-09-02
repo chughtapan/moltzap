@@ -10,6 +10,7 @@ import {
   BatchV1Api,
   CoreV1Api,
   CustomObjectsApi,
+  Exec,
   KubeConfig,
   PatchStrategy,
   RbacAuthorizationV1Api,
@@ -22,9 +23,11 @@ import {
 } from "@kubernetes/client-node";
 import { Cause, Duration, Effect, Schema } from "effect";
 import { connect } from "node:net";
+import type { HarvestedFileOutcome } from "../../events/core.js";
 import type { KubernetesExecutionProfile } from "../profile.js";
 import type { RunSocietyWorkflowInput } from "../reclaim.js";
 import { ClusterError, clusterError } from "../cluster.js";
+import { applicationFileOutcome, execHarvestProbe } from "./harvest.js";
 import {
   CONTROLLER_NAME,
   type KubernetesManifest,
@@ -103,20 +106,49 @@ const RECREATE_STRATEGY_PATCH = Object.freeze({
   },
 });
 
-/** Failure of one Kubernetes call, carrying the status but never the body. */
+/**
+ * Failure of one Kubernetes call, carrying the status but never the body.
+ *
+ * An API response is reduced to its status here and the response object is
+ * not kept, so nothing downstream, such as Temporal's persisted failure
+ * chain or a submitter's stderr, can render a body. What a transport said
+ * for itself, such as a WebSocket upgrade being refused, is kept as one
+ * sanitized line for callers that report the failure as data.
+ */
 export class KubernetesCallFailed extends Error {
   override readonly name = "KubernetesCallFailed";
 
   /** Whether the cluster answered that the object is not there. */
   readonly absent: boolean;
 
+  /** The transport's own message when the failure was neither an API status nor a timeout. */
+  readonly transport?: string;
+
   constructor(operation: string, cause?: unknown) {
     const status = cause instanceof ApiException ? cause.code : 0;
-    super(
-      callDetail(operation, status, cause instanceof Cause.TimeoutException),
-    );
+    const unanswered = cause instanceof Cause.TimeoutException;
+    super(callDetail(operation, status, unanswered));
     this.absent = status === ABSENT;
+    if (cause instanceof Error && status === 0 && !unanswered) {
+      this.transport = cause.message;
+    }
   }
+}
+
+/**
+ * The detail a harvest outcome carries for a call that failed.
+ *
+ * The operator message already names an API status or an unanswered call;
+ * the transport's own line, which is where a refused exec session ends up,
+ * is appended when there is one.
+ *
+ * @param failure The failed call.
+ * @returns One line naming the operation and what refused it.
+ */
+export function readFailureDetail(failure: KubernetesCallFailed): string {
+  return failure.transport === undefined
+    ? failure.message
+    : `${failure.message}: ${failure.transport}`;
 }
 
 /**
@@ -139,15 +171,13 @@ export function kubernetesCall<Result>(
   evaluate: () => PromiseLike<Result>,
   bound: Duration.Duration = KUBERNETES_CALL_TIMEOUT,
 ): Effect.Effect<Result, KubernetesCallFailed> {
-  return Effect.tryPromise({
-    try: evaluate,
-    catch: (cause) => new KubernetesCallFailed(operation, cause),
-  }).pipe(
-    Effect.timeoutFail({
-      duration: bound,
-      onTimeout: () =>
-        new KubernetesCallFailed(operation, new Cause.TimeoutException()),
+  return boundCall(
+    operation,
+    Effect.tryPromise({
+      try: evaluate,
+      catch: (cause) => new KubernetesCallFailed(operation, cause),
     }),
+    bound,
   );
 }
 
@@ -169,6 +199,7 @@ export function makeInClusterKubernetesSocietyApi(
     ...coreOperations(namespace, core),
     ...deploymentOperations(namespace, apps),
     ...sandboxOperations(namespace, custom),
+    ...harvestOperations(namespace, new Exec(config)),
     bridgeAccepts,
     serviceAccepts: bridgeAccepts,
   });
@@ -423,6 +454,16 @@ export interface KubernetesSocietyApi {
   readonly listPods: (
     selector: string,
   ) => Effect.Effect<readonly PodObservation[], ClusterError>;
+  /**
+   * Read one file from a running application container, bounded in size.
+   * The outcome names a missing, oversize, or unreadable file; the failure
+   * channel is only for an exec the cluster refused or never answered.
+   */
+  readonly readApplicationFile: (
+    podName: string,
+    path: string,
+    limitBytes: number,
+  ) => Effect.Effect<HarvestedFileOutcome, ClusterError>;
   /**
    * Whether an application's controller bridge port accepts a connection.
    * Refusal is an ordinary not-yet-ready observation, never a cluster failure,
@@ -730,6 +771,50 @@ function sandboxOperations(
         }),
       ),
   };
+}
+
+function readFailure(failure: KubernetesCallFailed): ClusterError {
+  return new ClusterError({ detail: readFailureDetail(failure) });
+}
+
+function harvestOperations(
+  namespace: string,
+  exec: Exec,
+): Pick<KubernetesSocietyApi, "readApplicationFile"> {
+  const operation = "read application file";
+  return {
+    readApplicationFile: (podName, path, limitBytes) =>
+      boundCall(
+        operation,
+        execHarvestProbe(exec, { namespace, podName, path, limitBytes }).pipe(
+          Effect.catchTag("ExecSessionFailed", (failure) =>
+            Effect.fail(new KubernetesCallFailed(operation, failure.cause)),
+          ),
+        ),
+      ).pipe(
+        Effect.mapError(readFailure),
+        Effect.map((observation) =>
+          applicationFileOutcome(observation, limitBytes),
+        ),
+      ),
+  };
+}
+
+// Every call the cluster makes ends here, whether it began as a Promise or as
+// an Effect that already owns a session, so the bound and the shape of its
+// expiry are spelled once.
+function boundCall<Result>(
+  operation: string,
+  call: Effect.Effect<Result, KubernetesCallFailed>,
+  bound: Duration.Duration = KUBERNETES_CALL_TIMEOUT,
+): Effect.Effect<Result, KubernetesCallFailed> {
+  return call.pipe(
+    Effect.timeoutFail({
+      duration: bound,
+      onTimeout: () =>
+        new KubernetesCallFailed(operation, new Cause.TimeoutException()),
+    }),
+  );
 }
 
 interface ConditionedObservation {

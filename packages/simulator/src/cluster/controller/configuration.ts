@@ -8,11 +8,15 @@ import type { KubernetesPodPlacement } from "../profile.js";
 // safer-arch-ignore no-cross-domain-sibling-import: Decodes one environment into the ledger and cluster values the controller needs.
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 120_000;
+// A queued cohort waits behind whole other runs, which take as long as their
+// experiments do; an hour covers a handful of them without letting a cohort no
+// queue will ever seat hold the controller for a day.
+const DEFAULT_ADMISSION_TIMEOUT_MS = 60 * 60 * 1_000;
 const DEFAULT_COHORT_SIZE = 2;
 // A thousand agents is the first size the decision defers to its acceptance
 // gates, so the bound excludes it rather than admitting it.
 const MAX_COHORT_SIZE = 1_000;
-const MAX_STARTUP_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
+const MAX_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 const DNS_LABEL = /^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$/u;
 const OWNER_UID = /^[A-Za-z0-9](?:[-A-Za-z0-9._]*[A-Za-z0-9])?$/u;
 const DIGEST_PINNED_IMAGE = /^.+@sha256:[0-9a-f]{64}$/u;
@@ -64,6 +68,8 @@ export interface ControllerConfiguration {
   readonly ledgerDirectory: string;
   readonly ledgerExportDirectory?: string;
   readonly startupTimeoutMs: number;
+  /** How long the queue may hold the cohort's reservation before the run gives up. */
+  readonly admissionTimeoutMs: number;
   /** Agents an experiment sized by its run builds its roster from. */
   readonly cohortSize: number;
 }
@@ -102,8 +108,29 @@ export function controllerConfigurationFromEnvironment(
       environment,
       "MOLTZAP_LEDGER_EXPORT_DIRECTORY",
     ),
-    startupTimeoutMs: startupTimeoutMs(environment),
-    cohortSize: cohortSize(environment),
+    startupTimeoutMs: boundedInteger(
+      environment,
+      "MOLTZAP_STARTUP_TIMEOUT_MS",
+      {
+        fallback: DEFAULT_STARTUP_TIMEOUT_MS,
+        largest: MAX_TIMEOUT_MS,
+        stated: "no greater than 24 hours",
+      },
+    ),
+    admissionTimeoutMs: boundedInteger(
+      environment,
+      "MOLTZAP_ADMISSION_TIMEOUT_MS",
+      {
+        fallback: DEFAULT_ADMISSION_TIMEOUT_MS,
+        largest: MAX_TIMEOUT_MS,
+        stated: "no greater than 24 hours",
+      },
+    ),
+    cohortSize: boundedInteger(environment, "MOLTZAP_COHORT_SIZE", {
+      fallback: DEFAULT_COHORT_SIZE,
+      largest: MAX_COHORT_SIZE - 1,
+      stated: `below ${String(MAX_COHORT_SIZE)}`,
+    }),
   });
 }
 
@@ -172,34 +199,28 @@ function experimentModulePath(environment: ControllerEnvironment): string {
   return value;
 }
 
-function startupTimeoutMs(environment: ControllerEnvironment): number {
-  const encoded = environment.MOLTZAP_STARTUP_TIMEOUT_MS;
-  if (encoded === undefined) {
-    return DEFAULT_STARTUP_TIMEOUT_MS;
-  }
-  const value = Number(encoded);
-  if (
-    !Number.isSafeInteger(value) ||
-    value <= 0 ||
-    value > MAX_STARTUP_TIMEOUT_MS
-  ) {
-    throw invalid(
-      "MOLTZAP_STARTUP_TIMEOUT_MS must be a positive integer no greater than 24 hours",
-    );
-  }
-  return value;
+interface IntegerBound {
+  readonly fallback: number;
+  readonly largest: number;
+  /** How the bound reads in the rejection, after "must be a positive integer". */
+  readonly stated: string;
 }
 
-function cohortSize(environment: ControllerEnvironment): number {
-  const encoded = environment.MOLTZAP_COHORT_SIZE;
+function boundedInteger(
+  environment: ControllerEnvironment,
+  key:
+    | "MOLTZAP_STARTUP_TIMEOUT_MS"
+    | "MOLTZAP_ADMISSION_TIMEOUT_MS"
+    | "MOLTZAP_COHORT_SIZE",
+  bound: IntegerBound,
+): number {
+  const encoded = environment[key];
   if (encoded === undefined) {
-    return DEFAULT_COHORT_SIZE;
+    return bound.fallback;
   }
   const value = Number(encoded);
-  if (!Number.isSafeInteger(value) || value <= 0 || value >= MAX_COHORT_SIZE) {
-    throw invalid(
-      `MOLTZAP_COHORT_SIZE must be a positive integer below ${String(MAX_COHORT_SIZE)}`,
-    );
+  if (!Number.isSafeInteger(value) || value <= 0 || value > bound.largest) {
+    throw invalid(`${key} must be a positive integer ${bound.stated}`);
   }
   return value;
 }
