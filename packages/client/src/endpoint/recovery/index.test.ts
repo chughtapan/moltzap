@@ -35,13 +35,14 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type {
-  EndpointEngineInput,
-  EngineRegistryPort,
-  EngineRouterPort,
-} from "../engine-types.js";
 import type { RouterWorkerIngress } from "../router-worker/index.js";
 import { SendInput } from "../../contract.js";
+import {
+  type EndpointEngineInput,
+  type EngineRegistryPort,
+  type EngineRouterPort,
+  noHistoryExport,
+} from "../engine-types.js";
 import { type EndpointEngine, makeEndpointEngine } from "../engine.js";
 import {
   type ActionCertifiedRecord as ActionCertifiedRecordValue,
@@ -471,6 +472,7 @@ const makeFixtureWithRouter = (
       store,
       actionPolicy: () => Effect.succeed("sign"),
       routerWorker: makeRouter({ store, normalOutbound }),
+      historyExport: noHistoryExport,
     } satisfies EndpointEngineInput;
     const engine = yield* makeEndpointEngine(input).pipe(Effect.orDie);
     return {
@@ -589,6 +591,7 @@ const addN4Foundation = (fixture: RecoveryFixture) =>
       },
     };
     const engine = yield* makeEndpointEngine({
+      historyExport: noHistoryExport,
       localAgentCard: fixture.local.card,
       signingAuthority: fixture.local.authority,
       registrySignerPublicKey: fixture.registrySignerPublicKey,

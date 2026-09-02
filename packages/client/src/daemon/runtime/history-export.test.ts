@@ -96,9 +96,13 @@ const appendsDecodableLines = async () => {
           prefix: "moltzap-history-export-",
         });
         const path = join(directory, "history.ndjson");
-        const sink = yield* makeHistoryExport(path);
-        yield* sink.record(inbound());
-        yield* sink.record(outbound());
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const sink = yield* makeHistoryExport(path);
+            yield* sink.record(inbound());
+            yield* sink.record(outbound());
+          }),
+        );
         return yield* fileSystem.readFileString(path);
       }),
     ).pipe(Effect.provide(NodeFileSystem.layer)),
@@ -111,12 +115,16 @@ const appendsDecodableLines = async () => {
 const stopsAfterOneFailureLine = async () => {
   const writes: string[] = [];
   await Effect.runPromise(
-    Effect.gen(function* () {
-      const sink = yield* makeHistoryExport("/var/run/moltzap/history.ndjson");
-      yield* sink.record(inbound());
-      yield* sink.record(outbound());
-      yield* sink.record(outbound());
-    }).pipe(Effect.provide(failingOnce(writes))),
+    Effect.scoped(
+      Effect.gen(function* () {
+        const sink = yield* makeHistoryExport(
+          "/var/run/moltzap/history.ndjson",
+        );
+        yield* sink.record(inbound());
+        yield* sink.record(outbound());
+        yield* sink.record(outbound());
+      }),
+    ).pipe(Effect.provide(failingOnce(writes))),
   );
 
   const lines = decodeFile(writes.join(""));

@@ -44,9 +44,9 @@ export const MAX_HARVESTED_FILE_BYTES = 64 * 1_024;
  */
 const MAX_HARVESTED_EXPORT_BYTES = 1_024 * 1_024;
 /** Where `moltzapd` appends its history export inside the application container. */
-export const HISTORY_EXPORT_PATH = "/var/run/moltzap/history.ndjson";
+const HISTORY_EXPORT_PATH = "/var/run/moltzap/history.ndjson";
 /** The daemon input that turns its history export on. */
-export const HISTORY_EXPORT_VARIABLE = "MOLTZAPD_HISTORY_EXPORT";
+const HISTORY_EXPORT_VARIABLE = "MOLTZAPD_HISTORY_EXPORT";
 /** How the ledger names the harvested export, beside experiment-declared files. */
 const HISTORY_EXPORT_LABEL = "moltzap-history.ndjson";
 
@@ -194,15 +194,33 @@ export function harvestTargets(
 }
 
 /**
- * The runtime-owned harvest target for the daemon's history export.
- * @returns The target the cluster reads after the customer program ends.
+ * What an application carries when its daemon's transcript is exported: the
+ * harvest target the ledger reads it back through, and the daemon input that
+ * turns the export on. Both are empty when it is not.
  */
-export function historyExportTarget(): HarvestTarget {
-  return Object.freeze({
-    relativePath: HISTORY_EXPORT_LABEL,
-    path: HISTORY_EXPORT_PATH,
-    limitBytes: MAX_HARVESTED_EXPORT_BYTES,
-  });
+export interface HistoryExportRendering {
+  readonly harvest: readonly HarvestTarget[];
+  readonly environment: Readonly<Record<string, string>>;
+}
+
+const HISTORY_EXPORT_TARGET: HarvestTarget = Object.freeze({
+  relativePath: HISTORY_EXPORT_LABEL,
+  path: HISTORY_EXPORT_PATH,
+  limitBytes: MAX_HARVESTED_EXPORT_BYTES,
+});
+
+/**
+ * Render one runtime's transcript setting for the application it builds.
+ * @param enabled Whether the experiment asked for the daemon's history export.
+ * @returns The harvest target and daemon environment, or nothing at all.
+ */
+export function historyExport(enabled: boolean): HistoryExportRendering {
+  return enabled
+    ? {
+        harvest: [HISTORY_EXPORT_TARGET],
+        environment: { [HISTORY_EXPORT_VARIABLE]: HISTORY_EXPORT_PATH },
+      }
+    : { harvest: [], environment: {} };
 }
 
 /**

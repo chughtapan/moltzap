@@ -135,7 +135,14 @@ interface KubernetesSession {
 /** What the run remembers about one attached application, to read it later. */
 interface AcquiredApplication {
   readonly sandboxName: string;
+  /** Pod selector the Sandbox reported when it became ready; stable for the run. */
+  readonly selector: string;
   readonly harvest: readonly HarvestTarget[];
+}
+
+interface AttachedApplication<Gateway> {
+  readonly running: RunningAgent<Gateway>;
+  readonly selector: string;
 }
 
 interface KubernetesSessionState<
@@ -316,6 +323,20 @@ function workloadAdmission(
   );
 }
 
+function livePodName(
+  sandboxName: string,
+  pods: readonly PodObservation[],
+): Effect.Effect<string, ClusterError> {
+  const podName = liveApplicationPod(pods)?.metadata.name;
+  return podName === undefined
+    ? Effect.fail(
+        clusterError(
+          `agent sandbox "${sandboxName}" has no live application Pod to read`,
+        ),
+      )
+    : Effect.succeed(podName);
+}
+
 function liveApplicationPod(
   pods: readonly PodObservation[],
 ): PodObservation | undefined {
@@ -386,7 +407,7 @@ function observeReadySandbox(
   api: KubernetesSocietyApi,
   sandboxName: string,
   port: number,
-): Effect.Effect<string | undefined, ClusterError> {
+): Effect.Effect<SandboxAddress | undefined, ClusterError> {
   return Effect.gen(function* () {
     const sandbox = yield* api.readSandbox(sandboxName);
     if (currentConditionIsTrue(sandbox, "Finished")) {
@@ -400,7 +421,7 @@ function observeReadySandbox(
       return undefined;
     }
     const pods = yield* api.listPods(address.selector);
-    return liveApplicationPod(pods) === undefined ? undefined : address.fqdn;
+    return liveApplicationPod(pods) === undefined ? undefined : address;
   });
 }
 
@@ -408,18 +429,19 @@ function waitForReadySandbox(
   sandboxName: string,
   port: number,
   session: KubernetesSession,
-): Effect.Effect<string, ClusterError> {
+): Effect.Effect<SandboxAddress, ClusterError> {
   const { api, startupTimeout } = session.options;
-  const observe: Effect.Effect<string, ClusterError> = Effect.suspend(() =>
-    observeReadySandbox(api, sandboxName, port).pipe(
-      Effect.flatMap((fqdn) =>
-        fqdn === undefined
-          ? Effect.sleep(session.readinessInterval).pipe(
-              Effect.zipRight(observe),
-            )
-          : Effect.succeed(fqdn),
+  const observe: Effect.Effect<SandboxAddress, ClusterError> = Effect.suspend(
+    () =>
+      observeReadySandbox(api, sandboxName, port).pipe(
+        Effect.flatMap((address) =>
+          address === undefined
+            ? Effect.sleep(session.readinessInterval).pipe(
+                Effect.zipRight(observe),
+              )
+            : Effect.succeed(address),
+        ),
       ),
-    ),
   );
   return observe.pipe(
     Effect.timeoutFail({
@@ -816,10 +838,11 @@ function makeKubernetesSession<
 /**
  * Read every target one attached application declared, from its live Pod.
  *
- * The Pod is resolved once per agent and the targets are read one at a time
- * through it, so an agent contributes one exec session per file rather than a
- * burst. A Pod that cannot be found makes every target unreadable with the
- * same cause; a single read that fails makes only that target unreadable.
+ * The live Pod is found once per agent, through the selector recorded when
+ * its Sandbox became ready, and the targets are read one at a time through
+ * it, so an agent contributes one exec session per file rather than a burst.
+ * A Pod that cannot be found makes every target unreadable with the same
+ * cause; a single read that fails makes only that target unreadable.
  * @param name Roster key of the agent to read.
  * @param state Run-scoped acquisition bookkeeping.
  * @returns One outcome per declared target, in declaration order.
@@ -836,7 +859,8 @@ function harvestWorkspace(
   }
   const { api } = state.options;
   const { harvest } = acquired;
-  return liveApplicationPodName(api, acquired.sandboxName).pipe(
+  return api.listPods(acquired.selector).pipe(
+    Effect.flatMap((pods) => livePodName(acquired.sandboxName, pods)),
     Effect.flatMap((podName) =>
       Effect.forEach(harvest, (target) => harvestTarget(api, podName, target), {
         concurrency: 1,
@@ -851,33 +875,6 @@ function harvestWorkspace(
       ),
     ),
     Effect.withSpan("harvestWorkspace", { attributes: { "agent.name": name } }),
-  );
-}
-function liveApplicationPodName(
-  api: KubernetesSocietyApi,
-  sandboxName: string,
-): Effect.Effect<string, ClusterError> {
-  return api.readSandbox(sandboxName).pipe(
-    Effect.flatMap((sandbox) => {
-      const selector = sandbox.status?.selector;
-      return selector === undefined
-        ? Effect.fail(
-            clusterError(
-              `agent sandbox "${sandboxName}" has no application selector`,
-            ),
-          )
-        : api.listPods(selector);
-    }),
-    Effect.flatMap((pods) => {
-      const podName = liveApplicationPod(pods)?.metadata.name;
-      return podName === undefined
-        ? Effect.fail(
-            clusterError(
-              `agent sandbox "${sandboxName}" has no live application Pod to read`,
-            ),
-          )
-        : Effect.succeed(podName);
-    }),
   );
 }
 
@@ -1002,12 +999,12 @@ function attachReadyApplication<Gateway, AcquisitionError>(
   sandboxName: string,
   session: KubernetesSession,
 ): Effect.Effect<
-  RunningAgent<Gateway>,
+  AttachedApplication<Gateway>,
   AcquisitionError | ClusterError,
   Scope.Scope
 > {
   return Effect.gen(function* () {
-    const fqdn = yield* waitForReadySandbox(
+    const address = yield* waitForReadySandbox(
       sandboxName,
       application.port,
       session,
@@ -1018,15 +1015,18 @@ function attachReadyApplication<Gateway, AcquisitionError>(
     // Sandbox would ever show. Whichever stop arrives first is the evidence.
     const reported = yield* Deferred.make<RuntimeTermination>();
     const gateway = yield* application.attach(
-      { host: fqdn, port: application.port },
+      { host: address.fqdn, port: application.port },
       stopped,
       (termination) =>
         Deferred.succeed(reported, termination).pipe(Effect.asVoid),
     );
-    return Object.freeze({
-      gateway,
-      termination: Effect.raceFirst(stopped, Deferred.await(reported)),
-    });
+    return {
+      running: Object.freeze({
+        gateway,
+        termination: Effect.raceFirst(stopped, Deferred.await(reported)),
+      }),
+      selector: address.selector,
+    };
   });
 }
 
@@ -1056,7 +1056,7 @@ function acquireKubernetesAgent<
       state.options,
       state.network.authority,
     );
-    const running = yield* attachReadyApplication(
+    const attached = yield* attachReadyApplication(
       application,
       resourceName,
       state,
@@ -1064,10 +1064,11 @@ function acquireKubernetesAgent<
     const agentId = yield* state.network.resolveAgentId(input.agentName);
     state.acquired.set(input.name, {
       sandboxName: resourceName,
+      selector: attached.selector,
       harvest: application.harvest ?? [],
     });
     return Object.freeze({
-      ...running,
+      ...attached.running,
       agent: makeAgentHandle(input.name, agentId),
     });
   });

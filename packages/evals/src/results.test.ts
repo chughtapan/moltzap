@@ -260,15 +260,10 @@ function awaitFile(
   filePath: string,
   timeoutDetail: string,
 ) {
-  return fileSystem.exists(filePath).pipe(
-    Effect.repeat({
-      schedule: Schedule.spaced(Duration.millis(10)),
-      until: (exists) => exists,
-    }),
-    Effect.timeoutFail({
-      duration: Duration.seconds(30),
-      onTimeout: () => new Error(timeoutDetail),
-    }),
+  return awaitUntil(
+    fileSystem.exists(filePath),
+    (exists) => exists,
+    timeoutDetail,
   );
 }
 
@@ -440,27 +435,31 @@ function uncommittedCallbackTest(
 const PROCESS_DEATH_TIMEOUT_MS = 45_000;
 
 function awaitAttempts(count: number) {
-  return loadEvaluationReport().pipe(
-    Effect.repeat({
-      schedule: Schedule.spaced(Duration.millis(10)),
-      until: (report) => report.attempts.length >= count,
-    }),
-    Effect.timeoutFail({
-      duration: Duration.seconds(30),
-      onTimeout: () => new Error(`no ${String(count)} committed attempts`),
-    }),
+  return awaitUntil(
+    loadEvaluationReport(),
+    (report) => report.attempts.length >= count,
+    `no ${String(count)} committed attempts`,
   );
 }
 
 function awaitStarted(started: Ref.Ref<readonly string[]>, count: number) {
-  return Ref.get(started).pipe(
-    Effect.repeat({
-      schedule: Schedule.spaced(Duration.millis(10)),
-      until: (ids) => ids.length >= count,
-    }),
+  return awaitUntil(
+    Ref.get(started),
+    (ids) => ids.length >= count,
+    `fewer than ${String(count)} cells started`,
+  );
+}
+
+function awaitUntil<A, E, R>(
+  observe: Effect.Effect<A, E, R>,
+  until: (value: A) => boolean,
+  timeoutDetail: string,
+) {
+  return observe.pipe(
+    Effect.repeat({ schedule: Schedule.spaced(Duration.millis(10)), until }),
     Effect.timeoutFail({
       duration: Duration.seconds(30),
-      onTimeout: () => new Error(`fewer than ${String(count)} cells started`),
+      onTimeout: () => new Error(timeoutDetail),
     }),
   );
 }
@@ -508,9 +507,10 @@ function windowOrderTest() {
   }).pipe(Effect.provide(NodeContext.layer));
 }
 
-// A window of two: the first cell finishes and commits, the second stalls,
-// and the sweep is interrupted. The committed prefix survives and resume
-// reruns only what never committed.
+// A sweep two wide: the first cell commits, the second stalls, and the third
+// starts in the freed slot and finishes behind it, waiting to commit. The
+// sweep is interrupted. The committed prefix survives, and resume reruns only
+// what never committed: the stalled cell and the finished one behind it.
 function interruptedWindowTest() {
   return Effect.gen(function* () {
     const fixture = yield* resultFixture("moltzap-evals-interrupted-");
@@ -537,6 +537,7 @@ function interruptedWindowTest() {
         runEvaluationSweep(stalling, { concurrency: 2 }),
       );
       yield* awaitAttempts(1);
+      yield* awaitStarted(executed, 3);
       yield* Fiber.interrupt(sweep);
       const checkpoint = yield* loadEvaluationReport();
       assert.lengthOf(checkpoint.attempts, 1);
@@ -555,6 +556,7 @@ function interruptedWindowTest() {
     assert.deepStrictEqual(yield* Ref.get(executed), [
       "interrupted-window/effect/v1/EVAL-005/001",
       "interrupted-window/effect/v1/EVAL-006/001",
+      "interrupted-window/effect/v1/EVAL-007/001",
       "interrupted-window/effect/v1/EVAL-006/001",
       "interrupted-window/effect/v1/EVAL-007/001",
     ]);

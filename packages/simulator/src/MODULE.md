@@ -826,7 +826,7 @@ export class ParticipantHandle<Name extends string = string> {
 A network participant identity. The hidden symbol prevents structurally
 similar identity data from being used as a simulator handle.
 
-### [`ProfileRunResult (type)`](./cluster/profiles/result.ts#L38)
+### [`ProfileRunResult (type)`](./cluster/profiles/result.ts#L24)
 
 _TypeAlias_
 
@@ -836,7 +836,7 @@ export type ProfileRunResult = typeof ProfileRunResult.Type;
 
 Decoded final line of one profile submission.
 
-### [`ProfileRunResult (value)`](./cluster/profiles/result.ts#L21)
+### [`ProfileRunResult (value)`](./cluster/profiles/result.ts#L17)
 
 _Variable_
 
@@ -844,17 +844,7 @@ _Variable_
 export const ProfileRunResult = Schema.Struct({
   runId: Schema.NonEmptyString,
   namespace: Schema.NonEmptyString,
-  result: Schema.Union(
-    Schema.Struct({
-      exitCode: Schema.Literal(0),
-      summary: controllerProgramFinishedSummary,
-    }),
-    Schema.Struct({
-      exitCode: Schema.Literal(1),
-      summary: controllerFailedRunSummary,
-      diagnostic: Schema.optional(Schema.String),
-    }),
-  ),
+  result: controllerRunResult,
 })
 ```
 
@@ -863,9 +853,8 @@ Schema of the final line `moltzap-sim run` prints for one submission.
 A consumer that spawns the executable decodes its stdout with this schema
 rather than copying the shape: the submitter is a separate process, so
 nothing else would notice the two sides disagreeing until a live run
-produced an undecodable line. The failed branch's `diagnostic` is optional
-because the submitter carries one only when the controller Job's own output
-was still readable.
+produced an undecodable line. The submitter's own result type derives from
+this schema, so the two cannot drift.
 
 ### [`ProgramFailed`](./events/core.ts#L182)
 

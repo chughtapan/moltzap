@@ -735,20 +735,13 @@ function controllerEnvironment(
     { name: "MOLTZAP_EXPERIMENT_MODULE", value: EXPERIMENT_PATH },
     ...optionalEnvironment(
       "MOLTZAP_STARTUP_TIMEOUT_MS",
-      input.startupTimeoutMs === undefined
-        ? undefined
-        : String(input.startupTimeoutMs),
+      input.startupTimeoutMs?.toString(),
     ),
     ...optionalEnvironment(
       "MOLTZAP_ADMISSION_TIMEOUT_MS",
-      input.admissionTimeoutMs === undefined
-        ? undefined
-        : String(input.admissionTimeoutMs),
+      input.admissionTimeoutMs?.toString(),
     ),
-    ...optionalEnvironment(
-      "MOLTZAP_COHORT_SIZE",
-      input.cohortSize === undefined ? undefined : String(input.cohortSize),
-    ),
+    ...optionalEnvironment("MOLTZAP_COHORT_SIZE", input.cohortSize?.toString()),
     { name: "MOLTZAP_LEDGER_DIRECTORY", value: LOCAL_LEDGER_DIRECTORY },
     ...profileControllerEnvironment(input, profile),
   ];

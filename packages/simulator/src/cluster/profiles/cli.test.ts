@@ -4,6 +4,7 @@ import { assert, effect as test } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import type { RunControllerResult } from "../reclaim.js";
 import type { RunTemporalSocietyOptions } from "../temporal.js";
+import { PROFILE_SOURCE } from "../../__tests__/gke-profile-source.js";
 import {
   type RunEnvironment,
   RunSubmissionError,
@@ -20,48 +21,6 @@ const RESULT: RunControllerResult = {
   exitCode: 1,
   summary: { _tag: "LedgerAllocationFailed" },
 };
-const PROFILE_SOURCE = JSON.stringify({
-  apiVersion: "moltzap.gke-profile/v1",
-  cluster: { contextEnvironment: "MOLTZAP_KUBE_CONTEXT" },
-  rosterPlacement: {
-    applyTo: ["aggregateWorkloadPodSets", "sandboxPodTemplates"],
-    nodeSelector: { "moltzap.dev/pool": "agents" },
-    tolerations: [
-      {
-        key: "moltzap.dev/agents",
-        operator: "Equal",
-        value: "true",
-        effect: "NoSchedule",
-      },
-    ],
-  },
-  ledger: {
-    active: {
-      kind: "empty-dir",
-      volume: { name: "ledger", emptyDir: {} },
-      mountPath: "/var/lib/moltzap/ledger",
-      permissionsInitContainer: true,
-    },
-    retained: {
-      kind: "gcs-fuse-csi-ephemeral",
-      bucketEnvironment: "MOLTZAP_GKE_ARTIFACT_BUCKET",
-      podAnnotations: { "gke-gcsfuse/volumes": "true" },
-      volume: {
-        name: "artifacts",
-        csi: {
-          driver: "gcsfuse.csi.storage.gke.io",
-          readOnly: false,
-          volumeAttributes: {
-            mountOptions: "uid=1000,gid=1000,file-mode=0640,dir-mode=0750",
-          },
-        },
-      },
-      mountPath: "/var/lib/moltzap-artifacts",
-      directoryTemplate: "/var/lib/moltzap-artifacts/{runNamespace}/ledger",
-      publicationOrder: ["manifest.json", "records.ndjson", "completion.json"],
-    },
-  },
-});
 const LOCAL_ENVIRONMENT: RunEnvironment = Object.freeze({
   MOLTZAP_CONTROLLER_IMAGE: `controller@sha256:${DIGEST}`,
 });

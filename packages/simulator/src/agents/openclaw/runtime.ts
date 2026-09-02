@@ -37,9 +37,7 @@ import {
   configurationDigest,
   digestText,
   harvestTargets,
-  HISTORY_EXPORT_PATH,
-  HISTORY_EXPORT_VARIABLE,
-  historyExportTarget,
+  historyExport,
   mcpConfiguration,
   type McpServer,
   McpServerConfiguration,
@@ -326,9 +324,10 @@ function makeOpenClawApplication(
     acquireGateway,
     invisibleWorkspaceFiles: settings.invisibleWorkspaceFiles,
   };
+  const transcript = historyExport(settings.historyExport);
   const harvest = [
     ...harvestTargets(OPENCLAW_WORKSPACE_DIR, settings.harvestPaths),
-    ...(settings.historyExport ? [historyExportTarget()] : []),
+    ...transcript.harvest,
   ];
   const credential =
     settings.modelId === undefined
@@ -341,9 +340,7 @@ function makeOpenClawApplication(
       OPENCLAW_STATE_DIR: APPLICATION_STATE_DIR,
       OPENCLAW_CONFIG_PATH: APPLICATION_CONFIG_PATH,
       OPENCLAW_DISABLE_BONJOUR: "1",
-      ...(settings.historyExport
-        ? { [HISTORY_EXPORT_VARIABLE]: HISTORY_EXPORT_PATH }
-        : {}),
+      ...transcript.environment,
     }),
     ...(credential === undefined
       ? {}

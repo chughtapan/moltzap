@@ -6,6 +6,10 @@ import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RunTemporalSocietyOptions } from "../temporal.js";
 import {
+  PLACEMENT,
+  PROFILE_SOURCE,
+} from "../../__tests__/gke-profile-source.js";
+import {
   LedgerCompletion,
   ledgerDigest,
   ledgerRef,
@@ -20,51 +24,6 @@ import {
 } from "../submit.js";
 import { gkeExecutionProfileFromConfiguration, runGkeSociety } from "./gke.js";
 
-const PLACEMENT = {
-  nodeSelector: { "moltzap.dev/pool": "agents" },
-  tolerations: [
-    {
-      key: "moltzap.dev/agents",
-      operator: "Equal",
-      value: "true",
-      effect: "NoSchedule",
-    },
-  ],
-} as const;
-const PROFILE_SOURCE = JSON.stringify({
-  apiVersion: "moltzap.gke-profile/v1",
-  cluster: { contextEnvironment: "MOLTZAP_KUBE_CONTEXT" },
-  rosterPlacement: {
-    applyTo: ["aggregateWorkloadPodSets", "sandboxPodTemplates"],
-    ...PLACEMENT,
-  },
-  ledger: {
-    active: {
-      kind: "empty-dir",
-      volume: { name: "ledger", emptyDir: {} },
-      mountPath: "/var/lib/moltzap/ledger",
-      permissionsInitContainer: true,
-    },
-    retained: {
-      kind: "gcs-fuse-csi-ephemeral",
-      bucketEnvironment: "MOLTZAP_GKE_ARTIFACT_BUCKET",
-      podAnnotations: { "gke-gcsfuse/volumes": "true" },
-      volume: {
-        name: "artifacts",
-        csi: {
-          driver: "gcsfuse.csi.storage.gke.io",
-          readOnly: false,
-          volumeAttributes: {
-            mountOptions: "uid=1000,gid=1000,file-mode=0640,dir-mode=0750",
-          },
-        },
-      },
-      mountPath: "/var/lib/moltzap-artifacts",
-      directoryTemplate: "/var/lib/moltzap-artifacts/{runNamespace}/ledger",
-      publicationOrder: ["manifest.json", "records.ndjson", "completion.json"],
-    },
-  },
-});
 const ENVIRONMENT: RunEnvironment = Object.freeze({
   MOLTZAP_CONTROLLER_IMAGE: `controller@sha256:${"a".repeat(64)}`,
   MOLTZAP_GKE_ARTIFACT_BUCKET: "moltzap-artifacts-test",
