@@ -106,7 +106,12 @@ const RECREATE_STRATEGY_PATCH = Object.freeze({
   },
 });
 
-/** Failure of one Kubernetes call, carrying the status but never the body. */
+/**
+ * Failure of one Kubernetes call, carrying the status but never the body.
+ *
+ * The cause is kept for callers that report the failure as data rather than
+ * as an operator message: a harvest outcome names the transport's own error.
+ */
 export class KubernetesCallFailed extends Error {
   override readonly name = "KubernetesCallFailed";
 
@@ -117,9 +122,30 @@ export class KubernetesCallFailed extends Error {
     const status = cause instanceof ApiException ? cause.code : 0;
     super(
       callDetail(operation, status, cause instanceof Cause.TimeoutException),
+      { cause },
     );
     this.absent = status === ABSENT;
   }
+}
+
+/**
+ * The detail a harvest outcome carries for a call that failed.
+ *
+ * The operator message already names an API status or an unanswered call.
+ * Anything else the transport said, such as the WebSocket upgrade being
+ * refused, is appended from the cause's own message, which is where a
+ * rejected exec session ends up; response bodies never travel this way.
+ *
+ * @param failure The failed call.
+ * @returns One line naming the operation and what refused it.
+ */
+export function readFailureDetail(failure: KubernetesCallFailed): string {
+  const cause = failure.cause;
+  return cause instanceof Error &&
+    !(cause instanceof ApiException) &&
+    !(cause instanceof Cause.TimeoutException)
+    ? `${failure.message}: ${cause.message}`
+    : failure.message;
 }
 
 /**
@@ -744,6 +770,10 @@ function sandboxOperations(
   };
 }
 
+function readFailure(failure: KubernetesCallFailed): ClusterError {
+  return new ClusterError({ detail: readFailureDetail(failure) });
+}
+
 function harvestOperations(
   namespace: string,
   exec: Exec,
@@ -759,7 +789,7 @@ function harvestOperations(
           ),
         ),
       ).pipe(
-        Effect.mapError(societyFailure),
+        Effect.mapError(readFailure),
         Effect.map((observation) =>
           applicationFileOutcome(observation, limitBytes),
         ),
