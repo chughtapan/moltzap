@@ -125,8 +125,9 @@ runtime credential/Router authority, and durable Router-commit evidence.
   `2026-07-28` until a separate MCP decision replaces it.
 - Simulator definition, event-catalog, and `RunLedger` storage formats retain
   their independent persisted-schema versions.
-- The npm package version is a release namespace of its own: six packages
-  publish as one calendar version set and `@moltzap/evals` stays private, per
+- The npm package version is a release namespace of its own: five packages
+  publish as one calendar version set while `@moltzap/nanoclaw-channel` and
+  `@moltzap/evals` stay private, per
   `../decisions/20260901-six-packages-publish-as-one-version-set.md` and
   [`layer-interfaces.md`](./layer-interfaces.md) → Publication and versions.
   It never implies a wire, MCP, or persisted-schema compatibility fact.

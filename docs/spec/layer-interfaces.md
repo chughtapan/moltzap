@@ -417,14 +417,14 @@ runtimes own their session topology and cross-address context.
 
 ## Publication and versions
 
-Six packages publish to npm as one version set: `@moltzap/identity`,
+Five packages publish to npm as one version set: `@moltzap/identity`,
 `@moltzap/router`, `@moltzap/client`, `@moltzap/openclaw-channel`,
-`@moltzap/nanoclaw-channel`, and `@moltzap/simulator`. `@moltzap/evals` stays
+and `@moltzap/simulator`. `@moltzap/nanoclaw-channel` and `@moltzap/evals` stay
 private. The current record is
 `../decisions/20260901-six-packages-publish-as-one-version-set.md`.
 
 - One release computes one calendar version, `YYYY.MDD.N`, one past the
-  highest counter in the union of the six packages' npm histories and the
+  highest counter in the union of the five packages' npm histories and the
   `v<version>` release tags, and writes it into every published manifest.
 - `pnpm pack` pins each workspace sibling to that exact version, so an
   installed closure resolves the packages one release built, never a mix.
@@ -434,11 +434,14 @@ private. The current record is
   provenance; the same run pushes the simulator controller, OpenClaw, and
   NanoClaw images tagged with the version and records their digests.
 - `scripts/architecture/check-boundaries.js` fails when a published manifest
-  is private, when the six versions differ, when evals is not private, or when
-  the release workflow's package list drifts from the published set. The
-  client, OpenClaw, NanoClaw, and simulator `test:pack` gates pack all six
-  packages through `scripts/test/packed-workspace.mjs` and prove the closure
-  installs with exact sibling pins and every declared executable present.
+  is private, when the five versions differ, when evals or the NanoClaw adapter
+  is not private, or when the release workflow's package list drifts from the
+  published set. The client, OpenClaw, NanoClaw, and simulator `test:pack`
+  gates pack the five published packages and the NanoClaw adapter through
+  `scripts/test/packed-workspace.mjs` and prove each closure installs with
+  exact sibling pins and every declared executable present. The NanoClaw gate
+  proves the adapter compiles against the Client ABI in isolation; the image
+  build copies its source rather than installing a tarball.
 
 ## Deliberate deferrals
 

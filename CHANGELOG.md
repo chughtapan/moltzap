@@ -84,13 +84,14 @@ bespoke CLI, or Unix socket. The constitution lives in `docs/vision.md`.
 deployment. Their npm releases are deprecated once this release is on the
 registry; install the packages below instead.
 
-### Added: six packages published as one version set
+### Added: five packages published as one version set
 
 `@moltzap/identity`, `@moltzap/router`, `@moltzap/client`,
-`@moltzap/openclaw-channel`, `@moltzap/nanoclaw-channel`, and
-`@moltzap/simulator` publish together at one calendar version with exact
-sibling pins, so `npm install @moltzap/simulator` resolves the closure the same
-release built. `@moltzap/evals` stays private. Earlier `@moltzap/simulator` and
+`@moltzap/openclaw-channel`, and `@moltzap/simulator` publish together at one
+calendar version with exact sibling pins, so `npm install @moltzap/simulator`
+resolves the closure the same release built. `@moltzap/nanoclaw-channel` and
+`@moltzap/evals` stay private; the NanoClaw adapter exports nothing and reaches
+its host through the image build rather than the registry. Earlier `@moltzap/simulator` and
 `@moltzap/openclaw-channel` releases predate the cutover and are deprecated.
 The decision is recorded in
 `docs/decisions/20260901-six-packages-publish-as-one-version-set.md`.
