@@ -299,16 +299,51 @@ export const InboundMessage = Schema.Union(
 /** A validated direct or group inbound message. */
 export type InboundMessage = typeof InboundMessage.Type;
 
-type SendFailure =
-  | "invalid-address"
-  | "unknown-agent"
-  | "membership-invalid"
-  | "content-invalid"
-  | "not-registered"
-  | "version-mismatch"
-  | "certification-unavailable"
-  | "persistence-failed"
-  | "network-unavailable";
+const sendFailure = Schema.Literal(
+  "invalid-address",
+  "unknown-agent",
+  "membership-invalid",
+  "content-invalid",
+  "not-registered",
+  "version-mismatch",
+  "certification-unavailable",
+  "persistence-failed",
+  "network-unavailable",
+);
+type SendFailure = typeof sendFailure.Type;
+
+const historyExportSendOutcome = Schema.Union(
+  exactStruct({ kind: Schema.Literal("certified"), postId: PostId }),
+  exactStruct({ kind: Schema.Literal("failed"), reason: sendFailure }),
+);
+
+/**
+ * One line of the daemon's optional history export: a certified inbound
+ * delivery, a completed `send` invocation with its outcome, or the one line
+ * that says the export stopped. Readers decode the file line by line with
+ * this schema rather than copying its shape.
+ */
+export const HistoryExportRecord = Schema.Union(
+  exactStruct({
+    kind: Schema.Literal("inbound"),
+    message: InboundMessage,
+    at: Schema.DateTimeUtc,
+  }),
+  exactStruct({
+    kind: Schema.Literal("outbound"),
+    to: MessageAddressInput,
+    content: Content,
+    outcome: historyExportSendOutcome,
+    at: Schema.DateTimeUtc,
+  }),
+  exactStruct({
+    kind: Schema.Literal("export-failed"),
+    reason: Schema.String,
+    at: Schema.DateTimeUtc,
+  }),
+).annotations({ identifier: "HistoryExportRecord" });
+/** A validated line of the daemon's history export. */
+export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 /** An addressed send failed before local certification completed. */
 export class SendError extends Data.TaggedError("SendError")<{

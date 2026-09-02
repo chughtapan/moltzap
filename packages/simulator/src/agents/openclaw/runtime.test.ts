@@ -424,3 +424,58 @@ describe("OpenClaw workspace harvest", () => {
   test("refuses a harvest path that leaves the workspace", () =>
     Effect.sync(rejectedHarvestPathTest));
 });
+
+const historyExportProjection = Schema.Struct({
+  historyExport: Schema.Boolean,
+});
+
+function historyExportTest() {
+  return Effect.gen(function* () {
+    const runtime = openClawRuntime({
+      applicationImage: APPLICATION_IMAGE,
+      harvestWorkspaceFiles: ["CALENDAR.md"],
+      historyExport: true,
+    });
+    const application = yield* containerRuntimeFor(runtime).render({
+      agentName: AGENT_NAME,
+    });
+
+    assert.strictEqual(
+      application.environment.MOLTZAPD_HISTORY_EXPORT,
+      "/var/run/moltzap/history.ndjson",
+    );
+    assert.deepStrictEqual(application.harvest?.at(-1), {
+      relativePath: "moltzap-history.ndjson",
+      path: "/var/run/moltzap/history.ndjson",
+      limitBytes: 1_048_576,
+    });
+    assert.strictEqual(application.harvest?.length, 2);
+    assert.isTrue(
+      Schema.decodeUnknownSync(historyExportProjection)(
+        runtimeConfigurationProjection(runtime),
+      ).historyExport,
+    );
+  });
+}
+
+function noHistoryExportTest() {
+  return Effect.gen(function* () {
+    const { runtime, application } = yield* renderHarvest();
+
+    assert.notProperty(application.environment, "MOLTZAPD_HISTORY_EXPORT");
+    assert.notProperty(application, "harvest");
+    assert.isFalse(
+      Schema.decodeUnknownSync(historyExportProjection)(
+        runtimeConfigurationProjection(runtime),
+      ).historyExport,
+    );
+  });
+}
+
+describe("OpenClaw history export", () => {
+  test(
+    "turns the daemon export on and harvests it beside the experiment's files",
+    historyExportTest,
+  );
+  test("leaves the daemon export off by default", noHistoryExportTest);
+});

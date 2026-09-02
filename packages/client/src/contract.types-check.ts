@@ -4,7 +4,7 @@
  * direct or complete-group message plus transport-only acknowledgment.
  */
 
-import type { Effect, Scope, Stream } from "effect";
+import type { DateTime, Effect, Scope, Stream } from "effect";
 import type {
   acquireHarnessEndpoint,
   AgentAddress,
@@ -16,6 +16,7 @@ import type {
   GroupAddress,
   GroupMessage,
   HarnessEndpoint,
+  HistoryExportRecord,
   InboundDelivery,
   InboundMessage,
   ListenError,
@@ -69,6 +70,21 @@ type InboundMessageIsExact = Expect<
 >;
 type DeliveryIsExact = Expect<Equal<InboundDelivery, ExpectedDelivery>>;
 type EndpointIsExact = Expect<Equal<HarnessEndpoint, ExpectedEndpoint>>;
+type ExpectedHistoryExportRecord =
+  | Readonly<{ kind: "inbound"; message: InboundMessage; at: DateTime.Utc }>
+  | Readonly<{
+      kind: "outbound";
+      to: MessageAddressInput;
+      content: Content;
+      outcome:
+        | Readonly<{ kind: "certified"; postId: PostId }>
+        | Readonly<{ kind: "failed"; reason: SendError["reason"] }>;
+      at: DateTime.Utc;
+    }>
+  | Readonly<{ kind: "export-failed"; reason: string; at: DateTime.Utc }>;
+type HistoryExportRecordIsExact = Expect<
+  Equal<HistoryExportRecord, ExpectedHistoryExportRecord>
+>;
 type ContentIsNonempty = Expect<
   Content extends readonly [ContentPart, ...ContentPart[]] ? true : false
 >;
@@ -138,6 +154,7 @@ export type HarnessEndpointCanaries = [
   AgentAddressIsInput,
   GroupAddressIsInput,
   SendReasonsAreExact,
+  HistoryExportRecordIsExact,
   ListenReasonsAreExact,
   AcknowledgeReasonsAreExact,
   ConnectReasonsAreExact,

@@ -21,6 +21,14 @@ configuration stays:
 - `MOLTZAPD_AGENT_PRIVATE_KEY_FILE`; and
 - `MOLTZAPD_ADMISSION_CREDENTIAL_FILE`.
 
+One optional input, `MOLTZAPD_HISTORY_EXPORT`, names a file the daemon appends
+one `HistoryExportRecord` JSON line to for every certified inbound delivery
+and every completed `send` invocation. The export is a second copy of
+endpoint-local history that the daemon already owns; it grants no delivery,
+reply, or management authority. If an append fails, the daemon writes one
+`export-failed` line, stops exporting for the rest of the process, and keeps
+serving the agent.
+
 There is no profile, selector, discovery fallback, bespoke CLI, Unix socket,
 stdio server, second MCP listener, address override, or product Ledger.
 
