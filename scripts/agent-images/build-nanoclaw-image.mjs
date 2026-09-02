@@ -13,6 +13,11 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import {
+  localImageId,
+  metadataDigest,
+  parseImageBuildArguments,
+} from "../images/build.mjs";
 
 const exec = promisify(execFile);
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
@@ -27,8 +32,6 @@ const BUILD_RESULT_PATH = join(
 const NANOCLAW_PATCH_PATH =
   "scripts/agent-images/nanoclaw/nanoclaw-v2.3.0.patch";
 const BUILD_TIMEOUT_MILLIS = 45 * 60 * 1_000;
-const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/u;
-const IMAGE_TAG = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/u;
 
 export const NANOCLAW_SOURCE_REVISION =
   "54d9d9a50c0e572fa3969d63ab87a4dd3d75cc6f";
@@ -50,42 +53,6 @@ const packageDirectories = {
 
 function report(message) {
   process.stderr.write(`[moltzap nanoclaw image] ${message}\n`);
-}
-
-/**
- * Parse `[--repository NAME] [--tag TAG] [--push]`.
- *
- * The tag defaults to the staging fingerprint. `--push` publishes the build to
- * the repository's registry instead of loading it into the local daemon, and
- * the reported digest is then the registry manifest digest a profile can pin.
- */
-function parseArguments(args) {
-  const usage = "usage: %s [--repository NAME] [--tag TAG] [--push]";
-  const options = { repository: DEFAULT_REPOSITORY, tag: null, push: false };
-  for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index];
-    const value = args[index + 1];
-    if (argument === "--repository" && value !== undefined) {
-      options.repository = value;
-      index += 1;
-    } else if (argument === "--tag" && value !== undefined) {
-      options.tag = value;
-      index += 1;
-    } else if (argument === "--push") {
-      options.push = true;
-    } else {
-      throw new TypeError(usage.replace("%s", "build-nanoclaw-image.mjs"));
-    }
-  }
-  if (options.repository.length === 0 || options.repository.includes("@")) {
-    throw new TypeError(
-      "NanoClaw image repository must not be empty or contain a digest",
-    );
-  }
-  if (options.tag !== null && !IMAGE_TAG.test(options.tag)) {
-    throw new TypeError("NanoClaw image tag must be a valid Docker tag");
-  }
-  return options;
 }
 
 function sha256(value) {
@@ -220,27 +187,6 @@ async function stagingFingerprint(staging) {
   return hash.digest("hex").slice(0, 16);
 }
 
-function metadataDigest(metadata) {
-  const digest = metadata["containerimage.digest"];
-  if (typeof digest !== "string" || !SHA256_DIGEST.test(digest)) {
-    throw new Error("docker buildx returned no manifest digest");
-  }
-  return digest;
-}
-
-async function inspectImage(image) {
-  const { stdout } = await exec(
-    "docker",
-    ["image", "inspect", "--format", "{{.Id}}", image],
-    { timeout: 30_000 },
-  );
-  const imageId = stdout.trim();
-  if (!SHA256_DIGEST.test(imageId)) {
-    throw new Error(`docker returned no image ID for ${image}`);
-  }
-  return imageId;
-}
-
 async function imageLabels(image) {
   const { stdout } = await exec(
     "docker",
@@ -260,7 +206,7 @@ async function buildAgentBase(staging) {
     await readFile(join(staging, "source/container/agent-runner/bun.lock")),
   );
   try {
-    await inspectImage(image);
+    await localImageId(image, "NanoClaw agent base");
     const labels = await imageLabels(image);
     if (
       labels["dev.nanoclaw.image-source"] ===
@@ -297,7 +243,11 @@ async function buildAgentBase(staging) {
 }
 
 async function main() {
-  const options = parseArguments(process.argv.slice(2));
+  const options = parseImageBuildArguments(process.argv.slice(2), {
+    script: "build-nanoclaw-image.mjs",
+    label: "NanoClaw image",
+    defaultRepository: DEFAULT_REPOSITORY,
+  });
   report("building MoltZap workspace dependencies");
   await exec(
     "pnpm",
@@ -349,8 +299,9 @@ async function main() {
       image,
       pinnedImage: `${options.repository}@${imageDigest}`,
       imageDigest,
-      pushed: options.push,
-      ...(options.push ? {} : { imageId: await inspectImage(image) }),
+      ...(options.push
+        ? {}
+        : { imageId: await localImageId(image, "NanoClaw image") }),
       sourceRevision: NANOCLAW_SOURCE_REVISION,
       sourceArchiveDigest: `sha256:${NANOCLAW_SOURCE_ARCHIVE_SHA256}`,
       agentBaseImage,
@@ -359,10 +310,8 @@ async function main() {
       gatewayPort: 18_790,
     };
     await mkdir(dirname(BUILD_RESULT_PATH), { recursive: true });
-    await writeFile(BUILD_RESULT_PATH, `${JSON.stringify(result)}
-`);
-    process.stdout.write(`${JSON.stringify(result)}
-`);
+    await writeFile(BUILD_RESULT_PATH, `${JSON.stringify(result)}\n`);
+    process.stdout.write(`${JSON.stringify(result)}\n`);
   } finally {
     await rm(staging, { recursive: true, force: true });
   }

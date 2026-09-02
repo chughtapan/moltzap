@@ -35,13 +35,15 @@ import {
 } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  MOLTZAP_VERSION_SOURCE,
+  readMoltzapVersion,
+} from "./moltzap-version.js";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = resolve(scriptDir, "..", "..");
 const docsDir = resolve(workspaceRoot, "docs");
 const constantsDir = resolve(docsDir, "snippets", "constants");
-/** Identity owns the wire compatibility value; every bake reads it from here. */
-const MOLTZAP_VERSION_SOURCE = "packages/identity/src/version.ts";
 
 // ─── Typed result + reader primitives ─────────────────────────────────────
 
@@ -55,35 +57,6 @@ const err = (reason: string): ReadResult<never> => ({
   reason,
 });
 
-/**
- * Read the literal of `export const NAME = "..."` from a TypeScript source
- * file. The literal form is required: the value is baked into documents
- * without executing the module, so a computed export cannot be a source.
- */
-const readExportedVersionLiteral = (
-  filePath: string,
-  name: string,
-): ReadResult<string> => {
-  let source: string;
-  try {
-    source = readFileSync(filePath, "utf8");
-  } catch (cause) {
-    return err(
-      `could not read ${filePath}: ${cause instanceof Error ? cause.message : String(cause)}`,
-    );
-  }
-  const match = new RegExp(
-    `export\\s+const\\s+${name}\\s*=\\s*["']([^"']*)["']`,
-  ).exec(source);
-  if (match === null) {
-    return err(`expected \`export const ${name} = "..."\` in ${filePath}`);
-  }
-  const value = (match[1] ?? "").trim();
-  return value.length === 0
-    ? err(`expected a nonempty version in ${filePath}`)
-    : ok(value);
-};
-
 // ─── Constant specs ───────────────────────────────────────────────────────
 
 interface Constant {
@@ -95,10 +68,9 @@ interface Constant {
 }
 
 const collect = (): readonly Constant[] => {
-  const moltzapVersion = readExportedVersionLiteral(
-    resolve(workspaceRoot, MOLTZAP_VERSION_SOURCE),
-    "MOLTZAP_VERSION",
-  );
+  const read = readMoltzapVersion(workspaceRoot);
+  const moltzapVersion: ReadResult<string> =
+    "value" in read ? ok(read.value) : err(read.error);
 
   const failures: string[] = [];
   const requireString = (
