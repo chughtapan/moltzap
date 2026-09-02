@@ -54,7 +54,10 @@ export function providerCredential(
   modelId: string,
 ): CredentialName | undefined {
   const [provider] = modelId.split("/", 1);
-  return provider === undefined ? undefined : CREDENTIAL_BY_PROVIDER[provider];
+  return provider !== undefined &&
+    Object.hasOwn(CREDENTIAL_BY_PROVIDER, provider)
+    ? CREDENTIAL_BY_PROVIDER[provider]
+    : undefined;
 }
 
 /** Portable resource request for one application container. */

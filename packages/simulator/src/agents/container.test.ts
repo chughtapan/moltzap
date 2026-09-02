@@ -7,6 +7,7 @@ import {
   containerRuntimeFor,
   defineContainerRuntime,
   image,
+  providerCredential,
 } from "./container.js";
 import * as publicRuntime from "./index.js";
 
@@ -73,3 +74,10 @@ it("refuses a runtime that never declared a container realization", () => {
 
   assert.isUndefined(containerRuntimeFor(runtime));
 });
+
+it("forwards no credential for a provider that is only an inherited object member", () =>
+  Effect.sync(() => {
+    for (const modelId of ["constructor/x", "toString/y", "__proto__/z"]) {
+      assert.isUndefined(providerCredential(modelId));
+    }
+  }));

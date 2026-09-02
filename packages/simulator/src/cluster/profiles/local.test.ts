@@ -2,7 +2,7 @@
 
 import { assert, effect as test } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import type { RunControllerResult } from "../reclaim.js";
+import type { ControllerRunResult } from "../reclaim.js";
 import type { RunTemporalSocietyOptions } from "../temporal.js";
 import {
   LedgerCompletion,
@@ -32,7 +32,7 @@ const UUID = "12345678-1234-4abc-8def-1234567890ab";
 const MODULE_SOURCE = "export const runSpec = {};";
 const KUBE_CONTEXT = "kind-moltzap-isolated";
 const LEDGER_DIGEST = Schema.decodeSync(ledgerDigest)("b".repeat(64));
-const CONTROLLER_RESULT: RunControllerResult = {
+const CONTROLLER_RESULT: ControllerRunResult = {
   exitCode: 0,
   summary: programFinishedSummary(
     CompletedLedgerReceipt.make({

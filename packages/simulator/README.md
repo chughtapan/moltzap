@@ -88,9 +88,11 @@ precedes teardown; it never fails the run, and an interrupted program skips it.
 
 The read is a plain `sh` probe (`test -f`, a size check, `cat`) executed in the
 application container through `pods/exec`, so the controller's run-scoped Role
-gains that verb. The probe follows symbolic links and checks the file before
-reading it, so an agent that replaces a harvested file with a link exposes
-whatever that link names inside its own container into the ledger. The
+gains that verb. The probe runs with the application container's root privilege, follows
+symbolic links, and checks the file before reading it, so an agent that
+replaces a harvested file with a link exposes whatever that link names inside
+its own container into the ledger, including the daemon's key and credential
+that the agent's own process cannot read. The
 container holds only what the experiment gave it, and the ledger is the
 experiment's own, so that is accepted rather than guarded.
 

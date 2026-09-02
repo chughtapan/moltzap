@@ -109,8 +109,11 @@ const RECREATE_STRATEGY_PATCH = Object.freeze({
 /**
  * Failure of one Kubernetes call, carrying the status but never the body.
  *
- * The cause is kept for callers that report the failure as data rather than
- * as an operator message: a harvest outcome names the transport's own error.
+ * An API response is reduced to its status here and the response object is
+ * not kept, so nothing downstream, such as Temporal's persisted failure
+ * chain or a submitter's stderr, can render a body. What a transport said
+ * for itself, such as a WebSocket upgrade being refused, is kept as one
+ * sanitized line for callers that report the failure as data.
  */
 export class KubernetesCallFailed extends Error {
   override readonly name = "KubernetesCallFailed";
@@ -118,34 +121,34 @@ export class KubernetesCallFailed extends Error {
   /** Whether the cluster answered that the object is not there. */
   readonly absent: boolean;
 
+  /** The transport's own message when the failure was neither an API status nor a timeout. */
+  readonly transport?: string;
+
   constructor(operation: string, cause?: unknown) {
     const status = cause instanceof ApiException ? cause.code : 0;
-    super(
-      callDetail(operation, status, cause instanceof Cause.TimeoutException),
-      { cause },
-    );
+    const unanswered = cause instanceof Cause.TimeoutException;
+    super(callDetail(operation, status, unanswered));
     this.absent = status === ABSENT;
+    if (cause instanceof Error && status === 0 && !unanswered) {
+      this.transport = cause.message;
+    }
   }
 }
 
 /**
  * The detail a harvest outcome carries for a call that failed.
  *
- * The operator message already names an API status or an unanswered call.
- * Anything else the transport said, such as the WebSocket upgrade being
- * refused, is appended from the cause's own message, which is where a
- * rejected exec session ends up; response bodies never travel this way.
+ * The operator message already names an API status or an unanswered call;
+ * the transport's own line, which is where a refused exec session ends up,
+ * is appended when there is one.
  *
  * @param failure The failed call.
  * @returns One line naming the operation and what refused it.
  */
 export function readFailureDetail(failure: KubernetesCallFailed): string {
-  const cause = failure.cause;
-  return cause instanceof Error &&
-    !(cause instanceof ApiException) &&
-    !(cause instanceof Cause.TimeoutException)
-    ? `${failure.message}: ${cause.message}`
-    : failure.message;
+  return failure.transport === undefined
+    ? failure.message
+    : `${failure.message}: ${failure.transport}`;
 }
 
 /**

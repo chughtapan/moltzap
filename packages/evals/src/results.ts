@@ -127,9 +127,11 @@ class EvaluationResultConflict extends Schema.TaggedError<EvaluationResultConfli
  *
  * Two sweeps over one report would each take the same remaining
  * cells and submit them twice. The lease is a row naming the holder's process,
- * so a holder that died leaves a lease a later opener can tell is stale; a
- * holder on another host cannot be told apart from a live one, and report
- * bundles are local files.
+ * so a holder that died leaves a lease a later opener can usually tell is
+ * stale: the test is whether that process id is still alive on this host, so
+ * a holder on another host, or an unrelated process that later received the
+ * same id, reads as live. Report bundles are local files, and the remedy for
+ * a lease nobody holds is to delete its row from `evaluation_report_lease`.
  */
 export class ReportLocked extends Schema.TaggedError<ReportLocked>()(
   "ReportLocked",
@@ -637,24 +639,43 @@ function processAlive(pid: number): boolean {
   }
 }
 
+// Two openers racing for one report both read an empty lease inside their
+// deferred transactions, and SQLite then refuses the second writer with a
+// busy error rather than a row; that loser re-reads the lease outside any
+// transaction and reports the winner as the holder.
 function acquireReportLease(
   databasePath: string,
   sql: SqlClient.SqlClient,
   queries: ResultQueries,
 ) {
   const ownerPid = process.pid;
-  return sql.withTransaction(
-    Effect.gen(function* () {
-      const held = yield* queries.selectLease(undefined);
-      if (Option.isSome(held) && processAlive(held.value.ownerPid)) {
-        return yield* Effect.fail(
-          ReportLocked.make({ databasePath, ownerPid: held.value.ownerPid }),
-        );
-      }
-      const acquiredAt = yield* DateTime.now;
-      yield* queries.writeLease({ ownerPid, acquiredAt });
-    }),
-  );
+  const lockedBy = (holder: number) =>
+    Effect.fail(ReportLocked.make({ databasePath, ownerPid: holder }));
+  return sql
+    .withTransaction(
+      Effect.gen(function* () {
+        const held = yield* queries.selectLease(undefined);
+        if (Option.isSome(held) && processAlive(held.value.ownerPid)) {
+          return yield* lockedBy(held.value.ownerPid);
+        }
+        const acquiredAt = yield* DateTime.now;
+        yield* queries.writeLease({ ownerPid, acquiredAt });
+      }),
+    )
+    .pipe(
+      Effect.catchTag("SqlError", (failure) =>
+        queries
+          .selectLease(undefined)
+          .pipe(
+            Effect.flatMap(
+              (held): Effect.Effect<never, ReportLocked | SqlError> =>
+                Option.isSome(held) && held.value.ownerPid !== ownerPid
+                  ? lockedBy(held.value.ownerPid)
+                  : Effect.fail(failure),
+            ),
+          ),
+      ),
+    );
 }
 
 function releaseReportLease(sql: SqlClient.SqlClient, queries: ResultQueries) {
@@ -723,25 +744,25 @@ function persistCompletion(
   );
 }
 
-type WindowSelection =
-  | { readonly _tag: "completed"; readonly report: CompletedEvaluationReport }
-  | {
-      readonly _tag: "window";
-      readonly report: InProgressEvaluationReport;
-      readonly cells: readonly EvaluationSweepCell[];
-    };
-
-function completedSelection(
-  report: CompletedEvaluationReport,
-): WindowSelection {
-  return { _tag: "completed", report };
+interface RemainingCells {
+  readonly report: InProgressEvaluationReport;
+  readonly cells: readonly EvaluationSweepCell[];
 }
 
-function windowSelection(
-  report: InProgressEvaluationReport,
-  cells: readonly EvaluationSweepCell[],
-): WindowSelection {
-  return { _tag: "window", report, cells };
+function advanceStoredReport<E, R>(
+  handle: StoreHandle,
+  execute: ExecuteCell<E, R>,
+  concurrency: number,
+) {
+  return Effect.gen(function* () {
+    const selection = yield* handle.sql.withTransaction(
+      selectWindow(handle.databasePath, handle.queries),
+    );
+    if (selection instanceof CompletedEvaluationReport) {
+      return selection;
+    }
+    return yield* executeWindow(handle, selection, execute, concurrency);
+  });
 }
 
 // One short transaction: what the report holds now, and every cell still to
@@ -751,13 +772,14 @@ function selectWindow(databasePath: string, queries: ResultQueries) {
     yield* acquireStoredReportWrite(databasePath, queries.acquireWrite);
     const current = yield* loadStoredReport(databasePath, queries);
     if (current instanceof CompletedEvaluationReport) {
-      return completedSelection(current);
+      return current;
     }
     const remaining = yield* remainingEvaluationCells(current);
     if (remaining.length === 0) {
-      return completedSelection(yield* persistCompletion(queries, current));
+      return yield* persistCompletion(queries, current);
     }
-    return windowSelection(current, remaining);
+    const selection: RemainingCells = { report: current, cells: remaining };
+    return selection;
   });
 }
 
@@ -775,7 +797,7 @@ interface StoreHandle {
 // not lost to an interrupt that lands between its result and its row.
 function executeWindow<E, R>(
   handle: StoreHandle,
-  selection: Extract<WindowSelection, { readonly _tag: "window" }>,
+  selection: RemainingCells,
   execute: ExecuteCell<E, R>,
   concurrency: number,
 ) {
@@ -796,28 +818,6 @@ function executeWindow<E, R>(
       ),
     ),
   );
-}
-
-function advanceStoredReport<E, R>(
-  handle: StoreHandle,
-  execute: ExecuteCell<E, R>,
-  concurrency: number,
-) {
-  return Effect.gen(function* () {
-    const selection = yield* handle.sql.withTransaction(
-      selectWindow(handle.databasePath, handle.queries),
-    );
-    switch (selection._tag) {
-      case "completed":
-        return selection.report;
-      case "window":
-        return yield* executeWindow(handle, selection, execute, concurrency);
-      default: {
-        const exhaustive: never = selection;
-        return exhaustive;
-      }
-    }
-  });
 }
 
 function makeStoreService(

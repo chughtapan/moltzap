@@ -253,7 +253,9 @@ moltzap-sim run --profile gke path/to/experiment.mjs
 | `MOLTZAP_APPLICATION_IMAGE` | when the module reads it | the digest-pinned complete agent image |
 | `MOLTZAP_STARTUP_TIMEOUT_MS` | no | how long an admitted cohort may take to become ready |
 | `MOLTZAP_ADMISSION_TIMEOUT_MS` | no | how long the queue may hold the cohort, one hour by default |
-| `MOLTZAP_COHORT_SIZE` | when the module reads it | the roster size of a run-sized experiment |
+| `MOLTZAP_COHORT_SIZE` | no | the roster size of a run-sized experiment, two by default |
+| `MOLTZAP_TEMPORAL_NAMESPACE` | no | the Temporal namespace, `default` by default |
+| `MOLTZAP_FORCE_WORKER_ROLL` | no | exactly `1` to accept rolling the worker over its open runs |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | when a model needs one | forwarded to containers whose model id names that provider |
 
 The experiment module may import only what the controller image ships:
@@ -283,21 +285,23 @@ not the startup budget: a queued cohort has not started, so an hour of queue
 time is the default and `MOLTZAP_STARTUP_TIMEOUT_MS` begins only once Kueue
 admits it.
 
-Two rules bound how wide to go. Concurrent submitters must share one
-controller image: a submission installs the worker with the image it names,
-and a different image would roll the worker out from under every run it is
-heartbeating, which `guardWorkerRoll` refuses while runs are open. And every
-run keeps a Registry, a Router, and a controller Pod on the single
-`e2-standard-4` system node, so about eight runs at once is the practical
-ceiling; four is a sound default.
-
-One controller image at a time: a submission installs the run worker for the
-controller image it names, and the submitter refuses to replace a worker that
-is still serving runs on a different image (wait for them, or set
-`MOLTZAP_FORCE_WORKER_ROLL=1` to accept losing them). That refusal lives in
-the submitter, so a submitter built before it existed still rolls the worker
-and interrupts every run in flight; lanes that need different controller
-images are sequenced by the operator, not by the cluster.
+Three rules bound how wide to go. Concurrent submitters must share one
+controller image: a submission installs the run worker for the image it
+names, and a different image would roll the worker out from under every run
+it is heartbeating, so the submitter refuses that install while runs are open
+(wait for them, or set `MOLTZAP_FORCE_WORKER_ROLL=1` to accept losing them).
+The refusal lives in the submitter, so a submitter built before it existed
+still rolls the worker and interrupts every run in flight; lanes that need
+different controller images are sequenced by the operator, not by the
+cluster. The submitter package and the controller image must also come from
+one revision: the install applies the worker's ClusterRole from the
+submitter's own manifests, so an older submitter narrows the role a newer
+controller needs and every lane's next run fails to create its Role until a
+matching submitter re-applies. A release couples the published npm version
+to the published images table for exactly that reason. And every run keeps a
+Registry, a Router, and a controller Pod on the single `e2-standard-4` system
+node, so about eight runs at once is the practical ceiling; four is a sound
+default.
 
 ## Private platform contract
 

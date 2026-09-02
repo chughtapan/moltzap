@@ -9,11 +9,25 @@ import {
 // The runtime interrupts the main fiber on these signals; the teardown needs
 // to know which one arrived to name it and to choose the exit status.
 let received;
-for (const signal of EXECUTABLE_SIGNALS) {
-  process.once(signal, () => {
-    received = signal;
-  });
+const listeners = new Map(
+  EXECUTABLE_SIGNALS.map((signal) => [
+    signal,
+    () => {
+      received = signal;
+    },
+  ]),
+);
+for (const [signal, listener] of listeners) {
+  process.once(signal, listener);
 }
+// Once the main fiber has ended, a later signal should end the process the
+// default way rather than be recorded by a listener nothing reads any more.
+const teardown = executableTeardown(
+  () => received,
+  (line) => {
+    process.stderr.write(line);
+  },
+);
 
 // The executable reports its own failures on stderr and installs its own
 // stderr logger, so the runtime's reporter and pretty logger, which would
@@ -23,11 +37,11 @@ NodeRuntime.runMain(
   {
     disableErrorReporting: true,
     disablePrettyLogger: true,
-    teardown: executableTeardown(
-      () => received,
-      (line) => {
-        process.stderr.write(line);
-      },
-    ),
+    teardown: (exit, onExit) => {
+      for (const [signal, listener] of listeners) {
+        process.removeListener(signal, listener);
+      }
+      teardown(exit, onExit);
+    },
   },
 );

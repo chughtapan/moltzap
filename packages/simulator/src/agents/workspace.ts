@@ -51,6 +51,13 @@ const HISTORY_EXPORT_VARIABLE = "MOLTZAPD_HISTORY_EXPORT";
 const HISTORY_EXPORT_LABEL = "moltzap-history.ndjson";
 
 const harvestPaths = Schema.Array(workspaceRelativePath).pipe(
+  Schema.filter(
+    (paths) => paths.every((path) => path !== HISTORY_EXPORT_LABEL),
+    {
+      message: () =>
+        `"${HISTORY_EXPORT_LABEL}" is the daemon transcript's own label and cannot name a harvested file`,
+    },
+  ),
   Schema.filter((paths) => new Set(paths).size === paths.length, {
     message: () => "harvested workspace paths must be distinct",
   }),

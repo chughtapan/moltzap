@@ -1,6 +1,7 @@
 /** @file The local kind profile's submission, one of the two the executable routes to. */
 
 import { Effect } from "effect";
+import type { ProfileRunResult } from "./result.js";
 import {
   type KubernetesExecutionProfile,
   LOCAL_KUBERNETES_EXECUTION_PROFILE,
@@ -8,7 +9,6 @@ import {
 import {
   type RunEnvironment,
   runKubernetesSociety,
-  type RunSubmission,
   RunSubmissionError,
   type SubmitOperations,
 } from "../submit.js";
@@ -29,7 +29,7 @@ type LocalKubernetesExecutionProfile = Extract<
 export function runLocalSociety(
   args: readonly string[],
   environment: RunEnvironment,
-): Effect.Effect<RunSubmission, RunSubmissionError, SubmitOperations> {
+): Effect.Effect<ProfileRunResult, RunSubmissionError, SubmitOperations> {
   return localExecutionProfile(environment).pipe(
     Effect.flatMap((profile) =>
       runKubernetesSociety(args, environment, profile),

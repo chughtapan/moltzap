@@ -2,7 +2,7 @@
 
 import { assert, effect as test } from "@effect/vitest";
 import { Effect, Layer } from "effect";
-import type { RunControllerResult } from "../reclaim.js";
+import type { ControllerRunResult } from "../reclaim.js";
 import type { RunTemporalSocietyOptions } from "../temporal.js";
 import { PROFILE_SOURCE } from "../../__tests__/gke-profile-source.js";
 import {
@@ -17,7 +17,7 @@ import { PROFILE_CLI_USAGE, runProfileCli } from "./cli.js";
 const DIGEST = "a".repeat(64);
 const UUID = "12345678-1234-4abc-8def-1234567890ab";
 const EXPECTED_RUN_ID = `mz-${UUID.replaceAll("-", "")}`;
-const RESULT: RunControllerResult = {
+const RESULT: ControllerRunResult = {
   exitCode: 1,
   summary: { _tag: "LedgerAllocationFailed" },
 };
