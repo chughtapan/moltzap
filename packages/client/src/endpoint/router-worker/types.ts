@@ -10,7 +10,7 @@ import type {
 } from "@moltzap/identity";
 import type { Registry } from "@moltzap/identity/registry";
 import type { PollCursor, Router, RouterInstanceId } from "@moltzap/router";
-import { type Context, Data, type Effect, type Ref } from "effect";
+import { type Context, Data, type Effect, type SubscriptionRef } from "effect";
 import type { DecodedOuterBody } from "../representation.js";
 import type { EndpointStore } from "../store.js";
 
@@ -178,6 +178,12 @@ export interface RouterWorker {
     RouterTailAnchor,
     RouterWorkerUnavailableError
   >;
+  /**
+   * The active anchor as soon as one exists: the current anchor while the
+   * worker is active, otherwise the anchor the next completed recovery
+   * publishes. Callers bound the wait; the worker itself never gives up.
+   */
+  readonly awaitAnchor: Effect.Effect<RouterTailAnchor>;
   readonly pollOnce: Effect.Effect<void, RouterWorkerPollError>;
   readonly run: Effect.Effect<never, RouterWorkerPollError>;
   readonly send: (
@@ -217,7 +223,7 @@ export interface RouterWorkerServices {
 export interface RouterWorkerRuntime<Payload> extends RouterWorkerServices {
   readonly input: RouterWorkerInput<Payload>;
   readonly cards: Map<AgentId, VerifiedAgentCard>;
-  readonly state: Ref.Ref<RouterWorkerState>;
+  readonly state: SubscriptionRef.SubscriptionRef<RouterWorkerState>;
   readonly pollGate: Effect.Semaphore;
   readonly stateGate: Effect.Semaphore;
   readonly recoveryGate: Effect.Semaphore;

@@ -17,7 +17,17 @@ import {
   type RouterSendResult,
   SignedMessageDigest,
 } from "@moltzap/router";
-import { Effect, Encoding, Fiber, Ref, Schedule, Schema } from "effect";
+import {
+  Effect,
+  Encoding,
+  Fiber,
+  Option,
+  Ref,
+  Schedule,
+  Schema,
+  Stream,
+  SubscriptionRef,
+} from "effect";
 import { createHash, randomBytes } from "node:crypto";
 import type { OutboundMessageInput, StoredOutboundMessage } from "../store.js";
 import { decodeCanonical, encodeCanonical } from "../representation.js";
@@ -1007,6 +1017,11 @@ const makeSend = <Payload>(
     }
   });
 
+const activeAnchor = (
+  state: RouterWorkerState,
+): Option.Option<RouterTailAnchor> =>
+  state.kind === "active" ? Option.some(state.anchor) : Option.none();
+
 const makeWorker = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
 ): RouterWorker => {
@@ -1018,6 +1033,14 @@ const makeWorker = <Payload>(
           ? Effect.succeed(state.anchor)
           : Effect.fail(new RouterWorkerUnavailableError()),
       ),
+    ),
+    // `changes` replays the current state, so a worker that attaches between
+    // a caller's probe and this wait still answers immediately; the stream
+    // never ends, so an empty head is a defect rather than a failure.
+    awaitAnchor: runtime.state.changes.pipe(
+      Stream.filterMap(activeAnchor),
+      Stream.runHead,
+      Effect.flatMap(Effect.orDie),
     ),
     pollOnce,
     run: pollOnce.pipe(
@@ -1054,7 +1077,7 @@ export const makeRouterWorker = <Payload>(
       ...services,
       input,
       cards,
-      state: yield* Ref.make<RouterWorkerState>({
+      state: yield* SubscriptionRef.make<RouterWorkerState>({
         kind: "recovering",
         generation: 0,
         reason: "router_restarted",
