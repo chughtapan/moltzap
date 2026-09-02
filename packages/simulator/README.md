@@ -85,6 +85,8 @@ relative path, and one of four outcomes: `text` with the content and its byte
 length, `oversize` when the file exceeds 64 KiB, `absent` when the agent never
 wrote it, or `unreadable` with the cause. Harvest follows the program event and
 precedes teardown; it never fails the run, and an interrupted program skips it.
+A custom container runtime takes part by setting `Application.harvest` to the
+`HarvestTarget`s it wants read (`@moltzap/simulator/agents`).
 
 The read is a plain `sh` probe (`test -f`, a size check, `cat`) executed in the
 application container through `pods/exec`, so the controller's run-scoped Role

@@ -158,8 +158,9 @@ pnpm nx run workspace:simulator-local-fault-qualification -- \
   --image PINNED_IMAGE_FROM_BUILD_OUTPUT
 ```
 
-The qualification wrapper invokes the built local profile, parses its
-`RunSubmission`, then opens the retained manifest, records, and completion
+The qualification wrapper submits through `bin/moltzap-sim run --profile
+local`, parses its `ProfileRunResult` line, then opens the retained manifest,
+records, and completion
 through the public Simulator ledger API. It passes only when the completed
 ledger has exactly one `ProgramSucceeded`, no `ProgramFailed` or
 `ProgramInterrupted`, and one matching `hold` policy set/clear pair in scoped
