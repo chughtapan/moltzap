@@ -548,14 +548,10 @@ export const exportSend = (
   runtime: EngineRuntime,
   input: SendInput,
   outcome: SendExportOutcome,
-): Effect.Effect<void> => {
-  const historyExport = runtime.input.historyExport;
-  if (historyExport === undefined) {
-    return Effect.void;
-  }
-  return DateTime.now.pipe(
+): Effect.Effect<void> =>
+  DateTime.now.pipe(
     Effect.flatMap((at) =>
-      historyExport.record({
+      runtime.input.historyExport.record({
         kind: "outbound",
         to: input.to,
         content: input.content,
@@ -564,7 +560,6 @@ export const exportSend = (
       }),
     ),
   );
-};
 
 interface PreparedSend {
   readonly membership: VerifiedMembership;

@@ -24,10 +24,7 @@ export type SimulatorProfile = "local" | "gke";
  * typechecks the spelling. It is exported so a drift canary can compare it
  * against the `bin` entry in the simulator's own manifest.
  */
-export const SIMULATOR_EXECUTABLE: readonly string[] = Object.freeze([
-  "bin",
-  "moltzap-sim",
-]);
+export const SIMULATOR_EXECUTABLE = "bin/moltzap-sim";
 
 /**
  * The command line that submits one module through one profile.
@@ -117,6 +114,10 @@ export function evaluationControllerModule(
   ].join("\n");
 }
 
+const decodeResultLine = Schema.decodeUnknownEither(
+  Schema.parseJson(ProfileRunResult),
+);
+
 /**
  * Decode the final result line the simulator's submitter printed.
  *
@@ -136,9 +137,7 @@ export function decodeSubmissionOutput(
     if (line === undefined || line.length === 0) {
       continue;
     }
-    const decoded = Schema.decodeUnknownEither(
-      Schema.parseJson(ProfileRunResult),
-    )(line, { onExcessProperty: "error" });
+    const decoded = decodeResultLine(line, { onExcessProperty: "error" });
     const result = Either.getOrUndefined(decoded);
     if (result !== undefined) {
       return Effect.succeed(result);
@@ -180,7 +179,7 @@ export function submitEvaluationCell(input: SubmitEvaluationCellInput) {
         input.workspaceRoot,
         "packages",
         "simulator",
-        ...SIMULATOR_EXECUTABLE,
+        SIMULATOR_EXECUTABLE,
       );
       const command = Command.make(
         "node",

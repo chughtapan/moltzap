@@ -13,8 +13,8 @@ import {
   Layer,
   Option,
   type ParseResult,
-  Ref,
   Schema,
+  Stream,
 } from "effect";
 import {
   appendEvaluationAttempt,
@@ -92,14 +92,8 @@ const leaseRow = Schema.Struct({
   ownerPid: Schema.Int,
 });
 
-const leaseInsert = Schema.Struct({
+const leaseWrite = Schema.Struct({
   ownerPid: Schema.Int,
-  acquiredAt: Schema.DateTimeUtc,
-});
-
-const leaseTakeover = Schema.Struct({
-  ownerPid: Schema.Int,
-  previousOwnerPid: Schema.Int,
   acquiredAt: Schema.DateTimeUtc,
 });
 
@@ -131,7 +125,7 @@ class EvaluationResultConflict extends Schema.TaggedError<EvaluationResultConfli
 /**
  * Another live process on this host holds the report open.
  *
- * Two sweeps over one report would each take a window of the same remaining
+ * Two sweeps over one report would each take the same remaining
  * cells and submit them twice. The lease is a row naming the holder's process,
  * so a holder that died leaves a lease a later opener can tell is stale; a
  * holder on another host cannot be told apart from a live one, and report
@@ -252,15 +246,13 @@ export function evaluationResultStoreLayer(databasePath: string) {
 }
 
 /**
- * Execute missing cells in windows of the chosen width.
+ * Execute the missing cells, up to `concurrency` at a time in plan order.
  *
- * Each window takes the next remaining cells in plan order, runs them at
- * once, and commits finished attempts as a prefix in that order, so the
- * durable report is always a plan-order prefix and resume needs no other
- * rule. Interruption or process failure loses at most the window's finished
- * but not yet committed cells, which the next resume runs again.
+ * Finished attempts commit in plan order, so the durable report is always a
+ * plan-order prefix and interruption or process failure loses at most
+ * `concurrency` finished but uncommitted attempts, which a resume reruns.
  * @param execute Customer cell execution policy.
- * @param options Window width; one cell at a time when omitted.
+ * @param options How many cells run at once; one at a time when omitted.
  * @returns The completed report Effect.
  */
 export function runEvaluationSweep<E, R>(
@@ -296,8 +288,7 @@ function makeQueries(sql: SqlClient.SqlClient) {
     markCompleted: makeMarkCompleted(sql),
     acquireWrite: makeAcquireWrite(sql),
     selectLease: makeSelectLease(sql),
-    insertLease: makeInsertLease(sql),
-    takeOverLease: makeTakeOverLease(sql),
+    writeLease: makeWriteLease(sql),
     releaseLease: makeReleaseLease(sql),
   };
 }
@@ -314,40 +305,24 @@ function makeSelectLease(sql: SqlClient.SqlClient) {
   });
 }
 
-function makeInsertLease(sql: SqlClient.SqlClient) {
-  return SqlSchema.findOne({
-    Request: leaseInsert,
-    Result: leaseRow,
+function makeWriteLease(sql: SqlClient.SqlClient) {
+  return SqlSchema.void({
+    Request: leaseWrite,
     execute: (request) => sql`
       INSERT INTO evaluation_report_lease (singleton, owner_pid, acquired_at)
       VALUES (1, ${request.ownerPid}, ${request.acquiredAt})
-      ON CONFLICT (singleton) DO NOTHING
-      RETURNING owner_pid AS "ownerPid"
-    `,
-  });
-}
-
-function makeTakeOverLease(sql: SqlClient.SqlClient) {
-  return SqlSchema.findOne({
-    Request: leaseTakeover,
-    Result: leaseRow,
-    execute: (request) => sql`
-      UPDATE evaluation_report_lease
-      SET owner_pid = ${request.ownerPid}, acquired_at = ${request.acquiredAt}
-      WHERE singleton = 1 AND owner_pid = ${request.previousOwnerPid}
-      RETURNING owner_pid AS "ownerPid"
+      ON CONFLICT (singleton) DO UPDATE
+      SET owner_pid = excluded.owner_pid, acquired_at = excluded.acquired_at
     `,
   });
 }
 
 function makeReleaseLease(sql: SqlClient.SqlClient) {
-  return SqlSchema.findOne({
+  return SqlSchema.void({
     Request: leaseRow,
-    Result: leaseRow,
     execute: (request) => sql`
       DELETE FROM evaluation_report_lease
       WHERE singleton = 1 AND owner_pid = ${request.ownerPid}
-      RETURNING owner_pid AS "ownerPid"
     `,
   });
 }
@@ -670,29 +645,14 @@ function acquireReportLease(
   const ownerPid = process.pid;
   return sql.withTransaction(
     Effect.gen(function* () {
-      const acquiredAt = yield* DateTime.now;
       const held = yield* queries.selectLease(undefined);
-      const taken = yield* Option.match(held, {
-        onNone: () => queries.insertLease({ ownerPid, acquiredAt }),
-        onSome: (lease) =>
-          lease.ownerPid === ownerPid || processAlive(lease.ownerPid)
-            ? Effect.succeed(Option.none<typeof leaseRow.Type>())
-            : queries.takeOverLease({
-                ownerPid,
-                previousOwnerPid: lease.ownerPid,
-                acquiredAt,
-              }),
-      });
-      if (Option.isNone(taken)) {
+      if (Option.isSome(held) && processAlive(held.value.ownerPid)) {
         return yield* Effect.fail(
-          ReportLocked.make({
-            databasePath,
-            ownerPid: Option.map(held, (lease) => lease.ownerPid).pipe(
-              Option.getOrElse(() => ownerPid),
-            ),
-          }),
+          ReportLocked.make({ databasePath, ownerPid: held.value.ownerPid }),
         );
       }
+      const acquiredAt = yield* DateTime.now;
+      yield* queries.writeLease({ ownerPid, acquiredAt });
     }),
   );
 }
@@ -784,13 +744,9 @@ function windowSelection(
   return { _tag: "window", report, cells };
 }
 
-// One short transaction: what the report holds now, and the next cells to
+// One short transaction: what the report holds now, and every cell still to
 // run. Nothing executes while it is open.
-function selectWindow(
-  databasePath: string,
-  queries: ResultQueries,
-  concurrency: number,
-) {
+function selectWindow(databasePath: string, queries: ResultQueries) {
   return Effect.gen(function* () {
     yield* acquireStoredReportWrite(databasePath, queries.acquireWrite);
     const current = yield* loadStoredReport(databasePath, queries);
@@ -801,7 +757,7 @@ function selectWindow(
     if (remaining.length === 0) {
       return completedSelection(yield* persistCompletion(queries, current));
     }
-    return windowSelection(current, remaining.slice(0, concurrency));
+    return windowSelection(current, remaining);
   });
 }
 
@@ -812,84 +768,34 @@ interface StoreHandle {
   readonly queries: ResultQueries;
 }
 
-interface WindowCommitState {
-  readonly gate: Effect.Semaphore;
-  readonly report: Ref.Ref<InProgressEvaluationReport>;
-  readonly next: Ref.Ref<number>;
-  readonly finished: Map<number, TerminalAttemptType>;
-}
-
-// Finished attempts wait until every earlier cell of the window has
-// committed, so the durable report grows only as a plan-order prefix. The
-// commit itself is uninterruptible: an attempt that finished is not lost to
-// an interrupt that lands between its execution and its row.
-function commitPrefix(handle: StoreHandle, state: WindowCommitState) {
-  return Effect.gen(function* () {
-    for (;;) {
-      const next = yield* Ref.get(state.next);
-      const ready = state.finished.get(next);
-      if (ready === undefined) {
-        return;
-      }
-      const current = yield* Ref.get(state.report);
-      const appended = yield* Effect.uninterruptible(
-        handle.sql.withTransaction(
-          acquireStoredReportWrite(
-            handle.databasePath,
-            handle.queries.acquireWrite,
-          ).pipe(
-            Effect.zipRight(
-              appendStoredAttempt(handle.queries, current, ready),
-            ),
-          ),
-        ),
-      );
-      yield* Ref.set(state.report, appended);
-      state.finished.delete(next);
-      yield* Ref.set(state.next, next + 1);
-    }
-  });
-}
-
-function commitFinished(
-  handle: StoreHandle,
-  state: WindowCommitState,
-  index: number,
-  attempt: TerminalAttemptType,
-) {
-  return state.gate.withPermits(1)(
-    Effect.suspend(() => {
-      state.finished.set(index, attempt);
-      return commitPrefix(handle, state);
-    }),
-  );
-}
-
+// Cells start up to `concurrency` at a time in plan order and the stream hands
+// their attempts back in that same order, so the durable report grows only as
+// a plan-order prefix and at most `concurrency` finished cells ever wait behind
+// a slower head. Each commit is uninterruptible: an attempt that finished is
+// not lost to an interrupt that lands between its result and its row.
 function executeWindow<E, R>(
   handle: StoreHandle,
   selection: Extract<WindowSelection, { readonly _tag: "window" }>,
   execute: ExecuteCell<E, R>,
   concurrency: number,
 ) {
-  return Effect.gen(function* () {
-    const state: WindowCommitState = {
-      gate: yield* Effect.makeSemaphore(1),
-      report: yield* Ref.make(selection.report),
-      next: yield* Ref.make(0),
-      finished: new Map(),
-    };
-    yield* Effect.forEach(
-      selection.cells,
-      (cell, index) =>
-        execute(cell).pipe(
-          Effect.flatMap((attempt) =>
-            commitFinished(handle, state, index, attempt),
+  return Stream.fromIterable(selection.cells).pipe(
+    Stream.mapEffect(execute, { concurrency }),
+    Stream.runFoldEffect(selection.report, (report, attempt) =>
+      Effect.uninterruptible(
+        handle.sql.withTransaction(
+          acquireStoredReportWrite(
+            handle.databasePath,
+            handle.queries.acquireWrite,
+          ).pipe(
+            Effect.zipRight(
+              appendStoredAttempt(handle.queries, report, attempt),
+            ),
           ),
         ),
-      { concurrency, discard: true },
-    );
-    return yield* Ref.get(state.report);
-  });
+      ),
+    ),
+  );
 }
 
 function advanceStoredReport<E, R>(
@@ -899,7 +805,7 @@ function advanceStoredReport<E, R>(
 ) {
   return Effect.gen(function* () {
     const selection = yield* handle.sql.withTransaction(
-      selectWindow(handle.databasePath, handle.queries, concurrency),
+      selectWindow(handle.databasePath, handle.queries),
     );
     switch (selection._tag) {
       case "completed":

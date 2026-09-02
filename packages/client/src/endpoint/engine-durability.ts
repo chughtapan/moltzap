@@ -357,14 +357,9 @@ export const inboundDelivery = (
 export const exportInbound = (
   runtime: EngineRuntime,
   message: InboundMessageValue,
-): Effect.Effect<void> => {
-  const historyExport = runtime.input.historyExport;
-  if (historyExport === undefined) {
-    return Effect.void;
-  }
-  return DateTime.now.pipe(
+): Effect.Effect<void> =>
+  DateTime.now.pipe(
     Effect.flatMap((at) =>
-      historyExport.record({ kind: "inbound", message, at }),
+      runtime.input.historyExport.record({ kind: "inbound", message, at }),
     ),
   );
-};

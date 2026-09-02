@@ -40,6 +40,7 @@ import { describe, expect, it } from "vitest";
 import type { HarnessMcpSubscriptionHandler } from "../../harness-mcp-subscription.js";
 import type { DaemonBootstrap } from "../configuration.js";
 import { DeliveryAcknowledgeError, InboundMessage } from "../../contract.js";
+import { noHistoryExport } from "../../endpoint/engine-types.js";
 import {
   type EndpointEngine,
   type EndpointEngineInput,
@@ -145,7 +146,9 @@ interface RuntimeHarness {
     | undefined;
   readonly getOperations: () => HarnessMcpOperations | undefined;
   readonly getWorkerOutbox: () => RouterWorkerInput["outbox"] | undefined;
-  readonly getEngineHistoryExport: () => EndpointEngineInput["historyExport"];
+  readonly getEngineHistoryExport: () =>
+    | EndpointEngineInput["historyExport"]
+    | undefined;
   readonly getHistoryExportPath: () => string | undefined;
 }
 
@@ -672,7 +675,7 @@ const leavesEngineWithoutExportByDefault = async () => {
       "engine acquisition",
     );
     expect(harness.getHistoryExportPath()).toBeUndefined();
-    expect(harness.getEngineHistoryExport()).toBeUndefined();
+    expect(harness.getEngineHistoryExport()).toBe(noHistoryExport);
   } finally {
     await Effect.runPromise(Fiber.interrupt(fiber));
   }

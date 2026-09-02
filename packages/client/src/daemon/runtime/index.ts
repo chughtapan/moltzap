@@ -8,6 +8,7 @@ import { Effect, type Scope } from "effect";
 import type { EndpointStore } from "../../endpoint/store.js";
 import type { DaemonBootstrap } from "../configuration.js";
 import packageJson from "../../../package.json" with { type: "json" };
+import { noHistoryExport } from "../../endpoint/engine-types.js";
 import { makeEndpointEngine } from "../../endpoint/engine.js";
 import { makeRouterWorker } from "../../endpoint/router-worker/index.js";
 import { acquireHarnessMcpHttpServer } from "../../harness-mcp-http.js";
@@ -64,11 +65,11 @@ export const runDaemonRuntime = (
     const exportPath = input.bootstrap.configuration.historyExport;
     const historyExport =
       exportPath === undefined
-        ? undefined
+        ? noHistoryExport
         : yield* dependencies.makeHistoryExport(exportPath);
     const controller = yield* makeDaemonController({
       ...input,
-      ...(historyExport === undefined ? {} : { historyExport }),
+      historyExport,
       management: preparation.management,
       dependencies,
     });

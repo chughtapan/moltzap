@@ -1,6 +1,6 @@
 /** @file Reading one file back from a live application container. */
 
-import type { Exec } from "@kubernetes/client-node";
+import type { Exec, V1Status } from "@kubernetes/client-node";
 import { Data, Effect } from "effect";
 import { PassThrough } from "node:stream";
 import type { HarvestedFileOutcome } from "../../events/core.js";
@@ -45,18 +45,6 @@ export interface ApplicationFileObservation {
   readonly stderr: string;
 }
 
-/** The status frame an exec session ends with, as far as the exit code goes. */
-export interface ExecStatus {
-  readonly status?: string;
-  readonly reason?: string;
-  readonly details?: {
-    readonly causes?: ReadonlyArray<{
-      readonly reason?: string;
-      readonly message?: string;
-    }>;
-  };
-}
-
 /**
  * The shell command that reads one harvest target inside an application.
  *
@@ -83,7 +71,7 @@ export function harvestCommand(
  * @param status Final status frame of the exec session.
  * @returns The command's exit code, or undefined when the frame carries none.
  */
-export function execExitCode(status: ExecStatus): number | undefined {
+export function execExitCode(status: V1Status): number | undefined {
   if (status.status === "Success") {
     return 0;
   }
@@ -170,14 +158,14 @@ export function execHarvestProbe(
 interface ProbeSession {
   readonly stdout: PassThrough;
   readonly stderr: PassThrough;
-  readonly observeStatus: (status: ExecStatus) => void;
+  readonly observeStatus: (status: V1Status) => void;
   readonly observation: () => ApplicationFileObservation;
 }
 
 function makeSession(): ProbeSession {
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
-  let status: ExecStatus | undefined;
+  let status: V1Status | undefined;
   return {
     stdout: collector(stdout),
     stderr: collector(stderr),

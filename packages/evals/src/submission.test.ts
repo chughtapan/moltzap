@@ -112,7 +112,7 @@ effect("spawns the executable the simulator package actually ships", () =>
     const simulatorRoot = fileURLToPath(
       new URL("../../simulator", import.meta.url),
     );
-    const executable = join(simulatorRoot, ...SIMULATOR_EXECUTABLE);
+    const executable = join(simulatorRoot, SIMULATOR_EXECUTABLE);
 
     // The submitter spawns this file by path, so no import checks the
     // spelling. Pin it against the checked-in file and against the `bin` entry
@@ -131,7 +131,7 @@ effect("spawns the executable the simulator package actually ships", () =>
     )(yield* fileSystem.readFileString(join(simulatorRoot, "package.json")));
     assert.strictEqual(
       manifest.bin["moltzap-sim"],
-      `./${SIMULATOR_EXECUTABLE.join("/")}`,
+      `./${SIMULATOR_EXECUTABLE}`,
     );
   }).pipe(Effect.provide(NodeContext.layer)),
 );

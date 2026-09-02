@@ -6,7 +6,11 @@ import { type Cause, Context, Data, Effect, Layer } from "effect";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import type { KubernetesExecutionProfile } from "./profile.js";
-import type { RunControllerResult } from "./reclaim.js";
+import type { ProfileRunResult } from "./profiles/result.js";
+import type {
+  RunControllerResult,
+  RunSocietyWorkflowInput,
+} from "./reclaim.js";
 import { FORCE_WORKER_ROLL_VARIABLE, RunWorkerRollRefused } from "./install.js";
 import {
   runTemporalSociety,
@@ -56,11 +60,7 @@ export class SubmitOperations extends Context.Tag(
 export const SUBMITTED_DIAGNOSTIC_MAX_BYTES = 8 * 1_024;
 
 /** Successful submission reported to the operator. */
-export interface RunSubmission {
-  readonly runId: string;
-  readonly namespace: string;
-  readonly result: RunControllerResult;
-}
+export type RunSubmission = ProfileRunResult;
 
 /** Sanitized failure at the repository-owned submission boundary. */
 export class RunSubmissionError extends Data.TaggedError("RunSubmissionError")<{
@@ -135,6 +135,12 @@ export function boundedDiagnostic(value: string): string {
   return new TextDecoder().decode(bytes.subarray(start));
 }
 
+/** Run sizing the operator may override, absent where the controller's default applies. */
+type RunSizing = Pick<
+  RunSocietyWorkflowInput,
+  "startupTimeoutMs" | "admissionTimeoutMs" | "cohortSize"
+>;
+
 interface PreparedRun {
   readonly path: string;
   readonly controllerImage: string;
@@ -144,9 +150,7 @@ interface PreparedRun {
     Partial<Record<"ANTHROPIC_API_KEY" | "OPENAI_API_KEY", string>>
   >;
   readonly executionProfile: KubernetesExecutionProfile;
-  readonly startupTimeoutMs?: number;
-  readonly admissionTimeoutMs?: number;
-  readonly cohortSize?: number;
+  readonly sizing: RunSizing;
   readonly forceWorkerRoll: boolean;
   readonly connection: {
     readonly taskQueue: string;
@@ -179,7 +183,7 @@ function prepareRun(
     // Exactly "1", so that an operator who exported the variable to something
     // else has not silently accepted losing a run.
     forceWorkerRoll: environment[FORCE_WORKER_ROLL_VARIABLE] === "1",
-    ...runSizing(environment),
+    sizing: runSizing(environment),
     supportImage: requiredImage(
       environment,
       "MOLTZAP_SUPPORT_IMAGE",
@@ -325,11 +329,7 @@ function runtimeCredentials(
     : Object.freeze(credentials);
 }
 
-function runSizing(environment: RunEnvironment): {
-  readonly startupTimeoutMs?: number;
-  readonly admissionTimeoutMs?: number;
-  readonly cohortSize?: number;
-} {
+function runSizing(environment: RunEnvironment): RunSizing {
   const startupTimeoutMs = countOverride(
     environment,
     "MOLTZAP_STARTUP_TIMEOUT_MS",
@@ -424,15 +424,7 @@ function executePreparedRun(
             ? {}
             : { runtimeCredentials: prepared.runtimeCredentials }),
           experimentModule,
-          ...(prepared.startupTimeoutMs === undefined
-            ? {}
-            : { startupTimeoutMs: prepared.startupTimeoutMs }),
-          ...(prepared.admissionTimeoutMs === undefined
-            ? {}
-            : { admissionTimeoutMs: prepared.admissionTimeoutMs }),
-          ...(prepared.cohortSize === undefined
-            ? {}
-            : { cohortSize: prepared.cohortSize }),
+          ...prepared.sizing,
         },
       },
       operations,
