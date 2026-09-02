@@ -5,8 +5,12 @@ import {
   MOLTZAP_VERSION,
   SignedMessage,
 } from "@moltzap/identity";
-import { Effect, Schema } from "effect";
-import type { EngineActionFold, EngineConversation } from "./engine-types.js";
+import { DateTime, Effect, Schema } from "effect";
+import type {
+  EngineActionFold,
+  EngineConversation,
+  EngineRuntime,
+} from "./engine-types.js";
 import type {
   InboundDeliveryInput,
   ProtocolEvidence,
@@ -314,22 +318,53 @@ const projectInboundMessage = (
     return yield* projectGroupMessage(conversation, intent, sender);
   }).pipe(Effect.withSpan("projectInboundMessage"));
 
+/** The store's canonical pending delivery beside the message it encodes. */
+export interface InboundDeliveryProjection {
+  readonly input: InboundDeliveryInput;
+  readonly message: InboundMessageValue;
+}
+
 /**
  * Encode the remote projection atomically retained during promotion.
  * @param conversation Verified local conversation state and member cards.
  * @param record Complete remote-authored certified record.
  * @param recipientAgentId Local recipient that owns the pending delivery.
- * @returns Canonical pending-delivery input for atomic record promotion.
+ * @returns Canonical pending-delivery input for atomic record promotion, with
+ * the decoded message it was encoded from.
  */
 export const inboundDelivery = (
   conversation: EngineConversation,
   record: CertifiedRecord,
   recipientAgentId: AgentId,
-): Effect.Effect<InboundDeliveryInput, ClientRepresentationError> =>
+): Effect.Effect<InboundDeliveryProjection, ClientRepresentationError> =>
   projectInboundMessage(conversation, record).pipe(
-    Effect.flatMap((message) => encodeCanonical(InboundMessage, message)),
-    Effect.map((canonicalMessage) => ({
-      recipientAgentId,
-      canonicalMessage,
-    })),
+    Effect.flatMap((message) =>
+      encodeCanonical(InboundMessage, message).pipe(
+        Effect.map((canonicalMessage) => ({
+          input: { recipientAgentId, canonicalMessage },
+          message,
+        })),
+      ),
+    ),
   );
+
+/**
+ * Record one durable inbound delivery in the history export, if any.
+ * @param runtime Current engine state and protocol dependencies.
+ * @param message The exact host-visible message the store now holds.
+ * @returns Completion; a missing export records nothing.
+ */
+export const exportInbound = (
+  runtime: EngineRuntime,
+  message: InboundMessageValue,
+): Effect.Effect<void> => {
+  const historyExport = runtime.input.historyExport;
+  if (historyExport === undefined) {
+    return Effect.void;
+  }
+  return DateTime.now.pipe(
+    Effect.flatMap((at) =>
+      historyExport.record({ kind: "inbound", message, at }),
+    ),
+  );
+};

@@ -42,6 +42,7 @@ import type { DaemonBootstrap } from "../configuration.js";
 import { DeliveryAcknowledgeError, InboundMessage } from "../../contract.js";
 import {
   type EndpointEngine,
+  type EndpointEngineInput,
   EngineOutboundError,
   type EnginePendingMessage,
 } from "../../endpoint/engine.js";
@@ -118,6 +119,8 @@ interface HarnessObservations {
   readonly events: string[];
   handler?: HarnessMcpSubscriptionHandler<HarnessMessageReadyEvent>;
   operations?: HarnessMcpOperations;
+  engineHistoryExport?: EndpointEngineInput["historyExport"];
+  historyExportPath?: string;
   workerOutbox?: RouterWorkerInput["outbox"];
 }
 
@@ -142,9 +145,17 @@ interface RuntimeHarness {
     | undefined;
   readonly getOperations: () => HarnessMcpOperations | undefined;
   readonly getWorkerOutbox: () => RouterWorkerInput["outbox"] | undefined;
+  readonly getEngineHistoryExport: () => EndpointEngineInput["historyExport"];
+  readonly getHistoryExportPath: () => string | undefined;
 }
 
 type BackgroundFailure = "none" | "outbound" | "worker";
+
+const EXPORT_PATH = "/var/run/moltzap/history.ndjson";
+/** The one sink the fake edge hands out, so identity proves the threading. */
+const RECORDING_EXPORT: NonNullable<EndpointEngineInput["historyExport"]> = {
+  record: () => Effect.void,
+};
 
 const identifier = (prefix: string, byte: number): string =>
   `${prefix}${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`;
@@ -378,9 +389,10 @@ function makeRuntimeDependencies(
         input.observations.workerOutbox = workerInput.outbox;
         return worker;
       }),
-    makeEngine: () =>
+    makeEngine: (engineInput) =>
       Effect.gen(function* () {
         input.observations.events.push("engine");
+        input.observations.engineHistoryExport = engineInput.historyExport;
         yield* Deferred.succeed(input.signals.engineEntered, undefined);
         if (input.blockEngine) {
           yield* Deferred.await(input.signals.engineRelease);
@@ -404,6 +416,11 @@ function makeRuntimeDependencies(
         ),
         () => closeHandler(handler),
       ).pipe(Effect.asVoid),
+    makeHistoryExport: (path) =>
+      Effect.sync(() => {
+        input.observations.historyExportPath = path;
+        return RECORDING_EXPORT;
+      }),
   };
 }
 
@@ -501,6 +518,8 @@ const makeHarness = (
       getHandler: () => observations.handler,
       getOperations: () => observations.operations,
       getWorkerOutbox: () => observations.workerOutbox,
+      getEngineHistoryExport: () => observations.engineHistoryExport,
+      getHistoryExportPath: () => observations.historyExportPath,
     };
   });
 
@@ -613,6 +632,51 @@ function requireOperations(harness: RuntimeHarness): HarnessMcpOperations {
   }
   return operations;
 }
+
+const withHistoryExport = (fixture: Fixture): Fixture => ({
+  ...fixture,
+  bootstrap: {
+    ...fixture.bootstrap,
+    configuration: {
+      ...fixture.bootstrap.configuration,
+      historyExport: EXPORT_PATH,
+    },
+  },
+});
+
+const threadsHistoryExportIntoEngine = async () => {
+  const fixture = withHistoryExport(await Effect.runPromise(makeFixture));
+  const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
+  const store = makeStore(fixture, true);
+  const fiber = Effect.runFork(run(fixture, store, harness));
+  try {
+    await awaitStage(
+      Deferred.await(harness.engineEntered),
+      "engine acquisition",
+    );
+    expect(harness.getHistoryExportPath()).toBe(EXPORT_PATH);
+    expect(harness.getEngineHistoryExport()).toBe(RECORDING_EXPORT);
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(fiber));
+  }
+};
+
+const leavesEngineWithoutExportByDefault = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
+  const store = makeStore(fixture, true);
+  const fiber = Effect.runFork(run(fixture, store, harness));
+  try {
+    await awaitStage(
+      Deferred.await(harness.engineEntered),
+      "engine acquisition",
+    );
+    expect(harness.getHistoryExportPath()).toBeUndefined();
+    expect(harness.getEngineHistoryExport()).toBeUndefined();
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(fiber));
+  }
+};
 
 const blocksStartupAndSupervisesWorker = async () => {
   const fixture = await Effect.runPromise(makeFixture);
@@ -785,6 +849,14 @@ const replaysUntilAcknowledged = async () => {
 };
 
 describe("daemon runtime composition", () => {
+  it(
+    "threads the configured history export into the engine",
+    threadsHistoryExportIntoEngine,
+  );
+  it(
+    "hands the engine no export when none is configured",
+    leavesEngineWithoutExportByDefault,
+  );
   it("waits for the active engine and supervises the Router worker", () =>
     blocksStartupAndSupervisesWorker());
   it("does not finish registration before engine activation", () =>

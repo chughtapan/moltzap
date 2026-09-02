@@ -36,6 +36,9 @@ import {
   configurationDigest,
   digestText,
   harvestTargets,
+  HISTORY_EXPORT_PATH,
+  HISTORY_EXPORT_VARIABLE,
+  historyExportTarget,
   mcpConfiguration,
   type McpServer,
   McpServerConfiguration,
@@ -103,6 +106,7 @@ export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeCo
   startupTimeout: Schema.DurationFromMillis,
   workspaceFiles: Schema.Array(WorkspaceFileConfiguration),
   harvestWorkspaceFiles: Schema.Array(Schema.String),
+  historyExport: Schema.Boolean,
   modelOverride: Schema.optional(Schema.String),
   mcpServers: Schema.Array(McpServerConfiguration),
   messagingMode,
@@ -123,6 +127,12 @@ export interface OpenClawRuntimeOptions {
    * grade what its agents wrote without their exiting.
    */
   readonly harvestWorkspaceFiles?: readonly string[];
+  /**
+   * Have the agent's `moltzapd` append every delivery and send it completes
+   * to a history export, harvested into the ledger as
+   * `moltzap-history.ndjson` when the customer program ends.
+   */
+  readonly historyExport?: boolean;
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
 
@@ -189,6 +199,7 @@ interface OpenClawRuntimeSettings {
   readonly workspaceFiles: readonly CheckedWorkspaceFile[];
   readonly invisibleWorkspaceFiles: readonly string[];
   readonly harvestPaths: readonly WorkspaceRelativePath[];
+  readonly historyExport: boolean;
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
   readonly messagingMode: typeof messagingMode.Type;
@@ -212,6 +223,7 @@ function snapshotOptions(
     workspaceFiles,
     invisibleWorkspaceFiles: invisibleFiles,
     harvestPaths: snapshotHarvestPaths(options.harvestWorkspaceFiles),
+    historyExport: options.historyExport ?? false,
     modelId: options.modelId,
     mcpServers: snapshotMcpServers(options.mcpServers),
     messagingMode: options.messagingMode ?? "shared",
@@ -263,6 +275,7 @@ function runtimeConfiguration(
     startupTimeout: settings.startupTimeout,
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
     harvestWorkspaceFiles: settings.harvestPaths,
+    historyExport: settings.historyExport,
     mcpServers: mcpConfiguration(settings.mcpServers),
     messagingMode: settings.messagingMode,
     ...(tools === undefined ? {} : { tools }),
@@ -312,7 +325,10 @@ function makeOpenClawApplication(
     acquireGateway,
     invisibleWorkspaceFiles: settings.invisibleWorkspaceFiles,
   };
-  const harvest = harvestTargets(OPENCLAW_WORKSPACE_DIR, settings.harvestPaths);
+  const harvest = [
+    ...harvestTargets(OPENCLAW_WORKSPACE_DIR, settings.harvestPaths),
+    ...(settings.historyExport ? [historyExportTarget()] : []),
+  ];
   return Object.freeze({
     entrypoint: Object.freeze(["node", AGENT_IMAGE_ENTRYPOINT] as const),
     environment: Object.freeze({
@@ -320,6 +336,9 @@ function makeOpenClawApplication(
       OPENCLAW_STATE_DIR: APPLICATION_STATE_DIR,
       OPENCLAW_CONFIG_PATH: APPLICATION_CONFIG_PATH,
       OPENCLAW_DISABLE_BONJOUR: "1",
+      ...(settings.historyExport
+        ? { [HISTORY_EXPORT_VARIABLE]: HISTORY_EXPORT_PATH }
+        : {}),
     }),
     ...(settings.modelId === undefined
       ? {}

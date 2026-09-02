@@ -12,6 +12,7 @@ import {
   readFile,
   readdir,
   stat,
+  writeFile,
 } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,6 +30,7 @@ const SHUTDOWN_GRACE_MILLIS = 5_000;
 const DAEMON_ENVIRONMENT_KEYS = Object.freeze([
   "MOLTZAPD_ADMISSION_CREDENTIAL_FILE",
   "MOLTZAPD_AGENT_PRIVATE_KEY_FILE",
+  "MOLTZAPD_HISTORY_EXPORT",
   "MOLTZAPD_MCP_PORT",
   "MOLTZAPD_REGISTRY_ORIGIN",
   "MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY",
@@ -107,12 +109,26 @@ async function prepareOwnedDirectory(path, uid, gid) {
   await chownTree(path, uid, gid);
 }
 
+// The export lives outside every directory the daemon owns, so PID 1 creates
+// the empty file and hands it over; the daemon only ever appends to it.
+async function prepareOwnedFile(path, uid, gid) {
+  await writeFile(path, "", { flag: "a", mode: 0o600 });
+  await chown(path, uid, gid);
+}
+
 async function prepareFilesystem(options) {
   await prepareOwnedDirectory(
     options.stateDirectory,
     options.daemonUserId,
     options.daemonGroupId,
   );
+  if (options.historyExport !== undefined) {
+    await prepareOwnedFile(
+      options.historyExport,
+      options.daemonUserId,
+      options.daemonGroupId,
+    );
+  }
   await prepareOwnedDirectory(
     options.secretDirectory,
     options.daemonUserId,
@@ -240,6 +256,7 @@ function runtimeOptions(environment) {
       hostUserId,
     ),
     hostUserId,
+    historyExport: environment.MOLTZAPD_HISTORY_EXPORT,
     registrar: environment.MOLTZAP_AGENT_IMAGE_REGISTRAR ?? DEFAULT_REGISTRAR,
     secretDirectory:
       environment.MOLTZAP_AGENT_IMAGE_SECRET_DIRECTORY ??

@@ -37,6 +37,19 @@ export type WorkspaceRelativePath = typeof workspaceRelativePath.Type;
  */
 export const MAX_HARVESTED_FILE_BYTES = 64 * 1_024;
 
+/**
+ * Upper bound on the daemon's harvested history export. A transcript of one
+ * agent's deliveries and sends over a run is larger than one grader's file but
+ * still one ledger line, so the bound is generous without being unbounded.
+ */
+const MAX_HARVESTED_EXPORT_BYTES = 1_024 * 1_024;
+/** Where `moltzapd` appends its history export inside the application container. */
+export const HISTORY_EXPORT_PATH = "/var/run/moltzap/history.ndjson";
+/** The daemon input that turns its history export on. */
+export const HISTORY_EXPORT_VARIABLE = "MOLTZAPD_HISTORY_EXPORT";
+/** How the ledger names the harvested export, beside experiment-declared files. */
+const HISTORY_EXPORT_LABEL = "moltzap-history.ndjson";
+
 const harvestPaths = Schema.Array(workspaceRelativePath).pipe(
   Schema.filter((paths) => new Set(paths).size === paths.length, {
     message: () => "harvested workspace paths must be distinct",
@@ -178,6 +191,18 @@ export function harvestTargets(
       }),
     ),
   );
+}
+
+/**
+ * The runtime-owned harvest target for the daemon's history export.
+ * @returns The target the cluster reads after the customer program ends.
+ */
+export function historyExportTarget(): HarvestTarget {
+  return Object.freeze({
+    relativePath: HISTORY_EXPORT_LABEL,
+    path: HISTORY_EXPORT_PATH,
+    limitBytes: MAX_HARVESTED_EXPORT_BYTES,
+  });
 }
 
 /**

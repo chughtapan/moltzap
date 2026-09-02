@@ -349,3 +349,28 @@ describe("NanoClaw workspace harvest", () => {
       assert.notProperty(application, "harvest");
     }));
 });
+
+describe("NanoClaw history export", () => {
+  test("turns the daemon export on and harvests it as a runtime-owned target", () =>
+    Effect.gen(function* () {
+      const runtime = nanoclawRuntime({
+        applicationImage: APPLICATION_IMAGE,
+        historyExport: true,
+      });
+      const application = yield* containerRuntimeFor(runtime).render({
+        agentName: AGENT_NAME,
+      });
+
+      assert.strictEqual(
+        application.environment.MOLTZAPD_HISTORY_EXPORT,
+        "/var/run/moltzap/history.ndjson",
+      );
+      assert.deepStrictEqual(application.harvest, [
+        {
+          relativePath: "moltzap-history.ndjson",
+          path: "/var/run/moltzap/history.ndjson",
+          limitBytes: 1_048_576,
+        },
+      ]);
+    }));
+});

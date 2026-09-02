@@ -153,6 +153,30 @@ test("successful bootstrap starts the host with separated credentials", async ()
   );
 });
 
+test("prepares the daemon's history export and keeps it from the host", async () => {
+  const app = await fixture();
+  const exportPath = join(app.root, "history.ndjson");
+
+  assert.equal(
+    await runAgentImage({
+      ...app.environment,
+      MOLTZAPD_HISTORY_EXPORT: exportPath,
+    }),
+    0,
+  );
+
+  const daemonEnvironment = JSON.parse(
+    await readFile(join(app.state, "daemon-env.json"), "utf8"),
+  );
+  const hostEnvironment = JSON.parse(await readFile(app.hostRecord, "utf8"));
+  assert.equal(daemonEnvironment.MOLTZAPD_HISTORY_EXPORT, exportPath);
+  assert.equal(hostEnvironment.MOLTZAPD_HISTORY_EXPORT, undefined);
+  const exportFile = await stat(exportPath);
+  assert.equal(exportFile.mode & 0o777, 0o600);
+  assert.equal(exportFile.uid, currentUserId);
+  assert.equal(await readFile(exportPath, "utf8"), "");
+});
+
 test("daemon exit terminates the host and is not restarted", async () => {
   const app = await fixture({ daemonExitCode: 7, hostWait: true });
 
