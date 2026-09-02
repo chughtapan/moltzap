@@ -485,6 +485,8 @@ try {
   const { archives, manifests } = await packWorkspaceClosure(
     workspacePackageRoots,
     temporaryRoot,
+    // every package in this closure publishes
+    new Set(Object.keys(workspacePackageRoots)),
   );
   await verifyPackedFiles(
     await extractPackedArchive(archives["@moltzap/simulator"], temporaryRoot),

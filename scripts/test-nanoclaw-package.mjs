@@ -88,9 +88,9 @@ async function verifyConsumer(archives) {
       join(consumerRoot, "check.ts"),
       [
         "// The package registers its channel with NanoClaw's registry on import",
-        "// and exports nothing. A side-effect import still loads its published",
-        "// declarations, so this compile checks them and the Client and Effect",
-        "// types they reach from inside the packed closure.",
+        "// and exports nothing. A side-effect import still loads its declarations,",
+        "// so this compile checks them and the Client and Effect types they reach",
+        "// from inside the packed closure.",
         'import "@moltzap/nanoclaw-channel";',
         "",
       ].join("\n"),
@@ -101,7 +101,7 @@ async function verifyConsumer(archives) {
         'const channel = await import("@moltzap/nanoclaw-channel");',
         "const exported = Object.keys(channel);",
         "if (exported.length !== 0) {",
-        '  throw new Error(`NanoClaw channel must stay private: ${exported.join(",")}`);',
+        '  throw new Error(`NanoClaw channel must export nothing: ${exported.join(",")}`);',
         "}",
         "",
       ].join("\n"),
@@ -122,6 +122,12 @@ try {
   const { archives, manifests } = await packWorkspaceClosure(
     packageRoots,
     temporaryRoot,
+    // The adapter itself is private; its Client closure publishes.
+    new Set(
+      Object.keys(packageRoots).filter(
+        (name) => name !== "@moltzap/nanoclaw-channel",
+      ),
+    ),
   );
   await verifyPackedManifest(
     archives["@moltzap/nanoclaw-channel"],

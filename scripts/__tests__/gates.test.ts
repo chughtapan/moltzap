@@ -510,7 +510,7 @@ const testPublicationGuards = (): void => {
     `expected exit 0, got ${clean.code}. stderr: ${clean.stderr.slice(0, 300)}`,
   );
 
-  plantFile("packages/nanoclaw-channel/package.json", (s) =>
+  plantFile("packages/openclaw-channel/package.json", (s) =>
     s.replace(/"version": "[^"]+"/, '"version": "2026.101.0"'),
   );
   const unequal = runBoundaries();

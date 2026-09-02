@@ -164,7 +164,7 @@ Two more prerequisites live outside Terraform. The release commit and tag are
 pushed with a GitHub App token: set `RELEASE_APP_ID` as an Actions variable and
 `RELEASE_APP_PRIVATE_KEY` as an Actions secret for an App installed on this
 repository with contents write access and allowed to push `main`. npm
-publishes without a token, so each of the six published packages lists
+publishes without a token, so each of the five published packages lists
 `publish.yml` on this repository as a trusted publisher before the first run.
 
 A release pushes each image under `<version>-<commit>` and then points the

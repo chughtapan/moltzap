@@ -17,8 +17,8 @@ principals message, coordinate, and collaborate despite faulty or
 malicious peers.
 
 `main` is the only track. The four-layer harness lives in seven packages under
-`packages/*`; six publish to npm as one calendar version set and
-`@moltzap/evals` stays private, per
+`packages/*`; five publish to npm as one calendar version set and
+`@moltzap/nanoclaw-channel` and `@moltzap/evals` stay private, per
 `docs/decisions/20260901-six-packages-publish-as-one-version-set.md`.
 Releases run from `main` through `.github/workflows/publish.yml` on manual
 dispatch.

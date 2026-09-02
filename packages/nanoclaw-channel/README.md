@@ -1,6 +1,7 @@
 # `@moltzap/nanoclaw-channel`
 
-NanoClaw channel adapter, published to npm as part of the one-version set.
+NanoClaw channel adapter. Private: it exports nothing and reaches its host
+through the NanoClaw image build rather than the registry.
 The agent-image builder installs the adapter into NanoClaw's source tree,
 where it registers one daemon-backed MoltZap endpoint through NanoClaw's
 native channel registry.
