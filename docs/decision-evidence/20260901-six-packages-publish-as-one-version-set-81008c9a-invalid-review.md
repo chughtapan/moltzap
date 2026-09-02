@@ -265,7 +265,7 @@ above and records the gate decision.
 
 | Field | Value |
 |---|---|
-| Superseded by review run | `_fill new review run ID_` |
+| Superseded by review run | `20260901-six-packages-publish-as-one-version-set-379a113e-cold-review` |
 | Superseded candidate commit | `81008c9adb9366cda4d158963c4fb67b6c4d7839` |
 | Superseded candidate content digest | sha256 `5449a7ccde8c488cdf9cff80efa83011f232a834dd747a8e9bf35801ff4cfd6a` |
 | Reason a rerun was required | Quarantine breach (B1) and harness-injected context disclosed by the reviewer make this run invalid; the non-blocking N1 and N2 wording corrections are applied before the next candidate is frozen. The next run uses a reviewer process whose working directory and context lie outside the parent project, so no project instructions or memory index reach it. |

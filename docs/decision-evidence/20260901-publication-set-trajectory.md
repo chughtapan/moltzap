@@ -321,6 +321,12 @@ decision-maker's admission of the record is its only attribution.
   >
   > "B Keep one atomic PR-R"
 
+No source event located for the external-consumer cutover deferral that the
+record's Consequences and `docs/spec/layer-interfaces.md` → Deliberate
+deferrals carry; no retained event selects or discusses it. The deferral
+predates the record (mechanical observation below) and the record retains it
+without selecting anything about it.
+
 No source event located for a reason behind the D9 selection beyond the
 question's own text.
 
@@ -330,6 +336,10 @@ These observations are separate from the conversation events. They were made
 against the repository and the npm registry while this ledger was compacted
 and are dated as such.
 
+- Commit `a178413d`: `docs/spec/layer-interfaces.md` → Deliberate deferrals
+  already reads "Final publication/version policy and external-consumer
+  cutover remain unresolved"; the record resolves the first clause and leaves
+  the second in place.
 - Commit `ff0da6dc` (`chore(release)` for the `2026.811.0` releases) and
   commit `102f1104` (the head the `2026.812.0` publish run built): the
   `@moltzap/protocol`, `@moltzap/server-core`, `@moltzap/client`, and

@@ -74,10 +74,14 @@ OpenClaw, and NanoClaw images tagged with the version to Artifact Registry
 same source revision rather than rebuilding), records the image digests in
 `packages/simulator/gke/README.md`, regenerates documentation,
 stamps `CHANGELOG.md`, commits `chore(release): moltzap@<version>`, and
-publishes every package not yet on npm at that version with provenance. A
-rerun after a partial failure converges on the same version, digests, and
-commit; a run dispatched with `start_new_version` abandons an incomplete
-release commit and mints the next version from the tip instead. Only one
+publishes every package not yet on npm at that version with provenance. Once
+the release commit is on `main`, every rerun converges on that version, its
+recorded digests, and that commit. Before the release commit exists, a rerun
+on the same UTC day recomputes the same version and reuses the images an
+earlier attempt pushed for it; a rerun on a later UTC day mints that day's
+version and rebuilds, because the packed workspace inside each image carries
+the stamped version. A run dispatched with `start_new_version` abandons an
+incomplete release commit and mints the next version from the tip. Only one
 release runs at a time, and only from the tip of `main`. The workflow
 authenticates to Google Cloud through Workload Identity Federation, whose
 trust admits only this workflow on `main`, and to npm through trusted
@@ -145,7 +149,9 @@ and versions` section is the normative owner of the rules above.
 - A push-triggered release is a later, separate change once a manual release
   has proven the prerequisites.
 - External-consumer cutover remains the one open release question; it is
-  named in `docs/spec/layer-interfaces.md` → Deliberate deferrals.
+  named in `docs/spec/layer-interfaces.md` → Deliberate deferrals, where it
+  already stood before this record, and no source event in the provenance
+  ledger selects or discusses it.
 
 ## Record changelog
 
@@ -155,4 +161,5 @@ Point corrections that leave the Decision Outcome intact.
 |---|---|
 | 2026-09-01 | Pre-admission review revision: the release path names the three repository variables the Terraform module outputs (provider, service account, image repository), image reuse keyed on the source revision, and the main-only serialized run. The six-package one-version Decision Outcome is unchanged. |
 | 2026-09-02 | Pre-admission review revision: the counter is one past the highest published or tagged, image reuse is keyed on version and source revision, the release App key is named as the one stored secret, and `start_new_version` abandons an incomplete release. The six-package one-version Decision Outcome is unchanged. |
-| 2026-09-02 | Blind-review corrections (run `…-39284b48-cold-review`): the License section states the mixed pre-record license state the ledger and the release commits record instead of "MIT-licensed"; the Deprecations section names the ledger's no-source-event gap for the `@moltzap/client` deprecation; the counter wording names release tags rather than tags on `main`. The six-package one-version Decision Outcome is unchanged. |
+| 2026-09-02 | Pre-admission point corrections: the License section states the mixed pre-record license state the ledger and the release commits record instead of "MIT-licensed"; the Deprecations section names the ledger's no-source-event gap for the `@moltzap/client` deprecation; the counter wording names release tags rather than tags on `main`. The six-package one-version Decision Outcome is unchanged. |
+| 2026-09-02 | Pre-admission point corrections: the Release path states that same-version convergence holds once the release commit is on `main` and within one UTC day before it, matching the workflow; the Consequences name the ledger's no-source-event gap for the retained external-consumer cutover deferral. The six-package one-version Decision Outcome is unchanged. |
