@@ -822,10 +822,14 @@ function controllerServiceAccount(
 /**
  * The controller's complete authority inside its own run namespace.
  *
- * `pods/exec` is the one verb that reaches inside an application container:
- * harvesting a workspace file runs a shell there after the customer program
- * ends. The grant is namespace-scoped, owned by the run root, and deleted with
- * the run, so it never outlives the society it can read.
+ * `pods/exec` is the one resource that reaches inside an application
+ * container: harvesting a workspace file runs a shell there after the customer
+ * program ends. The client opens that session over a WebSocket, whose HTTP
+ * upgrade is a GET the API server authorizes as the `get` verb, while the
+ * SPDY form kubectl uses is a POST authorized as `create`; the rule grants
+ * both so the read does not depend on which transport the client picks. The
+ * grant is namespace-scoped, owned by the run root, and deleted with the run,
+ * so it never outlives the society it can read.
  * @param input Workflow input carrying the run namespace.
  * @param owner Run root every namespaced control object hangs from.
  * @returns The Role bound to the controller's service account.
@@ -883,7 +887,7 @@ function controllerRole(
       {
         apiGroups: [""],
         resources: ["pods/exec"],
-        verbs: ["create"],
+        verbs: ["create", "get"],
       },
     ],
   };
@@ -1109,7 +1113,7 @@ function delegatedControllerRules(): PolicyRules {
       resources: ["sandboxes"],
       verbs: ["create", "get", "delete"],
     },
-    { apiGroups: [""], resources: ["pods/exec"], verbs: ["create"] },
+    { apiGroups: [""], resources: ["pods/exec"], verbs: ["create", "get"] },
   ];
 }
 
