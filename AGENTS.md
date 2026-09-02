@@ -74,6 +74,20 @@ Repository law, Effect conventions, Nx, ESLint, oxfmt, and scoped package
 instructions take precedence. Link to the guide rather than copying it into the
 repository, and keep tests and documentation in the change they explain.
 
+gstack reviews compose with the Google guides where they apply.
+
+| Guide | Loaded by |
+|---|---|
+| `google-code-review-reviewer` | `/ship`'s structured review |
+| `google-swe-testing` | `/ship`'s testing specialist; `/plan-eng-review`'s test review |
+| the language guide per changed file | `/ship`'s maintainability specialist; `/plan-eng-review`'s code-quality review |
+| `google-swe-engineering-standards` | the same two, for changes to the lint or architecture gates |
+| `google-swe-builds-dependencies-and-ci` | `/plan-eng-review`'s architecture review; `/ship` for workflow, Nx, manifest, or release-script changes |
+| `google-swe-compute-platforms` | either, for cluster execution: profiles, admission, run namespaces, images, Temporal |
+| `google-swe-change-management` | `/ship`'s data-migration and api-contract specialists; `/plan-eng-review`'s scope challenge |
+| `google-swe-code-review-systems` | either, for changes to a gate, a review regime, or this file |
+| `google-documentation-guide` | either, for documentation claims |
+
 ## Issues
 
 Labels `v2` and `wontfix-v2` are historical: `v2` marked input to the
