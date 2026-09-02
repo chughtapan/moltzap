@@ -422,7 +422,7 @@ private. The current record is
 
 - One release computes one calendar version, `YYYY.MDD.N`, one past the
   highest counter in the union of the six packages' npm histories and the
-  `v<version>` tags on `main`, and writes it into every published manifest.
+  `v<version>` release tags, and writes it into every published manifest.
 - `pnpm pack` pins each workspace sibling to that exact version, so an
   installed closure resolves the packages one release built, never a mix.
 - The package version is independent of `MOLTZAP_VERSION`, the MCP revision,

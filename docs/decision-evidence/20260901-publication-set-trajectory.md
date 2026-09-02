@@ -193,6 +193,13 @@ No source event located for a reason behind either selection.
 
 No source event located for a reason behind the license selection.
 
+No source event located for the deprecation of the `@moltzap/client`
+releases published before the record. Event 2 names only `@moltzap/protocol`
+and `@moltzap/server-core`; Event 4 and Event 5 name only `@moltzap/simulator`
+and `@moltzap/openclaw-channel`. The record's Deprecations section states the
+`@moltzap/client` deprecation without a retained selection; the named
+decision-maker's admission of the record is its only attribution.
+
 ## Release mechanics
 
 ### Event 6
@@ -323,6 +330,12 @@ These observations are separate from the conversation events. They were made
 against the repository and the npm registry while this ledger was compacted
 and are dated as such.
 
+- Commit `ff0da6dc` (`chore(release)` for the `2026.811.0` releases) and
+  commit `102f1104` (the head the `2026.812.0` publish run built): the
+  `@moltzap/protocol`, `@moltzap/server-core`, `@moltzap/client`, and
+  `@moltzap/openclaw-channel` manifests declare `Apache-2.0`, the
+  `@moltzap/simulator` manifest declares `MIT`, and the root `LICENSE` is the
+  MIT text.
 - Commit `a178413d` (merge of PR #988, the head of `main` on 2026-09-01)
   carries `.github/workflows/publish.yml` with `if: ${{ false }}` and the
   comment "Publication stays disabled until the package closure, version

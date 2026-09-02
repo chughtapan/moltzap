@@ -54,8 +54,8 @@ set by this record.
 Every release carries one version, `YYYY.MDD.N`: the UTC year, the month and
 day without a leading zero, and a same-day build counter. The counter is one
 past the highest that any of the six packages has published for that day or
-that a `v<version>` tag on `main` already claims, so one string is written
-into all six manifests and published without colliding on any of them. Each packed manifest pins its workspace siblings to that exact version,
+that a `v<version>` release tag already claims, so one string is written into
+all six manifests and published without colliding on any of them. Each packed manifest pins its workspace siblings to that exact version,
 so a consumer who installs one package resolves the closure the same release
 built, never a mix of releases.
 
@@ -87,7 +87,11 @@ signs the one push to `main`.
 ### License
 
 The repository and every published package are licensed under Apache-2.0.
-Releases published before this record were MIT-licensed and stay so.
+Releases published before this record keep the license their published
+manifests declared and are not relicensed: the `@moltzap/protocol`,
+`@moltzap/server-core`, `@moltzap/client`, and `@moltzap/openclaw-channel`
+manifests declared Apache-2.0 while the repository `LICENSE` and the
+`@moltzap/simulator` manifest were MIT.
 
 ### Deprecations
 
@@ -96,7 +100,9 @@ full. Every `@moltzap/client` release published before this record carries
 the v1 API and is deprecated. Every `@moltzap/simulator` and
 `@moltzap/openclaw-channel` release published before this record predates the
 cutover and is deprecated. The provenance ledger's registry observation names
-the last such version of each.
+the last such version of each; the ledger records that no source event
+selected the `@moltzap/client` deprecation, so its attribution is the
+decision-maker's admission of this record.
 
 ### Retired directory
 
@@ -149,3 +155,4 @@ Point corrections that leave the Decision Outcome intact.
 |---|---|
 | 2026-09-01 | Pre-admission review revision: the release path names the three repository variables the Terraform module outputs (provider, service account, image repository), image reuse keyed on the source revision, and the main-only serialized run. The six-package one-version Decision Outcome is unchanged. |
 | 2026-09-02 | Pre-admission review revision: the counter is one past the highest published or tagged, image reuse is keyed on version and source revision, the release App key is named as the one stored secret, and `start_new_version` abandons an incomplete release. The six-package one-version Decision Outcome is unchanged. |
+| 2026-09-02 | Blind-review corrections (run `…-39284b48-cold-review`): the License section states the mixed pre-record license state the ledger and the release commits record instead of "MIT-licensed"; the Deprecations section names the ledger's no-source-event gap for the `@moltzap/client` deprecation; the counter wording names release tags rather than tags on `main`. The six-package one-version Decision Outcome is unchanged. |
