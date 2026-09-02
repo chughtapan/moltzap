@@ -98,6 +98,13 @@ recovering or completing that invocation. A later call receives a different
 choice to invoke send again. Send succeeds with `void` only after local
 complete action and durability certification.
 
+Registration and daemon restart both admit sends before the daemon's Router
+worker has attached. A send issued in that window waits for attachment for a
+bounded time, named by `ROUTER_ATTACH_TIMEOUT`, and fails with
+`network-unavailable` only once that bound elapses. No send fails merely
+because the worker is still attaching, and the wait holds no lock that
+attachment itself needs.
+
 ## Addressed inbound delivery
 
 Every delivery derives from one complete certified remote-authored record. A

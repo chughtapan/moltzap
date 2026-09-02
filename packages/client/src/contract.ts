@@ -313,7 +313,11 @@ type SendFailure =
 /** An addressed send failed before local certification completed. */
 export class SendError extends Data.TaggedError("SendError")<{
   readonly reason: SendFailure;
-}> {}
+}> {
+  override get message(): string {
+    return `send failed: ${this.reason}`;
+  }
+}
 
 type ListenFailure =
   | "already-listening"
@@ -324,7 +328,11 @@ type ListenFailure =
 /** The endpoint's sole inbound subscription failed. */
 export class ListenError extends Data.TaggedError("ListenError")<{
   readonly reason: ListenFailure;
-}> {}
+}> {
+  override get message(): string {
+    return `listen failed: ${this.reason}`;
+  }
+}
 
 type DeliveryAcknowledgeFailure =
   | "unknown-delivery"
@@ -337,7 +345,11 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
   "DeliveryAcknowledgeError",
 )<{
   readonly reason: DeliveryAcknowledgeFailure;
-}> {}
+}> {
+  override get message(): string {
+    return `delivery acknowledgment failed: ${this.reason}`;
+  }
+}
 
 type ConnectFailure =
   | "transport-failed"
@@ -347,7 +359,11 @@ type ConnectFailure =
 /** Acquiring the endpoint connection failed. */
 export class ConnectError extends Data.TaggedError("ConnectError")<{
   readonly reason: ConnectFailure;
-}> {}
+}> {
+  override get message(): string {
+    return `connect failed: ${this.reason}`;
+  }
+}
 
 /** One message plus its transport-only acknowledgment. */
 export interface InboundDelivery {
