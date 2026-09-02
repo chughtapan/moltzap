@@ -1,7 +1,7 @@
 /** @file Address resolution, immutable intent binding, and proposal creation. */
 
 import { AgentCard, MOLTZAP_VERSION, SignedMessage } from "@moltzap/identity";
-import { Deferred, Effect, Schema } from "effect";
+import { Deferred, Duration, Effect, Schema } from "effect";
 import type {
   EngineConversation,
   EnginePostIntent,
@@ -58,6 +58,20 @@ function storeFailure(error: EndpointStoreError): SendError {
 
 const representationFailure = (): SendError =>
   new SendError({ reason: "certification-unavailable" });
+
+/**
+ * How long a send waits for the Router worker to attach before failing as
+ * `network-unavailable`.
+ *
+ * A cold-start attach can span a Router tail hold, `HOLD_DURATION` in
+ * `@moltzap/router`, and the daemon's own `ROUTER_POLL_TIMEOUT`, so a bound
+ * near either one fails sends that are merely early. It stays under the MCP
+ * SDK's `DEFAULT_REQUEST_TIMEOUT_MSEC`, the deadline a host client applies to
+ * the tool call, so the host receives this closed failure rather than a
+ * transport timeout it cannot classify, and the remaining margin covers the
+ * send itself. `EndpointEngineInput.routerAttachTimeout` overrides it.
+ */
+const ROUTER_ATTACH_TIMEOUT = Duration.seconds(45);
 
 type ResolvedAddress = Effect.Effect.Success<
   ReturnType<typeof resolveMessageAddress>
@@ -461,6 +475,27 @@ function currentAnchorFailure(error: RouterWorkerUnavailableError): SendError {
   return new SendError({ reason: reasonByTag[error._tag] });
 }
 
+// Registration and daemon restart both admit sends before the worker's first
+// successful poll, and every send needs an attached worker: a new conversation
+// reads the current anchor, an existing one transmits through the worker. The
+// wait runs before `activateIntent` takes the engine gate, because the worker
+// reaches `active` only after recovery that needs that same gate; waiting while
+// holding it would stall the attachment awaited.
+const awaitRouterAttachment = (
+  runtime: EngineRuntime,
+): Effect.Effect<void, SendError> =>
+  runtime.input.routerWorker.currentAnchor.pipe(
+    Effect.catchTag("RouterWorkerUnavailableError", () =>
+      runtime.input.routerWorker.awaitAnchor.pipe(
+        Effect.timeoutFail({
+          duration: runtime.input.routerAttachTimeout ?? ROUTER_ATTACH_TIMEOUT,
+          onTimeout: () => new SendError({ reason: "network-unavailable" }),
+        }),
+      ),
+    ),
+    Effect.asVoid,
+  );
+
 /**
  * Persist an addressed intent and return its durable completion latch.
  * @param runtime Current engine state and protocol dependencies.
@@ -471,7 +506,8 @@ export const prepareSend = (
   runtime: EngineRuntime,
   input: SendInput,
 ): Effect.Effect<Deferred.Deferred<undefined, SendError>, SendError> =>
-  prepareIntent(runtime, input).pipe(
+  awaitRouterAttachment(runtime).pipe(
+    Effect.zipRight(prepareIntent(runtime, input)),
     Effect.flatMap((prepared) => activateIntent(runtime, prepared)),
     Effect.withSpan("prepareSend"),
   );
