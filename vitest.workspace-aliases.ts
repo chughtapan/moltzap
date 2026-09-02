@@ -21,6 +21,21 @@ function fromRoot(...segments: string[]): string {
   return path.join(repoRoot, ...segments);
 }
 
+/**
+ * Workspace packages a suite consumes as built output rather than through a
+ * source alias below.
+ *
+ * Vitest inlines a linked workspace package by default and then resolves that
+ * package's own imports against the importing project, so `dist` reaching for
+ * `jose` fails wherever the importer does not itself declare it. Keeping these
+ * external returns them to Node's resolution, which finds `jose` under each
+ * package's own `node_modules`. Declaring `jose` in the importer instead would
+ * be a dependency no source file imports, which knip rejects.
+ */
+export const builtWorkspaceDependencies: RegExp[] = [
+  /@moltzap\/(?:identity|router)/,
+];
+
 /** Source aliases, ordered with specific subpaths before package roots. */
 export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   alias("@moltzap/client", "packages/client/src/index.ts"),
