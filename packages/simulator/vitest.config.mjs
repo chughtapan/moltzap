@@ -1,11 +1,19 @@
 import { defineConfig } from "vitest/config";
-import { workspaceSourceAliases } from "../../vitest.workspace-aliases.js";
+import {
+  builtWorkspaceDependencies,
+  workspaceSourceAliases,
+} from "../../vitest.workspace-aliases.js";
 
 export default defineConfig({
   resolve: {
     alias: workspaceSourceAliases,
   },
   test: {
+    server: {
+      deps: {
+        external: builtWorkspaceDependencies,
+      },
+    },
     include: ["src/**/*.test.ts"],
     // Cluster suites need a live cluster; `vitest.cluster.config.mjs` runs them.
     exclude: ["src/**/*.integration.test.ts", "src/**/*.cluster.test.ts"],
