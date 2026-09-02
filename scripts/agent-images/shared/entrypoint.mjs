@@ -109,8 +109,15 @@ async function prepareOwnedDirectory(path, uid, gid) {
   await chownTree(path, uid, gid);
 }
 
-// The export lives outside every directory the daemon owns, so PID 1 creates
-// the empty file and hands it over; the daemon only ever appends to it.
+/**
+ * The export lives outside every directory the daemon owns, so PID 1 creates
+ * the empty file and hands it over; the daemon only ever appends to it.
+ *
+ * @param {string} path Absolute path of the file to create.
+ * @param {number} uid Owner the daemon runs as.
+ * @param {number} gid Group the daemon runs as.
+ * @returns {Promise<void>}
+ */
 async function prepareOwnedFile(path, uid, gid) {
   await writeFile(path, "", { flag: "a", mode: 0o600 });
   await chown(path, uid, gid);

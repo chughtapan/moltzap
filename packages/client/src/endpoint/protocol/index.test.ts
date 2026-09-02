@@ -1366,6 +1366,12 @@ function sendFailsAfterAttachBound(): Effect.Effect<void, never, Scope.Scope> {
   });
 }
 
+/**
+ * A worker reaches `active` only after a recovery that abandons the engine's
+ * volatile folds under the engine gate. A wait holding that gate would stall
+ * the attachment it waits for, so the abandon must complete while the send is
+ * still parked.
+ */
 function attachmentWaitLeavesTheEngineGateFree(): Effect.Effect<
   void,
   never,
@@ -1383,10 +1389,6 @@ function attachmentWaitLeavesTheEngineGateFree(): Effect.Effect<
     yield* Effect.sleep("50 millis");
     expect(yield* Fiber.poll(sending)).toEqual(Option.none());
 
-    // A worker reaches `active` only after a recovery that abandons the
-    // engine's volatile folds under the engine gate. A wait holding that gate
-    // would stall the attachment it waits for, so this must complete while
-    // the send above is still parked.
     yield* author
       .abandonVolatileFolds("router_restarted")
       .pipe(Effect.timeout("2 seconds"), Effect.orDie);

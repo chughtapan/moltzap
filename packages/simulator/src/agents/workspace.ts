@@ -169,9 +169,8 @@ export function snapshotWorkspaceFiles(
 /**
  * Check and normalize every path an experiment asks to read back, once, at
  * definition time. Two spellings of one file are refused here because the
- * ledger would otherwise carry the same content twice under two names.
- * @param paths Workspace-relative files requested by a runtime's options.
- * @returns The frozen, distinct snapshot the runtime renders targets from.
+ * ledger would otherwise carry the same content twice under two names. The
+ * snapshot is frozen, not merely readonly-typed.
  */
 export function snapshotHarvestPaths(
   paths?: readonly string[],
@@ -181,9 +180,10 @@ export function snapshotHarvestPaths(
 
 /**
  * Place every checked harvest path under a runtime's effective workspace.
- * @param root Absolute directory the application actually reads and writes.
- * @param paths Paths already proven to stay below a workspace root.
- * @returns Targets the cluster reads after the customer program ends.
+ * The root is the absolute directory the application actually reads and
+ * writes, which is not always the one it was configured with, and the paths
+ * have already been proven to stay below a workspace root. The cluster reads
+ * the resulting targets after the customer program ends.
  */
 export function harvestTargets(
   root: `/${string}`,
@@ -217,9 +217,10 @@ const HISTORY_EXPORT_TARGET: HarvestTarget = Object.freeze({
 });
 
 /**
- * Render one runtime's transcript setting for the application it builds.
- * @param enabled Whether the experiment asked for the daemon's history export.
- * @returns The harvest target and daemon environment, or nothing at all.
+ * Render one runtime's transcript setting for the application it builds: the
+ * harvest target the ledger reads the transcript back through, and the daemon
+ * input that turns the export on. Both come back empty when the experiment
+ * did not ask for one, so a caller always spreads two collections.
  */
 export function historyExport(enabled: boolean): HistoryExportRendering {
   return enabled

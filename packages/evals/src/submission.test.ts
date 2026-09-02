@@ -106,6 +106,10 @@ it("refuses a NanoClaw cell without its application image", () => {
   );
 });
 
+// The submitter spawns this file by path, so no import checks the spelling.
+// Pinning it against both the checked-in file and the `bin` entry the
+// manifest publishes stops a rename moving one and leaving the other naming a
+// file that never appears.
 effect("spawns the executable the simulator package actually ships", () =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -114,10 +118,6 @@ effect("spawns the executable the simulator package actually ships", () =>
     );
     const executable = join(simulatorRoot, SIMULATOR_EXECUTABLE);
 
-    // The submitter spawns this file by path, so no import checks the
-    // spelling. Pin it against the checked-in file and against the `bin` entry
-    // the simulator's manifest publishes, so a rename cannot move one and leave
-    // the other naming a file that never appears.
     assert.isTrue(
       yield* fileSystem.exists(executable),
       `the simulator package ships no ${executable}`,

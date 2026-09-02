@@ -173,7 +173,7 @@ export interface AgentsService<
 
 Describes agents service.
 
-### [`Application`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L160)
+### [`Application`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L159)
 
 _Interface_
 
@@ -209,7 +209,7 @@ export interface Application<Gateway, AcquisitionError> {
 
 One rendered application and its runtime-specific controller bridge.
 
-### [`ApplicationEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L96)
+### [`ApplicationEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L95)
 
 _Interface_
 
@@ -226,7 +226,7 @@ The cluster builds this from the port the application itself declared, so a
 runtime reads the address it asked for instead of re-deriving it: a protocol,
 port, path, or credential the runtime would have to reject cannot be spelled.
 
-### [`ContainerAgentRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L206)
+### [`ContainerAgentRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L205)
 
 _Interface_
 
@@ -248,7 +248,7 @@ A runtime that is known to carry a container realization. Only
 `defineContainerRuntime` produces one, so reading its realization back needs
 no absent case.
 
-### [`ContainerRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L193)
+### [`ContainerRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L192)
 
 _Interface_
 
@@ -276,7 +276,7 @@ export type CredentialName = "ANTHROPIC_API_KEY" | "OPENAI_API_KEY";
 
 Provider credential a container may request from the run-scoped Secret.
 
-### [`defineContainerRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L267)
+### [`defineContainerRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L266)
 
 _Function_
 
@@ -300,7 +300,7 @@ This describes no cross-runtime gateway protocol.
 
 **Returns:** The frozen nominal runtime accepted by a society roster.
 
-### [`File`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L71)
+### [`File`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L70)
 
 _Interface_
 
@@ -314,7 +314,7 @@ export interface File {
 
 One file materialized into a container from the run-scoped Secret.
 
-### [`HarvestTarget`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L83)
+### [`HarvestTarget`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L82)
 
 _Interface_
 
@@ -682,7 +682,7 @@ export type OpenClawToolsConfig = NonNullable<OpenClawConfig["tools"]>;
 
 Tool configuration accepted by `OpenClawConfig`.
 
-### [`Resources`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L64)
+### [`Resources`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L63)
 
 _Interface_
 
@@ -696,7 +696,7 @@ export interface Resources {
 
 Portable resource request for one application container.
 
-### [`routableBridgeEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L128)
+### [`routableBridgeEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L127)
 
 _Function_
 
@@ -870,7 +870,7 @@ export type StartedAgents<
 
 Exact keyed agents installed only after every runtime is ready.
 
-### [`stoppedBeforeAttach`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L310)
+### [`stoppedBeforeAttach`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L309)
 
 _Function_
 
