@@ -116,16 +116,26 @@ review gate. `scripts/docs/adr/check-shape.ts` enforces the mechanical half in
 - Cite by symbol name (`file.ts → handleFrame`), never by line;
   `file.ts:NNN` only in PRs, reviews, and issues.
 - Rationale goes in JSDoc on the symbol it explains, in the commit
-  message, or in a docs file — never scattered inline through a body.
-  A shell script's header block is its JSDoc. In `.ts` the signature
-  carries the types and JSDoc carries only rationale; in `.mjs` and
-  `.js` the JavaScript guide's typed annotations are the exception.
-  Write for a cold reader
+  message, or in a docs file — never scattered inline through a body. A
+  `//` line inside a body moves to that symbol's JSDoc or goes; if it
+  will not fit there, the function is doing too much. A line directly
+  above a named thing sits on that symbol, not in the body: an
+  object-literal property, a `const`, an `it`. Lint-disable
+  justifications are the exception.
+  A shell script's header block is its JSDoc. Write for a cold reader
   in present tense: why the code is shaped this way, non-obvious
-  invariants, surprising constants. Never issue/spec/phase numbers,
-  change narration (formerly, no longer, renamed from), design
-  alternatives, or restating the next lines. Rewrite touched comments
-  in the same PR; history lives in git, not code.
+  invariants, surprising constants. If deleting a comment loses nothing
+  the name and signature already give, delete it, including any doc line
+  that repeats the symbol it sits on. `@param` and `@returns` go as a
+  whole set or not at all, since a partial set fails
+  `jsdoc/check-param-names`; fold what a parameter carries beyond its type
+  into the description prose. Lint requires a block on every export, so
+  rewrite an export block to say what the name cannot rather than
+  deleting it.
+  `.mjs` and `.js` carry the JavaScript guide's typed annotations, which
+  no signature gives. Never issue/spec/phase numbers, change narration
+  (formerly, no longer, renamed from), or design alternatives. Rewrite
+  touched comments in the same PR; history lives in git, not code.
 - Fix every instance of a defect or wrong pattern, not the reported
   one: grep `packages/`, `scripts/`, `tools/`, `bin/`, `.github/`, and
   `docs/`, and fix all of it in the same change; one corrected call
