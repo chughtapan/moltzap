@@ -22,3 +22,12 @@ exact timestamps are an explicit source gap. This report does not reconstruct
 the exchange from ADR prose, repository changes, or memory. If the original
 session export becomes available, preserve it as a dated correction rather
 than silently rewriting this report.
+
+## 2026-09-01 inline adjustment
+
+The active Codex conversation used for the explicit-address bridge adjustment
+again exposed stored actor roles and message text without a native source
+session identifier, message or event locators, enclosing turn and parent
+locators, or exact UTC message timestamps. No source-faithful event row can be
+admitted for that adjustment. This is an additional source gap, not evidence
+reconstructed from the resulting ADR or code.

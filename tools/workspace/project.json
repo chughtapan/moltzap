@@ -107,6 +107,9 @@
     },
     "nanoclaw-agent-image": {
       "cache": false,
+      "outputs": [
+        "{workspaceRoot}/.moltzap/agent-images/nanoclaw.json"
+      ],
       "dependsOn": [
         "agent-images-check"
       ],
@@ -140,7 +143,8 @@
           "node --check scripts/agent-images/nanoclaw/preload.mjs",
           "node --check scripts/agent-images/nanoclaw/prepare.mjs",
           "node --check scripts/agent-images/nanoclaw/process-driver.mjs",
-          "node --check scripts/agent-images/nanoclaw/provision.mjs"
+          "node --check scripts/agent-images/nanoclaw/provision.mjs",
+          "node --check scripts/test/nanoclaw-addressed-send-probe.mjs"
         ]
       }
     },
@@ -409,6 +413,7 @@
         "workspaceFiles"
       ],
       "dependsOn": [
+        "nanoclaw-agent-image",
         {
           "projects": [
             "@moltzap/identity",
