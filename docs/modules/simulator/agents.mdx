@@ -13,7 +13,7 @@ Autonomous agent runtime contracts and shipped implementations.
 
 ## Public surface
 
-### [`AgentRoster`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L76)
+### [`AgentRoster`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/roster.ts#L76)
 
 _Interface_
 
@@ -91,7 +91,7 @@ export class AgentRoster<
 A roster is both the keyed runtime definition and the owner of the exact
 started-agent service used by the experiment Effect.
 
-### [`AgentRosterAcquisitionError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L43)
+### [`AgentRosterAcquisitionError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/roster.ts#L43)
 
 _TypeAlias_
 
@@ -103,7 +103,7 @@ export type AgentRosterAcquisitionError<
 
 Represents agent roster acquisition error conditions.
 
-### [`AgentRuntime`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/agent.ts#L117)
+### [`AgentRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/agent.ts#L117)
 
 _Interface_
 
@@ -130,7 +130,7 @@ export interface AgentRuntime<
 
 A runtime definition accepted by keyed society rosters.
 
-### [`AgentRuntimeDefinitionError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/agent.ts#L30)
+### [`AgentRuntimeDefinitionError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/agent.ts#L30)
 
 _Class_
 
@@ -145,7 +145,7 @@ export class AgentRuntimeDefinitionError extends Schema.TaggedError<AgentRuntime
 
 Invalid runtime metadata rejected before a run acquires resources.
 
-### [`AgentRuntimeInput`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/agent.ts#L85)
+### [`AgentRuntimeInput`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/agent.ts#L85)
 
 _Interface_
 
@@ -157,7 +157,7 @@ export interface AgentRuntimeInput {
 
 Roster identity presented to a runtime's private realization.
 
-### [`AgentsService`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L64)
+### [`AgentsService`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/roster.ts#L64)
 
 _Interface_
 
@@ -173,7 +173,7 @@ export interface AgentsService<
 
 Describes agents service.
 
-### [`Application`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/container.ts#L160)
+### [`Application`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L160)
 
 _Interface_
 
@@ -209,7 +209,7 @@ export interface Application<Gateway, AcquisitionError> {
 
 One rendered application and its runtime-specific controller bridge.
 
-### [`ApplicationEndpoint`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/container.ts#L96)
+### [`ApplicationEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L96)
 
 _Interface_
 
@@ -226,7 +226,7 @@ The cluster builds this from the port the application itself declared, so a
 runtime reads the address it asked for instead of re-deriving it: a protocol,
 port, path, or credential the runtime would have to reject cannot be spelled.
 
-### [`ContainerAgentRuntime`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/container.ts#L206)
+### [`ContainerAgentRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L206)
 
 _Interface_
 
@@ -248,7 +248,7 @@ A runtime that is known to carry a container realization. Only
 `defineContainerRuntime` produces one, so reading its realization back needs
 no absent case.
 
-### [`ContainerRuntime`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/container.ts#L193)
+### [`ContainerRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L193)
 
 _Interface_
 
@@ -266,7 +266,7 @@ The container realization of one runtime. Image and resources belong here
 rather than to a rendered application because the cluster reserves capacity
 for the complete roster before any agent identity exists.
 
-### [`CredentialName`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/container.ts#L38)
+### [`CredentialName`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L38)
 
 _TypeAlias_
 
@@ -276,7 +276,7 @@ export type CredentialName = "ANTHROPIC_API_KEY" | "OPENAI_API_KEY";
 
 Provider credential a container may request from the run-scoped Secret.
 
-### [`defineContainerRuntime`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/container.ts#L267)
+### [`defineContainerRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L267)
 
 _Function_
 
@@ -300,7 +300,7 @@ This describes no cross-runtime gateway protocol.
 
 **Returns:** The frozen nominal runtime accepted by a society roster.
 
-### [`File`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/container.ts#L71)
+### [`File`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L71)
 
 _Interface_
 
@@ -314,7 +314,7 @@ export interface File {
 
 One file materialized into a container from the run-scoped Secret.
 
-### [`HarvestTarget`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/container.ts#L83)
+### [`HarvestTarget`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L83)
 
 _Interface_
 
@@ -331,7 +331,7 @@ ends. `relativePath` is how the ledger names it, `path` is where the runtime
 placed it inside the container, and `limitBytes` bounds what the ledger
 carries for it.
 
-### [`image`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/container.ts#L29)
+### [`image`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L29)
 
 _Variable_
 
@@ -347,7 +347,7 @@ The repository half excludes `@` so a trailing digest cannot be smuggled in
 behind an earlier one, and the digest is lowercase hexadecimal of exactly the
 length SHA-256 produces.
 
-### [`Image`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/container.ts#L35)
+### [`Image`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L35)
 
 _TypeAlias_
 
@@ -357,7 +357,7 @@ export type Image = typeof image.Type;
 
 Digest-pinned image identity accepted by the private container platform.
 
-### [`NanoClawGateway`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/nanoclaw/gateway.ts#L54)
+### [`NanoClawGateway`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/nanoclaw/gateway.ts#L54)
 
 _Interface_
 
@@ -372,7 +372,7 @@ export interface NanoClawGateway {
 
 Principal gateway exposed by an acquired NanoClaw runtime.
 
-### [`NanoClawGatewayError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/nanoclaw/gateway.ts#L41)
+### [`NanoClawGatewayError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/nanoclaw/gateway.ts#L41)
 
 _Class_
 
@@ -392,7 +392,7 @@ export class NanoClawGatewayError extends Schema.TaggedError<NanoClawGatewayErro
 
 A NanoClaw principal socket could not connect, submit, or receive.
 
-### [`NanoClawGatewayInput`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/nanoclaw/gateway.ts#L27)
+### [`NanoClawGatewayInput`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/nanoclaw/gateway.ts#L27)
 
 _Class_
 
@@ -406,7 +406,7 @@ export class NanoClawGatewayInput extends Schema.Class<NanoClawGatewayInput>(
 
 Native instruction accepted by NanoClaw's owner-local CLI channel.
 
-### [`NanoClawGatewayOutput`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/nanoclaw/gateway.ts#L34)
+### [`NanoClawGatewayOutput`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/nanoclaw/gateway.ts#L34)
 
 _Class_
 
@@ -420,7 +420,7 @@ export class NanoClawGatewayOutput extends Schema.Class<NanoClawGatewayOutput>(
 
 One native output frame emitted by NanoClaw's owner-local CLI channel.
 
-### [`nanoclawRuntime`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/nanoclaw/runtime.ts#L124)
+### [`nanoclawRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/nanoclaw/runtime.ts#L124)
 
 _Function_
 
@@ -439,7 +439,7 @@ roster identity and its runtime-owned native gateway bridge.
 
 **Returns:** The nanoclaw runtime result.
 
-### [`NanoClawRuntimeOptions`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/nanoclaw/runtime.ts#L87)
+### [`NanoClawRuntimeOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/nanoclaw/runtime.ts#L87)
 
 _Interface_
 
@@ -478,7 +478,7 @@ export interface NanoClawRuntimeOptions {
 
 Configuration captured by one reusable NanoClaw runtime value.
 
-### [`OpenClawGateway`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/openclaw/gateway.ts#L158)
+### [`OpenClawGateway`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/gateway.ts#L158)
 
 _Interface_
 
@@ -492,7 +492,7 @@ export interface OpenClawGateway {
 
 Principal gateway exposed by an acquired OpenClaw runtime.
 
-### [`OpenClawGatewayRequest`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/openclaw/gateway.ts#L84)
+### [`OpenClawGatewayRequest`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/gateway.ts#L84)
 
 _Class_
 
@@ -512,7 +512,7 @@ export class OpenClawGatewayRequest extends Schema.Class<OpenClawGatewayRequest>
 
 Principal instruction accepted by OpenClaw's `agent` gateway RPC.
 
-### [`OpenClawGatewayRequestError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/openclaw/gateway.ts#L146)
+### [`OpenClawGatewayRequestError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/gateway.ts#L146)
 
 _Class_
 
@@ -531,7 +531,7 @@ export class OpenClawGatewayRequestError extends Schema.TaggedError<OpenClawGate
 
 An OpenClaw gateway call failed or returned an invalid payload.
 
-### [`OpenClawGatewayResponse (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/openclaw/gateway.ts#L143)
+### [`OpenClawGatewayResponse (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/gateway.ts#L143)
 
 _TypeAlias_
 
@@ -541,7 +541,7 @@ export type OpenClawGatewayResponse = typeof OpenClawGatewayResponse.Type;
 
 Exact terminal response returned by OpenClaw's `agent` gateway RPC.
 
-### [`OpenClawGatewayResponse (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/openclaw/gateway.ts#L136)
+### [`OpenClawGatewayResponse (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/gateway.ts#L136)
 
 _Variable_
 
@@ -554,7 +554,7 @@ export const OpenClawGatewayResponse = Schema.Union(
 
 Schema for the exact terminal response returned by the `agent` gateway RPC.
 
-### [`OpenClawGatewaySucceeded`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/openclaw/gateway.ts#L107)
+### [`OpenClawGatewaySucceeded`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/gateway.ts#L107)
 
 _Class_
 
@@ -571,7 +571,7 @@ export class OpenClawGatewaySucceeded extends Schema.Class<OpenClawGatewaySuccee
 
 Successful terminal result returned by OpenClaw's `agent` gateway RPC.
 
-### [`OpenClawGatewayTimedOut`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/openclaw/gateway.ts#L122)
+### [`OpenClawGatewayTimedOut`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/gateway.ts#L122)
 
 _Class_
 
@@ -594,7 +594,7 @@ Timed-out terminal result returned by OpenClaw's `agent` gateway RPC.
 OpenClaw treats this as a successful RPC payload rather than a transport
 failure. A run may time out before it has an agent result.
 
-### [`openClawRuntime`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/openclaw/runtime.ts#L175)
+### [`openClawRuntime`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/runtime.ts#L175)
 
 _Function_
 
@@ -620,7 +620,7 @@ flowchart LR
 
 **Returns:** A reusable OpenClaw container runtime definition.
 
-### [`OpenClawRuntimeOptions`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/openclaw/runtime.ts#L118)
+### [`OpenClawRuntimeOptions`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/runtime.ts#L118)
 
 _Interface_
 
@@ -660,7 +660,7 @@ export interface OpenClawRuntimeOptions {
 
 Configuration captured by one reusable OpenClaw runtime value.
 
-### [`OpenClawSandboxConfig`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/openclaw/configuration.ts#L26)
+### [`OpenClawSandboxConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/configuration.ts#L26)
 
 _TypeAlias_
 
@@ -672,7 +672,7 @@ export type OpenClawSandboxConfig = NonNullable<
 
 Default-agent sandbox configuration accepted by `OpenClawConfig`.
 
-### [`OpenClawToolsConfig`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/openclaw/configuration.ts#L23)
+### [`OpenClawToolsConfig`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/openclaw/configuration.ts#L23)
 
 _TypeAlias_
 
@@ -682,7 +682,7 @@ export type OpenClawToolsConfig = NonNullable<OpenClawConfig["tools"]>;
 
 Tool configuration accepted by `OpenClawConfig`.
 
-### [`Resources`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/container.ts#L64)
+### [`Resources`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L64)
 
 _Interface_
 
@@ -696,7 +696,7 @@ export interface Resources {
 
 Portable resource request for one application container.
 
-### [`routableBridgeEndpoint`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/container.ts#L128)
+### [`routableBridgeEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L128)
 
 _Function_
 
@@ -710,7 +710,7 @@ Refuse a bridge address that never leaves the controller's own host.
 
 **Returns:** The same endpoint once it is known to be routable.
 
-### [`RunningAgent`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/agent.ts#L79)
+### [`RunningAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/agent.ts#L79)
 
 _Interface_
 
@@ -725,7 +725,7 @@ A ready runtime exposes its principal gateway and one lifecycle observation.
 Completion of the termination Effect records a fact; customer policy decides
 whether that fact ends the run.
 
-### [`RuntimeAcquisitionError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/agent.ts#L211)
+### [`RuntimeAcquisitionError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/agent.ts#L211)
 
 _Class_
 
@@ -746,7 +746,7 @@ export class RuntimeAcquisitionError extends Schema.TaggedError<RuntimeAcquisiti
 
 A runtime application or its native gateway did not become ready.
 
-### [`RuntimeCompleted`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/agent.ts#L38)
+### [`RuntimeCompleted`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/agent.ts#L38)
 
 _Class_
 
@@ -759,7 +759,7 @@ export class RuntimeCompleted extends Schema.TaggedClass<RuntimeCompleted>()(
 
 An autonomous runtime completed normally.
 
-### [`runtimeConfigurationProjection`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/agent.ts#L169)
+### [`runtimeConfigurationProjection`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/agent.ts#L169)
 
 _Function_
 
@@ -773,7 +773,7 @@ Read the validated, immutable JSON projection captured at definition time.
 
 **Returns:** The runtime configuration encoded as JSON.
 
-### [`RuntimeExited`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/agent.ts#L52)
+### [`RuntimeExited`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/agent.ts#L52)
 
 _Class_
 
@@ -788,7 +788,7 @@ export class RuntimeExited extends Schema.TaggedClass<RuntimeExited>()(
 
 A runtime process exited with an operating-system exit code.
 
-### [`RuntimeFailed`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/agent.ts#L44)
+### [`RuntimeFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/agent.ts#L44)
 
 _Class_
 
@@ -803,7 +803,7 @@ export class RuntimeFailed extends Schema.TaggedClass<RuntimeFailed>()(
 
 An autonomous runtime completed with a recorded failure.
 
-### [`RuntimeGatewayOf`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L39)
+### [`RuntimeGatewayOf`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/roster.ts#L39)
 
 _TypeAlias_
 
@@ -814,7 +814,7 @@ export type RuntimeGatewayOf<Runtime extends AgentRuntimeLike> =
 
 The principal gateway exposed by one acquired runtime definition.
 
-### [`RuntimeSignaled`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/agent.ts#L60)
+### [`RuntimeSignaled`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/agent.ts#L60)
 
 _Class_
 
@@ -829,7 +829,7 @@ export class RuntimeSignaled extends Schema.TaggedClass<RuntimeSignaled>()(
 
 A runtime process terminated in response to an operating-system signal.
 
-### [`RuntimeTermination`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/agent.ts#L68)
+### [`RuntimeTermination`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/agent.ts#L68)
 
 _TypeAlias_
 
@@ -843,7 +843,7 @@ export type RuntimeTermination =
 
 Exact terminal observation produced by an acquired runtime.
 
-### [`StartedAgent`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L48)
+### [`StartedAgent`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/roster.ts#L48)
 
 _Interface_
 
@@ -853,7 +853,7 @@ export interface StartedAgent<Name extends string, Gateway>
 
 A ready autonomous runtime paired with its Registry-issued identity.
 
-### [`StartedAgents`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/roster.ts#L54)
+### [`StartedAgents`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/roster.ts#L54)
 
 _TypeAlias_
 
@@ -870,7 +870,7 @@ export type StartedAgents<
 
 Exact keyed agents installed only after every runtime is ready.
 
-### [`stoppedBeforeAttach`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/agents/container.ts#L310)
+### [`stoppedBeforeAttach`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/agents/container.ts#L310)
 
 _Function_
 

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+/** @file The published executable: one submission through a named profile. */
+
 import { NodeRuntime } from "@effect/platform-node";
 import {
   EXECUTABLE_SIGNALS,
