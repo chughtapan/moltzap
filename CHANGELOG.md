@@ -10,6 +10,18 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Fixed: sends wait for the Router worker to attach
+
+A daemon reported itself active as soon as registration completed, while its
+Router worker was still making its first poll, so a host that sent right
+after registering or restarting could fail with `network-unavailable` for no
+reason of its own. Every send now waits for the worker to attach, for at most
+`ROUTER_ATTACH_TIMEOUT`, before that failure is possible, and waits before
+taking the engine gate that attachment itself needs. The four closed Client
+failures — `SendError`, `ListenError`, `DeliveryAcknowledgeError`, and
+`ConnectError` — now name their `reason` in `message` instead of reporting
+"An error has occurred".
+
 ### Fixed: evaluator social turns and OpenClaw media normalization
 
 Group scenarios now deliver an announcement and its addressed question in one

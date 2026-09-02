@@ -12,6 +12,7 @@ import {
   type Context,
   Data,
   type Deferred,
+  type Duration,
   type Effect,
   type Queue,
   type SubscriptionRef,
@@ -79,6 +80,7 @@ export interface EngineRouterPort {
     RouterTailAnchor,
     RouterWorkerUnavailableError
   >;
+  readonly awaitAnchor: Effect.Effect<RouterTailAnchor>;
   readonly send: (
     outboundId: string,
   ) => Effect.Effect<void, RouterWorkerSendError>;
@@ -107,6 +109,8 @@ export interface EndpointEngineInput {
   readonly store: EndpointStore;
   readonly routerWorker: EngineRouterPort;
   readonly actionPolicy: EngineActionPolicy;
+  /** Overrides `ROUTER_ATTACH_TIMEOUT`; tests bound the wait in milliseconds. */
+  readonly routerAttachTimeout?: Duration.Duration;
 }
 
 /** Stable private engine capability consumed by daemon composition. */

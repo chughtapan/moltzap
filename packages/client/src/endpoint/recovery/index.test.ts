@@ -184,6 +184,10 @@ function makeHeldRouter(input: HeldRouterInput) {
       routerInstanceId: oldRouterInstanceId,
       pollCursor,
     }),
+    awaitAnchor: Effect.succeed({
+      routerInstanceId: oldRouterInstanceId,
+      pollCursor,
+    }),
     send: (outboundId) =>
       Ref.get(input.holdOutbound).pipe(
         Effect.flatMap((hold) =>
@@ -491,6 +495,10 @@ const makeFixtureRouter = ({
     routerInstanceId: newRouterInstanceId,
     pollCursor,
   }),
+  awaitAnchor: Effect.succeed({
+    routerInstanceId: newRouterInstanceId,
+    pollCursor,
+  }),
   send: (outboundId) =>
     forwardStoredOutbound(store, normalOutbound, outboundId),
 });
@@ -589,6 +597,10 @@ const addN4Foundation = (fixture: RecoveryFixture) =>
       actionPolicy: () => Effect.succeed("sign"),
       routerWorker: {
         currentAnchor: Effect.succeed({
+          routerInstanceId: newRouterInstanceId,
+          pollCursor,
+        }),
+        awaitAnchor: Effect.succeed({
           routerInstanceId: newRouterInstanceId,
           pollCursor,
         }),
