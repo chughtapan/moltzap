@@ -186,6 +186,12 @@ export interface KubernetesClusterOptions {
   >;
   readonly rosterPlacement?: KubernetesPodPlacement;
   readonly startupTimeout: Duration.Duration;
+  /**
+   * How long the queue may hold the reservation before admission, apart from
+   * `startupTimeout`: a cohort waiting behind other runs has not started, so
+   * the wait must not spend the budget its readiness is measured against.
+   */
+  readonly admissionTimeout: Duration.Duration;
   /** Controller-private listener and mandatory in-cluster Service identity. */
   readonly routerFaultProxy: AdvertisedRouterFaultProxyPlatform;
   /** How often admission and readiness are observed while the run starts. */
@@ -1285,7 +1291,7 @@ function prepareKubernetesSociety<
       options.readinessInterval ?? DEFAULT_READINESS_INTERVAL;
     yield* workloadAdmission(
       options.api,
-      options.startupTimeout,
+      options.admissionTimeout,
       readinessInterval,
     );
     return makeKubernetesSession(roster, {

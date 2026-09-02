@@ -8,9 +8,11 @@ import { LedgerStorageError } from "@moltzap/simulator/ledger";
 import {
   Cause,
   DateTime,
+  Deferred,
   Duration,
   Effect,
   Exit,
+  Fiber,
   Option,
   Ref,
   Schedule,
@@ -26,6 +28,7 @@ import {
   createStoredEvaluationReport,
   evaluationResultStoreLayer,
   loadEvaluationReport,
+  ReportLocked,
   resumeStoredEvaluationReport,
   runEvaluationSweep,
 } from "./results.js";
@@ -432,6 +435,154 @@ function uncommittedCallbackTest(
 
 const PROCESS_DEATH_TIMEOUT_MS = 45_000;
 
+function awaitAttempts(count: number) {
+  return loadEvaluationReport().pipe(
+    Effect.repeat({
+      schedule: Schedule.spaced(Duration.millis(10)),
+      until: (report) => report.attempts.length >= count,
+    }),
+    Effect.timeoutFail({
+      duration: Duration.seconds(30),
+      onTimeout: () => new Error(`no ${String(count)} committed attempts`),
+    }),
+  );
+}
+
+function awaitStarted(started: Ref.Ref<readonly string[]>, count: number) {
+  return Ref.get(started).pipe(
+    Effect.repeat({
+      schedule: Schedule.spaced(Duration.millis(10)),
+      until: (ids) => ids.length >= count,
+    }),
+    Effect.timeoutFail({
+      duration: Duration.seconds(30),
+      onTimeout: () => new Error(`fewer than ${String(count)} cells started`),
+    }),
+  );
+}
+
+// Three cells in one window: the head stalls until released while the two
+// behind it finish first. Nothing commits until the head does, and then the
+// three land in plan order.
+function windowOrderTest() {
+  return Effect.gen(function* () {
+    const fixture = yield* resultFixture("moltzap-evals-window-");
+    const reportPlan = plan(
+      casePlan("EVAL-005"),
+      casePlan("EVAL-006"),
+      casePlan("EVAL-007"),
+    );
+    const release = yield* Deferred.make<undefined>();
+    const started = yield* Ref.make<readonly string[]>([]);
+    const execute = (cell: EvaluationSweepCell) =>
+      recordExecution(started, cell).pipe(
+        Effect.zipRight(
+          cell.casePlan.id === caseId("EVAL-005")
+            ? Deferred.await(release)
+            : Effect.void,
+        ),
+        Effect.as(allocationFailed(cell)),
+      );
+
+    const completed = yield* Effect.gen(function* () {
+      yield* createStoredEvaluationReport(reportId("window-test"), reportPlan);
+      const sweep = yield* Effect.fork(
+        runEvaluationSweep(execute, { concurrency: 3 }),
+      );
+      yield* awaitStarted(started, 3);
+      const held = yield* loadEvaluationReport();
+      assert.lengthOf(held.attempts, 0);
+      yield* Deferred.succeed(release, undefined);
+      return yield* Fiber.join(sweep);
+    }).pipe(Effect.provide(evaluationResultStoreLayer(fixture.databasePath)));
+
+    assert.instanceOf(completed, CompletedEvaluationReport);
+    assert.deepStrictEqual(
+      completed.attempts.map((attempt) => attempt.caseId),
+      [caseId("EVAL-005"), caseId("EVAL-006"), caseId("EVAL-007")],
+    );
+  }).pipe(Effect.provide(NodeContext.layer));
+}
+
+// A window of two: the first cell finishes and commits, the second stalls,
+// and the sweep is interrupted. The committed prefix survives and resume
+// reruns only what never committed.
+function interruptedWindowTest() {
+  return Effect.gen(function* () {
+    const fixture = yield* resultFixture("moltzap-evals-interrupted-");
+    const reportPlan = plan(
+      casePlan("EVAL-005"),
+      casePlan("EVAL-006"),
+      casePlan("EVAL-007"),
+    );
+    const executed = yield* Ref.make<readonly string[]>([]);
+    const stalling = (cell: EvaluationSweepCell) =>
+      recordExecution(executed, cell).pipe(
+        Effect.zipRight(
+          cell.casePlan.id === caseId("EVAL-006") ? Effect.never : Effect.void,
+        ),
+        Effect.as(allocationFailed(cell)),
+      );
+
+    yield* Effect.gen(function* () {
+      yield* createStoredEvaluationReport(
+        reportId("interrupted-window"),
+        reportPlan,
+      );
+      const sweep = yield* Effect.fork(
+        runEvaluationSweep(stalling, { concurrency: 2 }),
+      );
+      yield* awaitAttempts(1);
+      yield* Fiber.interrupt(sweep);
+      const checkpoint = yield* loadEvaluationReport();
+      assert.lengthOf(checkpoint.attempts, 1);
+    }).pipe(Effect.provide(evaluationResultStoreLayer(fixture.databasePath)));
+
+    const completed = yield* Effect.gen(function* () {
+      yield* resumeStoredEvaluationReport(reportPlan);
+      return yield* runEvaluationSweep(
+        (cell) => successfulPass(executed, cell),
+        { concurrency: 2 },
+      );
+    }).pipe(Effect.provide(evaluationResultStoreLayer(fixture.databasePath)));
+
+    assert.instanceOf(completed, CompletedEvaluationReport);
+    assert.lengthOf(completed.attempts, 3);
+    assert.deepStrictEqual(yield* Ref.get(executed), [
+      "interrupted-window/effect/v1/EVAL-005/001",
+      "interrupted-window/effect/v1/EVAL-006/001",
+      "interrupted-window/effect/v1/EVAL-006/001",
+      "interrupted-window/effect/v1/EVAL-007/001",
+    ]);
+  }).pipe(Effect.provide(NodeContext.layer));
+}
+
+function reportLockTest() {
+  return Effect.gen(function* () {
+    const fixture = yield* resultFixture("moltzap-evals-lock-");
+    const store = evaluationResultStoreLayer(fixture.databasePath);
+
+    yield* Effect.gen(function* () {
+      yield* createStoredEvaluationReport(
+        reportId("lock-test"),
+        plan(casePlan("EVAL-005")),
+      );
+      const refused = yield* loadEvaluationReport().pipe(
+        Effect.provide(store),
+        Effect.flip,
+      );
+      assert.instanceOf(refused, ReportLocked);
+      if (refused instanceof ReportLocked) {
+        assert.strictEqual(refused.databasePath, fixture.databasePath);
+      }
+    }).pipe(Effect.provide(store));
+
+    // The first holder released its lease with its scope.
+    const reopened = yield* loadEvaluationReport().pipe(Effect.provide(store));
+    assert.strictEqual(reopened._tag, "InProgressEvaluationReport");
+  }).pipe(Effect.provide(NodeContext.layer));
+}
+
 describe("evaluation result storage", () => {
   // Committing a cell drives a real SQLite bundle, whose retry paths sleep on
   // the live clock. A virtual clock would freeze such a sleep forever, so this
@@ -445,6 +596,18 @@ describe("evaluation result storage", () => {
     processDeathResumeTest,
     PROCESS_DEATH_TIMEOUT_MS,
   );
+});
+
+describe("evaluation result windows", () => {
+  liveIt(
+    "commits a concurrent window in plan order once its head finishes",
+    windowOrderTest,
+  );
+  liveIt(
+    "keeps the committed prefix when a window is interrupted",
+    interruptedWindowTest,
+  );
+  liveIt("refuses a second opener while the report is held", reportLockTest);
   it(
     "rejects a resume when immutable runtime configuration changed",
     resumeMismatchTest,

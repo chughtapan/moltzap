@@ -27,6 +27,7 @@ import {
   type File,
   image,
   type Image,
+  providerCredential,
   routableBridgeEndpoint,
   stoppedBeforeAttach,
 } from "../container.js";
@@ -329,6 +330,10 @@ function makeOpenClawApplication(
     ...harvestTargets(OPENCLAW_WORKSPACE_DIR, settings.harvestPaths),
     ...(settings.historyExport ? [historyExportTarget()] : []),
   ];
+  const credential =
+    settings.modelId === undefined
+      ? undefined
+      : providerCredential(settings.modelId);
   return Object.freeze({
     entrypoint: Object.freeze(["node", AGENT_IMAGE_ENTRYPOINT] as const),
     environment: Object.freeze({
@@ -340,9 +345,9 @@ function makeOpenClawApplication(
         ? { [HISTORY_EXPORT_VARIABLE]: HISTORY_EXPORT_PATH }
         : {}),
     }),
-    ...(settings.modelId === undefined
+    ...(credential === undefined
       ? {}
-      : { credentials: Object.freeze(["OPENAI_API_KEY"] as const) }),
+      : { credentials: Object.freeze([credential]) }),
     port: OPENCLAW_GATEWAY_PORT,
     files: bootstrapFiles(settings, input, gatewayToken, pairing),
     ...(harvest.length === 0 ? {} : { harvest }),

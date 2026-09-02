@@ -8,10 +8,12 @@ import * as SqlClient from "@effect/sql/SqlClient";
 import * as SqlSchema from "@effect/sql/SqlSchema";
 import {
   Context,
+  DateTime,
   Effect,
   Layer,
   Option,
   type ParseResult,
+  Ref,
   Schema,
 } from "effect";
 import {
@@ -86,6 +88,21 @@ const completionUpdate = Schema.Struct({
   completedAt: Schema.DateTimeUtc,
 });
 
+const leaseRow = Schema.Struct({
+  ownerPid: Schema.Int,
+});
+
+const leaseInsert = Schema.Struct({
+  ownerPid: Schema.Int,
+  acquiredAt: Schema.DateTimeUtc,
+});
+
+const leaseTakeover = Schema.Struct({
+  ownerPid: Schema.Int,
+  previousOwnerPid: Schema.Int,
+  acquiredAt: Schema.DateTimeUtc,
+});
+
 /** A result bundle already owns its single report identity. */
 class EvaluationResultAlreadyExists extends Schema.TaggedError<EvaluationResultAlreadyExists>()(
   "EvaluationResultAlreadyExists",
@@ -111,9 +128,32 @@ class EvaluationResultConflict extends Schema.TaggedError<EvaluationResultConfli
   },
 ) {}
 
+/**
+ * Another live process on this host holds the report open.
+ *
+ * Two sweeps over one report would each take a window of the same remaining
+ * cells and submit them twice. The lease is a row naming the holder's process,
+ * so a holder that died leaves a lease a later opener can tell is stale; a
+ * holder on another host cannot be told apart from a live one, and report
+ * bundles are local files.
+ */
+export class ReportLocked extends Schema.TaggedError<ReportLocked>()(
+  "ReportLocked",
+  {
+    databasePath: Schema.NonEmptyString,
+    ownerPid: Schema.Int,
+  },
+) {}
+
 type ExecuteCell<E, R> = (
   cell: EvaluationSweepCell,
 ) => Effect.Effect<TerminalAttemptType, E, R>;
+
+/** How wide one sweep submits cells. */
+export interface EvaluationSweepOptions {
+  /** Cells executed at once; one keeps the sequential behaviour. */
+  readonly concurrency?: number;
+}
 
 interface EvaluationResultStoreService {
   readonly databasePath: string;
@@ -135,6 +175,7 @@ interface EvaluationResultStoreService {
   >;
   readonly advance: <E, R>(
     execute: ExecuteCell<E, R>,
+    concurrency: number,
   ) => Effect.Effect<
     EvaluationReport,
     | E
@@ -179,6 +220,16 @@ const migrations = Migrator.fromRecord({
       ) STRICT
     `;
   }),
+  "2_report_lease": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`
+      CREATE TABLE evaluation_report_lease (
+        singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+        owner_pid INTEGER NOT NULL,
+        acquired_at TEXT NOT NULL
+      ) STRICT
+    `;
+  }),
 });
 
 /**
@@ -191,7 +242,7 @@ const migrations = Migrator.fromRecord({
  */
 export function evaluationResultStoreLayer(databasePath: string) {
   const sqlLayer = SqliteClient.layer({ filename: databasePath });
-  const storeLayer = Layer.effect(
+  const storeLayer = Layer.scoped(
     EvaluationResultStore,
     makeStore(databasePath),
   ).pipe(Layer.provide(sqlLayer));
@@ -201,19 +252,26 @@ export function evaluationResultStoreLayer(databasePath: string) {
 }
 
 /**
- * Execute missing cells sequentially.
+ * Execute missing cells in windows of the chosen width.
  *
- * A cell owns the report's SQLite write transaction from selection through
- * terminal-attempt commit. Process failure or interruption rolls that cell
- * back and releases ownership; earlier cells remain committed.
+ * Each window takes the next remaining cells in plan order, runs them at
+ * once, and commits finished attempts as a prefix in that order, so the
+ * durable report is always a plan-order prefix and resume needs no other
+ * rule. Interruption or process failure loses at most the window's finished
+ * but not yet committed cells, which the next resume runs again.
  * @param execute Customer cell execution policy.
+ * @param options Window width; one cell at a time when omitted.
  * @returns The completed report Effect.
  */
-export function runEvaluationSweep<E, R>(execute: ExecuteCell<E, R>) {
+export function runEvaluationSweep<E, R>(
+  execute: ExecuteCell<E, R>,
+  options: EvaluationSweepOptions = {},
+) {
+  const concurrency = options.concurrency ?? 1;
   return Effect.gen(function* () {
     const store = yield* EvaluationResultStore;
     while (true) {
-      const report = yield* store.advance(execute);
+      const report = yield* store.advance(execute, concurrency);
       if (report instanceof CompletedEvaluationReport) {
         return report;
       }
@@ -237,7 +295,61 @@ function makeQueries(sql: SqlClient.SqlClient) {
     updateAfterAttempt: makeUpdateAfterAttempt(sql),
     markCompleted: makeMarkCompleted(sql),
     acquireWrite: makeAcquireWrite(sql),
+    selectLease: makeSelectLease(sql),
+    insertLease: makeInsertLease(sql),
+    takeOverLease: makeTakeOverLease(sql),
+    releaseLease: makeReleaseLease(sql),
   };
+}
+
+function makeSelectLease(sql: SqlClient.SqlClient) {
+  return SqlSchema.findOne({
+    Request: Schema.Void,
+    Result: leaseRow,
+    execute: () => sql`
+      SELECT owner_pid AS "ownerPid"
+      FROM evaluation_report_lease
+      WHERE singleton = 1
+    `,
+  });
+}
+
+function makeInsertLease(sql: SqlClient.SqlClient) {
+  return SqlSchema.findOne({
+    Request: leaseInsert,
+    Result: leaseRow,
+    execute: (request) => sql`
+      INSERT INTO evaluation_report_lease (singleton, owner_pid, acquired_at)
+      VALUES (1, ${request.ownerPid}, ${request.acquiredAt})
+      ON CONFLICT (singleton) DO NOTHING
+      RETURNING owner_pid AS "ownerPid"
+    `,
+  });
+}
+
+function makeTakeOverLease(sql: SqlClient.SqlClient) {
+  return SqlSchema.findOne({
+    Request: leaseTakeover,
+    Result: leaseRow,
+    execute: (request) => sql`
+      UPDATE evaluation_report_lease
+      SET owner_pid = ${request.ownerPid}, acquired_at = ${request.acquiredAt}
+      WHERE singleton = 1 AND owner_pid = ${request.previousOwnerPid}
+      RETURNING owner_pid AS "ownerPid"
+    `,
+  });
+}
+
+function makeReleaseLease(sql: SqlClient.SqlClient) {
+  return SqlSchema.findOne({
+    Request: leaseRow,
+    Result: leaseRow,
+    execute: (request) => sql`
+      DELETE FROM evaluation_report_lease
+      WHERE singleton = 1 AND owner_pid = ${request.ownerPid}
+      RETURNING owner_pid AS "ownerPid"
+    `,
+  });
 }
 
 type ResultQueries = ReturnType<typeof makeQueries>;
@@ -525,8 +637,70 @@ function makeStore(databasePath: string) {
   return Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* initializeStore(sql);
-    return makeStoreService(databasePath, sql, makeQueries(sql));
+    const queries = makeQueries(sql);
+    yield* Effect.acquireRelease(
+      acquireReportLease(databasePath, sql, queries),
+      () => releaseReportLease(sql, queries),
+    );
+    return makeStoreService(databasePath, sql, queries);
   });
+}
+
+// A process the kernel no longer knows is dead; one it refuses to let this
+// process signal is alive and someone else's. The lease names a process on
+// this host, which is the only host a report bundle is opened from.
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (cause) {
+    return !(
+      cause instanceof Error &&
+      "code" in cause &&
+      cause.code === "ESRCH"
+    );
+  }
+}
+
+function acquireReportLease(
+  databasePath: string,
+  sql: SqlClient.SqlClient,
+  queries: ResultQueries,
+) {
+  const ownerPid = process.pid;
+  return sql.withTransaction(
+    Effect.gen(function* () {
+      const acquiredAt = yield* DateTime.now;
+      const held = yield* queries.selectLease(undefined);
+      const taken = yield* Option.match(held, {
+        onNone: () => queries.insertLease({ ownerPid, acquiredAt }),
+        onSome: (lease) =>
+          lease.ownerPid === ownerPid || processAlive(lease.ownerPid)
+            ? Effect.succeed(Option.none<typeof leaseRow.Type>())
+            : queries.takeOverLease({
+                ownerPid,
+                previousOwnerPid: lease.ownerPid,
+                acquiredAt,
+              }),
+      });
+      if (Option.isNone(taken)) {
+        return yield* Effect.fail(
+          ReportLocked.make({
+            databasePath,
+            ownerPid: Option.map(held, (lease) => lease.ownerPid).pipe(
+              Option.getOrElse(() => ownerPid),
+            ),
+          }),
+        );
+      }
+    }),
+  );
+}
+
+function releaseReportLease(sql: SqlClient.SqlClient, queries: ResultQueries) {
+  return sql
+    .withTransaction(queries.releaseLease({ ownerPid: process.pid }))
+    .pipe(Effect.ignore);
 }
 
 function prepareResultBundle(databasePath: string) {
@@ -580,14 +754,6 @@ export const resumeStoredEvaluationReport = Effect.fn("evals.results.resume")(
   },
 );
 
-interface CommitCellOptions<E, R> {
-  readonly queries: ResultQueries;
-  readonly report: InProgressEvaluationReport;
-  readonly cell: EvaluationSweepCell;
-  readonly lastCell: boolean;
-  readonly execute: ExecuteCell<E, R>;
-}
-
 function persistCompletion(
   queries: ResultQueries,
   report: InProgressEvaluationReport,
@@ -597,51 +763,154 @@ function persistCompletion(
   );
 }
 
-function commitCell<E, R>({
-  queries,
-  report,
-  cell,
-  lastCell,
-  execute,
-}: CommitCellOptions<E, R>) {
-  return Effect.uninterruptibleMask((restore) =>
-    restore(execute(cell)).pipe(
-      Effect.flatMap((attempt) =>
-        appendStoredAttempt(queries, report, attempt),
-      ),
-      Effect.flatMap((next) =>
-        lastCell
-          ? persistCompletion(queries, next).pipe(
-              Effect.map((completed): EvaluationReport => completed),
-            )
-          : Effect.succeed<EvaluationReport>(next),
-      ),
-    ),
-  );
+type WindowSelection =
+  | { readonly _tag: "completed"; readonly report: CompletedEvaluationReport }
+  | {
+      readonly _tag: "window";
+      readonly report: InProgressEvaluationReport;
+      readonly cells: readonly EvaluationSweepCell[];
+    };
+
+function completedSelection(
+  report: CompletedEvaluationReport,
+): WindowSelection {
+  return { _tag: "completed", report };
 }
 
-function advanceStoredReportTransaction<E, R>(
+function windowSelection(
+  report: InProgressEvaluationReport,
+  cells: readonly EvaluationSweepCell[],
+): WindowSelection {
+  return { _tag: "window", report, cells };
+}
+
+// One short transaction: what the report holds now, and the next cells to
+// run. Nothing executes while it is open.
+function selectWindow(
   databasePath: string,
   queries: ResultQueries,
-  execute: ExecuteCell<E, R>,
+  concurrency: number,
 ) {
   return Effect.gen(function* () {
     yield* acquireStoredReportWrite(databasePath, queries.acquireWrite);
     const current = yield* loadStoredReport(databasePath, queries);
     if (current instanceof CompletedEvaluationReport) {
-      return current;
+      return completedSelection(current);
     }
     const remaining = yield* remainingEvaluationCells(current);
-    const [cell] = remaining;
-    return cell === undefined
-      ? yield* persistCompletion(queries, current)
-      : yield* commitCell({
-          queries,
-          report: current,
-          cell,
-          lastCell: remaining.length === 1,
-          execute,
-        });
+    if (remaining.length === 0) {
+      return completedSelection(yield* persistCompletion(queries, current));
+    }
+    return windowSelection(current, remaining.slice(0, concurrency));
+  });
+}
+
+/** The store's connection and queries, threaded as one handle. */
+interface StoreHandle {
+  readonly databasePath: string;
+  readonly sql: SqlClient.SqlClient;
+  readonly queries: ResultQueries;
+}
+
+interface WindowCommitState {
+  readonly gate: Effect.Semaphore;
+  readonly report: Ref.Ref<InProgressEvaluationReport>;
+  readonly next: Ref.Ref<number>;
+  readonly finished: Map<number, TerminalAttemptType>;
+}
+
+// Finished attempts wait until every earlier cell of the window has
+// committed, so the durable report grows only as a plan-order prefix. The
+// commit itself is uninterruptible: an attempt that finished is not lost to
+// an interrupt that lands between its execution and its row.
+function commitPrefix(handle: StoreHandle, state: WindowCommitState) {
+  return Effect.gen(function* () {
+    for (;;) {
+      const next = yield* Ref.get(state.next);
+      const ready = state.finished.get(next);
+      if (ready === undefined) {
+        return;
+      }
+      const current = yield* Ref.get(state.report);
+      const appended = yield* Effect.uninterruptible(
+        handle.sql.withTransaction(
+          acquireStoredReportWrite(
+            handle.databasePath,
+            handle.queries.acquireWrite,
+          ).pipe(
+            Effect.zipRight(
+              appendStoredAttempt(handle.queries, current, ready),
+            ),
+          ),
+        ),
+      );
+      yield* Ref.set(state.report, appended);
+      state.finished.delete(next);
+      yield* Ref.set(state.next, next + 1);
+    }
+  });
+}
+
+function commitFinished(
+  handle: StoreHandle,
+  state: WindowCommitState,
+  index: number,
+  attempt: TerminalAttemptType,
+) {
+  return state.gate.withPermits(1)(
+    Effect.suspend(() => {
+      state.finished.set(index, attempt);
+      return commitPrefix(handle, state);
+    }),
+  );
+}
+
+function executeWindow<E, R>(
+  handle: StoreHandle,
+  selection: Extract<WindowSelection, { readonly _tag: "window" }>,
+  execute: ExecuteCell<E, R>,
+  concurrency: number,
+) {
+  return Effect.gen(function* () {
+    const state: WindowCommitState = {
+      gate: yield* Effect.makeSemaphore(1),
+      report: yield* Ref.make(selection.report),
+      next: yield* Ref.make(0),
+      finished: new Map(),
+    };
+    yield* Effect.forEach(
+      selection.cells,
+      (cell, index) =>
+        execute(cell).pipe(
+          Effect.flatMap((attempt) =>
+            commitFinished(handle, state, index, attempt),
+          ),
+        ),
+      { concurrency, discard: true },
+    );
+    return yield* Ref.get(state.report);
+  });
+}
+
+function advanceStoredReport<E, R>(
+  handle: StoreHandle,
+  execute: ExecuteCell<E, R>,
+  concurrency: number,
+) {
+  return Effect.gen(function* () {
+    const selection = yield* handle.sql.withTransaction(
+      selectWindow(handle.databasePath, handle.queries, concurrency),
+    );
+    switch (selection._tag) {
+      case "completed":
+        return selection.report;
+      case "window":
+        return yield* executeWindow(handle, selection, execute, concurrency);
+      default: {
+        const exhaustive: never = selection;
+        return exhaustive;
+      }
+    }
   });
 }
 
@@ -650,13 +919,12 @@ function makeStoreService(
   sql: SqlClient.SqlClient,
   queries: ResultQueries,
 ): EvaluationResultStoreService {
+  const handle: StoreHandle = { databasePath, sql, queries };
   return {
     databasePath,
     create: (report) => createStoredReport(queries, report),
     load: () => sql.withTransaction(loadStoredReport(databasePath, queries)),
-    advance: (execute) =>
-      sql.withTransaction(
-        advanceStoredReportTransaction(databasePath, queries, execute),
-      ),
+    advance: (execute, concurrency) =>
+      advanceStoredReport(handle, execute, concurrency),
   };
 }

@@ -97,6 +97,9 @@ import {
 
 const CLI_VERSION = "0.0.0";
 const RUNTIME_STARTUP_TIMEOUT = Duration.minutes(5);
+// Concurrent cells queue behind each other for the profile's capacity; an
+// hour lets a full sweep's worth wait without failing as ClusterLost.
+const ADMISSION_TIMEOUT = Duration.hours(1);
 const PEER_OBSERVATION_TIMEOUT = Duration.minutes(5);
 const CASE_TIMEOUT = Duration.minutes(20);
 const JUDGE_POLICY: JudgePolicyId = decodeJudgePolicyId(
@@ -735,6 +738,7 @@ function submissionInput(
           nanoclawApplicationImage: environment.nanoclawApplicationImage,
         }),
     runtimeStartupTimeoutMillis: Duration.toMillis(RUNTIME_STARTUP_TIMEOUT),
+    admissionTimeoutMillis: Duration.toMillis(ADMISSION_TIMEOUT),
     peerObservationTimeoutMillis: Duration.toMillis(PEER_OBSERVATION_TIMEOUT),
     caseTimeoutMillis: Duration.toMillis(CASE_TIMEOUT),
   } as const;
@@ -802,9 +806,11 @@ function reportIdNow() {
 function executeReport(
   environment: EvaluationExecutionEnvironment,
   conditions: readonly EvaluationCondition[],
+  concurrency: number,
 ) {
-  return runEvaluationSweep((cell) =>
-    executeCell(environment, conditions, cell),
+  return runEvaluationSweep(
+    (cell) => executeCell(environment, conditions, cell),
+    { concurrency },
   ).pipe(Effect.provide(SemanticJudgeOpenAi));
 }
 
@@ -1001,7 +1007,11 @@ function runOrResume(
       } else {
         yield* resumeStoredEvaluationReport(plan);
       }
-      const completed = yield* executeReport(environment, conditions);
+      const completed = yield* executeReport(
+        environment,
+        conditions,
+        selection.concurrency,
+      );
       yield* logReport(completed, databasePath);
       return yield* ensureSweepOperationallyComplete(completed);
     }).pipe(Effect.provide(evaluationResultStoreLayer(databasePath)));

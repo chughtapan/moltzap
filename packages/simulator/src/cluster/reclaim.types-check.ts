@@ -28,6 +28,7 @@ type WorkflowInputKeysAreClosed = Expect<
     | "runtimeCredentials"
     | "experimentModule"
     | "startupTimeoutMs"
+    | "admissionTimeoutMs"
     | "cohortSize"
   >
 >;

@@ -112,6 +112,10 @@ const SETTLED = Duration.millis(5);
 const GENEROUS_TIMEOUT = Duration.seconds(1);
 /** Long enough for the poll loop to run many times, short enough to expire. */
 const MISSED_TIMEOUT = Duration.millis(50);
+/** How long the fake queue holds a cohort before admitting it. */
+const QUEUED_FOR = Duration.millis(300);
+/** A startup budget the queue wait alone would exhaust. */
+const STARTUP_WHILE_QUEUED = Duration.millis(150);
 const READY_AFTER_PROBES = 4;
 const INJECTED_READ_FAILURES = 3;
 /** A readiness probe the poll budget can never reach. */
@@ -385,6 +389,7 @@ function bridgeAcceptsOperation(state: FakeKubernetesState) {
 
 interface PlatformOptions {
   readonly startupTimeout?: Duration.Duration;
+  readonly admissionTimeout?: Duration.Duration;
   readonly livenessInterval?: Duration.Duration;
   readonly runtimeCredentials?: KubernetesClusterOptions["runtimeCredentials"];
   readonly resolveAgentId?: SocietyAgentIdResolver;
@@ -425,6 +430,7 @@ function makeRawPlatform(
       supportImage: SUPPORT_IMAGE,
       runtimeCredentials: options.runtimeCredentials,
       startupTimeout: options.startupTimeout ?? GENEROUS_TIMEOUT,
+      admissionTimeout: options.admissionTimeout ?? GENEROUS_TIMEOUT,
       routerFaultProxy: options.routerFaultProxy ?? {
         listener: {
           bindHost: "127.0.0.1",
@@ -1101,7 +1107,7 @@ describe("aggregate capacity admission", () => {
           });
 
           const exit = yield* acquireCohort(
-            makePlatform(state, { startupTimeout: MISSED_TIMEOUT }),
+            makePlatform(state, { admissionTimeout: MISSED_TIMEOUT }),
             roster,
           );
 
@@ -1109,6 +1115,40 @@ describe("aggregate capacity admission", () => {
           assert.lengthOf(created(state, SANDBOX_CREATED), 0, refused.reason);
           assert.include(state.events, WORKLOAD_DELETED, refused.reason);
         }
+      }),
+    ));
+});
+
+describe("queued admission", () => {
+  // A queued cohort has not started, so the startup budget must not run
+  // while the queue holds it: admission arrives only after that budget would
+  // have expired, and the run still seats.
+  test("waits for admission on its own budget, not the startup budget", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const state = makeState(yield* Deferred.make<undefined>());
+        const roster = AgentRoster.make("acme.kubernetes-queued/v1", {
+          alice: fakeRuntime(),
+        });
+        yield* Effect.sleep(QUEUED_FOR).pipe(
+          Effect.zipRight(
+            Effect.sync(() => {
+              state.admitted = true;
+            }),
+          ),
+          Effect.fork,
+        );
+
+        const exit = yield* acquireCohort(
+          makePlatform(state, {
+            startupTimeout: STARTUP_WHILE_QUEUED,
+            admissionTimeout: GENEROUS_TIMEOUT,
+          }),
+          roster,
+        );
+
+        assert.isTrue(Exit.isSuccess(exit), failureDetail(exit));
+        assert.lengthOf(created(state, SANDBOX_CREATED), 1);
       }),
     ));
 });
