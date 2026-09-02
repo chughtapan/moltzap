@@ -46,14 +46,18 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`ConnectError`](./contract.ts#L348)
+### [`ConnectError`](./contract.ts#L360)
 
 _Class_
 
 ```ts
 export class ConnectError extends Data.TaggedError("ConnectError")<{
   readonly reason: ConnectFailure;
-}> {}
+}> {
+  override get message(): string {
+    return `connect failed: ${this.reason}`;
+  }
+}
 ```
 
 Acquiring the endpoint connection failed.
@@ -104,7 +108,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./contract.ts#L336)
+### [`DeliveryAcknowledgeError`](./contract.ts#L344)
 
 _Class_
 
@@ -113,7 +117,11 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
   "DeliveryAcknowledgeError",
 )<{
   readonly reason: DeliveryAcknowledgeFailure;
-}> {}
+}> {
+  override get message(): string {
+    return `delivery acknowledgment failed: ${this.reason}`;
+  }
+}
 ```
 
 Transport acknowledgment could not complete for one delivery.
@@ -162,7 +170,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./contract.ts#L359)
+### [`HarnessEndpoint`](./contract.ts#L375)
 
 _Interface_
 
@@ -175,7 +183,7 @@ export interface HarnessEndpoint {
 
 Structural runtime capability owned by one scoped endpoint connection.
 
-### [`InboundDelivery`](./contract.ts#L353)
+### [`InboundDelivery`](./contract.ts#L369)
 
 _Interface_
 
@@ -246,14 +254,18 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./contract.ts#L325)
+### [`ListenError`](./contract.ts#L329)
 
 _Class_
 
 ```ts
 export class ListenError extends Data.TaggedError("ListenError")<{
   readonly reason: ListenFailure;
-}> {}
+}> {
+  override get message(): string {
+    return `listen failed: ${this.reason}`;
+  }
+}
 ```
 
 The endpoint's sole inbound subscription failed.
@@ -312,7 +324,11 @@ _Class_
 ```ts
 export class SendError extends Data.TaggedError("SendError")<{
   readonly reason: SendFailure;
-}> {}
+}> {
+  override get message(): string {
+    return `send failed: ${this.reason}`;
+  }
+}
 ```
 
 An addressed send failed before local certification completed.
