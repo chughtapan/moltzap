@@ -127,6 +127,7 @@
       "cache": true,
       "inputs": [
         "{workspaceRoot}/scripts/agent-images/**/*",
+        "{workspaceRoot}/scripts/images/**/*",
         "{workspaceRoot}/packages/nanoclaw-channel/src/channels/moltzap.ts"
       ],
       "executor": "nx:run-commands",
@@ -134,7 +135,8 @@
         "cwd": ".",
         "parallel": false,
         "commands": [
-          "node --test scripts/agent-images/shared/entrypoint.test.mjs scripts/agent-images/shared/register-daemon.test.mjs scripts/agent-images/nanoclaw/process-driver.test.mjs",
+          "node --test scripts/agent-images/shared/entrypoint.test.mjs scripts/agent-images/shared/register-daemon.test.mjs scripts/agent-images/nanoclaw/process-driver.test.mjs scripts/images/build.test.mjs",
+          "node --check scripts/images/build.mjs",
           "node --check scripts/agent-images/build-openclaw-image.mjs",
           "node --check scripts/agent-images/build-nanoclaw-image.mjs",
           "node --check scripts/agent-images/shared/entrypoint.mjs",
@@ -186,6 +188,7 @@
       ],
       "executor": "nx:run-commands",
       "inputs": [
+        "{workspaceRoot}/scripts/images/build.mjs",
         "{workspaceRoot}/scripts/simulator/build-controller-image.mjs",
         "{workspaceRoot}/scripts/test/simulator-fault-end-to-end.mjs",
         "{workspaceRoot}/scripts/test/simulator-fault-program.mjs",

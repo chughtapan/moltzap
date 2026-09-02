@@ -1,16 +1,17 @@
 {
   "name": "@moltzap/nanoclaw-channel",
-  "version": "0.0.0",
-  "description": "NanoClaw channel adapter for MoltZap \u2014 private package",
-  "private": true,
-  "license": "MIT",
+  "version": "2026.811.0",
+  "description": "NanoClaw channel adapter for MoltZap messaging",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/chughtapan/moltzap"
+    "url": "git+https://github.com/chughtapan/moltzap.git"
   },
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "NOTICE"
   ],
   "main": "./dist/channels/moltzap.js",
   "types": "./dist/channels/moltzap.d.ts",
@@ -40,6 +41,17 @@
           "command": "eslint . --cache --max-warnings=0"
         }
       },
+      "test:pack": {
+        "executor": "nx:run-commands",
+        "dependsOn": [
+          "build",
+          "^build"
+        ],
+        "cache": false,
+        "options": {
+          "command": "node scripts/test-nanoclaw-package.mjs"
+        }
+      },
       "arch:check": {
         "executor": "nx:run-commands",
         "options": {
@@ -51,6 +63,7 @@
   },
   "dependencies": {
     "@moltzap/client": "workspace:*",
+    "@types/node": "^25.5.0",
     "effect": "^3.22.0"
   },
   "devDependencies": {

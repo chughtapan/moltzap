@@ -5,8 +5,9 @@ local history, durability and recovery, personal trust, the one-agent daemon,
 the loopback MCP boundary, and the semantic `HarnessEndpoint` used by runtimes
 and adapters.
 
-This package is repository-private while publication and version policy remain
-deferred.
+It publishes to npm as part of the one-version set; `npm install
+@moltzap/client` installs `moltzapd` and pins the identity and router packages
+it was built with.
 
 ## Entry points
 

@@ -22,7 +22,7 @@ costs, because creating the cluster is slow and keeping nodes is expensive:
 | `./cluster.sh run SPEC.mjs` | submit one RunSpec | run-sized |
 | `./cluster.sh publish-image` | publish the controller image and print its digest | ~3 min |
 | `./cluster.sh down` | park the controller | ~1 min |
-| `./cluster.sh delete` | destroy the substrate | ~8 min |
+| `./cluster.sh delete` | destroy the substrate, including the image repository releases record and the release identity | ~8 min |
 
 Agent nodes are not managed by any of these. That pool autoscales from zero:
 Kueue admits a cohort, its pods go pending, and the autoscaler provisions nodes
@@ -40,6 +40,14 @@ nothing recovers on its own, and a submission stays pending until `up`.
 `down` refuses while any Kueue `Workload` is still in flight, and `delete`
 refuses while the artifact bucket holds objects, since that bucket holds run
 ledgers rather than cluster state. Pass `--delete-artifacts` to discard them.
+`delete` does destroy the Artifact Registry repository and the release
+identity below, so the image digests every release recorded stop resolving
+and the next release cannot authenticate until `setup` recreates them; do not
+run it while a published release still points at this profile. A deleted
+Workload Identity pool and provider stay soft-deleted for thirty days, during
+which `setup` cannot recreate them under the same ids: restore them with
+`gcloud iam workload-identity-pools undelete`, the matching provider
+undelete, and `terraform import` instead.
 
 Resident cost with the controller up is one `e2-standard-4` node plus disks;
 the zonal control plane is free. Parking the controller with `down` leaves only
@@ -50,7 +58,9 @@ and gives them back when it ends.
 
 Copy `terraform/terraform.tfvars.example`, set the Google Cloud project and a
 globally unique artifact bucket, then run setup, which plans and prompts before
-it creates anything:
+it creates anything. A fork also sets `github_repository` to its own
+`owner/name`: the release identity below trusts only that repository, and the
+default is `chughtapan/moltzap`.
 
 ```bash
 packages/simulator/gke/cluster.sh setup
@@ -118,6 +128,70 @@ at an address the worker Pod cannot resolve leaves submissions pending with no
 error, because a worker that never connects is indistinguishable from a queue
 with nothing on it.
 
+## Published images
+
+No release has published images yet. Until the first release, build and push a
+controller image locally with `./cluster.sh publish-image`, which prints the
+digest reference to pin.
+
+## Release publishing
+
+`.github/workflows/publish.yml` pushes the controller, OpenClaw, and NanoClaw
+images to the `controller_repository` repository tagged with the release
+version, then writes their digests into the Published images section above in
+the same release commit that bumps the npm packages. The workflow
+authenticates to Google Cloud with GitHub's OIDC token through Workload
+Identity Federation and to npm through trusted publishing; the only stored
+secret is the release App's private key, which signs the one push to `main`.
+
+Terraform owns that identity. `setup` creates the `github-actions` pool, its
+`github` provider admitting only tokens minted for `publish.yml` on this
+repository's `main` branch, and the `moltzap-release` service account with
+`roles/artifactregistry.writer` on the image repository. Copy the three
+outputs into the repository's Actions variables before the first release:
+
+| Terraform output | Actions variable |
+| --- | --- |
+| `release_workload_identity_provider` | `GCP_WORKLOAD_IDENTITY_PROVIDER` |
+| `release_service_account` | `GCP_RELEASE_SERVICE_ACCOUNT` |
+| `controller_repository` | `GCP_IMAGE_REPOSITORY` |
+
+The job runs in the `release` GitHub environment, which GitHub creates on the
+first run; required reviewers added to that environment gate every release.
+
+Two more prerequisites live outside Terraform. The release commit and tag are
+pushed with a GitHub App token: set `RELEASE_APP_ID` as an Actions variable and
+`RELEASE_APP_PRIVATE_KEY` as an Actions secret for an App installed on this
+repository with contents write access and allowed to push `main`. npm
+publishes without a token, so each of the six published packages lists
+`publish.yml` on this repository as a trusted publisher before the first run.
+
+A release pushes each image under `<version>-<commit>` and then points the
+`<version>` tag at that digest. A rerun on the same UTC day reuses the
+`<version>-<commit>` image; a rerun on a later day mints that day's version
+and rebuilds, because the packed workspace inside each image carries the
+stamped version. Until the release commit is on `main` the `<version>` tag
+follows the current build; after that, the digests recorded in the commit are
+the release.
+
+A release commit on `main` whose version some package still lacks on npm is
+resumed by every later run. When that release can never complete, because npm
+refused the tree or a package at that version was unpublished, dispatch with
+**Start a new version** checked: the run leaves the release commit alone,
+takes the next free version from the tip, and the maintainer deprecates
+whatever the abandoned version did publish.
+
+After the first release publishes, deprecate the retired names and the
+pre-cutover releases by hand, pointing at the publication record:
+
+```bash
+npm deprecate @moltzap/protocol@"*" "Retired; see docs/decisions/20260901-six-packages-publish-as-one-version-set.md"
+npm deprecate @moltzap/server-core@"*" "Retired; see docs/decisions/20260901-six-packages-publish-as-one-version-set.md"
+npm deprecate @moltzap/client@"<=2026.812.0" "v1 API; install the current one-version set"
+npm deprecate @moltzap/simulator@"<=2026.811.0" "Pre-cutover; install the current one-version set"
+npm deprecate @moltzap/openclaw-channel@"<=2026.811.0" "Pre-cutover; install the current one-version set"
+```
+
 ## Immutable simulator image
 
 Push the controller/support image built by the repository to the
@@ -142,8 +216,8 @@ The GKE entry validates `profile.json`, requires every dynamic identity above,
 and invokes the existing `runTemporalSociety` worker. It does not introduce a
 second workflow or simulator backend.
 
-`./cluster.sh publish-image` performs the publish and prints only the digest
-reference, so it can be assigned directly:
+`./cluster.sh publish-image` builds with `--push` and prints only the digest
+reference the registry assigned, so it can be assigned directly:
 
 ```bash
 MOLTZAP_CONTROLLER_IMAGE="$(packages/simulator/gke/cluster.sh publish-image)"
@@ -188,6 +262,12 @@ repository, as
 [the execution trajectory](../../../docs/decision-evidence/20260801-main-kubernetes-society-execution-trajectory.md)
 records.
 
+The retained post-cutover evidence is the
+[OpenClaw shared/private evaluation of 2026-09-01](../../evals/results/openclaw-gke-shared-private-20260901.md):
+six assessed attempts on this profile, with the controller and OpenClaw image
+digests, run namespaces, ledger identities, and artifact digests a reader can
+check against the bucket.
+
 Runtime evaluations are owned and run by
 [`@moltzap/evals`](../../evals/README.md), which can select this profile as its
 Simulator backend. They are not cluster lifecycle commands. Do not claim live
@@ -195,10 +275,13 @@ qualification until the resulting ledgers are readable in the artifact bucket,
 run-owned Kubernetes residue is zero, and that evidence is retained where a
 reader can find it.
 
-Static validation does not contact Google Cloud or a Kubernetes cluster:
+Static validation does not contact Google Cloud or a Kubernetes cluster;
+`gke-terraform-check` formats, initialises without a backend, and validates
+the Terraform module:
 
 ```bash
 pnpm nx run @moltzap/simulator:gke-profile-check
+pnpm nx run @moltzap/simulator:gke-terraform-check
 ```
 
 Upstream contracts used here:

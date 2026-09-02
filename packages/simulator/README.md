@@ -96,6 +96,10 @@ pnpm nx run workspace:nanoclaw-agent-image
 ```
 
 The command prints the immutable `pinnedImage` value accepted by the runtime.
+Every image builder accepts `--repository NAME` to name the image,
+`--tag TAG` to replace the content-fingerprint tag, and `--push` to push to
+that repository's registry instead of loading into the local daemon; pass
+them after `--`.
 
 ## Local and GKE profiles
 
@@ -130,6 +134,7 @@ pnpm nx run @moltzap/simulator:test
 pnpm nx run @moltzap/simulator:arch:check
 pnpm nx run @moltzap/simulator:local-profile-check
 pnpm nx run @moltzap/simulator:gke-profile-check
+pnpm nx run @moltzap/simulator:gke-terraform-check
 ```
 
 These checks do not qualify a live cluster or publish the required NanoClaw

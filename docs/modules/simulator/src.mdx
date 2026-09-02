@@ -13,7 +13,7 @@ Code-first simulator API.
 
 ## Public surface
 
-### [`AgentConnection`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/router.ts#L50)
+### [`AgentConnection`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/router.ts#L50)
 
 _Interface_
 
@@ -25,7 +25,7 @@ export interface AgentConnection<Name extends string = string> {
 
 Runtime identity issued for one scope-owned autonomous agent.
 
-### [`AgentHandle`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/participant.ts#L58)
+### [`AgentHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/participant.ts#L58)
 
 _Class_
 
@@ -50,7 +50,7 @@ export class AgentHandle<
 
 A participant whose autonomous runtime is owned by the run scope.
 
-### [`AgentProcessExited`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L81)
+### [`AgentProcessExited`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L81)
 
 _Class_
 
@@ -68,7 +68,7 @@ export class AgentProcessExited extends Schema.TaggedClass<AgentProcessExited>()
 
 A roster runtime process terminated with an operating-system exit code.
 
-### [`AgentProcessSignaled`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L92)
+### [`AgentProcessSignaled`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L92)
 
 _Class_
 
@@ -86,7 +86,7 @@ export class AgentProcessSignaled extends Schema.TaggedClass<AgentProcessSignale
 
 A roster runtime process terminated because it received a signal.
 
-### [`AgentRuntimeCompleted`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L60)
+### [`AgentRuntimeCompleted`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L60)
 
 _Class_
 
@@ -103,7 +103,7 @@ export class AgentRuntimeCompleted extends Schema.TaggedClass<AgentRuntimeComple
 
 An autonomous runtime completed normally.
 
-### [`AgentRuntimeFailed`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L70)
+### [`AgentRuntimeFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L70)
 
 _Class_
 
@@ -121,7 +121,7 @@ export class AgentRuntimeFailed extends Schema.TaggedClass<AgentRuntimeFailed>()
 
 An autonomous runtime completed with a recorded failure.
 
-### [`AgentRuntimeReady`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L40)
+### [`AgentRuntimeReady`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L40)
 
 _Class_
 
@@ -138,7 +138,7 @@ export class AgentRuntimeReady extends Schema.TaggedClass<AgentRuntimeReady>()(
 
 A roster runtime completed acquisition and readiness.
 
-### [`AgentRuntimeStartFailed`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L50)
+### [`AgentRuntimeStartFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L50)
 
 _Class_
 
@@ -155,7 +155,7 @@ export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStar
 
 A roster runtime failed before it established readiness.
 
-### [`ClusterError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/cluster/cluster.ts#L17)
+### [`ClusterError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/cluster/cluster.ts#L17)
 
 _Class_
 
@@ -171,7 +171,7 @@ export class ClusterError extends Data.TaggedError("ClusterError")<{
 
 Cluster loss that ends a run without exposing its backend.
 
-### [`ClusterLost`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/run/execute.ts#L106)
+### [`ClusterLost`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L106)
 
 _Class_
 
@@ -186,7 +186,7 @@ export class ClusterLost<
 
 Post-allocation cluster error plus all durable evidence retained.
 
-### [`ClusterServices`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/definition.ts#L64)
+### [`ClusterServices`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/definition.ts#L64)
 
 _TypeAlias_
 
@@ -196,7 +196,7 @@ export type ClusterServices = LedgerStorage | RouterProvider | Cluster;
 
 Opaque service set supplied by a local-Kubernetes or GKE Layer.
 
-### [`CompletedLedgerReceipt`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/run/execute.ts#L73)
+### [`CompletedLedgerReceipt`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L73)
 
 _Class_
 
@@ -212,7 +212,7 @@ export class CompletedLedgerReceipt extends Schema.TaggedClass<CompletedLedgerRe
 
 Physical receipt for a ledger whose completion marker is durable.
 
-### [`coreEvents`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L193)
+### [`coreEvents`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L193)
 
 _Variable_
 
@@ -227,7 +227,7 @@ export const coreEvents = EventCatalog.merge(
 
 The exact event classes readable from every simulator run ledger.
 
-### [`CustomerEvents`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/run/events.ts#L42)
+### [`CustomerEvents`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/events.ts#L42)
 
 _Interface_
 
@@ -242,7 +242,7 @@ export interface CustomerEvents<Catalog extends AnyEventCatalog> {
 
 Definition-bound emission of customer-owned event classes only.
 
-### [`EncodedEventOf`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L45)
+### [`EncodedEventOf`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L45)
 
 _TypeAlias_
 
@@ -254,7 +254,7 @@ export type EncodedEventOf<Catalog> = Schema.Schema.Encoded<
 
 The closed encoded union persisted for a catalog.
 
-### [`Endpoint`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/endpoint.ts#L21)
+### [`Endpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/endpoint.ts#L21)
 
 _Class_
 
@@ -304,7 +304,7 @@ export class Endpoint<Name extends string = string> {
 
 A run-scoped participant controlled directly by the experiment program.
 
-### [`EventCatalog`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L132)
+### [`EventCatalog`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L132)
 
 _Class_
 
@@ -399,7 +399,7 @@ The exact immutable event universe for one definition.
 The private type identifier makes catalog arguments nominal: a structural
 object cannot claim a schema, constructor list, and tag list that disagree.
 
-### [`EventCatalogDefinitionError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L61)
+### [`EventCatalogDefinitionError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L61)
 
 _Class_
 
@@ -419,7 +419,7 @@ export class EventCatalogDefinitionError extends Schema.TaggedError<EventCatalog
 
 Invalid catalogs fail during definition construction, before a run starts.
 
-### [`EventCatalogDefinitionFailure`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L50)
+### [`EventCatalogDefinitionFailure`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L50)
 
 _TypeAlias_
 
@@ -429,7 +429,7 @@ export type EventCatalogDefinitionFailure = "duplicate-tag" | "invalid-tag";
 
 Represents event catalog definition failure conditions.
 
-### [`EventClass`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L12)
+### [`EventClass`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L12)
 
 _TypeAlias_
 
@@ -442,7 +442,7 @@ export type EventClass = Schema.Schema.AnyNoContext & {
 A schema-backed event constructor. The catalog retains both the schema and
 constructor faces so persisted values decode back into their exact class.
 
-### [`EventClassOf`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L42)
+### [`EventClassOf`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L42)
 
 _TypeAlias_
 
@@ -452,7 +452,7 @@ export type EventClassOf<Catalog> = CatalogClassesOf<Catalog>;
 
 The closed constructor union declared by a catalog.
 
-### [`EventMetadata`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/run/events.ts#L26)
+### [`EventMetadata`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/events.ts#L26)
 
 _Interface_
 
@@ -465,7 +465,7 @@ export interface EventMetadata {
 
 Causality metadata accepted from a customer event producer.
 
-### [`EventOf`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L39)
+### [`EventOf`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L39)
 
 _TypeAlias_
 
@@ -475,7 +475,7 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
-### [`IncompleteLedgerReceipt`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/run/execute.ts#L82)
+### [`IncompleteLedgerReceipt`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L82)
 
 _Class_
 
@@ -490,7 +490,7 @@ export class IncompleteLedgerReceipt extends Schema.TaggedClass<IncompleteLedger
 
 Physical receipt retained when ledger completion could not be published.
 
-### [`isEntryModule`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/cluster/entry.ts#L27)
+### [`isEntryModule`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/cluster/entry.ts#L27)
 
 _Function_
 
@@ -513,7 +513,7 @@ deleted `argv[1]` is a plain false rather than a thrown ENOENT.
 
 **Returns:** Whether both locations name the same real file.
 
-### [`LedgerFailure`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/ledger/append.ts#L59)
+### [`LedgerFailure`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/ledger/append.ts#L59)
 
 _TypeAlias_
 
@@ -526,7 +526,7 @@ export type LedgerFailure =
 
 Represents ledger failure conditions.
 
-### [`LedgerReceipt (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/run/execute.ts#L97)
+### [`LedgerReceipt (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L97)
 
 _TypeAlias_
 
@@ -536,7 +536,7 @@ export type LedgerReceipt = typeof LedgerReceipt.Type;
 
 Decoded physical ledger receipt.
 
-### [`LedgerReceipt (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/run/execute.ts#L91)
+### [`LedgerReceipt (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L91)
 
 _Variable_
 
@@ -549,7 +549,7 @@ export const LedgerReceipt = Schema.Union(
 
 Schema for the complete physical ledger-receipt universe.
 
-### [`LinkController`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L155)
+### [`LinkController`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L155)
 
 _Class_
 
@@ -561,7 +561,7 @@ export class LinkController extends Context.Tag(
 
 Experiment-facing directed-link control installed by the run kernel.
 
-### [`LinkControllerService`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L125)
+### [`LinkControllerService`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L125)
 
 _Interface_
 
@@ -598,7 +598,7 @@ export interface LinkControllerService {
 
 Run-scoped, evidence-producing directed-link control.
 
-### [`LinkDelivery`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L16)
+### [`LinkDelivery`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L16)
 
 _Interface_
 
@@ -615,7 +615,7 @@ export interface LinkDelivery {
 
 One opaque signed message about to cross a directed link.
 
-### [`LinkDown`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L103)
+### [`LinkDown`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L103)
 
 _Class_
 
@@ -631,7 +631,7 @@ export class LinkDown extends Schema.TaggedClass<LinkDown>()(
 
 A directed participant link transitioned from available to unavailable.
 
-### [`linkPolicy`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L44)
+### [`linkPolicy`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L44)
 
 _Variable_
 
@@ -641,7 +641,7 @@ export const linkPolicy:
 
 Canonical link policies for the common traffic shapes.
 
-### [`LinkPolicy`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L41)
+### [`LinkPolicy`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L41)
 
 _TypeAlias_
 
@@ -653,7 +653,7 @@ Decides one delivery on a directed link. A policy reads only its input and
 the ambient Clock; the link interpreter, never the policy, spends time and
 records evidence.
 
-### [`LinkPolicyCleared`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L128)
+### [`LinkPolicyCleared`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L128)
 
 _Class_
 
@@ -670,7 +670,7 @@ export class LinkPolicyCleared extends Schema.TaggedClass<LinkPolicyCleared>()(
 
 A described policy stopped shaping one directed participant link.
 
-### [`LinkPolicySet`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L118)
+### [`LinkPolicySet`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L118)
 
 _Class_
 
@@ -687,7 +687,7 @@ export class LinkPolicySet extends Schema.TaggedClass<LinkPolicySet>()(
 
 A described policy became active on one directed participant link.
 
-### [`LinkUp`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L112)
+### [`LinkUp`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L112)
 
 _Class_
 
@@ -700,7 +700,7 @@ export class LinkUp extends Schema.TaggedClass<LinkUp>()("moltzap.link-up/v1", {
 
 A directed participant link transitioned from unavailable to available.
 
-### [`linkVerdict`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L34)
+### [`linkVerdict`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L34)
 
 _Variable_
 
@@ -710,7 +710,7 @@ export const linkVerdict = Data.taggedEnum<LinkVerdict>()
 
 Constructors and matchers for the closed verdict union.
 
-### [`LinkVerdict`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/link.ts#L26)
+### [`LinkVerdict`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/link.ts#L26)
 
 _TypeAlias_
 
@@ -725,7 +725,7 @@ export type LinkVerdict = Data.TaggedEnum<{
 
 Closed per-delivery decision returned by a link policy.
 
-### [`Network`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/endpoint.ts#L86)
+### [`Network`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/endpoint.ts#L86)
 
 _Class_
 
@@ -738,7 +738,7 @@ export class Network extends Context.Tag("@moltzap/simulator/Network")<
 
 Network operations available to the customer program.
 
-### [`NetworkError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/failure.ts#L19)
+### [`NetworkError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/failure.ts#L19)
 
 _Class_
 
@@ -758,7 +758,7 @@ export class NetworkError extends Schema.TaggedError<NetworkError>()(
 
 An operational failure at a simulator network boundary.
 
-### [`NetworkService`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/endpoint.ts#L79)
+### [`NetworkService`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/endpoint.ts#L79)
 
 _Interface_
 
@@ -772,7 +772,7 @@ export interface NetworkService {
 
 Controlled endpoint operations installed for one run scope.
 
-### [`ParticipantHandle`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/network/participant.ts#L22)
+### [`ParticipantHandle`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/network/participant.ts#L22)
 
 _Class_
 
@@ -800,7 +800,7 @@ export class ParticipantHandle<Name extends string = string> {
 A network participant identity. The hidden symbol prevents structurally
 similar identity data from being used as a simulator handle.
 
-### [`ProgramFailed`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L144)
+### [`ProgramFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L144)
 
 _Class_
 
@@ -815,7 +815,7 @@ export class ProgramFailed extends Schema.TaggedClass<ProgramFailed>()(
 
 The customer program failed with a typed failure or defect.
 
-### [`ProgramFinished`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/run/execute.ts#L100)
+### [`ProgramFinished`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L100)
 
 _Class_
 
@@ -828,7 +828,7 @@ export class ProgramFinished<A, E> extends Data.TaggedClass("ProgramFinished")<{
 
 Customer-program completion plus its complete durable evidence.
 
-### [`ProgramInterrupted`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L152)
+### [`ProgramInterrupted`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L152)
 
 _Class_
 
@@ -843,7 +843,7 @@ export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()
 
 The customer program was interrupted.
 
-### [`ProgramSucceeded`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L138)
+### [`ProgramSucceeded`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L138)
 
 _Class_
 
@@ -856,7 +856,7 @@ export class ProgramSucceeded extends Schema.TaggedClass<ProgramSucceeded>()(
 
 The customer program returned successfully.
 
-### [`ReadableRunLedger`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/run/events.ts#L32)
+### [`ReadableRunLedger`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/events.ts#L32)
 
 _Interface_
 
@@ -873,7 +873,7 @@ export interface ReadableRunLedger<Catalog extends AnyEventCatalog> {
 
 Definition-bound read access to every committed core and customer event.
 
-### [`RouterStarted`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L16)
+### [`RouterStarted`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L16)
 
 _Class_
 
@@ -888,7 +888,7 @@ export class RouterStarted extends Schema.TaggedClass<RouterStarted>()(
 
 The run-scoped Router is accepting participant connections.
 
-### [`RouterStartFailed`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L24)
+### [`RouterStartFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L24)
 
 _Class_
 
@@ -903,7 +903,7 @@ export class RouterStartFailed extends Schema.TaggedClass<RouterStartFailed>()(
 
 Router acquisition failed before the data plane became available.
 
-### [`RouterStopFailed`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L32)
+### [`RouterStopFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L32)
 
 _Class_
 
@@ -918,7 +918,7 @@ export class RouterStopFailed extends Schema.TaggedClass<RouterStopFailed>()(
 
 Router release or stopped-Router evidence collection failed.
 
-### [`Run`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/definition.ts#L314)
+### [`Run`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/definition.ts#L314)
 
 _Variable_
 
@@ -930,7 +930,7 @@ export const Run: Readonly<{ execute: typeof executeRunSpec }> = Object.freeze({
 
 Discoverable execution entry point for one experiment society.
 
-### [`RunSpec (type)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/definition.ts#L147)
+### [`RunSpec (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/definition.ts#L147)
 
 _Interface_
 
@@ -983,7 +983,7 @@ export interface RunSpec<
 
 Immutable code-first definition of one experiment society.
 
-### [`RunSpec (value)`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/definition.ts#L309)
+### [`RunSpec (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/definition.ts#L309)
 
 _Variable_
 
@@ -994,7 +994,7 @@ export const RunSpec: Readonly<{ define: typeof defineRunSpec }> =
 
 Discoverable constructor for immutable experiment definitions.
 
-### [`RunStarted`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/core.ts#L8)
+### [`RunStarted`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L8)
 
 _Class_
 
@@ -1009,7 +1009,7 @@ export class RunStarted extends Schema.TaggedClass<RunStarted>()(
 
 The run ledger is allocated and run-scoped acquisition has begun.
 
-### [`SimulatorDefinitionError`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/definition.ts#L28)
+### [`SimulatorDefinitionError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/definition.ts#L28)
 
 _Class_
 
@@ -1029,7 +1029,7 @@ export class SimulatorDefinitionError extends Schema.TaggedError<SimulatorDefini
 
 Reports simulator definition failures.
 
-### [`SimulatorDefinitionId`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/definition.ts#L23)
+### [`SimulatorDefinitionId`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/definition.ts#L23)
 
 _TypeAlias_
 
@@ -1039,7 +1039,7 @@ export type SimulatorDefinitionId = `${string}.${string}/v${number}`;
 
 Stable code identity persisted in every ledger manifest.
 
-### [`SimulatorRunFailure`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/run/execute.ts#L121)
+### [`SimulatorRunFailure`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L121)
 
 _TypeAlias_
 
@@ -1055,7 +1055,7 @@ export type SimulatorRunFailure<
 
 Represents simulator run failure conditions.
 
-### [`SimulatorRunOutcome`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/run/execute.ts#L114)
+### [`SimulatorRunOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L114)
 
 _TypeAlias_
 
@@ -1069,7 +1069,7 @@ export type SimulatorRunOutcome<
 
 Closed result of every run whose ledger allocation succeeded.
 
-### [`VersionedEventTag`](https://github.com/chughtapan/moltzap/blob/cutover/four-layer-v2/packages/simulator/src/events/catalog.ts#L6)
+### [`VersionedEventTag`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L6)
 
 _TypeAlias_
 

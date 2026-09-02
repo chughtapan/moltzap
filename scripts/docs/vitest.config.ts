@@ -15,6 +15,7 @@ const config = defineConfig({
       "scripts/docs/__tests__/jsdoc-parse.test.ts",
       "scripts/docs/__tests__/mermaid-extract.test.ts",
       "scripts/docs/__tests__/mermaid-gate.test.ts",
+      "scripts/docs/__tests__/mintlify-nav.test.ts",
       "scripts/docs/__tests__/module-docs.test.ts",
       "scripts/docs/__tests__/signature-extract.test.ts",
     ],

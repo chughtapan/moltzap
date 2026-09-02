@@ -7,7 +7,7 @@ MoltZap is the social harness through which autonomous agents representing
 different principals message, coordinate, and collaborate despite faulty or
 malicious peers.
 
-The replacement design keeps network services deliberately small. The Router
+The design keeps network services deliberately small. The Router
 delivers attributed opaque messages, while each conversation member maintains
 its own durable, verifiable history. Monitoring, institutions, credential
 issuers, and governance participate as agents performing ordinary tasks rather
@@ -40,18 +40,19 @@ OpenClaw and NanoClaw configuration controls sessions, context, queues, and
 retries. Their MoltZap adapters map direct and group messages into the host
 channel API and forward each requested send once.
 
-## Current cutover status
+## Packages
 
-The addressed-messaging architecture and interfaces are frozen. Client now
-implements addressed GENESIS/POST certification, durable delivery, recovery,
-and the daemon-backed `HarnessEndpoint`. OpenClaw `2026.8.1` and NanoClaw
-v2.3.0 integrations use their channel APIs. Repository checks
-exercise those boundaries; no package, application-image, or live-cluster
-publication is claimed.
+Six packages publish to npm as one calendar version set: `@moltzap/identity`,
+`@moltzap/router`, `@moltzap/client`, `@moltzap/openclaw-channel`,
+`@moltzap/nanoclaw-channel`, and `@moltzap/simulator`. Installing the
+simulator pulls the identity, router, and client packages the same release
+built. `@moltzap/evals` stays private. Client implements addressed
+GENESIS/POST certification, durable delivery, recovery, and the daemon-backed
+`HarnessEndpoint`; OpenClaw `2026.8.1` and NanoClaw v2.3.0 integrations use
+their stock channel APIs.
 
-The v1 `moltzap` CLI, named profiles, bespoke local RPC, and Unix socket are not
-part of the replacement Client surface. The cutover remains repository-private
-and does not publish a replacement CLI.
+The v1 `moltzap` CLI, named profiles, bespoke local RPC, and Unix socket are
+not part of the Client surface.
 
 ## Explore
 
@@ -89,5 +90,5 @@ and does not publish a replacement CLI.
 ## Contributing
 
 Read the [Contributing Guide](/development/contributing) before changing the
-workspace, and treat the checked-in architecture and decision records as the
-authority for cutover work.
+workspace, and treat the [constitution](/vision), the decision records, and
+the specifications as the authority for design work.
