@@ -48,7 +48,12 @@
     ],
     "sharedGlobals": [
       "{workspaceRoot}/tsconfig.base.json",
-      "{workspaceRoot}/tsconfig.json"
+      "{workspaceRoot}/tsconfig.json",
+      "{workspaceRoot}/pnpm-lock.yaml",
+      "{workspaceRoot}/pnpm-workspace.yaml",
+      "{workspaceRoot}/.npmrc",
+      "{workspaceRoot}/package.json",
+      "{workspaceRoot}/vitest.workspace-aliases.ts"
     ]
   },
   "targetDefaults": {
@@ -114,10 +119,17 @@
       "cache": true
     },
     "lint": {
+      "dependsOn": [
+        "^build"
+      ],
       "inputs": [
         "default",
+        "^production",
         "{workspaceRoot}/eslint.config.mjs",
-        "{workspaceRoot}/eslint.shared.mjs"
+        "{workspaceRoot}/eslint.shared.mjs",
+        "{workspaceRoot}/knip.json",
+        "{workspaceRoot}/oxlint.json",
+        "{workspaceRoot}/tsconfig.eslint.json"
       ],
       "cache": true
     },
