@@ -9,6 +9,7 @@ import type {
   RuntimeGatewayOf,
   StartedAgent,
 } from "../agents/index.js";
+import type { HarvestedFileOutcome } from "../events/core.js";
 import type { AttachedEndpoint, NetworkError } from "../network/index.js";
 
 // safer-arch-ignore no-cross-domain-sibling-import: The cluster seam names the roster it prepares and the runtime it starts for each roster entry.
@@ -63,6 +64,12 @@ export interface AdvertisedRouterFaultProxyPlatform
   };
 }
 
+/** One harvest target as the live application answered it. */
+export interface HarvestedWorkspaceFile {
+  readonly relativePath: string;
+  readonly outcome: HarvestedFileOutcome;
+}
+
 /** Run-scoped cluster capabilities for one complete society roster. */
 export interface Society<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
@@ -82,6 +89,15 @@ export interface Society<
     readonly name: Name;
     readonly routerOrigin: URL;
   }) => Effect.Effect<AttachedEndpoint<Name>, NetworkError, Scope.Scope>;
+
+  /**
+   * Reads every harvest target the named agent's application declared, from
+   * its live container. Never fails: a file that cannot be read is an
+   * outcome, and an agent that declared nothing yields nothing.
+   */
+  readonly harvestWorkspace: (
+    name: Extract<keyof Definitions, string>,
+  ) => Effect.Effect<readonly HarvestedWorkspaceFile[]>;
 
   /** Completes only while the exact acquired roster is ready for dispatch. */
   readonly cohortReady: Effect.Effect<void, ClusterError>;

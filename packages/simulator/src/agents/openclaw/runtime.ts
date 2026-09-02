@@ -35,15 +35,18 @@ import {
   type CheckedWorkspaceFile,
   configurationDigest,
   digestText,
+  harvestTargets,
   mcpConfiguration,
   type McpServer,
   McpServerConfiguration,
+  snapshotHarvestPaths,
   snapshotMcpServers,
   snapshotWorkspaceFiles,
   workspaceConfiguration,
   type WorkspaceFile,
   WorkspaceFileConfiguration,
   workspaceFilePath,
+  type WorkspaceRelativePath,
 } from "../workspace.js";
 import {
   buildOpenClawConfig,
@@ -99,6 +102,7 @@ export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeCo
 )({
   startupTimeout: Schema.DurationFromMillis,
   workspaceFiles: Schema.Array(WorkspaceFileConfiguration),
+  harvestWorkspaceFiles: Schema.Array(Schema.String),
   modelOverride: Schema.optional(Schema.String),
   mcpServers: Schema.Array(McpServerConfiguration),
   messagingMode,
@@ -113,6 +117,12 @@ export interface OpenClawRuntimeOptions {
   readonly applicationImage: Image;
   readonly startupTimeout?: Duration.Duration;
   readonly workspaceFiles?: readonly WorkspaceFile[];
+  /**
+   * Workspace-relative files read back from each running agent after the
+   * customer program ends and recorded in the ledger, so an experiment can
+   * grade what its agents wrote without their exiting.
+   */
+  readonly harvestWorkspaceFiles?: readonly string[];
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
 
@@ -178,6 +188,7 @@ interface OpenClawRuntimeSettings {
   readonly startupTimeout: Duration.Duration;
   readonly workspaceFiles: readonly CheckedWorkspaceFile[];
   readonly invisibleWorkspaceFiles: readonly string[];
+  readonly harvestPaths: readonly WorkspaceRelativePath[];
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
   readonly messagingMode: typeof messagingMode.Type;
@@ -200,6 +211,7 @@ function snapshotOptions(
     startupTimeout: options.startupTimeout ?? DEFAULT_OPENCLAW_STARTUP_TIMEOUT,
     workspaceFiles,
     invisibleWorkspaceFiles: invisibleFiles,
+    harvestPaths: snapshotHarvestPaths(options.harvestWorkspaceFiles),
     modelId: options.modelId,
     mcpServers: snapshotMcpServers(options.mcpServers),
     messagingMode: options.messagingMode ?? "shared",
@@ -250,6 +262,7 @@ function runtimeConfiguration(
     applicationImage: settings.applicationImage,
     startupTimeout: settings.startupTimeout,
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
+    harvestWorkspaceFiles: settings.harvestPaths,
     mcpServers: mcpConfiguration(settings.mcpServers),
     messagingMode: settings.messagingMode,
     ...(tools === undefined ? {} : { tools }),
@@ -299,6 +312,7 @@ function makeOpenClawApplication(
     acquireGateway,
     invisibleWorkspaceFiles: settings.invisibleWorkspaceFiles,
   };
+  const harvest = harvestTargets(OPENCLAW_WORKSPACE_DIR, settings.harvestPaths);
   return Object.freeze({
     entrypoint: Object.freeze(["node", AGENT_IMAGE_ENTRYPOINT] as const),
     environment: Object.freeze({
@@ -312,6 +326,7 @@ function makeOpenClawApplication(
       : { credentials: Object.freeze(["OPENAI_API_KEY"] as const) }),
     port: OPENCLAW_GATEWAY_PORT,
     files: bootstrapFiles(settings, input, gatewayToken, pairing),
+    ...(harvest.length === 0 ? {} : { harvest }),
     attach: (
       endpoint: ApplicationEndpoint,
       stopped: Effect.Effect<RuntimeTermination>,
