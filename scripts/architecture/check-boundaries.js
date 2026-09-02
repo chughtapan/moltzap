@@ -20,17 +20,22 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const repo = process.cwd();
-const v2Root = path.join(repo, "v2");
 const packagesRoot = path.join(repo, "packages");
 const failures = [];
+
+const REPOSITORY_URL = "git+https://github.com/chughtapan/moltzap.git";
+const CALENDAR_VERSION = /^\d{4}\.\d{3,4}\.\d+$/;
 
 // `deps` lists the only product packages each package may reach in manifests,
 // TypeScript project references, Knip ignores, source imports, and the resolved
 // Nx graph. `targets` is a minimum floor: additional operator targets are
 // allowed, but deleting a required verification or product entry target fails.
+// `published` packages release together as one version set; the rest stay
+// private.
 const FINAL_PACKAGES = {
   identity: {
     npmName: "@moltzap/identity",
+    published: true,
     deps: [],
     exports: {
       ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
@@ -56,6 +61,7 @@ const FINAL_PACKAGES = {
   },
   router: {
     npmName: "@moltzap/router",
+    published: true,
     deps: ["identity"],
     exports: {
       ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
@@ -77,6 +83,7 @@ const FINAL_PACKAGES = {
   },
   client: {
     npmName: "@moltzap/client",
+    published: true,
     deps: ["identity", "router"],
     exports: {
       ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
@@ -98,6 +105,7 @@ const FINAL_PACKAGES = {
   },
   "openclaw-channel": {
     npmName: "@moltzap/openclaw-channel",
+    published: true,
     deps: ["client"],
     exports: {
       ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
@@ -114,6 +122,7 @@ const FINAL_PACKAGES = {
   },
   "nanoclaw-channel": {
     npmName: "@moltzap/nanoclaw-channel",
+    published: true,
     deps: ["client"],
     exports: {
       ".": {
@@ -122,10 +131,11 @@ const FINAL_PACKAGES = {
       },
     },
     bin: {},
-    targets: ["arch:check", "build", "lint"],
+    targets: ["arch:check", "build", "lint", "test:pack"],
   },
   simulator: {
     npmName: "@moltzap/simulator",
+    published: true,
     deps: ["identity", "router", "client"],
     exports: {
       ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
@@ -148,6 +158,7 @@ const FINAL_PACKAGES = {
       "build",
       "gke-profile-check",
       "gke-run",
+      "gke-terraform-check",
       "lint",
       "local-cluster-create",
       "local-cluster-test",
@@ -160,6 +171,7 @@ const FINAL_PACKAGES = {
   },
   evals: {
     npmName: "@moltzap/evals",
+    published: false,
     deps: ["client", "simulator"],
     exports: {},
     bin: {},
@@ -381,21 +393,49 @@ for (const dir of ["identity", "router"]) {
 
 // ─── Compatibility value ──────────────────────────────────────────────────
 
-const compatibilityVersionFile = path.join(v2Root, "VERSION");
+// Identity owns the one MoltZap wire compatibility value. Package release
+// versions are independent of it: a release changes every manifest without
+// touching this literal, and a wire hard cut changes this literal alone.
+const identityIndex = path.join(packagesRoot, "identity", "src", "index.ts");
+const identityVersion = path.join(
+  packagesRoot,
+  "identity",
+  "src",
+  "version.ts",
+);
 let compatibilityVersion = null;
-if (!fs.existsSync(compatibilityVersionFile)) {
+if (!fs.existsSync(identityVersion)) {
   failures.push(
-    "v2/VERSION: missing; it is the current MoltZap wire compatibility value",
+    "packages/identity/src/version.ts: missing; it owns the MoltZap wire compatibility value",
   );
 } else {
-  compatibilityVersion = fs
-    .readFileSync(compatibilityVersionFile, "utf8")
-    .trim();
-  if (!/^\d{4}\.\d{3,4}\.\d+$/.test(compatibilityVersion)) {
+  const match = fs
+    .readFileSync(identityVersion, "utf8")
+    .match(/export\s+const\s+MOLTZAP_VERSION\s*=\s*["']([^"']+)["']/);
+  if (match === null) {
     failures.push(
-      `v2/VERSION: "${compatibilityVersion}" is not a YYYY.MDD.PATCH CalVer`,
+      "packages/identity/src/version.ts: must export the literal MOLTZAP_VERSION",
     );
+  } else if (!CALENDAR_VERSION.test(match[1])) {
+    failures.push(
+      `packages/identity/src/version.ts: MOLTZAP_VERSION "${match[1]}" is not a YYYY.MDD.PATCH CalVer`,
+    );
+  } else {
+    compatibilityVersion = match[1];
   }
+}
+if (!fs.existsSync(identityIndex)) {
+  failures.push(
+    "packages/identity/src/index.ts: missing; it exports the compatibility value",
+  );
+} else if (
+  !/export\s*\{\s*MOLTZAP_VERSION\s*\}\s*from\s*["']\.\/version\.js["']/.test(
+    fs.readFileSync(identityIndex, "utf8"),
+  )
+) {
+  failures.push(
+    "packages/identity/src/index.ts: must re-export MOLTZAP_VERSION from ./version.js",
+  );
 }
 
 // ─── Final manifests, references, targets, and Knip roots ────────────────────
@@ -457,6 +497,7 @@ const DEPENDENCY_SECTIONS = [
   "peerDependencies",
 ];
 
+const publishedVersions = new Map();
 for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
   const where = `packages/${dir}/package.json`;
   const manifest = readJson(path.join(packagesRoot, dir, "package.json"));
@@ -474,11 +515,26 @@ for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
     );
   }
 
-  // Identity and Router are private clean-slate packages. Publication choices
-  // for the retained production packages remain deliberately unsettled.
-  if ((dir === "identity" || dir === "router") && manifest.private !== true) {
+  // A published manifest goes to npm as written: no private flag, the one
+  // license, and the repository npm links provenance to. `pnpm pack` pins
+  // sibling dependencies to their manifest versions, so the six must agree
+  // before a release can install.
+  if (expected.published) {
+    if (manifest.private !== undefined) {
+      failures.push(`${where}: a published package must not carry "private"`);
+    }
+    if (manifest.license !== "Apache-2.0") {
+      failures.push(
+        `${where}: license is "${manifest.license ?? "missing"}", expected "Apache-2.0"`,
+      );
+    }
+    if (manifest.repository?.url !== REPOSITORY_URL) {
+      failures.push(`${where}: repository.url must be "${REPOSITORY_URL}"`);
+    }
+    publishedVersions.set(where, manifest.version);
+  } else if (manifest.private !== true) {
     failures.push(
-      `${where}: must stay private until release policy is admitted`,
+      `${where}: must stay private; it is not in the published set`,
     );
   }
 
@@ -638,6 +694,29 @@ for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
   if (disallowedIgnoredWorkspaceDependencies.length > 0) {
     failures.push(
       `knip.json workspaces["packages/${dir}"]: ignored product dependencies violate the final DAG: ${disallowedIgnoredWorkspaceDependencies.join(", ")}`,
+    );
+  }
+}
+
+if (publishedVersions.size === 0) {
+  failures.push(
+    "packages/*/package.json: no published package scanned; the one-version rule would pass vacuously",
+  );
+}
+const distinctPublishedVersions = new Set(publishedVersions.values());
+if (distinctPublishedVersions.size !== 1) {
+  failures.push(
+    `packages/*/package.json: published packages must share one version, got ${[
+      ...publishedVersions,
+    ]
+      .map(([where, version]) => `${where}=${version}`)
+      .join(", ")}`,
+  );
+}
+for (const version of distinctPublishedVersions) {
+  if (!CALENDAR_VERSION.test(version)) {
+    failures.push(
+      `packages/*/package.json: published version "${version}" is not a YYYY.MDD.N CalVer`,
     );
   }
 }
@@ -828,52 +907,6 @@ if (nxGraphArgument !== -1) {
   }
 }
 
-// ─── The compatibility value is exported, and matches ─────────────────────
-
-const identityIndex = path.join(packagesRoot, "identity", "src", "index.ts");
-const identityVersion = path.join(
-  packagesRoot,
-  "identity",
-  "src",
-  "version.ts",
-);
-if (compatibilityVersion !== null) {
-  if (!fs.existsSync(identityIndex)) {
-    failures.push(
-      "packages/identity/src/index.ts: missing; it exports the compatibility value",
-    );
-  } else {
-    const reExport = fs
-      .readFileSync(identityIndex, "utf8")
-      .match(
-        /export\s*\{\s*MOLTZAP_VERSION\s*\}\s*from\s*["']\.\/version\.js["']/,
-      );
-    if (reExport === null) {
-      failures.push(
-        "packages/identity/src/index.ts: must re-export MOLTZAP_VERSION from ./version.js",
-      );
-    }
-  }
-  if (!fs.existsSync(identityVersion)) {
-    failures.push(
-      "packages/identity/src/version.ts: missing; it owns the compatibility value",
-    );
-  } else {
-    const match = fs
-      .readFileSync(identityVersion, "utf8")
-      .match(/export\s+const\s+MOLTZAP_VERSION\s*=\s*["']([^"']+)["']/);
-    if (match === null) {
-      failures.push(
-        "packages/identity/src/version.ts: must export the literal MOLTZAP_VERSION",
-      );
-    } else if (match[1] !== compatibilityVersion) {
-      failures.push(
-        `packages/identity/src/version.ts: MOLTZAP_VERSION "${match[1]}" does not match v2/VERSION "${compatibilityVersion}"`,
-      );
-    }
-  }
-}
-
 // ─── Report ───────────────────────────────────────────────────────────────
 
 if (failures.length > 0) {
@@ -883,5 +916,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-architecture-boundaries] OK — ${sourceFiles.length} package TypeScript sources, ${finalSourceCount} final-package code files, exact seven-product static graph, and ${identityRouterVocabularyFileCount} Identity/Router non-documentation files scanned at compatibility version ${compatibilityVersion}`,
+  `[check-architecture-boundaries] OK — ${sourceFiles.length} package TypeScript sources, ${finalSourceCount} final-package code files, exact seven-product static graph, ${publishedVersions.size} published manifests at ${[...distinctPublishedVersions].join(", ")}, and ${identityRouterVocabularyFileCount} Identity/Router non-documentation files scanned at compatibility version ${compatibilityVersion}`,
 );

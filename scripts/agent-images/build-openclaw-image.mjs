@@ -25,6 +25,7 @@ const DEFAULT_REPOSITORY = "moltzap-openclaw-agent";
 const BUILD_TIMEOUT_MILLIS = 30 * 60 * 1_000;
 const PACK_TIMEOUT_MILLIS = 5 * 60 * 1_000;
 const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/u;
+const IMAGE_TAG = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/u;
 
 export const OPENCLAW_BASE_IMAGE =
   "ghcr.io/openclaw/openclaw@sha256:e7849cb6c1ef1ead39ab4be7d85edb2df89611f486e283284c7cf35ce39a20d4";
@@ -42,17 +43,40 @@ function report(message) {
   process.stderr.write("[moltzap openclaw image] " + message + "\n");
 }
 
+/**
+ * Parse `[--repository NAME] [--tag TAG] [--push]`.
+ *
+ * The tag defaults to the staging fingerprint. `--push` publishes the build to
+ * the repository's registry instead of loading it into the local daemon, and
+ * the reported digest is then the registry manifest digest a profile can pin.
+ */
 function parseArguments(args) {
-  if (args.length === 0) return { repository: DEFAULT_REPOSITORY };
-  if (args.length !== 2 || args[0] !== "--repository") {
-    throw new TypeError("usage: build-openclaw-image.mjs [--repository NAME]");
+  const usage = "usage: %s [--repository NAME] [--tag TAG] [--push]";
+  const options = { repository: DEFAULT_REPOSITORY, tag: null, push: false };
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    const value = args[index + 1];
+    if (argument === "--repository" && value !== undefined) {
+      options.repository = value;
+      index += 1;
+    } else if (argument === "--tag" && value !== undefined) {
+      options.tag = value;
+      index += 1;
+    } else if (argument === "--push") {
+      options.push = true;
+    } else {
+      throw new TypeError(usage.replace("%s", "build-openclaw-image.mjs"));
+    }
   }
-  if (args[1].length === 0 || args[1].includes("@")) {
+  if (options.repository.length === 0 || options.repository.includes("@")) {
     throw new TypeError(
       "OpenClaw image repository must not be empty or contain a digest",
     );
   }
-  return { repository: args[1] };
+  if (options.tag !== null && !IMAGE_TAG.test(options.tag)) {
+    throw new TypeError("OpenClaw image tag must be a valid Docker tag");
+  }
+  return options;
 }
 
 async function pack(packageDirectory, destination) {
@@ -135,6 +159,19 @@ async function fingerprint(root) {
   return hash.digest("hex").slice(0, 16);
 }
 
+async function localImageId(image) {
+  const { stdout } = await exec(
+    "docker",
+    ["image", "inspect", "--format", "{{.Id}}", image],
+    { timeout: 30_000 },
+  );
+  const imageId = stdout.trim();
+  if (!SHA256_DIGEST.test(imageId)) {
+    throw new Error("docker returned no local OpenClaw image id");
+  }
+  return imageId;
+}
+
 function metadataDigest(metadata) {
   const digest = metadata["containerimage.digest"];
   if (typeof digest !== "string" || !SHA256_DIGEST.test(digest)) {
@@ -158,15 +195,16 @@ async function main() {
   );
   const staging = await stage();
   try {
-    const image = options.repository + ":" + (await fingerprint(staging));
+    const image =
+      options.repository + ":" + (options.tag ?? (await fingerprint(staging)));
     const metadataPath = join(staging, "build-metadata.json");
-    report("building " + image);
+    report((options.push ? "building and pushing " : "building ") + image);
     await exec(
       "docker",
       [
         "buildx",
         "build",
-        "--load",
+        options.push ? "--push" : "--load",
         "--metadata-file",
         metadataPath,
         "--tag",
@@ -180,21 +218,13 @@ async function main() {
     const imageDigest = metadataDigest(
       JSON.parse(await readFile(metadataPath, "utf8")),
     );
-    const { stdout } = await exec(
-      "docker",
-      ["image", "inspect", "--format", "{{.Id}}", image],
-      { timeout: 30_000 },
-    );
-    const imageId = stdout.trim();
-    if (!SHA256_DIGEST.test(imageId)) {
-      throw new Error("docker returned no local OpenClaw image id");
-    }
     process.stdout.write(
       JSON.stringify({
         image,
         pinnedImage: options.repository + "@" + imageDigest,
         imageDigest,
-        imageId,
+        pushed: options.push,
+        ...(options.push ? {} : { imageId: await localImageId(image) }),
         baseImage: OPENCLAW_BASE_IMAGE,
         entrypoint: "/opt/moltzap/agent/entrypoint.mjs",
         gatewayPort: 18_789,

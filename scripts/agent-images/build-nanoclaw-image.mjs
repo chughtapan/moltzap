@@ -28,6 +28,7 @@ const NANOCLAW_PATCH_PATH =
   "scripts/agent-images/nanoclaw/nanoclaw-v2.3.0.patch";
 const BUILD_TIMEOUT_MILLIS = 45 * 60 * 1_000;
 const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/u;
+const IMAGE_TAG = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/u;
 
 export const NANOCLAW_SOURCE_REVISION =
   "54d9d9a50c0e572fa3969d63ab87a4dd3d75cc6f";
@@ -51,17 +52,40 @@ function report(message) {
   process.stderr.write(`[moltzap nanoclaw image] ${message}\n`);
 }
 
+/**
+ * Parse `[--repository NAME] [--tag TAG] [--push]`.
+ *
+ * The tag defaults to the staging fingerprint. `--push` publishes the build to
+ * the repository's registry instead of loading it into the local daemon, and
+ * the reported digest is then the registry manifest digest a profile can pin.
+ */
 function parseArguments(args) {
-  if (args.length === 0) return { repository: DEFAULT_REPOSITORY };
-  if (args.length !== 2 || args[0] !== "--repository") {
-    throw new TypeError("usage: build-nanoclaw-image.mjs [--repository NAME]");
+  const usage = "usage: %s [--repository NAME] [--tag TAG] [--push]";
+  const options = { repository: DEFAULT_REPOSITORY, tag: null, push: false };
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    const value = args[index + 1];
+    if (argument === "--repository" && value !== undefined) {
+      options.repository = value;
+      index += 1;
+    } else if (argument === "--tag" && value !== undefined) {
+      options.tag = value;
+      index += 1;
+    } else if (argument === "--push") {
+      options.push = true;
+    } else {
+      throw new TypeError(usage.replace("%s", "build-nanoclaw-image.mjs"));
+    }
   }
-  if (args[1].length === 0 || args[1].includes("@")) {
+  if (options.repository.length === 0 || options.repository.includes("@")) {
     throw new TypeError(
       "NanoClaw image repository must not be empty or contain a digest",
     );
   }
-  return { repository: args[1] };
+  if (options.tag !== null && !IMAGE_TAG.test(options.tag)) {
+    throw new TypeError("NanoClaw image tag must be a valid Docker tag");
+  }
+  return options;
 }
 
 function sha256(value) {
@@ -293,15 +317,17 @@ async function main() {
   try {
     const fingerprint = await stagingFingerprint(staging);
     const agentBaseImage = await buildAgentBase(staging);
-    const image = `${options.repository}:${fingerprint}`;
+    const image = `${options.repository}:${options.tag ?? fingerprint}`;
     const metadataPath = join(staging, "build-metadata.json");
-    report(`building application image ${image}`);
+    report(
+      `${options.push ? "building and pushing" : "building"} application image ${image}`,
+    );
     await exec(
       "docker",
       [
         "buildx",
         "build",
-        "--load",
+        options.push ? "--push" : "--load",
         "--metadata-file",
         metadataPath,
         "--tag",
@@ -319,12 +345,12 @@ async function main() {
     const imageDigest = metadataDigest(
       JSON.parse(await readFile(metadataPath, "utf8")),
     );
-    const imageId = await inspectImage(image);
     const result = {
       image,
       pinnedImage: `${options.repository}@${imageDigest}`,
       imageDigest,
-      imageId,
+      pushed: options.push,
+      ...(options.push ? {} : { imageId: await inspectImage(image) }),
       sourceRevision: NANOCLAW_SOURCE_REVISION,
       sourceArchiveDigest: `sha256:${NANOCLAW_SOURCE_ARCHIVE_SHA256}`,
       agentBaseImage,
@@ -333,8 +359,10 @@ async function main() {
       gatewayPort: 18_790,
     };
     await mkdir(dirname(BUILD_RESULT_PATH), { recursive: true });
-    await writeFile(BUILD_RESULT_PATH, `${JSON.stringify(result)}\n`);
-    process.stdout.write(`${JSON.stringify(result)}\n`);
+    await writeFile(BUILD_RESULT_PATH, `${JSON.stringify(result)}
+`);
+    process.stdout.write(`${JSON.stringify(result)}
+`);
   } finally {
     await rm(staging, { recursive: true, force: true });
   }

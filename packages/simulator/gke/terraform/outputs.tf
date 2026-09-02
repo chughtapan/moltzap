@@ -55,3 +55,13 @@ output "artifact_workload_principal" {
   description = "Cluster-scoped GKE workload principal granted object access to the profile's dedicated bucket."
   value       = local.cluster_workload_principal
 }
+
+output "release_workload_identity_provider" {
+  description = "Workload Identity provider the release workflow presents its GitHub OIDC token to; the value of the GCP_WORKLOAD_IDENTITY_PROVIDER repository variable."
+  value       = google_iam_workload_identity_pool_provider.github_actions.name
+}
+
+output "release_service_account" {
+  description = "Service account the release workflow impersonates to push images; the value of the GCP_RELEASE_SERVICE_ACCOUNT repository variable."
+  value       = google_service_account.release.email
+}

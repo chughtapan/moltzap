@@ -9,10 +9,14 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import ts from "typescript";
+import {
+  packWorkspacePackages,
+  readPackedManifests,
+} from "./packed-workspace.mjs";
 
 const exec = promisify(execFile);
 const workspaceRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -92,35 +96,6 @@ async function loadApiCensus() {
     "simulator API census must contain exactly the four public facades",
   );
   return Object.freeze(facades);
-}
-
-async function packWorkspacePackage(packageDirectory, destination) {
-  const { stdout } = await exec(
-    "pnpm",
-    ["pack", "--pack-destination", destination],
-    { cwd: packageDirectory },
-  );
-  const printed = stdout
-    .trim()
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .at(-1);
-  requireCondition(printed !== undefined, "pnpm pack returned no tarball");
-  return resolve(packageDirectory, printed);
-}
-
-async function packedTarballs() {
-  const destination = join(temporaryRoot, "tarballs");
-  await mkdir(destination);
-  return Object.fromEntries(
-    await Promise.all(
-      Object.entries(workspacePackageRoots).map(async ([name, root]) => [
-        name,
-        await packWorkspacePackage(root, destination),
-      ]),
-    ),
-  );
 }
 
 async function verifyPackedFiles(extractedPackage) {
@@ -517,7 +492,10 @@ async function verifyConsumerImports(archives, census) {
 
 try {
   const census = await loadApiCensus();
-  const archives = await packedTarballs();
+  const tarballs = join(temporaryRoot, "tarballs");
+  await mkdir(tarballs);
+  const archives = await packWorkspacePackages(workspacePackageRoots, tarballs);
+  await readPackedManifests(archives, workspacePackageRoots);
   const extractedRoot = join(temporaryRoot, "extracted");
   await mkdir(extractedRoot);
   await exec("tar", [

@@ -4,7 +4,9 @@ locals {
     "compute.googleapis.com",
     "container.googleapis.com",
     "iam.googleapis.com",
+    "iamcredentials.googleapis.com",
     "storage.googleapis.com",
+    "sts.googleapis.com",
   ])
 
   agent_pool_label_key   = "moltzap.dev/pool"
@@ -150,11 +152,11 @@ resource "google_container_cluster" "simulator" {
 }
 
 resource "google_container_node_pool" "system" {
-  project        = var.project_id
-  name           = "system"
-  location       = var.zone
-  cluster        = google_container_cluster.simulator.name
-  node_count     = var.system_nodes
+  project    = var.project_id
+  name       = "system"
+  location   = var.zone
+  cluster    = google_container_cluster.simulator.name
+  node_count = var.system_nodes
 
   management {
     auto_repair  = true
@@ -187,10 +189,10 @@ resource "google_container_node_pool" "system" {
 # because the autoscaler decides whether a node that does not exist yet would
 # accept the pending pods.
 resource "google_container_node_pool" "agents" {
-  project = var.project_id
-  name    = "agents"
+  project  = var.project_id
+  name     = "agents"
   location = var.zone
-  cluster = google_container_cluster.simulator.name
+  cluster  = google_container_cluster.simulator.name
 
   # The ClusterQueue quota is sized against this ceiling; move them together.
   initial_node_count = 0
@@ -239,4 +241,55 @@ resource "google_storage_bucket_iam_member" "cluster_artifact_writer" {
   member = local.cluster_workload_principal
 
   depends_on = [google_container_cluster.simulator]
+}
+
+# The release workflow pushes controller and agent images with GitHub's OIDC
+# token rather than a stored key: the provider admits only tokens whose
+# repository claim names this repository, and the release identity may write
+# nothing but this profile's image repository.
+resource "google_iam_workload_identity_pool" "github_actions" {
+  project                   = var.project_id
+  workload_identity_pool_id = "github-actions"
+  display_name              = "GitHub Actions"
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_iam_workload_identity_pool_provider" "github_actions" {
+  project                            = var.project_id
+  workload_identity_pool_id          = google_iam_workload_identity_pool.github_actions.workload_identity_pool_id
+  workload_identity_pool_provider_id = "github"
+  display_name                       = "GitHub OIDC"
+
+  attribute_mapping = {
+    "google.subject"       = "assertion.sub"
+    "attribute.repository" = "assertion.repository"
+  }
+  attribute_condition = "assertion.repository == \"${var.github_repository}\""
+
+  oidc {
+    issuer_uri = "https://token.actions.githubusercontent.com"
+  }
+}
+
+resource "google_service_account" "release" {
+  project      = var.project_id
+  account_id   = "moltzap-release"
+  display_name = "MoltZap release workflow"
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_artifact_registry_repository_iam_member" "release_image_writer" {
+  project    = var.project_id
+  location   = google_artifact_registry_repository.simulator.location
+  repository = google_artifact_registry_repository.simulator.name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${google_service_account.release.email}"
+}
+
+resource "google_service_account_iam_member" "release_workload_identity_user" {
+  service_account_id = google_service_account.release.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github_actions.name}/attribute.repository/${var.github_repository}"
 }

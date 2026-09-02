@@ -86,15 +86,13 @@ read_json_field() {
   ' "$1"
 }
 
-# The profile rejects a mutable tag, so the digest comes from the registry.
+# The profile rejects a mutable tag, so the digest comes from the registry:
+# `--push` reports the manifest digest the registry assigned to the build.
 publish_controller_image() {
-  local repository built tag
+  local repository
   repository="$(terraform_output controller_repository)/controller"
-  built="$(node "$workspace_root/scripts/simulator/build-controller-image.mjs" \
-    --repository "$repository" | tail -1)"
-  tag="$(printf '%s' "$built" | read_json_field image)"
-  docker push "$tag" >/dev/null
-  docker inspect --format '{{index .RepoDigests 0}}' "$tag"
+  node "$workspace_root/scripts/simulator/build-controller-image.mjs" \
+    --repository "$repository" --push | tail -1 | read_json_field pinnedImage
 }
 
 # A fixed port would be inherited from an abandoned forward, which still accepts

@@ -1,11 +1,18 @@
 {
   "name": "@moltzap/router",
-  "version": "2026.729.1",
-  "private": true,
+  "version": "2026.811.0",
   "description": "Router contracts and representation, Router client and in-memory server",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chughtapan/moltzap.git"
+  },
   "type": "module",
-  "files": ["dist", "!dist/tsconfig.tsbuildinfo", "bin"],
+  "files": [
+    "dist",
+    "!dist/tsconfig.tsbuildinfo",
+    "bin"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

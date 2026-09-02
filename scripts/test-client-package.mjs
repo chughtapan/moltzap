@@ -9,9 +9,13 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import {
+  packWorkspacePackages,
+  readPackedManifests,
+} from "./test/packed-workspace.mjs";
 
 const exec = promisify(execFile);
 const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -42,35 +46,6 @@ function collectExportTargets(value, targets = []) {
   return targets;
 }
 
-async function packWorkspacePackage(packageRoot, destination) {
-  const { stdout } = await exec(
-    "pnpm",
-    ["pack", "--pack-destination", destination],
-    { cwd: packageRoot },
-  );
-  const printed = stdout
-    .trim()
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .at(-1);
-  requireCondition(printed !== undefined, "pnpm pack returned no archive");
-  return resolve(packageRoot, printed);
-}
-
-async function packedTarballs() {
-  const destination = join(temporaryRoot, "tarballs");
-  await mkdir(destination);
-  return Object.fromEntries(
-    await Promise.all(
-      Object.entries(workspacePackageRoots).map(async ([name, root]) => [
-        name,
-        await packWorkspacePackage(root, destination),
-      ]),
-    ),
-  );
-}
-
 async function verifyPackedManifest(extractedPackage) {
   const manifest = JSON.parse(
     await readFile(join(extractedPackage, "package.json"), "utf8"),
@@ -78,10 +53,6 @@ async function verifyPackedManifest(extractedPackage) {
   requireCondition(
     manifest.name === "@moltzap/client",
     "packed client manifest has the wrong package name",
-  );
-  requireCondition(
-    manifest.private === true,
-    "packed client must remain private until publication is admitted",
   );
   requireCondition(
     manifest.bin?.moltzapd === "./bin/moltzapd",
@@ -213,7 +184,10 @@ async function verifyConsumerImports(archives, publicSpecifiers) {
 }
 
 try {
-  const archives = await packedTarballs();
+  const tarballs = join(temporaryRoot, "tarballs");
+  await mkdir(tarballs);
+  const archives = await packWorkspacePackages(workspacePackageRoots, tarballs);
+  await readPackedManifests(archives, workspacePackageRoots);
   const extractedRoot = join(temporaryRoot, "extracted");
   await mkdir(extractedRoot);
   await exec("tar", ["-xzf", archives["@moltzap/client"], "-C", extractedRoot]);
