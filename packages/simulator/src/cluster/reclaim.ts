@@ -2,10 +2,7 @@
 
 import { CancellationScope, proxyActivities } from "@temporalio/workflow";
 // safer-arch-ignore no-upward-layer-import: the controller's serializable run summary is the contract this workflow carries back to its caller, so the summary shape is owned where the controller writes it.
-import type {
-  ControllerFailedRunSummary,
-  ControllerProgramFinishedSummary,
-} from "./controller/summary.js";
+import type { ControllerRunResult } from "./controller/summary.js";
 
 /** Private data needed to start one in-cluster experiment controller. */
 export interface RunSocietyWorkflowInput {
@@ -46,16 +43,7 @@ export type CleanupRunInput = Readonly<
  * about why, so without this the operator's only copy of the reason is a Pod
  * log in a namespace the workflow deletes on its way out.
  */
-export type RunControllerResult =
-  | {
-      readonly exitCode: 0;
-      readonly summary: ControllerProgramFinishedSummary;
-    }
-  | {
-      readonly exitCode: 1;
-      readonly summary: ControllerFailedRunSummary;
-      readonly diagnostic?: string;
-    };
+export type RunControllerResult = ControllerRunResult;
 
 /* eslint-disable agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Temporal activity implementations are Promise-native functions consumed directly by proxyActivities. */
 /** Activities owned by the worker for one complete run lifecycle. */

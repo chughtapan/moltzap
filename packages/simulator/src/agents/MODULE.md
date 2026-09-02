@@ -415,7 +415,7 @@ export class NanoClawGatewayOutput extends Schema.Class<NanoClawGatewayOutput>(
 
 One native output frame emitted by NanoClaw's owner-local CLI channel.
 
-### [`nanoclawRuntime`](./nanoclaw/runtime.ts#L121)
+### [`nanoclawRuntime`](./nanoclaw/runtime.ts#L119)
 
 _Function_
 
@@ -434,7 +434,7 @@ roster identity and its runtime-owned native gateway bridge.
 
 **Returns:** The nanoclaw runtime result.
 
-### [`NanoClawRuntimeOptions`](./nanoclaw/runtime.ts#L89)
+### [`NanoClawRuntimeOptions`](./nanoclaw/runtime.ts#L87)
 
 _Interface_
 
@@ -584,7 +584,7 @@ Timed-out terminal result returned by OpenClaw's `agent` gateway RPC.
 OpenClaw treats this as a successful RPC payload rather than a transport
 failure. A run may time out before it has an agent result.
 
-### [`openClawRuntime`](./openclaw/runtime.ts#L172)
+### [`openClawRuntime`](./openclaw/runtime.ts#L170)
 
 _Function_
 
@@ -610,7 +610,7 @@ flowchart LR
 
 **Returns:** A reusable OpenClaw container runtime definition.
 
-### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L120)
+### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L118)
 
 _Interface_
 

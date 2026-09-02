@@ -51,7 +51,7 @@ export interface ProtocolState {
 export interface ProtocolEnvironment {
   readonly store: EndpointStore;
   readonly bootstrap: DaemonBootstrap;
-  readonly historyExport?: HistoryExportPort;
+  readonly historyExport: HistoryExportPort;
   readonly dependencies: DaemonRuntimeDependencies;
   readonly registry: Context.Tag.Service<typeof Registry>;
   readonly router: Context.Tag.Service<typeof Router>;
@@ -233,9 +233,7 @@ const acquireProtocolEngine = (
       store: environment.store,
       routerWorker: worker,
       actionPolicy: signStructurallyValidAction,
-      ...(environment.historyExport === undefined
-        ? {}
-        : { historyExport: environment.historyExport }),
+      historyExport: environment.historyExport,
     })
     .pipe(
       Scope.extend(environment.daemonScope),

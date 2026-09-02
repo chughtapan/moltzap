@@ -108,17 +108,29 @@ export function controllerConfigurationFromEnvironment(
       environment,
       "MOLTZAP_LEDGER_EXPORT_DIRECTORY",
     ),
-    startupTimeoutMs: timeoutMs(
+    startupTimeoutMs: boundedInteger(
       environment,
       "MOLTZAP_STARTUP_TIMEOUT_MS",
-      DEFAULT_STARTUP_TIMEOUT_MS,
+      {
+        fallback: DEFAULT_STARTUP_TIMEOUT_MS,
+        largest: MAX_TIMEOUT_MS,
+        stated: "no greater than 24 hours",
+      },
     ),
-    admissionTimeoutMs: timeoutMs(
+    admissionTimeoutMs: boundedInteger(
       environment,
       "MOLTZAP_ADMISSION_TIMEOUT_MS",
-      DEFAULT_ADMISSION_TIMEOUT_MS,
+      {
+        fallback: DEFAULT_ADMISSION_TIMEOUT_MS,
+        largest: MAX_TIMEOUT_MS,
+        stated: "no greater than 24 hours",
+      },
     ),
-    cohortSize: cohortSize(environment),
+    cohortSize: boundedInteger(environment, "MOLTZAP_COHORT_SIZE", {
+      fallback: DEFAULT_COHORT_SIZE,
+      largest: MAX_COHORT_SIZE - 1,
+      stated: `below ${String(MAX_COHORT_SIZE)}`,
+    }),
   });
 }
 
@@ -187,32 +199,28 @@ function experimentModulePath(environment: ControllerEnvironment): string {
   return value;
 }
 
-function timeoutMs(
+interface IntegerBound {
+  readonly fallback: number;
+  readonly largest: number;
+  /** How the bound reads in the rejection, after "must be a positive integer". */
+  readonly stated: string;
+}
+
+function boundedInteger(
   environment: ControllerEnvironment,
-  key: "MOLTZAP_STARTUP_TIMEOUT_MS" | "MOLTZAP_ADMISSION_TIMEOUT_MS",
-  fallback: number,
+  key:
+    | "MOLTZAP_STARTUP_TIMEOUT_MS"
+    | "MOLTZAP_ADMISSION_TIMEOUT_MS"
+    | "MOLTZAP_COHORT_SIZE",
+  bound: IntegerBound,
 ): number {
   const encoded = environment[key];
   if (encoded === undefined) {
-    return fallback;
+    return bound.fallback;
   }
   const value = Number(encoded);
-  if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_TIMEOUT_MS) {
-    throw invalid(`${key} must be a positive integer no greater than 24 hours`);
-  }
-  return value;
-}
-
-function cohortSize(environment: ControllerEnvironment): number {
-  const encoded = environment.MOLTZAP_COHORT_SIZE;
-  if (encoded === undefined) {
-    return DEFAULT_COHORT_SIZE;
-  }
-  const value = Number(encoded);
-  if (!Number.isSafeInteger(value) || value <= 0 || value >= MAX_COHORT_SIZE) {
-    throw invalid(
-      `MOLTZAP_COHORT_SIZE must be a positive integer below ${String(MAX_COHORT_SIZE)}`,
-    );
+  if (!Number.isSafeInteger(value) || value <= 0 || value > bound.largest) {
+    throw invalid(`${key} must be a positive integer ${bound.stated}`);
   }
   return value;
 }

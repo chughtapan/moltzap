@@ -68,15 +68,13 @@ export function decodeControllerRunSummary(
 }
 
 /** Successful customer-program projection, deliberately excluding its Exit. */
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- the submitter's final line embeds this exact closed projection, so the schema is shared with the module that prints it.
-export const controllerProgramFinishedSummary = Schema.Struct({
+const controllerProgramFinishedSummary = Schema.Struct({
   _tag: Schema.Literal("ProgramFinished"),
   receipt: CompletedLedgerReceipt,
 });
 
 /** Failed controller projections, which carry no customer failure value. */
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- the submitter's final line embeds this exact closed projection, so the schema is shared with the module that prints it.
-export const controllerFailedRunSummary = Schema.Union(
+const controllerFailedRunSummary = Schema.Union(
   Schema.Struct({
     _tag: Schema.Literal("ClusterLost"),
     receipt: LedgerReceipt,
@@ -85,6 +83,27 @@ export const controllerFailedRunSummary = Schema.Union(
     _tag: Schema.Literal("LedgerAllocationFailed"),
   }),
 );
+
+/**
+ * Coarse outcome of one controller Job: its exit code and the summary it
+ * printed, plus the Job's own diagnostic when the run failed and that output
+ * was still readable. The worker's activity result and the submitter's final
+ * line are this one shape.
+ */
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- the worker's activity result and the submitter's final line embed this exact closed shape, so it is defined beside the summaries it wraps.
+export const controllerRunResult = Schema.Union(
+  Schema.Struct({
+    exitCode: Schema.Literal(0),
+    summary: controllerProgramFinishedSummary,
+  }),
+  Schema.Struct({
+    exitCode: Schema.Literal(1),
+    summary: controllerFailedRunSummary,
+    diagnostic: Schema.optional(Schema.String),
+  }),
+);
+/** Decoded coarse outcome of one controller Job. */
+export type ControllerRunResult = typeof controllerRunResult.Type;
 
 /** Complete result information permitted to leave the controller process. */
 const controllerRunSummarySchema = Schema.Union(

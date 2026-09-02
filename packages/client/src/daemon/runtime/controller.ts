@@ -29,7 +29,7 @@ import {
 interface DaemonControllerInput {
   readonly store: EndpointStore;
   readonly bootstrap: DaemonBootstrap;
-  readonly historyExport?: HistoryExportPort;
+  readonly historyExport: HistoryExportPort;
   readonly management: DaemonActivationPreparation["management"];
   readonly dependencies: DaemonRuntimeDependencies;
 }
@@ -216,9 +216,7 @@ export const makeDaemonController = (
     const environment: ProtocolEnvironment = {
       store: input.store,
       bootstrap: input.bootstrap,
-      ...(input.historyExport === undefined
-        ? {}
-        : { historyExport: input.historyExport }),
+      historyExport: input.historyExport,
       dependencies: input.dependencies,
       registry,
       router,

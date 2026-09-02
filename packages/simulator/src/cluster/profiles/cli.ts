@@ -1,6 +1,7 @@
 /** @file The `moltzap-sim` executable: one submission through a named profile. */
 
 import { Cause, Effect, Logger, Option } from "effect";
+import type { KubernetesExecutionProfile } from "../profile.js";
 import {
   liveSubmitOperations,
   type RunEnvironment,
@@ -16,17 +17,15 @@ import { encodeProfileRunResult } from "./result.js";
 export const PROFILE_CLI_USAGE =
   "usage: moltzap-sim run --profile local|gke <spec.mjs>";
 
-const PROFILE_NAMES = ["local", "gke"] as const;
-
 /** Repository-owned Kubernetes profile a submission names on its command line. */
-export type ProfileName = (typeof PROFILE_NAMES)[number];
+export type ProfileName = KubernetesExecutionProfile["kind"];
 
 type ProfileSubmitter = (
   args: readonly string[],
   environment: RunEnvironment,
 ) => Effect.Effect<RunSubmission, RunSubmissionError, SubmitOperations>;
 
-// Total over the profile names, so adding a profile without a submitter is a
+// Total over the profile kinds, so adding a profile without a submitter is a
 // compile error rather than a usage error at the first live invocation.
 const SUBMITTERS: Readonly<Record<ProfileName, ProfileSubmitter>> = {
   local: runLocalSociety,
@@ -90,12 +89,9 @@ export function runProfileCli(
 ): Effect.Effect<RunSubmission, RunSubmissionError, SubmitOperations> {
   return Effect.suspend(() => {
     const [command, flag, profile, ...experiment] = args;
-    if (
-      command !== "run" ||
-      flag !== "--profile" ||
-      !isProfileName(profile) ||
-      experiment.length !== 1
-    ) {
+    const shaped =
+      command === "run" && flag === "--profile" && experiment.length === 1;
+    if (!shaped || profile === undefined || !isProfileName(profile)) {
       return Effect.fail(
         new RunSubmissionError({
           stage: "arguments",
@@ -107,8 +103,8 @@ export function runProfileCli(
   }).pipe(Effect.withSpan("runProfileCli"));
 }
 
-function isProfileName(value?: string): value is ProfileName {
-  return PROFILE_NAMES.some((name) => name === value);
+function isProfileName(value: string): value is ProfileName {
+  return Object.hasOwn(SUBMITTERS, value);
 }
 
 function failureReport(cause: Cause.Cause<RunSubmissionError>): string {

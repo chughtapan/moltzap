@@ -142,15 +142,13 @@ export function kubernetesCall<Result>(
   evaluate: () => PromiseLike<Result>,
   bound: Duration.Duration = KUBERNETES_CALL_TIMEOUT,
 ): Effect.Effect<Result, KubernetesCallFailed> {
-  return Effect.tryPromise({
-    try: evaluate,
-    catch: (cause) => new KubernetesCallFailed(operation, cause),
-  }).pipe(
-    Effect.timeoutFail({
-      duration: bound,
-      onTimeout: () =>
-        new KubernetesCallFailed(operation, new Cause.TimeoutException()),
+  return boundCall(
+    operation,
+    Effect.tryPromise({
+      try: evaluate,
+      catch: (cause) => new KubernetesCallFailed(operation, cause),
     }),
+    bound,
   );
 }
 
@@ -746,8 +744,6 @@ function sandboxOperations(
   };
 }
 
-// The session is an Effect rather than a Promise thunk, so the call bound is
-// applied here rather than through kubernetesCall; it covers the whole exec.
 function harvestOperations(
   namespace: string,
   exec: Exec,
@@ -755,21 +751,37 @@ function harvestOperations(
   const operation = "read application file";
   return {
     readApplicationFile: (podName, path, limitBytes) =>
-      execHarvestProbe(exec, { namespace, podName, path, limitBytes }).pipe(
-        Effect.catchTag("ExecSessionFailed", (failure) =>
-          Effect.fail(new KubernetesCallFailed(operation, failure.cause)),
+      boundCall(
+        operation,
+        execHarvestProbe(exec, { namespace, podName, path, limitBytes }).pipe(
+          Effect.catchTag("ExecSessionFailed", (failure) =>
+            Effect.fail(new KubernetesCallFailed(operation, failure.cause)),
+          ),
         ),
-        Effect.timeoutFail({
-          duration: KUBERNETES_CALL_TIMEOUT,
-          onTimeout: () =>
-            new KubernetesCallFailed(operation, new Cause.TimeoutException()),
-        }),
+      ).pipe(
         Effect.mapError(societyFailure),
         Effect.map((observation) =>
           applicationFileOutcome(observation, limitBytes),
         ),
       ),
   };
+}
+
+// Every call the cluster makes ends here, whether it began as a Promise or as
+// an Effect that already owns a session, so the bound and the shape of its
+// expiry are spelled once.
+function boundCall<Result>(
+  operation: string,
+  call: Effect.Effect<Result, KubernetesCallFailed>,
+  bound: Duration.Duration = KUBERNETES_CALL_TIMEOUT,
+): Effect.Effect<Result, KubernetesCallFailed> {
+  return call.pipe(
+    Effect.timeoutFail({
+      duration: bound,
+      onTimeout: () =>
+        new KubernetesCallFailed(operation, new Cause.TimeoutException()),
+    }),
+  );
 }
 
 interface ConditionedObservation {
