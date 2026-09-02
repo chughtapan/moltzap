@@ -181,6 +181,17 @@ refused the tree or a package at that version was unpublished, dispatch with
 takes the next free version from the tip, and the maintainer deprecates
 whatever the abandoned version did publish.
 
+After the first release publishes, deprecate the retired names and the
+pre-cutover releases by hand, pointing at the publication record:
+
+```bash
+npm deprecate @moltzap/protocol@"*" "Retired; see docs/decisions/20260901-six-packages-publish-as-one-version-set.md"
+npm deprecate @moltzap/server-core@"*" "Retired; see docs/decisions/20260901-six-packages-publish-as-one-version-set.md"
+npm deprecate @moltzap/client@"<=2026.812.0" "v1 API; install the current one-version set"
+npm deprecate @moltzap/simulator@"<=2026.811.0" "Pre-cutover; install the current one-version set"
+npm deprecate @moltzap/openclaw-channel@"<=2026.811.0" "Pre-cutover; install the current one-version set"
+```
+
 ## Immutable simulator image
 
 Push the controller/support image built by the repository to the
