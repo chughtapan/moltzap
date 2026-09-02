@@ -21,7 +21,7 @@ import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentAddress } from "../src/contract.js";
+import type { MessageAddressInput } from "../src/contract.js";
 import {
   managementReadConversationResultSchema,
   managementRegisterResultSchema,
@@ -102,7 +102,7 @@ export interface DaemonManagementClient {
     ProcessTestError
   >;
   readonly readConversation: (
-    address: AgentAddress,
+    address: MessageAddressInput,
   ) => Effect.Effect<ManagementReadConversationResult, ProcessTestError>;
   readonly callExpectingProtocolError: (
     name: string,

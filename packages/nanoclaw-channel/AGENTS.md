@@ -7,7 +7,8 @@ is deferred; its package boundary is not.
 
 This adapter consumes public `@moltzap/client` capabilities only. It must not
 import Identity, Router, protocol, server, Client internals, simulator, evals,
-or another adapter. It receives an injected or MCP-backed `HarnessEndpoint`; it
+or another adapter. NanoClaw creates it through the native channel registry,
+and it acquires one `HarnessEndpoint` from the configured loopback MCP URL. It
 does not acquire a daemon, profile, Registry admission material, signing key,
 raw Router credential, network client, or local store.
 
@@ -21,19 +22,26 @@ does not change this package boundary.
 ## Host integration law
 
 - Keep NanoClaw's `ChannelAdapter` entry point and host-relative stub modules
-  aligned with the stock NanoClaw API. Do not patch or extend the host ABI,
-  inbox, ACL, session router, prompt, output parser, or sandbox driver.
+  aligned with the stock NanoClaw API. The pinned source overlay may only let
+  outbound `send_message` and `<message to>` destinations recognize a
+  syntactically valid Client `MessageAddressInput` before friendly aliases and
+  let that validated route reach this channel, with an accurate capability line
+  in the existing destination prompt. Do not extend the host ABI, inbound
+  router, inbox, session model, persistence, retry policy, or runtime driver.
 - Direct input identifies the sender and `agent:` address. Group input retains
   the canonical group address, sender, exact members, and native group flag.
-- Validate the explicit `agent:` or `group:` platform destination supplied to
-  `deliver`; NanoClaw owns destination discovery and permissions.
+- NanoClaw owns friendly-name discovery and its own destination permissions.
+  An explicit `agent:` or `group:` MoltZap address input needs no prior
+  NanoClaw conversation or ACL row; Client validates and canonicalizes it.
 - Leave outbound queue and retry policy to NanoClaw. Every adapter call is one
   Client send; do not pass `messages_out.id` or add adapter deduplication.
-  Project metadata before content, await the stock `onInbound` callback, and
-  only then acknowledge Client delivery. Do not add `accepted`/`pending`
+  Project metadata before content, route through the bootstrap-owned main
+  session with NanoClaw's native reply override, and await the host callback
+  before acknowledging Client delivery. Do not add `accepted`/`pending`
   results or inspect NanoClaw persistence.
-- NanoClaw owns sessions, implicit replies, model prompt and final-text
-  behavior, inbox replay, scheduling, and runtime isolation.
+- NanoClaw owns sessions, implicit replies, prompt and final-text behavior
+  beyond the explicit-address capability and route, inbox replay, scheduling,
+  and runtime isolation.
 - Discovery, search, history, status, registration, and proof inspection use
   MCP rather than `HarnessEndpoint`.
 - Keep host-shape failures distinct from closed Client failures without
@@ -47,9 +55,10 @@ context, target, and retry details do not define the final API.
 
 ## Tests
 
-- Unit tests may fake the public Client capability to verify NanoClaw address,
-  group projection, callback-before-ack ordering, and addressed output.
-- Integration and simulator tests exercise the final Client boundary; they
-  must not restore dependencies on deleted protocol/server packages, profiles,
-  raw Router credentials, or compatibility shims.
+- Integration tests enter through NanoClaw's generic `send_message`, cross its
+  native outbound queue and host delivery loop, and observe the receiving
+  Client. They must not call the concrete adapter or inject an endpoint.
+- Simulator tests exercise the same packaged image and final Client boundary;
+  they must not restore dependencies on deleted protocol/server packages,
+  profiles, raw Router credentials, or compatibility shims.
 - Run package tasks through Nx from the workspace root.

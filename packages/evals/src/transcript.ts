@@ -394,7 +394,7 @@ function openClawOutputText(observation: OpenClawPrincipalFinalOutput): string {
       if (payload.text !== undefined) {
         values.push(payload.text);
       }
-      if (payload.mediaUrl !== undefined) {
+      if (payload.mediaUrl !== undefined && payload.mediaUrl !== null) {
         values.push(`[media: ${payload.mediaUrl}]`);
       }
       for (const mediaUrl of payload.mediaUrls ?? []) {
