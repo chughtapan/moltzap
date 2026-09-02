@@ -1,22 +1,30 @@
-name: Publish to npm (deferred)
+name: Publish to npm
 
+# One release publishes six packages at one calendar version, pushes the three
+# simulator images tagged with that version, and records the image digests
+# beside the version in one release commit. The trigger is manual: the first
+# release proves the npm trusted publishers, the Workload Identity provider,
+# and the release App before any push-triggered variant is considered.
+#
+# A rerun after a partial failure converges rather than minting a second
+# release: the version is recomputed from npm (unchanged while nothing is
+# published at it), an image whose tag already exists is reused by digest, a
+# head that is already the release commit skips the bump, and every package
+# already on npm at that version is skipped.
 on:
   workflow_dispatch:
-    inputs:
-      packages:
-        description: "Space-separated publishable package directories to force, e.g. 'simulator openclaw-channel'"
-        required: false
-        default: ""
 
 permissions:
   contents: write
   id-token: write
 
+env:
+  RELEASE_PACKAGES: identity router client openclaw-channel nanoclaw-channel simulator
+  # The Terraform `controller_repository` output of packages/simulator/gke.
+  IMAGE_REPOSITORY: us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator
+
 jobs:
   publish:
-    # Publication stays disabled until the package closure, version policy,
-    # and installable public artifact set have one accepted decision.
-    if: ${{ false }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -28,7 +36,8 @@ jobs:
           app-id: ${{ vars.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-      # Use App token for checkout so git push uses it automatically
+      # The App token on checkout makes the release push use it. Full history
+      # is needed to find the previous release commit.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -44,119 +53,147 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Detect changed packages and compute versions
-        id: versions
-        env:
-          REQUESTED_PACKAGES: ${{ inputs.packages || '' }}
+      - name: Decide whether this run bumps or resumes a release
+        id: plan
         run: |
-          # Find the last release commit, or use empty tree if none (bootstrap)
-          BASE=$(git log --grep="^chore(release):" --format="%H" -1 2>/dev/null || true)
-          if [ -z "$BASE" ]; then
-            echo "No previous release commit found — bootstrapping (all publishable packages)"
-            BASE=$(git hash-object -t tree /dev/null)
+          HEAD_SUBJECT=$(git log -1 --format=%s)
+          if [[ "$HEAD_SUBJECT" == "chore(release): moltzap@"* ]]; then
+            # A previous run committed the release and failed later; publish it.
+            VERSION=$(node -p "require('./packages/simulator/package.json').version")
+            echo "Resuming release $VERSION from the head release commit"
+            echo "mode=resume" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-          AFFECTED_PROJECTS=$(pnpm exec nx show projects \
-            --affected \
-            --withTarget=build \
-            --base="$BASE" \
-            --head=HEAD \
-            --json)
-          echo "Affected build projects since $BASE: $AFFECTED_PROJECTS"
-
-          CHANGED=""
-          REQUESTED_PACKAGES=" ${REQUESTED_PACKAGES} "
-          for pkg in simulator openclaw-channel; do
-            PROJECT_NAME=$(node -p "require('./packages/$pkg/package.json').name")
-            if [[ "$REQUESTED_PACKAGES" == *" $pkg "* ]]; then
-              SHOULD_RELEASE=1
-              echo "Package $pkg requested by workflow_dispatch input"
-            elif jq -e --arg project "$PROJECT_NAME" \
-              'index($project) != null' <<< "$AFFECTED_PROJECTS" >/dev/null; then
-              SHOULD_RELEASE=1
-            else
-              SHOULD_RELEASE=0
+          BASE=$(git log --grep="^chore(release): moltzap@" --format="%H" -1 2>/dev/null || true)
+          if [ -n "$BASE" ]; then
+            AFFECTED=$(pnpm exec nx show projects --affected --withTarget=build --base="$BASE" --head=HEAD --json)
+            echo "Affected build projects since $BASE: $AFFECTED"
+            RELEASE=0
+            for pkg in $RELEASE_PACKAGES; do
+              NAME=$(node -p "require('./packages/$pkg/package.json').name")
+              if jq -e --arg project "$NAME" 'index($project) != null' <<< "$AFFECTED" >/dev/null; then
+                RELEASE=1
+              fi
+            done
+            if [ "$RELEASE" -eq 0 ]; then
+              echo "No published package changed since $BASE — nothing to release"
+              echo "mode=skip" >> "$GITHUB_OUTPUT"
+              exit 0
             fi
+          else
+            echo "No previous release commit — bootstrapping the one-version set"
+          fi
 
-            if [ "$SHOULD_RELEASE" -eq 1 ]; then
-              VERSION=$(scripts/release/compute-next-version.sh "$pkg")
-              echo "${pkg}_version=$VERSION" >> "$GITHUB_OUTPUT"
-              CHANGED="$CHANGED $pkg"
-              echo "Package $pkg changed — next version: $VERSION"
+          VERSION=$(scripts/release/compute-next-version.sh $RELEASE_PACKAGES)
+          echo "Next version: $VERSION"
+          echo "mode=bump" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-              # Write version to package.json
-              jq --arg v "$VERSION" '.version = $v' "packages/$pkg/package.json" > tmp.json && mv tmp.json "packages/$pkg/package.json"
-
-            else
-              echo "Package $pkg — no publishable changes, skipping"
-            fi
-          done
-
-          CHANGED=$(echo "$CHANGED" | xargs)
-          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
-
-      - name: Commit and push version bump
-        if: steps.versions.outputs.changed != ''
+      - name: Write the version into every published manifest
+        if: steps.plan.outputs.mode == 'bump'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
         run: |
-          # Build commit message from package.json versions
-          MSG="chore(release):"
-          for pkg in ${{ steps.versions.outputs.changed }}; do
-            PKG_JSON="./packages/$pkg/package.json"
-            VER=$(node -p "require('$PKG_JSON').version")
-            NAME=$(node -p "require('$PKG_JSON').name")
-            MSG="$MSG ${NAME}@${VER}"
+          for pkg in $RELEASE_PACKAGES; do
+            jq --arg v "$VERSION" '.version = $v' "packages/$pkg/package.json" > tmp.json
+            mv tmp.json "packages/$pkg/package.json"
           done
-
-          # Update lockfile with new versions (skip scripts — full build happens in next step)
+          pnpm exec oxfmt packages/*/package.json
           pnpm install --no-frozen-lockfile --ignore-scripts
 
-          # Build all packages so pre-commit typecheck passes
-          pnpm build
+      - name: Build all packages
+        if: steps.plan.outputs.mode != 'skip'
+        run: pnpm build
 
-          # Regenerate generated module reference pages after package version
-          # changes. Without this, the husky pre-commit drift gate
-          # (`pnpm docs:generate && git diff --quiet`) detects the regen at
-          # commit time and aborts with exit code 1.
+      - name: Verify the published closure installs from tarballs
+        if: steps.plan.outputs.mode != 'skip'
+        run: |
+          pnpm nx run @moltzap/client:test:pack
+          pnpm nx run @moltzap/openclaw-channel:test:pack
+          pnpm nx run @moltzap/nanoclaw-channel:test:pack
+          pnpm nx run @moltzap/simulator:test:pack
+
+      - uses: google-github-actions/auth@v2
+        if: steps.plan.outputs.mode == 'bump'
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_RELEASE_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        if: steps.plan.outputs.mode == 'bump'
+
+      - name: Push the release images or reuse their existing digests
+        if: steps.plan.outputs.mode == 'bump'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          gcloud auth configure-docker "${IMAGE_REPOSITORY%%/*}" --quiet
+          # Docker builds are not byte-reproducible: a tag that already exists
+          # was pushed by an earlier attempt at this version and is reused so
+          # one release never has two digests.
+          resolve_or_build() {
+            local name="$1" builder="$2" repository="$IMAGE_REPOSITORY/$1" digest
+            if digest=$(gcloud artifacts docker images describe "$repository:$VERSION" \
+                --format='value(image_summary.digest)' 2>/dev/null) && [ -n "$digest" ]; then
+              echo "reusing $repository:$VERSION@$digest" >&2
+            else
+              digest=$(node "$builder" --repository "$repository" --tag "$VERSION" --push \
+                | tail -1 | jq -r .imageDigest)
+            fi
+            jq -n --arg name "$name" --arg repository "$repository" --arg digest "$digest" \
+              '{name: $name, repository: $repository, digest: $digest}'
+          }
+          {
+            resolve_or_build controller scripts/simulator/build-controller-image.mjs
+            resolve_or_build openclaw-agent scripts/agent-images/build-openclaw-image.mjs
+            resolve_or_build nanoclaw-agent scripts/agent-images/build-nanoclaw-image.mjs
+          } | jq -s --arg version "$VERSION" --arg revision "$GITHUB_SHA" \
+            '{version: $version, sourceRevision: $revision, images: .}' \
+            > "$RUNNER_TEMP/published-images.json"
+          cat "$RUNNER_TEMP/published-images.json"
+
+      - name: Record digests, regenerate docs, and commit the release
+        if: steps.plan.outputs.mode == 'bump'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          node scripts/release/write-published-images.mjs \
+            --digests "$RUNNER_TEMP/published-images.json"
           pnpm docs:generate
+          node -e '
+            const fs = require("node:fs");
+            const [version, date] = process.argv.slice(1);
+            const path = "CHANGELOG.md";
+            const marker = "## [Unreleased]\n";
+            const text = fs.readFileSync(path, "utf8");
+            if (!text.includes(marker)) throw new Error("CHANGELOG.md has no [Unreleased] section");
+            fs.writeFileSync(path, text.replace(marker, `${marker}\n## [${version}] - ${date}\n`));
+          ' "$VERSION" "$(date -u +%F)"
 
           git config user.name "moltzap-release[bot]"
           git config user.email "moltzap-release[bot]@users.noreply.github.com"
-          git add packages/*/package.json pnpm-lock.yaml
-          # Stage doc regeneration outputs so the pre-commit drift gate passes.
-          # Mirrors `docs:check:drift` inputs: `docs/`, `packages/**/MODULE.md`,
-          # `README.md`.
-          git add docs/ 'packages/**/MODULE.md' README.md
-          if git diff --cached --quiet; then
-            echo "No version changes to commit — versions already up to date"
-          else
-            git commit -m "$MSG"
-            # If push fails (race condition), bail — next run catches up
-            git push --atomic origin main
-          fi
+          git add packages/*/package.json pnpm-lock.yaml CHANGELOG.md \
+            packages/simulator/gke/README.md docs/ 'packages/**/MODULE.md' README.md
+          git commit -m "chore(release): moltzap@$VERSION"
+          git push --atomic origin HEAD:main
 
-      - name: Build all packages
-        run: pnpm build
-
-      - name: Verify simulator package consumers
-        run: pnpm nx run @moltzap/simulator:test:pack
-
-      - name: Verify OpenClaw package consumers
-        run: pnpm nx run @moltzap/openclaw-channel:test:pack
-
-      - name: Publish packages
+      - name: Publish every package not yet on npm at this version
+        if: steps.plan.outputs.mode != 'skip'
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
         run: |
           echo "npm version: $(npm --version)"
           test -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" || {
             echo "ERROR: GitHub OIDC token request env is missing; check id-token: write permissions"
             exit 1
           }
-          # Publish any package whose local version is not yet on npm. This
-          # covers both newly bumped versions and versions from prior runs
-          # where the bump committed but the publish failed.
-          for pkg in simulator openclaw-channel; do
+          for pkg in $RELEASE_PACKAGES; do
             PKG_JSON="./packages/$pkg/package.json"
-            VER=$(node -p "require('$PKG_JSON').version")
             NAME=$(node -p "require('$PKG_JSON').name")
+            VER=$(node -p "require('$PKG_JSON').version")
+            [ "$VER" = "$VERSION" ] || { echo "ERROR: $NAME is at $VER, expected $VERSION"; exit 1; }
             if npm view "${NAME}@${VER}" version 2>/dev/null | grep -q "$VER"; then
               echo "${NAME}@${VER} already on npm — skipping"
               continue

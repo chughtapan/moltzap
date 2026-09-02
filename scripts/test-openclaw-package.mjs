@@ -11,9 +11,13 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import {
+  packWorkspacePackages,
+  readPackedManifests,
+} from "./test/packed-workspace.mjs";
 
 const exec = promisify(execFile);
 const workspaceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -35,77 +39,6 @@ function requireCondition(condition, detail) {
   if (!condition) {
     throw new Error(detail);
   }
-}
-
-async function packWorkspacePackage(packageRoot, destination) {
-  const { stdout } = await exec(
-    "pnpm",
-    ["pack", "--pack-destination", destination],
-    { cwd: packageRoot, maxBuffer: 16 * 1024 * 1024 },
-  );
-  const printed = stdout
-    .trim()
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .at(-1);
-  requireCondition(printed !== undefined, "pnpm pack returned no archive");
-  return resolve(packageRoot, printed);
-}
-
-async function packedArchives() {
-  const destination = join(temporaryRoot, "tarballs");
-  await mkdir(destination);
-  return Object.fromEntries(
-    await Promise.all(
-      Object.entries(packageRoots).map(async ([name, packageRoot]) => [
-        name,
-        await packWorkspacePackage(packageRoot, destination),
-      ]),
-    ),
-  );
-}
-
-async function readPackedManifest(archive) {
-  const { stdout } = await exec(
-    "tar",
-    ["-xOf", archive, "package/package.json"],
-    { maxBuffer: 16 * 1024 * 1024 },
-  );
-  return JSON.parse(stdout);
-}
-
-async function readPackedManifests(archives) {
-  const manifests = Object.fromEntries(
-    await Promise.all(
-      Object.entries(archives).map(async ([name, archive]) => [
-        name,
-        await readPackedManifest(archive),
-      ]),
-    ),
-  );
-  for (const [name, manifest] of Object.entries(manifests)) {
-    const sourceManifest = JSON.parse(
-      await readFile(join(packageRoots[name], "package.json"), "utf8"),
-    );
-    requireCondition(
-      manifest?.name === name && manifest.version === sourceManifest.version,
-      `packed ${name} manifest identity drifted`,
-    );
-    requireCondition(
-      manifest.private === sourceManifest.private,
-      `packed ${name} manifest changed its current private-package status`,
-    );
-    for (const dependency of Object.keys(manifest.dependencies ?? {}).filter(
-      (candidate) => candidate in archives,
-    )) {
-      requireCondition(
-        manifest.dependencies[dependency] === manifests[dependency].version,
-        `packed ${name} does not resolve ${dependency} to its packed version`,
-      );
-    }
-  }
-  return manifests;
 }
 
 async function verifyPackedManifest(archive, manifests) {
@@ -421,8 +354,10 @@ async function verifyConsumer(archives) {
 }
 
 try {
-  const archives = await packedArchives();
-  const manifests = await readPackedManifests(archives);
+  const tarballs = join(temporaryRoot, "tarballs");
+  await mkdir(tarballs);
+  const archives = await packWorkspacePackages(packageRoots, tarballs);
+  const manifests = await readPackedManifests(archives, packageRoots);
   await verifyPackedManifest(archives["@moltzap/openclaw-channel"], manifests);
   await verifyConsumer(archives);
   process.stdout.write("OpenClaw packed consumer check passed\n");

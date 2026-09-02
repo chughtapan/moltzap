@@ -8,13 +8,13 @@
 /**
  * The sole MoltZap wire compatibility value. Every MoltZap-owned network
  * schema carries exactly this value; there is no range negotiation or
- * per-layer wire version. `v2/VERSION` remains its source of truth, and a
- * boundary check fails the build when the two drift. Package release
- * versioning remains deferred.
+ * per-layer wire version. `version.ts` is its source of truth: the
+ * architecture boundary check and the documentation constants generator read
+ * the literal from there.
  *
- * The MCP revision, simulator definition ID, EventCatalog schema, and
- * RunLedger storage version are independent namespaces and never imply
- * compatibility with this value.
+ * The npm package version, the MCP revision, simulator definition ID,
+ * EventCatalog schema, and RunLedger storage version are independent
+ * namespaces and never imply compatibility with this value.
  */
 export { MOLTZAP_VERSION } from "./version.js";
 
