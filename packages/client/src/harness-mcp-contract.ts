@@ -8,7 +8,7 @@ import {
   type SchemaAST,
 } from "effect";
 import { InboundMessage } from "./contract.js";
-import { DeliveryToken } from "./endpoint/store.js";
+import { DeliveryToken } from "./endpoint/store/types.js";
 
 /** MCP capability carrying addressed message delivery. */
 export const HARNESS_EVENTS_EXTENSION = "xyz.moltzap/events-v2";
