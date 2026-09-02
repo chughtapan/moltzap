@@ -38,14 +38,14 @@ replacement table says `replaced`, `retained with qualification`, or
 source projection rather than retained historical prose. Unlisted rows remain
 governed by their later current ADR lineage.
 
-The current contract lives in `v2/VISION.md`,
+The current contract lives in `docs/vision.md`,
 `20260827-addressed-messaging-replaces-openfloor.md`, its trace table, and the
 normative `docs/spec/` chapters it names. The four-layer record retains
 endpoint history, durability, catch-up, re-anchor, and package topology. The
 2026-08-13 record retains only the daemon, persistence, recovery, and
-management scope named by its current Supersession section. Publication
-remains deferred. No current Client contract is inherited from this historical
-inventory.
+management scope named by its current Supersession section. Publication is
+selected by `20260901-six-packages-publish-as-one-version-set.md`. No current Client contract is inherited from this
+historical inventory.
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
@@ -66,13 +66,13 @@ until the architecture freeze is reviewed and merged on `main`.
 
 The repository reading order is:
 
-1. `AGENTS.md` and `v2/VISION.md` state design law.
+1. `AGENTS.md` and `docs/vision.md` state design law.
 2. Accepted decision records state rationale and supersession lineage.
 3. `docs/spec/` owns normative Gate 1 contracts.
 4. `docs/architecture/` explains the resulting system and execution
    plan.
-5. `v2/inputs/` is evidence; `v2/drafts/` is historical, non-normative
-   input.
+5. `docs/decision-evidence/inputs/` is evidence;
+   `docs/decision-evidence/drafts/` is historical, non-normative input.
 
 Every earlier decision record has one exact status:
 `accepted`, `partially-superseded`, or `superseded`. A partially or
@@ -145,19 +145,19 @@ pin each decision:
 
 | ID | Frozen decision | Normative owner | Acceptance |
 |---|---|---|---|
-| G1-DEC-001 | The complete L1/L2 authority candidate—ADRs, lineage, traceability, normative specifications, and architecture guidance—lands atomically and passes the blind teammate gate before L1/L2 product implementation. | `docs/architecture/l1-l2-implementation-ask.md` — Authority gate | `DOC` |
-| G1-DEC-002 | V2 reads authority from agent law and `v2/VISION.md`, current ADR outcomes including retained partially-superseded scope, normative specifications, architecture guidance, then historical evidence, all on the V2 track. | `v2/VISION.md` — Authority | `DOC` |
+| G1-DEC-001 | The complete L1/L2 authority candidate—ADRs, lineage, traceability, normative specifications, and architecture guidance—lands atomically and passes the blind teammate gate before L1/L2 product implementation. | `decisions` skill — Landing and Blind review gate | `DOC` |
+| G1-DEC-002 | V2 reads authority from agent law and `docs/vision.md`, current ADR outcomes including retained partially-superseded scope, normative specifications, architecture guidance, then historical evidence, all on the V2 track. | `docs/vision.md` — Authority | `DOC` |
 | G1-DEC-003 | ADR status is exactly accepted, partially-superseded, or superseded; replacement lineage is explicit and old bodies remain historical evidence. | `docs/decisions/README.md` — Canonical reading guidance | `DOC` |
-| G1-DEC-004 | Every open question is marked resolved, explicitly deferred, or outside Gate 1; a decided question cannot remain open. | `v2/VISION.md` — Open-question register | `DOC` |
-| G1-DEC-005 | Drafts are historical input, never a competing implementation source. | `v2/drafts/README.md` | `DOC` |
+| G1-DEC-004 | Every open question is marked resolved, explicitly deferred, or outside Gate 1; a decided question cannot remain open. | `docs/vision.md` — Deliberate deferrals | `DOC` |
+| G1-DEC-005 | Drafts are historical input, never a competing implementation source. | `docs/decision-evidence/drafts/README.md` | `DOC` |
 | G1-DEC-006 | A fresh teammate must reconstruct the design from the exact checked-in candidate and fixed questions without inherited context, author hints, or file pointers. | `decisions` skill — Blind review gate | `DOC` |
 | G1-DEC-007 | Every exact L1/L2 representation fact has one normative owner at the layer that owns the public concept; no cross-layer wire catalog or shared vector-corpus abstraction is current. | `docs/spec/layer-interfaces.md` — L1 and L2 representation ownership | `DOC` |
-| G1-DEC-008 | The authority gate fails on any contradiction, broken lineage, missing layer-owned representation, or already-decided question presented as open. | `docs/architecture/l1-l2-implementation-ask.md` — Authority gate | `DOC` |
+| G1-DEC-008 | The authority gate fails on any contradiction, broken lineage, missing layer-owned representation, or already-decided question presented as open. | `decisions` skill — Blind review gate | `DOC` |
 | G1-DEC-009 | Every ADR visibly links to a non-normative source-event ledger with native locators, literal human and agent excerpts, mechanical repository effects, and explicit source gaps; it does not reconstruct motive or rationale. | `decisions` skill — `references/provenance.md` | `DOC` |
 | G1-DEC-010 | Every admitted ADR change is bound to an exact candidate and passes the recorded six-question blind teammate gate before landing. | `decisions` skill — Blind review gate | `DOC` |
 | G1-DEC-011 | The 2026-07-29 implementation revision changed only identity and Router authority and did not silently assign later-layer names or representations. The current 2026-08-01 records separately replace the Harness vocabulary and local interface while retaining those L1/L2 representations. | `docs/spec/README.md` — Implementation readiness and Implementation decision ownership | `DOC` |
-| G1-DEC-100 | One stack has eight layers in communication and trust regions; guarantees flow up and configuration flows down. | `v2/VISION.md` — The constitution | `ARCH` |
-| G1-DEC-101 | Interpretive policy lives at endpoints, in their local Harness subsystems. The network has no app principals, manifests, hooks, reverse callbacks, or task owners. | `v2/VISION.md` — The constitution | `ARCH` |
+| G1-DEC-100 | One stack has eight layers in communication and trust regions; guarantees flow up and configuration flows down. | `docs/vision.md` — The constitution | `ARCH` |
+| G1-DEC-101 | Interpretive policy lives at endpoints, in their local Harness subsystems. The network has no app principals, manifests, hooks, reverse callbacks, or task owners. | `docs/vision.md` — The constitution | `ARCH` |
 | G1-DEC-102 | L1 owns identity; L7 institutions are separate services and trust domains. Gate 1 contains no L7 service. | `docs/spec/enforcement.md` — Boundary | `ARCH`, `DEFER` |
 | G1-DEC-103 | L2 owns content-blind, equivocation-free ordered multicast and generic signed-evidence carriage only. | `docs/spec/router.md` — Purpose and boundary | `L2` |
 | G1-DEC-104 | L3 owns conversations, retransmission, deduplication, reconciliation, recovery, action protocols, and durable commit. | `docs/spec/layer-interfaces.md` — Purpose | `L3` |
@@ -168,7 +168,7 @@ pin each decision:
 | G1-DEC-109 | Router and Ledger verify only L1 identity and technical bindings and never query institutional policy. | `docs/spec/enforcement.md` — Network admission | `ARCH` |
 | G1-DEC-110 | Resource protection is operational quota and abuse control, not institutional policy. | `docs/spec/enforcement.md` — Network admission | `ARCH` |
 | G1-DEC-111 | L2 bodies remain opaque so end-to-end encryption stays possible, but encryption is not required in Gate 1. | `docs/spec/router.md` — Purpose and boundary; Explicitly deferred | `L2`, `DEFER` |
-| G1-DEC-112 | `L1` and `L2` are documentation notation only. Identity and Router package metadata, paths, source, tests, comments, runtime values, configuration, fixtures, migrations, and generated code use domain vocabulary and are scanned for violations. | `v2/AGENTS.md` — Implementation rules | `ARCH` |
+| G1-DEC-112 | `L1` and `L2` are documentation notation only. Identity and Router package metadata, paths, source, tests, comments, runtime values, configuration, fixtures, migrations, and generated code use domain vocabulary and are scanned for violations. | `docs/spec/layer-interfaces.md` — Purpose | `ARCH` |
 
 ### Identity, encoding, authentication, and identifiers
 
@@ -362,7 +362,7 @@ owners narrow or resolve the older Endpoint/CLI deferrals.
 |---|---|---|---|
 | G1-DEC-800 | Router replication, multi-process ordering, Byzantine sequencing, fork detection, failover, and stable instance identity. | `docs/spec/router.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-801 | Tolerance of a malicious or equivocating Registry; card/key rotation, historical-card lookup, revocation, identity recovery, encrypted keys, keychains, HSMs, and external signers. | `docs/spec/identity.md` — Explicitly deferred | `DEFER` |
-| G1-DEC-802 | L7 institution services, statement vocabularies, and governance effects. | `v2/VISION.md` — Open-question register | `DEFER` |
+| G1-DEC-802 | L7 institution services, statement vocabularies, and governance effects. | `docs/vision.md` — Deliberate deferrals | `DEFER` |
 | G1-DEC-803 | Dynamic membership, membership/key epoch transitions, and history authorization across changing membership or witness/monitor readers. | `docs/spec/harness/tasks.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-804 | Executable user-provided L4 norms, deterministic NormPin semantics, non-unanimous quorums, and addressed turns. | `docs/spec/harness/tasks.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-805 | Fairness and starvation-freedom guarantees. | `docs/spec/harness/tasks.md` — Conditional liveness and Explicitly deferred | `DEFER` |
@@ -371,7 +371,7 @@ owners narrow or resolve the older Endpoint/CLI deferrals.
 | G1-DEC-808 | Local daemon authentication, hostile-host defense, dynamic port discovery, attach-to-existing ownership, and a universal daemon supervisor. | `docs/spec/harness/daemon.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-809 | MCP event acknowledgement/replay, cursors, GET subscription streams, webhooks, resource wakeups, asynchronous tool-task handles, and dynamic per-action tools. | `docs/spec/harness/ingress.md` — Explicitly deferred; `docs/spec/harness/output.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-810 | A transactional outbox for commit hints. | `docs/spec/harness/tasks.md` — Commit notification | `DEFER` |
-| G1-DEC-811 | A later profile that changes or negotiates the fixed Gate 1 SignedMessage body and recipient maxima or adds other interoperable resource limits. Services still bound pages, polls, retention, caches, requests, and closed representations; cross-conversation turns and snapshots remain deliberate unbounded exceptions. | `v2/VISION.md` — Open-question register | `DEFER` |
+| G1-DEC-811 | A later profile that changes or negotiates the fixed Gate 1 SignedMessage body and recipient maxima or adds other interoperable resource limits. Services still bound pages, polls, retention, caches, requests, and closed representations; cross-conversation turns and snapshots remain deliberate unbounded exceptions. | `docs/vision.md` — Deliberate deferrals | `DEFER` |
 | G1-DEC-812 | Raw bytes, URLs, media types, filenames, metadata, files, images, and audio in action content. | `docs/spec/harness/tasks.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-813 | A required end-to-end body-encryption or key-distribution profile. The content-blind SignedMessage body preserves the option. | `docs/spec/router.md` — Purpose and boundary and Explicitly deferred | `DEFER` |
 | G1-DEC-814 | npm publishing, bundling, deployment, production cutover, and production-line retirement remain deferred on the V2 track. The separate production Harness application and removal of its legacy surfaces remain `main`-owned dependencies rather than V2 authority. | `docs/architecture/first-implementation.md` — Gate 4 — Harness implementation boundary and Explicit deferrals | `DEFER` |
@@ -440,3 +440,4 @@ the outcome is a supersession, not a row here.
 | 2026-08-13 | Repointed the Supersession summary from resolved Client and Simulator deferrals to their current 2026-08-12 and 2026-08-13 records. Publication remains deferred, and the historical freeze outcome is unchanged. |
 | 2026-08-27 | Repointed affected current trace dispositions to the addressed-messaging replacement. Historical row meanings remain unchanged; the generated protocol-version literal now projects the current source-owned hard-cut value. |
 | 2026-08-27 | Clarified that the generated protocol-version literal projects the current source value after the hard cut. The historical decision meanings and retained repository-native authority outcome are unchanged. |
+| 2026-09-01 | Repointed `v2/VISION.md`, `v2/inputs/`, and `v2/drafts/` locators to `docs/vision.md` and `docs/decision-evidence/{inputs,drafts}/` after the `v2/` directory was retired; the former `Open-question register` heading is `Deliberate deferrals`. `G1-DEC-001` and `G1-DEC-008` moved from the deleted `docs/architecture/l1-l2-implementation-ask.md` to the `decisions` skill that owns the landing and blind-review procedure, and `G1-DEC-112` from the deleted `v2/AGENTS.md` to the layer-interfaces chapter. Publication is selected by `20260901-six-packages-publish-as-one-version-set.md`. The historical freeze outcome is unchanged. |

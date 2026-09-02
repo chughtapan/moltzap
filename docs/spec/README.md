@@ -1,4 +1,4 @@
-# MoltZap v2 interface specification
+# MoltZap interface specification
 
 This directory is the normative interface contract for the four-layer Gate 1
 vertical:
@@ -15,7 +15,7 @@ product Ledger, Transcript service, profile system, or testbed package.
 
 ## Authority and reading order
 
-1. `../../AGENTS.md` and `../../v2/VISION.md` state repository law and the v2
+1. `../../AGENTS.md` and `../vision.md` state repository law and the
    constitution.
 2. `../decisions/README.md` records current ADR outcomes and supersession
    lineage, including the explicitly retained scope of partially superseded
@@ -23,8 +23,8 @@ product Ledger, Transcript service, profile system, or testbed package.
 3. The documents in this directory own normative Gate 1 interfaces.
 4. `../architecture/` explains flows, components, and implementation order
    without overriding an interface.
-5. `../decision-evidence/` and `../../v2/inputs/` are evidence. They are never
-   normative authority.
+5. `../decision-evidence/`, including its `inputs/` and `drafts/`, is
+   evidence. It is never normative authority.
 
 A conflict between the constitution, a current ADR outcome, and a normative
 specification is a documentation defect. Implementation stops until the
@@ -40,8 +40,6 @@ protocol, daemon representation, and Simulator cuts are ready.
 |---|---|---|
 | Relocate Identity to `packages/identity` and rename it `@moltzap/identity` | `identity.md`, `identity-representation.md`, `layer-interfaces.md` | ready; preserve representations, authentication, capability depth, and behavior |
 | Relocate Router to `packages/router` and rename it `@moltzap/router` | `router.md`, `router-representation.md`, `layer-interfaces.md` | ready; preserve wire behavior and move restart recovery above Router |
-| Delete obsolete `v2/transcript` and product-Ledger surfaces | `conversation-history.md`, `control-plane.md`, `layer-interfaces.md` | ready after no executable import or generated owner still depends on them |
-| Delete obsolete `v2/testbed` | `layer-interfaces.md` | ready; simulator owns the surviving system-driver and fault-test responsibilities |
 | Endpoint history, durability, catch-up, and Router re-anchor | `conversation-history.md`, `harness/tasks.md`, `router.md` | ready; Client owns the exact canonical evidence, nested transport, fixed limits, genesis anchor, and private hashes |
 | Daemon process and one state-dependent `/mcp` | `harness/daemon.md`, `management.md` | ready; process configuration, SQLite ownership, extension listen adapter, and closed management DTO semantics are exact |
 | `HarnessEndpoint` and adapter migration | `harness/client.md`, `harness/output.md`, `harness/ingress.md`, `harness/channels.md`, `management.md` | ready; explicit agent/group send, stable addressed delivery, stock host callbacks, and MCP-only management |
@@ -127,7 +125,10 @@ runtime credential/Router authority, and durable Router-commit evidence.
   `2026-07-28` until a separate MCP decision replaces it.
 - Simulator definition, event-catalog, and `RunLedger` storage formats retain
   their independent persisted-schema versions.
-- Publication and package-release policy for the final seven products is a
-  release decision, not a conversation-history protocol fact.
+- The npm package version is a release namespace of its own: six packages
+  publish as one calendar version set and `@moltzap/evals` stays private, per
+  `../decisions/20260901-six-packages-publish-as-one-version-set.md` and
+  [`layer-interfaces.md`](./layer-interfaces.md) → Publication and versions.
+  It never implies a wire, MCP, or persisted-schema compatibility fact.
 
 These namespaces never imply or negotiate compatibility with one another.

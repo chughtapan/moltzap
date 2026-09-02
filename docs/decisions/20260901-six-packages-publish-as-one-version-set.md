@@ -1,0 +1,133 @@
+---
+status: accepted
+date: 2026-09-01
+decision-makers: Tapan Chugh
+---
+
+# Six packages publish as one version set
+
+Decision provenance: [publication set and version
+policy](../decision-evidence/20260901-publication-set-trajectory.md#publication-set-and-version-policy),
+[license and
+housekeeping](../decision-evidence/20260901-publication-set-trajectory.md#license-and-housekeeping),
+[release
+mechanics](../decision-evidence/20260901-publication-set-trajectory.md#release-mechanics),
+and [mechanical repository and registry
+effects](../decision-evidence/20260901-publication-set-trajectory.md#mechanical-repository-and-registry-effects).
+
+## Context and Problem Statement
+
+The four-layer harness landed on `main` with publication switched off. The
+four-layer record deferred publication membership and version coordination
+(`G1-DEC-708`, the publication halves of `G1-DEC-709` and `G1-DEC-814`), the
+V2-authority and six-deep-packages records repeated the deferral, and
+`.github/workflows/publish.yml` was disabled until one decision existed. Two
+gates encoded the deferral: the architecture boundary check required Identity
+and Router to stay private, and the Client pack gate required the packed
+Client to stay private.
+
+The simulator is the product downstream benchmarks install, and its
+dependency closure is `@moltzap/identity`, `@moltzap/router`, and
+`@moltzap/client`. A simulator tarball whose closure is private cannot
+install from npm. The registry still serves the v1 `@moltzap/protocol`,
+`@moltzap/server-core`, and `@moltzap/client` as `latest`, while their sources
+are deleted or replaced; the provenance ledger records the exact registry
+state at admission. Package manifests disagreed on
+license, and the `v2/` directory still held the constitution, a duplicate
+wire-version file, and inputs no record cited.
+
+## Decision Outcome
+
+Chosen: **six packages publish to npm as one calendar version set, and
+`@moltzap/evals` stays private.**
+
+### Publication set
+
+`@moltzap/identity`, `@moltzap/router`, `@moltzap/client`,
+`@moltzap/openclaw-channel`, `@moltzap/nanoclaw-channel`, and
+`@moltzap/simulator` are public npm packages. `@moltzap/evals` is a private
+workspace product and is never published. No other package is added to the
+set by this record.
+
+### One version
+
+Every release carries one version, `YYYY.MDD.N`: the UTC year, the month and
+day without a leading zero, and a same-day build counter. The counter is the
+smallest not yet published by any of the six packages, so one string is
+written into all six manifests and published without colliding on any of
+them. Each packed manifest pins its workspace siblings to that exact version,
+so a consumer who installs one package resolves the closure the same release
+built, never a mix of releases.
+
+The package version is a release namespace of its own. It is independent of
+the wire compatibility value `MOLTZAP_VERSION`, the MCP revision, and every
+persisted-schema version; advancing one never advances another.
+`packages/identity/src/version.ts` is the sole owner of the wire value.
+
+### Release path
+
+Releases run from `main` through `.github/workflows/publish.yml`, triggered
+manually. One run computes the version, writes it into the six manifests,
+builds, proves the packed closure installs, pushes the simulator controller,
+OpenClaw, and NanoClaw images tagged with the version to Artifact Registry
+(reusing an existing tag's digest rather than rebuilding), records the image
+digests in `packages/simulator/gke/README.md`, regenerates documentation,
+stamps `CHANGELOG.md`, commits `chore(release): moltzap@<version>`, and
+publishes every package not yet on npm at that version with provenance. A
+rerun after a partial failure converges on the same version, digests, and
+commit. The workflow authenticates to Google Cloud through Workload Identity
+Federation and to npm through trusted publishing; it holds no stored key.
+
+### License
+
+The repository and every published package are licensed under Apache-2.0.
+Releases published before this record were MIT-licensed and stay so.
+
+### Deprecations
+
+`@moltzap/protocol` and `@moltzap/server-core` are deprecated on npm in
+full. Every `@moltzap/client` release published before this record carries
+the v1 API and is deprecated. Every `@moltzap/simulator` and
+`@moltzap/openclaw-channel` release published before this record predates the
+cutover and is deprecated. The provenance ledger's registry observation names
+the last such version of each.
+
+### Retired directory
+
+The `v2/` directory is retired. The constitution is `docs/vision.md`; the
+inputs and drafts that decision records cite live under
+`docs/decision-evidence/inputs/` and `docs/decision-evidence/drafts/`;
+uncited inputs are deleted; `v2/VERSION` is deleted in favour of the
+Identity-owned literal.
+
+### What this record resolves
+
+This record resolves `G1-DEC-708` and the publication halves of `G1-DEC-709`
+and `G1-DEC-814` in
+[`20260811-four-layer-endpoint-replicated-harness.md`](./20260811-four-layer-endpoint-replicated-harness.md),
+and the publication deferrals in
+[`20260729-v2-authority-lives-with-v2.md`](./20260729-v2-authority-lives-with-v2.md)
+and
+[`20260728-six-deep-packages-one-version.md`](./20260728-six-deep-packages-one-version.md).
+It changes no other outcome of those records. The seven-package dependency
+graph, the public boundaries, and the layer contracts in
+`docs/spec/layer-interfaces.md` are unchanged; that chapter's `Publication
+and versions` section is the normative owner of the rules above.
+
+## Consequences
+
+- `scripts/architecture/check-boundaries.js` fails when a published manifest
+  carries `private`, when the six versions differ, or when evals is not
+  private. Each published package's `test:pack` gate proves that its packed
+  closure installs from tarballs with exact sibling pins.
+- A downstream consumer pins one version and one set of image digests per
+  release, read from the release commit rather than a hand-edited table.
+- The first release needs maintainer-held prerequisites the repository cannot
+  supply: npm trusted publishers for the six packages, the release App
+  credentials, and the two Workload Identity variables that the GKE
+  Terraform module outputs. The deprecations are run by the maintainer after
+  the first release publishes.
+- A push-triggered release is a later, separate change once a manual release
+  has proven the prerequisites.
+- External-consumer cutover remains the one open release question; it is
+  named in `docs/spec/layer-interfaces.md` → Deliberate deferrals.

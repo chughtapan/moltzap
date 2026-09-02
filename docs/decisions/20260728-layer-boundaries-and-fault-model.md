@@ -21,7 +21,7 @@ norms, institutions, or governance.
 process, the correct-durable-Ledger trust assumption, the eight-layer numbering,
 and the L5–L8/L7 trust domains. It assigns durable conversation history to
 fixed-member endpoint replicas and states their quorum, disk, availability,
-and catch-up assumptions directly. The replacement record, `v2/VISION.md`,
+and catch-up assumptions directly. The replacement record, `docs/vision.md`,
 `docs/spec/layer-interfaces.md`, and `docs/spec/conversation-history.md` own the
 current boundary and fault model; the retained exact identity and Router
 contracts remain in their named specification chapters.
@@ -72,3 +72,11 @@ uniqueness, immutable card bindings, and attestation. Safety claims
 state their assumptions independently from liveness. Network services
 never evaluate L7 policy. Content blindness preserves the option of
 end-to-end encryption without requiring it.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-09-01 | Repointed the constitution path from `v2/VISION.md` to `docs/vision.md` after the `v2/` directory was retired. The historical Decision Outcome is unchanged. |

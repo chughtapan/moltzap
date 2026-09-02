@@ -46,8 +46,8 @@ on a single POST and the existing descriptor-based infrastructure —
 schema-first catalogs, strict decode, doc generation — rebound from
 the socket mux to HTTP (any v2 carry-forward is by re-implementation
 against the spec, never by import — `20260721-v2-lives-top-level.md`;
-the salvage analyses — `v2/inputs/v1-code-audit-20260717.md`,
-`v2/inputs/debt-inventory-20260718.md` — say which pieces are worth
+the salvage analyses — `docs/decision-evidence/inputs/v1-code-audit-20260717.md`,
+`docs/decision-evidence/inputs/debt-inventory-20260718.md` — say which pieces are worth
 carrying). Naming
 that machinery decides no open question: wire discipline — v1's
 strict excess-key rejection — stays register-open (`v2/VISION.md`,
@@ -63,3 +63,11 @@ Consequences: a hand-maintained protocol package is an interim
 artifact of the current wire, never a fixture v2 owes; when the
 move happens, schema and doc-generation duty migrate from the
 descriptor catalogs to the OpenAPI contract.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-09-01 | Repointed the cited historical input from `v2/` to `docs/decision-evidence/` after the `v2/` directory was retired. The historical Decision Outcome is unchanged. |

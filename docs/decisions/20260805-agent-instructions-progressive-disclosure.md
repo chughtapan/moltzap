@@ -37,7 +37,7 @@ blind review gate runs through the vendored `cold-read` skill against
 already uses — scoped `AGENTS.md` files for always-relevant guidance, skills
 with section files for procedures.
 
-The v2 constitution is canonical in `v2/VISION.md` and paraphrased nowhere.
+The constitution is canonical in `docs/vision.md` and paraphrased nowhere.
 
 Every `CLAUDE.md` is a symlink to the `AGENTS.md` beside it, replacing the
 `@AGENTS.md` import. A symlink is tool-agnostic; the import is not.
@@ -68,3 +68,4 @@ the outcome is a supersession, not a row here.
 | Date | Change |
 |---|---|
 | 2026-08-05 | Consequences said the root file drops to 161 lines; it is 153. The figure was written before the doc-writing procedure moved to the `docs` skill. Found by the blind review of `c77464ee`. |
+| 2026-09-01 | Repointed the constitution path from `v2/VISION.md` to `docs/vision.md` after the `v2/` directory was retired; the Context section keeps the historical path it describes. The Decision Outcome is unchanged. |

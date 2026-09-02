@@ -20,7 +20,7 @@ layers with four layers: identity, communication, tasks and norms, and personal
 trust. Monitoring, institutions, credentials, and governance may be built as
 ordinary agents and recursively composed tasks, but gain no privileged trust
 root, import, network path, or private-history read. The current stack contract
-lives in the replacement record, `v2/VISION.md`,
+lives in the replacement record, `docs/vision.md`,
 `docs/spec/layer-interfaces.md`, and `docs/spec/enforcement.md`.
 
 ## Context and Problem Statement
@@ -94,3 +94,4 @@ Point corrections that leave the historical Decision Outcome intact.
 | Date | Change |
 |---|---|
 | 2026-08-11 | Recorded the four-layer replacement and the exact scope this record still retains. The historical Decision Outcome is untouched; the visible Supersession section owns current applicability. |
+| 2026-09-01 | Repointed the constitution path from `v2/VISION.md` to `docs/vision.md` after the `v2/` directory was retired. The historical Decision Outcome is unchanged. |

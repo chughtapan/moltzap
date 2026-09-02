@@ -33,7 +33,7 @@ Scope: this record governs the Phase 1 source baseline in
 It does not change the Gate 1 v2 package map, the v2 `simulator`/`testbed`
 ownership split, or the rule that `v2/*` imports nothing from `packages/*`.
 After this baseline lands and passes its acceptance gates, its immutable source
-revision is recorded in `v2/inputs/simulator-handoff-20260728.md`; Phase 3
+revision is recorded in `docs/decision-evidence/inputs/simulator-handoff-20260728.md`; Phase 3
 ports behavior from that verified revision into v2-native public capabilities.
 
 ## Context and Problem Statement
@@ -298,7 +298,7 @@ execution, resume, publication, and explicit network probes.
    completed report, and file issues for newly reproduced external defects.
 8. Verify the workspace, land the reviewed source baseline on `main`, and
    record its immutable landed revision and acceptance evidence in
-   `v2/inputs/simulator-handoff-20260728.md`.
+   `docs/decision-evidence/inputs/simulator-handoff-20260728.md`.
 
 ## Correctness Checks
 
@@ -335,3 +335,11 @@ framework. Evaluation customers retain code-level control over their scenario
 languages and policies. Long live measurements survive interruption, semantic
 judgments remain auditable against exact ledger evidence, and results become
 visible and comparable through a replaceable external platform.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-09-01 | Repointed the simulator handoff input from `v2/inputs/` to `docs/decision-evidence/inputs/` after the `v2/` directory was retired. The historical Decision Outcome is unchanged. |

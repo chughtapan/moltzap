@@ -10,9 +10,11 @@ this log.** Do not add a record without that call.
 
 ## Canonical reading guidance
 
-For Gate 1, begin with `AGENTS.md`, `v2/VISION.md`, and the focused
-current ADR outcomes—accepted records and the explicitly retained
-portions of partially-superseded records. Addressed Client work begins with
+Begin with `AGENTS.md`, `docs/vision.md`, and the focused current ADR
+outcomes—accepted records and the explicitly retained portions of
+partially-superseded records. Release and packaging work begins with
+[the publication set](20260901-six-packages-publish-as-one-version-set.md).
+Addressed Client work begins with
 [the messaging decision](20260827-addressed-messaging-replaces-openfloor.md)
 and its [current send-retry
 replacement](20260828-hosts-own-send-retry-policy.md) and
@@ -62,6 +64,7 @@ planning database as continuing authority.
 
 | Decision | Date | Status | Superseded by |
 |---|---|---|---|
+| [Six packages publish as one version set](20260901-six-packages-publish-as-one-version-set.md) | 2026-09-01 | accepted | — |
 | [Channel adapters use stock host APIs](20260828-channel-adapters-use-stock-host-apis.md) | 2026-08-28 | accepted | — |
 | [Action signatures follow Router-ordered proposal locking](20260828-action-signatures-follow-router-order.md) | 2026-08-28 | accepted | — |
 | [Hosts own addressed-send retry policy](20260828-hosts-own-send-retry-policy.md) | 2026-08-28 | accepted | — |

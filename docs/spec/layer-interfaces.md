@@ -32,9 +32,9 @@ not import Identity, Router, Client internals, simulator, evals, or each other.
 Simulator and evals are not alternate production services.
 
 There are no product packages named `protocol`, `server`, `transcript`,
-`ledger`, `harness`, or `testbed`. There is no implementation package under
-`v2/*` after relocation. Repository authority and historical inputs under
-`v2/` are documents, not executable packages.
+`ledger`, `harness`, or `testbed`, and no `v2/` directory: the constitution is
+`docs/vision.md` and the historical inputs decision records cite live under
+`docs/decision-evidence/`.
 
 Root-owned build and image orchestration may consume several package artifacts
 without creating package-runtime dependencies. Copying an adapter source or
@@ -412,10 +412,30 @@ runtimes own their session topology and cross-address context.
 - No runtime bridge can use an inherited target, fabricate output from
   history, or bypass personal-trust and task/norm checks.
 
+## Publication and versions
+
+Six packages publish to npm as one version set: `@moltzap/identity`,
+`@moltzap/router`, `@moltzap/client`, `@moltzap/openclaw-channel`,
+`@moltzap/nanoclaw-channel`, and `@moltzap/simulator`. `@moltzap/evals` stays
+private. The current record is
+`../decisions/20260901-six-packages-publish-as-one-version-set.md`.
+
+- One release computes one calendar version, `YYYY.MDD.N`, from the union of
+  the six packages' npm histories and writes it into every published manifest.
+- `pnpm pack` pins each workspace sibling to that exact version, so an
+  installed closure resolves the packages one release built, never a mix.
+- The package version is independent of `MOLTZAP_VERSION`, the MCP revision,
+  and every persisted-schema version. Advancing one never advances another.
+- Releases run from `main` through `.github/workflows/publish.yml` with npm
+  provenance; the same run pushes the simulator controller, OpenClaw, and
+  NanoClaw images tagged with the version and records their digests.
+- `scripts/architecture/check-boundaries.js` fails when a published manifest
+  is private, when the six versions differ, or when evals is not private;
+  each package's `test:pack` gate proves the packed closure installs.
+
 ## Deliberate deferrals
 
-Final publication/version policy and external-consumer cutover remain
-unresolved. None
-authorizes an eighth package, compatibility facade, or restoration of a
-removed Simulator contract. The post-Router Simulator link-fault boundary is a
-current decision, not a deferral.
+External-consumer cutover remains unresolved. Nothing here authorizes an
+eighth package, compatibility facade, or restoration of a removed Simulator
+contract. The post-Router Simulator link-fault boundary is a current decision,
+not a deferral.

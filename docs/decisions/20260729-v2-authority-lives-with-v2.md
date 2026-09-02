@@ -21,11 +21,10 @@ main-branch copy.
 main-to-v2 forward merges, authority tied to code under `v2/*`, and continued
 pre-cutover branch isolation. It admits one final main merge, freezes routine
 forward merges, moves implementation to the seven final `packages/*` owners,
-and makes the cutover branch the consolidation path. Exact npm publication and
-version-transition policy remains deliberately deferred, so the replacement
-does not silently change the existing publication owner. The replacement
-record, `AGENTS.md`, `v2/VISION.md`, and `docs/spec/README.md` own the current
-cutover authority.
+and makes the cutover branch the consolidation path. That branch has since
+replaced `main`, and `20260901-six-packages-publish-as-one-version-set.md` selects the npm publication and version policy
+this record deferred. The replacement record, `AGENTS.md`, `docs/vision.md`,
+and `docs/spec/README.md` own the current authority.
 
 ## Context and Problem Statement
 
@@ -95,3 +94,11 @@ The earlier requirement that the specification set be current first on
 into V2, but they cannot silently replace a current V2 outcome. Changes
 to V2 authority land atomically with their normative owners and pass the
 same review gates as code-facing contract changes.
+
+## Record changelog
+
+Point corrections that leave the historical Decision Outcome intact.
+
+| Date | Change |
+|---|---|
+| 2026-09-01 | Recorded that the publication and version-transition deferral in the Supersession section is selected by `20260901-six-packages-publish-as-one-version-set.md`, and repointed the constitution path from `v2/VISION.md` to `docs/vision.md` after the `v2/` directory was retired. The historical Decision Outcome is unchanged. |

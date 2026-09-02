@@ -229,9 +229,9 @@ Simulator runtimes use the final daemon-backed Client boundary while the
 simulation `RunLedger` retains only lifecycle and public semantic effects.
 
 Publication membership, package-version coordination, and release ordering
-remain unselected. Exact pruning, garbage collection, retention after
-certificate completion, and recovery after local disk loss also remain
-unselected. Until those storage choices land, implementation must not prune
+were unselected at admission; `20260901-six-packages-publish-as-one-version-set.md` selects them. Exact pruning, garbage
+collection, retention after certificate completion, and recovery after local
+disk loss remain unselected. Until those storage choices land, implementation must not prune
 certified ancestry or claim disk-loss recovery. Registry registration recovery
 and idempotency remain outside this decision and tracked separately.
 
@@ -251,9 +251,9 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 
 | ID | Current disposition | Normative owner | Acceptance evidence |
 |---|---|---|---|
-| G1-DEC-002 | Retained — V2 authority order remains repository-native. | `v2/VISION.md` — Authority | `DOC` |
-| G1-DEC-100 | Replaced — the stack has the four layers named here. | `v2/VISION.md` — The constitution | `ARCH` |
-| G1-DEC-101 | Retained — interpretation and policy remain endpoint-owned. | `v2/VISION.md` — The constitution | `ARCH` |
+| G1-DEC-002 | Retained — the authority order remains repository-native. | `docs/vision.md` — Authority | `DOC` |
+| G1-DEC-100 | Replaced — the stack has the four layers named here. | `docs/vision.md` — The constitution | `ARCH` |
+| G1-DEC-101 | Retained — interpretation and policy remain endpoint-owned. | `docs/vision.md` — The constitution | `ARCH` |
 | G1-DEC-102 | Replaced — institutions are ordinary agents, not an L7 trust domain. | `docs/spec/enforcement.md` — Boundary | `ARCH`, `DEFER` |
 | G1-DEC-103 | Retained — Router multicast remains content-blind and opaque. | `docs/spec/router.md` — Purpose and boundary | `L2` |
 | G1-DEC-104 | Re-owned — communication endpoints own conversations, history, durability, and recovery. | `docs/spec/layer-interfaces.md` — Client and endpoint communication; `docs/spec/conversation-history.md` — Purpose and owner | `L3` |
@@ -264,7 +264,7 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-109 | Re-owned — Registry and Router remain policy-blind; no Ledger exists. | `docs/spec/enforcement.md` — No privileged path | `ARCH` |
 | G1-DEC-110 | Retained — resource controls are not institutional policy. | `docs/spec/enforcement.md` — Institutions and governance as protocols | `ARCH` |
 | G1-DEC-111 | Retained — Router opacity preserves optional end-to-end encryption. | `docs/spec/router.md` — Purpose and boundary | `L2`, `DEFER` |
-| G1-DEC-112 | Re-owned — layer labels remain documentation notation across the final packages. | `v2/AGENTS.md` — Implementation rules | `ARCH` |
+| G1-DEC-112 | Re-owned — layer labels remain documentation notation across the final packages. | `docs/spec/layer-interfaces.md` — Purpose | `ARCH` |
 | G1-DEC-209 | Re-owned — Registry admission remains out of band; one `/mcp` daemon replaces profile and split-path presentation. | `docs/spec/identity.md` — Registration; `docs/spec/harness/daemon.md` — Process and configuration and MCP catalog | `ID`, `MCP` |
 | G1-DEC-221 | Replaced — public START `ConversationId` and genesis `TxnId` derivations are absent; Client privately derives conversation identity from ordered members and mints an opaque `PostId` for each send invocation. | `docs/spec/conversation-history.md` — Membership and identifiers and Canonical encoding and preimages | `PROTO`, `WIRE` |
 | G1-DEC-223 | Retained/re-owned — Registry, Router, and Client wire values enforce the exact source-owned `V2_PROTOCOL_VERSION` `2026.827.1`; events-v2 remains an independent MCP extension identifier. | `docs/spec/identity-representation.md` — HTTP request framing and ownership; `docs/spec/router-representation.md` — Authenticated request envelope; `docs/spec/conversation-history.md` — Closed schema vocabulary and Persistence and compatibility; `docs/spec/harness/ingress.md` — MCP extension | `WIRE` |
@@ -361,8 +361,8 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-705 | Retained — no cross-layer protocol/server/accessor package is introduced. | `docs/spec/layer-interfaces.md` — Exact package graph | `ARCH` |
 | G1-DEC-706 | Replaced — all executable products live under `packages/*` and follow the final DAG. | `docs/spec/layer-interfaces.md` — Exact package graph and Relocation and deletion law | `ARCH` |
 | G1-DEC-707 | Retained — packages expose cohesive domain capabilities and hide mechanisms. | `docs/architecture/components.md` — Public and private boundaries | `ARCH` |
-| G1-DEC-708 | Deferred — publication membership and coordinated versus independent package versioning are unselected. | `docs/spec/layer-interfaces.md` — Deliberate deferrals | `ARCH`, `WIRE`, `DEFER` |
-| G1-DEC-709 | Retained and advanced — source protocol, events-v2, endpoint schema 2, and Simulator persisted-schema versions remain independent; package-version policy is deferred. | `docs/spec/conversation-history.md` — Persistence and compatibility; `docs/spec/layer-interfaces.md` — Deliberate deferrals | `ARCH`, `DEFER`, `WIRE` |
+| G1-DEC-708 | Resolved — six packages publish as one calendar version set and evals stays private. | `20260901-six-packages-publish-as-one-version-set.md` — Decision Outcome; `docs/spec/layer-interfaces.md` — Publication and versions | `ARCH`, `WIRE` |
+| G1-DEC-709 | Resolved — source protocol, events-v2, endpoint schema 2, and Simulator persisted-schema versions remain independent, and the package version is independent of all of them. | `docs/spec/conversation-history.md` — Persistence and compatibility; `docs/spec/layer-interfaces.md` — Publication and versions | `ARCH`, `WIRE` |
 | G1-DEC-710 | Re-owned — Registry persistence retains its contract; central Ledger persistence is retired. | `docs/spec/identity.md` — Registry persistence; `docs/spec/layer-interfaces.md` — Relocation and deletion law | `ARCH`, `ID`, `L3` |
 | G1-DEC-711 | Re-owned — Registry concurrency evidence remains; central Ledger Testcontainers evidence retires. | `docs/spec/identity.md` — Registry persistence | `ID`, `L3` |
 | G1-DEC-712 | Re-owned — Router remains volatile and Client owns endpoint state; pruning and disk-loss behavior are deferred. | `docs/spec/router.md` — Process and trust model; `docs/spec/harness/daemon.md` — Persistence | `ARCH`, `L2`, `L3`, `DEFER` |
@@ -390,7 +390,7 @@ history, storage quorum, catch-up, and re-anchor rather than a central Ledger.
 | G1-DEC-811 | Partially resolved — Gate 1 fixes 32 members, 32,768 canonical content bytes, and no fragmentation; later interoperable resource profiles remain deferred, while cross-address context is host-owned and not a Client guarantee. | `docs/spec/conversation-history.md` — Resource bounds and tests; `docs/spec/router.md` — Explicitly deferred; `docs/spec/harness/channels.md` — Stock host boundary | `WIRE`, `DEFER`, `MCP` |
 | G1-DEC-812 | Retained deferral — binary/media action content remains absent. | `docs/spec/harness/tasks.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-813 | Retained deferral — end-to-end encryption and key distribution remain optional future protocols. | `docs/spec/router.md` — Explicitly deferred | `DEFER` |
-| G1-DEC-814 | Partially resolved — branch cutover and v1 retirement are current; publication, versioning, and deployment policy remain deferred. | This ADR — Daemon, package graph, and cutover; `docs/architecture/first-implementation.md` | `ARCH`, `DEFER` |
+| G1-DEC-814 | Resolved — branch cutover and v1 retirement are complete on `main`, and publication and versioning follow the one-version set; production deployment is not a product contract, the GKE profile is experiment infrastructure. | This ADR — Daemon, package graph, and cutover; `20260901-six-packages-publish-as-one-version-set.md` — Decision Outcome | `ARCH` |
 | G1-DEC-815 | Retained deferral — delegation evidence and peer-card custody remain absent. | `docs/spec/identity.md` — Explicitly deferred | `DEFER` |
 | G1-DEC-816 | Re-owned — Router still provides no persistent replay; endpoint catch-up and quorum re-anchor are now required. | `docs/spec/router.md` — Explicitly deferred; `docs/spec/conversation-history.md` — Catch-up and Router restart | `L2`, `L3`, `DEFER` |
 | G1-DEC-817 | Re-owned deferral — privileged observer reads and central replication retire; pruning, physical compression, and non-member disclosure remain constrained as above. | `docs/spec/conversation-history.md` — Persistence and compatibility and Explicitly deferred; this ADR — Explicit deferrals | `L3`, `DEFER` |
@@ -439,3 +439,4 @@ the outcome is a supersession, not a row here.
 | 2026-08-28 | Repointed addressed-messaging trace rows to the host-owned retry, Router-ordered action-signature, and stock host-adapter decisions and their current specification headings. The four-layer endpoint-replicated Decision Outcome is unchanged. |
 | 2026-08-28 | Corrected the stock-host and pending-delivery normative-owner headings and aligned `G1-DEC-619` and `G1-DEC-641` with successful callback completion. The retained four-layer Decision Outcome is unchanged. |
 | 2026-09-01 | Aligned the stock-host trace rows with the accepted narrow NanoClaw explicit-address bridge. The retained four-layer endpoint-replicated Decision Outcome is unchanged. |
+| 2026-09-01 | Marked `G1-DEC-708`, `G1-DEC-709`, and `G1-DEC-814` resolved by `20260901-six-packages-publish-as-one-version-set.md` and repointed the explicit-deferral paragraph; repointed `G1-DEC-002`, `G1-DEC-100`, and `G1-DEC-101` from `v2/VISION.md` to `docs/vision.md` and `G1-DEC-112` from the deleted `v2/AGENTS.md` to the layer-interfaces chapter after the `v2/` directory was retired. The four-layer Decision Outcome is unchanged. |
