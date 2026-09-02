@@ -174,7 +174,11 @@ class FakeSocket extends EventEmitter implements FakeSession {
   }
 }
 
-// `drive` plays the server's side once the session is handed out.
+/**
+ * `drive` plays the server's side once the session is handed out. It runs a
+ * turn later than the probe's own continuation, so the probe's listeners are
+ * attached before the server speaks.
+ */
 function fakeExec(
   drive: (
     session: FakeSession,
@@ -187,8 +191,6 @@ function fakeExec(
       const stdout = args[4];
       const status = args[8];
       const session = new FakeSocket();
-      // A turn later than the probe's own continuation, so its listeners are
-      // attached before the server side speaks.
       setTimeout(() => {
         if (stdout instanceof PassThrough && status !== undefined) {
           drive(session, stdout, status);

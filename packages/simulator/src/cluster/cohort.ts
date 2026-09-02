@@ -842,10 +842,9 @@ function makeKubernetesSession<
  * its Sandbox became ready, and the targets are read one at a time through
  * it, so an agent contributes one exec session per file rather than a burst.
  * A Pod that cannot be found makes every target unreadable with the same
- * cause; a single read that fails makes only that target unreadable.
- * @param name Roster key of the agent to read.
- * @param state Run-scoped acquisition bookkeeping.
- * @returns One outcome per declared target, in declaration order.
+ * cause; a single read that fails makes only that target unreadable. The
+ * agent is named by its roster key, and the outcomes come back one per
+ * declared target, in declaration order.
  */
 function harvestWorkspace(
   name: string,

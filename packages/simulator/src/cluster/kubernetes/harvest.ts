@@ -76,9 +76,9 @@ export interface ApplicationFileObservation {
  * accepted trust assumption: the container holds nothing the experiment did
  * not give it, and the ledger is the experiment's own.
  *
- * @param path Absolute in-container path of the target.
- * @param limitBytes Largest file the probe will print.
- * @returns The exec command, with the path as data rather than syntax.
+ * The target is named by its absolute in-container path. The bound is the
+ * largest file the probe will print: past it the probe reports the size and
+ * prints nothing, so a caller never receives a truncated prefix.
  */
 export function harvestCommand(
   path: string,
@@ -89,8 +89,8 @@ export function harvestCommand(
 
 /**
  * The exit code an exec status frame reports, if it reports one at all.
- * @param status Final status frame of the exec session.
- * @returns The command's exit code, or undefined when the frame carries none.
+ * Undefined means no usable exit code could be read from the frame, never
+ * that the command succeeded.
  */
 export function execExitCode(status: V1Status): number | undefined {
   if (status.status === "Success") {
@@ -108,9 +108,10 @@ export function execExitCode(status: V1Status): number | undefined {
 
 /**
  * Decode what the harvest probe left into the ledger's closed outcome.
- * @param observation Exit code and captured output of one probe run.
- * @param limitBytes Bound the probe was given, restated in an oversize outcome.
- * @returns The typed outcome; never a failure, because every shape has one.
+ *
+ * Total: every shape the probe can leave has an outcome, so this never fails.
+ * The bound is echoed back in an oversize outcome, which is the only place a
+ * reader learns what the file was measured against.
  */
 export function applicationFileOutcome(
   observation: ApplicationFileObservation,
@@ -150,10 +151,8 @@ export function applicationFileOutcome(
  * follows every output frame, and then only once both output streams have
  * drained, so a chunk still inside a stream is never left out of the
  * observation. Interruption closes the socket, so an abandoned read holds no
- * API connection open.
- * @param exec Exec client bound to the run's cluster credentials.
- * @param read Pod, path, and bound of the one file to read.
- * @returns The probe's exit code and captured output.
+ * API connection open. The client is the one already bound to the run's
+ * cluster credentials.
  */
 export function execHarvestProbe(
   exec: ExecSessionClient,

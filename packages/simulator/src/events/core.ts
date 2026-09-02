@@ -118,7 +118,10 @@ const harvestedFileOutcome = Schema.Union(
   }),
 );
 
-/** Decoded outcome of reading one harvest target. */
+/**
+ * How the ledger records one read: the file's text, its size when it ran past
+ * the bound, its absence, or why it could not be read.
+ */
 export type HarvestedFileOutcome = typeof harvestedFileOutcome.Type;
 
 /**
