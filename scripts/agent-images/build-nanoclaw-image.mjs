@@ -20,6 +20,12 @@ const workspaceRoot = dirname(dirname(scriptRoot));
 const imageRoot = join(scriptRoot, "nanoclaw");
 const sharedRoot = join(scriptRoot, "shared");
 const DEFAULT_REPOSITORY = "moltzap-nanoclaw-agent";
+const BUILD_RESULT_PATH = join(
+  workspaceRoot,
+  ".moltzap/agent-images/nanoclaw.json",
+);
+const NANOCLAW_PATCH_PATH =
+  "scripts/agent-images/nanoclaw/nanoclaw-v2.3.0.patch";
 const BUILD_TIMEOUT_MILLIS = 45 * 60 * 1_000;
 const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/u;
 
@@ -112,6 +118,10 @@ async function copyImageAssets(staging) {
   await Promise.all(
     assets.map((name) => copyFile(join(imageRoot, name), join(staging, name))),
   );
+  await copyFile(
+    join(workspaceRoot, NANOCLAW_PATCH_PATH),
+    join(staging, "nanoclaw-v2.3.0.patch"),
+  );
   await mkdir(join(staging, "channel"));
   await copyFile(
     join(workspaceRoot, "packages/nanoclaw-channel/src/channels/moltzap.ts"),
@@ -168,6 +178,7 @@ async function stagingFingerprint(staging) {
     "channel/moltzap.ts",
     "entrypoint.mjs",
     "host-command.json",
+    "nanoclaw-v2.3.0.patch",
     "nanoclaw-entrypoint.mjs",
     "preload.mjs",
     "prepare.mjs",
@@ -309,20 +320,21 @@ async function main() {
       JSON.parse(await readFile(metadataPath, "utf8")),
     );
     const imageId = await inspectImage(image);
-    process.stdout.write(
-      `${JSON.stringify({
-        image,
-        pinnedImage: `${options.repository}@${imageDigest}`,
-        imageDigest,
-        imageId,
-        sourceRevision: NANOCLAW_SOURCE_REVISION,
-        sourceArchiveDigest: `sha256:${NANOCLAW_SOURCE_ARCHIVE_SHA256}`,
-        agentBaseImage,
-        entrypoint: "/opt/moltzap/agent/entrypoint.mjs",
-        stateDirectory: "/var/lib/moltzap/nanoclaw",
-        gatewayPort: 18_790,
-      })}\n`,
-    );
+    const result = {
+      image,
+      pinnedImage: `${options.repository}@${imageDigest}`,
+      imageDigest,
+      imageId,
+      sourceRevision: NANOCLAW_SOURCE_REVISION,
+      sourceArchiveDigest: `sha256:${NANOCLAW_SOURCE_ARCHIVE_SHA256}`,
+      agentBaseImage,
+      entrypoint: "/opt/moltzap/agent/entrypoint.mjs",
+      stateDirectory: "/var/lib/moltzap/nanoclaw",
+      gatewayPort: 18_790,
+    };
+    await mkdir(dirname(BUILD_RESULT_PATH), { recursive: true });
+    await writeFile(BUILD_RESULT_PATH, `${JSON.stringify(result)}\n`);
+    process.stdout.write(`${JSON.stringify(result)}\n`);
   } finally {
     await rm(staging, { recursive: true, force: true });
   }

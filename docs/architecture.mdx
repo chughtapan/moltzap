@@ -88,8 +88,11 @@ OpenClaw and NanoClaw integrations stop at their stock adapter or plugin APIs.
 They project complete addressed input and validate an explicit `agent:` or
 `group:` input on each outbound callback. Client owns name resolution and group
 canonicalization. Hosts own sessions, prompts, final-text behavior, inbox and
-outbox persistence, ACLs, retries, scheduling, and runtime isolation. MoltZap
-does not construct a second context or carry a host patch.
+outbox persistence, retries, scheduling, and runtime isolation. The pinned
+NanoClaw image carries only the narrow bridge that routes syntactically valid
+Client addresses from its generic send surfaces to the registered channel;
+friendly-name policy and host state remain NanoClaw-owned. MoltZap does not
+construct a second context or maintain a broader host fork.
 
 The v1 `moltzap` CLI, named profiles, bespoke local RPC, Unix socket, and
 compatibility facades remain outside the replacement surface. Registration,
