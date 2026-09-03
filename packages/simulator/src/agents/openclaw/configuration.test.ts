@@ -88,12 +88,15 @@ describe("buildOpenClawConfig", () => {
     assert.isUndefined(mcpSection(undefined));
   });
 
-  it("loads and enables the mounted channel adapter", () => {
+  it("loads the mounted channel adapter and disables the built-in a2a channel", () => {
     assert.deepStrictEqual(openClawConfig(undefined).plugins, {
       load: {
         paths: ["/opt/moltzap/node_modules/@moltzap/openclaw-channel"],
       },
-      entries: { "openclaw-channel": { enabled: true } },
+      entries: {
+        "openclaw-channel": { enabled: true },
+        a2a: { enabled: false },
+      },
     });
   });
 
