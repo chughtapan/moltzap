@@ -43,7 +43,7 @@ the setup itself.
 | `/plan-eng-review` | start implementing a feature |
 | `/land-and-deploy` | merge |
 | `codex`, authenticated and in quota | call review complete |
-| `gbrain` reachable (`gbrain doctor`) | verify decision provenance |
+| GitHub approval event and Git revision available | verify newly recorded decision approval |
 
 **Refuse where the failure is silent; warn where it is loud.** A missing binary
 that errors on first use needs no rule. `/ship` without codex quietly downgrades
@@ -96,18 +96,25 @@ four-layer replacement that is now `main`; `wontfix-v2` marked defects that
 died with the retired v1 machinery. Epic #755 tracks bootstrap and debt-zero
 work.
 
-## Decisions
+## Decisions and shared work
 
-`docs/decisions/` is the durable log; `docs/decision-evidence/` holds the
-source-event ledgers it cites. **Admission is maintainer-gated** — an agent
-proposes, a human admits.
+Public specifications and operating instructions remain in this repository and
+must work without private access. Existing `docs/decisions/` records remain
+migration input until their owning decisions are individually reconciled; do not
+delete them as part of the shared-evals pilot.
 
-Load the `decisions` skill — `.claude/skills/decisions/SKILL.md`, plain
-Markdown readable by any tool — before adding, editing, superseding, or
-reviewing a record, or before compacting a trajectory. It carries the
-procedure, the provenance rules in `references/provenance.md`, and the blind
-review gate. `scripts/docs/adr/check-shape.ts` enforces the mechanical half in
-`pnpm lint` and at commit time.
+Internal plans, reviews, worklogs and retained pilot artifacts live in the private
+`social-harness/docs-internal` repository. Set `DOCS_INTERNAL_ROOT` to its local
+checkout. The pinned company skills under `.agents/skills/` and `.claude/skills/`
+provide discovery and filing instructions. Missing private access does not block
+work whose public contract is sufficient; state the unverified internal context.
+
+A new decision is proposed until a reviewed revision is approved and merged.
+Acceptance, implementation, merge and deployment are separate facts. Point
+corrections need a dated changelog; semantic amendments receive focused review of
+the affected candidate. Supersession replaces a genuinely different decision.
+Do not copy a full review pipeline for routine local changes. The project-owned
+`decisions` skill carries the local procedure; upstream gstack skills are unchanged.
 
 ## Code
 

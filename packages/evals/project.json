@@ -106,6 +106,15 @@
         "cwd": "packages/evals",
         "command": "node ../../scripts/architecture/check-package.mjs ."
       }
+    },
+    "pilot": {
+      "executor": "nx:run-commands",
+      "cache": false,
+      "parallelism": false,
+      "options": {
+        "cwd": ".",
+        "command": "node --import tsx packages/evals/src/cli/pilot-cli.ts"
+      }
     }
   }
 }
