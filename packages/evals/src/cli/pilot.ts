@@ -24,7 +24,7 @@ export const decodePilotPlan = Schema.decodeUnknown(
 );
 
 /** A native invocation failed; logs remain in the output bundle. */
-export class PilotFailed extends Schema.TaggedError<PilotFailed>()(
+class PilotFailed extends Schema.TaggedError<PilotFailed>()(
   "PilotFailed",
   {
     detail: Schema.String,

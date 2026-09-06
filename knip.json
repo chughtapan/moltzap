@@ -42,6 +42,7 @@
     "packages/evals": {
       "entry": [
         "src/cli.ts",
+        "src/cli/pilot-cli.ts",
         "src/execution.ts",
         "src/peer-application.ts",
         "src/**/*.test.ts",
