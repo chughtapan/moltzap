@@ -1,5 +1,5 @@
 /** @file Real subprocess coverage for pilot provenance and retained failure evidence. */
-import { Command, FileSystem } from "@effect/platform";
+import { Command, FileSystem, Path } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
 import { assert, it } from "@effect/vitest";
 import { Effect, Either } from "effect";
@@ -52,6 +52,31 @@ function fixture() {
   });
 }
 
+// @agent-code-guard/regression-only: these subprocess regressions pin path rejection, source cleanliness, and retained native failure evidence.
+it.scopedLive("rejects outputs below a filesystem-root source", () =>
+  Effect.gen(function* () {
+    const { fs, plan } = yield* fixture();
+    const paths = yield* Path.Path;
+    const result = yield* Effect.either(
+      runPilot({
+        ...plan,
+        source: { ...plan.source, root: paths.parse(plan.source.root).root },
+      }),
+    );
+    Either.match(result, {
+      onLeft: (error) => {
+        assert.propertyVal(
+          error,
+          "detail",
+          "output must be outside the source checkout",
+        );
+      },
+      onRight: () => assert.fail("output inside the source was accepted"),
+    });
+    assert.isFalse(yield* fs.exists(plan.output));
+  }).pipe(Effect.provide(NodeContext.layer)),
+);
+
 it.scopedLive(
   "retains native failure grades without equating them to execution failure",
   () =>
@@ -87,10 +112,10 @@ it.scopedLive(
         yield* fs.readFileString(`${plan.output}/stderr`),
         "native error",
       );
-      assert.include(
+      const receipt: unknown = JSON.parse(
         yield* fs.readFileString(`${plan.output}/receipt.json`),
-        '"exitCode": 3',
       );
+      assert.propertyVal(receipt, "exitCode", 3);
     }).pipe(Effect.provide(NodeContext.layer)),
 );
 it.scopedLive(

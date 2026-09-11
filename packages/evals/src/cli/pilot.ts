@@ -24,12 +24,9 @@ export const decodePilotPlan = Schema.decodeUnknown(
 );
 
 /** A native invocation failed; logs remain in the output bundle. */
-class PilotFailed extends Schema.TaggedError<PilotFailed>()(
-  "PilotFailed",
-  {
-    detail: Schema.String,
-  },
-) {}
+class PilotFailed extends Schema.TaggedError<PilotFailed>()("PilotFailed", {
+  detail: Schema.String,
+}) {}
 
 /** Execute an existing suite without interpreting its PASS/FAIL or degraded vocabulary. */
 export function runPilot(plan: PilotPlan) {
@@ -43,7 +40,7 @@ export function runPilot(plan: PilotPlan) {
     );
     const startedAt = new Date().toISOString();
     const runner = yield* runnerProvenance();
-    const result = yield* executeNative(plan, startedAt);
+    const exitCode = yield* executeNative(plan, startedAt);
     const receipt = {
       suite: plan.suite,
       operation: plan.operation,
@@ -51,15 +48,15 @@ export function runPilot(plan: PilotPlan) {
       runner,
       startedAt,
       finishedAt: new Date().toISOString(),
-      exitCode: result.exitCode,
+      exitCode,
     };
     yield* fs.writeFileString(
       `${plan.output}/receipt.json`,
       `${JSON.stringify(receipt, null, 2)}\n`,
     );
-    if (result.exitCode !== 0) {
+    if (exitCode !== 0) {
       return yield* new PilotFailed({
-        detail: `native process exited ${result.exitCode}; attempt retained`,
+        detail: `native process exited ${exitCode}; attempt retained`,
       });
     }
     return receipt;
@@ -88,6 +85,26 @@ function validatePilotPaths(plan: PilotPlan) {
   });
 }
 
+/** Untracked files count as dirt: an unreviewed file can change what a native run does. */
+function gitState(root: string) {
+  return Effect.gen(function* () {
+    const revision = yield* Command.string(
+      Command.make("git", "-C", root, "rev-parse", "HEAD"),
+    );
+    const changes = yield* Command.string(
+      Command.make(
+        "git",
+        "-C",
+        root,
+        "status",
+        "--porcelain",
+        "--untracked-files=normal",
+      ),
+    );
+    return { revision: revision.trim(), dirty: changes.trim().length > 0 };
+  });
+}
+
 function validatePilot(plan: PilotPlan) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -97,25 +114,13 @@ function validatePilot(plan: PilotPlan) {
         detail: "output already exists; use a new attempt directory",
       });
     }
-    const actual = yield* Command.string(
-      Command.make("git", "-C", plan.source.root, "rev-parse", "HEAD"),
-    );
-    if (actual.trim() !== plan.source.revision) {
+    const source = yield* gitState(plan.source.root);
+    if (source.revision !== plan.source.revision) {
       return yield* new PilotFailed({
         detail: "source revision does not match the plan",
       });
     }
-    const changes = yield* Command.string(
-      Command.make(
-        "git",
-        "-C",
-        plan.source.root,
-        "status",
-        "--porcelain",
-        "--untracked-files=normal",
-      ),
-    );
-    if (changes.trim()) {
+    if (source.dirty) {
       return yield* new PilotFailed({
         detail:
           "source worktree is dirty; commit the candidate before execution",
@@ -144,7 +149,7 @@ function executeNative(plan: PilotPlan, startedAt: string) {
           ],
           { concurrency: 3 },
         );
-        return { exitCode };
+        return exitCode;
       }),
     ).pipe(
       Effect.timeout("15 minutes"),
@@ -169,16 +174,6 @@ function runnerProvenance() {
     const root = yield* paths.fromFileUrl(
       new URL("../../../../", import.meta.url),
     );
-    const revision = yield* Command.string(
-      Command.make("git", "-C", root, "rev-parse", "HEAD"),
-    );
-    const changes = yield* Command.string(
-      Command.make("git", "-C", root, "status", "--porcelain"),
-    );
-    return {
-      repository: "chughtapan/moltzap",
-      revision: revision.trim(),
-      dirty: changes.trim().length > 0,
-    };
+    return { repository: "chughtapan/moltzap", ...(yield* gitState(root)) };
   });
 }
