@@ -20,6 +20,9 @@ artifacts, grades selected native-gateway or social evidence, stores a resumable
 SQLite report, and can publish the result to Phoenix. The default matrix is 16
 cases by two runtime conditions with one sample per cell.
 
+The [shared eval pilot](PILOT.md) runs existing MoltZap, propagation and
+SocietyCoordBench commands while retaining their native grades and provenance.
+
 ## Bundled catalog
 
 | ID | Evaluation | Interaction and selected evidence |

@@ -10,6 +10,19 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Added
+
+- Run existing MoltZap, propagation and SocietyCoordBench commands through the
+  [shared eval pilot](packages/evals/PILOT.md), preserving native grades, logs and
+  source/runner provenance. Failed and cancelled attempts retain evidence, and
+  concurrent runs cannot overwrite the same attempt.
+- Discover shared internal records through pinned Claude and Codex skills while
+  keeping public operating instructions usable without private access.
+
+### Fixed
+
+- Treat unavailable optional gbrain search as an advisory setup result.
+
 ## [2026.902.1] - 2026-09-02
 
 ## [2026.902.0] - 2026-09-02

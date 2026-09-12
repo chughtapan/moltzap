@@ -30,9 +30,11 @@ JSON remains the grade; its oracle is not translated to TypeScript.
 Use `moltzap` with the native Nx eval target and a single selected case, or its
 case tests for offline verification. The shared runner does not cache live runs.
 
-A source root must be a clean Git checkout at the declared revision. Output must
-be a new directory outside that checkout. Each bundle contains the plan, native
-stdout/stderr, and an execution receipt or failure. Before a live run, inspect the
+A source root must be the clean Git checkout root at the declared revision. Output
+must be a new directory outside that checkout. Each bundle retains the plan and
+terminal receipt or failure; runner provenance is written to `runner.json` before
+launching the native process, whose stdout/stderr are streamed to disk. Cancelled
+runs exit nonzero and retain failure evidence. Before a live run, inspect the
 suite's native dry-run or plan, supply its existing runtime prerequisites, and
 limit it to one case/run and concurrency one. Do not run a full sweep as a smoke.
 
