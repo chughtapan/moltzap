@@ -1,6 +1,6 @@
 /** @file Shared process boundary for incremental integration of existing eval suites. */
 import { Command, FileSystem, Path } from "@effect/platform";
-import { Effect, Schema, Stream } from "effect";
+import { Cause, Effect, Exit, Schema, Stream } from "effect";
 
 /** Native grader semantics remain opaque to the shared runner. */
 const pilotPlan = Schema.Struct({
@@ -32,15 +32,40 @@ class PilotFailed extends Schema.TaggedError<PilotFailed>()("PilotFailed", {
 export function runPilot(plan: PilotPlan) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    yield* validatePilot(plan);
-    yield* fs.makeDirectory(plan.output, { recursive: true });
+    const paths = yield* Path.Path;
+    const output = yield* validatePilot(plan);
+    yield* fs.makeDirectory(paths.dirname(output), { recursive: true });
+    const startedAt = new Date().toISOString();
+    return yield* Effect.acquireUseRelease(
+      fs.makeDirectory(output).pipe(Effect.as(output)),
+      (directory) => executePilot(plan, directory, startedAt),
+      (directory, exit) =>
+        Exit.isFailure(exit)
+          ? fs
+              .writeFileString(
+                `${directory}/failure.json`,
+                `${JSON.stringify({ suite: plan.suite, startedAt, error: Cause.pretty(exit.cause) }, null, 2)}\n`,
+              )
+              .pipe(Effect.orDie)
+          : Effect.void,
+    );
+  }).pipe(Effect.withSpan("evals.runPilot"));
+}
+
+/** The attempt directory is exclusively owned before any evidence is written. */
+function executePilot(plan: PilotPlan, output: string, startedAt: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
     yield* fs.writeFileString(
-      `${plan.output}/plan.json`,
+      `${output}/plan.json`,
       `${JSON.stringify(plan, null, 2)}\n`,
     );
-    const startedAt = new Date().toISOString();
     const runner = yield* runnerProvenance();
-    const exitCode = yield* executeNative(plan, startedAt);
+    yield* fs.writeFileString(
+      `${output}/runner.json`,
+      `${JSON.stringify(runner, null, 2)}\n`,
+    );
+    const exitCode = yield* executeNative(plan, output);
     const receipt = {
       suite: plan.suite,
       operation: plan.operation,
@@ -51,7 +76,7 @@ export function runPilot(plan: PilotPlan) {
       exitCode,
     };
     yield* fs.writeFileString(
-      `${plan.output}/receipt.json`,
+      `${output}/receipt.json`,
       `${JSON.stringify(receipt, null, 2)}\n`,
     );
     if (exitCode !== 0) {
@@ -60,18 +85,36 @@ export function runPilot(plan: PilotPlan) {
       });
     }
     return receipt;
-  }).pipe(Effect.withSpan("evals.runPilot"));
+  });
+}
+
+/** Resolve existing ancestors before creating output, including symlink aliases. */
+function canonicalOutput(output: string) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const paths = yield* Path.Path;
+    let ancestor = paths.resolve(output);
+    const missing: string[] = [];
+    while (!(yield* fs.exists(ancestor))) {
+      missing.unshift(paths.basename(ancestor));
+      ancestor = paths.dirname(ancestor);
+    }
+    return paths.join(yield* fs.realPath(ancestor), ...missing);
+  });
 }
 
 function validatePilotPaths(plan: PilotPlan) {
   return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
     const paths = yield* Path.Path;
     if (!paths.isAbsolute(plan.source.root) || !paths.isAbsolute(plan.output)) {
       return yield* new PilotFailed({
         detail: "source root and output must be absolute",
       });
     }
-    const relative = paths.relative(plan.source.root, plan.output);
+    const source = yield* fs.realPath(plan.source.root);
+    const output = yield* canonicalOutput(plan.output);
+    const relative = paths.relative(source, output);
     if (
       !relative ||
       (!relative.startsWith(`..${paths.sep}`) &&
@@ -82,34 +125,62 @@ function validatePilotPaths(plan: PilotPlan) {
         detail: "output must be outside the source checkout",
       });
     }
+    const checkout = yield* gitOutput(source, ["rev-parse", "--show-toplevel"]);
+    if ((yield* fs.realPath(checkout.trim())) !== source) {
+      return yield* new PilotFailed({
+        detail: "source root must be the Git checkout root",
+      });
+    }
+    return output;
   });
 }
 
 /** Untracked files count as dirt: an unreviewed file can change what a native run does. */
 function gitState(root: string) {
   return Effect.gen(function* () {
-    const revision = yield* Command.string(
-      Command.make("git", "-C", root, "rev-parse", "HEAD"),
-    );
-    const changes = yield* Command.string(
-      Command.make(
-        "git",
-        "-C",
-        root,
-        "status",
-        "--porcelain",
-        "--untracked-files=normal",
-      ),
-    );
+    const revision = yield* gitOutput(root, ["rev-parse", "HEAD"]);
+    const changes = yield* gitOutput(root, [
+      "status",
+      "--porcelain",
+      "--untracked-files=normal",
+    ]);
     return { revision: revision.trim(), dirty: changes.trim().length > 0 };
   });
+}
+
+/** Empty stdout establishes cleanliness only when Git completed successfully. */
+function gitOutput(root: string, args: readonly string[]) {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const child = yield* Command.start(
+        Command.make("git", "-C", root, ...args).pipe(
+          Command.stdout("pipe"),
+          Command.stderr("pipe"),
+        ),
+      );
+      const [exitCode, stdout, stderr] = yield* Effect.all(
+        [
+          child.exitCode,
+          Stream.mkString(Stream.decodeText(child.stdout)),
+          Stream.mkString(Stream.decodeText(child.stderr)),
+        ],
+        { concurrency: 3 },
+      );
+      if (exitCode !== 0) {
+        return yield* new PilotFailed({
+          detail: `Git ${args[0]} exited ${exitCode}: ${stderr.trim()}`,
+        });
+      }
+      return stdout;
+    }),
+  );
 }
 
 function validatePilot(plan: PilotPlan) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    yield* validatePilotPaths(plan);
-    if (yield* fs.exists(plan.output)) {
+    const output = yield* validatePilotPaths(plan);
+    if (yield* fs.exists(output)) {
       return yield* new PilotFailed({
         detail: "output already exists; use a new attempt directory",
       });
@@ -126,10 +197,11 @@ function validatePilot(plan: PilotPlan) {
           "source worktree is dirty; commit the candidate before execution",
       });
     }
+    return output;
   });
 }
 
-function executeNative(plan: PilotPlan, startedAt: string) {
+function executeNative(plan: PilotPlan, output: string) {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     return yield* Effect.scoped(
@@ -144,27 +216,14 @@ function executeNative(plan: PilotPlan, startedAt: string) {
         const [exitCode] = yield* Effect.all(
           [
             child.exitCode,
-            Stream.run(child.stdout, fs.sink(`${plan.output}/stdout`)),
-            Stream.run(child.stderr, fs.sink(`${plan.output}/stderr`)),
+            Stream.run(child.stdout, fs.sink(`${output}/stdout`)),
+            Stream.run(child.stderr, fs.sink(`${output}/stderr`)),
           ],
           { concurrency: 3 },
         );
         return exitCode;
       }),
-    ).pipe(
-      Effect.timeout("15 minutes"),
-      Effect.catchAll((error) =>
-        Effect.gen(function* () {
-          yield* fs.writeFileString(
-            `${plan.output}/failure.json`,
-            `${JSON.stringify({ suite: plan.suite, startedAt, error: String(error) }, null, 2)}\n`,
-          );
-          return yield* new PilotFailed({
-            detail: "native process failed or timed out; attempt retained",
-          });
-        }),
-      ),
-    );
+    ).pipe(Effect.timeout("15 minutes"));
   });
 }
 

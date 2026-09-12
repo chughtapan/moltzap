@@ -2,7 +2,7 @@
 import { Command as CliCommand, Options } from "@effect/cli";
 import { FileSystem } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { decodePilotPlan, runPilot } from "./pilot.js";
 
 const pilot = CliCommand.make(
@@ -22,4 +22,11 @@ const main = CliCommand.run(pilot, {
   version: "0.1.0",
 });
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- @effect/cli consumes host argv at this executable boundary.
-main(process.argv).pipe(Effect.provide(NodeContext.layer), NodeRuntime.runMain);
+main(process.argv).pipe(
+  Effect.provide(NodeContext.layer),
+  NodeRuntime.runMain({
+    teardown: (exit, onExit) => {
+      onExit(Exit.isFailure(exit) ? 1 : 0);
+    },
+  }),
+);
