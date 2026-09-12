@@ -3,7 +3,7 @@ name: records
 description: Discover or file internal ADRs, plans, worklogs and Git-backed artifacts; verify revision-specific decision approval and record provenance.
 ---
 
-Use `DOCS_INTERNAL_ROOT/bin/records --help`. Read the checkout's
+Use `"$DOCS_INTERNAL_ROOT/bin/records" --help`. Read the checkout's
 `program/reference/records.md` for commands and `program/reference/lifecycle.md`
 when interpreting approval or changing a decision. These are relative to the
 private docs checkout, not the code package's working directory.
