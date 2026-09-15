@@ -367,10 +367,18 @@ With no active directed link-fault scope, Simulator delivers the exact
 This inactive path is the only Simulator path that may contribute
 Router-conformance evidence.
 
-An explicitly activated scope may select post-Router delivery by sender and
-recipient and drop, delay, hold, or reorder it before the recipient
-Client consumes it. Reordering permits a later Router delivery to pass an
-earlier held delivery. The fault layer does not alter message bytes, forge a
+Experiment code selects directed links, policies, and activation timing through
+the existing `LinkController` and `LinkPolicy` contracts. A policy returns
+`deliver`, `drop`, `delay`, or `hold` for post-Router delivery before the
+recipient Client consumes it. Active delivery preserves per-sender FIFO while
+allowing different senders to progress independently. For example, holding A's
+messages to B lets a later message from C reach B first. When A's hold clears,
+A's queued messages are released in sender order.
+
+This cross-sender overtaking is configured scenario behavior; the API has no
+arbitrary reorder operation. Faulted-path observations test endpoint fault
+tolerance and cannot establish Router conformance or a stronger production
+ordering guarantee. The fault layer does not alter message bytes, forge a
 message, change Router state or order, or create a Router callback.
 
 Interception and policy evaluation are private, run-scoped Simulator
