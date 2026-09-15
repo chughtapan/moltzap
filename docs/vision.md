@@ -344,8 +344,9 @@ Router live in their final homes, Client replaced the transitional v1 client,
 and the protocol, server, central Ledger, profile, CLI/socket, interim `v2/*`
 implementation, and standalone testbed code are deleted. Five of the seven
 packages publish to npm as one version set while `@moltzap/nanoclaw-channel`
-and `@moltzap/evals` stay private, as `20260901-six-packages-publish-as-one-version-set.md` records; the package
-version is independent of the wire compatibility value.
+and `@moltzap/evals` stay private, as defined in
+[Publication and versions](spec/layer-interfaces.md#publication-and-versions).
+The package version is independent of the wire compatibility value.
 
 The simulation `RunLedger` remains run evidence. Its name does not reintroduce
 a product Ledger or a privileged view of private conversation history.
