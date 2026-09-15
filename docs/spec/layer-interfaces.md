@@ -375,7 +375,7 @@ message, change Router state or order, or create a Router callback.
 
 Interception and policy evaluation are private, run-scoped Simulator
 infrastructure. They are not a product service, public Router or Client
-extension, compatibility gateway, or MCP operation. The application container
+extension, compatibility gateway, or MCP operation. The application runtime
 receives only its loopback Client boundary and receives no fault-control
 endpoint, credential, configuration, network authority, signing material, or
 endpoint-store access. `RunLedger` may retain closed link-fault lifecycle
@@ -383,9 +383,11 @@ events and public semantic effects but no durable Router commit, position, or
 authoritative order.
 
 One simulation run owns one Registry and one Router. Every agent Sandbox Pod
-owns a restartable `moltzapd` sidecar, a per-agent persistent volume, and
-private signing/admission mounts; registration completes before the
-application starts. The application sees only
+runs the host and `moltzapd` in one application container, with a separate
+bootstrap init container and a per-agent persistent volume. Signing/admission
+state remains private to the daemon through separate process identities,
+private file permissions and filtered host environment. Registration completes
+before the host starts. The host accesses the Client only through
 `MOLTZAP_MCP_URL=http://127.0.0.1:<port>/mcp`.
 
 External evaluation applications execute through the daemon-backed Client.
@@ -427,8 +429,9 @@ runtimes own their session topology and cross-address context.
 - Simulator compatibility evidence covers all four facades, preserves every
   compatible declaration, and proves removal of the five incompatible
   contracts above.
-- Simulator runs one Registry and Router per run, one persistent daemon sidecar
-  per agent, and exposes only loopback MCP to application runtimes.
+- Simulator runs one Registry and Router per run and one application container
+  containing the host and daemon per agent, retains per-agent endpoint state,
+  and exposes only loopback MCP to the host.
 - Simulator fault tests prove transparent byte/order preservation with no
   active fault, each admitted post-Router perturbation under an explicit
   directed scope, and the absence of any runtime-facing fault control. A
@@ -465,9 +468,10 @@ and `@moltzap/simulator`. `@moltzap/nanoclaw-channel` stays private.
   proves the adapter compiles against the Client ABI in isolation; the image
   build copies its source rather than installing a tarball.
 
-## Deliberate deferrals
+## Consumer migration boundary
 
-External-consumer cutover remains unresolved. Nothing here authorizes an
-additional package, compatibility facade, or restoration of a removed Simulator
-contract. The post-Router Simulator link-fault boundary is a current decision,
-not a deferral.
+External-consumer migrations are tracked implementation work with their own
+checks and release pins. Publication does not establish that every consumer
+has migrated. Nothing here authorizes an additional package, compatibility
+facade, or restoration of a removed Simulator contract. The post-Router
+Simulator link-fault boundary remains a current decision.
