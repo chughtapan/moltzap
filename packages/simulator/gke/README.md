@@ -192,8 +192,8 @@ After the first release publishes, deprecate the retired names and the
 pre-cutover releases by hand, pointing at the publication record:
 
 ```bash
-npm deprecate @moltzap/protocol@"*" "Retired; see docs/decisions/20260901-six-packages-publish-as-one-version-set.md"
-npm deprecate @moltzap/server-core@"*" "Retired; see docs/decisions/20260901-six-packages-publish-as-one-version-set.md"
+npm deprecate @moltzap/protocol@"*" "Retired; see docs/spec/layer-interfaces.md#publication-and-versions"
+npm deprecate @moltzap/server-core@"*" "Retired; see docs/spec/layer-interfaces.md#publication-and-versions"
 npm deprecate @moltzap/client@"<=2026.812.0" "v1 API; install the current one-version set"
 npm deprecate @moltzap/simulator@"<=2026.811.0" "Pre-cutover; install the current one-version set"
 npm deprecate @moltzap/openclaw-channel@"<=2026.811.0" "Pre-cutover; install the current one-version set"
@@ -340,13 +340,6 @@ therefore applies placement to both the capacity pod sets and actual Sandbox
 pod templates; Kueue admission alone is not treated as placement or readiness.
 
 ## Qualification
-
-A hundred-agent society run has completed on this profile through
-`Run.execute`. That is the decision log's claim, not one a reader can check
-from a checkout: the run's exported ledger is retained nowhere in the
-repository, as
-[the execution trajectory](../../../docs/decision-evidence/20260801-main-kubernetes-society-execution-trajectory.md)
-records.
 
 The retained post-cutover evidence is the
 [OpenClaw shared/private evaluation of 2026-09-01](../../evals/results/openclaw-gke-shared-private-20260901.md):

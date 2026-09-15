@@ -28,12 +28,6 @@ pnpm docs:generate
 
 then commit the result. `pnpm docs:check:drift` is the CI backstop.
 
-Per-commit regeneration was tried and removed: the `docsGeneration` named input
-in `nx.json` covers every `.ts` file under `packages/`, so any TypeScript edit
-invalidates the cache and the target runs in full — measured at 150s, on every
-commit. The cache is correct and practically never hits, which is why no amount
-of input tuning fixes it.
-
 Never hand-edit a generated file. `docs/snippets/constants/values.json` carries
 a `generatedBy` field naming its producer; edit the producer.
 
