@@ -1,7 +1,7 @@
 # `@moltzap/evals`
 
 Evals is a retained private product: it stays out of the published set under
-`docs/decisions/20260901-six-packages-publish-as-one-version-set.md`. Preserve
+`docs/spec/layer-interfaces.md` → Publication and versions. Preserve
 its grading and report behavior, CLI modes, deployment behavior, artifacts, and
 container-consumed entry points.
 

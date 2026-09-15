@@ -5,7 +5,6 @@
       "entry": [
         "eslint.shared.mjs",
         "vitest.workspace-aliases.ts",
-        "scripts/docs/adr/check-shape.ts",
         "scripts/docs/check-mermaid.ts",
         "scripts/docs/generate-constants-snippets.ts",
         "scripts/docs/generate-modules.ts",

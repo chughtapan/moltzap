@@ -306,9 +306,8 @@ Registry lookup infrastructure failure during AuthenticatedHttp
 verification is 503 `unavailable`. A missing identity is an
 authentication failure at the L1 boundary.
 
-## Decisions
+## Decision evidence
 
-- `../decisions/20260729-representations-are-layer-owned.md`
-- `../decisions/20260729-router-order-is-opaque.md`
-- `../decisions/20260729-representation-limits-are-fixed-or-derived.md`
-- `../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md`
+Internal ADRs and their source events live in
+[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/main/moltzap/README.md).
+This chapter contains the public contract needed to use and maintain the package.

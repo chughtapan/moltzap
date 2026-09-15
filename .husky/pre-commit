@@ -3,10 +3,6 @@
 # Everything here is gated on what is staged, so a commit that touches nothing
 # relevant pays nothing. The heavy checks live at pre-push and in CI.
 #
-# Decision records are checked at commit time because the changelog rule needs
-# the diff: a body edit with no status change and no dated row is a silent
-# rewrite, invisible in review because it looks like a typo fix.
-#
 # Formatting never fails a commit. Small, frequent commits are the norm here and
 # a fix-then-retry cycle would multiply across every one of them. Re-staging is
 # scoped to paths already staged, so an unrelated working-tree edit can never be
@@ -15,11 +11,6 @@
 set -e
 
 ROOT="$(git rev-parse --show-toplevel)"
-
-if git diff --cached --name-only --diff-filter=ACMR \
-  | grep -qE '^docs/(decisions|decision-evidence)/'; then
-  "$ROOT/node_modules/.bin/tsx" "$ROOT/scripts/docs/adr/check-shape.ts" --staged
-fi
 
 STAGED=$(mktemp)
 trap 'rm -f "$STAGED"' EXIT
