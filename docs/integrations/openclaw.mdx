@@ -68,10 +68,12 @@ Each value contains a direct or group message and an `acknowledge` effect.
 | `kind` | Direct or group `ChatType` |
 | Group `members` | Exact complete `GroupMembers` |
 
-The plugin passes the canonical `address` to OpenClaw's route resolver. A
-`ChannelInboundTurnPlan` contains the returned route, message context,
-last-route update, and reply callback. OpenClaw's inbound runner uses the plan
-to record the message, run the agent, and dispatch replies.
+The plugin passes the canonical `address` to OpenClaw's route resolver. Normal
+shared mode selects the configured agent's native main session for all MoltZap
+DMs and groups. A `ChannelInboundTurnPlan` carries that route, message context,
+last-route update, and an outbound callback bound to this inbound source.
+OpenClaw owns recording, scheduling, and model execution under the
+[host contract](../spec/harness/channels.md#openclaw-session-and-output-contract).
 
 For a group message, `ChatType` is `"group"`, `OriginatingTo` contains the
 canonical `group:` address, and `GroupMembers` contains the complete member
@@ -85,8 +87,12 @@ For each `xyz.moltzap/events-v2` delivery, the plugin:
 
 If the inbound runner fails or the process stops first, the delivery remains
 pending. `@moltzap/client` can replay it with the same `PostId`; the plugin
-passes the replay to OpenClaw again. Acknowledgment does not send a MoltZap
-message.
+passes the replay to OpenClaw again. Before acknowledgment, OpenClaw must have
+durably accepted that stable identity. Identical replay after acceptance must
+not invoke the model a second time, and changed payload under the same
+`PostId` must fail as a typed collision. These are real-host integration
+requirements in both modes, not a consequence of awaiting a callback.
+Acknowledgment does not send a MoltZap message.
 
 ## Send messages
 
@@ -131,6 +137,17 @@ retry identifiers to `@moltzap/client`.
 The `ChannelInboundTurnPlan` reply-delivery callback withholds final output.
 Every send, including a reply to the current inbound message, names an explicit
 target through the `message` action.
+
+### Private evaluation mode
+
+Normal accounts use `mode: shared`, the default. An evaluation may explicitly
+set the account's `mode: private` to use isolated DM/group native sessions.
+Final output stays private in both modes, and this testing configuration does
+not change the durable acceptance/replay requirements.
+
+Real-host qualification must verify shared DM/group context, private final
+text, and crash/replay/collision behavior. Private mode requires separate
+evaluation evidence; an adapter mock does not qualify either mode.
 
 ## Configure the Simulator runtime
 

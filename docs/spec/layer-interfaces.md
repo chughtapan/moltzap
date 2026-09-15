@@ -213,7 +213,8 @@ The stable Client invariants are:
 - send returns `void` only after local certified durability;
 - inbound direct/group delivery identifies canonical address and author, with
   exact members for groups and no reply authority;
-- delivery acknowledgment follows successful stock host callback completion;
+- delivery acknowledgment follows the
+  [host-specific acceptance contract](./harness/ingress.md#durable-acceptance);
 - complete action validity and durability evidence remain distinct and retain
   auditable signer AgentIds/signature bytes; and
 - fixed-member catch-up and Router re-anchor follow

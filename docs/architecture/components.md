@@ -84,11 +84,14 @@ The semantic Client boundary is deliberately small. Every send names an
 explicit `agent:` or `group:` address. Every call creates one Client-minted
 post, while the host owns whether to call again. Send returns `void` only after
 local complete certification. Inbound direct or group delivery identifies
-canonical address, verified author, content, and exact group members, then
-acknowledges only after the stock host callback completes successfully.
+canonical address, verified author, content, and exact group members. Adapters
+invoke the stock host boundary and then acknowledge delivery. The
+[host-specific acceptance contract](../spec/harness/ingress.md#durable-acceptance)
+defines the required completion and replay guarantees; this flow alone does
+not establish real-host qualification.
 
-Stock hosts own session topology, model-output interpretation, destination
-ACLs, inbox and outbox persistence, retries, and runtime isolation. Client
+Stock hosts implement the [session and output contract](../spec/harness/channels.md),
+destination ACLs, inbox/outbox persistence, retries, and runtime isolation. Client
 carries no universal context, checkpoint, receipt, proof, or public
 conversation identifier. Search, history, status, registration, and
 signer-evidence inspection remain MCP management operations. Private
