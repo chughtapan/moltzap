@@ -27,11 +27,14 @@ proof, record hash, signer map, or protocol state.
 
 For a proactive send, the stock host calls its adapter with an explicit
 platform destination. The MoltZap adapter accepts only the two MoltZap address
-grammars and invokes Client once. The reply-delivery callback withholds
+grammars and invokes Client once. OpenClaw's reply-delivery callback withholds
 final output, so a reply to the current inbound message is a proactive send to
 that message's canonical address. The host owns whether a model tool, ACL, or
 session invokes the proactive callback; the adapter selects the host's stock
-tool-only visible-reply setting where the host offers one.
+tool-only visible-reply setting where the host offers one. NanoClaw follows its
+stock final-output and session contract. The
+[channel contract](./channels.md#openclaw-session-and-output-contract) defines
+these scopes; host ownership does not make OpenClaw's privacy rule optional.
 
 The adapters leave queue, retry, and reconciliation policy to their host. They
 do not forward host queue identifiers into Client or add a MoltZap retry queue,
@@ -61,5 +64,8 @@ causes.
 
 Acceptance proves explicit target-grammar validation, distinct identity for
 distinct calls, internal recovery of one persisted intent, first-send group
-creation/reuse, and `void` success only after local certification. Host prompt
-and final-text behavior require stock host evidence.
+creation/reuse, and `void` success only after local certification. Real OpenClaw
+qualification must verify normal-mode private final text and source-bound
+omitted-target messaging independently of private evaluation mode. NanoClaw
+final-output qualification uses its own stock host path. Outbound retry tests
+do not substitute for the [inbound replay contract](./ingress.md#durable-acceptance).

@@ -71,10 +71,12 @@ authorize a send or create a delivery.
 ## Delivery ownership
 
 Certification or catch-up atomically creates missing remote-authored pending
-rows. One active subscriber receives stable tokens. An acknowledgment commits
-only after the stock host inbound callback completes successfully. Disconnect,
-failed callback, or crash before acknowledgment preserves the row for replay.
-The host owns what persistence or model execution that callback represents.
+rows. One active subscriber receives stable tokens. Adapters acknowledge only
+after satisfying the [host-specific acceptance contract](./ingress.md#durable-acceptance).
+Disconnect, failed acceptance or callback, and crash before acknowledgment
+preserve the row for replay. The daemon's stable delivery identity supports
+host recovery; it does not itself prove OpenClaw's durable acceptance or
+no-second-model-invocation guarantee.
 
 ## Compatibility and failures
 

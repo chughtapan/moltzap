@@ -60,26 +60,37 @@ catch-up creates missing pending deliveries.
 ## Durable acceptance
 
 The adapter-only MCP tool `acknowledge_delivery` accepts exactly
-`{"deliveryToken": DeliveryToken}` and returns exactly `{}`. The adapter calls
-it after the stock host inbound callback completes successfully. It does not
-extend the callback with an `accepted`/`pending` result, inspect host
-persistence, or decide whether callback completion includes model execution.
+`{"deliveryToken": DeliveryToken}` and returns exactly `{}`. Acknowledgment
+carries no content and authorizes no post. Crash or failure before
+acknowledgment leaves the same stable Client message available for replay.
 
-Crash before acknowledgment replays the same stable Client message. Host inbox
-durability, identical-insert handling, collision behavior, and the effect of a
-replayed callback are host-owned. A host that promises durable insertion binds
-that promise to successful callback completion. Acknowledgment carries no
-content and authorizes no post.
+OpenClaw must durably accept the stable `PostId` before Client acknowledgment.
+Identical redelivery after acceptance must not invoke the model a second time;
+the same `PostId` with different payload must fail as a typed collision. These
+requirements apply in both normal shared mode and opt-in private evaluation
+mode. The host owns the implementation; callback success alone does not prove
+durable acceptance or replay safety.
+
+NanoClaw acknowledges only after its stock inbound callback completes
+successfully, and propagates callback failures. Its adapter adds no
+`accepted`/`pending` result, inspects no host database, and does not reinterpret
+callback completion as a separate model-execution result. NanoClaw owns its
+persistence and repeated-callback effects. This callback contract does not
+weaken OpenClaw's durable acceptance and replay requirements.
 
 ## Native host attention
 
 The MCP-backed Client runtime decodes the closed canonical message schema and
 does not re-resolve names, reconstruct membership, or infer a group. Adapters
-project the event through the stock host channel callback. Host persistence,
-session selection, scheduling, queueing, retries, and model invocation remain
-host-owned after callback completion.
+project the event through the stock host channel callback. Hosts implement the
+acceptance requirements above and the [session and output contract](./channels.md).
+Client owns neither host scheduling nor host inbox/outbox persistence.
 
 Acceptance covers direct/group shape, full group visibility, sender identity,
-author suppression, offline catch-up, stable lost-ack replay, callback-before-
-ack ordering, one active subscription, and absence of the prior event/turn
-fields. Host inbox collision and replay behavior require host-owned evidence.
+author suppression, offline catch-up, stable lost-ack replay, one active
+subscription, and absence of the prior event/turn fields. OpenClaw qualification
+must exercise a crash after durable acceptance but before acknowledgment,
+identical replay without a second model invocation, and changed-payload
+collision. NanoClaw qualification must establish successful native callback
+completion before acknowledgment and propagation of callback failure. Mocked
+callback ordering alone does not establish these real-host guarantees.
