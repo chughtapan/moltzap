@@ -19,7 +19,7 @@ malicious peers.
 `main` is the only track. The four-layer harness lives in seven packages under
 `packages/*`; five publish to npm as one calendar version set and
 `@moltzap/nanoclaw-channel` and `@moltzap/evals` stay private, per
-`docs/decisions/20260901-six-packages-publish-as-one-version-set.md`.
+`docs/spec/layer-interfaces.md` → Publication and versions.
 Releases run from `main` through `.github/workflows/publish.yml` on manual
 dispatch.
 
@@ -27,87 +27,51 @@ dispatch.
 there and paraphrased nowhere, this file included: two copies at the top of the
 same authority order drift, and the drift is invisible.
 
-## Prerequisites
+## Workflow
 
-Run `pnpm check:agent-setup` once per session — not per command, which is how
-the old 165s pre-commit happened. Refuse the operation whose row is unmet.
-Refusal is scoped: a missing `codex` never blocks editing a file, or fixing
-the setup itself.
+Understand the task → make a design decision if needed → implement and test →
+independent review → ship. An existing request or issue authorizes bounded work;
+do not ask for a separate plan approval unless the scope changes.
 
-| Required | Refuse to |
-|---|---|
-| Node per `.node-version`, pnpm | do anything |
-| `pnpm nx` for every task, never the underlying tool | build, test, lint, typecheck |
-| Effect and `@effect/*` as the runtime idiom | add a non-Effect alternative |
-| `/simplify` on Opus, then `/ship` | open a PR |
-| `/plan-eng-review` | start implementing a feature |
-| `/land-and-deploy` | merge |
-| `codex`, authenticated and in quota | call review complete |
-| `gbrain` reachable (`gbrain doctor`) | verify decision provenance |
+- A routine fix needs an issue/PR description and appropriate checks.
+- A coordinated feature needs one plan.
+- A durable architecture, public interface, security, persistence, or package
+  ownership choice needs one complete source-backed ADR and independent review.
+  An agent cannot invent the owner's approval or treat a reviewer PASS as
+  decision authority.
+- Update the existing PR/plan for a handoff. Add a separate handoff only when
+  those records cannot carry what the next agent needs.
 
-**Refuse where the failure is silent; warn where it is loud.** A missing binary
-that errors on first use needs no rule. `/ship` without codex quietly downgrades
-its own pre-landing review to a single-model pass *and still records a clean Eng
-Review entry* — the bar drops and nothing says so.
+Shared workflow and internal decisions live in
+[`social-harness/docs-internal`](https://github.com/social-harness/docs-internal/blob/main/README.md).
+Set `DOCS_INTERNAL_ROOT` to an accessible checkout and start with its README.
+Load the pinned `shared-sdlc` skill under `.agents/skills/` or `.claude/skills/`
+when planning a change. Load `records` when filing or reviewing an internal
+record. Both hosts use the revision in `.agents/company-skills.json`; sync and
+check updates with that checkout's `bin/records skills` commands.
 
-`/ship` carries the pre-landing review, the specialist fan-out, and the always-on
-adversarial pass, so a separate `/review` ahead of it repeats that work at the
-same bar. `/simplify` covers the axis review does not, and it runs on Opus: it
-fans several reviewers over the whole diff, and the Fable limit is account-wide,
-so a Fable `/simplify` stalls every other agent in the workspace.
+Public usage, specifications, package instructions, and runnable checks stay in
+this repository. Without private docs or optional skills, maintain public code
+using these contracts, normal planning, independent review, and Git/PR commands.
+A proposed boundary change must resolve its affected decision evidence before
+claiming approval. Missing private access does not block unrelated maintenance.
 
-Name your connected sources (Notion, Gmail, Discord, GitHub) when work may have
-been decided elsewhere, and offer to read them directly. This is agent law
-rather than a `SessionStart` hook because an agent can see its own connected MCP
-servers and a shell hook cannot.
+Use an isolated worktree for concurrent changes, preserve other people's work,
+and confirm branch, commit, uncommitted changes, existing checks, and next action
+before resuming a handoff. Keep useful current evidence; do not commit failed-run
+exports, old attempt logs, or duplicate summaries.
 
-## Change guidance
+## Toolchain and skills
 
-Load the Google guide that matches the work: `google-typescript-style` for
-`.ts`, `google-javascript-style` for the `.mjs` tooling, `google-shell-style`
-for `.sh`, `google-swe-testing`, `google-documentation-guide`,
-`google-swe-change-management`, `google-swe-builds-dependencies-and-ci` for
-build, dependency, and CI policy, `google-swe-engineering-standards` for the
-lint and architecture gates themselves, and the applicable Google code-review
-author or reviewer guide. New code meets its guide in the commit that
-introduces it; existing code is brought along by the change that touches it.
-Repository law, Effect conventions, Nx, ESLint, oxfmt, and scoped package
-instructions take precedence. Link to the guide rather than copying it into the
-repository, and keep tests and documentation in the change they explain.
+Use Node from `.node-version` and the pnpm version in `package.json`. Run build,
+test, lint, and typecheck through `pnpm nx` or the package scripts that wrap it.
+Effect and `@effect/*` are the runtime idiom.
 
-gstack reviews compose with the Google guides where they apply.
-
-| Guide | Loaded by |
-|---|---|
-| `google-code-review-reviewer` | `/ship`'s structured review |
-| `google-swe-testing` | `/ship`'s testing specialist; `/plan-eng-review`'s test review |
-| the same language guides | `/ship`'s maintainability specialist; `/plan-eng-review`'s code-quality review |
-| `google-swe-engineering-standards` | the same two, for changes to the lint or architecture gates |
-| `google-swe-builds-dependencies-and-ci` | `/plan-eng-review`'s architecture review; `/ship` for workflow, Nx, manifest, or release-script changes |
-| `google-swe-compute-platforms` | either, for cluster execution: profiles, admission, run namespaces, images, Temporal |
-| `google-swe-change-management` | `/ship`'s data-migration and api-contract specialists; `/plan-eng-review`'s scope challenge |
-| `google-swe-code-review-systems` | either, for changes to a gate, a review regime, or this file |
-| `google-documentation-guide` | either, for documentation claims |
-
-## Issues
-
-Labels `v2` and `wontfix-v2` are historical: `v2` marked input to the
-four-layer replacement that is now `main`; `wontfix-v2` marked defects that
-died with the retired v1 machinery. Epic #755 tracks bootstrap and debt-zero
-work.
-
-## Decisions
-
-`docs/decisions/` is the durable log; `docs/decision-evidence/` holds the
-source-event ledgers it cites. **Admission is maintainer-gated** — an agent
-proposes, a human admits.
-
-Load the `decisions` skill — `.claude/skills/decisions/SKILL.md`, plain
-Markdown readable by any tool — before adding, editing, superseding, or
-reviewing a record, or before compacting a trajectory. It carries the
-procedure, the provenance rules in `references/provenance.md`, and the blind
-review gate. `scripts/docs/adr/check-shape.ts` enforces the mechanical half in
-`pnpm lint` and at commit time.
+Use applicable Google language, testing, documentation, and code-review guides
+when available. gstack planning/review/shipping skills are optional helpers;
+missing tools do not lower the review bar or block work that can use the normal
+workflow. State which checks and reviews actually ran. Repository instructions,
+Effect conventions, Nx, ESLint, and oxfmt take precedence over optional guidance.
 
 ## Code
 
@@ -166,25 +130,22 @@ everything when you cannot tell what a change reaches.
 
 ## Docs
 
-- Authority order is: this agent law and `docs/vision.md`; current ADR
-  outcomes, including explicitly retained portions of
-  partially-superseded records; normative `docs/spec/` chapters;
-  architecture orientation and execution plans; historical inputs under
-  `docs/decision-evidence/`. A lower source must not contradict a higher
-  source.
-- Before a public-boundary change, the governing spec and decision
-  traceability must be complete. No binding decision may exist only in
-  chat, an issue comment, or an agent-private state directory.
+Read this file and `docs/vision.md`, then the applicable public contract under
+`docs/spec/` and package instructions. Architecture pages explain the current
+implementation. Internal ADRs and original source evidence belong in the shared
+docs repo. Reconcile a boundary change with its public specification; do not
+leave a binding interface contract only in private docs, chat, or agent state.
 
-Writing or regenerating documentation is a procedure, not always-relevant
-guidance: load the `docs` skill (`.claude/skills/docs/SKILL.md`).
+Writing or regenerating public docs uses the `docs` skill at
+`.claude/skills/docs/SKILL.md`. Generated files come from their source and must
+not be edited by hand.
 
 <!-- nx configuration start-->
 <!-- Leave the start & end comments to automatically receive updates. -->
 
 ## General Guidelines for working with Nx
 
-- For navigating/exploring the workspace, invoke the `nx-workspace` skill first - it has patterns for querying projects, targets, and dependencies
+- For navigating/exploring the workspace, use the `nx-workspace` skill when available - it has patterns for querying projects, targets, and dependencies
 - When running tasks (for example build, lint, test, e2e, etc.), always prefer running the task through `nx` (i.e. `nx run`, `nx run-many`, `nx affected`) instead of using the underlying tooling directly
 - Prefix nx commands with the workspace's package manager (e.g., `pnpm nx build`, `npm exec nx test`) - avoids using globally installed CLI
 - You have access to the Nx MCP server and its tools, use them to help the user
@@ -193,7 +154,7 @@ guidance: load the `docs` skill (`.claude/skills/docs/SKILL.md`).
 
 ## Scaffolding & Generators
 
-- For scaffolding tasks (creating apps, libs, project structure, setup), ALWAYS invoke the `nx-generate` skill FIRST before exploring or calling MCP tools
+- For scaffolding tasks (creating apps, libs, project structure, setup), use the `nx-generate` skill when available; otherwise inspect the generator help before running it
 
 ## When to use nx_docs
 

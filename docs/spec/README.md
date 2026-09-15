@@ -15,20 +15,17 @@ product Ledger, Transcript service, profile system, or testbed package.
 
 ## Authority and reading order
 
-1. `../../AGENTS.md` and `../vision.md` state repository law and the
+1. `../../AGENTS.md` and `../vision.md` state repository instructions and the
    constitution.
-2. `../decisions/README.md` records current ADR outcomes and supersession
-   lineage, including the explicitly retained scope of partially superseded
-   records.
-3. The documents in this directory own normative Gate 1 interfaces.
-4. `../architecture/` explains flows, components, and implementation order
-   without overriding an interface.
-5. `../decision-evidence/`, including its `inputs/` and `drafts/`, is
-   evidence. It is never normative authority.
+2. The documents in this directory own the public interfaces.
+3. `../architecture/` explains flows and components without overriding an
+   interface.
 
-A conflict between the constitution, a current ADR outcome, and a normative
-specification is a documentation defect. Implementation stops until the
-authority set is reconciled.
+Internal decisions and their evidence live in
+[the shared docs repo](https://github.com/social-harness/docs-internal/blob/main/moltzap/README.md).
+Use these public contracts for maintenance. A durable boundary change needs its
+source-backed decision and public contract reconciled before implementation;
+missing private docs do not block unrelated fixes.
 
 ## Implementation readiness
 
@@ -128,7 +125,6 @@ runtime credential/Router authority, and durable Router-commit evidence.
 - The npm package version is a release namespace of its own: five packages
   publish as one calendar version set while `@moltzap/nanoclaw-channel` and
   `@moltzap/evals` stay private, per
-  `../decisions/20260901-six-packages-publish-as-one-version-set.md` and
   [`layer-interfaces.md`](./layer-interfaces.md) → Publication and versions.
   It never implies a wire, MCP, or persisted-schema compatibility fact.
 
