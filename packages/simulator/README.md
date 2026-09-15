@@ -117,6 +117,16 @@ reports `oversize`. The agent-eye view
 is that agent's `inbound` records; the wire view is the union of every agent's
 `outbound` records, joined to recipients by `postId`.
 
+## Fault scenarios
+
+Experiment code owns directed-link policies and activation timing through
+[`LinkController`](src/network/MODULE.md#linkcontrollerservice). Policies return
+`deliver`, `drop`, `delay`, or `hold`. Holding A's messages to B lets C's messages
+to B progress independently; clearing A's hold releases A's queued messages in
+sender order. See the [Simulator fault boundary](../../docs/spec/layer-interfaces.md#simulator-fault-boundary)
+for ordering, runtime isolation, and the distinction between fault-tolerance
+evidence and Router-conformance evidence.
+
 ## Controlled endpoints
 
 `network.endpoint(name)` attaches an experiment-controlled participant. Its
