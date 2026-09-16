@@ -254,6 +254,8 @@ moltzap-sim run --profile gke path/to/experiment.mjs
 | `MOLTZAP_TEMPORAL_ADDRESS` | yes | how this host reaches Temporal |
 | `MOLTZAP_TEMPORAL_CLUSTER_ADDRESS` | no | how the worker reaches Temporal, when not the in-cluster service |
 | `MOLTZAP_TEMPORAL_TASK_QUEUE` | no | the run-lifecycle queue, `moltzap-simulator` by default |
+| `MOLTZAP_RUN_WORKER_NAME` | no | the worker resource and access identity, `run-worker` by default; use a distinct task queue for isolation |
+| `MOLTZAP_RUN_ID` | no | a persisted UUID for reconnecting to the same execution; changed immutable inputs are rejected |
 | `MOLTZAP_CONTROLLER_IMAGE` | yes | the digest-pinned controller image |
 | `MOLTZAP_SUPPORT_IMAGE` | no | the Sandbox initializer image, the controller image by default |
 | `MOLTZAP_APPLICATION_IMAGE` | when the module reads it | the digest-pinned complete agent image |
@@ -291,15 +293,17 @@ not the startup budget: a queued cohort has not started, so an hour of queue
 time is the default and `MOLTZAP_STARTUP_TIMEOUT_MS` begins only once Kueue
 admits it.
 
-Three rules bound how wide to go. Concurrent submitters must share one
-controller image: a submission installs the run worker for the image it
+Three rules bound how wide to go. Concurrent submitters sharing a worker must
+share one controller image: a submission installs the run worker for the image it
 names, and a different image would roll the worker out from under every run
 it is heartbeating, so the submitter refuses that install while runs are open
 (wait for them, or set `MOLTZAP_FORCE_WORKER_ROLL=1` to accept losing them).
 The refusal lives in the submitter, so a submitter built before it existed
-still rolls the worker and interrupts every run in flight; lanes that need
-different controller images are sequenced by the operator, not by the
-cluster. The submitter package and the controller image must also come from
+still rolls the worker and interrupts every run in flight. Lanes that need
+different controller images must use distinct `MOLTZAP_RUN_WORKER_NAME` and
+`MOLTZAP_TEMPORAL_TASK_QUEUE` values, or run sequentially. Never attach a second
+worker with different code to an existing experiment queue.
+The submitter package and the controller image must also come from
 one revision: the install applies the worker's ClusterRole from the
 submitter's own manifests, so an older submitter narrows the role a newer
 controller needs and every lane's next run fails to create its Role until a
