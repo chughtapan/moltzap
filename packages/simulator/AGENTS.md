@@ -19,7 +19,8 @@ The final package consumes public `@moltzap/identity`, `@moltzap/router`, and
   Sandbox, and Temporal;
 - the `moltzap-sim` executable, which submits one experiment module through
   either checked-in profile; and
-- the compatible root, `./network`, `./ledger`, and `./agents` facades.
+- the compatible root, `./network`, `./ledger`, and `./agents` facades, plus
+  the controller-module composition entrypoint `./controller`.
 
 `RunLedger` records simulation configuration, events, and outcomes. It is not a
 product Ledger, conversation store, durability certificate, global offset, or
@@ -140,8 +141,10 @@ current decisions rather than deliberate deferrals.
   authority there; delete those contracts and move compatible production-stack
   composition behind Identity, Router, and Client.
 
-Only `src/index.ts`, `src/agents/index.ts`, `src/network/index.ts`, and
-`src/ledger/index.ts` own the current published facades. Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package publishes in the one-version set.
+Only `src/index.ts`, `src/agents/index.ts`, `src/network/index.ts`,
+`src/ledger/index.ts`, and `src/controller.ts` own the current published facades.
+Publication follows `docs/spec/layer-interfaces.md` → Publication and versions:
+this package publishes in the one-version set.
 Do not add or remove a facade merely to change what a release ships.
 
 ## Tests

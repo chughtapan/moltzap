@@ -337,6 +337,27 @@ these five rules:
    lifecycle, public semantic effects, and experiment-declared workspace
    files, never durable Router commit/order.
 
+### Controller composition and execution evidence
+
+`@moltzap/simulator/controller` exposes environment-driven controller composition
+to separately packaged experiment modules. It uses the same `Run.execute` path
+and does not grant application runtimes infrastructure access. The root,
+`./agents`, `./ledger`, and `./network` facades retain compatible declarations.
+
+A submitted execution has one caller-owned identity and immutable input hash.
+Reconnecting uses that execution; changed inputs under the same identity are
+rejected. Ending a local wait does not cancel remote work. Explicit cancellation
+remains pending while a controller starts and stops requesting cancellation once
+the controller finishes. Each isolated worker uses its own workload and access
+identity for every installation call.
+
+Before releasing acquired runtimes, collection requests a stop/flush acknowledgement
+and retains native logs separately from bounded workspace records. Native files
+carry exact byte lengths and hashes. Failed finalization or a collection deadline
+writes `RuntimeEvidenceCollectionFailed`; already retained files remain available,
+but their presence does not establish complete evidence. Execution outcome and
+namespace cleanup outcome remain separate.
+
 ### Simulator fault boundary
 
 With no active directed link-fault scope, Simulator delivers the exact

@@ -1,19 +1,137 @@
 /** @file Kubernetes condition freshness, call deadlines, and context-selection regressions. */
 
-import { ApiException } from "@kubernetes/client-node";
-import { Cause, Duration, Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { effect as effectTest } from "@effect/vitest";
+import {
+  ApiException,
+  AppsV1Api,
+  Exec,
+  KubeConfig,
+} from "@kubernetes/client-node";
+import {
+  Cause,
+  Duration,
+  Effect,
+  Fiber,
+  Option,
+  Schema,
+  TestClock,
+} from "effect";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   currentConditionIsTrue,
   KUBERNETES_CALL_TIMEOUT_VARIABLE,
   kubernetesCall,
   KubernetesCallFailed,
   kubernetesCallTimeout,
+  makeInClusterKubernetesSocietyApi,
+  makeKubernetesRunWorkerInstallApi,
   readFailureDetail,
   selectConfiguredKubeContext,
 } from "./calls.js";
 
 const LOCAL_KUBE_CONTEXT = "kind-moltzap-isolated";
+
+function harvestProbe() {
+  vi.spyOn(KubeConfig.prototype, "loadFromDefault").mockReturnValue(undefined);
+  vi.spyOn(KubeConfig.prototype, "getCurrentCluster").mockReturnValue({
+    name: "test",
+    server: "https://kubernetes.invalid",
+    skipTLSVerify: false,
+  });
+  vi.spyOn(Exec.prototype, "exec").mockImplementation(
+    () => new Promise<never>(vi.fn()),
+  );
+  return makeInClusterKubernetesSocietyApi("test-run");
+}
+
+describe("application harvest deadlines", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  effectTest(
+    "allows the full finalization probe budget before timing out at seventy seconds",
+    () =>
+      Effect.gen(function* () {
+        const api = harvestProbe();
+        const pending = yield* api
+          .readApplicationFile(
+            "agent-pod",
+            "/var/run/moltzap/finalized.json",
+            65536,
+            "finalize",
+          )
+          .pipe(Effect.flip, Effect.fork);
+        yield* TestClock.adjust("30 seconds");
+        expect(Option.isNone(yield* Fiber.poll(pending))).toBe(true);
+        yield* TestClock.adjust("30 seconds");
+        expect(Option.isNone(yield* Fiber.poll(pending))).toBe(true);
+        yield* TestClock.adjust("10 seconds");
+        const failure = yield* Fiber.join(pending);
+        expect(failure.detail).toContain("read application file");
+      }),
+  );
+
+  effectTest("still abandons an ordinary file read after thirty seconds", () =>
+    Effect.gen(function* () {
+      const api = harvestProbe();
+      const pending = yield* api
+        .readApplicationFile("agent-pod", "/workspace/output.txt", 65536)
+        .pipe(Effect.flip, Effect.fork);
+      yield* TestClock.adjust("30 seconds");
+      const failure = yield* Fiber.join(pending);
+      expect(failure.detail).toContain("read application file");
+    }),
+  );
+});
+
+describe("isolated worker installation", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("prepares, applies, and observes only the selected worker deployment", async () => {
+    vi.spyOn(KubeConfig.prototype, "loadFromDefault").mockReturnValue(
+      undefined,
+    );
+    vi.spyOn(KubeConfig.prototype, "getCurrentCluster").mockReturnValue({
+      name: "test",
+      server: "https://kubernetes.invalid",
+      skipTLSVerify: false,
+    });
+    const patch = vi
+      .spyOn(AppsV1Api.prototype, "patchNamespacedDeployment")
+      .mockResolvedValue({});
+    const read = vi
+      .spyOn(AppsV1Api.prototype, "readNamespacedDeployment")
+      .mockResolvedValue({});
+    const api = makeKubernetesRunWorkerInstallApi({
+      workerName: "isolated-worker",
+      controllerImage: "controller:test",
+      taskQueue: "isolated-queue",
+      temporalAddress: "temporal:7233",
+      temporalNamespace: "default",
+      profile: { kind: "local" },
+    });
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* api.install("deployment");
+        yield* api.readInstalledWorkerImage();
+        yield* api.readWorkerAvailability();
+      }),
+    );
+
+    expect(patch.mock.calls.map(([request]) => request.name)).toEqual([
+      "isolated-worker",
+      "isolated-worker",
+    ]);
+    expect(read.mock.calls.map(([request]) => request.name)).toEqual([
+      "isolated-worker",
+      "isolated-worker",
+    ]);
+    const applied = Schema.decodeUnknownSync(
+      Schema.Struct({ metadata: Schema.Struct({ name: Schema.String }) }),
+    )(patch.mock.lastCall?.[0].body);
+    expect(applied).toEqual({ metadata: { name: "isolated-worker" } });
+  });
+});
 
 describe("currentConditionIsTrue", () => {
   it("accepts only a positive condition for the current object generation", () => {

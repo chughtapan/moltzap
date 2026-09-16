@@ -1,7 +1,7 @@
 /** @file Private cluster acquisition and lifecycle boundary. */
 
 import type { AgentName } from "@moltzap/identity";
-import { Context, Data, type Effect, type Scope } from "effect";
+import { Context, Data, type Effect, type Scope, type Stream } from "effect";
 import type { AgentRuntimeLike } from "../agents/agent.js";
 import type {
   AgentRoster,
@@ -98,6 +98,15 @@ export interface Society<
   readonly harvestWorkspace: (
     name: Extract<keyof Definitions, string>,
   ) => Effect.Effect<readonly HarvestedWorkspaceFile[]>;
+
+  /** Confirms applications stopped and flushed before evidence collection. */
+  readonly finalize?: Effect.Effect<void, ClusterError>;
+  readonly harvestLogs?: (
+    name: Extract<keyof Definitions, string>,
+  ) => Stream.Stream<{
+    readonly relativePath: string;
+    readonly chunks: Stream.Stream<Uint8Array, ClusterError>;
+  }>;
 
   /** Completes only while the exact acquired roster is ready for dispatch. */
   readonly cohortReady: Effect.Effect<void, ClusterError>;

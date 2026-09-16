@@ -168,6 +168,10 @@ export interface Application<Gateway, AcquisitionError> {
    * program ends, absent when the runtime harvests nothing.
    */
   readonly harvest?: readonly HarvestTarget[];
+  readonly logs?: ReadonlyArray<{
+    readonly relativePath: string;
+    readonly path: string;
+  }>;
   /**
    * Bind the controller to one ready application.
    *

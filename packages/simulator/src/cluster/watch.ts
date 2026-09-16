@@ -55,6 +55,9 @@ export interface RunLifecycleOperations {
   readonly prepareRun: (
     input: RunSocietyWorkflowInput,
   ) => Effect.Effect<void, KubernetesCallFailed>;
+  readonly requestControllerStop: (
+    namespace: string,
+  ) => Effect.Effect<void, KubernetesCallFailed>;
   readonly observeController: (
     input: RunSocietyWorkflowInput,
   ) => Effect.Effect<ControllerObservation, KubernetesCallFailed>;
@@ -176,6 +179,8 @@ function runLifecycleOperations(
   return Object.freeze({
     prepareRun: (input: RunSocietyWorkflowInput) =>
       prepareRun(api, input, profile),
+    requestControllerStop: (namespace: string) =>
+      api.requestControllerStop(namespace),
     observeController: (input: RunSocietyWorkflowInput) =>
       observeController(api, input),
     deleteRunNamespace: (namespace: string) =>
@@ -225,7 +230,7 @@ function jobConditionIsTrue(job: JobObservation, type: string): boolean {
 
 function completedControllerObservation(logs: string): ControllerObservation {
   const summary = controllerSummary(logs);
-  if (summary === undefined || summary._tag !== "ProgramFinished") {
+  if (summary === undefined) {
     return {
       _tag: "failed",
       detail: "controller Job completed without a valid result summary",
@@ -233,7 +238,10 @@ function completedControllerObservation(logs: string): ControllerObservation {
   }
   return {
     _tag: "completed",
-    result: { exitCode: 0, summary },
+    result:
+      summary._tag === "ProgramFinished"
+        ? { exitCode: 0, summary }
+        : { exitCode: 1, summary },
   };
 }
 

@@ -139,6 +139,10 @@ const FINAL_PACKAGES = {
     deps: ["identity", "router", "client"],
     exports: {
       ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
+      "./controller": {
+        types: "./dist/controller.d.ts",
+        import: "./dist/controller.js",
+      },
       "./network": {
         types: "./dist/network/index.d.ts",
         import: "./dist/network/index.js",

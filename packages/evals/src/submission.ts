@@ -98,7 +98,7 @@ export function evaluationControllerModule(
     'import { Duration } from "effect";',
     'import { evaluationCase } from "/opt/moltzap/node_modules/@moltzap/evals/dist/cases.js";',
     'import { evaluationCellRunSpec, nanoclawEvaluationCondition, openClawEvaluationCondition } from "/opt/moltzap/node_modules/@moltzap/evals/dist/execution.js";',
-    'import { controllerServicesFromEnvironment, supportImageFromEnvironment } from "/opt/moltzap/dist/cluster/controller/services.js";',
+    'import { controllerServicesFromEnvironment, supportImageFromEnvironment } from "@moltzap/simulator/controller";',
     `const definition = evaluationCase(${literal(input.caseId)});`,
     `if (definition === undefined || definition.definitionId !== ${literal(input.definitionId)}) throw new Error("evaluation case definition is unavailable");`,
     `const condition = ${condition};`,

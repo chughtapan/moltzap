@@ -52,6 +52,7 @@ import {
 } from "../workspace.js";
 import {
   buildOpenClawConfig,
+  OPENCLAW_RUNTIME_LOG_FILE,
   type OpenClawSandboxConfig,
   type OpenClawToolsConfig,
 } from "./configuration.js";
@@ -353,6 +354,7 @@ function makeOpenClawApplication(
     port: OPENCLAW_GATEWAY_PORT,
     files: bootstrapFiles(settings, input, gatewayToken, pairing),
     ...(harvest.length === 0 ? {} : { harvest }),
+    logs: nativeLogFiles(transcript.harvest),
     attach: (
       endpoint: ApplicationEndpoint,
       stopped: Effect.Effect<RuntimeTermination>,
@@ -414,6 +416,10 @@ function bootstrapFiles(
   const openClawConfig = buildOpenClawConfig(
     {
       agentName: input.agentName,
+      bootstrapChars: settings.workspaceFiles.reduce(
+        (total, file) => total + file.content.length,
+        0,
+      ),
       gatewayToken,
       gatewayBind: "lan",
       messagingMode: settings.messagingMode,
@@ -541,4 +547,14 @@ function openClawCapability(
     render: (input: AgentRuntimeInput) =>
       renderOpenClaw(settings, acquireGateway, input),
   });
+}
+
+function nativeLogFiles(history: ReturnType<typeof historyExport>["harvest"]) {
+  return [
+    ...history,
+    {
+      relativePath: "openclaw.log",
+      path: `${OPENCLAW_WORKSPACE_DIR}/${OPENCLAW_RUNTIME_LOG_FILE}` as const,
+    },
+  ];
 }

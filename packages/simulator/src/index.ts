@@ -15,6 +15,7 @@ export {
 export {
   AgentProcessExited,
   AgentProcessSignaled,
+  AgentRuntimeArtifact,
   AgentRuntimeCompleted,
   AgentRuntimeFailed,
   AgentRuntimeReady,
@@ -33,6 +34,7 @@ export {
   RouterStartFailed,
   RouterStopFailed,
   RunStarted,
+  RuntimeEvidenceCollectionFailed,
 } from "./events/core.js";
 /** Re-exports the public API from `./run/events.js`. */
 export {
@@ -92,3 +94,12 @@ export { ProfileRunResult } from "./cluster/profiles/result.js";
 
 /** Re-exports the direct-invocation check every shipped entrypoint needs. */
 export { isEntryModule } from "./cluster/entry.js";
+
+/** Runtime evidence contract required by evaluation consumers before provisioning. */
+export const evaluationCapabilities = Object.freeze({
+  version: 1,
+  reconnect: true,
+  explicitCancel: true,
+  nativeLogs: true,
+  stopBeforeHarvest: true,
+});

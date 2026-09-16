@@ -39,6 +39,7 @@ import {
   ControllerError,
   ControllerOperations,
   type ControllerOperationsService,
+  retainInterruptedLedger,
   runController,
 } from "./main.js";
 import {
@@ -605,3 +606,41 @@ test("round-trips only the final bounded closed result marker", () =>
       ),
     );
   }));
+
+test("retains an interrupted ledger beside runtime artifacts", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped();
+    const active = join(root, "active");
+    const retained = join(root, "retained");
+    yield* fs.makeDirectory(join(active, LEDGER_REFERENCE), {
+      recursive: true,
+    });
+    yield* fs.makeDirectory(join(active, "runtime"), { recursive: true });
+    yield* fs.writeFileString(
+      join(active, LEDGER_REFERENCE, "manifest.json"),
+      "manifest-bytes",
+    );
+    yield* fs.writeFileString(
+      join(active, LEDGER_REFERENCE, "records.ndjson"),
+      "record-bytes",
+    );
+    yield* fs.writeFileString(
+      join(active, LEDGER_REFERENCE, "completion.json"),
+      JSON.stringify(COMPLETED_RECEIPT.completion),
+    );
+    const summary = yield* retainInterruptedLedger({
+      ledgerDirectory: active,
+      ledgerExportDirectory: retained,
+    });
+    assert.deepStrictEqual(summary, {
+      _tag: "ClusterLost",
+      receipt: COMPLETED_RECEIPT,
+    });
+    assert.strictEqual(
+      yield* fs.readFileString(
+        join(retained, LEDGER_REFERENCE, "records.ndjson"),
+      ),
+      "record-bytes",
+    );
+  }).pipe(Effect.scoped, Effect.provide(NodeContext.layer)));

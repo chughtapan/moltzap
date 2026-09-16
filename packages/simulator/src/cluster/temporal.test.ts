@@ -1,6 +1,8 @@
 /** @file Temporal lifecycle activities, open-run discovery, and workflow-client regressions. */
 
+import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client"; // eslint-disable-line no-restricted-imports -- Reproduce the native duplicate-start failure at its SDK boundary.
 import { Effect, Schema } from "effect";
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type {
   ControllerRunResult,
@@ -28,6 +30,7 @@ import {
 
 /** The exact client surface the module under test asks a caller to supply. */
 type WorkflowExecutor = RunSocietyWorkflowExecutionOptions["client"];
+type ExistingWorkflowHandle = ReturnType<WorkflowExecutor["getHandle"]>;
 
 const HEARTBEAT_EVENT = "heartbeat";
 
@@ -91,6 +94,7 @@ function fakeOperations(state: FakeState): LifecycleOperationsService {
             )
           : Effect.succeed(observation);
       }),
+    requestControllerStop: () => Effect.void,
     deleteRunNamespace: (namespace) =>
       Effect.sync(() => {
         state.events.push(`delete:${namespace}`);
@@ -265,7 +269,7 @@ describe("executeRunSocietyWorkflow", () => {
     const execute = vi
       .fn<WorkflowExecutor["execute"]>()
       .mockResolvedValue(PROGRAM_RESULT);
-    const client: WorkflowExecutor = { execute };
+    const client: WorkflowExecutor = { execute, getHandle: vi.fn() };
 
     await expect(
       executeRunSocietyWorkflow(INPUT, {
@@ -279,6 +283,77 @@ describe("executeRunSocietyWorkflow", () => {
       workflowId: "workflow-run-1",
       taskQueue: "moltzap-simulator",
       args: [INPUT],
+      memo: {
+        inputHash: createHash("sha256")
+          .update(JSON.stringify(INPUT))
+          .digest("hex"),
+      },
+      workflowIdReusePolicy: "REJECT_DUPLICATE",
     });
   });
+});
+
+it("reattaches to an existing workflow after a lost submit response", async () => {
+  const inputHash = createHash("sha256")
+    .update(JSON.stringify(INPUT))
+    .digest("hex");
+  const result = vi
+    .fn<ExistingWorkflowHandle["result"]>()
+    .mockResolvedValue(PROGRAM_RESULT);
+  const handle: ExistingWorkflowHandle = {
+    describe: vi
+      .fn<ExistingWorkflowHandle["describe"]>()
+      .mockResolvedValue({ memo: { inputHash } }),
+    result,
+  };
+  const client: WorkflowExecutor = {
+    execute: vi
+      .fn<WorkflowExecutor["execute"]>()
+      .mockRejectedValue(
+        new WorkflowExecutionAlreadyStartedError(
+          "exists",
+          "workflow-run-1",
+          "runSocietyWorkflow",
+        ),
+      ),
+    getHandle: vi.fn<WorkflowExecutor["getHandle"]>().mockReturnValue(handle),
+  };
+  await expect(
+    executeRunSocietyWorkflow(INPUT, {
+      client,
+      workflowId: "workflow-run-1",
+      taskQueue: "isolated",
+    }),
+  ).resolves.toEqual(PROGRAM_RESULT);
+  expect(client.getHandle).toHaveBeenCalledWith("workflow-run-1");
+  expect(result).toHaveBeenCalledOnce();
+});
+
+it("refuses to attach changed inputs to an existing execution identity", async () => {
+  const result = vi.fn<ExistingWorkflowHandle["result"]>();
+  const client: WorkflowExecutor = {
+    execute: vi
+      .fn<WorkflowExecutor["execute"]>()
+      .mockRejectedValue(
+        new WorkflowExecutionAlreadyStartedError(
+          "exists",
+          "workflow-run-1",
+          "runSocietyWorkflow",
+        ),
+      ),
+    getHandle: vi.fn<WorkflowExecutor["getHandle"]>().mockReturnValue({
+      describe: vi
+        .fn<ExistingWorkflowHandle["describe"]>()
+        .mockResolvedValue({ memo: { inputHash: "different" } }),
+      result,
+    }),
+  };
+  await expect(
+    executeRunSocietyWorkflow(INPUT, {
+      client,
+      workflowId: "workflow-run-1",
+      taskQueue: "isolated",
+    }),
+  ).rejects.toThrow("different immutable inputs");
+  expect(result).not.toHaveBeenCalled();
 });
