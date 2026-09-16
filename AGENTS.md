@@ -142,8 +142,10 @@ docs repo. Reconcile a boundary change with its public specification; do not
 leave a binding interface contract only in private docs, chat, or agent state.
 
 Writing or regenerating public docs uses the `docs` skill at
-`.claude/skills/docs/SKILL.md`. Generated files come from their source and must
-not be edited by hand.
+`.agents/skills/docs/SKILL.md`; `.claude/skills/docs` links to the same source.
+Keep repository-owned skills under `.agents/skills/` with a matching Claude
+link. Update the pinned company skills through `bin/records skills sync`.
+Generated files come from their source and must not be edited by hand.
 
 <!-- nx configuration start-->
 <!-- Leave the start & end comments to automatically receive updates. -->

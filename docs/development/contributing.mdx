@@ -44,11 +44,12 @@ public specification updated before implementation.
 
 The company `shared-sdlc` and `records` skills are pinned in
 `.agents/company-skills.json` and readable under `.agents/skills/` and
-`.claude/skills/`. Maintainers update them from the shared docs checkout:
+`.claude/skills/`. Maintainers update them from the MoltZap repository root,
+using the `bin/records` binary in the `DOCS_INTERNAL_ROOT` checkout:
 
 ```bash
-bin/records skills sync --target /path/to/moltzap --revision DOCS_COMMIT
-bin/records skills check --target /path/to/moltzap --revision DOCS_COMMIT
+"$DOCS_INTERNAL_ROOT/bin/records" skills sync --target . --revision DOCS_COMMIT
+"$DOCS_INTERNAL_ROOT/bin/records" skills check --target . --revision DOCS_COMMIT
 ```
 
 These commands protect local edits and do not modify upstream skills. gstack and
