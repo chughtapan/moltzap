@@ -1046,8 +1046,11 @@ function createRunRoot(
   });
 }
 
-// A Pod already being deleted is skipped: its log stream ends wherever the
-// eviction cut it, which would read as a controller that stopped on its own.
+/**
+ * Skip deleting Pods. Kubernetes caps the beginning of the selected tail, so
+ * halve its line count when capped to recover the final receipt. Each response
+ * and the whole retry sequence stay bounded by the existing call deadline.
+ */
 function readControllerLogs(
   clients: RunControlClients,
   namespace: string,
@@ -1067,16 +1070,30 @@ function readControllerLogs(
     if (podName === undefined) {
       return undefined;
     }
-    const output = yield* kubernetesCall("read controller log", () =>
-      clients.core.readNamespacedPodLog({
-        namespace,
-        name: podName,
-        container: CONTROLLER_NAME,
-        tailLines,
-        limitBytes,
+    return yield* boundCall(
+      "read controller log",
+      Effect.gen(function* () {
+        for (
+          let lines = tailLines;
+          ;
+          lines = Math.max(1, Math.floor(lines / 2))
+        ) {
+          const requestedLines = lines;
+          const output = yield* kubernetesCall("read controller log", () =>
+            clients.core.readNamespacedPodLog({
+              namespace,
+              name: podName,
+              container: CONTROLLER_NAME,
+              tailLines: requestedLines,
+              limitBytes,
+            }),
+          );
+          if (Buffer.byteLength(output, "utf8") < limitBytes || lines <= 1) {
+            return output.length === 0 ? undefined : output;
+          }
+        }
       }),
     );
-    return output.length === 0 ? undefined : output;
   });
 }
 
