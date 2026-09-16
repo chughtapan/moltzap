@@ -27,7 +27,7 @@ const OBSERVATION_INTERVAL_MS = 1_000;
 const FAILED_JOB_DETAIL = "controller Job failed";
 /** Characters of sanitized controller output one failure retains. */
 const RETAINED_DIAGNOSTIC_CHARACTERS = 4_096;
-/** Bytes of controller log fetched, ahead of redaction and that bound. */
+/** Bytes allowed per controller log response, ahead of redaction. */
 const FETCHED_LOG_BYTES = RETAINED_DIAGNOSTIC_CHARACTERS * 2;
 const CONTROLLER_LOG_TAIL_LINES = 200;
 const SENSITIVE_LOG_LINE =

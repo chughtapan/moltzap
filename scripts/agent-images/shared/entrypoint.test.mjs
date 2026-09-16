@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import {
   chmod,
   mkdir,
@@ -11,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { runAgentImage } from "./entrypoint.mjs";
 
 const currentUserId = process.getuid?.() ?? 1_000;
@@ -49,7 +51,7 @@ async function fixture(options = {}) {
     'await writeFile(process.env.MOLTZAPD_STATE_DIRECTORY + "/daemon-env.json", JSON.stringify(process.env));',
     options.daemonExitCode === undefined
       ? 'const keepAlive = setInterval(() => {}, 1000); await new Promise((resolve) => { process.once("SIGTERM", resolve); process.once("SIGINT", resolve); }); clearInterval(keepAlive);'
-      : "await new Promise((resolve) => setTimeout(resolve, 150));",
+      : `const deadline = Date.now() + 10000; while (!(await import("node:fs")).existsSync(${JSON.stringify(hostStarts)})) { if (Date.now() >= deadline) throw new Error("host did not start"); await new Promise((resolve) => setTimeout(resolve, 10)); }`,
     options.daemonExitCode === undefined
       ? "process.exitCode = 0;"
       : "process.exitCode = " + String(options.daemonExitCode) + ";",
@@ -71,9 +73,12 @@ async function fixture(options = {}) {
     "#!/usr/bin/env node",
     'import { appendFile, writeFile } from "node:fs/promises";',
     'await appendFile(process.env.TEST_HOST_STARTS, "start\\n");',
+    options.hostWait === true
+      ? 'const keepAlive = setInterval(() => {}, 1000); const stopped = new Promise((resolve) => { process.once("SIGTERM", resolve); process.once("SIGINT", resolve); });'
+      : "",
     "await writeFile(process.env.TEST_HOST_RECORD, JSON.stringify(process.env));",
     options.hostWait === true
-      ? 'const keepAlive = setInterval(() => {}, 1000); await new Promise((resolve) => { process.once("SIGTERM", resolve); process.once("SIGINT", resolve); }); clearInterval(keepAlive);'
+      ? "await stopped; clearInterval(keepAlive);"
       : "await new Promise((resolve) => setTimeout(resolve, 50));",
     'process.stdout.write("final host output\\n");',
     'process.stderr.write("final host error\\n");',
@@ -236,6 +241,45 @@ test("finalization drains native logs and keeps the container available for coll
   assert.equal(stopped, false);
   process.emit("SIGTERM");
   assert.equal(await running, 0);
+});
+
+test("standalone entrypoint stays alive after finalization until shutdown", async () => {
+  const app = await fixture({ hostWait: true });
+  const child = spawn(
+    process.execPath,
+    [fileURLToPath(new URL("./entrypoint.mjs", import.meta.url))],
+    { env: app.environment, stdio: ["ignore", "ignore", "pipe"] },
+  );
+  let diagnostics = "";
+  child.stderr.on("data", (chunk) => {
+    diagnostics += chunk.toString();
+  });
+  const exited = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  try {
+    await waitForPath(app.hostRecord, 10_000);
+    child.kill("SIGUSR2");
+    await waitForPath(join(app.root, "logs", "finalized.json"), 10_000);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(child.exitCode, null, diagnostics);
+    assert.equal(child.signalCode, null, diagnostics);
+    assert.equal(
+      await readFile(join(app.root, "logs", "runtime.stdout.log"), "utf8"),
+      "final host output\n",
+    );
+    assert.equal(child.kill("SIGTERM"), true);
+    assert.deepEqual(await exited, { code: 0, signal: null });
+  } finally {
+    child.kill("SIGTERM");
+    const deadline = setTimeout(() => child.kill("SIGKILL"), 5_000);
+    try {
+      await exited;
+    } finally {
+      clearTimeout(deadline);
+    }
+  }
 });
 
 test("finalization kills descendants holding stdout after the host leader exits", async () => {
