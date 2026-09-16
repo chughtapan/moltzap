@@ -40,7 +40,7 @@ protocol, daemon representation, and Simulator cuts are ready.
 | Endpoint history, durability, catch-up, and Router re-anchor | `conversation-history.md`, `harness/tasks.md`, `router.md` | ready; Client owns the exact canonical evidence, nested transport, fixed limits, genesis anchor, and private hashes |
 | Daemon process and one state-dependent `/mcp` | `harness/daemon.md`, `management.md` | ready; process configuration, SQLite ownership, extension listen adapter, and closed management DTO semantics are exact |
 | `HarnessEndpoint` and adapter migration | `harness/client.md`, `harness/output.md`, `harness/ingress.md`, `harness/channels.md`, `management.md` | ready; explicit agent/group send, stable addressed delivery, stock host callbacks, and MCP-only management |
-| Simulator and eval migration | `layer-interfaces.md` | ready; compatible facades and `RunLedger` remain while runtimes use addressed Client traffic through stock host callbacks and host-owned sessions |
+| Simulator and external evaluation consumers | `layer-interfaces.md` | ready; compatible facades and `RunLedger` remain while runtimes use addressed Client traffic through stock host callbacks and host-owned sessions |
 
 Client and simulator work must not use compatibility shims or semantic
 reinterpretation. The five incompatible simulator contracts are removal input,
@@ -54,8 +54,8 @@ The final workspace contains exactly these six package products:
 - `@moltzap/router`;
 - `@moltzap/client`;
 - `@moltzap/openclaw-channel`;
-- `@moltzap/nanoclaw-channel`;
-- `@moltzap/simulator`. and
+- `@moltzap/nanoclaw-channel`; and
+- `@moltzap/simulator`.
 
 [`layer-interfaces.md`](./layer-interfaces.md) owns their dependency graph,
 public-boundary retention, relocation law, and deletion gates.
