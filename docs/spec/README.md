@@ -48,15 +48,14 @@ not retained behavior.
 
 ## Package set
 
-The final workspace contains exactly these seven package products:
+The final workspace contains exactly these six package products:
 
 - `@moltzap/identity`;
 - `@moltzap/router`;
 - `@moltzap/client`;
 - `@moltzap/openclaw-channel`;
 - `@moltzap/nanoclaw-channel`;
-- `@moltzap/simulator`; and
-- `@moltzap/evals`.
+- `@moltzap/simulator`. and
 
 [`layer-interfaces.md`](./layer-interfaces.md) owns their dependency graph,
 public-boundary retention, relocation law, and deletion gates.
@@ -80,7 +79,7 @@ public-boundary retention, relocation law, and deletion gates.
 | `harness/channels.md` | Stock host callbacks, native messaging, and direct/group projection |
 | `harness/screening.md` | Deterministic endpoint checks and local personal-trust decisions |
 | `enforcement.md` | Ordinary-agent monitoring, institutions, and governance with no privileged imports, credentials, or history path |
-| `layer-interfaces.md` | Exact seven-package DAG, type ownership, retained simulator surface, migration gates, and cross-layer laws |
+| `layer-interfaces.md` | Exact six-package DAG, type ownership, retained simulator surface, migration gates, and cross-layer laws |
 
 `harness/contacts.md` owns the absence of a contact/group directory and the
 fixed-group boundary.
@@ -123,8 +122,7 @@ runtime credential/Router authority, and durable Router-commit evidence.
 - Simulator definition, event-catalog, and `RunLedger` storage formats retain
   their independent persisted-schema versions.
 - The npm package version is a release namespace of its own: five packages
-  publish as one calendar version set while `@moltzap/nanoclaw-channel` and
-  `@moltzap/evals` stay private, per
+  publish as one calendar version set while `@moltzap/nanoclaw-channel` stays private, per
   [`layer-interfaces.md`](./layer-interfaces.md) → Publication and versions.
   It never implies a wire, MCP, or persisted-schema compatibility fact.
 

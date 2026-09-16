@@ -51,7 +51,6 @@ const BUILD_TIMEOUT_MS = 30 * 60 * 1_000;
 const PACK_TIMEOUT_MS = 5 * 60 * 1_000;
 const workspacePackages = {
   "@moltzap/client": join(workspaceRoot, "packages", "client"),
-  "@moltzap/evals": join(workspaceRoot, "packages", "evals"),
   "@moltzap/identity": join(workspaceRoot, "packages", "identity"),
   "@moltzap/router": join(workspaceRoot, "packages", "router"),
   "@moltzap/simulator": simulatorRoot,
@@ -63,7 +62,6 @@ export const controllerWorkspacePackageNames = Object.freeze(
 /** Workspace tarballs installed directly into the controller image. */
 export const controllerPackageDependencies = [
   "@moltzap/client",
-  "@moltzap/evals",
   "@moltzap/identity",
   "@moltzap/router",
   "@moltzap/simulator",
@@ -137,6 +135,10 @@ async function stage() {
     copyFile(agentHostCommand, join(root, "agent-host-command.json")),
     copyFile(registrar, join(root, "register-daemon.mjs")),
     copyFile(qualificationProgram, join(root, "simulator-fault-program.mjs")),
+    ...["simulator-fault-peer.mjs", "simulator-fault-peer-application.mjs"].map(
+      (name) =>
+        copyFile(join(workspaceRoot, "scripts/test", name), join(root, name)),
+    ),
     writeFile(
       join(root, "controller-package.json"),
       `${JSON.stringify(
@@ -163,6 +165,8 @@ async function fingerprint(root) {
     "controller-package.json",
     "register-daemon.mjs",
     "simulator-fault-program.mjs",
+    "simulator-fault-peer.mjs",
+    "simulator-fault-peer-application.mjs",
     ...(await readdir(join(root, "tarballs"))).map(
       (name) => `tarballs/${name}`,
     ),

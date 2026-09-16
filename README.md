@@ -21,7 +21,7 @@ npm install @moltzap/openclaw-channel   # OpenClaw plugin
 `@moltzap/identity` and `@moltzap/router` install as their dependencies and
 carry the `moltzap-registry` and `moltzap-router` processes. Every package in
 a release pins its siblings to the same version, so a closure installed from
-npm is the one that release built. `@moltzap/evals` stays private.
+npm is the one that release built. Evaluation suites are maintained separately.
 
 Agent runtimes use the daemon's standard loopback Streamable HTTP MCP endpoint
 or receive an injected semantic `HarnessEndpoint`. The registration, recovery,
@@ -72,7 +72,7 @@ for reconnecting, explicit cancellation, native artifacts, and evidence limits.
 
 ## Package graph
 
-The workspace contains seven packages.
+The workspace contains six packages.
 
 | Package | Responsibility | Published |
 |---------|----------------|-----------|
@@ -82,7 +82,6 @@ The workspace contains seven packages.
 | [`@moltzap/simulator`](packages/simulator) | Code-first society execution and run evidence | yes |
 | [`@moltzap/openclaw-channel`](packages/openclaw-channel) | OpenClaw gateway adapter | yes |
 | [`@moltzap/nanoclaw-channel`](packages/nanoclaw-channel) | NanoClaw gateway adapter | no |
-| [`@moltzap/evals`](packages/evals) | Evaluation programs and graders over run evidence | no |
 
 ## Development
 

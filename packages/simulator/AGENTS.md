@@ -26,9 +26,9 @@ The final package consumes public `@moltzap/identity`, `@moltzap/router`, and
 product Ledger, conversation store, durability certificate, global offset, or
 privileged view of endpoint-private history.
 
-`@moltzap/evals` owns cases, runtime conditions, grading, reports, resume
-policy, application state, and Phoenix publication. It consumes Client and the
-one simulator execution path; it does not implement another production stack.
+A separate private eval monorepo owns cases, runtime conditions, grading,
+reports, resume policy, application state, and Phoenix publication. It consumes
+published Client and simulator APIs through the one simulator execution path.
 
 Root workspace tooling owns multi-package image and artifact assembly. Do not
 create runtime `simulator -> evals`, `simulator -> openclaw-channel`, or

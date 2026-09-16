@@ -14,9 +14,6 @@
       "path": "packages/simulator"
     },
     {
-      "path": "packages/evals"
-    },
-    {
       "path": "packages/identity"
     },
     {

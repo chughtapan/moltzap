@@ -1,4 +1,4 @@
 [
   "node",
-  "/opt/moltzap/node_modules/@moltzap/evals/dist/peer-application.js"
+  "/opt/moltzap/qualification/simulator-fault-peer-application.mjs"
 ]

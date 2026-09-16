@@ -327,7 +327,7 @@ cross-conversation context.
 
 ### Packages
 
-The cutover finishes with exactly seven products under `packages/*`:
+The cutover finishes with exactly six products under `packages/*`:
 
 | Package | Owns | Direct production dependencies |
 |---|---|---|
@@ -337,14 +337,12 @@ The cutover finishes with exactly seven products under `packages/*`:
 | `@moltzap/openclaw-channel` | OpenClaw adapter | client |
 | `@moltzap/nanoclaw-channel` | NanoClaw adapter | client |
 | `@moltzap/simulator` | Simulation driver, faults, cluster execution, simulation `RunLedger` | identity, router, client |
-| `@moltzap/evals` | Evaluations, grading, reports | client, simulator |
 
 There are no compatibility package names or forwarding exports. Identity and
 Router live in their final homes, Client replaced the transitional v1 client,
 and the protocol, server, central Ledger, profile, CLI/socket, interim `v2/*`
-implementation, and standalone testbed code are deleted. Five of the seven
-packages publish to npm as one version set while `@moltzap/nanoclaw-channel`
-and `@moltzap/evals` stay private, as defined in
+implementation, and standalone testbed code are deleted. Five of the six
+packages publish to npm as one version set while `@moltzap/nanoclaw-channel` stays private, as defined in
 [Publication and versions](spec/layer-interfaces.md#publication-and-versions).
 The package version is independent of the wire compatibility value.
 
