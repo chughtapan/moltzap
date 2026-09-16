@@ -43,8 +43,13 @@ do not ask for a separate plan approval unless the scope changes.
   those records cannot carry what the next agent needs.
 
 Shared workflow and internal decisions live in
-[`social-harness/docs-internal`](https://github.com/social-harness/docs-internal/blob/main/README.md).
-Set `DOCS_INTERNAL_ROOT` to an accessible checkout and start with its README.
+[`social-harness/docs-internal`](https://github.com/social-harness/docs-internal/blob/c9fd163aad4cb267a92be89922e1c13bc553b751/README.md).
+Set `DOCS_INTERNAL_ROOT` to a checkout at the revision recorded in
+`.agents/company-skills.json` and start with its README. That revision pins the
+workflow and navigation; it does not approve proposed decisions. Public
+contracts remain the implementation baseline until a change is admitted.
+Agree on a complete decision candidate before starting its admission review;
+do not automatically review intermediate drafts.
 Load the pinned `shared-sdlc` skill under `.agents/skills/` or `.claude/skills/`
 when planning a change. Load `records` when filing or reviewing an internal
 record. Both hosts use the revision in `.agents/company-skills.json`; sync and
