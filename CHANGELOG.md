@@ -16,6 +16,15 @@ heading below in its release commit.
   the upstream eval package, commands, and CI consumers while retaining simulator
   protocol qualification with a dedicated fixture.
 
+### Fixed
+
+- Keep agent containers available after stop/flush so the controller can collect
+  final evidence before teardown.
+- Recover the final controller receipt when verbose preceding logs exceed the
+  Kubernetes log byte limit, using bounded log-tail retries.
+- Include the daemon registrar at the path controlled endpoints require in the
+  controller image, allowing those endpoints to start.
+
 ## [2026.916.0] - 2026-09-16
 
 ### Added

@@ -16,6 +16,7 @@ RUN npm install --omit=dev --no-audit --no-fund \
 COPY --chown=node:node agent-entrypoint.mjs /opt/moltzap/agent/entrypoint.mjs
 COPY --chown=node:node agent-host-command.json /opt/moltzap/agent/host-command.json
 COPY --chown=node:node register-daemon.mjs /opt/moltzap/agent/register-daemon.mjs
+COPY --chown=node:node register-daemon.mjs /opt/moltzap/register-daemon.mjs
 COPY --chown=node:node simulator-fault-program.mjs /opt/moltzap/qualification/simulator-fault-program.mjs
 COPY --chown=node:node simulator-fault-peer.mjs /opt/moltzap/qualification/simulator-fault-peer.mjs
 COPY --chown=node:node simulator-fault-peer-application.mjs /opt/moltzap/qualification/simulator-fault-peer-application.mjs

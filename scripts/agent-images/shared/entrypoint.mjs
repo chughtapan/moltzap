@@ -455,7 +455,13 @@ export async function runAgentImage(environment = process.env) {
     ]);
     if (finalization !== undefined) {
       await finalization;
-      await shutdown;
+      /** Pending Promises and signal listeners do not keep a standalone Node process alive. */
+      const keepAlive = setInterval(() => undefined, 60_000);
+      try {
+        await shutdown;
+      } finally {
+        clearInterval(keepAlive);
+      }
       return 0;
     }
     await terminate(stopped.label === "moltzapd" ? host : daemon);
