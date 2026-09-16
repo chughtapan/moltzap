@@ -5,11 +5,6 @@ description: |
   diagrams live, the Mermaid dialect GitHub actually accepts, and when to
   run pnpm docs:generate. Load before writing or editing docs, adding a
   flow diagram, or touching anything under docs/.
-allowed-tools:
-  - Bash
-  - Read
-  - Write
-  - Edit
 ---
 
 # Documentation
