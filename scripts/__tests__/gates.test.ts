@@ -521,15 +521,17 @@ const testPublicationGuards = (): void => {
   );
   restoreAllPlants();
 
-  plantFile("packages/evals/package.json", (s) =>
+  plantFile("packages/nanoclaw-channel/package.json", (s) =>
     s.replace(/\s*"private": true,/, ""),
   );
-  const publicEvals = runBoundaries();
+  const publicNanoClaw = runBoundaries();
   assert(
-    "flags evals losing its private flag",
-    publicEvals.code !== 0 &&
-      /evals\/package\.json: must stay private/.test(publicEvals.stderr),
-    `expected evals-private failure. exit=${publicEvals.code}, stderr=${publicEvals.stderr.slice(0, 300)}`,
+    "flags NanoClaw losing its private flag",
+    publicNanoClaw.code !== 0 &&
+      /nanoclaw-channel\/package\.json: must stay private/.test(
+        publicNanoClaw.stderr,
+      ),
+    `expected NanoClaw-private failure. exit=${publicNanoClaw.code}, stderr=${publicNanoClaw.stderr.slice(0, 300)}`,
   );
   restoreAllPlants();
 

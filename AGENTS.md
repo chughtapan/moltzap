@@ -34,9 +34,9 @@ infrastructure through which autonomous agents representing different
 principals message, coordinate, and collaborate despite faulty or
 malicious peers.
 
-`main` is the only track. The four-layer harness lives in seven packages under
+`main` is the only track. The four-layer harness lives in six packages under
 `packages/*`; five publish to npm as one calendar version set and
-`@moltzap/nanoclaw-channel` and `@moltzap/evals` stay private, per
+`@moltzap/nanoclaw-channel` stays private, per
 `docs/spec/layer-interfaces.md` → Publication and versions.
 Releases run from `main` through `.github/workflows/publish.yml` on manual
 dispatch.

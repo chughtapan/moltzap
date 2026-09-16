@@ -220,9 +220,9 @@ their own exit codes, retries, operator messages, and report states.
 
 A single simulator invocation is one definition-bound society and one ledger.
 Schedules, matrices, retries, sharding, naming, resumption, and aggregation
-stay in the calling application. For example, `packages/evals` submits every
-case-condition cell as its own `RunSpec` through the selected local or GKE
-profile, then persists the terminal attempt in its report database.
+stay in the calling application. Evaluation suites in the separate private
+monorepo submit each case-condition cell as its own `RunSpec`, then persist
+the terminal attempt in their report store.
 
 This keeps suite orchestration failures separate from the evidence produced by
 an individual society.

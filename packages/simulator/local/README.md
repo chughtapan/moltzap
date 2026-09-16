@@ -136,8 +136,8 @@ completed on a live cluster.
 
 `scripts/test/simulator-fault-end-to-end.mjs` is the workspace-owned bounded
 live data-path qualification. Root tooling owns it because it composes the
-Simulator with deterministic Evals peer applications already packed into the
-support image; the Simulator package does not acquire an Evals runtime
+Simulator with deterministic endpoint peers already packed into the
+support image; the Simulator package does not acquire an evaluation runtime
 dependency. The check requires no model credential and spends no model tokens.
 A controller-owned endpoint starts one conversation with each peer. The run
 holds one peer-to-controller link, proves the other peer can complete a reply

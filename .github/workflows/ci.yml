@@ -52,8 +52,6 @@ jobs:
           pnpm nx run @moltzap/simulator:local-profile-check
           pnpm nx run @moltzap/simulator:gke-profile-check
           pnpm nx run @moltzap/simulator:gke-terraform-check
-      - name: Verify Phoenix infrastructure module
-        run: pnpm nx run @moltzap/evals:phoenix-terraform-check
       - run: pnpm typecheck
       - name: Lint
         run: pnpm lint
@@ -61,16 +59,16 @@ jobs:
       # The graph check pins every project, edge, root, and package-specific
       # target. Exact runs execute the common package floor, with unit-test
       # targets only where a package owns a unit-test surface.
-      - name: Verify seven-product Nx graph and target floor
+      - name: Verify six-product Nx graph and target floor
         run: |
           pnpm nx graph --print > "${RUNNER_TEMP}/moltzap-project-graph.json"
           node scripts/architecture/check-boundaries.js --nx-graph "${RUNNER_TEMP}/moltzap-project-graph.json"
-          for project in @moltzap/identity @moltzap/router @moltzap/client @moltzap/openclaw-channel @moltzap/nanoclaw-channel @moltzap/simulator @moltzap/evals; do
+          for project in @moltzap/identity @moltzap/router @moltzap/client @moltzap/openclaw-channel @moltzap/nanoclaw-channel @moltzap/simulator; do
             for target in build lint arch:check; do
               pnpm nx run "${project}:${target}"
             done
           done
-          for project in @moltzap/identity @moltzap/router @moltzap/client @moltzap/openclaw-channel @moltzap/simulator @moltzap/evals; do
+          for project in @moltzap/identity @moltzap/router @moltzap/client @moltzap/openclaw-channel @moltzap/simulator; do
             for target in typecheck:tests test; do
               pnpm nx run "${project}:${target}"
             done

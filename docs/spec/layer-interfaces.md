@@ -15,7 +15,7 @@ does not appear in package names or public type tags.
 
 ## Exact package graph
 
-The final workspace has exactly seven package products:
+The final workspace has exactly six package products:
 
 | Package | May depend on | Owns |
 |---|---|---|
@@ -25,11 +25,10 @@ The final workspace has exactly seven package products:
 | `@moltzap/openclaw-channel` | `@moltzap/client` | OpenClaw host integration against an injected or MCP-backed client |
 | `@moltzap/nanoclaw-channel` | `@moltzap/client` | NanoClaw host integration against its MCP-backed client |
 | `@moltzap/simulator` | `@moltzap/identity`, `@moltzap/router`, `@moltzap/client` | system-driver acquisition, run kernel, fault controls, event catalog, and simulation `RunLedger` |
-| `@moltzap/evals` | `@moltzap/client`, `@moltzap/simulator` | private evaluation execution, reports, and CLI modes |
 
-Production packages do not depend on simulator or evals. Runtime adapters do
-not import Identity, Router, Client internals, simulator, evals, or each other.
-Simulator and evals are not alternate production services.
+Production packages do not depend on simulator or evaluation applications.
+Runtime adapters do not import Identity, Router, Client internals, simulator,
+evaluation suites, or each other. Simulator is not an alternate production service.
 
 There are no product packages named `protocol`, `server`, `transcript`,
 `ledger`, `harness`, or `testbed`, and no `v2/` directory: the constitution is
@@ -38,7 +37,7 @@ repo.
 
 Root-owned build and image orchestration may consume several package artifacts
 without creating package-runtime dependencies. Copying an adapter source or
-packing evals into an image cannot create an undeclared simulator dependency.
+packing application fixtures into an image cannot create an undeclared simulator dependency.
 
 ## Relocation and deletion law
 
@@ -83,7 +82,7 @@ they no longer block Client, Simulator, or eval migration.
   (`moltzap-sim run --profile local|gke <spec.mjs>`, printing one
   `ProfileRunResult` line), and every declaration compatible with the final
   HarnessEndpoint/daemon semantics below.
-- Adapter and eval entry points retain compatible host/build behavior while
+- Adapter entry points retain compatible host/build behavior while
   using the real daemon-backed Client.
 
 The final publication list and versioning policy are release choices. They do
@@ -158,7 +157,7 @@ remain private. `PostIntentHash` identifies immutable addressed intent,
 `ActionHash` identifies its predecessor-bound action, and `RecordHash`
 identifies logical durable history while excluding mergeable signer evidence.
 
-### Simulator and evals
+### Simulator and evaluation applications
 
 Simulator owns immutable simulator definitions, the one `StackProvider`-style
 system-driver boundary, fault controls, event evidence, and `RunLedger`.
@@ -170,8 +169,10 @@ capabilities. Runtime subjects receive only `HarnessEndpoint` or MCP, never raw
 Router, Registry credentials, endpoint keys, daemon internals, or local store
 access.
 
-Evals consumes Client and simulator public values. It owns no production
-protocol representation.
+Evaluation applications live in a separate private monorepo. They consume
+published Client and simulator APIs and own scenarios, orchestration, grading,
+reports, and publication. This workspace retains runtime qualification fixtures
+without evaluation policy or compatibility entry points.
 
 ## Identity and Router capability behavior
 
@@ -386,8 +387,8 @@ private signing/admission mounts; registration completes before the
 application starts. The application sees only
 `MOLTZAP_MCP_URL=http://127.0.0.1:<port>/mcp`.
 
-All sixteen evaluation case definitions execute through the daemon-backed
-Client. Client and Simulator inject no cross-conversation context. Stock
+External evaluation applications execute through the daemon-backed Client.
+Client and Simulator inject no cross-conversation context. Stock
 runtimes own their session topology and cross-address context.
 
 ## Error boundaries
@@ -407,7 +408,7 @@ runtimes own their session topology and cross-address context.
 ## Acceptance criteria
 
 - Workspace, TypeScript, Nx, manifest, and architecture graphs contain exactly
-  the seven packages and exactly the allowed edges above.
+  the six packages and exactly the allowed edges above.
 - Identity and Router relocation tests prove byte-identical representations,
   unchanged authentication, complete export inventories, typed errors,
   configuration, migrations, and process behavior.
@@ -431,8 +432,9 @@ runtimes own their session topology and cross-address context.
   active fault, each admitted post-Router perturbation under an explicit
   directed scope, and the absence of any runtime-facing fault control. A
   faulted recipient observation is never classified as Router conformance.
-- All sixteen eval definitions run without Client- or Simulator-injected
-  cross-conversation context; any session topology is runtime-owned.
+- Client and Simulator inject no cross-conversation context into runtime
+  qualification or external evaluation applications; session topology is
+  runtime-owned.
 - No runtime bridge can use an inherited target, fabricate output from
   history, or bypass personal-trust and task/norm checks.
 
@@ -440,8 +442,7 @@ runtimes own their session topology and cross-address context.
 
 Five packages publish to npm as one version set: `@moltzap/identity`,
 `@moltzap/router`, `@moltzap/client`, `@moltzap/openclaw-channel`,
-and `@moltzap/simulator`. `@moltzap/nanoclaw-channel` and `@moltzap/evals` stay
-private.
+and `@moltzap/simulator`. `@moltzap/nanoclaw-channel` stays private.
 
 - One release computes one calendar version, `YYYY.MDD.N`, one past the
   highest counter in the union of the five packages' npm histories and the
@@ -454,7 +455,7 @@ private.
   provenance; the same run pushes the simulator controller, OpenClaw, and
   NanoClaw images tagged with the version and records their digests.
 - `scripts/architecture/check-boundaries.js` fails when a published manifest
-  is private, when the five versions differ, when evals or the NanoClaw adapter
+  is private, when the five versions differ, when the NanoClaw adapter
   is not private, or when the release workflow's package list drifts from the
   published set. The client, OpenClaw, NanoClaw, and simulator `test:pack`
   gates pack the five published packages and the NanoClaw adapter through
@@ -466,6 +467,6 @@ private.
 ## Deliberate deferrals
 
 External-consumer cutover remains unresolved. Nothing here authorizes an
-eighth package, compatibility facade, or restoration of a removed Simulator
+additional package, compatibility facade, or restoration of a removed Simulator
 contract. The post-Router Simulator link-fault boundary is a current decision,
 not a deferral.

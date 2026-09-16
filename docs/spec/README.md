@@ -40,7 +40,7 @@ protocol, daemon representation, and Simulator cuts are ready.
 | Endpoint history, durability, catch-up, and Router re-anchor | `conversation-history.md`, `harness/tasks.md`, `router.md` | ready; Client owns the exact canonical evidence, nested transport, fixed limits, genesis anchor, and private hashes |
 | Daemon process and one state-dependent `/mcp` | `harness/daemon.md`, `management.md` | ready; process configuration, SQLite ownership, extension listen adapter, and closed management DTO semantics are exact |
 | `HarnessEndpoint` and adapter migration | `harness/client.md`, `harness/output.md`, `harness/ingress.md`, `harness/channels.md`, `management.md` | ready; explicit agent/group send, stable addressed delivery, stock host callbacks, and MCP-only management |
-| Simulator and eval migration | `layer-interfaces.md` | ready; compatible facades and `RunLedger` remain while runtimes use addressed Client traffic through stock host callbacks and host-owned sessions |
+| Simulator and external evaluation consumers | `layer-interfaces.md` | ready; compatible facades and `RunLedger` remain while runtimes use addressed Client traffic through stock host callbacks and host-owned sessions |
 
 Client and simulator work must not use compatibility shims or semantic
 reinterpretation. The five incompatible simulator contracts are removal input,
@@ -48,15 +48,14 @@ not retained behavior.
 
 ## Package set
 
-The final workspace contains exactly these seven package products:
+The final workspace contains exactly these six package products:
 
 - `@moltzap/identity`;
 - `@moltzap/router`;
 - `@moltzap/client`;
 - `@moltzap/openclaw-channel`;
-- `@moltzap/nanoclaw-channel`;
-- `@moltzap/simulator`; and
-- `@moltzap/evals`.
+- `@moltzap/nanoclaw-channel`; and
+- `@moltzap/simulator`.
 
 [`layer-interfaces.md`](./layer-interfaces.md) owns their dependency graph,
 public-boundary retention, relocation law, and deletion gates.
@@ -80,7 +79,7 @@ public-boundary retention, relocation law, and deletion gates.
 | `harness/channels.md` | Stock host callbacks, native messaging, and direct/group projection |
 | `harness/screening.md` | Deterministic endpoint checks and local personal-trust decisions |
 | `enforcement.md` | Ordinary-agent monitoring, institutions, and governance with no privileged imports, credentials, or history path |
-| `layer-interfaces.md` | Exact seven-package DAG, type ownership, retained simulator surface, migration gates, and cross-layer laws |
+| `layer-interfaces.md` | Exact six-package DAG, type ownership, retained simulator surface, migration gates, and cross-layer laws |
 
 `harness/contacts.md` owns the absence of a contact/group directory and the
 fixed-group boundary.
@@ -123,8 +122,7 @@ runtime credential/Router authority, and durable Router-commit evidence.
 - Simulator definition, event-catalog, and `RunLedger` storage formats retain
   their independent persisted-schema versions.
 - The npm package version is a release namespace of its own: five packages
-  publish as one calendar version set while `@moltzap/nanoclaw-channel` and
-  `@moltzap/evals` stay private, per
+  publish as one calendar version set while `@moltzap/nanoclaw-channel` stays private, per
   [`layer-interfaces.md`](./layer-interfaces.md) → Publication and versions.
   It never implies a wire, MCP, or persisted-schema compatibility fact.
 

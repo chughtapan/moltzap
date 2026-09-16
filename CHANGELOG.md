@@ -10,6 +10,12 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Changed
+
+- Move evaluation suites and management into a separate private monorepo. Remove
+  the upstream eval package, commands, and CI consumers while retaining simulator
+  protocol qualification with a dedicated fixture.
+
 ## [2026.916.2] - 2026-09-16
 
 ### Fixed

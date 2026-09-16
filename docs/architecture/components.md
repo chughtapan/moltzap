@@ -47,7 +47,6 @@ second MCP listener, or fallback bind.
 | `@moltzap/openclaw-channel` | OpenClaw consumer adapter | client |
 | `@moltzap/nanoclaw-channel` | NanoClaw consumer adapter | client |
 | `@moltzap/simulator` | Production-stack driver, faults, clusters, run evidence | identity, router, client |
-| `@moltzap/evals` | Evaluation definitions, grading, reports | client, simulator |
 
 The root workspace may assemble images and deployment artifacts from several
 products. That artifact graph does not create runtime package imports.
