@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.916.0] - 2026-09-16
+
 ### Added
 
 - Resume or cancel a submitted execution by its persisted identity. Reusing that
