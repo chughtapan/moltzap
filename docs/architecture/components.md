@@ -1,7 +1,7 @@
 # Four-layer runtime components
 
 This page orients implementers to the current constitution. Normative behavior
-lives in `docs/vision.md`, current ADR outcomes, and `docs/spec/`.
+lives in `docs/vision.md` and `docs/spec/`.
 
 ## Runtime topology
 
@@ -101,6 +101,5 @@ semantic Client boundary.
 The cutover removes the umbrella protocol and server packages, central Ledger,
 product Transcript and `LedgerOffset`, profiles, CLI/socket transport,
 standalone testbed, obsolete `v2/*` implementations, and generation-selection
-shims. Historical ADRs and source evidence retain those words when needed to
-preserve lineage; executable code and current orientation do not retain the
-machinery.
+shims. Internal decision history is maintained in the shared documentation
+repository linked from `AGENTS.md`.
