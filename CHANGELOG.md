@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.916.2] - 2026-09-16
+
 ### Fixed
 
 - Select OpenClaw's embedded runtime when MCP servers are configured so agents
