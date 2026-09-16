@@ -52,12 +52,20 @@ runControllerProcess(Effect.acquireUseRelease(
 ));
 `;
 
-class ControllerExitedBeforeOutput extends Data.TaggedError(
-  "ControllerExitedBeforeOutput",
-)<{ readonly marker: string }> {}
+/** Cold imports can exceed a minute under concurrent builds; signal handling has its own short deadline. */
+const STARTUP_TIMEOUT_MS = 120_000;
+const SIGNAL_TIMEOUT_MS = 5_000;
 
-function waitForOutput(child: ChildProcessWithoutNullStreams, marker: string) {
-  return Effect.async<string, ControllerExitedBeforeOutput>((resume) => {
+class ControllerOutputFailed extends Data.TaggedError(
+  "ControllerOutputFailed",
+)<{ readonly marker: string; readonly detail: string }> {}
+
+function waitForOutput(
+  child: ChildProcessWithoutNullStreams,
+  marker: string,
+  options: { readonly timeoutMs: number; readonly stderr: () => string },
+) {
+  return Effect.async<string, ControllerOutputFailed>((resume) => {
     let output = "";
     function removeListeners() {
       child.stdout.removeListener("data", receive);
@@ -72,12 +80,32 @@ function waitForOutput(child: ChildProcessWithoutNullStreams, marker: string) {
     }
     function exited() {
       removeListeners();
-      resume(Effect.fail(new ControllerExitedBeforeOutput({ marker })));
+      resume(
+        Effect.fail(
+          new ControllerOutputFailed({
+            marker,
+            detail: `Controller exited before acknowledgement: ${options.stderr()}`,
+          }),
+        ),
+      );
+    }
+    if (child.exitCode !== null || child.signalCode !== null) {
+      exited();
+      return;
     }
     child.stdout.on("data", receive);
     child.once("exit", exited);
     return Effect.sync(removeListeners);
-  });
+  }).pipe(
+    Effect.timeoutFail({
+      duration: options.timeoutMs,
+      onTimeout: () =>
+        new ControllerOutputFailed({
+          marker,
+          detail: `No acknowledgement within ${String(options.timeoutMs)}ms: ${options.stderr()}`,
+        }),
+    }),
+  );
 }
 
 it("retains the final receipt after repeated SIGTERM during finalization", async () => {
@@ -86,21 +114,34 @@ it("retains the final receipt after repeated SIGTERM during finalization", async
     stdio: "pipe",
   });
   const exit = once(child, "exit");
+  let stderr = "";
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr = (stderr + chunk.toString()).slice(-8192);
+  });
+  const wait = (marker: string, timeoutMs = SIGNAL_TIMEOUT_MS) =>
+    Effect.runPromise(
+      waitForOutput(child, marker, {
+        timeoutMs,
+        stderr: () => stderr,
+      }),
+    );
   try {
-    await Effect.runPromise(waitForOutput(child, "ready\n"));
-    const finalizing = Effect.runPromise(waitForOutput(child, "finalizing\n"));
+    await wait("ready\n", STARTUP_TIMEOUT_MS);
+    const finalizing = wait("finalizing\n");
     child.kill("SIGTERM");
     await finalizing;
-    const alive = Effect.runPromise(waitForOutput(child, "alive\n"));
+    const alive = wait("alive\n");
     child.kill("SIGTERM");
     child.stdin.write("probe\n");
     await alive;
-    const receipt = Effect.runPromise(waitForOutput(child, "\n"));
+    const receipt = wait("\n");
     child.kill("SIGTERM");
     child.stdin.write("release\n");
     const summary = decodeControllerRunSummary(await receipt);
     expect(summary?._tag).toBe("ClusterLost");
-    const result: unknown = await exit;
+    const result: unknown = await Effect.runPromise(
+      Effect.tryPromise(() => exit).pipe(Effect.timeout(SIGNAL_TIMEOUT_MS)),
+    );
     expect(
       Schema.decodeUnknownSync(Schema.Tuple(Schema.Number, Schema.Null))(
         result,
@@ -108,5 +149,6 @@ it("retains the final receipt after repeated SIGTERM during finalization", async
     ).toEqual([0, null]);
   } finally {
     child.kill("SIGKILL");
+    await exit;
   }
-}, 15_000);
+}, 150_000);

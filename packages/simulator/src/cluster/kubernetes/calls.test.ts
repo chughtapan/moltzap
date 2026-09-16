@@ -4,6 +4,7 @@ import { effect as effectTest } from "@effect/vitest";
 import {
   ApiException,
   AppsV1Api,
+  CoreV1Api,
   Exec,
   KubeConfig,
 } from "@kubernetes/client-node";
@@ -24,12 +25,79 @@ import {
   KubernetesCallFailed,
   kubernetesCallTimeout,
   makeInClusterKubernetesSocietyApi,
+  makeKubernetesRunControlApi,
   makeKubernetesRunWorkerInstallApi,
   readFailureDetail,
   selectConfiguredKubeContext,
 } from "./calls.js";
 
 const LOCAL_KUBE_CONTEXT = "kind-moltzap-isolated";
+
+function controllerLogFixture(lines: readonly string[]) {
+  vi.spyOn(KubeConfig.prototype, "loadFromDefault").mockReturnValue(undefined);
+  vi.spyOn(KubeConfig.prototype, "getCurrentCluster").mockReturnValue({
+    name: "test",
+    server: "https://kubernetes.invalid",
+    skipTLSVerify: false,
+  });
+  vi.spyOn(CoreV1Api.prototype, "listNamespacedPod").mockResolvedValue({
+    items: [{ metadata: { name: "controller-pod" } }],
+  });
+  const read = vi
+    .spyOn(CoreV1Api.prototype, "readNamespacedPodLog")
+    .mockImplementation((request) =>
+      Promise.resolve(
+        Buffer.from(
+          `${lines.slice(-(request.tailLines ?? lines.length)).join("\n")}\n`,
+        )
+          .subarray(0, request.limitBytes)
+          .toString("utf8"),
+      ),
+    );
+  return { api: makeKubernetesRunControlApi(), read };
+}
+
+describe("bounded controller log tails", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([
+    {
+      name: "many warning lines",
+      warnings: Array.from({ length: 199 }, () => "w".repeat(1024)),
+    },
+    { name: "one oversized warning line", warnings: ["w".repeat(16_384)] },
+  ])("recovers the final receipt after $name", async ({ warnings }) => {
+    const receipt =
+      'moltzap.controller-result/v1 {"_tag":"LedgerAllocationFailed"}';
+    const { api, read } = controllerLogFixture([...warnings, receipt]);
+
+    const output = await Effect.runPromise(
+      api.readControllerLogs("run", 200, 8192),
+    );
+
+    expect(output?.endsWith(`${receipt}\n`)).toBe(true);
+    expect(read.mock.calls.length).toBeGreaterThan(1);
+    expect(read.mock.calls.length).toBeLessThanOrEqual(9);
+    expect(
+      read.mock.calls.every(([request]) => request.limitBytes === 8192),
+    ).toBe(true);
+  });
+
+  it("keeps trailing failure diagnostics beside the receipt without another read", async () => {
+    const lines = [
+      'moltzap.controller-result/v1 {"_tag":"LedgerAllocationFailed"}',
+      "Simulator controller execution failed",
+    ];
+    const { api, read } = controllerLogFixture(lines);
+
+    const output = await Effect.runPromise(
+      api.readControllerLogs("run", 200, 8192),
+    );
+
+    expect(output).toBe(`${lines.join("\n")}\n`);
+    expect(read).toHaveBeenCalledOnce();
+  });
+});
 
 function harvestProbe() {
   vi.spyOn(KubeConfig.prototype, "loadFromDefault").mockReturnValue(undefined);
