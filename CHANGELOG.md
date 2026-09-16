@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.916.1] - 2026-09-16
+
 ### Fixed
 
 - Keep agent containers available after stop/flush so the controller can collect
