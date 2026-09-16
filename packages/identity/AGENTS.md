@@ -1,7 +1,7 @@
 # Identity package
 
 Extends the workspace-root `AGENTS.md`. The four-layer constitution in
-`docs/vision.md`, the current Identity ADR outcomes, and `docs/spec/identity.md`
+`docs/vision.md`, and `docs/spec/identity.md`
 plus the Identity representation chapters govern this package.
 
 `@moltzap/identity` owns identifiers, keys, immutable AgentCards, signed
@@ -17,7 +17,7 @@ their admitted boundaries.
 
 Preserve the admitted wire bytes, routes, bounds, authentication, typed
 failures, persistence, and process behavior unless their governing authority
-changes. Publication follows `docs/decisions/20260901-six-packages-publish-as-one-version-set.md`: this package publishes in the one-version set.
+changes. Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package publishes in the one-version set.
 
 Run build, typecheck, test, integration, lint, and architecture checks through
 `pnpm nx run @moltzap/identity:<target>`.

@@ -33,8 +33,8 @@ Simulator and evals are not alternate production services.
 
 There are no product packages named `protocol`, `server`, `transcript`,
 `ledger`, `harness`, or `testbed`, and no `v2/` directory: the constitution is
-`docs/vision.md` and the historical inputs decision records cite live under
-`docs/decision-evidence/`.
+`docs/vision.md`. Internal decisions and source evidence live in the shared docs
+repo.
 
 Root-owned build and image orchestration may consume several package artifacts
 without creating package-runtime dependencies. Copying an adapter source or
@@ -420,8 +420,7 @@ runtimes own their session topology and cross-address context.
 Five packages publish to npm as one version set: `@moltzap/identity`,
 `@moltzap/router`, `@moltzap/client`, `@moltzap/openclaw-channel`,
 and `@moltzap/simulator`. `@moltzap/nanoclaw-channel` and `@moltzap/evals` stay
-private. The current record is
-`../decisions/20260901-six-packages-publish-as-one-version-set.md`.
+private.
 
 - One release computes one calendar version, `YYYY.MDD.N`, one past the
   highest counter in the union of the five packages' npm histories and the

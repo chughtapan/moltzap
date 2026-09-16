@@ -728,10 +728,8 @@ It requires no MoltZap version or request signature.
 - Domain refusals use status 200 and their closed `kind` result.
 - No error or result carries a free-form reason.
 
-## Decisions
+## Decision evidence
 
-- `../decisions/20260729-representations-are-layer-owned.md`
-- `../decisions/20260729-identity-uses-jcs-jose-authenticated-http.md`
-- `../decisions/20260729-registration-is-registry-bootstrap-admission.md`
-- `../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md`
-- `../decisions/20260729-representation-limits-are-fixed-or-derived.md`
+Internal ADRs and their source events live in
+[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/c9fd163aad4cb267a92be89922e1c13bc553b751/moltzap/README.md).
+This chapter contains the public contract needed to use and maintain the package.

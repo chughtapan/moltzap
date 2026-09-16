@@ -357,7 +357,6 @@
         "lint:oxlint",
         "lint:sloppy-code-guard",
         "lint:script-reachability",
-        "lint:adr-shape",
         "lint:agent-files",
         {
           "target": "arch:check",
@@ -372,17 +371,6 @@
       "options": {
         "cwd": ".",
         "command": "node -e \"\""
-      }
-    },
-    "lint:adr-shape": {
-      "cache": true,
-      "inputs": [
-        "workspaceFiles"
-      ],
-      "executor": "nx:run-commands",
-      "options": {
-        "cwd": ".",
-        "command": "pnpm exec tsx scripts/docs/adr/check-shape.ts"
       }
     },
     "lint:agent-files": {

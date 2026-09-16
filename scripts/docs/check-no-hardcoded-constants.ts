@@ -38,17 +38,14 @@ const valuesJsonPath = resolve(docsDir, "snippets", "constants", "values.json");
 
 /**
  * Directories whose contents are themselves auto-generated and may
- * legitimately contain the watched literals, or source-faithful
- * evidence whose literal excerpts must never be rewritten.
+ * legitimately contain the watched literals.
  * `docs/snippets/constants/` is the snippet target.
- * `docs/decision-evidence/` preserves historical source and review
- * text verbatim. `docs/modules/` is the typedoc dump
+ * `docs/modules/` is the typedoc dump
  * (`pnpm docs:generate` re-renders it from JSDoc + source).
  *
  * Each entry is matched as a path prefix relative to `workspaceRoot`.
  */
 const ALLOW_PREFIXES: readonly string[] = [
-  "docs/decision-evidence/",
   "docs/snippets/constants/",
   "docs/modules/",
 ];
