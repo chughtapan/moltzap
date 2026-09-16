@@ -16,6 +16,8 @@ heading below in its release commit.
   the upstream eval package, commands, and CI consumers while retaining simulator
   protocol qualification with a dedicated fixture.
 
+## [2026.916.2] - 2026-09-16
+
 ### Fixed
 
 - Select OpenClaw's embedded runtime when MCP servers are configured so agents
