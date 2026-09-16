@@ -5,7 +5,7 @@ description: Discover and file internal records, or verify decision provenance a
 
 Read `README.md` in `DOCS_INTERNAL_ROOT` first to choose the right record and
 follow the everyday workflow. Use `"$DOCS_INTERNAL_ROOT/bin/records" --help` and
-`program/reference/records.md` there when filing or looking up records.
+`workflow/reference/records.md` there when filing or looking up records.
 Resolve a registered scope and load only the records needed by the task.
 
 Filing writes locally; it does not commit, merge or contact gbrain. Preview with
@@ -13,8 +13,8 @@ Filing writes locally; it does not commit, merge or contact gbrain. Preview with
 Follow the records reference for retaining current decision evidence and complete
 reference model results. Never omit wrong answers to improve a reported score.
 
-When changing a decision, read `program/reference/lifecycle.md`. For its review
-or approval, read `program/reference/provenance.md`: unsupported binding choices
+When changing a decision, read `workflow/reference/lifecycle.md`. For its review
+or approval, read `workflow/reference/provenance.md`: unsupported binding choices
 block admission; independent review, explicit human approval of the exact decision
 and review packet, and a verified landing receipt are distinct requirements.
 A copied status or generic PASS cannot replace them. Never fabricate human approval.
