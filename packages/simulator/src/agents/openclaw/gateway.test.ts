@@ -126,7 +126,11 @@ function roundTripClient(
                 channelData: { ignored: true },
               },
             ],
-            meta: { ignored: true },
+            meta: {
+              usage: { inputTokens: 123, outputTokens: 45 },
+              durationMs: 678,
+              systemPromptReport: { bootstrapFiles: ["AGENTS.md"] },
+            },
           },
           ignored: true,
         });
@@ -190,6 +194,11 @@ function assertRoundTrip(
   assert.strictEqual(response.runId, RUN_ID);
   assert.strictEqual(response.status, "ok");
   assert.strictEqual(response.result?.payloads?.[0]?.text, RESPONSE_TEXT);
+  assert.deepStrictEqual(response.result?.meta, {
+    usage: { inputTokens: 123, outputTokens: 45 },
+    durationMs: 678,
+    systemPromptReport: { bootstrapFiles: ["AGENTS.md"] },
+  });
   assert.deepStrictEqual(
     Object.keys(response).sort((left, right) => left.localeCompare(right)),
     ["result", "runId", "status", "summary"],

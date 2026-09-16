@@ -27,7 +27,11 @@ import type { HarvestedFileOutcome } from "../../events/core.js";
 import type { KubernetesExecutionProfile } from "../profile.js";
 import type { RunSocietyWorkflowInput } from "../reclaim.js";
 import { ClusterError, clusterError } from "../cluster.js";
-import { applicationFileOutcome, execHarvestProbe } from "./harvest.js";
+import {
+  applicationFileOutcome,
+  execHarvestProbe,
+  requestControllerStop,
+} from "./harvest.js";
 import {
   CONTROLLER_NAME,
   type KubernetesManifest,
@@ -36,12 +40,21 @@ import {
   runNamespaceManifest,
   runOwnerManifest,
   runWorkerManifests,
-  type RunWorkerManifests,
   type RunWorkerOptions,
   SYSTEM_NAMESPACE,
 } from "./objects.js";
+import {
+  APPLIED,
+  type InstallClients,
+  installedObjectApplies,
+  type InstalledObjectApply,
+  type RunWorkerObject,
+  workerManifestName,
+} from "./worker-install.js";
 
 const BRIDGE_PROBE_TIMEOUT = Duration.seconds(2);
+/** The finalize probe waits up to a minute before reporting its own diagnostic. */
+const FINALIZATION_CALL_TIMEOUT = Duration.seconds(70);
 
 /** Kubernetes status for an object the cluster does not have. */
 const ABSENT = 404;
@@ -81,15 +94,6 @@ export function kubernetesCallTimeout(
 // eslint-disable-next-line agent-code-guard/no-process-env-at-runtime -- Resolved while this module loads, before any call it bounds exists.
 const KUBERNETES_CALL_TIMEOUT = kubernetesCallTimeout(process.env);
 
-/** Field ownership and strict validation applied to every write. */
-const APPLIED = Object.freeze({
-  fieldManager: "moltzap-simulator",
-  fieldValidation: "Strict",
-} as const);
-const NAMED_WORKER = Object.freeze({
-  name: RUN_WORKER_NAME,
-  namespace: SYSTEM_NAMESPACE,
-} as const);
 const STRATEGIC_MERGE_OPTIONS = setHeaderOptions(
   "Content-Type",
   PatchStrategy.StrategicMergePatch,
@@ -265,17 +269,19 @@ export function makeKubernetesRunWorkerInstallApi(
   options: RunWorkerOptions,
 ): RunWorkerInstallApi {
   const clients = installClients(options.profile);
-  const applies = installedObjectApplies(clients, runWorkerManifests(options));
+  const manifests = runWorkerManifests(options);
+  const workerName = workerManifestName(manifests.deployment);
+  const applies = installedObjectApplies(clients, manifests);
   const readWorker = () =>
     kubernetesCall("observe run worker", () =>
       clients.apps.readNamespacedDeployment({
-        name: RUN_WORKER_NAME,
+        name: workerName,
         namespace: SYSTEM_NAMESPACE,
       }),
     );
   return Object.freeze({
     install: (object: RunWorkerObject) =>
-      installRunWorkerObject(clients, applies, object),
+      installRunWorkerObject(clients, applies, object, workerName),
     // A cluster with no worker yet reads as no image rather than as a failure:
     // nothing is installed, so nothing can be interrupted by installing.
     readInstalledWorkerImage: () =>
@@ -461,6 +467,7 @@ export interface KubernetesSocietyApi {
     podName: string,
     path: string,
     limitBytes: number,
+    mode?: "finalize" | number,
   ) => Effect.Effect<HarvestedFileOutcome, ClusterError>;
   /**
    * Whether an application's controller bridge port accepts a connection.
@@ -502,22 +509,31 @@ function installRunWorkerObject(
   clients: InstallClients,
   applies: Readonly<Record<RunWorkerObject, InstalledObjectApply>>,
   object: RunWorkerObject,
+  workerName: string,
 ): Effect.Effect<void, KubernetesCallFailed> {
   const apply = kubernetesCall(
     `apply run worker ${object}`,
     applies[object],
   ).pipe(Effect.asVoid);
   return object === "deployment"
-    ? prepareRunWorkerDeployment(clients).pipe(Effect.zipRight(apply))
+    ? prepareRunWorkerDeployment(clients, workerName).pipe(
+        Effect.zipRight(apply),
+      )
     : apply;
 }
 
 function prepareRunWorkerDeployment(
   clients: InstallClients,
+  workerName: string,
 ): Effect.Effect<void, KubernetesCallFailed> {
   return attemptUnlessAbsent("prepare run worker deployment strategy", () =>
     clients.apps.patchNamespacedDeployment(
-      { ...NAMED_WORKER, body: RECREATE_STRATEGY_PATCH, ...APPLIED },
+      {
+        name: workerName,
+        namespace: SYSTEM_NAMESPACE,
+        body: RECREATE_STRATEGY_PATCH,
+        ...APPLIED,
+      },
       STRATEGIC_MERGE_OPTIONS,
     ),
   );
@@ -781,14 +797,23 @@ function harvestOperations(
 ): Pick<KubernetesSocietyApi, "readApplicationFile"> {
   const operation = "read application file";
   return {
-    readApplicationFile: (podName, path, limitBytes) =>
+    readApplicationFile: (podName, path, limitBytes, mode) =>
       boundCall(
         operation,
-        execHarvestProbe(exec, { namespace, podName, path, limitBytes }).pipe(
+        execHarvestProbe(exec, {
+          namespace,
+          podName,
+          path,
+          limitBytes,
+          ...(mode === undefined ? {} : { mode }),
+        }).pipe(
           Effect.catchTag("ExecSessionFailed", (failure) =>
             Effect.fail(new KubernetesCallFailed(operation, failure.cause)),
           ),
         ),
+        mode === "finalize"
+          ? Duration.max(KUBERNETES_CALL_TIMEOUT, FINALIZATION_CALL_TIMEOUT)
+          : KUBERNETES_CALL_TIMEOUT,
       ).pipe(
         Effect.mapError(readFailure),
         Effect.map((observation) =>
@@ -892,7 +917,7 @@ function installedWorkerImage(deployment: {
 }
 
 /** One installable member of the cluster's run-worker control plane. */
-export type RunWorkerObject = keyof RunWorkerManifests;
+export type { RunWorkerObject } from "./worker-install.js";
 
 /** Kubernetes access the Temporal activity needs for one run's lifetime. */
 export interface RunControlApi {
@@ -915,6 +940,9 @@ export interface RunControlApi {
   readonly startController: (
     namespace: string,
     manifests: OwnedRunControlManifests,
+  ) => Effect.Effect<void, KubernetesCallFailed>;
+  readonly requestControllerStop: (
+    namespace: string,
   ) => Effect.Effect<void, KubernetesCallFailed>;
   readonly readControllerJob: (
     namespace: string,
@@ -966,6 +994,7 @@ export interface RunWorkerInstallApi {
 }
 
 interface RunControlClients {
+  readonly exec: Exec;
   readonly batch: BatchV1Api;
   readonly core: CoreV1Api;
   readonly custom: CustomObjectsApi;
@@ -1058,6 +1087,7 @@ function runControlClients(): RunControlClients {
   const config = new KubeConfig();
   config.loadFromDefault();
   return {
+    exec: new Exec(config),
     batch: config.makeApiClient(BatchV1Api),
     core: config.makeApiClient(CoreV1Api),
     custom: config.makeApiClient(CustomObjectsApi),
@@ -1160,12 +1190,14 @@ function runObservationOperations(
   clients: RunControlClients,
 ): Pick<
   RunControlApi,
+  | "requestControllerStop"
   | "readControllerJob"
   | "readControllerLogs"
   | "deleteRunNamespace"
   | "runNamespaceExists"
 > {
   return {
+    requestControllerStop: (namespace) => stopController(clients, namespace),
     readControllerJob: (namespace) =>
       kubernetesCall("observe controller job", () =>
         clients.batch.readNamespacedJob({
@@ -1195,63 +1227,9 @@ function runObservationOperations(
   };
 }
 
-interface InstallClients {
-  readonly apps: AppsV1Api;
-  readonly core: CoreV1Api;
-  readonly rbac: RbacAuthorizationV1Api;
-}
-
 interface KubeContextSelector {
   readonly getContextObject: (name: string) => unknown;
   readonly setCurrentContext: (name: string) => void;
-}
-
-/** One object's apply call, already bound to the manifest it declares. */
-type InstalledObjectApply = () => PromiseLike<unknown>;
-
-/**
- * Field ownership plus the content type that makes a patch an apply. Ownership
- * is forced because an earlier submission's create owns these fields under
- * Update, which conflicts with an Apply even from the same manager. The run
- * worker's objects have no other writer.
- */
-const APPLY = Object.freeze({ ...APPLIED, force: true } as const);
-const APPLY_OPTIONS = setHeaderOptions(
-  "Content-Type",
-  PatchStrategy.ServerSideApply,
-);
-
-function installedObjectApplies(
-  clients: InstallClients,
-  manifests: RunWorkerManifests,
-): Readonly<Record<RunWorkerObject, InstalledObjectApply>> {
-  return {
-    namespace: () =>
-      clients.core.patchNamespace(
-        { name: SYSTEM_NAMESPACE, body: manifests.namespace, ...APPLY },
-        APPLY_OPTIONS,
-      ),
-    serviceAccount: () =>
-      clients.core.patchNamespacedServiceAccount(
-        { ...NAMED_WORKER, body: manifests.serviceAccount, ...APPLY },
-        APPLY_OPTIONS,
-      ),
-    clusterRole: () =>
-      clients.rbac.patchClusterRole(
-        { name: RUN_WORKER_NAME, body: manifests.clusterRole, ...APPLY },
-        APPLY_OPTIONS,
-      ),
-    clusterRoleBinding: () =>
-      clients.rbac.patchClusterRoleBinding(
-        { name: RUN_WORKER_NAME, body: manifests.clusterRoleBinding, ...APPLY },
-        APPLY_OPTIONS,
-      ),
-    deployment: () =>
-      clients.apps.patchNamespacedDeployment(
-        { ...NAMED_WORKER, body: manifests.deployment, ...APPLY },
-        APPLY_OPTIONS,
-      ),
-  };
 }
 
 function installClients(profile: KubernetesExecutionProfile): InstallClients {
@@ -1263,4 +1241,19 @@ function installClients(profile: KubernetesExecutionProfile): InstallClients {
     core: config.makeApiClient(CoreV1Api),
     rbac: config.makeApiClient(RbacAuthorizationV1Api),
   };
+}
+
+function stopController(clients: RunControlClients, namespace: string) {
+  return requestControllerStop(clients.core, clients.exec, namespace).pipe(
+    Effect.catchTags({
+      ControllerStopFailed: () =>
+        Effect.fail(
+          new KubernetesCallFailed("controller unavailable for stop"),
+        ),
+      ExecSessionFailed: () =>
+        Effect.fail(
+          new KubernetesCallFailed("controller stop transport failed"),
+        ),
+    }),
+  );
 }

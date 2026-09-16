@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /** PID 1 for an agent image containing an agent host and moltzapd. */
 
+import { createWriteStream } from "node:fs";
+import { finished } from "node:stream/promises";
 import { spawn } from "node:child_process";
 import {
   chmod,
@@ -27,6 +29,8 @@ const DEFAULT_STATE_DIRECTORY = "/var/lib/moltzap/endpoint";
 const DEFAULT_HOST_USER_ID = 1_000;
 const DEFAULT_DAEMON_USER_ID = 1_001;
 const SHUTDOWN_GRACE_MILLIS = 5_000;
+/** @type {WeakMap<import("node:child_process").ChildProcess, Promise<void>>} */
+const terminations = new WeakMap();
 const DAEMON_ENVIRONMENT_KEYS = Object.freeze([
   "MOLTZAPD_ADMISSION_CREDENTIAL_FILE",
   "MOLTZAPD_AGENT_PRIVATE_KEY_FILE",
@@ -187,32 +191,90 @@ function waitForExit(child, label) {
   });
 }
 
-async function terminate(child, signal = "SIGTERM") {
-  if (
-    child === undefined ||
-    child.exitCode !== null ||
-    child.signalCode !== null
-  ) {
+/**
+ * Stop the owned process group even when its leader exits before descendants.
+ * @param {import("node:child_process").ChildProcess | undefined} child Group leader.
+ * @param {NodeJS.Signals} signal Initial shutdown signal.
+ * @returns {Promise<void>} Resolves after exit or group-wide forced termination.
+ */
+function terminate(child, signal = "SIGTERM") {
+  if (child === undefined) return Promise.resolve();
+  let pending = terminations.get(child);
+  if (pending === undefined) {
+    pending = stopProcessGroup(child, signal);
+    terminations.set(child, pending);
+  }
+  return pending;
+}
+
+/**
+ * Poll group lifetime independently of the leader's exit notification.
+ * @param {import("node:child_process").ChildProcess} child Group leader.
+ * @param {NodeJS.Signals} signal Initial shutdown signal.
+ * @returns {Promise<void>} Resolves after the owned group has stopped or received SIGKILL.
+ */
+async function stopProcessGroup(child, signal) {
+  if (child?.pid === undefined) {
     return;
   }
   const stopped = waitForExit(child, "terminating child");
-  child.kill(signal);
-  const timer = setTimeout(() => {
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill("SIGKILL");
+  signalGroup(child.pid, signal);
+  const deadline = Date.now() + SHUTDOWN_GRACE_MILLIS;
+  while (signalGroup(child.pid, 0)) {
+    if (Date.now() >= deadline) {
+      signalGroup(child.pid, "SIGKILL");
+      break;
     }
-  }, SHUTDOWN_GRACE_MILLIS);
-  timer.unref();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
   await stopped.catch(() => undefined);
-  clearTimeout(timer);
+}
+
+/**
+ * ESRCH means this owned process group has already disappeared.
+ * @param {number} leader Group leader PID returned by spawn.
+ * @param {NodeJS.Signals | 0} signal Signal or existence probe.
+ * @returns {boolean} Whether the process group still exists.
+ */
+function signalGroup(leader, signal) {
+  try {
+    process.kill(-leader, signal);
+    return true;
+  } catch (error) {
+    if (error.code !== "ESRCH") throw error;
+    return false;
+  }
+}
+
+/**
+ * A stuck output drain must never publish a successful flush acknowledgement.
+ * @param {Promise<void>[]} drains Native log writable completion promises.
+ * @returns {Promise<void>} Resolves only when every native log has drained.
+ */
+async function drainLogs(drains) {
+  let timer;
+  try {
+    await Promise.race([
+      Promise.all(drains),
+      new Promise((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("runtime log drain timed out")),
+          SHUTDOWN_GRACE_MILLIS,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function spawnChild(command, options) {
   const [executable, ...args] = command;
   return spawn(executable, args, {
+    detached: true,
     env: options.environment,
     gid: options.groupId,
-    stdio: "inherit",
+    stdio: options.capture ? ["ignore", "pipe", "pipe"] : "inherit",
     uid: options.userId,
   });
 }
@@ -246,6 +308,8 @@ function runtimeOptions(environment) {
     DEFAULT_HOST_USER_ID,
   );
   return {
+    logDirectory:
+      environment.MOLTZAP_AGENT_IMAGE_LOG_DIRECTORY ?? "/var/run/moltzap",
     daemonExecutable:
       environment.MOLTZAP_AGENT_IMAGE_DAEMON_EXECUTABLE ??
       DEFAULT_DAEMON_EXECUTABLE,
@@ -277,8 +341,11 @@ function runtimeOptions(environment) {
 
 /** Run one agent host and one daemon as a single fail-fast application. */
 export async function runAgentImage(environment = process.env) {
+  const previousReportOnSignal = process.report.reportOnSignal;
+  process.report.reportOnSignal = false;
   const options = runtimeOptions(environment);
   await prepareFilesystem(options);
+  await mkdir(options.logDirectory, { recursive: true, mode: 0o700 });
   const hostCommand = await readHostCommand(options.hostCommandPath);
   const daemon = spawnChild([options.daemonExecutable], {
     environment: daemonEnvironment(environment, options),
@@ -292,8 +359,42 @@ export async function runAgentImage(environment = process.env) {
   });
   let host;
   let requestedSignal;
+  let observeShutdown;
+  const shutdown = new Promise((resolve) => {
+    observeShutdown = resolve;
+  });
+  let finalization;
+  let logDrains = [];
+  /** Failed flushes keep their files harvestable without a successful acknowledgement. */
+  const finalize = () => {
+    if (finalization !== undefined) return;
+    finalization = (async () => {
+      const requestedAt = new Date().toISOString();
+      const started = process.hrtime.bigint();
+      await terminate(host);
+      const hostStoppedAt = new Date().toISOString();
+      await terminate(daemon);
+      await drainLogs(logDrains);
+      await writeFile(
+        join(options.logDirectory, "finalized.json"),
+        JSON.stringify({
+          requestedAt,
+          hostStoppedAt,
+          flushedAt: new Date().toISOString(),
+          durationNanos: String(process.hrtime.bigint() - started),
+        }),
+        { mode: 0o600 },
+      );
+    })().catch((cause) => {
+      const message =
+        cause instanceof Error ? cause.message : "unknown failure";
+      process.stderr.write("runtime finalization failed: " + message + "\n");
+    });
+  };
+  process.on("SIGUSR2", finalize);
   const forwardSignal = (signal) => {
     requestedSignal = signal;
+    observeShutdown();
     void terminate(registrar, signal);
     void terminate(host, signal);
     void terminate(daemon, signal);
@@ -323,6 +424,7 @@ export async function runAgentImage(environment = process.env) {
       );
     }
     host = spawnChild(hostCommand, {
+      capture: true,
       environment: {
         ...hostEnvironment(environment),
         HOME:
@@ -333,13 +435,34 @@ export async function runAgentImage(environment = process.env) {
       groupId: options.hostGroupId,
       userId: options.hostUserId,
     });
+    const stdoutLog = createWriteStream(
+      join(options.logDirectory, "runtime.stdout.log"),
+      { mode: 0o600 },
+    );
+    const stderrLog = createWriteStream(
+      join(options.logDirectory, "runtime.stderr.log"),
+      { mode: 0o600 },
+    );
+    host.stdout.pipe(stdoutLog);
+    host.stdout.pipe(process.stdout, { end: false });
+    host.stderr.pipe(stderrLog);
+    host.stderr.pipe(process.stderr, { end: false });
+    logDrains = [finished(stdoutLog), finished(stderrLog)];
+    for (const drain of logDrains) drain.catch(() => terminate(host));
     const stopped = await Promise.race([
       waitForExit(daemon, "moltzapd"),
       waitForExit(host, "agent host"),
     ]);
+    if (finalization !== undefined) {
+      await finalization;
+      await shutdown;
+      return 0;
+    }
     await terminate(stopped.label === "moltzapd" ? host : daemon);
     return stopped.code;
   } finally {
+    process.report.reportOnSignal = previousReportOnSignal;
+    process.removeListener("SIGUSR2", finalize);
     process.removeListener("SIGINT", onSigint);
     process.removeListener("SIGTERM", onSigterm);
     await Promise.all([

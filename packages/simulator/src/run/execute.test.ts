@@ -1,7 +1,9 @@
 /** @file Composed run-kernel lifecycle, failure, and durability behavior. */
 
 import type * as NodeHttp from "node:http"; // eslint-disable-line agent-code-guard/prefer-effect-platform -- The test captures the run-owned raw proxy listener.
-import { assert, effect as test } from "@effect/vitest";
+import { FileSystem } from "@effect/platform";
+import { NodeContext } from "@effect/platform-node";
+import { assert, live, effect as test } from "@effect/vitest";
 import { AgentId } from "@moltzap/identity";
 import {
   Cause,
@@ -15,6 +17,7 @@ import {
   Schema,
   type Scope,
   Stream,
+  TestClock,
 } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests capture the run-owned raw proxy listener and host one ephemeral upstream peer.
 import { createServer, type RequestListener, type Server } from "node:http";
@@ -44,7 +47,9 @@ import {
   RouterStartFailed,
   RouterStopFailed,
   RunStarted,
+  RuntimeEvidenceCollectionFailed,
 } from "../events/core.js";
+import { filesystemLedgerStorageLayer } from "../ledger/filesystem.js";
 import {
   LedgerCompletion,
   ledgerDigest,
@@ -66,6 +71,7 @@ import {
   RouterProvider,
   type RouterProviderService,
 } from "../network/router.js";
+import { RuntimeArtifactStore } from "./artifacts.js";
 import { makeDefinitionEventServices } from "./events.js";
 import {
   ClusterLost,
@@ -75,6 +81,8 @@ import {
   runSociety,
   type SimulatorRunOutcome,
 } from "./execute.js";
+
+/* eslint-disable max-lines -- These lifecycle regressions share the same definition-bound run fixture; keep cancellation and harvesting assertions together. */
 
 const DEFINITION_ID = "acme.run-lifecycle-test/v1";
 const ROUTER_URL = new URL("http://router.example.test:43100");
@@ -982,6 +990,7 @@ function ledgerEvents(records: readonly string[]): readonly unknown[] {
   });
 }
 
+// eslint-disable-next-line max-lines-per-function, sonarjs/max-lines-per-function -- This lifecycle test asserts the complete stop, harvest, and release ordering.
 test("harvests every agent's workspace after the program event and before the cluster is released", () =>
   Effect.gen(function* () {
     const records: string[] = [];
@@ -989,6 +998,10 @@ test("harvests every agent's workspace after the program event and before the cl
     const cluster = makeFakeCluster({
       agentIdFor: (agentName) =>
         agentName === "alice" ? ENDPOINT_ID : SENDER_ID,
+      finalize: Ref.update(timeline, (entries) => [
+        ...entries,
+        "stop-and-flush",
+      ]),
       harvestWorkspace: (name) =>
         Ref.update(timeline, (entries) => [...entries, `harvest:${name}`]).pipe(
           Effect.as(name === "alice" ? [CALENDAR, NOTES] : [CALENDAR]),
@@ -1014,7 +1027,8 @@ test("harvests every agent's workspace after the program event and before the cl
     const observed = yield* Ref.get(timeline);
     assert.strictEqual(observed[0], "program");
     assert.strictEqual(observed.at(-1), "cluster-release");
-    assert.sameMembers(observed.slice(1, -1), ["harvest:alice", "harvest:bob"]);
+    assert.strictEqual(observed[1], "stop-and-flush");
+    assert.sameMembers(observed.slice(2, -1), ["harvest:alice", "harvest:bob"]);
     const tags = eventTags(records);
     const programIndex = tags.indexOf(ProgramSucceeded._tag);
     assert.isAbove(programIndex, -1);
@@ -1030,6 +1044,137 @@ test("harvests every agent's workspace after the program event and before the cl
       { agentName: "bob", ...CALENDAR },
     ]);
   }));
+
+test("records failed finalization while retaining available workspace evidence", () =>
+  Effect.gen(function* () {
+    const records: string[] = [];
+    const result = yield* runSociety({
+      definitionId: DEFINITION_ID,
+      eventServices,
+      roster: harvestedRoster(),
+      program: Effect.void,
+    }).pipe(
+      Effect.provideService(
+        Cluster,
+        makeFakeCluster({
+          agentIdFor: (name) => (name === "alice" ? ENDPOINT_ID : SENDER_ID),
+          finalize: Effect.fail(
+            new ClusterError({ detail: "stop unavailable" }),
+          ),
+          harvestWorkspace: () => Effect.succeed([CALENDAR]),
+        }),
+      ),
+      Effect.provideService(RouterProvider, successfulRouterProvider()),
+      Effect.provideService(LedgerStorage, memoryStorage(records)),
+    );
+    assert.instanceOf(result, ProgramFinished);
+    assert.include(eventTags(records), RuntimeEvidenceCollectionFailed._tag);
+    assert.lengthOf(harvestRecords(records), 2);
+  }));
+
+test("records a collection timeout even after earlier native artifacts were retained", () =>
+  Effect.gen(function* () {
+    const records: string[] = [];
+    const blocked = yield* Deferred.make<undefined>();
+    const running = yield* runSociety({
+      definitionId: DEFINITION_ID,
+      eventServices,
+      roster: harvestedRoster(),
+      program: Effect.void,
+    }).pipe(
+      Effect.provideService(
+        Cluster,
+        makeFakeCluster({
+          agentIdFor: (name) => (name === "alice" ? ENDPOINT_ID : SENDER_ID),
+          harvestLogs: () =>
+            Stream.fromIterable([
+              { relativePath: "runtime.stdout.log", chunks: Stream.empty },
+              { relativePath: "openclaw.log", chunks: Stream.empty },
+            ]),
+        }),
+      ),
+      Effect.provideService(RuntimeArtifactStore, {
+        write: (key) =>
+          key.endsWith("openclaw.log")
+            ? Deferred.succeed(blocked, undefined).pipe(
+                Effect.zipRight(Effect.never),
+              )
+            : Effect.succeed({ key, sha256: "a".repeat(64), byteLength: 0 }),
+      }),
+      Effect.provideService(RouterProvider, successfulRouterProvider()),
+      Effect.provideService(LedgerStorage, memoryStorage(records)),
+      Effect.fork,
+    );
+    yield* Deferred.await(blocked);
+    yield* TestClock.adjust("5 minutes");
+    assert.instanceOf(yield* Fiber.join(running), ProgramFinished);
+    assert.include(eventTags(records), "moltzap.agent-runtime-artifact/v1");
+    assert.include(eventTags(records), RuntimeEvidenceCollectionFailed._tag);
+  }));
+
+/* eslint-disable max-lines-per-function, sonarjs/max-lines-per-function -- Keep the interruption, flush handshake, release ordering, and filesystem evidence in one regression. */
+live(
+  "caller interruption waits for stop and harvest before releasing agents",
+  () =>
+    Effect.gen(function* () {
+      const records: string[] = [];
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped();
+      const started = yield* Deferred.make<undefined>();
+      const stopping = yield* Deferred.make<undefined>();
+      const flush = yield* Deferred.make<undefined>();
+      const timeline = yield* Ref.make<readonly string[]>([]);
+      const cluster = makeFakeCluster({
+        agentIdFor: (name) => (name === "alice" ? ENDPOINT_ID : SENDER_ID),
+        finalize: Deferred.succeed(stopping, undefined).pipe(
+          Effect.zipRight(Deferred.await(flush)),
+        ),
+        harvestWorkspace: (name) =>
+          Ref.update(timeline, (items) => [...items, name]).pipe(
+            Effect.as([CALENDAR]),
+          ),
+        onRelease: Ref.update(timeline, (items) => [...items, "released"]),
+      });
+      const running = yield* runSociety({
+        definitionId: DEFINITION_ID,
+        eventServices,
+        roster: harvestedRoster(),
+        program: Deferred.succeed(started, undefined).pipe(
+          Effect.zipRight(Effect.never),
+        ),
+      }).pipe(
+        Effect.provideService(Cluster, cluster),
+        Effect.provideService(RouterProvider, successfulRouterProvider()),
+        Effect.provide(filesystemLedgerStorageLayer(directory)),
+        Effect.fork,
+      );
+      yield* Deferred.await(started);
+      yield* Effect.sync(() => {
+        running.unsafeInterruptAsFork(running.id());
+      });
+      yield* Deferred.await(stopping);
+      yield* Fiber.interruptFork(running);
+      const beforeFlush = yield* Ref.get(timeline);
+      const stillRunning = Option.isNone(yield* Fiber.poll(running));
+      yield* Deferred.succeed(flush, undefined);
+      assert.deepStrictEqual(beforeFlush, []);
+      assert.isTrue(stillRunning);
+      assert.isTrue(Exit.isInterrupted(yield* Fiber.await(running)));
+      const references = yield* fs.readDirectory(directory);
+      assert.lengthOf(references, 1);
+      const contents = yield* fs.readFileString(
+        `${directory}/${references[0]}/records.ndjson`,
+      );
+      records.push(...contents.trim().split("\n"));
+      const observed = yield* Ref.get(timeline);
+      assert.sameMembers(observed.slice(0, -1), ["alice", "bob"]);
+      assert.strictEqual(observed.at(-1), "released");
+      assert.include(eventTags(records), ProgramInterrupted._tag);
+      assert.lengthOf(harvestRecords(records), 2);
+    }).pipe(Effect.scoped, Effect.provide(NodeContext.layer)),
+);
+
+/* eslint-enable max-lines-per-function, sonarjs/max-lines-per-function -- Restore function limits outside the composed lifecycle regression. */
 
 // A cluster that counts the harvests the kernel asks for.
 function countingHarvestCluster() {
@@ -1048,7 +1193,7 @@ function countingHarvestCluster() {
   };
 }
 
-test("skips harvest when the program was interrupted", () =>
+test("retains evidence when the program was interrupted", () =>
   Effect.gen(function* () {
     const records: string[] = [];
     const counting = countingHarvestCluster();
@@ -1066,9 +1211,9 @@ test("skips harvest when the program was interrupted", () =>
     );
 
     assert.instanceOf(result, ProgramFinished);
-    assert.strictEqual(counting.harvests(), 0);
+    assert.strictEqual(counting.harvests(), 2);
     assert.include(eventTags(records), ProgramInterrupted._tag);
-    assert.notInclude(eventTags(records), AgentWorkspaceFileHarvested._tag);
+    assert.include(eventTags(records), AgentWorkspaceFileHarvested._tag);
   }));
 
 test("still harvests when the program fails with a value", () =>
@@ -1127,3 +1272,5 @@ test("records an unreadable file and still finishes the program", () =>
       { agentName: "bob", ...UNREADABLE },
     ]);
   }));
+
+/* eslint-enable max-lines -- Restore the file-size check after the shared lifecycle fixture. */

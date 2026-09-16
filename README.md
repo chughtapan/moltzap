@@ -59,13 +59,16 @@ the local kind nodes, but it is not a simulator backend. Start with the
 [simulator guide](docs/simulator/overview.mdx) and the
 [local profile](packages/simulator/local/README.md).
 
-The package has four supported entry points: experiment definitions and runs
+The package has five supported entry points: experiment definitions and runs
 at `@moltzap/simulator`, compatible network and fault controls at
 `@moltzap/simulator/network`, container runtimes at
-`@moltzap/simulator/agents`, and offline evidence tools at
-`@moltzap/simulator/ledger`. The published package also ships the
+`@moltzap/simulator/agents`, offline evidence tools at
+`@moltzap/simulator/ledger`, and controller-module composition at
+`@moltzap/simulator/controller`. The published package also ships the
 `moltzap-sim` executable, which submits one experiment module through the
-local or GKE profile and prints one `ProfileRunResult` line.
+local or GKE profile and prints one `ProfileRunResult` line. See the
+[durable execution guide](packages/simulator/README.md#durable-eval-execution)
+for reconnecting, explicit cancellation, native artifacts, and evidence limits.
 
 ## Package graph
 

@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import * as runtimeApi from "./agents/index.js";
+import * as controllerApi from "./controller.js";
 import * as customerApi from "./index.js";
 import * as ledgerApi from "./ledger/index.js";
 import * as networkApi from "./network/index.js";
@@ -15,7 +16,12 @@ interface FacadeCensus {
   readonly types: readonly string[];
 }
 
-type SimulatorFacade = "." | "./network" | "./ledger" | "./agents";
+type SimulatorFacade =
+  | "."
+  | "./network"
+  | "./ledger"
+  | "./agents"
+  | "./controller";
 
 function loadPackageExports(): Record<string, unknown> {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -43,6 +49,7 @@ function loadApiCensus(): Readonly<Record<SimulatorFacade, FacadeCensus>> {
     "./network": readFacade(facades, "./network"),
     "./ledger": readFacade(facades, "./ledger"),
     "./agents": readFacade(facades, "./agents"),
+    "./controller": readFacade(facades, "./controller"),
   });
 }
 
@@ -92,7 +99,7 @@ function compareNames(left: string, right: string): number {
 }
 
 describe("@moltzap/simulator package map", () => {
-  it("publishes exactly the customer, network, ledger, and agents surfaces", () => {
+  it("publishes exactly the customer, network, ledger, agents and controller surfaces", () => {
     expect(loadPackageExports()).toEqual({
       ".": {
         types: "./dist/index.d.ts",
@@ -109,6 +116,10 @@ describe("@moltzap/simulator package map", () => {
       "./agents": {
         types: "./dist/agents/index.d.ts",
         import: "./dist/agents/index.js",
+      },
+      "./controller": {
+        types: "./dist/controller.d.ts",
+        import: "./dist/controller.js",
       },
     });
   });
@@ -158,4 +169,10 @@ describe("@moltzap/simulator/agents package export", () => {
       typeof runtimeApi.openClawRuntime,
     ]).toEqual(["function", "function", "function"]);
   });
+});
+
+it("publishes the controller composition boundary", () => {
+  expect(sortedNames(Object.keys(controllerApi))).toEqual(
+    sortedNames(apiCensus["./controller"].runtime),
+  );
 });

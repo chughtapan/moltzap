@@ -7,6 +7,7 @@
         "AgentHandle",
         "AgentProcessExited",
         "AgentProcessSignaled",
+        "AgentRuntimeArtifact",
         "AgentRuntimeCompleted",
         "AgentRuntimeFailed",
         "AgentRuntimeReady",
@@ -39,8 +40,10 @@
         "Run",
         "RunSpec",
         "RunStarted",
+        "RuntimeEvidenceCollectionFailed",
         "SimulatorDefinitionError",
         "coreEvents",
+        "evaluationCapabilities",
         "isEntryModule",
         "linkPolicy",
         "linkVerdict"
@@ -50,6 +53,7 @@
         "AgentHandle",
         "AgentProcessExited",
         "AgentProcessSignaled",
+        "AgentRuntimeArtifact",
         "AgentRuntimeCompleted",
         "AgentRuntimeFailed",
         "AgentRuntimeReady",
@@ -97,6 +101,7 @@
         "RouterStopFailed",
         "RunSpec",
         "RunStarted",
+        "RuntimeEvidenceCollectionFailed",
         "SimulatorDefinitionError",
         "SimulatorDefinitionId",
         "SimulatorRunFailure",
@@ -275,6 +280,16 @@
         "StartedAgent",
         "StartedAgents"
       ]
+    },
+    "./controller": {
+      "declaration": "dist/controller.d.ts",
+      "runtime": [
+        "applicationImageFromEnvironment",
+        "cohortSizeFromEnvironment",
+        "controllerServicesFromEnvironment",
+        "supportImageFromEnvironment"
+      ],
+      "types": []
     }
   }
 }

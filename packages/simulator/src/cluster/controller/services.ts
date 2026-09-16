@@ -1,8 +1,9 @@
-/** @file Private Layer assembled inside one run controller process. */
+/** @file Controller-owned services assembled for a mounted RunSpec. */
 
 import { NodeContext, NodeHttpClient } from "@effect/platform-node";
 import { Duration, Layer } from "effect";
 import { filesystemLedgerStorageLayer } from "../../ledger/filesystem.js";
+import { filesystemRuntimeArtifactStore } from "../../run/artifacts.js";
 import { kubernetesClusterLayer } from "../cohort.js";
 import {
   type KubernetesSocietyApi,
@@ -21,9 +22,8 @@ import {
 /**
  * Build the Layer at module-evaluation time for a mounted experiment RunSpec.
  *
- * This is deliberately a private deep import rather than a package export: the
- * experiment chooses its roster and Effect while the controller image owns all
- * Kubernetes and ledger mechanics.
+ * The public controller subpath exposes this composition boundary. The experiment
+ * chooses its roster and Effect; the image owns Kubernetes and ledger mechanics.
  * @param environment Process environment or a deterministic test substitute.
  * @returns One controller-owned cluster Layer.
  */
@@ -106,6 +106,9 @@ function makeControllerServices(
   const host = Layer.merge(NodeContext.layer, NodeHttpClient.layer);
   const run = Layer.mergeAll(
     filesystemLedgerStorageLayer(configuration.ledgerDirectory),
+    filesystemRuntimeArtifactStore(
+      configuration.ledgerExportDirectory ?? configuration.ledgerDirectory,
+    ),
     kubernetesClusterLayer({
       api: societyApi,
       namespace: configuration.namespace,

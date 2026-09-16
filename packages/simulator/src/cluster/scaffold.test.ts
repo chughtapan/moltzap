@@ -93,6 +93,7 @@ function recordingRunControl(failAt?: PreparationStage): RecordedRunControl {
           new KubernetesCallFailed("preparing a run observes nothing"),
         ),
       readControllerLogs: () => Effect.succeed(undefined),
+      requestControllerStop: () => Effect.void,
       deleteRunNamespace: () => Effect.void,
       runNamespaceExists: () => Effect.succeed(false),
     },

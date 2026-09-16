@@ -1,7 +1,14 @@
 /** @file Non-deterministic Temporal boundary: activities, worker, client, submission. */
 
 import { Context as ActivityContext } from "@temporalio/activity";
-import { Client, Connection, type WorkflowClient } from "@temporalio/client";
+import {
+  Client,
+  Connection,
+  type WorkflowClient,
+  WorkflowExecutionAlreadyStartedError,
+  type WorkflowHandle,
+  WorkflowNotFoundError,
+} from "@temporalio/client";
 import { NativeConnection, Worker } from "@temporalio/worker";
 import {
   Cause,
@@ -12,6 +19,7 @@ import {
   Option,
   Runtime,
 } from "effect";
+import { createHash } from "node:crypto";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The Temporal SDK owns this executable's Promise-native lifetime, including its Kubernetes readiness marker.
 import { rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -59,13 +67,27 @@ export type RunWorkerEnvironment = Readonly<Record<string, string | undefined>>;
 
 /** Caller-owned identity and queue for a single workflow execution. */
 export interface RunSocietyWorkflowExecutionOptions {
-  readonly client: Pick<WorkflowClient, "execute">;
+  readonly client: Pick<WorkflowClient, "execute"> & {
+    readonly getHandle: (workflowId: string) => ExistingWorkflowHandle;
+  };
   readonly workflowId: string;
   readonly taskQueue: string;
 }
 
+/** Only immutable-input verification and the persisted result are needed to reconnect. */
+/* eslint-disable agent-code-guard/promise-type -- This interface narrows the Temporal SDK's Promise-native execution handle. */
+interface ExistingWorkflowHandle {
+  // #ignore-sloppy-code-next-line[promise-type]: Temporal describes executions through its Promise-native client boundary.
+  readonly describe: () => Promise<{
+    readonly memo?: Readonly<Record<string, unknown>>;
+  }>;
+  readonly result: WorkflowHandle<typeof runSocietyWorkflow>["result"];
+}
+/* eslint-enable agent-code-guard/promise-type -- Restore Effect-first contracts outside the Temporal SDK handle. */
+
 /** Host profile inputs for one workflow, with identity selected by the caller. */
 export interface RunTemporalSocietyOptions {
+  readonly workerName?: string;
   readonly input: RunSocietyWorkflowInput;
   readonly executionProfile?: KubernetesExecutionProfile;
   readonly workflowId: string;
@@ -217,13 +239,22 @@ export async function runTemporalSociety(
     Effect.logInfo("connecting Temporal"),
     options.runtime,
   );
-  const connection = await Connection.connect(
-    options.temporalAddress === undefined
-      ? undefined
-      : { address: options.temporalAddress },
-  );
+  const connection = await connectRunClient(options);
   try {
     const client = new Client({ connection, namespace });
+    const existing = client.workflow.getHandle<typeof runSocietyWorkflow>(
+      options.workflowId,
+    );
+    try {
+      return await existingWorkflowResult(
+        existing,
+        workflowInputHash(options.input),
+      );
+    } catch (error) {
+      if (!(error instanceof WorkflowNotFoundError)) {
+        throw error;
+      }
+    }
     await runAtPromiseBoundary(
       installRunWorker(
         runWorkerInstallApi(options, namespace),
@@ -257,14 +288,25 @@ export async function executeRunSocietyWorkflow(
   options: RunSocietyWorkflowExecutionOptions,
   // #ignore-sloppy-code-next-line[promise-type]: Temporal workers, clients, and activities are SDK-required Promise boundaries
 ): Promise<ControllerRunResult> {
-  return await options.client.execute<typeof runSocietyWorkflow>(
-    WORKFLOW_TYPE,
-    {
-      workflowId: options.workflowId,
-      taskQueue: options.taskQueue,
-      args: [input],
-    },
-  );
+  const inputHash = workflowInputHash(input);
+  try {
+    return await options.client.execute<typeof runSocietyWorkflow>(
+      WORKFLOW_TYPE,
+      {
+        workflowId: options.workflowId,
+        taskQueue: options.taskQueue,
+        args: [input],
+        memo: { inputHash },
+        workflowIdReusePolicy: "REJECT_DUPLICATE",
+      },
+    );
+  } catch (error) {
+    if (!(error instanceof WorkflowExecutionAlreadyStartedError)) {
+      throw error;
+    }
+    const handle = options.client.getHandle(options.workflowId);
+    return await existingWorkflowResult(handle, inputHash);
+  }
 }
 
 /**
@@ -294,6 +336,67 @@ export function readOpenRuns(
       Effect.succeed<OpenRunReading>({ _tag: "unreadable" }),
     ),
   );
+}
+
+/** Reattach or explicitly cancel using a persisted execution identity. Local waiting never cancels it. */
+// #ignore-sloppy-code-next-line[async-keyword]: Temporal client API is Promise-native and owns its connection lifetime
+export async function manageTemporalRun(
+  command: "resume" | "cancel",
+  runId: string,
+  environment: Readonly<Record<string, string | undefined>>,
+) {
+  if (!/^mz-[0-9a-f]{32}$/u.test(runId)) {
+    throw new RunWorkerConfigurationFailed(
+      "Expected persisted mz- run identity",
+    );
+  }
+  const connection = await Connection.connect({
+    address: environment.MOLTZAP_TEMPORAL_ADDRESS ?? "127.0.0.1:7233",
+  });
+  try {
+    const client = new Client({
+      connection,
+      namespace: environment.MOLTZAP_TEMPORAL_NAMESPACE ?? "default",
+    });
+    const handle = client.workflow.getHandle<typeof runSocietyWorkflow>(runId);
+    if (command === "cancel") {
+      await handle.signal("cancelEvaluation");
+      return null;
+    }
+    return { runId, namespace: runId, result: await handle.result() };
+  } finally {
+    await connection.close();
+  }
+}
+
+/** Reconnection and duplicate-start recovery accept only the original run inputs. */
+// #ignore-sloppy-code-next-line[async-keyword]: Temporal workflow handles expose Promise-native describe and result operations.
+async function existingWorkflowResult(
+  handle: ExistingWorkflowHandle,
+  inputHash: string,
+) {
+  const description = await handle.describe();
+  if (description.memo?.inputHash !== inputHash) {
+    throw new RunWorkerConfigurationFailed(
+      "Existing execution has different immutable inputs",
+    );
+  }
+  return await handle.result();
+}
+
+/** Credentials may rotate on reconnect; all execution inputs remain immutable. */
+function connectRunClient(options: RunTemporalSocietyOptions) {
+  return Connection.connect(
+    options.temporalAddress === undefined
+      ? undefined
+      : { address: options.temporalAddress },
+  );
+}
+
+function workflowInputHash(input: RunSocietyWorkflowInput): string {
+  const immutable = { ...input };
+  delete immutable.runtimeCredentials;
+  return createHash("sha256").update(JSON.stringify(immutable)).digest("hex");
 }
 
 function runControllerOnce(
@@ -394,6 +497,8 @@ export const runLifecycleActivities: Effect.Effect<
       runAtPromiseBoundary(
         runControllerOnce(operations, operations.bindHeartbeat(), input),
       ),
+    stopController: (input: CleanupRunInput) =>
+      runAtPromiseBoundary(operations.requestControllerStop(input.namespace)),
     cleanupRun: (input: CleanupRunInput) =>
       runAtPromiseBoundary(cleanupRun(operations, input)),
   }),
@@ -515,6 +620,9 @@ function runWorkerInstallApi(
 ): RunWorkerInstallApi {
   return makeKubernetesRunWorkerInstallApi({
     controllerImage: options.input.controllerImage,
+    ...(options.workerName === undefined
+      ? {}
+      : { workerName: options.workerName }),
     taskQueue: options.taskQueue,
     temporalAddress:
       options.workerTemporalAddress ?? IN_CLUSTER_TEMPORAL_ADDRESS,

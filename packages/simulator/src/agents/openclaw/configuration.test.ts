@@ -88,12 +88,15 @@ describe("buildOpenClawConfig", () => {
     assert.isUndefined(mcpSection(undefined));
   });
 
-  it("loads and enables the mounted channel adapter", () => {
+  it("loads the mounted channel adapter and disables the built-in a2a channel", () => {
     assert.deepStrictEqual(openClawConfig(undefined).plugins, {
       load: {
         paths: ["/opt/moltzap/node_modules/@moltzap/openclaw-channel"],
       },
-      entries: { "openclaw-channel": { enabled: true } },
+      entries: {
+        "openclaw-channel": { enabled: true },
+        a2a: { enabled: false },
+      },
     });
   });
 
@@ -110,5 +113,22 @@ describe("buildOpenClawConfig", () => {
   it(
     "steers new social messages into an active OpenClaw turn",
     socialMessagesJoinActiveTurn,
+  );
+});
+
+it("budgets enough bootstrap space for large supplied instructions", () => {
+  const config = buildOpenClawConfig(
+    {
+      agentName: Schema.decodeUnknownSync(AgentName)("alice"),
+      gatewayToken: Redacted.make("token"),
+      messagingMode: "shared",
+      bootstrapChars: 250_000,
+    },
+    "/workspace",
+  );
+  assert.isAtLeast(config.agents?.defaults?.bootstrapMaxChars ?? 0, 250_000);
+  assert.isAtLeast(
+    config.agents?.defaults?.bootstrapTotalMaxChars ?? 0,
+    250_000,
   );
 });

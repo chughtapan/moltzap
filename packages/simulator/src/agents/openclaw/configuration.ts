@@ -16,6 +16,10 @@ const DEFAULT_OPENCLAW_MODEL_ID = "openai/gpt-5.5";
 const OPENCLAW_CHANNEL_ID = "moltzap";
 const OPENCLAW_ACCOUNT_ID = "simulator-agent";
 const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
+/** Shared by OpenClaw's logging configuration and native artifact collection. */
+export const OPENCLAW_RUNTIME_LOG_FILE = ".openclaw-runtime.log";
+/** OpenClaw's bundled Agent2Agent channel plugin, which the simulator does not use. */
+const OPENCLAW_A2A_PLUGIN_ID = "a2a";
 const OPENCLAW_EXTENSION_PATH =
   "/opt/moltzap/node_modules/@moltzap/openclaw-channel";
 
@@ -29,6 +33,7 @@ export type OpenClawSandboxConfig = NonNullable<
 
 interface OpenClawConfigInput {
   readonly agentName: AgentName;
+  readonly bootstrapChars?: number;
   readonly messagingMode: "shared" | "private";
   readonly modelId?: string;
   readonly mcpServers?: readonly McpServer[];
@@ -50,6 +55,11 @@ export function buildOpenClawConfig(
 ): OpenClawConfig {
   const config = {
     ...mcpConfigSection(input.mcpServers),
+    logging: {
+      level: "debug",
+      file: `${workspaceDirectory}/${OPENCLAW_RUNTIME_LOG_FILE}`,
+      maxFileBytes: 1024 ** 4,
+    },
     agents: {
       defaults: {
         model: { primary: input.modelId ?? DEFAULT_OPENCLAW_MODEL_ID },
@@ -57,6 +67,7 @@ export function buildOpenClawConfig(
         compaction: { mode: "safeguard" },
         ...(input.sandbox === undefined ? {} : { sandbox: input.sandbox }),
         skipBootstrap: true,
+        ...bootstrapBudget(input.bootstrapChars),
       },
       list: [{ id: input.agentName, default: true }],
     },
@@ -113,13 +124,30 @@ function mcpConfigSection(mcpServers?: readonly McpServer[]) {
   };
 }
 
+/**
+ * Load the MoltZap channel adapter and leave OpenClaw's built-in Agent2Agent
+ * channel out of the tool set. With both present, the `message` tool offers
+ * two channels for the same peers and a model that reaches for `a2a` first
+ * fails twice before finding MoltZap, or never does; every simulator peer is
+ * reachable through MoltZap alone.
+ */
 function pluginConfiguration() {
   return {
     plugins: {
       load: { paths: [OPENCLAW_EXTENSION_PATH] },
       entries: {
         [OPENCLAW_EXTENSION_NAME]: { enabled: true },
+        [OPENCLAW_A2A_PLUGIN_ID]: { enabled: false },
       },
     },
   };
+}
+
+function bootstrapBudget(chars?: number) {
+  return chars === undefined
+    ? {}
+    : {
+        bootstrapMaxChars: Math.max(20_000, chars + 1024),
+        bootstrapTotalMaxChars: Math.max(150_000, chars + 1024),
+      };
 }

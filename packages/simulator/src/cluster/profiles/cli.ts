@@ -1,6 +1,7 @@
 /** @file The `moltzap-sim` executable: one submission through a named profile. */
 
 import { Cause, Effect, Exit, Logger, Option } from "effect";
+
 import type { KubernetesExecutionProfile } from "../profile.js";
 import {
   liveSubmitOperations,
@@ -8,13 +9,14 @@ import {
   RunSubmissionError,
   type SubmitOperations,
 } from "../submit.js";
+import { manageTemporalRun } from "../temporal.js";
 import { runGkeSociety } from "./gke.js";
 import { runLocalSociety } from "./local.js";
 import { encodeProfileRunResult, type ProfileRunResult } from "./result.js";
 
 /** The one command line the executable accepts. */
 export const PROFILE_CLI_USAGE =
-  "usage: moltzap-sim run --profile local|gke <spec.mjs>";
+  "usage: moltzap-sim run --profile local|gke <spec.mjs> | moltzap-sim resume|cancel <run-id>";
 
 /** Signals the executable ends on, named so its last stderr line can say which. */
 export type ExecutableSignal = "SIGINT" | "SIGTERM";
@@ -59,12 +61,7 @@ export function runProfileExecutable(
   args: readonly string[],
   environment: RunEnvironment,
 ): Effect.Effect<void, RunSubmissionError> {
-  return runProfileCli(args, environment).pipe(
-    Effect.tap((submission) =>
-      Effect.sync(() => {
-        process.stdout.write(`${encodeProfileRunResult(submission)}\n`);
-      }),
-    ),
+  return runProfileCommand(args, environment).pipe(
     Effect.tapErrorCause((cause) =>
       Effect.sync(() => {
         process.stderr.write(`${failureReport(cause)}\n`);
@@ -139,6 +136,44 @@ export function runProfileCli(
     }
     return SUBMITTERS[profile](experiment, environment);
   }).pipe(Effect.withSpan("runProfileCli"));
+}
+
+function runProfileCommand(
+  args: readonly string[],
+  environment: RunEnvironment,
+): Effect.Effect<void, RunSubmissionError, SubmitOperations> {
+  const [action, runId] = args;
+  if (
+    (action === "resume" || action === "cancel") &&
+    args.length === 2 &&
+    runId !== undefined
+  ) {
+    return Effect.tryPromise({
+      try: () => manageTemporalRun(action, runId, environment),
+      catch: () =>
+        new RunSubmissionError({
+          stage: "execution",
+          detail: `Unable to ${action} persisted execution ${runId}`,
+        }),
+    }).pipe(
+      Effect.tap((result) =>
+        Effect.sync(() =>
+          process.stdout.write(
+            `${result === null ? JSON.stringify({ runId, state: "cancel-requested" }) : encodeProfileRunResult(result)}\n`,
+          ),
+        ),
+      ),
+      Effect.asVoid,
+    );
+  }
+  return runProfileCli(args, environment).pipe(
+    Effect.tap((submission) =>
+      Effect.sync(() => {
+        process.stdout.write(`${encodeProfileRunResult(submission)}\n`);
+      }),
+    ),
+    Effect.asVoid,
+  );
 }
 
 function isProfileName(value: string): value is ProfileName {

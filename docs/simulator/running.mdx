@@ -16,6 +16,7 @@ through the same Temporal, Kubernetes, Kueue, Agent Sandbox, controller, and
 | `@moltzap/simulator/network` | Retained participant, endpoint, Router-fixture, and link-fault contracts |
 | `@moltzap/simulator/agents` | Container runtime descriptors and exact OpenClaw and NanoClaw gateway contracts |
 | `@moltzap/simulator/ledger` | Completed-ledger types, validation, and artifact inspection |
+| `@moltzap/simulator/controller` | Environment-driven composition for controller-loaded modules |
 
 The experiment module owns its agents, customer events, customer Effect, and
 completion policy. The selected profile owns every platform object.
@@ -33,7 +34,7 @@ import { Effect } from "effect";
 import {
   applicationImageFromEnvironment,
   controllerServicesFromEnvironment,
-} from "/opt/moltzap/dist/cluster/controller/services.js";
+} from "@moltzap/simulator/controller";
 
 const alice = openClawRuntime({
   applicationImage: applicationImageFromEnvironment(),
@@ -57,9 +58,8 @@ export const runSpec = RunSpec.define({
 });
 ```
 
-The absolute cluster-services import is available inside the repository-built
-controller image. It constructs the selected profile's private Layer from the
-validated controller environment. Experiment code does not receive raw
+The public controller entry point constructs the selected profile's private
+Layer from the validated controller environment. Experiment code does not receive raw
 Kubernetes, Kueue, Sandbox, or Temporal objects.
 
 The controller requires the exact value returned by `RunSpec.define`. It
@@ -85,6 +85,16 @@ moltzap-sim run --profile local path/to/experiment.mjs
 Decode the last stdout line with the `ProfileRunResult` schema exported from
 the package root; a consumer that copies the shape instead will not notice
 the two sides drifting until a live run produces a line it cannot read.
+
+Set `MOLTZAP_RUN_ID` to a persisted UUID before submission to reconnect by
+retrying the same identity and immutable inputs.
+`moltzap-sim resume mz-<32 hex digits>` awaits that execution;
+`moltzap-sim cancel mz-<32 hex digits>` requests cancellation. Both use the
+execution's Temporal address and namespace.
+Ending a local wait leaves remote work running. Cancellation remains pending
+while the controller starts, and bounded evidence collection runs before
+resources are released. The final receipt reports namespace cleanup separately
+from execution.
 
 ## Run on the local Kubernetes profile
 
@@ -157,24 +167,33 @@ evaluation, readable retained artifacts, and zero run-owned residue.
 
 ## Submit runs in parallel
 
-Every run owns its namespace and every submission goes through one shared run
+Every run owns its namespace and default submissions go through one shared run
 worker, so several submissions at once are ordinary. Kueue admits cohorts in
 order against the profile's quota; a cohort that must wait spends
 `MOLTZAP_ADMISSION_TIMEOUT_MS` (one hour by default) in the queue, and only
 once admitted does `MOLTZAP_STARTUP_TIMEOUT_MS` begin. Concurrent submitters
-must name the same controller image, because a submission installs the worker
-with its image and a different one would roll the worker over the runs it is
-serving. On the GKE profile about eight runs at once is the practical ceiling.
+sharing a worker must name the same controller image, because a submission
+installs the worker with its image and a different one would roll the worker
+over the runs it is
+serving. For an isolated qualification lane, set both
+`MOLTZAP_TEMPORAL_TASK_QUEUE` and `MOLTZAP_RUN_WORKER_NAME` to distinct names;
+never poll an existing experiment queue with a second worker running different
+code. On the GKE profile about eight runs at once is the practical ceiling.
 
 ## Read back agent files and transcripts
 
 Name workspace-relative files with `harvestWorkspaceFiles` on either runtime
-to have them read from the live containers after `execute` returns, each as
-one `AgentWorkspaceFileHarvested` record. Set `historyExport: true` to have
+to have them read after host and daemon stop/flush, including when `execute`
+is interrupted, each as one `AgentWorkspaceFileHarvested` record.
+Set `historyExport: true` to have
 each agent's `moltzapd` append its deliveries and sends as
 `HistoryExportRecord` lines and harvest that file as `moltzap-history.ndjson`.
-`packages/simulator/README.md` describes the outcomes and the trust the read
-assumes.
+Native logs and the full history export are retained beside the ledger with
+exact artifact keys, SHA-256 digests, and byte lengths. Collection has a
+five-minute budget; a failed stop acknowledgement or deadline records
+`RuntimeEvidenceCollectionFailed`, which makes the evidence incomplete even
+when some files were retained. `packages/simulator/README.md` describes the
+outcomes and the trust the read assumes.
 
 ## Express completion policy in `execute`
 

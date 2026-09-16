@@ -1,7 +1,7 @@
 /** @file Private in-memory cluster used by run tests. */
 
 import type { AgentId, AgentName } from "@moltzap/identity";
-import { Effect, type Schema, type Scope } from "effect";
+import { Effect, type Schema, type Scope, Stream } from "effect";
 import type {
   AgentRoster,
   AgentRosterAcquisitionError,
@@ -104,6 +104,11 @@ export interface FakeClusterOptions {
   readonly cohortReady?: Effect.Effect<void, ClusterError>;
   readonly failure?: Effect.Effect<never, ClusterError>;
   /** What each agent's workspace answers when harvested; nothing by default. */
+  readonly finalize?: Effect.Effect<void, ClusterError>;
+  readonly harvestLogs?: (name: string) => Stream.Stream<{
+    readonly relativePath: string;
+    readonly chunks: Stream.Stream<Uint8Array, ClusterError>;
+  }>;
   readonly harvestWorkspace?: (
     name: string,
   ) => Effect.Effect<readonly HarvestedWorkspaceFile[]>;
@@ -183,6 +188,8 @@ function makeFakeSociety<
           )
         : acquire(input);
     },
+    finalize: options.finalize ?? Effect.void,
+    harvestLogs: options.harvestLogs ?? (() => Stream.empty),
     harvestWorkspace: (name: string) =>
       options.harvestWorkspace?.(name) ?? Effect.succeed([]),
     cohortReady: options.cohortReady ?? Effect.void,

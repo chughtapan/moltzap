@@ -210,6 +210,7 @@ interface FakeKubernetesState {
   readFile?: (
     podName: string,
     path: string,
+    mode?: "finalize" | number,
   ) => Effect.Effect<HarvestedFileOutcome, ClusterError>;
   readonly events: string[];
   readonly manifests: KubernetesManifest[];
@@ -497,10 +498,10 @@ function fakeApi(state: FakeKubernetesState): KubernetesSocietyApi {
     readSandbox: (name) => readSandboxOperation(state, name),
     deleteSandbox: (name) => record(state, `${SANDBOX_DELETED}${name}`),
     listPods: (selector) => Effect.sync(() => pods(state, selector)),
-    readApplicationFile: (podName, path) =>
+    readApplicationFile: (...[podName, path, , mode]) =>
       record(state, `${FILE_READ}${podName}:${path}`).pipe(
         Effect.zipRight(
-          state.readFile?.(podName, path) ??
+          state.readFile?.(podName, path, mode) ??
             Effect.succeed<HarvestedFileOutcome>({ _tag: "absent" }),
         ),
       ),
@@ -1552,11 +1553,22 @@ function harvestInOrderTest() {
     assert.deepStrictEqual(harvested.alice, [
       { relativePath: "CALENDAR.md", outcome: CALENDAR_TEXT },
       { relativePath: "NOTES.md", outcome: { _tag: "absent" } },
+      {
+        relativePath: "runtime-finalization.json",
+        outcome: { _tag: "absent" },
+      },
     ]);
-    assert.deepStrictEqual(harvested.bob, []);
+    assert.deepStrictEqual(harvested.bob, [
+      {
+        relativePath: "runtime-finalization.json",
+        outcome: { _tag: "absent" },
+      },
+    ]);
     assert.deepStrictEqual(created(state, FILE_READ), [
       `${FILE_READ}agent-1-alice-pod:${CALENDAR_TARGET.path}`,
       `${FILE_READ}agent-1-alice-pod:${NOTES_TARGET.path}`,
+      `${FILE_READ}agent-1-alice-pod:/var/run/moltzap/finalized.json`,
+      `${FILE_READ}agent-2-bob-pod:/var/run/moltzap/finalized.json`,
     ]);
   });
 }
@@ -1584,7 +1596,7 @@ function harvestWithoutPodTest() {
       }),
     );
 
-    assert.lengthOf(harvested, 2);
+    assert.lengthOf(harvested, 3);
     for (const file of harvested) {
       assert.strictEqual(file.outcome._tag, "unreadable");
       if (file.outcome._tag === "unreadable") {
@@ -1623,6 +1635,7 @@ function harvestPartialFailureTest() {
         outcome: { _tag: "unreadable", cause: INJECTED_API_DETAIL },
       },
       { relativePath: "NOTES.md", outcome: CALENDAR_TEXT },
+      { relativePath: "runtime-finalization.json", outcome: CALENDAR_TEXT },
     ]);
   });
 }
@@ -1634,4 +1647,74 @@ describe("workspace harvest", () => {
     Effect.runPromise(harvestWithoutPodTest()));
   test("keeps reading after one target's read fails", () =>
     Effect.runPromise(harvestPartialFailureTest()));
+});
+
+function finalizeRuntime(
+  readFile: NonNullable<FakeKubernetesState["readFile"]>,
+) {
+  return Effect.gen(function* () {
+    const state = makeState(yield* Deferred.make<undefined>());
+    state.admitted = true;
+    state.readFile = readFile;
+    const roster = AgentRoster.make("acme.kubernetes-finalize/v1", {
+      alice: fakeRuntime(),
+    });
+    return yield* runWithin(
+      state,
+      Effect.gen(function* () {
+        const session = yield* makePlatform(state).prepare(roster);
+        yield* acquireAll(session, roster);
+        yield* session.cohortReady;
+        return yield* (
+          session.finalize ??
+            Effect.dieMessage("Kubernetes society must support finalization")
+        );
+      }),
+    );
+  });
+}
+
+function unconfirmedFinalizationTest(outcome: HarvestedFileOutcome) {
+  return Effect.gen(function* () {
+    const failure = yield* Effect.flip(
+      finalizeRuntime(() => Effect.succeed(outcome)),
+    );
+    assert.instanceOf(failure, ClusterError);
+    assert.include(failure.detail, `is ${outcome._tag}`);
+  });
+}
+
+function finalizationTransportFailureTest() {
+  return Effect.gen(function* () {
+    const transportFailure = new ClusterError({
+      detail: INJECTED_API_DETAIL,
+    });
+    const failure = yield* Effect.flip(
+      finalizeRuntime(() => Effect.fail(transportFailure)),
+    );
+    assert.strictEqual(failure, transportFailure);
+  });
+}
+
+describe("runtime finalization", () => {
+  test("requests stop and waits for the finalized acknowledgement", () =>
+    Effect.runPromise(
+      finalizeRuntime((pod, path, mode) => {
+        assert.strictEqual(pod, "agent-1-alice-pod");
+        assert.strictEqual(path, "/var/run/moltzap/finalized.json");
+        assert.strictEqual(mode, "finalize");
+        return Effect.succeed({ _tag: "text", content: "{}", byteLength: 2 });
+      }),
+    ));
+
+  test.each<HarvestedFileOutcome>([
+    { _tag: "absent" },
+    { _tag: "unreadable", cause: "runtime finalization timed out" },
+    { _tag: "oversize", byteLength: 65537, limitBytes: 65536 },
+  ])("rejects an unconfirmed finalization: $_tag", (outcome) =>
+    Effect.runPromise(unconfirmedFinalizationTest(outcome)),
+  );
+
+  test("preserves a failed stop transport for the evidence collector", () =>
+    Effect.runPromise(finalizationTransportFailureTest()));
 });

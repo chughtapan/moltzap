@@ -10,8 +10,10 @@ import {
   Effect,
   Exit,
   Layer,
+  Option,
   Schedule,
   Scope,
+  Stream,
 } from "effect";
 import { posix } from "node:path";
 import type { AgentRuntimeLike } from "../agents/agent.js";
@@ -138,6 +140,10 @@ interface AcquiredApplication {
   /** Pod selector the Sandbox reported when it became ready; stable for the run. */
   readonly selector: string;
   readonly harvest: readonly HarvestTarget[];
+  readonly logs: ReadonlyArray<{
+    readonly relativePath: string;
+    readonly path: string;
+  }>;
 }
 
 interface AttachedApplication<Gateway> {
@@ -830,9 +836,102 @@ function makeKubernetesSession<
     acquireEndpoint: state.network.controlledEndpoints.acquire,
     harvestWorkspace: (name: Extract<keyof Definitions, string>) =>
       harvestWorkspace(name, state),
+    finalize: Effect.suspend(() =>
+      Effect.forEach(
+        state.acquired.values(),
+        (acquired) =>
+          state.options.api.listPods(acquired.selector).pipe(
+            Effect.flatMap((pods) => livePodName(acquired.sandboxName, pods)),
+            Effect.flatMap((pod) =>
+              state.options.api.readApplicationFile(
+                pod,
+                "/var/run/moltzap/finalized.json",
+                65536,
+                "finalize",
+              ),
+            ),
+            Effect.flatMap((outcome) =>
+              outcome._tag === "text"
+                ? Effect.void
+                : Effect.fail(
+                    new ClusterError({
+                      detail: `Runtime finalization for ${acquired.sandboxName} is ${outcome._tag}`,
+                    }),
+                  ),
+            ),
+          ),
+        { concurrency: 8, discard: true },
+      ),
+    ),
+    harvestLogs: (name: Extract<keyof Definitions, string>) =>
+      harvestLogs(name, state),
     cohortReady: cohortReadiness(roster, state),
     failure: sessionFailure(state),
   });
+}
+
+/** One frozen artifact at a time, streamed in bounded chunks from its Pod. */
+function harvestLogs(
+  name: string,
+  state: KubernetesSessionState<Readonly<Record<string, AgentRuntimeLike>>>,
+) {
+  const acquired = state.acquired.get(name);
+  if (acquired === undefined) {
+    return Stream.empty;
+  }
+  return Stream.fromIterable(acquired.logs).pipe(
+    Stream.map((log) => ({
+      relativePath: log.relativePath,
+      chunks: runtimeLogChunks(state.options.api, acquired, log.path),
+    })),
+  );
+}
+
+function runtimeLogChunks(
+  api: KubernetesSocietyApi,
+  acquired: AcquiredApplication,
+  path: string,
+) {
+  const pod = api
+    .listPods(acquired.selector)
+    .pipe(Effect.flatMap((pods) => livePodName(acquired.sandboxName, pods)));
+  return Stream.fromEffect(pod).pipe(
+    Stream.flatMap((name) =>
+      Stream.unfoldEffect(0, (offset) =>
+        readRuntimeLogChunk(api, name, path, offset),
+      ),
+    ),
+  );
+}
+
+/** MiB-sized chunks amortize exec startup while retaining a fixed memory bound. */
+function readRuntimeLogChunk(
+  api: KubernetesSocietyApi,
+  pod: string,
+  path: string,
+  offset: number,
+) {
+  const encodedChunkBytes = 4 * Math.ceil((1024 * 1024) / 3);
+  return api.readApplicationFile(pod, path, encodedChunkBytes, offset).pipe(
+    Effect.flatMap((outcome) => {
+      if (outcome._tag !== "text") {
+        return Effect.fail(
+          new ClusterError({ detail: `Runtime artifact is ${outcome._tag}` }),
+        );
+      }
+      const bytes = Buffer.from(outcome.content, "base64");
+      if (bytes.toString("base64") !== outcome.content) {
+        return Effect.fail(
+          new ClusterError({ detail: "Malformed runtime artifact chunk" }),
+        );
+      }
+      return Effect.succeed(
+        bytes.length === 0
+          ? Option.none()
+          : Option.some([bytes, offset + bytes.length] as const),
+      );
+    }),
+  );
 }
 
 /**
@@ -1064,7 +1163,7 @@ function acquireKubernetesAgent<
     state.acquired.set(input.name, {
       sandboxName: resourceName,
       selector: attached.selector,
-      harvest: application.harvest ?? [],
+      ...retainedApplicationFiles(application),
     });
     return Object.freeze({
       ...attached.running,
@@ -1484,3 +1583,29 @@ function clusterError(detail: string): ClusterError {
 }
 
 /* eslint-enable max-lines -- Restore the workspace file-size limit outside this composition hub. */
+
+function retainedApplicationFiles(
+  application: Pick<Application<unknown, unknown>, "harvest" | "logs">,
+): Pick<AcquiredApplication, "harvest" | "logs"> {
+  return {
+    harvest: [
+      ...(application.harvest ?? []),
+      {
+        relativePath: "runtime-finalization.json",
+        path: "/var/run/moltzap/finalized.json",
+        limitBytes: 65536,
+      },
+    ],
+    logs: [
+      {
+        relativePath: "runtime.stdout.log",
+        path: "/var/run/moltzap/runtime.stdout.log",
+      },
+      {
+        relativePath: "runtime.stderr.log",
+        path: "/var/run/moltzap/runtime.stderr.log",
+      },
+      ...(application.logs ?? []),
+    ],
+  };
+}

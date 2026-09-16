@@ -140,6 +140,37 @@ export class AgentWorkspaceFileHarvested extends Schema.TaggedClass<AgentWorkspa
   },
 ) {}
 
+/** A frozen native file in retained storage, bound by digest and byte length. */
+export class AgentRuntimeArtifact extends Schema.TaggedClass<AgentRuntimeArtifact>()(
+  "moltzap.agent-runtime-artifact/v1",
+  {
+    agentName: agentName,
+    agentId: agentId,
+    relativePath: Schema.NonEmptyString,
+    outcome: Schema.Union(
+      Schema.Struct({
+        _tag: Schema.Literal("complete"),
+        key: Schema.NonEmptyString,
+        sha256: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u)),
+        byteLength: Schema.NonNegativeInt,
+      }),
+      Schema.Struct({
+        _tag: Schema.Literal("unreadable"),
+        cause: Schema.String,
+      }),
+    ),
+  },
+) {}
+
+/** Retained files are partial when stopping or bounded collection cannot finish. */
+export class RuntimeEvidenceCollectionFailed extends Schema.TaggedClass<RuntimeEvidenceCollectionFailed>()(
+  "moltzap.runtime-evidence-collection-failed/v1",
+  {
+    stage: Schema.Literal("finalization", "collection"),
+    detail: Schema.NonEmptyString,
+  },
+) {}
+
 /** A directed participant link transitioned from available to unavailable. */
 export class LinkDown extends Schema.TaggedClass<LinkDown>()(
   "moltzap.link-down/v1",
@@ -221,6 +252,8 @@ export const runtimeEvents = EventCatalog.make(
   AgentProcessExited,
   AgentProcessSignaled,
   AgentWorkspaceFileHarvested,
+  AgentRuntimeArtifact,
+  RuntimeEvidenceCollectionFailed,
 );
 
 /** Directed-link state events emitted by link control. */
