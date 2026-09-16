@@ -17,8 +17,10 @@ COPY --chown=node:node agent-entrypoint.mjs /opt/moltzap/agent/entrypoint.mjs
 COPY --chown=node:node agent-host-command.json /opt/moltzap/agent/host-command.json
 COPY --chown=node:node register-daemon.mjs /opt/moltzap/agent/register-daemon.mjs
 COPY --chown=node:node simulator-fault-program.mjs /opt/moltzap/qualification/simulator-fault-program.mjs
+COPY --chown=node:node simulator-fault-peer.mjs /opt/moltzap/qualification/simulator-fault-peer.mjs
+COPY --chown=node:node simulator-fault-peer-application.mjs /opt/moltzap/qualification/simulator-fault-peer-application.mjs
 RUN node --input-type=module --eval \
-  'await import("/opt/moltzap/qualification/simulator-fault-program.mjs")'
+  'await import("/opt/moltzap/qualification/simulator-fault-program.mjs"); await import("/opt/moltzap/qualification/simulator-fault-peer.mjs")'
 
 USER node
 ENTRYPOINT ["node", "/opt/moltzap/dist/cluster/controller/main.js"]

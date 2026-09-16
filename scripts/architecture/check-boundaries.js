@@ -5,7 +5,7 @@
  * Shared `packages/*` rules cover wildcard exports and barrel discipline. The
  * final-package table pins the directory and package names, public entrypoints,
  * binaries, manifest edges, TypeScript references, and required Nx targets for
- * all seven products.
+ * all six products.
  *
  * The final-package table is a hand transcription of the current package
  * contract. It is written down rather than derived so drift fails whichever
@@ -170,25 +170,6 @@ const FINAL_PACKAGES = {
       "local-run",
       "test",
       "test:pack",
-      "typecheck:tests",
-    ],
-  },
-  evals: {
-    npmName: "@moltzap/evals",
-    published: false,
-    deps: ["client", "simulator"],
-    exports: {},
-    bin: {},
-    targets: [
-      "arch:check",
-      "build",
-      "calibrate",
-      "eval",
-      "lint",
-      "phoenix-terraform-check",
-      "publish",
-      "resume",
-      "test",
       "typecheck:tests",
     ],
   },
@@ -959,5 +940,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-architecture-boundaries] OK — ${sourceFiles.length} package TypeScript sources, ${finalSourceCount} final-package code files, exact seven-product static graph, ${publishedVersions.size} published manifests at ${[...distinctPublishedVersions].join(", ")}, and ${identityRouterVocabularyFileCount} Identity/Router non-documentation files scanned at compatibility version ${compatibilityVersion}`,
+  `[check-architecture-boundaries] OK — ${sourceFiles.length} package TypeScript sources, ${finalSourceCount} final-package code files, exact six-product static graph, ${publishedVersions.size} published manifests at ${[...distinctPublishedVersions].join(", ")}, and ${identityRouterVocabularyFileCount} Identity/Router non-documentation files scanned at compatibility version ${compatibilityVersion}`,
 );

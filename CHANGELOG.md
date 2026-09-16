@@ -10,6 +10,10 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Changed
+
+- Move evaluation suites and management into a separate private monorepo. Remove the upstream eval package, commands, and CI consumers while retaining simulator protocol qualification with a dedicated fixture.
+
 ### Added
 
 - Resume or cancel a submitted execution by its persisted identity. Reusing that
