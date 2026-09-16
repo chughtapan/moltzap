@@ -31,15 +31,10 @@ const publicTypePackage = {
     reason:
       "OpenClaw runtime options intentionally accept the runtime's native tools and sandbox policies",
   },
-  simulator: {
-    package: "@moltzap/simulator",
-    reason:
-      "The private evaluation application is built directly on the simulator's public contracts",
-  },
 };
 
 const publicTypePackages = Object.entries(publicTypePackage)
-  .filter(([name]) => name !== "openclaw" && name !== "simulator")
+  .filter(([name]) => name !== "openclaw")
   .map(([, definition]) => definition);
 
 const allowedTestPublicSubpaths = [
@@ -171,89 +166,6 @@ const packageDefinitions = {
     },
     afterShared: {
       publicTypePackages,
-    },
-  },
-  evals: {
-    beforeShared: {
-      maxPublicExports: 20,
-      folderChildCountOverrides: [
-        {
-          folder: ".",
-          maxChildren: 13,
-          reason:
-            "The evaluation application keeps its layered pipeline flat at the source root; each stage is one module named for the artifact it owns",
-        },
-      ],
-      facadeFiles: [
-        {
-          file: "src/cases.ts",
-          reason:
-            "Code-defined case policies, exact peer rosters, and criteria form the private evaluation application's case boundary",
-        },
-        {
-          file: "src/events.ts",
-          reason:
-            "Closed evaluation event catalog shared by case execution, transcript projection, and the simulator definition",
-        },
-        {
-          file: "src/execution.ts",
-          reason:
-            "Mixed-roster execution and runtime-native condition adapters form the application execution boundary",
-        },
-        {
-          file: "src/peer.ts",
-          reason:
-            "Autonomous peer plans, public-Client behavior, and the controller observation gateway form the evaluation peer boundary",
-        },
-        {
-          file: "src/transcript.ts",
-          reason:
-            "Normalized transcript vocabulary and evidence-ID invariants every grading stage binds to",
-        },
-        {
-          file: "src/judge.ts",
-          reason:
-            "Provider-neutral semantic judge contract shared by grading, calibration, and the OpenAI judge layer",
-        },
-        {
-          file: "src/assessment.ts",
-          reason:
-            "Assessment provenance and criterion decisions shared by case grading and calibration binding",
-        },
-        {
-          file: "src/phoenix.ts",
-          reason:
-            "Completed-report publication boundary the CLI composes; the Phoenix protocol modules stay behind it",
-        },
-        {
-          file: "src/phoenix-publication.ts",
-          reason:
-            "Publication failure vocabulary and canonical JSON comparison every Phoenix protocol module binds to",
-        },
-        {
-          file: "src/phoenix-experiment.ts",
-          reason:
-            "Per-condition experiment identity and reconciliation shared by dataset versioning and report publication",
-        },
-        {
-          file: "src/sweep.ts",
-          reason:
-            "Durable report and sequential matrix execution boundary shared by the CLI and Phoenix publisher",
-        },
-      ],
-    },
-    afterShared: {
-      publicTypePackages: [
-        publicTypePackage.effect,
-        publicTypePackage.platform,
-        {
-          ...publicTypePackage.client,
-          reason:
-            "The addressed HarnessEndpoint supplies send and acknowledged-delivery contracts to evaluation boundaries",
-        },
-        publicTypePackage.simulator,
-      ],
-      allowedTestPublicSubpaths: [],
     },
   },
   "nanoclaw-channel": {

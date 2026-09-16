@@ -182,18 +182,12 @@ Condition matrices and aggregation also live above the kernel. Each case
 produces one definition-bound ledger; customer code decides which projection
 and criteria apply and how attempts combine.
 
-`packages/evals/src/results.ts → runEvaluationSweep` is one example. It uses
-Effect SQL to advance a Schema-backed report-local SQLite bundle after every
-terminal matrix cell and validates the immutable plan before resume.
-Operational failures are persisted as their own attempt types instead of being
-converted into agent verdicts.
-
-`packages/evals/src/phoenix.ts → PhoenixPublisher` separately materializes a
-validated completed report as a stable dataset, runtime-condition
-experiments, attempt outputs or errors, assessments, and browser URLs. Phoenix
-does not become ledger or report authority.
+Evaluation applications persist terminal attempts, immutable inputs, and grader
+provenance in their own stores. Operational failures remain distinct from agent
+verdicts. Optional publication systems materialize validated reports without
+becoming ledger or report authority.
 
 ## Related
 
-- [Code-first evaluations](/development/evals) — the retained mixed-runtime
-  evaluation application
+- [Evaluation ownership](/development/evals) — the boundary between runtime
+  evidence and externally maintained suites

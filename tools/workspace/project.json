@@ -169,7 +169,10 @@
         "{workspaceRoot}/scripts/simulator/build-controller-image.mjs",
         "{workspaceRoot}/scripts/simulator/controller-image/Dockerfile",
         "{workspaceRoot}/packages/simulator/local/**/*",
-        "{workspaceRoot}/packages/simulator/scripts/local-create-cluster.mjs"
+        "{workspaceRoot}/packages/simulator/scripts/local-create-cluster.mjs",
+        "{workspaceRoot}/scripts/test/simulator-fault-peer.mjs",
+        "{workspaceRoot}/scripts/test/simulator-fault-peer-application.mjs",
+        "{workspaceRoot}/scripts/test/simulator-fault-peer.test.mjs"
       ],
       "options": {
         "cwd": ".",
@@ -195,13 +198,16 @@
         "{workspaceRoot}/scripts/test/simulator-fault-program.test.mjs",
         "{workspaceRoot}/scripts/test/simulator-local-fault-qualification.mjs",
         "{workspaceRoot}/scripts/test/simulator-local-fault-qualification.test.mjs",
-        "{workspaceRoot}/scripts/test/simulator-workspace-loader.mjs"
+        "{workspaceRoot}/scripts/test/simulator-workspace-loader.mjs",
+        "{workspaceRoot}/scripts/test/simulator-fault-peer.mjs",
+        "{workspaceRoot}/scripts/test/simulator-fault-peer-application.mjs",
+        "{workspaceRoot}/scripts/test/simulator-fault-peer.test.mjs"
       ],
       "options": {
         "cwd": ".",
         "parallel": false,
         "commands": [
-          "node --test scripts/test/simulator-fault-program.test.mjs scripts/test/simulator-local-fault-qualification.test.mjs",
+          "node --test scripts/test/simulator-fault-program.test.mjs scripts/test/simulator-fault-peer.test.mjs scripts/test/simulator-local-fault-qualification.test.mjs",
           "node --check scripts/test/simulator-fault-end-to-end.mjs",
           "node --check scripts/test/simulator-fault-program.mjs",
           "node --check scripts/test/simulator-local-fault-qualification.mjs",

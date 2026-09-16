@@ -267,7 +267,7 @@ moltzap-sim run --profile gke path/to/experiment.mjs
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | when a model needs one | forwarded to containers whose model id names that provider |
 
 The experiment module may import only what the controller image ships:
-`@moltzap/{simulator,client,identity,router,evals}`, `effect`, and
+`@moltzap/{simulator,client,identity,router}`, `effect`, and
 `@moltzap/simulator/controller`. Bench-specific code is
 inlined in the `.mjs` or runs outside against the exported ledger. The
 submitter's stdout is one `ProfileRunResult` line; everything else goes to
@@ -345,18 +345,11 @@ pod templates; Kueue admission alone is not treated as placement or readiness.
 
 ## Qualification
 
-The retained post-cutover evidence is the
-[OpenClaw shared/private evaluation of 2026-09-01](../../evals/results/openclaw-gke-shared-private-20260901.md):
-six assessed attempts on this profile, with the controller and OpenClaw image
-digests, run namespaces, ledger identities, and artifact digests a reader can
-check against the bucket.
-
-Runtime evaluations are owned and run by
-[`@moltzap/evals`](../../evals/README.md), which can select this profile as its
-Simulator backend. They are not cluster lifecycle commands. Do not claim live
-qualification until the resulting ledgers are readable in the artifact bucket,
-run-owned Kubernetes residue is zero, and that evidence is retained where a
-reader can find it.
+Runtime evaluations are owned and run by a separate private eval monorepo,
+which selects this profile through the published Simulator API. Do not claim live
+qualification until completed ledgers and native artifacts are readable in the
+artifact bucket, run-owned Kubernetes residue is zero, and the exact source,
+package, and image identities are retained with the qualification results.
 
 Static validation does not contact Google Cloud or a Kubernetes cluster;
 `gke-terraform-check` formats, initialises without a backend, and validates

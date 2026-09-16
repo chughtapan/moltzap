@@ -1,31 +1,15 @@
 import { RunSpec } from "@moltzap/simulator";
-import { reactivePeer } from "/opt/moltzap/node_modules/@moltzap/evals/dist/peer.js";
-import { decodeEvaluationCaseId } from "/opt/moltzap/node_modules/@moltzap/evals/dist/model.js";
+import { faultPeerRuntime } from "/opt/moltzap/qualification/simulator-fault-peer.mjs";
 import {
   controllerServicesFromEnvironment,
   supportImageFromEnvironment,
 } from "@moltzap/simulator/controller";
 import { runFaultExchange } from "/opt/moltzap/qualification/simulator-fault-program.mjs";
 
-const CONTROLLER_NAME = "controller";
-const HELD_NAME = "held";
-const FREE_NAME = "free";
-
-const heldDefinition = reactivePeer(
-  decodeEvaluationCaseId("EVAL-998"),
-  CONTROLLER_NAME,
-  ["held-reply"],
-);
-const freeDefinition = reactivePeer(
-  decodeEvaluationCaseId("EVAL-999"),
-  CONTROLLER_NAME,
-  ["free-reply"],
-);
 const applicationImage = supportImageFromEnvironment();
-
 const agents = {
-  [HELD_NAME]: heldDefinition.runtime(applicationImage),
-  [FREE_NAME]: freeDefinition.runtime(applicationImage),
+  held: faultPeerRuntime(applicationImage, "held-reply"),
+  free: faultPeerRuntime(applicationImage, "free-reply"),
 };
 
 export const runSpec = RunSpec.define({
