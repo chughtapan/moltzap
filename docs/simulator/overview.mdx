@@ -17,7 +17,7 @@ Temporal coordinates the coarse run lifecycle and cleanup. Those platform
 objects stay private: experiment code receives agents, network controls,
 events, and the readable ledger.
 
-## One package, four public entry points
+## One package, five public entry points
 
 The package keeps capability boundaries inside one install:
 
@@ -27,6 +27,7 @@ The package keeps capability boundaries inside one install:
 | `@moltzap/simulator/network` | Participant and endpoint capabilities, Router fixtures, and directed-link fault controls |
 | `@moltzap/simulator/agents` | Container runtime descriptors and the shipped OpenClaw and NanoClaw implementations |
 | `@moltzap/simulator/ledger` | Ledger schemas, completed-artifact validation, and offline inspection |
+| `@moltzap/simulator/controller` | Environment-driven composition for controller-loaded experiment modules |
 
 Experiment code normally imports the root entry point and `/agents`.
 Report and grading code uses `/ledger`.
@@ -101,9 +102,9 @@ export const runSpec = RunSpec.define({
 });
 ```
 
-The absolute cluster-services import is private to the repository-built
-controller image. It lets the mounted module select the controller-owned Layer
-without exposing Kubernetes, Kueue, Agent Sandbox, Temporal, or cloud-provider
+The public controller entry point lets the mounted module select the
+controller-owned Layer without exposing Kubernetes, Kueue, Agent Sandbox,
+Temporal, or cloud-provider
 values in the public experiment context. The controller loads the module late
 and calls `Run.execute(runSpec)` once.
 
@@ -186,9 +187,10 @@ Each invocation creates one society and then tears it down:
 5. Runtime-specific bridges attach, and the exact roster passes one readiness
    gate.
 6. The controller invokes the customer Effect once.
-7. While every application is still up, the controller reads each agent's
-   declared workspace files and, when enabled, its daemon's history export
-   into the ledger.
+7. The controller requests stop/flush acknowledgements, then reads declared
+   workspace files and optional bounded history exports into the ledger. It
+   streams native logs and full history exports into separate retained files
+   before releasing the application containers.
 8. The simulator finalizes the ledger and run outcome.
 9. Temporal drives cleanup of run-owned Kubernetes resources.
 
@@ -213,7 +215,7 @@ attempted and does not become a returned outcome.
 
 ## Durable evidence and offline grading
 
-A completed run owns three artifacts:
+A completed ledger owns three artifacts:
 
 | File | Holds |
 |---|---|
@@ -221,14 +223,20 @@ A completed run owns three artifacts:
 | `records.ndjson` | Schema-validated event envelopes in one logical sequence |
 | `completion.json` | Record count and SHA-256 digests for the manifest and records |
 
-Agents never exit in an experiment, so what they wrote is read back rather
-than collected on exit. `harvestWorkspaceFiles` on either runtime names
-workspace-relative files; each becomes one `AgentWorkspaceFileHarvested`
+After the program ends, including interruption, the controller stops the host
+and daemon while leaving the application entrypoint available for collection.
+`harvestWorkspaceFiles` on either runtime names workspace-relative files;
+each becomes one `AgentWorkspaceFileHarvested`
 record with a `text`, `oversize`, `absent`, or `unreadable` outcome after the
 program event. `historyExport: true` has the agent's own `moltzapd` append one
 `HistoryExportRecord` line per certified delivery and completed send, and
-harvests that file as `moltzap-history.ndjson`; that is the only place message
-content enters the ledger, because the fabric carries opaque packets.
+harvests that file as `moltzap-history.ndjson`.
+
+Native logs and full history exports are retained separately from bounded
+workspace records. `AgentRuntimeArtifact` records bind their exact keys, byte
+lengths, and SHA-256 digests. A failed stop acknowledgement or collection
+deadline records `RuntimeEvidenceCollectionFailed`; retained files do not by
+themselves establish complete evidence. The fabric still carries opaque packets.
 
 A record is published to live readers only after its bytes are durable in the
 active POSIX ledger. Local runs write that ledger beneath their retained
