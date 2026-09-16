@@ -39,7 +39,6 @@
     "test:compute-next-version": "bash scripts/release/compute-next-version.test.sh",
     "test:npm-version-exists": "bash scripts/release/npm-version-exists.test.sh",
     "test:write-published-images": "node --test scripts/release/write-published-images.test.mjs",
-    "check:agent-setup": "bash scripts/repo/check-agent-setup.sh",
     "test:pack:simulator": "pnpm nx run @moltzap/simulator:test:pack",
     "prepare": "husky && node scripts/setup/restore-tsgo-exec-bit.mjs",
     "effect:source": "./scripts/setup/prepare-effect.sh",

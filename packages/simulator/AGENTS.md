@@ -141,7 +141,7 @@ current decisions rather than deliberate deferrals.
   composition behind Identity, Router, and Client.
 
 Only `src/index.ts`, `src/agents/index.ts`, `src/network/index.ts`, and
-`src/ledger/index.ts` own the current published facades. Publication follows `docs/decisions/20260901-six-packages-publish-as-one-version-set.md`: this package publishes in the one-version set.
+`src/ledger/index.ts` own the current published facades. Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package publishes in the one-version set.
 Do not add or remove a facade merely to change what a release ships.
 
 ## Tests

@@ -2,30 +2,9 @@
 
 Status: the constitution of the four-layer harness on `main`.
 
-Current decisions:
-the current manifest and explicitly retained four-layer outcome in
-[`20260811-four-layer-endpoint-replicated-harness.md`](decisions/20260811-four-layer-endpoint-replicated-harness.md),
-[`20260827-addressed-messaging-replaces-openfloor.md`](decisions/20260827-addressed-messaging-replaces-openfloor.md),
-[`20260828-hosts-own-send-retry-policy.md`](decisions/20260828-hosts-own-send-retry-policy.md),
-[`20260828-action-signatures-follow-router-order.md`](decisions/20260828-action-signatures-follow-router-order.md),
-[`20260828-channel-adapters-use-stock-host-apis.md`](decisions/20260828-channel-adapters-use-stock-host-apis.md),
-the explicitly retained Client ownership, persistence, recovery, management,
-catch-up, re-anchor, and daemon-configuration scope in
-[`20260813-client-protocol-and-attention.md`](decisions/20260813-client-protocol-and-attention.md),
-[`20260813-simulator-link-faults-perturb-delivery.md`](decisions/20260813-simulator-link-faults-perturb-delivery.md),
-and the publication set in
-[`20260901-six-packages-publish-as-one-version-set.md`](decisions/20260901-six-packages-publish-as-one-version-set.md).
-
-Decision provenance:
-[`20260811-four-layer-v2-cutover-trajectory.md`](decision-evidence/20260811-four-layer-v2-cutover-trajectory.md),
-[`20260813-client-protocol-and-attention-trajectory.md`](decision-evidence/20260813-client-protocol-and-attention-trajectory.md),
-[`20260827-addressed-messaging-trajectory.md`](decision-evidence/20260827-addressed-messaging-trajectory.md),
-[`20260828-host-owned-retry-policy-source-gap.md`](decision-evidence/20260828-host-owned-retry-policy-source-gap.md),
-[`20260828-router-ordered-action-signatures-source-gap.md`](decision-evidence/20260828-router-ordered-action-signatures-source-gap.md),
-[`20260828-stock-host-adapter-source-gap.md`](decision-evidence/20260828-stock-host-adapter-source-gap.md),
-[`20260813-simulator-link-fault-ordering-trajectory.md`](decision-evidence/20260813-simulator-link-fault-ordering-trajectory.md),
-and
-[`20260901-publication-set-trajectory.md`](decision-evidence/20260901-publication-set-trajectory.md).
+The public contracts are defined here and in `docs/spec/`.
+Internal ADRs and decision evidence live in
+[the shared docs repo](https://github.com/social-harness/docs-internal/blob/c9fd163aad4cb267a92be89922e1c13bc553b751/moltzap/README.md).
 
 ## Problem
 
@@ -79,24 +58,19 @@ public interface is incomplete.
 
 ## Authority
 
-Read sources in this order:
+Read `AGENTS.md` and this constitution, then the normative chapters in
+`docs/spec/`. `docs/architecture/` explains the current flows and components.
+Internal decision records and source evidence are maintained in the shared docs
+repo; [the contribution workflow](development/contributing.mdx) explains access.
 
-1. `AGENTS.md` and this constitution;
-2. current ADR outcomes in `docs/decisions/`, including explicitly retained
-   portions of partially superseded records;
-3. normative chapters in `docs/spec/`;
-4. orientation and execution material in `docs/architecture/`; and
-5. provenance and historical input in `docs/decision-evidence/`, including
-   its `inputs/` and `drafts/` directories.
+Public maintenance uses the checked-in contracts. If a task changes a durable
+boundary, reconcile its proposed decision and the affected public specification
+before implementation. Missing internal access does not block unrelated fixes.
+A conflicting contract is a documentation defect to resolve in the affected
+scope. Deliberate deferrals remain open until explicitly decided.
 
-A binding decision is checked into this chain. Chat, issues, execution
-handoffs, and agent-private state are not implementation authority. Questions
-listed as deliberate deferrals remain questions even when an earlier package
-happens to expose an answer.
-
-`main` is the only track. The four-layer harness replaced the v1 stack there,
-and the five published packages release from `main` through the workflow the
-publication record names.
+`main` is the only release track. Five published packages release together
+through `.github/workflows/publish.yml`.
 
 ## The constitution
 
@@ -370,8 +344,9 @@ Router live in their final homes, Client replaced the transitional v1 client,
 and the protocol, server, central Ledger, profile, CLI/socket, interim `v2/*`
 implementation, and standalone testbed code are deleted. Five of the seven
 packages publish to npm as one version set while `@moltzap/nanoclaw-channel`
-and `@moltzap/evals` stay private, as `20260901-six-packages-publish-as-one-version-set.md` records; the package
-version is independent of the wire compatibility value.
+and `@moltzap/evals` stay private, as defined in
+[Publication and versions](spec/layer-interfaces.md#publication-and-versions).
+The package version is independent of the wire compatibility value.
 
 The simulation `RunLedger` remains run evidence. Its name does not reintroduce
 a product Ledger or a privileged view of private conversation history.
@@ -394,46 +369,11 @@ An implementation must not answer these choices accidentally:
 
 Identity and Router relocation, final package naming, removal of superseded
 Ledger/profile/testbed scaffolds, and graph/tooling cutover do not decide these
-questions. Publication membership and version policy were deliberate deferrals
-until `20260901-six-packages-publish-as-one-version-set.md` selected them. The Client protocol and Simulator compatibility cuts are current
-decisions, not deferrals. Simulator removes content-free open, unaddressed
+questions. Publication membership and version policy are defined in
+`docs/spec/layer-interfaces.md` → Publication and versions. The Client protocol
+and Simulator compatibility cuts are current contracts. Simulator removes
+content-free open, unaddressed
 send, message-only receive, runtime Router authority, and persisted
 Router-order claims; it does not preserve them through inert fields or
 semantic shims. The post-Router link-fault boundary is likewise selected
 rather than deferred.
-
-## Evidence and path
-
-The source-faithful decision trajectories are
-`docs/decision-evidence/20260811-four-layer-v2-cutover-trajectory.md`,
-`docs/decision-evidence/20260813-client-protocol-and-attention-trajectory.md`,
-`docs/decision-evidence/20260827-addressed-messaging-trajectory.md`,
-and
-`docs/decision-evidence/20260813-simulator-link-fault-ordering-trajectory.md`.
-The explicit source-gap reports for the three current 2026-08-28 decisions are
-`docs/decision-evidence/20260828-host-owned-retry-policy-source-gap.md`,
-`docs/decision-evidence/20260828-router-ordered-action-signatures-source-gap.md`,
-and
-`docs/decision-evidence/20260828-stock-host-adapter-source-gap.md`.
-The current replacement ADRs own their binding outcomes, supersession map,
-stable trace rows, assumptions, and deferrals. Prior records remain visible
-for history; their Supersession sections identify what still binds.
-
-Execution proceeded in dependency order:
-
-1. freeze this authority candidate and pass the isolated six-question blind
-   review;
-2. integrate the accepted PR #974 state and pin the final `main` base;
-3. move Identity and Router into their final package names and establish the
-   exact seven-package graph;
-4. build endpoint-owned certified history and the daemon behind the admitted
-   Client interface;
-5. rewrite OpenClaw and NanoClaw against Client;
-6. rewire simulator and evals through the daemon-backed Client, preserving
-   non-conflicting behavior, deleting the five incompatible contracts, and
-   placing explicitly activated link faults at the private post-Router
-   delivery boundary;
-7. delete every displaced implementation and compatibility surface;
-8. pass full Nx, protocol, fault, recovery, MCP, adapter, simulator,
-   packaging, documentation, provenance, and absence gates; and
-9. land the replacement on `main` and admit the publication set.

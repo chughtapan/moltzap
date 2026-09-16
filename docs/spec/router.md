@@ -624,12 +624,8 @@ detection, transparent Router restart, per-recipient retention indexes,
 negotiated resource limits, network push transports, and a required
 end-to-end encryption or key-distribution profile.
 
-## Decisions
+## Decision evidence
 
-- `../decisions/20260720-the-network-is-a-router.md`
-- `../decisions/20260721-sessionless-network.md`
-- `../decisions/20260728-network-wire-is-http-post-polling.md`
-- `../decisions/20260728-layer-boundaries-and-fault-model.md`
-- `../decisions/20260729-router-order-is-opaque.md`
-- `../decisions/20260729-representation-limits-are-fixed-or-derived.md`
-- `../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md`
+Internal ADRs and their source events live in
+[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/c9fd163aad4cb267a92be89922e1c13bc553b751/moltzap/README.md).
+This chapter contains the public contract needed to use and maintain the package.

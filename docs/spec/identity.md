@@ -838,13 +838,8 @@ keys, OS keychains, HSMs, external signers, and mandatory end-to-end
 body encryption. Application-owned TLS, certificate, and trusted-proxy
 policy are also outside the application contract.
 
-## Decisions
+## Decision evidence
 
-- `../decisions/20260721-native-principal-shaped-card.md`
-- `../decisions/20260723-directory-serves-cards.md`
-- `../decisions/20260726-attribution-binds-to-the-message.md`
-- `../decisions/20260728-gate-1-identity-profile.md`
-- `../decisions/20260729-identity-uses-jcs-jose-authenticated-http.md`
-- `../decisions/20260729-registration-is-registry-bootstrap-admission.md`
-- `../decisions/20260729-identity-and-router-expose-deep-effect-capabilities.md`
-- `../decisions/20260729-representation-limits-are-fixed-or-derived.md`
+Internal ADRs and their source events live in
+[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/c9fd163aad4cb267a92be89922e1c13bc553b751/moltzap/README.md).
+This chapter contains the public contract needed to use and maintain the package.

@@ -23,8 +23,37 @@ description: Contribution guidelines and conventions
   simulator images tagged with it, and commits the digests and changelog
   stamp. The identities and repository settings a release needs are listed
   under `Release publishing` in `packages/simulator/gke/README.md`.
-- Authority for design work is `docs/vision.md`, then the decision records,
-  then `docs/spec/`; see `AGENTS.md`.
+- Public design contracts live in `docs/vision.md` and `docs/spec/`; see
+  `AGENTS.md` for package-specific instructions.
+
+## Workflow
+
+Understand the task, decide if needed, implement and test, obtain independent
+review, then ship. A routine fix stays in its issue/PR. A coordinated feature
+gets one plan; a durable design choice gets one complete ADR with source
+evidence, independent review, and explicit owner approval. The original request
+or issue authorizes bounded implementation without another approval ritual.
+
+Internal plans, ADRs, and source evidence live in
+[the shared docs repo](https://github.com/social-harness/docs-internal/blob/c9fd163aad4cb267a92be89922e1c13bc553b751/README.md).
+Contributors with access set `DOCS_INTERNAL_ROOT` to a checkout at the revision
+in `.agents/company-skills.json` and start with its README. The workflow pin
+does not establish approval of proposed ADRs. Public maintenance uses the
+contracts and checks here without a private-docs dependency. A new boundary choice needs its decision resolved and
+public specification updated before implementation.
+
+The company `shared-sdlc` and `records` skills are pinned in
+`.agents/company-skills.json` and readable under `.agents/skills/` and
+`.claude/skills/`. Maintainers update them from the shared docs checkout:
+
+```bash
+bin/records skills sync --target /path/to/moltzap --revision DOCS_COMMIT
+bin/records skills check --target /path/to/moltzap --revision DOCS_COMMIT
+```
+
+These commands protect local edits and do not modify upstream skills. gstack and
+Google guides are optional helpers; normal planning, independent review, package
+checks, and Git/PR commands remain available.
 
 ## Before submitting a PR
 
