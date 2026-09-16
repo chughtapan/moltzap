@@ -1,6 +1,17 @@
 /** @file Allocation, execution, and ordered finalization of one run. */
 
-import { Cause, Data, Effect, Exit, Layer, Option, Ref, Schema } from "effect";
+import {
+  Cause,
+  Data,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Option,
+  Ref,
+  Schema,
+  Stream,
+} from "effect";
 import type { AgentRuntimeLike } from "../agents/agent.js";
 import type { EventClass } from "../events/catalog.js";
 import type { makeDefinitionEventServices } from "./events.js";
@@ -16,6 +27,7 @@ import {
   type Society,
 } from "../cluster/cluster.js";
 import {
+  AgentRuntimeArtifact,
   AgentWorkspaceFileHarvested,
   linkEvents,
   routerEvents,
@@ -25,6 +37,7 @@ import {
   runEvents,
   RunStarted,
   runtimeEvents,
+  RuntimeEvidenceCollectionFailed,
 } from "../events/core.js";
 import {
   type ActiveRunLedger,
@@ -49,6 +62,7 @@ import {
   RouterProvider,
 } from "../network/index.js";
 import { acquireRoster } from "./acquire.js";
+import { RuntimeArtifactStore } from "./artifacts.js";
 import { makeNetworkService } from "./endpoints.js";
 import { type LinkFabric, makeLinkFabric } from "./link-fabric.js";
 import { makeLinkController } from "./links.js";
@@ -387,9 +401,11 @@ function runContext<
   ) => Effect.Effect<RestoredA, RestoredE, RestoredR>,
 ) {
   return restore(
-    Effect.raceFirst(
-      Effect.scoped(executeProgram(context)),
-      context.active.failure,
+    awaitBeforeRelease(
+      Effect.raceFirst(
+        Effect.scoped(executeProgram(context)),
+        context.active.failure,
+      ),
     ),
   ).pipe(
     Effect.exit,
@@ -427,9 +443,11 @@ function executeProgram<
     const router = yield* acquireRouter(context.routerWriter, context.router);
     const platform = yield* Cluster;
     const session = yield* platform.prepare(context.input.roster);
-    return yield* Effect.raceFirst(
-      executeSociety({ context, router, session }),
-      session.failure,
+    return yield* awaitBeforeRelease(
+      Effect.raceFirst(
+        executeSociety({ context, router, session }),
+        session.failure,
+      ),
     );
   });
 }
@@ -461,19 +479,18 @@ function executeSociety<
       listener: session.routerFaultProxy.listener,
       fabric,
     });
-    return yield* Effect.raceFirst(
-      runSocietyProgram({ ...input, fabric, proxy }),
-      proxy.failure,
+    return yield* awaitBeforeRelease(
+      Effect.raceFirst(
+        runSocietyProgram({ ...input, fabric, proxy }),
+        proxy.failure,
+      ),
     );
   });
 }
 
 /**
- * Run the customer program against the started society and record what it
- * left. A program that ended in interruption alone is a run being cancelled,
- * so workspaces are not read then: the read would hold the cancellation on
- * the cluster API. A cause carrying a failure as well is still harvested,
- * because that run has something to explain.
+ * Run the customer program, then stop/flush and collect before releasing the
+ * application scope. Cancellation retains the same bounded evidence phase.
  */
 function runSocietyProgram<
   Id extends string,
@@ -495,24 +512,63 @@ function runSocietyProgram<
   >,
 ) {
   const { context, session } = input;
-  return Effect.gen(function* () {
-    const { layer, agents } = yield* makeSocietyProgramLayer(input);
-    const exit = yield* context.input.program.pipe(
-      Effect.provide(layer),
-      Effect.exit,
-      Effect.scoped,
-    );
-    yield* context.runWriter.write({ event: programEvent(exit) });
-    if (Exit.isSuccess(exit) || !Cause.isInterruptedOnly(exit.cause)) {
-      yield* harvestWorkspaces({
-        roster: context.input.roster,
-        agents,
-        session,
-        writer: context.runtimeWriter,
-      });
-    }
-    return exit;
-  });
+  return Effect.scoped(
+    Effect.uninterruptibleMask((restore) =>
+      Effect.gen(function* () {
+        const { layer, agents } = yield* restore(
+          makeSocietyProgramLayer(input),
+        );
+        const collect = collectRuntimeEvidence({
+          roster: context.input.roster,
+          agents,
+          session,
+          writer: context.runtimeWriter,
+        });
+        yield* Effect.addFinalizer(() =>
+          finalizeEvidence(collect, context.runtimeWriter),
+        );
+        const exit = yield* Effect.exit(
+          restore(
+            context.input.program.pipe(Effect.provide(layer), Effect.scoped),
+          ),
+        );
+        yield* context.runWriter.write({ event: programEvent(exit) });
+        return exit;
+      }),
+    ),
+  );
+}
+
+/** Scope-owned collection survives caller interruption and owns a bounded child. */
+function finalizeEvidence(
+  collect: Effect.Effect<void, LedgerFailure>,
+  writer: LedgerWriter<typeof runtimeEvents>,
+) {
+  return awaitBeforeRelease(
+    collect.pipe(Effect.timeoutOption("5 minutes")),
+  ).pipe(
+    Effect.flatMap((result) =>
+      Option.isSome(result)
+        ? Effect.void
+        : writer.write({
+            event: RuntimeEvidenceCollectionFailed.make({
+              stage: "collection",
+              detail:
+                "Runtime evidence collection exceeded its five-minute budget",
+            }),
+          }),
+    ),
+    Effect.orDie,
+  );
+}
+
+/** Join interrupted race children before a surrounding resource scope can close. */
+function awaitBeforeRelease<A, E, R>(effect: Effect.Effect<A, E, R>) {
+  return Effect.acquireUseRelease(
+    Effect.forkDaemon(Effect.interruptible(effect)),
+    (fiber) => Fiber.join(fiber),
+    (fiber) => Fiber.interrupt(fiber),
+  );
 }
 
 interface HarvestWorkspacesInput<
@@ -523,6 +579,96 @@ interface HarvestWorkspacesInput<
   readonly agents: StartedAgents<Definitions>;
   readonly session: Society<Definitions>;
   readonly writer: LedgerWriter<typeof runtimeEvents>;
+}
+
+function collectRuntimeEvidence<
+  Id extends string,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+>(input: HarvestWorkspacesInput<Id, Definitions>) {
+  return Effect.gen(function* () {
+    if (input.session.finalize !== undefined) {
+      yield* input.session.finalize.pipe(
+        Effect.catchAll((error) =>
+          input.writer.write({
+            event: RuntimeEvidenceCollectionFailed.make({
+              stage: "finalization",
+              detail: String(error),
+            }),
+          }),
+        ),
+      );
+    }
+    yield* harvestWorkspaces(input);
+    yield* harvestRuntimeLogs(input);
+  });
+}
+
+function harvestRuntimeLogs<
+  Id extends string,
+  Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
+>(input: HarvestWorkspacesInput<Id, Definitions>) {
+  return Effect.gen(function* () {
+    const harvest = input.session.harvestLogs;
+    if (harvest === undefined) {
+      return;
+    }
+    yield* Effect.forEach(
+      input.roster.validatedDefinitions,
+      (entry) =>
+        harvest(entry.name).pipe(
+          Stream.runForEach((artifact) =>
+            writeRuntimeArtifact(
+              input.writer,
+              entry.agentName,
+              input.agents[entry.name].agent.id,
+              artifact,
+            ),
+          ),
+        ),
+      { concurrency: HARVEST_CONCURRENCY, discard: true },
+    );
+  });
+}
+
+function writeRuntimeArtifact(
+  writer: LedgerWriter<typeof runtimeEvents>,
+  agentName: AgentRuntimeArtifact["agentName"],
+  agentId: AgentRuntimeArtifact["agentId"],
+  artifact: {
+    readonly relativePath: string;
+    readonly chunks: Stream.Stream<Uint8Array, unknown>;
+  },
+) {
+  return Effect.gen(function* () {
+    const storage = yield* Effect.serviceOption(RuntimeArtifactStore);
+    const outcome = Option.isNone(storage)
+      ? {
+          _tag: "unreadable" as const,
+          cause: "Runtime artifact storage is unavailable",
+        }
+      : yield* storage.value
+          .write(
+            `runtime/${agentName}/${artifact.relativePath}`,
+            artifact.chunks,
+          )
+          .pipe(
+            Effect.match({
+              onFailure: (error) => ({
+                _tag: "unreadable" as const,
+                cause: error.detail,
+              }),
+              onSuccess: (stored) => ({ _tag: "complete" as const, ...stored }),
+            }),
+          );
+    yield* writer.write({
+      event: AgentRuntimeArtifact.make({
+        agentName,
+        agentId,
+        relativePath: artifact.relativePath,
+        outcome,
+      }),
+    });
+  });
 }
 
 /**

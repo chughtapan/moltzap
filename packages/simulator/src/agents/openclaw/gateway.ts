@@ -73,6 +73,9 @@ class OpenClawGatewayPayload extends Schema.Class<OpenClawGatewayPayload>(
 class OpenClawGatewayResult extends Schema.Class<OpenClawGatewayResult>(
   "OpenClawGatewayResult",
 )({
+  meta: Schema.optional(
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  ),
   payloads: Schema.optional(
     Schema.Array(OpenClawGatewayPayload).pipe(
       Schema.maxItems(OPENCLAW_GATEWAY_PAYLOAD_MAX_COUNT),

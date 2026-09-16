@@ -141,6 +141,7 @@ type RunSizing = Pick<
 >;
 
 interface PreparedRun {
+  readonly requestedRunId?: string;
   readonly path: string;
   readonly controllerImage: string;
   readonly supportImage: string;
@@ -153,6 +154,7 @@ interface PreparedRun {
   readonly forceWorkerRoll: boolean;
   readonly connection: {
     readonly taskQueue: string;
+    readonly workerName?: string;
     readonly temporalAddress: string;
     readonly temporalNamespace: string;
     readonly workerTemporalAddress?: string;
@@ -177,6 +179,7 @@ function prepareRun(
   );
   return {
     path: experimentPath(args),
+    requestedRunId: optionalOverride(environment, "MOLTZAP_RUN_ID"),
     controllerImage,
     executionProfile,
     // Exactly "1", so that an operator who exported the variable to something
@@ -191,6 +194,9 @@ function prepareRun(
     applicationImage: optionalImage(environment, "MOLTZAP_APPLICATION_IMAGE"),
     runtimeCredentials: runtimeCredentials(environment),
     connection: {
+      ...(environment.MOLTZAP_RUN_WORKER_NAME === undefined
+        ? {}
+        : { workerName: environment.MOLTZAP_RUN_WORKER_NAME }),
       taskQueue: optionalNonEmpty(
         environment,
         "MOLTZAP_TEMPORAL_TASK_QUEUE",
@@ -384,6 +390,23 @@ function boundedResult(result: ControllerRunResult): ControllerRunResult {
   return { ...result, diagnostic: boundedDiagnostic(result.diagnostic) };
 }
 
+function requestedRunIdentity(
+  operations: SubmitOperationsService,
+  requestedRunId?: string,
+) {
+  if (requestedRunId === undefined) {
+    return createRunIdentity(operations);
+  }
+  return Effect.try({
+    try: () => makeRunIdentity(requestedRunId.replace(/^mz-/u, "")),
+    catch: () =>
+      failure(
+        "configuration",
+        "MOLTZAP_RUN_ID must be a UUID or mz- followed by 32 hex digits",
+      ),
+  });
+}
+
 function createRunIdentity(
   operations: SubmitOperationsService,
 ): Effect.Effect<ReturnType<typeof makeRunIdentity>, RunSubmissionError> {
@@ -401,7 +424,10 @@ function executePreparedRun(
   operations: SubmitOperationsService,
 ): Effect.Effect<ProfileRunResult, RunSubmissionError> {
   return Effect.gen(function* () {
-    const identity = yield* createRunIdentity(operations);
+    const identity = yield* requestedRunIdentity(
+      operations,
+      prepared.requestedRunId,
+    );
     const experimentModule = yield* readExperiment(prepared.path, operations);
     const result = yield* executeTemporalRun(
       {
@@ -409,6 +435,9 @@ function executePreparedRun(
         forceWorkerRoll: prepared.forceWorkerRoll,
         workflowId: identity.runId,
         taskQueue: prepared.connection.taskQueue,
+        ...(prepared.connection.workerName === undefined
+          ? {}
+          : { workerName: prepared.connection.workerName }),
         temporalAddress: prepared.connection.temporalAddress,
         temporalNamespace: prepared.connection.temporalNamespace,
         ...(prepared.connection.workerTemporalAddress === undefined

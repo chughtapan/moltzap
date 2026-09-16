@@ -1,6 +1,6 @@
 /** @file Reading one file back from a live application container. */
 
-import type { Exec, V1Status } from "@kubernetes/client-node";
+import type { CoreV1Api, Exec, V1Pod, V1Status } from "@kubernetes/client-node";
 import { Data, Effect } from "effect";
 import { PassThrough } from "node:stream";
 import type { HarvestedFileOutcome } from "../../events/core.js";
@@ -51,6 +51,7 @@ export interface ApplicationFileRead {
   readonly podName: string;
   readonly path: string;
   readonly limitBytes: number;
+  readonly mode?: "finalize" | number;
 }
 
 /** Everything one exec of the harvest probe left behind. */
@@ -158,6 +159,69 @@ export function execHarvestProbe(
   exec: ExecSessionClient,
   read: ApplicationFileRead,
 ): Effect.Effect<ApplicationFileObservation, ExecSessionFailed> {
+  return execContainerCommand(exec, {
+    ...read,
+    containerName: APPLICATION_CONTAINER_NAME,
+    command: applicationCommand(read),
+  });
+}
+
+/** The stop request remains retryable while the controller is being prepared. */
+export class ControllerStopFailed extends Data.TaggedError(
+  "ControllerStopFailed",
+)<{
+  readonly detail: string;
+}> {}
+
+/** Signal PID 1; workflow observation waits for the controller's final receipt. */
+export function requestControllerStop(
+  core: CoreV1Api,
+  exec: ExecSessionClient,
+  namespace: string,
+) {
+  return Effect.gen(function* () {
+    const pods = yield* Effect.tryPromise({
+      try: () =>
+        core.listNamespacedPod({
+          namespace,
+          labelSelector: "job-name=controller",
+        }),
+      catch: () =>
+        new ControllerStopFailed({
+          detail: "Controller pod could not be read",
+        }),
+    });
+    const name = yield* Effect.try({
+      try: () => controllerPodForStop(pods.items),
+      catch: () =>
+        new ControllerStopFailed({ detail: "Controller is not running yet" }),
+    });
+    const observation = yield* execContainerCommand(exec, {
+      namespace,
+      podName: name,
+      containerName: "controller",
+      limitBytes: 1024,
+      command: ["node", "-e", "process.kill(1,'SIGTERM')"],
+    });
+    if (observation.exitCode !== 0) {
+      return yield* new ControllerStopFailed({
+        detail: "Controller did not accept the stop signal",
+      });
+    }
+  }).pipe(Effect.withSpan("requestControllerStop"));
+}
+
+/** Execute a bounded command and wait for its status and drained output streams. */
+function execContainerCommand(
+  exec: ExecSessionClient,
+  read: {
+    readonly namespace: string;
+    readonly podName: string;
+    readonly containerName: string;
+    readonly command: readonly string[];
+    readonly limitBytes: number;
+  },
+): Effect.Effect<ApplicationFileObservation, ExecSessionFailed> {
   return Effect.suspend(() => {
     const session = makeSession(read.limitBytes);
     return Effect.tryPromise({
@@ -165,8 +229,8 @@ export function execHarvestProbe(
         exec.exec(
           read.namespace,
           read.podName,
-          APPLICATION_CONTAINER_NAME,
-          [...harvestCommand(read.path, read.limitBytes)],
+          read.containerName,
+          [...read.command],
           session.stdout,
           session.stderr,
           null,
@@ -192,6 +256,7 @@ interface ProbeSession {
 // decode the file as oversize, and a container that keeps sending after its
 // size check, because the file grew or was swapped, cannot grow the
 // controller's memory with it.
+
 function makeSession(limitBytes: number): ProbeSession {
   const stdout: Buffer[] = [];
   const stderr: Buffer[] = [];
@@ -320,4 +385,42 @@ function exitCause(exitCode: number, stderr: string): string {
   return detail.length === 0
     ? `the read exited ${String(exitCode)}`
     : `the read exited ${String(exitCode)}: ${detail}`;
+}
+
+/** Control arguments stay positional; no path is evaluated as shell source. */
+function applicationCommand(read: ApplicationFileRead): readonly string[] {
+  if (read.mode === "finalize") {
+    return [
+      "node",
+      "-e",
+      // #ignore-sloppy-code-next-line[async-keyword]: The standalone container probe runs in Node without the controller Effect runtime.
+      `const fs=require("node:fs/promises"); (async()=>{process.kill(1,"SIGUSR2"); const deadline=Date.now()+60000; while(Date.now()<deadline){try{process.stdout.write(await fs.readFile(process.argv[1])); return;}catch(e){if(e.code!=="ENOENT")throw e;} await new Promise(r=>setTimeout(r,100));}throw new Error("runtime finalization timed out");})().catch(e=>{console.error(e.message);process.exitCode=1;});`,
+      read.path,
+    ];
+  }
+  if (typeof read.mode === "number") {
+    return [
+      "node",
+      "-e",
+      `const fs=require("node:fs");try{const fd=fs.openSync(process.argv[1],"r");const buffer=Buffer.alloc(Math.floor(Number(process.argv[3])/4)*3);const count=fs.readSync(fd,buffer,0,buffer.length,Number(process.argv[2]));fs.closeSync(fd);process.stdout.write(buffer.subarray(0,count).toString("base64"));}catch(e){process.exitCode=e.code==="ENOENT"?66:1;}`,
+      read.path,
+      String(read.mode),
+      String(read.limitBytes),
+    ];
+  }
+  return harvestCommand(read.path, read.limitBytes);
+}
+
+/** Completed Pods never acknowledge a stop request that did not reach a process. */
+function controllerPodForStop(pods: readonly V1Pod[]): string {
+  const pod = pods.find(
+    (item) =>
+      item.metadata?.deletionTimestamp === undefined &&
+      item.status?.phase === "Running",
+  );
+  const name = pod?.metadata?.name;
+  if (name === undefined) {
+    throw new ControllerStopFailed({ detail: "Controller is not running yet" });
+  }
+  return name;
 }

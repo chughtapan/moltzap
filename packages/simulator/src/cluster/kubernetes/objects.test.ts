@@ -850,3 +850,23 @@ it("carries a run-chosen cohort size into the controller only when one is set", 
     value: String(COHORT_SIZE),
   });
 });
+
+it("isolates a named worker's workload, selector and permissions", () => {
+  const options = { ...WORKER_OPTIONS, taskQueue: "evalkit-qualification" };
+  const existing = runWorkerManifests(options);
+  const isolated = runWorkerManifests({
+    ...options,
+    workerName: "evalkit-qualification",
+  });
+  expect(existing.deployment.metadata?.name).toBe("run-worker");
+  expect(isolated.deployment.metadata?.name).toBe("evalkit-qualification");
+  expect(isolated.deployment.spec?.selector.matchLabels).not.toEqual(
+    existing.deployment.spec?.selector.matchLabels,
+  );
+  expect(isolated.deployment.spec?.template.spec?.serviceAccountName).toBe(
+    "evalkit-qualification",
+  );
+  expect(isolated.clusterRoleBinding.roleRef.name).toBe(
+    "evalkit-qualification",
+  );
+});

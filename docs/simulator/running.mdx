@@ -33,7 +33,7 @@ import { Effect } from "effect";
 import {
   applicationImageFromEnvironment,
   controllerServicesFromEnvironment,
-} from "/opt/moltzap/dist/cluster/controller/services.js";
+} from "@moltzap/simulator/controller";
 
 const alice = openClawRuntime({
   applicationImage: applicationImageFromEnvironment(),

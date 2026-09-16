@@ -5,7 +5,7 @@ import {
   applicationImageFromEnvironment,
   cohortSizeFromEnvironment,
   controllerServicesFromEnvironment,
-} from "/opt/moltzap/dist/cluster/controller/services.js";
+} from "@moltzap/simulator/controller";
 
 // One end-to-end run of the whole path: admit a complete roster, bring every
 // agent up, hold the society, and give it back. The cohort size is an input

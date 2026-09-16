@@ -185,6 +185,10 @@ export interface Application<Gateway, AcquisitionError> {
    * program ends, absent when the runtime harvests nothing.
    */
   readonly harvest?: readonly HarvestTarget[];
+  readonly logs?: ReadonlyArray<{
+    readonly relativePath: string;
+    readonly path: string;
+  }>;
   /**
    * Bind the controller to one ready application.
    *
@@ -221,7 +225,7 @@ The cluster builds this from the port the application itself declared, so a
 runtime reads the address it asked for instead of re-deriving it: a protocol,
 port, path, or credential the runtime would have to reject cannot be spelled.
 
-### [`ContainerAgentRuntime`](./container.ts#L205)
+### [`ContainerAgentRuntime`](./container.ts#L209)
 
 _Interface_
 
@@ -243,7 +247,7 @@ A runtime that is known to carry a container realization. Only
 `defineContainerRuntime` produces one, so reading its realization back needs
 no absent case.
 
-### [`ContainerRuntime`](./container.ts#L192)
+### [`ContainerRuntime`](./container.ts#L196)
 
 _Interface_
 
@@ -271,7 +275,7 @@ export type CredentialName = "ANTHROPIC_API_KEY" | "OPENAI_API_KEY";
 
 Provider credential a container may request from the run-scoped Secret.
 
-### [`defineContainerRuntime`](./container.ts#L266)
+### [`defineContainerRuntime`](./container.ts#L270)
 
 _Function_
 
@@ -473,7 +477,7 @@ export interface NanoClawRuntimeOptions {
 
 Configuration captured by one reusable NanoClaw runtime value.
 
-### [`OpenClawGateway`](./openclaw/gateway.ts#L158)
+### [`OpenClawGateway`](./openclaw/gateway.ts#L161)
 
 _Interface_
 
@@ -487,7 +491,7 @@ export interface OpenClawGateway {
 
 Principal gateway exposed by an acquired OpenClaw runtime.
 
-### [`OpenClawGatewayRequest`](./openclaw/gateway.ts#L84)
+### [`OpenClawGatewayRequest`](./openclaw/gateway.ts#L87)
 
 _Class_
 
@@ -507,7 +511,7 @@ export class OpenClawGatewayRequest extends Schema.Class<OpenClawGatewayRequest>
 
 Principal instruction accepted by OpenClaw's `agent` gateway RPC.
 
-### [`OpenClawGatewayRequestError`](./openclaw/gateway.ts#L146)
+### [`OpenClawGatewayRequestError`](./openclaw/gateway.ts#L149)
 
 _Class_
 
@@ -526,7 +530,7 @@ export class OpenClawGatewayRequestError extends Schema.TaggedError<OpenClawGate
 
 An OpenClaw gateway call failed or returned an invalid payload.
 
-### [`OpenClawGatewayResponse (type)`](./openclaw/gateway.ts#L143)
+### [`OpenClawGatewayResponse (type)`](./openclaw/gateway.ts#L146)
 
 _TypeAlias_
 
@@ -536,7 +540,7 @@ export type OpenClawGatewayResponse = typeof OpenClawGatewayResponse.Type;
 
 Exact terminal response returned by OpenClaw's `agent` gateway RPC.
 
-### [`OpenClawGatewayResponse (value)`](./openclaw/gateway.ts#L136)
+### [`OpenClawGatewayResponse (value)`](./openclaw/gateway.ts#L139)
 
 _Variable_
 
@@ -549,7 +553,7 @@ export const OpenClawGatewayResponse = Schema.Union(
 
 Schema for the exact terminal response returned by the `agent` gateway RPC.
 
-### [`OpenClawGatewaySucceeded`](./openclaw/gateway.ts#L107)
+### [`OpenClawGatewaySucceeded`](./openclaw/gateway.ts#L110)
 
 _Class_
 
@@ -566,7 +570,7 @@ export class OpenClawGatewaySucceeded extends Schema.Class<OpenClawGatewaySuccee
 
 Successful terminal result returned by OpenClaw's `agent` gateway RPC.
 
-### [`OpenClawGatewayTimedOut`](./openclaw/gateway.ts#L122)
+### [`OpenClawGatewayTimedOut`](./openclaw/gateway.ts#L125)
 
 _Class_
 
@@ -589,7 +593,7 @@ Timed-out terminal result returned by OpenClaw's `agent` gateway RPC.
 OpenClaw treats this as a successful RPC payload rather than a transport
 failure. A run may time out before it has an agent result.
 
-### [`openClawRuntime`](./openclaw/runtime.ts#L175)
+### [`openClawRuntime`](./openclaw/runtime.ts#L176)
 
 _Function_
 
@@ -615,7 +619,7 @@ flowchart LR
 
 **Returns:** A reusable OpenClaw container runtime definition.
 
-### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L118)
+### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L119)
 
 _Interface_
 
@@ -655,7 +659,7 @@ export interface OpenClawRuntimeOptions {
 
 Configuration captured by one reusable OpenClaw runtime value.
 
-### [`OpenClawSandboxConfig`](./openclaw/configuration.ts#L26)
+### [`OpenClawSandboxConfig`](./openclaw/configuration.ts#L30)
 
 _TypeAlias_
 
@@ -667,7 +671,7 @@ export type OpenClawSandboxConfig = NonNullable<
 
 Default-agent sandbox configuration accepted by `OpenClawConfig`.
 
-### [`OpenClawToolsConfig`](./openclaw/configuration.ts#L23)
+### [`OpenClawToolsConfig`](./openclaw/configuration.ts#L27)
 
 _TypeAlias_
 
@@ -865,7 +869,7 @@ export type StartedAgents<
 
 Exact keyed agents installed only after every runtime is ready.
 
-### [`stoppedBeforeAttach`](./container.ts#L309)
+### [`stoppedBeforeAttach`](./container.ts#L313)
 
 _Function_
 

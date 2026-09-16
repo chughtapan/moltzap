@@ -50,7 +50,7 @@ import { Effect, Schema } from "effect";
 import {
   applicationImageFromEnvironment,
   controllerServicesFromEnvironment,
-} from "/opt/moltzap/dist/cluster/controller/services.js";
+} from "@moltzap/simulator/controller";
 
 class ConsensusReached extends Schema.TaggedClass<ConsensusReached>()(
   "acme.consensus-reached/v1",

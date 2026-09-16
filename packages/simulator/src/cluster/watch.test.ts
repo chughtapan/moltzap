@@ -116,6 +116,13 @@ describe("controller Job diagnostics", () => {
     });
   });
 
+  it("retains interruption evidence when the controller handles SIGTERM and exits zero", () => {
+    const summary = clusterLostSummary(PROGRAM_SUMMARY.receipt);
+    expect(
+      controllerObservation(job({ succeeded: 1 }), encodedSummary(summary)),
+    ).toEqual({ _tag: "completed", result: { exitCode: 1, summary } });
+  });
+
   it("retains a receipt from a nonzero cluster outcome", () => {
     const summary = clusterLostSummary(
       IncompleteLedgerReceipt.make({ ledger: LEDGER }),
@@ -176,6 +183,7 @@ function observing(observed: JobObservation, logs?: string) {
         reads.push(`${namespace}:${String(tailLines)}:${String(limitBytes)}`);
         return logs;
       }),
+    requestControllerStop: () => Effect.void,
     deleteRunNamespace: () => Effect.void,
     runNamespaceExists: () => Effect.succeed(false),
   };

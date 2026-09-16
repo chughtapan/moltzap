@@ -266,7 +266,7 @@ moltzap-sim run --profile gke path/to/experiment.mjs
 
 The experiment module may import only what the controller image ships:
 `@moltzap/{simulator,client,identity,router,evals}`, `effect`, and
-`/opt/moltzap/dist/cluster/controller/services.js`. Bench-specific code is
+`@moltzap/simulator/controller`. Bench-specific code is
 inlined in the `.mjs` or runs outside against the exported ledger. The
 submitter's stdout is one `ProfileRunResult` line; everything else goes to
 stderr. The exit status is the other half of that contract:

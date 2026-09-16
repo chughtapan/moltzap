@@ -543,7 +543,7 @@ async function main() {
     })),
   );
   await assertNewCluster(kind, options.cluster);
-  await mkdir(options.artifacts, { recursive: true });
+  await mkdir(options.artifacts, { recursive: true, mode: 0o700 });
   const artifacts = await realpath(options.artifacts);
   const temporary = await mkdtemp(join(tmpdir(), "moltzap-local-cluster-"));
   const renderedKind = join(temporary, "kind.yaml");

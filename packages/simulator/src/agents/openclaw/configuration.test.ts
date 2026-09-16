@@ -115,3 +115,20 @@ describe("buildOpenClawConfig", () => {
     socialMessagesJoinActiveTurn,
   );
 });
+
+it("budgets enough bootstrap space for large supplied instructions", () => {
+  const config = buildOpenClawConfig(
+    {
+      agentName: Schema.decodeUnknownSync(AgentName)("alice"),
+      gatewayToken: Redacted.make("token"),
+      messagingMode: "shared",
+      bootstrapChars: 250_000,
+    },
+    "/workspace",
+  );
+  assert.isAtLeast(config.agents?.defaults?.bootstrapMaxChars ?? 0, 250_000);
+  assert.isAtLeast(
+    config.agents?.defaults?.bootstrapTotalMaxChars ?? 0,
+    250_000,
+  );
+});

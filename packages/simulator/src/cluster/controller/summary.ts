@@ -96,10 +96,13 @@ const controllerFailedRunSummary = Schema.Union(
 export const controllerRunResult = Schema.Union(
   Schema.Struct({
     exitCode: Schema.Literal(0),
+    cleanup: Schema.optional(Schema.Literal("complete", "failed")),
     summary: controllerProgramFinishedSummary,
   }),
   Schema.Struct({
     exitCode: Schema.Literal(1),
+    cancelled: Schema.optional(Schema.Literal(true)),
+    cleanup: Schema.optional(Schema.Literal("complete", "failed")),
     summary: controllerFailedRunSummary,
     diagnostic: Schema.optional(Schema.String),
   }),

@@ -35,6 +35,7 @@ import {
   DAEMON_MCP_PORT,
   type SocietyNetworkConfiguration,
 } from "../society-network.js";
+import { renameRunWorker } from "./worker-identity.js";
 
 // safer-arch-ignore no-cross-domain-sibling-import: Kubernetes objects carry the agent and ledger identities the run gives them.
 
@@ -289,13 +290,14 @@ export function ownedRunControlManifests(
 export function runWorkerManifests(
   options: RunWorkerOptions,
 ): RunWorkerManifests {
-  return {
+  const manifests: RunWorkerManifests = {
     namespace: runWorkerNamespace(),
     serviceAccount: runWorkerServiceAccount(),
     clusterRole: runWorkerClusterRole(),
     clusterRoleBinding: runWorkerClusterRoleBinding(),
     deployment: runWorkerDeployment(options),
   };
+  return renameRunWorker(manifests, options.workerName);
 }
 
 function ownerReference(owner: KubernetesRunOwner) {
@@ -995,6 +997,8 @@ export interface RunWorkerManifests {
 
 /** Everything the worker needs that the host, not the cluster, decides. */
 export interface RunWorkerOptions {
+  /** Separate control plane for an isolated task queue, without rolling the default worker. */
+  readonly workerName?: string;
   readonly controllerImage: string;
   readonly taskQueue: string;
   readonly temporalAddress: string;

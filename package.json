@@ -7,7 +7,8 @@
   "packageManager": "pnpm@10.6.2",
   "pnpm": {
     "overrides": {
-      "eslint-plugin-sonarjs>typescript": "5.9.3"
+      "eslint-plugin-sonarjs>typescript": "5.9.3",
+      "effect": "3.22.1"
     },
     "onlyBuiltDependencies": [
       "better-sqlite3"

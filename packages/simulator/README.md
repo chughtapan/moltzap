@@ -17,6 +17,7 @@ scenarios, sweeps, and grading.
 | `@moltzap/simulator/network` | Use retained participant, endpoint, Router-fixture, and directed-link fault contracts |
 | `@moltzap/simulator/agents` | Use container runtime descriptors and the shipped OpenClaw and NanoClaw implementations |
 | `@moltzap/simulator/ledger` | Completed-ledger schemas, validation, and offline readback |
+| `@moltzap/simulator/controller` | Compose controller-loaded modules from the execution environment |
 
 ## Experiment module
 
@@ -29,7 +30,7 @@ import { Effect } from "effect";
 import {
   applicationImageFromEnvironment,
   controllerServicesFromEnvironment,
-} from "/opt/moltzap/dist/cluster/controller/services.js";
+} from "@moltzap/simulator/controller";
 
 const alice = openClawRuntime({
   applicationImage: applicationImageFromEnvironment(),
@@ -49,9 +50,9 @@ export const runSpec = RunSpec.define({
 });
 ```
 
-The absolute cluster-services import is private to the repository-built
-controller image. It keeps Kubernetes, Kueue, Sandbox, Temporal, and
-cloud-provider values outside the public experiment contract. The controller
+The controller composition entrypoint resolves the execution environment.
+Kubernetes, Kueue, Sandbox, Temporal, and cloud-provider values stay outside
+the public experiment definition. The controller
 loads the module late and invokes `Run.execute(runSpec)` once.
 
 Each started agent exposes three lifecycle-facing values:
@@ -67,8 +68,9 @@ result to experiment code.
 
 ## Harvested workspace files
 
-Agents in an experiment never exit, so a file an agent wrote is read back from
-its running container after the customer Effect returns. Name the files, relative
+After the customer Effect ends, the controller stops the agent host and daemon
+and reads evidence from the application container, whose entrypoint remains
+available for collection. Name the files, relative
 to the agent's workspace, on either runtime:
 
 ```ts
@@ -84,7 +86,8 @@ Each named file becomes one `AgentWorkspaceFileHarvested` record
 relative path, and one of four outcomes: `text` with the content and its byte
 length, `oversize` when the file exceeds 64 KiB, `absent` when the agent never
 wrote it, or `unreadable` with the cause. Harvest follows the program event and
-precedes teardown; it never fails the run, and an interrupted program skips it.
+precedes teardown, including after interruption. Individual file-read failures
+are recorded as outcomes rather than replacing the program result.
 A custom container runtime takes part by setting `Application.harvest` to the
 `HarvestTarget`s it wants read (`@moltzap/simulator/agents`).
 
@@ -107,8 +110,10 @@ append one `HistoryExportRecord` line (the schema `@moltzap/client` exports)
 per certified inbound delivery and per completed send to
 `/var/run/moltzap/history.ndjson`. The file is harvested like an
 experiment-declared file, under the name `moltzap-history.ndjson` with a 1 MiB
-bound, so each agent's transcript lands in the ledger as one
-`AgentWorkspaceFileHarvested` record whose `text` is NDJSON. The agent-eye view
+bound, so a bounded transcript lands in the ledger as one
+`AgentWorkspaceFileHarvested` record whose `text` is NDJSON. The native artifact
+export also retains the full history file, including when the bounded harvest
+reports `oversize`. The agent-eye view
 is that agent's `inbound` records; the wire view is the union of every agent's
 `outbound` records, joined to recipients by `postId`.
 
@@ -202,3 +207,32 @@ pnpm nx run @moltzap/simulator:gke-terraform-check
 
 These checks do not qualify a live cluster or publish the required NanoClaw
 application image.
+
+## Durable eval execution
+
+The lifecycle extension exposes `evaluationCapabilities.version === 1` for
+consumers that require reconnect, explicit cancellation, native artifacts and
+stop-before-harvest behavior. A caller can set `MOLTZAP_RUN_ID` to a persisted
+UUID before `moltzap-sim run`. Retrying that identity reconnects to the existing
+Temporal execution; changed immutable inputs are rejected before provisioning.
+
+Use `moltzap-sim resume mz-<32 hex digits>` to await the same execution, or
+`moltzap-sim cancel mz-<32 hex digits>` to request cancellation. Ending a local
+wait does not cancel remote work. Cancellation retries while the controller is
+starting and stops retrying when that controller finishes. The final receipt records cleanup separately,
+so a namespace deletion failure does not erase a completed controller result.
+
+Mounted controller modules import composition helpers from
+`@moltzap/simulator/controller`. Native logs and full history exports are retained
+beside the ledger. `moltzap.agent-runtime-artifact/v1` binds each file's exact key,
+SHA-256 and byte length; log bytes are streamed outside the ledger itself.
+The agent entrypoint stops its host and daemon and drains output before the
+controller collects final evidence. Collection has a five-minute budget. A
+failed stop acknowledgement or collection timeout emits
+`moltzap.runtime-evidence-collection-failed/v1`; already collected files remain
+available, but consumers must treat the evidence as incomplete.
+
+For an isolated qualification queue, set both `MOLTZAP_TEMPORAL_TASK_QUEUE` and
+`MOLTZAP_RUN_WORKER_NAME` to distinct names. The latter selects separate worker
+resources and selectors, preserving the default `run-worker` Deployment. Never
+use a second worker name to poll an existing experiment queue with different code.
