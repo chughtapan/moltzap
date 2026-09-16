@@ -13,8 +13,8 @@ record, prepare a coherent candidate before changing an ADR, and distinguish
 implementation, merge and deployment. Use existing task authorization for routine
 work rather than asking for another approval at each step.
 
-For filing, use `program/reference/records.md`. For decision review or admission,
-use `program/reference/provenance.md`: missing binding evidence blocks approval;
+For filing, use `workflow/reference/records.md`. For decision review or admission,
+use `workflow/reference/provenance.md`: missing binding evidence blocks approval;
 require independent review and explicit human approval of the exact decision and
 review packet, then verify the landing receipt. Never fabricate human approval.
 All these paths are relative to `DOCS_INTERNAL_ROOT`, not the code checkout.
