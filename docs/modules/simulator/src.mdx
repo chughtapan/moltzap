@@ -86,6 +86,35 @@ export class AgentProcessSignaled extends Schema.TaggedClass<AgentProcessSignale
 
 A roster runtime process terminated because it received a signal.
 
+### [`AgentRuntimeArtifact`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L144)
+
+_Class_
+
+```ts
+export class AgentRuntimeArtifact extends Schema.TaggedClass<AgentRuntimeArtifact>()(
+  "moltzap.agent-runtime-artifact/v1",
+  {
+    agentName: agentName,
+    agentId: agentId,
+    relativePath: Schema.NonEmptyString,
+    outcome: Schema.Union(
+      Schema.Struct({
+        _tag: Schema.Literal("complete"),
+        key: Schema.NonEmptyString,
+        sha256: Schema.String.pipe(Schema.pattern(/^[a-f0-9]{64}$/u)),
+        byteLength: Schema.NonNegativeInt,
+      }),
+      Schema.Struct({
+        _tag: Schema.Literal("unreadable"),
+        cause: Schema.String,
+      }),
+    ),
+  },
+) {}
+```
+
+A frozen native file in retained storage, bound by digest and byte length.
+
 ### [`AgentRuntimeCompleted`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L60)
 
 _Class_
@@ -192,7 +221,7 @@ export class ClusterError extends Data.TaggedError("ClusterError")<{
 
 Cluster loss that ends a run without exposing its backend.
 
-### [`ClusterLost`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L115)
+### [`ClusterLost`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L129)
 
 _Class_
 
@@ -217,7 +246,7 @@ export type ClusterServices = LedgerStorage | RouterProvider | Cluster;
 
 Opaque service set supplied by a local-Kubernetes or GKE Layer.
 
-### [`CompletedLedgerReceipt`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L82)
+### [`CompletedLedgerReceipt`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L96)
 
 _Class_
 
@@ -233,7 +262,7 @@ export class CompletedLedgerReceipt extends Schema.TaggedClass<CompletedLedgerRe
 
 Physical receipt for a ledger whose completion marker is durable.
 
-### [`coreEvents`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L235)
+### [`coreEvents`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L268)
 
 _Variable_
 
@@ -324,6 +353,22 @@ export class Endpoint<Name extends string = string> {
 ```
 
 A run-scoped participant controlled directly by the experiment program.
+
+### [`evaluationCapabilities`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/index.ts#L99)
+
+_Variable_
+
+```ts
+export const evaluationCapabilities = Object.freeze({
+  version: 1,
+  reconnect: true,
+  explicitCancel: true,
+  nativeLogs: true,
+  stopBeforeHarvest: true,
+})
+```
+
+Runtime evidence contract required by evaluation consumers before provisioning.
 
 ### [`EventCatalog`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/catalog.ts#L132)
 
@@ -507,7 +552,7 @@ export type HarvestedFileOutcome = typeof harvestedFileOutcome.Type;
 How the ledger records one read: the file's text, its size when it ran past
 the bound, its absence, or why it could not be read.
 
-### [`IncompleteLedgerReceipt`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L91)
+### [`IncompleteLedgerReceipt`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L105)
 
 _Class_
 
@@ -558,7 +603,7 @@ export type LedgerFailure =
 
 Represents ledger failure conditions.
 
-### [`LedgerReceipt (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L106)
+### [`LedgerReceipt (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L120)
 
 _TypeAlias_
 
@@ -568,7 +613,7 @@ export type LedgerReceipt = typeof LedgerReceipt.Type;
 
 Decoded physical ledger receipt.
 
-### [`LedgerReceipt (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L100)
+### [`LedgerReceipt (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L114)
 
 _Variable_
 
@@ -647,7 +692,7 @@ export interface LinkDelivery {
 
 One opaque signed message about to cross a directed link.
 
-### [`LinkDown`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L144)
+### [`LinkDown`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L175)
 
 _Class_
 
@@ -685,7 +730,7 @@ Decides one delivery on a directed link. A policy reads only its input and
 the ambient Clock; the link interpreter, never the policy, spends time and
 records evidence.
 
-### [`LinkPolicyCleared`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L169)
+### [`LinkPolicyCleared`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L200)
 
 _Class_
 
@@ -702,7 +747,7 @@ export class LinkPolicyCleared extends Schema.TaggedClass<LinkPolicyCleared>()(
 
 A described policy stopped shaping one directed participant link.
 
-### [`LinkPolicySet`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L159)
+### [`LinkPolicySet`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L190)
 
 _Class_
 
@@ -719,7 +764,7 @@ export class LinkPolicySet extends Schema.TaggedClass<LinkPolicySet>()(
 
 A described policy became active on one directed participant link.
 
-### [`LinkUp`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L153)
+### [`LinkUp`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L184)
 
 _Class_
 
@@ -862,7 +907,7 @@ nothing else would notice the two sides disagreeing until a live run
 produced an undecodable line. The submitter's own result type derives from
 this schema, so the two cannot drift.
 
-### [`ProgramFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L185)
+### [`ProgramFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L216)
 
 _Class_
 
@@ -877,7 +922,7 @@ export class ProgramFailed extends Schema.TaggedClass<ProgramFailed>()(
 
 The customer program failed with a typed failure or defect.
 
-### [`ProgramFinished`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L109)
+### [`ProgramFinished`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L123)
 
 _Class_
 
@@ -890,7 +935,7 @@ export class ProgramFinished<A, E> extends Data.TaggedClass("ProgramFinished")<{
 
 Customer-program completion plus its complete durable evidence.
 
-### [`ProgramInterrupted`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L193)
+### [`ProgramInterrupted`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L224)
 
 _Class_
 
@@ -905,7 +950,7 @@ export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()
 
 The customer program was interrupted.
 
-### [`ProgramSucceeded`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L179)
+### [`ProgramSucceeded`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L210)
 
 _Class_
 
@@ -1071,6 +1116,22 @@ export class RunStarted extends Schema.TaggedClass<RunStarted>()(
 
 The run ledger is allocated and run-scoped acquisition has begun.
 
+### [`RuntimeEvidenceCollectionFailed`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/events/core.ts#L166)
+
+_Class_
+
+```ts
+export class RuntimeEvidenceCollectionFailed extends Schema.TaggedClass<RuntimeEvidenceCollectionFailed>()(
+  "moltzap.runtime-evidence-collection-failed/v1",
+  {
+    stage: Schema.Literal("finalization", "collection"),
+    detail: Schema.NonEmptyString,
+  },
+) {}
+```
+
+Retained files are partial when stopping or bounded collection cannot finish.
+
 ### [`SimulatorDefinitionError`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/definition.ts#L28)
 
 _Class_
@@ -1101,7 +1162,7 @@ export type SimulatorDefinitionId = `${string}.${string}/v${number}`;
 
 Stable code identity persisted in every ledger manifest.
 
-### [`SimulatorRunFailure`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L130)
+### [`SimulatorRunFailure`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L144)
 
 _TypeAlias_
 
@@ -1117,7 +1178,7 @@ export type SimulatorRunFailure<
 
 Represents simulator run failure conditions.
 
-### [`SimulatorRunOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L123)
+### [`SimulatorRunOutcome`](https://github.com/chughtapan/moltzap/blob/main/packages/simulator/src/run/execute.ts#L137)
 
 _TypeAlias_
 
@@ -1168,6 +1229,8 @@ Stable persisted identity for an event class.
 - `cluster/kubernetes/harvest.ts`
 - `cluster/kubernetes/network-objects.ts`
 - `cluster/kubernetes/objects.ts`
+- `cluster/kubernetes/worker-identity.ts`
+- `cluster/kubernetes/worker-install.ts`
 - `cluster/profile.ts`
 - `cluster/profiles/cli.ts`
 - `cluster/profiles/gke.ts`
@@ -1179,6 +1242,7 @@ Stable persisted identity for an event class.
 - `cluster/submit.ts`
 - `cluster/temporal.ts`
 - `cluster/watch.ts`
+- `controller.ts`
 - `definition.ts`
 - `events/catalog.ts`
 - `events/core.ts`
@@ -1196,6 +1260,7 @@ Stable persisted identity for an event class.
 - `network/participant.ts`
 - `network/router.ts`
 - `run/acquire.ts`
+- `run/artifacts.ts`
 - `run/endpoints.ts`
 - `run/events.ts`
 - `run/execute.ts`

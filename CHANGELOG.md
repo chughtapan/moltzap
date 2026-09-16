@@ -10,6 +10,34 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Added
+
+- Resume or cancel a submitted execution by its persisted identity. Reusing that
+  identity reconnects to the same run and rejects changed execution inputs.
+- Compose separately packaged experiment modules through
+  `@moltzap/simulator/controller`.
+- Retain complete native runtime logs and history as streamed, digest-bound
+  artifacts, with stop/flush timing and full OpenClaw gateway responses.
+
+### Fixed
+
+- Cancellation waits for bounded evidence collection before releasing runtime
+  resources. Stop requests remain active while the controller starts; unfinished
+  stop requests end when the controller finishes.
+- Isolated workers use their own names for every installation and access-control
+  operation. Existing experiment workers are not reconfigured by those installs.
+- Shutdown terminates descendants that outlive their parent and hold log pipes
+  open. Failed finalization and collection deadlines leave explicit failure
+  records instead of making partial evidence appear complete.
+- Cleanup failure is reported separately from a completed execution result.
+- OpenClaw's unused bundled Agent2Agent channel stays out of its message tool.
+
+### Changed
+
+- The core event catalog includes native artifact and collection-failure records.
+  Its exact-catalog reader requires newly generated runs; no historical reader
+  or migration adapter is added.
+
 ## [2026.902.1] - 2026-09-02
 
 ## [2026.902.0] - 2026-09-02

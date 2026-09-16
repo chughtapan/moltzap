@@ -1,7 +1,10 @@
 /** @file Executable boundary for exactly one mounted simulator RunSpec. */
 
+import { FileSystem } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import { Cause, Context, Data, Effect, Layer } from "effect";
+import { defaultTeardown } from "@effect/platform/Runtime";
+import { Cause, Context, Data, Effect, Layer, Schema } from "effect";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isRunSpec, Run, type RunSpec } from "../../definition.js";
 import {
@@ -9,7 +12,12 @@ import {
   CompletedLedgerReceipt,
   ProgramFinished,
 } from "../../index.js";
-import { LedgerStorageError } from "../../ledger/index.js";
+import {
+  ledgerArtifactFiles,
+  LedgerCompletion,
+  ledgerRef,
+  LedgerStorageError,
+} from "../../ledger/index.js";
 import { isEntryModule } from "../entry.js";
 import {
   controllerConfigurationFromEnvironment,
@@ -83,6 +91,13 @@ export function runController(
       operations.importModule,
     );
     const outcome = yield* operations.executeRunSpec(runSpec).pipe(
+      Effect.onInterrupt(() =>
+        retainInterruptedLedger(configuration).pipe(
+          Effect.flatMap(writeControllerSummary),
+          Effect.catchAll((error) => writeControllerDiagnostic(String(error))),
+          Effect.provide(NodeContext.layer),
+        ),
+      ),
       Effect.sandbox,
       Effect.mapError((cause) => {
         const summary = allocationFailureSummary(cause);
@@ -98,6 +113,75 @@ export function runController(
     );
     return yield* acceptRunOutcome(retained);
   }).pipe(Effect.withSpan("runController"));
+}
+
+class InterruptedLedgerUnavailable extends Data.TaggedError(
+  "InterruptedLedgerUnavailable",
+)<{ readonly detail: string }> {}
+
+/**
+ * Keep repeated stop requests harmless until ledger finalizers and export finish.
+ * NodeRuntime removes its signal listeners when the first interruption starts;
+ * this listener retains Node's handled-signal behavior through runtime teardown.
+ */
+export function runControllerProcess<A, E>(effect: Effect.Effect<A, E>): void {
+  const absorbRepeatedSignal = () => undefined;
+  process.on("SIGINT", absorbRepeatedSignal);
+  process.on("SIGTERM", absorbRepeatedSignal);
+  NodeRuntime.runMain(effect, {
+    teardown: (exit, onExit) => {
+      defaultTeardown(exit, onExit);
+      process.removeListener("SIGINT", absorbRepeatedSignal);
+      process.removeListener("SIGTERM", absorbRepeatedSignal);
+    },
+  });
+}
+
+/** Called only after Run.execute's interruption finalizers have closed the ledger. */
+export function retainInterruptedLedger(configuration: {
+  readonly ledgerDirectory: string;
+  readonly ledgerExportDirectory?: string;
+}) {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const names = yield* Effect.filter(
+      yield* fs.readDirectory(configuration.ledgerDirectory),
+      (name) =>
+        fs.exists(
+          join(
+            configuration.ledgerDirectory,
+            name,
+            ledgerArtifactFiles.completion,
+          ),
+        ),
+    );
+    if (names.length !== 1 || names[0] === undefined) {
+      return yield* new InterruptedLedgerUnavailable({
+        detail: "Interrupted controller has no unique completed ledger",
+      });
+    }
+    const ledger = yield* Schema.decodeUnknown(ledgerRef)(names[0]);
+    const completion = yield* Schema.decodeUnknown(
+      Schema.parseJson(LedgerCompletion),
+    )(
+      yield* fs.readFileString(
+        join(
+          configuration.ledgerDirectory,
+          ledger,
+          ledgerArtifactFiles.completion,
+        ),
+      ),
+    );
+    const receipt = CompletedLedgerReceipt.make({ ledger, completion });
+    if (configuration.ledgerExportDirectory !== undefined) {
+      yield* exportCompletedLedger({
+        ledgerDirectory: configuration.ledgerDirectory,
+        exportDirectory: configuration.ledgerExportDirectory,
+        receipt,
+      }).pipe(Effect.provide(filesystemLedgerExportOperations));
+    }
+    return clusterLostSummary(receipt);
+  }).pipe(Effect.withSpan("retainInterruptedLedger"));
 }
 
 function acceptRunOutcome(
@@ -337,6 +421,6 @@ if (isDirectInvocation()) {
     Effect.flatMap(writeControllerSummary),
     Effect.catchAll(reportControllerFailure),
     Effect.provide(liveControllerOperations),
-    NodeRuntime.runMain,
+    runControllerProcess,
   );
 }

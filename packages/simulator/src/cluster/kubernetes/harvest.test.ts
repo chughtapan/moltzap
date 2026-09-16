@@ -1,20 +1,30 @@
 /** @file The harvest probe's command shape and the decoding of what it leaves. */
 
-import type { V1Status } from "@kubernetes/client-node";
-import { Effect, Fiber } from "effect";
+import { Command, FileSystem } from "@effect/platform";
+import { NodeContext } from "@effect/platform-node";
+import {
+  CoreV1Api,
+  createConfiguration,
+  type V1Status,
+} from "@kubernetes/client-node";
+import { Deferred, Effect, Fiber } from "effect";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HarvestedFileOutcome } from "../../events/core.js";
 import {
   type ApplicationFileObservation,
   applicationFileOutcome,
+  ControllerStopFailed,
   execExitCode,
   execHarvestProbe,
   type ExecSession,
   type ExecSessionClient,
   harvestCommand,
+  requestControllerStop,
 } from "./harvest.js";
+
+afterEach(() => vi.restoreAllMocks());
 
 const LIMIT_BYTES = 16;
 const bytes = (value: string) => new TextEncoder().encode(value);
@@ -214,6 +224,84 @@ function fakeExec(
 
 const READ = { namespace: "n", podName: "p", path: "/f", limitBytes: 16 };
 
+function controllerInPhase(phase: string) {
+  const core = new CoreV1Api(createConfiguration());
+  const list = vi.spyOn(core, "listNamespacedPod").mockResolvedValue({
+    items: [{ metadata: { name: "controller-pod" }, status: { phase } }],
+  });
+  return { core, list };
+}
+
+it("signals the running Pod when a terminal Pod is listed first", async () => {
+  const { core, list } = controllerInPhase("Running");
+  list.mockResolvedValue({
+    items: [
+      { metadata: { name: "old" }, status: { phase: "Failed" } },
+      { metadata: { name: "running" }, status: { phase: "Running" } },
+    ],
+  });
+  const exec = fakeExec((...[session, , status]) => {
+    status({ status: "Success" });
+    session.close();
+  });
+  const command = vi.spyOn(exec, "exec");
+
+  await Effect.runPromise(requestControllerStop(core, exec, "run"));
+
+  expect(command.mock.calls[0]?.[1]).toBe("running");
+});
+
+describe("requestControllerStop", () => {
+  it("sends SIGTERM to PID 1 in the running controller container", async () => {
+    const { core, list } = controllerInPhase("Running");
+    const exec = fakeExec((...[session, , status]) => {
+      status({ status: "Success" });
+      session.close();
+    });
+    const command = vi.spyOn(exec, "exec");
+
+    await Effect.runPromise(requestControllerStop(core, exec, "run"));
+
+    expect(list).toHaveBeenCalledWith({
+      namespace: "run",
+      labelSelector: "job-name=controller",
+    });
+    expect(command.mock.calls[0]?.slice(0, 4)).toEqual([
+      "run",
+      "controller-pod",
+      "controller",
+      ["node", "-e", "process.kill(1,'SIGTERM')"],
+    ]);
+  });
+
+  it("leaves a pending controller retryable without attempting exec", async () => {
+    const { core } = controllerInPhase("Pending");
+    const exec = { exec: vi.fn<ExecSessionClient["exec"]>() };
+
+    const failure = await Effect.runPromise(
+      Effect.flip(requestControllerStop(core, exec, "run")),
+    );
+
+    expect(failure).toBeInstanceOf(ControllerStopFailed);
+    expect(exec.exec).not.toHaveBeenCalled();
+  });
+
+  it.each(["Succeeded", "Failed"])(
+    "does not signal a %s controller",
+    async (phase) => {
+      const { core } = controllerInPhase(phase);
+      const exec = { exec: vi.fn<ExecSessionClient["exec"]>() };
+
+      const failure = await Effect.runPromise(
+        Effect.flip(requestControllerStop(core, exec, "run")),
+      );
+
+      expect(failure).toBeInstanceOf(ControllerStopFailed);
+      expect(exec.exec).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe("execHarvestProbe", () => {
   it("settles once the client has ended both streams and closed", async () => {
     const exec = fakeExec((session, stdout, status) => {
@@ -256,19 +344,67 @@ describe("execHarvestProbe", () => {
   });
 
   it("closes the session when the read is interrupted", async () => {
-    let held: FakeSession | undefined;
+    const ready = await Effect.runPromise(Deferred.make<FakeSession>());
     const exec = fakeExec((session) => {
-      held = session;
+      Deferred.unsafeDone(ready, Effect.succeed(session));
     });
-
-    await Effect.runPromise(
+    const closed = await Effect.runPromise(
       Effect.gen(function* () {
         const fiber = yield* Effect.fork(execHarvestProbe(exec, READ));
-        yield* Effect.sleep("20 millis");
+        const session = yield* Deferred.await(ready);
         yield* Fiber.interrupt(fiber);
+        return session.closed();
       }),
     );
-
-    expect(held?.closed()).toBe(true);
+    expect(closed).toBe(true);
   });
+});
+
+/** Execute the exact generated chunk probe against a real local binary file. */
+function readLocalChunk(path: string, offset: number, limitBytes: number) {
+  return Effect.gen(function* () {
+    const exec = fakeExec((...[session, , status]) => {
+      status({ status: "Success" });
+      session.close();
+    });
+    const capture = vi.spyOn(exec, "exec");
+    yield* execHarvestProbe(exec, { ...READ, path, limitBytes, mode: offset });
+    const command = capture.mock.calls[0]?.[3];
+    if (!Array.isArray(command) || command[0] === undefined) {
+      return yield* Effect.dieMessage("No chunk probe command was generated");
+    }
+    return yield* Command.string(Command.make(command[0], ...command.slice(1)));
+  });
+}
+
+it("retains binary bytes across MiB chunks and a short final chunk", async () => {
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped();
+        const path = `${root}/native.log`;
+        const expected = Buffer.alloc(8 * 1024 * 1024 + 17);
+        for (let index = 0; index < expected.length; index++) {
+          expected[index] = index % 251;
+        }
+        yield* fs.writeFile(path, expected);
+        const chunks: Buffer[] = [];
+        let offset = 0;
+        const limit = 4 * Math.ceil((1024 * 1024) / 3);
+        for (let reads = 0; reads < 12; reads++) {
+          const encoded = yield* readLocalChunk(path, offset, limit);
+          expect(encoded.length).toBeLessThanOrEqual(limit);
+          const chunk = Buffer.from(encoded, "base64");
+          if (chunk.length === 0) {
+            break;
+          }
+          chunks.push(chunk);
+          offset += chunk.length;
+        }
+        expect(chunks).toHaveLength(9);
+        expect(Buffer.concat(chunks).equals(expected)).toBe(true);
+      }),
+    ).pipe(Effect.provide(NodeContext.layer)),
+  );
 });

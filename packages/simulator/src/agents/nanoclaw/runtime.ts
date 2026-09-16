@@ -267,6 +267,10 @@ function makeNanoClawApplication(
     port: NANOCLAW_GATEWAY_PORT,
     files: bootstrapFiles(settings, input),
     ...(harvest.length === 0 ? {} : { harvest }),
+    logs: transcript.harvest.map(({ relativePath, path }) => ({
+      relativePath,
+      path,
+    })),
     attach: (
       endpoint: ApplicationEndpoint,
       stopped: Effect.Effect<RuntimeTermination>,

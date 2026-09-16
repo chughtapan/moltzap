@@ -21,8 +21,7 @@ pinned value as `MOLTZAP_CONTROLLER_IMAGE`.
 The controller and Sandbox initializer use the same image:
 
 - controller main: `/opt/moltzap/dist/cluster/controller/main.js`;
-- private infrastructure:
-  `/opt/moltzap/dist/cluster/controller/services.js`;
+- module composition: `@moltzap/simulator/controller`;
 - bootstrap CLI: `/opt/moltzap/dist/cluster/bootstrap.js`.
 
 The OpenClaw builder prints a separate `pinnedImage` for the complete agent

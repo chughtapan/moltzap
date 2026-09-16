@@ -75,6 +75,8 @@ async function fixture(options = {}) {
     options.hostWait === true
       ? 'const keepAlive = setInterval(() => {}, 1000); await new Promise((resolve) => { process.once("SIGTERM", resolve); process.once("SIGINT", resolve); }); clearInterval(keepAlive);'
       : "await new Promise((resolve) => setTimeout(resolve, 50));",
+    'process.stdout.write("final host output\\n");',
+    'process.stderr.write("final host error\\n");',
     "process.exitCode = " + String(options.hostExitCode ?? 0) + ";",
   ]);
   const hostCommand = join(root, "host-command.json");
@@ -97,6 +99,7 @@ async function fixture(options = {}) {
       MOLTZAP_AGENT_IMAGE_DAEMON_EXECUTABLE: daemon,
       MOLTZAP_AGENT_IMAGE_DAEMON_GID: String(currentGroupId),
       MOLTZAP_AGENT_IMAGE_DAEMON_UID: String(currentUserId),
+      MOLTZAP_AGENT_IMAGE_LOG_DIRECTORY: join(root, "logs"),
       MOLTZAP_AGENT_IMAGE_HOST_COMMAND: hostCommand,
       MOLTZAP_AGENT_IMAGE_HOST_HOME: root,
       MOLTZAP_AGENT_IMAGE_HOST_GID: String(currentGroupId),
@@ -117,8 +120,9 @@ async function fixture(options = {}) {
   };
 }
 
-async function waitForPath(path) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+async function waitForPath(path, timeoutMillis = 1_000) {
+  const deadline = Date.now() + timeoutMillis;
+  while (Date.now() < deadline) {
     try {
       await stat(path);
       return;
@@ -204,3 +208,125 @@ test("shutdown during registration completes cleanly", async () => {
   assert.equal(await running, 0);
   await assert.rejects(readFile(app.hostStarts, "utf8"), { code: "ENOENT" });
 });
+
+test("finalization drains native logs and keeps the container available for collection", async () => {
+  const app = await fixture({ hostWait: true });
+  const running = runAgentImage(app.environment);
+  await waitForPath(app.hostRecord);
+  process.emit("SIGUSR2");
+  const marker = join(app.root, "logs", "finalized.json");
+  await waitForPath(marker);
+  const timing = JSON.parse(await readFile(marker, "utf8"));
+  assert.ok(timing.requestedAt <= timing.hostStoppedAt);
+  assert.ok(timing.hostStoppedAt <= timing.flushedAt);
+  assert.ok(BigInt(timing.durationNanos) > 0n);
+  assert.equal(
+    await readFile(join(app.root, "logs", "runtime.stdout.log"), "utf8"),
+    "final host output\n",
+  );
+  assert.equal(
+    await readFile(join(app.root, "logs", "runtime.stderr.log"), "utf8"),
+    "final host error\n",
+  );
+  let stopped = false;
+  running.then(() => {
+    stopped = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(stopped, false);
+  process.emit("SIGTERM");
+  assert.equal(await running, 0);
+});
+
+test("finalization kills descendants holding stdout after the host leader exits", async () => {
+  const app = await fixture();
+  const childReady = join(app.root, "descendant-ready");
+  const leaderRecord = join(app.root, "leader-pid");
+  const leaderExited = join(app.root, "leader-exited");
+  const descendant = [
+    'const fs = require("node:fs");',
+    'process.on("SIGTERM", () => {});',
+    'process.stdout.write("descendant output\\n");',
+    `fs.writeFileSync(${JSON.stringify(childReady)}, "ready");`,
+    "setInterval(() => {}, 1000);",
+  ].join("\n");
+  await executable(join(app.root, "host.mjs"), [
+    'import { spawn } from "node:child_process";',
+    'import { writeFileSync } from "node:fs";',
+    `writeFileSync(${JSON.stringify(leaderRecord)}, String(process.pid));`,
+    `process.on("SIGTERM", () => { writeFileSync(${JSON.stringify(leaderExited)}, "exited"); process.exit(0); });`,
+    `spawn(process.execPath, ["-e", ${JSON.stringify(descendant)}], { stdio: "inherit" });`,
+    "setInterval(() => {}, 1000);",
+  ]);
+  const running = runAgentImage(app.environment);
+  try {
+    await waitForPath(childReady, 10_000);
+    process.emit("SIGUSR2");
+    await waitForPath(leaderExited, 10_000);
+    await waitForPath(join(app.root, "logs", "finalized.json"), 15_000);
+    assert.equal(
+      await readFile(join(app.root, "logs", "runtime.stdout.log"), "utf8"),
+      "descendant output\n",
+    );
+  } finally {
+    await cleanupFixtureGroup(leaderRecord);
+    process.emit("SIGTERM");
+    await running;
+  }
+});
+
+test("failed finalization keeps partial evidence available until shutdown", async (context) => {
+  const app = await fixture({ hostWait: true });
+  const marker = join(app.root, "logs", "finalized.json");
+  await mkdir(marker, { recursive: true });
+  const failed = new Promise((resolve) => {
+    context.mock.method(process.stderr, "write", (chunk) => {
+      if (String(chunk).startsWith("runtime finalization failed:")) resolve();
+      return true;
+    });
+  });
+  let settled = false;
+  const running = runAgentImage(app.environment);
+  running.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+  try {
+    await waitForPath(app.hostRecord, 10_000);
+    process.emit("SIGUSR2");
+    await Promise.race([failed, running]);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false);
+    assert.equal(
+      await readFile(join(app.root, "logs", "runtime.stdout.log"), "utf8"),
+      "final host output\n",
+    );
+    assert.equal(
+      await readFile(join(app.root, "logs", "runtime.stderr.log"), "utf8"),
+      "final host error\n",
+    );
+    assert.equal((await stat(marker)).isDirectory(), true);
+  } finally {
+    process.emit("SIGTERM");
+    await running;
+  }
+});
+
+/**
+ * Bound test failure cleanup to the process group recorded by this fixture.
+ * @param {string} leaderRecord Owned group leader PID file.
+ * @returns {Promise<void>} Resolves after the kill request or an already-exited group.
+ */
+async function cleanupFixtureGroup(leaderRecord) {
+  const leader = Number(await readFile(leaderRecord, "utf8").catch(() => "0"));
+  if (!Number.isSafeInteger(leader) || leader <= 0) return;
+  try {
+    process.kill(-leader, "SIGKILL");
+  } catch (error) {
+    if (error.code !== "ESRCH") throw error;
+  }
+}

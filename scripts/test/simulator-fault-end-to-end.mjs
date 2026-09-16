@@ -4,7 +4,7 @@ import { decodeEvaluationCaseId } from "/opt/moltzap/node_modules/@moltzap/evals
 import {
   controllerServicesFromEnvironment,
   supportImageFromEnvironment,
-} from "/opt/moltzap/dist/cluster/controller/services.js";
+} from "@moltzap/simulator/controller";
 import { runFaultExchange } from "/opt/moltzap/qualification/simulator-fault-program.mjs";
 
 const CONTROLLER_NAME = "controller";

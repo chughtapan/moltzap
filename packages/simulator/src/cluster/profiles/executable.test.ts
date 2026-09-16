@@ -20,8 +20,8 @@ const EXECUTABLE = fileURLToPath(
 const EXPERIMENT = "local/end-to-end.mjs";
 const SIGTERM_EXIT = 143;
 const SIGINT_EXIT = 130;
-const CONNECT_WAIT_MS = 30_000;
-const TEST_TIMEOUT_MS = 45_000;
+const CONNECT_WAIT_MS = 60_000;
+const TEST_TIMEOUT_MS = 75_000;
 
 interface SilentListener {
   readonly port: number;
@@ -34,20 +34,44 @@ interface ChildOutcome {
   readonly stderr: string;
 }
 
+async function invalidCancellation(): Promise<ChildOutcome> {
+  const child = spawn(process.execPath, [EXECUTABLE, "cancel", "invalid-id"], {
+    cwd: PACKAGE_ROOT,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+  try {
+    const code = await new Promise<number | null>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", resolve);
+    });
+    return { code, stdout, stderr };
+  } finally {
+    child.kill("SIGKILL");
+  }
+}
+
 async function killedWhileConnecting(
   signal: ExecutableSignal,
 ): Promise<ChildOutcome> {
   const listener = await silentListener();
+  const child = spawn(
+    process.execPath,
+    [EXECUTABLE, "run", "--profile", "gke", EXPERIMENT],
+    {
+      cwd: PACKAGE_ROOT,
+      env: submitterEnvironment(listener.port),
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   try {
-    const child = spawn(
-      process.execPath,
-      [EXECUTABLE, "run", "--profile", "gke", EXPERIMENT],
-      {
-        cwd: PACKAGE_ROOT,
-        env: submitterEnvironment(listener.port),
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
     let stdout = "";
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
@@ -71,6 +95,7 @@ async function killedWhileConnecting(
     child.kill(signal);
     return { code: await exited, stdout, stderr: await rest };
   } finally {
+    child.kill("SIGKILL");
     listener.close();
   }
 }
@@ -182,5 +207,19 @@ describe("moltzap-sim under a signal", () => {
     TEST_TIMEOUT_MS,
   );
 });
+
+it(
+  "reports an invalid cancellation on stderr without printing a result",
+  async () => {
+    const outcome = await invalidCancellation();
+
+    expect(outcome.code).toBe(1);
+    expect(outcome.stdout).toBe("");
+    expect(outcome.stderr).toContain(
+      "Unable to cancel persisted execution invalid-id",
+    );
+  },
+  TEST_TIMEOUT_MS,
+);
 
 /* eslint-enable agent-code-guard/promise-type, agent-code-guard/no-process-env-at-runtime -- Restore repository defaults. */

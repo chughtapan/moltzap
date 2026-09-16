@@ -39,6 +39,7 @@ const facadeSpecifiers = Object.freeze({
   "./network": "@moltzap/simulator/network",
   "./ledger": "@moltzap/simulator/ledger",
   "./agents": "@moltzap/simulator/agents",
+  "./controller": "@moltzap/simulator/controller",
 });
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-simulator-pack-"));
 
@@ -117,6 +118,8 @@ async function verifyPackedFiles(extractedPackage, manifest) {
     "dist/ledger/index.d.ts",
     "dist/agents/index.js",
     "dist/agents/index.d.ts",
+    "dist/controller.js",
+    "dist/controller.d.ts",
     "dist/cluster/profiles/cli.js",
     "dist/cluster/profiles/local.js",
     "dist/cluster/profiles/gke.js",
@@ -136,8 +139,8 @@ async function verifyPackedFiles(extractedPackage, manifest) {
 
   requireCondition(
     JSON.stringify(Object.keys(manifest.exports)) ===
-      JSON.stringify([".", "./network", "./ledger", "./agents"]),
-    "packed simulator exports must be root, network, ledger, and agents",
+      JSON.stringify(Object.keys(facadeSpecifiers)),
+    "packed simulator exports must match the public facade census",
   );
   requireCondition(
     manifest.bin?.["moltzap-sim"] === `./${SIMULATOR_EXECUTABLE}`,
