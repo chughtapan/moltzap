@@ -10,6 +10,11 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Fixed
+
+- Select OpenClaw's embedded runtime when MCP servers are configured so agents
+  can use their MCP tools while preserving the configured tool allowlist.
+
 ## [2026.916.1] - 2026-09-16
 
 ### Fixed
