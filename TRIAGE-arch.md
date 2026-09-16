@@ -1,7 +1,7 @@
 # Architecture tooling status
 
 `@chughtapan/safer-architecture-lsp` is configured for the exact six-package
-workspace: Identity, Router, Client, OpenClaw, NanoClaw, Simulator, and Evals.
+workspace: Identity, Router, Client, OpenClaw, NanoClaw, and Simulator.
 The retired umbrella protocol and server packages have no project, config, or
 waiver ledger in the cutover graph.
 

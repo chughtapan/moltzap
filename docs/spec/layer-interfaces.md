@@ -82,7 +82,7 @@ they no longer block Client, Simulator, or eval migration.
   (`moltzap-sim run --profile local|gke <spec.mjs>`, printing one
   `ProfileRunResult` line), and every declaration compatible with the final
   HarnessEndpoint/daemon semantics below.
-- Adapter and eval entry points retain compatible host/build behavior while
+- Adapter entry points retain compatible host/build behavior while
   using the real daemon-backed Client.
 
 The final publication list and versioning policy are release choices. They do
@@ -387,8 +387,8 @@ private signing/admission mounts; registration completes before the
 application starts. The application sees only
 `MOLTZAP_MCP_URL=http://127.0.0.1:<port>/mcp`.
 
-All sixteen evaluation case definitions execute through the daemon-backed
-Client. Client and Simulator inject no cross-conversation context. Stock
+External evaluation applications execute through the daemon-backed Client.
+Client and Simulator inject no cross-conversation context. Stock
 runtimes own their session topology and cross-address context.
 
 ## Error boundaries
@@ -432,8 +432,9 @@ runtimes own their session topology and cross-address context.
   active fault, each admitted post-Router perturbation under an explicit
   directed scope, and the absence of any runtime-facing fault control. A
   faulted recipient observation is never classified as Router conformance.
-- All sixteen eval definitions run without Client- or Simulator-injected
-  cross-conversation context; any session topology is runtime-owned.
+- Client and Simulator inject no cross-conversation context into runtime
+  qualification or external evaluation applications; session topology is
+  runtime-owned.
 - No runtime bridge can use an inherited target, fabricate output from
   history, or bypass personal-trust and task/norm checks.
 
@@ -466,6 +467,6 @@ and `@moltzap/simulator`. `@moltzap/nanoclaw-channel` stays private.
 ## Deliberate deferrals
 
 External-consumer cutover remains unresolved. Nothing here authorizes an
-eighth package, compatibility facade, or restoration of a removed Simulator
+additional package, compatibility facade, or restoration of a removed Simulator
 contract. The post-Router Simulator link-fault boundary is a current decision,
 not a deferral.
