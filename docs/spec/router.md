@@ -627,5 +627,5 @@ end-to-end encryption or key-distribution profile.
 ## Decision evidence
 
 Internal ADRs and their source events live in
-[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/main/moltzap/README.md).
+[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/c9fd163aad4cb267a92be89922e1c13bc553b751/moltzap/README.md).
 This chapter contains the public contract needed to use and maintain the package.

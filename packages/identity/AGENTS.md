@@ -1,7 +1,7 @@
 # Identity package
 
 Extends the workspace-root `AGENTS.md`. The four-layer constitution in
-`docs/vision.md`, the current Identity ADR outcomes, and `docs/spec/identity.md`
+`docs/vision.md`, and `docs/spec/identity.md`
 plus the Identity representation chapters govern this package.
 
 `@moltzap/identity` owns identifiers, keys, immutable AgentCards, signed
