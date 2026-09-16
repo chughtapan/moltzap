@@ -62,7 +62,7 @@ export function buildOpenClawConfig(
     },
     agents: {
       defaults: {
-        model: { primary: input.modelId ?? DEFAULT_OPENCLAW_MODEL_ID },
+        ...modelConfiguration(input),
         workspace: workspaceDirectory,
         compaction: { mode: "safeguard" },
         ...(input.sandbox === undefined ? {} : { sandbox: input.sandbox }),
@@ -99,6 +99,21 @@ export function buildOpenClawConfig(
     },
   } satisfies OpenClawConfig;
   return config;
+}
+
+/**
+ * Codex's restricted tool surface omits user MCP servers. Select OpenClaw's
+ * embedded harness for MCP-backed runs so the supplied tool policy can retain
+ * those tools without granting unrelated native tools.
+ */
+function modelConfiguration(input: OpenClawConfigInput) {
+  const modelId = input.modelId ?? DEFAULT_OPENCLAW_MODEL_ID;
+  return {
+    model: { primary: modelId },
+    ...(input.mcpServers === undefined || input.mcpServers.length === 0
+      ? {}
+      : { models: { [modelId]: { agentRuntime: { id: "openclaw" } } } }),
+  };
 }
 
 function mcpConfigSection(mcpServers?: readonly McpServer[]) {
