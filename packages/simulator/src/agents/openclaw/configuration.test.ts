@@ -3,6 +3,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { AgentName } from "@moltzap/identity";
 import { Redacted, Schema } from "effect";
+import { resolveEffectiveAgentRuntime } from "openclaw/plugin-sdk/command-auth-native";
 
 import { buildOpenClawConfig } from "./configuration.js";
 
@@ -57,6 +58,10 @@ function sharedSessionsUseOpenClawDefaults() {
 function openClawConfig(
   mcpServers: Parameters<typeof buildOpenClawConfig>[0]["mcpServers"],
   messagingMode: "shared" | "private" = "shared",
+  overrides: Pick<
+    Parameters<typeof buildOpenClawConfig>[0],
+    "modelId" | "tools"
+  > = {},
 ) {
   return buildOpenClawConfig(
     {
@@ -64,6 +69,7 @@ function openClawConfig(
       gatewayToken: Redacted.make("token"),
       messagingMode,
       mcpServers,
+      ...overrides,
     },
     "/var/run/moltzap/bootstrap/workspace",
   );
@@ -113,6 +119,49 @@ describe("buildOpenClawConfig", () => {
   it(
     "steers new social messages into an active OpenClaw turn",
     socialMessagesJoinActiveTurn,
+  );
+});
+
+describe("installed OpenClaw harness selection", () => {
+  it.each([undefined, "openai/gpt-5.4"])(
+    "keeps calendar tools eligible with a narrow allowlist and model %s",
+    (modelId) => {
+      const tools = { allow: ["group:fs", "message", "calendar__*"] };
+      const config = openClawConfig(
+        [{ name: "calendar", url: CALENDAR_URL }],
+        "shared",
+        { modelId, tools },
+      );
+      assert.strictEqual(
+        resolveEffectiveAgentRuntime({
+          cfg: config,
+          provider: "openai",
+          modelId: modelId?.slice("openai/".length) ?? "gpt-5.5",
+          agentId: "alice",
+        }),
+        "openclaw",
+      );
+      assert.deepStrictEqual(config.tools, tools);
+    },
+  );
+
+  it.each([{ mcpServers: undefined }, { mcpServers: [] }])(
+    "preserves the provider's default harness without MCP servers: $mcpServers",
+    ({ mcpServers }) => {
+      const config = openClawConfig(mcpServers, "shared", {
+        modelId: "openai/gpt-5.4",
+      });
+      assert.isUndefined(config.agents?.defaults?.models);
+      assert.strictEqual(
+        resolveEffectiveAgentRuntime({
+          cfg: config,
+          provider: "openai",
+          modelId: "gpt-5.4",
+          agentId: "alice",
+        }),
+        "codex",
+      );
+    },
   );
 });
 

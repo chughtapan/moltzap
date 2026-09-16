@@ -1,5 +1,23 @@
 # moltzap — agent instructions
 
+## Start every task
+
+Load the applicable skills before planning, lookup or editing. This is the
+agent's responsibility; an ordinary user request is sufficient and need not
+name a skill. Invoke the host's Skill tool when available; otherwise read the
+entire `SKILL.md` at the path below. Listing a skill, remembering a previous
+session or checking its hash does not load its instructions.
+
+| Task | Load |
+| --- | --- |
+| Plan a change or prepare a handoff | `.agents/skills/shared-sdlc/SKILL.md` |
+| Find, file or review an internal record | `.agents/skills/records/SKILL.md` |
+| Write or edit public documentation | `.agents/skills/docs/SKILL.md` |
+
+Load only applicable skills, then follow their targeted references. If private
+docs are unavailable, use the installed skills' public-maintenance fallback.
+Do not ask the user to invoke skills or install optional helpers for you.
+
 Every `CLAUDE.md` is a symlink to the `AGENTS.md` beside it. `packages/*/AGENTS.md` adds
 package specifics. Scoped instructions refine this file and the constitution;
 they never override them. A conflict is an authority defect, so work in that
@@ -43,16 +61,14 @@ do not ask for a separate plan approval unless the scope changes.
   those records cannot carry what the next agent needs.
 
 Shared workflow and internal decisions live in
-[`social-harness/docs-internal`](https://github.com/social-harness/docs-internal/blob/c9fd163aad4cb267a92be89922e1c13bc553b751/README.md).
+[`social-harness/docs-internal`](https://github.com/social-harness/docs-internal/blob/1210aef0906e6b6e07c2d9fc2ed2a998bda6e07a/README.md).
 Set `DOCS_INTERNAL_ROOT` to a checkout at the revision recorded in
 `.agents/company-skills.json` and start with its README. That revision pins the
 workflow and navigation; it does not approve proposed decisions. Public
 contracts remain the implementation baseline until a change is admitted.
 Agree on a complete decision candidate before starting its admission review;
 do not automatically review intermediate drafts.
-Load the pinned `shared-sdlc` skill under `.agents/skills/` or `.claude/skills/`
-when planning a change. Load `records` when filing or reviewing an internal
-record. Both hosts use the revision in `.agents/company-skills.json`; sync and
+Both hosts use the revision in `.agents/company-skills.json`; sync and
 check updates with that checkout's `bin/records skills` commands.
 
 Public usage, specifications, package instructions, and runnable checks stay in
