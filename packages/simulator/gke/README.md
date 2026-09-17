@@ -121,8 +121,11 @@ provides state locking; keep locking enabled for plans and applies.
 Operators need Application Default Credentials, the existing permissions to
 manage the profile's resources, and `roles/storage.objectAdmin` on the state
 bucket. Grant bucket access to existing operators only, not workload or release
-service accounts. State can contain sensitive resource data: retain backups and
-saved plans outside Git in directories accessible only to the operator.
+service accounts. The bucket owner also needs bucket-level `roles/storage.admin`
+to manage IAM and versioning; `roles/storage.objectAdmin` cannot manage the bucket.
+Preserve that administration before removing automatically created project-wide
+convenience bindings. State can contain sensitive resource data: retain backups
+and saved plans outside Git in directories accessible only to the operator.
 
 For the existing cluster, create `terraform/terraform.tfvars` containing:
 
@@ -166,6 +169,9 @@ state and the live resources.
    gcloud storage buckets add-iam-policy-binding \
      gs://agentic-societies-moltzap-tfstate \
      --member=user:EXISTING_OPERATOR_EMAIL --role=roles/storage.objectAdmin
+   gcloud storage buckets add-iam-policy-binding \
+     gs://agentic-societies-moltzap-tfstate \
+     --member=user:BUCKET_OWNER_EMAIL --role=roles/storage.admin
    ```
 
 3. In the authoritative state directory, use the reviewed configuration with
