@@ -13,12 +13,15 @@ agentPool:
     value: "true"
     effect: NoSchedule
 
-# Admits a hundred agents, each requesting 1 cpu, 1Gi of memory, and 1Gi of
-# ephemeral storage beside a smaller support container. Held below what
+# Admits about three hundred agents, each requesting 1100m cpu, 1280Mi of
+# memory, and 1Gi of ephemeral storage (the stock runtime definitions in
+# src/agents) beside a smaller support container. Held below what
 # agent_max_nodes e2-standard-16 nodes actually allocate (15890m cpu, 57Gi
-# memory, 43Gi ephemeral storage each), not what they advertise. Sized with
-# agent_max_nodes; see the profile README.
+# memory, 43Gi ephemeral storage each), not what they advertise: twenty-five
+# nodes allocate 397 cpu, and the quota keeps the same margin under that as the
+# original eight-node, 110 cpu sizing did. Sized with agent_max_nodes; see the
+# profile README.
 quota:
-  cpu: "110"
-  memory: 130Gi
-  ephemeralStorage: 110Gi
+  cpu: "345"
+  memory: 400Gi
+  ephemeralStorage: 345Gi
