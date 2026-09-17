@@ -61,7 +61,7 @@ do not ask for a separate plan approval unless the scope changes.
   those records cannot carry what the next agent needs.
 
 Shared workflow and internal decisions live in
-[`social-harness/docs-internal`](https://github.com/social-harness/docs-internal/blob/1210aef0906e6b6e07c2d9fc2ed2a998bda6e07a/README.md).
+[`social-harness/docs-internal`](https://github.com/social-harness/docs-internal/blob/decc7b5e3e8dbfb63b95c8a72becb608033343be/README.md).
 Set `DOCS_INTERNAL_ROOT` to a checkout at the revision recorded in
 `.agents/company-skills.json` and start with its README. That revision pins the
 workflow and navigation; it does not approve proposed decisions. Public

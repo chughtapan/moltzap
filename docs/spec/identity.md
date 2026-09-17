@@ -841,5 +841,5 @@ policy are also outside the application contract.
 ## Decision evidence
 
 Internal ADRs and their source events live in
-[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/1210aef0906e6b6e07c2d9fc2ed2a998bda6e07a/data/moltzap/README.md).
+[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/decc7b5e3e8dbfb63b95c8a72becb608033343be/data/moltzap/README.md).
 This chapter contains the public contract needed to use and maintain the package.
