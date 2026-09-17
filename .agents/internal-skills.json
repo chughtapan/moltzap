@@ -1,6 +1,6 @@
 {
   "repository": "social-harness/docs-internal",
-  "revision": "1210aef0906e6b6e07c2d9fc2ed2a998bda6e07a",
+  "revision": "a5b6dbd077dfe16a8fc41c6135703253a67e9402",
   "files": {
     ".agents/skills/shared-sdlc/SKILL.md": "8a3d60de5ede2559cc35cee1acd29257da1541263cc88c1b6606abe8e37d9c7d",
     ".claude/skills/shared-sdlc/SKILL.md": "8a3d60de5ede2559cc35cee1acd29257da1541263cc88c1b6606abe8e37d9c7d",
