@@ -22,7 +22,7 @@ product Ledger, Transcript service, profile system, or testbed package.
    interface.
 
 Internal decisions and their evidence live in
-[the shared docs repo](https://github.com/social-harness/docs-internal/blob/a5b6dbd077dfe16a8fc41c6135703253a67e9402/data/moltzap/README.md).
+[the shared docs repo](https://github.com/social-harness/docs-internal/blob/decc7b5e3e8dbfb63b95c8a72becb608033343be/data/moltzap/README.md).
 Use these public contracts for maintenance. A durable boundary change needs its
 source-backed decision and public contract reconciled before implementation;
 missing private docs do not block unrelated fixes.

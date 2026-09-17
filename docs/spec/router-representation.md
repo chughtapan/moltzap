@@ -309,5 +309,5 @@ authentication failure at the L1 boundary.
 ## Decision evidence
 
 Internal ADRs and their source events live in
-[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/a5b6dbd077dfe16a8fc41c6135703253a67e9402/data/moltzap/README.md).
+[the shared MoltZap docs](https://github.com/social-harness/docs-internal/blob/decc7b5e3e8dbfb63b95c8a72becb608033343be/data/moltzap/README.md).
 This chapter contains the public contract needed to use and maintain the package.
