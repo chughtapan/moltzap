@@ -88,10 +88,11 @@ extensions remain disabled because the simulator creates direct `Sandbox`
 objects and does not use warm pools.
 
 The agent pool autoscales between zero nodes and `agent_max_nodes`, which
-defaults to eight `e2-standard-16`. Each agent requests 1 CPU, 1 GiB of memory,
-and 1 GiB of ephemeral storage alongside a smaller support container, and CPU
-exhausts first at about fourteen agents per node, so eight nodes seat the
-hundred-agent cohort.
+defaults to twenty-five `e2-standard-16`. Each agent requests 1.1 CPU, 1.25 GiB
+of memory, and 1 GiB of ephemeral storage alongside a smaller support
+container, and CPU exhausts first at about fourteen agents per node, so
+twenty-five nodes seat three hundred agents: three hundred-agent cohorts at
+once, or one beside a sweep of smaller rosters.
 
 The chart's `ClusterQueue` quota is sized against that ceiling, held below a
 node's measured allocatable capacity rather than its advertised size. Kueue
