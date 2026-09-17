@@ -4,7 +4,7 @@ Status: the constitution of the four-layer harness on `main`.
 
 The public contracts are defined here and in `docs/spec/`.
 Internal ADRs and decision evidence live in
-[the shared docs repo](https://github.com/social-harness/docs-internal/blob/1210aef0906e6b6e07c2d9fc2ed2a998bda6e07a/data/moltzap/README.md).
+[the shared docs repo](https://github.com/social-harness/docs-internal/blob/a5b6dbd077dfe16a8fc41c6135703253a67e9402/data/moltzap/README.md).
 
 ## Problem
 
