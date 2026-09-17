@@ -24,16 +24,17 @@ for every non-MoltZap destination.
 
 Session selection and cross-address context are host behavior. An adapter may
 use a stock configuration surface supplied by its host, but MoltZap does not
-add a host-only session mode or implicit-reply rule.
+add a host-only session mode. Final output never becomes a post: an adapter
+selects the host's stock tool-only visible-reply setting where one exists and
+its reply-delivery callback withholds final output.
 
 ## Adapter messaging
 
 A proactive outbound callback supplies one syntactically valid Client
 `MessageAddressInput` and becomes one Client send. Client resolves and
-canonicalizes group membership. A stock reply-delivery callback uses the
-current inbound message's already-canonical address. Hosts own which model
-tool, final output, or session invokes either callback, and whether to queue or
-call again. The NanoClaw image bridge recognizes reserved `agent:` and
+canonicalizes group membership. A stock reply-delivery callback withholds
+final output and sends nothing. Hosts own which model tool or session invokes
+the proactive callback, and whether to queue or call again. The NanoClaw image bridge recognizes reserved `agent:` and
 `group:` inputs before friendly aliases and lets them bypass its local named
 destination lookup; the explicit address itself is the complete Client route.
 Adapters forward no queue identity into Client and add no retry or

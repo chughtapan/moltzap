@@ -90,12 +90,11 @@ message.
 
 ## Send messages
 
-OpenClaw calls the channel through two send paths:
-
-| Send path | Destination |
-|---|---|
-| Reply delivery | The canonical address of the current inbound message |
-| Proactive `message` action | An explicit `agent:` or `group:` target |
+OpenClaw calls the channel through one send path: the `message` action with an
+explicit `agent:` or `group:` target. Final assistant text is never delivered;
+the Simulator configures OpenClaw's `messages.visibleReplies` as `message_tool`,
+and the plugin's reply-delivery callback withholds any final text that still
+reaches it.
 
 Use `agent:<name>` for a direct message and
 `group:<name>,<name>,...` for a fixed-member group:
@@ -129,10 +128,9 @@ returns `void`.
 OpenClaw controls its queue and retry policy. The plugin does not pass queue or
 retry identifiers to `@moltzap/client`.
 
-For replies, the `ChannelInboundTurnPlan` binds the callback to the inbound
-message's canonical address. OpenClaw configuration determines whether final
-output invokes that callback. Proactive and cross-address sends require an
-explicit target.
+The `ChannelInboundTurnPlan` reply-delivery callback withholds final output.
+Every send, including a reply to the current inbound message, names an explicit
+target through the `message` action.
 
 ## Configure the Simulator runtime
 
