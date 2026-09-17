@@ -178,7 +178,7 @@ interface OpenClawReplyResult {
     readonly block: number;
     readonly final: number;
   };
-  readonly sourceReplyDeliveryMode: "automatic";
+  readonly sourceReplyDeliveryMode: "message_tool_only";
 }
 
 interface OpenClawInboundTurnInput {
@@ -316,6 +316,8 @@ interface OpenClawReplyFixture {
   readonly callerId: string;
   readonly responseSent: Deferred.Deferred<void>;
   readonly sessions: RecordedSessionStore;
+  /** The plugin's `message` tool path, the only way a reply becomes a post. */
+  readonly sendReply: (text: string) => Promise<OpenClawMessageSendResult>;
 }
 
 type OpenClawRuntimeFixture = OpenClawReplyFixture;
@@ -644,18 +646,22 @@ function dispatchOpenClawReply(
     Effect.gen(function* () {
       expect(input.ctx.Body).toBe("hello through the real OpenClaw adapter");
       expect(input.ctx.SessionKey).toBe(OPENCLAW_MAIN_SESSION_KEY);
+      const sent = yield* effectFromPromise("OpenClaw message tool send", () =>
+        fixture.sendReply(OPENCLAW_REPLY),
+      );
+      expect(sent.messageId).toEqual(expect.any(String));
       const delivery = yield* effectFromPromise("OpenClaw reply delivery", () =>
         input.dispatcherOptions.deliver(
-          { text: OPENCLAW_REPLY },
+          { text: "private final text" },
           { kind: "final" },
         ),
       );
-      expect(delivery).toEqual({ visibleReplySent: true });
+      expect(delivery).toEqual({ visibleReplySent: false });
       yield* Deferred.succeed(fixture.responseSent, undefined);
       return {
         queuedFinal: false,
-        counts: { tool: 0, block: 0, final: 1 },
-        sourceReplyDeliveryMode: "automatic",
+        counts: { tool: 1, block: 0, final: 1 },
+        sourceReplyDeliveryMode: "message_tool_only",
       };
     }),
   );
@@ -753,14 +759,20 @@ function runOpenClawScenario() {
       const connected = yield* Deferred.make<void>();
       const sessions = new RecordedSessionStore();
       const cfg = openClawConfig(scenario.target.stateDirectory);
-      let channelPlugin: StableOpenClawChannelPlugin | null = null;
+      const channelPlugin = yield* registerOpenClawChannel();
       const runtime = makeObservedOpenClawAccountRuntime({
         callerAddress,
         callerId: scenario.caller.agentName,
         responseSent,
         sessions,
+        sendReply: (text) =>
+          channelPlugin.message.send.text({
+            cfg,
+            accountId: OPENCLAW_ACCOUNT_ID,
+            to: callerAddress,
+            text,
+          }),
       });
-      channelPlugin = yield* registerOpenClawChannel();
 
       const previousEndpoint = process.env.MOLTZAP_MCP_URL;
       process.env.MOLTZAP_MCP_URL = scenario.target.endpoint.href;
