@@ -56,6 +56,12 @@ and gives them back when it ends.
 
 ## Provisioning handoff
 
+Initialize the [shared Terraform backend](#terraform-state) before operating an
+existing cluster. A new project first creates its own state bucket and changes
+the backend bucket and prefix in `terraform/versions.tf`; the backend does not
+use `project_id` or `artifact_bucket_name`. Never point a fork at this project's
+state.
+
 Copy `terraform/terraform.tfvars.example`, set the Google Cloud project and a
 globally unique artifact bucket, then run setup, which plans and prompts before
 it creates anything. A fork also sets `github_repository` to its own
@@ -101,6 +107,91 @@ produces a cohort that is admitted and then never schedulable, and the run
 hangs on pending pods instead of failing. CPU is the tightest dimension. Raise
 `agent_max_nodes` and the quota in `helm/profile/values.yaml` together, never
 one alone.
+
+## Terraform state
+
+The `agentic-societies` profile uses the dedicated bucket
+`gs://agentic-societies-moltzap-tfstate`, with prefix `simulator/gke` and the
+default workspace. Its state object is `simulator/gke/default.tfstate`.
+This bucket is separate from `agentic-societies-moltzap-ledger`. It is created
+outside this Terraform module, so deleting the cluster does not delete its
+state history. The [GCS backend](https://developer.hashicorp.com/terraform/language/backend/gcs)
+provides state locking; keep locking enabled for plans and applies.
+
+Operators need Application Default Credentials, the existing permissions to
+manage the profile's resources, and `roles/storage.objectAdmin` on the state
+bucket. Grant bucket access to existing operators only, not workload or release
+service accounts. State can contain sensitive resource data: retain backups and
+saved plans outside Git in directories accessible only to the operator.
+
+For the existing cluster, create `terraform/terraform.tfvars` containing:
+
+```hcl
+project_id           = "agentic-societies"
+artifact_bucket_name = "agentic-societies-moltzap-ledger"
+```
+
+Then initialize and verify from the repository root:
+
+```bash
+gcloud auth application-default login
+terraform -chdir=packages/simulator/gke/terraform init -input=false
+terraform -chdir=packages/simulator/gke/terraform plan -input=false -detailed-exitcode
+```
+
+Exit code 0 means no changes; 2 means a proposed change, and 1 means failure.
+Review any change before applying. A backend migration does not authorize
+changing resources, parking controllers, or changing cluster capacity.
+
+### One-time migration from local state
+
+Use one migration operator and pause other Terraform operations until
+verification finishes. Identify the authoritative state by its lineage, serial,
+resource identities, applied configuration, and live cluster. A newer filename
+or checkout alone is insufficient. Resolve configuration drift before moving
+state: the configuration used for migration must plan no changes against that
+state and the live resources.
+
+1. Back up the authoritative state and its variable inputs outside every Git
+   checkout, with directory mode `0700` and file mode `0600`. Record the state
+   lineage, serial, resource count, and checksum without publishing its contents.
+2. Create the dedicated bucket outside Terraform. If it already exists, verify
+   its project, location, IAM, versioning, and public-access settings before use.
+
+   ```bash
+   gcloud storage buckets create gs://agentic-societies-moltzap-tfstate \
+     --project=agentic-societies --location=us-central1 \
+     --uniform-bucket-level-access --public-access-prevention
+   gcloud storage buckets update gs://agentic-societies-moltzap-tfstate --versioning
+   gcloud storage buckets add-iam-policy-binding \
+     gs://agentic-societies-moltzap-tfstate \
+     --member=user:EXISTING_OPERATOR_EMAIL --role=roles/storage.objectAdmin
+   ```
+
+3. In the authoritative state directory, use the reviewed configuration with
+   the GCS backend and run:
+
+   ```bash
+   terraform init -migrate-state
+   ```
+
+   Review the source and destination before accepting the copy. Stop if the
+   destination already has a different state. Do not use `-reconfigure` to
+   bypass migration or `-force-copy` to overwrite unverified remote state.
+4. Pull the remote state into a private file and compare its lineage, serial,
+   resource identities, and contents with the secured source backup. Verify
+   bucket versioning and the created object generation. Do not print raw state.
+5. From a fresh checkout of the reviewed canonical commit, with no local state
+   or backend cache, supply the same variable inputs, initialize, and run a
+   normal refreshed plan. Require exit code 0 before declaring migration done.
+6. Retire only local state and backup files whose lineage and contents were
+   verified as superseded. Inventory the other checkouts first; leave unknown
+   state untouched. Retain the secured backup outside checkouts. Reinitialize
+   other operator checkouts against GCS before their next operation.
+
+Do not apply a saved resource plan during migration. If verification fails,
+retain the original state and stop other Terraform operations until the
+authoritative backend is resolved; do not let local and remote copies diverge.
 
 ## Temporal
 
