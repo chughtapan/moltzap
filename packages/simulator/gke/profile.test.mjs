@@ -164,6 +164,21 @@ test("Terraform owns one zonal Standard cluster whose agent capacity scales on d
   assert.doesNotMatch(outputs, /ephemeral_storage\s*=/);
 });
 
+test("Terraform keeps shared state outside the ledger and managed resources", async () => {
+  const [versions, main] = await Promise.all([
+    read("terraform/versions.tf"),
+    read("terraform/main.tf"),
+  ]);
+
+  assert.match(
+    versions,
+    /backend "gcs"\s*\{\s*bucket\s*=\s*"agentic-societies-moltzap-tfstate"\s*prefix\s*=\s*"simulator\/gke"\s*\}/,
+  );
+  assert.doesNotMatch(versions, /credentials\s*=|access_token\s*=/);
+  assert.doesNotMatch(main, /agentic-societies-moltzap-tfstate/);
+  assert.match(main, /name\s*=\s*var\.artifact_bucket_name/);
+});
+
 test("Helm pins both operators and reserves the complete roster resource set", async () => {
   const [kueue, sandbox, chart, values, queue] = await Promise.all([
     read("helm/kueue-values.yaml"),
