@@ -47,6 +47,7 @@ function socialMessagesJoinActiveTurn() {
   assert.deepStrictEqual(openClawConfig(undefined).messages, {
     queue: { mode: "steer", cap: 100, drop: "new" },
     inbound: { debounceMs: 0 },
+    visibleReplies: "message_tool",
   });
 }
 
@@ -117,7 +118,7 @@ describe("buildOpenClawConfig", () => {
   );
 
   it(
-    "steers new social messages into an active OpenClaw turn",
+    "steers new social messages into an active OpenClaw turn and sends replies only through the message tool",
     socialMessagesJoinActiveTurn,
   );
 });
