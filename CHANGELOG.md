@@ -10,6 +10,13 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Removed
+
+- Implicit replies. OpenClaw agents send visible messages only through the
+  `message` tool: the simulator configures `messages.visibleReplies` as
+  `message_tool`, and the channel plugin's reply-delivery callback withholds
+  final assistant text instead of posting it to the inbound address.
+
 ### Changed
 
 - Move evaluation suites and management into a separate private monorepo. Remove

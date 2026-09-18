@@ -44,8 +44,8 @@ path is:
     account connection.
 2. `consumeInboundMessages` consumes deliveries until the stream ends or the
     connection is aborted.
-3. `buildRoutedTurnPlan` passes the route, context, and reply callback to
-    OpenClaw's inbound runner.
+3. `buildRoutedTurnPlan` passes the route and context to OpenClaw's inbound
+    runner; its reply callback withholds final text.
 4. `sendOpenClawText` handles explicitly addressed outbound messages.
 
 See the [OpenClaw integration guide](../../docs/integrations/openclaw.mdx) for
