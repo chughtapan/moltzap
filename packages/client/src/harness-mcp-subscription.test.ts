@@ -20,6 +20,7 @@ import {
 } from "./harness-mcp-contract.js";
 import {
   type HarnessMcpSubscriptionHandler,
+  KEEP_ALIVE_FRAME,
   makeHarnessMcpSubscriptionHandler,
 } from "./harness-mcp-subscription.js";
 
@@ -46,7 +47,10 @@ interface TestPayload {
 
 const openHandlers = new Set<HarnessMcpSubscriptionHandler<TestPayload>>();
 
-const makeHandler = (onActiveChange?: (active: boolean) => void) => {
+const makeHandler = (
+  onActiveChange?: (active: boolean) => void,
+  keepAliveMillis?: number,
+) => {
   const delegate = createMcpHandler(
     () => new McpServer(SERVER_IMPLEMENTATION),
     { legacy: "reject" },
@@ -55,6 +59,7 @@ const makeHandler = (onActiveChange?: (active: boolean) => void) => {
     delegate,
     implementation: SERVER_IMPLEMENTATION,
     onActiveChange,
+    keepAliveMillis,
   });
   openHandlers.add(handler);
   return { delegate, handler };
@@ -93,14 +98,20 @@ const makeListenRequest = (
     }),
   });
 
+const readRawFrame = async (
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<string> => {
+  const result = await reader.read();
+  if (result.done || result.value === undefined) {
+    throw new Error("expected a complete SSE frame");
+  }
+  return new TextDecoder().decode(result.value);
+};
+
 const readFrame = async (
   reader: ReadableStreamDefaultReader<Uint8Array>,
 ): Promise<unknown> => {
-  const result = await reader.read();
-  if (result.done || result.value === undefined) {
-    throw new Error("expected a complete SSE data frame");
-  }
-  const frame = new TextDecoder().decode(result.value);
+  const frame = await readRawFrame(reader);
   expect(frame.startsWith("data: ")).toBe(true);
   expect(frame.endsWith("\n\n")).toBe(true);
   return JSON.parse(frame.slice("data: ".length, -"\n\n".length));
@@ -207,6 +218,33 @@ const rejectsNonemptyEventsCapability = async () => {
   });
 };
 
+const keepsIdleListenerAliveWithCommentFrames = async () => {
+  vi.useFakeTimers();
+  try {
+    const activeChanges: boolean[] = [];
+    const { handler } = makeHandler((active) => activeChanges.push(active), 10);
+    const response = await handler.fetch(makeListenRequest("idle-listener"));
+    const reader = responseReader(response);
+    await readFrame(reader);
+
+    await vi.advanceTimersByTimeAsync(10);
+    expect(await readRawFrame(reader)).toBe(KEEP_ALIVE_FRAME);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(await readRawFrame(reader)).toBe(KEEP_ALIVE_FRAME);
+    expect(handler.publish({ value: "after-idle" })).toBe(true);
+    expect(await readFrame(reader)).toMatchObject({
+      method: HARNESS_MESSAGE_READY_NOTIFICATION,
+      params: { value: "after-idle" },
+    });
+
+    await reader.cancel();
+    expect(activeChanges).toEqual([true, false]);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+};
+
 // @agent-code-guard/regression-only: this finite matrix pins the one retained response stream and its delivery-ownership boundary.
 describe("Harness MCP message subscription", () => {
   it("delegates every non-message subscription to the official handler", () =>
@@ -215,6 +253,8 @@ describe("Harness MCP message subscription", () => {
     acknowledgesBeforePublication());
   it("atomically refuses a second listener until the owner detaches", () =>
     refusesRacingListener());
+  it("keeps an idle listener alive with comment frames until it detaches", () =>
+    keepsIdleListenerAliveWithCommentFrames());
   it("rejects a nonempty events-v2 capability declaration", () =>
     rejectsNonemptyEventsCapability());
 });
