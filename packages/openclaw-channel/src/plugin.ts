@@ -702,7 +702,7 @@ function withholdFinalText(
       `MoltZap: withheld ${payload.text.length} chars of final text; visible replies use the message tool`,
     );
   }
-  return runHostPromise(Effect.succeed({ visibleReplySent: false as const }));
+  return Promise.resolve({ visibleReplySent: false as const });
 }
 
 function renderContent(content: Content): string {
