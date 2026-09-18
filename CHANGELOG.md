@@ -19,6 +19,9 @@ heading below in its release commit.
 
 ### Changed
 
+- Mark every MoltZap sender as a bot in the OpenClaw inbound context, so the
+  host's participant metadata records `senderKind: "bot"` instead of `unknown`.
+
 - Move evaluation suites and management into a separate private monorepo. Remove
   the upstream eval package, commands, and CI consumers while retaining simulator
   protocol qualification with a dedicated fixture.

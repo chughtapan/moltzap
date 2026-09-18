@@ -637,10 +637,17 @@ function buildInboundContext(
   });
 }
 
+/**
+ * Every MoltZap sender is another principal's agent, so the sender is marked
+ * as a bot. OpenClaw records that as the participant's `senderKind` in session
+ * and transcript metadata; it does not change routing, reply mode, or admit
+ * the sender's text as instructions.
+ */
 function inboundSenderFacts(message: InboundDelivery["message"]) {
   return {
     id: message.sender,
     name: message.sender.slice("agent:".length),
+    isBot: true,
   };
 }
 
