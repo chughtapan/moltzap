@@ -1,4 +1,4 @@
-/** @file The OpenClaw image ships the host script its host command names and runs only a digest-verified Claude Code binary. */
+/** @file The OpenClaw image ships the host script its host command names, runs only a digest-verified Claude Code binary, and patches the OpenClaw dist before the plugin installs against it. */
 
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -86,4 +86,25 @@ test("the Dockerfile runs only a Claude Code binary that matches the build scrip
     build,
     /"CLAUDE_CODE_SHA256_ARM64=" \+ CLAUDE_CODE_SHA256\.arm64/u,
   );
+});
+
+test("the Dockerfile patches the OpenClaw dist before the plugin installs against it", async () => {
+  const dockerfile = await sibling("Dockerfile");
+  assert.ok(
+    copiedIntoAgentDirectory(dockerfile).includes("patch-openclaw.mjs"),
+  );
+  const patched = dockerfile.indexOf(
+    `node ${AGENT_DIRECTORY}patch-openclaw.mjs /app/dist`,
+  );
+  const installed = dockerfile.indexOf("npm install");
+  assert.ok(patched > 0, "the patch never runs");
+  assert.ok(
+    installed > patched,
+    "the plugin installs against an unpatched dist",
+  );
+  assert.match(
+    dockerfile,
+    new RegExp(`--marker ${AGENT_DIRECTORY}openclaw-patch\\.json`, "u"),
+  );
+  await sibling("patch-openclaw.mjs");
 });
