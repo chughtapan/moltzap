@@ -31,7 +31,7 @@ const RETAINED_DIAGNOSTIC_CHARACTERS = 4_096;
 const FETCHED_LOG_BYTES = RETAINED_DIAGNOSTIC_CHARACTERS * 2;
 const CONTROLLER_LOG_TAIL_LINES = 200;
 const SENSITIVE_LOG_LINE =
-  /(authorization|bearer|token|secret|password|api[-_ ]?key|agent[-_ ]?key)/iu;
+  /(authorization|bearer|token|secret|password|credential|auth[-_. ]?json|api[-_ ]?key|agent[-_ ]?key)/iu;
 
 /**
  * Coarse controller state observed by the host-side activity.

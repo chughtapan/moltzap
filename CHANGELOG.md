@@ -10,6 +10,42 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Added
+
+- Run OpenClaw agents on a Claude or ChatGPT subscription instead of an API
+  key. Export `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) or
+  `CODEX_AUTH_JSON` (the contents of `~/.codex/auth.json`) before submitting and
+  the simulator forwards it to the agents whose model can use it. The token
+  reaches the pod as an environment variable; the Codex login is written to
+  `~/.codex/auth.json` inside the pod and is never refreshed there.
+- `agentRuntime: "claude-cli"` on the OpenClaw runtime runs an `anthropic/*`
+  model through the unmodified Claude Code binary. The OpenClaw agent image
+  now ships a pinned release of it and refuses to build unless the download
+  matches a committed SHA-256. An explicit `agentRuntime` wins over the harness
+  the simulator would otherwise pick for a run with MCP servers, and a
+  non-Anthropic model is rejected when the roster is defined.
+- `moltzap.agent-runtime-ready/v1` records the names of the credentials each
+  agent received, so a ledger states whether an agent ran on an API key or a
+  subscription. Names only, never values. Ledgers written before the field
+  existed keep decoding.
+
+### Changed
+
+- The controller refuses to start an agent when the run holds none of the
+  credentials the agent asked for, or holds two for one provider, for example
+  both `OPENAI_API_KEY` and `CODEX_AUTH_JSON` for an `openai/` agent. The
+  refusal names the agent and the credentials, happens before the agent's
+  Secret exists, and is recorded as `moltzap.agent-runtime-start-failed/v1`.
+  Before, the agent started and failed on its first turn. An agent that names
+  no model asks for no credential and is never refused.
+- Upgrade ledger readers and the controller image together. Every ready event
+  now carries the `credentials` field, and a reader from an earlier release
+  rejects a ledger that contains it. A submitter from this release also
+  forwards the two new credential names, which an older controller image
+  rejects.
+- Log redaction also withholds lines that mention `credential`, `auth.json`, or
+  `AUTH_JSON`.
+
 ## [2026.918.1] - 2026-09-18
 
 ### Fixed

@@ -2,10 +2,12 @@
 
 import { assert, effect as test } from "@effect/vitest";
 import { Effect, Either, Schema } from "effect";
+import { CREDENTIAL_NAMES } from "../agents/container.js";
 import { EventCatalog, EventCatalogDefinitionError } from "./catalog.js";
 import {
   AgentProcessExited,
   AgentProcessSignaled,
+  AgentRuntimeReady,
   AgentWorkspaceFileHarvested,
   coreEvents,
   type HarvestedFileOutcome,
@@ -26,6 +28,53 @@ class UnversionedTagEvent extends Schema.TaggedClass<UnversionedTagEvent>()(
   "acme.unversioned/v0",
   {},
 ) {}
+
+const READY_EVENT_WITHOUT_CREDENTIALS = {
+  _tag: "moltzap.agent-runtime-ready/v1",
+  agentName: "alice",
+  agentId: "agt_AAAAAAAAAAAAAAAAAAAAAA",
+  runtime: "openclaw",
+};
+
+test("reads a ready event written before credentials were recorded and one written after, and refuses an element that is not a variable name", () =>
+  Effect.sync(() => {
+    const strict = { onExcessProperty: "error" as const };
+    const before = Schema.decodeUnknownSync(
+      AgentRuntimeReady,
+      strict,
+    )(READY_EVENT_WITHOUT_CREDENTIALS);
+    assert.isUndefined(before.credentials);
+
+    const after = Schema.decodeUnknownSync(
+      AgentRuntimeReady,
+      strict,
+    )({
+      ...READY_EVENT_WITHOUT_CREDENTIALS,
+      credentials: ["CLAUDE_CODE_OAUTH_TOKEN"],
+    });
+    assert.deepStrictEqual(after.credentials, ["CLAUDE_CODE_OAUTH_TOKEN"]);
+    assert.isTrue(decodesReadyEventWith(CREDENTIAL_NAMES));
+    for (const element of [
+      "",
+      "sk-ant-oat01-do-not-record",
+      '{"tokens":{"access_token":"do-not-record"}}',
+      "claude_code_oauth_token",
+    ]) {
+      assert.isFalse(
+        decodesReadyEventWith([element]),
+        `a ready event recorded ${JSON.stringify(element)} as a credential name`,
+      );
+    }
+  }));
+
+function decodesReadyEventWith(credentials: readonly string[]): boolean {
+  return Either.match(
+    Schema.decodeUnknownEither(AgentRuntimeReady, {
+      onExcessProperty: "error",
+    })({ ...READY_EVENT_WITHOUT_CREDENTIALS, credentials }),
+    { onLeft: () => false, onRight: () => true },
+  );
+}
 
 function catalogFailure(build: () => unknown): EventCatalogDefinitionError {
   try {

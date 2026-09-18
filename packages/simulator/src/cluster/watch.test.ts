@@ -47,6 +47,9 @@ const INPUT: RunSocietyWorkflowInput = {
   experimentModule: "export const runSpec = society;",
 };
 
+const REDACTED_LINE = "[redacted credential-bearing log line]";
+const LEAKED_VALUE = "do-not-retain";
+
 function job(
   status: Partial<JobObservation> & { conditions?: readonly JobCondition[] },
 ): JobObservation {
@@ -93,6 +96,38 @@ describe("controller Job diagnostics", () => {
         "run failed",
       ].join("\n"),
     });
+  });
+
+  /**
+   * All but the last two lines carry exactly one sensitive word and mention no
+   * token, secret, password, or key, so each survives unless the pattern knows
+   * that word. The last two are the shape a real leak takes.
+   */
+  it.each([
+    `CODEX_AUTH_JSON={"account_id":"${LEAKED_VALUE}"}`,
+    `codex auth-json payload ${LEAKED_VALUE}`,
+    `codex AUTH JSON payload ${LEAKED_VALUE}`,
+    `authjson=${LEAKED_VALUE}`,
+    `read /var/run/moltzap/bootstrap/state/.codex/auth.json: ${LEAKED_VALUE}`,
+    `forwarding credential ${LEAKED_VALUE} to alice`,
+    `CREDENTIALS: ${LEAKED_VALUE}`,
+    `CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-${LEAKED_VALUE}`,
+    `CODEX_AUTH_JSON={"tokens":{"access_token":"${LEAKED_VALUE}"}}`,
+  ])("redacts a line naming a credential or a Codex login: %s", (line) => {
+    const retained = sanitizeControllerDiagnostic(
+      ["starting experiment", line, "run failed"].join("\n"),
+    );
+
+    expect(retained).toBe(
+      ["starting experiment", REDACTED_LINE, "run failed"].join("\n"),
+    );
+    expect(retained).not.toContain(LEAKED_VALUE);
+  });
+
+  it("retains a line that only resembles a Codex login name", () => {
+    expect(sanitizeControllerDiagnostic("authored 3 json files")).toBe(
+      "authored 3 json files",
+    );
   });
 
   it("distinguishes active and completed Jobs", () => {

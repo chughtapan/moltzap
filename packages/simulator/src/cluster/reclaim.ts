@@ -9,6 +9,7 @@ import {
   setHandler,
 } from "@temporalio/workflow";
 // safer-arch-ignore no-upward-layer-import: the controller's serializable run summary is the contract this workflow carries back to its caller, so the summary shape is owned where the controller writes it.
+import type { CredentialName } from "../agents/index.js";
 import type { ControllerRunResult } from "./controller/summary.js";
 
 /**
@@ -27,7 +28,7 @@ export interface RunSocietyWorkflowInput {
   readonly applicationImage?: string;
   /** Provider credentials retained only for the transient controller Job. */
   readonly runtimeCredentials?: Readonly<
-    Partial<Record<"ANTHROPIC_API_KEY" | "OPENAI_API_KEY", string>>
+    Partial<Record<CredentialName, string>>
   >;
   /** Complete `.mjs` source mounted into the controller Job. */
   readonly experimentModule: string;

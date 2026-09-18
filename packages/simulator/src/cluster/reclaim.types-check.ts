@@ -1,5 +1,6 @@
 /** @file Type canaries for the closed coarse Temporal lifecycle boundary. */
 
+import type { CredentialName } from "../agents/container.js";
 import type { ControllerFailedRunSummary } from "./controller/summary.js";
 import type {
   CleanupRunInput,
@@ -66,9 +67,21 @@ type FailedResultIsClosed = Expect<
   >
 >;
 
+/**
+ * The credentials the workflow carries are exactly the table's names as values,
+ * so the submitter, the controller schema, and the cohort agree by type.
+ */
+type WorkflowCredentialsFollowTheTable = Expect<
+  Equal<
+    NonNullable<RunSocietyWorkflowInput["runtimeCredentials"]>,
+    Readonly<Partial<Record<CredentialName, string>>>
+  >
+>;
+
 /** Compile-time assertions for the private coarse-workflow boundary. */
 export type TemporalWorkflowCanaries = [
   WorkflowInputKeysAreClosed,
+  WorkflowCredentialsFollowTheTable,
   CleanupInputIsMinimal,
   ControllerActivityInputIsExact,
   CleanupActivityInputIsExact,

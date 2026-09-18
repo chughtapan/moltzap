@@ -10,9 +10,15 @@
 import type { AgentName } from "@moltzap/identity";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { Redacted } from "effect";
+import type { CredentialName } from "../container.js";
 import { isHttpMcpServer, type McpServer } from "../workspace.js";
 
-const DEFAULT_OPENCLAW_MODEL_ID = "openai/gpt-5.5";
+/** Model OpenClaw runs when a runtime names none. */
+export const DEFAULT_OPENCLAW_MODEL_ID = "openai/gpt-5.5";
+/** OpenClaw auth profile that carries the forwarded Claude Code token. */
+const OPENCLAW_ANTHROPIC_TOKEN_PROFILE = "anthropic:default";
+/** Environment variable the token profile references; never its value. */
+const CLAUDE_CODE_OAUTH_TOKEN: CredentialName = "CLAUDE_CODE_OAUTH_TOKEN";
 const OPENCLAW_CHANNEL_ID = "moltzap";
 const OPENCLAW_ACCOUNT_ID = "simulator-agent";
 const OPENCLAW_EXTENSION_NAME = "openclaw-channel";
@@ -36,6 +42,8 @@ interface OpenClawConfigInput {
   readonly bootstrapChars?: number;
   readonly messagingMode: "shared" | "private";
   readonly modelId?: string;
+  /** Harness selected for the model; absent leaves OpenClaw's own resolver in charge. */
+  readonly agentRuntime?: "claude-cli";
   readonly mcpServers?: readonly McpServer[];
   readonly tools?: OpenClawToolsConfig;
   readonly sandbox?: OpenClawSandboxConfig;
@@ -72,20 +80,13 @@ export function buildOpenClawConfig(
       list: [{ id: input.agentName, default: true }],
     },
     ...(input.tools === undefined ? {} : { tools: input.tools }),
+    ...authConfiguration(input.agentRuntime),
     ...(input.messagingMode === "private"
       ? { session: { dmScope: "per-account-channel-peer" as const } }
       : {}),
     commands: { native: "auto", nativeSkills: "auto", restart: true },
     ...pluginConfiguration(),
-    messages: {
-      // Mid-turn traffic steers the active turn so social input is observed
-      // without accumulating an independent simulator-owned mailbox.
-      queue: { mode: "steer", cap: 100, drop: "new" },
-      inbound: { debounceMs: 0 },
-      // Visible replies come only from the `message` tool; final text stays
-      // private, and the channel plugin withholds it as well.
-      visibleReplies: "message_tool",
-    },
+    ...messagingConfiguration(),
     discovery: { mdns: { mode: "off" } },
     channels: {
       [OPENCLAW_CHANNEL_ID]: {
@@ -105,17 +106,93 @@ export function buildOpenClawConfig(
 }
 
 /**
- * Codex's restricted tool surface omits user MCP servers. Select OpenClaw's
- * embedded harness for MCP-backed runs so the supplied tool policy can retain
- * those tools without granting unrelated native tools.
+ * The `openclaw secrets apply` plan that stores a reference-only token profile
+ * for one agent. The plan names the environment variable and never carries a
+ * value, so it is safe to render before the run's credentials are known.
+ * @param agentName Agent whose OpenClaw auth store receives the profile.
+ * @returns Serialized plan for the pod's host wrapper to apply before the gateway starts.
+ */
+export function buildOpenClawSecretsPlan(agentName: AgentName): string {
+  return JSON.stringify(
+    {
+      version: 1,
+      protocolVersion: 1,
+      targets: [
+        {
+          type: "auth-profiles.token.token",
+          path: `profiles.${OPENCLAW_ANTHROPIC_TOKEN_PROFILE}.token`,
+          agentId: agentName,
+          authProfileProvider: "anthropic",
+          ref: {
+            source: "env",
+            provider: "default",
+            id: CLAUDE_CODE_OAUTH_TOKEN,
+          },
+        },
+      ],
+    },
+    null,
+    2,
+  );
+}
+
+/**
+ * Mid-turn traffic steers the active turn so social input is observed without
+ * accumulating an independent simulator-owned mailbox. Visible replies come
+ * only from the `message` tool; final text stays private, and the channel
+ * plugin withholds it as well.
+ */
+function messagingConfiguration() {
+  return {
+    messages: {
+      queue: { mode: "steer" as const, cap: 100, drop: "new" as const },
+      inbound: { debounceMs: 0 },
+      visibleReplies: "message_tool" as const,
+    },
+  };
+}
+
+/**
+ * An explicitly selected harness wins. Otherwise Codex's restricted tool
+ * surface omits user MCP servers, so MCP-backed runs select OpenClaw's
+ * embedded harness and the supplied tool policy can retain those tools
+ * without granting unrelated native tools.
  */
 function modelConfiguration(input: OpenClawConfigInput) {
   const modelId = input.modelId ?? DEFAULT_OPENCLAW_MODEL_ID;
+  const harness =
+    input.agentRuntime ??
+    (input.mcpServers === undefined || input.mcpServers.length === 0
+      ? undefined
+      : "openclaw");
   return {
     model: { primary: modelId },
-    ...(input.mcpServers === undefined || input.mcpServers.length === 0
+    ...(harness === undefined
       ? {}
-      : { models: { [modelId]: { agentRuntime: { id: "openclaw" } } } }),
+      : { models: { [modelId]: { agentRuntime: { id: harness } } } }),
+  };
+}
+
+/**
+ * Claude Code authenticates through a stored OpenClaw token profile, which the
+ * `claude-cli` backend forwards to the child over a file descriptor. The
+ * profile itself is created at pod start from the secrets plan; the
+ * configuration only names it and orders it first.
+ */
+function authConfiguration(agentRuntime: OpenClawConfigInput["agentRuntime"]) {
+  if (agentRuntime !== "claude-cli") {
+    return {};
+  }
+  return {
+    auth: {
+      profiles: {
+        [OPENCLAW_ANTHROPIC_TOKEN_PROFILE]: {
+          provider: "anthropic",
+          mode: "token" as const,
+        },
+      },
+      order: { anthropic: [OPENCLAW_ANTHROPIC_TOKEN_PROFILE] },
+    },
   };
 }
 

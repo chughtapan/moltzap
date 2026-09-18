@@ -2,7 +2,15 @@
 
 import { FileSystem } from "@effect/platform";
 import { NodeContext } from "@effect/platform-node";
-import { type Cause, Context, Data, Effect, Layer } from "effect";
+import {
+  type Cause,
+  Context,
+  Data,
+  Effect,
+  Either,
+  Layer,
+  Schema,
+} from "effect";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import type { KubernetesExecutionProfile } from "./profile.js";
@@ -11,6 +19,11 @@ import type {
   ControllerRunResult,
   RunSocietyWorkflowInput,
 } from "./reclaim.js";
+import {
+  CREDENTIAL_NAMES,
+  type CredentialName,
+  CREDENTIALS,
+} from "../agents/container.js";
 import { FORCE_WORKER_ROLL_VARIABLE, RunWorkerRollRefused } from "./install.js";
 import {
   runTemporalSociety,
@@ -147,7 +160,7 @@ interface PreparedRun {
   readonly supportImage: string;
   readonly applicationImage?: string;
   readonly runtimeCredentials?: Readonly<
-    Partial<Record<"ANTHROPIC_API_KEY" | "OPENAI_API_KEY", string>>
+    Partial<Record<CredentialName, string>>
   >;
   readonly executionProfile: KubernetesExecutionProfile;
   readonly sizing: RunSizing;
@@ -329,14 +342,48 @@ function runtimeCredentials(
   environment: RunEnvironment,
 ): PreparedRun["runtimeCredentials"] {
   const credentials = Object.fromEntries(
-    (["ANTHROPIC_API_KEY", "OPENAI_API_KEY"] as const).flatMap((key) => {
+    CREDENTIAL_NAMES.flatMap((key) => {
       const value = environment[key];
-      return value === undefined || value.length === 0 ? [] : [[key, value]];
+      return value === undefined || value.length === 0
+        ? []
+        : [[key, checkedCredential(key, value)]];
     }),
   );
   return Object.keys(credentials).length === 0
     ? undefined
     : Object.freeze(credentials);
+}
+
+const decodeJsonObject = Schema.decodeUnknownEither(
+  Schema.parseJson(
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  ),
+);
+
+/**
+ * A file-delivered credential is the file's contents. The natural mistake is
+ * to export the file's path instead, which every later guard accepts and
+ * which fails only as unauthenticated turns inside the pod. So a credential
+ * delivered as a `.json` file is refused here unless it is a JSON object. The
+ * value is never echoed.
+ */
+function checkedCredential(name: CredentialName, value: string): string {
+  const delivery = CREDENTIALS[name];
+  if (
+    delivery.delivery !== "file" ||
+    !delivery.homeRelativePath.endsWith(".json")
+  ) {
+    return value;
+  }
+  return Either.match(decodeJsonObject(value), {
+    onLeft: () => {
+      throw failure(
+        "configuration",
+        `${name} must be the contents of ~/${delivery.homeRelativePath}, a JSON object, not a path to it`,
+      );
+    },
+    onRight: () => value,
+  });
 }
 
 function runSizing(environment: RunEnvironment): RunSizing {
