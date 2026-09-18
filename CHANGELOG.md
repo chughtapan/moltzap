@@ -10,6 +10,13 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep an idle message subscription alive. The daemon now writes an SSE
+  comment frame every 20 s while a listener waits, so Node's fetch no longer
+  aborts the silent response body after 300 s and the listener no longer fails
+  with `listen failed: transport-failed`.
+
 ## [2026.918.0] - 2026-09-18
 
 ### Removed

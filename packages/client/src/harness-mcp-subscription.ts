@@ -34,6 +34,16 @@ const BAD_REQUEST_STATUS = 400;
 const CONFLICT_STATUS = 409;
 const INTERNAL_ERROR_STATUS = 500;
 const OK_STATUS = 200;
+/**
+ * Interval between SSE comment frames on an idle subscription. Node's fetch
+ * aborts a response body that stays silent for 300 s, so a listener that
+ * receives no message for that long loses its subscription. Comment frames
+ * are discarded by every SSE parser and reset that timer.
+ */
+const DEFAULT_KEEP_ALIVE_MILLIS = 20_000;
+
+/** An SSE comment frame: written on an idle stream, discarded by every SSE parser. */
+export const KEEP_ALIVE_FRAME = ":\n\n";
 
 type JsonObject = Readonly<Record<string, unknown>>;
 
@@ -42,6 +52,8 @@ interface HarnessMcpSubscriptionOptions {
   readonly implementation: Implementation;
   readonly onActiveChange?: (active: boolean) => void;
   readonly onerror?: (error: Error) => void;
+  /** Idle keep-alive period; tests set it. */
+  readonly keepAliveMillis?: number;
 }
 
 /** Official MCP handler augmented by the sole daemon delivery sink. */
@@ -62,6 +74,7 @@ interface ActiveSubscription {
   readonly id: RequestId;
   controller?: ReadableStreamDefaultController<Uint8Array>;
   abortCleanup?: () => void;
+  keepAlive?: ReturnType<typeof setInterval>;
   closed: boolean;
 }
 
@@ -174,6 +187,7 @@ class HarnessMcpSubscriptionState<Payload extends object> {
   private readonly implementation: Implementation;
   private readonly onActiveChange?: (active: boolean) => void;
   private readonly onerror?: (error: Error) => void;
+  private readonly keepAliveMillis: number;
   private readonly encoder = new TextEncoder();
   private active?: ActiveSubscription;
   private closed = false;
@@ -184,6 +198,7 @@ class HarnessMcpSubscriptionState<Payload extends object> {
     this.implementation = options.implementation;
     this.onActiveChange = options.onActiveChange;
     this.onerror = options.onerror;
+    this.keepAliveMillis = options.keepAliveMillis ?? DEFAULT_KEEP_ALIVE_MILLIS;
   }
 
   // #ignore-sloppy-code-next-line[async-keyword]: The official MCP fetch interface is Promise-native.
@@ -354,6 +369,12 @@ class HarnessMcpSubscriptionState<Payload extends object> {
       this.teardown(subscription, false);
       return;
     }
+    subscription.keepAlive = setInterval(() => {
+      if (!this.enqueueFrame(subscription, KEEP_ALIVE_FRAME)) {
+        this.teardown(subscription, false);
+      }
+    }, this.keepAliveMillis);
+    subscription.keepAlive.unref();
     this.notifyActiveChange(true);
   }
 
@@ -361,6 +382,8 @@ class HarnessMcpSubscriptionState<Payload extends object> {
     if (subscription.closed) {
       return;
     }
+    clearInterval(subscription.keepAlive);
+    subscription.keepAlive = undefined;
     if (graceful) {
       this.enqueueMessage(subscription, this.completeMessage(subscription.id));
     }
@@ -381,13 +404,23 @@ class HarnessMcpSubscriptionState<Payload extends object> {
     subscription: ActiveSubscription,
     message: JsonObject,
   ): boolean {
+    return this.enqueueFrame(
+      subscription,
+      `data: ${JSON.stringify(message)}\n\n`,
+    );
+  }
+
+  /** Every written frame restarts the idle period, so keep-alives go out only on a silent stream. */
+  private enqueueFrame(
+    subscription: ActiveSubscription,
+    frame: string,
+  ): boolean {
     if (subscription.closed || subscription.controller === undefined) {
       return false;
     }
     try {
-      subscription.controller.enqueue(
-        this.encoder.encode(`data: ${JSON.stringify(message)}\n\n`),
-      );
+      subscription.controller.enqueue(this.encoder.encode(frame));
+      subscription.keepAlive?.refresh();
       return true;
     } catch (error) {
       this.reportError(error);
