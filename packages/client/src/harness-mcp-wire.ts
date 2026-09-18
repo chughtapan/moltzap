@@ -89,6 +89,8 @@ interface HarnessMcpHandlerOptions {
   readonly operations: HarnessMcpOperations;
   readonly onSubscriptionActiveChange?: (active: boolean) => void;
   readonly onerror?: (error: Error) => void;
+  /** Idle keep-alive period of the message subscription; tests set it. */
+  readonly keepAliveMillis?: number;
 }
 
 interface ActiveCatalogState {
@@ -741,6 +743,7 @@ export const makeHarnessMcpHttpHandler = (
         implementation: options.implementation,
         onActiveChange: options.onSubscriptionActiveChange,
         onerror: options.onerror,
+        keepAliveMillis: options.keepAliveMillis,
       });
     }),
   );

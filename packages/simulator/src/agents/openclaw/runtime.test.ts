@@ -94,6 +94,7 @@ const renderedOpenClawConfig = Schema.parseJson(
         drop: Schema.Literal("new"),
       }),
       inbound: Schema.Struct({ debounceMs: Schema.Number }),
+      visibleReplies: Schema.Literal("message_tool"),
     }),
   }),
 );
@@ -206,6 +207,7 @@ function assertMessagingConfiguration(fixture: OpenClawContainerFixture): void {
   assert.deepStrictEqual(config.messages, {
     queue: { mode: "steer", cap: 100, drop: "new" },
     inbound: { debounceMs: 0 },
+    visibleReplies: "message_tool",
   });
   assert.strictEqual(
     Schema.decodeUnknownSync(messagingModeProjection)(

@@ -8,6 +8,7 @@ import {
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { Deferred, Duration, Effect, Fiber, Stream } from "effect";
+import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { describe, expect, it } from "vitest";
 import { acquireHarnessEndpoint } from "./client-runtime.js";
 import { ListenError } from "./contract.js";
@@ -41,6 +42,7 @@ const operations: HarnessMcpOperations = {
 function acquireBoundaryServer(
   selectedOperations: HarnessMcpOperations,
   onSubscriptionActiveChange?: (active: boolean) => void,
+  keepAliveMillis?: number,
 ) {
   return Effect.gen(function* () {
     const handler = yield* makeHarnessMcpHttpHandler({
@@ -49,6 +51,7 @@ function acquireBoundaryServer(
       ...(onSubscriptionActiveChange === undefined
         ? {}
         : { onSubscriptionActiveChange }),
+      keepAliveMillis,
     });
     const server = yield* acquireHarnessMcpHttpServer({ port: 0, handler });
     const address = server.address();
@@ -202,28 +205,7 @@ async function sanitizesUnexpectedOperationDefects() {
 async function reportsUnexpectedSubscriptionLoss() {
   const result = await Effect.runPromise(
     Effect.gen(function* () {
-      const subscriptionActive = yield* Deferred.make<undefined>();
-      const { port, server } = yield* acquireBoundaryServer(
-        operations,
-        (active) => {
-          if (active) {
-            Effect.runSync(Deferred.succeed(subscriptionActive, undefined));
-          }
-        },
-      );
-      const endpoint = yield* acquireHarnessEndpoint(
-        new URL(`http://127.0.0.1:${port}/mcp`),
-      );
-      const receive = yield* endpoint.messages.pipe(
-        Stream.runHead,
-        Effect.match({
-          onFailure: (cause) => cause,
-          onSuccess: () =>
-            new Error("message stream ended without a transport failure"),
-        }),
-        Effect.forkScoped,
-      );
-      yield* Deferred.await(subscriptionActive);
+      const { server, receive } = yield* observeListeningSubscription();
       yield* Effect.sync(() => {
         server.closeAllConnections();
       });
@@ -241,6 +223,84 @@ async function reportsUnexpectedSubscriptionLoss() {
   expect(result).toMatchObject({ reason: "transport-failed" });
 }
 
+async function keepsIdleSubscriptionAlive() {
+  expect(await idleSubscriptionOutcome(100)).toEqual({ dropped: false });
+}
+
+async function losesIdleSubscriptionWithoutKeepAlive() {
+  const outcome = await idleSubscriptionOutcome(60_000);
+  expect(outcome).toMatchObject({
+    dropped: true,
+    cause: { reason: "transport-failed" },
+  });
+  expect(outcome.dropped ? outcome.cause : undefined).toBeInstanceOf(
+    ListenError,
+  );
+}
+
+/**
+ * Node's fetch aborts a silent response body after its body timeout (300 s
+ * by default). The test compresses that to 1 s: an idle subscription with
+ * keep-alive frames outlives three seconds of silence, one without them
+ * fails as transport-failed. The undici devDependency is pinned to the
+ * version Node bundles (`process.versions.undici`), because only that version
+ * shares the global-dispatcher symbol Node's own fetch reads; if the two
+ * diverge, the control test below fails instead of passing vacuously.
+ */
+async function idleSubscriptionOutcome(keepAliveMillis: number) {
+  const dispatcher = getGlobalDispatcher();
+  const agent = new Agent({ bodyTimeout: 1000 });
+  setGlobalDispatcher(agent);
+  try {
+    return await Effect.runPromise(
+      Effect.gen(function* () {
+        const { receive } =
+          yield* observeListeningSubscription(keepAliveMillis);
+        return yield* Fiber.join(receive).pipe(
+          Effect.timeoutTo({
+            duration: Duration.seconds(3),
+            onTimeout: () => ({ dropped: false as const }),
+            onSuccess: (cause) => ({ dropped: true as const, cause }),
+          }),
+        );
+      }).pipe(Effect.scoped),
+    );
+  } finally {
+    setGlobalDispatcher(dispatcher);
+    await agent.close();
+  }
+}
+
+/** A boundary server with one endpoint listening on it, and the fiber observing that stream's end. */
+function observeListeningSubscription(keepAliveMillis?: number) {
+  return Effect.gen(function* () {
+    const subscriptionActive = yield* Deferred.make<undefined>();
+    const { port, server } = yield* acquireBoundaryServer(
+      operations,
+      (active) => {
+        if (active) {
+          Effect.runSync(Deferred.succeed(subscriptionActive, undefined));
+        }
+      },
+      keepAliveMillis,
+    );
+    const endpoint = yield* acquireHarnessEndpoint(
+      new URL(`http://127.0.0.1:${port}/mcp`),
+    );
+    const receive = yield* endpoint.messages.pipe(
+      Stream.runHead,
+      Effect.match({
+        onFailure: (cause) => cause,
+        onSuccess: () =>
+          new Error("message stream ended without a transport failure"),
+      }),
+      Effect.forkScoped,
+    );
+    yield* Deferred.await(subscriptionActive);
+    return { server, receive };
+  });
+}
+
 // @agent-code-guard/regression-only: this boundary pins the exact capability and closed transport failures.
 describe("Harness MCP HTTP boundary", () => {
   it("advertises the exact empty events-v2 capability", () =>
@@ -249,6 +309,10 @@ describe("Harness MCP HTTP boundary", () => {
     distinguishesProtocolAndDomainFailures());
   it("sanitizes unexpected operation defects", () =>
     sanitizesUnexpectedOperationDefects());
+  it("keeps an idle subscription alive past the fetch body timeout", () =>
+    keepsIdleSubscriptionAlive());
+  it("loses an idle subscription to the fetch body timeout without keep-alive", () =>
+    losesIdleSubscriptionWithoutKeepAlive());
   it("reports an unexpected subscription disconnect", () =>
     reportsUnexpectedSubscriptionLoss());
 });
