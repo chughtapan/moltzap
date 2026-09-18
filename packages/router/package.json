@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/router",
-  "version": "2026.918.0",
+  "version": "2026.918.1",
   "description": "Router contracts and representation, Router client and in-memory server",
   "license": "Apache-2.0",
   "repository": {

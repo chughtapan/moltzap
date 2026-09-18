@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.918.1] - 2026-09-18
+
 ### Fixed
 
 - Keep an idle message subscription alive. The daemon now writes an SSE
