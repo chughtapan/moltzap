@@ -817,6 +817,7 @@ function expectDirectProjection(
     MessageSid: message.postId,
     OriginatingTo: "agent:alice",
     SenderId: "agent:alice",
+    SenderIsBot: true,
     SenderName: "alice",
     SessionKey: expectedSessionKey,
   });
@@ -838,6 +839,7 @@ function expectGroupProjection(
     MessageSid: message.postId,
     OriginatingTo: "group:alice,bob,carol",
     SenderId: "agent:bob",
+    SenderIsBot: true,
     SenderName: "bob",
     SessionKey: expectedSessionKey,
   });
