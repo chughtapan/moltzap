@@ -317,8 +317,8 @@ OpenClaw and NanoClaw adapters implement only their stock channel or plugin
 APIs. They project complete addressed input. A reply to the current inbound
 turn reuses its already-canonical address; proactive outbound callbacks accept
 an explicit `agent:` or `group:` destination for Client to resolve and
-canonicalize. Host session selection, implicit replies, inbox and outbox
-persistence, retries, and sandbox execution remain host-owned. The pinned
+canonicalize. Final output never becomes a post. Host session selection, inbox
+and outbox persistence, retries, and sandbox execution remain host-owned. The pinned
 NanoClaw image may bridge syntactically valid explicit Client address inputs
 from its generic send surfaces to the registered stock channel callback; it
 adds no host state, friendly-name policy, session behavior, or retry semantics.
