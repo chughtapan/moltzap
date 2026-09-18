@@ -82,6 +82,9 @@ export function buildOpenClawConfig(
       // without accumulating an independent simulator-owned mailbox.
       queue: { mode: "steer", cap: 100, drop: "new" },
       inbound: { debounceMs: 0 },
+      // Visible replies come only from the `message` tool; final text stays
+      // private, and the channel plugin withholds it as well.
+      visibleReplies: "message_tool",
     },
     discovery: { mdns: { mode: "off" } },
     channels: {

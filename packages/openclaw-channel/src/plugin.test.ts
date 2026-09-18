@@ -95,7 +95,7 @@ class OpenClawTestError extends Data.TaggedError("OpenClawTestError")<{
 
 describe("OpenClaw HarnessEndpoint adapter", () => {
   it(
-    "runs shared inbound turns in the main session and acknowledges after completion",
+    "runs shared inbound turns in the main session, withholds final text, and acknowledges after completion",
     upstreamRunnerAndAcknowledgment,
   );
   it(
@@ -168,24 +168,13 @@ function upstreamRunnerAndAcknowledgment() {
     expect(events).toEqual([
       `record:${direct.message.postId}:${MAIN_SESSION_KEY}`,
       `dispatch:${direct.message.postId}`,
-      `send:${direct.message.address}:host final`,
       `ack:${direct.message.postId}`,
       `record:${group.message.postId}:${MAIN_SESSION_KEY}`,
       `dispatch:${group.message.postId}`,
-      `send:${group.message.address}:host final`,
       `ack:${group.message.postId}`,
     ]);
-    expect(fake.sends).toEqual([
-      {
-        to: direct.message.address,
-        content: [{ type: "text", text: "host final" }],
-      },
-      {
-        to: group.message.address,
-        content: [{ type: "text", text: "host final" }],
-      },
-    ]);
-    yield* proactiveSendFailsWhenDisconnected(plugin, fake, 2);
+    expect(fake.sends).toEqual([]);
+    yield* proactiveSendFailsWhenDisconnected(plugin, fake, 0);
   });
 }
 
@@ -280,7 +269,7 @@ function replayRemainsHostOwned() {
 
     expect(calls).toHaveLength(2);
     expect(events.filter((event) => event.startsWith("ack:"))).toHaveLength(2);
-    expect(fake.sends).toHaveLength(2);
+    expect(fake.sends).toEqual([]);
   });
 }
 

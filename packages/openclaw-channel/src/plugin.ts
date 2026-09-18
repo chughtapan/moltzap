@@ -99,7 +99,6 @@ interface ConnectedAccountState {
 interface InboundMessageTurnInput {
   readonly ctx: ChannelGatewayContext<MoltZapAccount>;
   readonly runtime: OpenClawAccountRuntime;
-  readonly endpoint: HarnessEndpoint;
   readonly message: InboundDelivery["message"];
   readonly body: string;
 }
@@ -190,8 +189,7 @@ export function makeMoltZapChannelConfigJsonSchema() {
  *   Client-->>Plugin: addressed delivery
  *   Plugin->>Host: submit routed turn
  *   Host->>Host: record session and run agent
- *   Host-->>Plugin: deliver final reply
- *   Plugin->>Client: send to inbound address
+ *   Host-->>Plugin: final reply withheld
  *   Plugin->>Client: acknowledge delivery
  *   Host->>Plugin: proactive send with explicit address
  *   Plugin->>Client: send addressed content
@@ -473,7 +471,7 @@ function consumeInboundMessages(
   return Effect.raceFirst(
     endpoint.messages.pipe(
       Stream.runForEach((delivery) =>
-        handleInboundDelivery(ctx, runtime, endpoint, delivery),
+        handleInboundDelivery(ctx, runtime, delivery),
       ),
     ),
     Effect.tryPromise({
@@ -506,11 +504,10 @@ function reportConnected(
 function handleInboundDelivery(
   ctx: ChannelGatewayContext<MoltZapAccount>,
   runtime: OpenClawAccountRuntime,
-  endpoint: HarnessEndpoint,
   delivery: InboundDelivery,
 ) {
   return logInbound(ctx, delivery.message).pipe(
-    Effect.zipRight(runOpenClawTurn(ctx, runtime, endpoint, delivery.message)),
+    Effect.zipRight(runOpenClawTurn(ctx, runtime, delivery.message)),
     Effect.zipRight(delivery.acknowledge),
   );
 }
@@ -536,7 +533,6 @@ function logInbound(
 function runOpenClawTurn(
   ctx: ChannelGatewayContext<MoltZapAccount>,
   runtime: OpenClawAccountRuntime,
-  endpoint: HarnessEndpoint,
   message: InboundDelivery["message"],
 ): Effect.Effect<void, OpenClawInboundError> {
   const body = renderContent(message.content);
@@ -555,7 +551,7 @@ function runOpenClawTurn(
             raw: message,
           }),
           resolveTurn: () =>
-            buildRoutedTurnPlan({ ctx, runtime, endpoint, message, body }),
+            buildRoutedTurnPlan({ ctx, runtime, message, body }),
         },
       }),
     catch: (cause) =>
@@ -571,7 +567,7 @@ function runOpenClawTurn(
 function buildRoutedTurnPlan(
   input: InboundMessageTurnInput,
 ): ChannelInboundTurnPlan {
-  const { ctx, endpoint, message, runtime } = input;
+  const { ctx, message, runtime } = input;
   const peer = inboundRoutePeer(message);
   const route = runtime.routing.resolveAgentRoute({
     cfg: ctx.cfg,
@@ -594,10 +590,7 @@ function buildRoutedTurnPlan(
       ...(route.dmScope === undefined ? {} : { dmScope: route.dmScope }),
     },
     ctxPayload,
-    delivery: {
-      deliver: (payload: ReplyPayload) =>
-        deliverReplyToInboundAddress(endpoint, message.address, payload),
-    },
+    delivery: { deliver: (payload) => withholdFinalText(ctx, payload) },
     record: {
       updateLastRoute: {
         sessionKey,
@@ -684,22 +677,25 @@ function inboundGroupFacts(message: InboundDelivery["message"]) {
     : undefined;
 }
 
-function deliverReplyToInboundAddress(
-  endpoint: HarnessEndpoint,
-  to: MessageAddressInputValue,
+/**
+ * Final assistant text never becomes a MoltZap post. The simulator's OpenClaw
+ * configuration selects tool-only visible replies, and this callback withholds
+ * anything that still reaches it, so the `message` tool with an explicit
+ * target is the only send path. Non-empty text reaching here means OpenClaw
+ * fell back to automatic delivery, which it does when the `message` tool is
+ * outside the tool policy, or the model wrote a reply without the tool; the
+ * warning is the only trace of that, so it names the size, never the text.
+ */
+function withholdFinalText(
+  ctx: ChannelGatewayContext<MoltZapAccount>,
   payload: ReplyPayload,
 ) {
-  if (payload.text === undefined || payload.text.length === 0) {
-    return Promise.resolve({ visibleReplySent: false as const });
+  if (payload.text !== undefined && payload.text.length > 0) {
+    ctx.log?.warn?.(
+      `MoltZap: withheld ${payload.text.length} chars of final text; visible replies use the message tool`,
+    );
   }
-  return runHostPromise(
-    endpoint
-      .send({
-        to,
-        content: [{ type: "text", text: payload.text }],
-      })
-      .pipe(Effect.as({ visibleReplySent: true as const })),
-  );
+  return runHostPromise(Effect.succeed({ visibleReplySent: false as const }));
 }
 
 function renderContent(content: Content): string {

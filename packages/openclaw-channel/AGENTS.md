@@ -28,9 +28,9 @@ re-exports. Publication follows `docs/spec/layer-interfaces.md` → Publication 
 - Direct input identifies the sender and `agent:` address. Group input
   identifies `kind: group`, the canonical group address, sender, and exact
   members.
-- A stock reply-delivery callback sends to the current inbound address. Other
-  stock outbound callbacks name an explicit `agent:` or `group:` target. The
-  host decides which tools or final output invoke those callbacks.
+- The stock reply-delivery callback withholds final text and sends nothing.
+  Every outbound callback names an explicit `agent:` or `group:` target through
+  the `message` tool. The host decides which tools invoke that callback.
 - Leave outbound queue and retry policy to OpenClaw. Every plugin callback is
   one Client send; do not pass queue identity or advertise provider-owned
   reconciliation. Acknowledge inbound delivery only after the stock inbound

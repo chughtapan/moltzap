@@ -2,10 +2,10 @@
 
 Status: **cutover normative**
 
-Every visible MoltZap post comes from a stock host output callback. A proactive
-callback supplies an explicit destination; the host's ordinary reply-delivery
-callback is bound to the current inbound message's canonical address. Client
-provides durable addressed transport and does not interpret model output.
+Every visible MoltZap post comes from a stock host proactive output callback
+that supplies an explicit destination. The host's ordinary reply-delivery
+callback withholds final output and creates no post. Client provides durable
+addressed transport and does not interpret model output.
 
 ## Semantic send
 
@@ -27,10 +27,11 @@ proof, record hash, signer map, or protocol state.
 
 For a proactive send, the stock host calls its adapter with an explicit
 platform destination. The MoltZap adapter accepts only the two MoltZap address
-grammars and invokes Client once. For a reply-delivery callback, the adapter
-uses the canonical address already projected into that inbound run. The host
-owns whether a model tool, final output, ACL, or session invokes either stock
-callback.
+grammars and invokes Client once. The reply-delivery callback withholds
+final output, so a reply to the current inbound message is a proactive send to
+that message's canonical address. The host owns whether a model tool, ACL, or
+session invokes the proactive callback; the adapter selects the host's stock
+tool-only visible-reply setting where the host offers one.
 
 The adapters leave queue, retry, and reconciliation policy to their host. They
 do not forward host queue identifiers into Client or add a MoltZap retry queue,
