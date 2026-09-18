@@ -317,7 +317,7 @@ interface OpenClawReplyFixture {
   readonly responseSent: Deferred.Deferred<void>;
   readonly sessions: RecordedSessionStore;
   /** The plugin's `message` tool path, the only way a reply becomes a post. */
-  readonly sendReply: (text: string) => Promise<OpenClawMessageSendResult>;
+  readonly sendReply: () => Promise<OpenClawMessageSendResult>;
 }
 
 type OpenClawRuntimeFixture = OpenClawReplyFixture;
@@ -647,7 +647,7 @@ function dispatchOpenClawReply(
       expect(input.ctx.Body).toBe("hello through the real OpenClaw adapter");
       expect(input.ctx.SessionKey).toBe(OPENCLAW_MAIN_SESSION_KEY);
       const sent = yield* effectFromPromise("OpenClaw message tool send", () =>
-        fixture.sendReply(OPENCLAW_REPLY),
+        fixture.sendReply(),
       );
       expect(sent.messageId).toEqual(expect.any(String));
       const delivery = yield* effectFromPromise("OpenClaw reply delivery", () =>
@@ -765,12 +765,12 @@ function runOpenClawScenario() {
         callerId: scenario.caller.agentName,
         responseSent,
         sessions,
-        sendReply: (text) =>
+        sendReply: () =>
           channelPlugin.message.send.text({
             cfg,
             accountId: OPENCLAW_ACCOUNT_ID,
             to: callerAddress,
-            text,
+            text: OPENCLAW_REPLY,
           }),
       });
 
