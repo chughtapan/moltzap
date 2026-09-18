@@ -36,13 +36,22 @@ export class RouterStopFailed extends Schema.TaggedClass<RouterStopFailed>()(
   },
 ) {}
 
-/** A roster runtime completed acquisition and readiness. */
+/**
+ * A roster runtime completed acquisition and readiness. `credentials` names
+ * the run-scoped credentials the cluster forwarded to this runtime, never
+ * their values: an element must look like an environment variable name, which
+ * no token or login file does. A ledger written before the field existed
+ * carries none.
+ */
 export class AgentRuntimeReady extends Schema.TaggedClass<AgentRuntimeReady>()(
   "moltzap.agent-runtime-ready/v1",
   {
     agentName: agentName,
     agentId: agentId,
     runtime: Schema.NonEmptyString,
+    credentials: Schema.optional(
+      Schema.Array(Schema.String.pipe(Schema.pattern(/^[A-Z][A-Z0-9_]*$/u))),
+    ),
   },
 ) {}
 

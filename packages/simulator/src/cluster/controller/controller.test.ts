@@ -262,14 +262,33 @@ test("decodes only supported transient provider credentials", () =>
     assert.deepStrictEqual(configuration.runtimeCredentials, {
       OPENAI_API_KEY: "credential-value",
     });
-    assert.throws(
-      () =>
-        controllerConfigurationFromEnvironment({
-          ...VALID_ENVIRONMENT,
-          MOLTZAP_RUNTIME_CREDENTIALS: "{invalid",
+    assert.deepStrictEqual(
+      controllerConfigurationFromEnvironment({
+        ...VALID_ENVIRONMENT,
+        MOLTZAP_RUNTIME_CREDENTIALS: JSON.stringify({
+          CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test",
+          CODEX_AUTH_JSON: '{"tokens":{}}',
         }),
-      ControllerConfigurationError,
+      }).runtimeCredentials,
+      {
+        CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test",
+        CODEX_AUTH_JSON: '{"tokens":{}}',
+      },
     );
+    for (const rejected of [
+      "{invalid",
+      JSON.stringify({ GEMINI_API_KEY: "unknown-name" }),
+      JSON.stringify({ OPENAI_API_KEY: "" }),
+    ]) {
+      assert.throws(
+        () =>
+          controllerConfigurationFromEnvironment({
+            ...VALID_ENVIRONMENT,
+            MOLTZAP_RUNTIME_CREDENTIALS: rejected,
+          }),
+        ControllerConfigurationError,
+      );
+    }
   }));
 
 test("decodes the optional retained ledger export root", () =>

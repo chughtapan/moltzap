@@ -102,6 +102,19 @@ const CREDENTIAL_SECRET_KEY = "credential-ANTHROPIC_API_KEY";
 const UNREQUESTED_SECRET_KEY = "credential-OPENAI_API_KEY";
 const CREDENTIAL_VALUE = "anthropic-key-never-in-a-manifest";
 const UNREQUESTED_CREDENTIAL_VALUE = "openai-key-never-requested";
+const FILE_CREDENTIAL_VALUE =
+  '{"tokens":{"access_token":"codex-login-never-in-a-manifest"}}';
+const bootstrapManifestShape = Schema.parseJson(
+  Schema.Struct({
+    files: Schema.Array(
+      Schema.Struct({
+        source: Schema.String,
+        path: Schema.String,
+        mode: Schema.Number,
+      }),
+    ),
+  }),
+);
 const INJECTED_API_DETAIL = "observe agent sandbox: injected transport loss";
 
 const POLL_INTERVAL = Duration.millis(1);
@@ -612,6 +625,7 @@ const REFUSED_BOOTSTRAPS: readonly RefusedBootstrap[] = [
 interface FakeRuntimeOptions {
   readonly files?: readonly File[];
   readonly credentials?: readonly CredentialName[];
+  readonly environment?: Readonly<Record<string, string>>;
   readonly harvest?: readonly HarvestTarget[];
   readonly onAttach?: (endpoint: ApplicationEndpoint) => void;
   /** A stop only the runtime can see, reported the moment it attaches. */
@@ -630,7 +644,7 @@ function fakeRuntime(options: FakeRuntimeOptions = {}) {
     render: (input) =>
       Effect.succeed({
         entrypoint: ["node", "/application.mjs"] as const,
-        environment: { AGENT_NAME: input.agentName },
+        environment: options.environment ?? { AGENT_NAME: input.agentName },
         credentials: options.credentials,
         port: GATEWAY_PORT,
         files: options.files ?? DEFAULT_BOOTSTRAP_FILES,
@@ -1371,6 +1385,317 @@ describe("credential injection", () => {
           rendered,
           encodedSecretValue(UNREQUESTED_CREDENTIAL_VALUE),
         );
+      }),
+    ));
+
+  test("delivers a file credential below the application's HOME and never as an env var", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const state = makeState(yield* Deferred.make<undefined>());
+        state.admitted = true;
+        const roster = AgentRoster.make("acme.kubernetes-file-credential/v1", {
+          alice: fakeRuntime({
+            credentials: ["CODEX_AUTH_JSON"],
+            environment: { HOME: `${BOOTSTRAP_ROOT}/state` },
+          }),
+        });
+
+        const exit = yield* acquireCohort(
+          makePlatform(state, {
+            runtimeCredentials: { CODEX_AUTH_JSON: FILE_CREDENTIAL_VALUE },
+          }),
+          roster,
+        );
+
+        assert.isTrue(Exit.isSuccess(exit), failureDetail(exit));
+        const [secret] = agentSecretManifests(state);
+        assert.isDefined(secret);
+        const decoded = Schema.decodeUnknownSync(secretManifestShape)(secret);
+        assert.notProperty(decoded.data, "credential-CODEX_AUTH_JSON");
+        const manifest = Schema.decodeUnknownSync(bootstrapManifestShape)(
+          Buffer.from(decoded.data["manifest.json"] ?? "", "base64").toString(),
+        );
+        const entry = manifest.files.find(
+          (file) => file.path === "state/.codex/auth.json",
+        );
+        assert.isDefined(entry);
+        assert.strictEqual(entry.mode, 0o600);
+        assert.strictEqual(
+          decoded.data[entry.source],
+          encodedSecretValue(FILE_CREDENTIAL_VALUE),
+        );
+
+        const rendered = JSON.stringify(manifestsOfKind(state, SANDBOX_KIND));
+        assert.notInclude(rendered, "CODEX_AUTH_JSON");
+        assert.notInclude(rendered, FILE_CREDENTIAL_VALUE);
+        assert.notInclude(rendered, encodedSecretValue(FILE_CREDENTIAL_VALUE));
+      }),
+    ));
+
+  test("names the forwarded credentials on the started agent", () =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const state = makeState(yield* Deferred.make<undefined>());
+          state.admitted = true;
+          const roster = AgentRoster.make(
+            "acme.kubernetes-named-credentials/v1",
+            {
+              alice: fakeRuntime({
+                credentials: ["OPENAI_API_KEY", "CODEX_AUTH_JSON"],
+                environment: { HOME: `${BOOTSTRAP_ROOT}/state` },
+              }),
+            },
+          );
+          const session = yield* makePlatform(state, {
+            runtimeCredentials: { CODEX_AUTH_JSON: FILE_CREDENTIAL_VALUE },
+          }).prepare(roster);
+          const [entry] = roster.validatedDefinitions;
+          assert.isDefined(entry);
+
+          const started = yield* session.acquireAgent({
+            name: entry.name,
+            agentName: entry.agentName,
+            runtime: entry.runtime,
+          });
+
+          assert.deepStrictEqual(started.credentials, ["CODEX_AUTH_JSON"]);
+        }),
+      ),
+    ));
+
+  test.each([
+    {
+      shape: "a file credential without a HOME to land in",
+      credentials: ["CODEX_AUTH_JSON"] as const,
+      environment: undefined,
+      runtimeCredentials: { CODEX_AUTH_JSON: FILE_CREDENTIAL_VALUE },
+      detail: "declares no absolute HOME",
+    },
+    {
+      shape: "a request the run holds nothing for",
+      credentials: ["ANTHROPIC_API_KEY"] as const,
+      environment: undefined,
+      runtimeCredentials: { OPENAI_API_KEY: UNREQUESTED_CREDENTIAL_VALUE },
+      detail: "requested ANTHROPIC_API_KEY and the run holds none of them",
+    },
+    {
+      shape: "two credentials for one provider",
+      credentials: ["OPENAI_API_KEY", "CODEX_AUTH_JSON"] as const,
+      environment: { HOME: `${BOOTSTRAP_ROOT}/state` },
+      runtimeCredentials: {
+        OPENAI_API_KEY: UNREQUESTED_CREDENTIAL_VALUE,
+        CODEX_AUTH_JSON: FILE_CREDENTIAL_VALUE,
+      },
+      detail: "one credential per provider",
+    },
+    {
+      shape: "a file credential with a relative HOME",
+      credentials: ["CODEX_AUTH_JSON"] as const,
+      environment: { HOME: "relative/home" },
+      runtimeCredentials: { CODEX_AUTH_JSON: FILE_CREDENTIAL_VALUE },
+      detail: "declares no absolute HOME",
+    },
+    {
+      shape: "a file credential whose HOME lies outside the bootstrap root",
+      credentials: ["CODEX_AUTH_JSON"] as const,
+      environment: { HOME: "/home/node" },
+      runtimeCredentials: { CODEX_AUTH_JSON: FILE_CREDENTIAL_VALUE },
+      detail: "must stay below /var/run/moltzap/bootstrap",
+    },
+    {
+      shape: "an API key and a subscription token for Anthropic",
+      credentials: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"] as const,
+      environment: undefined,
+      runtimeCredentials: {
+        ANTHROPIC_API_KEY: CREDENTIAL_VALUE,
+        CLAUDE_CODE_OAUTH_TOKEN: UNREQUESTED_CREDENTIAL_VALUE,
+      },
+      detail:
+        "resolved ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN for provider anthropic",
+    },
+  ])(
+    "refuses $shape before creating any Secret",
+    ({ credentials, environment, runtimeCredentials, detail }) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const state = makeState(yield* Deferred.make<undefined>());
+          state.admitted = true;
+          const roster = AgentRoster.make(
+            "acme.kubernetes-refused-credentials/v1",
+            {
+              alice: fakeRuntime({
+                credentials,
+                ...(environment === undefined ? {} : { environment }),
+              }),
+            },
+          );
+
+          const exit = yield* acquireCohort(
+            makePlatform(state, { runtimeCredentials }),
+            roster,
+          );
+
+          assert.isTrue(Exit.isFailure(exit));
+          assert.include(failureDetail(exit), detail);
+          assert.lengthOf(agentSecretManifests(state), 0);
+          const rendered = JSON.stringify(state.manifests);
+          assert.notInclude(rendered, FILE_CREDENTIAL_VALUE);
+          assert.notInclude(rendered, UNREQUESTED_CREDENTIAL_VALUE);
+        }),
+      ),
+  );
+});
+
+describe("credential injection across providers", () => {
+  test("delivers an environment key and a file login for different providers together, in table order", () =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const state = makeState(yield* Deferred.make<undefined>());
+          state.admitted = true;
+          const roster = AgentRoster.make(
+            "acme.kubernetes-mixed-credentials/v1",
+            {
+              alice: fakeRuntime({
+                credentials: ["CODEX_AUTH_JSON", "ANTHROPIC_API_KEY"],
+                environment: { HOME: `${BOOTSTRAP_ROOT}/state` },
+              }),
+            },
+          );
+          const session = yield* makePlatform(state, {
+            runtimeCredentials: {
+              ANTHROPIC_API_KEY: CREDENTIAL_VALUE,
+              CODEX_AUTH_JSON: FILE_CREDENTIAL_VALUE,
+            },
+          }).prepare(roster);
+          const [entry] = roster.validatedDefinitions;
+          assert.isDefined(entry);
+
+          const started = yield* session.acquireAgent({
+            name: entry.name,
+            agentName: entry.agentName,
+            runtime: entry.runtime,
+          });
+
+          assert.deepStrictEqual(started.credentials, [
+            "ANTHROPIC_API_KEY",
+            "CODEX_AUTH_JSON",
+          ]);
+          const [secret] = agentSecretManifests(state);
+          assert.isDefined(secret);
+          const decoded = Schema.decodeUnknownSync(secretManifestShape)(secret);
+          assert.strictEqual(
+            decoded.data[CREDENTIAL_SECRET_KEY],
+            encodedSecretValue(CREDENTIAL_VALUE),
+          );
+          assert.notProperty(decoded.data, "credential-CODEX_AUTH_JSON");
+        }),
+      ),
+    ));
+
+  test("runs an API-key agent that could also take a file login, with no HOME and no login held", () =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const state = makeState(yield* Deferred.make<undefined>());
+          state.admitted = true;
+          const roster = AgentRoster.make("acme.kubernetes-api-key-only/v1", {
+            alice: fakeRuntime({
+              credentials: ["OPENAI_API_KEY", "CODEX_AUTH_JSON"],
+            }),
+          });
+          const session = yield* makePlatform(state, {
+            runtimeCredentials: { OPENAI_API_KEY: CREDENTIAL_VALUE },
+          }).prepare(roster);
+          const [entry] = roster.validatedDefinitions;
+          assert.isDefined(entry);
+
+          const started = yield* session.acquireAgent({
+            name: entry.name,
+            agentName: entry.agentName,
+            runtime: entry.runtime,
+          });
+
+          assert.deepStrictEqual(started.credentials, ["OPENAI_API_KEY"]);
+          const [secret] = agentSecretManifests(state);
+          assert.isDefined(secret);
+          const decoded = Schema.decodeUnknownSync(secretManifestShape)(secret);
+          assert.strictEqual(
+            decoded.data[UNREQUESTED_SECRET_KEY],
+            encodedSecretValue(CREDENTIAL_VALUE),
+          );
+        }),
+      ),
+    ));
+
+  test("forwards the Claude Code token as a Secret reference and never as a value", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const state = makeState(yield* Deferred.make<undefined>());
+        state.admitted = true;
+        const roster = AgentRoster.make("acme.kubernetes-claude-token/v1", {
+          alice: fakeRuntime({ credentials: ["CLAUDE_CODE_OAUTH_TOKEN"] }),
+        });
+
+        const exit = yield* acquireCohort(
+          makePlatform(state, {
+            runtimeCredentials: {
+              CLAUDE_CODE_OAUTH_TOKEN: CREDENTIAL_VALUE,
+              ANTHROPIC_API_KEY: UNREQUESTED_CREDENTIAL_VALUE,
+            },
+          }),
+          roster,
+        );
+
+        assert.isTrue(Exit.isSuccess(exit), failureDetail(exit));
+        const [secret] = agentSecretManifests(state);
+        assert.isDefined(secret);
+        const decoded = Schema.decodeUnknownSync(secretManifestShape)(secret);
+        assert.strictEqual(
+          decoded.data["credential-CLAUDE_CODE_OAUTH_TOKEN"],
+          encodedSecretValue(CREDENTIAL_VALUE),
+        );
+        assert.notProperty(decoded.data, CREDENTIAL_SECRET_KEY);
+        const rendered = JSON.stringify(manifestsOfKind(state, SANDBOX_KIND));
+        assert.include(rendered, "credential-CLAUDE_CODE_OAUTH_TOKEN");
+        assert.notInclude(rendered, CREDENTIAL_VALUE);
+        assert.notInclude(
+          JSON.stringify(state.manifests),
+          UNREQUESTED_CREDENTIAL_VALUE,
+        );
+      }),
+    ));
+
+  test("refuses a file credential that collides with a file the application ships", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const state = makeState(yield* Deferred.make<undefined>());
+        state.admitted = true;
+        const roster = AgentRoster.make("acme.kubernetes-colliding-login/v1", {
+          alice: fakeRuntime({
+            credentials: ["CODEX_AUTH_JSON"],
+            environment: { HOME: `${BOOTSTRAP_ROOT}/state` },
+            files: [
+              {
+                path: `${BOOTSTRAP_ROOT}/state/.codex/auth.json`,
+                content: "{}",
+                mode: 0o600,
+              },
+            ],
+          }),
+        });
+
+        const exit = yield* acquireCohort(
+          makePlatform(state, {
+            runtimeCredentials: { CODEX_AUTH_JSON: FILE_CREDENTIAL_VALUE },
+          }),
+          roster,
+        );
+
+        assert.isTrue(Exit.isFailure(exit));
+        assert.include(failureDetail(exit), "duplicate path");
+        assert.lengthOf(agentSecretManifests(state), 0);
       }),
     ));
 });

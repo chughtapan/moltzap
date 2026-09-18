@@ -34,29 +34,92 @@ export const image = Schema.String.pipe(
 /** Digest-pinned image identity accepted by the private container platform. */
 export type Image = typeof image.Type;
 
-/** Provider credential a container may request from the run-scoped Secret. */
-export type CredentialName = "ANTHROPIC_API_KEY" | "OPENAI_API_KEY";
+/** Every credential a run may hold, in the order the simulator spells them. */
+export const CREDENTIAL_NAMES = [
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "CODEX_AUTH_JSON",
+] as const;
 
-const CREDENTIAL_BY_PROVIDER: Readonly<Record<string, CredentialName>> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-};
+/** Provider credential a container may request from the run-scoped Secret. */
+export type CredentialName = (typeof CREDENTIAL_NAMES)[number];
+
+/** Model provider a credential authenticates against, as a model id prefix spells it. */
+type CredentialProvider = "anthropic" | "openai";
 
 /**
- * The credential a model's provider prefix asks for, when the run can carry
- * one. A model id names its provider ahead of a slash, as OpenClaw spells
- * them (`anthropic/claude-4`); a prefix the run has no credential for yields
- * nothing rather than a guess, so a container never receives a key it did not
- * need.
+ * Who inside a container may spend a credential: any client of the provider's
+ * API, or only the unmodified Claude Code binary, the one place Anthropic's
+ * terms let a subscription token be used.
  */
-export function providerCredential(
+export type CredentialConsumer = "provider-client" | "claude-code";
+
+/**
+ * How one credential reaches a container. An `environment` credential arrives
+ * as the variable of the same name from the run-scoped Secret. A `file`
+ * credential is written below the application's `HOME` at `homeRelativePath`,
+ * mode 0600, through the same bootstrap path as every other file, because the
+ * tool that reads it reads a file and nothing else.
+ */
+export type CredentialDelivery = {
+  readonly provider: CredentialProvider;
+  readonly consumer: CredentialConsumer;
+} & (
+  | { readonly delivery: "environment" }
+  | { readonly delivery: "file"; readonly homeRelativePath: string }
+);
+
+/**
+ * The single description of every credential the simulator carries. The
+ * submitter, the controller schema, the cohort, and each runtime derive their
+ * view from this table rather than spelling the names again.
+ */
+export const CREDENTIALS: Readonly<Record<CredentialName, CredentialDelivery>> =
+  Object.freeze({
+    ANTHROPIC_API_KEY: {
+      provider: "anthropic",
+      consumer: "provider-client",
+      delivery: "environment",
+    },
+    OPENAI_API_KEY: {
+      provider: "openai",
+      consumer: "provider-client",
+      delivery: "environment",
+    },
+    CLAUDE_CODE_OAUTH_TOKEN: {
+      provider: "anthropic",
+      consumer: "claude-code",
+      delivery: "environment",
+    },
+    CODEX_AUTH_JSON: {
+      provider: "openai",
+      consumer: "provider-client",
+      delivery: "file",
+      homeRelativePath: ".codex/auth.json",
+    },
+  });
+
+/**
+ * The credentials a model's provider prefix asks for on behalf of one consumer.
+ * A model id names its provider ahead of a slash, as OpenClaw spells them
+ * (`anthropic/claude-4`); a prefix the table does not know yields nothing
+ * rather than a guess, so a container never receives a key it did not need.
+ * The cohort forwards whichever of the returned names the run holds and
+ * refuses a run holding more than one for the same provider.
+ */
+export function providerCredentials(
   modelId: string,
-): CredentialName | undefined {
+  consumer: CredentialConsumer = "provider-client",
+): readonly CredentialName[] {
   const [provider] = modelId.split("/", 1);
-  return provider !== undefined &&
-    Object.hasOwn(CREDENTIAL_BY_PROVIDER, provider)
-    ? CREDENTIAL_BY_PROVIDER[provider]
-    : undefined;
+  return Object.freeze(
+    CREDENTIAL_NAMES.filter(
+      (name) =>
+        CREDENTIALS[name].provider === provider &&
+        CREDENTIALS[name].consumer === consumer,
+    ),
+  );
 }
 
 /** Portable resource request for one application container. */
@@ -159,6 +222,14 @@ export function acquisitionFailureFor(
 export interface Application<Gateway, AcquisitionError> {
   readonly entrypoint: readonly [string, ...string[]];
   readonly environment: Readonly<Record<string, string>>;
+  /**
+   * Credentials this application can consume, any one of which is enough.
+   * The cluster forwards the ones the run holds and refuses to start the
+   * agent when the run holds none of them, or holds two for one provider,
+   * since the agent would then run on a credential nobody chose. A
+   * file-delivered credential lands under `environment.HOME`, which must be
+   * an absolute path. Absent or empty asks for nothing and is never refused.
+   */
   readonly credentials?: readonly CredentialName[];
   /** The controller bridge port, and the port whose accept means ready. */
   readonly port: number;

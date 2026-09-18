@@ -40,7 +40,7 @@ const APPLICATION_IMAGE = image.make(
 );
 const SECRET_CONTENT = "secret-content";
 const PARTIAL_ADMISSION_FIELD = "minCount";
-const OPENCLAW_CONFIG_PATH = "/var/run/moltzap/bootstrap/openclaw.json";
+const OPENCLAW_CONFIG_PATH = "/var/run/moltzap/bootstrap/state/openclaw.json";
 const PLACEMENT = {
   nodeSelector: { "moltzap.dev/pool": "agents" },
   tolerations: [
@@ -114,10 +114,7 @@ function sandboxFixtureForEnvironment(
         ephemeralStorageBytes: 2_147_483_648,
       },
     },
-    credentialSecretKeys: {
-      ANTHROPIC_API_KEY: undefined,
-      OPENAI_API_KEY: "credential-OPENAI_API_KEY",
-    },
+    credentialSecretKeys: { OPENAI_API_KEY: "credential-OPENAI_API_KEY" },
   });
 }
 

@@ -45,7 +45,7 @@ export class AgentHandle<
 
 A participant whose autonomous runtime is owned by the run scope.
 
-### [`AgentProcessExited`](./events/core.ts#L81)
+### [`AgentProcessExited`](./events/core.ts#L90)
 
 _Class_
 
@@ -63,7 +63,7 @@ export class AgentProcessExited extends Schema.TaggedClass<AgentProcessExited>()
 
 A roster runtime process terminated with an operating-system exit code.
 
-### [`AgentProcessSignaled`](./events/core.ts#L92)
+### [`AgentProcessSignaled`](./events/core.ts#L101)
 
 _Class_
 
@@ -81,7 +81,7 @@ export class AgentProcessSignaled extends Schema.TaggedClass<AgentProcessSignale
 
 A roster runtime process terminated because it received a signal.
 
-### [`AgentRuntimeArtifact`](./events/core.ts#L144)
+### [`AgentRuntimeArtifact`](./events/core.ts#L153)
 
 _Class_
 
@@ -110,7 +110,7 @@ export class AgentRuntimeArtifact extends Schema.TaggedClass<AgentRuntimeArtifac
 
 A frozen native file in retained storage, bound by digest and byte length.
 
-### [`AgentRuntimeCompleted`](./events/core.ts#L60)
+### [`AgentRuntimeCompleted`](./events/core.ts#L69)
 
 _Class_
 
@@ -127,7 +127,7 @@ export class AgentRuntimeCompleted extends Schema.TaggedClass<AgentRuntimeComple
 
 An autonomous runtime completed normally.
 
-### [`AgentRuntimeFailed`](./events/core.ts#L70)
+### [`AgentRuntimeFailed`](./events/core.ts#L79)
 
 _Class_
 
@@ -145,7 +145,7 @@ export class AgentRuntimeFailed extends Schema.TaggedClass<AgentRuntimeFailed>()
 
 An autonomous runtime completed with a recorded failure.
 
-### [`AgentRuntimeReady`](./events/core.ts#L40)
+### [`AgentRuntimeReady`](./events/core.ts#L46)
 
 _Class_
 
@@ -156,13 +156,20 @@ export class AgentRuntimeReady extends Schema.TaggedClass<AgentRuntimeReady>()(
     agentName: agentName,
     agentId: agentId,
     runtime: Schema.NonEmptyString,
+    credentials: Schema.optional(
+      Schema.Array(Schema.String.pipe(Schema.pattern(/^[A-Z][A-Z0-9_]*$/u))),
+    ),
   },
 ) {}
 ```
 
-A roster runtime completed acquisition and readiness.
+A roster runtime completed acquisition and readiness. `credentials` names
+the run-scoped credentials the cluster forwarded to this runtime, never
+their values: an element must look like an environment variable name, which
+no token or login file does. A ledger written before the field existed
+carries none.
 
-### [`AgentRuntimeStartFailed`](./events/core.ts#L50)
+### [`AgentRuntimeStartFailed`](./events/core.ts#L59)
 
 _Class_
 
@@ -179,7 +186,7 @@ export class AgentRuntimeStartFailed extends Schema.TaggedClass<AgentRuntimeStar
 
 A roster runtime failed before it established readiness.
 
-### [`AgentWorkspaceFileHarvested`](./events/core.ts#L132)
+### [`AgentWorkspaceFileHarvested`](./events/core.ts#L141)
 
 _Class_
 
@@ -257,7 +264,7 @@ export class CompletedLedgerReceipt extends Schema.TaggedClass<CompletedLedgerRe
 
 Physical receipt for a ledger whose completion marker is durable.
 
-### [`coreEvents`](./events/core.ts#L268)
+### [`coreEvents`](./events/core.ts#L277)
 
 _Variable_
 
@@ -536,7 +543,7 @@ export type EventOf<Catalog> = Schema.Schema.Type<CatalogSchemaOf<Catalog>>;
 
 The closed instance union declared by a catalog.
 
-### [`HarvestedFileOutcome`](./events/core.ts#L125)
+### [`HarvestedFileOutcome`](./events/core.ts#L134)
 
 _TypeAlias_
 
@@ -687,7 +694,7 @@ export interface LinkDelivery {
 
 One opaque signed message about to cross a directed link.
 
-### [`LinkDown`](./events/core.ts#L175)
+### [`LinkDown`](./events/core.ts#L184)
 
 _Class_
 
@@ -725,7 +732,7 @@ Decides one delivery on a directed link. A policy reads only its input and
 the ambient Clock; the link interpreter, never the policy, spends time and
 records evidence.
 
-### [`LinkPolicyCleared`](./events/core.ts#L200)
+### [`LinkPolicyCleared`](./events/core.ts#L209)
 
 _Class_
 
@@ -742,7 +749,7 @@ export class LinkPolicyCleared extends Schema.TaggedClass<LinkPolicyCleared>()(
 
 A described policy stopped shaping one directed participant link.
 
-### [`LinkPolicySet`](./events/core.ts#L190)
+### [`LinkPolicySet`](./events/core.ts#L199)
 
 _Class_
 
@@ -759,7 +766,7 @@ export class LinkPolicySet extends Schema.TaggedClass<LinkPolicySet>()(
 
 A described policy became active on one directed participant link.
 
-### [`LinkUp`](./events/core.ts#L184)
+### [`LinkUp`](./events/core.ts#L193)
 
 _Class_
 
@@ -902,7 +909,7 @@ nothing else would notice the two sides disagreeing until a live run
 produced an undecodable line. The submitter's own result type derives from
 this schema, so the two cannot drift.
 
-### [`ProgramFailed`](./events/core.ts#L216)
+### [`ProgramFailed`](./events/core.ts#L225)
 
 _Class_
 
@@ -930,7 +937,7 @@ export class ProgramFinished<A, E> extends Data.TaggedClass("ProgramFinished")<{
 
 Customer-program completion plus its complete durable evidence.
 
-### [`ProgramInterrupted`](./events/core.ts#L224)
+### [`ProgramInterrupted`](./events/core.ts#L233)
 
 _Class_
 
@@ -945,7 +952,7 @@ export class ProgramInterrupted extends Schema.TaggedClass<ProgramInterrupted>()
 
 The customer program was interrupted.
 
-### [`ProgramSucceeded`](./events/core.ts#L210)
+### [`ProgramSucceeded`](./events/core.ts#L219)
 
 _Class_
 
@@ -1111,7 +1118,7 @@ export class RunStarted extends Schema.TaggedClass<RunStarted>()(
 
 The run ledger is allocated and run-scoped acquisition has begun.
 
-### [`RuntimeEvidenceCollectionFailed`](./events/core.ts#L166)
+### [`RuntimeEvidenceCollectionFailed`](./events/core.ts#L175)
 
 _Class_
 

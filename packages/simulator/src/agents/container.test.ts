@@ -5,9 +5,11 @@ import { Effect, Schema } from "effect";
 import { defineRuntime } from "./agent.js";
 import {
   containerRuntimeFor,
+  CREDENTIAL_NAMES,
+  CREDENTIALS,
   defineContainerRuntime,
   image,
-  providerCredential,
+  providerCredentials,
 } from "./container.js";
 import * as publicRuntime from "./index.js";
 
@@ -78,6 +80,38 @@ it("refuses a runtime that never declared a container realization", () => {
 it("forwards no credential for a provider that is only an inherited object member", () =>
   Effect.sync(() => {
     for (const modelId of ["constructor/x", "toString/y", "__proto__/z"]) {
-      assert.isUndefined(providerCredential(modelId));
+      assert.deepStrictEqual(providerCredentials(modelId), []);
     }
+  }));
+
+it("names every credential a provider's clients and Claude Code can spend", () =>
+  Effect.sync(() => {
+    assert.deepStrictEqual(providerCredentials("anthropic/claude-opus-4-8"), [
+      "ANTHROPIC_API_KEY",
+    ]);
+    assert.deepStrictEqual(
+      providerCredentials("anthropic/claude-opus-4-8", "claude-code"),
+      ["CLAUDE_CODE_OAUTH_TOKEN"],
+    );
+    assert.deepStrictEqual(providerCredentials("openai/gpt-5.6-sol"), [
+      "OPENAI_API_KEY",
+      "CODEX_AUTH_JSON",
+    ]);
+    assert.deepStrictEqual(
+      providerCredentials("openai/gpt-5.6-sol", "claude-code"),
+      [],
+    );
+    assert.deepStrictEqual(providerCredentials("google/gemini-2"), []);
+    assert.deepStrictEqual(providerCredentials("no-slash"), []);
+  }));
+
+it("describes every credential name exactly once, in table order", () =>
+  Effect.sync(() => {
+    assert.deepStrictEqual(Object.keys(CREDENTIALS), [...CREDENTIAL_NAMES]);
+    assert.deepStrictEqual(CREDENTIALS.CODEX_AUTH_JSON, {
+      provider: "openai",
+      consumer: "provider-client",
+      delivery: "file",
+      homeRelativePath: ".codex/auth.json",
+    });
   }));
