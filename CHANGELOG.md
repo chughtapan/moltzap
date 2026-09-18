@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.918.2] - 2026-09-18
+
 ### Added
 
 - Run OpenClaw agents on a Claude or ChatGPT subscription instead of an API
