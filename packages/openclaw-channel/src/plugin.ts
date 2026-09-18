@@ -6,6 +6,7 @@ import type {
 } from "openclaw/plugin-sdk/channel-contract";
 import type { ChannelInboundTurnPlan } from "openclaw/plugin-sdk/channel-inbound";
 import type { OpenClawPluginDefinition } from "openclaw/plugin-sdk/plugin-entry";
+import type { ReplyPayload } from "openclaw/plugin-sdk/reply-payload";
 import {
   acquireHarnessEndpoint,
   type Content,
@@ -188,8 +189,7 @@ export function makeMoltZapChannelConfigJsonSchema() {
  *   Client-->>Plugin: addressed delivery
  *   Plugin->>Host: submit routed turn
  *   Host->>Host: record session and run agent
- *   Host-->>Plugin: deliver final reply
- *   Plugin->>Client: send to inbound address
+ *   Host-->>Plugin: final reply withheld
  *   Plugin->>Client: acknowledge delivery
  *   Host->>Plugin: proactive send with explicit address
  *   Plugin->>Client: send addressed content
@@ -590,7 +590,7 @@ function buildRoutedTurnPlan(
       ...(route.dmScope === undefined ? {} : { dmScope: route.dmScope }),
     },
     ctxPayload,
-    delivery: { deliver: withholdFinalText },
+    delivery: { deliver: (payload) => withholdFinalText(ctx, payload) },
     record: {
       updateLastRoute: {
         sessionKey,
@@ -681,9 +681,20 @@ function inboundGroupFacts(message: InboundDelivery["message"]) {
  * Final assistant text never becomes a MoltZap post. The simulator's OpenClaw
  * configuration selects tool-only visible replies, and this callback withholds
  * anything that still reaches it, so the `message` tool with an explicit
- * target is the only send path.
+ * target is the only send path. Non-empty text reaching here means OpenClaw
+ * fell back to automatic delivery, which it does when the `message` tool is
+ * outside the tool policy, or the model wrote a reply without the tool; the
+ * warning is the only trace of that, so it names the size, never the text.
  */
-function withholdFinalText() {
+function withholdFinalText(
+  ctx: ChannelGatewayContext<MoltZapAccount>,
+  payload: ReplyPayload,
+) {
+  if (payload.text !== undefined && payload.text.length > 0) {
+    ctx.log?.warn?.(
+      `MoltZap: withheld ${payload.text.length} chars of final text; visible replies use the message tool`,
+    );
+  }
   return runHostPromise(Effect.succeed({ visibleReplySent: false as const }));
 }
 
