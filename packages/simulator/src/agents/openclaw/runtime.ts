@@ -23,11 +23,12 @@ import {
   type ApplicationEndpoint,
   type ContainerAgentRuntime,
   type ContainerRuntime,
+  type CredentialName,
   defineContainerRuntime,
   type File,
   image,
   type Image,
-  providerCredential,
+  providerCredentials,
   routableBridgeEndpoint,
   stoppedBeforeAttach,
 } from "../container.js";
@@ -52,6 +53,8 @@ import {
 } from "../workspace.js";
 import {
   buildOpenClawConfig,
+  buildOpenClawSecretsPlan,
+  DEFAULT_OPENCLAW_MODEL_ID,
   OPENCLAW_RUNTIME_LOG_FILE,
   type OpenClawSandboxConfig,
   type OpenClawToolsConfig,
@@ -75,12 +78,22 @@ const DEFAULT_OPENCLAW_STARTUP_TIMEOUT = Duration.minutes(2);
 const OPENCLAW_GATEWAY_PORT = 18_789;
 const OPENCLAW_BOOTSTRAP_DIR = "/var/run/moltzap/bootstrap";
 const APPLICATION_STATE_DIR = `${OPENCLAW_BOOTSTRAP_DIR}/state`;
-const APPLICATION_CONFIG_PATH = `${OPENCLAW_BOOTSTRAP_DIR}/openclaw.json`;
+/**
+ * OpenClaw rewrites its configuration in place (for example when
+ * `secrets apply` binds a profile) and chmods the parent directory while
+ * doing so, which only the directory's owner may do. The state directory is
+ * created by the bootstrap step as the agent host user; the bootstrap root is
+ * the volume mount itself and belongs to root.
+ */
+const APPLICATION_CONFIG_PATH = `${APPLICATION_STATE_DIR}/openclaw.json`;
 const OPENCLAW_WORKSPACE_DIR = `${OPENCLAW_BOOTSTRAP_DIR}/workspace`;
+/** Where the secrets plan that binds the Claude Code token profile is delivered. */
+const OPENCLAW_SECRETS_PLAN_PATH = `${OPENCLAW_BOOTSTRAP_DIR}/secrets-plan.json`;
 const OPENCLAW_GATEWAY_TOKEN_BYTES = 32;
 const OPENCLAW_DEVICE_TOKEN_BYTES = 32;
 const OPENCLAW_ED25519_PUBLIC_KEY_BYTES = 32;
 const messagingMode = Schema.Literal("shared", "private");
+const selectableAgentRuntime = Schema.Literal("claude-cli");
 const APPLICATION_RESOURCES = Object.freeze({
   cpuMillis: 1_100,
   memoryBytes: 1_280 * 1_024 * 1_024,
@@ -108,6 +121,7 @@ export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeCo
   harvestWorkspaceFiles: Schema.Array(Schema.String),
   historyExport: Schema.Boolean,
   modelOverride: Schema.optional(Schema.String),
+  agentRuntime: Schema.optional(selectableAgentRuntime),
   mcpServers: Schema.Array(McpServerConfiguration),
   messagingMode,
   applicationImage: image,
@@ -135,10 +149,22 @@ export interface OpenClawRuntimeOptions {
   readonly historyExport?: boolean;
   /**
    * Model the runtime asks for. Its provider prefix (`anthropic/`, `openai/`)
-   * names the credential forwarded from the run's Secret; an unknown prefix
-   * forwards none.
+   * names the credentials the agent asks the run for; an unknown prefix asks
+   * for none. A runtime that names no model also asks for none, which is what
+   * lets a society that never takes a model turn run without any credential,
+   * so name the model whenever the agent is expected to think.
    */
   readonly modelId?: string;
+  /**
+   * Run the model through the unmodified Claude Code binary on the owner's
+   * subscription instead of OpenClaw's embedded provider client. Only an
+   * `anthropic/` model can select it, and it asks the run for
+   * `CLAUDE_CODE_OAUTH_TOKEN` (a `claude setup-token` value) rather than an
+   * API key. Absent, OpenClaw's own resolver picks the harness: `openai/`
+   * models run through the Codex app-server, and MCP-backed runs through the
+   * embedded harness.
+   */
+  readonly agentRuntime?: "claude-cli";
   readonly mcpServers?: readonly McpServer[];
 
   /** Selects OpenClaw session isolation for evaluations. Defaults to shared. */
@@ -206,6 +232,7 @@ interface OpenClawRuntimeSettings {
   readonly harvestPaths: readonly WorkspaceRelativePath[];
   readonly historyExport: boolean;
   readonly modelId?: string;
+  readonly agentRuntime?: typeof selectableAgentRuntime.Type;
   readonly mcpServers?: readonly McpServer[];
   readonly messagingMode: typeof messagingMode.Type;
   readonly tools?: OpenClawToolsConfig;
@@ -222,6 +249,7 @@ function snapshotOptions(
     invisibleFiles,
     tools?.deny?.includes("*") ?? false,
   );
+  assertAgentRuntimeMatchesModel(options.agentRuntime, options.modelId);
   return Object.freeze({
     applicationImage: options.applicationImage,
     startupTimeout: options.startupTimeout ?? DEFAULT_OPENCLAW_STARTUP_TIMEOUT,
@@ -230,11 +258,32 @@ function snapshotOptions(
     harvestPaths: snapshotHarvestPaths(options.harvestWorkspaceFiles),
     historyExport: options.historyExport ?? false,
     modelId: options.modelId,
+    agentRuntime: options.agentRuntime,
     mcpServers: snapshotMcpServers(options.mcpServers),
     messagingMode: options.messagingMode ?? "shared",
     tools,
     sandbox: snapshotOpenClawPolicy(options.sandbox),
   });
+}
+
+/**
+ * Claude Code only ever runs an Anthropic model, so a `claude-cli` selection
+ * for any other model, including the OpenAI default a runtime gets when it
+ * names none, would fail inside the pod after a cluster round trip.
+ */
+function assertAgentRuntimeMatchesModel(
+  agentRuntime: OpenClawRuntimeOptions["agentRuntime"],
+  modelId?: string,
+): void {
+  const effectiveModelId = modelId ?? DEFAULT_OPENCLAW_MODEL_ID;
+  if (
+    agentRuntime === "claude-cli" &&
+    !effectiveModelId.startsWith("anthropic/")
+  ) {
+    throw AgentRuntimeDefinitionError.make({
+      detail: `agentRuntime "claude-cli" runs Claude Code, which cannot serve model "${effectiveModelId}"; select an anthropic/ model`,
+    });
+  }
 }
 
 function assertWorkspaceFilesReachable(
@@ -288,6 +337,9 @@ function runtimeConfiguration(
     ...(settings.modelId === undefined
       ? {}
       : { modelOverride: settings.modelId }),
+    ...(settings.agentRuntime === undefined
+      ? {}
+      : { agentRuntime: settings.agentRuntime }),
   });
 }
 
@@ -335,10 +387,7 @@ function makeOpenClawApplication(
     ...harvestTargets(OPENCLAW_WORKSPACE_DIR, settings.harvestPaths),
     ...transcript.harvest,
   ];
-  const credential =
-    settings.modelId === undefined
-      ? undefined
-      : providerCredential(settings.modelId);
+  const credentials = applicationCredentials(settings);
   return Object.freeze({
     entrypoint: Object.freeze(["node", AGENT_IMAGE_ENTRYPOINT] as const),
     environment: Object.freeze({
@@ -346,11 +395,10 @@ function makeOpenClawApplication(
       OPENCLAW_STATE_DIR: APPLICATION_STATE_DIR,
       OPENCLAW_CONFIG_PATH: APPLICATION_CONFIG_PATH,
       OPENCLAW_DISABLE_BONJOUR: "1",
+      ...claudeCodeEnvironment(settings),
       ...transcript.environment,
     }),
-    ...(credential === undefined
-      ? {}
-      : { credentials: Object.freeze([credential]) }),
+    ...(credentials.length === 0 ? {} : { credentials }),
     port: OPENCLAW_GATEWAY_PORT,
     files: bootstrapFiles(settings, input, gatewayToken, pairing),
     ...(harvest.length === 0 ? {} : { harvest }),
@@ -360,6 +408,39 @@ function makeOpenClawApplication(
       stopped: Effect.Effect<RuntimeTermination>,
     ) => attachOpenClaw(bridge, endpoint, stopped),
   });
+}
+
+/**
+ * What this application asks the run for. Claude Code consumes the
+ * subscription token and nothing else; every other harness takes whatever the
+ * model's provider accepts.
+ */
+function applicationCredentials(
+  settings: OpenClawRuntimeSettings,
+): readonly CredentialName[] {
+  if (settings.modelId === undefined) {
+    return Object.freeze([]);
+  }
+  return providerCredentials(
+    settings.modelId,
+    settings.agentRuntime === "claude-cli" ? "claude-code" : "provider-client",
+  );
+}
+
+/**
+ * The host wrapper applies the secrets plan before the gateway starts, and the
+ * Claude Code child must neither update itself nor phone home from a pod.
+ */
+function claudeCodeEnvironment(
+  settings: OpenClawRuntimeSettings,
+): Readonly<Record<string, string>> {
+  return settings.agentRuntime === "claude-cli"
+    ? {
+        OPENCLAW_SECRETS_PLAN: OPENCLAW_SECRETS_PLAN_PATH,
+        DISABLE_AUTOUPDATER: "1",
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+      }
+    : {};
 }
 
 function createOpenClawGatewayPairing(): OpenClawGatewayPairing {
@@ -424,6 +505,9 @@ function bootstrapFiles(
       gatewayBind: "lan",
       messagingMode: settings.messagingMode,
       ...(settings.modelId === undefined ? {} : { modelId: settings.modelId }),
+      ...(settings.agentRuntime === undefined
+        ? {}
+        : { agentRuntime: settings.agentRuntime }),
       ...(settings.mcpServers === undefined
         ? {}
         : { mcpServers: settings.mcpServers }),
@@ -441,6 +525,7 @@ function bootstrapFiles(
       `${APPLICATION_STATE_DIR}/devices/paired.json`,
       pairing.pairedDevices,
     ),
+    ...claudeCodeBootstrapFiles(settings, input),
     ...settings.workspaceFiles.map((file) =>
       bootstrapFile(
         workspaceFilePath(OPENCLAW_WORKSPACE_DIR, file.relativePath),
@@ -448,6 +533,21 @@ function bootstrapFiles(
       ),
     ),
   ]);
+}
+
+/** The secret-free plan the host wrapper applies before the gateway starts. */
+function claudeCodeBootstrapFiles(
+  settings: OpenClawRuntimeSettings,
+  input: AgentRuntimeInput,
+): readonly File[] {
+  return settings.agentRuntime === "claude-cli"
+    ? [
+        bootstrapFile(
+          OPENCLAW_SECRETS_PLAN_PATH,
+          buildOpenClawSecretsPlan(input.agentName),
+        ),
+      ]
+    : [];
 }
 
 function bridgeUrl(

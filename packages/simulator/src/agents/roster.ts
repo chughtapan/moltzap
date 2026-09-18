@@ -4,6 +4,7 @@ import { AgentName as agentName } from "@moltzap/identity";
 import { Context, Schema } from "effect";
 import type { AgentHandle } from "../network/index.js";
 import type { AgentRuntime, AgentRuntimeLike, RunningAgent } from "./agent.js";
+import type { CredentialName } from "./container.js";
 
 // safer-arch-ignore no-cross-domain-sibling-import: A roster entry pairs an identity-owned name with the runtime that answers for it.
 
@@ -44,10 +45,15 @@ export type AgentRosterAcquisitionError<
   Definitions extends Readonly<Record<string, AgentRuntimeLike>>,
 > = RuntimeAcquisitionErrorOf<Definitions[keyof Definitions]>;
 
-/** A ready autonomous runtime paired with its Registry-issued identity. */
+/**
+ * A ready autonomous runtime paired with its Registry-issued identity.
+ * `credentials` names what the cluster actually forwarded to the runtime,
+ * never a value, so the ledger can state which credential kind a run used.
+ */
 export interface StartedAgent<Name extends string, Gateway>
   extends RunningAgent<Gateway> {
   readonly agent: AgentHandle<Name>;
+  readonly credentials: readonly CredentialName[];
 }
 
 /** Exact keyed agents installed only after every runtime is ready. */

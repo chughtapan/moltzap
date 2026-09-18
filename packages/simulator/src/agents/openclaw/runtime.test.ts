@@ -5,6 +5,7 @@ import { AgentName } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import { describe } from "vitest";
 import {
+  AgentRuntimeDefinitionError,
   type RuntimeAcquisitionError,
   runtimeConfigurationProjection,
 } from "../agent.js";
@@ -12,6 +13,7 @@ import {
   type Application,
   type ContainerRuntime,
   containerRuntimeFor,
+  CREDENTIALS,
   type File,
   image,
 } from "../container.js";
@@ -31,12 +33,12 @@ const APPLICATION_IMAGE = image.make(
   "example.invalid/openclaw-agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 );
 const BOOTSTRAP_ROOT = "/var/run/moltzap/bootstrap/";
-const OPENCLAW_CONFIG_PATH = `${BOOTSTRAP_ROOT}openclaw.json`;
 const OPENCLAW_EXTENSION_PATH =
   "/opt/moltzap/node_modules/@moltzap/openclaw-channel";
 const WORKSPACE_PATH = `${BOOTSTRAP_ROOT}workspace/IDENTITY.md`;
 const GATEWAY_PORT = 18_789;
 const APPLICATION_STATE_DIR = `${BOOTSTRAP_ROOT}state`;
+const OPENCLAW_CONFIG_PATH = `${APPLICATION_STATE_DIR}/openclaw.json`;
 const PAIRED_DEVICES_PATH = `${APPLICATION_STATE_DIR}/devices/paired.json`;
 const WORKSPACE_CONTENT = "Alice";
 const BRIDGE_RUN_ID = "openclaw-bridge-run";
@@ -182,7 +184,10 @@ function assertApplicationContainer(fixture: OpenClawContainerFixture): void {
     application.environment.OPENCLAW_STATE_DIR,
     APPLICATION_STATE_DIR,
   );
-  assert.deepStrictEqual(application.credentials, ["OPENAI_API_KEY"]);
+  assert.deepStrictEqual(application.credentials, [
+    "OPENAI_API_KEY",
+    "CODEX_AUTH_JSON",
+  ]);
   assert.notInclude(containerProjection, config.gateway.auth.token);
   assert.strictEqual(config.gateway.bind, "lan");
   assert.strictEqual(
@@ -482,21 +487,260 @@ describe("OpenClaw history export", () => {
   test("leaves the daemon export off by default", noHistoryExportTest);
 });
 
-function renderWithModel(modelId: string) {
+function renderWithModel(modelId?: string) {
   return containerRuntimeFor(
-    openClawRuntime({ applicationImage: APPLICATION_IMAGE, modelId }),
+    openClawRuntime({
+      applicationImage: APPLICATION_IMAGE,
+      ...(modelId === undefined ? {} : { modelId }),
+    }),
   ).render({ agentName: AGENT_NAME });
 }
 
+/**
+ * The cluster writes a file credential at `HOME` plus the table's relative
+ * path, under the same bootstrap rules as every rendered file: below the
+ * bootstrap root, and at a path no other file already owns.
+ */
+function assertHomeAcceptsFileCredentials(
+  application: OpenClawContainerFixture["application"],
+): void {
+  const home = application.environment.HOME;
+  assert.isDefined(home);
+  assert.isTrue(home.startsWith(BOOTSTRAP_ROOT));
+  assert.isFalse(home.endsWith("/"));
+  const rendered = application.files.map((file) => file.path);
+  const targets = fileCredentialTargets(home);
+  assert.isNotEmpty(targets);
+  for (const target of targets) {
+    assert.notInclude(rendered, target);
+  }
+}
+
+function fileCredentialTargets(home: string): readonly string[] {
+  return Object.values(CREDENTIALS).flatMap((delivery) =>
+    delivery.delivery === "file"
+      ? [`${home}/${delivery.homeRelativePath}`]
+      : [],
+  );
+}
+
 describe("OpenClaw provider credentials", () => {
-  test("requests the credential the model's provider prefix names", () =>
+  /**
+   * Both OpenAI harnesses accept an API key or a Codex login; the cohort
+   * forwards whichever the run holds and refuses a run holding both.
+   */
+  test("requests the credentials the model's provider prefix names, and none without a model", () =>
     Effect.gen(function* () {
       const anthropic = yield* renderWithModel("anthropic/claude-sonnet-4");
       const openai = yield* renderWithModel("openai/gpt-5.5");
       const other = yield* renderWithModel("google/gemini-2");
+      const unnamed = yield* renderWithModel();
 
       assert.deepStrictEqual(anthropic.credentials, ["ANTHROPIC_API_KEY"]);
-      assert.deepStrictEqual(openai.credentials, ["OPENAI_API_KEY"]);
+      assert.deepStrictEqual(openai.credentials, [
+        "OPENAI_API_KEY",
+        "CODEX_AUTH_JSON",
+      ]);
       assert.notProperty(other, "credentials");
+      assert.notProperty(unnamed, "credentials");
+    }));
+
+  test("declares a HOME a file-delivered credential can land in, for the Codex app-server and Claude Code alike", () =>
+    Effect.gen(function* () {
+      assertHomeAcceptsFileCredentials(
+        yield* renderWithModel("openai/gpt-5.6-sol"),
+      );
+      const { application } = yield* renderClaudeCode();
+      assertHomeAcceptsFileCredentials(application);
+    }));
+});
+
+const SECRETS_PLAN_PATH = `${BOOTSTRAP_ROOT}secrets-plan.json`;
+const CLAUDE_MODEL_ID = "anthropic/claude-opus-4-8";
+const agentRuntimeProjection = Schema.Struct({
+  agentRuntime: Schema.optional(Schema.Literal("claude-cli")),
+});
+const renderedSecretsPlan = Schema.parseJson(
+  Schema.Struct({
+    version: Schema.Literal(1),
+    protocolVersion: Schema.Literal(1),
+    targets: Schema.Tuple(
+      Schema.Struct({
+        type: Schema.Literal("auth-profiles.token.token"),
+        path: Schema.String,
+        agentId: Schema.String,
+        authProfileProvider: Schema.Literal("anthropic"),
+        ref: Schema.Struct({
+          source: Schema.Literal("env"),
+          provider: Schema.Literal("default"),
+          id: Schema.Literal("CLAUDE_CODE_OAUTH_TOKEN"),
+        }),
+      }),
+    ),
+  }),
+);
+const renderedHarnessConfig = Schema.parseJson(
+  Schema.Struct({
+    auth: Schema.optional(
+      Schema.Struct({
+        profiles: Schema.Record({
+          key: Schema.String,
+          value: Schema.Struct({
+            provider: Schema.String,
+            mode: Schema.String,
+          }),
+        }),
+        order: Schema.Record({
+          key: Schema.String,
+          value: Schema.Array(Schema.String),
+        }),
+      }),
+    ),
+    agents: Schema.Struct({
+      defaults: Schema.Struct({
+        models: Schema.optional(
+          Schema.Record({
+            key: Schema.String,
+            value: Schema.Struct({
+              agentRuntime: Schema.Struct({ id: Schema.String }),
+            }),
+          }),
+        ),
+      }),
+    }),
+  }),
+);
+
+function fileAt(files: readonly File[], path: string): File | undefined {
+  return files.find((file) => file.path === path);
+}
+
+/**
+ * Experiment modules are untyped `.mjs`, so a harness name the option's type
+ * forbids still reaches the constructor, exactly as this call delivers it.
+ */
+function definesUntypedHarness(agentRuntime: string): void {
+  Reflect.apply(openClawRuntime, undefined, [
+    {
+      applicationImage: APPLICATION_IMAGE,
+      modelId: CLAUDE_MODEL_ID,
+      agentRuntime,
+    },
+  ]);
+}
+
+function rejectsUntypedHarness(agentRuntime: string): void {
+  assert.throws(() => {
+    definesUntypedHarness(agentRuntime);
+  });
+}
+
+function rejectsClaudeCodeFor(modelId?: string): void {
+  assert.throws(
+    () =>
+      openClawRuntime({
+        applicationImage: APPLICATION_IMAGE,
+        agentRuntime: "claude-cli",
+        ...(modelId === undefined ? {} : { modelId }),
+      }),
+    AgentRuntimeDefinitionError,
+  );
+}
+
+function renderClaudeCode() {
+  const runtime = openClawRuntime({
+    applicationImage: APPLICATION_IMAGE,
+    modelId: CLAUDE_MODEL_ID,
+    agentRuntime: "claude-cli",
+  });
+  return Effect.map(
+    containerRuntimeFor(runtime).render({ agentName: AGENT_NAME }),
+    (application) => ({ runtime, application }),
+  );
+}
+
+describe("OpenClaw Claude Code runtime", () => {
+  test("asks for the subscription token and binds it through a secret-free plan", () =>
+    Effect.gen(function* () {
+      const { runtime, application } = yield* renderClaudeCode();
+
+      assert.deepStrictEqual(application.credentials, [
+        "CLAUDE_CODE_OAUTH_TOKEN",
+      ]);
+      assert.strictEqual(
+        application.environment.OPENCLAW_SECRETS_PLAN,
+        SECRETS_PLAN_PATH,
+      );
+      assert.strictEqual(application.environment.DISABLE_AUTOUPDATER, "1");
+      assert.strictEqual(
+        application.environment.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC,
+        "1",
+      );
+
+      const plan = Schema.decodeUnknownSync(renderedSecretsPlan, {
+        onExcessProperty: "error",
+      })(requireFile(application.files, SECRETS_PLAN_PATH));
+      assert.strictEqual(plan.targets[0].agentId, AGENT_NAME);
+      assert.strictEqual(
+        plan.targets[0].path,
+        "profiles.anthropic:default.token",
+      );
+
+      const config = Schema.decodeUnknownSync(renderedHarnessConfig)(
+        requireFile(application.files, OPENCLAW_CONFIG_PATH),
+      );
+      assert.deepStrictEqual(config.auth, {
+        profiles: {
+          "anthropic:default": { provider: "anthropic", mode: "token" },
+        },
+        order: { anthropic: ["anthropic:default"] },
+      });
+      assert.deepStrictEqual(config.agents.defaults.models, {
+        [CLAUDE_MODEL_ID]: { agentRuntime: { id: "claude-cli" } },
+      });
+      assert.deepStrictEqual(
+        Schema.decodeUnknownSync(agentRuntimeProjection)(
+          runtimeConfigurationProjection(runtime),
+        ),
+        { agentRuntime: "claude-cli" },
+      );
+    }));
+});
+
+describe("OpenClaw embedded runtime without Claude Code", () => {
+  test("leaves an embedded-runtime render without any Claude Code material", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeOpenClawContainerFixture();
+
+      assert.notProperty(
+        fixture.application.environment,
+        "OPENCLAW_SECRETS_PLAN",
+      );
+      assert.isUndefined(fileAt(fixture.application.files, SECRETS_PLAN_PATH));
+      const config = Schema.decodeUnknownSync(renderedHarnessConfig)(
+        requireFile(fixture.application.files, OPENCLAW_CONFIG_PATH),
+      );
+      assert.isUndefined(config.auth);
+      assert.deepStrictEqual(
+        Schema.decodeUnknownSync(agentRuntimeProjection)(
+          runtimeConfigurationProjection(fixture.runtime),
+        ),
+        {},
+      );
+    }));
+
+  test("refuses Claude Code for any model that is not Anthropic's, including the default and a prefix in the wrong case", () =>
+    Effect.sync(() => {
+      rejectsClaudeCodeFor("openai/gpt-5.6-sol");
+      rejectsClaudeCodeFor("Anthropic/claude-opus-4-8");
+      rejectsClaudeCodeFor();
+    }));
+
+  test("refuses a harness name it does not know when the runtime is defined", () =>
+    Effect.sync(() => {
+      for (const agentRuntime of ["claude", "codex", ""]) {
+        rejectsUntypedHarness(agentRuntime);
+      }
+      definesUntypedHarness("claude-cli");
     }));
 });

@@ -61,7 +61,7 @@ function openClawConfig(
   messagingMode: "shared" | "private" = "shared",
   overrides: Pick<
     Parameters<typeof buildOpenClawConfig>[0],
-    "modelId" | "tools"
+    "modelId" | "tools" | "agentRuntime"
   > = {},
 ) {
   return buildOpenClawConfig(
@@ -164,6 +164,49 @@ describe("installed OpenClaw harness selection", () => {
       );
     },
   );
+});
+
+describe("Claude Code harness selection", () => {
+  /**
+   * Claude Code authenticates through the stored token profile the
+   * configuration names; the profile's value arrives through the secrets plan,
+   * never this file.
+   */
+  it.each([
+    { mcpServers: undefined },
+    { mcpServers: [{ name: "calendar", url: CALENDAR_URL }] },
+  ])(
+    "runs an Anthropic model through Claude Code when asked, MCP servers or not: $mcpServers",
+    ({ mcpServers }) => {
+      const config = openClawConfig(mcpServers, "shared", {
+        modelId: "anthropic/claude-opus-4-8",
+        agentRuntime: "claude-cli",
+      });
+      assert.strictEqual(
+        resolveEffectiveAgentRuntime({
+          cfg: config,
+          provider: "anthropic",
+          modelId: "claude-opus-4-8",
+          agentId: "alice",
+        }),
+        "claude-cli",
+      );
+      assert.deepStrictEqual(config.auth, {
+        profiles: {
+          "anthropic:default": { provider: "anthropic", mode: "token" },
+        },
+        order: { anthropic: ["anthropic:default"] },
+      });
+    },
+  );
+
+  it("names no auth profile unless Claude Code is selected", () => {
+    assert.isUndefined(
+      openClawConfig(undefined, "shared", {
+        modelId: "anthropic/claude-opus-4-8",
+      }).auth,
+    );
+  });
 });
 
 it("budgets enough bootstrap space for large supplied instructions", () => {

@@ -32,6 +32,17 @@ const PACK_TIMEOUT_MILLIS = 5 * 60 * 1_000;
 
 export const OPENCLAW_BASE_IMAGE =
   "ghcr.io/openclaw/openclaw@sha256:e7849cb6c1ef1ead39ab4be7d85edb2df89611f486e283284c7cf35ce39a20d4";
+/** Claude Code release installed into the image for the claude-cli agent runtime. */
+export const CLAUDE_CODE_VERSION = "2.1.276";
+/**
+ * SHA-256 of that release's binary per Docker target architecture, copied
+ * from the release's `manifest.json`. The Dockerfile refuses to run a download
+ * that differs, so bump these together with the version.
+ */
+export const CLAUDE_CODE_SHA256 = Object.freeze({
+  amd64: "8a56c8a14bd3cb246e2bdb7e60aefe0f609bff78c8bbcc5ea6b1817c111c6145",
+  arm64: "e9ac3df956083645578a382ad64ec304468666e362c33bfdefd803cd6ff596b0",
+});
 const workspacePackages = {
   "@moltzap/client": join(workspaceRoot, "packages/client"),
   "@moltzap/identity": join(workspaceRoot, "packages/identity"),
@@ -92,6 +103,7 @@ async function stage() {
       join(imageRoot, "host-command.json"),
       join(root, "host-command.json"),
     ),
+    copyFile(join(imageRoot, "host.sh"), join(root, "host.sh")),
     copyFile(join(sharedRoot, "entrypoint.mjs"), join(root, "entrypoint.mjs")),
     copyFile(
       join(sharedRoot, "register-daemon.mjs"),
@@ -111,6 +123,7 @@ async function fingerprint(root) {
     "Dockerfile",
     "entrypoint.mjs",
     "host-command.json",
+    "host.sh",
     "package.json",
     "register-daemon.mjs",
     ...(await readdir(join(root, "tarballs"))).map(
@@ -118,6 +131,7 @@ async function fingerprint(root) {
     ),
   ];
   hash.update(OPENCLAW_BASE_IMAGE);
+  hash.update(CLAUDE_CODE_VERSION);
   for (const path of paths.sort()) {
     hash.update(path);
     hash.update(await readFile(join(root, path)));
@@ -165,6 +179,12 @@ async function main() {
         image,
         "--build-arg",
         "OPENCLAW_BASE_IMAGE=" + OPENCLAW_BASE_IMAGE,
+        "--build-arg",
+        "CLAUDE_CODE_VERSION=" + CLAUDE_CODE_VERSION,
+        "--build-arg",
+        "CLAUDE_CODE_SHA256_AMD64=" + CLAUDE_CODE_SHA256.amd64,
+        "--build-arg",
+        "CLAUDE_CODE_SHA256_ARM64=" + CLAUDE_CODE_SHA256.arm64,
         staging,
       ],
       { timeout: BUILD_TIMEOUT_MILLIS, maxBuffer: 32 * 1024 * 1024 },
@@ -181,6 +201,7 @@ async function main() {
           ? {}
           : { imageId: await localImageId(image, "OpenClaw image") }),
         baseImage: OPENCLAW_BASE_IMAGE,
+        claudeCodeVersion: CLAUDE_CODE_VERSION,
         entrypoint: "/opt/moltzap/agent/entrypoint.mjs",
         gatewayPort: 18_789,
       }) + "\n",

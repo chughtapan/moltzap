@@ -123,8 +123,9 @@ interface SandboxManifestInput {
   readonly endpointStateClaimName: string;
   readonly agentName: string;
   readonly application: SandboxApplication;
+  /** Secret keys of the environment-delivered credentials this application receives. */
   readonly credentialSecretKeys: Readonly<
-    Record<CredentialName, string | undefined>
+    Partial<Record<CredentialName, string>>
   >;
   readonly placement?: KubernetesPodPlacement;
 }

@@ -19,7 +19,11 @@ import { posix } from "node:path";
 import type { AgentRuntimeLike } from "../agents/agent.js";
 import type { HarvestedFileOutcome } from "../events/core.js";
 import type { KubernetesPodPlacement } from "./profile.js";
-import { containerRuntimeFor } from "../agents/container.js";
+import {
+  containerRuntimeFor,
+  CREDENTIAL_NAMES,
+  CREDENTIALS,
+} from "../agents/container.js";
 import {
   type AgentRoster,
   type AgentRosterAcquisitionError,
@@ -573,11 +577,6 @@ function terminationSoFar(
     );
 }
 
-interface ResolvedCredential {
-  readonly secretKey: string;
-  readonly value: string;
-}
-
 function holdBootstrapSecret(
   data: Readonly<Record<string, string>>,
   resourceName: string,
@@ -616,7 +615,7 @@ function holdEndpointState(
   );
 }
 
-// eslint-disable-next-line max-params -- This private composition point binds the rendered application, cluster identity, network authority, and daemon authority atomically.
+// eslint-disable-next-line max-params -- This private composition point binds the rendered application, cluster identity, network authority, and prepared bootstrap atomically.
 function holdSandbox<Gateway, AcquisitionError>(
   application: Application<Gateway, AcquisitionError>,
   container: ContainerRuntime<Gateway, AcquisitionError>,
@@ -624,7 +623,7 @@ function holdSandbox<Gateway, AcquisitionError>(
   agentName: string,
   options: KubernetesClusterOptions,
   network: SocietyNetworkAuthority,
-  daemon: AgentDaemonAuthority,
+  bootstrap: PreparedAgentBootstrap,
 ): Effect.Effect<void, ClusterError, Scope.Scope> {
   const configuration = societyNetworkConfiguration(network);
   return holdResource(
@@ -641,13 +640,11 @@ function holdSandbox<Gateway, AcquisitionError>(
           routerOrigin:
             options.routerFaultProxy.listener.advertisedOrigin.origin,
         },
-        daemon,
+        daemon: bootstrap.daemon,
         endpointStateClaimName: endpointStateClaimName(resourceName),
         agentName,
         application: sandboxApplication(application, container),
-        credentialSecretKeys: credentialSecretKeys(
-          resolveCredentials(application, options.runtimeCredentials),
-        ),
+        credentialSecretKeys: bootstrap.credentialSecretKeys,
         placement: options.rosterPlacement,
       }),
     ),
@@ -679,38 +676,132 @@ function reserveCompleteRoster(
   );
 }
 
+interface ResolvedCredential {
+  readonly name: CredentialName;
+  readonly value: string;
+}
+
 /**
- * Match what the application asked for against what the run actually holds. A
- * credential resolves only when both agree; the record is exhaustive over
- * CredentialName so every downstream view is derived rather than re-enumerated.
+ * Match what the application asked for against what the run actually holds,
+ * in table order. A credential resolves only when both agree, so a container
+ * never receives a key it did not ask for.
  * @param application Rendered application declaring the credentials it wants.
  * @param credentials Provider credentials this run was given.
- * @returns One entry per credential name, undefined where nothing resolves.
+ * @returns The resolved credentials, empty when nothing overlaps.
  */
 function resolveCredentials<Gateway, AcquisitionError>(
   application: Application<Gateway, AcquisitionError>,
   credentials: KubernetesClusterOptions["runtimeCredentials"],
-): Readonly<Record<CredentialName, ResolvedCredential | undefined>> {
+): readonly ResolvedCredential[] {
   const requested = new Set(application.credentials ?? []);
-  const resolve = (name: CredentialName): ResolvedCredential | undefined => {
-    const value = credentials?.[name];
-    return requested.has(name) && value !== undefined
-      ? { secretKey: `credential-${name}`, value }
-      : undefined;
-  };
-  return Object.freeze({
-    ANTHROPIC_API_KEY: resolve("ANTHROPIC_API_KEY"),
-    OPENAI_API_KEY: resolve("OPENAI_API_KEY"),
-  });
+  return Object.freeze(
+    CREDENTIAL_NAMES.flatMap((name) => {
+      const value = credentials?.[name];
+      return requested.has(name) && value !== undefined
+        ? [{ name, value }]
+        : [];
+    }),
+  );
 }
 
+function credentialSecretKey(name: CredentialName): string {
+  return `credential-${name}`;
+}
+
+/**
+ * Secret keys of the environment-delivered credentials. A file-delivered
+ * credential rides the bootstrap manifest instead and has no key of its own.
+ */
 function credentialSecretKeys(
-  resolved: Readonly<Record<CredentialName, ResolvedCredential | undefined>>,
-): Readonly<Record<CredentialName, string | undefined>> {
-  return Object.freeze({
-    ANTHROPIC_API_KEY: resolved.ANTHROPIC_API_KEY?.secretKey,
-    OPENAI_API_KEY: resolved.OPENAI_API_KEY?.secretKey,
-  });
+  resolved: readonly ResolvedCredential[],
+): Readonly<Partial<Record<CredentialName, string>>> {
+  return Object.freeze(
+    Object.fromEntries(
+      environmentCredentials(resolved).map(({ name }) => [
+        name,
+        credentialSecretKey(name),
+      ]),
+    ),
+  );
+}
+
+function environmentCredentials(
+  resolved: readonly ResolvedCredential[],
+): readonly ResolvedCredential[] {
+  return resolved.filter(
+    ({ name }) => CREDENTIALS[name].delivery === "environment",
+  );
+}
+
+/**
+ * Refuse a credential request the run cannot honour before anything is
+ * installed. Nothing resolving means the container would start and then fail
+ * at its first model call or earlier; two credentials for one provider means
+ * the harness picks by its own precedence and the ledger could not say which
+ * one paid.
+ */
+function checkResolvedCredentials<Gateway, AcquisitionError>(
+  application: Application<Gateway, AcquisitionError>,
+  resolved: readonly ResolvedCredential[],
+  agentName: string,
+): Effect.Effect<void, ClusterError> {
+  const requested = application.credentials ?? [];
+  if (requested.length > 0 && resolved.length === 0) {
+    return Effect.fail(
+      clusterError(
+        `agent "${agentName}" requested ${requested.join(", ")} and the run holds none of them`,
+      ),
+    );
+  }
+  for (const { name } of resolved) {
+    const { provider } = CREDENTIALS[name];
+    const names = resolved
+      .filter((other) => CREDENTIALS[other.name].provider === provider)
+      .map((other) => other.name);
+    if (names.length > 1) {
+      return Effect.fail(
+        clusterError(
+          `agent "${agentName}" resolved ${names.join(" and ")} for provider ${provider}; a run holds one credential per provider`,
+        ),
+      );
+    }
+  }
+  return Effect.void;
+}
+
+/**
+ * File-delivered credentials become ordinary bootstrap files below the
+ * application's `HOME`, which every bootstrap rule then applies to.
+ */
+function credentialFiles<Gateway, AcquisitionError>(
+  application: Application<Gateway, AcquisitionError>,
+  resolved: readonly ResolvedCredential[],
+): Effect.Effect<readonly File[], ClusterError> {
+  const home = application.environment.HOME;
+  const files: File[] = [];
+  for (const { name, value } of resolved) {
+    const delivery = CREDENTIALS[name];
+    if (delivery.delivery !== "file") {
+      continue;
+    }
+    if (home === undefined || !isAbsolutePath(home)) {
+      return Effect.fail(
+        clusterError(
+          `credential ${name} is delivered as a file but the application declares no absolute HOME`,
+        ),
+      );
+    }
+    files.push({
+      path: `${home}/${delivery.homeRelativePath}`,
+      content: value,
+      mode: 0o600,
+    });
+  }
+  return Effect.succeed(Object.freeze(files));
+}
+
+function isAbsolutePath(value: string): value is `/${string}` {
+  return value.startsWith("/");
 }
 
 interface BootstrapEntry {
@@ -723,6 +814,9 @@ interface BootstrapEntry {
 interface PreparedAgentBootstrap {
   readonly data: Readonly<Record<string, string>>;
   readonly daemon: AgentDaemonAuthority;
+  readonly credentialSecretKeys: Readonly<
+    Partial<Record<CredentialName, string>>
+  >;
 }
 
 function bootstrapEntries(
@@ -772,25 +866,31 @@ function bootstrapEntries(
 
 function bootstrapData<Gateway, AcquisitionError>(
   application: Application<Gateway, AcquisitionError>,
-  credentials: KubernetesClusterOptions["runtimeCredentials"],
+  resolved: readonly ResolvedCredential[],
   network: SocietyNetworkAuthority,
 ): Effect.Effect<PreparedAgentBootstrap, ClusterError> {
   return Effect.gen(function* () {
-    const files = yield* bootstrapEntries(application.files);
+    const credentialBootstrapFiles = yield* credentialFiles(
+      application,
+      resolved,
+    );
+    const files = yield* bootstrapEntries([
+      ...application.files,
+      ...credentialBootstrapFiles,
+    ]);
     const daemon = yield* Effect.try({
       try: generateAgentDaemonAuthority,
       catch: () => clusterError("could not generate endpoint authority"),
     });
     const credentialData = Object.fromEntries(
-      Object.values(resolveCredentials(application, credentials)).flatMap(
-        (resolved) =>
-          resolved === undefined
-            ? []
-            : [[resolved.secretKey, resolved.value] as const],
-      ),
+      environmentCredentials(resolved).map(({ name, value }) => [
+        credentialSecretKey(name),
+        value,
+      ]),
     );
     return Object.freeze({
       daemon,
+      credentialSecretKeys: credentialSecretKeys(resolved),
       data: Object.freeze({
         "manifest.json": JSON.stringify({
           apiVersion: "moltzap.bootstrap/v1",
@@ -1062,13 +1162,14 @@ function installRenderedApplication<Gateway, AcquisitionError>(
   agentName: string,
   options: KubernetesClusterOptions,
   network: SocietyNetworkAuthority,
-): Effect.Effect<void, ClusterError, Scope.Scope> {
+): Effect.Effect<readonly CredentialName[], ClusterError, Scope.Scope> {
   return Effect.gen(function* () {
-    const bootstrap = yield* bootstrapData(
+    const resolved = resolveCredentials(
       application,
       options.runtimeCredentials,
-      network,
     );
+    yield* checkResolvedCredentials(application, resolved, agentName);
+    const bootstrap = yield* bootstrapData(application, resolved, network);
     yield* holdBootstrapSecret(bootstrap.data, resourceName, options);
     yield* holdEndpointState(resourceName, options);
     yield* holdSandbox(
@@ -1078,8 +1179,9 @@ function installRenderedApplication<Gateway, AcquisitionError>(
       agentName,
       options,
       network,
-      bootstrap.daemon,
+      bootstrap,
     );
+    return Object.freeze(resolved.map(({ name }) => name));
   });
 }
 
@@ -1146,7 +1248,7 @@ function acquireKubernetesAgent<
     }
     const resourceName = state.resourceNames[input.name];
     const application = yield* container.render({ agentName: input.agentName });
-    yield* installRenderedApplication(
+    const credentials = yield* installRenderedApplication(
       application,
       container,
       resourceName,
@@ -1168,6 +1270,7 @@ function acquireKubernetesAgent<
     return Object.freeze({
       ...attached.running,
       agent: makeAgentHandle(input.name, agentId),
+      credentials,
     });
   });
 }

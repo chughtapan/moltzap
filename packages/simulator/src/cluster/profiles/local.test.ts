@@ -50,12 +50,46 @@ const CONTROLLER_RESULT: ControllerRunResult = {
   ),
 };
 
+const CODEX_LOGIN_REFUSAL =
+  "CODEX_AUTH_JSON must be the contents of ~/.codex/auth.json, a JSON object, not a path to it";
+const CODEX_LOGIN = '{"tokens":{"access_token":"codex-test-credential"}}';
 const environment: RunEnvironment = Object.freeze({
   MOLTZAP_CONTROLLER_IMAGE: CONTROLLER_IMAGE,
   MOLTZAP_APPLICATION_IMAGE: APPLICATION_IMAGE,
   MOLTZAP_TEMPORAL_ADDRESS: "127.0.0.1:7233",
   OPENAI_API_KEY: "openai-test-credential",
+  CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test-credential",
+  CODEX_AUTH_JSON: "",
 });
+
+function submittedCredentials(submitted: RunEnvironment) {
+  let observed: RunTemporalSocietyOptions | undefined;
+  return submit(
+    ["./experiment.mjs"],
+    submitted,
+    operations((options) => {
+      observed = options;
+    }),
+  ).pipe(Effect.map(() => observed?.input.runtimeCredentials));
+}
+
+/**
+ * Submit with one Codex login value and report the refusal, which must name
+ * the variable and never echo what it held.
+ */
+function refusedCodexLogin(value: string) {
+  let submissions = 0;
+  return submit(
+    ["./experiment.mjs"],
+    { ...environment, CODEX_AUTH_JSON: value },
+    operations(() => {
+      submissions += 1;
+    }),
+  ).pipe(
+    Effect.flip,
+    Effect.map((failure) => ({ failure, submissions })),
+  );
+}
 
 function operations(
   observe?: (options: RunTemporalSocietyOptions) => void,
@@ -101,9 +135,45 @@ test("loads one module and sends it through one Temporal workflow", () =>
     assert.strictEqual(observed.input.controllerImage, CONTROLLER_IMAGE);
     assert.strictEqual(observed.input.supportImage, CONTROLLER_IMAGE);
     assert.strictEqual(observed.input.applicationImage, APPLICATION_IMAGE);
-    assert.deepStrictEqual(observed.input.runtimeCredentials, {
+  }));
+
+test("forwards each held credential byte for byte under its own name, parses only the file-delivered login, and drops an empty value", () =>
+  Effect.gen(function* () {
+    assert.deepStrictEqual(yield* submittedCredentials(environment), {
       OPENAI_API_KEY: "openai-test-credential",
+      CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test-credential",
     });
+    assert.deepStrictEqual(
+      yield* submittedCredentials({
+        ...environment,
+        CODEX_AUTH_JSON: CODEX_LOGIN,
+      }),
+      {
+        OPENAI_API_KEY: "openai-test-credential",
+        CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-test-credential",
+        CODEX_AUTH_JSON: CODEX_LOGIN,
+      },
+    );
+  }));
+
+test("refuses a Codex login that is a path or any JSON but an object, without echoing it or submitting", () =>
+  Effect.gen(function* () {
+    for (const value of [
+      "/home/owner/.codex/auth.json",
+      "relative/codex-login.json",
+      '"do-not-echo"',
+      "42",
+      "[]",
+      "{do-not-echo",
+    ]) {
+      const { failure, submissions } = yield* refusedCodexLogin(value);
+
+      assert.instanceOf(failure, RunSubmissionError);
+      assert.strictEqual(failure.stage, SUBMIT_STAGE.configuration);
+      assert.strictEqual(failure.detail, CODEX_LOGIN_REFUSAL);
+      assert.notInclude(failure.message, value);
+      assert.strictEqual(submissions, 0);
+    }
   }));
 
 test("carries an explicitly selected kube context into the local profile", () =>

@@ -94,6 +94,8 @@ async function fixture(options = {}) {
     root,
     environment: {
       ANTHROPIC_API_KEY: "model-secret",
+      CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-subscription-secret",
+      CODEX_AUTH_JSON: '{"tokens":{"access_token":"subscription-secret"}}',
       MOLTZAPD_ADMISSION_CREDENTIAL_FILE: runtime + "/admission-credential",
       MOLTZAPD_AGENT_PRIVATE_KEY_FILE: runtime + "/agent-private-key",
       MOLTZAPD_MCP_PORT: "43117",
@@ -149,7 +151,17 @@ test("successful bootstrap starts the host with separated credentials", async ()
   );
   const hostEnvironment = JSON.parse(await readFile(app.hostRecord, "utf8"));
   assert.equal(daemonEnvironment.ANTHROPIC_API_KEY, undefined);
+  assert.equal(daemonEnvironment.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+  assert.equal(daemonEnvironment.CODEX_AUTH_JSON, undefined);
   assert.equal(hostEnvironment.ANTHROPIC_API_KEY, "model-secret");
+  assert.equal(
+    hostEnvironment.CLAUDE_CODE_OAUTH_TOKEN,
+    "sk-ant-oat01-subscription-secret",
+  );
+  assert.equal(
+    hostEnvironment.CODEX_AUTH_JSON,
+    '{"tokens":{"access_token":"subscription-secret"}}',
+  );
   assert.equal(hostEnvironment.MOLTZAPD_AGENT_PRIVATE_KEY_FILE, undefined);
   assert.equal(hostEnvironment.MOLTZAP_REGISTRATION_OPERATION_ID, undefined);
   assert.equal(

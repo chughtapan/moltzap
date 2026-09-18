@@ -8,7 +8,7 @@ Autonomous agent runtime contracts and shipped implementations.
 
 ## Public surface
 
-### [`AgentRoster`](./roster.ts#L76)
+### [`AgentRoster`](./roster.ts#L82)
 
 _Interface_
 
@@ -86,7 +86,7 @@ export class AgentRoster<
 A roster is both the keyed runtime definition and the owner of the exact
 started-agent service used by the experiment Effect.
 
-### [`AgentRosterAcquisitionError`](./roster.ts#L43)
+### [`AgentRosterAcquisitionError`](./roster.ts#L44)
 
 _TypeAlias_
 
@@ -152,7 +152,7 @@ export interface AgentRuntimeInput {
 
 Roster identity presented to a runtime's private realization.
 
-### [`AgentsService`](./roster.ts#L64)
+### [`AgentsService`](./roster.ts#L70)
 
 _Interface_
 
@@ -168,7 +168,7 @@ export interface AgentsService<
 
 Describes agents service.
 
-### [`Application`](./container.ts#L159)
+### [`Application`](./container.ts#L222)
 
 _Interface_
 
@@ -176,6 +176,14 @@ _Interface_
 export interface Application<Gateway, AcquisitionError> {
   readonly entrypoint: readonly [string, ...string[]];
   readonly environment: Readonly<Record<string, string>>;
+  /**
+   * Credentials this application can consume, any one of which is enough.
+   * The cluster forwards the ones the run holds and refuses to start the
+   * agent when the run holds none of them, or holds two for one provider,
+   * since the agent would then run on a credential nobody chose. A
+   * file-delivered credential lands under `environment.HOME`, which must be
+   * an absolute path. Absent or empty asks for nothing and is never refused.
+   */
   readonly credentials?: readonly CredentialName[];
   /** The controller bridge port, and the port whose accept means ready. */
   readonly port: number;
@@ -208,7 +216,7 @@ export interface Application<Gateway, AcquisitionError> {
 
 One rendered application and its runtime-specific controller bridge.
 
-### [`ApplicationEndpoint`](./container.ts#L95)
+### [`ApplicationEndpoint`](./container.ts#L158)
 
 _Interface_
 
@@ -225,7 +233,7 @@ The cluster builds this from the port the application itself declared, so a
 runtime reads the address it asked for instead of re-deriving it: a protocol,
 port, path, or credential the runtime would have to reject cannot be spelled.
 
-### [`ContainerAgentRuntime`](./container.ts#L209)
+### [`ContainerAgentRuntime`](./container.ts#L280)
 
 _Interface_
 
@@ -247,7 +255,7 @@ A runtime that is known to carry a container realization. Only
 `defineContainerRuntime` produces one, so reading its realization back needs
 no absent case.
 
-### [`ContainerRuntime`](./container.ts#L196)
+### [`ContainerRuntime`](./container.ts#L267)
 
 _Interface_
 
@@ -265,17 +273,17 @@ The container realization of one runtime. Image and resources belong here
 rather than to a rendered application because the cluster reserves capacity
 for the complete roster before any agent identity exists.
 
-### [`CredentialName`](./container.ts#L38)
+### [`CredentialName`](./container.ts#L46)
 
 _TypeAlias_
 
 ```ts
-export type CredentialName = "ANTHROPIC_API_KEY" | "OPENAI_API_KEY";
+export type CredentialName = (typeof CREDENTIAL_NAMES)[number];
 ```
 
 Provider credential a container may request from the run-scoped Secret.
 
-### [`defineContainerRuntime`](./container.ts#L270)
+### [`defineContainerRuntime`](./container.ts#L341)
 
 _Function_
 
@@ -299,7 +307,7 @@ This describes no cross-runtime gateway protocol.
 
 **Returns:** The frozen nominal runtime accepted by a society roster.
 
-### [`File`](./container.ts#L70)
+### [`File`](./container.ts#L133)
 
 _Interface_
 
@@ -313,7 +321,7 @@ export interface File {
 
 One file materialized into a container from the run-scoped Secret.
 
-### [`HarvestTarget`](./container.ts#L82)
+### [`HarvestTarget`](./container.ts#L145)
 
 _Interface_
 
@@ -419,7 +427,7 @@ export class NanoClawGatewayOutput extends Schema.Class<NanoClawGatewayOutput>(
 
 One native output frame emitted by NanoClaw's owner-local CLI channel.
 
-### [`nanoclawRuntime`](./nanoclaw/runtime.ts#L124)
+### [`nanoclawRuntime`](./nanoclaw/runtime.ts#L126)
 
 _Function_
 
@@ -438,7 +446,7 @@ roster identity and its runtime-owned native gateway bridge.
 
 **Returns:** The nanoclaw runtime result.
 
-### [`NanoClawRuntimeOptions`](./nanoclaw/runtime.ts#L87)
+### [`NanoClawRuntimeOptions`](./nanoclaw/runtime.ts#L89)
 
 _Interface_
 
@@ -593,7 +601,7 @@ Timed-out terminal result returned by OpenClaw's `agent` gateway RPC.
 OpenClaw treats this as a successful RPC payload rather than a transport
 failure. A run may time out before it has an agent result.
 
-### [`openClawRuntime`](./openclaw/runtime.ts#L176)
+### [`openClawRuntime`](./openclaw/runtime.ts#L202)
 
 _Function_
 
@@ -619,7 +627,7 @@ flowchart LR
 
 **Returns:** A reusable OpenClaw container runtime definition.
 
-### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L119)
+### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L133)
 
 _Interface_
 
@@ -643,10 +651,22 @@ export interface OpenClawRuntimeOptions {
   readonly historyExport?: boolean;
   /**
    * Model the runtime asks for. Its provider prefix (`anthropic/`, `openai/`)
-   * names the credential forwarded from the run's Secret; an unknown prefix
-   * forwards none.
+   * names the credentials the agent asks the run for; an unknown prefix asks
+   * for none. A runtime that names no model also asks for none, which is what
+   * lets a society that never takes a model turn run without any credential,
+   * so name the model whenever the agent is expected to think.
    */
   readonly modelId?: string;
+  /**
+   * Run the model through the unmodified Claude Code binary on the owner's
+   * subscription instead of OpenClaw's embedded provider client. Only an
+   * `anthropic/` model can select it, and it asks the run for
+   * `CLAUDE_CODE_OAUTH_TOKEN` (a `claude setup-token` value) rather than an
+   * API key. Absent, OpenClaw's own resolver picks the harness: `openai/`
+   * models run through the Codex app-server, and MCP-backed runs through the
+   * embedded harness.
+   */
+  readonly agentRuntime?: "claude-cli";
   readonly mcpServers?: readonly McpServer[];
 
   /** Selects OpenClaw session isolation for evaluations. Defaults to shared. */
@@ -659,7 +679,7 @@ export interface OpenClawRuntimeOptions {
 
 Configuration captured by one reusable OpenClaw runtime value.
 
-### [`OpenClawSandboxConfig`](./openclaw/configuration.ts#L30)
+### [`OpenClawSandboxConfig`](./openclaw/configuration.ts#L36)
 
 _TypeAlias_
 
@@ -671,7 +691,7 @@ export type OpenClawSandboxConfig = NonNullable<
 
 Default-agent sandbox configuration accepted by `OpenClawConfig`.
 
-### [`OpenClawToolsConfig`](./openclaw/configuration.ts#L27)
+### [`OpenClawToolsConfig`](./openclaw/configuration.ts#L33)
 
 _TypeAlias_
 
@@ -681,7 +701,7 @@ export type OpenClawToolsConfig = NonNullable<OpenClawConfig["tools"]>;
 
 Tool configuration accepted by `OpenClawConfig`.
 
-### [`Resources`](./container.ts#L63)
+### [`Resources`](./container.ts#L126)
 
 _Interface_
 
@@ -695,7 +715,7 @@ export interface Resources {
 
 Portable resource request for one application container.
 
-### [`routableBridgeEndpoint`](./container.ts#L127)
+### [`routableBridgeEndpoint`](./container.ts#L190)
 
 _Function_
 
@@ -802,7 +822,7 @@ export class RuntimeFailed extends Schema.TaggedClass<RuntimeFailed>()(
 
 An autonomous runtime completed with a recorded failure.
 
-### [`RuntimeGatewayOf`](./roster.ts#L39)
+### [`RuntimeGatewayOf`](./roster.ts#L40)
 
 _TypeAlias_
 
@@ -842,7 +862,7 @@ export type RuntimeTermination =
 
 Exact terminal observation produced by an acquired runtime.
 
-### [`StartedAgent`](./roster.ts#L48)
+### [`StartedAgent`](./roster.ts#L53)
 
 _Interface_
 
@@ -851,8 +871,10 @@ export interface StartedAgent<Name extends string, Gateway>
 ```
 
 A ready autonomous runtime paired with its Registry-issued identity.
+`credentials` names what the cluster actually forwarded to the runtime,
+never a value, so the ledger can state which credential kind a run used.
 
-### [`StartedAgents`](./roster.ts#L54)
+### [`StartedAgents`](./roster.ts#L60)
 
 _TypeAlias_
 
@@ -869,7 +891,7 @@ export type StartedAgents<
 
 Exact keyed agents installed only after every runtime is ready.
 
-### [`stoppedBeforeAttach`](./container.ts#L313)
+### [`stoppedBeforeAttach`](./container.ts#L384)
 
 _Function_
 
