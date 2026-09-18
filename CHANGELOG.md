@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.918.0] - 2026-09-18
+
 ### Removed
 
 - Implicit replies. OpenClaw agents send visible messages only through the
