@@ -165,6 +165,51 @@ Passing that check is not a live qualification claim. The GKE acceptance gate
 still requires a caller-authorized project, the small smoke, an OpenClaw
 evaluation, readable retained artifacts, and zero run-owned residue.
 
+## Run on a subscription instead of an API key
+
+An OpenClaw runtime can draw on the owner's Claude or ChatGPT plan. Both paths
+keep the provider's own client in charge of the login: Anthropic through the
+unmodified Claude Code binary, OpenAI through the Codex app-server that
+OpenClaw already runs for `openai/` models.
+
+```ts
+const alice = openClawRuntime({
+  applicationImage: applicationImageFromEnvironment(),
+  modelId: "anthropic/claude-opus-4-8",
+  agentRuntime: "claude-cli",
+});
+```
+
+`agentRuntime: "claude-cli"` is a different harness from OpenClaw's embedded
+one, not an equivalent billing route; the ledger records it in each agent's
+runtime configuration. It accepts only an `anthropic/` model and asks the run
+for `CLAUDE_CODE_OAUTH_TOKEN` instead of `ANTHROPIC_API_KEY`. An `openai/`
+model needs no runtime change: it accepts either `OPENAI_API_KEY` or
+`CODEX_AUTH_JSON`.
+
+```bash
+claude setup-token                      # once, interactive; prints a long-lived token
+codex login status                      # must report a ChatGPT login
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-... \
+CODEX_AUTH_JSON="$(cat ~/.codex/auth.json)" \
+pnpm nx run @moltzap/simulator:gke-run -- path/to/experiment.mjs
+```
+
+The repository's `scripts/test/simulator-subscription-smoke.mjs` is a
+controller-loadable module that exercises both paths with one agent each and
+passes when both answer through the message tool on the subscription
+credential rather than an API key.
+
+Every credential is the variable's value. An agent runs on one credential per
+provider: when the run holds both `OPENAI_API_KEY` and `CODEX_AUTH_JSON`, the
+controller refuses to start an `openai/` agent, so unset the API key you are
+replacing. It also refuses an agent whose requested credentials the run holds
+none of. Both refusals happen in the controller before that agent's Secret
+exists, fail the run, and appear on the ledger as
+`moltzap.agent-runtime-start-failed/v1`. The names forwarded to each agent
+appear on its `moltzap.agent-runtime-ready/v1` event. Pods never refresh a
+copied login, so refresh on the submitting host before a long run.
+
 ## Submit runs in parallel
 
 Every run owns its namespace and default submissions go through one shared run

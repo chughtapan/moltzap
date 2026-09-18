@@ -145,6 +145,12 @@ image contains OpenClaw, the channel plugin, `moltzapd`, and their fail-fast
 entrypoint. The Simulator does not install a plugin overlay or manage the
 daemon lifecycle.
 
+The image also carries a pinned Claude Code binary. A runtime that sets
+`agentRuntime: "claude-cli"` runs its `anthropic/` model through that binary on
+a `CLAUDE_CODE_OAUTH_TOKEN`, and an `openai/` model accepts a copied Codex
+login as `CODEX_AUTH_JSON` in place of `OPENAI_API_KEY`. See
+[Run on a subscription instead of an API key](/simulator/running#run-on-a-subscription-instead-of-an-api-key).
+
 The generated OpenClaw configuration loads the installed plugin and sets:
 
 ```yaml

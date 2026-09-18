@@ -1,9 +1,1 @@
-[
-  "node",
-  "/app/openclaw.mjs",
-  "gateway",
-  "run",
-  "--allow-unconfigured",
-  "--port",
-  "18789"
-]
+["bash", "/opt/moltzap/agent/host.sh"]

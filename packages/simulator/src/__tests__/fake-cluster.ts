@@ -170,6 +170,7 @@ function makeFakeSociety<
             : Effect.succeed({
                 ...running,
                 agent: makeAgentHandle(input.name, agentId),
+                credentials: Object.freeze([]),
               });
         }),
       ) as Effect.Effect<

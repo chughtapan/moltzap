@@ -4,6 +4,10 @@ import { Data, Either, Schema } from "effect";
 import { isAbsolute } from "node:path";
 import type { Image } from "../../agents/index.js";
 import type { KubernetesPodPlacement } from "../profile.js";
+import {
+  CREDENTIAL_NAMES,
+  type CredentialName,
+} from "../../agents/container.js";
 
 // safer-arch-ignore no-cross-domain-sibling-import: Decodes one environment into the ledger and cluster values the controller needs.
 
@@ -36,9 +40,9 @@ const placementSchema = Schema.Struct({
 });
 const decodePlacement = Schema.decodeEither(Schema.parseJson(placementSchema));
 const runtimeCredentialsSchema = Schema.partial(
-  Schema.Struct({
-    ANTHROPIC_API_KEY: Schema.NonEmptyString,
-    OPENAI_API_KEY: Schema.NonEmptyString,
+  Schema.Record({
+    key: Schema.Literal(...CREDENTIAL_NAMES),
+    value: Schema.NonEmptyString,
   }),
 );
 const decodeRuntimeCredentials = Schema.decodeEither(
@@ -61,7 +65,7 @@ export interface ControllerConfiguration {
   readonly supportImage: Image;
   readonly applicationImage?: Image;
   readonly runtimeCredentials: Readonly<
-    Partial<Record<"ANTHROPIC_API_KEY" | "OPENAI_API_KEY", string>>
+    Partial<Record<CredentialName, string>>
   >;
   readonly rosterPlacement?: KubernetesPodPlacement;
   readonly experimentModule: string;
@@ -273,7 +277,7 @@ function runtimeCredentials(
   return Either.match(decoded, {
     onLeft: () => {
       throw invalid(
-        "MOLTZAP_RUNTIME_CREDENTIALS must contain only nonempty supported provider credentials",
+        `MOLTZAP_RUNTIME_CREDENTIALS must contain only nonempty values for ${CREDENTIAL_NAMES.join(", ")}; a submitter newer than this controller image may forward a name it does not know`,
       );
     },
     onRight: (credentials) => Object.freeze({ ...credentials }),

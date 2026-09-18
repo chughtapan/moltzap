@@ -363,6 +363,21 @@ moltzap-sim run --profile gke path/to/experiment.mjs
 | `MOLTZAP_TEMPORAL_NAMESPACE` | no | the Temporal namespace, `default` by default |
 | `MOLTZAP_FORCE_WORKER_ROLL` | no | exactly `1` to accept rolling the worker over its open runs |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | when a model needs one | forwarded to containers whose model id names that provider |
+| `CLAUDE_CODE_OAUTH_TOKEN` | when an OpenClaw runtime selects `agentRuntime: "claude-cli"` | a `claude setup-token` value; the pod binds it to Claude Code through an OpenClaw token profile, never through OpenClaw's own Anthropic client |
+| `CODEX_AUTH_JSON` | when an `openai/` model runs on a ChatGPT plan | the contents of `~/.codex/auth.json`, written to `$HOME/.codex/auth.json` in the pod; export it as `CODEX_AUTH_JSON="$(cat ~/.codex/auth.json)"` after `codex login status` reports a ChatGPT login |
+
+Each credential is read as the variable's value; an empty value is absent.
+An agent runs on one credential per provider: with both `OPENAI_API_KEY` and
+`CODEX_AUTH_JSON` exported, the controller refuses to start an `openai/` agent,
+and it refuses an agent whose requested credentials the run holds none of.
+Either refusal happens before that agent's Secret is created, fails the run, and
+is recorded as `moltzap.agent-runtime-start-failed/v1`. The names the cluster
+forwarded to each agent are recorded on the ledger's
+`moltzap.agent-runtime-ready/v1` event; values are never recorded. A pod never
+refreshes a copied login: a Codex access token lasts about ten days, and a
+setup-token about a year, so refresh on the submitting host and resubmit.
+Every credential kind is present in Temporal workflow history and in the
+controller Job's environment for the life of the run.
 
 The experiment module may import only what the controller image ships:
 `@moltzap/{simulator,client,identity,router}`, `effect`, and

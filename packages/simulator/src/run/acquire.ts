@@ -162,6 +162,7 @@ function attemptAgent<
       agent: running.agent,
       gateway: running.gateway,
       termination: running.termination,
+      credentials: running.credentials,
     });
     return {
       name: input.name,
@@ -197,6 +198,7 @@ function recordReady(acquired: AcquiredAgent, writer: RuntimeEventWriter) {
       agentName: acquired.agentName,
       agentId: acquired.agentId,
       runtime: acquired.runtimeName,
+      credentials: acquired.started.credentials,
     }),
   });
 }

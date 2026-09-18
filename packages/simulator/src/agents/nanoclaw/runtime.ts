@@ -14,11 +14,13 @@ import {
   type ApplicationEndpoint,
   type ContainerAgentRuntime,
   type ContainerRuntime,
+  type CredentialName,
+  CREDENTIALS,
   defineContainerRuntime,
   type File,
   image,
   type Image,
-  providerCredential,
+  providerCredentials,
   routableBridgeEndpoint,
   stoppedBeforeAttach,
 } from "../container.js";
@@ -257,12 +259,7 @@ function makeNanoClawApplication(
     ...(settings.modelId === undefined
       ? {}
       : {
-          // NanoClaw hosts Claude, so a model id with no provider prefix is still
-          // an Anthropic model, and a prefix this run cannot supply falls back to
-          // the same key rather than to none.
-          credentials: Object.freeze([
-            providerCredential(settings.modelId) ?? "ANTHROPIC_API_KEY",
-          ]),
+          credentials: nanoClawCredentials(settings.modelId),
         }),
     port: NANOCLAW_GATEWAY_PORT,
     files: bootstrapFiles(settings, input),
@@ -277,6 +274,23 @@ function makeNanoClawApplication(
       reportStopped: (termination: RuntimeTermination) => Effect.Effect<void>,
     ) => attachNanoClaw(bridge, endpoint, stopped, reportStopped),
   });
+}
+
+/**
+ * NanoClaw hosts Claude through the Agent SDK, which reads environment
+ * credentials only: a model id with no provider prefix is still an Anthropic
+ * model, a file-delivered credential is never NanoClaw's to read, and a prefix
+ * this run cannot supply falls back to the Anthropic key rather than to none.
+ */
+function nanoClawCredentials(modelId: string): readonly CredentialName[] {
+  const environmentCredentials = providerCredentials(modelId).filter(
+    (name) => CREDENTIALS[name].delivery === "environment",
+  );
+  return Object.freeze(
+    environmentCredentials.length === 0
+      ? ["ANTHROPIC_API_KEY"]
+      : environmentCredentials,
+  );
 }
 
 function bootstrapFiles(
