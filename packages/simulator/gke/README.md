@@ -229,15 +229,15 @@ with nothing on it.
 
 ## Published images
 
-Release `2026.916.2` (source revision
-`e1d0398bd6b0fb74e0c0339359b3d745fd771964`) pushed these images. Pin a run to the digest
+Release `2026.918.0` (source revision
+`b38ba08084e17ca84065ee529b4f07a8926b8fa0`) pushed these images. Pin a run to the digest
 reference; the tag is a lookup key, not an input the profile accepts.
 
 | Image | Tag | Digest reference |
 | --- | --- | --- |
-| controller | `2026.916.2` | `us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator/controller@sha256:289b1ba0c3dec7dbcc6ee7658dd32fd7b2c6caa8d8ad8c90630195f54ede2e25` |
-| openclaw-agent | `2026.916.2` | `us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator/openclaw-agent@sha256:7ef7699e905ddff8b6f5c2e2301cfa5d3174d1e5b904280bdbdbd8b36710ff80` |
-| nanoclaw-agent | `2026.916.2` | `us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator/nanoclaw-agent@sha256:ba0928097fef3363fc8284fe879cb455e1c11e83154560dae19944d2440c7018` |
+| controller | `2026.918.0` | `us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator/controller@sha256:60f44a68e26c3b144d94b90230e3fb5d62693362babb8d2f0aa910a670976b41` |
+| openclaw-agent | `2026.918.0` | `us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator/openclaw-agent@sha256:3c9c6fedff3cb3244d8262d0b6d77ee58bb6524913f429cd042c79b9c8c6e335` |
+| nanoclaw-agent | `2026.918.0` | `us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator/nanoclaw-agent@sha256:042c197dc5721b7a3332684e57aa5198e8934fe2cbded4fedade3cc23de2480c` |
 
 ## Release publishing
 
