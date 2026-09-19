@@ -91,10 +91,6 @@ pnpm test                     # package unit suites
 pnpm typecheck                # tsc across all packages
 ```
 
-`tsc` is TypeScript 7 (`@typescript/native`) and the `typescript` module name is
-the TypeScript 6 compiler API. `pnpm-workspace.yaml` pins both once for every
-package and explains the split.
-
 Real-daemon integration, package-consumer, and live-cluster qualifications
 are separate Nx targets because they acquire processes, install tarballs, or
 require external infrastructure. CI runs them in named steps rather than

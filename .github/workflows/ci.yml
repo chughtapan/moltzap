@@ -37,9 +37,6 @@ jobs:
           echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-plugin-cache" >> "$GITHUB_ENV"
 
       - run: pnpm install --frozen-lockfile
-      # pnpm 10.6.2's `--frozen-lockfile` does not compare catalog versions, so
-      # a catalog edit without a lockfile update passes it; re-resolving must
-      # leave the lockfile unchanged.
       - name: Verify pnpm-lock.yaml matches package.json and the catalog
         run: |
           pnpm install --lockfile-only --ignore-scripts

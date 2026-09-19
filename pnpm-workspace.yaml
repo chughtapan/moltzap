@@ -1,20 +1,4 @@
-# Two TypeScript compilers, each pinned once.
-#
-# `@typescript/native` is TypeScript 7. Its `tsc` binary runs the repository's
-# own compile paths: `tsc -b`, `tsc -p`, `tsc --noEmit` and the typecheck
-# targets. The packed-consumer checks (scripts/test-nanoclaw-package.mjs,
-# scripts/test-openclaw-package.mjs, scripts/test/simulator-packages.mjs) are the
-# exception: they compile with a registry TypeScript 6.0.2 on purpose, to model
-# external consumers of the published declarations.
-#
-# `typescript` is `@typescript/typescript6`, the compiler API for the tools and
-# scripts that load it: typescript-eslint (peer range `<6.1.0`), typedoc, knip,
-# safer-architecture-lsp, eslint-plugin-sonarjs and the scripts that load the
-# compiler API. The `typescript` overrides route the packages that pin their own
-# copy to it, and the `@typescript/old` override pins the copy it wraps, so the
-# lockfile resolves exactly TypeScript 6.0.3 and 7.0.2.
-#
-# All overrides live here; `package.json` carries none.
+# tsc is TypeScript 7 (@typescript/native); "typescript" is the TypeScript 6 API, which typescript-eslint (<6.1.0) and other tools load.
 packages:
   - "packages/*"
 
