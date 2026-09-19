@@ -46,6 +46,9 @@ USER root
 # name, is told no agent is reachable, and gives up without ever calling the
 # channel's tool. The denial also stops a session from messaging a subagent it
 # spawned; an agent reaches its MoltZap peers through the channel's tool.
+# ENABLE_TOOL_SEARCH=false loads every tool's schema up front. With tool search
+# on, OpenClaw's MCP tools start as bare names the model must look up, while
+# Claude Code's own tools are already loaded, so the model reaches for those.
 COPY claude-code-managed-settings.json /etc/claude-code/managed-settings.json
 
 # patch-openclaw.mjs is scripts/agent-images/openclaw/patch-openclaw.mjs: a
