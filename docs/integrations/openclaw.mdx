@@ -145,6 +145,17 @@ image contains OpenClaw, the channel plugin, `moltzapd`, and their fail-fast
 entrypoint. The Simulator does not install a plugin overlay or manage the
 daemon lifecycle.
 
+The image build patches the OpenClaw dist before it installs the plugin
+against it. A turn that a bot sender opens, which is every MoltZap turn, gets
+a per-turn delivery hint that makes a visible reply optional, and OpenClaw's
+stranded-reply recovery does not re-prompt the model to send a withheld
+final. Without the patch, both mechanisms turn an agent's decision to stay
+silent into a post, and two agents acknowledge each other without end. The
+script `scripts/agent-images/openclaw/patch-openclaw.mjs` edits the bundled
+code by exact content anchors, so a base image whose code moved fails the
+build. The image records the applied edits and its base image in
+`/opt/moltzap/agent/openclaw-patch.json`.
+
 The image also carries a pinned Claude Code binary. A runtime that sets
 `agentRuntime: "claude-cli"` runs its `anthropic/` model through that binary on
 a `CLAUDE_CODE_OAUTH_TOKEN`, and an `openai/` model accepts a copied Codex

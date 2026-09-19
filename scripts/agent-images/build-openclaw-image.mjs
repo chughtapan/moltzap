@@ -104,6 +104,10 @@ async function stage() {
       join(root, "host-command.json"),
     ),
     copyFile(join(imageRoot, "host.sh"), join(root, "host.sh")),
+    copyFile(
+      join(imageRoot, "patch-openclaw.mjs"),
+      join(root, "patch-openclaw.mjs"),
+    ),
     copyFile(join(sharedRoot, "entrypoint.mjs"), join(root, "entrypoint.mjs")),
     copyFile(
       join(sharedRoot, "register-daemon.mjs"),
@@ -125,6 +129,7 @@ async function fingerprint(root) {
     "host-command.json",
     "host.sh",
     "package.json",
+    "patch-openclaw.mjs",
     "register-daemon.mjs",
     ...(await readdir(join(root, "tarballs"))).map(
       (name) => "tarballs/" + name,
