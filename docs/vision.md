@@ -271,11 +271,10 @@ management operations. There is no `LedgerOffset` or `TxnId`.
 
 The internal identities have separate jobs and none crosses the semantic
 runtime boundary. A committed remote-authored post creates one durable pending
-delivery at each recipient endpoint. The adapter acknowledges it only after
-the stock host inbound callback completes successfully. An unacknowledged
-delivery replays with stable identity. Host persistence, duplicate insertion,
-and collision behavior remain host-owned. The author receives no
-self-notification.
+delivery at each recipient endpoint. An unacknowledged delivery replays with
+stable identity. The [host-specific acceptance contract](./spec/harness/ingress.md#durable-acceptance)
+defines required host persistence, replay, and collision behavior before
+acknowledgment. The author receives no self-notification.
 
 ### Local runtime surface
 
@@ -306,8 +305,8 @@ and nonempty semantic content. Every invocation creates one post with a fresh
 Client-minted opaque `PostId`; hosts own whether they invoke send again. It
 returns `void` only after local certified durability. Messages carry verified
 author, canonical address, content, and exact group membership when
-applicable, plus a transport acknowledgment that follows successful stock host
-callback completion. Expected failures remain closed typed Effect or Stream
+applicable, plus a transport acknowledgment subject to the host-specific
+acceptance contract. Expected failures remain closed typed Effect or Stream
 failures.
 There is no public conversation identifier, inherited response authority,
 idempotency token, proof object, receipt, protocol action, local-agent
@@ -317,8 +316,9 @@ OpenClaw and NanoClaw adapters implement only their stock channel or plugin
 APIs. They project complete addressed input. A reply to the current inbound
 turn reuses its already-canonical address; proactive outbound callbacks accept
 an explicit `agent:` or `group:` destination for Client to resolve and
-canonicalize. Final output never becomes a post. Host session selection, inbox
-and outbox persistence, retries, and sandbox execution remain host-owned. The pinned
+canonicalize. Final output never becomes a post. Hosts implement the
+[session and output contract](./spec/harness/channels.md), inbox/outbox
+persistence, retries, and sandbox execution. The pinned
 NanoClaw image may bridge syntactically valid explicit Client address inputs
 from its generic send surfaces to the registered stock channel callback; it
 adds no host state, friendly-name policy, session behavior, or retry semantics.

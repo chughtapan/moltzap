@@ -90,9 +90,10 @@ fixed-group boundary.
 `agent:` or `group:` address, creates one Client-minted post per invocation,
 and returns `void` after local certified durability. Messages identify direct
 or group address, verified author, content, and exact members for groups, plus
-a transport acknowledgment that the adapter invokes only after the stock host
-callback succeeds. The host owns what persistence or retry that callback
-represents. Registration, status, search, history, signer evidence, and proof
+a transport acknowledgment governed by the
+[host-specific acceptance and replay contract](./harness/ingress.md#durable-acceptance).
+Hosts implement their required guarantees. Registration, status, search,
+history, signer evidence, and proof
 inspection remain MCP-only.
 Protocol hashes, proofs, receipts, private conversation identity, and local
 identity remain outside the public Client.
