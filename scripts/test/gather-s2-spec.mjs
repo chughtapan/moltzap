@@ -32,7 +32,10 @@ const ARM = "baseline";
 const MESSAGING_MODE = "shared";
 /** Runs through Claude Code on the owner's subscription (`CLAUDE_CODE_OAUTH_TOKEN`). */
 const MODEL_ID = "anthropic/claude-opus-4-8";
-const OBSERVATION_WINDOW = Duration.minutes(5);
+/** How many teaching assistants join the professor; the paper sweeps 1, 3, 5, 7. */
+const TA_COUNT = 7;
+/** The professor's turns run one after another, so a larger group needs longer. */
+const OBSERVATION_WINDOW = Duration.minutes(TA_COUNT > 3 ? 10 : 5);
 const KICKOFF = "Can you set up next week's CSE455 staff meeting?";
 const GATHER_DEADLINE_SECONDS = 180;
 
@@ -40,19 +43,31 @@ const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const DAY_BY_PREFIX = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4 };
 const WORKING_HOURS = [9, 10, 11, 12, 13, 14, 15, 16];
 
+const TA_NAMES = [
+  "sarah",
+  "john",
+  "priya",
+  "diego",
+  "hana",
+  "omar",
+  "maya",
+].slice(0, TA_COUNT);
+const CONSENSUS_SLOTS = ["Tue 15:00", "Wed 10:00", "Wed 13:00"];
+/** Each TA is also free for two of these three; every one is closed to some TA. */
+const DECOY_SLOTS = ["Mon 10:00", "Mon 14:00", "Tue 11:00"];
+
 /** Open one-hour slots per agent; every other working hour is a commitment. */
 const OPEN_SLOTS = {
-  alvarez: [
-    "Mon 10:00",
-    "Tue 11:00",
-    "Tue 15:00",
-    "Wed 10:00",
-    "Wed 13:00",
-    "Thu 14:00",
-  ],
-  sarah: ["Tue 15:00", "Wed 10:00", "Wed 13:00", "Mon 10:00", "Mon 14:00"],
-  john: ["Tue 15:00", "Wed 10:00", "Wed 13:00", "Mon 14:00", "Tue 11:00"],
-  priya: ["Tue 15:00", "Wed 10:00", "Wed 13:00", "Mon 10:00", "Tue 11:00"],
+  alvarez: [...CONSENSUS_SLOTS, "Mon 10:00", "Tue 11:00", "Thu 14:00"],
+  ...Object.fromEntries(
+    TA_NAMES.map((name, index) => [
+      name,
+      [
+        ...CONSENSUS_SLOTS,
+        ...DECOY_SLOTS.filter((slot, decoy) => decoy !== index % 3),
+      ],
+    ]),
+  ),
 };
 
 const PEOPLE = {
@@ -61,18 +76,15 @@ const PEOPLE = {
     about:
       "who teaches CSE455 at the University of Washington. He has several teaching assistants (TAs).",
   },
-  sarah: {
-    principal: "Sarah",
-    about: "a teaching assistant for CSE455, taught by Professor Alvarez.",
-  },
-  john: {
-    principal: "John",
-    about: "a teaching assistant for CSE455, taught by Professor Alvarez.",
-  },
-  priya: {
-    principal: "Priya",
-    about: "a teaching assistant for CSE455, taught by Professor Alvarez.",
-  },
+  ...Object.fromEntries(
+    TA_NAMES.map((name) => [
+      name,
+      {
+        principal: name[0].toUpperCase() + name.slice(1),
+        about: "a teaching assistant for CSE455, taught by Professor Alvarez.",
+      },
+    ]),
+  ),
 };
 
 function clock(hour) {
@@ -180,14 +192,11 @@ function agent(name) {
 }
 
 export const runSpec = RunSpec.define({
-  id: `moltzap.gather-s2-${ARM}/v1`,
+  id: `moltzap.gather-s2-${ARM}-n${TA_COUNT}/v1`,
   events: [],
-  agents: {
-    alvarez: agent("alvarez"),
-    sarah: agent("sarah"),
-    john: agent("john"),
-    priya: agent("priya"),
-  },
+  agents: Object.fromEntries(
+    ["alvarez", ...TA_NAMES].map((name) => [name, agent(name)]),
+  ),
   cluster: controllerServicesFromEnvironment(),
   execute: (context) =>
     Effect.gen(function* () {
