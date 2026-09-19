@@ -91,6 +91,12 @@ pnpm test                     # package unit suites
 pnpm typecheck                # tsc across all packages
 ```
 
+`tsc` is TypeScript 7 (`@typescript/native`). The `typescript` module name
+resolves TypeScript 6, which supplies the compiler API to typescript-eslint
+(peer range `<6.1.0`), typedoc, knip and the scripts that call
+`ts.createProgram`. `pnpm-workspace.yaml → catalog` pins both versions once
+for every package.
+
 Real-daemon integration, package-consumer, and live-cluster qualifications
 are separate Nx targets because they acquire processes, install tarballs, or
 require external infrastructure. CI runs them in named steps rather than
