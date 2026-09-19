@@ -51,7 +51,7 @@ function count(text, needle) {
 async function stagedDist() {
   const root = await mkdtemp(join(tmpdir(), "openclaw-patch-test-"));
   const names = (await readdir(installedDist)).filter((name) =>
-    /^(agent-runner\.runtime-|get-reply-|message-tool-delivery-hints-)[^.]+\.js$/u.test(
+    /^(agent-runner\.runtime-|cli-runner-|get-reply-|message-tool-delivery-hints-|run-attempt-)[^.]+\.js$/u.test(
       name,
     ),
   );
@@ -81,7 +81,7 @@ async function snapshot(root) {
   );
 }
 
-test("every anchor matches once and the edited bundles carry the bot-sender branches", async () => {
+test("every anchor matches once across the six bundles the patch edits", async () => {
   const root = await stagedDist();
   try {
     const applied = await applyOpenClawPatch(root);
@@ -102,8 +102,8 @@ test("every anchor matches once and the edited bundles carry the bot-sender bran
     const bundles = new Set(applied.map((edit) => edit.file));
     assert.equal(
       bundles.size,
-      4,
-      "runner, reply prompt, hint list and worker bundles",
+      6,
+      "runner, reply prompt, hint list, CLI runner, Codex attempt and worker bundles",
     );
     const worker = await readFile(join(root, "worker", "worker.mjs"), "utf8");
     assert.ok(worker.includes(JSON.stringify(BOT_SENDER_DELIVERY_HINT)));

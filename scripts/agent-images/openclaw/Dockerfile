@@ -71,7 +71,9 @@ RUN npm install --omit=dev --no-audit --no-fund \
 
 # host.sh is scripts/agent-images/openclaw/host.sh: it binds the run's
 # Claude Code token profile, then becomes the gateway.
-COPY entrypoint.mjs register-daemon.mjs host.sh host-command.json /opt/moltzap/agent/
+# finalize-host.mjs is scripts/agent-images/openclaw/finalize-host.mjs: once the
+# host has stopped it writes a usage summary into the workspace for harvest.
+COPY entrypoint.mjs register-daemon.mjs host.sh host-command.json finalize-host.mjs /opt/moltzap/agent/
 
 ENV NODE_ENV=production
 WORKDIR /app
