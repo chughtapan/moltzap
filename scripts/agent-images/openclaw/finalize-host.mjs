@@ -10,9 +10,11 @@
  * OpenClaw's own copy of a delivered message, not a model call, so they are
  * counted and left out of the totals.
  *
- * The Codex harness also records each completed model call in
- * `trajectory_runtime_events`; those totals are reported beside the transcript
- * totals so a disagreement between the two is visible in the output.
+ * A harness such as Codex records each completed model call in
+ * `trajectory_runtime_events` and leaves the transcript without usage when a
+ * turn ends on a tool call, so `effectiveTotals` takes the trajectory when it
+ * has model calls and the transcript otherwise. Both raw totals stay in the
+ * output so a disagreement between them is visible.
  *
  * The image entrypoint runs this file, when the image ships one, after the host
  * process has stopped and before it acknowledges finalization.
@@ -145,13 +147,18 @@ async function summarize(stateDirectory) {
     const database = new DatabaseSync(path, { readOnly: true });
     try {
       const transcript = transcriptUsage(database);
+      const trajectory = trajectoryUsage(database);
       summaries.push({
         agentId,
         agentRuns: transcript.userRows,
         modelMessages: transcript.calls.length,
         deliveryMirrorRows: transcript.mirrorRows,
+        effectiveTotals:
+          trajectory.modelCalls > 0 ? trajectory.totals : transcript.totals,
+        effectiveSource:
+          trajectory.modelCalls > 0 ? "trajectory" : "transcript",
         transcriptTotals: transcript.totals,
-        trajectory: trajectoryUsage(database),
+        trajectory,
         callsListed: Math.min(transcript.calls.length, MAXIMUM_LISTED_CALLS),
         calls: transcript.calls.slice(0, MAXIMUM_LISTED_CALLS),
       });
