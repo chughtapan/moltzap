@@ -18,8 +18,13 @@
  *  all in, or deadlineAt ──\> result(contributions, missing)
  *    │ shared only
  *    v
- *  close {id} ──\> every member folds the contributions ordered before it
+ *  close {id,included} ──\> every member takes the listed contributions
  * ```
+ *
+ * The close record names the contributors whose answers count. The cut is
+ * therefore content every member reads identically, and it does not depend on
+ * where a post landed in Router order, which no endpoint can observe for its
+ * own posts.
  *
  * Open gathers live in memory and do not survive a restart.
  */
@@ -65,6 +70,7 @@ const contributionControl = Schema.Struct({
 const closeControl = Schema.Struct({
   id: Schema.String,
   role: Schema.Literal("close"),
+  included: Schema.Array(AgentAddress),
 });
 const gatherEnvelope = Schema.Struct({
   [GATHER_KEY]: Schema.Union(requestControl, contributionControl, closeControl),
@@ -182,6 +188,7 @@ interface MemberView {
   readonly address: GroupAddress;
   readonly members: ReadonlySet<AgentAddress>;
   readonly contributions: Map<AgentAddress, Content>;
+  ownContribution: Option.Option<Content>;
   closed: boolean;
 }
 
@@ -220,8 +227,14 @@ export function contributionContent(id: string, text: string): Content {
   ];
 }
 
-function closeContent(id: string): Content {
-  return [{ type: "data", value: { [GATHER_KEY]: { id, role: "close" } } }];
+/** Content for the record that fixes which contributors a shared gather counts. */
+export function closeContent(
+  id: string,
+  included: readonly AgentAddress[],
+): Content {
+  return [
+    { type: "data", value: { [GATHER_KEY]: { id, role: "close", included } } },
+  ];
 }
 
 function readControl(message: InboundMessage): Option.Option<GatherControl> {
@@ -347,12 +360,13 @@ export function makeGatherOverlay(
     function postClose(
       id: string,
       groupAddress: Option.Option<GroupAddress>,
+      included: readonly AgentAddress[],
     ): Effect.Effect<boolean> {
       if (Option.isNone(groupAddress)) {
         return Effect.succeed(false);
       }
       return options
-        .send({ to: groupAddress.value, content: closeContent(id) })
+        .send({ to: groupAddress.value, content: closeContent(id, included) })
         .pipe(
           Effect.as(true),
           Effect.timeoutTo({
@@ -404,12 +418,12 @@ export function makeGatherOverlay(
           Effect.option,
         );
         yield* Fiber.interruptFork(sends);
-        const closeCertified =
-          request.topology === "shared"
-            ? yield* postClose(id, groupAddress)
-            : false;
         openGathers.delete(id);
         const contributions = new Map(open.contributions);
+        const closeCertified =
+          request.topology === "shared"
+            ? yield* postClose(id, groupAddress, [...contributions.keys()])
+            : false;
         if (closeCertified) {
           const result = yield* memberResult(id);
           yield* Deferred.succeed(result, contributions);
@@ -487,28 +501,21 @@ export function makeGatherOverlay(
     }
 
     /**
-     * An endpoint is never offered its own post, so a member learns where its
-     * contribution sits relative to the close record only from the order in
-     * which its send certified and the close arrived. That local order can
-     * differ from Router order when the two race; certified history is the
-     * only exact source.
+     * An endpoint is never offered its own post, so a member keeps what it sent
+     * and learns from the close record whether the initiator counted it.
      */
     function sendOwnContribution(
       observed: ObservedGatherRequest,
       text: string,
     ): Effect.Effect<void> {
       const content = contributionContent(observed.id, text);
-      return options.send({ to: observed.replyTo, content }).pipe(
-        Effect.tap(() =>
-          Effect.sync(() => {
-            const view = memberViews.get(observed.id);
-            if (view !== undefined) {
-              view.contributions.set(options.self, content);
-            }
-          }),
-        ),
-        Effect.ignore,
-      );
+      const view = memberViews.get(observed.id);
+      if (view !== undefined && Option.isNone(view.ownContribution)) {
+        view.ownContribution = Option.some(content);
+      }
+      return options
+        .send({ to: observed.replyTo, content })
+        .pipe(Effect.ignore);
     }
 
     function answer(
@@ -543,6 +550,7 @@ export function makeGatherOverlay(
             address: message.address,
             members: new Set(control.members),
             contributions: new Map(),
+            ownContribution: Option.none(),
             closed: false,
           });
         }
@@ -563,10 +571,28 @@ export function makeGatherOverlay(
       });
     }
 
+    function listedContributions(
+      view: MemberView,
+      included: readonly AgentAddress[],
+    ): ReadonlyMap<AgentAddress, Content> {
+      const listed = new Map<AgentAddress, Content>();
+      for (const member of included) {
+        const content =
+          member === options.self
+            ? Option.getOrUndefined(view.ownContribution)
+            : view.contributions.get(member);
+        if (content !== undefined) {
+          listed.set(member, content);
+        }
+      }
+      return listed;
+    }
+
     function onClose(
-      id: string,
+      control: typeof closeControl.Type,
       message: InboundMessage,
     ): Effect.Effect<DeliveryDisposition> {
+      const id = control.id;
       return Effect.gen(function* () {
         const view = memberViews.get(id);
         if (
@@ -579,7 +605,10 @@ export function makeGatherOverlay(
         }
         view.closed = true;
         const result = yield* memberResult(id);
-        yield* Deferred.succeed(result, new Map(view.contributions));
+        yield* Deferred.succeed(
+          result,
+          listedContributions(view, control.included),
+        );
         return "consumed";
       });
     }
@@ -594,7 +623,7 @@ export function makeGatherOverlay(
         case "contribution":
           return onContribution(control.id, message);
         case "close":
-          return onClose(control.id, message);
+          return onClose(control, message);
         default:
           return Effect.succeed("passthrough");
       }
