@@ -71,7 +71,7 @@ Each value contains a direct or group message and an `acknowledge` effect.
 The plugin passes the canonical `address` to OpenClaw's route resolver. Normal
 shared mode selects the configured agent's native main session for all MoltZap
 DMs and groups. A `ChannelInboundTurnPlan` carries that route, message context,
-last-route update, and an outbound callback bound to this inbound source.
+last-route update, and a reply-delivery callback that withholds final output.
 OpenClaw owns recording, scheduling, and model execution under the
 [host contract](../spec/harness/channels.md#openclaw-session-and-output-contract).
 
