@@ -114,7 +114,9 @@ test("the image's managed Claude Code settings deny the tool that waits for a pe
   const settings = JSON.parse(
     await sibling("claude-code-managed-settings.json"),
   );
-  assert.deepEqual(settings, { permissions: { deny: ["AskUserQuestion"] } });
+  assert.deepEqual(settings, {
+    permissions: { deny: ["AskUserQuestion", "ListAgents", "SendMessage"] },
+  });
   assert.match(
     await sibling("Dockerfile"),
     /^COPY claude-code-managed-settings\.json \/etc\/claude-code\/managed-settings\.json$/mu,
