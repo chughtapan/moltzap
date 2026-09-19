@@ -1,4 +1,4 @@
-/** @file The OpenClaw image ships the host script its host command names, runs only a digest-verified Claude Code binary, and patches the OpenClaw dist before the plugin installs against it. */
+/** @file The OpenClaw image ships the host script its host command names, runs only a digest-verified Claude Code binary, denies the Claude Code tool that waits for a person, and patches the OpenClaw dist before the plugin installs against it. */
 
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -7,6 +7,7 @@ import { test } from "node:test";
 import {
   CLAUDE_CODE_SHA256,
   CLAUDE_CODE_VERSION,
+  FINGERPRINTED_FILES,
 } from "../build-openclaw-image.mjs";
 
 const AGENT_DIRECTORY = "/opt/moltzap/agent/";
@@ -107,4 +108,29 @@ test("the Dockerfile patches the OpenClaw dist before the plugin installs agains
     new RegExp(`--marker ${AGENT_DIRECTORY}openclaw-patch\\.json`, "u"),
   );
   await sibling("patch-openclaw.mjs");
+});
+
+test("the image's managed Claude Code settings deny the tool that waits for a person", async () => {
+  const settings = JSON.parse(
+    await sibling("claude-code-managed-settings.json"),
+  );
+  assert.deepEqual(settings, { permissions: { deny: ["AskUserQuestion"] } });
+  assert.match(
+    await sibling("Dockerfile"),
+    /^COPY claude-code-managed-settings\.json \/etc\/claude-code\/managed-settings\.json$/mu,
+  );
+});
+
+test("every file the Dockerfile copies from the build context decides the image tag", async () => {
+  const copied = (await sibling("Dockerfile"))
+    .split("\n")
+    .filter((line) => line.startsWith("COPY "))
+    .flatMap((line) => line.split(/\s+/u).slice(1, -1))
+    .filter((source) => source !== "tarballs");
+  assert.ok(copied.includes("claude-code-managed-settings.json"));
+  assert.ok(copied.includes("patch-openclaw.mjs"));
+  assert.deepEqual(
+    copied.filter((source) => !FINGERPRINTED_FILES.includes(source)),
+    [],
+  );
 });
