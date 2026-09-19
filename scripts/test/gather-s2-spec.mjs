@@ -30,7 +30,8 @@ const ARM = "baseline";
 
 /** "shared" is the adapter default; "private" is the paper's E1 condition. */
 const MESSAGING_MODE = "shared";
-const MODEL_ID = "openai/gpt-5.6-sol";
+/** Runs through Claude Code on the owner's subscription (`CLAUDE_CODE_OAUTH_TOKEN`). */
+const MODEL_ID = "anthropic/claude-opus-4-8";
 const OBSERVATION_WINDOW = Duration.minutes(5);
 const KICKOFF = "Can you set up next week's CSE455 staff meeting?";
 const GATHER_DEADLINE_SECONDS = 180;
@@ -164,6 +165,7 @@ function agent(name) {
     harvestWorkspaceFiles: ["CALENDAR.md"],
     messagingMode: MESSAGING_MODE,
     modelId: MODEL_ID,
+    agentRuntime: "claude-cli",
     tools: {
       allow: ["group:fs", "message"],
       sandbox: { tools: { allow: ["group:fs", "message"] } },
