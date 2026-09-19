@@ -36,6 +36,7 @@ import {
   type HarnessEndpoint,
   type InboundDelivery,
   type InboundMessage,
+  type SendError,
   type SendInput,
 } from "@moltzap/client";
 import {
@@ -108,6 +109,8 @@ export interface GatherResult {
   readonly contributions: ReadonlyMap<AgentAddress, Content>;
   readonly missing: readonly AgentAddress[];
   readonly closeCertified: boolean;
+  /** The last accepted contribution, whose routing facts a host turn can reuse. */
+  readonly lastAccepted: Option.Option<InboundMessage>;
 }
 
 /** A gather request as a scripted contributor sees it. */
@@ -158,6 +161,17 @@ export interface GatherOverlayOptions {
   ) => Effect.Effect<Option.Option<string>>;
   readonly closeWaitMillis?: number;
   readonly mintId?: () => string;
+  /**
+   * Consume peers' contributions in a shared gather even without a `respond`
+   * handler, so a model-backed member gets one turn at the close record
+   * instead of one per peer.
+   */
+  readonly withholdPeerContributions?: boolean;
+  /** Called once per shared gather when its close record reaches this member. */
+  readonly onMemberResult?: (
+    result: ReadonlyMap<AgentAddress, Content>,
+    close: InboundMessage,
+  ) => Effect.Effect<void>;
 }
 
 /** The overlay's capabilities for one endpoint. */
@@ -168,6 +182,12 @@ export interface GatherOverlay {
   readonly onDelivery: (
     delivery: InboundDelivery,
   ) => Effect.Effect<DeliveryDisposition>;
+  /** Send this endpoint's answer to the gather named by `id`. */
+  readonly contribute: (
+    id: string,
+    to: SendInput["to"],
+    text: string,
+  ) => Effect.Effect<void, SendError>;
   /** Resolves once a shared gather's close record reaches this member. */
   readonly awaitMemberResult: (
     id: string,
@@ -181,6 +201,7 @@ interface OpenGather {
   readonly groupAddress: Option.Option<GroupAddress>;
   readonly contributions: Map<AgentAddress, Content>;
   readonly complete: Deferred.Deferred<void>;
+  lastAccepted: Option.Option<InboundMessage>;
 }
 
 interface MemberView {
@@ -320,6 +341,9 @@ export function makeGatherOverlay(
       expiredRequest: 0,
     };
     const mintId = options.mintId ?? randomUUID;
+    const withholdsPeers =
+      options.respond !== undefined ||
+      options.withholdPeerContributions === true;
     const closeWait = Duration.millis(
       options.closeWaitMillis ?? DEFAULT_CLOSE_WAIT_MILLIS,
     );
@@ -394,6 +418,7 @@ export function makeGatherOverlay(
             contributions: new Map<AgentAddress, Content>(),
             missing: request.members,
             closeCertified: false,
+            lastAccepted: Option.none(),
           };
         }
         const groupAddress =
@@ -406,6 +431,7 @@ export function makeGatherOverlay(
           groupAddress,
           contributions: new Map(),
           complete: yield* Deferred.make<void>(),
+          lastAccepted: Option.none(),
         };
         openGathers.set(id, open);
         const sends = yield* Effect.forEach(
@@ -435,6 +461,7 @@ export function makeGatherOverlay(
             (member) => !contributions.has(member),
           ),
           closeCertified,
+          lastAccepted: open.lastAccepted,
         };
       });
     }
@@ -461,6 +488,7 @@ export function makeGatherOverlay(
           return Effect.succeed<DeliveryDisposition>("passthrough");
         }
         open.contributions.set(message.sender, message.content);
+        open.lastAccepted = Option.some(message);
         const finished = open.contributions.size === open.members.size;
         return (
           finished ? Deferred.succeed(open.complete, undefined) : Effect.void
@@ -479,7 +507,7 @@ export function makeGatherOverlay(
       if (counted) {
         view.contributions.set(message.sender, message.content);
       }
-      return options.respond === undefined ? "passthrough" : "consumed";
+      return withholdsPeers ? "consumed" : "passthrough";
     }
 
     function onContribution(
@@ -504,18 +532,17 @@ export function makeGatherOverlay(
      * An endpoint is never offered its own post, so a member keeps what it sent
      * and learns from the close record whether the initiator counted it.
      */
-    function sendOwnContribution(
-      observed: ObservedGatherRequest,
+    function contribute(
+      id: string,
+      to: SendInput["to"],
       text: string,
-    ): Effect.Effect<void> {
-      const content = contributionContent(observed.id, text);
-      const view = memberViews.get(observed.id);
+    ): Effect.Effect<void, SendError> {
+      const content = contributionContent(id, text);
+      const view = memberViews.get(id);
       if (view !== undefined && Option.isNone(view.ownContribution)) {
         view.ownContribution = Option.some(content);
       }
-      return options
-        .send({ to: observed.replyTo, content })
-        .pipe(Effect.ignore);
+      return options.send({ to, content });
     }
 
     function answer(
@@ -526,7 +553,8 @@ export function makeGatherOverlay(
         Effect.flatMap(
           Option.match({
             onNone: () => Effect.void,
-            onSome: (text) => sendOwnContribution(observed, text),
+            onSome: (text) =>
+              Effect.ignore(contribute(observed.id, observed.replyTo, text)),
           }),
         ),
         Effect.forkIn(scope),
@@ -605,10 +633,11 @@ export function makeGatherOverlay(
         }
         view.closed = true;
         const result = yield* memberResult(id);
-        yield* Deferred.succeed(
-          result,
-          listedContributions(view, control.included),
-        );
+        const listed = listedContributions(view, control.included);
+        yield* Deferred.succeed(result, listed);
+        if (options.onMemberResult !== undefined) {
+          yield* options.onMemberResult(listed, message);
+        }
         return "consumed";
       });
     }
@@ -648,6 +677,7 @@ export function makeGatherOverlay(
     return {
       gather,
       onDelivery,
+      contribute,
       awaitMemberResult: (id) =>
         memberResult(id).pipe(Effect.flatMap(Deferred.await)),
       counters: Effect.sync(() => ({ ...counts })),
