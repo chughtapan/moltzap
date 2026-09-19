@@ -28,6 +28,8 @@ import { Duration, Effect } from "effect";
 /** @type {"baseline" | "pairwise" | "shared"} */
 const ARM = "baseline";
 
+/** "shared" is the adapter default; "private" is the paper's E1 condition. */
+const MESSAGING_MODE = "shared";
 const MODEL_ID = "openai/gpt-5.6-sol";
 const OBSERVATION_WINDOW = Duration.minutes(5);
 const KICKOFF = "Can you set up next week's CSE455 staff meeting?";
@@ -160,7 +162,7 @@ function agent(name) {
     startupTimeout: Duration.minutes(5),
     historyExport: true,
     harvestWorkspaceFiles: ["CALENDAR.md"],
-    messagingMode: "private",
+    messagingMode: MESSAGING_MODE,
     modelId: MODEL_ID,
     tools: {
       allow: ["group:fs", "message"],
