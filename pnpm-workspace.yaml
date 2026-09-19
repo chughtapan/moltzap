@@ -1,5 +1,24 @@
+# Two TypeScript compilers, each with one version and one name.
+#
+# `@typescript/native` is TypeScript 7. Its `tsc` binary runs every compile
+# path: `tsc -b`, `tsc -p`, `tsc --noEmit` and the typecheck targets.
+#
+# `typescript` is `@typescript/typescript6`, the JavaScript compiler API that
+# ESLint, typedoc, knip, safer-architecture-lsp, eslint-plugin-sonarjs and the
+# scripts calling `ts.createProgram` load. typescript-eslint's `typescript` peer
+# range is `<6.1.0`, so these consumers stay on TypeScript 6. The two
+# `typescript` overrides route the packages that pin their own copy to it, so
+# the lockfile resolves no third compiler.
+#
+# All overrides live here; `package.json` carries none.
 packages:
   - "packages/*"
 
+catalog:
+  typescript: npm:@typescript/typescript6@6.0.2
+  "@typescript/native": npm:typescript@7.0.2
+
 overrides:
-  "eslint-plugin-sonarjs@4.0.3>typescript": "npm:@typescript/typescript6@6.0.2"
+  effect: 3.22.1
+  "@chughtapan/safer-architecture-lsp>typescript": "catalog:"
+  "eslint-plugin-sonarjs>typescript": "catalog:"
