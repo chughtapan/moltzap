@@ -1,14 +1,18 @@
-# Two TypeScript compilers, each with one version and one name.
+# Two TypeScript compilers, each pinned once.
 #
-# `@typescript/native` is TypeScript 7. Its `tsc` binary runs every compile
-# path: `tsc -b`, `tsc -p`, `tsc --noEmit` and the typecheck targets.
+# `@typescript/native` is TypeScript 7. Its `tsc` binary runs the repository's
+# own compile paths: `tsc -b`, `tsc -p`, `tsc --noEmit` and the typecheck
+# targets. The packed-consumer checks (scripts/test-nanoclaw-package.mjs,
+# scripts/test-openclaw-package.mjs, scripts/test/simulator-packages.mjs) are the
+# exception: they compile with a registry TypeScript 6.0.2 on purpose, to model
+# external consumers of the published declarations.
 #
-# `typescript` is `@typescript/typescript6`, the JavaScript compiler API that
-# ESLint, typedoc, knip, safer-architecture-lsp, eslint-plugin-sonarjs and the
-# scripts calling `ts.createProgram` load. typescript-eslint's `typescript` peer
-# range is `<6.1.0`, so these consumers stay on TypeScript 6. The two
-# `typescript` overrides route the packages that pin their own copy to it, so
-# the lockfile resolves no third compiler.
+# `typescript` is `@typescript/typescript6`, the compiler API for the tools and
+# scripts that load it: typescript-eslint (peer range `<6.1.0`), typedoc, knip,
+# safer-architecture-lsp, eslint-plugin-sonarjs and the scripts that load the
+# compiler API. The `typescript` overrides route the packages that pin their own
+# copy to it, and the `@typescript/old` override pins the copy it wraps, so the
+# lockfile resolves exactly TypeScript 6.0.3 and 7.0.2.
 #
 # All overrides live here; `package.json` carries none.
 packages:
@@ -22,3 +26,4 @@ overrides:
   effect: 3.22.1
   "@chughtapan/safer-architecture-lsp>typescript": "catalog:"
   "eslint-plugin-sonarjs>typescript": "catalog:"
+  "@typescript/typescript6>@typescript/old": "npm:typescript@6.0.3"
