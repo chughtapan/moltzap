@@ -7,6 +7,7 @@ import { test } from "node:test";
 import {
   CLAUDE_CODE_SHA256,
   CLAUDE_CODE_VERSION,
+  FINGERPRINTED_FILES,
 } from "../build-openclaw-image.mjs";
 
 const AGENT_DIRECTORY = "/opt/moltzap/agent/";
@@ -118,13 +119,18 @@ test("the image's managed Claude Code settings deny the tool that waits for a pe
     await sibling("Dockerfile"),
     /^COPY claude-code-managed-settings\.json \/etc\/claude-code\/managed-settings\.json$/mu,
   );
-  const build = await readFile(
-    new URL("../build-openclaw-image.mjs", import.meta.url),
-    "utf8",
-  );
-  assert.equal(
-    build.split('"claude-code-managed-settings.json"').length - 1,
-    3,
-    "the build stages the settings file and fingerprints it",
+});
+
+test("every file the Dockerfile copies from the build context decides the image tag", async () => {
+  const copied = (await sibling("Dockerfile"))
+    .split("\n")
+    .filter((line) => line.startsWith("COPY "))
+    .flatMap((line) => line.split(/\s+/u).slice(1, -1))
+    .filter((source) => source !== "tarballs");
+  assert.ok(copied.includes("claude-code-managed-settings.json"));
+  assert.ok(copied.includes("patch-openclaw.mjs"));
+  assert.deepEqual(
+    copied.filter((source) => !FINGERPRINTED_FILES.includes(source)),
+    [],
   );
 });

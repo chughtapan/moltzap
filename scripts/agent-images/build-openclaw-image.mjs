@@ -125,17 +125,27 @@ async function stage() {
   return root;
 }
 
+/**
+ * Staged files whose content decides the image tag, beside the package
+ * tarballs. A file the Dockerfile copies but this list omits changes the image
+ * without changing its tag.
+ * @type {readonly string[]}
+ */
+export const FINGERPRINTED_FILES = Object.freeze([
+  "Dockerfile",
+  "claude-code-managed-settings.json",
+  "entrypoint.mjs",
+  "host-command.json",
+  "host.sh",
+  "package.json",
+  "patch-openclaw.mjs",
+  "register-daemon.mjs",
+]);
+
 async function fingerprint(root) {
   const hash = createHash("sha256");
   const paths = [
-    "Dockerfile",
-    "claude-code-managed-settings.json",
-    "entrypoint.mjs",
-    "host-command.json",
-    "host.sh",
-    "package.json",
-    "patch-openclaw.mjs",
-    "register-daemon.mjs",
+    ...FINGERPRINTED_FILES,
     ...(await readdir(join(root, "tarballs"))).map(
       (name) => "tarballs/" + name,
     ),
