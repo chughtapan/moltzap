@@ -115,12 +115,13 @@ perspective-relative `agent:` address. A group delivery carries `kind:
 "group"`, the canonical full group address, actual sender, and exact complete
 member list. Adapters do not reconstruct those facts from host state.
 
-`acknowledge` is transport-only. The adapter runs it after the stock host
-inbound callback completes successfully. It contains no content, does not
-invoke a model, does not authorize output, and cannot acknowledge on behalf of
-another delivery. Unacknowledged delivery may replay with identical message
-identity. The host owns persistence, deduplication, and the effects of a
-replayed callback.
+`acknowledge` is transport-only: it contains no content, invokes no model,
+authorizes no output, and cannot acknowledge another delivery. Unacknowledged
+delivery may replay with identical message identity. Adapters must satisfy the
+[host-specific acceptance contract](./ingress.md#durable-acceptance): OpenClaw
+requires durable stable-PostId acceptance and replay safety; NanoClaw requires
+successful native callback completion. Host ownership does not waive those
+requirements.
 
 ## Closed failures
 
@@ -168,7 +169,7 @@ methods and cannot create a delivery or authorize output.
   recovery retains the persisted identity for one unfinished intent.
 - Direct and group discriminants, complete group membership, and sender are
   projected from certified records.
-- Lost acknowledgment replays one stable Client delivery. The host owns the
-  persistence and invocation effects of a repeated callback.
+- Lost acknowledgment replays one stable Client delivery; host qualification
+  establishes the [acceptance and replay requirements](./ingress.md#durable-acceptance).
 - No public export or MCP adapter path restores a retired turn-grant interface,
   public conversation identity, inherited target, or proof-shaped success.

@@ -41,9 +41,10 @@ The final `HarnessEndpoint` has these invariants:
   certified record;
 - inbound direct and group deliveries derive from complete certified records,
   identify the author and address, and carry no semantic reply authority; and
-- delivery acknowledgment follows successful completion of the stock native
-  host callback and cannot create a post; the host owns what persistence that
-  callback represents.
+- delivery acknowledgment cannot create a post and must follow the
+  [host-specific acceptance contract](../../docs/spec/harness/ingress.md#durable-acceptance):
+  OpenClaw durable acceptance/replay safety and NanoClaw successful callback
+  completion are distinct requirements, implemented by their hosts.
 
 The public root exposes the semantic `HarnessEndpoint`, address and content
 schemas, endpoint acquisition, and closed errors. It exposes no public

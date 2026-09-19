@@ -213,7 +213,8 @@ The stable Client invariants are:
 - send returns `void` only after local certified durability;
 - inbound direct/group delivery identifies canonical address and author, with
   exact members for groups and no reply authority;
-- delivery acknowledgment follows successful stock host callback completion;
+- delivery acknowledgment follows the
+  [host-specific acceptance contract](./harness/ingress.md#durable-acceptance);
 - complete action validity and durability evidence remain distinct and retain
   auditable signer AgentIds/signature bytes; and
 - fixed-member catch-up and Router re-anchor follow
@@ -366,15 +367,23 @@ With no active directed link-fault scope, Simulator delivers the exact
 This inactive path is the only Simulator path that may contribute
 Router-conformance evidence.
 
-An explicitly activated scope may select post-Router delivery by sender and
-recipient and drop, delay, hold, or reorder it before the recipient
-Client consumes it. Reordering permits a later Router delivery to pass an
-earlier held delivery. The fault layer does not alter message bytes, forge a
+Experiment code selects directed links, policies, and activation timing through
+the existing `LinkController` and `LinkPolicy` contracts. A policy returns
+`deliver`, `drop`, `delay`, or `hold` for post-Router delivery before the
+recipient Client consumes it. Active delivery preserves per-sender FIFO while
+allowing different senders to progress independently. For example, holding A's
+messages to B lets a later message from C reach B first. When A's hold clears,
+A's queued messages are released in sender order.
+
+This cross-sender overtaking is configured scenario behavior; the API has no
+arbitrary reorder operation. Faulted-path observations test endpoint fault
+tolerance and cannot establish Router conformance or a stronger production
+ordering guarantee. The fault layer does not alter message bytes, forge a
 message, change Router state or order, or create a Router callback.
 
 Interception and policy evaluation are private, run-scoped Simulator
 infrastructure. They are not a product service, public Router or Client
-extension, compatibility gateway, or MCP operation. The application container
+extension, compatibility gateway, or MCP operation. The application runtime
 receives only its loopback Client boundary and receives no fault-control
 endpoint, credential, configuration, network authority, signing material, or
 endpoint-store access. `RunLedger` may retain closed link-fault lifecycle
@@ -382,9 +391,11 @@ events and public semantic effects but no durable Router commit, position, or
 authoritative order.
 
 One simulation run owns one Registry and one Router. Every agent Sandbox Pod
-owns a restartable `moltzapd` sidecar, a per-agent persistent volume, and
-private signing/admission mounts; registration completes before the
-application starts. The application sees only
+runs the host and `moltzapd` in one application container, with a separate
+bootstrap init container and a per-agent persistent volume. Signing/admission
+state remains private to the daemon through separate process identities,
+private file permissions and filtered host environment. Registration completes
+before the host starts. The host accesses the Client only through
 `MOLTZAP_MCP_URL=http://127.0.0.1:<port>/mcp`.
 
 External evaluation applications execute through the daemon-backed Client.
@@ -426,8 +437,9 @@ runtimes own their session topology and cross-address context.
 - Simulator compatibility evidence covers all four facades, preserves every
   compatible declaration, and proves removal of the five incompatible
   contracts above.
-- Simulator runs one Registry and Router per run, one persistent daemon sidecar
-  per agent, and exposes only loopback MCP to application runtimes.
+- Simulator runs one Registry and Router per run and one application container
+  containing the host and daemon per agent, retains per-agent endpoint state,
+  and exposes only loopback MCP to the host.
 - Simulator fault tests prove transparent byte/order preservation with no
   active fault, each admitted post-Router perturbation under an explicit
   directed scope, and the absence of any runtime-facing fault control. A
@@ -464,9 +476,10 @@ and `@moltzap/simulator`. `@moltzap/nanoclaw-channel` stays private.
   proves the adapter compiles against the Client ABI in isolation; the image
   build copies its source rather than installing a tarball.
 
-## Deliberate deferrals
+## Consumer migration boundary
 
-External-consumer cutover remains unresolved. Nothing here authorizes an
-additional package, compatibility facade, or restoration of a removed Simulator
-contract. The post-Router Simulator link-fault boundary is a current decision,
-not a deferral.
+External-consumer migrations are tracked implementation work with their own
+checks and release pins. Publication does not establish that every consumer
+has migrated. Nothing here authorizes an additional package, compatibility
+facade, or restoration of a removed Simulator contract. The post-Router
+Simulator link-fault boundary remains a current decision.

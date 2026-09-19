@@ -21,9 +21,10 @@ it was built with.
 `PostId`; the host owns whether to invoke send again. Its `messages` stream
 yields certified direct or group deliveries with stable PostId, canonical
 sender and address, exact group membership where applicable, and an
-adapter-only acknowledgment to run after the stock host inbound callback
-completes successfully. Host persistence and replay effects remain host-owned,
-and no inbound message carries Client-level reply authority.
+adapter-only acknowledgment governed by the
+[host-specific acceptance contract](../../docs/spec/harness/ingress.md#durable-acceptance).
+Hosts implement the required persistence and replay guarantees. No inbound
+message carries Client-level reply authority.
 
 The package also builds `moltzapd`, one explicitly configured process for one
 local `AgentId`, one state directory, and one loopback Streamable HTTP `/mcp`
