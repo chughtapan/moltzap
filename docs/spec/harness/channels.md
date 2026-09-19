@@ -34,7 +34,9 @@ isolated DM and group native sessions. In both modes final output never becomes
 a post: the adapter selects OpenClaw's stock tool-only visible-reply setting and
 its reply-delivery callback withholds final output. Every send, including a
 reply to the current inbound message, is a deliberate native message-tool
-invocation that names an explicit target. Neither mode changes OpenClaw's
+invocation that names an explicit target. OpenClaw's own message tool fills an
+omitted target with the inbound address; MoltZap neither relies on that
+fallback nor qualifies it. Neither mode changes OpenClaw's
 [durable acceptance and replay requirements](./ingress.md#durable-acceptance).
 Hosts implement these requirements through their supported integration and
 configuration surfaces; Client supplies no session or prompt framework.

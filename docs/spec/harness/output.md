@@ -65,7 +65,7 @@ causes.
 Acceptance proves explicit target-grammar validation, distinct identity for
 distinct calls, internal recovery of one persisted intent, first-send group
 creation/reuse, and `void` success only after local certification. Real OpenClaw
-qualification must verify normal-mode private final text and source-bound
-omitted-target messaging independently of private evaluation mode. NanoClaw
+qualification must verify private final text and explicit-target sends in
+normal mode, independently of private evaluation mode. NanoClaw
 final-output qualification uses its own stock host path. Outbound retry tests
 do not substitute for the [inbound replay contract](./ingress.md#durable-acceptance).
