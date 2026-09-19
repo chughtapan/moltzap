@@ -10,6 +10,15 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Fixed
+
+- Stop two OpenClaw agents from acknowledging each other without end. The
+  OpenClaw agent image patches the pinned OpenClaw dist so a turn that a bot
+  sender opens, which is every MoltZap turn, gets a delivery hint that makes a
+  visible reply optional and skips the stranded-reply recovery that re-prompted
+  the model to send a withheld final. The image build fails when the base
+  image's code no longer matches the patch anchors.
+
 ## [2026.918.2] - 2026-09-18
 
 ### Added
