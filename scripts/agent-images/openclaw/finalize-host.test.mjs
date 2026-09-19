@@ -97,7 +97,8 @@ test("totals count model messages and leave delivery-mirror rows out", async () 
   const dirs = await fixture([]);
   try {
     const agent = await summaryOf(dirs);
-    assert.deepEqual(agent.transcriptTotals, {
+    assert.equal(agent.effectiveSource, "transcript");
+    assert.deepEqual(agent.effectiveTotals, {
       input: 6,
       output: 164,
       cacheRead: 59352,
@@ -120,7 +121,7 @@ test("one agent run is counted per user message", async () => {
   }
 });
 
-test("trajectory totals sum completed model calls only", async () => {
+test("a harness run takes its effective totals from completed trajectory calls", async () => {
   const dirs = await fixture([
     { type: "model.started", data: { usage: { input: 5 } } },
     {
@@ -130,15 +131,13 @@ test("trajectory totals sum completed model calls only", async () => {
   ]);
   try {
     const agent = await summaryOf(dirs);
-    assert.deepEqual(agent.trajectory, {
-      modelCalls: 1,
-      totals: {
-        input: 7251,
-        output: 60,
-        cacheRead: 0,
-        cacheWrite: 0,
-        reasoning: 16,
-      },
+    assert.equal(agent.effectiveSource, "trajectory");
+    assert.deepEqual(agent.effectiveTotals, {
+      input: 7251,
+      output: 60,
+      cacheRead: 0,
+      cacheWrite: 0,
+      reasoning: 16,
     });
   } finally {
     await rm(dirs.root, { recursive: true, force: true });

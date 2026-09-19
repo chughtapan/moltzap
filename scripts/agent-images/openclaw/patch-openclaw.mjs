@@ -12,14 +12,15 @@
  * turns a decision to stay silent into a post, and the posts acknowledge each
  * other without end.
  *
- * It also makes the recorded usage match what the model backend reports. A
- * CLI backend such as Claude Code streams one usage record per assistant
- * message and a cumulative total on its terminal `result`; OpenClaw keeps the
- * last streamed record as the run's usage and the total only as a diagnostic,
- * so a run with a tool call under-reports. The Codex harness writes usage only
- * on a final assistant text row, and a turn that ends on a tool call, as every
- * message-tool turn does, leaves the transcript with no usage at all. The last
- * streamed record stays as `lastCallUsage`, which sizes the context window.
+ * It also makes a CLI backend's recorded usage match what the backend reports.
+ * Claude Code streams one usage record per assistant message and a cumulative
+ * total on its terminal `result`; OpenClaw keeps the last streamed record as
+ * the run's usage and the total only as a diagnostic, so a run with a tool
+ * call under-reports. The last streamed record stays as `lastCallUsage`, which
+ * sizes the context window. The Codex harness has the opposite gap, no usage
+ * on a turn that ends on a tool call, but it mirrors the tool-call row into the
+ * transcript mid-turn under a stable identity, so a later rewrite is ignored;
+ * its usage is read from `trajectory_runtime_events` instead.
  *
  * The script edits the bundled dist in place with exact content anchors. Each
  * anchor must occur exactly once in exactly one file under the dist root, so a
@@ -219,15 +220,6 @@ export const EDITS = Object.freeze([
       "modelId: context.modelId,\n\t\t\t\t\tusage: output.usage,\n\t\t\t\t\tstopReason: resolveCliAssistantStopReason(output)\n",
     after:
       "modelId: context.modelId,\n\t\t\t\t\tusage: output.diagnosticUsage ?? output.usage,\n\t\t\t\t\tstopReason: resolveCliAssistantStopReason(output)\n",
-  },
-  {
-    id: "codex-tool-turn-usage",
-    description:
-      "a Codex turn that ends on a tool call records its usage on the last assistant transcript row",
-    before:
-      '\t});\n\tconst turnFailed = input.completedTurn?.status === "failed";\n',
-    after:
-      '\t});\n\tif (!lastAssistant && projectedUsage) for (let usageIndex = messagesSnapshot.length - 1; usageIndex >= 0; usageIndex -= 1) {\n\t\tconst usageRow = messagesSnapshot[usageIndex];\n\t\tif (usageRow?.role !== "assistant") continue;\n\t\tconst usageInput = projectedUsage.input ?? 0;\n\t\tconst usageOutput = projectedUsage.output ?? 0;\n\t\tconst usageCacheRead = projectedUsage.cacheRead ?? 0;\n\t\tconst usageCacheWrite = projectedUsage.cacheWrite ?? 0;\n\t\tmessagesSnapshot[usageIndex] = {\n\t\t\t...usageRow,\n\t\t\tusage: {\n\t\t\t\t...usageRow.usage,\n\t\t\t\tinput: usageInput,\n\t\t\t\toutput: usageOutput,\n\t\t\t\tcacheRead: usageCacheRead,\n\t\t\t\tcacheWrite: usageCacheWrite,\n\t\t\t\t...projectedUsage.reasoningTokens !== void 0 ? { reasoningTokens: projectedUsage.reasoningTokens } : {},\n\t\t\t\ttotalTokens: projectedUsage.total ?? usageInput + usageOutput + usageCacheRead + usageCacheWrite\n\t\t\t}\n\t\t};\n\t\tbreak;\n\t}\n\tconst turnFailed = input.completedTurn?.status === "failed";\n',
   },
   {
     id: "worker-cli-run-usage",
