@@ -98,6 +98,7 @@
       "executor": "nx:run-commands",
       "inputs": [
         "{workspaceRoot}/scripts/agent-images/openclaw/Dockerfile",
+        "{workspaceRoot}/scripts/agent-images/openclaw/claude-code-managed-settings.json",
         "{workspaceRoot}/scripts/agent-images/openclaw/host-command.json",
         "{workspaceRoot}/scripts/agent-images/openclaw/patch-openclaw.mjs"
       ],
