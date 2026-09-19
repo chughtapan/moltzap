@@ -1,4 +1,4 @@
-/** @file The OpenClaw image ships the host script its host command names, runs only a digest-verified Claude Code binary, and patches the OpenClaw dist before the plugin installs against it. */
+/** @file The OpenClaw image ships the host script its host command names, runs only a digest-verified Claude Code binary, denies the Claude Code tool that waits for a person, and patches the OpenClaw dist before the plugin installs against it. */
 
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -107,4 +107,24 @@ test("the Dockerfile patches the OpenClaw dist before the plugin installs agains
     new RegExp(`--marker ${AGENT_DIRECTORY}openclaw-patch\\.json`, "u"),
   );
   await sibling("patch-openclaw.mjs");
+});
+
+test("the image's managed Claude Code settings deny the tool that waits for a person", async () => {
+  const settings = JSON.parse(
+    await sibling("claude-code-managed-settings.json"),
+  );
+  assert.deepEqual(settings, { permissions: { deny: ["AskUserQuestion"] } });
+  assert.match(
+    await sibling("Dockerfile"),
+    /^COPY claude-code-managed-settings\.json \/etc\/claude-code\/managed-settings\.json$/mu,
+  );
+  const build = await readFile(
+    new URL("../build-openclaw-image.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.equal(
+    build.split('"claude-code-managed-settings.json"').length - 1,
+    3,
+    "the build stages the settings file and fingerprints it",
+  );
 });

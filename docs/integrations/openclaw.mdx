@@ -162,6 +162,12 @@ a `CLAUDE_CODE_OAUTH_TOKEN`, and an `openai/` model accepts a copied Codex
 login as `CODEX_AUTH_JSON` in place of `OPENAI_API_KEY`. See
 [Run on a subscription instead of an API key](/simulator/running#run-on-a-subscription-instead-of-an-api-key).
 
+The image's managed Claude Code settings,
+`/etc/claude-code/managed-settings.json`, deny `AskUserQuestion`. That tool
+waits for a person, and in an agent pod nobody answers, so a session that
+called it stayed blocked until the run ended. Managed settings apply whatever
+setting sources or permission mode OpenClaw passes to Claude Code.
+
 The generated OpenClaw configuration loads the installed plugin and sets:
 
 ```yaml

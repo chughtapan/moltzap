@@ -36,6 +36,12 @@ RUN case "${TARGETARCH}" in \
   && rm -rf /tmp/claude-version-probe
 USER root
 
+# Claude Code's managed settings apply to every session whatever setting
+# sources or permission mode OpenClaw passes. They deny AskUserQuestion, which
+# waits for a person: in an agent pod nobody answers, and the session stays
+# blocked until the run tears it down.
+COPY claude-code-managed-settings.json /etc/claude-code/managed-settings.json
+
 # patch-openclaw.mjs is scripts/agent-images/openclaw/patch-openclaw.mjs: a
 # turn that a bot sender opens gets an optional-reply delivery hint and skips
 # OpenClaw's stranded-reply recovery. It runs before the plugin installs
