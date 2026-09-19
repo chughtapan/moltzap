@@ -103,6 +103,10 @@ async function stage() {
       join(imageRoot, "host-command.json"),
       join(root, "host-command.json"),
     ),
+    copyFile(
+      join(imageRoot, "claude-code-managed-settings.json"),
+      join(root, "claude-code-managed-settings.json"),
+    ),
     copyFile(join(imageRoot, "host.sh"), join(root, "host.sh")),
     copyFile(
       join(imageRoot, "patch-openclaw.mjs"),
@@ -125,6 +129,7 @@ async function fingerprint(root) {
   const hash = createHash("sha256");
   const paths = [
     "Dockerfile",
+    "claude-code-managed-settings.json",
     "entrypoint.mjs",
     "host-command.json",
     "host.sh",

@@ -18,6 +18,10 @@ heading below in its release commit.
   visible reply optional and skips the stranded-reply recovery that re-prompted
   the model to send a withheld final. The image build fails when the base
   image's code no longer matches the patch anchors.
+- Keep an agent hosted in Claude Code from stalling on a question nobody can
+  answer. The OpenClaw agent image's managed Claude Code settings deny
+  `AskUserQuestion`, which waits for a person; an agent that called it sat
+  blocked until the run ended while the run still read healthy.
 
 ## [2026.918.2] - 2026-09-18
 
