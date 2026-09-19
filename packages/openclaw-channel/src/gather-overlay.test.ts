@@ -20,6 +20,7 @@ import {
 import { describe, expect } from "vitest";
 
 import {
+  closeContent,
   contributionContent,
   type GatherRequest,
   makeGatherOverlay,
@@ -513,7 +514,7 @@ describe("contributor side", () => {
 });
 
 describe("shared topology", () => {
-  it.scoped("posts one group request and a close record", () =>
+  it.scoped("posts a close record naming the contributors it counted", () =>
     Effect.gen(function* () {
       const { sent, send } = yield* makeRecordingSend;
       const overlay = yield* makeGatherOverlay({
@@ -534,8 +535,131 @@ describe("shared topology", () => {
       const close = yield* Queue.take(sent);
 
       expect(result.closeCertified).toBe(true);
-      expect(close.to).toBe(GROUP);
+      expect(close).toEqual({
+        to: GROUP,
+        content: closeContent(GATHER_ID, [ALICE, BOB]),
+      });
     }),
+  );
+
+  it.scoped(
+    "returns exactly the listed contributors when another answer arrives during the close wait",
+    () =>
+      Effect.gen(function* () {
+        const { sent, send } = yield* makeStalledSend;
+        const overlay = yield* makeGatherOverlay({
+          self: ROOT,
+          send,
+          mintId: () => GATHER_ID,
+          closeWaitMillis: 500,
+        });
+        const running = yield* Effect.forkScoped(overlay.gather(SHARED));
+        yield* Queue.take(sent);
+        yield* overlay.onDelivery(
+          deliver(groupMessage(ALICE, contributionContent(GATHER_ID, "Mon"))),
+        );
+        yield* TestClock.adjust(DEADLINE);
+        const close = yield* Queue.take(sent);
+
+        yield* overlay.onDelivery(
+          deliver(groupMessage(BOB, contributionContent(GATHER_ID, "Tue"))),
+        );
+        yield* TestClock.adjust(500);
+        const result = yield* Fiber.join(running);
+
+        expect(close.content).toEqual(closeContent(GATHER_ID, [ALICE]));
+        expect([...result.contributions.keys()]).toEqual([ALICE]);
+        expect(result.closeCertified).toBe(false);
+      }),
+  );
+
+  it.scoped(
+    "gives a member only the contributions the close record lists",
+    () =>
+      Effect.gen(function* () {
+        const { send } = yield* makeRecordingSend;
+        const overlay = yield* makeGatherOverlay({ self: BOB, send });
+        yield* overlay.onDelivery(
+          deliver(groupMessage(ROOT, requestContent(GATHER_ID, SHARED, GROUP))),
+        );
+        yield* overlay.onDelivery(
+          deliver(groupMessage(ALICE, contributionContent(GATHER_ID, "Mon"))),
+        );
+
+        yield* overlay.onDelivery(
+          deliver(groupMessage(ROOT, closeContent(GATHER_ID, []))),
+        );
+        const result = yield* overlay.awaitMemberResult(GATHER_ID);
+
+        expect([...result.keys()]).toEqual([]);
+      }),
+  );
+
+  it.scoped("gives a member a listed peer contribution", () =>
+    Effect.gen(function* () {
+      const { send } = yield* makeRecordingSend;
+      const overlay = yield* makeGatherOverlay({ self: BOB, send });
+      yield* overlay.onDelivery(
+        deliver(groupMessage(ROOT, requestContent(GATHER_ID, SHARED, GROUP))),
+      );
+      const monday = contributionContent(GATHER_ID, "Mon");
+      yield* overlay.onDelivery(deliver(groupMessage(ALICE, monday)));
+
+      yield* overlay.onDelivery(
+        deliver(groupMessage(ROOT, closeContent(GATHER_ID, [ALICE]))),
+      );
+      const result = yield* overlay.awaitMemberResult(GATHER_ID);
+
+      expect(result.get(ALICE)).toEqual(monday);
+    }),
+  );
+
+  it.scoped(
+    "counts a member's own listed contribution although it is never delivered to it",
+    () =>
+      Effect.gen(function* () {
+        const { sent, send } = yield* makeRecordingSend;
+        const overlay = yield* makeGatherOverlay({
+          self: BOB,
+          send,
+          respond: () => Effect.succeed(Option.some("Tue")),
+        });
+        yield* overlay.onDelivery(
+          deliver(groupMessage(ROOT, requestContent(GATHER_ID, SHARED, GROUP))),
+        );
+        yield* Queue.take(sent);
+
+        yield* overlay.onDelivery(
+          deliver(groupMessage(ROOT, closeContent(GATHER_ID, [BOB]))),
+        );
+        const result = yield* overlay.awaitMemberResult(GATHER_ID);
+
+        expect(result.get(BOB)).toEqual(contributionContent(GATHER_ID, "Tue"));
+      }),
+  );
+
+  it.scoped(
+    "leaves out a member's own contribution when the close record does not list it",
+    () =>
+      Effect.gen(function* () {
+        const { sent, send } = yield* makeRecordingSend;
+        const overlay = yield* makeGatherOverlay({
+          self: BOB,
+          send,
+          respond: () => Effect.succeed(Option.some("Tue")),
+        });
+        yield* overlay.onDelivery(
+          deliver(groupMessage(ROOT, requestContent(GATHER_ID, SHARED, GROUP))),
+        );
+        yield* Queue.take(sent);
+
+        yield* overlay.onDelivery(
+          deliver(groupMessage(ROOT, closeContent(GATHER_ID, []))),
+        );
+        const result = yield* overlay.awaitMemberResult(GATHER_ID);
+
+        expect(result.has(BOB)).toBe(false);
+      }),
   );
 
   it.scoped("reports an uncertified close when the group is stalled", () =>
@@ -558,60 +682,6 @@ describe("shared topology", () => {
     }),
   );
 
-  it.scoped("excludes a contribution ordered after the close record", () =>
-    Effect.gen(function* () {
-      const { send } = yield* makeRecordingSend;
-      const overlay = yield* makeGatherOverlay({ self: BOB, send });
-      yield* overlay.onDelivery(
-        deliver(groupMessage(ROOT, requestContent(GATHER_ID, SHARED, GROUP))),
-      );
-      yield* overlay.onDelivery(
-        deliver(
-          groupMessage(ROOT, [
-            {
-              type: "data",
-              value: { "moltzap.gather": { id: GATHER_ID, role: "close" } },
-            },
-          ]),
-        ),
-      );
-
-      yield* overlay.onDelivery(
-        deliver(groupMessage(ALICE, contributionContent(GATHER_ID, "Late"))),
-      );
-      const result = yield* overlay.awaitMemberResult(GATHER_ID);
-
-      expect([...result.keys()]).toEqual([]);
-    }),
-  );
-
-  it.scoped("includes a contribution ordered before the close record", () =>
-    Effect.gen(function* () {
-      const { send } = yield* makeRecordingSend;
-      const overlay = yield* makeGatherOverlay({ self: BOB, send });
-      yield* overlay.onDelivery(
-        deliver(groupMessage(ROOT, requestContent(GATHER_ID, SHARED, GROUP))),
-      );
-      yield* overlay.onDelivery(
-        deliver(groupMessage(ALICE, contributionContent(GATHER_ID, "Mon"))),
-      );
-
-      yield* overlay.onDelivery(
-        deliver(
-          groupMessage(ROOT, [
-            {
-              type: "data",
-              value: { "moltzap.gather": { id: GATHER_ID, role: "close" } },
-            },
-          ]),
-        ),
-      );
-      const result = yield* overlay.awaitMemberResult(GATHER_ID);
-
-      expect([...result.keys()]).toEqual([ALICE]);
-    }),
-  );
-
   it.scoped(
     "ignores a close record from a member that is not the initiator",
     () =>
@@ -623,14 +693,7 @@ describe("shared topology", () => {
         );
 
         const disposition = yield* overlay.onDelivery(
-          deliver(
-            groupMessage(ALICE, [
-              {
-                type: "data",
-                value: { "moltzap.gather": { id: GATHER_ID, role: "close" } },
-              },
-            ]),
-          ),
+          deliver(groupMessage(ALICE, closeContent(GATHER_ID, [ALICE]))),
         );
 
         expect(disposition).toBe("passthrough");

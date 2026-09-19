@@ -63,7 +63,9 @@ const GATHER_WINDOW = Duration.seconds(
 );
 const CLOSE_WAIT_MILLIS =
   Number(process.env["GATHER_CLOSE_WAIT_SECONDS"] ?? "5") * 1_000;
-const MEMBER_RESULT_WAIT = Duration.millis(CLOSE_WAIT_MILLIS + 3_000);
+const MEMBER_RESULT_WAIT = Duration.seconds(
+  Number(process.env["GATHER_MEMBER_WAIT_SECONDS"] ?? "40"),
+);
 const LIVENESS_WAIT = Duration.seconds(10);
 const HONEST_REPLY_DELAY = Duration.seconds(2);
 const LATE_MARGIN_MILLIS = 300;
