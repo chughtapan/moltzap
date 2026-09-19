@@ -37,6 +37,10 @@ jobs:
           echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-plugin-cache" >> "$GITHUB_ENV"
 
       - run: pnpm install --frozen-lockfile
+      - name: Verify pnpm-lock.yaml matches package.json and the catalog
+        run: |
+          pnpm install --lockfile-only --ignore-scripts
+          git diff --exit-code pnpm-lock.yaml
       - run: pnpm build
       # The four gates pack the five published packages and the NanoClaw
       # adapter, whose gate proves it still compiles against the Client ABI in
