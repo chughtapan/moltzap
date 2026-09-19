@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.919.0] - 2026-09-19
+
 ### Fixed
 
 - Stop two OpenClaw agents from acknowledging each other without end. The
