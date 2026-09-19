@@ -115,6 +115,7 @@ test("the image's managed Claude Code settings deny the tool that waits for a pe
     await sibling("claude-code-managed-settings.json"),
   );
   assert.deepEqual(settings, {
+    env: { ENABLE_TOOL_SEARCH: "false" },
     permissions: { deny: ["AskUserQuestion", "ListAgents", "SendMessage"] },
   });
   assert.match(
