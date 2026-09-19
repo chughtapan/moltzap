@@ -58,9 +58,12 @@ const REVISION = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
   encoding: "utf8",
 }).trim();
 
-const GATHER_WINDOW = Duration.seconds(12);
-const CLOSE_WAIT_MILLIS = 5_000;
-const MEMBER_RESULT_WAIT = Duration.seconds(8);
+const GATHER_WINDOW = Duration.seconds(
+  Number(process.env["GATHER_WINDOW_SECONDS"] ?? "12"),
+);
+const CLOSE_WAIT_MILLIS =
+  Number(process.env["GATHER_CLOSE_WAIT_SECONDS"] ?? "5") * 1_000;
+const MEMBER_RESULT_WAIT = Duration.millis(CLOSE_WAIT_MILLIS + 3_000);
 const LIVENESS_WAIT = Duration.seconds(10);
 const HONEST_REPLY_DELAY = Duration.seconds(2);
 const LATE_MARGIN_MILLIS = 300;
