@@ -174,7 +174,7 @@ function agent(name) {
     applicationImage: applicationImageFromEnvironment(),
     startupTimeout: Duration.minutes(5),
     historyExport: true,
-    harvestWorkspaceFiles: ["CALENDAR.md"],
+    harvestWorkspaceFiles: ["CALENDAR.md", "openclaw-usage.json"],
     messagingMode: MESSAGING_MODE,
     modelId: MODEL_ID,
     agentRuntime: "claude-cli",

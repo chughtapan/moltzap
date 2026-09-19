@@ -12,6 +12,15 @@
  * turns a decision to stay silent into a post, and the posts acknowledge each
  * other without end.
  *
+ * It also makes the recorded usage match what the model backend reports. A
+ * CLI backend such as Claude Code streams one usage record per assistant
+ * message and a cumulative total on its terminal `result`; OpenClaw keeps the
+ * last streamed record as the run's usage and the total only as a diagnostic,
+ * so a run with a tool call under-reports. The Codex harness writes usage only
+ * on a final assistant text row, and a turn that ends on a tool call, as every
+ * message-tool turn does, leaves the transcript with no usage at all. The last
+ * streamed record stays as `lastCallUsage`, which sizes the context window.
+ *
  * The script edits the bundled dist in place with exact content anchors. Each
  * anchor must occur exactly once in exactly one file under the dist root, so a
  * base image whose code moved fails the image build instead of shipping
@@ -193,6 +202,49 @@ export const EDITS = Object.freeze([
       "if(Ot.inboundEventKind===`user_request`&&Ot.sourceReplyDeliveryMode===`message_tool_only`)return Ot.sessionCtx?.SenderIsBot===!0?" +
       JSON.stringify(BOT_SENDER_DELIVERY_HINT) +
       ":MESSAGE_TOOL_ONLY_DELIVERY_HINT",
+  },
+  {
+    id: "cli-run-usage",
+    description:
+      "a CLI-backend run reports the backend's terminal usage totals, not its last streamed record",
+    before: "...preparedContextAgentMeta,\n\t\t\t\tusage: output.usage,\n",
+    after:
+      "...preparedContextAgentMeta,\n\t\t\t\tusage: output.diagnosticUsage ?? output.usage,\n",
+  },
+  {
+    id: "cli-transcript-usage",
+    description:
+      "a CLI-backend assistant transcript row records the backend's terminal usage totals",
+    before:
+      "modelId: context.modelId,\n\t\t\t\t\tusage: output.usage,\n\t\t\t\t\tstopReason: resolveCliAssistantStopReason(output)\n",
+    after:
+      "modelId: context.modelId,\n\t\t\t\t\tusage: output.diagnosticUsage ?? output.usage,\n\t\t\t\t\tstopReason: resolveCliAssistantStopReason(output)\n",
+  },
+  {
+    id: "codex-tool-turn-usage",
+    description:
+      "a Codex turn that ends on a tool call records its usage on the last assistant transcript row",
+    before:
+      '\t});\n\tconst turnFailed = input.completedTurn?.status === "failed";\n',
+    after:
+      '\t});\n\tif (!lastAssistant && projectedUsage) for (let usageIndex = messagesSnapshot.length - 1; usageIndex >= 0; usageIndex -= 1) {\n\t\tconst usageRow = messagesSnapshot[usageIndex];\n\t\tif (usageRow?.role !== "assistant") continue;\n\t\tconst usageInput = projectedUsage.input ?? 0;\n\t\tconst usageOutput = projectedUsage.output ?? 0;\n\t\tconst usageCacheRead = projectedUsage.cacheRead ?? 0;\n\t\tconst usageCacheWrite = projectedUsage.cacheWrite ?? 0;\n\t\tmessagesSnapshot[usageIndex] = {\n\t\t\t...usageRow,\n\t\t\tusage: {\n\t\t\t\t...usageRow.usage,\n\t\t\t\tinput: usageInput,\n\t\t\t\toutput: usageOutput,\n\t\t\t\tcacheRead: usageCacheRead,\n\t\t\t\tcacheWrite: usageCacheWrite,\n\t\t\t\t...projectedUsage.reasoningTokens !== void 0 ? { reasoningTokens: projectedUsage.reasoningTokens } : {},\n\t\t\t\ttotalTokens: projectedUsage.total ?? usageInput + usageOutput + usageCacheRead + usageCacheWrite\n\t\t\t}\n\t\t};\n\t\tbreak;\n\t}\n\tconst turnFailed = input.completedTurn?.status === "failed";\n',
+  },
+  {
+    id: "worker-cli-run-usage",
+    description:
+      "worker bundle: a CLI-backend run reports the backend's terminal usage totals",
+    before: "...Ln,usage:Fn.usage,...Fn.usage?{lastCallUsage:Fn.usage}:{}",
+    after:
+      "...Ln,usage:Fn.diagnosticUsage??Fn.usage,...Fn.usage?{lastCallUsage:Fn.usage}:{}",
+  },
+  {
+    id: "worker-cli-transcript-usage",
+    description:
+      "worker bundle: a CLI-backend assistant transcript row records the backend's terminal usage totals",
+    before:
+      "modelId:Ot.modelId,usage:Ln.usage,stopReason:resolveCliAssistantStopReason(Ln)})",
+    after:
+      "modelId:Ot.modelId,usage:Ln.diagnosticUsage??Ln.usage,stopReason:resolveCliAssistantStopReason(Ln)})",
   },
 ]);
 

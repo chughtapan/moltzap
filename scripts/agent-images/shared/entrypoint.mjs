@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** PID 1 for an agent image containing an agent host and moltzapd. */
 
-import { createWriteStream } from "node:fs";
+import { createWriteStream, existsSync } from "node:fs";
 import { finished } from "node:stream/promises";
 import { spawn } from "node:child_process";
 import {
@@ -16,7 +16,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DEFAULT_HOST_COMMAND_PATH = "/opt/moltzap/agent/host-command.json";
@@ -47,6 +47,7 @@ const REGISTRATION_ENVIRONMENT_KEYS = Object.freeze([
   "MOLTZAP_REGISTRATION_OPERATION_ID",
   "MOLTZAP_REGISTRATION_PRINCIPAL_ID",
 ]);
+const HOST_FINALIZER_TIMEOUT_MS = 20_000;
 const BASE_ENVIRONMENT_KEYS = Object.freeze([
   "LANG",
   "LC_ALL",
@@ -103,6 +104,32 @@ function hostEnvironment(environment) {
     ),
     ...(agentName === undefined ? {} : { MOLTZAP_AGENT_NAME: agentName }),
   };
+}
+
+/**
+ * An image may ship `finalize-host.mjs` beside this file to save what the host
+ * left behind, for example a usage summary read from its database. It runs
+ * after the host has stopped, so nothing else holds the host's files, and a
+ * failure or a slow run never blocks finalization.
+ */
+async function runHostFinalizer() {
+  const script = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "finalize-host.mjs",
+  );
+  if (!existsSync(script)) return;
+  const child = spawn(process.execPath, [script], {
+    stdio: ["ignore", "ignore", "inherit"],
+  });
+  const timer = setTimeout(
+    () => child.kill("SIGKILL"),
+    HOST_FINALIZER_TIMEOUT_MS,
+  );
+  await new Promise((resolve) => {
+    child.once("exit", resolve);
+    child.once("error", resolve);
+  });
+  clearTimeout(timer);
 }
 
 async function chownTree(path, uid, gid) {
@@ -382,6 +409,7 @@ export async function runAgentImage(environment = process.env) {
       const started = process.hrtime.bigint();
       await terminate(host);
       const hostStoppedAt = new Date().toISOString();
+      await runHostFinalizer();
       await terminate(daemon);
       await drainLogs(logDrains);
       await writeFile(

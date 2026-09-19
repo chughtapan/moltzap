@@ -109,6 +109,10 @@ async function stage() {
     ),
     copyFile(join(imageRoot, "host.sh"), join(root, "host.sh")),
     copyFile(
+      join(imageRoot, "finalize-host.mjs"),
+      join(root, "finalize-host.mjs"),
+    ),
+    copyFile(
       join(imageRoot, "patch-openclaw.mjs"),
       join(root, "patch-openclaw.mjs"),
     ),
@@ -135,6 +139,7 @@ export const FINGERPRINTED_FILES = Object.freeze([
   "Dockerfile",
   "claude-code-managed-settings.json",
   "entrypoint.mjs",
+  "finalize-host.mjs",
   "host-command.json",
   "host.sh",
   "package.json",
