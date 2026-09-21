@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { MODEL_USAGE_SCHEMA } from "../shared/entrypoint.mjs";
 
 const FINALIZER = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -229,6 +230,17 @@ test("a CLI run with no transcript row reports unknown tokens, not zero", async 
   assert.equal(alice.status, "partial");
 });
 
+test("an agent whose tokens are unknown reports no total rather than zero", async () => {
+  const alice = await aliceAfter({
+    rows: [],
+    claudeSession: [
+      claudeLine("msg_1", { input_tokens: 3, output_tokens: 40 }),
+    ],
+  });
+
+  assert.equal(alice.totals, null);
+});
+
 test("an embedded provider's tokens are the sum of its transcript rows", async () => {
   const alice = await aliceAfter({
     rows: [EMBEDDED_ROW, EMBEDDED_ROW],
@@ -244,6 +256,14 @@ test("an embedded provider's tokens are the sum of its transcript rows", async (
     origin: "openclaw-catalog",
   });
   assert.equal(alice.status, "ok");
+});
+
+test("an embedded row that states no usage leaves the bucket partial", async () => {
+  const alice = await aliceAfter({
+    rows: [EMBEDDED_ROW, { ...EMBEDDED_ROW, usage: undefined }],
+  });
+
+  assert.equal(alice.buckets[0].coverage, "partial");
 });
 
 test("a repeated embedded completion shows as a disagreement and does not double the total", async () => {
@@ -315,6 +335,19 @@ test("Codex without a rollout reports coverage it cannot know", async () => {
   assert.equal(alice.status, "partial");
 });
 
+test("a Codex rollout that counts nothing reports coverage it cannot know", async () => {
+  const alice = await aliceAfter({
+    rows: [CODEX_ROW],
+    codexHarness: true,
+    trajectory: [completed({ input: 400, output: 20 })],
+    rollout: [
+      JSON.stringify({ type: "event_msg", payload: { type: "other" } }),
+    ],
+  });
+
+  assert.equal(alice.buckets[0].coverage, "unknown");
+});
+
 test("an embedded model call outside a run attempt is noted, not a disagreement", async () => {
   const alice = await aliceAfter({
     rows: [EMBEDDED_ROW, EMBEDDED_ROW],
@@ -380,8 +413,18 @@ test("a state directory without agents prints an empty summary", async () => {
   try {
     const summary = await summaryOf(join(root, "missing"));
 
-    assert.equal(summary.schema, "moltzap.agent-model-usage/v1");
     assert.deepEqual(summary.agents, []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the summary carries the tag the entrypoint keeps it for", async () => {
+  const root = await mkdtemp(join(tmpdir(), "finalize-host-test-"));
+  try {
+    const summary = await summaryOf(join(root, "missing"));
+
+    assert.equal(summary.schema, MODEL_USAGE_SCHEMA);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

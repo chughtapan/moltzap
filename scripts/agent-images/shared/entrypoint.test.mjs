@@ -355,6 +355,31 @@ test("a host finalizer that prints something other than a summary leaves a failu
   );
 });
 
+test("a summary carrying another schema leaves a failure record", async () => {
+  const app = await fixture({ hostWait: true });
+  const usage = await finalizeWithModelUsage(app, [
+    `process.stdout.write(${JSON.stringify(JSON.stringify({ schema: "other/v1", agents: [] }))});`,
+  ]);
+
+  assert.equal(
+    JSON.parse(await readFile(usage, "utf8")).reason,
+    "unexpected schema",
+  );
+});
+
+test("a summary is not written through a symlink left where it is staged", async () => {
+  const app = await fixture({ hostWait: true });
+  const decoy = join(app.root, "decoy.json");
+  await writeFile(decoy, "untouched");
+  await mkdir(join(app.root, "logs"), { recursive: true });
+  await symlink(decoy, join(app.root, "logs", "model-usage.json.partial"));
+  await finalizeWithModelUsage(app, [
+    `process.stdout.write(${JSON.stringify(OK_SUMMARY)});`,
+  ]);
+
+  assert.equal(await readFile(decoy, "utf8"), "untouched");
+});
+
 test("a host finalizer that exits non-zero leaves a failure record", async () => {
   const app = await fixture({ hostWait: true });
   const usage = await finalizeWithModelUsage(app, ["process.exitCode = 3;"]);
