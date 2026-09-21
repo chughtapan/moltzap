@@ -218,15 +218,14 @@ function codexSessions(database) {
 
 /**
  * @param {DatabaseSync} database An agent database.
- * @returns {{tokens: Record<string, number>, completions: number, multiIteration: boolean}}
+ * @returns {{tokens: Record<string, number>, completions: number}}
  *     Every `model.completed` in the trajectory, summed as recorded.
  */
 function trajectoryUsage(database) {
   const tokens = zeroTokens();
   let completions = 0;
-  let multiIteration = false;
   if (!hasTable(database, "trajectory_runtime_events")) {
-    return { tokens, completions, multiIteration };
+    return { tokens, completions };
   }
   const rows = database
     .prepare("SELECT event_json FROM trajectory_runtime_events ORDER BY seq")
@@ -236,9 +235,35 @@ function trajectoryUsage(database) {
     if (event.type !== "model.completed") continue;
     completions += 1;
     addTokens(tokens, fromOpenClawUsage(event.data?.usage ?? {}));
-    if (Number(event.data?.modelIterations ?? 1) > 1) multiIteration = true;
   }
-  return { tokens, completions, multiIteration };
+  return { tokens, completions };
+}
+
+/**
+ * The trajectory is a subset source. OpenClaw records one completion per Codex
+ * turn carrying only the turn's last response, and records none for a model
+ * call made outside a run attempt, such as the embedded harness's isolated
+ * finalization. A trajectory at or below the primary is therefore consistent
+ * with it, and only a trajectory above the primary means the primary missed
+ * usage.
+ * @param {Record<string, number>} primary The bucket's reported tokens.
+ * @param {{tokens: Record<string, number>, completions: number}} trajectory
+ *     The agent's trajectory usage.
+ * @param {string} behindNote What a trajectory below the primary means here.
+ * @returns {object} The bucket's cross-check.
+ */
+function trajectoryCrossCheck(primary, trajectory, behindNote) {
+  if (trajectory.completions === 0) {
+    return { source: "trajectory", tokens: null, agrees: null, note: null };
+  }
+  const same = sameBilledTokens(primary, trajectory.tokens);
+  const agrees = same || noneAbove(trajectory.tokens, primary);
+  return {
+    source: "trajectory",
+    tokens: trajectory.tokens,
+    agrees,
+    note: agrees && !same ? behindNote : null,
+  };
 }
 
 /**
@@ -325,31 +350,20 @@ function reportBucket(bucket, native) {
   };
   if (bucket.backend === "codex") {
     const rollout = native.codex;
-    const agrees =
-      rollout === null
-        ? null
-        : native.trajectory.multiIteration
-          ? noneAbove(native.trajectory.tokens, rollout.tokens)
-          : sameBilledTokens(native.trajectory.tokens, rollout.tokens);
     return {
       ...base,
       source: rollout === null ? "trajectory" : "codex-rollout",
       tokens: rollout === null ? native.trajectory.tokens : rollout.tokens,
       reportedCost: null,
-      coverage:
-        rollout !== null
-          ? "complete"
-          : native.trajectory.multiIteration
-            ? "partial"
-            : "unknown",
-      crossCheck: {
-        source: "trajectory",
-        tokens: native.trajectory.tokens,
-        agrees,
-        note: native.trajectory.multiIteration
-          ? "trajectory holds last response only"
-          : null,
-      },
+      coverage: rollout === null ? "unknown" : "complete",
+      crossCheck:
+        rollout === null
+          ? { source: "trajectory", tokens: null, agrees: null, note: null }
+          : trajectoryCrossCheck(
+              rollout.tokens,
+              native.trajectory,
+              "trajectory holds last response only",
+            ),
     };
   }
   if (bucket.backend === "cli") {
@@ -382,16 +396,11 @@ function reportBucket(bucket, native) {
       ? { usd: bucket.catalogCostUsd, origin: "openclaw-catalog" }
       : null,
     coverage: "complete",
-    crossCheck: {
-      source: "trajectory",
-      tokens:
-        native.trajectory.completions > 0 ? native.trajectory.tokens : null,
-      agrees:
-        native.trajectory.completions > 0
-          ? sameBilledTokens(bucket.tokens, native.trajectory.tokens)
-          : null,
-      note: null,
-    },
+    crossCheck: trajectoryCrossCheck(
+      bucket.tokens,
+      native.trajectory,
+      "trajectory omits model calls made outside a run attempt",
+    ),
   };
 }
 
