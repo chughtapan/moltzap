@@ -487,6 +487,98 @@ describe("OpenClaw history export", () => {
   test("leaves the daemon export off by default", noHistoryExportTest);
 });
 
+const modelUsageProjection = Schema.Struct({
+  modelUsage: Schema.optional(Schema.Boolean),
+});
+
+function renderModelUsage() {
+  const runtime = openClawRuntime({
+    applicationImage: APPLICATION_IMAGE,
+    modelUsage: true,
+  });
+  return Effect.map(
+    containerRuntimeFor(runtime).render({ agentName: AGENT_NAME }),
+    (application) => ({ runtime, application }),
+  );
+}
+
+function modelUsageEnvironmentTest() {
+  return Effect.gen(function* () {
+    const { application } = yield* renderModelUsage();
+
+    assert.strictEqual(
+      application.environment.MOLTZAP_AGENT_IMAGE_MODEL_USAGE,
+      "/var/run/moltzap/model-usage.json",
+    );
+  });
+}
+
+function modelUsageHarvestTest() {
+  return Effect.gen(function* () {
+    const { application } = yield* renderModelUsage();
+
+    assert.deepStrictEqual(application.harvest, [
+      {
+        relativePath: "moltzap-model-usage.json",
+        path: "/var/run/moltzap/model-usage.json",
+        limitBytes: 1_048_576,
+      },
+    ]);
+  });
+}
+
+function modelUsageRetainedTest() {
+  return Effect.gen(function* () {
+    const { application } = yield* renderModelUsage();
+
+    assert.include(
+      application.logs.map((log) => log.relativePath),
+      "moltzap-model-usage.json",
+    );
+  });
+}
+
+function modelUsageRecordedTest() {
+  return Effect.gen(function* () {
+    const { runtime } = yield* renderModelUsage();
+
+    assert.isTrue(
+      Schema.decodeUnknownSync(modelUsageProjection)(
+        runtimeConfigurationProjection(runtime),
+      ).modelUsage,
+    );
+  });
+}
+
+function noModelUsageTest() {
+  return Effect.gen(function* () {
+    const { runtime, application } = yield* renderHarvest();
+
+    assert.notProperty(
+      application.environment,
+      "MOLTZAP_AGENT_IMAGE_MODEL_USAGE",
+    );
+    assert.notProperty(runtimeConfigurationProjection(runtime), "modelUsage");
+  });
+}
+
+describe("OpenClaw model usage", () => {
+  test(
+    "tells the agent image where to write the summary",
+    modelUsageEnvironmentTest,
+  );
+  test("harvests the summary under its reserved label", modelUsageHarvestTest);
+  test(
+    "retains the whole summary beside the native logs",
+    modelUsageRetainedTest,
+  );
+  test(
+    "records the setting in the runtime configuration",
+    modelUsageRecordedTest,
+  );
+  test("asks for no summary by default and records nothing", noModelUsageTest);
+});
+
 function renderWithModel(modelId?: string) {
   return containerRuntimeFor(
     openClawRuntime({

@@ -50,6 +50,13 @@ const HISTORY_EXPORT_VARIABLE = "MOLTZAPD_HISTORY_EXPORT";
 /** How the ledger names the harvested export, beside experiment-declared files. */
 const HISTORY_EXPORT_LABEL = "moltzap-history.ndjson";
 
+/** Where the agent image's entrypoint writes the model-usage summary. */
+const MODEL_USAGE_PATH = "/var/run/moltzap/model-usage.json";
+/** The entrypoint input that turns the summary on. */
+const MODEL_USAGE_VARIABLE = "MOLTZAP_AGENT_IMAGE_MODEL_USAGE";
+/** How the ledger names the harvested summary. */
+const MODEL_USAGE_LABEL = "moltzap-model-usage.json";
+
 const harvestPaths = Schema.Array(workspaceRelativePath).pipe(
   Schema.filter(
     (paths) => paths.every((path) => path !== HISTORY_EXPORT_LABEL),
@@ -58,6 +65,10 @@ const harvestPaths = Schema.Array(workspaceRelativePath).pipe(
         `"${HISTORY_EXPORT_LABEL}" is the daemon transcript's own label and cannot name a harvested file`,
     },
   ),
+  Schema.filter((paths) => paths.every((path) => path !== MODEL_USAGE_LABEL), {
+    message: () =>
+      `"${MODEL_USAGE_LABEL}" is the model-usage summary's own label and cannot name a harvested file`,
+  }),
   Schema.filter((paths) => new Set(paths).size === paths.length, {
     message: () => "harvested workspace paths must be distinct",
   }),
@@ -227,6 +238,40 @@ export function historyExport(enabled: boolean): HistoryExportRendering {
     ? {
         harvest: [HISTORY_EXPORT_TARGET],
         environment: { [HISTORY_EXPORT_VARIABLE]: HISTORY_EXPORT_PATH },
+      }
+    : { harvest: [], environment: {} };
+}
+
+/**
+ * What an application carries when its model usage is summarized: the harvest
+ * target the ledger reads the summary back through, and the entrypoint input
+ * that turns it on. Both are empty when it is not.
+ */
+export interface ModelUsageRendering {
+  readonly harvest: readonly HarvestTarget[];
+  readonly environment: Readonly<Record<string, string>>;
+}
+
+const MODEL_USAGE_TARGET: HarvestTarget = Object.freeze({
+  relativePath: MODEL_USAGE_LABEL,
+  path: MODEL_USAGE_PATH,
+  limitBytes: MAX_HARVESTED_EXPORT_BYTES,
+});
+
+/**
+ * Render one runtime's model-usage setting for the application it builds. The
+ * agent image's entrypoint writes the summary when the host stops, outside
+ * every directory the agent can write, so the label is reserved: an
+ * experiment-declared file of that name would be the agent's own claim about
+ * what it used. The summary is one agent's totals and a bounded list of its
+ * model messages, so it shares the transcript's bound rather than a grader
+ * file's.
+ */
+export function modelUsage(enabled: boolean): ModelUsageRendering {
+  return enabled
+    ? {
+        harvest: [MODEL_USAGE_TARGET],
+        environment: { [MODEL_USAGE_VARIABLE]: MODEL_USAGE_PATH },
       }
     : { harvest: [], environment: {} };
 }

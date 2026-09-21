@@ -50,6 +50,7 @@ function agent(options) {
     applicationImage: applicationImageFromEnvironment(),
     startupTimeout: Duration.minutes(5),
     historyExport: true,
+    modelUsage: true,
     tools,
     workspaceFiles: [{ relativePath: "AGENTS.md", content: instructions }],
     ...options,
