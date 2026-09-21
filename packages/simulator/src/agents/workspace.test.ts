@@ -100,6 +100,13 @@ describe("snapshotHarvestPaths", () => {
       /daemon transcript/u,
     );
   });
+
+  it("refuses the model-usage summary's own label", () => {
+    assert.throws(
+      () => snapshotHarvestPaths(["moltzap-model-usage.json"]),
+      /model-usage summary/u,
+    );
+  });
 });
 
 describe("harvestTargets", () => {

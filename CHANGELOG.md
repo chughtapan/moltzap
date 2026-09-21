@@ -12,6 +12,15 @@ heading below in its release commit.
 
 ### Added
 
+- Measure what a run's agents cost. `modelUsage: true` on `openClawRuntime`
+  harvests each agent's `moltzap.agent-model-usage/v1` summary as
+  `moltzap-model-usage.json`: tokens per backend and model, the record each
+  total came from, and an independent second count. Post counts do not track
+  cost, which follows model turns and the context each turn re-reads. The name
+  is reserved, so `harvestWorkspaceFiles` refuses it. Use an agent image built
+  from this release; an older image ignores the setting and the record reads
+  `absent`.
+
 - The OpenClaw agent image can summarize what each agent's model used. When
   `MOLTZAP_AGENT_IMAGE_MODEL_USAGE` names a path, the entrypoint runs the
   image's host finalizer as the host user once the host has stopped and writes

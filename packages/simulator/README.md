@@ -117,6 +117,29 @@ reports `oversize`. The agent-eye view
 is that agent's `inbound` records; the wire view is the union of every agent's
 `outbound` records, joined to recipients by `postId`.
 
+## Model usage
+
+Post counts do not track cost: an agent's cost follows its model turns and the
+context each turn re-reads. Set `modelUsage: true` on the OpenClaw runtime to
+have the agent image summarize what each agent's model used. The image's
+entrypoint writes the summary to `/var/run/moltzap/model-usage.json` once the
+host has stopped, and the file is harvested under the reserved name
+`moltzap-model-usage.json` with a 1 MiB bound, as one
+`AgentWorkspaceFileHarvested` record whose `text` is JSON with schema
+`moltzap.agent-model-usage/v1`. The native artifact export retains the whole
+file too. An experiment cannot declare that name in `harvestWorkspaceFiles`: a
+workspace file of that name would be the agent's own claim about its usage.
+
+The summary groups tokens into one bucket per backend and model. Each bucket
+names the record its total came from, carries a second independent count, and
+says whether the two agree, so a reader can see a disagreement rather than
+trust one number. It reports `null`, never zero, for a value it could not
+establish, and carries no price: price tokens against a table you can date.
+The entrypoint owns the summary's path, which the agent cannot write, but the
+records it is read from belong to the agent's host user, and the summary's
+`integrity` field says so. `docs/integrations/openclaw.mdx` describes the
+sources per backend. NanoClaw has no usage record and no such option.
+
 ## Fault scenarios
 
 Experiment code owns directed-link policies and activation timing through
