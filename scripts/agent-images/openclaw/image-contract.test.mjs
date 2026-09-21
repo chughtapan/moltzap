@@ -9,6 +9,7 @@ import {
   CLAUDE_CODE_VERSION,
   FINGERPRINTED_FILES,
 } from "../build-openclaw-image.mjs";
+import { DEFAULT_HOST_FINALIZER } from "../shared/entrypoint.mjs";
 
 const AGENT_DIRECTORY = "/opt/moltzap/agent/";
 
@@ -45,6 +46,16 @@ test("the host command runs a script the Dockerfile copies into the agent direct
   );
   assert.ok(copied.includes("host-command.json"));
   await sibling(posix.basename(command[1]));
+});
+
+test("the Dockerfile copies the host finalizer to the path the entrypoint runs", async () => {
+  const copied = copiedIntoAgentDirectory(await sibling("Dockerfile"));
+
+  assert.equal(posix.dirname(DEFAULT_HOST_FINALIZER) + "/", AGENT_DIRECTORY);
+  assert.ok(
+    copied.includes(posix.basename(DEFAULT_HOST_FINALIZER)),
+    `Dockerfile copies ${copied.join(", ")} and not the host finalizer`,
+  );
 });
 
 test("the Dockerfile runs only a Claude Code binary that matches the build script's digest", async () => {
