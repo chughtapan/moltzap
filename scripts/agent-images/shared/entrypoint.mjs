@@ -29,7 +29,12 @@ const DEFAULT_SECRET_DIRECTORY = "/var/run/moltzap/daemon";
 const DEFAULT_STATE_DIRECTORY = "/var/lib/moltzap/endpoint";
 const DEFAULT_HOST_USER_ID = 1_000;
 const DEFAULT_DAEMON_USER_ID = 1_001;
-const DEFAULT_HOST_FINALIZER = "/opt/moltzap/agent/finalize-host.mjs";
+/**
+ * Where an image that summarizes model usage installs its finalizer. An image
+ * without one leaves a failure record, so each image that ships one asserts
+ * its Dockerfile copies this name.
+ */
+export const DEFAULT_HOST_FINALIZER = "/opt/moltzap/agent/finalize-host.mjs";
 const DEFAULT_HOST_FINALIZER_TIMEOUT_MILLIS = 20_000;
 /**
  * The tag a host finalizer's summary must carry, so it must stay equal to
