@@ -41,7 +41,7 @@ const DEFAULT_HOST_FINALIZER_TIMEOUT_MILLIS = 20_000;
  * `SCHEMA` in the image's finalizer, such as `openclaw/finalize-host.mjs`.
  * Importing it from one image's script would tie every image to that image.
  */
-const MODEL_USAGE_SCHEMA = "moltzap.agent-model-usage/v1";
+export const MODEL_USAGE_SCHEMA = "moltzap.agent-model-usage/v1";
 /** The simulator reads this file with a 1 MiB bound. */
 const MAXIMUM_MODEL_USAGE_BYTES = 1_024 * 1_024;
 const SHUTDOWN_GRACE_MILLIS = 5_000;
@@ -181,6 +181,12 @@ async function collectModelUsage(options, environment) {
 }
 
 /**
+ * Stage the summary and move it into place.
+ *
+ * The staged write refuses a path that already exists, so this process, PID 1,
+ * never follows a symlink someone else left where it writes; the move replaces
+ * whatever the destination names rather than writing through it.
+ *
  * @param {ReturnType<typeof runtimeOptions>} options Entrypoint options.
  * @param {NodeJS.ProcessEnv} environment The container environment.
  * @returns {Promise<void>}
@@ -197,7 +203,7 @@ async function writeModelUsage(options, environment) {
       agents: [],
     });
   const staged = options.modelUsage + ".partial";
-  await writeFile(staged, body, { mode: 0o600 });
+  await writeFile(staged, body, { flag: "wx", mode: 0o600 });
   await rename(staged, options.modelUsage);
 }
 
