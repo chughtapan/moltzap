@@ -160,16 +160,17 @@ function claudeSessionUsage(stateDirectory) {
  * Codex counts cached and cache-written input inside `input_tokens`; OpenClaw
  * and this summary keep uncached input apart from both.
  * @param {string} agentDirectory `state/agents/<id>/agent`.
- * @returns {{tokens: Record<string, number>, files: number} | null} The last
- *     cumulative count of every rollout, or null when Codex left none.
+ * @returns {{tokens: Record<string, number>} | null} The last cumulative count
+ *     of every rollout, or null when no rollout states one, which is unknown
+ *     usage rather than none.
  */
 function codexRolloutUsage(agentDirectory) {
   const files = filesUnder(
     join(agentDirectory, "codex-home", "sessions"),
     (name) => name.startsWith("rollout-") && name.endsWith(".jsonl"),
   );
-  if (files.length === 0) return null;
   const tokens = zeroTokens();
+  let counted = 0;
   for (const file of files) {
     const counts = jsonLines(file)
       .filter((record) => record?.payload?.type === "token_count")
@@ -177,6 +178,7 @@ function codexRolloutUsage(agentDirectory) {
       .filter((total) => total !== undefined && total !== null);
     const last = counts.at(-1);
     if (last === undefined) continue;
+    counted += 1;
     const cacheRead = Number(last.cached_input_tokens ?? 0);
     const cacheWrite = Number(last.cache_write_input_tokens ?? 0);
     addTokens(tokens, {
@@ -187,7 +189,7 @@ function codexRolloutUsage(agentDirectory) {
       reasoning: Number(last.reasoning_output_tokens ?? 0),
     });
   }
-  return { tokens, files: files.length };
+  return counted === 0 ? null : { tokens };
 }
 
 /**
@@ -411,7 +413,7 @@ function reportBucket(bucket, native) {
     reportedCost: bucket.sawCatalogCost
       ? { usd: bucket.catalogCostUsd, origin: "openclaw-catalog" }
       : null,
-    coverage: "complete",
+    coverage: bucket.rowsWithUsage < bucket.rows ? "partial" : "complete",
     crossCheck: trajectoryCrossCheck(
       bucket.tokens,
       native.trajectory,
@@ -445,6 +447,19 @@ function unrecordedCliBucket(session) {
       note: "the backend used tokens and the transcript records no model message",
     },
   };
+}
+
+/**
+ * One bucket of unknown tokens makes the agent's total unknown as well: a sum
+ * that left it out would read as a smaller spend rather than an unknown one.
+ * @param {object[]} buckets Reported buckets.
+ * @returns {Record<string, number> | null} What the agent's models used.
+ */
+function agentTotals(buckets) {
+  if (buckets.some((bucket) => bucket.tokens === null)) return null;
+  const totals = zeroTokens();
+  for (const bucket of buckets) addTokens(totals, bucket.tokens);
+  return totals;
 }
 
 /**
@@ -494,8 +509,6 @@ function summarizeAgent(stateDirectory, agentId) {
     if (buckets.length === 0 && (native.claude?.messages ?? 0) > 0) {
       buckets.push(unrecordedCliBucket(native.claude));
     }
-    const totals = zeroTokens();
-    for (const bucket of buckets) addTokens(totals, bucket.tokens ?? {});
     const messages = transcript.messages.slice(0, MAXIMUM_LISTED);
     return {
       agentId,
@@ -503,7 +516,7 @@ function summarizeAgent(stateDirectory, agentId) {
       runsStarted: transcript.runsStarted,
       modelMessages: transcript.messages.length,
       deliveryMirrorRows: transcript.mirrorRows,
-      totals,
+      totals: agentTotals(buckets),
       buckets,
       messagesListed: messages.length,
       messages,
