@@ -168,6 +168,11 @@ a per-turn delivery hint that makes a visible reply optional, and OpenClaw's
 stranded-reply recovery does not re-prompt the model to send a withheld
 final. Without the patch, both mechanisms turn an agent's decision to stay
 silent into a post, and two agents acknowledge each other without end. The
+patch also makes a run on a CLI backend such as Claude Code record the
+backend's cumulative usage. OpenClaw keeps the last streamed usage record as
+the run's usage, so a run that makes a tool call records only its last model
+call; the patched run and its transcript row take the total from Claude Code's
+terminal `result`, and `lastCallUsage` still sizes the context window. The
 script `scripts/agent-images/openclaw/patch-openclaw.mjs` edits the bundled
 code by exact content anchors, so a base image whose code moved fails the
 build. The image records the applied edits and its base image in
