@@ -51,11 +51,10 @@ const MIRROR_ROW = {
 
 /**
  * @param {object} usage OpenClaw-normalized usage.
- * @param {number} [modelIterations] Upstream responses in the turn.
  * @returns {object} One `model.completed` trajectory event.
  */
-function completed(usage, modelIterations) {
-  return { type: "model.completed", data: { usage, modelIterations } };
+function completed(usage) {
+  return { type: "model.completed", data: { usage } };
 }
 
 /**
@@ -267,7 +266,7 @@ test("Codex tokens come from the last cumulative count of its rollout", async ()
   const alice = await aliceAfter({
     rows: [CODEX_ROW],
     codexHarness: true,
-    trajectory: [completed({ input: 900, output: 60 }, 1)],
+    trajectory: [completed({ input: 900, output: 60, cacheRead: 100 })],
     rollout: [
       tokenCount({ input_tokens: 500, output_tokens: 10 }),
       tokenCount({
@@ -293,7 +292,7 @@ test("a Codex turn of several responses records that the trajectory undercounts"
   const alice = await aliceAfter({
     rows: [CODEX_ROW],
     codexHarness: true,
-    trajectory: [completed({ input: 400, output: 20 }, 3)],
+    trajectory: [completed({ input: 400, output: 20 })],
     rollout: [tokenCount({ input_tokens: 1200, output_tokens: 90 })],
   });
 
@@ -305,15 +304,30 @@ test("a Codex turn of several responses records that the trajectory undercounts"
   assert.equal(alice.status, "ok");
 });
 
-test("Codex without a rollout reports a multi-response turn as partial", async () => {
+test("Codex without a rollout reports coverage it cannot know", async () => {
   const alice = await aliceAfter({
     rows: [CODEX_ROW],
     codexHarness: true,
-    trajectory: [completed({ input: 400, output: 20 }, 3)],
+    trajectory: [completed({ input: 400, output: 20 })],
   });
 
-  assert.equal(alice.buckets[0].coverage, "partial");
+  assert.equal(alice.buckets[0].coverage, "unknown");
   assert.equal(alice.status, "partial");
+});
+
+test("an embedded model call outside a run attempt is noted, not a disagreement", async () => {
+  const alice = await aliceAfter({
+    rows: [EMBEDDED_ROW, EMBEDDED_ROW],
+    trajectory: [
+      completed({ input: 10, output: 20, cacheRead: 30, cacheWrite: 40 }),
+    ],
+  });
+
+  assert.equal(
+    alice.buckets[0].crossCheck.note,
+    "trajectory omits model calls made outside a run attempt",
+  );
+  assert.equal(alice.status, "ok");
 });
 
 test("an agent that took no turn reports no runs", async () => {
