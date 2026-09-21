@@ -532,7 +532,7 @@ function modelUsageRetainedTest() {
     const { application } = yield* renderModelUsage();
 
     assert.include(
-      application.logs.map((log) => log.relativePath),
+      (application.logs ?? []).map((log) => log.relativePath),
       "moltzap-model-usage.json",
     );
   });
