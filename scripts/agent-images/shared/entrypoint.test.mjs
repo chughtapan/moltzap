@@ -256,6 +256,21 @@ test("finalization drains native logs and keeps the container available for coll
 });
 
 /**
+ * Run one image to the end: wait for the host, finalize it, then shut down.
+ * @param {object} app A fixture.
+ * @param {Record<string, string>} environment The container environment.
+ * @returns {Promise<void>} Settled once the entrypoint has exited.
+ */
+async function finalizeRun(app, environment) {
+  const running = runAgentImage(environment);
+  await waitForPath(app.hostRecord);
+  process.emit("SIGUSR2");
+  await waitForPath(join(app.root, "logs", "finalized.json"), 10_000);
+  process.emit("SIGTERM");
+  await running;
+}
+
+/**
  * @param {object} app A fixture.
  * @param {string[]} finalizerSource Lines of the host finalizer, or none to ship no finalizer.
  * @param {Record<string, string>} [extra] Further environment.
@@ -265,17 +280,12 @@ async function finalizeWithModelUsage(app, finalizerSource, extra = {}) {
   const finalizer = join(app.root, "finalize-host.mjs");
   if (finalizerSource.length > 0) await executable(finalizer, finalizerSource);
   const usage = join(app.root, "logs", "model-usage.json");
-  const running = runAgentImage({
+  await finalizeRun(app, {
     ...app.environment,
     MOLTZAP_AGENT_IMAGE_HOST_FINALIZER: finalizer,
     MOLTZAP_AGENT_IMAGE_MODEL_USAGE: usage,
     ...extra,
   });
-  await waitForPath(app.hostRecord);
-  process.emit("SIGUSR2");
-  await waitForPath(join(app.root, "logs", "finalized.json"), 10_000);
-  process.emit("SIGTERM");
-  await running;
   return usage;
 }
 
@@ -287,12 +297,7 @@ const OK_SUMMARY = JSON.stringify({
 
 test("no model-usage file is written unless the run asked for one", async () => {
   const app = await fixture({ hostWait: true });
-  const running = runAgentImage(app.environment);
-  await waitForPath(app.hostRecord);
-  process.emit("SIGUSR2");
-  await waitForPath(join(app.root, "logs", "finalized.json"));
-  process.emit("SIGTERM");
-  await running;
+  await finalizeRun(app, app.environment);
 
   await assert.rejects(stat(join(app.root, "logs", "model-usage.json")), {
     code: "ENOENT",
@@ -342,12 +347,10 @@ test("a host finalizer that prints something other than a summary leaves a failu
   const usage = await finalizeWithModelUsage(app, [
     'process.stdout.write("not json");',
   ]);
+  const record = JSON.parse(await readFile(usage, "utf8"));
 
   assert.deepEqual(
-    [
-      JSON.parse(await readFile(usage, "utf8")).status,
-      JSON.parse(await readFile(usage, "utf8")).reason,
-    ],
+    [record.status, record.reason],
     ["finalizer-failed", "the summary is not JSON"],
   );
 });

@@ -33,11 +33,18 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+/**
+ * The tag the entrypoint checks before it keeps what this prints, so it must
+ * stay equal to `MODEL_USAGE_SCHEMA` in `shared/entrypoint.mjs`. A shared
+ * entrypoint importing from one image's script would tie every image to it.
+ */
 const SCHEMA = "moltzap.agent-model-usage/v1";
 const DEFAULT_STATE_DIRECTORY = "/var/run/moltzap/bootstrap/state";
 const MIRROR_MODEL = "delivery-mirror";
 const CODEX_HARNESS_ID = "codex";
-const COUNTERS = ["input", "output", "cacheRead", "cacheWrite", "reasoning"];
+/** The counters a backend bills for, and so the ones a cross-check compares. */
+const BILLED_COUNTERS = ["input", "output", "cacheRead", "cacheWrite"];
+const COUNTERS = [...BILLED_COUNTERS, "reasoning"];
 /** Keeps the summary well under the 1 MiB harvest bound; totals cover every message. */
 const MAXIMUM_LISTED = 500;
 
@@ -74,9 +81,7 @@ function fromOpenClawUsage(usage) {
  * @returns {boolean} Whether the four billed counters match.
  */
 function sameBilledTokens(left, right) {
-  return ["input", "output", "cacheRead", "cacheWrite"].every(
-    (counter) => left[counter] === right[counter],
-  );
+  return BILLED_COUNTERS.every((counter) => left[counter] === right[counter]);
 }
 
 /**
@@ -85,9 +90,7 @@ function sameBilledTokens(left, right) {
  * @returns {boolean} Whether no billed counter of `lower` exceeds `upper`.
  */
 function noneAbove(lower, upper) {
-  return ["input", "output", "cacheRead", "cacheWrite"].every(
-    (counter) => lower[counter] <= upper[counter],
-  );
+  return BILLED_COUNTERS.every((counter) => lower[counter] <= upper[counter]);
 }
 
 /**
@@ -240,6 +243,14 @@ function trajectoryUsage(database) {
 }
 
 /**
+ * @returns {object} The cross-check of a bucket the trajectory says nothing
+ *     about, which is unknown rather than an agreement or a disagreement.
+ */
+function noTrajectoryCrossCheck() {
+  return { source: "trajectory", tokens: null, agrees: null, note: null };
+}
+
+/**
  * The trajectory is a subset source. OpenClaw records one completion per Codex
  * turn carrying only the turn's last response, and records none for a model
  * call made outside a run attempt, such as the embedded harness's isolated
@@ -253,9 +264,7 @@ function trajectoryUsage(database) {
  * @returns {object} The bucket's cross-check.
  */
 function trajectoryCrossCheck(primary, trajectory, behindNote) {
-  if (trajectory.completions === 0) {
-    return { source: "trajectory", tokens: null, agrees: null, note: null };
-  }
+  if (trajectory.completions === 0) return noTrajectoryCrossCheck();
   const same = sameBilledTokens(primary, trajectory.tokens);
   const agrees = same || noneAbove(trajectory.tokens, primary);
   return {
@@ -350,20 +359,27 @@ function reportBucket(bucket, native) {
   };
   if (bucket.backend === "codex") {
     const rollout = native.codex;
+    if (rollout === null) {
+      return {
+        ...base,
+        source: "trajectory",
+        tokens: native.trajectory.tokens,
+        reportedCost: null,
+        coverage: "unknown",
+        crossCheck: noTrajectoryCrossCheck(),
+      };
+    }
     return {
       ...base,
-      source: rollout === null ? "trajectory" : "codex-rollout",
-      tokens: rollout === null ? native.trajectory.tokens : rollout.tokens,
+      source: "codex-rollout",
+      tokens: rollout.tokens,
       reportedCost: null,
-      coverage: rollout === null ? "unknown" : "complete",
-      crossCheck:
-        rollout === null
-          ? { source: "trajectory", tokens: null, agrees: null, note: null }
-          : trajectoryCrossCheck(
-              rollout.tokens,
-              native.trajectory,
-              "trajectory holds last response only",
-            ),
+      coverage: "complete",
+      crossCheck: trajectoryCrossCheck(
+        rollout.tokens,
+        native.trajectory,
+        "trajectory holds last response only",
+      ),
     };
   }
   if (bucket.backend === "cli") {
@@ -480,6 +496,7 @@ function summarizeAgent(stateDirectory, agentId) {
     }
     const totals = zeroTokens();
     for (const bucket of buckets) addTokens(totals, bucket.tokens ?? {});
+    const messages = transcript.messages.slice(0, MAXIMUM_LISTED);
     return {
       agentId,
       status: agentStatus(buckets, transcript.runsStarted),
@@ -488,8 +505,8 @@ function summarizeAgent(stateDirectory, agentId) {
       deliveryMirrorRows: transcript.mirrorRows,
       totals,
       buckets,
-      messagesListed: Math.min(transcript.messages.length, MAXIMUM_LISTED),
-      messages: transcript.messages.slice(0, MAXIMUM_LISTED),
+      messagesListed: messages.length,
+      messages,
     };
   } catch (cause) {
     return {
