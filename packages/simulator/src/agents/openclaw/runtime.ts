@@ -43,6 +43,7 @@ import {
   type McpServer,
   McpServerConfiguration,
   modelUsage,
+  type ReservedFileRendering,
   snapshotHarvestPaths,
   snapshotMcpServers,
   snapshotWorkspaceFiles,
@@ -398,10 +399,10 @@ function makeOpenClawApplication(
   };
   const transcript = historyExport(settings.historyExport);
   const usage = modelUsage(settings.modelUsage);
+  const retained = [...transcript.harvest, ...usage.harvest];
   const harvest = [
     ...harvestTargets(OPENCLAW_WORKSPACE_DIR, settings.harvestPaths),
-    ...transcript.harvest,
-    ...usage.harvest,
+    ...retained,
   ];
   const credentials = applicationCredentials(settings);
   return Object.freeze({
@@ -419,7 +420,7 @@ function makeOpenClawApplication(
     port: OPENCLAW_GATEWAY_PORT,
     files: bootstrapFiles(settings, input, gatewayToken, pairing),
     ...(harvest.length === 0 ? {} : { harvest }),
-    logs: nativeLogFiles([...transcript.harvest, ...usage.harvest]),
+    logs: nativeLogFiles(retained),
     attach: (
       endpoint: ApplicationEndpoint,
       stopped: Effect.Effect<RuntimeTermination>,
@@ -666,7 +667,7 @@ function openClawCapability(
   });
 }
 
-function nativeLogFiles(retained: ReturnType<typeof historyExport>["harvest"]) {
+function nativeLogFiles(retained: ReservedFileRendering["harvest"]) {
   return [
     ...retained,
     {
