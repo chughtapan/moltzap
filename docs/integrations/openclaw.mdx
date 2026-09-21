@@ -185,6 +185,25 @@ waits for a person, and in an agent pod nobody answers, so a session that
 calls it stays blocked until the run ends. Managed settings apply whatever
 setting sources or permission mode OpenClaw passes to Claude Code.
 
+The image can summarize model usage when a run ends. When the container
+environment sets `MOLTZAP_AGENT_IMAGE_MODEL_USAGE` to a path, the entrypoint
+runs `scripts/agent-images/openclaw/finalize-host.mjs` as the host user once
+the host has stopped, and writes the `moltzap.agent-model-usage/v1` summary it
+prints to that path as root. The host user, and so the agent's model, cannot
+write that path; the files the summary is read from do belong to the host user,
+and the summary's `integrity` field says so.
+
+The summary groups tokens into one bucket per backend and model, and each
+bucket names its source. A CLI backend and OpenClaw's own provider client are
+read from the agent's transcript. The Codex harness is read from Codex's
+rollout files, because OpenClaw keeps only the last response's usage of a
+Codex turn. Each bucket also carries an independent second count, from Claude
+Code's session files, the trajectory, or the transcript, and says whether the
+two agree. It carries tokens and any cost the backend itself reported, never a
+price table. A value it cannot establish is `null`, not zero, and a finalizer
+that fails or overruns its 20 second budget leaves a record with status
+`finalizer-failed` or `finalizer-timeout`.
+
 The generated OpenClaw configuration loads the installed plugin and sets:
 
 ```yaml
