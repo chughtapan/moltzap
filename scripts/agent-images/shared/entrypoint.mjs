@@ -31,6 +31,11 @@ const DEFAULT_HOST_USER_ID = 1_000;
 const DEFAULT_DAEMON_USER_ID = 1_001;
 const DEFAULT_HOST_FINALIZER = "/opt/moltzap/agent/finalize-host.mjs";
 const DEFAULT_HOST_FINALIZER_TIMEOUT_MILLIS = 20_000;
+/**
+ * The tag a host finalizer's summary must carry, so it must stay equal to
+ * `SCHEMA` in the image's finalizer, such as `openclaw/finalize-host.mjs`.
+ * Importing it from one image's script would tie every image to that image.
+ */
 const MODEL_USAGE_SCHEMA = "moltzap.agent-model-usage/v1";
 /** The simulator reads this file with a 1 MiB bound. */
 const MAXIMUM_MODEL_USAGE_BYTES = 1_024 * 1_024;
