@@ -44,7 +44,8 @@ COPY claude-code-managed-settings.json /etc/claude-code/managed-settings.json
 
 # patch-openclaw.mjs is scripts/agent-images/openclaw/patch-openclaw.mjs: a
 # turn that a bot sender opens gets an optional-reply delivery hint and skips
-# OpenClaw's stranded-reply recovery. It runs before the plugin installs
+# OpenClaw's stranded-reply recovery, and a run on a CLI backend records the
+# backend's cumulative usage. It runs before the plugin installs
 # against the dist and fails the build unless every anchor matches the base
 # exactly once; the marker records what it applied.
 COPY patch-openclaw.mjs /opt/moltzap/agent/

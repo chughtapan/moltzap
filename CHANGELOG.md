@@ -10,6 +10,15 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Fixed
+
+- Record what an agent hosted in Claude Code really used. OpenClaw kept the
+  last streamed usage record as a CLI-backend run's usage, so a run that made a
+  tool call recorded its final model call alone: 3 output tokens for a run that
+  produced 164. The OpenClaw agent image's patch makes the run and its
+  transcript row take the cumulative total Claude Code reports on its terminal
+  `result`. `lastCallUsage` is unchanged, so context-window sizing is unchanged.
+
 ## [2026.919.0] - 2026-09-19
 
 ### Fixed
