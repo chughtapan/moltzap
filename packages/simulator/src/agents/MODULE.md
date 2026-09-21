@@ -601,7 +601,7 @@ Timed-out terminal result returned by OpenClaw's `agent` gateway RPC.
 OpenClaw treats this as a successful RPC payload rather than a transport
 failure. A run may time out before it has an agent result.
 
-### [`openClawRuntime`](./openclaw/runtime.ts#L213)
+### [`openClawRuntime`](./openclaw/runtime.ts#L214)
 
 _Function_
 
@@ -627,7 +627,7 @@ flowchart LR
 
 **Returns:** A reusable OpenClaw container runtime definition.
 
-### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L135)
+### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L136)
 
 _Interface_
 
