@@ -100,16 +100,28 @@ function baseEnvironment(environment) {
   };
 }
 
+/**
+ * The host gets the local agent name as `MOLTZAP_AGENT_NAME` because the
+ * channel plugin's gather overlay builds group addresses and reply targets
+ * from it, and the plugin has no other way to learn which agent it serves.
+ *
+ * @param {NodeJS.ProcessEnv} environment The container environment.
+ * @returns {Record<string, string>} The host's environment.
+ */
 function hostEnvironment(environment) {
-  return Object.fromEntries(
-    Object.entries(environment).filter(
-      ([name, value]) =>
-        value !== undefined &&
-        !name.startsWith("MOLTZAPD_") &&
-        !name.startsWith("MOLTZAP_REGISTRATION_") &&
-        !name.startsWith("MOLTZAP_AGENT_IMAGE_"),
+  const agentName = environment.MOLTZAP_REGISTRATION_AGENT_NAME;
+  return {
+    ...Object.fromEntries(
+      Object.entries(environment).filter(
+        ([name, value]) =>
+          value !== undefined &&
+          !name.startsWith("MOLTZAPD_") &&
+          !name.startsWith("MOLTZAP_REGISTRATION_") &&
+          !name.startsWith("MOLTZAP_AGENT_IMAGE_"),
+      ),
     ),
-  );
+    ...(agentName === undefined ? {} : { MOLTZAP_AGENT_NAME: agentName }),
+  };
 }
 
 /**
