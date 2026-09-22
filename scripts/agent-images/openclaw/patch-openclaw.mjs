@@ -12,6 +12,15 @@
  * turns a decision to stay silent into a post, and the posts acknowledge each
  * other without end.
  *
+ * It also makes a CLI backend's recorded usage the backend's own total. Claude
+ * Code streams one usage record per assistant message and a cumulative total on
+ * its terminal `result`. OpenClaw keeps the last streamed record as the run's
+ * usage and the total only as `diagnosticUsage`, so a run that makes a tool
+ * call records its last model call alone: 3 output tokens for a run that
+ * produced 164. The run and its transcript row take the total when the backend
+ * reported one. `lastCallUsage` keeps the last streamed record, because it
+ * sizes the context window and a cumulative cache-read count would overstate it.
+ *
  * The script edits the bundled dist in place with exact content anchors. Each
  * anchor must occur exactly once in exactly one file under the dist root, so a
  * base image whose code moved fails the image build instead of shipping
@@ -193,6 +202,40 @@ export const EDITS = Object.freeze([
       "if(Ot.inboundEventKind===`user_request`&&Ot.sourceReplyDeliveryMode===`message_tool_only`)return Ot.sessionCtx?.SenderIsBot===!0?" +
       JSON.stringify(BOT_SENDER_DELIVERY_HINT) +
       ":MESSAGE_TOOL_ONLY_DELIVERY_HINT",
+  },
+  {
+    id: "cli-run-usage",
+    description:
+      "a CLI-backend run reports the backend's terminal usage totals, not its last streamed record",
+    before: "...preparedContextAgentMeta,\n\t\t\t\tusage: output.usage,\n",
+    after:
+      "...preparedContextAgentMeta,\n\t\t\t\tusage: output.diagnosticUsage ?? output.usage,\n",
+  },
+  {
+    id: "cli-transcript-usage",
+    description:
+      "a CLI-backend assistant transcript row records the backend's terminal usage totals",
+    before:
+      "modelId: context.modelId,\n\t\t\t\t\tusage: output.usage,\n\t\t\t\t\tstopReason: resolveCliAssistantStopReason(output)\n",
+    after:
+      "modelId: context.modelId,\n\t\t\t\t\tusage: output.diagnosticUsage ?? output.usage,\n\t\t\t\t\tstopReason: resolveCliAssistantStopReason(output)\n",
+  },
+  {
+    id: "worker-cli-run-usage",
+    description:
+      "worker bundle: a CLI-backend run reports the backend's terminal usage totals",
+    before: "...Ln,usage:Fn.usage,...Fn.usage?{lastCallUsage:Fn.usage}:{}",
+    after:
+      "...Ln,usage:Fn.diagnosticUsage??Fn.usage,...Fn.usage?{lastCallUsage:Fn.usage}:{}",
+  },
+  {
+    id: "worker-cli-transcript-usage",
+    description:
+      "worker bundle: a CLI-backend assistant transcript row records the backend's terminal usage totals",
+    before:
+      "modelId:Ot.modelId,usage:Ln.usage,stopReason:resolveCliAssistantStopReason(Ln)})",
+    after:
+      "modelId:Ot.modelId,usage:Ln.diagnosticUsage??Ln.usage,stopReason:resolveCliAssistantStopReason(Ln)})",
   },
 ]);
 
