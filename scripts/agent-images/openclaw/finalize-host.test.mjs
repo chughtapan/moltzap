@@ -74,8 +74,8 @@ function tokenCount(total) {
  * @param {object} usage Claude Code usage record.
  * @returns {string} One Claude Code session line.
  */
-function claudeLine(id, usage) {
-  return JSON.stringify({ type: "assistant", message: { id, usage } });
+function claudeLine(id, usage, model = "claude-opus-4-8") {
+  return JSON.stringify({ type: "assistant", message: { id, model, usage } });
 }
 
 /**
@@ -234,7 +234,7 @@ test("a transcript that records more than Claude Code did is a disagreement", as
   assert.equal(alice.status, "disagreement");
 });
 
-test("a CLI run with no transcript row reports Claude Code's tokens", async () => {
+test("an agent with no transcript row reports Claude Code's tokens under its model", async () => {
   const alice = await aliceAfter({
     rows: [],
     claudeSession: [
@@ -242,9 +242,30 @@ test("a CLI run with no transcript row reports Claude Code's tokens", async () =
     ],
   });
 
+  assert.deepEqual(
+    [alice.buckets[0].provider, alice.buckets[0].model],
+    ["claude-cli", "claude-opus-4-8"],
+  );
   assert.equal(alice.buckets[0].tokens.output, 40);
-  assert.equal(alice.buckets[0].crossCheck.tokens, null);
-  assert.equal(alice.status, "disagreement");
+  assert.equal(alice.status, "ok");
+});
+
+test("an agent with no transcript row gets one bucket per model Claude Code names", async () => {
+  const alice = await aliceAfter({
+    rows: [],
+    claudeSession: [
+      claudeLine("msg_1", { output_tokens: 40 }),
+      claudeLine("msg_2", { output_tokens: 7 }, "claude-haiku-4-5"),
+    ],
+  });
+
+  assert.deepEqual(
+    alice.buckets.map((bucket) => [bucket.model, bucket.tokens.output]),
+    [
+      ["claude-opus-4-8", 40],
+      ["claude-haiku-4-5", 7],
+    ],
+  );
 });
 
 test("an embedded provider's tokens are the sum of its transcript rows", async () => {

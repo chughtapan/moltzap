@@ -45,6 +45,8 @@ const SCHEMA = "moltzap.agent-model-usage/v1";
 const DEFAULT_STATE_DIRECTORY = "/var/run/moltzap/bootstrap/state";
 const MIRROR_MODEL = "delivery-mirror";
 const CODEX_HARNESS_ID = "codex";
+/** The provider OpenClaw records on a Claude Code transcript row, so a bucket read only from Claude Code's files keys the same price. */
+const CLAUDE_CLI_PROVIDER = "claude-cli";
 /** The counters a backend bills for, and so the ones a cross-check compares. */
 const BILLED_COUNTERS = ["input", "output", "cacheRead", "cacheWrite"];
 const COUNTERS = [...BILLED_COUNTERS, "reasoning"];
@@ -127,8 +129,9 @@ function jsonLines(path) {
 
 /**
  * @param {string} stateDirectory OpenClaw's state directory, the host's home.
- * @returns {{tokens: Record<string, number>, messages: number} | null} Claude
- *     Code's own per-response usage, or null when it left no session files.
+ * @returns {{tokens: Record<string, number>, byModel: Map<string | null, Record<string, number>>, messages: number} | null}
+ *     Claude Code's own per-response usage, in total and by the model each
+ *     response names, or null when it left no session files.
  */
 function claudeSessionUsage(stateDirectory) {
   const files = filesUnder(
@@ -143,20 +146,28 @@ function claudeSessionUsage(stateDirectory) {
       if (record?.type !== "assistant" || typeof message?.id !== "string") {
         continue;
       }
-      lastByMessage.set(message.id, message.usage ?? {});
+      lastByMessage.set(message.id, {
+        model: typeof message.model === "string" ? message.model : null,
+        usage: message.usage ?? {},
+      });
     }
   }
   const tokens = zeroTokens();
-  for (const usage of lastByMessage.values()) {
-    addTokens(tokens, {
+  const byModel = new Map();
+  for (const { model, usage } of lastByMessage.values()) {
+    const counted = {
       input: Number(usage.input_tokens ?? 0),
       output: Number(usage.output_tokens ?? 0),
       cacheRead: Number(usage.cache_read_input_tokens ?? 0),
       cacheWrite: Number(usage.cache_creation_input_tokens ?? 0),
       reasoning: Number(usage.output_tokens_details?.thinking_tokens ?? 0),
-    });
+    };
+    addTokens(tokens, counted);
+    const modelTokens = byModel.get(model) ?? zeroTokens();
+    addTokens(modelTokens, counted);
+    byModel.set(model, modelTokens);
   }
-  return { tokens, messages: lastByMessage.size };
+  return { tokens, byModel, messages: lastByMessage.size };
 }
 
 /**
@@ -439,30 +450,32 @@ function reportBucket(bucket, native) {
 }
 
 /**
- * A run for which OpenClaw wrote no assistant row still spent what Claude Code
- * recorded, so the bucket exists with Claude Code's tokens rather than being
- * left out; the transcript cross-check has nothing to say.
- * @param {{tokens: Record<string, number>}} session Claude Code's own usage.
- * @returns {object} A bucket the transcript knows nothing about.
+ * An agent whose every run a channel delivery started has no transcript
+ * assistant row at all, which is the ordinary case for an agent that only
+ * answers others. Its spend is Claude Code's record, one bucket per model the
+ * responses name, and an empty transcript agrees with it as a subset does.
+ * @param {{byModel: Map<string | null, Record<string, number>>}} session
+ *     Claude Code's own usage.
+ * @returns {object[]} Buckets the transcript knows nothing about.
  */
-function unrecordedCliBucket(session) {
-  return {
+function unrecordedCliBuckets(session) {
+  return [...session.byModel.entries()].map(([model, tokens]) => ({
     backend: "cli",
-    provider: null,
-    model: null,
+    provider: model === null ? null : CLAUDE_CLI_PROVIDER,
+    model,
     api: "cli",
     modelMessages: 0,
     source: "claude-session-files",
-    tokens: session.tokens,
+    tokens,
     reportedCost: null,
     coverage: "complete",
     crossCheck: {
       source: "transcript",
       tokens: null,
-      agrees: false,
+      agrees: true,
       note: "the transcript records no model message",
     },
-  };
+  }));
 }
 
 /**
@@ -523,7 +536,7 @@ function summarizeAgent(stateDirectory, agentId) {
       reportBucket(bucket, native),
     );
     if (buckets.length === 0 && (native.claude?.messages ?? 0) > 0) {
-      buckets.push(unrecordedCliBucket(native.claude));
+      buckets.push(...unrecordedCliBuckets(native.claude));
     }
     const messages = transcript.messages.slice(0, MAXIMUM_LISTED);
     return {
