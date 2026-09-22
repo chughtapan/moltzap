@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.922.3] - 2026-09-22
+
 ### Fixed
 
 - Price a Claude Code agent that only answered others. When every run of an
