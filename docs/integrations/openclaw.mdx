@@ -206,14 +206,16 @@ write that path; the files the summary is read from do belong to the host user,
 and the summary's `integrity` field says so.
 
 The summary groups tokens into one bucket per backend and model, and each
-bucket names its source. A CLI backend and OpenClaw's own provider client are
-read from the agent's transcript. The Codex harness is read from Codex's
-rollout files, because OpenClaw keeps only the last response's usage of a
-Codex turn. Each bucket also carries a second count, from Claude Code's
-session files or the trajectory, and says whether the two agree. The trajectory
-omits some model calls, so a trajectory count below the bucket's agrees with it
-and carries a note; a count above it is a disagreement. It carries tokens and any cost the backend itself reported, never a
-price table. A value it cannot establish is `null`, not zero, and a finalizer
+bucket names its source. Claude Code is read from its own session files,
+because OpenClaw's transcript records a run the principal started but not one
+a channel delivery started. OpenClaw's own provider client is read from the
+agent's transcript. The Codex harness is read from Codex's rollout files,
+because OpenClaw keeps only the last response's usage of a Codex turn. Each
+bucket also carries a second count, from the transcript or the trajectory, and
+says whether the two agree. Both omit some model calls, so a second count below
+the bucket's agrees with it and carries a note; a count above it is a
+disagreement. It carries tokens and any cost the backend itself reported, never
+a price table. A value it cannot establish is `null`, not zero, and a finalizer
 that fails or overruns its 20 second budget leaves a record with status
 `finalizer-failed` or `finalizer-timeout`.
 
