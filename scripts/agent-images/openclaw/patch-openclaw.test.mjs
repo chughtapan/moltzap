@@ -51,7 +51,7 @@ function count(text, needle) {
 async function stagedDist() {
   const root = await mkdtemp(join(tmpdir(), "openclaw-patch-test-"));
   const names = (await readdir(installedDist)).filter((name) =>
-    /^(agent-runner\.runtime-|get-reply-|message-tool-delivery-hints-)[^.]+\.js$/u.test(
+    /^(agent-runner\.runtime-|cli-runner-|get-reply-|message-tool-delivery-hints-)[^.]+\.js$/u.test(
       name,
     ),
   );
@@ -81,7 +81,7 @@ async function snapshot(root) {
   );
 }
 
-test("every anchor matches once and the edited bundles carry the bot-sender branches", async () => {
+test("every anchor matches once across the five bundles the patch edits", async () => {
   const root = await stagedDist();
   try {
     const applied = await applyOpenClawPatch(root);
@@ -102,11 +102,26 @@ test("every anchor matches once and the edited bundles carry the bot-sender bran
     const bundles = new Set(applied.map((edit) => edit.file));
     assert.equal(
       bundles.size,
-      4,
-      "runner, reply prompt, hint list and worker bundles",
+      5,
+      "runner, reply prompt, hint list, CLI runner and worker bundles",
     );
     const worker = await readFile(join(root, "worker", "worker.mjs"), "utf8");
     assert.ok(worker.includes(JSON.stringify(BOT_SENDER_DELIVERY_HINT)));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a CLI run's context-sizing usage stays the last streamed record", async () => {
+  const root = await stagedDist();
+  try {
+    const applied = await applyOpenClawPatch(root);
+    const runner = applied.find((edit) => edit.id === "cli-run-usage");
+    const text = await readFile(join(root, runner.file), "utf8");
+    assert.equal(
+      count(text, "...output.usage ? { lastCallUsage: output.usage } : {},"),
+      1,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
