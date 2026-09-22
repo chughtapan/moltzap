@@ -17,6 +17,7 @@ import {
   type ContainerRuntime,
   containerRuntimeFor,
   type File,
+  type HarvestTarget,
   image,
 } from "../container.js";
 import { nanoclawRuntime } from "./runtime.js";
@@ -311,7 +312,7 @@ const harvestProjection = Schema.Struct({
   harvestWorkspaceFiles: Schema.Array(Schema.String),
 });
 
-const HISTORY_EXPORT_TARGET = {
+const HISTORY_EXPORT_TARGET: HarvestTarget = {
   relativePath: "moltzap-history.ndjson",
   path: "/var/run/moltzap/history.ndjson",
   limitBytes: 1_048_576,

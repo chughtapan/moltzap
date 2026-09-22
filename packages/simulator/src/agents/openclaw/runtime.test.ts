@@ -15,6 +15,7 @@ import {
   containerRuntimeFor,
   CREDENTIALS,
   type File,
+  type HarvestTarget,
   image,
 } from "../container.js";
 import {
@@ -361,13 +362,13 @@ const harvestProjection = Schema.Struct({
   harvestWorkspaceFiles: Schema.Array(Schema.String),
 });
 
-const HISTORY_EXPORT_TARGET = {
+const HISTORY_EXPORT_TARGET: HarvestTarget = {
   relativePath: "moltzap-history.ndjson",
   path: "/var/run/moltzap/history.ndjson",
   limitBytes: 1_048_576,
 };
 
-const MODEL_USAGE_TARGET = {
+const MODEL_USAGE_TARGET: HarvestTarget = {
   relativePath: "moltzap-model-usage.json",
   path: "/var/run/moltzap/model-usage.json",
   limitBytes: 1_048_576,
