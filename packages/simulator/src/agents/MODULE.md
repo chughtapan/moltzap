@@ -601,7 +601,7 @@ Timed-out terminal result returned by OpenClaw's `agent` gateway RPC.
 OpenClaw treats this as a successful RPC payload rather than a transport
 failure. A run may time out before it has an agent result.
 
-### [`openClawRuntime`](./openclaw/runtime.ts#L202)
+### [`openClawRuntime`](./openclaw/runtime.ts#L214)
 
 _Function_
 
@@ -627,7 +627,7 @@ flowchart LR
 
 **Returns:** A reusable OpenClaw container runtime definition.
 
-### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L133)
+### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L136)
 
 _Interface_
 
@@ -649,6 +649,15 @@ export interface OpenClawRuntimeOptions {
    * `moltzap-history.ndjson` when the customer program ends.
    */
   readonly historyExport?: boolean;
+  /**
+   * Have the agent image summarize what the agent's model used, harvested into
+   * the ledger as `moltzap-model-usage.json` when the customer program ends.
+   * The image's entrypoint writes the summary once the host has stopped, to a
+   * path the agent cannot write, from OpenClaw's own records and the model
+   * backend's. It carries tokens per backend and model with the record each
+   * total came from, never a price. A value it cannot establish is `null`.
+   */
+  readonly modelUsage?: boolean;
   /**
    * Model the runtime asks for. Its provider prefix (`anthropic/`, `openai/`)
    * names the credentials the agent asks the run for; an unknown prefix asks
