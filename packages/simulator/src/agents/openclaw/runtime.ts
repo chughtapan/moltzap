@@ -38,11 +38,11 @@ import {
   configurationDigest,
   digestText,
   harvestTargets,
-  historyExport,
+  HISTORY_EXPORT_RENDERING,
   mcpConfiguration,
   type McpServer,
   McpServerConfiguration,
-  modelUsage,
+  MODEL_USAGE_RENDERING,
   type ReservedFileRendering,
   snapshotHarvestPaths,
   snapshotMcpServers,
@@ -121,8 +121,6 @@ export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeCo
   startupTimeout: Schema.DurationFromMillis,
   workspaceFiles: Schema.Array(WorkspaceFileConfiguration),
   harvestWorkspaceFiles: Schema.Array(Schema.String),
-  historyExport: Schema.Boolean,
-  modelUsage: Schema.optional(Schema.Boolean),
   modelOverride: Schema.optional(Schema.String),
   agentRuntime: Schema.optional(selectableAgentRuntime),
   mcpServers: Schema.Array(McpServerConfiguration),
@@ -144,21 +142,6 @@ export interface OpenClawRuntimeOptions {
    * grade what its agents wrote without their exiting.
    */
   readonly harvestWorkspaceFiles?: readonly string[];
-  /**
-   * Have the agent's `moltzapd` append every delivery and send it completes
-   * to a history export, harvested into the ledger as
-   * `moltzap-history.ndjson` when the customer program ends.
-   */
-  readonly historyExport?: boolean;
-  /**
-   * Have the agent image summarize what the agent's model used, harvested into
-   * the ledger as `moltzap-model-usage.json` when the customer program ends.
-   * The image's entrypoint writes the summary once the host has stopped, to a
-   * path the agent cannot write, from OpenClaw's own records and the model
-   * backend's. It carries tokens per backend and model with the record each
-   * total came from, never a price. A value it cannot establish is `null`.
-   */
-  readonly modelUsage?: boolean;
   /**
    * Model the runtime asks for. Its provider prefix (`anthropic/`, `openai/`)
    * names the credentials the agent asks the run for; an unknown prefix asks
@@ -242,8 +225,6 @@ interface OpenClawRuntimeSettings {
   readonly workspaceFiles: readonly CheckedWorkspaceFile[];
   readonly invisibleWorkspaceFiles: readonly string[];
   readonly harvestPaths: readonly WorkspaceRelativePath[];
-  readonly historyExport: boolean;
-  readonly modelUsage: boolean;
   readonly modelId?: string;
   readonly agentRuntime?: typeof selectableAgentRuntime.Type;
   readonly mcpServers?: readonly McpServer[];
@@ -269,8 +250,6 @@ function snapshotOptions(
     workspaceFiles,
     invisibleWorkspaceFiles: invisibleFiles,
     harvestPaths: snapshotHarvestPaths(options.harvestWorkspaceFiles),
-    historyExport: options.historyExport ?? false,
-    modelUsage: options.modelUsage ?? false,
     modelId: options.modelId,
     agentRuntime: options.agentRuntime,
     mcpServers: snapshotMcpServers(options.mcpServers),
@@ -343,8 +322,6 @@ function runtimeConfiguration(
     startupTimeout: settings.startupTimeout,
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
     harvestWorkspaceFiles: settings.harvestPaths,
-    historyExport: settings.historyExport,
-    ...(settings.modelUsage ? { modelUsage: true } : {}),
     mcpServers: mcpConfiguration(settings.mcpServers),
     messagingMode: settings.messagingMode,
     ...(tools === undefined ? {} : { tools }),
@@ -397,9 +374,10 @@ function makeOpenClawApplication(
     acquireGateway,
     invisibleWorkspaceFiles: settings.invisibleWorkspaceFiles,
   };
-  const transcript = historyExport(settings.historyExport);
-  const usage = modelUsage(settings.modelUsage);
-  const retained = [...transcript.harvest, ...usage.harvest];
+  const retained = [
+    ...HISTORY_EXPORT_RENDERING.harvest,
+    ...MODEL_USAGE_RENDERING.harvest,
+  ];
   const harvest = [
     ...harvestTargets(OPENCLAW_WORKSPACE_DIR, settings.harvestPaths),
     ...retained,
@@ -413,13 +391,13 @@ function makeOpenClawApplication(
       OPENCLAW_CONFIG_PATH: APPLICATION_CONFIG_PATH,
       OPENCLAW_DISABLE_BONJOUR: "1",
       ...claudeCodeEnvironment(settings),
-      ...transcript.environment,
-      ...usage.environment,
+      ...HISTORY_EXPORT_RENDERING.environment,
+      ...MODEL_USAGE_RENDERING.environment,
     }),
     ...(credentials.length === 0 ? {} : { credentials }),
     port: OPENCLAW_GATEWAY_PORT,
     files: bootstrapFiles(settings, input, gatewayToken, pairing),
-    ...(harvest.length === 0 ? {} : { harvest }),
+    harvest,
     logs: nativeLogFiles(retained),
     attach: (
       endpoint: ApplicationEndpoint,
