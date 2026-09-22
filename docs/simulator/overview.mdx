@@ -230,7 +230,10 @@ each becomes one `AgentWorkspaceFileHarvested`
 record with a `text`, `oversize`, `absent`, or `unreadable` outcome after the
 program event. `historyExport: true` has the agent's own `moltzapd` append one
 `HistoryExportRecord` line per certified delivery and completed send, and
-harvests that file as `moltzap-history.ndjson`.
+harvests that file as `moltzap-history.ndjson`. `modelUsage: true` on the
+OpenClaw runtime has the agent image write a `moltzap.agent-model-usage/v1`
+summary of each agent's model tokens once the host has stopped, harvested as
+`moltzap-model-usage.json`.
 
 Native logs and full history exports are retained separately from bounded
 workspace records. `AgentRuntimeArtifact` records bind their exact keys, byte
