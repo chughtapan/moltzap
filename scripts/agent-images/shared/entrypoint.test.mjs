@@ -255,6 +255,160 @@ test("finalization drains native logs and keeps the container available for coll
   assert.equal(await running, 0);
 });
 
+/**
+ * Run one image to the end: wait for the host, finalize it, then shut down.
+ * @param {object} app A fixture.
+ * @param {Record<string, string>} environment The container environment.
+ * @returns {Promise<void>} Settled once the entrypoint has exited.
+ */
+async function finalizeRun(app, environment) {
+  const running = runAgentImage(environment);
+  await waitForPath(app.hostRecord);
+  process.emit("SIGUSR2");
+  await waitForPath(join(app.root, "logs", "finalized.json"), 10_000);
+  process.emit("SIGTERM");
+  await running;
+}
+
+/**
+ * @param {object} app A fixture.
+ * @param {string[]} finalizerSource Lines of the host finalizer, or none to ship no finalizer.
+ * @param {Record<string, string>} [extra] Further environment.
+ * @returns {Promise<string>} Path of the model-usage file after finalization.
+ */
+async function finalizeWithModelUsage(app, finalizerSource, extra = {}) {
+  const finalizer = join(app.root, "finalize-host.mjs");
+  if (finalizerSource.length > 0) await executable(finalizer, finalizerSource);
+  const usage = join(app.root, "logs", "model-usage.json");
+  await finalizeRun(app, {
+    ...app.environment,
+    MOLTZAP_AGENT_IMAGE_HOST_FINALIZER: finalizer,
+    MOLTZAP_AGENT_IMAGE_MODEL_USAGE: usage,
+    ...extra,
+  });
+  return usage;
+}
+
+const OK_SUMMARY = JSON.stringify({
+  schema: "moltzap.agent-model-usage/v1",
+  status: "ok",
+  agents: [],
+});
+
+test("no model-usage file is written unless the run asked for one", async () => {
+  const app = await fixture({ hostWait: true });
+  await finalizeRun(app, app.environment);
+
+  await assert.rejects(stat(join(app.root, "logs", "model-usage.json")), {
+    code: "ENOENT",
+  });
+});
+
+test("the host finalizer's summary is kept in a file only its owner can read", async () => {
+  const app = await fixture({ hostWait: true });
+  const usage = await finalizeWithModelUsage(app, [
+    `process.stdout.write(${JSON.stringify(OK_SUMMARY)});`,
+  ]);
+
+  assert.equal(await readFile(usage, "utf8"), OK_SUMMARY);
+  assert.equal((await stat(usage)).mode & 0o777, 0o600);
+});
+
+test("the host finalizer sees the host's environment and none of the daemon's", async () => {
+  const app = await fixture({ hostWait: true });
+  const seen = join(app.root, "finalizer-env.json");
+  await finalizeWithModelUsage(app, [
+    'import { writeFileSync } from "node:fs";',
+    `writeFileSync(${JSON.stringify(seen)}, JSON.stringify(process.env));`,
+    `process.stdout.write(${JSON.stringify(OK_SUMMARY)});`,
+  ]);
+
+  const environment = JSON.parse(await readFile(seen, "utf8"));
+  assert.equal(environment.MOLTZAPD_AGENT_PRIVATE_KEY_FILE, undefined);
+  assert.equal(environment.TEST_HOST_RECORD, app.hostRecord);
+});
+
+test("a host finalizer that overruns leaves a timeout record", async () => {
+  const app = await fixture({ hostWait: true });
+  const usage = await finalizeWithModelUsage(
+    app,
+    ["await new Promise((resolve) => setTimeout(resolve, 30_000));"],
+    { MOLTZAP_AGENT_IMAGE_HOST_FINALIZER_TIMEOUT_MS: "200" },
+  );
+
+  assert.equal(
+    JSON.parse(await readFile(usage, "utf8")).status,
+    "finalizer-timeout",
+  );
+});
+
+test("a host finalizer that prints something other than a summary leaves a failure record", async () => {
+  const app = await fixture({ hostWait: true });
+  const usage = await finalizeWithModelUsage(app, [
+    'process.stdout.write("not json");',
+  ]);
+  const record = JSON.parse(await readFile(usage, "utf8"));
+
+  assert.deepEqual(
+    [record.status, record.reason],
+    ["finalizer-failed", "the summary is not JSON"],
+  );
+});
+
+test("a summary carrying another schema leaves a failure record", async () => {
+  const app = await fixture({ hostWait: true });
+  const usage = await finalizeWithModelUsage(app, [
+    `process.stdout.write(${JSON.stringify(JSON.stringify({ schema: "other/v1", agents: [] }))});`,
+  ]);
+
+  assert.equal(
+    JSON.parse(await readFile(usage, "utf8")).reason,
+    "unexpected schema",
+  );
+});
+
+test("a summary is not written through a symlink left where it is staged", async () => {
+  const app = await fixture({ hostWait: true });
+  const decoy = join(app.root, "decoy.json");
+  await writeFile(decoy, "untouched");
+  await mkdir(join(app.root, "logs"), { recursive: true });
+  await symlink(decoy, join(app.root, "logs", "model-usage.json.partial"));
+  await finalizeWithModelUsage(app, [
+    `process.stdout.write(${JSON.stringify(OK_SUMMARY)});`,
+  ]);
+
+  assert.equal(await readFile(decoy, "utf8"), "untouched");
+});
+
+test("a host finalizer that exits non-zero leaves a failure record", async () => {
+  const app = await fixture({ hostWait: true });
+  const usage = await finalizeWithModelUsage(app, ["process.exitCode = 3;"]);
+
+  assert.equal(JSON.parse(await readFile(usage, "utf8")).reason, "exit code 3");
+});
+
+test("a summary over the harvest bound is refused", async () => {
+  const app = await fixture({ hostWait: true });
+  const usage = await finalizeWithModelUsage(app, [
+    'process.stdout.write("x".repeat(2 * 1024 * 1024));',
+  ]);
+
+  assert.equal(
+    JSON.parse(await readFile(usage, "utf8")).reason,
+    "the summary exceeds 1 MiB",
+  );
+});
+
+test("an image without a host finalizer leaves a failure record", async () => {
+  const app = await fixture({ hostWait: true });
+  const usage = await finalizeWithModelUsage(app, []);
+
+  assert.equal(
+    JSON.parse(await readFile(usage, "utf8")).reason,
+    "the image ships no host finalizer",
+  );
+});
+
 test("standalone entrypoint stays alive after finalization until shutdown", async () => {
   const app = await fixture({ hostWait: true });
   const child = spawn(

@@ -10,6 +10,21 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Added
+
+- The OpenClaw agent image can summarize what each agent's model used. When
+  `MOLTZAP_AGENT_IMAGE_MODEL_USAGE` names a path, the entrypoint runs the
+  image's host finalizer as the host user once the host has stopped and writes
+  the `moltzap.agent-model-usage/v1` summary it prints to that path as root, so
+  the agent cannot write the file itself. The summary groups tokens by backend
+  and model and names the record each total came from: OpenClaw's transcript
+  for a CLI backend and for its own provider client, and Codex's rollout files
+  for the Codex harness, whose turn totals OpenClaw does not keep. Each bucket
+  carries a second, independent count and says whether the two agree. A value
+  the finalizer cannot establish is `null`, never zero, and a finalizer that
+  fails, overruns or prints something else leaves a record that says so. No
+  run sets the variable yet.
+
 ### Fixed
 
 - Record what an agent hosted in Claude Code really used. OpenClaw kept the
