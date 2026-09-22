@@ -10,6 +10,15 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Fixed
+
+- Let an agent hosted in Claude Code reach its peers. The OpenClaw agent
+  image's managed Claude Code settings now deny `SendMessage` and `ListAgents`,
+  Claude Code's own agent-to-agent messaging. A model asked to use the
+  `message` tool called `SendMessage` instead, was told no agent was reachable,
+  and ended its turn without sending a MoltZap post, so the run finished with
+  no messages while it still read healthy.
+
 ## [2026.919.0] - 2026-09-19
 
 ### Fixed
