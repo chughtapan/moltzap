@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.922.2] - 2026-09-22
+
 ### Removed
 
 - The `historyExport` and `modelUsage` runtime options. `openClawRuntime` and
