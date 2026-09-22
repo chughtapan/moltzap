@@ -27,12 +27,14 @@ import { randomBytes } from "node:crypto";
 import {
   type DeliveryDisposition,
   type GatherInputError,
+  type GatherOverlay,
   type GatherResult,
   makeGatherOverlay,
 } from "./gather-overlay.js";
 
 const MILLIS_PER_SECOND = 1_000;
-const CODE_FENCE = /^```(?:json)?\s*([\s\S]*?)\s*```$/u;
+const CODE_FENCE = "```";
+const JSON_INFO_STRING = "json";
 
 const gatherCommand = Schema.Struct({
   gather: Schema.Struct({
@@ -52,10 +54,11 @@ const decodeCommand = Schema.decodeUnknownOption(
 const decodeAddress = Schema.decodeUnknownOption(AgentAddress);
 const decodeMessage = Schema.decodeUnknownOption(InboundMessage);
 
-type Command = typeof gatherCommand.Type | typeof contributionCommand.Type;
+type GatherCommand = typeof gatherCommand.Type;
+type Command = GatherCommand | typeof contributionCommand.Type;
 
 /** Counts of what models wrote, for the smoke report. */
-export interface GatherAdapterCounters {
+interface GatherAdapterCounters {
   readonly gathersStarted: number;
   readonly contributionsSent: number;
   readonly unknownMembers: number;
@@ -82,10 +85,152 @@ export interface GatherAdapterOptions {
   readonly log: (line: string) => void;
 }
 
+/** One account's adapter state. Gathers fork into `scope`. */
+interface AdapterState {
+  readonly options: GatherAdapterOptions;
+  readonly scope: Scope.Scope;
+  readonly overlay: GatherOverlay;
+  readonly counts: { -readonly [Key in keyof GatherAdapterCounters]: number };
+}
+
+/**
+ * Build the adapter, or nothing when the local agent name is not configured.
+ * Gathers run in the surrounding scope, so closing the account connection
+ * interrupts any that are still open.
+ */
+export function makeGatherAdapter(
+  options: GatherAdapterOptions,
+): Effect.Effect<Option.Option<GatherAdapter>, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    const configured = yield* Config.string("MOLTZAP_AGENT_NAME").pipe(
+      Effect.option,
+    );
+    const self = Option.flatMap(configured, memberAddress);
+    if (Option.isNone(self)) {
+      options.log("MoltZap gather: off (MOLTZAP_AGENT_NAME is not set)");
+      return Option.none();
+    }
+    const state = yield* adapterState(options, self.value);
+    return Option.some(adapterFor(state));
+  }).pipe(Effect.withSpan("makeGatherAdapter"));
+}
+
+function adapterState(
+  options: GatherAdapterOptions,
+  self: AgentAddress,
+): Effect.Effect<AdapterState, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    const scope = yield* Effect.scope;
+    const overlay = yield* makeGatherOverlay({
+      self,
+      send: options.send,
+      withholdPeerContributions: true,
+      onMemberResult: (listed, close) =>
+        options.runTurn(memberResultTurn(listed, close)),
+    });
+    return {
+      options,
+      scope,
+      overlay,
+      counts: { gathersStarted: 0, contributionsSent: 0, unknownMembers: 0 },
+    };
+  });
+}
+
+function memberResultTurn(
+  listed: ReadonlyMap<AgentAddress, Content>,
+  close: InboundMessage,
+): InboundMessage {
+  return {
+    ...close,
+    content: [
+      {
+        type: "text",
+        text: `The gather closed. Every member holds these same answers:\n${describeContributions(listed)}`,
+      },
+    ],
+  };
+}
+
+function adapterFor(state: AdapterState): GatherAdapter {
+  return {
+    onDelivery: state.overlay.onDelivery,
+    commandSend: (to, text) =>
+      Option.map(parseCommand(text), (command) =>
+        runCommand(state, to, command),
+      ),
+    counters: Effect.sync(() => ({ ...state.counts })),
+  };
+}
+
 function parseCommand(text: string): Option.Option<Command> {
-  const trimmed = text.trim();
-  const fenced = CODE_FENCE.exec(trimmed);
-  return decodeCommand(fenced?.[1] ?? trimmed);
+  return decodeCommand(unfence(text.trim()));
+}
+
+/**
+ * The body of a Markdown code fence with an optional `json` info string, or
+ * `text` itself when it is not fenced. Prefix and suffix checks keep the scan
+ * linear in the length of model-written text.
+ */
+function unfence(text: string): string {
+  const fenced =
+    text.length >= 2 * CODE_FENCE.length &&
+    text.startsWith(CODE_FENCE) &&
+    text.endsWith(CODE_FENCE);
+  if (!fenced) {
+    return text;
+  }
+  const body = text.slice(CODE_FENCE.length, -CODE_FENCE.length);
+  const unlabeled = body.startsWith(JSON_INFO_STRING)
+    ? body.slice(JSON_INFO_STRING.length)
+    : body;
+  return unlabeled.trim();
+}
+
+/** Counts a contribution when the model writes it, before the send runs. */
+function runCommand(
+  state: AdapterState,
+  to: SendInput["to"],
+  command: Command,
+): Effect.Effect<void, SendError | GatherInputError> {
+  if ("gather" in command) {
+    return startGather(state, command);
+  }
+  state.counts.contributionsSent += 1;
+  return state.overlay.contribute(command.contribution.id, to, command.message);
+}
+
+function startGather(
+  state: AdapterState,
+  command: GatherCommand,
+): Effect.Effect<void, GatherInputError> {
+  return Effect.gen(function* () {
+    const members = command.gather.members.flatMap((member) =>
+      Option.toArray(memberAddress(member)),
+    );
+    state.counts.unknownMembers +=
+      command.gather.members.length - members.length;
+    const now = yield* Clock.currentTimeMillis;
+    const request = {
+      members,
+      prompt: command.message,
+      deadlineAt: now + command.gather.deadlineSeconds * MILLIS_PER_SECOND,
+      topology: command.gather.topology,
+    };
+    state.counts.gathersStarted += 1;
+    state.options.log(
+      `MoltZap gather: start ${request.topology} to ${members.join(",")}`,
+    );
+    yield* state.overlay.gather(request).pipe(
+      Effect.flatMap((result) => reportResult(state, members, result)),
+      Effect.catchAll((error) =>
+        Effect.sync(() => {
+          state.options.log(`MoltZap gather: rejected ${error.reason}`);
+        }),
+      ),
+      Effect.forkIn(state.scope),
+    );
+  });
 }
 
 function memberAddress(member: string): Option.Option<AgentAddress> {
@@ -94,28 +239,21 @@ function memberAddress(member: string): Option.Option<AgentAddress> {
   );
 }
 
-function textOf(content: Content): string {
-  return content
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
-    .join("\n");
-}
-
-function describeContributions(
-  contributions: ReadonlyMap<AgentAddress, Content>,
-): string {
-  return [...contributions]
-    .map(([member, content]) => `- ${member}: ${textOf(content)}`)
-    .join("\n");
-}
-
-function describeResult(result: GatherResult): string {
-  const missing =
-    result.missing.length === 0 ? "none" : result.missing.join(", ");
-  return [
-    `Gather ${result.id} finished. These are all the answers; no further replies are coming for it.`,
-    describeContributions(result.contributions),
-    `No answer from: ${missing}.`,
-  ].join("\n");
+function reportResult(
+  state: AdapterState,
+  members: readonly AgentAddress[],
+  result: GatherResult,
+): Effect.Effect<void> {
+  state.options.log(
+    `MoltZap gather: ${result.id} done got=${result.contributions.size} missing=${result.missing.length} closeCertified=${result.closeCertified}`,
+  );
+  const first = members[0];
+  return first === undefined
+    ? Effect.void
+    : Option.match(resultCarrier(result, first), {
+        onNone: () => Effect.void,
+        onSome: (carrier) => state.options.runTurn(carrier),
+      });
 }
 
 /**
@@ -141,103 +279,26 @@ function resultCarrier(
   });
 }
 
-/**
- * Build the adapter, or nothing when the local agent name is not configured.
- * Gathers run in the surrounding scope, so closing the account connection
- * interrupts any that are still open.
- */
-export function makeGatherAdapter(
-  options: GatherAdapterOptions,
-): Effect.Effect<Option.Option<GatherAdapter>, never, Scope.Scope> {
-  return Effect.gen(function* () {
-    const configured = yield* Config.string("MOLTZAP_AGENT_NAME").pipe(
-      Effect.option,
-    );
-    const self = Option.flatMap(configured, memberAddress);
-    if (Option.isNone(self)) {
-      options.log("MoltZap gather: off (MOLTZAP_AGENT_NAME is not set)");
-      return Option.none();
-    }
-    const scope = yield* Effect.scope;
-    const counts = {
-      gathersStarted: 0,
-      contributionsSent: 0,
-      unknownMembers: 0,
-    };
-    const overlay = yield* makeGatherOverlay({
-      self: self.value,
-      send: options.send,
-      withholdPeerContributions: true,
-      onMemberResult: (listed, close) =>
-        options.runTurn({
-          ...close,
-          content: [
-            {
-              type: "text",
-              text: `The gather closed. Every member holds these same answers:\n${describeContributions(listed)}`,
-            },
-          ],
-        }),
-    });
+function describeResult(result: GatherResult): string {
+  const missing =
+    result.missing.length === 0 ? "none" : result.missing.join(", ");
+  return [
+    `Gather ${result.id} finished. These are all the answers; no further replies are coming for it.`,
+    describeContributions(result.contributions),
+    `No answer from: ${missing}.`,
+  ].join("\n");
+}
 
-    function startGather(
-      command: typeof gatherCommand.Type,
-    ): Effect.Effect<void, GatherInputError> {
-      return Effect.gen(function* () {
-        const members = command.gather.members.flatMap((member) =>
-          Option.toArray(memberAddress(member)),
-        );
-        counts.unknownMembers += command.gather.members.length - members.length;
-        const now = yield* Clock.currentTimeMillis;
-        const request = {
-          members,
-          prompt: command.message,
-          deadlineAt: now + command.gather.deadlineSeconds * MILLIS_PER_SECOND,
-          topology: command.gather.topology,
-        };
-        counts.gathersStarted += 1;
-        options.log(
-          `MoltZap gather: start ${request.topology} to ${members.join(",")}`,
-        );
-        yield* overlay.gather(request).pipe(
-          Effect.flatMap((result) => {
-            options.log(
-              `MoltZap gather: ${result.id} done got=${result.contributions.size} missing=${result.missing.length} closeCertified=${result.closeCertified}`,
-            );
-            const first = members[0];
-            return first === undefined
-              ? Effect.void
-              : Option.match(resultCarrier(result, first), {
-                  onNone: () => Effect.void,
-                  onSome: options.runTurn,
-                });
-          }),
-          Effect.catchAll((error) =>
-            Effect.sync(() => {
-              options.log(`MoltZap gather: rejected ${error.reason}`);
-            }),
-          ),
-          Effect.forkIn(scope),
-        );
-      });
-    }
+function describeContributions(
+  contributions: ReadonlyMap<AgentAddress, Content>,
+): string {
+  return [...contributions]
+    .map(([member, content]) => `- ${member}: ${textOf(content)}`)
+    .join("\n");
+}
 
-    const adapter: GatherAdapter = {
-      onDelivery: overlay.onDelivery,
-      commandSend: (to, text) =>
-        Option.map(parseCommand(text), (command) => {
-          if ("gather" in command) {
-            return startGather(command);
-          }
-          counts.contributionsSent += 1;
-          return overlay.contribute(
-            command.contribution.id,
-            to,
-            command.message,
-          );
-        }),
-      counters: Effect.sync(() => ({ ...counts })),
-    };
-    return Option.some(adapter);
-  });
+function textOf(content: Content): string {
+  return content
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .join("\n");
 }

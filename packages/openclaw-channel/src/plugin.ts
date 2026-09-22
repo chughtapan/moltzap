@@ -28,9 +28,6 @@ import {
   Stream,
 } from "effect";
 import { randomUUID } from "node:crypto";
-
-import { type GatherAdapter, makeGatherAdapter } from "./gather-adapter.js";
-import type { DeliveryDisposition } from "./gather-overlay.js";
 import {
   type ChannelPlugin,
   createChannelPluginBase,
@@ -45,6 +42,12 @@ import {
   defineChannelMessageAdapter,
   waitUntilAbort,
 } from "openclaw/plugin-sdk/channel-outbound";
+
+import { type GatherAdapter, makeGatherAdapter } from "./gather-adapter.js";
+import {
+  DELIVERY_DISPOSITION,
+  type DeliveryDisposition,
+} from "./gather-overlay.js";
 
 const CHANNEL_ID = "moltzap";
 const TARGET_HINT =
@@ -428,20 +431,7 @@ function runAccountConnection(
   endpoint: HarnessEndpoint,
   connectedAccount: ConnectedAccountState,
 ) {
-  return makeGatherAdapter({
-    send: endpoint.send,
-    runTurn: (message) =>
-      runOpenClawTurn(ctx, runtime, message).pipe(
-        Effect.catchAll((error) =>
-          Effect.sync(() => {
-            ctx.log?.error?.(
-              `MoltZap gather: result turn failed: ${error.detail}`,
-            );
-          }),
-        ),
-      ),
-    log: (line) => ctx.log?.info?.(line),
-  }).pipe(
+  return accountGatherAdapter(ctx, runtime, endpoint).pipe(
     Effect.tap((gather) =>
       Effect.sync(() => {
         connectedAccount.current = {
@@ -478,6 +468,28 @@ function runAccountConnection(
   );
 }
 
+/** A result turn that fails is logged; the gather it reports has ended. */
+function accountGatherAdapter(
+  ctx: ChannelGatewayContext<MoltZapAccount>,
+  runtime: OpenClawAccountRuntime,
+  endpoint: HarnessEndpoint,
+) {
+  return makeGatherAdapter({
+    send: endpoint.send,
+    runTurn: (message) =>
+      runOpenClawTurn(ctx, runtime, message).pipe(
+        Effect.catchAll((error) =>
+          Effect.sync(() => {
+            ctx.log?.error?.(
+              `MoltZap gather: result turn failed: ${error.detail}`,
+            );
+          }),
+        ),
+      ),
+    log: (line) => ctx.log?.info?.(line),
+  });
+}
+
 /**
  * Consumes messages until the stream ends or OpenClaw aborts the account.
  *
@@ -487,6 +499,8 @@ function runAccountConnection(
  * @param ctx The account task and abort signal supplied by OpenClaw.
  * @param runtime OpenClaw routing and inbound services for this account task.
  * @param endpoint The daemon-backed message stream for this account.
+ * @param connectedAccount The account's connection, whose gather adapter sees
+ *   each delivery before the stock inbound path.
  * @returns An effect that ends with the stream or the abort signal.
  */
 function consumeInboundMessages(
@@ -500,7 +514,7 @@ function consumeInboundMessages(
       Stream.runForEach((delivery) =>
         gatherDisposition(connectedAccount, delivery).pipe(
           Effect.flatMap((disposition) =>
-            disposition === "consumed"
+            disposition === DELIVERY_DISPOSITION.consumed
               ? Effect.void
               : handleInboundDelivery(ctx, runtime, delivery),
           ),
@@ -541,7 +555,7 @@ function gatherDisposition(
 ): Effect.Effect<DeliveryDisposition> {
   const gather = connectedAccount.current?.gather ?? Option.none();
   return Option.match(gather, {
-    onNone: () => Effect.succeed<DeliveryDisposition>("passthrough"),
+    onNone: () => Effect.succeed(DELIVERY_DISPOSITION.passthrough),
     onSome: (adapter) => adapter.onDelivery(delivery),
   });
 }
