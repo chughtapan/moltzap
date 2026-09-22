@@ -4,9 +4,20 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@typescript/native':
+      specifier: npm:typescript@7.0.2
+      version: 7.0.2
+    typescript:
+      specifier: npm:@typescript/typescript6@6.0.2
+      version: 6.0.2
+
 overrides:
-  eslint-plugin-sonarjs>typescript: 5.9.3
   effect: 3.22.1
+  '@chughtapan/safer-architecture-lsp>typescript': npm:@typescript/typescript6@6.0.2
+  eslint-plugin-sonarjs>typescript: npm:@typescript/typescript6@6.0.2
+  '@typescript/typescript6>@typescript/old': npm:typescript@6.0.3
 
 importers:
 
@@ -37,7 +48,7 @@ importers:
         specifier: ^25.5.0
         version: 25.5.0
       '@typescript/native':
-        specifier: npm:typescript@^7.0.2
+        specifier: 'catalog:'
         version: typescript@7.0.2
       '@vitest/coverage-v8':
         specifier: ^3.2.4
@@ -76,7 +87,7 @@ importers:
         specifier: ^0.28.19
         version: 0.28.19(@typescript/typescript6@6.0.2)
       typescript:
-        specifier: npm:@typescript/typescript6@^6.0.2
+        specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: ^3.0.0
@@ -113,13 +124,13 @@ importers:
         version: 3.22.1
     devDependencies:
       '@typescript/native':
-        specifier: npm:typescript@^7.0.2
+        specifier: 'catalog:'
         version: typescript@7.0.2
       eslint:
         specifier: ^9
         version: 9.39.4(jiti@2.7.0)
       typescript:
-        specifier: npm:@typescript/typescript6@^6.0.2
+        specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       undici:
         specifier: 7.29.0
@@ -177,7 +188,7 @@ importers:
         specifier: 10.28.0
         version: 10.28.0
       '@typescript/native':
-        specifier: npm:typescript@^7.0.2
+        specifier: 'catalog:'
         version: typescript@7.0.2
       eslint:
         specifier: ^9
@@ -186,7 +197,7 @@ importers:
         specifier: 3.23.2
         version: 3.23.2
       typescript:
-        specifier: npm:@typescript/typescript6@^6.0.2
+        specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 3.2.4
@@ -205,13 +216,13 @@ importers:
         version: 3.22.1
     devDependencies:
       '@typescript/native':
-        specifier: npm:typescript@^7.0.2
+        specifier: 'catalog:'
         version: typescript@7.0.2
       eslint:
         specifier: ^9
         version: 9.39.4(jiti@2.7.0)
       typescript:
-        specifier: npm:@typescript/typescript6@^6.0.2
+        specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
 
   packages/openclaw-channel:
@@ -230,7 +241,7 @@ importers:
         specifier: ^25.5.0
         version: 25.5.0
       '@typescript/native':
-        specifier: npm:typescript@^7.0.2
+        specifier: 'catalog:'
         version: typescript@7.0.2
       eslint:
         specifier: ^9
@@ -239,7 +250,7 @@ importers:
         specifier: 2026.8.1
         version: 2026.8.1(@aws-sdk/credential-provider-node@3.972.29)(@cfworker/json-schema@4.1.1)(@opentelemetry/api@1.9.1)(@opentelemetry/resources@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.10.0(@opentelemetry/api@1.9.1))
       typescript:
-        specifier: npm:@typescript/typescript6@^6.0.2
+        specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: ^3.2.0
@@ -273,7 +284,7 @@ importers:
         specifier: ^0.30.0
         version: 0.30.0(effect@3.22.1)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@25.5.0)(jiti@2.7.0)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
       '@typescript/native':
-        specifier: npm:typescript@^7.0.2
+        specifier: 'catalog:'
         version: typescript@7.0.2
       eslint:
         specifier: ^9
@@ -282,7 +293,7 @@ importers:
         specifier: 3.23.2
         version: 3.23.2
       typescript:
-        specifier: npm:@typescript/typescript6@^6.0.2
+        specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: 3.2.4
@@ -343,13 +354,13 @@ importers:
         specifier: ^0.30.0
         version: 0.30.0(effect@3.22.1)(vitest@3.2.4(@types/debug@4.1.13)(@types/node@24.13.3)(jiti@2.7.0)(terser@5.49.0)(tsx@4.21.0)(yaml@2.9.0))
       '@typescript/native':
-        specifier: npm:typescript@^7.0.2
+        specifier: 'catalog:'
         version: typescript@7.0.2
       eslint:
         specifier: ^9
         version: 9.39.4(jiti@2.7.0)
       typescript:
-        specifier: npm:@typescript/typescript6@^6.0.2
+        specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
       vitest:
         specifier: ^3.2.0
@@ -8876,11 +8887,6 @@ packages:
       eslint: ^8.57.0 || ^9.0.0 || ^10.0.0
       typescript: '>=4.8.4 <6.1.0'
 
-  typescript@5.9.3:
-    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
-    engines: {node: '>=14.17'}
-    hasBin: true
-
   typescript@6.0.3:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
@@ -9869,7 +9875,7 @@ snapshots:
     dependencies:
       chokidar: 5.0.0
       effect: 3.22.1
-      typescript: 5.9.3
+      typescript: '@typescript/typescript6@6.0.2'
       vscode-languageserver: 9.0.1
 
   '@clack/core@1.4.3':
@@ -15058,8 +15064,8 @@ snapshots:
       minimatch: 10.2.5
       scslre: 0.3.0
       semver: 7.8.0
-      ts-api-utils: 2.5.0(typescript@5.9.3)
-      typescript: 5.9.3
+      ts-api-utils: 2.5.0(@typescript/typescript6@6.0.2)
+      typescript: '@typescript/typescript6@6.0.2'
 
   eslint-scope@5.1.1:
     dependencies:
@@ -19670,10 +19676,6 @@ snapshots:
     dependencies:
       typescript: '@typescript/typescript6@6.0.2'
 
-  ts-api-utils@2.5.0(typescript@5.9.3):
-    dependencies:
-      typescript: 5.9.3
-
   ts-dedent@2.2.0: {}
 
   ts-interface-checker@0.1.13: {}
@@ -19793,8 +19795,6 @@ snapshots:
       typescript: '@typescript/typescript6@6.0.2'
     transitivePeerDependencies:
       - supports-color
-
-  typescript@5.9.3: {}
 
   typescript@6.0.3: {}
 
