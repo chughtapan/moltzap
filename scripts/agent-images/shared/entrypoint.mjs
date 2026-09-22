@@ -13,6 +13,7 @@ import {
   mkdir,
   readFile,
   readdir,
+  rename,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -28,6 +29,21 @@ const DEFAULT_SECRET_DIRECTORY = "/var/run/moltzap/daemon";
 const DEFAULT_STATE_DIRECTORY = "/var/lib/moltzap/endpoint";
 const DEFAULT_HOST_USER_ID = 1_000;
 const DEFAULT_DAEMON_USER_ID = 1_001;
+/**
+ * Where an image that summarizes model usage installs its finalizer. An image
+ * without one leaves a failure record, so each image that ships one asserts
+ * its Dockerfile copies this name.
+ */
+export const DEFAULT_HOST_FINALIZER = "/opt/moltzap/agent/finalize-host.mjs";
+const DEFAULT_HOST_FINALIZER_TIMEOUT_MILLIS = 20_000;
+/**
+ * The tag a host finalizer's summary must carry, so it must stay equal to
+ * `SCHEMA` in the image's finalizer, such as `openclaw/finalize-host.mjs`.
+ * Importing it from one image's script would tie every image to that image.
+ */
+export const MODEL_USAGE_SCHEMA = "moltzap.agent-model-usage/v1";
+/** The simulator reads this file with a 1 MiB bound. */
+const MAXIMUM_MODEL_USAGE_BYTES = 1_024 * 1_024;
 const SHUTDOWN_GRACE_MILLIS = 5_000;
 /** @type {WeakMap<import("node:child_process").ChildProcess, Promise<void>>} */
 const terminations = new WeakMap();
@@ -94,6 +110,101 @@ function hostEnvironment(environment) {
         !name.startsWith("MOLTZAP_AGENT_IMAGE_"),
     ),
   );
+}
+
+/**
+ * Run the image's host finalizer and keep what it prints.
+ *
+ * The finalizer reads files the agent's model could have written, so it runs
+ * as the host user and only prints; this process, PID 1, stays out of those
+ * files and owns the output path, which the host cannot reach. A finalizer
+ * that fails, overruns or prints something else still yields a file, so a
+ * reader can tell a failed summary from an image that was never asked for one.
+ *
+ * @param {ReturnType<typeof runtimeOptions>} options Entrypoint options.
+ * @param {NodeJS.ProcessEnv} environment The container environment.
+ * @returns {Promise<{status: string, reason?: string, body?: string}>}
+ */
+async function collectModelUsage(options, environment) {
+  try {
+    await stat(options.hostFinalizer);
+  } catch {
+    return {
+      status: "finalizer-failed",
+      reason: "the image ships no host finalizer",
+    };
+  }
+  const child = spawn(process.execPath, [options.hostFinalizer], {
+    env: hostEnvironment(environment),
+    gid: options.hostGroupId,
+    uid: options.hostUserId,
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  const chunks = [];
+  let bytes = 0;
+  let overrun = false;
+  child.stdout.on("data", (chunk) => {
+    bytes += chunk.length;
+    if (bytes > MAXIMUM_MODEL_USAGE_BYTES) {
+      overrun = true;
+      child.kill("SIGKILL");
+      return;
+    }
+    chunks.push(chunk);
+  });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill("SIGKILL");
+  }, options.hostFinalizerTimeoutMillis);
+  const code = await new Promise((resolveExit) => {
+    child.once("error", () => resolveExit(1));
+    child.once("close", (exitCode) => resolveExit(exitCode ?? 1));
+  });
+  clearTimeout(timer);
+  if (timedOut) return { status: "finalizer-timeout" };
+  if (overrun) {
+    return { status: "finalizer-failed", reason: "the summary exceeds 1 MiB" };
+  }
+  if (code !== 0) {
+    return { status: "finalizer-failed", reason: "exit code " + String(code) };
+  }
+  const body = Buffer.concat(chunks).toString("utf8");
+  try {
+    if (JSON.parse(body)?.schema !== MODEL_USAGE_SCHEMA) {
+      return { status: "finalizer-failed", reason: "unexpected schema" };
+    }
+  } catch {
+    return { status: "finalizer-failed", reason: "the summary is not JSON" };
+  }
+  return { status: "ok", body };
+}
+
+/**
+ * Stage the summary and move it into place.
+ *
+ * The staged write refuses a path that already exists, so this process, PID 1,
+ * never follows a symlink someone else left where it writes; the move replaces
+ * whatever the destination names rather than writing through it.
+ *
+ * @param {ReturnType<typeof runtimeOptions>} options Entrypoint options.
+ * @param {NodeJS.ProcessEnv} environment The container environment.
+ * @returns {Promise<void>}
+ */
+async function writeModelUsage(options, environment) {
+  const collected = await collectModelUsage(options, environment);
+  const body =
+    collected.body ??
+    JSON.stringify({
+      schema: MODEL_USAGE_SCHEMA,
+      status: collected.status,
+      ...(collected.reason === undefined ? {} : { reason: collected.reason }),
+      writtenAt: new Date().toISOString(),
+      agents: [],
+    });
+  const staged = options.modelUsage + ".partial";
+  await writeFile(staged, body, { flag: "wx", mode: 0o600 });
+  await rename(staged, options.modelUsage);
 }
 
 async function chownTree(path, uid, gid) {
@@ -326,8 +437,16 @@ function runtimeOptions(environment) {
       "MOLTZAP_AGENT_IMAGE_HOST_GID",
       hostUserId,
     ),
+    hostFinalizer:
+      environment.MOLTZAP_AGENT_IMAGE_HOST_FINALIZER ?? DEFAULT_HOST_FINALIZER,
+    hostFinalizerTimeoutMillis: numericEnvironment(
+      environment,
+      "MOLTZAP_AGENT_IMAGE_HOST_FINALIZER_TIMEOUT_MS",
+      DEFAULT_HOST_FINALIZER_TIMEOUT_MILLIS,
+    ),
     hostUserId,
     historyExport: environment.MOLTZAPD_HISTORY_EXPORT,
+    modelUsage: environment.MOLTZAP_AGENT_IMAGE_MODEL_USAGE,
     registrar: environment.MOLTZAP_AGENT_IMAGE_REGISTRAR ?? DEFAULT_REGISTRAR,
     secretDirectory:
       environment.MOLTZAP_AGENT_IMAGE_SECRET_DIRECTORY ??
@@ -373,6 +492,15 @@ export async function runAgentImage(environment = process.env) {
       const started = process.hrtime.bigint();
       await terminate(host);
       const hostStoppedAt = new Date().toISOString();
+      if (options.modelUsage !== undefined) {
+        await writeModelUsage(options, environment).catch((cause) => {
+          process.stderr.write(
+            "model usage was not written: " +
+              (cause instanceof Error ? cause.message : "unknown failure") +
+              "\n",
+          );
+        });
+      }
       await terminate(daemon);
       await drainLogs(logDrains);
       await writeFile(
