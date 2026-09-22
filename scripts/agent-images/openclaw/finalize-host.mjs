@@ -10,10 +10,13 @@
  * holds a run's true total differs by backend, so usage is grouped into one
  * bucket per backend and model and each bucket names its source:
  *
- * - `cli` (Claude Code and other CLI backends): the transcript row. The image
- *   patch makes it the backend's cumulative total. Claude Code's own session
- *   files are the cross-check; they hold one record per content block of an
- *   API response, so the last record per message id is the response's usage.
+ * - `cli` (Claude Code): Claude Code's own session files, which hold one
+ *   record per content block of an API response, so the last record per
+ *   message id is the response's usage. OpenClaw's transcript is the
+ *   cross-check: it records a run started by the principal but not one
+ *   started by a channel delivery, and the image patch makes each row it does
+ *   write the run's cumulative total. A CLI backend that leaves no session
+ *   files is read from the transcript alone.
  * - `embedded` (OpenClaw's own provider client): the sum of transcript rows,
  *   one per model call, which also carry OpenClaw's catalog cost. The
  *   trajectory's `model.completed` rows hold per-attempt totals and only
@@ -386,22 +389,35 @@ function reportBucket(bucket, native) {
   }
   if (bucket.backend === "cli") {
     const session = native.claude;
-    const agrees =
-      session === null ? null : sameBilledTokens(bucket.tokens, session.tokens);
-    const behind = agrees === false && noneAbove(bucket.tokens, session.tokens);
+    if (session === null) {
+      return {
+        ...base,
+        source: "transcript",
+        tokens: bucket.tokens,
+        reportedCost: null,
+        coverage: bucket.rowsWithUsage < bucket.rows ? "partial" : "unknown",
+        crossCheck: {
+          source: "claude-session-files",
+          tokens: null,
+          agrees: null,
+          note: null,
+        },
+      };
+    }
+    const same = sameBilledTokens(session.tokens, bucket.tokens);
+    const behind = !same && noneAbove(bucket.tokens, session.tokens);
     return {
       ...base,
-      source: "transcript",
-      tokens: bucket.tokens,
+      source: "claude-session-files",
+      tokens: session.tokens,
       reportedCost: null,
-      coverage:
-        behind || bucket.rowsWithUsage < bucket.rows ? "partial" : "complete",
+      coverage: "complete",
       crossCheck: {
-        source: "claude-session-files",
-        tokens: session?.tokens ?? null,
-        agrees,
+        source: "transcript",
+        tokens: bucket.tokens,
+        agrees: same || behind,
         note: behind
-          ? "the backend used more than the transcript records, as after an aborted run"
+          ? "the transcript omits a run started by a channel delivery, or one that ended before its row"
           : null,
       },
     };
@@ -423,11 +439,11 @@ function reportBucket(bucket, native) {
 }
 
 /**
- * A run that ended before OpenClaw wrote any assistant row still spent what
- * Claude Code recorded, so the bucket exists with unknown tokens rather than
- * being left out.
+ * A run for which OpenClaw wrote no assistant row still spent what Claude Code
+ * recorded, so the bucket exists with Claude Code's tokens rather than being
+ * left out; the transcript cross-check has nothing to say.
  * @param {{tokens: Record<string, number>}} session Claude Code's own usage.
- * @returns {object} A bucket whose tokens are unknown.
+ * @returns {object} A bucket the transcript knows nothing about.
  */
 function unrecordedCliBucket(session) {
   return {
@@ -436,15 +452,15 @@ function unrecordedCliBucket(session) {
     model: null,
     api: "cli",
     modelMessages: 0,
-    source: "transcript",
-    tokens: null,
+    source: "claude-session-files",
+    tokens: session.tokens,
     reportedCost: null,
-    coverage: "partial",
+    coverage: "complete",
     crossCheck: {
-      source: "claude-session-files",
-      tokens: session.tokens,
+      source: "transcript",
+      tokens: null,
       agrees: false,
-      note: "the backend used tokens and the transcript records no model message",
+      note: "the transcript records no model message",
     },
   };
 }

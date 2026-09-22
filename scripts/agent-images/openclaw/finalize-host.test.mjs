@@ -164,10 +164,11 @@ test("delivery-mirror rows are counted and left out of the totals", async () => 
   assert.equal(alice.totals.output, 164);
 });
 
-test("a CLI backend's tokens come from the transcript", async () => {
+test("a CLI backend without session files is read from the transcript with unknown coverage", async () => {
   const alice = await aliceAfter({ rows: [CLI_ROW] });
 
   assert.equal(alice.buckets[0].source, "transcript");
+  assert.equal(alice.buckets[0].coverage, "unknown");
   assert.deepEqual(alice.buckets[0].tokens, {
     input: 6,
     output: 164,
@@ -177,7 +178,7 @@ test("a CLI backend's tokens come from the transcript", async () => {
   });
 });
 
-test("the CLI cross-check takes the last Claude Code record of each message id", async () => {
+test("a CLI backend's tokens are the last Claude Code record of each message id", async () => {
   const alice = await aliceAfter({
     rows: [CLI_ROW],
     claudeSession: [
@@ -197,11 +198,13 @@ test("the CLI cross-check takes the last Claude Code record of each message id",
     ],
   });
 
+  assert.equal(alice.buckets[0].source, "claude-session-files");
+  assert.equal(alice.buckets[0].tokens.output, 164);
   assert.equal(alice.buckets[0].crossCheck.agrees, true);
   assert.equal(alice.status, "ok");
 });
 
-test("a CLI run the backend spent more on than the transcript records is partial", async () => {
+test("a CLI run the transcript omits is counted from Claude Code's record and noted", async () => {
   const alice = await aliceAfter({
     rows: [CLI_ROW],
     claudeSession: [
@@ -214,11 +217,24 @@ test("a CLI run the backend spent more on than the transcript records is partial
     ],
   });
 
-  assert.equal(alice.status, "partial");
-  assert.equal(alice.buckets[0].crossCheck.tokens.output, 900);
+  assert.equal(alice.buckets[0].tokens.output, 900);
+  assert.equal(alice.buckets[0].crossCheck.tokens.output, 164);
+  assert.equal(alice.status, "ok");
+  assert.match(alice.buckets[0].crossCheck.note, /omits a run/u);
 });
 
-test("a CLI run with no transcript row reports unknown tokens, not zero", async () => {
+test("a transcript that records more than Claude Code did is a disagreement", async () => {
+  const alice = await aliceAfter({
+    rows: [CLI_ROW],
+    claudeSession: [
+      claudeLine("msg_1", { input_tokens: 6, output_tokens: 10 }),
+    ],
+  });
+
+  assert.equal(alice.status, "disagreement");
+});
+
+test("a CLI run with no transcript row reports Claude Code's tokens", async () => {
   const alice = await aliceAfter({
     rows: [],
     claudeSession: [
@@ -226,19 +242,9 @@ test("a CLI run with no transcript row reports unknown tokens, not zero", async 
     ],
   });
 
-  assert.equal(alice.buckets[0].tokens, null);
-  assert.equal(alice.status, "partial");
-});
-
-test("an agent whose tokens are unknown reports no total rather than zero", async () => {
-  const alice = await aliceAfter({
-    rows: [],
-    claudeSession: [
-      claudeLine("msg_1", { input_tokens: 3, output_tokens: 40 }),
-    ],
-  });
-
-  assert.equal(alice.totals, null);
+  assert.equal(alice.buckets[0].tokens.output, 40);
+  assert.equal(alice.buckets[0].crossCheck.tokens, null);
+  assert.equal(alice.status, "disagreement");
 });
 
 test("an embedded provider's tokens are the sum of its transcript rows", async () => {
@@ -389,7 +395,17 @@ test("an agent directory without a database reports no runs with zero totals", a
 });
 
 test("a corrupt database makes that agent unreadable and leaves the others", async () => {
-  const dirs = await hostState({ rows: [CLI_ROW] });
+  const dirs = await hostState({
+    rows: [CLI_ROW],
+    claudeSession: [
+      claudeLine("msg_1", {
+        input_tokens: 6,
+        output_tokens: 164,
+        cache_read_input_tokens: 59352,
+        cache_creation_input_tokens: 17566,
+      }),
+    ],
+  });
   try {
     const broken = join(dirs.state, "agents", "bob", "agent");
     await mkdir(broken, { recursive: true });

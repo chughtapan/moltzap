@@ -10,6 +10,14 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Fixed
+
+- Count a Claude Code agent's channel-triggered turns. OpenClaw's transcript
+  records a run the principal started but not one a MoltZap delivery started,
+  so the model-usage summary reported half of a two-turn agent's spend and
+  marked it `partial`. The `cli` bucket now reads Claude Code's own session
+  files, which hold every turn, and keeps the transcript as its cross-check.
+
 ## [2026.922.0] - 2026-09-22
 
 ### Added
