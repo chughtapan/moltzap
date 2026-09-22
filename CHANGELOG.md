@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.922.0] - 2026-09-22
+
 ### Added
 
 - Measure what a run's agents cost. `modelUsage: true` on `openClawRuntime`
