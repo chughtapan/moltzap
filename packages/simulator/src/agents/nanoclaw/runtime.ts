@@ -28,7 +28,7 @@ import {
   bootstrapFile,
   type CheckedWorkspaceFile,
   harvestTargets,
-  historyExport,
+  HISTORY_EXPORT_RENDERING,
   mcpConfiguration,
   type McpServer,
   McpServerConfiguration,
@@ -234,17 +234,16 @@ function makeNanoClawApplication(
     agentName: input.agentName,
     acquireGateway: renderer.acquireGateway,
   };
-  const transcript = historyExport();
   const harvest = [
     ...harvestTargets(NANOCLAW_AGENT_WORKSPACE_DIR, settings.harvestPaths),
-    ...transcript.harvest,
+    ...HISTORY_EXPORT_RENDERING.harvest,
   ];
   return Object.freeze({
     entrypoint: Object.freeze(["node", NANOCLAW_ENTRYPOINT] as const),
     environment: Object.freeze({
       MOLTZAP_NANOCLAW_CONFIG: NANOCLAW_CONFIG_PATH,
       MOLTZAP_NANOCLAW_STATE: NANOCLAW_STATE_DIR,
-      ...transcript.environment,
+      ...HISTORY_EXPORT_RENDERING.environment,
     }),
     ...(settings.modelId === undefined
       ? {}
@@ -254,7 +253,7 @@ function makeNanoClawApplication(
     port: NANOCLAW_GATEWAY_PORT,
     files: bootstrapFiles(settings, input),
     harvest,
-    logs: transcript.harvest.map(({ relativePath, path }) => ({
+    logs: HISTORY_EXPORT_RENDERING.harvest.map(({ relativePath, path }) => ({
       relativePath,
       path,
     })),
