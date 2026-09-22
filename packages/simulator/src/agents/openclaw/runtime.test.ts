@@ -15,6 +15,7 @@ import {
   containerRuntimeFor,
   CREDENTIALS,
   type File,
+  type HarvestTarget,
   image,
 } from "../container.js";
 import {
@@ -361,6 +362,18 @@ const harvestProjection = Schema.Struct({
   harvestWorkspaceFiles: Schema.Array(Schema.String),
 });
 
+const HISTORY_EXPORT_TARGET: HarvestTarget = {
+  relativePath: "moltzap-history.ndjson",
+  path: "/var/run/moltzap/history.ndjson",
+  limitBytes: 1_048_576,
+};
+
+const MODEL_USAGE_TARGET: HarvestTarget = {
+  relativePath: "moltzap-model-usage.json",
+  path: "/var/run/moltzap/model-usage.json",
+  limitBytes: 1_048_576,
+};
+
 function renderHarvest(harvestWorkspaceFiles?: readonly string[]) {
   const runtime = openClawRuntime({
     applicationImage: APPLICATION_IMAGE,
@@ -389,6 +402,8 @@ function harvestTargetsTest() {
         path: `${BOOTSTRAP_ROOT}workspace/notes/log.md`,
         limitBytes: 65_536,
       },
+      HISTORY_EXPORT_TARGET,
+      MODEL_USAGE_TARGET,
     ]);
     assert.deepStrictEqual(
       Schema.decodeUnknownSync(harvestProjection)(
@@ -399,11 +414,14 @@ function harvestTargetsTest() {
   });
 }
 
-function noHarvestTest() {
+function reservedHarvestOnlyTest() {
   return Effect.gen(function* () {
     const { runtime, application } = yield* renderHarvest();
 
-    assert.notProperty(application, "harvest");
+    assert.deepStrictEqual(application.harvest, [
+      HISTORY_EXPORT_TARGET,
+      MODEL_USAGE_TARGET,
+    ]);
     assert.deepStrictEqual(
       Schema.decodeUnknownSync(harvestProjection)(
         runtimeConfigurationProjection(runtime),
@@ -427,138 +445,60 @@ describe("OpenClaw workspace harvest", () => {
     "renders each declared file under the OpenClaw workspace and records the names",
     harvestTargetsTest,
   );
-  test("declares no harvest when the experiment names no files", noHarvestTest);
+  test(
+    "harvests only the reserved files when the experiment names none",
+    reservedHarvestOnlyTest,
+  );
   test("refuses a harvest path that leaves the workspace", () =>
     Effect.sync(rejectedHarvestPathTest));
 });
 
-const historyExportProjection = Schema.Struct({
-  historyExport: Schema.Boolean,
-});
-
 function historyExportTest() {
   return Effect.gen(function* () {
-    const runtime = openClawRuntime({
-      applicationImage: APPLICATION_IMAGE,
-      harvestWorkspaceFiles: ["CALENDAR.md"],
-      historyExport: true,
-    });
-    const application = yield* containerRuntimeFor(runtime).render({
-      agentName: AGENT_NAME,
-    });
+    const { application } = yield* renderHarvest();
 
     assert.strictEqual(
       application.environment.MOLTZAPD_HISTORY_EXPORT,
-      "/var/run/moltzap/history.ndjson",
+      HISTORY_EXPORT_TARGET.path,
     );
-    assert.deepStrictEqual(application.harvest?.at(-1), {
-      relativePath: "moltzap-history.ndjson",
-      path: "/var/run/moltzap/history.ndjson",
-      limitBytes: 1_048_576,
-    });
-    assert.strictEqual(application.harvest?.length, 2);
-    assert.isTrue(
-      Schema.decodeUnknownSync(historyExportProjection)(
-        runtimeConfigurationProjection(runtime),
-      ).historyExport,
-    );
-  });
-}
-
-function noHistoryExportTest() {
-  return Effect.gen(function* () {
-    const { runtime, application } = yield* renderHarvest();
-
-    assert.notProperty(application.environment, "MOLTZAPD_HISTORY_EXPORT");
-    assert.notProperty(application, "harvest");
-    assert.isFalse(
-      Schema.decodeUnknownSync(historyExportProjection)(
-        runtimeConfigurationProjection(runtime),
-      ).historyExport,
-    );
+    assert.deepStrictEqual(application.harvest?.at(0), HISTORY_EXPORT_TARGET);
   });
 }
 
 describe("OpenClaw history export", () => {
   test(
-    "turns the daemon export on and harvests it beside the experiment's files",
+    "points the daemon at the export and harvests it as a runtime-owned target",
     historyExportTest,
   );
-  test("leaves the daemon export off by default", noHistoryExportTest);
 });
-
-const modelUsageProjection = Schema.Struct({
-  modelUsage: Schema.optional(Schema.Boolean),
-});
-
-function renderModelUsage() {
-  const runtime = openClawRuntime({
-    applicationImage: APPLICATION_IMAGE,
-    modelUsage: true,
-  });
-  return Effect.map(
-    containerRuntimeFor(runtime).render({ agentName: AGENT_NAME }),
-    (application) => ({ runtime, application }),
-  );
-}
 
 function modelUsageEnvironmentTest() {
   return Effect.gen(function* () {
-    const { application } = yield* renderModelUsage();
+    const { application } = yield* renderHarvest();
 
     assert.strictEqual(
       application.environment.MOLTZAP_AGENT_IMAGE_MODEL_USAGE,
-      "/var/run/moltzap/model-usage.json",
+      MODEL_USAGE_TARGET.path,
     );
   });
 }
 
 function modelUsageHarvestTest() {
   return Effect.gen(function* () {
-    const { application } = yield* renderModelUsage();
+    const { application } = yield* renderHarvest();
 
-    assert.deepStrictEqual(application.harvest, [
-      {
-        relativePath: "moltzap-model-usage.json",
-        path: "/var/run/moltzap/model-usage.json",
-        limitBytes: 1_048_576,
-      },
-    ]);
+    assert.deepStrictEqual(application.harvest?.at(-1), MODEL_USAGE_TARGET);
   });
 }
 
 function modelUsageRetainedTest() {
   return Effect.gen(function* () {
-    const { application } = yield* renderModelUsage();
+    const { application } = yield* renderHarvest();
 
     assert.include(
       (application.logs ?? []).map((log) => log.relativePath),
-      "moltzap-model-usage.json",
+      MODEL_USAGE_TARGET.relativePath,
     );
-  });
-}
-
-function modelUsageRecordedTest() {
-  return Effect.gen(function* () {
-    const { runtime } = yield* renderModelUsage();
-
-    assert.isTrue(
-      Schema.decodeUnknownSync(modelUsageProjection)(
-        runtimeConfigurationProjection(runtime),
-      ).modelUsage,
-    );
-  });
-}
-
-function noModelUsageTest() {
-  return Effect.gen(function* () {
-    const { runtime, application } = yield* renderHarvest();
-
-    assert.notProperty(
-      application.environment,
-      "MOLTZAP_AGENT_IMAGE_MODEL_USAGE",
-    );
-    assert.notProperty(runtimeConfigurationProjection(runtime), "modelUsage");
   });
 }
 
@@ -572,11 +512,28 @@ describe("OpenClaw model usage", () => {
     "retains the whole summary beside the native logs",
     modelUsageRetainedTest,
   );
-  test(
-    "records the setting in the runtime configuration",
-    modelUsageRecordedTest,
-  );
-  test("asks for no summary by default and records nothing", noModelUsageTest);
+});
+
+function frozenSpecOptionsTest() {
+  return Effect.gen(function* () {
+    const frozen = {
+      applicationImage: APPLICATION_IMAGE,
+      historyExport: true,
+      modelUsage: true,
+    };
+    const application = yield* containerRuntimeFor(
+      openClawRuntime(frozen),
+    ).render({ agentName: AGENT_NAME });
+
+    assert.deepStrictEqual(application.harvest, [
+      HISTORY_EXPORT_TARGET,
+      MODEL_USAGE_TARGET,
+    ]);
+  });
+}
+
+describe("OpenClaw options from an earlier spec", () => {
+  test("still renders and harvests both reserved files", frozenSpecOptionsTest);
 });
 
 function renderWithModel(modelId?: string) {
