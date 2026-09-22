@@ -28,6 +28,9 @@ import {
   Stream,
 } from "effect";
 import { randomUUID } from "node:crypto";
+
+import { type GatherAdapter, makeGatherAdapter } from "./gather-adapter.js";
+import type { DeliveryDisposition } from "./gather-overlay.js";
 import {
   type ChannelPlugin,
   createChannelPluginBase,
@@ -90,6 +93,7 @@ interface ResolvedMessageTarget {
 interface ConnectedAccount {
   readonly accountId: string;
   readonly endpoint: HarnessEndpoint;
+  readonly gather: Option.Option<GatherAdapter>;
 }
 
 interface ConnectedAccountState {
@@ -424,11 +428,33 @@ function runAccountConnection(
   endpoint: HarnessEndpoint,
   connectedAccount: ConnectedAccountState,
 ) {
-  return Effect.sync(() => {
-    connectedAccount.current = { accountId: ctx.accountId, endpoint };
+  return makeGatherAdapter({
+    send: endpoint.send,
+    runTurn: (message) =>
+      runOpenClawTurn(ctx, runtime, message).pipe(
+        Effect.catchAll((error) =>
+          Effect.sync(() => {
+            ctx.log?.error?.(
+              `MoltZap gather: result turn failed: ${error.detail}`,
+            );
+          }),
+        ),
+      ),
+    log: (line) => ctx.log?.info?.(line),
   }).pipe(
+    Effect.tap((gather) =>
+      Effect.sync(() => {
+        connectedAccount.current = {
+          accountId: ctx.accountId,
+          endpoint,
+          gather,
+        };
+      }),
+    ),
     Effect.zipRight(reportConnected(ctx)),
-    Effect.zipRight(consumeInboundMessages(ctx, runtime, endpoint)),
+    Effect.zipRight(
+      consumeInboundMessages(ctx, runtime, endpoint, connectedAccount),
+    ),
     Effect.ensuring(
       removeConnectedEndpoint(connectedAccount, ctx.accountId, endpoint),
     ),
@@ -467,11 +493,18 @@ function consumeInboundMessages(
   ctx: ChannelGatewayContext<MoltZapAccount>,
   runtime: OpenClawAccountRuntime,
   endpoint: HarnessEndpoint,
+  connectedAccount: ConnectedAccountState,
 ) {
   return Effect.raceFirst(
     endpoint.messages.pipe(
       Stream.runForEach((delivery) =>
-        handleInboundDelivery(ctx, runtime, delivery),
+        gatherDisposition(connectedAccount, delivery).pipe(
+          Effect.flatMap((disposition) =>
+            disposition === "consumed"
+              ? Effect.void
+              : handleInboundDelivery(ctx, runtime, delivery),
+          ),
+        ),
       ),
     ),
     Effect.tryPromise({
@@ -498,6 +531,18 @@ function reportConnected(
       running: true,
       lastConnectedAt: Date.now(),
     });
+  });
+}
+
+/** The overlay acknowledges what it consumes; the rest takes the stock path. */
+function gatherDisposition(
+  connectedAccount: ConnectedAccountState,
+  delivery: InboundDelivery,
+): Effect.Effect<DeliveryDisposition> {
+  const gather = connectedAccount.current?.gather ?? Option.none();
+  return Option.match(gather, {
+    onNone: () => Effect.succeed<DeliveryDisposition>("passthrough"),
+    onSome: (adapter) => adapter.onDelivery(delivery),
   });
 }
 
@@ -758,7 +803,15 @@ function sendAddressedText(
     );
   }
   return decodeSendInput(params, accountId).pipe(
-    Effect.flatMap((input) => endpoint.send(input)),
+    Effect.flatMap((input) =>
+      Option.getOrElse(
+        Option.flatMap(
+          connectedAccount.current?.gather ?? Option.none(),
+          (adapter) => adapter.commandSend(input.to, params.text),
+        ),
+        () => endpoint.send(input),
+      ),
+    ),
     Effect.as(makeMessageSendResult(params.messageId)),
   );
 }
