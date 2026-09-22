@@ -68,8 +68,8 @@
     "effect": "^3.22.0"
   },
   "devDependencies": {
-    "@typescript/native": "npm:typescript@^7.0.2",
+    "@typescript/native": "catalog:",
     "eslint": "^9",
-    "typescript": "npm:@typescript/typescript6@^6.0.2"
+    "typescript": "catalog:"
   }
 }
