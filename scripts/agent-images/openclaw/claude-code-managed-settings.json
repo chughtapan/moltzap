@@ -1,7 +1,9 @@
 {
   "permissions": {
     "deny": [
-      "AskUserQuestion"
+      "AskUserQuestion",
+      "ListAgents",
+      "SendMessage"
     ]
   }
 }
