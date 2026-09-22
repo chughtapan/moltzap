@@ -40,6 +40,12 @@ USER root
 # sources or permission mode OpenClaw passes. They deny AskUserQuestion, which
 # waits for a person: in an agent pod nobody answers, and the session stays
 # blocked until the run tears it down.
+# SendMessage and ListAgents address Claude Code's own agents: other sessions
+# on the machine, and the subagents a session spawns. A pod starts with
+# neither, and a model told to use the `message` tool picks SendMessage by
+# name, is told no agent is reachable, and gives up without ever calling the
+# channel's tool. The denial also stops a session from messaging a subagent it
+# spawned; an agent reaches its MoltZap peers through the channel's tool.
 COPY claude-code-managed-settings.json /etc/claude-code/managed-settings.json
 
 # patch-openclaw.mjs is scripts/agent-images/openclaw/patch-openclaw.mjs: a

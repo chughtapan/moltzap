@@ -187,8 +187,15 @@ login as `CODEX_AUTH_JSON` in place of `OPENAI_API_KEY`. See
 The image's managed Claude Code settings,
 `/etc/claude-code/managed-settings.json`, deny `AskUserQuestion`. That tool
 waits for a person, and in an agent pod nobody answers, so a session that
-calls it stays blocked until the run ends. Managed settings apply whatever
-setting sources or permission mode OpenClaw passes to Claude Code.
+calls it stays blocked until the run ends. They also deny `SendMessage` and
+`ListAgents`, which address Claude Code's own agents: other sessions on the
+machine, and the subagents a session spawns. A pod starts with neither, so
+`SendMessage` reports that no agent is reachable; a model asked to use the
+`message` tool picks it by name, concludes its peers are offline, and never
+calls the channel's tool. The denial also stops a session from messaging a
+subagent it spawned; an agent reaches its MoltZap peers through the channel's
+tool. Managed settings apply whatever setting sources or permission mode
+OpenClaw passes to Claude Code.
 
 The generated OpenClaw configuration loads the installed plugin and sets:
 
