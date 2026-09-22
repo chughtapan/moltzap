@@ -105,9 +105,9 @@ experiment's own, so that is accepted rather than guarded.
 
 Message content never enters the ledger through the fabric: the Router carries
 opaque packets, and only each agent's own `moltzapd` decodes what it delivers
-and sends. Set `historyExport: true` on either runtime to have that daemon
-append one `HistoryExportRecord` line (the schema `@moltzap/client` exports)
-per certified inbound delivery and per completed send to
+and sends. On either runtime that daemon appends one `HistoryExportRecord`
+line (the schema `@moltzap/client` exports) per certified inbound delivery and
+per completed send to
 `/var/run/moltzap/history.ndjson`. The file is harvested like an
 experiment-declared file, under the name `moltzap-history.ndjson` with a 1 MiB
 bound, so a bounded transcript lands in the ledger as one
@@ -120,8 +120,8 @@ is that agent's `inbound` records; the wire view is the union of every agent's
 ## Model usage
 
 Post counts do not track cost: an agent's cost follows its model turns and the
-context each turn re-reads. Set `modelUsage: true` on the OpenClaw runtime to
-have the agent image summarize what each agent's model used. The image's
+context each turn re-reads. On the OpenClaw runtime the agent image
+summarizes what each agent's model used. The image's
 entrypoint writes the summary to `/var/run/moltzap/model-usage.json` once the
 host has stopped, and the file is harvested under the reserved name
 `moltzap-model-usage.json` with a 1 MiB bound, as one

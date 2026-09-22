@@ -311,6 +311,12 @@ const harvestProjection = Schema.Struct({
   harvestWorkspaceFiles: Schema.Array(Schema.String),
 });
 
+const HISTORY_EXPORT_TARGET = {
+  relativePath: "moltzap-history.ndjson",
+  path: "/var/run/moltzap/history.ndjson",
+  limitBytes: 1_048_576,
+};
+
 describe("NanoClaw workspace harvest", () => {
   // The provisioner copies the seeded workspace onto the writable layer, so
   // the target is the copy the agent writes, not the bootstrap mount.
@@ -330,6 +336,7 @@ describe("NanoClaw workspace harvest", () => {
           path: "/var/lib/moltzap/nanoclaw/groups/agent/CALENDAR.md",
           limitBytes: 65_536,
         },
+        HISTORY_EXPORT_TARGET,
       ]);
       assert.deepStrictEqual(
         Schema.decodeUnknownSync(harvestProjection)(
@@ -338,40 +345,34 @@ describe("NanoClaw workspace harvest", () => {
         ["CALENDAR.md"],
       );
     }));
+});
 
-  test("declares no harvest when the experiment names no files", () =>
+describe("NanoClaw history export", () => {
+  test("turns the daemon export on and harvests it as a runtime-owned target", () =>
     Effect.gen(function* () {
       const runtime = nanoclawRuntime({ applicationImage: APPLICATION_IMAGE });
       const application = yield* containerRuntimeFor(runtime).render({
         agentName: AGENT_NAME,
       });
 
-      assert.notProperty(application, "harvest");
-    }));
-});
-
-describe("NanoClaw history export", () => {
-  test("turns the daemon export on and harvests it as a runtime-owned target", () =>
-    Effect.gen(function* () {
-      const runtime = nanoclawRuntime({
-        applicationImage: APPLICATION_IMAGE,
-        historyExport: true,
-      });
-      const application = yield* containerRuntimeFor(runtime).render({
-        agentName: AGENT_NAME,
-      });
-
       assert.strictEqual(
         application.environment.MOLTZAPD_HISTORY_EXPORT,
-        "/var/run/moltzap/history.ndjson",
+        HISTORY_EXPORT_TARGET.path,
       );
-      assert.deepStrictEqual(application.harvest, [
-        {
-          relativePath: "moltzap-history.ndjson",
-          path: "/var/run/moltzap/history.ndjson",
-          limitBytes: 1_048_576,
-        },
-      ]);
+      assert.deepStrictEqual(application.harvest, [HISTORY_EXPORT_TARGET]);
+    }));
+
+  test("harvests it for a spec that still sets historyExport", () =>
+    Effect.gen(function* () {
+      const frozen = {
+        applicationImage: APPLICATION_IMAGE,
+        historyExport: true,
+      };
+      const application = yield* containerRuntimeFor(
+        nanoclawRuntime(frozen),
+      ).render({ agentName: AGENT_NAME });
+
+      assert.deepStrictEqual(application.harvest, [HISTORY_EXPORT_TARGET]);
     }));
 });
 
