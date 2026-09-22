@@ -10,6 +10,15 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Fixed
+
+- Price a Claude Code agent that only answered others. When every run of an
+  agent was started by a MoltZap delivery, OpenClaw's transcript held no
+  assistant row, so the model-usage summary reported Claude Code's tokens with
+  no model and status `disagreement`, and a reader could not price them. The
+  summary now reports one bucket per model Claude Code's responses name, under
+  provider `claude-cli`, with status `ok`.
+
 ## [2026.922.2] - 2026-09-22
 
 ### Removed
