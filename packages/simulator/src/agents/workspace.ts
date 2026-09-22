@@ -228,12 +228,15 @@ const HISTORY_EXPORT_TARGET: HarvestTarget = Object.freeze({
 });
 
 /**
- * Render one runtime's transcript: the daemon appends a delivery and send per
- * line, and the ledger reads the export back under its own label.
+ * A runtime's transcript: the daemon appends a delivery and send per line, and
+ * the ledger reads the export back under its own label.
  */
-export function historyExport(): ReservedFileRendering {
-  return reservedFile(HISTORY_EXPORT_TARGET, HISTORY_EXPORT_VARIABLE);
-}
+export const HISTORY_EXPORT_RENDERING: ReservedFileRendering = Object.freeze({
+  harvest: Object.freeze([HISTORY_EXPORT_TARGET]),
+  environment: Object.freeze({
+    [HISTORY_EXPORT_VARIABLE]: HISTORY_EXPORT_TARGET.path,
+  }),
+});
 
 const MODEL_USAGE_TARGET: HarvestTarget = Object.freeze({
   relativePath: MODEL_USAGE_LABEL,
@@ -242,16 +245,19 @@ const MODEL_USAGE_TARGET: HarvestTarget = Object.freeze({
 });
 
 /**
- * Render one runtime's model-usage summary. The agent image's entrypoint
+ * A runtime's model-usage summary. The agent image's entrypoint
  * writes the summary when the host stops, outside every directory the agent
  * can write, so the label is reserved: an experiment-declared file of that
  * name would be the agent's own claim about what it used. The summary is one
  * agent's totals and a bounded list of its model messages, so it shares the
  * transcript's bound rather than a grader file's.
  */
-export function modelUsage(): ReservedFileRendering {
-  return reservedFile(MODEL_USAGE_TARGET, MODEL_USAGE_VARIABLE);
-}
+export const MODEL_USAGE_RENDERING: ReservedFileRendering = Object.freeze({
+  harvest: Object.freeze([MODEL_USAGE_TARGET]),
+  environment: Object.freeze({
+    [MODEL_USAGE_VARIABLE]: MODEL_USAGE_TARGET.path,
+  }),
+});
 
 /**
  * Copy the requested MCP servers so later mutation cannot reach a rendered one.
@@ -349,21 +355,6 @@ function staysBelowWorkspaceRoot(value: string): boolean {
     return false;
   }
   return value !== "." && value !== ".." && !value.startsWith("../");
-}
-
-/**
- * Render one reserved file for the application a runtime builds. The
- * container writes the file itself, so its path is fixed here rather than
- * declared by an experiment.
- * @param target Where the ledger reads the file back through.
- * @param variable The container input that names the path to write.
- * @returns The harvest target and the input.
- */
-function reservedFile(
-  target: HarvestTarget,
-  variable: string,
-): ReservedFileRendering {
-  return { harvest: [target], environment: { [variable]: target.path } };
 }
 
 /**

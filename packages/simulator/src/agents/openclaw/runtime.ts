@@ -38,11 +38,11 @@ import {
   configurationDigest,
   digestText,
   harvestTargets,
-  historyExport,
+  HISTORY_EXPORT_RENDERING,
   mcpConfiguration,
   type McpServer,
   McpServerConfiguration,
-  modelUsage,
+  MODEL_USAGE_RENDERING,
   type ReservedFileRendering,
   snapshotHarvestPaths,
   snapshotMcpServers,
@@ -374,9 +374,10 @@ function makeOpenClawApplication(
     acquireGateway,
     invisibleWorkspaceFiles: settings.invisibleWorkspaceFiles,
   };
-  const transcript = historyExport();
-  const usage = modelUsage();
-  const retained = [...transcript.harvest, ...usage.harvest];
+  const retained = [
+    ...HISTORY_EXPORT_RENDERING.harvest,
+    ...MODEL_USAGE_RENDERING.harvest,
+  ];
   const harvest = [
     ...harvestTargets(OPENCLAW_WORKSPACE_DIR, settings.harvestPaths),
     ...retained,
@@ -390,8 +391,8 @@ function makeOpenClawApplication(
       OPENCLAW_CONFIG_PATH: APPLICATION_CONFIG_PATH,
       OPENCLAW_DISABLE_BONJOUR: "1",
       ...claudeCodeEnvironment(settings),
-      ...transcript.environment,
-      ...usage.environment,
+      ...HISTORY_EXPORT_RENDERING.environment,
+      ...MODEL_USAGE_RENDERING.environment,
     }),
     ...(credentials.length === 0 ? {} : { credentials }),
     port: OPENCLAW_GATEWAY_PORT,
