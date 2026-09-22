@@ -9,6 +9,7 @@ import {
   CLAUDE_CODE_VERSION,
   FINGERPRINTED_FILES,
 } from "../build-openclaw-image.mjs";
+import { DEFAULT_HOST_FINALIZER } from "../shared/entrypoint.mjs";
 
 const AGENT_DIRECTORY = "/opt/moltzap/agent/";
 
@@ -45,6 +46,16 @@ test("the host command runs a script the Dockerfile copies into the agent direct
   );
   assert.ok(copied.includes("host-command.json"));
   await sibling(posix.basename(command[1]));
+});
+
+test("the Dockerfile copies the host finalizer to the path the entrypoint runs", async () => {
+  const copied = copiedIntoAgentDirectory(await sibling("Dockerfile"));
+
+  assert.equal(posix.dirname(DEFAULT_HOST_FINALIZER) + "/", AGENT_DIRECTORY);
+  assert.ok(
+    copied.includes(posix.basename(DEFAULT_HOST_FINALIZER)),
+    `Dockerfile copies ${copied.join(", ")} and not the host finalizer`,
+  );
 });
 
 test("the Dockerfile runs only a Claude Code binary that matches the build script's digest", async () => {
@@ -110,11 +121,13 @@ test("the Dockerfile patches the OpenClaw dist before the plugin installs agains
   await sibling("patch-openclaw.mjs");
 });
 
-test("the image's managed Claude Code settings deny the tool that waits for a person", async () => {
+test("the image's managed Claude Code settings deny the tools no agent pod can use", async () => {
   const settings = JSON.parse(
     await sibling("claude-code-managed-settings.json"),
   );
-  assert.deepEqual(settings, { permissions: { deny: ["AskUserQuestion"] } });
+  assert.deepEqual(settings, {
+    permissions: { deny: ["AskUserQuestion", "ListAgents", "SendMessage"] },
+  });
   assert.match(
     await sibling("Dockerfile"),
     /^COPY claude-code-managed-settings\.json \/etc\/claude-code\/managed-settings\.json$/mu,

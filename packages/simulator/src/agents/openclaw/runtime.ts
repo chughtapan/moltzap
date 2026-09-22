@@ -42,6 +42,8 @@ import {
   mcpConfiguration,
   type McpServer,
   McpServerConfiguration,
+  modelUsage,
+  type ReservedFileRendering,
   snapshotHarvestPaths,
   snapshotMcpServers,
   snapshotWorkspaceFiles,
@@ -120,6 +122,7 @@ export class OpenClawRuntimeConfiguration extends Schema.Class<OpenClawRuntimeCo
   workspaceFiles: Schema.Array(WorkspaceFileConfiguration),
   harvestWorkspaceFiles: Schema.Array(Schema.String),
   historyExport: Schema.Boolean,
+  modelUsage: Schema.optional(Schema.Boolean),
   modelOverride: Schema.optional(Schema.String),
   agentRuntime: Schema.optional(selectableAgentRuntime),
   mcpServers: Schema.Array(McpServerConfiguration),
@@ -147,6 +150,15 @@ export interface OpenClawRuntimeOptions {
    * `moltzap-history.ndjson` when the customer program ends.
    */
   readonly historyExport?: boolean;
+  /**
+   * Have the agent image summarize what the agent's model used, harvested into
+   * the ledger as `moltzap-model-usage.json` when the customer program ends.
+   * The image's entrypoint writes the summary once the host has stopped, to a
+   * path the agent cannot write, from OpenClaw's own records and the model
+   * backend's. It carries tokens per backend and model with the record each
+   * total came from, never a price. A value it cannot establish is `null`.
+   */
+  readonly modelUsage?: boolean;
   /**
    * Model the runtime asks for. Its provider prefix (`anthropic/`, `openai/`)
    * names the credentials the agent asks the run for; an unknown prefix asks
@@ -231,6 +243,7 @@ interface OpenClawRuntimeSettings {
   readonly invisibleWorkspaceFiles: readonly string[];
   readonly harvestPaths: readonly WorkspaceRelativePath[];
   readonly historyExport: boolean;
+  readonly modelUsage: boolean;
   readonly modelId?: string;
   readonly agentRuntime?: typeof selectableAgentRuntime.Type;
   readonly mcpServers?: readonly McpServer[];
@@ -257,6 +270,7 @@ function snapshotOptions(
     invisibleWorkspaceFiles: invisibleFiles,
     harvestPaths: snapshotHarvestPaths(options.harvestWorkspaceFiles),
     historyExport: options.historyExport ?? false,
+    modelUsage: options.modelUsage ?? false,
     modelId: options.modelId,
     agentRuntime: options.agentRuntime,
     mcpServers: snapshotMcpServers(options.mcpServers),
@@ -330,6 +344,7 @@ function runtimeConfiguration(
     workspaceFiles: workspaceConfiguration(settings.workspaceFiles),
     harvestWorkspaceFiles: settings.harvestPaths,
     historyExport: settings.historyExport,
+    ...(settings.modelUsage ? { modelUsage: true } : {}),
     mcpServers: mcpConfiguration(settings.mcpServers),
     messagingMode: settings.messagingMode,
     ...(tools === undefined ? {} : { tools }),
@@ -383,9 +398,11 @@ function makeOpenClawApplication(
     invisibleWorkspaceFiles: settings.invisibleWorkspaceFiles,
   };
   const transcript = historyExport(settings.historyExport);
+  const usage = modelUsage(settings.modelUsage);
+  const retained = [...transcript.harvest, ...usage.harvest];
   const harvest = [
     ...harvestTargets(OPENCLAW_WORKSPACE_DIR, settings.harvestPaths),
-    ...transcript.harvest,
+    ...retained,
   ];
   const credentials = applicationCredentials(settings);
   return Object.freeze({
@@ -397,12 +414,13 @@ function makeOpenClawApplication(
       OPENCLAW_DISABLE_BONJOUR: "1",
       ...claudeCodeEnvironment(settings),
       ...transcript.environment,
+      ...usage.environment,
     }),
     ...(credentials.length === 0 ? {} : { credentials }),
     port: OPENCLAW_GATEWAY_PORT,
     files: bootstrapFiles(settings, input, gatewayToken, pairing),
     ...(harvest.length === 0 ? {} : { harvest }),
-    logs: nativeLogFiles(transcript.harvest),
+    logs: nativeLogFiles(retained),
     attach: (
       endpoint: ApplicationEndpoint,
       stopped: Effect.Effect<RuntimeTermination>,
@@ -649,9 +667,9 @@ function openClawCapability(
   });
 }
 
-function nativeLogFiles(history: ReturnType<typeof historyExport>["harvest"]) {
+function nativeLogFiles(retained: ReservedFileRendering["harvest"]) {
   return [
-    ...history,
+    ...retained,
     {
       relativePath: "openclaw.log",
       path: `${OPENCLAW_WORKSPACE_DIR}/${OPENCLAW_RUNTIME_LOG_FILE}` as const,

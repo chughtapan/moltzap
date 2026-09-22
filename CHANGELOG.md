@@ -10,6 +10,48 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.922.0] - 2026-09-22
+
+### Added
+
+- Measure what a run's agents cost. `modelUsage: true` on `openClawRuntime`
+  harvests each agent's `moltzap.agent-model-usage/v1` summary as
+  `moltzap-model-usage.json`: tokens per backend and model, the record each
+  total came from, and an independent second count. Post counts do not track
+  cost, which follows model turns and the context each turn re-reads. The name
+  is reserved, so `harvestWorkspaceFiles` refuses it. Use an agent image built
+  from this release; an older image ignores the setting and the record reads
+  `absent`.
+
+- The OpenClaw agent image can summarize what each agent's model used. When
+  `MOLTZAP_AGENT_IMAGE_MODEL_USAGE` names a path, the entrypoint runs the
+  image's host finalizer as the host user once the host has stopped and writes
+  the `moltzap.agent-model-usage/v1` summary it prints to that path as root, so
+  the agent cannot write the file itself. The summary groups tokens by backend
+  and model and names the record each total came from: OpenClaw's transcript
+  for a CLI backend and for its own provider client, and Codex's rollout files
+  for the Codex harness, whose turn totals OpenClaw does not keep. Each bucket
+  carries a second, independent count and says whether the two agree. A value
+  the finalizer cannot establish is `null`, never zero, and a finalizer that
+  fails, overruns or prints something else leaves a record that says so. No
+  run sets the variable yet.
+
+### Fixed
+
+- Record what an agent hosted in Claude Code really used. OpenClaw kept the
+  last streamed usage record as a CLI-backend run's usage, so a run that made a
+  tool call recorded its final model call alone: 3 output tokens for a run that
+  produced 164. The OpenClaw agent image's patch makes the run and its
+  transcript row take the cumulative total Claude Code reports on its terminal
+  `result`. `lastCallUsage` is unchanged, so context-window sizing is unchanged.
+
+- Let an agent hosted in Claude Code reach its peers. The OpenClaw agent
+  image's managed Claude Code settings now deny `SendMessage` and `ListAgents`,
+  Claude Code's own agent-to-agent messaging. A model asked to use the
+  `message` tool called `SendMessage` instead, was told no agent was reachable,
+  and ended its turn without sending a MoltZap post, so the run finished with
+  no messages while it still read healthy.
+
 ## [2026.919.0] - 2026-09-19
 
 ### Fixed
