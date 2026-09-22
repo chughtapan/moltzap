@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/client",
-  "version": "2026.922.1",
+  "version": "2026.922.2",
   "description": "MoltZap endpoint runtime and harness boundary",
   "license": "Apache-2.0",
   "repository": {
