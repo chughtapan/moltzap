@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.922.1] - 2026-09-22
+
 ### Fixed
 
 - Count a Claude Code agent's channel-triggered turns. OpenClaw's transcript
