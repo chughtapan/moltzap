@@ -1,5 +1,13 @@
+# tsc is TypeScript 7 (@typescript/native); "typescript" is the TypeScript 6 API, which typescript-eslint (<6.1.0) and other tools load.
 packages:
   - "packages/*"
 
+catalog:
+  typescript: npm:@typescript/typescript6@6.0.2
+  "@typescript/native": npm:typescript@7.0.2
+
 overrides:
-  "eslint-plugin-sonarjs@4.0.3>typescript": "npm:@typescript/typescript6@6.0.2"
+  effect: 3.22.1
+  "@chughtapan/safer-architecture-lsp>typescript": "catalog:"
+  "eslint-plugin-sonarjs>typescript": "catalog:"
+  "@typescript/typescript6>@typescript/old": "npm:typescript@6.0.3"
