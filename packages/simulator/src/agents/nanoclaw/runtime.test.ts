@@ -348,7 +348,7 @@ describe("NanoClaw workspace harvest", () => {
 });
 
 describe("NanoClaw history export", () => {
-  test("turns the daemon export on and harvests it as a runtime-owned target", () =>
+  test("points the daemon at the export and harvests it as a runtime-owned target", () =>
     Effect.gen(function* () {
       const runtime = nanoclawRuntime({ applicationImage: APPLICATION_IMAGE });
       const application = yield* containerRuntimeFor(runtime).render({
