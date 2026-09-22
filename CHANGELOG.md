@@ -10,6 +10,14 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Removed
+
+- The `historyExport` and `modelUsage` runtime options. `openClawRuntime` and
+  `nanoclawRuntime` always harvest the history export, and `openClawRuntime`
+  always harvests the model-usage summary. TypeScript callers must delete the
+  keys from object literals; bundled or JavaScript specs that still carry them
+  keep working.
+
 ## [2026.922.0] - 2026-09-22
 
 ### Added
