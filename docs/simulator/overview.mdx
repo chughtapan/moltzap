@@ -188,7 +188,7 @@ Each invocation creates one society and then tears it down:
    gate.
 6. The controller invokes the customer Effect once.
 7. The controller requests stop/flush acknowledgements, then reads declared
-   workspace files and optional bounded history exports into the ledger. It
+   workspace files and bounded history exports into the ledger. It
    streams native logs and full history exports into separate retained files
    before releasing the application containers.
 8. The simulator finalizes the ledger and run outcome.
@@ -228,12 +228,11 @@ and daemon while leaving the application entrypoint available for collection.
 `harvestWorkspaceFiles` on either runtime names workspace-relative files;
 each becomes one `AgentWorkspaceFileHarvested`
 record with a `text`, `oversize`, `absent`, or `unreadable` outcome after the
-program event. `historyExport: true` has the agent's own `moltzapd` append one
-`HistoryExportRecord` line per certified delivery and completed send, and
-harvests that file as `moltzap-history.ndjson`. `modelUsage: true` on the
-OpenClaw runtime has the agent image write a `moltzap.agent-model-usage/v1`
-summary of each agent's model tokens once the host has stopped, harvested as
-`moltzap-model-usage.json`.
+program event. Each agent's own `moltzapd` appends one `HistoryExportRecord`
+line per certified delivery and completed send, harvested as
+`moltzap-history.ndjson`. On the OpenClaw runtime the agent image also writes a
+`moltzap.agent-model-usage/v1` summary of each agent's model tokens once the
+host has stopped, harvested as `moltzap-model-usage.json`.
 
 Native logs and full history exports are retained separately from bounded
 workspace records. `AgentRuntimeArtifact` records bind their exact keys, byte

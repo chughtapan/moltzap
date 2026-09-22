@@ -427,7 +427,7 @@ export class NanoClawGatewayOutput extends Schema.Class<NanoClawGatewayOutput>(
 
 One native output frame emitted by NanoClaw's owner-local CLI channel.
 
-### [`nanoclawRuntime`](./nanoclaw/runtime.ts#L126)
+### [`nanoclawRuntime`](./nanoclaw/runtime.ts#L119)
 
 _Function_
 
@@ -446,7 +446,7 @@ roster identity and its runtime-owned native gateway bridge.
 
 **Returns:** The nanoclaw runtime result.
 
-### [`NanoClawRuntimeOptions`](./nanoclaw/runtime.ts#L89)
+### [`NanoClawRuntimeOptions`](./nanoclaw/runtime.ts#L88)
 
 _Interface_
 
@@ -460,12 +460,6 @@ export interface NanoClawRuntimeOptions {
    * grade what its agents wrote without their exiting.
    */
   readonly harvestWorkspaceFiles?: readonly string[];
-  /**
-   * Have the agent's `moltzapd` append every delivery and send it completes
-   * to a history export, harvested into the ledger as
-   * `moltzap-history.ndjson` when the customer program ends.
-   */
-  readonly historyExport?: boolean;
   /**
    * Model the runtime asks for. Its provider prefix (`anthropic/`, `openai/`)
    * names the credential forwarded from the run's Secret; an unknown prefix
@@ -601,7 +595,7 @@ Timed-out terminal result returned by OpenClaw's `agent` gateway RPC.
 OpenClaw treats this as a successful RPC payload rather than a transport
 failure. A run may time out before it has an agent result.
 
-### [`openClawRuntime`](./openclaw/runtime.ts#L214)
+### [`openClawRuntime`](./openclaw/runtime.ts#L197)
 
 _Function_
 
@@ -627,7 +621,7 @@ flowchart LR
 
 **Returns:** A reusable OpenClaw container runtime definition.
 
-### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L136)
+### [`OpenClawRuntimeOptions`](./openclaw/runtime.ts#L134)
 
 _Interface_
 
@@ -643,21 +637,6 @@ export interface OpenClawRuntimeOptions {
    * grade what its agents wrote without their exiting.
    */
   readonly harvestWorkspaceFiles?: readonly string[];
-  /**
-   * Have the agent's `moltzapd` append every delivery and send it completes
-   * to a history export, harvested into the ledger as
-   * `moltzap-history.ndjson` when the customer program ends.
-   */
-  readonly historyExport?: boolean;
-  /**
-   * Have the agent image summarize what the agent's model used, harvested into
-   * the ledger as `moltzap-model-usage.json` when the customer program ends.
-   * The image's entrypoint writes the summary once the host has stopped, to a
-   * path the agent cannot write, from OpenClaw's own records and the model
-   * backend's. It carries tokens per backend and model with the record each
-   * total came from, never a price. A value it cannot establish is `null`.
-   */
-  readonly modelUsage?: boolean;
   /**
    * Model the runtime asks for. Its provider prefix (`anthropic/`, `openai/`)
    * names the credentials the agent asks the run for; an unknown prefix asks

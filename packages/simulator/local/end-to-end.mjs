@@ -33,7 +33,6 @@ const runtime = (identity) =>
     sandbox: { mode: "off" },
     workspaceFiles: [{ relativePath: "IDENTITY.md", content: identity }],
     harvestWorkspaceFiles: ["IDENTITY.md"],
-    historyExport: true,
   });
 
 const name = (index) => `agent${String(index + 1).padStart(3, "0")}`;

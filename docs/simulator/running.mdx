@@ -230,13 +230,12 @@ code. On the GKE profile about eight runs at once is the practical ceiling.
 Name workspace-relative files with `harvestWorkspaceFiles` on either runtime
 to have them read after host and daemon stop/flush, including when `execute`
 is interrupted, each as one `AgentWorkspaceFileHarvested` record.
-Set `historyExport: true` to have
-each agent's `moltzapd` append its deliveries and sends as
-`HistoryExportRecord` lines and harvest that file as `moltzap-history.ndjson`.
-Set `modelUsage: true` on the OpenClaw runtime to have the agent image
-summarize the tokens each agent's model used, per backend and model, and
-harvest it as `moltzap-model-usage.json`. The summary carries no price and
-reports `null` for a value it could not establish.
+Each agent's `moltzapd` appends its deliveries and sends as
+`HistoryExportRecord` lines, harvested as `moltzap-history.ndjson`.
+On the OpenClaw runtime the agent image also summarizes the tokens each
+agent's model used, per backend and model, harvested as
+`moltzap-model-usage.json`. The summary carries no price and reports `null`
+for a value it could not establish.
 Native logs and the full history export are retained beside the ledger with
 exact artifact keys, SHA-256 digests, and byte lengths. Collection has a
 five-minute budget; a failed stop acknowledgement or deadline records

@@ -212,9 +212,9 @@ export function harvestTargets(
 }
 
 /**
- * What an application carries when a reserved file is written for it: the
- * harvest target the ledger reads that file back through, and the container
- * input that turns it on. Both are empty when it is not.
+ * What an application carries for a reserved file: the harvest target the
+ * ledger reads that file back through, and the container input that names
+ * where the container writes it.
  */
 export interface ReservedFileRendering {
   readonly harvest: readonly HarvestTarget[];
@@ -228,11 +228,11 @@ const HISTORY_EXPORT_TARGET: HarvestTarget = Object.freeze({
 });
 
 /**
- * Render one runtime's transcript setting: the daemon appends a delivery and
- * send per line, and the ledger reads the export back under its own label.
+ * Render one runtime's transcript: the daemon appends a delivery and send per
+ * line, and the ledger reads the export back under its own label.
  */
-export function historyExport(enabled: boolean): ReservedFileRendering {
-  return reservedFile(enabled, HISTORY_EXPORT_TARGET, HISTORY_EXPORT_VARIABLE);
+export function historyExport(): ReservedFileRendering {
+  return reservedFile(HISTORY_EXPORT_TARGET, HISTORY_EXPORT_VARIABLE);
 }
 
 const MODEL_USAGE_TARGET: HarvestTarget = Object.freeze({
@@ -242,15 +242,15 @@ const MODEL_USAGE_TARGET: HarvestTarget = Object.freeze({
 });
 
 /**
- * Render one runtime's model-usage setting. The agent image's entrypoint
+ * Render one runtime's model-usage summary. The agent image's entrypoint
  * writes the summary when the host stops, outside every directory the agent
  * can write, so the label is reserved: an experiment-declared file of that
  * name would be the agent's own claim about what it used. The summary is one
  * agent's totals and a bounded list of its model messages, so it shares the
  * transcript's bound rather than a grader file's.
  */
-export function modelUsage(enabled: boolean): ReservedFileRendering {
-  return reservedFile(enabled, MODEL_USAGE_TARGET, MODEL_USAGE_VARIABLE);
+export function modelUsage(): ReservedFileRendering {
+  return reservedFile(MODEL_USAGE_TARGET, MODEL_USAGE_VARIABLE);
 }
 
 /**
@@ -352,23 +352,18 @@ function staysBelowWorkspaceRoot(value: string): boolean {
 }
 
 /**
- * Render one reserved file's setting for the application a runtime builds.
- * The container writes the file itself, so its path is fixed here rather than
- * declared by an experiment, and both collections come back empty when the
- * experiment did not ask for the file, so a caller always spreads two.
- * @param enabled Whether the runtime asked for the file.
+ * Render one reserved file for the application a runtime builds. The
+ * container writes the file itself, so its path is fixed here rather than
+ * declared by an experiment.
  * @param target Where the ledger reads the file back through.
  * @param variable The container input that names the path to write.
- * @returns The harvest target and the input, or neither.
+ * @returns The harvest target and the input.
  */
 function reservedFile(
-  enabled: boolean,
   target: HarvestTarget,
   variable: string,
 ): ReservedFileRendering {
-  return enabled
-    ? { harvest: [target], environment: { [variable]: target.path } }
-    : { harvest: [], environment: {} };
+  return { harvest: [target], environment: { [variable]: target.path } };
 }
 
 /**
