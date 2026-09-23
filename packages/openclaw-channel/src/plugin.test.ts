@@ -18,6 +18,7 @@ import {
   type SendInput,
 } from "@moltzap/client";
 import { Data, Effect, Encoding, Fiber, Schema, Stream } from "effect";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { join } from "node:path";
 import {
   buildChannelInboundEventContext,
@@ -38,6 +39,8 @@ import {
 const ACCOUNT_ID = "primary";
 const NOT_AN_ADDRESS = "Sarah Smith";
 const MAIN_SESSION_KEY = "agent:primary:main";
+const GATHER_DEADLINE_SECONDS = 0.2;
+const RESULT_TURN_SUFFIX = ":result";
 const TEST_SESSION_STORE_PATH = join(
   openClawTestStateDirectory,
   "sessions.json",
@@ -84,6 +87,29 @@ interface RuntimeFixtureParams {
   readonly failDispatch?: boolean;
   readonly plans?: ChannelInboundTurnPlan[];
   readonly replyText?: string;
+  /** OpenClaw's work admission: an error refuses the turn before it runs. */
+  readonly admission?: () => Error | undefined;
+}
+
+/** A request OpenClaw admitted; its turns are refused once it has finished. */
+interface AdmittedRequest {
+  finished: boolean;
+}
+
+/** The host request the model's `message` tool call runs in. */
+interface ToolCallRequest {
+  readonly enter: <R>(run: () => R) => R;
+  readonly finish: () => void;
+}
+
+const NO_REQUEST: ToolCallRequest = {
+  enter: (run) => run(),
+  finish: () => undefined,
+};
+
+/** The error OpenClaw's work admission refuses a turn with. */
+class GatewayDrainingError extends Error {
+  override readonly name = "GatewayDrainingError";
 }
 
 class OpenClawTestError extends Data.TaggedError("OpenClawTestError")<{
@@ -136,9 +162,21 @@ describe("OpenClaw HarnessEndpoint adapter", () => {
     "fails a gather send with a message naming the unreachable member",
     gatherSendNamesUnreachableMember,
   );
+
   vitestIt(
     "keeps the OpenClaw manifest schema in sync",
     manifestMatchesRuntimeSchema,
+  );
+});
+
+describe("OpenClaw gather report turns", () => {
+  it(
+    "runs a gather result turn after the request that started the gather has finished",
+    resultTurnOutlivesStartingRequest,
+  );
+  it(
+    "retries a gather result turn that OpenClaw refuses at admission",
+    refusedResultTurnIsRetried,
   );
 });
 
@@ -469,6 +507,119 @@ function gatherSendNamesUnreachableMember() {
   }).pipe(Effect.scoped);
 }
 
+/**
+ * OpenClaw keeps the request it admitted in async-local storage and refuses
+ * work whose inherited request has finished. The gather starts inside the
+ * model's `message` tool call, and its result turn runs after that call ends.
+ */
+function resultTurnOutlivesStartingRequest() {
+  const requests = new AsyncLocalStorage<AdmittedRequest>();
+  const calls: DispatchObservation[] = [];
+  const runtime = makeObservedRuntime({
+    events: [],
+    calls,
+    routePeers: [],
+    admission: () =>
+      requests.getStore()?.finished === true
+        ? new GatewayDrainingError()
+        : undefined,
+  });
+
+  const request: AdmittedRequest = { finished: false };
+  return runGatherToResult(runtime, calls, {
+    enter: (run) => requests.run(request, run),
+    finish: () => {
+      request.finished = true;
+    },
+  });
+}
+
+function refusedResultTurnIsRetried() {
+  const refusals = [new GatewayDrainingError()];
+  const calls: DispatchObservation[] = [];
+  const runtime = makeObservedRuntime({
+    events: [],
+    calls,
+    routePeers: [],
+    admission: () => refusals.shift(),
+  });
+
+  return runGatherToResult(runtime, calls, NO_REQUEST).pipe(
+    Effect.andThen(() => {
+      expect(refusals).toEqual([]);
+    }),
+  );
+}
+
+/**
+ * Starts a gather that no member answers and waits for its result turn to be
+ * dispatched. The model's send runs inside `request`, which finishes when
+ * the send returns.
+ */
+function runGatherToResult(
+  runtime: ObservedAccountRuntime,
+  calls: readonly DispatchObservation[],
+  request: ToolCallRequest,
+) {
+  const fake = makeListeningEndpoint();
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
+  const controller = new AbortController();
+  const setStatus = vi.fn();
+  const sendGather = () =>
+    requireSendText(plugin)({
+      cfg: makeConfig(),
+      accountId: ACCOUNT_ID,
+      to: "agent:nova",
+      text: JSON.stringify({
+        gather: {
+          members: ["agent:nova"],
+          deadlineSeconds: GATHER_DEADLINE_SECONDS,
+          topology: "pairwise",
+        },
+        message: "When can you meet?",
+      }),
+    });
+
+  return Effect.gen(function* () {
+    yield* Effect.acquireRelease(
+      Effect.sync(() => vi.stubEnv("MOLTZAP_AGENT_NAME", "root")),
+      () => Effect.sync(() => vi.stubEnv("MOLTZAP_AGENT_NAME", undefined)),
+    );
+    const fiber = yield* startAccount(
+      plugin,
+      gatewayContext(controller.signal, runtime, setStatus),
+    ).pipe(Effect.fork);
+    yield* waitForConnected(setStatus);
+    yield* Effect.tryPromise({
+      try: () => request.enter(sendGather),
+      catch: (cause) => testError("gatherSend", cause),
+    }).pipe(Effect.ensuring(Effect.sync(request.finish)));
+    yield* waitForResultTurn(calls);
+
+    controller.abort();
+    yield* Effect.timeout(Fiber.join(fiber), "1 second");
+  }).pipe(Effect.scoped);
+}
+
+function waitForResultTurn(calls: readonly DispatchObservation[]) {
+  return Effect.tryPromise({
+    try: () =>
+      vi.waitFor(
+        () => {
+          expect(
+            calls.some((call) =>
+              (call.ctx.MessageSid ?? "").endsWith(RESULT_TURN_SUFFIX),
+            ),
+          ).toBe(true);
+        },
+        { timeout: 5_000 },
+      ),
+    catch: (cause) => testError("waitForResultTurn", cause),
+  });
+}
+
 /** What OpenClaw reads from a rejected send, as its tool result text. */
 function messageOf(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
@@ -579,30 +730,41 @@ function makeObservedRuntime(
 function observedOpenClawInboundRunner(
   params: RuntimeFixtureParams,
 ): ObservedAccountRuntime["inbound"]["run"] {
-  return (input) =>
-    runChannelInboundEvent({
-      ...input,
-      adapter: {
-        ...input.adapter,
-        resolveTurn: (normalized, eventClass, preflight) =>
-          Effect.runPromise(
-            Effect.tryPromise({
-              try: () =>
-                Promise.resolve(
-                  input.adapter.resolveTurn(normalized, eventClass, preflight),
-                ),
-              catch: (cause) => testError("resolveTurn", cause),
-            }).pipe(Effect.map((resolved) => observedTurn(params, resolved))),
-          ),
-      },
-      log: (event) => {
-        if (event.stage === "record" && event.event === "done") {
-          params.events.push(
-            `record:${event.messageId ?? "missing"}:${event.sessionKey ?? "missing"}`,
-          );
-        }
-      },
-    });
+  return (input) => {
+    const refusal = params.admission?.();
+    return refusal === undefined
+      ? runObservedInboundEvent(params, input)
+      : Promise.reject(refusal);
+  };
+}
+
+function runObservedInboundEvent(
+  params: RuntimeFixtureParams,
+  input: OpenClawInboundRunInput,
+): ReturnType<ObservedAccountRuntime["inbound"]["run"]> {
+  return runChannelInboundEvent({
+    ...input,
+    adapter: {
+      ...input.adapter,
+      resolveTurn: (normalized, eventClass, preflight) =>
+        Effect.runPromise(
+          Effect.tryPromise({
+            try: () =>
+              Promise.resolve(
+                input.adapter.resolveTurn(normalized, eventClass, preflight),
+              ),
+            catch: (cause) => testError("resolveTurn", cause),
+          }).pipe(Effect.map((resolved) => observedTurn(params, resolved))),
+        ),
+    },
+    log: (event) => {
+      if (event.stage === "record" && event.event === "done") {
+        params.events.push(
+          `record:${event.messageId ?? "missing"}:${event.sessionKey ?? "missing"}`,
+        );
+      }
+    },
+  });
 }
 
 function observedTurn(
