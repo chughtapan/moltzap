@@ -4,8 +4,10 @@ import { it } from "@effect/vitest";
 import {
   AgentAddress,
   type Content,
+  GroupAddress,
   type InboundDelivery,
   InboundMessage,
+  SendError,
   type SendInput,
 } from "@moltzap/client";
 import {
@@ -27,17 +29,21 @@ import {
   contributionContent,
   DELIVERY_DISPOSITION,
   GATHER_INPUT_FAILURE,
-  type GatherInputError,
+  GatherInputError,
   type GatherOverlay,
   type GatherOverlayOptions,
   type GatherRequest,
   type GatherResult,
+  GatherStartError,
   makeGatherOverlay,
+  MEMBER_NAMING_HINT,
   requestContent,
+  type StartedGather,
 } from "./gather-overlay.js";
 
 const decodeAddress = Schema.decodeUnknownSync(AgentAddress);
 const decodeMessage = Schema.decodeUnknownSync(InboundMessage);
+const decodeGroup = Schema.decodeUnknownSync(GroupAddress);
 
 const ROOT = decodeAddress("agent:root");
 const ALICE = decodeAddress("agent:alice");
@@ -50,6 +56,8 @@ const GATHER_ID = "gather-1";
 const DEADLINE = 1_000;
 const CLOSE_WAIT = 500;
 const THREE_DAYS_MILLIS = 3 * 24 * 60 * 60 * 1_000;
+const REQUEST_SEND_WAIT = 20_000;
+const MINUTE_DEADLINE = 60_000;
 const PROPERTY_RUNS = 50;
 const MONDAY = "Mon";
 const TUESDAY = "Tue";
@@ -72,14 +80,17 @@ const SENDER_POOL = [ALICE, BOB, CAROL, MALLORY];
 /** A fake `send` and the queue of every input it saw. */
 interface FakeSend {
   readonly sent: Queue.Queue<SendInput>;
-  readonly send: (input: SendInput) => Effect.Effect<void>;
+  readonly send: (input: SendInput) => Effect.Effect<void, SendError>;
 }
 
 /** An open gather at the initiator, after its requests went out. */
 interface OpenedGather {
   readonly overlay: GatherOverlay;
-  readonly running: Fiber.RuntimeFiber<GatherResult, GatherInputError>;
+  readonly running: Fiber.RuntimeFiber<GatherResult, GatherStartFailed>;
 }
+
+/** Why a gather in these tests did not start. */
+type GatherStartFailed = GatherInputError | GatherStartError;
 
 /** One contribution in a generated shared-gather trace. */
 interface SharedEntry {
@@ -111,6 +122,44 @@ const makeStalledSend = Effect.map(
   }),
 );
 
+/**
+ * A fake `send` whose post to `refused` fails with `reason`, as the Router
+ * reports an agent it does not know, and which certifies every other post.
+ */
+function makeRefusingSend(
+  refused: SendInput["to"],
+  reason: SendError["reason"],
+): Effect.Effect<FakeSend> {
+  return Effect.map(
+    Queue.unbounded<SendInput>(),
+    (sent): FakeSend => ({
+      sent,
+      send: (input) =>
+        Queue.offer(sent, input).pipe(
+          Effect.zipRight(
+            input.to === refused
+              ? Effect.fail(new SendError({ reason }))
+              : Effect.void,
+          ),
+        ),
+    }),
+  );
+}
+
+/** A fake `send` whose post to `stalled` never certifies. */
+function makeStallingSend(stalled: SendInput["to"]): Effect.Effect<FakeSend> {
+  return Effect.map(
+    Queue.unbounded<SendInput>(),
+    (sent): FakeSend => ({
+      sent,
+      send: (input) =>
+        Queue.offer(sent, input).pipe(
+          Effect.zipRight(input.to === stalled ? Effect.never : Effect.void),
+        ),
+    }),
+  );
+}
+
 const senderTrace = fc.array(fc.constantFrom(...SENDER_POOL), {
   maxLength: 12,
 });
@@ -140,7 +189,7 @@ describe("gather at the initiator", () => {
     Effect.gen(function* () {
       const { sent, send } = yield* makeRecordingSend;
       const overlay = yield* makeGatherOverlay({ self: ROOT, send });
-      yield* Effect.forkScoped(overlay.gather(PAIRWISE));
+      yield* Effect.forkScoped(overlay.start(PAIRWISE));
 
       const requests = yield* Queue.takeN(sent, 2);
 
@@ -194,6 +243,93 @@ describe("gather initiator deadlines", () => {
     ));
 });
 
+describe("gather request sends that fail", () => {
+  it.scoped("fails the start naming a member the Router does not know", () =>
+    Effect.gen(function* () {
+      const overlay = yield* makeRootOverlay(
+        yield* makeRefusingSend(BOB, "unknown-agent"),
+      );
+
+      const error = yield* Effect.flip(overlay.start(PAIRWISE));
+
+      expect(error).toEqual(
+        new GatherStartError({
+          failures: [{ member: BOB, reason: "unknown-agent" }],
+        }),
+      );
+    }),
+  );
+
+  it.scoped("leaves no open gather after a request send failed", () =>
+    Effect.gen(function* () {
+      const overlay = yield* makeRootOverlay(
+        yield* makeRefusingSend(BOB, "unknown-agent"),
+      );
+      yield* Effect.flip(overlay.start(PAIRWISE));
+
+      const disposition = yield* overlay.onDelivery(
+        deliver(directMessage(ALICE, MONDAY_ANSWER)),
+      );
+
+      expect(disposition).toBe(DELIVERY_DISPOSITION.passthrough);
+      expect((yield* overlay.counters).unknownGather).toBe(1);
+    }),
+  );
+
+  it.scoped("fails the start when the shared group post fails", () =>
+    Effect.gen(function* () {
+      const overlay = yield* makeRootOverlay(
+        yield* makeRefusingSend(decodeGroup(GROUP), "not-registered"),
+      );
+
+      const error = yield* Effect.flip(overlay.start(SHARED));
+
+      expect(error).toEqual(
+        new GatherStartError({
+          failures: [{ member: GROUP, reason: "not-registered" }],
+        }),
+      );
+    }),
+  );
+});
+
+describe("gather start failure message", () => {
+  it("names each unreached member with its reason and how to name members", () => {
+    const error = new GatherStartError({
+      failures: [
+        { member: ALICE, reason: "unknown-agent" },
+        { member: BOB, reason: "not-registered" },
+      ],
+    });
+
+    expect(error.message).toBe(
+      `Gather not started: could not reach ${ALICE} (unknown-agent), ${BOB} (not-registered). ${MEMBER_NAMING_HINT}`,
+    );
+  });
+});
+
+describe("gather request sends that stall", () => {
+  it.scoped(
+    "starts once the send wait passes and still returns at the deadline",
+    () =>
+      Effect.gen(function* () {
+        const stalling = yield* makeStallingSend(ALICE);
+        const overlay = yield* makeRootOverlay(stalling);
+        const starting = yield* Effect.forkScoped(
+          overlay.start({ ...PAIRWISE, deadlineAt: MINUTE_DEADLINE }),
+        );
+        yield* Queue.takeN(stalling.sent, 2);
+
+        yield* TestClock.adjust(REQUEST_SEND_WAIT);
+        const started = yield* Fiber.join(starting);
+        yield* TestClock.adjust(MINUTE_DEADLINE - REQUEST_SEND_WAIT);
+        const result = yield* started.result;
+
+        expect(result.missing).toEqual([ALICE, BOB]);
+      }),
+  );
+});
+
 describe("gathers with distant or past deadlines", () => {
   it.scoped("returns without sending when the deadline already passed", () =>
     Effect.gen(function* () {
@@ -201,7 +337,7 @@ describe("gathers with distant or past deadlines", () => {
       const overlay = yield* makeGatherOverlay({ self: ROOT, send });
       yield* TestClock.adjust(DEADLINE);
 
-      const result = yield* overlay.gather(PAIRWISE);
+      const result = yield* gatherResult(overlay, PAIRWISE);
 
       expect(result.missing).toEqual([ALICE, BOB]);
       expect(yield* Queue.size(sent)).toBe(0);
@@ -231,7 +367,9 @@ describe("gather input validation", () => {
     Effect.gen(function* () {
       const error = yield* rejectionOf({ ...PAIRWISE, members: [] });
 
-      expect(error.reason).toBe(GATHER_INPUT_FAILURE.noMembers);
+      expect(error).toEqual(
+        new GatherInputError({ reason: GATHER_INPUT_FAILURE.noMembers }),
+      );
     }),
   );
 
@@ -242,7 +380,9 @@ describe("gather input validation", () => {
         members: OVER_LIMIT_MEMBERS,
       });
 
-      expect(error.reason).toBe(GATHER_INPUT_FAILURE.tooManyMembers);
+      expect(error).toEqual(
+        new GatherInputError({ reason: GATHER_INPUT_FAILURE.tooManyMembers }),
+      );
     }),
   );
 
@@ -250,7 +390,11 @@ describe("gather input validation", () => {
     Effect.gen(function* () {
       const error = yield* rejectionOf({ ...SHARED, members: [ALICE] });
 
-      expect(error.reason).toBe(GATHER_INPUT_FAILURE.sharedNeedsTwoMembers);
+      expect(error).toEqual(
+        new GatherInputError({
+          reason: GATHER_INPUT_FAILURE.sharedNeedsTwoMembers,
+        }),
+      );
     }),
   );
 
@@ -581,9 +725,29 @@ function startGather(
       mintId: () => GATHER_ID,
       closeWaitMillis: CLOSE_WAIT,
     });
-    const running = yield* Effect.forkScoped(overlay.gather(request));
+    const running = yield* Effect.forkScoped(gatherResult(overlay, request));
     yield* Queue.takeN(sent, requestSendCount(request));
     return { overlay, running };
+  });
+}
+
+/** Start a gather and wait for its result. */
+function gatherResult(
+  overlay: GatherOverlay,
+  request: GatherRequest,
+): Effect.Effect<GatherResult, GatherStartFailed> {
+  return Effect.flatMap(overlay.start(request), (started) => started.result);
+}
+
+/** A ROOT overlay whose gathers use GATHER_ID and send through `fake`. */
+function makeRootOverlay(
+  fake: FakeSend,
+): Effect.Effect<GatherOverlay, never, Scope.Scope> {
+  return makeGatherOverlay({
+    self: ROOT,
+    send: fake.send,
+    mintId: () => GATHER_ID,
+    closeWaitMillis: CLOSE_WAIT,
   });
 }
 
@@ -601,7 +765,7 @@ function addressesOf(inputs: Iterable<SendInput>): Array<SendInput["to"]> {
  */
 function countsFirstMemberContributions(
   senders: readonly AgentAddress[],
-): Effect.Effect<void, GatherInputError, Scope.Scope> {
+): Effect.Effect<void, GatherStartFailed, Scope.Scope> {
   return Effect.gen(function* () {
     const { overlay, running } = yield* startGather(TRIO);
     yield* Effect.forEach(
@@ -641,7 +805,7 @@ function answer(index: number): Content {
 function holdsUntilDeadline(
   deadlineAt: number,
   answered: readonly AgentAddress[],
-): Effect.Effect<void, GatherInputError, Scope.Scope> {
+): Effect.Effect<void, GatherStartFailed, Scope.Scope> {
   return Effect.gen(function* () {
     const { overlay, running } = yield* startGather({ ...TRIO, deadlineAt });
     yield* Effect.forEach(
@@ -667,7 +831,7 @@ function rejectionOf(request: GatherRequest) {
   return Effect.gen(function* () {
     const { send } = yield* makeRecordingSend;
     const overlay = yield* makeGatherOverlay({ self: ROOT, send });
-    return yield* Effect.flip(overlay.gather(request));
+    return yield* Effect.flip(overlay.start(request));
   });
 }
 
@@ -676,7 +840,7 @@ function rejectsSelf(
   others: readonly AgentAddress[],
   position: number,
   topology: GatherRequest["topology"],
-): Effect.Effect<void, GatherResult, Scope.Scope> {
+): Effect.Effect<void, StartedGather, Scope.Scope> {
   return Effect.gen(function* () {
     const { sent, send } = yield* makeRecordingSend;
     const overlay = yield* makeGatherOverlay({ self: ROOT, send });
@@ -684,10 +848,12 @@ function rejectsSelf(
     const members = [...others.slice(0, at), ROOT, ...others.slice(at)];
 
     const error = yield* Effect.flip(
-      overlay.gather({ ...PAIRWISE, members, topology }),
+      overlay.start({ ...PAIRWISE, members, topology }),
     );
 
-    expect(error.reason).toBe(GATHER_INPUT_FAILURE.selfInMembers);
+    expect(error).toEqual(
+      new GatherInputError({ reason: GATHER_INPUT_FAILURE.selfInMembers }),
+    );
     expect(yield* Queue.size(sent)).toBe(0);
   });
 }
@@ -712,7 +878,7 @@ function passesThroughText(
  */
 function closeListsCountedMembers(
   entries: readonly SharedEntry[],
-): Effect.Effect<void, GatherInputError, Scope.Scope> {
+): Effect.Effect<void, GatherStartFailed, Scope.Scope> {
   return Effect.gen(function* () {
     const recording = yield* makeRecordingSend;
     const { overlay, running } = yield* startGather(SHARED, recording);

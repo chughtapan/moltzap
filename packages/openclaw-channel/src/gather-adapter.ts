@@ -2,10 +2,12 @@
  * @file Binds the gather overlay to one OpenClaw account.
  *
  * A model reaches the overlay through the stock `message` tool by writing a
- * JSON document as the message text. The send callback starts the gather and
- * returns at once: the inbound loop handles one delivery at a time and awaits
- * the whole model turn, so a tool call that waited for contributions would
- * hold up the loop that delivers them. The result arrives later as one turn.
+ * JSON document as the message text. The send callback returns once the
+ * gather's requests are out, and fails when a member cannot be reached so the
+ * model can correct the member list. It does not wait for contributions: the
+ * inbound loop handles one delivery at a time and awaits the whole model turn,
+ * so a tool call that waited for them would hold up the loop that delivers
+ * them. The result arrives later as one turn.
  *
  * The adapter is off unless `MOLTZAP_AGENT_NAME` names the local agent, which
  * the overlay needs for group addresses and reply targets. With it unset every
@@ -29,6 +31,7 @@ import {
   type GatherInputError,
   type GatherOverlay,
   type GatherResult,
+  GatherStartError,
   makeGatherOverlay,
 } from "./gather-overlay.js";
 
@@ -73,7 +76,9 @@ export interface GatherAdapter {
   readonly commandSend: (
     to: SendInput["to"],
     text: string,
-  ) => Option.Option<Effect.Effect<void, SendError | GatherInputError>>;
+  ) => Option.Option<
+    Effect.Effect<void, SendError | GatherInputError | GatherStartError>
+  >;
   readonly counters: Effect.Effect<GatherAdapterCounters>;
 }
 
@@ -192,7 +197,7 @@ function runCommand(
   state: AdapterState,
   to: SendInput["to"],
   command: Command,
-): Effect.Effect<void, SendError | GatherInputError> {
+): Effect.Effect<void, SendError | GatherInputError | GatherStartError> {
   if ("gather" in command) {
     return startGather(state, command);
   }
@@ -200,16 +205,16 @@ function runCommand(
   return state.overlay.contribute(command.contribution.id, to, command.message);
 }
 
+/**
+ * A member name that is not an agent address fails the command before any
+ * request goes out, as does an unusable member list or an unreachable member.
+ */
 function startGather(
   state: AdapterState,
   command: GatherCommand,
-): Effect.Effect<void, GatherInputError> {
+): Effect.Effect<void, GatherInputError | GatherStartError> {
   return Effect.gen(function* () {
-    const members = command.gather.members.flatMap((member) =>
-      Option.toArray(memberAddress(member)),
-    );
-    state.counts.unknownMembers +=
-      command.gather.members.length - members.length;
+    const members = yield* memberAddresses(state, command.gather.members);
     const now = yield* Clock.currentTimeMillis;
     const request = {
       members,
@@ -217,20 +222,43 @@ function startGather(
       deadlineAt: now + command.gather.deadlineSeconds * MILLIS_PER_SECOND,
       topology: command.gather.topology,
     };
-    state.counts.gathersStarted += 1;
     state.options.log(
       `MoltZap gather: start ${request.topology} to ${members.join(",")}`,
     );
-    yield* state.overlay.gather(request).pipe(
-      Effect.flatMap((result) => reportResult(state, members, result)),
-      Effect.catchAll((error) =>
+    const started = yield* state.overlay.start(request).pipe(
+      Effect.tapError((error) =>
         Effect.sync(() => {
-          state.options.log(`MoltZap gather: rejected ${error.reason}`);
+          state.options.log(`MoltZap gather: not started: ${error.message}`);
         }),
       ),
+    );
+    state.counts.gathersStarted += 1;
+    yield* started.result.pipe(
+      Effect.flatMap((result) => reportResult(state, members, result)),
       Effect.forkIn(state.scope),
     );
   });
+}
+
+function memberAddresses(
+  state: AdapterState,
+  names: readonly string[],
+): Effect.Effect<readonly AgentAddress[], GatherStartError> {
+  const unknown = names.filter((name) => Option.isNone(memberAddress(name)));
+  if (unknown.length > 0) {
+    state.counts.unknownMembers += unknown.length;
+    return Effect.fail(
+      new GatherStartError({
+        failures: unknown.map((member) => ({
+          member,
+          reason: "invalid-address",
+        })),
+      }),
+    );
+  }
+  return Effect.succeed(
+    names.flatMap((name) => Option.toArray(memberAddress(name))),
+  );
 }
 
 function memberAddress(member: string): Option.Option<AgentAddress> {
