@@ -141,6 +141,16 @@ async function waitForPath(path, timeoutMillis = 1_000) {
   throw new Error(`timed out waiting for ${path}`);
 }
 
+test("the host learns its agent name and not the registration details", async () => {
+  const app = await fixture();
+
+  assert.equal(await runAgentImage(app.environment), 0);
+
+  const hostEnvironment = JSON.parse(await readFile(app.hostRecord, "utf8"));
+  assert.equal(hostEnvironment.MOLTZAP_AGENT_NAME, "alice");
+  assert.equal(hostEnvironment.MOLTZAP_REGISTRATION_AGENT_NAME, undefined);
+});
+
 test("successful bootstrap starts the host with separated credentials", async () => {
   const app = await fixture();
 

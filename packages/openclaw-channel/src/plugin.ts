@@ -10,11 +10,12 @@ import type { ReplyPayload } from "openclaw/plugin-sdk/reply-payload";
 import {
   acquireHarnessEndpoint,
   type Content,
+  type DirectMessage,
+  type GroupMessage,
   type HarnessEndpoint,
   type InboundDelivery,
   MessageAddressInput,
   type MessageAddressInput as MessageAddressInputValue,
-  type PostId as PostIdValue,
   SendInput,
 } from "@moltzap/client";
 import {
@@ -24,9 +25,11 @@ import {
   Effect,
   JSONSchema,
   Option,
+  Schedule,
   Schema,
   Stream,
 } from "effect";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import {
   type ChannelPlugin,
@@ -43,14 +46,35 @@ import {
   waitUntilAbort,
 } from "openclaw/plugin-sdk/channel-outbound";
 
+import {
+  type GatherAdapter,
+  type GatherReport,
+  makeGatherAdapter,
+} from "./gather-adapter.js";
+import {
+  DELIVERY_DISPOSITION,
+  type DeliveryDisposition,
+} from "./gather-overlay.js";
+
 const CHANNEL_ID = "moltzap";
 const TARGET_HINT =
   'Use an explicit "agent:<name>" or "group:<member>,<member>,..." address';
 const INBOUND_LOG_PREVIEW_CHARS = 80;
+/**
+ * OpenClaw refuses new work while a reversible restart-signal fence or host
+ * suspension is closed and reopens it when the fence clears. Five retries
+ * doubling from half a second wait about fifteen seconds in total; a one-way
+ * restart drain outlasts them and the report is logged as lost.
+ */
+const REPORT_TURN_RETRY = Schedule.exponential("500 millis").pipe(
+  Schedule.intersect(Schedule.recurs(5)),
+);
+/** The error name OpenClaw gives a turn refused by its work admission. */
+const GATEWAY_DRAINING_ERROR_NAME = "GatewayDrainingError";
 
 type OpenClawTargetKind = "user" | "group";
 type OpenClawOutboundFailure = "account-not-connected" | "invalid-address";
-type OpenClawInboundFailure = "turn-failed";
+type OpenClawInboundFailure = "gateway-draining" | "turn-failed";
 
 interface OpenClawAccountRuntime {
   readonly inbound: Pick<
@@ -61,6 +85,24 @@ interface OpenClawAccountRuntime {
     PluginRuntime["channel"]["routing"],
     "resolveAgentRoute"
   >;
+}
+
+/**
+ * OpenClaw's services for one account task, and a runner that enters the
+ * asynchronous context the task started in.
+ *
+ * OpenClaw keeps the admitted request of the current asynchronous chain in an
+ * `AsyncLocalStorage` and refuses a turn whose inherited request has
+ * finished, reporting `GatewayDrainingError` although the gateway is open. It
+ * starts channel accounts outside any request. A turn the account starts
+ * itself, such as a gather report, resumes on whichever callback woke its
+ * fiber: a deadline timer armed during the model's `message` tool call
+ * carries that call's request, which has finished by the time the report
+ * runs. Every turn enters the account's own context so it is admitted as
+ * ordinary inbound is.
+ */
+interface AccountTurnRuntime extends OpenClawAccountRuntime {
+  readonly inAccountContext: <R>(run: () => R) => R;
 }
 
 const moltZapAccountSchema = Schema.Struct({
@@ -90,16 +132,29 @@ interface ResolvedMessageTarget {
 interface ConnectedAccount {
   readonly accountId: string;
   readonly endpoint: HarnessEndpoint;
+  readonly gather: Option.Option<GatherAdapter>;
 }
 
 interface ConnectedAccountState {
   current?: ConnectedAccount;
 }
 
+/** The routing facts of a host turn: a message without its post identity. */
+type TurnMessage = Omit<DirectMessage, "postId"> | Omit<GroupMessage, "postId">;
+
+/**
+ * One OpenClaw turn. `id` is the delivery's PostId for a certified message and
+ * the report's own identity for a gather report.
+ */
+interface HostTurn {
+  readonly id: string;
+  readonly message: TurnMessage;
+}
+
 interface InboundMessageTurnInput {
   readonly ctx: ChannelGatewayContext<MoltZapAccount>;
   readonly runtime: OpenClawAccountRuntime;
-  readonly message: InboundDelivery["message"];
+  readonly turn: HostTurn;
   readonly body: string;
 }
 
@@ -120,14 +175,14 @@ interface MoltzapChannelPluginDeps {
 class OpenClawInboundError extends Data.TaggedError("OpenClawInboundError")<{
   readonly reason: OpenClawInboundFailure;
   readonly accountId: string;
-  readonly postId?: PostIdValue;
+  readonly turnId?: string;
   readonly detail: string;
 }> {
   override get message(): string {
     const identity =
-      this.postId === undefined
+      this.turnId === undefined
         ? this.accountId
-        : `${this.accountId}/${this.postId}`;
+        : `${this.accountId}/${this.turnId}`;
     return `MoltZap inbound delivery failed for ${identity}: ${this.reason}: ${this.detail}`;
   }
 }
@@ -329,8 +384,16 @@ function startAccountConnection(
   if (ctx.abortSignal.aborted) {
     return Promise.resolve();
   }
+  const inAccountContext = AsyncLocalStorage.snapshot();
   return runHostPromise(
     requireOpenClawAccountRuntime(ctx).pipe(
+      Effect.map(
+        (services): AccountTurnRuntime => ({
+          inbound: services.inbound,
+          routing: services.routing,
+          inAccountContext,
+        }),
+      ),
       Effect.flatMap((runtime) =>
         acquireAccountEndpoint(deps, ctx.accountId, ctx.account).pipe(
           Effect.flatMap((endpoint) =>
@@ -420,15 +483,24 @@ function configuredMcpEndpoint() {
 
 function runAccountConnection(
   ctx: ChannelGatewayContext<MoltZapAccount>,
-  runtime: OpenClawAccountRuntime,
+  runtime: AccountTurnRuntime,
   endpoint: HarnessEndpoint,
   connectedAccount: ConnectedAccountState,
 ) {
-  return Effect.sync(() => {
-    connectedAccount.current = { accountId: ctx.accountId, endpoint };
-  }).pipe(
+  return accountGatherAdapter(ctx, runtime, endpoint).pipe(
+    Effect.tap((gather) =>
+      Effect.sync(() => {
+        connectedAccount.current = {
+          accountId: ctx.accountId,
+          endpoint,
+          gather,
+        };
+      }),
+    ),
     Effect.zipRight(reportConnected(ctx)),
-    Effect.zipRight(consumeInboundMessages(ctx, runtime, endpoint)),
+    Effect.zipRight(
+      consumeInboundMessages(ctx, runtime, endpoint, connectedAccount),
+    ),
     Effect.ensuring(
       removeConnectedEndpoint(connectedAccount, ctx.accountId, endpoint),
     ),
@@ -453,6 +525,36 @@ function runAccountConnection(
 }
 
 /**
+ * A report turn that OpenClaw refuses at admission is retried on
+ * `REPORT_TURN_RETRY`, since the gather it reports has ended and nothing
+ * delivers the report again. A turn that still fails is logged as an error.
+ */
+function accountGatherAdapter(
+  ctx: ChannelGatewayContext<MoltZapAccount>,
+  runtime: AccountTurnRuntime,
+  endpoint: HarnessEndpoint,
+) {
+  return makeGatherAdapter({
+    send: endpoint.send,
+    runTurn: (report) =>
+      runOpenClawTurn(ctx, runtime, gatherReportTurn(report)).pipe(
+        Effect.retry({
+          schedule: REPORT_TURN_RETRY,
+          while: (error) => error.reason === "gateway-draining",
+        }),
+        Effect.catchAll((error) =>
+          Effect.sync(() => {
+            ctx.log?.error?.(
+              `MoltZap gather: result turn failed: ${error.detail}`,
+            );
+          }),
+        ),
+      ),
+    log: (line) => ctx.log?.info?.(line),
+  });
+}
+
+/**
  * Consumes messages until the stream ends or OpenClaw aborts the account.
  *
  * The stream can complete or fail independently of the account abort signal.
@@ -461,17 +563,26 @@ function runAccountConnection(
  * @param ctx The account task and abort signal supplied by OpenClaw.
  * @param runtime OpenClaw routing and inbound services for this account task.
  * @param endpoint The daemon-backed message stream for this account.
+ * @param connectedAccount The account's connection, whose gather adapter sees
+ *   each delivery before the stock inbound path.
  * @returns An effect that ends with the stream or the abort signal.
  */
 function consumeInboundMessages(
   ctx: ChannelGatewayContext<MoltZapAccount>,
-  runtime: OpenClawAccountRuntime,
+  runtime: AccountTurnRuntime,
   endpoint: HarnessEndpoint,
+  connectedAccount: ConnectedAccountState,
 ) {
   return Effect.raceFirst(
     endpoint.messages.pipe(
       Stream.runForEach((delivery) =>
-        handleInboundDelivery(ctx, runtime, delivery),
+        gatherDisposition(connectedAccount, delivery).pipe(
+          Effect.flatMap((disposition) =>
+            disposition === DELIVERY_DISPOSITION.consumed
+              ? Effect.void
+              : handleInboundDelivery(ctx, runtime, delivery),
+          ),
+        ),
       ),
     ),
     Effect.tryPromise({
@@ -501,13 +612,48 @@ function reportConnected(
   });
 }
 
+/**
+ * A gather report is a direct message from the local agent to itself. In
+ * shared mode it joins the main session like every turn; in private mode it
+ * lands in the session for the agent's own address, never a member's, and no
+ * member's conversation history matches it.
+ */
+function gatherReportTurn(report: GatherReport): HostTurn {
+  return {
+    id: report.turnId,
+    message: {
+      kind: "direct",
+      address: report.from,
+      sender: report.from,
+      content: [{ type: "text", text: report.text }],
+    },
+  };
+}
+
+/** The overlay acknowledges what it consumes; the rest takes the stock path. */
+function gatherDisposition(
+  connectedAccount: ConnectedAccountState,
+  delivery: InboundDelivery,
+): Effect.Effect<DeliveryDisposition> {
+  const gather = connectedAccount.current?.gather ?? Option.none();
+  return Option.match(gather, {
+    onNone: () => Effect.succeed(DELIVERY_DISPOSITION.passthrough),
+    onSome: (adapter) => adapter.onDelivery(delivery),
+  });
+}
+
 function handleInboundDelivery(
   ctx: ChannelGatewayContext<MoltZapAccount>,
-  runtime: OpenClawAccountRuntime,
+  runtime: AccountTurnRuntime,
   delivery: InboundDelivery,
 ) {
   return logInbound(ctx, delivery.message).pipe(
-    Effect.zipRight(runOpenClawTurn(ctx, runtime, delivery.message)),
+    Effect.zipRight(
+      runOpenClawTurn(ctx, runtime, {
+        id: delivery.message.postId,
+        message: delivery.message,
+      }),
+    ),
     Effect.zipRight(delivery.acknowledge),
   );
 }
@@ -532,42 +678,52 @@ function logInbound(
 
 function runOpenClawTurn(
   ctx: ChannelGatewayContext<MoltZapAccount>,
-  runtime: OpenClawAccountRuntime,
-  message: InboundDelivery["message"],
+  runtime: AccountTurnRuntime,
+  turn: HostTurn,
 ): Effect.Effect<void, OpenClawInboundError> {
+  const { id, message } = turn;
   const body = renderContent(message.content);
   return Effect.tryPromise({
     try: () =>
-      runtime.inbound.run({
-        channel: CHANNEL_ID,
-        accountId: ctx.accountId,
-        raw: { message },
-        adapter: {
-          ingest: () => ({
-            id: message.postId,
-            rawText: body,
-            textForAgent: body,
-            textForCommands: body,
-            raw: message,
-          }),
-          resolveTurn: () =>
-            buildRoutedTurnPlan({ ctx, runtime, message, body }),
-        },
-      }),
+      runtime.inAccountContext(() =>
+        runtime.inbound.run({
+          channel: CHANNEL_ID,
+          accountId: ctx.accountId,
+          raw: { message },
+          adapter: {
+            ingest: () => ({
+              id,
+              rawText: body,
+              textForAgent: body,
+              textForCommands: body,
+              raw: message,
+            }),
+            resolveTurn: () =>
+              buildRoutedTurnPlan({ ctx, runtime, turn, body }),
+          },
+        }),
+      ),
     catch: (cause) =>
       new OpenClawInboundError({
-        reason: "turn-failed",
+        reason: inboundFailure(cause),
         accountId: ctx.accountId,
-        postId: message.postId,
+        turnId: id,
         detail: String(cause),
       }),
   });
 }
 
+function inboundFailure(cause: unknown): OpenClawInboundFailure {
+  return cause instanceof Error && cause.name === GATEWAY_DRAINING_ERROR_NAME
+    ? "gateway-draining"
+    : "turn-failed";
+}
+
 function buildRoutedTurnPlan(
   input: InboundMessageTurnInput,
 ): ChannelInboundTurnPlan {
-  const { ctx, message, runtime } = input;
+  const { ctx, runtime } = input;
+  const { message } = input.turn;
   const peer = inboundRoutePeer(message);
   const route = runtime.routing.resolveAgentRoute({
     cfg: ctx.cfg,
@@ -599,7 +755,7 @@ function buildRoutedTurnPlan(
         accountId: ctx.accountId,
       },
     },
-    messageId: message.postId,
+    messageId: input.turn.id,
   };
 }
 
@@ -608,13 +764,14 @@ function buildInboundContext(
   route: ReturnType<OpenClawAccountRuntime["routing"]["resolveAgentRoute"]>,
   sessionKey: string,
 ) {
-  const { body, ctx, message, runtime } = input;
+  const { body, ctx, runtime } = input;
+  const { message } = input.turn;
   return runtime.inbound.buildContext({
     channel: CHANNEL_ID,
     accountId: ctx.accountId,
     provider: CHANNEL_ID,
     surface: CHANNEL_ID,
-    messageId: message.postId,
+    messageId: input.turn.id,
     from: message.sender,
     sender: inboundSenderFacts(message),
     conversation: inboundConversationFacts(message),
@@ -643,7 +800,7 @@ function buildInboundContext(
  * and transcript metadata; it does not change routing, reply mode, or admit
  * the sender's text as instructions.
  */
-function inboundSenderFacts(message: InboundDelivery["message"]) {
+function inboundSenderFacts(message: TurnMessage) {
   return {
     id: message.sender,
     name: message.sender.slice("agent:".length),
@@ -651,7 +808,7 @@ function inboundSenderFacts(message: InboundDelivery["message"]) {
   };
 }
 
-function inboundConversationFacts(message: InboundDelivery["message"]) {
+function inboundConversationFacts(message: TurnMessage) {
   const routePeer = inboundRoutePeer(message);
   return {
     kind: message.kind,
@@ -661,7 +818,7 @@ function inboundConversationFacts(message: InboundDelivery["message"]) {
   };
 }
 
-function inboundRoutePeer(message: InboundDelivery["message"]) {
+function inboundRoutePeer(message: TurnMessage) {
   const prefix = message.kind === "group" ? "group:" : "agent:";
   return {
     kind: message.kind,
@@ -669,7 +826,7 @@ function inboundRoutePeer(message: InboundDelivery["message"]) {
   };
 }
 
-function inboundReplyFacts(message: InboundDelivery["message"]) {
+function inboundReplyFacts(message: TurnMessage) {
   return {
     to: message.address,
     originatingTo: message.address,
@@ -678,7 +835,7 @@ function inboundReplyFacts(message: InboundDelivery["message"]) {
   };
 }
 
-function inboundGroupFacts(message: InboundDelivery["message"]) {
+function inboundGroupFacts(message: TurnMessage) {
   return message.kind === "group"
     ? { GroupMembers: message.members.join(",") }
     : undefined;
@@ -758,7 +915,15 @@ function sendAddressedText(
     );
   }
   return decodeSendInput(params, accountId).pipe(
-    Effect.flatMap((input) => endpoint.send(input)),
+    Effect.flatMap((input) =>
+      Option.getOrElse(
+        Option.flatMap(
+          connectedAccount.current?.gather ?? Option.none(),
+          (adapter) => adapter.commandSend(input.to, params.text),
+        ),
+        () => endpoint.send(input),
+      ),
+    ),
     Effect.as(makeMessageSendResult(params.messageId)),
   );
 }
