@@ -33,7 +33,10 @@
  * come. A send still pending then is a peer that may be down, which the
  * collective tolerates: that member counts as missing if it never answers.
  *
- * Open gathers live in memory and do not survive a restart.
+ * Open gathers live in memory and do not survive a restart. So does the
+ * record of recently finished ones, which lets the initiator drop an answer
+ * that arrives after its gather's result instead of handing the model a stray
+ * message the result already superseded.
  */
 
 import {
@@ -76,6 +79,12 @@ const DEFAULT_CLOSE_WAIT_MILLIS = 30_000;
  * this is left to the deadline.
  */
 const REQUEST_SEND_WAIT_MILLIS = 20_000;
+/**
+ * How many finished gathers, member views and member results one endpoint
+ * remembers; the oldest is forgotten first. A late answer for a forgotten
+ * gather passes through as one for an unknown gather.
+ */
+export const MAXIMUM_REMEMBERED_GATHERS = 256;
 
 const requestControl = Schema.Struct({
   id: Schema.String,
@@ -134,8 +143,6 @@ export interface GatherResult {
   readonly contributions: ReadonlyMap<AgentAddress, Content>;
   readonly missing: readonly AgentAddress[];
   readonly closeCertified: boolean;
-  /** The last accepted contribution, whose routing facts a host turn can reuse. */
-  readonly lastAccepted: Option.Option<InboundMessage>;
 }
 
 /** A gather request as a scripted contributor sees it. */
@@ -154,6 +161,7 @@ interface GatherCounters {
   readonly duplicate: number;
   readonly unknownGather: number;
   readonly expiredRequest: number;
+  readonly lateContribution: number;
 }
 
 /** Why a gather call's member list was rejected. */
@@ -234,8 +242,9 @@ export interface GatherOverlayOptions {
   readonly withholdPeerContributions?: boolean;
   /** Called once per shared gather when its close record reaches this member. */
   readonly onMemberResult?: (
+    id: string,
+    initiator: AgentAddress,
     result: ReadonlyMap<AgentAddress, Content>,
-    close: InboundMessage,
   ) => Effect.Effect<void>;
 }
 
@@ -271,7 +280,6 @@ interface OpenGather {
   readonly groupAddress: Option.Option<GroupAddress>;
   readonly contributions: Map<AgentAddress, Content>;
   readonly complete: Deferred.Deferred<undefined>;
-  lastAccepted: Option.Option<InboundMessage>;
 }
 
 interface MemberView {
@@ -293,6 +301,8 @@ interface OverlayState {
   readonly options: GatherOverlayOptions;
   readonly scope: Scope.Scope;
   readonly openGathers: Map<string, OpenGather>;
+  /** The members of each recently finished gather, by gather id. */
+  readonly finishedGathers: Map<string, ReadonlySet<AgentAddress>>;
   readonly memberViews: Map<string, MemberView>;
   readonly memberResults: Map<string, MemberResult>;
   readonly counts: { -readonly [Key in keyof GatherCounters]: number };
@@ -374,6 +384,7 @@ function overlayState(
     options,
     scope,
     openGathers: new Map(),
+    finishedGathers: new Map(),
     memberViews: new Map(),
     memberResults: new Map(),
     counts: {
@@ -382,6 +393,7 @@ function overlayState(
       duplicate: 0,
       unknownGather: 0,
       expiredRequest: 0,
+      lateContribution: 0,
     },
     mintId: options.mintId ?? randomUUID,
     withholdsPeers:
@@ -423,7 +435,6 @@ function unanswered(id: string, request: GatherRequest): GatherResult {
     contributions: new Map<AgentAddress, Content>(),
     missing: request.members,
     closeCertified: false,
-    lastAccepted: Option.none(),
   };
 }
 
@@ -469,7 +480,6 @@ function openGather(
           : Option.none<GroupAddress>(),
       contributions: new Map(),
       complete,
-      lastAccepted: Option.none(),
     };
     state.openGathers.set(id, open);
     return open;
@@ -511,7 +521,7 @@ function sendRequests(
     );
     if (failures.length > 0) {
       yield* interruptSends(sends);
-      state.openGathers.delete(id);
+      closeGather(state, id, open);
       return yield* new GatherStartError({ failures });
     }
     return sends;
@@ -564,8 +574,34 @@ function collect(
       Effect.timeoutOption(Duration.millis(Math.max(0, open.deadlineAt - now))),
     );
     yield* interruptSends(sends);
-    state.openGathers.delete(id);
+    closeGather(state, id, open);
   });
+}
+
+/**
+ * Stop accepting contributions for the gather and remember its members, so a
+ * member's answer that arrives afterwards is recognized as late.
+ */
+function closeGather(state: OverlayState, id: string, open: OpenGather): void {
+  state.openGathers.delete(id);
+  remember(state.finishedGathers, id, open.members);
+}
+
+/**
+ * Set `key` in an insertion-ordered map, forgetting the oldest entry once the
+ * map holds more than {@link MAXIMUM_REMEMBERED_GATHERS}. One call adds at most
+ * one entry, so evicting one keeps the bound.
+ */
+function remember<Value>(
+  entries: Map<string, Value>,
+  key: string,
+  value: Value,
+): void {
+  entries.set(key, value);
+  const [oldest] = entries.keys();
+  if (entries.size > MAXIMUM_REMEMBERED_GATHERS && oldest !== undefined) {
+    entries.delete(oldest);
+  }
 }
 
 function groupAddressOf(
@@ -630,7 +666,6 @@ function finish(
       contributions,
       missing: request.members.filter((member) => !contributions.has(member)),
       closeCertified,
-      lastAccepted: open.lastAccepted,
     };
   });
 }
@@ -716,7 +751,7 @@ function onRequest(
       return DELIVERY_DISPOSITION.consumed;
     }
     if (message.kind === "group") {
-      state.memberViews.set(control.id, {
+      remember(state.memberViews, control.id, {
         initiator: message.sender,
         address: message.address,
         members: new Set(control.members),
@@ -795,6 +830,10 @@ function onContribution(
     if (open !== undefined) {
       return acceptAsInitiator(state, open, message);
     }
+    const finished = state.finishedGathers.get(id);
+    if (finished !== undefined) {
+      return Effect.succeed(dropLate(state, finished, message));
+    }
     const view = state.memberViews.get(id);
     if (view !== undefined) {
       return Effect.succeed(observeAsMember(state, view, message));
@@ -824,12 +863,29 @@ function acceptAsInitiator(
       return Effect.succeed(DELIVERY_DISPOSITION.passthrough);
     }
     open.contributions.set(message.sender, message.content);
-    open.lastAccepted = Option.some(message);
     const finished = open.contributions.size === open.members.size;
     return (
       finished ? Deferred.succeed(open.complete, undefined) : Effect.void
     ).pipe(Effect.as(DELIVERY_DISPOSITION.consumed));
   });
+}
+
+/**
+ * A member's answer to a gather that already finished is consumed: the result
+ * the model received is final, so a separate turn for the answer would
+ * contradict it.
+ */
+function dropLate(
+  state: OverlayState,
+  members: ReadonlySet<AgentAddress>,
+  message: InboundMessage,
+): DeliveryDisposition {
+  if (!members.has(message.sender)) {
+    state.counts.outsider += 1;
+    return DELIVERY_DISPOSITION.passthrough;
+  }
+  state.counts.lateContribution += 1;
+  return DELIVERY_DISPOSITION.consumed;
 }
 
 function observeAsMember(
@@ -870,7 +926,7 @@ function onClose(
     const listed = listedContributions(state, view, control.included);
     yield* Deferred.succeed(result, listed);
     if (state.options.onMemberResult !== undefined) {
-      yield* state.options.onMemberResult(listed, message);
+      yield* state.options.onMemberResult(id, view.initiator, listed);
     }
     return DELIVERY_DISPOSITION.consumed;
   });
@@ -905,7 +961,9 @@ function memberResult(
     }
     return Deferred.make<ReadonlyMap<AgentAddress, Content>>().pipe(
       Effect.tap((created) =>
-        Effect.sync(() => state.memberResults.set(id, created)),
+        Effect.sync(() => {
+          remember(state.memberResults, id, created);
+        }),
       ),
     );
   });

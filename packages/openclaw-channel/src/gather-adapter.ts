@@ -9,6 +9,12 @@
  * so a tool call that waited for them would hold up the loop that delivers
  * them. The result arrives later as one turn.
  *
+ * That turn, and a shared-gather member's turn at the close, is a
+ * {@link GatherReport}: the gather speaking for itself, not a post. It comes
+ * from the local agent's own address and carries an identity derived from the
+ * gather id, so the model never reads it as one member's answer and no
+ * member's conversation history matches it.
+ *
  * The adapter is off unless `MOLTZAP_AGENT_NAME` names the local agent, which
  * the overlay needs for group addresses and reply targets. With it unset every
  * send and delivery takes the ordinary path, which is the baseline arm.
@@ -19,12 +25,10 @@ import {
   type Content,
   type HarnessEndpoint,
   type InboundDelivery,
-  InboundMessage,
   type SendError,
   type SendInput,
 } from "@moltzap/client";
 import { Clock, Config, Effect, Option, Schema, type Scope } from "effect";
-import { randomBytes } from "node:crypto";
 
 import {
   type DeliveryDisposition,
@@ -36,6 +40,9 @@ import {
 } from "./gather-overlay.js";
 
 const MILLIS_PER_SECOND = 1_000;
+/** Tells the model a report is the gather's own, not any one person's post. */
+const REPORT_ATTRIBUTION =
+  "collected by the MoltZap gather, not a message from any one person";
 const CODE_FENCE = "```";
 const JSON_INFO_STRING = "json";
 
@@ -55,7 +62,6 @@ const decodeCommand = Schema.decodeUnknownOption(
   Schema.parseJson(Schema.Union(gatherCommand, contributionCommand)),
 );
 const decodeAddress = Schema.decodeUnknownOption(AgentAddress);
-const decodeMessage = Schema.decodeUnknownOption(InboundMessage);
 
 type GatherCommand = typeof gatherCommand.Type;
 type Command = GatherCommand | typeof contributionCommand.Type;
@@ -82,17 +88,30 @@ export interface GatherAdapter {
   readonly counters: Effect.Effect<GatherAdapterCounters>;
 }
 
+/**
+ * One host turn in which the gather reports to the local model. `from` is the
+ * local agent, never a member. `turnId` joins `gather`, the gather id and the
+ * stage with colons: fixed for one gather and stage, so a replayed report
+ * carries the same identity, and never a canonical Router post id, which
+ * always starts `pst_`.
+ */
+export interface GatherReport {
+  readonly turnId: string;
+  readonly from: AgentAddress;
+  readonly text: string;
+}
+
 /** What the adapter needs from the account connection that owns it. */
 export interface GatherAdapterOptions {
   readonly send: HarnessEndpoint["send"];
-  /** Run one host turn whose text is `message.content`. */
-  readonly runTurn: (message: InboundMessage) => Effect.Effect<void>;
+  readonly runTurn: (report: GatherReport) => Effect.Effect<void>;
   readonly log: (line: string) => void;
 }
 
 /** One account's adapter state. Gathers fork into `scope`. */
 interface AdapterState {
   readonly options: GatherAdapterOptions;
+  readonly self: AgentAddress;
   readonly scope: Scope.Scope;
   readonly overlay: GatherOverlay;
   readonly counts: { -readonly [Key in keyof GatherAdapterCounters]: number };
@@ -130,11 +149,12 @@ function adapterState(
       self,
       send: options.send,
       withholdPeerContributions: true,
-      onMemberResult: (listed, close) =>
-        options.runTurn(memberResultTurn(listed, close)),
+      onMemberResult: (id, initiator, listed) =>
+        options.runTurn(memberReport(self, id, initiator, listed)),
     });
     return {
       options,
+      self,
       scope,
       overlay,
       counts: { gathersStarted: 0, contributionsSent: 0, unknownMembers: 0 },
@@ -142,18 +162,19 @@ function adapterState(
   });
 }
 
-function memberResultTurn(
+function memberReport(
+  self: AgentAddress,
+  id: string,
+  initiator: AgentAddress,
   listed: ReadonlyMap<AgentAddress, Content>,
-  close: InboundMessage,
-): InboundMessage {
+): GatherReport {
   return {
-    ...close,
-    content: [
-      {
-        type: "text",
-        text: `The gather closed. Every member holds these same answers:\n${describeContributions(listed)}`,
-      },
-    ],
+    turnId: `gather:${id}:close`,
+    from: self,
+    text: [
+      `Gather ${id} from ${initiator} closed (${REPORT_ATTRIBUTION}). Every member holds these same answers:`,
+      describeContributions(listed),
+    ].join("\n"),
   };
 }
 
@@ -234,7 +255,7 @@ function startGather(
     );
     state.counts.gathersStarted += 1;
     yield* started.result.pipe(
-      Effect.flatMap((result) => reportResult(state, members, result)),
+      Effect.flatMap((result) => reportResult(state, result)),
       Effect.forkIn(state.scope),
     );
   });
@@ -269,41 +290,15 @@ function memberAddress(member: string): Option.Option<AgentAddress> {
 
 function reportResult(
   state: AdapterState,
-  members: readonly AgentAddress[],
   result: GatherResult,
 ): Effect.Effect<void> {
   state.options.log(
     `MoltZap gather: ${result.id} done got=${result.contributions.size} missing=${result.missing.length} closeCertified=${result.closeCertified}`,
   );
-  const first = members[0];
-  return first === undefined
-    ? Effect.void
-    : Option.match(resultCarrier(result, first), {
-        onNone: () => Effect.void,
-        onSome: (carrier) => state.options.runTurn(carrier),
-      });
-}
-
-/**
- * A result turn needs an inbound message for the host's routing facts. The
- * last accepted contribution supplies real ones; a gather nobody answered has
- * none, so the first member stands in.
- */
-function resultCarrier(
-  result: GatherResult,
-  firstMember: AgentAddress,
-): Option.Option<InboundMessage> {
-  const text: Content = [{ type: "text", text: describeResult(result) }];
-  return Option.match(result.lastAccepted, {
-    onSome: (carrier) => Option.some({ ...carrier, content: text }),
-    onNone: () =>
-      decodeMessage({
-        kind: "direct",
-        postId: `pst_${randomBytes(32).toString("base64url")}`,
-        address: firstMember,
-        sender: firstMember,
-        content: text,
-      }),
+  return state.options.runTurn({
+    turnId: `gather:${result.id}:result`,
+    from: state.self,
+    text: describeResult(result),
   });
 }
 
@@ -311,15 +306,19 @@ function describeResult(result: GatherResult): string {
   const missing =
     result.missing.length === 0 ? "none" : result.missing.join(", ");
   return [
-    `Gather ${result.id} finished. These are all the answers; no further replies are coming for it.`,
+    `Gather ${result.id} result (${REPORT_ATTRIBUTION}):`,
     describeContributions(result.contributions),
     `No answer from: ${missing}.`,
+    "These are all the answers; no further replies are coming for it.",
   ].join("\n");
 }
 
 function describeContributions(
   contributions: ReadonlyMap<AgentAddress, Content>,
 ): string {
+  if (contributions.size === 0) {
+    return "- no answers";
+  }
   return [...contributions]
     .map(([member, content]) => `- ${member}: ${textOf(content)}`)
     .join("\n");

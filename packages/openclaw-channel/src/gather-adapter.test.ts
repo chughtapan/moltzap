@@ -10,6 +10,7 @@ import {
   type SendInput,
 } from "@moltzap/client";
 import {
+  Chunk,
   ConfigProvider,
   Effect,
   Encoding,
@@ -23,11 +24,16 @@ import {
 } from "effect";
 import { describe, expect } from "vitest";
 
-import { type GatherAdapter, makeGatherAdapter } from "./gather-adapter.js";
+import {
+  type GatherAdapter,
+  type GatherReport,
+  makeGatherAdapter,
+} from "./gather-adapter.js";
 import {
   closeContent,
   contributionContent,
   DELIVERY_DISPOSITION,
+  type GatherInputError,
   type GatherRequest,
   GatherStartError,
   requestContent,
@@ -39,6 +45,7 @@ const decodeMessage = Schema.decodeUnknownSync(InboundMessage);
 const ROOT = decodeAddress("agent:root");
 const ALICE = decodeAddress("agent:alice");
 const BOB = decodeAddress("agent:bob");
+const CAROL = decodeAddress("agent:carol");
 const GROUP = "group:alice,bob,root";
 const DEADLINE_SECONDS = 60;
 const GATHER_ID = "gather-9";
@@ -62,7 +69,7 @@ const SHARED_REQUEST: GatherRequest = {
 interface Harness {
   readonly adapter: GatherAdapter;
   readonly sent: Queue.Queue<SendInput>;
-  readonly turns: Queue.Queue<InboundMessage>;
+  readonly turns: Queue.Queue<GatherReport>;
 }
 
 describe("gather adapter configuration", () => {
@@ -218,25 +225,65 @@ describe("gather adapter result turn", () => {
         );
         const turn = yield* Queue.take(turns);
 
-        expect(textOf(turn)).toContain(`${ALICE}: ${MONDAY}`);
-        expect(textOf(turn)).toContain(`${BOB}: ${TUESDAY}`);
+        expect(turn.text).toContain(`${ALICE}: ${MONDAY}`);
+        expect(turn.text).toContain(`${BOB}: ${TUESDAY}`);
         expect(yield* Queue.size(turns)).toBe(0);
       }),
   );
 
-  it.scoped(
-    "names the members that never answered when the deadline passes",
-    () =>
-      Effect.gen(function* () {
-        const { adapter, sent, turns } = yield* makeHarness("root");
-        yield* runCommand(adapter, ALICE, PAIRWISE_COMMAND);
-        yield* Queue.takeN(sent, 2);
+  it("names the gather, every answer and every silent member in its result", () =>
+    fc.assert(
+      fc.asyncProperty(
+        fc.subarray([ALICE, BOB, CAROL], { minLength: 1, maxLength: 2 }),
+        (answered) => runProperty(reportsAnswersAndMissing(answered)),
+      ),
+      { numRuns: PROPERTY_RUNS },
+    ));
+});
 
-        yield* TestClock.adjust(DEADLINE_SECONDS * 1_000);
-        const turn = yield* Queue.take(turns);
+describe("gather adapter result sender", () => {
+  it.scoped("reports the result as the local agent, not a member", () =>
+    Effect.gen(function* () {
+      const { adapter, sent, turns } = yield* makeHarness("root");
+      const id = yield* startTrio(adapter, sent);
+      yield* adapter.onDelivery(direct(ALICE, contributionContent(id, MONDAY)));
 
-        expect(textOf(turn)).toContain(`${ALICE}, ${BOB}`);
-      }),
+      yield* TestClock.adjust(DEADLINE_SECONDS * 1_000);
+      const turn = yield* Queue.take(turns);
+
+      expect(turn.from).toBe(ROOT);
+    }),
+  );
+
+  it.scoped("gives the result an identity no contribution carries", () =>
+    Effect.gen(function* () {
+      const { adapter, sent, turns } = yield* makeHarness("root");
+      const id = yield* startTrio(adapter, sent);
+      const contributions = trioAnswers(id);
+
+      yield* deliverAll(adapter, contributions);
+      const turn = yield* Queue.take(turns);
+
+      expect(postIdsOf(contributions)).not.toContain(turn.turnId);
+    }),
+  );
+});
+
+describe("gather adapter late contributions", () => {
+  it.scoped("runs no turn for an answer after the result", () =>
+    Effect.gen(function* () {
+      const { adapter, sent, turns } = yield* makeHarness("root");
+      const id = yield* startTrio(adapter, sent);
+      yield* TestClock.adjust(DEADLINE_SECONDS * 1_000);
+      yield* Queue.take(turns);
+
+      const disposition = yield* adapter.onDelivery(
+        direct(ALICE, contributionContent(id, MONDAY)),
+      );
+
+      expect(disposition).toBe(DELIVERY_DISPOSITION.consumed);
+      expect(yield* Queue.size(turns)).toBe(0);
+    }),
   );
 });
 
@@ -279,10 +326,103 @@ describe("gather adapter at a shared-gather member", () => {
         );
         const turn = yield* Queue.take(turns);
 
-        expect(textOf(turn)).toContain(`${ALICE}: ${MONDAY}`);
+        expect(turn.text).toContain(`${ALICE}: ${MONDAY}`);
       }),
   );
 });
+
+describe("gather adapter close report at a shared-gather member", () => {
+  it.scoped("reports the close as the local agent, naming the gather", () =>
+    Effect.gen(function* () {
+      const { adapter, turns } = yield* makeHarness("bob");
+      yield* adapter.onDelivery(sharedRequest());
+
+      yield* adapter.onDelivery(group(ROOT, closeContent(GATHER_ID, [])));
+      const turn = yield* Queue.take(turns);
+
+      expect(turn).toEqual({
+        turnId: `gather:${GATHER_ID}:close`,
+        from: BOB,
+        text: `Gather ${GATHER_ID} from ${ROOT} closed (collected by the MoltZap gather, not a message from any one person). Every member holds these same answers:\n- no answers`,
+      });
+    }),
+  );
+});
+
+/**
+ * Gather from alice, bob and carol, deliver an answer from each of
+ * `answered`, let the deadline pass, and check that the result lists exactly
+ * those answers and names every other member as missing.
+ */
+function reportsAnswersAndMissing(
+  answered: readonly AgentAddress[],
+): Effect.Effect<
+  void,
+  SendError | GatherInputError | GatherStartError,
+  Scope.Scope
+> {
+  return Effect.gen(function* () {
+    const { adapter, sent, turns } = yield* makeHarness("root");
+    const id = yield* startTrio(adapter, sent);
+    yield* deliverAll(
+      adapter,
+      answered.map((member) => direct(member, contributionContent(id, member))),
+    );
+
+    yield* TestClock.adjust(DEADLINE_SECONDS * 1_000);
+    const turn = yield* Queue.take(turns);
+
+    const silent = [ALICE, BOB, CAROL].filter(
+      (member) => !answered.includes(member),
+    );
+    expect(turn.text).toBe(
+      [
+        `Gather ${id} result (collected by the MoltZap gather, not a message from any one person):`,
+        ...answered.map((member) => `- ${member}: ${member}`),
+        `No answer from: ${silent.join(", ")}.`,
+        "These are all the answers; no further replies are coming for it.",
+      ].join("\n"),
+    );
+  });
+}
+
+function trioAnswers(id: string): readonly InboundDelivery[] {
+  return [
+    direct(ALICE, contributionContent(id, MONDAY)),
+    direct(BOB, contributionContent(id, TUESDAY)),
+    direct(CAROL, contributionContent(id, MONDAY)),
+  ];
+}
+
+function deliverAll(
+  adapter: GatherAdapter,
+  deliveries: readonly InboundDelivery[],
+): Effect.Effect<void> {
+  return Effect.forEach(
+    deliveries,
+    (delivery) => adapter.onDelivery(delivery),
+    {
+      concurrency: 1,
+      discard: true,
+    },
+  );
+}
+
+function postIdsOf(deliveries: readonly InboundDelivery[]): readonly string[] {
+  return deliveries.map((delivery) => delivery.message.postId);
+}
+
+/** Start a pairwise gather to alice, bob and carol and return its id. */
+function startTrio(
+  adapter: GatherAdapter,
+  sent: Queue.Queue<SendInput>,
+): Effect.Effect<string, SendError | GatherInputError | GatherStartError> {
+  return Effect.gen(function* () {
+    yield* runCommand(adapter, ROOT, gatherCommand(["alice", "bob", "carol"]));
+    const requests = yield* Queue.takeN(sent, 3);
+    return gatherIdOf(Chunk.unsafeHead(requests));
+  });
+}
 
 function gatherCommand(members: readonly string[]): string {
   return JSON.stringify({
@@ -306,13 +446,13 @@ function makeHarness(
 ): Effect.Effect<Harness, never, Scope.Scope> {
   return Effect.gen(function* () {
     const sent = yield* Queue.unbounded<SendInput>();
-    const turns = yield* Queue.unbounded<InboundMessage>();
+    const turns = yield* Queue.unbounded<GatherReport>();
     const adapter = yield* makeGatherAdapter({
       send: (input) =>
         input.to === unknown
           ? Effect.fail(new SendError({ reason: "unknown-agent" }))
           : Effect.asVoid(Queue.offer(sent, input)),
-      runTurn: (message) => Effect.asVoid(Queue.offer(turns, message)),
+      runTurn: (report) => Effect.asVoid(Queue.offer(turns, report)),
       log: () => undefined,
     }).pipe(
       Effect.withConfigProvider(
@@ -376,11 +516,6 @@ function gatherIdOf(request: SendInput): string {
     request.content[0].type === "text" ? request.content[0].text : "",
   );
   return match?.[1] ?? "";
-}
-
-function textOf(message: InboundMessage): string {
-  const first = message.content[0];
-  return first.type === "text" ? first.text : "";
 }
 
 function sharedRequest(): InboundDelivery {
