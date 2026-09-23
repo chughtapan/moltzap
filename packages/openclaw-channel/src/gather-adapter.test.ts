@@ -6,6 +6,7 @@ import {
   type Content,
   type InboundDelivery,
   InboundMessage,
+  SendError,
   type SendInput,
 } from "@moltzap/client";
 import {
@@ -28,6 +29,7 @@ import {
   contributionContent,
   DELIVERY_DISPOSITION,
   type GatherRequest,
+  GatherStartError,
   requestContent,
 } from "./gather-overlay.js";
 
@@ -46,6 +48,8 @@ const MONDAY = "Mon";
 const TUESDAY = "Tue";
 
 const PAIRWISE_COMMAND = gatherCommand(["alice", "bob"]);
+const NOT_AN_ADDRESS = "Sarah Smith";
+const NOT_ADDRESSES = [NOT_AN_ADDRESS, "Bob", "carol agent", "agent:"];
 
 const SHARED_REQUEST: GatherRequest = {
   members: [ALICE, BOB],
@@ -136,6 +140,64 @@ describe("gather adapter send callback", () => {
       });
     }),
   );
+});
+
+describe("gather adapter unreachable members", () => {
+  it.scoped("fails a gather naming a member that is not an address", () =>
+    Effect.gen(function* () {
+      const { adapter, sent } = yield* makeHarness("root");
+
+      const error = yield* Effect.flip(
+        runCommand(adapter, ALICE, gatherCommand(["alice", NOT_AN_ADDRESS])),
+      );
+
+      expect(error).toEqual(
+        new GatherStartError({
+          failures: [{ member: NOT_AN_ADDRESS, reason: "invalid-address" }],
+        }),
+      );
+      expect(yield* Queue.size(sent)).toBe(0);
+    }),
+  );
+
+  it.scoped("fails a gather naming a member the Router does not know", () =>
+    Effect.gen(function* () {
+      const { adapter } = yield* makeHarness("root", BOB);
+
+      const error = yield* Effect.flip(
+        runCommand(adapter, ALICE, PAIRWISE_COMMAND),
+      );
+
+      expect(error).toEqual(
+        new GatherStartError({
+          failures: [{ member: BOB, reason: "unknown-agent" }],
+        }),
+      );
+    }),
+  );
+
+  it.scoped("runs no result turn for a gather that failed to start", () =>
+    Effect.gen(function* () {
+      const { adapter, turns } = yield* makeHarness("root", BOB);
+      yield* Effect.flip(runCommand(adapter, ALICE, PAIRWISE_COMMAND));
+
+      yield* TestClock.adjust(DEADLINE_SECONDS * 1_000);
+
+      expect(yield* Queue.size(turns)).toBe(0);
+    }),
+  );
+
+  it("fails a gather naming any member that is not an address", () =>
+    fc.assert(
+      fc.asyncProperty(
+        fc.subarray(MEMBER_NAMES),
+        fc.constantFrom(...NOT_ADDRESSES),
+        fc.nat(),
+        (names, invalid, position) =>
+          runProperty(rejectsInvalidMember(names, invalid, position)),
+      ),
+      { numRuns: PROPERTY_RUNS },
+    ));
 });
 
 describe("gather adapter result turn", () => {
@@ -233,15 +295,23 @@ function gatherCommand(members: readonly string[]): string {
   });
 }
 
-/** An adapter for `agentName` with a recording send and a recording turn runner. */
+/**
+ * An adapter for `agentName` with a recording send and a recording turn
+ * runner. A send to `unknown` fails as the Router reports an agent it does not
+ * know.
+ */
 function makeHarness(
   agentName: string,
+  unknown?: AgentAddress,
 ): Effect.Effect<Harness, never, Scope.Scope> {
   return Effect.gen(function* () {
     const sent = yield* Queue.unbounded<SendInput>();
     const turns = yield* Queue.unbounded<InboundMessage>();
     const adapter = yield* makeGatherAdapter({
-      send: (input) => Effect.asVoid(Queue.offer(sent, input)),
+      send: (input) =>
+        input.to === unknown
+          ? Effect.fail(new SendError({ reason: "unknown-agent" }))
+          : Effect.asVoid(Queue.offer(sent, input)),
       runTurn: (message) => Effect.asVoid(Queue.offer(turns, message)),
       log: () => undefined,
     }).pipe(
@@ -271,6 +341,33 @@ function fansOutToNamedMembers(
     expect(new Set(Array.from(requests, (input) => input.to))).toEqual(
       new Set(names.map((name) => `agent:${name}`)),
     );
+  });
+}
+
+/**
+ * Insert `invalid` at `position` among valid `names`, gather from the list,
+ * and check that the command fails naming only `invalid` and sends nothing.
+ */
+function rejectsInvalidMember(
+  names: readonly string[],
+  invalid: string,
+  position: number,
+): Effect.Effect<void, void, Scope.Scope> {
+  return Effect.gen(function* () {
+    const { adapter, sent } = yield* makeHarness("root");
+    const at = position % (names.length + 1);
+    const members = [...names.slice(0, at), invalid, ...names.slice(at)];
+
+    const error = yield* Effect.flip(
+      runCommand(adapter, ROOT, gatherCommand(members)),
+    );
+
+    expect(error).toEqual(
+      new GatherStartError({
+        failures: [{ member: invalid, reason: "invalid-address" }],
+      }),
+    );
+    expect(yield* Queue.size(sent)).toBe(0);
   });
 }
 

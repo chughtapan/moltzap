@@ -29,12 +29,14 @@ import { describe, expect, vi, it as vitestIt } from "vitest";
 
 import manifest from "../openclaw.plugin.json" with { type: "json" };
 import { openClawTestStateDirectory } from "../vitest.setup.js";
+import { GatherStartError } from "./gather-overlay.js";
 import {
   createMoltzapChannelPlugin,
   makeMoltZapChannelConfigJsonSchema,
 } from "./plugin.js";
 
 const ACCOUNT_ID = "primary";
+const NOT_AN_ADDRESS = "Sarah Smith";
 const MAIN_SESSION_KEY = "agent:primary:main";
 const TEST_SESSION_STORE_PATH = join(
   openClawTestStateDirectory,
@@ -129,6 +131,10 @@ describe("OpenClaw HarnessEndpoint adapter", () => {
   it(
     "rejects a target outside the explicit address grammar",
     rejectsInvalidTarget,
+  );
+  it(
+    "fails a gather send with a message naming the unreachable member",
+    gatherSendNamesUnreachableMember,
   );
   vitestIt(
     "keeps the OpenClaw manifest schema in sync",
@@ -404,6 +410,68 @@ function rejectsInvalidTarget() {
     controller.abort();
     yield* Effect.timeout(Fiber.join(fiber), "1 second");
   });
+}
+
+/**
+ * The rejection's message is what OpenClaw returns to the model as the failed
+ * `message` tool result.
+ */
+function gatherSendNamesUnreachableMember() {
+  const fake = makeListeningEndpoint();
+  const runtime = makeObservedRuntime({
+    events: [],
+    calls: [],
+    routePeers: [],
+  });
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
+  const controller = new AbortController();
+  const setStatus = vi.fn();
+
+  return Effect.gen(function* () {
+    yield* Effect.acquireRelease(
+      Effect.sync(() => vi.stubEnv("MOLTZAP_AGENT_NAME", "root")),
+      () => Effect.sync(() => vi.stubEnv("MOLTZAP_AGENT_NAME", undefined)),
+    );
+    const fiber = yield* startAccount(
+      plugin,
+      gatewayContext(controller.signal, runtime, setStatus),
+    ).pipe(Effect.fork);
+    yield* waitForConnected(setStatus);
+    const failure = yield* Effect.tryPromise({
+      try: () =>
+        requireSendText(plugin)({
+          cfg: makeConfig(),
+          accountId: ACCOUNT_ID,
+          to: "agent:nova",
+          text: JSON.stringify({
+            gather: {
+              members: [NOT_AN_ADDRESS],
+              deadlineSeconds: 60,
+              topology: "pairwise",
+            },
+            message: "When can you meet?",
+          }),
+        }),
+      catch: (cause) => testError("gatherSend", messageOf(cause)),
+    }).pipe(Effect.flip);
+
+    expect(failure.detail).toBe(
+      new GatherStartError({
+        failures: [{ member: NOT_AN_ADDRESS, reason: "invalid-address" }],
+      }).message,
+    );
+    expect(fake.sends).toEqual([]);
+
+    controller.abort();
+    yield* Effect.timeout(Fiber.join(fiber), "1 second");
+  }).pipe(Effect.scoped);
+}
+
+/** What OpenClaw reads from a rejected send, as its tool result text. */
+function messageOf(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 function emptyReplyRemainsInvisible() {

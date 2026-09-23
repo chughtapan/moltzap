@@ -26,6 +26,13 @@
  * where a post landed in Router order, which no endpoint can observe for its
  * own posts.
  *
+ * A gather starts only once every request send has certified or
+ * {@link REQUEST_SEND_WAIT_MILLIS} has passed. A send that failed by then
+ * abandons the gather, so its caller learns at once that a member was
+ * unreachable instead of waiting out the deadline for an answer that cannot
+ * come. A send still pending then is a peer that may be down, which the
+ * collective tolerates: that member counts as missing if it never answers.
+ *
  * Open gathers live in memory and do not survive a restart.
  */
 
@@ -45,6 +52,8 @@ import {
   Deferred,
   Duration,
   Effect,
+  Either,
+  Exit,
   Fiber,
   Option,
   Schema,
@@ -61,6 +70,12 @@ const MAXIMUM_CONTRIBUTORS = 31;
 const MINIMUM_SHARED_CONTRIBUTORS = 2;
 const AGENT_ADDRESS_PREFIX = "agent:";
 const DEFAULT_CLOSE_WAIT_MILLIS = 30_000;
+/**
+ * How long a gather's start waits for its request sends. Failures such as an
+ * unknown agent come back within a round trip; a send still pending after
+ * this is left to the deadline.
+ */
+const REQUEST_SEND_WAIT_MILLIS = 20_000;
 
 const requestControl = Schema.Struct({
   id: Schema.String,
@@ -163,6 +178,41 @@ export class GatherInputError extends Data.TaggedError("GatherInputError")<{
 }
 
 /**
+ * What a model should do after {@link GatherStartError}. Models tend to name
+ * members by a display name rather than the address their contacts list.
+ */
+export const MEMBER_NAMING_HINT =
+  "Name every member by the exact agent address shown in your contacts, then send the gather again.";
+
+/** A member a gather could not reach, named as the caller wrote it. */
+export interface GatherStartFailure {
+  readonly member: string;
+  readonly reason: SendError["reason"];
+}
+
+/**
+ * The gather was abandoned before collecting anything because some members
+ * could not be reached; no result follows. The message is written for the
+ * model that asked for the gather, which reads it as the failed tool call.
+ */
+export class GatherStartError extends Data.TaggedError("GatherStartError")<{
+  readonly failures: readonly GatherStartFailure[];
+}> {
+  override get message(): string {
+    const unreached = this.failures
+      .map((failure) => `${failure.member} (${failure.reason})`)
+      .join(", ");
+    return `Gather not started: could not reach ${unreached}. ${MEMBER_NAMING_HINT}`;
+  }
+}
+
+/** A gather whose requests went out; `result` waits for its collection. */
+export interface StartedGather {
+  readonly id: string;
+  readonly result: Effect.Effect<GatherResult>;
+}
+
+/**
  * Dependencies of one endpoint's overlay. A `respond` handler makes the
  * overlay answer requests itself and consume group traffic, which suits a
  * scripted contributor. Without it, requests and peers' contributions pass
@@ -191,9 +241,13 @@ export interface GatherOverlayOptions {
 
 /** The overlay's capabilities for one endpoint. */
 export interface GatherOverlay {
-  readonly gather: (
+  /**
+   * Send the requests and return once they are out; collection continues in
+   * the overlay's scope.
+   */
+  readonly start: (
     request: GatherRequest,
-  ) => Effect.Effect<GatherResult, GatherInputError>;
+  ) => Effect.Effect<StartedGather, GatherInputError | GatherStartError>;
   readonly onDelivery: (
     delivery: InboundDelivery,
   ) => Effect.Effect<DeliveryDisposition>;
@@ -212,6 +266,7 @@ export interface GatherOverlay {
 
 interface OpenGather {
   readonly members: ReadonlySet<AgentAddress>;
+  readonly deadlineAt: number;
   readonly topology: GatherTopology;
   readonly groupAddress: Option.Option<GroupAddress>;
   readonly contributions: Map<AgentAddress, Content>;
@@ -300,7 +355,7 @@ export function makeGatherOverlay(
   return Effect.gen(function* () {
     const state = overlayState(options, yield* Effect.scope);
     const overlay: GatherOverlay = {
-      gather: (request) => gather(state, request),
+      start: (request) => start(state, request),
       onDelivery: (delivery) => onDelivery(state, delivery),
       contribute: (id, to, text) => contribute(state, id, to, text),
       awaitMemberResult: (id) =>
@@ -338,10 +393,10 @@ function overlayState(
   };
 }
 
-function gather(
+function start(
   state: OverlayState,
   request: GatherRequest,
-): Effect.Effect<GatherResult, GatherInputError> {
+): Effect.Effect<StartedGather, GatherInputError | GatherStartError> {
   return Effect.gen(function* () {
     const invalid = validateRequest(state.options.self, request);
     if (Option.isSome(invalid)) {
@@ -350,17 +405,26 @@ function gather(
     const id = state.mintId();
     const now = yield* Clock.currentTimeMillis;
     if (request.deadlineAt <= now) {
-      return {
-        id,
-        contributions: new Map<AgentAddress, Content>(),
-        missing: request.members,
-        closeCertified: false,
-        lastAccepted: Option.none(),
-      };
+      return { id, result: Effect.succeed(unanswered(id, request)) };
     }
-    const open = yield* collect(state, id, request, now);
-    return yield* finish(state, id, request, open);
+    const open = yield* openGather(state, id, request);
+    const sends = yield* sendRequests(state, id, request, open);
+    const collecting = yield* collect(state, id, open, sends).pipe(
+      Effect.flatMap(() => finish(state, id, request, open)),
+      Effect.forkIn(state.scope),
+    );
+    return { id, result: Fiber.join(collecting) };
   });
+}
+
+function unanswered(id: string, request: GatherRequest): GatherResult {
+  return {
+    id,
+    contributions: new Map<AgentAddress, Content>(),
+    missing: request.members,
+    closeCertified: false,
+    lastAccepted: Option.none(),
+  };
 }
 
 function validateRequest(
@@ -388,43 +452,119 @@ function validateRequest(
   return Option.none();
 }
 
+/** Register the gather so contributions count from its first request on. */
+function openGather(
+  state: OverlayState,
+  id: string,
+  request: GatherRequest,
+): Effect.Effect<OpenGather> {
+  return Effect.map(Deferred.make<undefined>(), (complete) => {
+    const open: OpenGather = {
+      members: new Set(request.members),
+      deadlineAt: request.deadlineAt,
+      topology: request.topology,
+      groupAddress:
+        request.topology === "shared"
+          ? groupAddressOf(state.options.self, request.members)
+          : Option.none<GroupAddress>(),
+      contributions: new Map(),
+      complete,
+      lastAccepted: Option.none(),
+    };
+    state.openGathers.set(id, open);
+    return open;
+  });
+}
+
 /**
- * Open the gather, send its requests, and wait until every member answered or
- * the deadline passed. The gather is closed to further contributions on
- * return.
+ * Fork one send per request and wait for them for
+ * {@link REQUEST_SEND_WAIT_MILLIS}, but never past the deadline. Any send that
+ * failed by then abandons the gather: the other sends are interrupted and the
+ * gather stops accepting contributions. The returned sends may still be
+ * pending.
+ */
+function sendRequests(
+  state: OverlayState,
+  id: string,
+  request: GatherRequest,
+  open: OpenGather,
+): Effect.Effect<readonly RequestSend[], GatherStartError> {
+  return Effect.gen(function* () {
+    const now = yield* Clock.currentTimeMillis;
+    const sends = yield* Effect.forEach(
+      requestSends(state, id, request, open.groupAddress),
+      (input) => Effect.forkIn(requestSend(state, input), state.scope),
+      { concurrency: MAXIMUM_CONTRIBUTORS },
+    );
+    yield* Fiber.awaitAll(sends).pipe(
+      Effect.timeoutOption(
+        Duration.millis(
+          Math.min(REQUEST_SEND_WAIT_MILLIS, request.deadlineAt - now),
+        ),
+      ),
+    );
+    const polled = yield* Effect.forEach(sends, Fiber.poll, {
+      concurrency: MAXIMUM_CONTRIBUTORS,
+    });
+    const failures = polled.flatMap((poll) =>
+      Option.toArray(Option.flatMap(poll, failureOf)),
+    );
+    if (failures.length > 0) {
+      yield* interruptSends(sends);
+      state.openGathers.delete(id);
+      return yield* new GatherStartError({ failures });
+    }
+    return sends;
+  });
+}
+
+/** A request send in flight, resolving to the failure it met, if any. */
+type RequestSend = Fiber.RuntimeFiber<Either.Either<void, GatherStartFailure>>;
+
+function requestSend(
+  state: OverlayState,
+  input: SendInput,
+): Effect.Effect<Either.Either<void, GatherStartFailure>> {
+  return Effect.either(
+    state.options.send(input).pipe(
+      Effect.mapError((error) => ({
+        member: input.to,
+        reason: error.reason,
+      })),
+    ),
+  );
+}
+
+function failureOf(
+  exit: Exit.Exit<Either.Either<void, GatherStartFailure>>,
+): Option.Option<GatherStartFailure> {
+  return Exit.isSuccess(exit) ? Either.getLeft(exit.value) : Option.none();
+}
+
+function interruptSends(sends: readonly RequestSend[]): Effect.Effect<void> {
+  return Effect.forEach(sends, Fiber.interruptFork, {
+    concurrency: MAXIMUM_CONTRIBUTORS,
+    discard: true,
+  });
+}
+
+/**
+ * Wait until every member answered or the deadline passed. The gather is
+ * closed to further contributions on return.
  */
 function collect(
   state: OverlayState,
   id: string,
-  request: GatherRequest,
-  now: number,
-): Effect.Effect<OpenGather> {
+  open: OpenGather,
+  sends: readonly RequestSend[],
+): Effect.Effect<void> {
   return Effect.gen(function* () {
-    const groupAddress =
-      request.topology === "shared"
-        ? groupAddressOf(state.options.self, request.members)
-        : Option.none<GroupAddress>();
-    const open: OpenGather = {
-      members: new Set(request.members),
-      topology: request.topology,
-      groupAddress,
-      contributions: new Map(),
-      complete: yield* Deferred.make<undefined>(),
-      lastAccepted: Option.none(),
-    };
-    state.openGathers.set(id, open);
-    const sends = yield* Effect.forEach(
-      requestSends(state, id, request, groupAddress),
-      (input) => Effect.either(state.options.send(input)),
-      { concurrency: MAXIMUM_CONTRIBUTORS, discard: true },
-    ).pipe(Effect.forkIn(state.scope));
+    const now = yield* Clock.currentTimeMillis;
     yield* Deferred.await(open.complete).pipe(
-      Effect.timeout(Duration.millis(request.deadlineAt - now)),
-      Effect.option,
+      Effect.timeoutOption(Duration.millis(Math.max(0, open.deadlineAt - now))),
     );
-    yield* Fiber.interruptFork(sends);
+    yield* interruptSends(sends);
     state.openGathers.delete(id);
-    return open;
   });
 }
 
