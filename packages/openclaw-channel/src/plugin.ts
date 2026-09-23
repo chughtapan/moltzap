@@ -10,11 +10,12 @@ import type { ReplyPayload } from "openclaw/plugin-sdk/reply-payload";
 import {
   acquireHarnessEndpoint,
   type Content,
+  type DirectMessage,
+  type GroupMessage,
   type HarnessEndpoint,
   type InboundDelivery,
   MessageAddressInput,
   type MessageAddressInput as MessageAddressInputValue,
-  type PostId as PostIdValue,
   SendInput,
 } from "@moltzap/client";
 import {
@@ -43,7 +44,11 @@ import {
   waitUntilAbort,
 } from "openclaw/plugin-sdk/channel-outbound";
 
-import { type GatherAdapter, makeGatherAdapter } from "./gather-adapter.js";
+import {
+  type GatherAdapter,
+  type GatherReport,
+  makeGatherAdapter,
+} from "./gather-adapter.js";
 import {
   DELIVERY_DISPOSITION,
   type DeliveryDisposition,
@@ -103,10 +108,22 @@ interface ConnectedAccountState {
   current?: ConnectedAccount;
 }
 
+/** The routing facts of a host turn: a message without its post identity. */
+type TurnMessage = Omit<DirectMessage, "postId"> | Omit<GroupMessage, "postId">;
+
+/**
+ * One OpenClaw turn. `id` is the delivery's PostId for a certified message and
+ * the report's own identity for a gather report.
+ */
+interface HostTurn {
+  readonly id: string;
+  readonly message: TurnMessage;
+}
+
 interface InboundMessageTurnInput {
   readonly ctx: ChannelGatewayContext<MoltZapAccount>;
   readonly runtime: OpenClawAccountRuntime;
-  readonly message: InboundDelivery["message"];
+  readonly turn: HostTurn;
   readonly body: string;
 }
 
@@ -127,14 +144,14 @@ interface MoltzapChannelPluginDeps {
 class OpenClawInboundError extends Data.TaggedError("OpenClawInboundError")<{
   readonly reason: OpenClawInboundFailure;
   readonly accountId: string;
-  readonly postId?: PostIdValue;
+  readonly turnId?: string;
   readonly detail: string;
 }> {
   override get message(): string {
     const identity =
-      this.postId === undefined
+      this.turnId === undefined
         ? this.accountId
-        : `${this.accountId}/${this.postId}`;
+        : `${this.accountId}/${this.turnId}`;
     return `MoltZap inbound delivery failed for ${identity}: ${this.reason}: ${this.detail}`;
   }
 }
@@ -476,8 +493,8 @@ function accountGatherAdapter(
 ) {
   return makeGatherAdapter({
     send: endpoint.send,
-    runTurn: (message) =>
-      runOpenClawTurn(ctx, runtime, message).pipe(
+    runTurn: (report) =>
+      runOpenClawTurn(ctx, runtime, gatherReportTurn(report)).pipe(
         Effect.catchAll((error) =>
           Effect.sync(() => {
             ctx.log?.error?.(
@@ -548,6 +565,24 @@ function reportConnected(
   });
 }
 
+/**
+ * A gather report is a direct message from the local agent to itself. In
+ * shared mode it joins the main session like every turn; in private mode it
+ * lands in the session for the agent's own address, never a member's, and no
+ * member's conversation history matches it.
+ */
+function gatherReportTurn(report: GatherReport): HostTurn {
+  return {
+    id: report.turnId,
+    message: {
+      kind: "direct",
+      address: report.from,
+      sender: report.from,
+      content: [{ type: "text", text: report.text }],
+    },
+  };
+}
+
 /** The overlay acknowledges what it consumes; the rest takes the stock path. */
 function gatherDisposition(
   connectedAccount: ConnectedAccountState,
@@ -566,7 +601,12 @@ function handleInboundDelivery(
   delivery: InboundDelivery,
 ) {
   return logInbound(ctx, delivery.message).pipe(
-    Effect.zipRight(runOpenClawTurn(ctx, runtime, delivery.message)),
+    Effect.zipRight(
+      runOpenClawTurn(ctx, runtime, {
+        id: delivery.message.postId,
+        message: delivery.message,
+      }),
+    ),
     Effect.zipRight(delivery.acknowledge),
   );
 }
@@ -592,8 +632,9 @@ function logInbound(
 function runOpenClawTurn(
   ctx: ChannelGatewayContext<MoltZapAccount>,
   runtime: OpenClawAccountRuntime,
-  message: InboundDelivery["message"],
+  turn: HostTurn,
 ): Effect.Effect<void, OpenClawInboundError> {
+  const { id, message } = turn;
   const body = renderContent(message.content);
   return Effect.tryPromise({
     try: () =>
@@ -603,21 +644,20 @@ function runOpenClawTurn(
         raw: { message },
         adapter: {
           ingest: () => ({
-            id: message.postId,
+            id,
             rawText: body,
             textForAgent: body,
             textForCommands: body,
             raw: message,
           }),
-          resolveTurn: () =>
-            buildRoutedTurnPlan({ ctx, runtime, message, body }),
+          resolveTurn: () => buildRoutedTurnPlan({ ctx, runtime, turn, body }),
         },
       }),
     catch: (cause) =>
       new OpenClawInboundError({
         reason: "turn-failed",
         accountId: ctx.accountId,
-        postId: message.postId,
+        turnId: id,
         detail: String(cause),
       }),
   });
@@ -626,7 +666,8 @@ function runOpenClawTurn(
 function buildRoutedTurnPlan(
   input: InboundMessageTurnInput,
 ): ChannelInboundTurnPlan {
-  const { ctx, message, runtime } = input;
+  const { ctx, runtime } = input;
+  const { message } = input.turn;
   const peer = inboundRoutePeer(message);
   const route = runtime.routing.resolveAgentRoute({
     cfg: ctx.cfg,
@@ -658,7 +699,7 @@ function buildRoutedTurnPlan(
         accountId: ctx.accountId,
       },
     },
-    messageId: message.postId,
+    messageId: input.turn.id,
   };
 }
 
@@ -667,13 +708,14 @@ function buildInboundContext(
   route: ReturnType<OpenClawAccountRuntime["routing"]["resolveAgentRoute"]>,
   sessionKey: string,
 ) {
-  const { body, ctx, message, runtime } = input;
+  const { body, ctx, runtime } = input;
+  const { message } = input.turn;
   return runtime.inbound.buildContext({
     channel: CHANNEL_ID,
     accountId: ctx.accountId,
     provider: CHANNEL_ID,
     surface: CHANNEL_ID,
-    messageId: message.postId,
+    messageId: input.turn.id,
     from: message.sender,
     sender: inboundSenderFacts(message),
     conversation: inboundConversationFacts(message),
@@ -702,7 +744,7 @@ function buildInboundContext(
  * and transcript metadata; it does not change routing, reply mode, or admit
  * the sender's text as instructions.
  */
-function inboundSenderFacts(message: InboundDelivery["message"]) {
+function inboundSenderFacts(message: TurnMessage) {
   return {
     id: message.sender,
     name: message.sender.slice("agent:".length),
@@ -710,7 +752,7 @@ function inboundSenderFacts(message: InboundDelivery["message"]) {
   };
 }
 
-function inboundConversationFacts(message: InboundDelivery["message"]) {
+function inboundConversationFacts(message: TurnMessage) {
   const routePeer = inboundRoutePeer(message);
   return {
     kind: message.kind,
@@ -720,7 +762,7 @@ function inboundConversationFacts(message: InboundDelivery["message"]) {
   };
 }
 
-function inboundRoutePeer(message: InboundDelivery["message"]) {
+function inboundRoutePeer(message: TurnMessage) {
   const prefix = message.kind === "group" ? "group:" : "agent:";
   return {
     kind: message.kind,
@@ -728,7 +770,7 @@ function inboundRoutePeer(message: InboundDelivery["message"]) {
   };
 }
 
-function inboundReplyFacts(message: InboundDelivery["message"]) {
+function inboundReplyFacts(message: TurnMessage) {
   return {
     to: message.address,
     originatingTo: message.address,
@@ -737,7 +779,7 @@ function inboundReplyFacts(message: InboundDelivery["message"]) {
   };
 }
 
-function inboundGroupFacts(message: InboundDelivery["message"]) {
+function inboundGroupFacts(message: TurnMessage) {
   return message.kind === "group"
     ? { GroupMembers: message.members.join(",") }
     : undefined;

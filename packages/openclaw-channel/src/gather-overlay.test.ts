@@ -11,6 +11,7 @@ import {
   type SendInput,
 } from "@moltzap/client";
 import {
+  Clock,
   Effect,
   Encoding,
   FastCheck as fc,
@@ -36,6 +37,7 @@ import {
   type GatherResult,
   GatherStartError,
   makeGatherOverlay,
+  MAXIMUM_REMEMBERED_GATHERS,
   MEMBER_NAMING_HINT,
   requestContent,
   type StartedGather,
@@ -260,7 +262,7 @@ describe("gather request sends that fail", () => {
     }),
   );
 
-  it.scoped("leaves no open gather after a request send failed", () =>
+  it.scoped("drops an answer to a gather whose request send failed", () =>
     Effect.gen(function* () {
       const overlay = yield* makeRootOverlay(
         yield* makeRefusingSend(BOB, "unknown-agent"),
@@ -271,8 +273,8 @@ describe("gather request sends that fail", () => {
         deliver(directMessage(ALICE, MONDAY_ANSWER)),
       );
 
-      expect(disposition).toBe(DELIVERY_DISPOSITION.passthrough);
-      expect((yield* overlay.counters).unknownGather).toBe(1);
+      expect(disposition).toBe(DELIVERY_DISPOSITION.consumed);
+      expect((yield* overlay.counters).lateContribution).toBe(1);
     }),
   );
 
@@ -470,6 +472,50 @@ describe("contributions the initiator declines", () => {
 
       const disposition = yield* overlay.onDelivery(
         deliver(directMessage(ALICE, contributionContent("unknown", MONDAY))),
+      );
+
+      expect(disposition).toBe(DELIVERY_DISPOSITION.passthrough);
+      expect((yield* overlay.counters).unknownGather).toBe(1);
+    }),
+  );
+});
+
+describe("contributions after the gather finished", () => {
+  it.scoped("consumes and counts a member's late answer", () =>
+    Effect.gen(function* () {
+      const { overlay, running } = yield* startGather(PAIRWISE);
+      yield* TestClock.adjust(DEADLINE);
+      yield* Fiber.join(running);
+
+      const disposition = yield* overlay.onDelivery(
+        deliver(directMessage(ALICE, MONDAY_ANSWER)),
+      );
+
+      expect(disposition).toBe(DELIVERY_DISPOSITION.consumed);
+      expect((yield* overlay.counters).lateContribution).toBe(1);
+    }),
+  );
+
+  it.scoped("passes through a late answer from an agent not asked", () =>
+    Effect.gen(function* () {
+      const { overlay, running } = yield* startGather(PAIRWISE);
+      yield* TestClock.adjust(DEADLINE);
+      yield* Fiber.join(running);
+
+      const disposition = yield* overlay.onDelivery(
+        deliver(directMessage(MALLORY, MONDAY_ANSWER)),
+      );
+
+      expect(disposition).toBe(DELIVERY_DISPOSITION.passthrough);
+    }),
+  );
+
+  it.scoped("forgets the oldest finished gather beyond the bound", () =>
+    Effect.gen(function* () {
+      const overlay = yield* finishGathers(MAXIMUM_REMEMBERED_GATHERS + 1);
+
+      const disposition = yield* overlay.onDelivery(
+        deliver(directMessage(ALICE, contributionContent("gather-0", MONDAY))),
       );
 
       expect(disposition).toBe(DELIVERY_DISPOSITION.passthrough);
@@ -728,6 +774,44 @@ function startGather(
     const running = yield* Effect.forkScoped(gatherResult(overlay, request));
     yield* Queue.takeN(sent, requestSendCount(request));
     return { overlay, running };
+  });
+}
+
+/**
+ * A ROOT overlay that ran `count` pairwise gathers named `gather-0` onwards,
+ * one after another, each finishing unanswered at its deadline.
+ */
+function finishGathers(
+  count: number,
+): Effect.Effect<GatherOverlay, GatherStartFailed, Scope.Scope> {
+  return Effect.gen(function* () {
+    const { send } = yield* makeRecordingSend;
+    const ids = Array.from(Array(count).keys(), (index) => `gather-${index}`);
+    const pending = [...ids];
+    const overlay = yield* makeGatherOverlay({
+      self: ROOT,
+      send,
+      mintId: () => pending.shift() ?? "",
+    });
+    yield* Effect.forEach(ids, () => finishOneGather(overlay), {
+      concurrency: 1,
+    });
+    return overlay;
+  });
+}
+
+/** Start a pairwise gather due one deadline from now and let it expire. */
+function finishOneGather(
+  overlay: GatherOverlay,
+): Effect.Effect<GatherResult, GatherStartFailed> {
+  return Effect.gen(function* () {
+    const now = yield* Clock.currentTimeMillis;
+    const started = yield* overlay.start({
+      ...PAIRWISE,
+      deadlineAt: now + DEADLINE,
+    });
+    yield* TestClock.adjust(DEADLINE);
+    return yield* started.result;
   });
 }
 
