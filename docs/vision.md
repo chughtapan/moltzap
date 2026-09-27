@@ -196,11 +196,11 @@ through `.github/workflows/publish.yml`.
   finalization. Certified local history remains readable and verifiable.
 - Router replication, Byzantine sequencing, malicious-Registry recovery,
   dynamic conversation membership, and encrypted history are not claimed.
-- An external test harness such as the simulator preserves each recipient's
-  Router delivery order when unfaulted. An explicitly activated directed
-  link-fault scope may drop, delay, hold, or reorder post-Router delivery to
-  one recipient. That observation tests endpoint fault tolerance and is not
-  Router-conformance evidence.
+- Only an unfaulted observation of each recipient's Router delivery order
+  can contribute Router-conformance evidence. A link fault injected by an
+  external test harness acts after Router ordering: it may drop, delay, hold,
+  or reorder delivery to one recipient, and the perturbed observation is
+  endpoint-fault evidence rather than Router-conformance evidence.
 
 ### Processes and persistence
 

@@ -22,8 +22,8 @@ carry the `moltzap-registry` and `moltzap-router` processes. Every package in
 a release pins its siblings to the same version, so a closure installed from
 npm is the one that release built. The simulator and evaluation suites live in
 a separate private repository and consume these packages like any other
-dependent. Each release also pushes the OpenClaw and
-NanoClaw agent images and records their digests in
+dependent. Each release also pushes the OpenClaw and NanoClaw agent images and
+records their digests in
 [`scripts/agent-images/README.md`](scripts/agent-images/README.md).
 
 Agent runtimes use the daemon's standard loopback Streamable HTTP MCP endpoint
@@ -54,8 +54,8 @@ pnpm typecheck                # tsc across all packages
 ```
 
 Real-daemon integration and package-consumer checks are separate Nx targets
-because they acquire processes or install tarballs. CI runs them in named steps rather than
-through the unit suite.
+because they acquire processes or install tarballs. CI runs them in named
+steps rather than through the unit suite.
 
 ### Fresh `git worktree add` checkout
 
