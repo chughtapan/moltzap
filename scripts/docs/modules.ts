@@ -43,17 +43,12 @@ const SOURCE_LINK_BASE = "https://github.com/chughtapan/moltzap/blob/main";
 const REQUIRED_MODULE_FOLDERS = [
   "packages/identity/src",
   "packages/router/src",
-  "packages/simulator/src",
-  "packages/simulator/src/agents",
-  "packages/simulator/src/ledger",
-  "packages/simulator/src/network",
 ] as const;
 
 /** TypeDoc package projects required by the final MODULE pages. */
 const REQUIRED_PACKAGE_NAMES = [
   "@moltzap/identity",
   "@moltzap/router",
-  "@moltzap/simulator",
 ] as const;
 
 /** Package subpaths admitted to generated final module documentation. */
@@ -61,22 +56,7 @@ export const REQUIRED_PACKAGE_SUBPATHS = [
   "@moltzap/identity/registry",
   "@moltzap/identity/registry/server",
   "@moltzap/router/server",
-  "@moltzap/simulator/agents",
-  "@moltzap/simulator/ledger",
-  "@moltzap/simulator/network",
 ] as const;
-
-const DOMAIN_MODULE_ENTRYPOINTS = new Map<string, string>([
-  ["packages/simulator/src/agents", "@moltzap/simulator/agents"],
-  ["packages/simulator/src/ledger", "@moltzap/simulator/ledger"],
-  ["packages/simulator/src/network", "@moltzap/simulator/network"],
-]);
-
-const ROOT_PACKAGE_SUBPATHS = new Set([
-  "@moltzap/identity/registry",
-  "@moltzap/identity/registry/server",
-  "@moltzap/router/server",
-]);
 
 interface LinkContext {
   readonly mode: "module-md" | "mdx";
@@ -371,13 +351,10 @@ function renderFolder(
     const packageName = packageRoot
       ? yield* readPackageName(folder, config, fs, path)
       : null;
-    const domainEntrypoint = DOMAIN_MODULE_ENTRYPOINTS.get(folder);
     const exports = (
-      domainEntrypoint !== undefined
-        ? (cache.byPackageEntrypoint.get(domainEntrypoint) ?? [])
-        : packageName !== null
-          ? (cache.byPackageEntrypoint.get(packageName) ?? [])
-          : (cache.byFolder.get(folder) ?? [])
+      packageName !== null
+        ? (cache.byPackageEntrypoint.get(packageName) ?? [])
+        : (cache.byFolder.get(folder) ?? [])
     ).filter(isBehavioral);
     const enriched = yield* enrichWithSignatures(exports, fs, path, config);
     const subpaths =
@@ -485,10 +462,8 @@ function packageSubpathsForPackage(
     exports: readonly TypeDocExport[];
   }>
 > {
-  return REQUIRED_PACKAGE_SUBPATHS.filter(
-    (importPath) =>
-      importPath.startsWith(`${packageName}/`) &&
-      ROOT_PACKAGE_SUBPATHS.has(importPath),
+  return REQUIRED_PACKAGE_SUBPATHS.filter((importPath) =>
+    importPath.startsWith(`${packageName}/`),
   ).map((importPath) => ({
     importPath,
     exports: cache.byPackageEntrypoint.get(importPath) ?? [],

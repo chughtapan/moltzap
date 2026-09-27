@@ -5,7 +5,7 @@
  * Shared `packages/*` rules cover wildcard exports and barrel discipline. The
  * final-package table pins the directory and package names, public entrypoints,
  * binaries, manifest edges, TypeScript references, and required Nx targets for
- * all six products.
+ * all five products.
  *
  * The final-package table is a hand transcription of the current package
  * contract. It is written down rather than derived so drift fails whichever
@@ -132,46 +132,6 @@ const FINAL_PACKAGES = {
     },
     bin: {},
     targets: ["arch:check", "build", "lint", "test:pack"],
-  },
-  simulator: {
-    npmName: "@moltzap/simulator",
-    published: true,
-    deps: ["identity", "router", "client"],
-    exports: {
-      ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
-      "./controller": {
-        types: "./dist/controller.d.ts",
-        import: "./dist/controller.js",
-      },
-      "./network": {
-        types: "./dist/network/index.d.ts",
-        import: "./dist/network/index.js",
-      },
-      "./ledger": {
-        types: "./dist/ledger/index.d.ts",
-        import: "./dist/ledger/index.js",
-      },
-      "./agents": {
-        types: "./dist/agents/index.d.ts",
-        import: "./dist/agents/index.js",
-      },
-    },
-    bin: { "moltzap-sim": "./bin/moltzap-sim" },
-    targets: [
-      "arch:check",
-      "build",
-      "gke-profile-check",
-      "gke-run",
-      "gke-terraform-check",
-      "lint",
-      "local-cluster-create",
-      "local-cluster-test",
-      "local-profile-check",
-      "local-run",
-      "test",
-      "test:pack",
-      "typecheck:tests",
-    ],
   },
 };
 
@@ -502,7 +462,7 @@ for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
 
   // A published manifest goes to npm as written: no private flag, the one
   // license, and the repository npm links provenance to. `pnpm pack` pins
-  // sibling dependencies to their manifest versions, so the five must agree
+  // sibling dependencies to their manifest versions, so the four must agree
   // before a release can install. Each tarball carries its own LICENSE and
   // NOTICE because npm packs only the package root; they are copies of the
   // repository files (pnpm pack drops symlinks) and must stay identical.
@@ -940,5 +900,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `[check-architecture-boundaries] OK — ${sourceFiles.length} package TypeScript sources, ${finalSourceCount} final-package code files, exact six-product static graph, ${publishedVersions.size} published manifests at ${[...distinctPublishedVersions].join(", ")}, and ${identityRouterVocabularyFileCount} Identity/Router non-documentation files scanned at compatibility version ${compatibilityVersion}`,
+  `[check-architecture-boundaries] OK — ${sourceFiles.length} package TypeScript sources, ${finalSourceCount} final-package code files, exact five-product static graph, ${publishedVersions.size} published manifests at ${[...distinctPublishedVersions].join(", ")}, and ${identityRouterVocabularyFileCount} Identity/Router non-documentation files scanned at compatibility version ${compatibilityVersion}`,
 );

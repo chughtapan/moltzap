@@ -39,8 +39,6 @@ export const builtWorkspaceDependencies: RegExp[] = [
 /** Source aliases, ordered with specific subpaths before package roots. */
 export const workspaceSourceAliases: WorkspaceSourceAlias[] = [
   alias("@moltzap/client", "packages/client/src/index.ts"),
-  alias("@moltzap/simulator/ledger", "packages/simulator/src/ledger/index.ts"),
-  alias("@moltzap/simulator", "packages/simulator/src/index.ts"),
   alias(
     "@moltzap/nanoclaw-channel",
     "packages/nanoclaw-channel/src/channels/moltzap.ts",

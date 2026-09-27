@@ -8,10 +8,9 @@ import {
   replacePublishedImagesSection,
 } from "./write-published-images.mjs";
 
-const REPOSITORY = "us-central1-docker.pkg.dev/example/moltzap-simulator";
+const REPOSITORY = "us-central1-docker.pkg.dev/example/moltzap-images";
 const DIGEST_A = `sha256:${"a".repeat(64)}`;
 const DIGEST_B = `sha256:${"b".repeat(64)}`;
-const DIGEST_C = `sha256:${"c".repeat(64)}`;
 const REVISION = "0123456789abcdef0123456789abcdef01234567";
 
 const fixture = () => ({
@@ -21,29 +20,24 @@ const fixture = () => ({
     {
       name: "nanoclaw-agent",
       repository: `${REPOSITORY}/nanoclaw-agent`,
-      digest: DIGEST_C,
-    },
-    {
-      name: "controller",
-      repository: `${REPOSITORY}/controller`,
-      digest: DIGEST_A,
+      digest: DIGEST_B,
     },
     {
       name: "openclaw-agent",
       repository: `${REPOSITORY}/openclaw-agent`,
-      digest: DIGEST_B,
+      digest: DIGEST_A,
     },
   ],
 });
 
 const README = [
-  "# GKE profile",
+  "# Agent images",
   "",
   "## Published images",
   "",
   "No release has published images yet.",
   "",
-  "## Qualification",
+  "## Release publishing",
   "",
   "Later text.",
   "",
@@ -55,14 +49,13 @@ test("renders one row per image in fixed order with digest references", () => {
     body,
     [
       "Release `2026.902.0` (source revision",
-      `\`${REVISION}\`) pushed these images. Pin a run to the digest`,
-      "reference; the tag is a lookup key, not an input the profile accepts.",
+      `\`${REVISION}\`) pushed these images. Pin a deployment to the`,
+      "digest reference; the tag is only a lookup key.",
       "",
       "| Image | Tag | Digest reference |",
       "| --- | --- | --- |",
-      `| controller | \`2026.902.0\` | \`${REPOSITORY}/controller@${DIGEST_A}\` |`,
-      `| openclaw-agent | \`2026.902.0\` | \`${REPOSITORY}/openclaw-agent@${DIGEST_B}\` |`,
-      `| nanoclaw-agent | \`2026.902.0\` | \`${REPOSITORY}/nanoclaw-agent@${DIGEST_C}\` |`,
+      `| openclaw-agent | \`2026.902.0\` | \`${REPOSITORY}/openclaw-agent@${DIGEST_A}\` |`,
+      `| nanoclaw-agent | \`2026.902.0\` | \`${REPOSITORY}/nanoclaw-agent@${DIGEST_B}\` |`,
       "",
     ].join("\n"),
   );
@@ -73,13 +66,13 @@ test("replaces only the section body and keeps the surrounding document", () => 
   assert.equal(
     updated,
     [
-      "# GKE profile",
+      "# Agent images",
       "",
       "## Published images",
       "",
       "New body.",
       "",
-      "## Qualification",
+      "## Release publishing",
       "",
       "Later text.",
       "",
@@ -126,7 +119,7 @@ test("refuses a missing, duplicate, unknown, or malformed image", () => {
   const tagged = fixture();
   tagged.images[1] = {
     ...tagged.images[1],
-    repository: `${REPOSITORY}/controller:2026.902.0`,
+    repository: `${REPOSITORY}/openclaw-agent:2026.902.0`,
   };
   assert.throws(() => decodePublishedImages(tagged), /must not carry a tag/u);
 
@@ -144,9 +137,9 @@ test("refuses a missing, duplicate, unknown, or malformed image", () => {
   );
 });
 
-test("the checked-in GKE README carries the section the release writes into", () => {
+test("the checked-in agent-images README carries the section the release writes into", () => {
   const readme = readFileSync(
-    new URL("../../packages/simulator/gke/README.md", import.meta.url),
+    new URL("../agent-images/README.md", import.meta.url),
     "utf8",
   );
   const updated = replacePublishedImagesSection(
@@ -159,6 +152,5 @@ test("the checked-in GKE README carries the section the release writes into", ()
     /^## Release publishing\n/mu,
     "the next section survives",
   );
-  assert.match(updated, /^## Qualification\n/mu);
   assert.equal(updated.split("## Published images").length, 2, "one section");
 });
