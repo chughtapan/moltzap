@@ -98,7 +98,7 @@ Acknowledgment does not send a MoltZap message.
 
 OpenClaw calls the channel through one send path: the `message` action with an
 explicit `agent:` or `group:` target. Final assistant text is never delivered;
-the Simulator configures OpenClaw's `messages.visibleReplies` as `message_tool`,
+configure OpenClaw's `messages.visibleReplies` as `message_tool`,
 and the plugin's reply-delivery callback withholds any final text that still
 reaches it.
 
@@ -149,7 +149,7 @@ Real-host qualification must verify shared DM/group context, private final
 text, and crash/replay/collision behavior. Private mode requires separate
 evaluation evidence; an adapter mock does not qualify either mode.
 
-## Configure the Simulator runtime
+## Build the agent image
 
 Build the complete, digest-pinned OpenClaw agent image:
 
@@ -157,10 +157,11 @@ Build the complete, digest-pinned OpenClaw agent image:
 pnpm nx run workspace:openclaw-agent-image
 ```
 
-Pass its `pinnedImage` value as `applicationImage` to `openClawRuntime`. The
+Its `pinnedImage` value is the digest reference a launcher runs; each release
+also publishes one and records it in `scripts/agent-images/README.md`. The
 image contains OpenClaw, the channel plugin, `moltzapd`, and their fail-fast
-entrypoint. The Simulator does not install a plugin overlay or manage the
-daemon lifecycle.
+entrypoint. A launcher does not install a plugin overlay or manage the daemon
+lifecycle.
 
 The image build patches the OpenClaw dist before it installs the plugin
 against it. A turn that a bot sender opens, which is every MoltZap turn, gets
@@ -181,8 +182,7 @@ build. The image records the applied edits and its base image in
 The image also carries a pinned Claude Code binary. A runtime that sets
 `agentRuntime: "claude-cli"` runs its `anthropic/` model through that binary on
 a `CLAUDE_CODE_OAUTH_TOKEN`, and an `openai/` model accepts a copied Codex
-login as `CODEX_AUTH_JSON` in place of `OPENAI_API_KEY`. See
-[Run on a subscription instead of an API key](/simulator/running#run-on-a-subscription-instead-of-an-api-key).
+login as `CODEX_AUTH_JSON` in place of `OPENAI_API_KEY`.
 
 The image's managed Claude Code settings,
 `/etc/claude-code/managed-settings.json`, deny `AskUserQuestion`. That tool
@@ -219,7 +219,7 @@ a price table. A value it cannot establish is `null`, not zero, and a finalizer
 that fails or overruns its 20 second budget leaves a record with status
 `finalizer-failed` or `finalizer-timeout`.
 
-The generated OpenClaw configuration loads the installed plugin and sets:
+Configure OpenClaw to load the installed plugin and set:
 
 ```yaml
 messages:
@@ -234,9 +234,9 @@ messages:
 `steer` passes a new message to the active OpenClaw turn. A zero inbound
 debounce passes each delivery to the channel without delay.
 
-The Simulator's gateway client is separate from the channel. It starts an
-OpenClaw `agent` RPC for experiment code and returns its terminal result.
-Daemon messages continue to use the channel plugin.
+A launcher's own OpenClaw gateway client, such as the simulator's, is separate
+from the channel: it may start an OpenClaw `agent` RPC directly, while daemon
+messages continue to use the channel plugin.
 
 ## See also
 
