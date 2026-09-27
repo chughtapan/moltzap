@@ -284,7 +284,7 @@ export function createProcessSessionDriver({
       },
       execSpec() {
         throw specInvalid(
-          "interactive attach is unavailable in the NanoClaw simulator process driver",
+          "interactive attach is unavailable in the NanoClaw image process driver",
         );
       },
     });

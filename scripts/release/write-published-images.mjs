@@ -1,8 +1,8 @@
 /**
- * @file Writes the "Published images" section of the GKE profile README from
+ * @file Writes the "Published images" section of the agent-images README from
  * the digests a release resolved in Artifact Registry.
  *
- * The release workflow pushes the controller, OpenClaw, and NanoClaw images
+ * The release workflow pushes the OpenClaw and NanoClaw images
  * tagged with the release version, resolves each tag to its manifest digest,
  * and hands the result here as JSON. Rendering the table from that file keeps
  * the digests consumers pin next to the npm version that pushed them; a
@@ -11,15 +11,15 @@
  * Usage: write-published-images.mjs --digests <file.json>
  *
  * The digest file carries `{ version, sourceRevision, images }` where `images`
- * holds one `{ name, repository, digest }` entry for each of the three image
- * names below.
+ * holds one `{ name, repository, digest }` entry for each of the image names
+ * below.
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const workspaceRoot = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
-const README_PATH = join(workspaceRoot, "packages/simulator/gke/README.md");
+const README_PATH = join(workspaceRoot, "scripts/agent-images/README.md");
 const SECTION_HEADING = "## Published images";
 const CALENDAR_VERSION = /^\d{4}\.\d{3,4}\.\d+$/u;
 const GIT_REVISION = /^[0-9a-f]{40}$/u;
@@ -27,7 +27,6 @@ const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/u;
 
 /** Image names a release publishes, in table order. */
 const PUBLISHED_IMAGE_NAMES = Object.freeze([
-  "controller",
   "openclaw-agent",
   "nanoclaw-agent",
 ]);
@@ -107,8 +106,8 @@ export function renderPublishedImages(published) {
   );
   return [
     `Release \`${published.version}\` (source revision`,
-    `\`${published.sourceRevision}\`) pushed these images. Pin a run to the digest`,
-    "reference; the tag is a lookup key, not an input the profile accepts.",
+    `\`${published.sourceRevision}\`) pushed these images. Pin a deployment to the`,
+    "digest reference; the tag is only a lookup key.",
     "",
     "| Image | Tag | Digest reference |",
     "| --- | --- | --- |",

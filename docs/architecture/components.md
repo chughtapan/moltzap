@@ -46,27 +46,23 @@ second MCP listener, or fallback bind.
 | `@moltzap/client` | Endpoint communication, private history, `HarnessEndpoint`, daemon | identity, router |
 | `@moltzap/openclaw-channel` | OpenClaw consumer adapter | client |
 | `@moltzap/nanoclaw-channel` | NanoClaw consumer adapter | client |
-| `@moltzap/simulator` | Production-stack driver, faults, clusters, run evidence | identity, router, client |
 
 The root workspace may assemble images and deployment artifacts from several
 products. That artifact graph does not create runtime package imports.
 
-The simulator's `RunLedger` records simulation configuration, events, and
-outcomes. It is not a product conversation store, does not grant access to
-endpoint-private history, and does not assign a product-wide offset.
+## External fault injection
 
-## Simulator fault boundary
+The simulator, maintained with the evaluation suites in a separate private
+repository, drives these packages as an external consumer. Its directed link
+faults interpose after Router polling and before recipient Client consumption.
+They can drop, delay, hold, or reorder a delivery while preserving the signed
+message bytes; application containers receive neither the controls nor network
+authority, and no package here exposes a fault hook.
 
-An ordinary Simulator run passes Router deliveries to each endpoint unchanged
-and in Router order. An explicitly activated directed link fault interposes
-after Router polling and before recipient Client consumption. It can drop,
-delay, hold, or reorder a delivery while preserving the signed
-message bytes. The run controller owns this private mechanism; application
-containers receive neither its controls nor network authority.
-
-This makes a faulted run an endpoint-recovery exercise. Its perturbed
-recipient observations are not Router-conformance evidence, and the
-interposition does not modify Router or add a production hook.
+A faulted run is an endpoint-recovery exercise. Its perturbed recipient
+observations are not Router-conformance evidence. The simulator's run evidence
+is not a product conversation store and grants no access to endpoint-private
+history.
 
 ## Public and private boundaries
 

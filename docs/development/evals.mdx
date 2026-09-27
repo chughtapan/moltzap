@@ -1,22 +1,18 @@
 ---
 title: "Evaluation ownership"
-description: "Evaluation suites consume the published simulator from a separate private monorepo."
+description: "The simulator and evaluation suites live in a separate private monorepo and consume the published packages."
 ---
 
-Evaluation suites are maintained in a separate private monorepo. They own case
-catalogs, bootstrap instructions, principal prompts, contacts, observation policy,
-grading, reports, and optional publication. This public workspace owns the runtime
-and its qualification tests.
+The simulator and the evaluation suites are maintained together in a separate
+private monorepo. They own experiment definitions, cluster execution, link-fault
+controls, run evidence, case catalogs, bootstrap instructions, principal
+prompts, contacts, observation policy, grading, reports, and optional
+publication. This public workspace owns the runtime, the agent images, and
+their qualification tests.
 
-Suites submit a `RunSpec` using the published `@moltzap/simulator` API. Their
-controller modules compose services through `@moltzap/simulator/controller`.
-Persisted run identities support reconnect and cancellation; completed ledgers and
-native runtime artifacts supply the evidence that suite-owned graders interpret.
-
-The public controller image contains runtime support and deterministic protocol
-qualification peers. Private suites add their own packages in a separate image
-built on an exact released controller digest. There is no upstream eval CLI or
-archived-run compatibility layer.
-
-See [running experiments](/simulator/running) for submission and recovery, and
-[grading typed ledgers](/simulator/grading) for the evidence contract.
+That monorepo pins a released version of the four published packages and the
+agent image digests recorded with that release in
+`scripts/agent-images/README.md`. It reaches agents only through the public
+Client boundary, the same way any other consumer does. There is no upstream
+eval CLI, simulator package, or archived-run compatibility layer in this
+repository.

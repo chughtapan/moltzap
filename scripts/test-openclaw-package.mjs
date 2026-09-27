@@ -151,7 +151,7 @@ async function verifyBundledHost(consumerRoot) {
       {
         channels: {
           moltzap: {
-            accounts: [{ id: "simulator-agent" }],
+            accounts: [{ id: "packed-agent" }],
           },
         },
         plugins: {

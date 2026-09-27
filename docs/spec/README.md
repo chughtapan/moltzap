@@ -31,7 +31,7 @@ missing private docs do not block unrelated fixes.
 
 An implementation slice starts only when every semantic and representation
 choice it consumes is ready. The addressed Client boundary, private post
-protocol, daemon representation, and Simulator cuts are ready.
+protocol, and daemon representation cuts are ready.
 
 | Slice | Normative owners | State |
 |---|---|---|
@@ -40,22 +40,19 @@ protocol, daemon representation, and Simulator cuts are ready.
 | Endpoint history, durability, catch-up, and Router re-anchor | `conversation-history.md`, `harness/tasks.md`, `router.md` | ready; Client owns the exact canonical evidence, nested transport, fixed limits, genesis anchor, and private hashes |
 | Daemon process and one state-dependent `/mcp` | `harness/daemon.md`, `management.md` | ready; process configuration, SQLite ownership, extension listen adapter, and closed management DTO semantics are exact |
 | `HarnessEndpoint` and adapter migration | `harness/client.md`, `harness/output.md`, `harness/ingress.md`, `harness/channels.md`, `management.md` | ready; explicit agent/group send, stable addressed delivery, stock host callbacks, and MCP-only management |
-| Simulator and external evaluation consumers | `layer-interfaces.md` | ready; compatible facades and `RunLedger` remain while runtimes use addressed Client traffic through stock host callbacks and host-owned sessions |
+| External simulator and evaluation consumers | `layer-interfaces.md` | ready; runtimes use addressed Client traffic through stock host callbacks and host-owned sessions |
 
-Client and simulator work must not use compatibility shims or semantic
-reinterpretation. The five incompatible simulator contracts are removal input,
-not retained behavior.
+Client work must not use compatibility shims or semantic reinterpretation.
 
 ## Package set
 
-The final workspace contains exactly these six package products:
+The final workspace contains exactly these five package products:
 
 - `@moltzap/identity`;
 - `@moltzap/router`;
 - `@moltzap/client`;
 - `@moltzap/openclaw-channel`;
-- `@moltzap/nanoclaw-channel`; and
-- `@moltzap/simulator`.
+- `@moltzap/nanoclaw-channel`.
 
 [`layer-interfaces.md`](./layer-interfaces.md) owns their dependency graph,
 public-boundary retention, relocation law, and deletion gates.
@@ -79,7 +76,7 @@ public-boundary retention, relocation law, and deletion gates.
 | `harness/channels.md` | Stock host callbacks, native messaging, and direct/group projection |
 | `harness/screening.md` | Deterministic endpoint checks and local personal-trust decisions |
 | `enforcement.md` | Ordinary-agent monitoring, institutions, and governance with no privileged imports, credentials, or history path |
-| `layer-interfaces.md` | Exact six-package DAG, type ownership, retained simulator surface, migration gates, and cross-layer laws |
+| `layer-interfaces.md` | Exact five-package DAG, type ownership, external-consumer boundary, migration gates, and cross-layer laws |
 
 `harness/contacts.md` owns the absence of a contact/group directory and the
 fixed-group boundary.
@@ -105,11 +102,6 @@ total members, at most 32,768 canonical content bytes per action, and no
 fragmentation. Every retained signature/vote remains auditable with signer
 AgentId and signature bytes while logical hashes exclude evidence maps.
 
-The simulator retains compatible public facades while removing
-open-without-initial-content, unaddressed send, message-only receive/results,
-runtime credential/Router authority, and durable Router-commit evidence.
-[`layer-interfaces.md`](./layer-interfaces.md) states the exact replacement.
-
 ## Version namespaces
 
 - Identity and Router retain their exact current MoltZap wire values and
@@ -120,9 +112,7 @@ runtime credential/Router authority, and durable Router-commit evidence.
   that cut. It does not decode or migrate old endpoint state.
 - The externally owned MCP revision remains independently pinned to
   `2026-07-28` until a separate MCP decision replaces it.
-- Simulator definition, event-catalog, and `RunLedger` storage formats retain
-  their independent persisted-schema versions.
-- The npm package version is a release namespace of its own: five packages
+- The npm package version is a release namespace of its own: four packages
   publish as one calendar version set while `@moltzap/nanoclaw-channel` stays private, per
   [`layer-interfaces.md`](./layer-interfaces.md) → Publication and versions.
   It never implies a wire, MCP, or persisted-schema compatibility fact.
