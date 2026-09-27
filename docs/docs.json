@@ -35,14 +35,6 @@
             ]
           },
           {
-            "group": "Simulator",
-            "pages": [
-              "simulator/overview",
-              "simulator/running",
-              "simulator/grading"
-            ]
-          },
-          {
             "group": "Development",
             "pages": [
               "development/evals",
@@ -55,11 +47,7 @@
               "modules/client/src",
               "modules/identity/src",
               "modules/openclaw-channel/src",
-              "modules/router/src",
-              "modules/simulator/agents",
-              "modules/simulator/ledger",
-              "modules/simulator/network",
-              "modules/simulator/src"
+              "modules/router/src"
             ]
           }
         ]

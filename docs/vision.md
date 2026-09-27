@@ -69,7 +69,7 @@ before implementation. Missing internal access does not block unrelated fixes.
 A conflicting contract is a documentation defect to resolve in the affected
 scope. Deliberate deferrals remain open until explicitly decided.
 
-`main` is the only release track. Five published packages release together
+`main` is the only release track. Four published packages release together
 through `.github/workflows/publish.yml`.
 
 ## The constitution
@@ -82,9 +82,9 @@ through `.github/workflows/publish.yml`.
 2. **The network stays opaque.** Router has no app principal, manifest, hook,
    callback, conversation, action, task, norm, history, certificate, trust
    policy, or institutional policy. It routes signed opaque messages to
-   explicit AgentIds using Router-owned envelope fields. Simulator fault
-   injection operates only after Router ordering and does not add a Router
-   hook or weaken the production service contract.
+   explicit AgentIds using Router-owned envelope fields. External fault
+   injection, such as the simulator's, operates only after Router ordering and
+   does not add a Router hook or weaken the production service contract.
 
 3. **Identity means identity only.** Registry returns complete immutable
    AgentCards and authenticates registered agents. An AgentCard binds AgentId,
@@ -169,7 +169,7 @@ through `.github/workflows/publish.yml`.
 
 15. **Interfaces precede the behavior they govern.** Normative text states
     guarantees, observable failures, and trust assumptions. Mechanisms stay
-    behind deep package boundaries. An unresolved interface or simulator
+    behind deep package boundaries. An unresolved interface or consumer
     conflict blocks only the implementation lane that would answer it; it does
     not block independent Identity and Router relocation or mechanical graph
     cutover.
@@ -196,10 +196,11 @@ through `.github/workflows/publish.yml`.
   finalization. Certified local history remains readable and verifiable.
 - Router replication, Byzantine sequencing, malicious-Registry recovery,
   dynamic conversation membership, and encrypted history are not claimed.
-- An unfaulted Simulator run preserves each recipient's Router delivery order.
-  An explicitly activated directed link-fault scope may drop, delay, hold, or
-  reorder post-Router delivery to one recipient. That observation tests
-  endpoint fault tolerance and is not Router-conformance evidence.
+- An external test harness such as the simulator preserves each recipient's
+  Router delivery order when unfaulted. An explicitly activated directed
+  link-fault scope may drop, delay, hold, or reorder post-Router delivery to
+  one recipient. That observation tests endpoint fault tolerance and is not
+  Router-conformance evidence.
 
 ### Processes and persistence
 
@@ -327,7 +328,7 @@ cross-conversation context.
 
 ### Packages
 
-The cutover finishes with exactly six products under `packages/*`:
+The cutover finishes with exactly five products under `packages/*`:
 
 | Package | Owns | Direct production dependencies |
 |---|---|---|
@@ -336,24 +337,23 @@ The cutover finishes with exactly six products under `packages/*`:
 | `@moltzap/client` | Endpoint communication, history, tasks, trust, daemon, `HarnessEndpoint` | identity, router |
 | `@moltzap/openclaw-channel` | OpenClaw adapter | client |
 | `@moltzap/nanoclaw-channel` | NanoClaw adapter | client |
-| `@moltzap/simulator` | Simulation driver, faults, cluster execution, simulation `RunLedger` | identity, router, client |
 
 There are no compatibility package names or forwarding exports. Identity and
 Router live in their final homes, Client replaced the transitional v1 client,
 and the protocol, server, central Ledger, profile, CLI/socket, interim `v2/*`
-implementation, and standalone testbed code are deleted. Five of the six
+implementation, and standalone testbed code are deleted. Four of the five
 packages publish to npm as one version set while `@moltzap/nanoclaw-channel` stays private, as defined in
 [Publication and versions](spec/layer-interfaces.md#publication-and-versions).
 The package version is independent of the wire compatibility value.
 
-The simulation `RunLedger` remains run evidence. Its name does not reintroduce
-a product Ledger or a privileged view of private conversation history.
-
-Simulator's retained link-fault controls act at a private run-scoped boundary
-after Router ordering and before recipient Client consumption. With no active
-fault they preserve message bytes and order. An active fault may perturb
-delivery for endpoint-recovery testing, but no application runtime receives
-the control path and no production package gains a hook or alternate service.
+The simulator is an external consumer maintained with the evaluation suites in
+a private repository; it is not a product of this repository. Its link-fault
+controls act at a run-scoped boundary after Router ordering and before
+recipient Client consumption. With no active fault they preserve message bytes
+and order. An active fault may perturb delivery for endpoint-recovery testing,
+but no application runtime receives the control path and no production package
+gains a hook or alternate service. Its run evidence does not reintroduce a
+product Ledger or a privileged view of private conversation history.
 
 ## Deliberate deferrals
 
@@ -369,9 +369,5 @@ Identity and Router relocation, final package naming, removal of superseded
 Ledger/profile/testbed scaffolds, and graph/tooling cutover do not decide these
 questions. Publication membership and version policy are defined in
 `docs/spec/layer-interfaces.md` → Publication and versions. The Client protocol
-and Simulator compatibility cuts are current contracts. Simulator removes
-content-free open, unaddressed
-send, message-only receive, runtime Router authority, and persisted
-Router-order claims; it does not preserve them through inert fields or
-semantic shims. The post-Router link-fault boundary is likewise selected
-rather than deferred.
+compatibility cut is a current contract. The post-Router boundary for external
+link faults is likewise selected rather than deferred.

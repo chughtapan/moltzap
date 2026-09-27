@@ -13,9 +13,8 @@
  * `scripts/docs/moltzap-version.ts` reads it for the documentation
  * constants generator and its gate tests.
  *
- * The npm package version, the MCP revision, simulator definition ID,
- * EventCatalog schema, and RunLedger storage version are independent
- * namespaces and never imply compatibility with this value.
+ * The npm package version and the MCP revision are independent namespaces
+ * and never imply compatibility with this value.
  */
 export { MOLTZAP_VERSION } from "./version.js";
 

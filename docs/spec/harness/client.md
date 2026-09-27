@@ -3,7 +3,7 @@
 Status: **cutover normative**
 
 `HarnessEndpoint` is the sole adapter-facing Client capability. OpenClaw,
-NanoClaw, Simulator, evals, and other runtimes consume this structural scoped
+NanoClaw, the simulator, evals, and other runtimes consume this structural scoped
 value or its loopback MCP projection. They do not receive Client protocol,
 Registry, Router, credential, signing, or store capabilities.
 

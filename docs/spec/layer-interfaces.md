@@ -6,8 +6,8 @@ Status: **Gate 1 normative**
 
 This chapter assigns each public type and capability to one final package. It
 keeps Identity and Router representation contracts deep, makes conversation
-history endpoint-owned, and prevents simulator or trust-policy mechanisms from
-becoming production network services.
+history endpoint-owned, and prevents test-harness or trust-policy mechanisms
+from becoming production network services.
 
 The four conceptual layers are Identity, Communication, Tasks and norms, and
 Personal trust. Numbered layer notation is documentation vocabulary only; it
@@ -15,7 +15,7 @@ does not appear in package names or public type tags.
 
 ## Exact package graph
 
-The final workspace has exactly six package products:
+The final workspace has exactly five package products:
 
 | Package | May depend on | Owns |
 |---|---|---|
@@ -24,11 +24,11 @@ The final workspace has exactly six package products:
 | `@moltzap/client` | `@moltzap/identity`, `@moltzap/router` | conversations, endpoint history, tasks/norms, personal trust, daemon MCP, `HarnessEndpoint`, and `moltzapd` |
 | `@moltzap/openclaw-channel` | `@moltzap/client` | OpenClaw host integration against an injected or MCP-backed client |
 | `@moltzap/nanoclaw-channel` | `@moltzap/client` | NanoClaw host integration against its MCP-backed client |
-| `@moltzap/simulator` | `@moltzap/identity`, `@moltzap/router`, `@moltzap/client` | system-driver acquisition, run kernel, fault controls, event catalog, and simulation `RunLedger` |
 
-Production packages do not depend on simulator or evaluation applications.
-Runtime adapters do not import Identity, Router, Client internals, simulator,
-evaluation suites, or each other. Simulator is not an alternate production service.
+The simulator and evaluation applications live in a separate private monorepo
+and consume the published packages. Production packages do not depend on them.
+Runtime adapters do not import Identity, Router, Client internals, the
+simulator, evaluation suites, or each other.
 
 There are no product packages named `protocol`, `server`, `transcript`,
 `ledger`, `harness`, or `testbed`, and no `v2/` directory: the constitution is
@@ -37,7 +37,7 @@ repo.
 
 Root-owned build and image orchestration may consume several package artifacts
 without creating package-runtime dependencies. Copying an adapter source or
-packing application fixtures into an image cannot create an undeclared simulator dependency.
+packing application fixtures into an image cannot create an undeclared package dependency.
 
 ## Relocation and deletion law
 
@@ -64,9 +64,7 @@ owned by a deleted package moves to root tooling before that package is
 removed.
 
 Client and adapter migration follows the accepted reduced boundary in
-[`harness/client.md`](./harness/client.md). The five formerly conflicting
-Simulator contracts are removed under [Simulator cutover](#simulator-cutover);
-they no longer block Client, Simulator, or eval migration.
+[`harness/client.md`](./harness/client.md).
 
 ## Public boundaries retained through cutover
 
@@ -77,11 +75,6 @@ they no longer block Client, Simulator, or eval migration.
 - Client owns one public root, process composition under `./server`, and the
   `moltzapd` executable. Its root exposes the exact addressed `HarnessEndpoint`
   boundary in [`harness/client.md`](./harness/client.md).
-- Simulator retains `.`, `./network`, `./ledger`, and `./agents` plus
-  `Run.execute(RunSpec)`, the `moltzap-sim` executable
-  (`moltzap-sim run --profile local|gke <spec.mjs>`, printing one
-  `ProfileRunResult` line), and every declaration compatible with the final
-  HarnessEndpoint/daemon semantics below.
 - Adapter entry points retain compatible host/build behavior while
   using the real daemon-backed Client.
 
@@ -157,22 +150,16 @@ remain private. `PostIntentHash` identifies immutable addressed intent,
 `ActionHash` identifies its predecessor-bound action, and `RecordHash`
 identifies logical durable history while excluding mergeable signer evidence.
 
-### Simulator and evaluation applications
+### External consumers
 
-Simulator owns immutable simulator definitions, the one `StackProvider`-style
-system-driver boundary, fault controls, event evidence, and `RunLedger`.
-`RunLedger` and `@moltzap/simulator/ledger` are simulation evidence and are
-never assignable to Client history, `RecordHash`, or durability evidence.
-
-The simulator directly composes public Identity, Router, and Client
-capabilities. Runtime subjects receive only `HarnessEndpoint` or MCP, never raw
-Router, Registry credentials, endpoint keys, daemon internals, or local store
-access.
-
-Evaluation applications live in a separate private monorepo. They consume
-published Client and simulator APIs and own scenarios, orchestration, grading,
-reports, and publication. This workspace retains runtime qualification fixtures
-without evaluation policy or compatibility entry points.
+The simulator and evaluation applications compose public Identity, Router, and
+Client capabilities and own scenarios, orchestration, fault controls, run
+evidence, grading, reports, and publication. Their run evidence is never
+assignable to Client history, `RecordHash`, or durability evidence. Runtime
+subjects they launch receive only `HarnessEndpoint` or MCP, never raw Router,
+Registry credentials, endpoint keys, daemon internals, or local store access.
+This workspace retains runtime qualification fixtures without evaluation policy
+or compatibility entry points.
 
 ## Identity and Router capability behavior
 
@@ -261,10 +248,11 @@ closed typed unions.
 6. Client evidence uses stable self-addressed inner SignedMessages and
    replaceable all-member outer SignedMessages; outer retry never changes the
    signed inner statement.
-7. An unfaulted Simulator run preserves each recipient's Router delivery
-   order. An explicitly activated Simulator link fault acts after Router
+7. A link fault injected by an external test harness acts after Router
    ordering, so its perturbed recipient observation is endpoint-fault evidence
-   rather than Router-conformance evidence.
+   rather than Router-conformance evidence. Only an unfaulted observation of
+   each recipient's Router delivery order can contribute Router-conformance
+   evidence.
 
 ### Conversation certification and durability
 
@@ -312,95 +300,26 @@ closed typed unions.
 4. Identity and operational authentication remain independent from any social
    claim.
 
-## Simulator cutover
+## External fault injection
 
-Simulator retains `Run.execute(RunSpec)`, cluster and Temporal execution, fault
-layers, and simulation `RunLedger`. Its endpoint and runtime cutover follows
-these five rules:
+External harnesses such as the simulator may hold, delay, or drop delivery
+between a Router poll and the recipient Client's consumption. No package in this
+workspace exposes a fault-control operation, Router callback, public Router or
+Client extension, or MCP operation for that purpose, and an application runtime
+receives no fault-control endpoint, credential, configuration, network
+authority, signing material, or endpoint-store access. Injected faults do not
+alter message bytes, forge messages, or change Router state or order.
 
-1. Delete `Endpoint.open`, `Endpoint.socket`, `ConversationAddress`,
-   `ConversationParticipants`, `ConversationSocket`,
-   `EndpointTransport.openConversation`, and `OpenedConversation`. The first
-   explicit addressed send creates or reuses fixed membership with nonempty
-   initial content.
-2. A controlled `Endpoint` exposes only its live endpoint-wide `messages()`
-   stream and `send({ to, content })`. Every send uses an explicit `agent:` or
-   `group:` address. The simulator does not register conversations, create
-   per-address mailboxes, or replay deliveries that predate a subscription.
-3. Replace `Message`, `ReceivedMessage`, message-only receive streams, and
-   proof-shaped operation results with public addressed delivery and `void`
-   completion facts.
-4. Remove `AgentConnection.key`, raw Router attachment, Registry/Router origins,
-   endpoint-store handles, and signing material from runtime inputs. A runtime
-   receives only its loopback `MOLTZAP_MCP_URL` or an injected
-   `HarnessEndpoint`.
-5. Delete `CommittedRouterMessage`, `RouterMessageCommitted`, `RouterSequence`,
-   and `RouterStopped.committedMessages`. `RunLedger` records simulation
-   lifecycle, public semantic effects, and experiment-declared workspace
-   files, never durable Router commit/order.
+## Agent images
 
-### Controller composition and execution evidence
+Each published agent image runs the host and `moltzapd` in one application
+container. Signing/admission state remains private to the daemon through
+separate process identities, private file permissions and filtered host
+environment. Registration completes before the host starts. The host accesses
+the Client only through `MOLTZAP_MCP_URL=http://127.0.0.1:<port>/mcp`.
 
-`@moltzap/simulator/controller` exposes environment-driven controller composition
-to separately packaged experiment modules. It uses the same `Run.execute` path
-and does not grant application runtimes infrastructure access. The root,
-`./agents`, `./ledger`, and `./network` facades retain compatible declarations.
-
-A submitted execution has one caller-owned identity and immutable input hash.
-Reconnecting uses that execution; changed inputs under the same identity are
-rejected. Ending a local wait does not cancel remote work. Explicit cancellation
-remains pending while a controller starts and stops requesting cancellation once
-the controller finishes. Each isolated worker uses its own workload and access
-identity for every installation call.
-
-Before releasing acquired runtimes, collection requests a stop/flush acknowledgement
-and retains native logs separately from bounded workspace records. Native files
-carry exact byte lengths and hashes. Failed finalization or a collection deadline
-writes `RuntimeEvidenceCollectionFailed`; already retained files remain available,
-but their presence does not establish complete evidence. Execution outcome and
-namespace cleanup outcome remain separate.
-
-### Simulator fault boundary
-
-With no active directed link-fault scope, Simulator delivers the exact
-`SignedMessage` bytes from each Router poll in that recipient's Router order.
-This inactive path is the only Simulator path that may contribute
-Router-conformance evidence.
-
-Experiment code selects directed links, policies, and activation timing through
-the existing `LinkController` and `LinkPolicy` contracts. A policy returns
-`deliver`, `drop`, `delay`, or `hold` for post-Router delivery before the
-recipient Client consumes it. Active delivery preserves per-sender FIFO while
-allowing different senders to progress independently. For example, holding A's
-messages to B lets a later message from C reach B first. When A's hold clears,
-A's queued messages are released in sender order.
-
-This cross-sender overtaking is configured scenario behavior; the API has no
-arbitrary reorder operation. Faulted-path observations test endpoint fault
-tolerance and cannot establish Router conformance or a stronger production
-ordering guarantee. The fault layer does not alter message bytes, forge a
-message, change Router state or order, or create a Router callback.
-
-Interception and policy evaluation are private, run-scoped Simulator
-infrastructure. They are not a product service, public Router or Client
-extension, compatibility gateway, or MCP operation. The application runtime
-receives only its loopback Client boundary and receives no fault-control
-endpoint, credential, configuration, network authority, signing material, or
-endpoint-store access. `RunLedger` may retain closed link-fault lifecycle
-events and public semantic effects but no durable Router commit, position, or
-authoritative order.
-
-One simulation run owns one Registry and one Router. Every agent Sandbox Pod
-runs the host and `moltzapd` in one application container, with a separate
-bootstrap init container and a per-agent persistent volume. Signing/admission
-state remains private to the daemon through separate process identities,
-private file permissions and filtered host environment. Registration completes
-before the host starts. The host accesses the Client only through
-`MOLTZAP_MCP_URL=http://127.0.0.1:<port>/mcp`.
-
-External evaluation applications execute through the daemon-backed Client.
-Client and Simulator inject no cross-conversation context. Stock
-runtimes own their session topology and cross-address context.
+Client injects no cross-conversation context. Stock runtimes own their session
+topology and cross-address context.
 
 ## Error boundaries
 
@@ -419,58 +338,50 @@ runtimes own their session topology and cross-address context.
 ## Acceptance criteria
 
 - Workspace, TypeScript, Nx, manifest, and architecture graphs contain exactly
-  the six packages and exactly the allowed edges above.
+  the five packages and exactly the allowed edges above.
 - Identity and Router relocation tests prove byte-identical representations,
   unchanged authentication, complete export inventories, typed errors,
   configuration, migrations, and process behavior.
 - No executable or generated current document imports or owns product Ledger,
   Transcript, profile, testbed, old protocol/server, or `v2/*` implementation
   surfaces.
-- Absence checks exempt simulator `RunLedger`, `@moltzap/simulator/ledger`,
-  authentication-profile terminology, and historical evidence.
+- Absence checks exempt authentication-profile terminology and historical
+  evidence.
 - Client history tests satisfy every threshold, catch-up, re-anchor, and local
   persistence criterion in `conversation-history.md`.
 - Client type canaries pin addressed send, direct/group delivery, transport
   acknowledgment, `void` result, and management-absence boundary.
 - Static rules prevent adapters and runtimes from importing network or Client
   internals.
-- Simulator compatibility evidence covers all four facades, preserves every
-  compatible declaration, and proves removal of the five incompatible
-  contracts above.
-- Simulator runs one Registry and Router per run and one application container
-  containing the host and daemon per agent, retains per-agent endpoint state,
-  and exposes only loopback MCP to the host.
-- Simulator fault tests prove transparent byte/order preservation with no
-  active fault, each admitted post-Router perturbation under an explicit
-  directed scope, and the absence of any runtime-facing fault control. A
-  faulted recipient observation is never classified as Router conformance.
-- Client and Simulator inject no cross-conversation context into runtime
-  qualification or external evaluation applications; session topology is
-  runtime-owned.
+- Agent images run the host and daemon in one application container per agent
+  and expose only loopback MCP to the host.
+- Client injects no cross-conversation context into runtime qualification or
+  external evaluation applications; session topology is runtime-owned.
 - No runtime bridge can use an inherited target, fabricate output from
   history, or bypass personal-trust and task/norm checks.
 
 ## Publication and versions
 
-Five packages publish to npm as one version set: `@moltzap/identity`,
-`@moltzap/router`, `@moltzap/client`, `@moltzap/openclaw-channel`,
-and `@moltzap/simulator`. `@moltzap/nanoclaw-channel` stays private.
+Four packages publish to npm as one version set: `@moltzap/identity`,
+`@moltzap/router`, `@moltzap/client`, and `@moltzap/openclaw-channel`.
+`@moltzap/nanoclaw-channel` stays private. The simulator is not published.
 
 - One release computes one calendar version, `YYYY.MDD.N`, one past the
-  highest counter in the union of the five packages' npm histories and the
+  highest counter in the union of the four packages' npm histories and the
   `v<version>` release tags, and writes it into every published manifest.
 - `pnpm pack` pins each workspace sibling to that exact version, so an
   installed closure resolves the packages one release built, never a mix.
 - The package version is independent of `MOLTZAP_VERSION`, the MCP revision,
   and every persisted-schema version. Advancing one never advances another.
 - Releases run from `main` through `.github/workflows/publish.yml` with npm
-  provenance; the same run pushes the simulator controller, OpenClaw, and
-  NanoClaw images tagged with the version and records their digests.
+  provenance; the same run pushes the OpenClaw and NanoClaw agent images
+  tagged with the version and records their digests in
+  `scripts/agent-images/README.md`.
 - `scripts/architecture/check-boundaries.js` fails when a published manifest
-  is private, when the five versions differ, when the NanoClaw adapter
+  is private, when the four versions differ, when the NanoClaw adapter
   is not private, or when the release workflow's package list drifts from the
-  published set. The client, OpenClaw, NanoClaw, and simulator `test:pack`
-  gates pack the five published packages and the NanoClaw adapter through
+  published set. The client, OpenClaw, and NanoClaw `test:pack` gates pack
+  the four published packages and the NanoClaw adapter through
   `scripts/test/packed-workspace.mjs` and prove each closure installs with
   exact sibling pins and every declared executable present. The NanoClaw gate
   proves the adapter compiles against the Client ABI in isolation; the image
@@ -480,6 +391,6 @@ and `@moltzap/simulator`. `@moltzap/nanoclaw-channel` stays private.
 
 External-consumer migrations are tracked implementation work with their own
 checks and release pins. Publication does not establish that every consumer
-has migrated. Nothing here authorizes an additional package, compatibility
-facade, or restoration of a removed Simulator contract. The post-Router
-Simulator link-fault boundary remains a current decision.
+has migrated. Nothing here authorizes an additional package or compatibility
+facade. The post-Router boundary for external link faults remains a current
+decision.
