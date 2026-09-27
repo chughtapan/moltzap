@@ -10,6 +10,17 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Removed
+
+- `@moltzap/simulator` leaves this repository and the npm release set. The
+  simulator is now a workspace package of the private `social-harness/evals`
+  monorepo, beside the evaluation suites that drive it, and is not published
+  to npm. Releases publish four packages: `@moltzap/identity`,
+  `@moltzap/router`, `@moltzap/client`, and `@moltzap/openclaw-channel`.
+- The simulator controller image is no longer built or pushed here. A release
+  pushes the OpenClaw and NanoClaw agent images and records their digests in
+  `scripts/agent-images/README.md`.
+
 ## [2026.922.3] - 2026-09-22
 
 ### Fixed

@@ -11,9 +11,6 @@
       "path": "packages/nanoclaw-channel"
     },
     {
-      "path": "packages/simulator"
-    },
-    {
       "path": "packages/identity"
     },
     {
