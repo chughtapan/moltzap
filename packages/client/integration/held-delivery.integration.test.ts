@@ -148,11 +148,13 @@ const heldDeliveryBehavior = Effect.gen(function* () {
       const targetInbox = yield* collectDeliveries(target.messages);
 
       yield* proxy.hold;
+      yield* Effect.addFinalizer(() => proxy.release);
       const heldSend = yield* Effect.forkScoped(
         sender.send({ to: targetAddress, content: heldContent }),
       );
       yield* awaitParkedResponse(proxy.parkedResponses);
       yield* expectQuiet(targetInbox);
+      expect(yield* Queue.size(targetInbox)).toBe(0);
 
       yield* proxy.release;
       const released = yield* takeDelivery(targetInbox);

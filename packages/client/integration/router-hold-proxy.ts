@@ -107,7 +107,19 @@ const forward = (upstream: URL, incoming: IncomingMessage, body: Buffer) =>
       },
       (response) => {
         const chunks: Buffer[] = [];
+        const fail = (cause?: unknown): void => {
+          resume(
+            Effect.fail(
+              new ProcessTestError({
+                message: "proxy upstream response failed",
+                cause,
+              }),
+            ),
+          );
+        };
         response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.once("error", fail);
+        response.once("aborted", () => fail());
         response.once("end", () =>
           resume(
             Effect.succeed({
@@ -194,7 +206,12 @@ const handle = (
       yield* parkIfHeld(state);
     }
     writeResponse(response, answer);
-  }).pipe(Effect.catchAll(() => Effect.sync(() => failResponse(response))));
+  }).pipe(
+    Effect.tapErrorCause((cause) =>
+      Effect.logWarning("router hold proxy answered 502", cause),
+    ),
+    Effect.catchAll(() => Effect.sync(() => failResponse(response))),
+  );
 
 const listen = (server: Server) =>
   Effect.async<number, ProcessTestError>((resume) => {
