@@ -1,7 +1,7 @@
 # Architecture tooling status
 
-`@chughtapan/safer-architecture-lsp` is configured for the exact six-package
-workspace: Identity, Router, Client, OpenClaw, NanoClaw, and Simulator.
+`@chughtapan/safer-architecture-lsp` is configured for the exact five-package
+workspace: Identity, Router, Client, OpenClaw, and NanoClaw.
 The retired umbrella protocol and server packages have no project, config, or
 waiver ledger in the cutover graph.
 
@@ -13,7 +13,7 @@ Architecture checks are blocking rather than deferred:
   architecture configs, and depends on each package's architecture and lint
   targets; and
 - CI executes the common build, typecheck, test, lint, and architecture floor
-  for all six packages.
+  for all five packages.
 
 ## Configured budgets and waivers
 

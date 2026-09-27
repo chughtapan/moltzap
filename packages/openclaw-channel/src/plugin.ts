@@ -685,7 +685,7 @@ function inboundGroupFacts(message: InboundDelivery["message"]) {
 }
 
 /**
- * Final assistant text never becomes a MoltZap post. The simulator's OpenClaw
+ * Final assistant text never becomes a MoltZap post. A launcher's OpenClaw
  * configuration selects tool-only visible replies, and this callback withholds
  * anything that still reaches it, so the `message` tool with an explicit
  * target is the only send path. Non-empty text reaching here means OpenClaw

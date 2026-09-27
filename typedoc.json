@@ -3,7 +3,6 @@
   "entryPointStrategy": "packages",
   "entryPoints": [
     "packages/client",
-    "packages/simulator",
     "packages/nanoclaw-channel",
     "packages/openclaw-channel",
     "packages/identity",

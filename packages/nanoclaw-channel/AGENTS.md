@@ -56,7 +56,7 @@ context, target, and retry details do not define the final API.
 - Integration tests enter through NanoClaw's generic `send_message`, cross its
   native outbound queue and host delivery loop, and observe the receiving
   Client. They must not call the concrete adapter or inject an endpoint.
-- Simulator tests exercise the same packaged image and final Client boundary;
-  they must not restore dependencies on deleted protocol/server packages,
-  profiles, raw Router credentials, or compatibility shims.
+- The packaged image keeps the final Client boundary; it must not restore
+  dependencies on deleted protocol/server packages, profiles, raw Router
+  credentials, or compatibility shims.
 - Run package tasks through Nx from the workspace root.

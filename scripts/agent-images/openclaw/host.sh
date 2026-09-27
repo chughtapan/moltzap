@@ -4,7 +4,7 @@
 #
 # OpenClaw forwards a subscription token to the `claude` child only from a
 # stored auth profile, and it rejects a token reference written into
-# openclaw.json. So when the simulator delivers a secrets plan
+# openclaw.json. So when the launcher delivers a secrets plan
 # (OPENCLAW_SECRETS_PLAN), this script applies it once against the fresh
 # per-pod state before the gateway exists. The plan names an environment
 # variable and never carries a value. A failed apply ends the host with the

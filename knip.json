@@ -16,10 +16,6 @@
         "*.ts",
         "scripts/docs/**/*.ts"
       ],
-      "ignoreUnresolved": [
-        "/opt/moltzap/qualification/simulator-fault-program.mjs",
-        "/opt/moltzap/qualification/simulator-fault-peer.mjs"
-      ],
       "ignoreDependencies": [
         "@effect/tsgo",
         "@mermaid-js/mermaid-cli",
@@ -53,25 +49,6 @@
         "src/**/*.ts",
         "*.mjs",
         "vitest*.config.mjs"
-      ]
-    },
-    "packages/simulator": {
-      "entry": [
-        "src/cluster/controller/services.ts",
-        "src/cluster/controller/main.ts",
-        "src/cluster/profiles/cli.ts",
-        "src/cluster/temporal.ts",
-        "src/**/*.test.ts",
-        "src/**/*.types-check.ts",
-        "vitest*.config.mjs"
-      ],
-      "project": [
-        "src/**/*.ts",
-        "scripts/*.mjs",
-        "vitest*.config.mjs"
-      ],
-      "ignoreDependencies": [
-        "@types/ws"
       ]
     },
     "packages/identity": {

@@ -42,7 +42,7 @@ const DEFAULT_HOST_FINALIZER_TIMEOUT_MILLIS = 20_000;
  * Importing it from one image's script would tie every image to that image.
  */
 export const MODEL_USAGE_SCHEMA = "moltzap.agent-model-usage/v1";
-/** The simulator reads this file with a 1 MiB bound. */
+/** Launchers read this file with a 1 MiB bound. */
 const MAXIMUM_MODEL_USAGE_BYTES = 1_024 * 1_024;
 const SHUTDOWN_GRACE_MILLIS = 5_000;
 /** @type {WeakMap<import("node:child_process").ChildProcess, Promise<void>>} */

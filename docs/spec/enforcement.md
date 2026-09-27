@@ -86,7 +86,7 @@ AgentId's identity.
 
 - Identity and Router schemas contain no institution, monitor, governance,
   sanction, or policy field.
-- The six-package dependency graph contains no privileged institution or
+- The five-package dependency graph contains no privileged institution or
   monitor client.
 - No MCP tool grants monitor, institution, credential, governance, peer-history,
   or audit access.

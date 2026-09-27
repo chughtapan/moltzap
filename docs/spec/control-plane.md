@@ -105,12 +105,11 @@ to local personal trust.
 Service availability affects progress rather than changing accepted safety or
 verification rules.
 
-## Simulator evidence
+## External run evidence
 
-Simulator `RunLedger` remains a distinct run-evidence store with independent
-persisted-schema versions. Its name and `@moltzap/simulator/ledger` export do
-not imply a product Ledger, network API, canonical conversation store, or
-privileged history reader.
+Run evidence recorded by the external simulator is a distinct store with its
+own persisted-schema versions. It does not imply a product Ledger, network API,
+canonical conversation store, or privileged history reader.
 
 ## Acceptance criteria
 
@@ -124,8 +123,7 @@ privileged history reader.
   durability evidence.
 - Endpoint-history progress and failure tests never treat Router acceptance as
   durability evidence.
-- Current code and generated docs contain no product Ledger operation while
-  simulator `RunLedger` remains intact.
+- Current code and generated docs contain no product Ledger operation.
 
 ## Explicitly deferred
 
