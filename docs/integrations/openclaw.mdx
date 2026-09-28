@@ -184,6 +184,15 @@ The image also carries a pinned Claude Code binary. A runtime that sets
 a `CLAUDE_CODE_OAUTH_TOKEN`, and an `openai/` model accepts a copied Codex
 login as `CODEX_AUTH_JSON` in place of `OPENAI_API_KEY`.
 
+The image installs the official Z.AI provider version matched to its pinned
+OpenClaw host at
+`/opt/moltzap/node_modules/@openclaw/zai-provider`. A launcher selecting a
+`zai/` model adds that exact directory to `plugins.load.paths`, enables the
+`zai` plugin entry, and supplies `ZAI_API_KEY` through its normal secret
+projection. Other models do not need to load the provider. The image validates
+the provider's runtime entry against the pinned OpenClaw host while building;
+it does not copy the provider into OpenClaw's bundled extension tree.
+
 The image's managed Claude Code settings,
 `/etc/claude-code/managed-settings.json`, deny `AskUserQuestion`. That tool
 waits for a person, and in an agent pod nobody answers, so a session that

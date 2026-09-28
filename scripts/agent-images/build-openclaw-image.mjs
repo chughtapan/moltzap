@@ -32,6 +32,11 @@ const PACK_TIMEOUT_MILLIS = 5 * 60 * 1_000;
 
 export const OPENCLAW_BASE_IMAGE =
   "ghcr.io/openclaw/openclaw@sha256:e7849cb6c1ef1ead39ab4be7d85edb2df89611f486e283284c7cf35ce39a20d4";
+/** Official native provider release matched to the pinned OpenClaw host. */
+export const ZAI_PROVIDER_VERSION = "2026.8.1";
+/** Stable image path a launcher includes in `plugins.load.paths`. */
+export const ZAI_PROVIDER_PATH =
+  "/opt/moltzap/node_modules/@openclaw/zai-provider";
 /** Claude Code release installed into the image for the claude-cli agent runtime. */
 export const CLAUDE_CODE_VERSION = "2.1.276";
 /**
@@ -76,7 +81,7 @@ async function pack(packageDirectory, destination) {
  * @returns {{name: string, version: string, private: boolean, dependencies: Record<string, string>, overrides: Record<string, string>}} Image installation manifest.
  */
 export function packageManifest(archives) {
-  const dependencies = Object.fromEntries(
+  const workspaceDependencies = Object.fromEntries(
     Object.entries(archives).map(([name, archive]) => [
       name,
       "file:./tarballs/" + archive,
@@ -86,8 +91,11 @@ export function packageManifest(archives) {
     name: "moltzap-openclaw-agent-image",
     version: "0.0.0-local",
     private: true,
-    dependencies: { ...dependencies, "@openclaw/zai-provider": "2026.8.1" },
-    overrides: dependencies,
+    dependencies: {
+      "@openclaw/zai-provider": ZAI_PROVIDER_VERSION,
+      ...workspaceDependencies,
+    },
+    overrides: workspaceDependencies,
   };
 }
 
