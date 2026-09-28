@@ -8,6 +8,9 @@ import {
   CLAUDE_CODE_SHA256,
   CLAUDE_CODE_VERSION,
   FINGERPRINTED_FILES,
+  packageManifest,
+  ZAI_PROVIDER_PATH,
+  ZAI_PROVIDER_VERSION,
 } from "../build-openclaw-image.mjs";
 import { DEFAULT_HOST_FINALIZER } from "../shared/entrypoint.mjs";
 
@@ -149,17 +152,25 @@ test("every file the Dockerfile copies from the build context decides the image 
 });
 
 test("the staged manifest pins the native Z.AI provider and fingerprints it", async () => {
-  const build = await import("../build-openclaw-image.mjs");
-  assert.equal(typeof build.packageManifest, "function");
-  const manifest = build.packageManifest({ "@moltzap/client": "client.tgz" });
-  assert.equal(manifest.dependencies["@openclaw/zai-provider"], "2026.8.1");
+  const manifest = packageManifest({ "@moltzap/client": "client.tgz" });
+  assert.equal(
+    manifest.dependencies["@openclaw/zai-provider"],
+    ZAI_PROVIDER_VERSION,
+  );
   assert.equal(
     manifest.dependencies["@moltzap/client"],
     "file:./tarballs/client.tgz",
   );
+  assert.deepEqual(manifest.overrides, {
+    "@moltzap/client": "file:./tarballs/client.tgz",
+  });
+  assert.equal(
+    ZAI_PROVIDER_PATH,
+    "/opt/moltzap/node_modules/@openclaw/zai-provider",
+  );
   assert.ok(FINGERPRINTED_FILES.includes("package.json"));
   assert.match(
     await sibling("Dockerfile"),
-    /import\("@openclaw\/zai-provider\/dist\/index.js"\)/u,
+    /import\("@openclaw\/zai-provider\/dist\/index\.js"\)/u,
   );
 });
