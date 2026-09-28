@@ -19,7 +19,7 @@ block admission; independent review, explicit human approval of the exact decisi
 and review packet, and a verified landing receipt are distinct requirements.
 A copied status or generic PASS cannot replace them. Never fabricate human approval.
 
-If private docs or optional gbrain/gstack/Google tools are unavailable, continue
+If private docs or gbrain are unavailable, continue
 unrelated work from public contracts and state the missing context. Do not claim
 verified authority without the necessary evidence. Existing task authorization
 covers routine filing and checks; no additional permission is needed for them.

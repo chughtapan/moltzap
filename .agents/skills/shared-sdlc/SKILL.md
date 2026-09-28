@@ -19,5 +19,4 @@ require independent review and explicit human approval of the exact decision and
 review packet, then verify the landing receipt. Never fabricate human approval.
 All these paths are relative to `DOCS_INTERNAL_ROOT`, not the code checkout.
 
-Optional gstack or Google skills can help; their absence does not block this
-workflow. Do not add a second review pipeline for routine changes.
+Use the gstack and Google skills. Do not add a second review pipeline for routine changes.
