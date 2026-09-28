@@ -16,7 +16,7 @@ session or checking its hash does not load its instructions.
 
 Load only applicable skills, then follow their targeted references. If private
 docs are unavailable, use the installed skills' public-maintenance fallback.
-Do not ask the user to invoke skills or install optional helpers for you.
+Do not ask the user to invoke skills for you.
 
 Every `CLAUDE.md` is a symlink to the `AGENTS.md` beside it. `packages/*/AGENTS.md` adds
 package specifics. Scoped instructions refine this file and the constitution;
@@ -61,7 +61,7 @@ do not ask for a separate plan approval unless the scope changes.
   those records cannot carry what the next agent needs.
 
 Shared workflow and internal decisions live in
-[`social-harness/docs-internal`](https://github.com/social-harness/docs-internal/blob/decc7b5e3e8dbfb63b95c8a72becb608033343be/README.md).
+[`social-harness/docs-internal`](https://github.com/social-harness/docs-internal/blob/main/README.md).
 Set `DOCS_INTERNAL_ROOT` to a checkout at the revision recorded in
 `.agents/internal-skills.json` and start with its README. That revision pins the
 workflow and navigation; it does not approve proposed decisions. Public
@@ -72,7 +72,7 @@ Both hosts use the revision in `.agents/internal-skills.json`; sync and
 check updates with that checkout's `bin/records skills` commands.
 
 Public usage, specifications, package instructions, and runnable checks stay in
-this repository. Without private docs or optional skills, maintain public code
+this repository. Without private docs, maintain public code
 using these contracts, normal planning, independent review, and Git/PR commands.
 A proposed boundary change must resolve its affected decision evidence before
 claiming approval. Missing private access does not block unrelated maintenance.
@@ -88,11 +88,33 @@ Use Node from `.node-version` and the pnpm version in `package.json`. Run build,
 test, lint, and typecheck through `pnpm nx` or the package scripts that wrap it.
 Effect and `@effect/*` are the runtime idiom.
 
-Use applicable Google language, testing, documentation, and code-review guides
-when available. gstack planning/review/shipping skills are optional helpers;
-missing tools do not lower the review bar or block work that can use the normal
-workflow. State which checks and reviews actually ran. Repository instructions,
-Effect conventions, Nx, ESLint, and oxfmt take precedence over optional guidance.
+Load the Google guide that matches the work: `google-typescript-style` for
+`.ts`, `google-javascript-style` for the `.mjs` tooling, `google-shell-style`
+for `.sh`, `google-swe-testing`, `google-documentation-guide`,
+`google-swe-change-management`, `google-swe-builds-dependencies-and-ci` for
+build, dependency, and CI policy, `google-swe-engineering-standards` for the
+lint and architecture gates themselves, and the applicable Google code-review
+author or reviewer guide. New code meets its guide in the commit that
+introduces it; existing code is brought along by the change that touches it.
+Repository law, Effect conventions, Nx, ESLint, oxfmt, and scoped package
+instructions take precedence. Link to the guide rather than copying it into the
+repository, and keep tests and documentation in the change they explain.
+
+gstack reviews compose with the Google guides where they apply.
+
+| Guide | Loaded by |
+|---|---|
+| `google-code-review-reviewer` | `/ship`'s structured review |
+| `google-swe-testing` | `/ship`'s testing specialist; `/plan-eng-review`'s test review |
+| the same language guides | `/ship`'s maintainability specialist; `/plan-eng-review`'s code-quality review |
+| `google-swe-engineering-standards` | the same two, for changes to the lint or architecture gates |
+| `google-swe-builds-dependencies-and-ci` | `/plan-eng-review`'s architecture review; `/ship` for workflow, Nx, manifest, or release-script changes |
+| `google-swe-compute-platforms` | either, for cluster execution: profiles, admission, run namespaces, images, Temporal |
+| `google-swe-change-management` | `/ship`'s data-migration and api-contract specialists; `/plan-eng-review`'s scope challenge |
+| `google-swe-code-review-systems` | either, for changes to a gate, a review regime, or this file |
+| `google-documentation-guide` | either, for documentation claims |
+
+State which checks and reviews actually ran.
 
 ## Code
 
