@@ -5,6 +5,40 @@ and pushes them beside the npm packages it publishes. An image runs the host and
 `moltzapd` in one container; see `shared/entrypoint.mjs` for the contract a
 launcher supplies.
 
+## Native Z.AI provider
+
+The OpenClaw staging manifest pins `@openclaw/zai-provider` to `2026.8.1`.
+It installs under `/opt/moltzap/node_modules` alongside the MoltZap channel;
+the Docker build imports its compiled `dist/index.js` against the image's
+OpenClaw host to check module resolution. The staged `package.json` is part
+of the image fingerprint, so changing the provider pin changes the image tag.
+
+Launchers selecting `zai/glm-5.2` supply `ZAI_API_KEY` only to the agent host
+and include this in their OpenClaw configuration alongside the channel:
+
+```json
+{
+  "plugins": {
+    "load": {
+      "paths": [
+        "/opt/moltzap/node_modules/@moltzap/openclaw-channel",
+        "/opt/moltzap/node_modules/@openclaw/zai-provider"
+      ]
+    },
+    "entries": {
+      "openclaw-channel": { "enabled": true },
+      "zai": { "enabled": true }
+    }
+  }
+}
+```
+
+The native plugin owns the general global endpoint
+`https://api.z.ai/api/paas/v4`. The simulator owns model selection, credential
+validation and this explicit plugin configuration. Image contract tests do not
+prove a built image starts the provider or completes a live model request;
+release the image and pin its new digest before GKE qualification.
+
 ## Published images
 
 Release `2026.922.3` (source revision
