@@ -147,3 +147,19 @@ test("every file the Dockerfile copies from the build context decides the image 
     [],
   );
 });
+
+test("the staged manifest pins the native Z.AI provider and fingerprints it", async () => {
+  const build = await import("../build-openclaw-image.mjs");
+  assert.equal(typeof build.packageManifest, "function");
+  const manifest = build.packageManifest({ "@moltzap/client": "client.tgz" });
+  assert.equal(manifest.dependencies["@openclaw/zai-provider"], "2026.8.1");
+  assert.equal(
+    manifest.dependencies["@moltzap/client"],
+    "file:./tarballs/client.tgz",
+  );
+  assert.ok(FINGERPRINTED_FILES.includes("package.json"));
+  assert.match(
+    await sibling("Dockerfile"),
+    /import\("@openclaw\/zai-provider\/dist\/index.js"\)/u,
+  );
+});

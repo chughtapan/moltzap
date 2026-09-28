@@ -66,7 +66,7 @@ RUN npm install --omit=dev --no-audit --no-fund \
   && rm -rf node_modules/openclaw \
   && ln -s /app node_modules/openclaw \
   && node --input-type=module --eval \
-    'await import("@moltzap/openclaw-channel")' \
+    'await import("@moltzap/openclaw-channel"); await import("@openclaw/zai-provider/dist/index.js")' \
   && rm -rf tarballs /root/.npm
 
 # host.sh is scripts/agent-images/openclaw/host.sh: it binds the run's

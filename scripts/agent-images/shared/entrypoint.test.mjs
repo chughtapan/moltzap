@@ -94,6 +94,7 @@ async function fixture(options = {}) {
     root,
     environment: {
       ANTHROPIC_API_KEY: "model-secret",
+      ZAI_API_KEY: "zai-model-secret",
       CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-subscription-secret",
       CODEX_AUTH_JSON: '{"tokens":{"access_token":"subscription-secret"}}',
       MOLTZAPD_ADMISSION_CREDENTIAL_FILE: runtime + "/admission-credential",
@@ -150,6 +151,8 @@ test("successful bootstrap starts the host with separated credentials", async ()
     await readFile(join(app.state, "daemon-env.json"), "utf8"),
   );
   const hostEnvironment = JSON.parse(await readFile(app.hostRecord, "utf8"));
+  assert.equal(daemonEnvironment.ZAI_API_KEY, undefined);
+  assert.equal(hostEnvironment.ZAI_API_KEY, "zai-model-secret");
   assert.equal(daemonEnvironment.ANTHROPIC_API_KEY, undefined);
   assert.equal(daemonEnvironment.CLAUDE_CODE_OAUTH_TOKEN, undefined);
   assert.equal(daemonEnvironment.CODEX_AUTH_JSON, undefined);
