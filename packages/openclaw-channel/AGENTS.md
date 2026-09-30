@@ -36,6 +36,10 @@ re-exports. Publication follows `docs/spec/layer-interfaces.md` → Publication 
   and `collectiveResponse` parameters; `message.send.text` serves OpenClaw's
   core-forced sends, which carry no tool parameters. The host decides which
   tools invoke those callbacks.
+- The `moltzap-collectives` skill and the `collective` and
+  `collectiveResponse` descriptions state operation mechanics only, the same
+  for every agent. Its body names no host; per-host syntax sits in its host
+  sections.
 - Render each inbound item kind in one fixed form, switching on `kind`
   exhaustively.
 - Leave outbound queue and retry policy to OpenClaw. Every plugin callback is

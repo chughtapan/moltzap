@@ -3,14 +3,16 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import {
   copyFile,
+  cp,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
@@ -32,6 +34,12 @@ const BUILD_RESULT_PATH = join(
 );
 const NANOCLAW_PATCH_PATH =
   "scripts/agent-images/nanoclaw/nanoclaw-v2.3.0.patch";
+/**
+ * The skills the OpenClaw plugin publishes. The image adds them to NanoClaw's
+ * shared container skills, which every agent group selects by default, so
+ * both hosts read one text.
+ */
+const PLUGIN_SKILLS_PATH = "packages/openclaw-channel/skills";
 const BUILD_TIMEOUT_MILLIS = 45 * 60 * 1_000;
 
 export const NANOCLAW_SOURCE_REVISION =
@@ -114,6 +122,9 @@ async function copyImageAssets(staging) {
     join(workspaceRoot, NANOCLAW_PATCH_PATH),
     join(staging, "nanoclaw-v2.3.0.patch"),
   );
+  await cp(join(workspaceRoot, PLUGIN_SKILLS_PATH), join(staging, "skills"), {
+    recursive: true,
+  });
   await mkdir(join(staging, "channel"));
   await copyFile(
     join(workspaceRoot, "packages/nanoclaw-channel/src/channels/moltzap.ts"),
@@ -177,6 +188,15 @@ async function stagingFingerprint(staging) {
     "process-driver.mjs",
     "provision.mjs",
     "register-daemon.mjs",
+    ...(
+      await readdir(join(staging, "skills"), {
+        recursive: true,
+        withFileTypes: true,
+      })
+    )
+      .filter((entry) => entry.isFile())
+      .map((entry) => relative(staging, join(entry.parentPath, entry.name)))
+      .sort(),
     "tarballs/client.tgz",
     "tarballs/identity.tgz",
     "tarballs/router.tgz",

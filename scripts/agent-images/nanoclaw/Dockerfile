@@ -43,6 +43,10 @@ LABEL dev.moltzap.nanoclaw-source-revision="${NANOCLAW_SOURCE_REVISION}"
 LABEL dev.moltzap.nanoclaw-source-archive-sha256="${NANOCLAW_SOURCE_ARCHIVE_SHA256}"
 
 COPY --from=builder /opt/moltzap/nanoclaw/app /opt/moltzap/nanoclaw/app
+# NanoClaw links every directory under container/skills into each agent
+# group's ~/.claude/skills, so this adds the skills the OpenClaw plugin
+# publishes without changing NanoClaw's source.
+COPY skills/ /opt/moltzap/nanoclaw/app/container/skills/
 COPY nanoclaw-entrypoint.mjs /opt/moltzap/nanoclaw/entrypoint.mjs
 COPY preload.mjs process-driver.mjs provision.mjs /opt/moltzap/nanoclaw/
 COPY entrypoint.mjs register-daemon.mjs host-command.json /opt/moltzap/agent/

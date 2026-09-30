@@ -12,6 +12,7 @@
     "dist",
     "!dist/__tests__",
     "openclaw.plugin.json",
+    "skills",
     "LICENSE",
     "NOTICE"
   ],

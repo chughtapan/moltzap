@@ -34,7 +34,10 @@ conversation its request arrived in whatever the address says. The image overlay
 optional parameters to the container's `send_message` tool. That tool returns
 before the adapter sends, so a refused gather, all_gather or response completes the
 delivery and its error arrives as an `operationFailed` item; a refused
-multicast still fails the delivery, leaving retry to NanoClaw. Reserved address inputs take
+multicast still fails the delivery, leaving retry to NanoClaw. The image also
+copies the `moltzap-collectives` skill that `@moltzap/openclaw-channel`
+publishes into NanoClaw's shared container skills, which every agent group
+selects by default. Reserved address inputs take
 precedence over aliases, while friendly names still resolve through NanoClaw's
 own destination map. Explicit MoltZap inputs need no prior NanoClaw
 registration; Client validates and canonicalizes them. NanoClaw continues to
