@@ -90,6 +90,10 @@ heading below in its release commit.
   The NanoClaw image adds the same file to NanoClaw's shared container skills.
   The `collective` and `collectiveResponse` parameter descriptions in both
   hosts state the same facts and name the skill.
+- `@moltzap/openclaw-channel` reads `channels.moltzap.collectives`, `true` by
+  default. With `false`, the message tool's `send` action omits the
+  `collective` and `collectiveResponse` parameters, and a send carrying either
+  fails with a tool error saying collective operations are not available.
 
 ### Removed
 

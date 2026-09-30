@@ -47,6 +47,10 @@
             ],
             "additionalItems": false,
             "minItems": 1
+          },
+          "collectives": {
+            "type": "boolean",
+            "description": "Offer the collective and collectiveResponse message tool parameters. Defaults to true."
           }
         }
       }

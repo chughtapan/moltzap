@@ -85,8 +85,20 @@ const moltZapAccountSchema = Schema.Struct({
 /** One OpenClaw account bound to the process-local MCP endpoint. */
 type MoltZapAccount = Schema.Schema.Type<typeof moltZapAccountSchema>;
 
+/**
+ * The `channels.moltzap` block of an OpenClaw configuration. `collectives`
+ * defaults to true; false withholds the `collective` and `collectiveResponse`
+ * message tool parameters and refuses a send that carries either, so an
+ * evaluation can run the channel as plain multicast messaging.
+ */
 const moltZapChannelConfigSchema = Schema.Struct({
   accounts: Schema.optional(Schema.Tuple(moltZapAccountSchema)),
+  collectives: Schema.optional(
+    Schema.Boolean.annotations({
+      description:
+        "Offer the collective and collectiveResponse message tool parameters. Defaults to true.",
+    }),
+  ),
 });
 const moltZapOpenClawConfigSchema = Schema.Struct({
   channels: Schema.optional(
@@ -169,6 +181,21 @@ class OpenClawOutboundError extends Data.TaggedError("OpenClawOutboundError")<{
 }> {
   override get message(): string {
     return `MoltZap message delivery failed for account ${this.accountId}: ${this.reason}`;
+  }
+}
+
+/**
+ * A message tool send carrying `collective` or `collectiveResponse` while
+ * `channels.moltzap.collectives` is false. The tool does not offer either
+ * parameter then, so the message tells the model to send without it.
+ */
+class OpenClawCollectivesUnavailableError extends Data.TaggedError(
+  "OpenClawCollectivesUnavailableError",
+)<{
+  readonly accountId: string;
+}> {
+  override get message(): string {
+    return `MoltZap collective operations are not available for account ${this.accountId}; send the message without collective or collectiveResponse`;
   }
 }
 
@@ -336,7 +363,8 @@ function createConfigSection() {
  * `send` here because the adapter defines no prepared payload or gateway
  * execution mode, so the `collective` parameter reaches the endpoint
  * unchanged. `message.send.text` remains for the sends OpenClaw's core makes
- * itself.
+ * itself. With `channels.moltzap.collectives` false the tool offers `send`
+ * without the collective parameters.
  * @param connectedAccount The account whose endpoint performs the operation.
  * @returns The action adapter registered on the channel plugin.
  */
@@ -344,15 +372,19 @@ function createMessageActions(
   connectedAccount: ConnectedAccountState,
 ): ChannelMessageActionAdapter {
   return {
-    describeMessageTool: () => ({
+    describeMessageTool: ({ cfg }) => ({
       actions: ["send"],
-      schema: {
-        properties: {
-          collective: collectiveParameter,
-          collectiveResponse: collectiveResponseParameter,
-        },
-        actions: ["send"],
-      },
+      ...(collectivesEnabled(cfg)
+        ? {
+            schema: {
+              properties: {
+                collective: collectiveParameter,
+                collectiveResponse: collectiveResponseParameter,
+              },
+              actions: ["send"],
+            },
+          }
+        : {}),
     }),
     supportsAction: ({ action }) => action === "send",
     handleAction: (ctx) =>
@@ -372,13 +404,15 @@ function handleMessageAction(
       }),
     );
   }
-  return sendOperation(connectedAccount, {
+  const send: OperationSend = {
     accountId: ctx.accountId,
     to: ctx.params.to,
     text: ctx.params.message,
     collective: ctx.params.collective,
     collectiveResponse: ctx.params.collectiveResponse,
-  }).pipe(
+  };
+  return refuseDisabledCollectives(ctx.cfg, send).pipe(
+    Effect.andThen(() => sendOperation(connectedAccount, send)),
     Effect.map(({ input, result }) =>
       jsonResult({
         ok: true,
@@ -387,6 +421,21 @@ function handleMessageAction(
       }),
     ),
   );
+}
+
+function refuseDisabledCollectives(
+  cfg: OpenClawConfig,
+  send: OperationSend,
+): Effect.Effect<void, OpenClawCollectivesUnavailableError> {
+  return (send.collective === undefined &&
+    send.collectiveResponse === undefined) ||
+    collectivesEnabled(cfg)
+    ? Effect.void
+    : Effect.fail(
+        new OpenClawCollectivesUnavailableError({
+          accountId: accountLabel(send.accountId),
+        }),
+      );
 }
 
 function createMessageSection(connectedAccount: ConnectedAccountState) {
@@ -414,13 +463,19 @@ function resolveAccount(
 }
 
 function resolveAccountList(cfg: OpenClawConfig): readonly MoltZapAccount[] {
-  return Option.match(
+  return resolveChannelConfig(cfg)?.accounts ?? [];
+}
+
+function collectivesEnabled(cfg: OpenClawConfig): boolean {
+  return resolveChannelConfig(cfg)?.collectives ?? true;
+}
+
+function resolveChannelConfig(
+  cfg: OpenClawConfig,
+): Schema.Schema.Type<typeof moltZapChannelConfigSchema> | undefined {
+  return Option.getOrUndefined(
     Schema.decodeUnknownOption(moltZapOpenClawConfigSchema)(cfg),
-    {
-      onNone: () => [],
-      onSome: (decoded) => decoded.channels?.moltzap?.accounts ?? [],
-    },
-  );
+  )?.channels?.moltzap;
 }
 
 function isExplicitMessageTarget(raw: string): boolean {

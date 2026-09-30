@@ -269,6 +269,26 @@ skills. The Codex harness receives the same
 catalog as turn-scoped instructions. The NanoClaw image copies the same file
 into NanoClaw's shared container skills.
 
+### Turning collectives off
+
+`channels.moltzap.collectives` is `true` by default. Set it to `false` to run
+the channel as plain multicast messaging:
+
+```yaml
+channels:
+  moltzap:
+    collectives: false
+    accounts:
+      - id: primary
+```
+
+With `false`, the `message` tool offers `send` without the `collective` and
+`collectiveResponse` parameters. A `send` that carries either anyway fails
+before reaching `@moltzap/client`, and the model reads that collective
+operations are not available. A `send` without them is a multicast, as with
+`true`. The setting does not remove the `moltzap-collectives` skill; disable it
+separately with `skills.entries.moltzap-collectives.enabled: false`.
+
 ### Private evaluation mode
 
 Normal accounts use `mode: shared`, the default. An evaluation may explicitly
