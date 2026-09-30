@@ -41,9 +41,9 @@ export interface PendingOffer {
 /**
  * Acknowledge a delivery the collective layer consumed. A failed
  * acknowledgment is logged and the delivery stays pending: the next pass
- * classifies it again, which records nothing twice because a requester
- * keeps only a member's first answer, an all_gather member keys answers by
- * record hash and applies a close once, and acknowledges it again. It does
+ * classifies it again, which records nothing twice because the requester
+ * and every all_gather member keep only a member's first answer and a member
+ * applies a close once, and acknowledges it again. It does
  * not end the daemon, whose store failures surface through the pending read
  * that starts every pass.
  */
@@ -62,7 +62,15 @@ const acknowledgeConsumed = (
 /**
  * Record an item in the history export the first time it is offered, then
  * offer it to the subscriber, yielding whether the subscriber took it. The
- * line lands before the item is visible.
+ * line lands before the item is visible, for the reason `makeHistoryExport`
+ * gives.
+ *
+ * The append runs inside the pass, under the delivery gate. It cannot
+ * deadlock: the export's own gate is taken only inside `record`, which takes
+ * no other lock, and a send records its outbound line without the delivery
+ * gate. Its cost is one append per item on first offer, only when an operator
+ * configured the export, and an acknowledgment waits for the pass that holds
+ * the gate.
  */
 const publishItem = (
   offer: PendingOffer,

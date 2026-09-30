@@ -29,6 +29,7 @@ import {
   type CollectivePorts,
   makeCollectiveOperations,
 } from "./operation.js";
+import { collectiveIdOf, readCollectiveValue } from "./wire.js";
 
 const collectiveKey = "xyz.moltzap/collective";
 const group = "group:alice,bob,carol";
@@ -38,7 +39,9 @@ const slotSchema = {
   properties: { slot: { type: "string", enum: ["mon", "tue"] } },
   required: ["slot"],
 };
-const requestId = `col_${"A".repeat(43)}`;
+const alice = Schema.decodeUnknownSync(AgentAddress)("agent:alice");
+const requestNonce = "N".repeat(43);
+const requestId = collectiveIdOf(alice, requestNonce);
 const otherId = `col_${"B".repeat(43)}`;
 const questionText = "Which day works?";
 
@@ -102,6 +105,7 @@ const requestValue = {
   kind: "operation",
   op: "all_gather",
   id: requestId,
+  nonce: requestNonce,
   deadlineAt: 60_000,
   requestedSchema: slotSchema,
 };
@@ -184,7 +188,17 @@ function sendsOneRequestPostToTheGroup() {
     Effect.gen(function* () {
       const layer = yield* makeLayer(observed, "agent:alice");
       const id = yield* startAllGather(layer);
+      const [first] = observed.sent;
+      const request =
+        first === undefined
+          ? Option.none()
+          : yield* readCollectiveValue(first.content);
+      const nonce = Option.match(request, {
+        onNone: () => "",
+        onSome: (value) => ("nonce" in value ? value.nonce : ""),
+      });
 
+      expect(collectiveIdOf(alice, nonce)).toBe(id);
       expect(observed.sent).toEqual([
         {
           to: group,
@@ -197,6 +211,7 @@ function sendsOneRequestPostToTheGroup() {
                   kind: "operation",
                   op: "all_gather",
                   id,
+                  nonce,
                   deadlineAt: 60_000,
                   requestedSchema: slotSchema,
                 },
@@ -424,6 +439,17 @@ function deliversAGroupRequestAsAnItemAddressedToTheGroup() {
           deadlineAt: 60_000,
         }),
       );
+    }),
+  );
+}
+
+function consumesAGroupRequestWhoseIdDoesNotDeriveFromItsSender() {
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(newObserved(), "agent:bob");
+      const item = yield* classify(layer, "agent:carol", 10, requestValue);
+
+      expect(item).toEqual(Option.none());
     }),
   );
 }
@@ -681,6 +707,10 @@ describe("all_gather at a member", () => {
   it(
     "delivers a group request as an item addressed to the group",
     deliversAGroupRequestAsAnItemAddressedToTheGroup,
+  );
+  it(
+    "consumes a group request whose id does not derive from its sender",
+    consumesAGroupRequestWhoseIdDoesNotDeriveFromItsSender,
   );
   it("posts its answer to the group", postsAMemberAnswerToTheGroup);
   it(

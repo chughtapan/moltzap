@@ -45,32 +45,40 @@ async function replaceWorkspace(target) {
   await symlink(target, CURRENT_WORKSPACE);
 }
 
+/**
+ * Queue each destination in order: one marked `final` through the agent's
+ * final output, and any other as `send_message` tool arguments, which may
+ * carry `collective` or `collectiveResponse`.
+ * @param {ReadonlyArray<Record<string, unknown>>} destinations The sends.
+ * @returns {Promise<void>} Completion once every send is queued.
+ */
 async function invokeOutboundPaths(destinations) {
   const source = `
     import '${RUNNER_ROOT}/modules/index.ts';
     import { sendMessage } from '${RUNNER_ROOT}/mcp-tools/core.ts';
     import { dispatchResultText } from '${RUNNER_ROOT}/poll-loop.ts';
     const destinations = JSON.parse(process.env.NANOCLAW_DESTINATIONS_JSON);
-    if (destinations.length !== 2) {
-      throw new Error('NanoClaw probe requires one tool send and one final-output send');
-    }
-    const toolResult = await sendMessage.handler(destinations[0]);
-    if (toolResult.isError === true) {
-      throw new Error(toolResult.content.map(({ text }) => text).join('\\n'));
-    }
-    const finalDestination = destinations[1];
-    const finalResult = await dispatchResultText(
-      '<message to="' + finalDestination.to + '">' + finalDestination.text + '</message>',
-      {
-        platformId: null,
-        channelType: null,
-        threadId: null,
-        inReplyTo: null,
-        taskRun: false,
-      },
-    );
-    if (finalResult.sent !== 1) {
-      throw new Error('NanoClaw final-output path did not queue exactly one message');
+    for (const { final, ...destination } of destinations) {
+      if (final !== true) {
+        const toolResult = await sendMessage.handler(destination);
+        if (toolResult.isError === true) {
+          throw new Error(toolResult.content.map(({ text }) => text).join('\\n'));
+        }
+        continue;
+      }
+      const finalResult = await dispatchResultText(
+        '<message to="' + destination.to + '">' + destination.text + '</message>',
+        {
+          platformId: null,
+          channelType: null,
+          threadId: null,
+          inReplyTo: null,
+          taskRun: false,
+        },
+      );
+      if (finalResult.sent !== 1) {
+        throw new Error('NanoClaw final-output path did not queue exactly one message');
+      }
     }
   `;
   const child = spawn("bun", ["--eval", source], {
@@ -101,7 +109,9 @@ async function waitForInbound(
     const observed = history.some(({ content }) => {
       const decoded = JSON.parse(content);
       return (
-        decoded.text === expected.text &&
+        (expected.textPrefix === undefined
+          ? decoded.text === expected.text
+          : decoded.text.startsWith(expected.textPrefix)) &&
         decoded.address === expected.platformId &&
         decoded.sender === expected.sender &&
         decoded.senderId === expected.sender

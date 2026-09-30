@@ -179,7 +179,21 @@ describe("public gather input", () => {
     expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
   });
 
-  it("rejects a gather deadline that is not a whole number of seconds up to a day", () => {
+  it("accepts a gather deadline of up to 30 days", () => {
+    const input = {
+      to: "agent:bob-agent",
+      text: "Which day?",
+      collective: {
+        op: "gather",
+        deadline: 2_592_000,
+        requestedSchema: slotSchema,
+      },
+    };
+
+    expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
+  });
+
+  it("rejects a gather deadline that is not a whole number of seconds up to 30 days", () => {
     const gather = (deadline: number) => ({
       to: "agent:bob-agent",
       text: "Which day?",
@@ -188,7 +202,7 @@ describe("public gather input", () => {
 
     expect(decodingFails(SendInput, gather(0))).toBe(true);
     expect(decodingFails(SendInput, gather(1.5))).toBe(true);
-    expect(decodingFails(SendInput, gather(86_401))).toBe(true);
+    expect(decodingFails(SendInput, gather(2_592_001))).toBe(true);
   });
 
   it("rejects a gather without a requested schema", () => {
@@ -218,14 +232,14 @@ describe("public all_gather input", () => {
     expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
   });
 
-  it("rejects an all_gather deadline beyond a day", () => {
+  it("rejects an all_gather deadline beyond 30 days", () => {
     expect(
       decodingFails(SendInput, {
         to: "group:bob-agent,carol-agent",
         text: "Which day?",
         collective: {
           op: "all_gather",
-          deadline: 86_401,
+          deadline: 2_592_001,
           requestedSchema: slotSchema,
         },
       }),

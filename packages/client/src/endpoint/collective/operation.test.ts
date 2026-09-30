@@ -7,6 +7,7 @@ import {
   Option,
   Schema,
   type Scope,
+  Supervisor,
   TestClock,
   TestContext,
 } from "effect";
@@ -27,9 +28,14 @@ import {
   type CollectiveOperations,
   makeCollectiveOperations,
 } from "./operation.js";
-import { decodeCollectiveValue } from "./wire.js";
+import {
+  collectiveIdOf,
+  decodeCollectiveValue,
+  readCollectiveValue,
+} from "./wire.js";
 
 const alice = Schema.decodeUnknownSync(AgentAddress)("agent:alice");
+const bob = Schema.decodeUnknownSync(AgentAddress)("agent:bob");
 const collectiveKey = "xyz.moltzap/collective";
 const multicastPart = {
   type: "data",
@@ -40,7 +46,8 @@ const slotSchema = {
   properties: { slot: { type: "string", enum: ["mon", "tue"] } },
   required: ["slot"],
 };
-const requestId = `col_${"A".repeat(43)}`;
+const requestNonce = "N".repeat(43);
+const requestId = collectiveIdOf(bob, requestNonce);
 const questionText = "Which day works?";
 const gatherTo = "group:alice,bob,carol";
 const recordHash = Schema.decodeUnknownSync(RecordHash)(
@@ -59,11 +66,13 @@ const newObserved = (): Observed => ({ sent: [], emitted: [] });
 
 /**
  * A collective layer over recording ports. Each certified post gets a fresh
- * PostId; a member named in `refused` refuses its post with that reason.
+ * PostId after `sendDelay`; a member named in `refused` refuses its post with
+ * that reason.
  */
 const makeLayer = (
   observed: Observed,
   refused: Readonly<Record<string, SendError["reason"]>> = {},
+  sendDelay?: Duration.Duration,
 ): Effect.Effect<CollectiveOperations, never, Scope.Scope> =>
   Effect.map(Effect.scope, (scope) =>
     makeCollectiveOperations({
@@ -74,15 +83,19 @@ const makeLayer = (
         if (reason !== undefined) {
           return Effect.fail(new SendError({ reason }));
         }
-        return Effect.sync(() => {
-          observed.sent.push(input);
-          return {
-            postId: Schema.decodeUnknownSync(PostId)(
-              postId(observed.sent.length),
-            ),
-            recordHash,
-          };
-        });
+        return Effect.sleep(sendDelay ?? Duration.zero).pipe(
+          Effect.zipRight(
+            Effect.sync(() => {
+              observed.sent.push(input);
+              return {
+                postId: Schema.decodeUnknownSync(PostId)(
+                  postId(observed.sent.length),
+                ),
+                recordHash,
+              };
+            }),
+          ),
+        );
       },
       emit: (item) =>
         Effect.sync(() => {
@@ -107,7 +120,7 @@ const directPost = (sender: string, content: unknown, byte = 9) =>
     content,
   });
 
-const requestPost = (sender: string, deadlineAt: number) =>
+const requestPost = (sender: string, deadlineAt: number, id = requestId) =>
   directPost(sender, [
     { type: "text", text: questionText },
     {
@@ -116,7 +129,8 @@ const requestPost = (sender: string, deadlineAt: number) =>
         [collectiveKey]: {
           kind: "operation",
           op: "gather",
-          id: requestId,
+          id,
+          nonce: requestNonce,
           deadlineAt,
           requestedSchema: slotSchema,
         },
@@ -206,7 +220,17 @@ function fansAGatherOutAsOneRequestPostPerMemberButTheRequester() {
     Effect.gen(function* () {
       const layer = yield* makeLayer(observed);
       const id = yield* startGather(layer);
+      const [first] = observed.sent;
+      const request =
+        first === undefined
+          ? Option.none()
+          : yield* readCollectiveValue(first.content);
+      const nonce = Option.match(request, {
+        onNone: () => "",
+        onSome: (value) => ("nonce" in value ? value.nonce : ""),
+      });
 
+      expect(collectiveIdOf(alice, nonce)).toBe(id);
       expect(observed.sent.map((post) => post.to)).toEqual([
         "agent:bob",
         "agent:carol",
@@ -220,6 +244,7 @@ function fansAGatherOutAsOneRequestPostPerMemberButTheRequester() {
               kind: "operation",
               op: "gather",
               id,
+              nonce,
               deadlineAt: 60_000,
               requestedSchema: slotSchema,
             },
@@ -399,6 +424,7 @@ function consumesAnAllGatherRequestInADirectConversation() {
     kind: "operation",
     op: "all_gather",
     id: requestId,
+    nonce: requestNonce,
     deadlineAt: 60_000,
     requestedSchema: slotSchema,
   };
@@ -751,6 +777,138 @@ function returnsTheGatherSIdWithTheRequestPostsItCertified() {
   );
 }
 
+function refusesAGatherToAGroupOfFewerThanThreeMembers() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(observed);
+      const failure = yield* collectiveFailureOf(
+        send(layer, { ...gatherInput(), to: "group:bob" }),
+      );
+
+      expect(failure).toEqual(new SendError({ reason: "membership-invalid" }));
+      expect(observed.sent).toEqual([]);
+    }),
+  );
+}
+
+function refusesAGatherToAGroupThatNamesAMemberTwice() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(observed);
+      const failure = yield* collectiveFailureOf(
+        send(layer, { ...gatherInput(), to: "group:bob,carol,bob" }),
+      );
+
+      expect(failure).toEqual(new SendError({ reason: "membership-invalid" }));
+      expect(observed.sent).toEqual([]);
+    }),
+  );
+}
+
+function asksTheOneAgentOfAnAgentAddress() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(observed);
+      yield* send(layer, { ...gatherInput(), to: "agent:bob" });
+
+      expect(observed.sent.map((post) => post.to)).toEqual(["agent:bob"]);
+    }),
+  );
+}
+
+function completesAtTheDeadlineEvenWhileRequestPostsAreStillSending() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(observed, {}, Duration.seconds(5));
+      yield* startGather(layer).pipe(Effect.fork);
+      yield* TestClock.adjust(Duration.millis(59_999));
+
+      expect(observed.emitted).toEqual([]);
+
+      yield* TestClock.adjust(Duration.millis(1));
+
+      expect(observed.emitted).toMatchObject([{ kind: "collectiveResult" }]);
+    }),
+  );
+}
+
+function stopsTheDeadlineTimerOfAGatherEveryMemberAnswered() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const supervisor = yield* Supervisor.track;
+      const layer = yield* makeLayer(observed);
+      const id = yield* startGather(layer).pipe(Effect.supervised(supervisor));
+      yield* classifyPost(
+        layer,
+        answerPost("agent:bob", id, { action: "decline" }),
+      );
+      yield* classifyPost(
+        layer,
+        answerPost("agent:carol", id, { action: "decline" }),
+      );
+
+      expect(yield* supervisor.value).toEqual([]);
+    }),
+  );
+}
+
+function completesAGatherWhoseDeadlineIsThirtyDaysAway() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(observed);
+      yield* send(layer, gatherInput(2_592_000));
+      yield* TestClock.adjust(Duration.days(30));
+
+      expect(observed.emitted).toMatchObject([{ kind: "collectiveResult" }]);
+    }),
+  );
+}
+
+function consumesARequestWhoseIdDoesNotDeriveFromItsSender() {
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(newObserved());
+      const takenOver = yield* classifyPost(
+        layer,
+        requestPost("agent:mallory", 60_000),
+      );
+      const honest = yield* classifyPost(
+        layer,
+        requestPost("agent:bob", 60_000),
+      );
+
+      expect(takenOver).toEqual(Option.none());
+      expect(Option.isSome(honest)).toBe(true);
+    }),
+  );
+}
+
+function consumesARequestWhoseDeadlineLiesBeyondTheLongestAGatherStates() {
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(newObserved());
+      const item = yield* classifyPost(
+        layer,
+        requestPost("agent:bob", Duration.toMillis(Duration.days(31)) + 1),
+      );
+
+      expect(item).toEqual(Option.none());
+    }),
+  );
+}
+
 // @agent-code-guard/regression-only: examples pin the posts each operation certifies.
 describe("collective sends", () => {
   it(
@@ -900,5 +1058,48 @@ describe("gather results", () => {
   it(
     "returns the gather's id with the request posts it certified",
     returnsTheGatherSIdWithTheRequestPostsItCertified,
+  );
+
+  it(
+    "completes at the deadline even while request posts are still sending",
+    completesAtTheDeadlineEvenWhileRequestPostsAreStillSending,
+  );
+
+  it(
+    "stops the deadline timer of a gather every member answered",
+    stopsTheDeadlineTimerOfAGatherEveryMemberAnswered,
+  );
+
+  it(
+    "completes a gather whose deadline is thirty days away",
+    completesAGatherWhoseDeadlineIsThirtyDaysAway,
+  );
+});
+
+// @agent-code-guard/regression-only: examples pin that a gather shares the send address rule.
+describe("gather addressing", () => {
+  it(
+    "refuses a gather to a group of fewer than three members",
+    refusesAGatherToAGroupOfFewerThanThreeMembers,
+  );
+
+  it(
+    "refuses a gather to a group that names a member twice",
+    refusesAGatherToAGroupThatNamesAMemberTwice,
+  );
+
+  it("asks the one agent of an agent address", asksTheOneAgentOfAnAgentAddress);
+});
+
+// @agent-code-guard/regression-only: examples pin which received requests a member keeps.
+describe("received request checks", () => {
+  it(
+    "consumes a request whose id does not derive from its sender",
+    consumesARequestWhoseIdDoesNotDeriveFromItsSender,
+  );
+
+  it(
+    "consumes a request whose deadline lies beyond the longest a gather states",
+    consumesARequestWhoseDeadlineLiesBeyondTheLongestAGatherStates,
   );
 });

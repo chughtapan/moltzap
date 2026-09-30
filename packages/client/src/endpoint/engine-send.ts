@@ -123,6 +123,13 @@ const buildMembership = (runtime: EngineRuntime, resolved: ResolvedAddress) =>
     return membership;
   });
 
+const resolveCards = (runtime: EngineRuntime, to: MessageAddressInput) =>
+  resolveMessageAddress({
+    localAgentCard: runtime.input.localAgentCard,
+    registry: runtime.input.registry,
+    to,
+  });
+
 /**
  * Resolve an address to its members' Registry cards without sending, failing
  * with the `SendError` a send to the same address would fail with.
@@ -131,18 +138,12 @@ export const resolveAddress = (
   runtime: EngineRuntime,
   to: MessageAddressInput,
 ): Effect.Effect<void, SendError> =>
-  resolveMessageAddress({
-    localAgentCard: runtime.input.localAgentCard,
-    registry: runtime.input.registry,
-    to,
-  }).pipe(Effect.asVoid);
+  resolveCards(runtime, to).pipe(Effect.asVoid);
 
 const resolveMembership = (runtime: EngineRuntime, input: EngineSendInput) =>
-  resolveMessageAddress({
-    localAgentCard: runtime.input.localAgentCard,
-    registry: runtime.input.registry,
-    to: input.to,
-  }).pipe(Effect.flatMap((resolved) => buildMembership(runtime, resolved)));
+  resolveCards(runtime, input.to).pipe(
+    Effect.flatMap((resolved) => buildMembership(runtime, resolved)),
+  );
 
 function enqueueOuterMessage(
   runtime: EngineRuntime,

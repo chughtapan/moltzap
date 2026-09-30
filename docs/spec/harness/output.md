@@ -27,8 +27,9 @@ deduplicate it against an earlier call.
 
 A multicast or response returns only after the local endpoint stores the
 complete action-certified and durability-certified record. A gather returns
-its `operationId` once its request posts are accepted, an all_gather once its
-group post is certified. Send returns no
+its `operationId` once its request posts are accepted, or after 20 seconds
+with the rest still sending, and an all_gather once its group post is
+certified. Send returns no
 receipt, proof, record hash, signer map, or protocol state.
 
 ## Stock host projection

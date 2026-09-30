@@ -86,22 +86,25 @@ import {
   AgentAddress,
   CollectiveError,
   type CollectiveFailure,
-  CollectiveId,
+  type CollectiveId,
   type CollectiveMemberOutcome,
   type CollectiveOperation,
   type CollectiveResponse,
   type FailureDelivery,
   type InboundItem,
   type InboundMessage,
-  MessageAddressInput,
+  MAXIMUM_DEADLINE_SECONDS,
+  type MessageAddressInput,
   type PostId,
   RequestedSchema,
   SendError,
   type SendInput,
   type SendResult,
 } from "../../contract.js";
+import { canonicalMessageAddress } from "../addressing/index.js";
 import { outcomeOfResponse, validateAnswer } from "./validation.js";
 import {
+  collectiveIdOf,
   type CollectiveValue,
   encodeCollectiveContent,
   FormModeSchema,
@@ -137,12 +140,40 @@ type CloseValue = Extract<CollectiveValue, { readonly kind: "close" }>;
 const REQUEST_SEND_WAIT = Duration.seconds(20);
 
 /**
+ * How many Registry lookups a refused all_gather runs at once to name its
+ * unreachable members; they are independent, and a group has at most 32.
+ */
+const MEMBER_LOOKUP_CONCURRENCY = 8;
+
+/**
  * How long past its deadline a member keeps an all_gather request while it
  * waits for the requester's close. The requester closes at the deadline at
  * the latest, so the close normally follows within seconds; the bound frees
  * the request of a requester that never closes.
  */
 const CLOSE_WAIT = Duration.hours(1);
+
+/**
+ * The longest single sleep a deadline timer takes. A JavaScript timer longer
+ * than about 24.8 days never fires, so a longer deadline is reached in steps.
+ */
+const DEADLINE_TIMER_STEP = Duration.days(1);
+
+/**
+ * How far past the longest deadline a sender may state a received request's
+ * deadline still lies. It absorbs clock skew between the two endpoints; a
+ * request further out is consumed, which bounds how long its state is held
+ * and keeps every stored deadline a representable date.
+ */
+const RECEIVED_DEADLINE_ALLOWANCE = Duration.hours(1);
+
+/** The furthest past `now` a received request's deadline may lie. */
+const RECEIVED_DEADLINE_HORIZON = Duration.toMillis(
+  Duration.sum(
+    Duration.seconds(MAXIMUM_DEADLINE_SECONDS),
+    RECEIVED_DEADLINE_ALLOWANCE,
+  ),
+);
 
 /** What the collective layer needs from the daemon around it. */
 export interface CollectivePorts {
@@ -204,11 +235,11 @@ export interface CollectiveOperations {
 type Members = readonly [AgentAddress, ...AgentAddress[]];
 
 /**
- * A gather or all_gather this endpoint started that has not completed.
- * `answerHashes` holds the certified record of each counted answer, which an
- * all_gather's close lists.
+ * A gather or all_gather this endpoint started, before its deadline timer is
+ * running. `answerHashes` holds the certified record of each counted answer,
+ * which an all_gather's close lists.
  */
-interface OpenGather {
+interface GatherRequest {
   readonly op: CollectingOperation["op"];
   readonly to: MessageAddressInput;
   readonly question: string;
@@ -218,9 +249,17 @@ interface OpenGather {
   readonly answerHashes: Map<AgentAddress, RecordHash>;
 }
 
+/**
+ * An operation this endpoint started that has not completed. `timer`
+ * completes it at its deadline; completing it earlier interrupts the timer.
+ */
+interface OpenGather extends GatherRequest {
+  readonly timer: Fiber.RuntimeFiber<void>;
+}
+
 /** One answer certified in an all_gather's group conversation. */
 interface CertifiedAnswer {
-  readonly member: AgentAddress;
+  readonly recordHash: RecordHash;
   readonly response: ResponseValue;
 }
 
@@ -231,13 +270,14 @@ interface HeldClose {
 }
 
 /**
- * What a member of an all_gather keeps until the close: every answer
- * certified in the group conversation, by record hash, its own included.
+ * What a member of an all_gather keeps until the close: each member's first
+ * answer certified in the group conversation, its own included, with the
+ * record hash a close lists it by.
  */
 interface SharedAnswers {
   readonly question: string;
   readonly members: Members;
-  readonly answers: Map<RecordHash, CertifiedAnswer>;
+  readonly answers: Map<AgentAddress, CertifiedAnswer>;
   heldClose?: HeldClose;
 }
 
@@ -269,14 +309,15 @@ interface CollectiveState {
   readonly requests: Map<CollectiveId, ReceivedRequest>;
 }
 
-const decodeCollectiveId = Schema.decodeUnknownSync(CollectiveId);
 const decodeAgentAddress = Schema.decodeUnknownOption(AgentAddress);
-const decodeAddressInput = Schema.decodeUnknownOption(MessageAddressInput);
 const decodeRequestedSchema = Schema.decodeUnknownOption(RequestedSchema);
 
-const mintCollectiveId = Effect.sync(() =>
-  decodeCollectiveId(`col_${randomBytes(32).toString("base64url")}`),
-);
+/** A fresh nonce and the id it binds to the requester. */
+const mintCollectiveId = (requester: AgentAddress) =>
+  Effect.sync(() => {
+    const nonce = randomBytes(32).toString("base64url");
+    return { id: collectiveIdOf(requester, nonce), nonce };
+  });
 
 const contentInvalid = () => new SendError({ reason: "content-invalid" });
 
@@ -398,62 +439,55 @@ function refusedAs<E>(id: CollectiveId, to: MessageAddressInput) {
   return (error: E): RefusedSend<E> => ({ id, to, error });
 }
 
+/** A collecting operation's canonical address and the members it asks. */
+interface GatherAddress {
+  readonly to: MessageAddressInput;
+  readonly members: Members;
+}
+
 /**
- * The members a gather asks: the one agent of an `agent:` address, or every
- * named member of a `group:` address but the requester, each once.
+ * The canonical address a collecting operation's result and failure name, by
+ * the rule every send shares, and the members it asks: the one agent of an
+ * `agent:` address, or every member of a group but the requester. An
+ * all_gather asks a group in its conversation, so an `agent:` address is
+ * refused as `membership-invalid`.
  */
-function gatherMembers(
+function gatherAddress(
   to: MessageAddressInput,
   self: AgentAddress,
-): readonly AgentAddress[] {
-  if (to.startsWith("agent:")) {
-    return Option.toArray(decodeAgentAddress(to));
-  }
-  const names = to.slice("group:".length).split(",");
-  return EffectArray.dedupe(
-    names.flatMap((name) =>
-      Option.toArray(decodeAgentAddress(`agent:${name}`)),
-    ),
-  ).filter((member) => member !== self);
-}
-
-/** Order names by UTF-16 code unit, which is ASCII order for agent names. */
-function compareCodeUnits(left: string, right: string): number {
-  if (left === right) {
-    return 0;
-  }
-  return left < right ? -1 : 1;
-}
-
-/**
- * The address a collecting operation's result and failure name: an `agent:`
- * address as given, or a group's names with the requester added, each once and sorted,
- * which is the group conversation's own address.
- */
-function collectiveAddress(
-  to: MessageAddressInput,
-  self: AgentAddress,
-): MessageAddressInput {
-  if (to.startsWith("agent:")) {
-    return to;
-  }
-  const names = new Set([
-    ...to.slice("group:".length).split(","),
-    self.slice("agent:".length),
-  ]);
-  return decodeAddressInput(
-    `group:${[...names].sort(compareCodeUnits).join(",")}`,
-  ).pipe(Option.getOrElse(() => to));
+  op: CollectingOperation["op"],
+): Effect.Effect<GatherAddress, SendError> {
+  const selfName = self.slice("agent:".length);
+  const membershipInvalid = new SendError({ reason: "membership-invalid" });
+  return canonicalMessageAddress(to, selfName).pipe(
+    Effect.flatMap((canonical): Effect.Effect<GatherAddress, SendError> => {
+      if (canonical.kind === "direct") {
+        return op === "gather"
+          ? Effect.succeed({
+              to: canonical.address,
+              members: [canonical.address],
+            })
+          : Effect.fail(membershipInvalid);
+      }
+      const [first, ...rest] = canonical.memberNames
+        .filter((name) => name !== selfName)
+        .flatMap((name) => Option.toArray(decodeAgentAddress(`agent:${name}`)));
+      return first === undefined
+        ? Effect.fail(membershipInvalid)
+        : Effect.succeed({ to: canonical.address, members: [first, ...rest] });
+    }),
+  );
 }
 
 /**
- * A validated gather ready to fan out: its open state, the request content
- * every member receives, and the milliseconds left until its deadline.
+ * A validated gather ready to fan out: its state, the request content every
+ * member receives, its absolute deadline, and the milliseconds left until it.
  */
 interface PreparedGather {
   readonly id: CollectiveId;
-  readonly open: OpenGather;
+  readonly open: GatherRequest;
   readonly content: PostContent;
+  readonly deadlineAt: number;
   readonly untilDeadline: number;
 }
 
@@ -475,9 +509,7 @@ function formModeSchema(
 /**
  * Validate a gather or all_gather before any post: mint its id, check its
  * schema against the form-mode grammar, name its members, fix its absolute
- * deadline, and build the request content within the content limit. An
- * all_gather asks a group in its conversation, so it needs a `group:`
- * address; the engine applies the group size rule when it sends.
+ * deadline, and build the request content within the content limit.
  */
 function prepareGather(
   state: CollectiveState,
@@ -486,52 +518,49 @@ function prepareGather(
   operation: CollectingOperation,
 ): Effect.Effect<PreparedGather, RefusedSend<SendError | CollectiveError>> {
   return Effect.gen(function* () {
-    const id = yield* mintCollectiveId;
-    const to = collectiveAddress(requestedTo, state.ports.self);
+    const { id, nonce } = yield* mintCollectiveId(state.ports.self);
+    const { to, members } = yield* gatherAddress(
+      requestedTo,
+      state.ports.self,
+      operation.op,
+    ).pipe(Effect.mapError(refusedAs(id, requestedTo)));
     const refused = refusedAs<SendError | CollectiveError>(id, to);
     const requestedSchema = yield* formModeSchema(
       id,
       operation.requestedSchema,
     ).pipe(Effect.mapError(refused));
-    const [first, ...rest] = gatherMembers(to, state.ports.self);
-    if (
-      first === undefined ||
-      (operation.op === "all_gather" && !to.startsWith("group:"))
-    ) {
-      return yield* Effect.fail(
-        refused(new SendError({ reason: "membership-invalid" })),
-      );
-    }
     const now = yield* Clock.currentTimeMillis;
     const untilDeadline = Duration.toMillis(
       Duration.seconds(operation.deadline),
     );
+    const deadlineAt = now + untilDeadline;
     const content = yield* encodeCollectiveContent(
       {
         kind: "operation",
         op: operation.op,
         id,
-        deadlineAt: now + untilDeadline,
+        nonce,
+        deadlineAt,
         requestedSchema,
       },
       question,
     ).pipe(Effect.mapError(() => refused(contentInvalid())));
-    const open: OpenGather = {
+    const open: GatherRequest = {
       op: operation.op,
       to,
       question,
-      members: [first, ...rest],
+      members,
       requestedSchema,
       outcomes: new Map(),
       answerHashes: new Map(),
     };
-    return { id, open, content, untilDeadline };
+    return { id, open, content, deadlineAt, untilDeadline };
   });
 }
 
 /**
- * Open the operation so answers can be recorded while its requests are still
- * being sent, send them, and schedule its completion at the deadline.
+ * Start the operation's deadline timer, open it so answers can be recorded
+ * while its requests are still being sent, and send them.
  */
 function gather(
   state: CollectiveState,
@@ -549,8 +578,12 @@ function gather(
       question,
       operation,
     );
+    const timer = yield* sleepUntil(prepared.deadlineAt).pipe(
+      Effect.zipRight(completeGather(state, prepared.id)),
+      Effect.forkIn(state.ports.scope),
+    );
     yield* Effect.sync(() => {
-      state.gathers.set(prepared.id, prepared.open);
+      state.gathers.set(prepared.id, { ...prepared.open, timer });
     });
     const requests =
       prepared.open.op === "gather"
@@ -559,12 +592,21 @@ function gather(
     const postIds = yield* requests.pipe(
       Effect.mapError(refusedAs(prepared.id, prepared.open.to)),
     );
-    yield* Effect.sleep(Duration.millis(prepared.untilDeadline)).pipe(
-      Effect.zipRight(completeGather(state, prepared.id)),
-      Effect.forkIn(state.ports.scope),
-    );
     return { operationId: prepared.id, postIds };
   });
+}
+
+/** Sleep until the absolute time `at`, in steps no timer overflows. */
+function sleepUntil(at: number): Effect.Effect<void> {
+  return Clock.currentTimeMillis.pipe(
+    Effect.flatMap((now) =>
+      now >= at
+        ? Effect.void
+        : Effect.sleep(
+            Duration.min(Duration.millis(at - now), DEADLINE_TIMER_STEP),
+          ).pipe(Effect.zipRight(sleepUntil(at))),
+    ),
+  );
 }
 
 /** A member whose request post was refused, and why. */
@@ -639,11 +681,7 @@ function sendGroupRequest(
       Effect.map((post) => [post.postId]),
       Effect.catchAll((error) =>
         unreachableMembers(state, prepared.open.members, error.reason).pipe(
-          Effect.tap(() =>
-            Effect.sync(() => {
-              state.gathers.delete(prepared.id);
-            }),
-          ),
+          Effect.tap(() => forgetGather(state, prepared.id)),
           Effect.flatMap((members) =>
             Effect.fail(
               collectiveFailure(prepared.id, {
@@ -678,7 +716,7 @@ function unreachableMembers(
         ),
         Effect.option,
       ),
-    { concurrency: 1 },
+    { concurrency: MEMBER_LOOKUP_CONCURRENCY },
   ).pipe(
     Effect.map((lookups) => {
       const [first, ...rest] = lookups.flatMap((lookup) =>
@@ -734,13 +772,19 @@ function abandonGather(
   return Effect.forEach(sends, (send) => Fiber.interruptFork(send), {
     concurrency: 1,
     discard: true,
-  }).pipe(
-    Effect.zipRight(
-      Effect.sync(() => {
-        state.gathers.delete(id);
-      }),
-    ),
-  );
+  }).pipe(Effect.zipRight(forgetGather(state, id)));
+}
+
+/** Drop an operation this endpoint abandons, and stop its deadline timer. */
+function forgetGather(
+  state: CollectiveState,
+  id: CollectiveId,
+): Effect.Effect<void> {
+  return Effect.suspend(() => {
+    const open = state.gathers.get(id);
+    state.gathers.delete(id);
+    return open === undefined ? Effect.void : Fiber.interrupt(open.timer);
+  });
 }
 
 type CollectiveResultItem = Extract<
@@ -765,7 +809,8 @@ function memberOutcomes(
  * Complete an operation this endpoint started. A gather emits its result
  * now; an all_gather first posts its close, off the calling fiber because
  * completion can run inside a publication pass that certification waits on.
- * An operation completes once; a later call does nothing.
+ * An operation completes once; a later call does nothing. The deadline timer
+ * calls it too, so it leaves the timer to its caller.
  */
 function completeGather(
   state: CollectiveState,
@@ -854,14 +899,16 @@ function respond(
     yield* claimRequest(id, request).pipe(Effect.mapError(refused));
     const post = yield* state.ports.sendPost({ to: request.to, content }).pipe(
       Effect.tapBoth({
-        onFailure: () => answerRefused(state, id, request),
+        onFailure: () => settleAnswer(state, id, request, Option.none()),
         onSuccess: (sent) =>
-          answerCertified(state, id, request, {
-            recordHash: sent.recordHash,
-            answer: { member: state.ports.self, response: value },
-          }),
+          settleAnswer(
+            state,
+            id,
+            request,
+            Option.some({ recordHash: sent.recordHash, response: value }),
+          ),
       }),
-      Effect.onInterrupt(() => answerRefused(state, id, request)),
+      Effect.onInterrupt(() => settleAnswer(state, id, request, Option.none())),
       Effect.mapError(refused),
     );
     return { operationId: id, postIds: [post.postId] };
@@ -960,49 +1007,32 @@ function claimRequest(
 }
 
 /**
- * Mark a request answered. A member's own answer never arrives inbound, so
- * an all_gather member records it here by its certified record, and applies
- * a close that was waiting for it.
+ * Settle a request's answer send: answered with the certified answer, or
+ * reopened when it was refused. A member's own answer never arrives inbound,
+ * so an all_gather member records it here, and applies a close that was
+ * waiting for it; after a refused answer that close lists a record this
+ * endpoint will not hold, so applying it drops it.
  */
-function answerCertified(
+function settleAnswer(
   state: CollectiveState,
   id: CollectiveId,
   request: ReceivedRequest,
-  certified: Readonly<{ recordHash: RecordHash; answer: CertifiedAnswer }>,
+  certified: Option.Option<CertifiedAnswer>,
 ): Effect.Effect<void> {
   return Effect.suspend(() => {
-    request.state = "answered";
+    request.state = Option.isSome(certified) ? "answered" : "open";
     const shared = request.shared;
     if (shared === undefined) {
       return Effect.void;
     }
-    shared.answers.set(certified.recordHash, certified.answer);
+    if (Option.isSome(certified)) {
+      shared.answers.set(state.ports.self, certified.value);
+    }
     const held = shared.heldClose;
     shared.heldClose = undefined;
     return held === undefined
       ? Effect.void
       : applyClose(state, { id, request, shared }, held);
-  });
-}
-
-/**
- * Reopen a request whose answer was refused. A close waiting for that answer
- * lists a record this endpoint will not hold, so it is dropped.
- */
-function answerRefused(
-  state: CollectiveState,
-  id: CollectiveId,
-  request: ReceivedRequest,
-): Effect.Effect<void> {
-  return Effect.suspend(() => {
-    request.state = "open";
-    const shared = request.shared;
-    const held = shared?.heldClose;
-    if (shared === undefined || held === undefined) {
-      return Effect.void;
-    }
-    shared.heldClose = undefined;
-    return applyClose(state, { id, request, shared }, held);
   });
 }
 
@@ -1091,14 +1121,13 @@ function receivedRequest(
 ): Option.Option<ReceivedRequest> {
   const request = {
     from: message.sender,
+    to: message.address,
     requestedSchema: value.requestedSchema,
     deadlineAt: value.deadlineAt,
     state: "open" as const,
   };
   if (value.op === "gather") {
-    return message.kind === "direct"
-      ? Option.some({ ...request, to: message.address })
-      : Option.none();
+    return message.kind === "direct" ? Option.some(request) : Option.none();
   }
   if (message.kind !== "group") {
     return Option.none();
@@ -1110,7 +1139,6 @@ function receivedRequest(
     ? Option.none()
     : Option.some({
         ...request,
-        to: message.address,
         shared: {
           question: questionText(message.content),
           members: [first, ...rest],
@@ -1127,8 +1155,9 @@ function questionText(content: PostContent): string {
 
 /**
  * Record a received gather or all_gather request and present it as an item.
- * A request in the wrong kind of conversation, one past its deadline, or one
- * reusing another requester's id is consumed.
+ * A request in the wrong kind of conversation, one past its deadline, one
+ * whose deadline lies beyond `RECEIVED_DEADLINE_HORIZON`, or one whose id
+ * does not derive from its sender is consumed.
  */
 function requestItem(
   state: CollectiveState,
@@ -1138,14 +1167,15 @@ function requestItem(
   return Clock.currentTimeMillis.pipe(
     Effect.map((now) => {
       const received = receivedRequest(message, value);
-      if (now >= value.deadlineAt || Option.isNone(received)) {
+      if (
+        Option.isNone(received) ||
+        now >= value.deadlineAt ||
+        value.deadlineAt > now + RECEIVED_DEADLINE_HORIZON ||
+        collectiveIdOf(message.sender, value.nonce) !== value.id
+      ) {
         return Option.none();
       }
-      const known = state.requests.get(value.id);
-      if (known !== undefined && known.from !== message.sender) {
-        return Option.none();
-      }
-      if (known === undefined) {
+      if (!state.requests.has(value.id)) {
         forgetExpiredRequests(state, now);
         state.requests.set(value.id, received.value);
       }
@@ -1225,7 +1255,9 @@ function recordCountedAnswer(
       open.outcomes.set(message.sender, outcome);
       open.answerHashes.set(message.sender, post.recordHash);
       return open.outcomes.size === open.members.length
-        ? completeGather(state, value.id)
+        ? completeGather(state, value.id).pipe(
+            Effect.zipRight(Fiber.interrupt(open.timer)),
+          )
         : Effect.void;
     }),
   );
@@ -1256,13 +1288,18 @@ function recordPeerAnswer(
 ): void {
   const { message } = post;
   if (
-    request.state !== "closed" &&
-    message.kind === "group" &&
-    message.address === request.to &&
-    shared.members.includes(message.sender)
+    request.state === "closed" ||
+    message.kind !== "group" ||
+    message.address !== request.to
   ) {
-    shared.answers.set(post.recordHash, {
-      member: message.sender,
+    return;
+  }
+  if (
+    shared.members.includes(message.sender) &&
+    !shared.answers.has(message.sender)
+  ) {
+    shared.answers.set(message.sender, {
+      recordHash: post.recordHash,
       response: value,
     });
   }
@@ -1270,8 +1307,11 @@ function recordPeerAnswer(
 
 /**
  * Receive an all_gather's close. Only the requester's close in the group
- * conversation of a request this endpoint holds counts; any other close is
- * consumed and logged, and a close classified again changes nothing.
+ * conversation of a request this endpoint holds counts. The held request's id
+ * derives from its requester, so a close from any other sender names an id
+ * that does not derive from that sender; it, and a close for an id this
+ * endpoint does not hold, is consumed and logged. A close classified again
+ * changes nothing.
  */
 function receiveClose(
   state: CollectiveState,
@@ -1311,10 +1351,10 @@ function receiveClose(
  * the close lists was recorded before the close is classified. The member's
  * own answer is not delivered inbound: it is recorded when its send returns,
  * and a close that arrives while that send is in flight is held until it
- * returns. A listed record the endpoint still does not hold, or two listed
- * answers from one member, mean the close does not describe this endpoint's
- * history, for instance after a daemon restart; it is consumed and logged,
- * and no result is emitted.
+ * returns. A listed record the endpoint still does not hold, or one listed
+ * twice, means the close does not describe this endpoint's history, for
+ * instance after a daemon restart; it is consumed and logged, and no result
+ * is emitted. Once closed, the request keeps no answers.
  */
 function applyClose(
   state: CollectiveState,
@@ -1322,16 +1362,24 @@ function applyClose(
   close: HeldClose,
 ): Effect.Effect<void> {
   const { id, request, shared } = asked;
-  const answers = close.included.flatMap((hash) =>
-    Option.toArray(Option.fromNullable(shared.answers.get(hash))),
+  const byHash = new Map(
+    [...shared.answers].map(([member, answer]) => [
+      answer.recordHash,
+      { member, response: answer.response },
+    ]),
   );
-  if (answers.length < close.included.length && request.state === "sending") {
+  const answers = close.included.flatMap((hash) =>
+    Option.toArray(Option.fromNullable(byHash.get(hash))),
+  );
+  const missing = answers.length < close.included.length;
+  if (missing && request.state === "sending") {
     shared.heldClose = close;
     return Effect.void;
   }
   request.state = "closed";
+  shared.answers.clear();
   const members = new Set(answers.map((answer) => answer.member));
-  if (answers.length < close.included.length || members.size < answers.length) {
+  if (missing || members.size < answers.length) {
     return Effect.logWarning(
       `consumed close ${close.postId} of ${id}: it lists answers this endpoint does not hold`,
     );
