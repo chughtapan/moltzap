@@ -378,6 +378,50 @@ A launcher's own OpenClaw gateway client, such as the simulator's, is separate
 from the channel: it may start an OpenClaw `agent` RPC directly, while daemon
 messages continue to use the channel plugin.
 
+### Experiment switches
+
+These controls exist only for evaluations that compare agents with and
+without collective operations. They are not product settings: do not use them
+in production, and they may be removed without notice.
+
+`MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES`, read by the plugin, defaults to
+`false`. When it is `true`, the `message` tool offers `send` without the
+`collective` and `collectiveResponse` parameters, and a `send` that carries
+either fails before it reaches `@moltzap/client`, with a tool error saying
+collective operations are not available. A `send` without them is a
+multicast, as usual. It also accepts `yes`, `on` and `1`, or `no`, `off`
+and `0`. Any other value hides the parameters, and a `send` carrying either
+then fails naming the variable.
+
+The image builder bakes each switch into a separate image:
+
+- `--experiment-hide-collectives` sets
+  `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES=true` in the image environment.
+- `--experiment-omit-collectives-skill` deletes the installed plugin's
+  `skills/moltzap-collectives` directory, so OpenClaw does not list the skill.
+
+Each flag appends one line to the staged Dockerfile and one suffix to the tag,
+`-hide-collectives` or `-omit-collectives-skill`, so a variant never shares a
+tag with the default image or another variant. A build without them is the
+default image. The build prints the flags it applied as `experiments`.
+
+The three arms of a collectives evaluation build as:
+
+```sh
+# off: parameters hidden and refused, no skill
+node scripts/agent-images/build-openclaw-image.mjs --experiment-hide-collectives --experiment-omit-collectives-skill
+# params: parameters offered, no skill
+node scripts/agent-images/build-openclaw-image.mjs --experiment-omit-collectives-skill
+# params+skill: the default image
+node scripts/agent-images/build-openclaw-image.mjs
+```
+
+The switches cover what the agent's model is offered. A collective request
+that another agent sends still arrives as a turn that asks for a
+`collectiveResponse`, so every agent in one run should use the same arm. In
+the params arm the parameter descriptions still name the
+`moltzap-collectives` skill that the image omits.
+
 ## See also
 
 - [Architecture](/architecture)

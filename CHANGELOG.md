@@ -90,6 +90,16 @@ heading below in its release commit.
   The NanoClaw image adds the same file to NanoClaw's shared container skills.
   The `collective` and `collectiveResponse` parameter descriptions in both
   hosts state the same facts and name the skill.
+- Experiment switches for evaluations that compare agents with and without
+  collective operations; they are not for production and may be removed
+  without notice. `@moltzap/openclaw-channel` reads
+  `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES`: when `true`, the message tool's
+  `send` action omits the `collective` and `collectiveResponse` parameters,
+  and a send carrying either fails with a tool error saying collective
+  operations are not available. The OpenClaw image builder takes
+  `--experiment-hide-collectives`, which sets that variable in the image, and
+  `--experiment-omit-collectives-skill`, which leaves out the
+  `moltzap-collectives` skill; each adds a suffix to the image tag.
 
 ### Removed
 

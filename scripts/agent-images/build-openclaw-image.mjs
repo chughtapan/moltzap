@@ -58,6 +58,84 @@ export const openClawWorkspacePackageNames = Object.freeze(
   Object.keys(workspacePackages),
 );
 
+/**
+ * Experiment controls for evaluations that compare agents with and without
+ * collective operations. They are not for production images and may be
+ * removed without notice. Each one appends its line to the staged Dockerfile,
+ * which the fingerprint hashes, and its suffix to the tag, so a variant never
+ * shares a tag with the default image or another variant. A build without
+ * them stages the Dockerfile unchanged.
+ *
+ * `--experiment-hide-collectives` sets the plugin's
+ * `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES` for the host.
+ * `--experiment-omit-collectives-skill` deletes the installed plugin's
+ * `moltzap-collectives` skill directory, so OpenClaw does not list the skill.
+ * @type {Readonly<Record<string, {tagSuffix: string, dockerfileLine: string}>>}
+ */
+export const OPENCLAW_EXPERIMENTS = Object.freeze({
+  "--experiment-hide-collectives": {
+    tagSuffix: "hide-collectives",
+    dockerfileLine: "ENV MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES=true",
+  },
+  "--experiment-omit-collectives-skill": {
+    tagSuffix: "omit-collectives-skill",
+    dockerfileLine:
+      "RUN rm -r /opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/moltzap-collectives",
+  },
+});
+
+/**
+ * Separate the experiment flags from the shared image-build arguments.
+ * @param {readonly string[]} args Process arguments after the script path.
+ * @returns {{experiments: string[], buildArguments: string[]}} The experiment
+ * flags in {@link OPENCLAW_EXPERIMENTS} order, and every other argument.
+ */
+export function splitExperimentArguments(args) {
+  return {
+    experiments: Object.keys(OPENCLAW_EXPERIMENTS).filter((flag) =>
+      args.includes(flag),
+    ),
+    buildArguments: args.filter(
+      (arg) => !Object.hasOwn(OPENCLAW_EXPERIMENTS, arg),
+    ),
+  };
+}
+
+/**
+ * @param {string} dockerfile The source Dockerfile text.
+ * @param {readonly string[]} experiments Selected experiment flags.
+ * @returns {string} The Dockerfile to stage.
+ */
+export function experimentDockerfile(dockerfile, experiments) {
+  if (experiments.length === 0) {
+    return dockerfile;
+  }
+  return (
+    dockerfile.replace(/\n?$/u, "\n") +
+    experiments
+      .map((flag) => OPENCLAW_EXPERIMENTS[flag].dockerfileLine + "\n")
+      .join("")
+  );
+}
+
+/**
+ * @param {string} tag The fingerprint or the caller's tag.
+ * @param {readonly string[]} experiments Selected experiment flags.
+ * @returns {string} The tag with one suffix per experiment.
+ */
+export function experimentTag(tag, experiments) {
+  const suffixed = [
+    tag,
+    ...experiments.map((flag) => OPENCLAW_EXPERIMENTS[flag].tagSuffix),
+  ].join("-");
+  if (suffixed.length > 128) {
+    throw new TypeError(
+      "OpenClaw image tag with experiment suffixes exceeds 128 characters",
+    );
+  }
+  return suffixed;
+}
+
 function report(message) {
   process.stderr.write("[moltzap openclaw image] " + message + "\n");
 }
@@ -99,7 +177,20 @@ export function packageManifest(archives) {
   };
 }
 
-async function stage() {
+/**
+ * @param {string} root Staging directory.
+ * @param {readonly string[]} experiments Selected experiment flags.
+ * @returns {Promise<void>}
+ */
+async function stageDockerfile(root, experiments) {
+  const dockerfile = await readFile(join(imageRoot, "Dockerfile"), "utf8");
+  await writeFile(
+    join(root, "Dockerfile"),
+    experimentDockerfile(dockerfile, experiments),
+  );
+}
+
+async function stage(experiments) {
   const root = await mkdtemp(join(tmpdir(), "moltzap-openclaw-image-"));
   const tarballs = join(root, "tarballs");
   await mkdir(tarballs);
@@ -111,7 +202,7 @@ async function stage() {
   );
   const archives = Object.fromEntries(packed);
   await Promise.all([
-    copyFile(join(imageRoot, "Dockerfile"), join(root, "Dockerfile")),
+    stageDockerfile(root, experiments),
     copyFile(
       join(imageRoot, "host-command.json"),
       join(root, "host-command.json"),
@@ -160,7 +251,13 @@ export const FINGERPRINTED_FILES = Object.freeze([
   "register-daemon.mjs",
 ]);
 
-async function fingerprint(root) {
+/**
+ * The default image tag: a hash of the base image, the Claude Code version,
+ * every fingerprinted staged file, the package tarballs, and this script.
+ * @param {string} root Staging directory.
+ * @returns {Promise<string>} Sixteen hex characters.
+ */
+export async function fingerprint(root) {
   const hash = createHash("sha256");
   const paths = [
     ...FINGERPRINTED_FILES,
@@ -179,7 +276,10 @@ async function fingerprint(root) {
 }
 
 async function main() {
-  const options = parseImageBuildArguments(process.argv.slice(2), {
+  const { experiments, buildArguments } = splitExperimentArguments(
+    process.argv.slice(2),
+  );
+  const options = parseImageBuildArguments(buildArguments, {
     script: "build-openclaw-image.mjs",
     label: "OpenClaw image",
     defaultRepository: DEFAULT_REPOSITORY,
@@ -199,10 +299,12 @@ async function main() {
       maxBuffer: 16 * 1024 * 1024,
     },
   );
-  const staging = await stage();
+  const staging = await stage(experiments);
   try {
     const image =
-      options.repository + ":" + (options.tag ?? (await fingerprint(staging)));
+      options.repository +
+      ":" +
+      experimentTag(options.tag ?? (await fingerprint(staging)), experiments);
     const metadataPath = join(staging, "build-metadata.json");
     report((options.push ? "building and pushing " : "building ") + image);
     await exec(
@@ -241,6 +343,7 @@ async function main() {
         baseImage: OPENCLAW_BASE_IMAGE,
         claudeCodeVersion: CLAUDE_CODE_VERSION,
         entrypoint: "/opt/moltzap/agent/entrypoint.mjs",
+        experiments,
         gatewayPort: 18_789,
       }) + "\n",
     );
