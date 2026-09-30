@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.930.0] - 2026-09-30
+
 ### Changed
 
 - **Breaking:** `HarnessEndpoint` sends and receives operations instead of
