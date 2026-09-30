@@ -991,6 +991,32 @@ describe("public client behavior", () => {
           expect(tag, scenario.name).toBe("RouterInvalidResponseError");
         }
 
+        for (const status of [502, 503, 504]) {
+          const client = HttpClient.make((request) =>
+            Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                new Response("<html><body>Bad Gateway</body></html>", {
+                  status,
+                  headers: { "content-type": "text/html" },
+                }),
+              ),
+            ),
+          );
+          const outcome = yield* runPollWithClient(
+            client,
+            signingAuthority,
+            Duration.seconds(5),
+          );
+          const tag = Either.match(outcome, {
+            onLeft: (error) => error._tag,
+            onRight: () => "unexpected_success",
+          });
+          expect(tag, `gateway ${String(status)} page`).toBe(
+            "RouterConnectionError",
+          );
+        }
+
         const connectionOutcome = yield* runPollWithClient(
           HttpClient.make((request) =>
             Effect.fail(
