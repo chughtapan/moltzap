@@ -20,9 +20,10 @@ import type {
   RouterWorkerTransportError,
 } from "../../endpoint/router-worker/index.js";
 import type { EndpointStore, StoredMembership } from "../../endpoint/store.js";
-import type { HarnessMessageReadyEvent } from "../../harness-mcp-contract.js";
-import type { HarnessMcpSubscriptionHandler } from "../../harness-mcp-subscription.js";
-import type { makeHarnessMcpHttpHandler } from "../../harness-mcp-wire.js";
+import type {
+  HarnessMcpEventHandler,
+  makeHarnessMcpHttpHandler,
+} from "../../harness-mcp-wire.js";
 import type { DaemonBootstrap } from "../configuration.js";
 import type { HistoryExportPort } from "./history-export.js";
 import {
@@ -39,9 +40,6 @@ import {
   type DaemonRegistrationState,
   readDaemonRegistrationState,
 } from "../registration.js";
-
-type SubscriptionHandler =
-  HarnessMcpSubscriptionHandler<HarnessMessageReadyEvent>;
 
 /** Closed private daemon failure projected onto the public startup phases. */
 export class DaemonRuntimeError extends Data.TaggedError("DaemonRuntimeError")<{
@@ -70,7 +68,7 @@ export interface DaemonRuntimeDependencies {
   readonly makeHandler: typeof makeHarnessMcpHttpHandler;
   readonly acquireListener: (input: {
     readonly port: number;
-    readonly handler: SubscriptionHandler;
+    readonly handler: HarnessMcpEventHandler;
   }) => Effect.Effect<void, Error, Scope.Scope>;
   /** Opens the operator-configured history export against one file. */
   readonly makeHistoryExport: (

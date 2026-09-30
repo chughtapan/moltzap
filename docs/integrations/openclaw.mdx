@@ -99,7 +99,7 @@ For a group message, `ChatType` is `"group"`, `OriginatingTo` contains the
 canonical `group:` address, and `GroupMembers` contains the complete member
 list. `From` and `SenderId` identify the sender.
 
-For each `xyz.moltzap/events-v3` delivery, the plugin:
+For each classified inbox delivery received through MCP Events, the plugin:
 
 1. Builds the OpenClaw context and turn plan.
 2. Awaits OpenClaw's inbound runner.

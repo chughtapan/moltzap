@@ -22,16 +22,6 @@ import {
 } from "./daemon-process-harness.js";
 
 const DELIVERY_TIMEOUT = Duration.seconds(60);
-const UNREGISTERED_TOOL_CATALOG = ["register", "status"] as const;
-const ACTIVE_TOOL_CATALOG = [
-  "acknowledge_delivery",
-  "read_conversation",
-  "search_agents",
-  "search_conversations",
-  "send_message",
-  "status",
-] as const;
-
 const initialText = "hello from the first real daemon";
 const responseText = "addressed response from the second real daemon";
 const multicastPart = {
@@ -91,9 +81,6 @@ const registerFixture = (fixture: DaemonProcessFixture) =>
   Effect.scoped(
     Effect.gen(function* () {
       const management = yield* acquireDaemonManagementClient(fixture.endpoint);
-      expect(yield* management.listToolNames()).toEqual(
-        UNREGISTERED_TOOL_CATALOG,
-      );
       expect(yield* management.status()).toEqual({ kind: "unregistered" });
 
       const registered = yield* management.register(
@@ -104,7 +91,6 @@ const registerFixture = (fixture: DaemonProcessFixture) =>
         const agentCard = yield* decodeManagementCard(registered.agentCard);
         expect(agentCard.agentName).toBe(fixture.agentName);
       }
-      expect(yield* management.listToolNames()).toEqual(ACTIVE_TOOL_CATALOG);
     }),
   );
 

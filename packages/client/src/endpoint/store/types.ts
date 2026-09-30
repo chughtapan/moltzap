@@ -29,6 +29,32 @@ export type DeliveryToken = typeof DeliveryToken.Type;
 /** Whether an idempotent mutation inserted state or observed the same state. */
 export type StoreMutation = "inserted" | "existing";
 
+/** Immutable classified item retained until the host accepts its delivery. */
+export interface InboxEntry {
+  readonly deliveryToken: DeliveryToken;
+  readonly canonicalItem: Uint8Array;
+  readonly sequence: number;
+}
+
+/** A bounded view below a fixed inbox sequence, independent of later arrivals. */
+export interface InboxPage {
+  readonly items: readonly InboxEntry[];
+  readonly through: number;
+  readonly nextAfter?: number;
+}
+
+/** Wakeup bookkeeping contains no peer content or collective protocol state. */
+export interface InboxSummary {
+  readonly pendingCount: number;
+  readonly newestSequence: number;
+}
+
+/** One retained invocation; an absent outcome does not authorize re-execution. */
+export interface StoredSendAttempt {
+  readonly canonicalInput: Uint8Array;
+  readonly canonicalOutcome?: Uint8Array;
+}
+
 /** Canonical bytes bound to the one local identity. */
 export interface IdentityBinding {
   readonly agentId: string;
@@ -234,6 +260,43 @@ export interface HistoryPage {
 
 /** Private durable operations owned by one daemon process. */
 export interface EndpointStore {
+  readonly putInboxItem: (
+    item: Omit<InboxEntry, "sequence">,
+  ) => Effect.Effect<StoreMutation, EndpointStoreError>;
+  readonly readInbox: (input?: {
+    readonly after?: number;
+    readonly through?: number;
+    readonly limit?: number;
+  }) => Effect.Effect<InboxPage, EndpointStoreError>;
+  readonly readInboxSummary: () => Effect.Effect<
+    InboxSummary,
+    EndpointStoreError
+  >;
+  readonly acknowledgeInboxItem: (
+    deliveryToken: DeliveryToken,
+  ) => Effect.Effect<void, EndpointStoreError>;
+  readonly replaceInboxItem: (
+    deliveryToken: DeliveryToken,
+    replacement: Omit<InboxEntry, "sequence">,
+  ) => Effect.Effect<void, EndpointStoreError>;
+  readonly beginSendAttempt: (
+    key: string,
+    canonicalInput: Uint8Array,
+  ) => Effect.Effect<StoreMutation, EndpointStoreError>;
+  readonly finishSendAttempt: (
+    key: string,
+    canonicalOutcome: Uint8Array,
+  ) => Effect.Effect<void, EndpointStoreError>;
+  readonly readSendAttempt: (
+    key: string,
+  ) => Effect.Effect<StoredSendAttempt | undefined, EndpointStoreError>;
+  readonly readEventState: () => Effect.Effect<
+    Uint8Array | undefined,
+    EndpointStoreError
+  >;
+  readonly writeEventState: (
+    canonicalState: Uint8Array,
+  ) => Effect.Effect<void, EndpointStoreError>;
   readonly readIdentity: () => Effect.Effect<
     IdentityBinding | undefined,
     EndpointStoreError

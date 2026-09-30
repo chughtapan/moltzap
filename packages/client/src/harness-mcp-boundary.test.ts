@@ -1,18 +1,21 @@
-/** @file Pins events-v3 discovery and failure isolation through loopback HTTP. */
+/** @file Pins Events discovery and failure isolation through loopback HTTP. */
 
 import type { Implementation } from "@modelcontextprotocol/server";
 import {
   Client,
+  fromJsonSchema,
   ProtocolError,
   ProtocolErrorCode,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import { Deferred, Duration, Effect, Fiber, Stream } from "effect";
+import { AgentCard } from "@moltzap/identity";
+import { Deferred, Duration, Effect, Fiber, Schema, Stream } from "effect";
 import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { describe, expect, it } from "vitest";
-import { acquireHarnessEndpoint } from "./client-runtime.js";
+import { makeFixture } from "./__tests__/router-worker-fixtures.js";
+import { acquireHarnessEndpoint } from "./client-runtime/index.js";
 import { ListenError } from "./contract.js";
-import { HARNESS_EVENTS_EXTENSION } from "./harness-mcp-contract.js";
+import { INBOX_PENDING_EVENT } from "./harness-mcp-contract.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-http.js";
 import {
   type HarnessMcpOperations,
@@ -30,6 +33,10 @@ const PRIVATE_STATUS_DEFECT = "private status defect";
 
 const unusedOperation = Effect.dieMessage("operation is outside this test");
 const operations: HarnessMcpOperations = {
+  readInboxSummary: () =>
+    Effect.succeed({ pendingCount: 0, newestSequence: 0 }),
+  readInbox: () => Effect.succeed({ items: [] }),
+  readSend: () => Effect.succeed({ state: "absent" }),
   readStatus: () => Effect.succeed({ kind: "unregistered" }),
   register: () => unusedOperation,
   searchAgents: () => unusedOperation,
@@ -67,9 +74,7 @@ function acquireProtocolClient(port: number, name: string) {
       const client = new Client(
         { name, version: "1.0.0" },
         {
-          capabilities: {
-            experimental: { [HARNESS_EVENTS_EXTENSION]: {} },
-          },
+          capabilities: {},
           versionNegotiation: { mode: { pin: MODERN_PROTOCOL_VERSION } },
         },
       );
@@ -105,7 +110,7 @@ function capturesProtocolError(
   );
 }
 
-async function advertisesExactEventsExtension() {
+async function advertisesEventsBeforeRegistration() {
   const capabilities = await Effect.runPromise(
     Effect.gen(function* () {
       const { port } = yield* acquireBoundaryServer(operations);
@@ -113,25 +118,36 @@ async function advertisesExactEventsExtension() {
         port,
         "harness-capability-client",
       );
-      return client.getServerCapabilities();
+      return yield* Effect.tryPromise(() =>
+        client.request(
+          { method: "events/list", params: {} },
+          fromJsonSchema<{ events: unknown[] }>({
+            type: "object",
+            properties: { events: { type: "array" } },
+            required: ["events"],
+          }),
+        ),
+      );
     }).pipe(Effect.scoped),
   );
 
-  expect(capabilities?.experimental).toEqual({
-    [HARNESS_EVENTS_EXTENSION]: {},
-  });
+  const pushDelivery: unknown = expect.arrayContaining(["push"]);
+  expect(capabilities.events).toContainEqual(
+    expect.objectContaining({
+      name: INBOX_PENDING_EVENT,
+      delivery: pushDelivery,
+    }),
+  );
 }
 
 async function distinguishesProtocolAndDomainFailures() {
-  let statusReads = 0;
+  let storageUnavailable = false;
   const failingOperations: HarnessMcpOperations = {
     ...operations,
-    readStatus: () => {
-      statusReads += 1;
-      return statusReads === 1
-        ? Effect.succeed({ kind: "unregistered" as const })
-        : Effect.fail({ reason: "persistence-failed" as const });
-    },
+    readStatus: () =>
+      storageUnavailable
+        ? Effect.fail({ reason: "persistence-failed" as const })
+        : Effect.succeed({ kind: "unregistered" as const }),
   };
   const [malformedCause, domainCause] = await Effect.runPromise(
     Effect.gen(function* () {
@@ -140,6 +156,7 @@ async function distinguishesProtocolAndDomainFailures() {
         port,
         "harness-boundary-client",
       );
+      storageUnavailable = true;
       return yield* Effect.all(
         [
           capturesProtocolError(client, { unexpected: true }),
@@ -166,19 +183,16 @@ async function distinguishesProtocolAndDomainFailures() {
     code: ProtocolErrorCode.InternalError,
     data: { reason: "persistence-failed" },
   });
-  expect(statusReads).toBe(2);
 }
 
 async function sanitizesUnexpectedOperationDefects() {
-  let statusReads = 0;
+  let storageDefective = false;
   const defectiveOperations: HarnessMcpOperations = {
     ...operations,
-    readStatus: () => {
-      statusReads += 1;
-      return statusReads === 1
-        ? Effect.succeed({ kind: "unregistered" as const })
-        : Effect.dieMessage(PRIVATE_STATUS_DEFECT);
-    },
+    readStatus: () =>
+      storageDefective
+        ? Effect.dieMessage(PRIVATE_STATUS_DEFECT)
+        : Effect.succeed({ kind: "unregistered" as const }),
   };
   const cause = await Effect.runPromise(
     Effect.gen(function* () {
@@ -187,6 +201,7 @@ async function sanitizesUnexpectedOperationDefects() {
         port,
         "harness-defect-client",
       );
+      storageDefective = true;
       return yield* capturesProtocolError(client, {});
     }).pipe(Effect.scoped),
   );
@@ -275,8 +290,13 @@ async function idleSubscriptionOutcome(keepAliveMillis: number) {
 function observeListeningSubscription(keepAliveMillis?: number) {
   return Effect.gen(function* () {
     const subscriptionActive = yield* Deferred.make<undefined>();
+    const fixture = yield* makeFixture;
+    const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
     const { port, server } = yield* acquireBoundaryServer(
-      operations,
+      {
+        ...operations,
+        readStatus: () => Effect.succeed({ kind: "active", agentCard }),
+      },
       (active) => {
         if (active) {
           Effect.runSync(Deferred.succeed(subscriptionActive, undefined));
@@ -303,8 +323,8 @@ function observeListeningSubscription(keepAliveMillis?: number) {
 
 // @agent-code-guard/regression-only: this boundary pins the exact capability and closed transport failures.
 describe("Harness MCP HTTP boundary", () => {
-  it("advertises the exact empty events-v3 capability", () =>
-    advertisesExactEventsExtension());
+  it("advertises the event descriptor before registration", () =>
+    advertisesEventsBeforeRegistration());
   it("keeps malformed input separate from closed domain failures", () =>
     distinguishesProtocolAndDomainFailures());
   it("sanitizes unexpected operation defects", () =>

@@ -8,7 +8,7 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./client-runtime.ts#L83)
+### [`acquireHarnessEndpoint`](./client-runtime/index.ts#L67)
 
 _Function_
 
@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./contract.ts#L690)
+### [`CollectiveError`](./contract.ts#L692)
 
 _Class_
 
@@ -127,7 +127,7 @@ A member's reply to one collective request. Only `accept` carries content,
 valid against the request's schema; the member's endpoint addresses the
 reply to the conversation the request arrived in.
 
-### [`ConnectError`](./contract.ts#L737)
+### [`ConnectError`](./contract.ts#L739)
 
 _Class_
 
@@ -189,7 +189,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./contract.ts#L721)
+### [`DeliveryAcknowledgeError`](./contract.ts#L723)
 
 _Class_
 
@@ -251,7 +251,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./contract.ts#L761)
+### [`HarnessEndpoint`](./contract.ts#L763)
 
 _Interface_
 
@@ -259,7 +259,10 @@ _Interface_
 export interface HarnessEndpoint {
   readonly send: (
     input: SendInput,
-    options?: Readonly<{ failureDelivery?: FailureDelivery }>,
+    options?: Readonly<{
+      failureDelivery?: FailureDelivery;
+      idempotencyKey?: string;
+    }>,
   ) => Effect.Effect<SendResult, SendError | CollectiveError>;
   readonly messages: Stream.Stream<InboundDelivery, ListenError>;
 }
@@ -274,7 +277,7 @@ A host whose tool returns before the send completes passes
 then completes and its error arrives as an `operationFailed` item on the
 stream. A multicast has no operation id, so its failure is always returned.
 
-### [`HistoryExportRecord`](./contract.ts#L605)
+### [`HistoryExportRecord`](./contract.ts#L607)
 
 _TypeAlias_
 
@@ -284,7 +287,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord`](./contract.ts#L586)
+### [`HistoryExportRecord`](./contract.ts#L588)
 
 _Variable_
 
@@ -314,7 +317,7 @@ published it, a completed `send` invocation with its input and outcome, or
 the one line that says the export stopped. Readers decode the file line by
 line with this schema rather than copying its shape.
 
-### [`InboundDelivery`](./contract.ts#L746)
+### [`InboundDelivery`](./contract.ts#L748)
 
 _Interface_
 
@@ -416,7 +419,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./contract.ts#L706)
+### [`ListenError`](./contract.ts#L708)
 
 _Class_
 
@@ -479,7 +482,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`SendError`](./contract.ts#L608)
+### [`SendError`](./contract.ts#L610)
 
 _Class_
 
@@ -539,5 +542,5 @@ What a completed send returns: a collecting operation names its id.
 
 ## Files
 
-- `client-runtime.ts`
+- `index.ts`
 - `contract.ts`

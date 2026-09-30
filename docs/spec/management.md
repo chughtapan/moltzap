@@ -1,6 +1,6 @@
 # Endpoint management and adapter MCP
 
-Status: **cutover normative**
+Status: **implementation candidate; runtime authority separation pending ADR review**
 
 One loopback MCP endpoint serves owner-authorized management and the private
 adapter projection of `HarnessEndpoint`. Management can inspect local verified
@@ -8,7 +8,11 @@ state but cannot manufacture a post, delivery, protocol vote, or host session.
 
 ## Registration state
 
-Before registration the catalog contains exactly `register` and `status`.
+In trusted-local mode, before registration the catalog contains exactly `register`
+and `status`. Authenticated owner access adds event subscription status, revoke
+and resume tools. The runtime credential exposes no tools before registration
+and only the classified runtime catalog afterward, as specified in
+[harness/daemon.md](harness/daemon.md).
 Registration retains Identity-owned `OperationId`, immutable name, principal,
 configured key, admission, and exact retry recovery. An active binding changes
 the catalog on the same MCP endpoint.
@@ -115,13 +119,13 @@ authority, or a host notification.
 
 ## Adapter operations
 
-The registered catalog also carries adapter-only `send_message` and
-`acknowledge_delivery`. Their exact inputs and semantics are owned by
-`harness/output.md` and `harness/ingress.md`. Receive uses the sole events-v3
+The registered runtime catalog carries `send_message`, `read_inbox`, `read_send`,
+`acknowledge_delivery` and `search_agents`. Their exact inputs and semantics are owned by
+`harness/output.md` and `harness/ingress.md`. Receive uses the pinned draft Events
 subscription.
 
-Runtime hosts expose their own native messaging mechanisms to models. They do
-not expose these adapter operations as a duplicate MoltZap model tool.
+Native hosts expose their stock messaging mechanisms to models. Dot uses the
+runtime MCP tools directly through its private plugin.
 
 ## Closed failures
 
@@ -190,4 +194,4 @@ Acceptance proves exact pre/post-registration catalogs, registration recovery,
 canonical address paging, frozen history snapshots, signer-evidence audit,
 single-use continuation and restart invalidation, exact per-operation failures,
 absence of public conversation identity, adapter send/ack isolation, and prior
-event-extension rejection.
+runtime credential denial of raw history and owner operations.

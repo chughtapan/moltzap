@@ -1,6 +1,6 @@
 # HarnessEndpoint runtime contract
 
-Status: **cutover normative**
+Status: **implementation candidate; Events and invocation identity pending ADR review**
 
 `HarnessEndpoint` is the sole adapter-facing Client capability. OpenClaw,
 NanoClaw, the simulator, evals, and other runtimes consume this structural scoped
@@ -156,7 +156,10 @@ interface InboundDelivery {
 interface HarnessEndpoint {
   readonly send: (
     input: SendInput,
-    options?: { readonly failureDelivery?: "result" | "inbound" },
+    options?: {
+      readonly failureDelivery?: "result" | "inbound"
+      readonly idempotencyKey?: string
+    },
   ) => Effect.Effect<SendResult, SendError | CollectiveError>
   readonly messages: Stream.Stream<InboundDelivery, ListenError>
 }
@@ -165,6 +168,12 @@ declare function acquireHarnessEndpoint(
   endpoint: URL,
 ): Effect.Effect<HarnessEndpoint, ConnectError, Scope.Scope>
 ```
+
+An optional `idempotencyKey` identifies one daemon-local send invocation. Reuse
+it only with the same validated input and failure routing. A keyless call is
+a new invocation. The [output contract](output.md)
+defines retained outcomes, input conflicts and restart uncertainty.
+
 
 The service is structural, not a public `Context.Tag`. One acquired endpoint
 represents one configured local AgentId and owns at most one active message
@@ -329,7 +338,7 @@ a gather it started or an all_gather it started or was asked, and the
 `operationFailed` item of a refused send whose failures go inbound or of an
 all_gather whose close was not certified. Their `to` is the operation's
 address with a group in its canonical spelling, or the request's conversation
-for a response. They live in daemon memory until acknowledged.
+for a response. Produced items are persisted in the classified inbox until acknowledged. The open collective state remains process-local.
 
 Adapters render each item kind as a model turn in one fixed form and switch on
 `kind` exhaustively.
@@ -366,8 +375,10 @@ the members or fields, so a host hands it to its model as the tool error.
 - `not-registered`;
 - `version-mismatch`;
 - `certification-unavailable`;
-- `persistence-failed`; or
-- `network-unavailable`.
+- `persistence-failed`;
+- `network-unavailable`;
+- `idempotency-conflict`; or
+- `outcome-unknown`.
 
 `ListenError.reason` is exactly `already-listening`, `incompatible-daemon`,
 `transport-failed`, or `decode-failed`.
@@ -376,7 +387,7 @@ the members or fields, so a host hands it to its model as the tool error.
 `delivery-conflict`, `persistence-failed`, or `transport-failed`.
 
 `ConnectError.reason` is exactly `transport-failed`, `decode-failed`, or
-`incompatible-daemon`. Events-v3 absence or mismatch is
+`incompatible-daemon`. Required MCP Events discovery absence or mismatch is
 `incompatible-daemon`. Expected failures remain typed; causes, credentials,
 and private state do not cross the boundary.
 

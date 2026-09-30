@@ -439,6 +439,8 @@ function completePromotion(
 type ReproposalDisposition = "fail" | "ignore";
 
 const reproposalDispositionByReason = {
+  "idempotency-conflict": "fail",
+  "outcome-unknown": "fail",
   "certification-unavailable": "ignore",
   "content-invalid": "fail",
   "invalid-address": "fail",

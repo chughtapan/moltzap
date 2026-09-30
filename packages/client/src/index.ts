@@ -28,4 +28,4 @@ export {
 } from "./contract.js";
 /** Acquire the structural endpoint for one loopback daemon endpoint. */
 // safer-arch-ignore no-public-vendor-type-leak: URL is the platform-standard endpoint locator required by the public acquisition contract.
-export { acquireHarnessEndpoint } from "./client-runtime.js";
+export { acquireHarnessEndpoint } from "./client-runtime/index.js";

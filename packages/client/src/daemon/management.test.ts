@@ -238,6 +238,16 @@ function makeStore(input: {
   readonly historyFailure?: EndpointStoreError;
 }): EndpointStore {
   return {
+    putInboxItem: () => outsideManagementTest(),
+    readInbox: () => outsideManagementTest(),
+    readInboxSummary: () => outsideManagementTest(),
+    acknowledgeInboxItem: () => outsideManagementTest(),
+    replaceInboxItem: () => outsideManagementTest(),
+    beginSendAttempt: () => outsideManagementTest(),
+    finishSendAttempt: () => outsideManagementTest(),
+    readSendAttempt: () => outsideManagementTest(),
+    readEventState: () => outsideManagementTest(),
+    writeEventState: () => outsideManagementTest(),
     readIdentity: () => Effect.succeed(input.recovery.identity),
     bindIdentity: () => outsideManagementTest(),
     bindPostIntent: () => outsideManagementTest(),

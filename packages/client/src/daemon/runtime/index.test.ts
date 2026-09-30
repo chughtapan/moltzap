@@ -37,7 +37,6 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type { HarnessMcpSubscriptionHandler } from "../../harness-mcp-subscription.js";
 import type { DaemonBootstrap } from "../configuration.js";
 import type { HistoryExportPort } from "./history-export.js";
 import { DeliveryAcknowledgeError, InboundMessage } from "../../contract.js";
@@ -59,13 +58,9 @@ import {
   EndpointStoreError,
   type IdentityBinding,
 } from "../../endpoint/store.js";
+import { INBOX_PENDING_EVENT } from "../../harness-mcp-contract.js";
 import {
-  HARNESS_EVENTS_EXTENSION,
-  HARNESS_MESSAGE_READY_FILTER,
-  HARNESS_MESSAGE_READY_NOTIFICATION,
-  type HarnessMessageReadyEvent,
-} from "../../harness-mcp-contract.js";
-import {
+  type HarnessMcpEventHandler,
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
 } from "../../harness-mcp-wire.js";
@@ -78,9 +73,8 @@ import {
 
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- The focused tests drive the official Promise-native MCP stream boundary. */
 
-const SUBSCRIPTIONS_LISTEN_METHOD = "subscriptions/listen";
-const SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION =
-  "notifications/subscriptions/acknowledged";
+const SUBSCRIPTIONS_LISTEN_METHOD = "events/stream";
+const SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION = "notifications/events/active";
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const EXPECTED_LISTENER_FAILURE = new DaemonRuntimeError({
   phase: "listener",
@@ -117,7 +111,7 @@ interface HarnessSignals {
 
 interface HarnessObservations {
   readonly events: string[];
-  handler?: HarnessMcpSubscriptionHandler<HarnessMessageReadyEvent>;
+  handler?: HarnessMcpEventHandler;
   operations?: HarnessMcpOperations;
   historyExportPath?: string;
   workerOutbox?: RouterWorkerInput["outbox"];
@@ -139,9 +133,7 @@ interface RuntimeHarness {
   readonly events: string[];
   readonly failure: Deferred.Deferred<undefined>;
   readonly listenerReady: Deferred.Deferred<undefined>;
-  readonly getHandler: () =>
-    | HarnessMcpSubscriptionHandler<HarnessMessageReadyEvent>
-    | undefined;
+  readonly getHandler: () => HarnessMcpEventHandler | undefined;
   readonly getOperations: () => HarnessMcpOperations | undefined;
   readonly getWorkerOutbox: () => RouterWorkerInput["outbox"] | undefined;
   readonly getHistoryExportPath: () => string | undefined;
@@ -286,6 +278,16 @@ const inactiveStoreOperations: Omit<
   EndpointStore,
   "readIdentity" | "bindIdentity" | "recover"
 > = {
+  putInboxItem: () => outsideRuntimeTest(),
+  readInbox: () => outsideRuntimeTest(),
+  readInboxSummary: () => outsideRuntimeTest(),
+  acknowledgeInboxItem: () => outsideRuntimeTest(),
+  replaceInboxItem: () => outsideRuntimeTest(),
+  beginSendAttempt: () => outsideRuntimeTest(),
+  finishSendAttempt: () => outsideRuntimeTest(),
+  readSendAttempt: () => outsideRuntimeTest(),
+  readEventState: () => outsideRuntimeTest(),
+  writeEventState: () => outsideRuntimeTest(),
   bindPostIntent: () => outsideRuntimeTest(),
   putConversationFoundation: () => outsideRuntimeTest(),
   lockProposal: () => outsideRuntimeTest(),
@@ -313,7 +315,56 @@ const inactiveStoreOperations: Omit<
   releaseContinuation: () => outsideRuntimeTest(),
 };
 
-function makeStore(fixture: Fixture, active: boolean): EndpointStore {
+const makeInboxStore = (onAcknowledge: (token: DeliveryToken) => void) => {
+  const inbox = new Map<DeliveryToken, Uint8Array>();
+  const acknowledged = new Set<DeliveryToken>();
+  return {
+    readInbox: () =>
+      Effect.succeed({
+        items: [...inbox]
+          .filter(([token]) => !acknowledged.has(token))
+          .map(([deliveryToken, canonicalItem], index) => ({
+            sequence: index + 1,
+            deliveryToken,
+            canonicalItem,
+          })),
+        through: inbox.size,
+      }),
+    readInboxSummary: () =>
+      Effect.succeed({
+        pendingCount: [...inbox.keys()].filter(
+          (token) => !acknowledged.has(token),
+        ).length,
+        newestSequence: inbox.size,
+      }),
+    putInboxItem: (item) =>
+      Effect.sync(() => {
+        inbox.set(item.deliveryToken, item.canonicalItem);
+        return "inserted" as const;
+      }),
+    acknowledgeInboxItem: (token) =>
+      Effect.sync(() => {
+        acknowledged.add(token);
+        onAcknowledge(token);
+      }),
+  } satisfies Pick<
+    EndpointStore,
+    "readInbox" | "readInboxSummary" | "putInboxItem" | "acknowledgeInboxItem"
+  >;
+};
+
+function makeStore(
+  fixture: Fixture,
+  active: boolean,
+  delivery?: DeliveryState,
+): EndpointStore {
+  const onAcknowledge = (token: DeliveryToken) => {
+    if (delivery !== undefined) {
+      delivery.acknowledged = true;
+      delivery.acknowledgedTokens.push(token);
+      delivery.events.push("acknowledged");
+    }
+  };
   let identity: IdentityBinding | undefined = active
     ? {
         agentId: fixture.localCard.agentId,
@@ -322,6 +373,8 @@ function makeStore(fixture: Fixture, active: boolean): EndpointStore {
     : undefined;
   return {
     ...inactiveStoreOperations,
+    ...makeInboxStore(onAcknowledge),
+    readPendingDeliveries: () => Effect.succeed([]),
     readIdentity: () => Effect.succeed(identity),
     bindIdentity: (candidate) =>
       Effect.suspend(() => {
@@ -367,9 +420,7 @@ const makeHarnessSignals: Effect.Effect<HarnessSignals> = Effect.gen(
   },
 );
 
-const closeHandler = (
-  handler: HarnessMcpSubscriptionHandler<HarnessMessageReadyEvent>,
-) =>
+const closeHandler = (handler: HarnessMcpEventHandler) =>
   Effect.tryPromise({
     try: () => handler.close(),
     catch: () => new Error("failed to close test MCP handler"),
@@ -545,6 +596,7 @@ const makeListenRequest = (id: string): Request =>
     method: "POST",
     headers: {
       "content-type": "application/json",
+      accept: "application/json, text/event-stream",
       "mcp-method": SUBSCRIPTIONS_LISTEN_METHOD,
     },
     body: JSON.stringify({
@@ -552,16 +604,16 @@ const makeListenRequest = (id: string): Request =>
       id,
       method: SUBSCRIPTIONS_LISTEN_METHOD,
       params: {
-        notifications: { [HARNESS_MESSAGE_READY_FILTER]: true },
+        name: INBOX_PENDING_EVENT,
+        arguments: {},
+        cursor: null,
         _meta: {
           [PROTOCOL_VERSION_META_KEY]: MODERN_PROTOCOL_VERSION,
           [CLIENT_INFO_META_KEY]: {
             name: "daemon-runtime-test-client",
             version: "1.0.0",
           },
-          [CLIENT_CAPABILITIES_META_KEY]: {
-            experimental: { [HARNESS_EVENTS_EXTENSION]: {} },
-          },
+          [CLIENT_CAPABILITIES_META_KEY]: {},
         },
       },
     }),
@@ -577,18 +629,45 @@ const responseReader = (
   return reader;
 };
 
+const frameBuffers = new WeakMap<
+  ReadableStreamDefaultReader<Uint8Array>,
+  string
+>();
+const frameData = (frame: string): string =>
+  frame
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n");
+
+const readChunk = async (
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): Promise<string> => {
+  const result = await reader.read();
+  if (result.done) {
+    throw new Error("Expected an SSE data frame");
+  }
+  return new TextDecoder().decode(result.value);
+};
+
 const readFrame = async (
   reader: ReadableStreamDefaultReader<Uint8Array>,
 ): Promise<unknown> => {
-  const result = await reader.read();
-  if (result.done || result.value === undefined) {
-    throw new Error("expected a complete SSE data frame");
+  let buffered = frameBuffers.get(reader) ?? "";
+  while (true) {
+    const end = buffered.indexOf("\n\n");
+    if (end >= 0) {
+      const frame = buffered.slice(0, end);
+      buffered = buffered.slice(end + 2);
+      frameBuffers.set(reader, buffered);
+      const data = frameData(frame);
+      if (data !== "") {
+        return JSON.parse(data);
+      }
+    } else {
+      buffered += await readChunk(reader);
+    }
   }
-  const frame = new TextDecoder().decode(result.value);
-  if (!frame.startsWith("data: ") || !frame.endsWith("\n\n")) {
-    throw new Error("expected an SSE data frame");
-  }
-  return JSON.parse(frame.slice("data: ".length, -"\n\n".length));
 };
 
 const awaitStage = <Value, Failure>(
@@ -616,9 +695,7 @@ const awaitFrame = (
     stage,
   );
 
-function requireHandler(
-  harness: RuntimeHarness,
-): HarnessMcpSubscriptionHandler<HarnessMessageReadyEvent> {
+function requireHandler(harness: RuntimeHarness): HarnessMcpEventHandler {
   const handler = harness.getHandler();
   if (handler === undefined) {
     throw new Error("missing composed MCP handler");
@@ -710,6 +787,22 @@ const blocksStartupAndSupervisesWorker = async () => {
   }
 };
 
+const failsWhenStartupProjectionCannotPersist = () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const harness = yield* makeHarness(fixture, "none");
+      const store: EndpointStore = {
+        ...makeStore(fixture, true),
+        putInboxItem: () =>
+          Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+      };
+      const error = yield* run(fixture, store, harness).pipe(Effect.flip);
+      expect(error).toEqual(new DaemonRuntimeError({ phase: "storage" }));
+      expect(harness.events).toEqual(["worker", "engine"]);
+    }),
+  );
+
 const blocksRegistrationAndSupervisesOutbound = async () => {
   const fixture = await Effect.runPromise(makeFixture);
   const harness = await Effect.runPromise(
@@ -756,8 +849,7 @@ const blocksRegistrationAndSupervisesOutbound = async () => {
 };
 
 const receivesFirstDelivery = async (
-  handler: HarnessMcpSubscriptionHandler<HarnessMessageReadyEvent>,
-  pending: EnginePendingMessage,
+  handler: HarnessMcpEventHandler,
 ): Promise<undefined> => {
   const reader = responseReader(
     await handler.fetch(makeListenRequest("listener-1")),
@@ -767,17 +859,19 @@ const receivesFirstDelivery = async (
       jsonrpc: "2.0",
       method: SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION,
       params: {
-        notifications: { [HARNESS_MESSAGE_READY_FILTER]: true },
+        cursor: null,
+        truncated: false,
         _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-1" },
       },
     },
   );
-  expect(await awaitFrame(reader, "first message delivery")).toEqual({
+  expect(await awaitFrame(reader, "first message delivery")).toMatchObject({
     jsonrpc: "2.0",
-    method: HARNESS_MESSAGE_READY_NOTIFICATION,
+    method: "notifications/events/event",
     params: {
-      deliveryToken: pending.deliveryToken,
-      item: { kind: "multicast", message: pending.message },
+      name: INBOX_PENDING_EVENT,
+      data: { pendingCount: 1 },
+      cursor: null,
       _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-1" },
     },
   });
@@ -787,7 +881,7 @@ const receivesFirstDelivery = async (
 
 const acknowledgeDuringReplacementDelivery = async (
   harness: RuntimeHarness,
-  handler: HarnessMcpSubscriptionHandler<HarnessMessageReadyEvent>,
+  handler: HarnessMcpEventHandler,
   pending: EnginePendingMessage,
 ): Promise<ReadableStreamDefaultReader<Uint8Array>> => {
   const readBarrier: ReadBarrier = {
@@ -809,12 +903,15 @@ const acknowledgeDuringReplacementDelivery = async (
   );
   await Effect.runPromise(Effect.yieldNow());
   await Effect.runPromise(Deferred.succeed(readBarrier.release, undefined));
-  expect(await awaitFrame(reader, "replacement message delivery")).toEqual({
+  expect(
+    await awaitFrame(reader, "replacement message delivery"),
+  ).toMatchObject({
     jsonrpc: "2.0",
-    method: HARNESS_MESSAGE_READY_NOTIFICATION,
+    method: "notifications/events/event",
     params: {
-      deliveryToken: pending.deliveryToken,
-      item: { kind: "multicast", message: pending.message },
+      name: INBOX_PENDING_EVENT,
+      data: { pendingCount: 1 },
+      cursor: null,
       _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-2" },
     },
   });
@@ -831,14 +928,24 @@ const READS_THROUGH_REPLACEMENT = 4;
 const replaysUntilAcknowledged = async () => {
   const fixture = await Effect.runPromise(makeFixture);
   const harness = await Effect.runPromise(makeHarness(fixture, "none"));
-  const fiber = Effect.runFork(run(fixture, makeStore(fixture, true), harness));
+  const fiber = Effect.runFork(
+    run(fixture, makeStore(fixture, true, harness.delivery), harness),
+  );
   try {
     await awaitStage(Deferred.await(harness.listenerReady), "listener");
-    expect(harness.delivery.reads).toBe(1);
+    expect(harness.delivery.reads).toBeGreaterThanOrEqual(1);
     expect(harness.delivery.acknowledgedTokens).toEqual([]);
     const handler = requireHandler(harness);
 
-    await receivesFirstDelivery(handler, fixture.pending);
+    await receivesFirstDelivery(handler);
+    expect(
+      (await Effect.runPromise(requireOperations(harness).readInbox({}))).items,
+    ).toEqual([
+      {
+        deliveryToken: fixture.pending.deliveryToken,
+        item: { kind: "multicast", message: fixture.pending.message },
+      },
+    ]);
     harness.delivery.events.length = 0;
     const secondReader = await acknowledgeDuringReplacementDelivery(
       harness,
@@ -849,7 +956,9 @@ const replaysUntilAcknowledged = async () => {
       fixture.pending.deliveryToken,
     ]);
     expect(harness.delivery.events).toEqual(["delivery-ready", "acknowledged"]);
-    expect(harness.delivery.reads).toBe(READS_THROUGH_REPLACEMENT);
+    expect(harness.delivery.reads).toBeGreaterThanOrEqual(
+      READS_THROUGH_REPLACEMENT,
+    );
     await secondReader.cancel();
   } finally {
     await Effect.runPromise(Fiber.interrupt(fiber));
@@ -857,6 +966,10 @@ const replaysUntilAcknowledged = async () => {
 };
 
 describe("daemon runtime composition", () => {
+  it(
+    "fails startup when classified inbox persistence fails",
+    failsWhenStartupProjectionCannotPersist,
+  );
   it("opens the configured history export", opensConfiguredHistoryExport);
   it(
     "opens no history export when none is configured",

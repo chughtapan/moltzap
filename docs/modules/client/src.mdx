@@ -13,7 +13,7 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/client-runtime.ts#L83)
+### [`acquireHarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/client-runtime/index.ts#L67)
 
 _Function_
 
@@ -51,7 +51,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L690)
+### [`CollectiveError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L692)
 
 _Class_
 
@@ -132,7 +132,7 @@ A member's reply to one collective request. Only `accept` carries content,
 valid against the request's schema; the member's endpoint addresses the
 reply to the conversation the request arrived in.
 
-### [`ConnectError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L737)
+### [`ConnectError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L739)
 
 _Class_
 
@@ -194,7 +194,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L721)
+### [`DeliveryAcknowledgeError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L723)
 
 _Class_
 
@@ -256,7 +256,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L761)
+### [`HarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L763)
 
 _Interface_
 
@@ -264,7 +264,10 @@ _Interface_
 export interface HarnessEndpoint {
   readonly send: (
     input: SendInput,
-    options?: Readonly<{ failureDelivery?: FailureDelivery }>,
+    options?: Readonly<{
+      failureDelivery?: FailureDelivery;
+      idempotencyKey?: string;
+    }>,
   ) => Effect.Effect<SendResult, SendError | CollectiveError>;
   readonly messages: Stream.Stream<InboundDelivery, ListenError>;
 }
@@ -279,7 +282,7 @@ A host whose tool returns before the send completes passes
 then completes and its error arrives as an `operationFailed` item on the
 stream. A multicast has no operation id, so its failure is always returned.
 
-### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L605)
+### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L607)
 
 _TypeAlias_
 
@@ -289,7 +292,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L586)
+### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L588)
 
 _Variable_
 
@@ -319,7 +322,7 @@ published it, a completed `send` invocation with its input and outcome, or
 the one line that says the export stopped. Readers decode the file line by
 line with this schema rather than copying its shape.
 
-### [`InboundDelivery`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L746)
+### [`InboundDelivery`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L748)
 
 _Interface_
 
@@ -421,7 +424,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L706)
+### [`ListenError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L708)
 
 _Class_
 
@@ -484,7 +487,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`SendError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L608)
+### [`SendError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L610)
 
 _Class_
 
@@ -544,5 +547,5 @@ What a completed send returns: a collecting operation names its id.
 
 ## Files
 
-- `client-runtime.ts`
+- `index.ts`
 - `contract.ts`

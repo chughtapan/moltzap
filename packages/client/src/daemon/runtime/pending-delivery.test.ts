@@ -78,6 +78,7 @@ const offerTo = (
       }),
   },
   classify,
+  persist: () => Effect.void,
   ...(subscriber === "attached"
     ? { handler: { publish: (event) => observed.published.push(event) > 0 } }
     : {}),

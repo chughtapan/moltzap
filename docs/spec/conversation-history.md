@@ -612,16 +612,16 @@ Before enabling WAL, creating schema objects, or changing file permissions,
 Client reads the SQLite preflight state. A database is empty version 0 exactly
 when `PRAGMA user_version` is `0` and `sqlite_schema` contains no user-created
 table, index, view, or trigger. SQLite-internal objects are ignored. Only that
-state initializes the endpoint store, enables WAL, and sets `user_version=2`.
-Exactly version 2 reopens. A nonempty version 0, version 1, and every other
+state initializes the endpoint store, enables WAL, and sets `user_version=3`.
+Version 2 upgrades atomically with runtime delivery tables; version 3 reopens. A nonempty version 0, version 1, and every other
 version fail with `EndpointStoreError("incompatible")` without mutation.
-Client does not decode, transform, erase, or migrate old state.
+The schema 2 upgrade retains protocol state; incompatible stores are not erased.
 
 The one source-owned `MOLTZAP_VERSION`/`V2_PROTOCOL_VERSION` value is
 `2026.827.1`. Client wire peers must carry that exact literal. Mixed versions
 fail with the existing typed version mismatch before semantic state changes.
-The external MCP protocol revision is unchanged; its Client extension is
-events-v3.
+The external MCP protocol revision remains `2026-07-28`; runtime notifications
+follow the [pinned Events candidate](./harness/ingress.md).
 
 Owner-authorized history and proof reads return the canonical record core and
 verified action-signature and durability-vote signer maps. They expose the

@@ -6,8 +6,12 @@ import {
   type Ed25519PublicKey as Ed25519PublicKeyValue,
 } from "@moltzap/identity";
 import { Config, Data, Effect, Redacted, Schema } from "effect";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Bootstrap reads two configured Node files before the daemon composes its platform services.
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Bootstrap reads configured credential files before the daemon composes its platform services.
 import { readFile } from "node:fs/promises";
+import {
+  credentialMatches,
+  type HarnessMcpCredentials,
+} from "../harness-mcp-auth.js";
 
 const canonicalUnsignedDecimal = Schema.String.pipe(
   Schema.pattern(/^(?:0|[1-9]\d*)$/u),
@@ -65,6 +69,12 @@ const configuredValues = Config.all({
   historyExport: Schema.Config("MOLTZAPD_HISTORY_EXPORT", configuredPath).pipe(
     Config.withDefault(undefined),
   ),
+  mcpRuntimeCredentialFile: Config.redacted(
+    Schema.Config("MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE", configuredPath),
+  ).pipe(Config.withDefault(undefined)),
+  mcpOwnerCredentialFile: Config.redacted(
+    Schema.Config("MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE", configuredPath),
+  ).pipe(Config.withDefault(undefined)),
 });
 
 /** Closed reason that daemon configuration cannot become startup authority. */
@@ -73,7 +83,10 @@ export type DaemonConfigurationFailure =
   | "agent-private-key-file"
   | "agent-private-key"
   | "admission-credential-file"
-  | "admission-credential";
+  | "admission-credential"
+  | "mcp-runtime-credential-file"
+  | "mcp-owner-credential-file"
+  | "mcp-credential";
 
 /** One non-diagnostic daemon configuration failure. */
 export class DaemonConfigurationError extends Data.TaggedError(
@@ -96,6 +109,8 @@ export interface DaemonProcessConfiguration {
    * line each, when the operator asks for that record.
    */
   readonly historyExport?: string;
+  readonly mcpRuntimeCredentialFile?: Redacted.Redacted;
+  readonly mcpOwnerCredentialFile?: Redacted.Redacted;
 }
 
 /** Loaded private authority required by daemon registration and network calls. */
@@ -104,13 +119,14 @@ export interface DaemonBootstrap {
   readonly signingAuthority: AgentSigningAuthority;
   readonly agentPublicKey: Ed25519PublicKeyValue;
   readonly admissionCredential: Redacted.Redacted;
+  readonly mcpCredentials?: HarnessMcpCredentials;
 }
 
 const configurationError = (
   reason: DaemonConfigurationFailure,
 ): DaemonConfigurationError => new DaemonConfigurationError({ reason });
 
-/** Loads exactly the seven required daemon process inputs and the optional export. */
+/** Loads explicit daemon inputs with optional export and MCP authority separation. */
 export const loadDaemonProcessConfiguration: Effect.Effect<
   DaemonProcessConfiguration,
   DaemonConfigurationError
@@ -127,7 +143,11 @@ const utf8Decoder = new TextDecoder("utf-8", {
 
 const readExactUtf8 = (
   path: Redacted.Redacted,
-  reason: "agent-private-key-file" | "admission-credential-file",
+  reason:
+    | "agent-private-key-file"
+    | "admission-credential-file"
+    | "mcp-runtime-credential-file"
+    | "mcp-owner-credential-file",
 ): Effect.Effect<string, DaemonConfigurationError> =>
   Effect.tryPromise({
     try: () => readFile(Redacted.value(path)),
@@ -174,10 +194,54 @@ const loadAdmissionCredential = (
     ),
   );
 
+const mcpCredential = admissionCredential.pipe(Schema.minLength(32));
+
+const loadMcpCredentials = (
+  configuration: DaemonProcessConfiguration,
+): Effect.Effect<HarnessMcpCredentials | undefined, DaemonConfigurationError> =>
+  Effect.gen(function* () {
+    const runtimePath = configuration.mcpRuntimeCredentialFile;
+    const ownerPath = configuration.mcpOwnerCredentialFile;
+    if (runtimePath === undefined && ownerPath === undefined) {
+      return undefined;
+    }
+    if (runtimePath === undefined || ownerPath === undefined) {
+      return yield* Effect.fail(configurationError("mcp-credential"));
+    }
+    const runtime = yield* readExactUtf8(
+      runtimePath,
+      "mcp-runtime-credential-file",
+    ).pipe(
+      Effect.flatMap(Schema.decodeUnknown(mcpCredential)),
+      Effect.mapError((error) =>
+        error._tag === "DaemonConfigurationError"
+          ? error
+          : configurationError("mcp-credential"),
+      ),
+      Effect.map(Redacted.make),
+    );
+    const owner = yield* readExactUtf8(
+      ownerPath,
+      "mcp-owner-credential-file",
+    ).pipe(
+      Effect.flatMap(Schema.decodeUnknown(mcpCredential)),
+      Effect.mapError((error) =>
+        error._tag === "DaemonConfigurationError"
+          ? error
+          : configurationError("mcp-credential"),
+      ),
+      Effect.map(Redacted.make),
+    );
+    if (credentialMatches(Redacted.value(runtime), owner)) {
+      return yield* Effect.fail(configurationError("mcp-credential"));
+    }
+    return { runtime, owner };
+  });
+
 /**
  * Reads exact secret bytes and constructs the configured Ed25519 authority.
  *
- * @param configuration Validated seven-input process configuration.
+ * @param configuration Validated process configuration and optional authority paths.
  * @returns Redacted admission and opaque agent signing authority.
  */
 export const loadDaemonBootstrap = (
@@ -187,10 +251,12 @@ export const loadDaemonBootstrap = (
     const signingAuthority = yield* loadSigningAuthority(configuration);
     const loadedAdmissionCredential =
       yield* loadAdmissionCredential(configuration);
+    const mcpCredentials = yield* loadMcpCredentials(configuration);
     return Object.freeze({
       configuration,
       signingAuthority,
       agentPublicKey: AgentSigningAuthority.publicKey(signingAuthority),
       admissionCredential: loadedAdmissionCredential,
+      ...(mcpCredentials === undefined ? {} : { mcpCredentials }),
     });
   }).pipe(Effect.withSpan("loadDaemonBootstrap"));

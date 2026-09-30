@@ -1,4 +1,4 @@
-/** @file Pins the exact events-v3 operation MCP representation. */
+/** @file Pins the exact inbox and operation MCP representation. */
 
 import { Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -13,7 +13,6 @@ import {
 import { DeliveryToken } from "./endpoint/store.js";
 import {
   decodeHarnessAcknowledgeDeliveryRequest,
-  decodeHarnessEventsExtensionDeclaration,
   decodeHarnessMessageReadyEvent,
 } from "./harness-mcp-contract.js";
 
@@ -32,19 +31,6 @@ const postId = Schema.decodeUnknownSync(PostId)(`pst_${"A".repeat(43)}`);
 const content = Schema.decodeUnknownSync(Content)([
   { type: "text", text: "meeting invite sent" },
 ]);
-
-function acceptsOnlyEmptyEventsDeclaration(): void {
-  expect(Effect.runSync(decodeHarnessEventsExtensionDeclaration({}))).toEqual(
-    {},
-  );
-  expect(
-    Exit.isFailure(
-      Effect.runSyncExit(
-        decodeHarnessEventsExtensionDeclaration({ version: 2 }),
-      ),
-    ),
-  ).toBe(true);
-}
 
 function decodesExactOperationRequests(): void {
   const operation = {
@@ -180,9 +166,6 @@ function rejectsInconsistentDeliveryIdentity(): void {
 
 // @agent-code-guard/regression-only: these examples pin the exact public wire grammar and its relational identity checks.
 describe("Harness MCP operation representation", () => {
-  it("accepts only the empty events-v3 declaration", () => {
-    acceptsOnlyEmptyEventsDeclaration();
-  });
   it("decodes exact send and acknowledgment requests", () => {
     decodesExactOperationRequests();
   });

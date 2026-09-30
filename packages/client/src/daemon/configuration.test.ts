@@ -154,7 +154,7 @@ const rejectsSecretFileFailures = async () => {
   ).toBe("admission-credential");
 };
 
-// @agent-code-guard/regression-only: these examples pin the seven-input daemon configuration and exact secret-file boundary.
+// @agent-code-guard/regression-only: these examples pin the daemon configuration and exact secret-file boundary.
 describe("daemon configuration", () => {
   it(
     "loads exactly the declared configuration and ignores unrelated values",
@@ -205,6 +205,102 @@ describe("history export configuration", () => {
       ),
     ).toBe("environment");
   });
+});
+
+const runtimeToken = "runtime-for-local-test-0000000001";
+const ownerToken = "owner-for-local-test-000000000001";
+const credentialConfiguration = (directory: string) =>
+  loadConfiguration(
+    directory,
+    new Map([
+      ["MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE", join(directory, "runtime")],
+      ["MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE", join(directory, "owner")],
+    ]),
+  );
+const bootstrapFiles = () => {
+  const directory = temporaryDirectory();
+  writeFileSync(join(directory, "agent.pem"), privateKey);
+  writeFileSync(join(directory, "admission"), "bootstrap-token=");
+  return directory;
+};
+const loadsSeparatedAuthority = async () => {
+  const directory = bootstrapFiles();
+  writeFileSync(join(directory, "runtime"), runtimeToken);
+  writeFileSync(join(directory, "owner"), ownerToken);
+  const bootstrap = await Effect.runPromise(
+    credentialConfiguration(directory).pipe(
+      Effect.flatMap(loadDaemonBootstrap),
+    ),
+  );
+  expect(bootstrap.mcpCredentials?.runtime).toEqual(
+    Redacted.make(runtimeToken),
+  );
+  expect(bootstrap.mcpCredentials?.owner).toEqual(Redacted.make(ownerToken));
+  expect(JSON.stringify(bootstrap.mcpCredentials)).not.toContain(runtimeToken);
+  const local = await Effect.runPromise(
+    loadConfiguration(directory).pipe(Effect.flatMap(loadDaemonBootstrap)),
+  );
+  expect(local.mcpCredentials).toBeUndefined();
+};
+const rejectsInvalidAuthority = async () => {
+  const directory = bootstrapFiles();
+  writeFileSync(join(directory, "owner"), ownerToken);
+  for (const token of [
+    "short",
+    ownerToken,
+    `${runtimeToken}\n`,
+    `\ufeff${runtimeToken}`,
+  ]) {
+    writeFileSync(join(directory, "runtime"), token);
+    expect(
+      await Effect.runPromise(
+        failureReason(
+          credentialConfiguration(directory).pipe(
+            Effect.flatMap(loadDaemonBootstrap),
+          ),
+        ),
+      ),
+    ).toBe("mcp-credential");
+  }
+  const partial = loadConfiguration(
+    directory,
+    new Map([
+      ["MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE", join(directory, "runtime")],
+    ]),
+  );
+  expect(
+    await Effect.runPromise(
+      failureReason(partial.pipe(Effect.flatMap(loadDaemonBootstrap))),
+    ),
+  ).toBe("mcp-credential");
+};
+const rejectsMissingAuthority = async () => {
+  const directory = bootstrapFiles();
+  const bootstrap = credentialConfiguration(directory).pipe(
+    Effect.flatMap(loadDaemonBootstrap),
+  );
+  expect(await Effect.runPromise(failureReason(bootstrap))).toBe(
+    "mcp-runtime-credential-file",
+  );
+  writeFileSync(join(directory, "runtime"), runtimeToken);
+  expect(await Effect.runPromise(failureReason(bootstrap))).toBe(
+    "mcp-owner-credential-file",
+  );
+};
+// @agent-code-guard/regression-only: exact file bytes and distinct roles are the tunnel authority boundary.
+describe("MCP credential configuration", () => {
+  it(
+    "loads distinct redacted credentials and retains trusted-local default",
+    loadsSeparatedAuthority,
+  );
+  it(
+    "rejects partial, shared, short or noncanonical credentials",
+    rejectsInvalidAuthority,
+  );
+  it(
+    "preserves closed credential file failure categories",
+    rejectsMissingAuthority,
+  );
 });
 
 /* eslint-enable agent-code-guard/async-keyword, agent-code-guard/no-hardcoded-assertion-literals -- Restore repository defaults. */

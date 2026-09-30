@@ -154,6 +154,12 @@ const packageDefinitions = {
       ],
       layers: [
         {
+          name: "runtime-transport",
+          folders: ["client-runtime", "harness-mcp-events"],
+          reason:
+            "MCP transport projects endpoint values and durable event state; endpoint semantics never depend on HTTP delivery",
+        },
+        {
           name: "daemon",
           folders: ["daemon"],
           reason:

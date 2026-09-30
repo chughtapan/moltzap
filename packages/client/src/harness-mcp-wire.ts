@@ -5,23 +5,54 @@ import {
   fromJsonSchema,
   type Implementation,
   type JsonSchemaType,
+  type McpHttpHandler,
   McpServer,
   ProtocolError,
   ProtocolErrorCode,
   type StandardSchemaV1,
 } from "@modelcontextprotocol/server";
-import { Cause, Effect, Exit, JSONSchema, Option, Schema } from "effect";
-import type { CollectiveError, SendError } from "./contract.js";
-import type { DeliveryToken } from "./endpoint/store.js";
 import {
+  Cause,
+  Effect,
+  Exit,
+  JSONSchema,
+  Layer,
+  Option,
+  type ParseResult,
+  Schema,
+  Scope,
+} from "effect";
+import type { CollectiveError, SendError } from "./contract.js";
+import type {
+  DeliveryToken,
+  EndpointStore,
+  InboxSummary,
+} from "./endpoint/store.js";
+import {
+  authenticateHarnessRequest,
+  type HarnessMcpCredentials,
+  type HarnessMcpRole,
+  mayInvokeHarnessTool,
+} from "./harness-mcp-auth.js";
+import {
+  decodeHarnessReadSendRequest,
+  decodeHarnessSendRequest,
   HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
-  HARNESS_EVENTS_EXTENSION,
+  HARNESS_READ_INBOX_TOOL,
+  HARNESS_READ_SEND_TOOL,
   HARNESS_SEND_TOOL,
   type HarnessAcknowledgeDeliveryRequest,
   harnessAcknowledgeDeliveryRequestJsonSchema,
   type HarnessEmptyResult,
   harnessEmptyResultJsonSchema,
-  type HarnessMessageReadyEvent,
+  type HarnessReadInboxRequest,
+  harnessReadInboxRequestJsonSchema,
+  type HarnessReadInboxResult,
+  harnessReadInboxResultJsonSchema,
+  type HarnessReadSendRequest,
+  harnessReadSendRequestJsonSchema,
+  type HarnessReadSendResult,
+  harnessReadSendResultJsonSchema,
   type HarnessSendErrorData,
   type HarnessSendRequest,
   harnessSendRequestJsonSchema,
@@ -29,9 +60,13 @@ import {
   harnessSendResultJsonSchema,
 } from "./harness-mcp-contract.js";
 import {
-  type HarnessMcpSubscriptionHandler,
-  makeHarnessMcpSubscriptionHandler,
-} from "./harness-mcp-subscription.js";
+  type HarnessEvents,
+  makeHarnessEvents,
+  makeWebhookEvents,
+  runEventOperation,
+  webhookHttpClientLayer,
+  webhookStatusJsonSchema,
+} from "./harness-mcp-events/index.js";
 import {
   type ManagementReadConversationRequest,
   managementReadConversationRequestSchema,
@@ -65,6 +100,16 @@ type ClosedOperationError = Readonly<{ readonly reason: string }>;
 
 /** Structural daemon operations projected onto the loopback MCP boundary. */
 export interface HarnessMcpOperations {
+  readonly readInboxSummary: () => Effect.Effect<
+    InboxSummary,
+    ClosedOperationError
+  >;
+  readonly readInbox: (
+    input: HarnessReadInboxRequest,
+  ) => Effect.Effect<HarnessReadInboxResult, ClosedOperationError>;
+  readonly readSend: (
+    input: HarnessReadSendRequest,
+  ) => Effect.Effect<HarnessReadSendResult, ClosedOperationError>;
   readonly readStatus: () => Effect.Effect<
     ManagementStatusResult,
     ClosedOperationError
@@ -89,7 +134,18 @@ export interface HarnessMcpOperations {
   ) => Effect.Effect<void, ClosedOperationError>;
 }
 
+/** Official handler with one content-free daemon notification edge. */
+export interface HarnessMcpEventHandler extends McpHttpHandler {
+  readonly hasActiveSubscription: () => boolean;
+  readonly notifyPending: () => boolean;
+}
+
 interface HarnessMcpHandlerOptions {
+  readonly eventStore?: Pick<
+    EndpointStore,
+    "readEventState" | "writeEventState"
+  >;
+  readonly credentials?: HarnessMcpCredentials;
   readonly implementation: Implementation;
   readonly operations: HarnessMcpOperations;
   readonly onSubscriptionActiveChange?: (active: boolean) => void;
@@ -171,6 +227,23 @@ const emptyOutput = makeStandardSchema<HarnessEmptyResult>(
 const sendOutput = makeStandardSchema<HarnessSendResult>(
   harnessSendResultJsonSchema,
 );
+const readInboxInput = makeStandardSchema<HarnessReadInboxRequest>(
+  harnessReadInboxRequestJsonSchema,
+);
+const readInboxOutput = makeStandardSchema<HarnessReadInboxResult>(
+  harnessReadInboxResultJsonSchema,
+);
+const readSendInput = makeStandardSchema<HarnessReadSendRequest>(
+  harnessReadSendRequestJsonSchema,
+);
+const readSendOutput = makeStandardSchema<HarnessReadSendResult>(
+  harnessReadSendResultJsonSchema,
+);
+const RUNTIME_READ_REASONS = new Set([
+  "not-registered",
+  "invalid-continuation",
+  "persistence-failed",
+]);
 
 const REGISTER_REASONS = new Set([
   "dependency-unavailable",
@@ -415,7 +488,7 @@ const registerRegistrationTool = (
   );
 };
 
-const registerReadTools = (
+const registerSearchAgentsTool = (
   server: McpServer,
   operations: HarnessMcpOperations,
 ): void => {
@@ -431,6 +504,13 @@ const registerReadTools = (
         signal: context.mcpReq.signal,
       }),
   );
+};
+
+const registerReadTools = (
+  server: McpServer,
+  operations: HarnessMcpOperations,
+): void => {
+  registerSearchAgentsTool(server, operations);
   server.registerTool(
     SEARCH_CONVERSATIONS_TOOL,
     {
@@ -468,6 +548,30 @@ const registerAdapterTools = (
   operations: HarnessMcpOperations,
 ): void => {
   server.registerTool(
+    HARNESS_READ_INBOX_TOOL,
+    { inputSchema: readInboxInput, outputSchema: readInboxOutput },
+    (input, context) =>
+      runOperation({
+        operation: operations.readInbox(input),
+        label: "Inbox read",
+        allowedReasons: RUNTIME_READ_REASONS,
+        fallbackReason: "persistence-failed",
+        signal: context.mcpReq.signal,
+      }),
+  );
+  server.registerTool(
+    HARNESS_READ_SEND_TOOL,
+    { inputSchema: readSendInput, outputSchema: readSendOutput },
+    (input, context) =>
+      runOperation({
+        operation: operations.readSend(input),
+        label: "Send lookup",
+        allowedReasons: RUNTIME_READ_REASONS,
+        fallbackReason: "persistence-failed",
+        signal: context.mcpReq.signal,
+      }),
+  );
+  server.registerTool(
     HARNESS_SEND_TOOL,
     { inputSchema: sendInput, outputSchema: sendOutput },
     (input, context) =>
@@ -490,8 +594,13 @@ const registerAdapterTools = (
 const registerActiveTools = (
   server: McpServer,
   operations: HarnessMcpOperations,
+  role: HarnessMcpRole,
 ): void => {
-  registerReadTools(server, operations);
+  if (role === "runtime") {
+    registerSearchAgentsTool(server, operations);
+  } else {
+    registerReadTools(server, operations);
+  }
   registerAdapterTools(server, operations);
 };
 
@@ -618,15 +727,27 @@ const handleReadConversationToolCall = async (
   });
 };
 
+const decodeInvocationInput = <A>(
+  input: Effect.Effect<A, ParseResult.ParseError>,
+  signal: AbortSignal,
+) =>
+  runEventOperation(
+    input.pipe(
+      Effect.catchTag("ParseError", () =>
+        Effect.fail(new ProtocolError(-32602, "Invalid invocation arguments")),
+      ),
+    ),
+    signal,
+  );
+
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
 const handleSendToolCall = async (
   input: ToolCallInput,
   operations: HarnessMcpOperations,
 ) => {
-  const decoded = await decodeToolInput(
-    sendInput,
-    input.toolArguments,
-    input.name,
+  const decoded = await decodeInvocationInput(
+    decodeHarnessSendRequest(input.toolArguments),
+    input.signal,
   );
   return await validateToolOutput(
     sendOutput,
@@ -660,6 +781,33 @@ const handleActiveToolCall = async (
   operations: HarnessMcpOperations,
 ) => {
   switch (input.name) {
+    case HARNESS_READ_INBOX_TOOL:
+      return await runValidatedOperation(readInboxOutput, input.name, {
+        operation: operations.readInbox(
+          await decodeToolInput(
+            readInboxInput,
+            input.toolArguments,
+            input.name,
+          ),
+        ),
+        label: "Inbox read",
+        allowedReasons: RUNTIME_READ_REASONS,
+        fallbackReason: "persistence-failed",
+        signal: input.signal,
+      });
+    case HARNESS_READ_SEND_TOOL:
+      return await runValidatedOperation(readSendOutput, input.name, {
+        operation: operations.readSend(
+          await decodeInvocationInput(
+            decodeHarnessReadSendRequest(input.toolArguments),
+            input.signal,
+          ),
+        ),
+        label: "Send lookup",
+        allowedReasons: RUNTIME_READ_REASONS,
+        fallbackReason: "persistence-failed",
+        signal: input.signal,
+      });
     case SEARCH_AGENTS_TOOL:
       return await handleSearchAgentsToolCall(input, operations);
     case SEARCH_CONVERSATIONS_TOOL:
@@ -692,7 +840,11 @@ const handleToolCall = async (
   input: ToolCallInput,
   operations: HarnessMcpOperations,
   state: ActiveCatalogState,
+  role: HarnessMcpRole,
 ) => {
+  if (!mayInvokeHarnessTool(role, input.name)) {
+    return toolNotFound(input.name);
+  }
   if (input.name === STATUS_TOOL) {
     return await handleStatusToolCall(input, operations);
   }
@@ -702,83 +854,230 @@ const handleToolCall = async (
   return await handleActiveToolCall(input, operations);
 };
 
-/**
- * Keep schema and operation failures on the JSON-RPC error channel.
- *
- * The high-level SDK tool dispatcher intentionally converts every thrown tool
- * callback error into an `isError` result. This boundary instead uses the
- * official low-level `tools/call` handler so malformed input and accepted
- * domain failures retain their distinct protocol codes and closed data.
- * @param server Official MCP server that owns the low-level request handler.
- * @param operations Closed daemon operations exposed through the tool catalog.
- * @param state Shared registration state controlling active tool visibility.
- */
+const ownerEventDescriptions = {
+  event_subscription_status:
+    "Inspect the runtime consumer and stalled delivery without exposing callback credentials.",
+  revoke_event_subscription:
+    "Release the active runtime consumer. Pending inbox items remain unread.",
+  resume_event_subscription:
+    "Resume a stalled webhook consumer and remind it about unread items.",
+};
+const ownerEventTools = [
+  "event_subscription_status",
+  "revoke_event_subscription",
+  "resume_event_subscription",
+] as const;
+const ownerEventOperation = (events: HarnessEvents, name: string) => {
+  switch (name) {
+    case "event_subscription_status":
+      return events.status;
+    case "revoke_event_subscription":
+      return events.revoke.pipe(Effect.as({}));
+    case "resume_event_subscription":
+      return events.resume.pipe(Effect.as({}));
+    default:
+      return undefined;
+  }
+};
+interface RequestAuthority {
+  readonly role: HarnessMcpRole;
+  readonly events: HarnessEvents;
+}
+
+// #ignore-sloppy-code-next-line[async-keyword]: The MCP edge validates its Promise-native tool schema before running the owner operation.
+const handleOwnerOperation = async (
+  operation: NonNullable<ReturnType<typeof ownerEventOperation>>,
+  input: ToolCallInput,
+) => {
+  await decodeToolInput(emptyInput, input.toolArguments, input.name);
+  return toolResult(await runEventOperation(operation, input.signal));
+};
+
+/** Schema failures and refused operations stay on the JSON-RPC error channel. */
 const installToolCallHandler = (
   server: McpServer,
   operations: HarnessMcpOperations,
   state: ActiveCatalogState,
+  authority: RequestAuthority,
 ): void => {
-  server.server.setRequestHandler("tools/call", (request, context) =>
-    handleToolCall(
-      {
-        name: request.params.name,
-        toolArguments: request.params.arguments ?? {},
-        signal: context.mcpReq.signal,
-      },
-      operations,
-      state,
-    ),
-  );
+  server.server.setRequestHandler("tools/call", (request, context) => {
+    const input = {
+      name: request.params.name,
+      toolArguments: request.params.arguments ?? {},
+      signal: context.mcpReq.signal,
+    };
+    const ownerOperation = ownerEventOperation(authority.events, input.name);
+    if (authority.role === "owner" && ownerOperation !== undefined) {
+      return handleOwnerOperation(ownerOperation, input);
+    }
+    return handleToolCall(input, operations, state, authority.role);
+  });
 };
-
+const registerOwnerEvents = (server: McpServer) => {
+  for (const name of ownerEventTools) {
+    server.registerTool(
+      name,
+      {
+        description: ownerEventDescriptions[name],
+        inputSchema: emptyInput,
+        ...(name === "event_subscription_status"
+          ? { outputSchema: makeStandardSchema(webhookStatusJsonSchema) }
+          : {}),
+      },
+      () => toolResult({}),
+    );
+  }
+};
+const runtimeOperations = (
+  operations: HarnessMcpOperations,
+  events: HarnessEvents,
+): HarnessMcpOperations => ({
+  ...operations,
+  readInbox: (input) =>
+    operations
+      .readInbox(input)
+      .pipe(
+        Effect.tap(() =>
+          events.inboxRead.pipe(
+            Effect.mapError(() => ({ reason: "persistence-failed" })),
+          ),
+        ),
+      ),
+  acknowledgeDelivery: (token) =>
+    operations
+      .acknowledgeDelivery(token)
+      .pipe(Effect.tap(() => Effect.sync(() => events.notifyPending()))),
+});
 const makeServer = (
   options: HarnessMcpHandlerOptions,
   state: ActiveCatalogState,
+  events: HarnessEvents,
+  role: HarnessMcpRole,
 ): McpServer => {
-  const server = new McpServer(options.implementation, {
-    capabilities: {
-      experimental: {
-        [HARNESS_EVENTS_EXTENSION]: {},
-      },
-    },
-  });
-  registerStatusTool(server, options.operations);
+  const capabilities = { tools: {}, events: {} };
+  const server = new McpServer(options.implementation, { capabilities });
+  if (role !== "runtime") {
+    registerStatusTool(server, options.operations);
+  }
+  if (role === "owner") {
+    registerOwnerEvents(server);
+  }
   if (state.active) {
-    registerActiveTools(server, options.operations);
-  } else {
+    registerActiveTools(server, options.operations, role);
+  } else if (role !== "runtime") {
     registerRegistrationTool(server, options.operations, state);
   }
-  installToolCallHandler(server, options.operations, state);
+  installToolCallHandler(
+    server,
+    runtimeOperations(options.operations, events),
+    state,
+    { role, events },
+  );
+  events.install(server.server, role === "local" ? undefined : role);
   return server;
 };
+const officialHandler = (
+  options: HarnessMcpHandlerOptions,
+  state: ActiveCatalogState,
+  events: HarnessEvents,
+) =>
+  createMcpHandler(
+    (context) => {
+      const request = context.requestInfo;
+      if (request === undefined) {
+        throw new ProtocolError(-32012, "Authentication required");
+      }
+      const role = authenticateHarnessRequest(request, options.credentials);
+      if (role === undefined) {
+        throw new ProtocolError(-32012, "Authentication required");
+      }
+      return makeServer(options, state, events, role);
+    },
+    { legacy: "reject", responseMode: "auto", onerror: options.onerror },
+  );
+const guardedHandler = (
+  options: HarnessMcpHandlerOptions,
+  delegate: McpHttpHandler,
+  events: HarnessEvents,
+  scope: Scope.CloseableScope,
+): HarnessMcpEventHandler => ({
+  ...delegate,
+  hasActiveSubscription: events.hasActiveSubscription,
+  notifyPending: events.notifyPending,
+  fetch: (request, requestOptions) =>
+    authenticateHarnessRequest(request, options.credentials) === undefined
+      ? Promise.resolve(
+          new Response("Unauthorized", {
+            status: 401,
+            headers: { "www-authenticate": "Bearer" },
+          }),
+        )
+      : delegate.fetch(request, requestOptions),
+  close: () =>
+    Effect.runPromise(
+      events.close.pipe(
+        Effect.ensuring(
+          Effect.tryPromise(() => delegate.close()).pipe(Effect.ignore),
+        ),
+        Effect.ensuring(Scope.close(scope, Exit.void)),
+      ),
+    ),
+});
+const acquireWebhook = (
+  options: HarnessMcpHandlerOptions,
+  scope: Scope.CloseableScope,
+  gate: Effect.Semaphore,
+) =>
+  Effect.gen(function* () {
+    if (options.credentials === undefined || options.eventStore === undefined) {
+      return undefined;
+    }
+    const context = yield* Layer.buildWithScope(webhookHttpClientLayer, scope);
+    return yield* makeWebhookEvents(options.eventStore, gate).pipe(
+      Effect.provide(context),
+      Effect.mapError(() => ({ reason: "persistence-failed" })),
+    );
+  });
+const acquireHandler = (
+  options: HarnessMcpHandlerOptions,
+  state: ActiveCatalogState,
+  scope: Scope.CloseableScope,
+) =>
+  Effect.gen(function* () {
+    const gate = yield* Effect.makeSemaphore(1);
+    const webhook = yield* acquireWebhook(options, scope, gate);
+    const events = yield* makeHarnessEvents({
+      ...(webhook === undefined ? {} : { webhook }),
+      summary: options.operations.readInboxSummary,
+      registered: () => state.active,
+      gate,
+      keepAliveMillis: options.keepAliveMillis,
+      onActiveChange: options.onSubscriptionActiveChange,
+    });
+    return guardedHandler(
+      options,
+      officialHandler(options, state, events),
+      events,
+      scope,
+    );
+  });
 
 /**
- * Create one state-dependent official MCP handler and message listener.
- * @param options Closed daemon operations and lifecycle callbacks.
- * @returns Handler whose catalog transitions in place after registration.
+ * Create one official MCP handler with explicit event resource ownership.
+ * @param options Daemon operations, optional credentials and callback persistence.
+ * @returns Handler whose catalog changes in place after registration.
  */
 export const makeHarnessMcpHttpHandler = (
   options: HarnessMcpHandlerOptions,
-): Effect.Effect<
-  HarnessMcpSubscriptionHandler<HarnessMessageReadyEvent>,
-  ClosedOperationError
-> =>
-  options.operations.readStatus().pipe(
-    Effect.map((status) => {
-      const state: ActiveCatalogState = { active: status.kind === "active" };
-      const delegate = createMcpHandler(() => makeServer(options, state), {
-        legacy: "reject",
-        responseMode: "json",
-        onerror: options.onerror,
-      });
-      return makeHarnessMcpSubscriptionHandler({
-        delegate,
-        implementation: options.implementation,
-        onActiveChange: options.onSubscriptionActiveChange,
-        onerror: options.onerror,
-        keepAliveMillis: options.keepAliveMillis,
-      });
-    }),
-  );
+): Effect.Effect<HarnessMcpEventHandler, ClosedOperationError> =>
+  Effect.gen(function* () {
+    const status = yield* options.operations.readStatus();
+    const scope = yield* Scope.make();
+    return yield* acquireHandler(
+      options,
+      { active: status.kind === "active" },
+      scope,
+    ).pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
+  }).pipe(Effect.withSpan("makeHarnessMcpHttpHandler"));
 
 /* eslint-enable agent-code-guard/async-keyword -- Restore repository defaults after the MCP boundary. */

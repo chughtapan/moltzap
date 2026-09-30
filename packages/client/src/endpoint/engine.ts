@@ -111,6 +111,8 @@ type ResumeIntentDisposition =
   | "ignore";
 
 const resumeDispositionBySendReason = {
+  "idempotency-conflict": "fail-representation",
+  "outcome-unknown": "fail-representation",
   "certification-unavailable": "ignore",
   "content-invalid": "fail-representation",
   "invalid-address": "fail-representation",

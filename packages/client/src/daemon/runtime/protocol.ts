@@ -10,7 +10,6 @@ import type {
 } from "../../endpoint/engine.js";
 import type { DeliveryToken, EndpointStore } from "../../endpoint/store.js";
 import type { DaemonBootstrap } from "../configuration.js";
-import type { HistoryExportPort } from "./history-export.js";
 import { AgentAddress, type InboundItem } from "../../contract.js";
 import {
   type CollectiveOperations,
@@ -24,17 +23,14 @@ import {
   type RouterWorkerProtocolError,
   type RouterWorkerTransportError,
 } from "../../endpoint/router-worker/index.js";
+import { mintLocalDeliveryToken, persistInboxItem } from "../inbox/index.js";
 import {
   DaemonActivationError,
   type DaemonRuntimeDependencies,
   DaemonRuntimeError,
   recoverPinnedSenderCards,
 } from "./activation.js";
-import {
-  mintLocalDeliveryToken,
-  offerPendingMessages,
-  type PendingOffer,
-} from "./pending-delivery.js";
+import { offerPendingMessages, type PendingOffer } from "./pending-delivery.js";
 
 /** Subscription publisher installed after the MCP handler is acquired. */
 export type RuntimeSubscriptionHandler = Effect.Effect.Success<
@@ -58,7 +54,7 @@ export interface ProtocolState {
   /**
    * Items the collective layer emitted, in emission order, each under a
    * daemon-minted delivery token until the subscriber acknowledges it. They
-   * live in memory like the gather state they come from.
+   * are durable before insertion; this map caches the current process values.
    */
   readonly localItems: Map<DeliveryToken, InboundItem>;
   /** Deliveries whose item the history export already recorded. */
@@ -71,7 +67,7 @@ export interface ProtocolState {
 export interface ProtocolEnvironment {
   readonly store: EndpointStore;
   readonly bootstrap: DaemonBootstrap;
-  readonly historyExport: HistoryExportPort;
+  readonly historyExport: PendingOffer["historyExport"];
   readonly dependencies: DaemonRuntimeDependencies;
   readonly registry: Context.Tag.Service<typeof Registry>;
   readonly router: Context.Tag.Service<typeof Router>;
@@ -120,7 +116,17 @@ const pendingOffer = (
   return {
     engine: protocol.engine,
     classify: protocol.collectives.classify,
-    ...(handler === undefined ? {} : { handler }),
+    persist: (event) =>
+      persistInboxItem(environment.store, event).pipe(
+        Effect.catchAll(() =>
+          Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
+            Effect.zipRight(Effect.never),
+          ),
+        ),
+      ),
+    ...(handler === undefined
+      ? {}
+      : { handler: { publish: handler.notifyPending } }),
     historyExport: environment.historyExport,
     publishedDeliveries: state.publishedDeliveries,
     exportedDeliveries: state.exportedDeliveries,
@@ -174,6 +180,15 @@ const emitLocalItem = (
   item: InboundItem,
 ): Effect.Effect<void> =>
   mintLocalDeliveryToken.pipe(
+    Effect.tap((deliveryToken) =>
+      persistInboxItem(environment.store, { deliveryToken, item }).pipe(
+        Effect.catchAll(() =>
+          Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
+            Effect.zipRight(Effect.never),
+          ),
+        ),
+      ),
+    ),
     Effect.tap((deliveryToken) =>
       Effect.sync(() => {
         environment.state.localItems.set(deliveryToken, item);

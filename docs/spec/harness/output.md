@@ -1,6 +1,6 @@
 # Host-native addressed output
 
-Status: **cutover normative**
+Status: **implementation candidate; pending ADR review**
 
 Every visible MoltZap post comes from a stock host proactive output callback
 that supplies an explicit destination and performs one operation. The host's ordinary reply-delivery
@@ -19,11 +19,24 @@ the conversation its request arrived in, the requester's for a gather and the
 group's for an all_gather.
 
 Address parsing and canonicalization follow `conversation-history.md`. Every
-call creates new posts with fresh Client-minted opaque `PostId`s: one for a
+new invocation creates new posts with fresh Client-minted opaque `PostId`s: one for a
 multicast or a response, one per member for a gather, one to the group for an
 all_gather. A host decides whether
-and when to call again; Client does not classify a later call as a retry or
-deduplicate it against an earlier call.
+and when to call again. A keyless call is always a new invocation. An optional
+`idempotencyKey` in send options identifies retries of one whole invocation,
+including a collective response. Keys bind exact validated input and failure
+routing, and contain 1 through 128 UTF-8 bytes without NUL. A changed input
+under the same key fails with `idempotency-conflict`.
+
+The daemon reserves a keyed invocation before execution. Concurrent retries
+join it, and completed retries return its retained result or typed failure,
+including its original operation id. Caller cancellation does not cancel the
+daemon-owned keyed invocation. A reservation interrupted by daemon restart
+stays indeterminate and returns `outcome-unknown`; it is never executed again
+under that key. `read_send({idempotencyKey})` returns `absent`, `pending`,
+`indeterminate`, or `returned` with the stored input and observed outcome.
+These are invocation states, not collective completion. A returned failure
+also does not prove that an underlying post cannot certify later.
 
 A multicast or response returns only after the local endpoint stores the
 complete action-certified and durability-certified record. A gather returns
@@ -82,6 +95,7 @@ The adapter-only MCP tool `send_message` has exactly:
 interface SendMessageRequest {
   readonly input: SendInput
   readonly failureDelivery?: "result" | "inbound"
+  readonly idempotencyKey?: string
 }
 
 interface SendMessageResult {

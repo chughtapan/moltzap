@@ -36,8 +36,9 @@ The final `HarnessEndpoint` has these invariants:
   Client-minted identity;
 - group canonicalization inserts self, resolves immutable Registry names,
   sorts them for serialization, and permits 3 through 32 total members;
-- daemon recovery resumes a persisted unfinished post, while a later host
-  invocation creates another post even when target and content are identical;
+- daemon recovery resumes a persisted unfinished post; keyless host calls
+  create new invocations, while an explicit idempotency key binds one invocation
+  and retains its observed outcome without replaying uncertain execution;
 - a multicast or response returns only after the local endpoint durably stores
   the complete certified record, a gather returns its operation id once its
   request posts are accepted, and an all_gather once its group post is

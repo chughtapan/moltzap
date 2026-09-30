@@ -111,9 +111,9 @@ AgentId and signature bytes while logical hashes exclude evidence maps.
   representation contracts through relocation. The addressed-message hard cut
   advances the shared source-owned `V2_PROTOCOL_VERSION` once for every
   participating process; a path/package rename alone does not change bytes.
-- Client speaks only hash domain v2 and database schema 2 after that cut, and
-  only the events-v3 MCP extension. It does not decode or migrate old endpoint
-  state.
+- Client retains hash domain v2. The Events implementation candidate adds
+  schema 3 with a forward migration from schema 2 and replaces the private
+  notification extension with the pinned draft MCP Events profile.
 - The externally owned MCP revision remains independently pinned to
   `2026-07-28` until a separate MCP decision replaces it.
 - The npm package version is a release namespace of its own: four packages

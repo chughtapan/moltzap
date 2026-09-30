@@ -23,6 +23,18 @@ import {
 import { acknowledgeDelivery, readPendingDeliveries } from "./deliveries.js";
 import { enqueueDisseminationOutbound } from "./dissemination.js";
 import {
+  acknowledgeInboxItem,
+  beginSendAttempt,
+  finishSendAttempt,
+  putInboxItem,
+  readEventState,
+  readInbox,
+  readInboxSummary,
+  readSendAttempt,
+  replaceInboxItem,
+  writeEventState,
+} from "./inbox.js";
+import {
   readStoredConversation,
   recoverStoredState,
   releaseStoredContinuation,
@@ -69,8 +81,37 @@ function makeEndpointStore(state: StoreState): EndpointStore {
     ...makeHistoryOperations(state, run),
     ...makeTransportOperations(state, run),
     ...makeManagementOperations(state, run),
+    ...makeInboxOperations(state, run),
   };
   return Object.freeze(store);
+}
+
+function makeInboxOperations(state: StoreState, run: StoreRunner) {
+  return {
+    putInboxItem: (item) => run(() => putInboxItem(state.database, item)),
+    readInbox: (input) => run(() => readInbox(state.database, input)),
+    readInboxSummary: () => run(() => readInboxSummary(state.database)),
+    acknowledgeInboxItem: (token) =>
+      run(() => {
+        acknowledgeInboxItem(state.database, token);
+      }),
+    replaceInboxItem: (token, replacement) =>
+      run(() => {
+        replaceInboxItem(state.database, token, replacement);
+      }),
+    beginSendAttempt: (key, input) =>
+      run(() => beginSendAttempt(state.database, key, input)),
+    finishSendAttempt: (key, outcome) =>
+      run(() => {
+        finishSendAttempt(state.database, key, outcome);
+      }),
+    readSendAttempt: (key) => run(() => readSendAttempt(state.database, key)),
+    readEventState: () => run(() => readEventState(state.database)),
+    writeEventState: (value) =>
+      run(() => {
+        writeEventState(state.database, value);
+      }),
+  } satisfies Partial<EndpointStore>;
 }
 
 type StoreRunner = <Value>(
