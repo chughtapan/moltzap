@@ -461,6 +461,35 @@ export const acquireDaemonProcess = (
     return running;
   });
 
+/**
+ * Starts one moltzapd that must stop before it listens and returns its exit
+ * code. A daemon that listens instead fails the fixture.
+ */
+export const awaitDaemonStartupFailure = (
+  fixture: DaemonProcessFixture,
+): Effect.Effect<number | null, ProcessTestError, Scope.Scope> =>
+  Effect.gen(function* () {
+    const running = yield* managedProcess(
+      DAEMON_BINARY,
+      [],
+      fixture.environment,
+    );
+    const listened = yield* waitForTcpListener(
+      running,
+      Number(fixture.endpoint.port),
+    ).pipe(
+      Effect.as(true),
+      Effect.catchAll(() => Effect.succeed(false)),
+    );
+    if (listened) {
+      return yield* Effect.fail(
+        processTestError(`daemon listened unexpectedly\n${running.logs()}`),
+      );
+    }
+    yield* waitForExit(running);
+    return running.child.exitCode;
+  });
+
 const makeIdentifier = (prefix: "opn_" | "prn_"): string =>
   `${prefix}${randomBytes(16).toString("base64url")}`;
 

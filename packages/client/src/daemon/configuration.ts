@@ -6,7 +6,7 @@ import {
   type Ed25519PublicKey as Ed25519PublicKeyValue,
 } from "@moltzap/identity";
 import { Config, Data, Effect, Redacted, Schema } from "effect";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Bootstrap reads two configured Node files before the daemon composes its platform services.
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Bootstrap reads the two configured Node secret files outside the daemon's platform services.
 import { readFile } from "node:fs/promises";
 
 const canonicalUnsignedDecimal = Schema.String.pipe(
@@ -61,7 +61,7 @@ const configuredValues = Config.all({
   ),
   admissionCredentialFile: Config.redacted(
     Schema.Config("MOLTZAPD_ADMISSION_CREDENTIAL_FILE", configuredPath),
-  ),
+  ).pipe(Config.withDefault(undefined)),
   historyExport: Schema.Config("MOLTZAPD_HISTORY_EXPORT", configuredPath).pipe(
     Config.withDefault(undefined),
   ),
@@ -90,7 +90,11 @@ export interface DaemonProcessConfiguration {
   readonly registrySignerPublicKey: Ed25519PublicKeyValue;
   readonly routerOrigin: URL;
   readonly agentPrivateKeyFile: Redacted.Redacted;
-  readonly admissionCredentialFile: Redacted.Redacted;
+  /**
+   * Admission credential file an unregistered daemon requires; a daemon whose
+   * state directory holds a registered identity never reads it.
+   */
+  readonly admissionCredentialFile?: Redacted.Redacted;
   /**
    * File the daemon appends its delivered and sent messages to, one JSON
    * line each, when the operator asks for that record.
@@ -103,14 +107,24 @@ export interface DaemonBootstrap {
   readonly configuration: DaemonProcessConfiguration;
   readonly signingAuthority: AgentSigningAuthority;
   readonly agentPublicKey: Ed25519PublicKeyValue;
-  readonly admissionCredential: Redacted.Redacted;
+  /**
+   * Reads and validates the admission credential file on first use, then
+   * replays that outcome. Loading the bootstrap never reads the file.
+   */
+  readonly admissionCredential: Effect.Effect<
+    Redacted.Redacted,
+    DaemonConfigurationError
+  >;
 }
 
 const configurationError = (
   reason: DaemonConfigurationFailure,
 ): DaemonConfigurationError => new DaemonConfigurationError({ reason });
 
-/** Loads exactly the seven required daemon process inputs and the optional export. */
+/**
+ * Loads exactly the six required daemon process inputs, the optional
+ * admission credential file, and the optional export.
+ */
 export const loadDaemonProcessConfiguration: Effect.Effect<
   DaemonProcessConfiguration,
   DaemonConfigurationError
@@ -161,9 +175,12 @@ const loadSigningAuthority = (
 const loadAdmissionCredential = (
   configuration: DaemonProcessConfiguration,
 ): Effect.Effect<Redacted.Redacted, DaemonConfigurationError> =>
-  readExactUtf8(
-    configuration.admissionCredentialFile,
-    "admission-credential-file",
+  (configuration.admissionCredentialFile === undefined
+    ? Effect.fail(configurationError("admission-credential-file"))
+    : readExactUtf8(
+        configuration.admissionCredentialFile,
+        "admission-credential-file",
+      )
   ).pipe(
     Effect.flatMap(Schema.decodeUnknown(admissionCredential)),
     Effect.map(Redacted.make),
@@ -175,22 +192,23 @@ const loadAdmissionCredential = (
   );
 
 /**
- * Reads exact secret bytes and constructs the configured Ed25519 authority.
+ * Reads the agent private key and constructs the configured Ed25519 authority.
  *
- * @param configuration Validated seven-input process configuration.
- * @returns Redacted admission and opaque agent signing authority.
+ * @param configuration Validated process configuration.
+ * @returns Opaque agent signing authority and a deferred admission credential.
  */
 export const loadDaemonBootstrap = (
   configuration: DaemonProcessConfiguration,
 ): Effect.Effect<DaemonBootstrap, DaemonConfigurationError> =>
   Effect.gen(function* () {
     const signingAuthority = yield* loadSigningAuthority(configuration);
-    const loadedAdmissionCredential =
-      yield* loadAdmissionCredential(configuration);
+    const admissionCredential = yield* Effect.cached(
+      loadAdmissionCredential(configuration),
+    );
     return Object.freeze({
       configuration,
       signingAuthority,
       agentPublicKey: AgentSigningAuthority.publicKey(signingAuthority),
-      admissionCredential: loadedAdmissionCredential,
+      admissionCredential,
     });
   }).pipe(Effect.withSpan("loadDaemonBootstrap"));

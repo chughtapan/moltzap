@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   type DaemonConfigurationError,
+  type DaemonProcessConfiguration,
   loadDaemonBootstrap,
   loadDaemonProcessConfiguration,
 } from "./configuration.js";
@@ -117,10 +118,54 @@ const loadsExactRedactedSecrets = async () => {
   expect(bootstrap.agentPublicKey.x).toBe(
     "3rUJ92tIP0DE4ekmET1zme6SIWTp5G0KiF3ZjL-AoKg",
   );
-  expect(Redacted.isRedacted(bootstrap.admissionCredential)).toBe(true);
-  expect(Redacted.value(bootstrap.admissionCredential)).toBe(
-    "bootstrap-token=",
+  const admissionCredential = await Effect.runPromise(
+    bootstrap.admissionCredential,
   );
+  expect(Redacted.isRedacted(admissionCredential)).toBe(true);
+  expect(Redacted.value(admissionCredential)).toBe("bootstrap-token=");
+};
+
+const loadsBootstrapWithoutAdmissionFile = async () => {
+  const directory = temporaryDirectory();
+  writeFileSync(join(directory, "agent.pem"), privateKey);
+  const configuration = await Effect.runPromise(loadConfiguration(directory));
+  const bootstrap = await Effect.runPromise(loadDaemonBootstrap(configuration));
+  expect(bootstrap.agentPublicKey.x).toBe(
+    "3rUJ92tIP0DE4ekmET1zme6SIWTp5G0KiF3ZjL-AoKg",
+  );
+  expect(
+    await Effect.runPromise(failureReason(bootstrap.admissionCredential)),
+  ).toBe("admission-credential-file");
+};
+
+const loadsBootstrapWithAdmissionFileUnset = async () => {
+  const directory = temporaryDirectory();
+  writeFileSync(join(directory, "agent.pem"), privateKey);
+  const configuration = await Effect.runPromise(
+    loadDaemonProcessConfiguration.pipe(
+      Effect.withConfigProvider(
+        ConfigProvider.fromMap(
+          new Map(
+            [...requiredConfiguration(directory)].filter(
+              ([name]) => name !== "MOLTZAPD_ADMISSION_CREDENTIAL_FILE",
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  expect(configuration.admissionCredentialFile).toBeUndefined();
+  const bootstrap = await Effect.runPromise(loadDaemonBootstrap(configuration));
+  expect(
+    await Effect.runPromise(failureReason(bootstrap.admissionCredential)),
+  ).toBe("admission-credential-file");
+};
+
+const admissionFailureReason = async (
+  configuration: DaemonProcessConfiguration,
+) => {
+  const bootstrap = await Effect.runPromise(loadDaemonBootstrap(configuration));
+  return await Effect.runPromise(failureReason(bootstrap.admissionCredential));
 };
 
 const rejectsSecretFileFailures = async () => {
@@ -136,25 +181,25 @@ const rejectsSecretFileFailures = async () => {
   ).toBe("agent-private-key");
 
   writeFileSync(join(directory, "agent.pem"), privateKey);
-  expect(
-    await Effect.runPromise(failureReason(loadDaemonBootstrap(configuration))),
-  ).toBe("admission-credential-file");
+  expect(await admissionFailureReason(configuration)).toBe(
+    "admission-credential-file",
+  );
 
   writeFileSync(join(directory, "admission"), "bootstrap-token=\n");
-  expect(
-    await Effect.runPromise(failureReason(loadDaemonBootstrap(configuration))),
-  ).toBe("admission-credential");
+  expect(await admissionFailureReason(configuration)).toBe(
+    "admission-credential",
+  );
 
   writeFileSync(
     join(directory, "admission"),
     Buffer.from([0xef, 0xbb, 0xbf, ...Buffer.from("bootstrap-token=")]),
   );
-  expect(
-    await Effect.runPromise(failureReason(loadDaemonBootstrap(configuration))),
-  ).toBe("admission-credential");
+  expect(await admissionFailureReason(configuration)).toBe(
+    "admission-credential",
+  );
 };
 
-// @agent-code-guard/regression-only: these examples pin the seven-input daemon configuration and exact secret-file boundary.
+// @agent-code-guard/regression-only: these examples pin the daemon process inputs and exact secret-file boundary.
 describe("daemon configuration", () => {
   it(
     "loads exactly the declared configuration and ignores unrelated values",
@@ -171,6 +216,14 @@ describe("daemon configuration", () => {
   it(
     "closes file, UTF-8, key, and credential failures",
     rejectsSecretFileFailures,
+  );
+  it(
+    "loads the bootstrap without reading a missing admission credential file",
+    loadsBootstrapWithoutAdmissionFile,
+  );
+  it(
+    "accepts an unset admission credential file until the credential is used",
+    loadsBootstrapWithAdmissionFileUnset,
   );
 });
 

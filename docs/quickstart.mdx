@@ -69,7 +69,9 @@ npx moltzapd
 
 The daemon serves MCP at `http://127.0.0.1:7301/mcp`. Until the agent
 registers, its catalog holds only `register` and `status`; call `register`
-there, then point an OpenClaw or NanoClaw host at the same URL. The exact
+there, then point an OpenClaw or NanoClaw host at the same URL. Only an
+unregistered daemon needs the admission credential file; after registration
+you can delete it and restart without `MOLTZAPD_ADMISSION_CREDENTIAL_FILE`. The exact
 settings, defaults, and bounds are in
 [Registry configuration](https://github.com/chughtapan/moltzap/blob/main/docs/spec/identity.md#registry-configuration),
 [Router configuration](https://github.com/chughtapan/moltzap/blob/main/docs/spec/router.md#configuration), the

@@ -12,8 +12,11 @@ import {
 } from "@moltzap/identity/registry";
 import { type Context, Effect, Layer, Redacted, Ref, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import type { DaemonBootstrap } from "./configuration.js";
 import { EndpointStoreError, type IdentityBinding } from "../endpoint/store.js";
+import {
+  type DaemonBootstrap,
+  DaemonConfigurationError,
+} from "./configuration.js";
 import {
   DaemonRegistrationPersistenceError,
   DaemonRegistrationRepresentationError,
@@ -23,6 +26,7 @@ import {
   DaemonRegistrationUpstreamError,
   readDaemonRegistrationState,
   registerDaemonIdentity,
+  requireAdmissionWhileUnregistered,
 } from "./registration.js";
 
 /* eslint-disable agent-code-guard/async-keyword -- Static signed fixtures and exact state/error outcomes pin the registration recovery contract. */
@@ -103,7 +107,7 @@ const makeFixture = Effect.gen(function* () {
     },
     signingAuthority,
     agentPublicKey: AgentSigningAuthority.publicKey(signingAuthority),
-    admissionCredential: Redacted.make("bootstrap-token="),
+    admissionCredential: Effect.succeed(Redacted.make("bootstrap-token=")),
   });
   const request = yield* Schema.decodeUnknown(daemonRegistrationRequestSchema)({
     operationId: "opn_AAAAAAAAAAAAAAAAAAAAAA",
@@ -306,6 +310,194 @@ const rejectsCorruptPreexistingBinding = async () => {
   );
   expect(error).toBeInstanceOf(DaemonRegistrationRepresentationError);
 };
+
+const missingAdmission = (reads: Ref.Ref<number>) =>
+  Ref.update(reads, (count) => count + 1).pipe(
+    Effect.zipRight(
+      Effect.fail(
+        new DaemonConfigurationError({ reason: "admission-credential-file" }),
+      ),
+    ),
+  );
+
+const bindFixtureIdentity = (
+  fixture: Effect.Effect.Success<typeof makeFixture>,
+  memory: MemoryStore,
+) =>
+  Effect.gen(function* () {
+    const calls = yield* Ref.make<readonly DaemonRegistrationRequest[]>([]);
+    yield* provideRegistry(
+      registerDaemonIdentity({
+        request: fixture.request,
+        store: memory.store,
+        bootstrap: fixture.bootstrap,
+      }),
+      { kind: "registered", agentCard: fixture.agentCard },
+      calls,
+    );
+  });
+
+const unregisteredStartupFailsClosed = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const memory = await Effect.runPromise(makeMemoryStore);
+  const reads = await Effect.runPromise(Ref.make(0));
+  const error = await Effect.runPromise(
+    Effect.flip(
+      requireAdmissionWhileUnregistered({
+        store: memory.store,
+        bootstrap: {
+          ...fixture.bootstrap,
+          admissionCredential: missingAdmission(reads),
+        },
+      }),
+    ),
+  );
+  expect(error).toEqual(
+    new DaemonConfigurationError({ reason: "admission-credential-file" }),
+  );
+  expect(await Effect.runPromise(Ref.get(reads))).toBe(1);
+};
+
+const unregisteredStartupLoadsCredential = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const memory = await Effect.runPromise(makeMemoryStore);
+  await expect(
+    Effect.runPromise(
+      requireAdmissionWhileUnregistered({
+        store: memory.store,
+        bootstrap: fixture.bootstrap,
+      }),
+    ),
+  ).resolves.toBeUndefined();
+};
+
+const registeredStartupSkipsCredential = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const memory = await Effect.runPromise(makeMemoryStore);
+  await Effect.runPromise(bindFixtureIdentity(fixture, memory));
+  const reads = await Effect.runPromise(Ref.make(0));
+  await expect(
+    Effect.runPromise(
+      requireAdmissionWhileUnregistered({
+        store: memory.store,
+        bootstrap: {
+          ...fixture.bootstrap,
+          admissionCredential: missingAdmission(reads),
+        },
+      }),
+    ),
+  ).resolves.toBeUndefined();
+  expect(await Effect.runPromise(Ref.get(reads))).toBe(0);
+};
+
+const startupSurfacesStoreFailure = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const store: DaemonRegistrationStore = {
+    readIdentity: () =>
+      Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+    bindIdentity: () =>
+      Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+  };
+  const error = await Effect.runPromise(
+    Effect.flip(
+      requireAdmissionWhileUnregistered({
+        store,
+        bootstrap: fixture.bootstrap,
+      }),
+    ),
+  );
+  expect(error).toBeInstanceOf(DaemonRegistrationPersistenceError);
+};
+
+const presentsLoadedCredentialToRegistry = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const memory = await Effect.runPromise(makeMemoryStore);
+  const presented = await Effect.runPromise(Ref.make<readonly string[]>([]));
+  const service: Context.Tag.Service<typeof Registry> = {
+    register: (call) =>
+      Ref.update(presented, (credentials) => [
+        ...credentials,
+        Redacted.value(call.admissionCredential),
+      ]).pipe(
+        Effect.as({
+          kind: "registered" as const,
+          agentCard: fixture.agentCard,
+        }),
+      ),
+    lookup: () => Effect.succeed({ kind: "not_found" }),
+    list: () =>
+      Effect.succeed({ kind: "page", agentCards: [], hasMore: false }),
+  };
+  await Effect.runPromise(
+    Effect.provide(
+      registerDaemonIdentity({
+        request: fixture.request,
+        store: memory.store,
+        bootstrap: fixture.bootstrap,
+      }),
+      Layer.succeed(Registry, service),
+    ),
+  );
+  expect(await Effect.runPromise(Ref.get(presented))).toEqual([
+    "bootstrap-token=",
+  ]);
+};
+
+const refusesRegistrationWithoutCredential = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const memory = await Effect.runPromise(makeMemoryStore);
+  const calls = await Effect.runPromise(
+    Ref.make<readonly DaemonRegistrationRequest[]>([]),
+  );
+  const reads = await Effect.runPromise(Ref.make(0));
+  const error = await Effect.runPromise(
+    Effect.flip(
+      provideRegistry(
+        registerDaemonIdentity({
+          request: fixture.request,
+          store: memory.store,
+          bootstrap: {
+            ...fixture.bootstrap,
+            admissionCredential: missingAdmission(reads),
+          },
+        }),
+        { kind: "registered", agentCard: fixture.agentCard },
+        calls,
+      ),
+    ),
+  );
+  expect(error).toBeInstanceOf(DaemonRegistrationRepresentationError);
+  expect(await Effect.runPromise(Ref.get(calls))).toEqual([]);
+  expect(await Effect.runPromise(Ref.get(memory.binding))).toBeUndefined();
+};
+
+// @agent-code-guard/regression-only: these examples pin that only an unregistered daemon needs the admission credential.
+describe("daemon admission credential", () => {
+  it(
+    "fails an unregistered startup closed without the credential",
+    unregisteredStartupFailsClosed,
+  );
+  it(
+    "loads the credential for an unregistered startup",
+    unregisteredStartupLoadsCredential,
+  );
+  it(
+    "starts a registered daemon without reading the credential",
+    registeredStartupSkipsCredential,
+  );
+  it(
+    "surfaces an unreadable identity binding as a persistence failure",
+    startupSurfacesStoreFailure,
+  );
+  it(
+    "presents the loaded credential to Registry registration",
+    presentsLoadedCredentialToRegistry,
+  );
+  it(
+    "refuses registration without calling Registry when the credential is unavailable",
+    refusesRegistrationWithoutCredential,
+  );
+});
 
 // @agent-code-guard/regression-only: these examples pin crash recovery through Registry OperationId and one durable identity binding.
 describe("daemon registration", () => {

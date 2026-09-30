@@ -5,9 +5,14 @@ import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Data, Duration, Effect, Layer } from "effect";
 import {
+  type DaemonConfigurationError,
   loadDaemonBootstrap,
   loadDaemonProcessConfiguration,
 } from "./daemon/configuration.js";
+import {
+  type DaemonRegistrationPersistenceError,
+  requireAdmissionWhileUnregistered,
+} from "./daemon/registration.js";
 import { runDaemonRuntime } from "./daemon/runtime/index.js";
 import { openEndpointStore } from "./endpoint/store.js";
 
@@ -34,6 +39,9 @@ export namespace MoltZapDaemon {
     );
     const store = yield* openEndpointStore(configuration.stateDirectory).pipe(
       Effect.mapError(storageFailure),
+    );
+    yield* requireAdmissionWhileUnregistered({ store, bootstrap }).pipe(
+      Effect.mapError(admissionFailure),
     );
     const networkContext = yield* Layer.build(
       Layer.merge(
@@ -66,5 +74,20 @@ export namespace MoltZapDaemon {
 
   function storageFailure(): StartupError {
     return new StartupError({ phase: "storage" });
+  }
+
+  function admissionFailure(
+    error: DaemonConfigurationError | DaemonRegistrationPersistenceError,
+  ): StartupError {
+    switch (error._tag) {
+      case "DaemonConfigurationError":
+        return configurationFailure();
+      case "DaemonRegistrationPersistenceError":
+        return storageFailure();
+      default: {
+        const exhaustive: never = error;
+        return exhaustive;
+      }
+    }
   }
 }

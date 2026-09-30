@@ -17,9 +17,16 @@ configuration stays:
 - `MOLTZAPD_STATE_DIRECTORY`;
 - `MOLTZAPD_REGISTRY_ORIGIN`;
 - `MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY`;
-- `MOLTZAPD_ROUTER_ORIGIN`;
-- `MOLTZAPD_AGENT_PRIVATE_KEY_FILE`; and
-- `MOLTZAPD_ADMISSION_CREDENTIAL_FILE`.
+- `MOLTZAPD_ROUTER_ORIGIN`; and
+- `MOLTZAPD_AGENT_PRIVATE_KEY_FILE`.
+
+`MOLTZAPD_ADMISSION_CREDENTIAL_FILE` names the Registry admission credential,
+which only registration presents. While the state directory holds no identity
+binding, the daemon reads and validates the file at startup and fails closed
+with a configuration error when the variable is unset or the file is missing
+or invalid. Once the state directory holds a registered identity, the daemon
+starts without reading the variable or the file, so a deployment can remove
+the credential after registration succeeds.
 
 One optional input, `MOLTZAPD_HISTORY_EXPORT`, names a file the daemon appends
 one `HistoryExportRecord` JSON line to for every inbound item the daemon
