@@ -1438,7 +1438,8 @@ function failsThenForwards(
 }
 
 /**
- * Asserts the background drain outlived every failed transmit and delivered.
+ * Asserts the background drain outlived every failed transmit and delivered
+ * each queued envelope exactly once.
  * @param harness Harness whose Router queue receives forwarded envelopes.
  * @param attempts Transmit count from `failsThenForwards`.
  * @param fatal The supervised daemon's failure signal.
@@ -1451,7 +1452,11 @@ function expectDrainedAlive(
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     expect(yield* Ref.get(attempts)).toBeGreaterThan(FAILED_TRANSMITS);
-    expect(yield* Queue.size(harness.outbound)).toBeGreaterThan(0);
+    const delivered = Array.from(yield* Queue.takeAll(harness.outbound)).map(
+      ({ messageId }) => messageId,
+    );
+    expect(delivered.length).toBeGreaterThan(0);
+    expect(new Set(delivered).size).toBe(delivered.length);
     expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
   });
 }
@@ -1533,16 +1538,27 @@ function coldStartWithPendingOutboundLeavesDaemonAlive(): Effect.Effect<
 }
 
 /**
- * Never answers the first transmit, as a Router that drops packets without a
- * reset, and forwards every later one.
+ * Starts the first transmit and never finishes it, as a Router that drops
+ * packets without a reset after the outbox row has begun; every later
+ * transmit forwards.
  * @param transmits Counts every transmit.
+ * @param store The author's store, known once the harness exists.
  * @returns A transmit wrapper for the scripted worker.
  */
-function blackHolesFirstTransmit(transmits: Ref.Ref<number>): WrapSend {
+function blackHolesFirstTransmit(
+  transmits: Ref.Ref<number>,
+  store: Deferred.Deferred<EndpointStore>,
+): WrapSend {
+  const beginThenHang = (outboundId: string) =>
+    Deferred.await(store).pipe(
+      Effect.flatMap((author) => author.beginOutbound(outboundId)),
+      Effect.orDie,
+      Effect.zipRight(Effect.never),
+    );
   const transmitOnce =
     (forward: EngineRouterPort["send"], outboundId: string) =>
     (count: number) =>
-      count === 0 ? Effect.never : forward(outboundId);
+      count === 0 ? beginThenHang(outboundId) : forward(outboundId);
   return (forward) => (outboundId) =>
     Ref.getAndUpdate(transmits, (count) => count + 1).pipe(
       Effect.flatMap(transmitOnce(forward, outboundId)),
@@ -1552,7 +1568,8 @@ function blackHolesFirstTransmit(transmits: Ref.Ref<number>): WrapSend {
 /**
  * A black-holed transmit holds the local send's drain: the send answers
  * `network-unavailable` at `LOCAL_DRAIN_TIMEOUT`, and the background drain
- * then delivers the envelope the interrupted transmit left queued.
+ * then delivers the envelope the interrupted transmit left begun, exactly
+ * once however often the queue drains afterwards.
  */
 function blackHoledTransmitBoundsTheSend(): Effect.Effect<
   void,
@@ -1561,9 +1578,12 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
 > {
   return Effect.gen(function* () {
     const transmits = yield* Ref.make(0);
+    const authorStore = yield* Deferred.make<EndpointStore>();
     const harness = yield* makeProtocolHarness({
-      authorSend: blackHolesFirstTransmit(transmits),
+      authorSend: blackHolesFirstTransmit(transmits, authorStore),
     });
+    const store = yield* requireAt(harness.stores, 0, "endpoint store");
+    yield* Deferred.succeed(authorStore, store);
     const author = yield* requireAt(harness.engines, 0, "endpoint engine");
     const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
     const sending = yield* Effect.fork(
@@ -1577,8 +1597,12 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
     ).toStrictEqual(new SendError({ reason: "network-unavailable" }));
     yield* superviseOutbound(author, fatal);
     yield* advanceClock(Duration.seconds(1));
+    yield* author.drainOutbound.pipe(Effect.orDie);
     expect(yield* Ref.get(transmits)).toBe(2);
-    expect(yield* Queue.size(harness.outbound)).toBeGreaterThan(0);
+    expect(yield* Queue.size(harness.outbound)).toBe(1);
+    expect(
+      (yield* store.recover().pipe(Effect.orDie)).outboundMessages,
+    ).toEqual([]);
     expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
   });
 }
@@ -1699,7 +1723,7 @@ describe("issue 1003: a local send during a Router outage", () => {
     TEST_TIMEOUT_MS,
   );
   it(
-    "bounds a black-holed transmit and lets the background drain deliver it",
+    "bounds a black-holed transmit and delivers its envelope exactly once",
     () => Effect.runPromise(onTestClock(blackHoledTransmitBoundsTheSend())),
     TEST_TIMEOUT_MS,
   );
