@@ -1160,6 +1160,125 @@ const awaitAnchorResolvesOnActivation = async (): Promise<void> => {
   );
 };
 
+/**
+ * A Router outage outlasting the per-request retry budget detaches the worker
+ * instead of ending its poll loop; the first answered poll reattaches it at
+ * the same anchor and a held send goes out.
+ */
+const outageDetachesAndReattaches = async (): Promise<void> => {
+  await Effect.runPromise(
+    withOutbox((store) =>
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const outgoing = yield* signMessage({
+          card: fixture.localCard,
+          authority: fixture.localAuthority,
+          recipient: fixture.localCard.agentId,
+          id: 110,
+          body: "sent-after-outage",
+        });
+        const outbound = yield* prepareOutbound(
+          store,
+          "conversation:router-outage",
+          outgoing,
+        );
+        const instance = routerInstanceId(110);
+        const reachable = yield* Ref.make(true);
+        const whenReachable = <Value>(
+          answer: Effect.Effect<Value>,
+        ): Effect.Effect<Value, RouterConnectionError> =>
+          Ref.get(reachable).pipe(
+            Effect.flatMap((up) =>
+              up ? answer : Effect.fail(new RouterConnectionError()),
+            ),
+          );
+        const routerLayer = Layer.succeed(Router, {
+          poll: () =>
+            whenReachable(
+              Effect.sleep("10 millis").pipe(
+                Effect.as(emptyBatch(instance, pollCursor(20))),
+              ),
+            ),
+          send: (call) =>
+            whenReachable(acceptedResult(instance, call.request.signedMessage)),
+        });
+        const worker = yield* provide(
+          makeActiveRouterWorker(
+            makeInput(fixture, callbacks(), undefined, store),
+          ),
+          routerLayer,
+          fixture,
+        );
+        const polling = yield* provide(
+          Effect.fork(worker.run),
+          routerLayer,
+          fixture,
+        );
+
+        yield* Ref.set(reachable, false);
+        yield* Effect.sleep("500 millis");
+        expect(yield* Fiber.poll(polling)).toEqual(Option.none());
+        expect(yield* worker.currentAnchor.pipe(Effect.flip)).toStrictEqual(
+          new RouterWorkerUnavailableError(),
+        );
+        expect(
+          yield* provide(
+            worker.send(outbound.outboundId).pipe(Effect.flip),
+            routerLayer,
+            fixture,
+          ),
+        ).toStrictEqual(new RouterWorkerUnavailableError());
+
+        yield* Ref.set(reachable, true);
+        expect(
+          yield* worker.awaitAnchor.pipe(Effect.timeout("6 seconds")),
+        ).toEqual({ routerInstanceId: instance, pollCursor: pollCursor(20) });
+        yield* provide(worker.send(outbound.outboundId), routerLayer, fixture);
+        expect((yield* store.recover()).outboundMessages).toEqual([]);
+        yield* Fiber.interrupt(polling);
+      }),
+    ),
+  );
+};
+
+/** A persistence fault is not an outage: the poll loop ends at once. */
+const persistenceFaultEndsPollLoop = async (): Promise<void> => {
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const message = yield* signMessage({
+        card: fixture.localCard,
+        authority: fixture.localAuthority,
+        recipient: fixture.localCard.agentId,
+        id: 111,
+        body: "persist-fails",
+      });
+      const instance = routerInstanceId(111);
+      const router = yield* makeScriptedRouter({
+        polls: [
+          emptyBatch(instance, pollCursor(21)),
+          batch(instance, pollCursor(22), [message]),
+        ],
+        fallbackPoll: Effect.never,
+      });
+      const worker = yield* provide(
+        makeActiveRouterWorker(
+          makeInput(fixture, callbacks({ failAcceptText: "persist-fails" })),
+        ),
+        router.layer,
+        fixture,
+      );
+      const error = yield* provide(
+        worker.run.pipe(Effect.flip, Effect.timeout("2 seconds")),
+        router.layer,
+        fixture,
+      );
+      expect(error).toStrictEqual(new RouterWorkerPersistenceError());
+      expect(yield* Ref.get(router.scripted.pollCalls)).toHaveLength(2);
+    }),
+  );
+};
+
 // @agent-code-guard/regression-only: these scenarios pin the endpoint cursor and recovery safety boundary.
 describe("private Router worker", () => {
   it("requires the decoder for the declared payload type", () => {
@@ -1229,6 +1348,15 @@ describe("private Router worker", () => {
   it(
     "answers awaitAnchor once cold-start recovery activates the worker",
     awaitAnchorResolvesOnActivation,
+  );
+  it(
+    "detaches through a Router outage and reattaches when it answers",
+    outageDetachesAndReattaches,
+    10_000,
+  );
+  it(
+    "ends the poll loop on a persistence fault without retrying",
+    persistenceFaultEndsPollLoop,
   );
 });
 

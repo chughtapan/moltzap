@@ -50,7 +50,7 @@ import { encodeCanonical, RecordHash } from "../../endpoint/representation.js";
 import {
   type RouterWorker,
   type RouterWorkerInput,
-  RouterWorkerTransportError,
+  RouterWorkerPersistenceError,
 } from "../../endpoint/router-worker/index.js";
 import {
   DeliveryToken,
@@ -426,7 +426,7 @@ function makeWorker(
   signals: HarnessSignals,
 ): RouterWorker {
   const failure = Deferred.await(signals.failure).pipe(
-    Effect.zipRight(Effect.fail(new RouterWorkerTransportError())),
+    Effect.zipRight(Effect.fail(new RouterWorkerPersistenceError())),
   );
   return {
     awaitAnchor: outsideRuntimeTest(),
@@ -448,7 +448,7 @@ function makeEngine(
 ): EndpointEngine {
   const failure = Deferred.await(signals.failure).pipe(
     Effect.zipRight(
-      Effect.fail(new EngineOutboundError({ reason: "network" })),
+      Effect.fail(new EngineOutboundError({ reason: "persistence" })),
     ),
   );
   return {

@@ -32,16 +32,19 @@ import { createHash, randomBytes } from "node:crypto";
 import type { OutboundMessageInput, StoredOutboundMessage } from "../store.js";
 import { decodeCanonical, encodeCanonical } from "../representation.js";
 import {
+  isTransientRouterWorkerError,
   type RouterDiscontinuityReason,
   type RouterTailAnchor,
   type RouterWorker,
   type RouterWorkerActiveState,
   RouterWorkerAuthenticationError,
+  type RouterWorkerDetachedState,
   RouterWorkerDiscontinuityError,
   type RouterWorkerInput,
   RouterWorkerPersistenceError,
   type RouterWorkerPollError,
   RouterWorkerProtocolError,
+  routerWorkerReconnectSchedule,
   type RouterWorkerRecoveringState,
   type RouterWorkerRecoverySend,
   routerWorkerRetryAttempts,
@@ -66,6 +69,11 @@ export {
   RouterWorkerRecoveryError,
   RouterWorkerTransportError,
   RouterWorkerUnavailableError,
+} from "./types.js";
+/** Transient-failure policy shared with the endpoint's outbound drain. */
+export {
+  isTransientRouterWorkerError,
+  routerWorkerReconnectSchedule,
 } from "./types.js";
 /** Router-worker protocol and capability types used by endpoint composition. */
 export type {
@@ -781,18 +789,31 @@ const acceptVerified = <Payload>(
     Effect.catchTag("RouterWorkerPayloadInvalidError", () => Effect.void),
   );
 
+type RouterWorkerAnchoredState =
+  | RouterWorkerActiveState
+  | RouterWorkerDetachedState;
+
 const stateMatches = (
   state: RouterWorkerState,
   generation: number,
   routerInstanceId: RouterInstanceId,
-): state is RouterWorkerActiveState =>
-  state.kind === "active" &&
+): state is RouterWorkerAnchoredState =>
+  state.kind !== "recovering" &&
   state.generation === generation &&
   state.anchor.routerInstanceId === routerInstanceId;
 
+/**
+ * Accept one same-instance batch and advance the cursor; an answered poll
+ * also reattaches a detached worker at the same anchor.
+ * @param runtime Worker whose state the batch advances.
+ * @param snapshot Anchored state the poll was issued from.
+ * @param result Same-instance batch the Router returned.
+ * @param verified Authenticated ingress for every batch item, in order.
+ * @returns Completion once the batch is durable and the worker is active.
+ */
 const commitBatch = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
-  snapshot: RouterWorkerActiveState,
+  snapshot: RouterWorkerAnchoredState,
   result: Extract<RouterPollResult, { readonly kind: "batch" }>,
   verified: readonly RouterWorkerVerifiedIngress[],
 ): Effect.Effect<void, RouterWorkerPersistenceError> =>
@@ -812,7 +833,8 @@ const commitBatch = <Payload>(
         { concurrency: 1 },
       );
       yield* Ref.set(runtime.state, {
-        ...current,
+        kind: "active",
+        generation: current.generation,
         anchor: { ...current.anchor, pollCursor: result.pollCursor },
       });
     }),
@@ -931,7 +953,7 @@ const triggerDiscontinuity = <Payload>(
 
 const pollActiveOnce = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
-  snapshot: RouterWorkerActiveState,
+  snapshot: RouterWorkerAnchoredState,
 ): Effect.Effect<void, RouterWorkerPollError> =>
   runtime.router
     .poll({
@@ -981,9 +1003,9 @@ const makePollOnce = <Payload>(
   runtime.pollGate.withPermits(1)(
     Ref.get(runtime.state).pipe(
       Effect.flatMap((state) =>
-        state.kind === "active"
-          ? pollActiveOnce(runtime, state)
-          : runtime.recoveryGate.withPermits(1)(finishRecovery(runtime, state)),
+        state.kind === "recovering"
+          ? runtime.recoveryGate.withPermits(1)(finishRecovery(runtime, state))
+          : pollActiveOnce(runtime, state),
       ),
     ),
   );
@@ -1017,6 +1039,23 @@ const makeSend = <Payload>(
     }
   });
 
+/**
+ * Mark an active worker detached after its poll lost the Router, so sends and
+ * the outbound drain wait for the next answered poll instead of transmitting.
+ * @param runtime Worker whose poll lost the Router.
+ * @returns Completion once an active state is detached; other states stay.
+ */
+const detach = <Payload>(
+  runtime: RouterWorkerRuntime<Payload>,
+): Effect.Effect<void> =>
+  runtime.stateGate.withPermits(1)(
+    Ref.update(
+      runtime.state,
+      (state): RouterWorkerState =>
+        state.kind === "active" ? { ...state, kind: "detached" } : state,
+    ),
+  );
+
 const activeAnchor = (
   state: RouterWorkerState,
 ): Option.Option<RouterTailAnchor> =>
@@ -1044,7 +1083,12 @@ const makeWorker = <Payload>(
     ),
     pollOnce,
     run: pollOnce.pipe(
-      Effect.retry(routerWorkerRetrySchedule),
+      Effect.tapErrorTag("RouterWorkerTransportError", () => detach(runtime)),
+      Effect.retry(
+        routerWorkerReconnectSchedule.pipe(
+          Schedule.whileInput(isTransientRouterWorkerError),
+        ),
+      ),
       Effect.forever,
       Effect.interruptible,
     ),
