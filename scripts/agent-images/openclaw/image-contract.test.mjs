@@ -240,6 +240,17 @@ test("each experiment variant has its own fingerprint and tag", async () => {
   ]);
 });
 
+test("an experiment line starts on its own line and a suffixed tag stays a valid length", () => {
+  assert.equal(
+    experimentDockerfile("FROM base", [HIDE]),
+    "FROM base\nENV MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES=true\n",
+  );
+  assert.throws(
+    () => experimentTag("a".repeat(128), [HIDE]),
+    /exceeds 128 characters/u,
+  );
+});
+
 test("experiment flags are taken in a fixed order whatever the argument order", () => {
   assert.deepEqual(
     splitExperimentArguments([OMIT, "--push", HIDE, "--tag", "constructor"]),
@@ -260,8 +271,8 @@ test("the hide-collectives variant sets the plugin's experiment switch for the h
   );
 
   assert.equal(
-    experimentDockerfile("", [HIDE]),
-    "ENV MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES=true\n",
+    OPENCLAW_EXPERIMENTS[HIDE].dockerfileLine,
+    "ENV MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES=true",
   );
   assert.match(
     plugin,

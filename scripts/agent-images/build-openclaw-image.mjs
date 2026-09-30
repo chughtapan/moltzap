@@ -107,8 +107,11 @@ export function splitExperimentArguments(args) {
  * @returns {string} The Dockerfile to stage.
  */
 export function experimentDockerfile(dockerfile, experiments) {
+  if (experiments.length === 0) {
+    return dockerfile;
+  }
   return (
-    dockerfile +
+    dockerfile.replace(/\n?$/u, "\n") +
     experiments
       .map((flag) => OPENCLAW_EXPERIMENTS[flag].dockerfileLine + "\n")
       .join("")
@@ -121,10 +124,16 @@ export function experimentDockerfile(dockerfile, experiments) {
  * @returns {string} The tag with one suffix per experiment.
  */
 export function experimentTag(tag, experiments) {
-  return [
+  const suffixed = [
     tag,
     ...experiments.map((flag) => OPENCLAW_EXPERIMENTS[flag].tagSuffix),
   ].join("-");
+  if (suffixed.length > 128) {
+    throw new TypeError(
+      "OpenClaw image tag with experiment suffixes exceeds 128 characters",
+    );
+  }
+  return suffixed;
 }
 
 function report(message) {
