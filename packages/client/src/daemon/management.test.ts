@@ -151,7 +151,7 @@ const makeIdentityFixture = Effect.gen(function* () {
     },
     signingAuthority: localAuthority,
     agentPublicKey: AgentSigningAuthority.publicKey(localAuthority),
-    admissionCredential: Redacted.make("bootstrap-token="),
+    admissionCredential: Effect.succeed(Redacted.make("bootstrap-token=")),
   });
   return { bootstrap, cards: [local, remote] } satisfies IdentityFixture;
 }).pipe(Effect.orDie);

@@ -25,6 +25,7 @@ const configuredPath = Schema.String.pipe(
   Schema.minLength(1),
   Schema.filter((value) => !value.includes("\u0000")),
 );
+const optionalConfiguredPath = Schema.Union(Schema.Literal(""), configuredPath);
 
 const isSerializedOrigin = (value: string): boolean => {
   if (!URL.canParse(value)) {
@@ -63,8 +64,12 @@ const configuredValues = Config.all({
   agentPrivateKeyFile: Config.redacted(
     Schema.Config("MOLTZAPD_AGENT_PRIVATE_KEY_FILE", configuredPath),
   ),
-  admissionCredentialFile: Config.redacted(
-    Schema.Config("MOLTZAPD_ADMISSION_CREDENTIAL_FILE", configuredPath),
+  admissionCredentialFile: Schema.Config(
+    "MOLTZAPD_ADMISSION_CREDENTIAL_FILE",
+    optionalConfiguredPath,
+  ).pipe(
+    Config.withDefault(""),
+    Config.map((path) => (path === "" ? undefined : Redacted.make(path))),
   ),
   historyExport: Schema.Config("MOLTZAPD_HISTORY_EXPORT", configuredPath).pipe(
     Config.withDefault(undefined),
@@ -103,7 +108,12 @@ export interface DaemonProcessConfiguration {
   readonly registrySignerPublicKey: Ed25519PublicKeyValue;
   readonly routerOrigin: URL;
   readonly agentPrivateKeyFile: Redacted.Redacted;
-  readonly admissionCredentialFile: Redacted.Redacted;
+  /**
+   * Admission credential file an unregistered daemon requires; a daemon whose
+   * state directory holds a registered identity never reads it. An empty
+   * value is the same as an unset one.
+   */
+  readonly admissionCredentialFile?: Redacted.Redacted;
   /**
    * File the daemon appends its delivered and sent messages to, one JSON
    * line each, when the operator asks for that record.
@@ -118,7 +128,14 @@ export interface DaemonBootstrap {
   readonly configuration: DaemonProcessConfiguration;
   readonly signingAuthority: AgentSigningAuthority;
   readonly agentPublicKey: Ed25519PublicKeyValue;
-  readonly admissionCredential: Redacted.Redacted;
+  /**
+   * Reads and validates the admission credential file on first use, then
+   * replays that outcome. Loading the bootstrap never reads the file.
+   */
+  readonly admissionCredential: Effect.Effect<
+    Redacted.Redacted,
+    DaemonConfigurationError
+  >;
   readonly mcpCredentials?: HarnessMcpCredentials;
 }
 
@@ -181,9 +198,12 @@ const loadSigningAuthority = (
 const loadAdmissionCredential = (
   configuration: DaemonProcessConfiguration,
 ): Effect.Effect<Redacted.Redacted, DaemonConfigurationError> =>
-  readExactUtf8(
-    configuration.admissionCredentialFile,
-    "admission-credential-file",
+  (configuration.admissionCredentialFile === undefined
+    ? Effect.fail(configurationError("admission-credential-file"))
+    : readExactUtf8(
+        configuration.admissionCredentialFile,
+        "admission-credential-file",
+      )
   ).pipe(
     Effect.flatMap(Schema.decodeUnknown(admissionCredential)),
     Effect.map(Redacted.make),
@@ -239,24 +259,25 @@ const loadMcpCredentials = (
   });
 
 /**
- * Reads exact secret bytes and constructs the configured Ed25519 authority.
+ * Reads the agent private key and constructs the configured Ed25519 authority.
  *
  * @param configuration Validated process configuration and optional authority paths.
- * @returns Redacted admission and opaque agent signing authority.
+ * @returns Opaque signing authority, MCP credentials, and deferred admission credential.
  */
 export const loadDaemonBootstrap = (
   configuration: DaemonProcessConfiguration,
 ): Effect.Effect<DaemonBootstrap, DaemonConfigurationError> =>
   Effect.gen(function* () {
     const signingAuthority = yield* loadSigningAuthority(configuration);
-    const loadedAdmissionCredential =
-      yield* loadAdmissionCredential(configuration);
+    const admissionCredential = yield* Effect.cached(
+      loadAdmissionCredential(configuration),
+    );
     const mcpCredentials = yield* loadMcpCredentials(configuration);
     return Object.freeze({
       configuration,
       signingAuthority,
       agentPublicKey: AgentSigningAuthority.publicKey(signingAuthority),
-      admissionCredential: loadedAdmissionCredential,
+      admissionCredential,
       ...(mcpCredentials === undefined ? {} : { mcpCredentials }),
     });
   }).pipe(Effect.withSpan("loadDaemonBootstrap"));

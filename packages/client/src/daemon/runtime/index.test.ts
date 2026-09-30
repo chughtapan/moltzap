@@ -236,7 +236,7 @@ const makeFixture = Effect.gen(function* () {
     },
     signingAuthority,
     agentPublicKey: AgentSigningAuthority.publicKey(signingAuthority),
-    admissionCredential: Redacted.make("bootstrap-token="),
+    admissionCredential: Effect.succeed(Redacted.make("bootstrap-token=")),
   });
   const registerRequest = yield* Schema.decodeUnknown(
     managementRegisterRequestSchema,
