@@ -23,4 +23,11 @@ When you design or review a public interface, port, package boundary or
 configuration surface, read `workflow/reference/interface-design.md` and the
 sources it links.
 
-Use the gstack and Google skills. Do not add a second review pipeline for routine changes.
+Use the gstack and Google skills. Review a plan with gstack `/plan-eng-review`.
+Review an implementation change with gstack `/ship`'s pre-landing review: its
+checklist pass, its specialist reviewers matched to a Google guide where the
+package instructions map one, its red team for large diffs, and its
+adversarial Claude and Codex passes. That is the one review pipeline; a process skill's own reviewer does
+not replace it, and routine changes get no second pipeline. When a plan
+completes, record what happened as a worklog in its scope with
+`bin/records worklog`; a worklog per task is optional.
