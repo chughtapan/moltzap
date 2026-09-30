@@ -57,6 +57,15 @@ const TARGET_HINT =
   'Use an explicit "agent:<name>" or "group:<member>,<member>,..." address';
 const INBOUND_LOG_PREVIEW_CHARS = 80;
 
+/**
+ * Experiment control for evaluations that compare agents with and without
+ * collective operations. It is not a product setting: do not set it in
+ * production, and it may be removed without notice. When true, the message
+ * tool omits the `collective` and `collectiveResponse` parameters and a send
+ * carrying either fails with {@link OpenClawCollectivesUnavailableError}.
+ */
+const HIDE_COLLECTIVES_VARIABLE = "MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES";
+
 type OpenClawTargetKind = "user" | "group";
 type OpenClawOutboundFailure =
   | "account-not-connected"
@@ -172,14 +181,28 @@ class OpenClawOutboundError extends Data.TaggedError("OpenClawOutboundError")<{
   }
 }
 
+/**
+ * A message tool send carrying `collective` or `collectiveResponse` while
+ * {@link HIDE_COLLECTIVES_VARIABLE} is true. The tool does not offer either
+ * parameter then, so the message tells the model to send without it.
+ */
+class OpenClawCollectivesUnavailableError extends Data.TaggedError(
+  "OpenClawCollectivesUnavailableError",
+)<{
+  readonly accountId: string;
+}> {
+  override get message(): string {
+    return `MoltZap collective operations are not available for account ${this.accountId}; send the message without collective or collectiveResponse`;
+  }
+}
+
 class OpenClawConfigurationError extends Data.TaggedError(
   "OpenClawConfigurationError",
 )<{
-  readonly source: "MOLTZAP_MCP_URL";
   readonly detail: string;
 }> {
   override get message(): string {
-    return `MoltZap configuration ${this.source} is invalid: ${this.detail}`;
+    return `MoltZap configuration is invalid: ${this.detail}`;
   }
 }
 
@@ -336,7 +359,8 @@ function createConfigSection() {
  * `send` here because the adapter defines no prepared payload or gateway
  * execution mode, so the `collective` parameter reaches the endpoint
  * unchanged. `message.send.text` remains for the sends OpenClaw's core makes
- * itself.
+ * itself. The tool offers `send` without the collective parameters while
+ * {@link HIDE_COLLECTIVES_VARIABLE} is true or unreadable.
  * @param connectedAccount The account whose endpoint performs the operation.
  * @returns The action adapter registered on the channel plugin.
  */
@@ -346,13 +370,19 @@ function createMessageActions(
   return {
     describeMessageTool: () => ({
       actions: ["send"],
-      schema: {
-        properties: {
-          collective: collectiveParameter,
-          collectiveResponse: collectiveResponseParameter,
-        },
-        actions: ["send"],
-      },
+      ...(Effect.runSync(
+        experimentHidesCollectives().pipe(Effect.orElseSucceed(() => true)),
+      )
+        ? {}
+        : {
+            schema: {
+              properties: {
+                collective: collectiveParameter,
+                collectiveResponse: collectiveResponseParameter,
+              },
+              actions: ["send"],
+            },
+          }),
     }),
     supportsAction: ({ action }) => action === "send",
     handleAction: (ctx) =>
@@ -372,13 +402,15 @@ function handleMessageAction(
       }),
     );
   }
-  return sendOperation(connectedAccount, {
+  const send: OperationSend = {
     accountId: ctx.accountId,
     to: ctx.params.to,
     text: ctx.params.message,
     collective: ctx.params.collective,
     collectiveResponse: ctx.params.collectiveResponse,
-  }).pipe(
+  };
+  return refuseHiddenCollectives(send).pipe(
+    Effect.andThen(() => sendOperation(connectedAccount, send)),
     Effect.map(({ input, result }) =>
       jsonResult({
         ok: true,
@@ -386,6 +418,40 @@ function handleMessageAction(
         ...result,
       }),
     ),
+  );
+}
+
+/**
+ * Refuse a send carrying a collective parameter while the experiment hides
+ * collectives. The switch is read only for such a send, so an unreadable
+ * value fails it with a configuration error naming the variable and leaves
+ * plain sends unaffected.
+ */
+function refuseHiddenCollectives(
+  send: OperationSend,
+): Effect.Effect<
+  void,
+  OpenClawCollectivesUnavailableError | ConfigError.ConfigError
+> {
+  if (send.collective === undefined && send.collectiveResponse === undefined) {
+    return Effect.void;
+  }
+  return experimentHidesCollectives().pipe(
+    Effect.flatMap((hidden) =>
+      hidden
+        ? Effect.fail(
+            new OpenClawCollectivesUnavailableError({
+              accountId: accountLabel(send.accountId),
+            }),
+          )
+        : Effect.void,
+    ),
+  );
+}
+
+function experimentHidesCollectives() {
+  return Config.boolean(HIDE_COLLECTIVES_VARIABLE).pipe(
+    Config.withDefault(false),
   );
 }
 
@@ -1117,8 +1183,9 @@ function runHostPromise<A, E extends Error | ConfigError.ConfigError>(
 function hostPromiseError(error: Error | ConfigError.ConfigError): Error {
   if (ConfigError.isConfigError(error)) {
     return new OpenClawConfigurationError({
-      source: "MOLTZAP_MCP_URL",
-      detail: error.message,
+      detail: ConfigError.isInvalidData(error)
+        ? `${error.path.join(".")}: ${error.message}`
+        : error.message,
     });
   }
   return error;

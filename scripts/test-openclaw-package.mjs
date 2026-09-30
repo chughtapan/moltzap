@@ -233,6 +233,12 @@ async function verifyBundledHost(consumerRoot) {
     bundledPluginRoot,
     hostEnvironment,
   });
+  await verifyOmittedPluginSkill({
+    consumerRoot,
+    openclawRoot,
+    bundledPluginRoot,
+    hostEnvironment,
+  });
 }
 
 /**
@@ -278,6 +284,38 @@ async function verifyPluginSkill({
   requireCondition(
     served === packed,
     "OpenClaw served collectives skill text other than the packed file",
+  );
+}
+
+/**
+ * Deletes the plugin's collectives skill directory, as the OpenClaw image's
+ * `--experiment-omit-collectives-skill` build does, and requires that the
+ * pinned OpenClaw CLI no longer finds the skill.
+ * @param {object} options The assembled host.
+ * @param {string} options.consumerRoot Directory the CLI runs in.
+ * @param {string} options.openclawRoot Installed OpenClaw package root.
+ * @param {string} options.bundledPluginRoot The plugin's bundled root.
+ * @param {NodeJS.ProcessEnv} options.hostEnvironment The isolated host env.
+ * @returns {Promise<void>} Resolves when OpenClaw reports the skill missing.
+ */
+async function verifyOmittedPluginSkill({
+  consumerRoot,
+  openclawRoot,
+  bundledPluginRoot,
+  hostEnvironment,
+}) {
+  await rm(join(bundledPluginRoot, dirname(COLLECTIVES_SKILL_PATH)), {
+    recursive: true,
+  });
+  const { stdout } = await exec(
+    process.execPath,
+    [join(openclawRoot, "openclaw.mjs"), "skills", "list", "--json"],
+    { cwd: consumerRoot, env: hostEnvironment, maxBuffer: 16 * 1024 * 1024 },
+  );
+  const listed = JSON.parse(stdout).skills.map((skill) => skill.name);
+  requireCondition(
+    listed.length > 0 && !listed.includes("moltzap-collectives"),
+    `OpenClaw still lists the omitted collectives skill among ${listed.join(", ")}`,
   );
 }
 
