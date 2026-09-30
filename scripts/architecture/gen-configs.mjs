@@ -89,7 +89,12 @@ const packageDefinitions = {
         {
           file: "endpoint/collective/operation.ts",
           reason:
-            "Collective-layer facade: operation content for sends, inbound item classification for the daemon, and the collective identity the MCP send result names",
+            "Collective-layer facade: the daemon's stateful collective operations, which turn sends into posts and certified posts into inbound items",
+        },
+        {
+          file: "endpoint/collective/wire.ts",
+          reason:
+            "Collective values carried in post content, shared by the operation layer and answer validation",
         },
         {
           file: "endpoint/engine.ts",

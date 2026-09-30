@@ -39,11 +39,10 @@ import {
 import { describe, expect, it } from "vitest";
 import type { HarnessMcpSubscriptionHandler } from "../../harness-mcp-subscription.js";
 import type { DaemonBootstrap } from "../configuration.js";
+import type { HistoryExportPort } from "./history-export.js";
 import { DeliveryAcknowledgeError, InboundMessage } from "../../contract.js";
-import { noHistoryExport } from "../../endpoint/engine-types.js";
 import {
   type EndpointEngine,
-  type EndpointEngineInput,
   EngineOutboundError,
   type EnginePendingMessage,
 } from "../../endpoint/engine.js";
@@ -120,7 +119,6 @@ interface HarnessObservations {
   readonly events: string[];
   handler?: HarnessMcpSubscriptionHandler<HarnessMessageReadyEvent>;
   operations?: HarnessMcpOperations;
-  engineHistoryExport?: EndpointEngineInput["historyExport"];
   historyExportPath?: string;
   workerOutbox?: RouterWorkerInput["outbox"];
 }
@@ -146,19 +144,14 @@ interface RuntimeHarness {
     | undefined;
   readonly getOperations: () => HarnessMcpOperations | undefined;
   readonly getWorkerOutbox: () => RouterWorkerInput["outbox"] | undefined;
-  readonly getEngineHistoryExport: () =>
-    | EndpointEngineInput["historyExport"]
-    | undefined;
   readonly getHistoryExportPath: () => string | undefined;
 }
 
 type BackgroundFailure = "none" | "outbound" | "worker";
 
 const EXPORT_PATH = "/var/run/moltzap/history.ndjson";
-/** The one sink the fake edge hands out, so identity proves the threading. */
-const RECORDING_EXPORT: NonNullable<EndpointEngineInput["historyExport"]> = {
-  record: () => Effect.void,
-};
+/** The sink the fake edge hands out; this test observes only its opening. */
+const RECORDING_EXPORT: HistoryExportPort = { record: () => Effect.void };
 
 const identifier = (prefix: string, byte: number): string =>
   `${prefix}${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`;
@@ -394,10 +387,9 @@ function makeRuntimeDependencies(
         input.observations.workerOutbox = workerInput.outbox;
         return worker;
       }),
-    makeEngine: (engineInput) =>
+    makeEngine: () =>
       Effect.gen(function* () {
         input.observations.events.push("engine");
-        input.observations.engineHistoryExport = engineInput.historyExport;
         yield* Deferred.succeed(input.signals.engineEntered, undefined);
         if (input.blockEngine) {
           yield* Deferred.await(input.signals.engineRelease);
@@ -460,7 +452,11 @@ function makeEngine(
     ),
   );
   return {
-    send: () => Effect.succeed(delivery.pending.recordHash),
+    send: () =>
+      Effect.succeed({
+        postId: delivery.pending.message.postId,
+        recordHash: delivery.pending.recordHash,
+      }),
     readPendingMessages: () =>
       Effect.gen(function* () {
         delivery.reads += 1;
@@ -523,7 +519,6 @@ const makeHarness = (
       getHandler: () => observations.handler,
       getOperations: () => observations.operations,
       getWorkerOutbox: () => observations.workerOutbox,
-      getEngineHistoryExport: () => observations.engineHistoryExport,
       getHistoryExportPath: () => observations.historyExportPath,
     };
   });
@@ -649,7 +644,7 @@ const withHistoryExport = (fixture: Fixture): Fixture => ({
   },
 });
 
-const threadsHistoryExportIntoEngine = async () => {
+const opensConfiguredHistoryExport = async () => {
   const fixture = withHistoryExport(await Effect.runPromise(makeFixture));
   const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
   const store = makeStore(fixture, true);
@@ -660,13 +655,12 @@ const threadsHistoryExportIntoEngine = async () => {
       "engine acquisition",
     );
     expect(harness.getHistoryExportPath()).toBe(EXPORT_PATH);
-    expect(harness.getEngineHistoryExport()).toBe(RECORDING_EXPORT);
   } finally {
     await Effect.runPromise(Fiber.interrupt(fiber));
   }
 };
 
-const leavesEngineWithoutExportByDefault = async () => {
+const opensNoHistoryExportByDefault = async () => {
   const fixture = await Effect.runPromise(makeFixture);
   const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
   const store = makeStore(fixture, true);
@@ -677,7 +671,6 @@ const leavesEngineWithoutExportByDefault = async () => {
       "engine acquisition",
     );
     expect(harness.getHistoryExportPath()).toBeUndefined();
-    expect(harness.getEngineHistoryExport()).toBe(noHistoryExport);
   } finally {
     await Effect.runPromise(Fiber.interrupt(fiber));
   }
@@ -828,13 +821,20 @@ const acknowledgeDuringReplacementDelivery = async (
   return reader;
 };
 
+/**
+ * One pending read per pass: at activation with no subscriber, when the first
+ * subscriber attaches, when it detaches, and when its replacement attaches.
+ */
+const READS_THROUGH_REPLACEMENT = 4;
+
 const replaysUntilAcknowledged = async () => {
   const fixture = await Effect.runPromise(makeFixture);
   const harness = await Effect.runPromise(makeHarness(fixture, "none"));
   const fiber = Effect.runFork(run(fixture, makeStore(fixture, true), harness));
   try {
     await awaitStage(Deferred.await(harness.listenerReady), "listener");
-    expect(harness.delivery.reads).toBe(0);
+    expect(harness.delivery.reads).toBe(1);
+    expect(harness.delivery.acknowledgedTokens).toEqual([]);
     const handler = requireHandler(harness);
 
     await receivesFirstDelivery(handler, fixture.pending);
@@ -848,7 +848,7 @@ const replaysUntilAcknowledged = async () => {
       fixture.pending.deliveryToken,
     ]);
     expect(harness.delivery.events).toEqual(["delivery-ready", "acknowledged"]);
-    expect(harness.delivery.reads).toBe(2);
+    expect(harness.delivery.reads).toBe(READS_THROUGH_REPLACEMENT);
     await secondReader.cancel();
   } finally {
     await Effect.runPromise(Fiber.interrupt(fiber));
@@ -856,13 +856,10 @@ const replaysUntilAcknowledged = async () => {
 };
 
 describe("daemon runtime composition", () => {
+  it("opens the configured history export", opensConfiguredHistoryExport);
   it(
-    "threads the configured history export into the engine",
-    threadsHistoryExportIntoEngine,
-  );
-  it(
-    "hands the engine no export when none is configured",
-    leavesEngineWithoutExportByDefault,
+    "opens no history export when none is configured",
+    opensNoHistoryExportByDefault,
   );
   it("waits for the active engine and supervises the Router worker", () =>
     blocksStartupAndSupervisesWorker());

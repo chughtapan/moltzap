@@ -303,13 +303,16 @@ representation. Adapters import only that root service.
 The semantic runtime surface is one scoped structural `HarnessEndpoint` with
 `send` and `messages`, and it exposes operations rather than posts. Every send
 is one collective operation with an explicit `agent:` or `group:` destination
-and its text; multicast, one post to that destination, is the default and the
-only operation. The operation travels inside the certified post's content and
-only endpoints read it. Every multicast creates one post with a fresh
-Client-minted opaque `PostId`; hosts own whether they invoke send again. It
-returns `void` only after local certified durability. Messages yield inbound
-items tagged by kind; a multicast item carries verified author, canonical
-address, content, and exact group membership when applicable. Each delivery
+and its text, or one response to a collective request; multicast, one post to
+that destination, is the default, and gather asks each member a question and
+collects one answer each. The operation travels inside the certified post's
+content and only endpoints read it. Every post is new, with a fresh
+Client-minted opaque `PostId`; hosts own whether they invoke send again. A
+multicast returns only after local certified durability, and a gather returns
+its operation id. Messages yield inbound items tagged by kind; a multicast
+item carries verified author, canonical address, content, and exact group
+membership when applicable, and collective requests, results and failures
+are items too. Each delivery
 carries a transport acknowledgment subject to the host-specific acceptance
 contract. Expected failures remain closed typed Effect or Stream
 failures.

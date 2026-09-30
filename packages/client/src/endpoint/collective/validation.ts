@@ -15,17 +15,19 @@ import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/
 import { Data, Effect } from "effect";
 import type {
   AnswerContent,
-  CollectiveResponse,
-  RequestedSchema,
-} from "./wire.js";
+  CollectiveFailure,
+  CollectiveMemberOutcome,
+} from "../../contract.js";
+import type { CollectiveResponse, FormModeSchema } from "./wire.js";
 
-/** Why one answer field failed its request's schema. */
-export interface CollectiveFieldFailure {
-  readonly field: string;
-  readonly reason: "missing" | "unexpected" | "invalid";
-  /** The SDK validator's message for an `invalid` field. */
-  readonly detail?: string;
-}
+/**
+ * Why one answer field failed its request's schema; `detail` is the SDK
+ * validator's message for an `invalid` field.
+ */
+export type CollectiveFieldFailure = Extract<
+  CollectiveFailure,
+  { readonly kind: "answer-invalid" }
+>["fields"][number];
 
 /** An answer does not satisfy its request's `requestedSchema`. */
 export class CollectiveAnswerInvalidError extends Data.TaggedError(
@@ -47,14 +49,6 @@ export class CollectiveAnswerInvalidError extends Data.TaggedError(
   }
 }
 
-/** One member's result in a gather or all_gather, as the requester records it. */
-export type CollectiveMemberOutcome =
-  | Readonly<{ outcome: "answered"; content: AnswerContent }>
-  | Readonly<{ outcome: "declined" }>
-  | Readonly<{ outcome: "cancelled" }>
-  | Readonly<{ outcome: "invalid"; reason: string }>
-  | Readonly<{ outcome: "no_answer" }>;
-
 /**
  * Field names come from peers, so a lookup ignores the prototype chain: an
  * answer field named `constructor` must not find `Object.prototype.constructor`.
@@ -66,7 +60,7 @@ const ownValue = <Value>(
 
 function fieldFailure(
   validator: jsonSchemaValidator,
-  requestedSchema: RequestedSchema,
+  requestedSchema: FormModeSchema,
   content: AnswerContent,
   field: string,
 ): CollectiveFieldFailure | undefined {
@@ -101,7 +95,7 @@ function fieldFailure(
  * @returns The answer unchanged, or an error naming every failing field.
  */
 export const validateAnswer = (
-  requestedSchema: RequestedSchema,
+  requestedSchema: FormModeSchema,
   content: AnswerContent,
 ): Effect.Effect<AnswerContent, CollectiveAnswerInvalidError> => {
   const fields = new Set([
@@ -128,7 +122,7 @@ export const validateAnswer = (
  * @returns The member's outcome.
  */
 export const outcomeOfResponse = (
-  requestedSchema: RequestedSchema,
+  requestedSchema: FormModeSchema,
   response: CollectiveResponse,
 ): Effect.Effect<CollectiveMemberOutcome> => {
   switch (response.action) {
@@ -136,19 +130,19 @@ export const outcomeOfResponse = (
       return validateAnswer(requestedSchema, response.content).pipe(
         Effect.match({
           onFailure: (error): CollectiveMemberOutcome => ({
-            outcome: "invalid",
+            kind: "invalid",
             reason: error.message,
           }),
           onSuccess: (content): CollectiveMemberOutcome => ({
-            outcome: "answered",
+            kind: "answered",
             content,
           }),
         }),
       );
     case "decline":
-      return Effect.succeed({ outcome: "declined" });
+      return Effect.succeed({ kind: "declined" });
     case "cancel":
-      return Effect.succeed({ outcome: "cancelled" });
+      return Effect.succeed({ kind: "cancelled" });
     default: {
       const exhaustive: never = response;
       return exhaustive;

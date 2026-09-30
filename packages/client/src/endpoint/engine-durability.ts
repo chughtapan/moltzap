@@ -5,12 +5,8 @@ import {
   MOLTZAP_VERSION,
   SignedMessage,
 } from "@moltzap/identity";
-import { DateTime, Effect, Option, Schema } from "effect";
-import type {
-  EngineActionFold,
-  EngineConversation,
-  EngineRuntime,
-} from "./engine-types.js";
+import { Effect, Schema } from "effect";
+import type { EngineActionFold, EngineConversation } from "./engine-types.js";
 import type {
   InboundDeliveryInput,
   ProtocolEvidence,
@@ -23,7 +19,6 @@ import {
   InboundMessage,
   type InboundMessage as InboundMessageValue,
 } from "../contract.js";
-import { inboundItem } from "./collective/operation.js";
 import {
   type ActionCertifiedRecord,
   type AnchorHash,
@@ -319,58 +314,17 @@ const projectInboundMessage = (
     return yield* projectGroupMessage(conversation, intent, sender);
   }).pipe(Effect.withSpan("projectInboundMessage"));
 
-/** The store's canonical pending delivery beside the message it encodes. */
-export interface InboundDeliveryProjection {
-  readonly input: InboundDeliveryInput;
-  readonly message: InboundMessageValue;
-}
-
 /**
  * Encode the remote projection atomically retained during promotion.
  * The recipient is the local agent that owns the pending delivery, which
- * `AgentId` cannot express and nothing here checks. The result carries both
- * the canonical input that record promotion commits atomically and the
- * decoded message it was encoded from.
+ * `AgentId` cannot express and nothing here checks.
  */
 export const inboundDelivery = (
   conversation: EngineConversation,
   record: CertifiedRecord,
   recipientAgentId: AgentId,
-): Effect.Effect<InboundDeliveryProjection, ClientRepresentationError> =>
+): Effect.Effect<InboundDeliveryInput, ClientRepresentationError> =>
   projectInboundMessage(conversation, record).pipe(
-    Effect.flatMap((message) =>
-      encodeCanonical(InboundMessage, message).pipe(
-        Effect.map((canonicalMessage) => ({
-          input: { recipientAgentId, canonicalMessage },
-          message,
-        })),
-      ),
-    ),
-  );
-
-/**
- * Record one durable inbound delivery in the history export as the item its
- * subscriber receives; a post the endpoint consumes records nothing. When no
- * export is configured the no-op port records nothing.
- */
-export const exportInbound = (
-  runtime: EngineRuntime,
-  message: InboundMessageValue,
-): Effect.Effect<void> =>
-  inboundItem(message).pipe(
-    Effect.flatMap(
-      Option.match({
-        onNone: () => Effect.void,
-        onSome: (item) =>
-          DateTime.now.pipe(
-            Effect.flatMap((at) =>
-              runtime.input.historyExport.record({
-                kind: "inbound",
-                item,
-                at,
-              }),
-            ),
-          ),
-      }),
-    ),
+    Effect.flatMap((message) => encodeCanonical(InboundMessage, message)),
+    Effect.map((canonicalMessage) => ({ recipientAgentId, canonicalMessage })),
   );

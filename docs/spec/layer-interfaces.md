@@ -203,16 +203,18 @@ private protocol machinery, signing key, nor store handle.
 The stable Client invariants are:
 
 - every send is one collective operation, multicast by default, that names an
-  explicit `agent:` or `group:` address, and every multicast creates one
-  Client-minted post identity;
+  explicit `agent:` or `group:` address, or one response to a collective
+  request, and every post it creates has a new Client-minted identity;
 - internal recovery resumes a persisted intent, while a later host invocation
   creates another post;
 - GENESIS is unanimous and ordinary POST uses author-inclusive `q(n)` action
   certification;
-- send returns `void` only after local certified durability;
+- a multicast or response returns only after local certified durability, and a
+  gather returns its operation id once its request posts are accepted, or
+  after 20 seconds with the rest still sending;
 - inbound delivery yields items tagged by kind; a multicast item identifies
   canonical address and author, with exact members for groups and no reply
-  authority;
+  authority, and collective requests, results and failures are items;
 - delivery acknowledgment follows the
   [host-specific acceptance contract](./harness/ingress.md#durable-acceptance);
 - complete action validity and durability evidence remain distinct and retain

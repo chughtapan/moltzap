@@ -13,17 +13,20 @@ import { Data, Effect, Queue, Ref, type Scope, Stream, Take } from "effect";
 import type { DeliveryToken } from "./endpoint/store.js";
 import packageJson from "../package.json" with { type: "json" };
 import {
+  CollectiveError,
   ConnectError,
   DeliveryAcknowledgeError,
   type HarnessEndpoint,
   type InboundDelivery,
   ListenError,
   SendError,
-  type SendInput,
+  type SendResult,
 } from "./contract.js";
 import {
   decodeHarnessEventsExtensionDeclaration,
   decodeHarnessMessageReadyEvent,
+  decodeHarnessSendErrorData,
+  decodeHarnessSendResult,
   HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
   HARNESS_EVENTS_EXTENSION,
   HARNESS_MESSAGE_READY_FILTER,
@@ -103,9 +106,27 @@ interface ReasonPayload {
   readonly reason: unknown;
 }
 
-function sendReason(cause: unknown): SendError["reason"] {
-  const reason = operationReason(cause);
-  return isReason(reason, sendReasons) ? reason : "network-unavailable";
+/**
+ * Rebuild the typed error of a refused send from its JSON-RPC error data: a
+ * collective failure with its id and detail, or a closed send reason.
+ */
+function sendFailure(cause: unknown): SendError | CollectiveError {
+  const data: unknown = ProtocolError.isInstance(cause) ? cause.data : cause;
+  return decodeHarnessSendErrorData(data).pipe(
+    Effect.map((decoded) =>
+      "failure" in decoded
+        ? new CollectiveError({ id: decoded.id, failure: decoded.failure })
+        : new SendError({
+            reason: isReason(decoded.reason, sendReasons)
+              ? decoded.reason
+              : "network-unavailable",
+          }),
+    ),
+    Effect.orElseSucceed(
+      () => new SendError({ reason: "network-unavailable" }),
+    ),
+    Effect.runSync,
+  );
 }
 
 function acknowledgeReason(cause: unknown): DeliveryAcknowledgeError["reason"] {
@@ -141,20 +162,31 @@ function isReason<Reason>(
 
 function callSend(
   client: Client,
-  input: SendInput,
-): Effect.Effect<void, SendError> {
+  ...[input, options]: Parameters<HarnessEndpoint["send"]>
+): Effect.Effect<SendResult, SendError | CollectiveError> {
+  const failureDelivery = options?.failureDelivery;
   return Effect.tryPromise({
     try: (signal) =>
       client.callTool(
-        { name: HARNESS_SEND_TOOL, arguments: { ...input } },
+        {
+          name: HARNESS_SEND_TOOL,
+          arguments: {
+            input,
+            ...(failureDelivery === undefined ? {} : { failureDelivery }),
+          },
+        },
         { signal },
       ),
-    catch: (cause) => new SendError({ reason: sendReason(cause) }),
+    catch: sendFailure,
   }).pipe(
     Effect.flatMap((result) =>
       result.isError === true
         ? Effect.fail(new SendError({ reason: "network-unavailable" }))
-        : Effect.void,
+        : decodeHarnessSendResult(result.structuredContent).pipe(
+            Effect.catchTag("ParseError", () =>
+              Effect.fail(new SendError({ reason: "network-unavailable" })),
+            ),
+          ),
     ),
   );
 }
@@ -379,7 +411,7 @@ function acquireEndpoint(
     yield* acquireConnection(client, endpoint);
     const listenerActive = yield* Ref.make(false);
     return {
-      send: (input) => callSend(client, input),
+      send: (input, options) => callSend(client, input, options),
       messages: messages(client, listenerActive),
     } satisfies HarnessEndpoint;
   });

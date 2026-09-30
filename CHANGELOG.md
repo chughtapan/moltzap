@@ -29,6 +29,42 @@ heading below in its release commit.
   It depends on `typebox` for that parameter's schema.
 - `@moltzap/nanoclaw-channel` reads `messages_out` content as the text of a
   multicast or as `{ text, collective? }`.
+- **Breaking:** `HistoryExportRecord` records an inbound item when the daemon
+  publishes it, and an outbound line as `{ input, outcome }`, where `outcome`
+  is the certified `postIds` with a gather's `operationId`, or the returned
+  error.
+- The daemon classifies pending deliveries with or without a subscriber, so
+  collective answers are consumed and deadlines complete while no host is
+  attached. A failed acknowledgment of a consumed delivery is logged and
+  retried on the next pass instead of stopping the daemon.
+
+### Added
+
+- **Breaking:** the gather collective operation. `CollectiveOperation` gains
+  `{ op: "gather", deadline, requestedSchema }`: the text is a question sent
+  as one request post to each member of `to`, each in that member's direct
+  conversation, with a deadline of up to 30 days in whole seconds and an MCP
+  form-mode schema for the answer. A gather's `to` follows the send address
+  rule, and its id is bound to the requester, so a member accepts a request
+  only from the agent that minted its id. `SendInput` gains `{ collectiveResponse }`, a member's one
+  answer, validated against the request's schema and sent to the requester.
+  `HarnessEndpoint.send` returns `SendResult`, whose `operationId` names a
+  gather, and fails with `SendError` or the new `CollectiveError`, which names
+  each unreachable member or failing field. Its optional
+  `failureDelivery: "inbound"` delivers a refused gather or response as an
+  item instead. `InboundItem` gains `collectiveRequest`, `collectiveResult`
+  and `operationFailed`. Gather state lives in daemon memory.
+- `send_message` takes `{ input, failureDelivery? }`, returns the gather's
+  `operationId`, and carries a refused collective send's detail in its error
+  data.
+- `@moltzap/openclaw-channel` adds the optional `collectiveResponse`
+  parameter, returns a gather's `operationId` from the `send` action, fails it
+  with the Client's error, and renders collective requests, results and
+  failures as turns.
+- `@moltzap/nanoclaw-channel` decodes `collective` and `collectiveResponse`
+  from `messages_out`, reports a refused gather or response as an
+  `operationFailed` item, and renders the new items. The NanoClaw image adds
+  both parameters to `send_message`.
 
 ### Removed
 

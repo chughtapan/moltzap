@@ -3,18 +3,19 @@
 import type { VerifiedAgentCard } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
-import { Cause, type Context, Deferred, Effect, Option, Scope } from "effect";
-import type { DeliveryAcknowledgeError, InboundItem } from "../../contract.js";
-import type { HistoryExportPort } from "../../endpoint/engine-types.js";
+import { Cause, type Context, Deferred, Effect, Schema, Scope } from "effect";
 import type {
   EndpointEngine,
   EngineInitializationError,
-  EnginePendingMessage,
 } from "../../endpoint/engine.js";
-import type { EndpointStore } from "../../endpoint/store.js";
-import type { HarnessMessageReadyEvent } from "../../harness-mcp-contract.js";
+import type { DeliveryToken, EndpointStore } from "../../endpoint/store.js";
 import type { DaemonBootstrap } from "../configuration.js";
-import { inboundItem } from "../../endpoint/collective/operation.js";
+import type { HistoryExportPort } from "./history-export.js";
+import { AgentAddress, type InboundItem } from "../../contract.js";
+import {
+  type CollectiveOperations,
+  makeCollectiveOperations,
+} from "../../endpoint/collective/operation.js";
 import { decodeOuterBody } from "../../endpoint/representation.js";
 import {
   type RouterWorker,
@@ -29,17 +30,23 @@ import {
   DaemonRuntimeError,
   recoverPinnedSenderCards,
 } from "./activation.js";
+import {
+  mintLocalDeliveryToken,
+  offerPendingMessages,
+  type PendingOffer,
+} from "./pending-delivery.js";
 
 /** Subscription publisher installed after the MCP handler is acquired. */
 export type RuntimeSubscriptionHandler = Effect.Effect.Success<
   ReturnType<DaemonRuntimeDependencies["makeHandler"]>
 >;
 
-/** Engine and Router worker active for the daemon's immutable identity. */
+/** Engine, Router worker and collective layer active for the daemon's identity. */
 interface ActiveProtocol {
   readonly agentCard: VerifiedAgentCard;
   readonly worker: RouterWorker;
   readonly engine: EndpointEngine;
+  readonly collectives: CollectiveOperations;
 }
 
 /** Mutable controller state shared with supervised protocol resources. */
@@ -48,20 +55,17 @@ export interface ProtocolState {
   subscriptionActive: boolean;
   handler?: RuntimeSubscriptionHandler;
   readonly publishedDeliveries: Set<string>;
+  /**
+   * Items the collective layer emitted, in emission order, each under a
+   * daemon-minted delivery token until the subscriber acknowledges it. They
+   * live in memory like the gather state they come from.
+   */
+  readonly localItems: Map<DeliveryToken, InboundItem>;
+  /** Deliveries whose item the history export already recorded. */
+  readonly exportedDeliveries: Set<string>;
+  /** The item each unacknowledged durable delivery classified into. */
+  readonly classifiedItems: Map<string, InboundItem>;
 }
-
-/**
- * Decides what one unpublished pending delivery becomes: the item the
- * subscriber receives, or none when a layer inside the daemon consumes it.
- * The daemon acknowledges a consumed delivery and never publishes it.
- */
-export type PendingClassifier = (
-  pending: EnginePendingMessage,
-) => Effect.Effect<Option.Option<InboundItem>>;
-
-/** The classifier the daemon installs: each post becomes its operation's item. */
-export const publishOperationItems: PendingClassifier = (pending) =>
-  inboundItem(pending.message);
 
 /** Dependencies and owned resources available to one protocol lifecycle. */
 export interface ProtocolEnvironment {
@@ -74,15 +78,6 @@ export interface ProtocolEnvironment {
   readonly daemonScope: Scope.Scope;
   readonly fatal: Deferred.Deferred<never, DaemonRuntimeError>;
   readonly state: ProtocolState;
-  readonly classifyPending: PendingClassifier;
-}
-
-/** What one pass over pending deliveries reads and changes. */
-export interface PendingOffer {
-  readonly engine: Pick<EndpointEngine, "acknowledgeMessage">;
-  readonly handler: Pick<RuntimeSubscriptionHandler, "publish">;
-  readonly publishedDeliveries: Set<string>;
-  readonly classifyPending: PendingClassifier;
 }
 
 interface AcquireProtocolWorkerInput {
@@ -112,67 +107,34 @@ const mapWorkerInitializationError = (
   );
 
 /**
- * Consume or publish one unpublished pending delivery.
- * @param offer The engine, subscriber, published set, and classifier.
- * @param pending One delivery the subscriber has not been offered.
- * @returns False when the subscriber refused the item, true otherwise.
+ * What one pass reads and changes, from the active protocol and the
+ * controller's delivery state. Items are offered only to an attached
+ * subscriber.
  */
-const offerPending = (
-  offer: PendingOffer,
-  pending: EnginePendingMessage,
-): Effect.Effect<boolean, DeliveryAcknowledgeError> =>
-  offer.classifyPending(pending).pipe(
-    Effect.flatMap(
-      Option.match({
-        onNone: () =>
-          offer.engine
-            .acknowledgeMessage(pending.deliveryToken)
-            .pipe(Effect.as(true)),
-        onSome: (item) =>
-          Effect.sync(() => {
-            const event: HarnessMessageReadyEvent = {
-              deliveryToken: pending.deliveryToken,
-              item,
-            };
-            if (!offer.handler.publish(event)) {
-              return false;
-            }
-            offer.publishedDeliveries.add(pending.deliveryToken);
-            return true;
-          }),
-      }),
-    ),
-  );
+const pendingOffer = (
+  environment: ProtocolEnvironment,
+  protocol: ActiveProtocol,
+): PendingOffer => {
+  const { state } = environment;
+  const handler = state.subscriptionActive ? state.handler : undefined;
+  return {
+    engine: protocol.engine,
+    classify: protocol.collectives.classify,
+    ...(handler === undefined ? {} : { handler }),
+    historyExport: environment.historyExport,
+    publishedDeliveries: state.publishedDeliveries,
+    exportedDeliveries: state.exportedDeliveries,
+    classifiedItems: state.classifiedItems,
+  };
+};
 
 /**
- * Offer pending deliveries in order: acknowledge each one the classifier
- * consumes and publish the rest, stopping at the first the subscriber refuses.
- * The published event carries only the delivery token and item.
- * @param offer The engine, subscriber, published set, and classifier.
- * @param messages Pending deliveries in durable order.
- * @returns Completion after every offered delivery is consumed or published.
- */
-export const offerPendingMessages = (
-  offer: PendingOffer,
-  messages: readonly EnginePendingMessage[],
-): Effect.Effect<void, DeliveryAcknowledgeError> =>
-  Effect.gen(function* () {
-    for (const pending of messages) {
-      if (offer.publishedDeliveries.has(pending.deliveryToken)) {
-        continue;
-      }
-      const accepted = yield* offerPending(offer, pending);
-      if (!accepted) {
-        return;
-      }
-    }
-  }).pipe(Effect.withSpan("offerPendingMessages"));
-
-/**
- * Publish newly durable messages while one active native subscriber exists.
+ * Classify newly durable deliveries and publish what a subscriber can take.
+ * The pass runs with or without a subscriber, so the collective layer
+ * consumes protocol posts even while no host is attached.
  * @param environment Protocol resources and controller-owned delivery state.
  * @param deliveryGate Serializes pending reads with subscription changes.
- * @returns Completion after every currently publishable delivery is offered.
+ * @returns Completion after every current delivery is consumed or offered.
  */
 export const publishPendingMessages = (
   environment: ProtocolEnvironment,
@@ -181,24 +143,17 @@ export const publishPendingMessages = (
   deliveryGate.withPermits(1)(
     Effect.suspend(() => {
       const protocol = environment.state.activeProtocol;
-      if (!environment.state.subscriptionActive || protocol === undefined) {
+      if (protocol === undefined) {
         return Effect.void;
       }
       return protocol.engine.readPendingMessages().pipe(
-        Effect.flatMap((messages) => {
-          const handler = environment.state.handler;
-          return handler === undefined
-            ? Effect.void
-            : offerPendingMessages(
-                {
-                  engine: protocol.engine,
-                  handler,
-                  publishedDeliveries: environment.state.publishedDeliveries,
-                  classifyPending: environment.classifyPending,
-                },
-                messages,
-              );
-        }),
+        Effect.flatMap((messages) =>
+          offerPendingMessages(
+            pendingOffer(environment, protocol),
+            messages,
+            environment.state.localItems,
+          ),
+        ),
         Effect.catchAll(() =>
           Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
             Effect.asVoid,
@@ -206,6 +161,26 @@ export const publishPendingMessages = (
         ),
       );
     }),
+  );
+
+/**
+ * Queue an item the collective layer emitted and start a publication pass.
+ * The pass is forked because the layer can emit from inside one, which holds
+ * the delivery gate.
+ */
+const emitLocalItem = (
+  environment: ProtocolEnvironment,
+  reconciler: Effect.Effect<void>,
+  item: InboundItem,
+): Effect.Effect<void> =>
+  mintLocalDeliveryToken.pipe(
+    Effect.tap((deliveryToken) =>
+      Effect.sync(() => {
+        environment.state.localItems.set(deliveryToken, item);
+      }),
+    ),
+    Effect.zipRight(Effect.forkIn(reconciler, environment.daemonScope)),
+    Effect.asVoid,
   );
 
 /**
@@ -309,7 +284,6 @@ const acquireProtocolEngine = (
       store: environment.store,
       routerWorker: worker,
       actionPolicy: signStructurallyValidAction,
-      historyExport: environment.historyExport,
     })
     .pipe(
       Scope.extend(environment.daemonScope),
@@ -332,11 +306,40 @@ const checkExistingProtocol = (
   return Effect.succeed(true);
 };
 
+/**
+ * The collective layer for the active identity: it certifies posts through
+ * the engine and queues the items it emits for the next publication pass.
+ */
+const makeProtocolCollectives = (
+  environment: ProtocolEnvironment,
+  reconciler: Effect.Effect<void>,
+  agentCard: VerifiedAgentCard,
+  engine: EndpointEngine,
+): CollectiveOperations =>
+  makeCollectiveOperations({
+    self: Schema.decodeUnknownSync(AgentAddress)(
+      `agent:${agentCard.agentName}`,
+    ),
+    sendPost: (input) => engine.send(input),
+    emit: (item) => emitLocalItem(environment, reconciler, item),
+    scope: environment.daemonScope,
+  });
+
+/** Hold the active protocol with its collective layer for later operations. */
 const retainActiveProtocol = (
-  state: ProtocolState,
-  protocol: ActiveProtocol,
+  environment: ProtocolEnvironment,
+  reconciler: Effect.Effect<void>,
+  protocol: Omit<ActiveProtocol, "collectives">,
 ): void => {
-  state.activeProtocol = protocol;
+  environment.state.activeProtocol = {
+    ...protocol,
+    collectives: makeProtocolCollectives(
+      environment,
+      reconciler,
+      protocol.agentCard,
+      protocol.engine,
+    ),
+  };
 };
 
 /**
@@ -382,7 +385,11 @@ export const initializeProtocol = (
           agentCard,
           worker,
         );
-        retainActiveProtocol(environment.state, { agentCard, worker, engine });
+        retainActiveProtocol(environment, reconciler, {
+          agentCard,
+          worker,
+          engine,
+        });
         yield* Deferred.succeed(engineReady, engine);
         yield* superviseBackground(environment, worker.run);
         yield* superviseBackground(environment, engine.runOutbound);

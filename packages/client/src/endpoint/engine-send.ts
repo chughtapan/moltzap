@@ -1,11 +1,12 @@
 /** @file Address resolution, immutable intent binding, and proposal creation. */
 
 import { AgentCard, MOLTZAP_VERSION, SignedMessage } from "@moltzap/identity";
-import { DateTime, Deferred, Duration, Effect, Schema } from "effect";
+import { Deferred, Duration, Effect, Schema } from "effect";
 import type {
   EngineConversation,
   EnginePostIntent,
   EngineRuntime,
+  EngineSendInput,
 } from "./engine-types.js";
 import type { RouterWorkerUnavailableError } from "./router-worker/index.js";
 import type {
@@ -14,14 +15,8 @@ import type {
   OutboundMessageInput,
   PostIntent as StoredPostIntent,
 } from "./store.js";
-import {
-  type HistoryExportRecord,
-  type PostId,
-  SendError,
-  type SendInput,
-} from "../contract.js";
+import { type PostId, SendError } from "../contract.js";
 import { resolveMessageAddress } from "./addressing/index.js";
-import { operationContent } from "./collective/operation.js";
 import { currentRecoveryBarrier } from "./recovery/barrier.js";
 import {
   type ActionCertifiedRecord,
@@ -124,7 +119,7 @@ const buildMembership = (runtime: EngineRuntime, resolved: ResolvedAddress) =>
     return membership;
   });
 
-const resolveMembership = (runtime: EngineRuntime, input: SendInput) =>
+const resolveMembership = (runtime: EngineRuntime, input: EngineSendInput) =>
   resolveMessageAddress({
     localAgentCard: runtime.input.localAgentCard,
     registry: runtime.input.registry,
@@ -512,19 +507,13 @@ export interface PreparedSendHandle {
   readonly completion: Deferred.Deferred<RecordHash, SendError>;
 }
 
-/** How one completed `send` invocation is recorded in the history export. */
-export type SendExportOutcome = Extract<
-  HistoryExportRecord,
-  { readonly kind: "outbound" }
->["outcome"];
-
 /**
  * Persist an addressed intent and return its durable completion latch.
  * The latch completes when the minted post becomes locally certified.
  */
 export const prepareSend = (
   runtime: EngineRuntime,
-  input: SendInput,
+  input: EngineSendInput,
 ): Effect.Effect<PreparedSendHandle, SendError> =>
   awaitRouterAttachment(runtime).pipe(
     Effect.zipRight(prepareIntent(runtime, input)),
@@ -539,27 +528,6 @@ export const prepareSend = (
     Effect.withSpan("prepareSend"),
   );
 
-/**
- * Record one completed `send` invocation in the history export, keeping the
- * host's operation as it was given. When no export is configured the no-op
- * port records nothing.
- */
-export const exportSend = (
-  runtime: EngineRuntime,
-  input: SendInput,
-  outcome: SendExportOutcome,
-): Effect.Effect<void> =>
-  DateTime.now.pipe(
-    Effect.flatMap((at) =>
-      runtime.input.historyExport.record({
-        kind: "outbound",
-        ...input,
-        outcome,
-        at,
-      }),
-    ),
-  );
-
 interface PreparedSend {
   readonly membership: VerifiedMembership;
   readonly intent: PostIntent;
@@ -568,14 +536,9 @@ interface PreparedSend {
 
 function prepareIntent(
   runtime: EngineRuntime,
-  input: SendInput,
+  input: EngineSendInput,
 ): Effect.Effect<PreparedSend, SendError> {
   return Effect.gen(function* () {
-    const content = yield* operationContent(input).pipe(
-      Effect.catchTag("CollectiveContentError", () =>
-        Effect.fail(new SendError({ reason: "content-invalid" })),
-      ),
-    );
     const membership = yield* resolveMembership(runtime, input);
     const postId = yield* mintPostId().pipe(
       Effect.mapError(representationFailure),
@@ -587,7 +550,7 @@ function prepareIntent(
       membershipHash: membership.hash,
       authorAgentId: runtime.input.localAgentCard.agentId,
       postId,
-      content,
+      content: input.content,
     }).pipe(Effect.mapError(representationFailure));
     const canonicalIntent = yield* encodeCanonical(
       PostIntentSchema,

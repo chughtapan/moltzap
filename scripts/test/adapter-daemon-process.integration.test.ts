@@ -11,7 +11,7 @@ import {
   type Content,
   GroupAddress,
   type InboundDelivery,
-  type InboundMessage,
+  type InboundItem,
 } from "@moltzap/client";
 import openClawPlugin from "@moltzap/openclaw-channel";
 import {
@@ -21,6 +21,7 @@ import {
   Effect,
   Fiber,
   Option,
+  Queue,
   Schema,
   type Scope,
   Stream,
@@ -202,17 +203,22 @@ interface OpenClawInboundTurnInput {
   readonly replyOptions?: OpenClawReplyDispatcherInput["replyOptions"];
 }
 
+/** The plugin's host turn, as far as this test reads it. */
+interface OpenClawHostTurn {
+  readonly id: string;
+}
+
 interface OpenClawInboundRunnerInput {
   readonly channel: string;
   readonly accountId: string;
-  readonly raw: { readonly message: InboundMessage };
+  readonly raw: { readonly turn: OpenClawHostTurn };
   readonly adapter: {
     readonly ingest: () => {
       readonly id: string;
       readonly rawText: string;
       readonly textForAgent: string;
       readonly textForCommands: string;
-      readonly raw: InboundMessage;
+      readonly raw: OpenClawHostTurn;
     };
     readonly resolveTurn: () => OpenClawInboundTurnInput;
   };
@@ -273,7 +279,12 @@ interface OpenClawMessageActionContext {
   readonly action: "send";
   readonly cfg: OpenClawConfig;
   readonly accountId: string;
-  readonly params: { readonly to: string; readonly message: string };
+  readonly params: {
+    readonly to: string;
+    readonly message: string;
+    readonly collective?: object;
+    readonly collectiveResponse?: object;
+  };
 }
 
 interface OpenClawMessageActionResult {
@@ -588,8 +599,8 @@ function makeObservedOpenClawAccountRuntime(
         buildContext: buildOpenClawContext,
         run: (input) => {
           const ingested = input.adapter.ingest();
-          expect(ingested.id).toBe(input.raw.message.postId);
-          expect(ingested.raw).toEqual(input.raw.message);
+          expect(ingested.id).toBe(input.raw.turn.id);
+          expect(ingested.raw).toEqual(input.raw.turn);
           const turn = input.adapter.resolveTurn();
           expect(turn.route).toEqual({
             agentId: "primary",
@@ -750,6 +761,68 @@ function openClawConfig(stateDirectory: string): OpenClawConfig {
   };
 }
 
+/**
+ * Start the registered plugin's account against one daemon, with OpenClaw's
+ * gateway context, and wait until it reports connected.
+ */
+function startOpenClawGateway(
+  target: DaemonProcessFixture,
+  channelPlugin: StableOpenClawChannelPlugin,
+  runtime: ObservedOpenClawAccountRuntime,
+) {
+  return Effect.gen(function* () {
+    const cfg = openClawConfig(target.stateDirectory);
+    const connected = yield* Deferred.make<void>();
+    const previousEndpoint = process.env.MOLTZAP_MCP_URL;
+    process.env.MOLTZAP_MCP_URL = target.endpoint.href;
+
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (previousEndpoint === undefined) {
+          Reflect.deleteProperty(process.env, "MOLTZAP_MCP_URL");
+        } else {
+          process.env.MOLTZAP_MCP_URL = previousEndpoint;
+        }
+      }),
+    );
+
+    const abortController = new AbortController();
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        abortController.abort();
+      }),
+    );
+    let status: OpenClawGatewayStatus = {
+      accountId: OPENCLAW_ACCOUNT_ID,
+    };
+    const gatewayContext: OpenClawGatewayContext = {
+      cfg,
+      accountId: OPENCLAW_ACCOUNT_ID,
+      account: { id: OPENCLAW_ACCOUNT_ID },
+      abortSignal: abortController.signal,
+      runtime: {
+        log: () => {},
+        error: () => {},
+        exit: () => {},
+      },
+      channelRuntime: runtime.channel,
+      getStatus: () => status,
+      setStatus: (next) => {
+        status = next;
+        if (next.connected === true) {
+          Effect.runSync(Deferred.succeed(connected, undefined));
+        }
+      },
+    };
+    const runningGateway = yield* effectFromPromise(
+      "OpenClaw gateway start",
+      () => channelPlugin.gateway.startAccount(gatewayContext),
+    ).pipe(Effect.forkScoped);
+    yield* awaitSignal(connected, "OpenClaw gateway connection");
+    return { abortController, runningGateway };
+  });
+}
+
 function runOpenClawScenario() {
   return Effect.scoped(
     Effect.gen(function* () {
@@ -761,7 +834,6 @@ function runOpenClawScenario() {
       const initial = multicastContent(initialText);
       const reply = multicastContent(OPENCLAW_REPLY);
       const responseSent = yield* Deferred.make<void>();
-      const connected = yield* Deferred.make<void>();
       const sessions = new RecordedSessionStore();
       const cfg = openClawConfig(scenario.target.stateDirectory);
       const channelPlugin = yield* registerOpenClawChannel();
@@ -780,51 +852,11 @@ function runOpenClawScenario() {
           }),
       });
 
-      const previousEndpoint = process.env.MOLTZAP_MCP_URL;
-      process.env.MOLTZAP_MCP_URL = scenario.target.endpoint.href;
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          if (previousEndpoint === undefined) {
-            Reflect.deleteProperty(process.env, "MOLTZAP_MCP_URL");
-          } else {
-            process.env.MOLTZAP_MCP_URL = previousEndpoint;
-          }
-        }),
+      const { abortController, runningGateway } = yield* startOpenClawGateway(
+        scenario.target,
+        channelPlugin,
+        runtime,
       );
-
-      const abortController = new AbortController();
-      yield* Effect.addFinalizer(() =>
-        Effect.sync(() => {
-          abortController.abort();
-        }),
-      );
-      let status: OpenClawGatewayStatus = {
-        accountId: OPENCLAW_ACCOUNT_ID,
-      };
-      const gatewayContext: OpenClawGatewayContext = {
-        cfg,
-        accountId: OPENCLAW_ACCOUNT_ID,
-        account: { id: OPENCLAW_ACCOUNT_ID },
-        abortSignal: abortController.signal,
-        runtime: {
-          log: () => {},
-          error: () => {},
-          exit: () => {},
-        },
-        channelRuntime: runtime.channel,
-        getStatus: () => status,
-        setStatus: (next) => {
-          status = next;
-          if (next.connected === true) {
-            Effect.runSync(Deferred.succeed(connected, undefined));
-          }
-        },
-      };
-      const runningGateway = yield* effectFromPromise(
-        "OpenClaw gateway start",
-        () => channelPlugin.gateway.startAccount(gatewayContext),
-      ).pipe(Effect.forkScoped);
-      yield* awaitSignal(connected, "OpenClaw gateway connection");
 
       const callerDelivery = yield* Effect.forkScoped(
         nextDelivery(caller.messages),
@@ -873,6 +905,188 @@ function runOpenClawScenario() {
   );
 }
 
+const SLOT_SCHEMA = {
+  type: "object",
+  properties: { slot: { type: "string", enum: ["mon", "tue"] } },
+  required: ["slot"],
+} as const;
+const GATHER_QUESTION = "Which day works?";
+
+/**
+ * An account runtime that hands every rendered turn to the test, standing in
+ * for the model that reads it, and completes the turn at once.
+ */
+function makeTurnQueueRuntime(
+  turns: Queue.Queue<OpenClawInboundContext>,
+): ObservedOpenClawAccountRuntime {
+  return {
+    channel: {
+      runtimeContexts: {},
+      inbound: {
+        buildContext: buildOpenClawContext,
+        run: (input) =>
+          Effect.runPromise(
+            Queue.offer(turns, input.adapter.resolveTurn().ctxPayload).pipe(
+              Effect.as({}),
+            ),
+          ),
+      },
+      routing: {
+        resolveAgentRoute: (input) => ({
+          agentId: "primary",
+          channel: "moltzap",
+          accountId: input.accountId ?? OPENCLAW_ACCOUNT_ID,
+          sessionKey: OPENCLAW_MAIN_SESSION_KEY,
+          mainSessionKey: OPENCLAW_MAIN_SESSION_KEY,
+          lastRoutePolicy: "session",
+          matchedBy: "default",
+        }),
+      },
+    },
+  };
+}
+
+function nextTurn(turns: Queue.Queue<OpenClawInboundContext>) {
+  return Queue.take(turns).pipe(
+    Effect.timeoutFail({
+      duration: DELIVERY_TIMEOUT,
+      onTimeout: () =>
+        new ProcessTestError({
+          message: "timed out awaiting an OpenClaw turn",
+        }),
+    }),
+  );
+}
+
+function nextItem<E>(stream: Stream.Stream<InboundDelivery, E>) {
+  return nextDelivery(stream).pipe(
+    Effect.tap((delivery) => delivery.acknowledge),
+    Effect.map((delivery): InboundItem => delivery.item),
+  );
+}
+
+function requireRequest(item: InboundItem) {
+  return item.kind === "collectiveRequest"
+    ? Effect.succeed(item)
+    : Effect.fail(
+        new ProcessTestError({
+          message: `expected a collective request, received ${item.kind}`,
+        }),
+      );
+}
+
+/** The request id a model reads from a rendered collective request turn. */
+function requestIdOf(body: string): string {
+  return /collective request (col_[\w-]+) from/u.exec(body)?.[1] ?? "";
+}
+
+function runOpenClawGatherScenario() {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const scenario = yield* acquireScenario("openclaw-gather");
+      const caller = yield* acquireHarnessEndpoint(scenario.caller.endpoint);
+      const callerAddress = directAddress(scenario.caller.agentName);
+      const targetAddress = directAddress(scenario.target.agentName);
+      const cfg = openClawConfig(scenario.target.stateDirectory);
+      const channelPlugin = yield* registerOpenClawChannel();
+      const turns = yield* Queue.unbounded<OpenClawInboundContext>();
+      const { abortController, runningGateway } = yield* startOpenClawGateway(
+        scenario.target,
+        channelPlugin,
+        makeTurnQueueRuntime(turns),
+      );
+      const messageTool = (params: OpenClawMessageActionContext["params"]) =>
+        effectFromPromise("OpenClaw message tool send", () =>
+          channelPlugin.actions.handleAction({
+            channel: "moltzap",
+            action: "send",
+            cfg,
+            accountId: OPENCLAW_ACCOUNT_ID,
+            params,
+          }),
+        );
+
+      const started = yield* messageTool({
+        to: callerAddress,
+        message: GATHER_QUESTION,
+        collective: {
+          op: "gather",
+          deadline: 60,
+          requestedSchema: SLOT_SCHEMA,
+        },
+      });
+      const request = yield* nextItem(caller.messages).pipe(
+        Effect.flatMap(requireRequest),
+      );
+      expect(started.details).toEqual({
+        ok: true,
+        to: callerAddress,
+        operationId: expect.stringMatching(/^col_/u),
+      });
+      expect(request).toMatchObject({
+        kind: "collectiveRequest",
+        from: targetAddress,
+        question: GATHER_QUESTION,
+        requestedSchema: SLOT_SCHEMA,
+      });
+      yield* caller.send({
+        collectiveResponse: {
+          id: request.id,
+          action: "accept",
+          content: { slot: "mon" },
+        },
+      });
+      const resultTurn = yield* nextTurn(turns);
+      expect(resultTurn).toMatchObject({
+        Body: `MoltZap collective result ${request.id} for the question sent to ${callerAddress}: ${GATHER_QUESTION}\n- ${callerAddress}: answered {"slot":"mon"}`,
+        SenderName: "MoltZap collective",
+      });
+
+      yield* caller.send({
+        to: targetAddress,
+        text: GATHER_QUESTION,
+        collective: {
+          op: "gather",
+          deadline: 60,
+          requestedSchema: SLOT_SCHEMA,
+        },
+      });
+      const requestTurn = yield* nextTurn(turns);
+      expect(requestTurn.From).toBe(callerAddress);
+      const answered = yield* messageTool({
+        to: callerAddress,
+        message: "answering",
+        collectiveResponse: {
+          id: requestIdOf(requestTurn.Body),
+          action: "accept",
+          content: { slot: "tue" },
+        },
+      });
+      expect(answered.details).toMatchObject({ ok: true });
+      expect(yield* nextItem(caller.messages)).toMatchObject({
+        kind: "collectiveResult",
+        outcomes: [
+          {
+            member: targetAddress,
+            outcome: { kind: "answered", content: { slot: "tue" } },
+          },
+        ],
+      });
+
+      abortController.abort();
+      yield* Fiber.join(runningGateway).pipe(
+        Effect.timeoutFail({
+          duration: DELIVERY_TIMEOUT,
+          onTimeout: () =>
+            new ProcessTestError({
+              message: "timed out stopping OpenClaw gateway",
+            }),
+        }),
+      );
+    }),
+  );
+}
+
 function readNanoClawImage() {
   return effectFromPromise("NanoClaw build result", async () => {
     const result: unknown = JSON.parse(
@@ -891,15 +1105,20 @@ function readNanoClawImage() {
   });
 }
 
+/**
+ * Run the NanoClaw probe against one daemon. Each destination is queued as
+ * `send_message` tool arguments, or through the final output when it is
+ * marked `final`. The probe first waits for the inbound message whose text is
+ * `text`, or starts with `textPrefix`.
+ */
 function runNanoClawProbe(
   image: string,
   endpoint: URL,
-  destinations: readonly { readonly to: string; readonly text: string }[],
+  destinations: readonly Readonly<Record<string, unknown>>[],
   inbound: {
     readonly platformId: string;
     readonly sender: string;
-    readonly text: string;
-  },
+  } & ({ readonly text: string } | { readonly textPrefix: string }),
 ) {
   return effectFromPromise("NanoClaw native host process", () =>
     executeFile(
@@ -978,7 +1197,7 @@ function runNanoClawScenario() {
         scenario.target.endpoint,
         [
           { to: callerAddress, text: NANOCLAW_DIRECT_REPLY },
-          { to: sharedAddress, text: NANOCLAW_GROUP_REPLY },
+          { to: sharedAddress, text: NANOCLAW_GROUP_REPLY, final: true },
         ],
         {
           platformId: callerAddress,
@@ -1050,12 +1269,80 @@ function runNanoClawScenario() {
   );
 }
 
+function runNanoClawGatherScenario() {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const scenario = yield* acquireScenario("nanoclaw-gather");
+      const caller = yield* acquireHarnessEndpoint(scenario.caller.endpoint);
+      const callerAddress = directAddress(scenario.caller.agentName);
+      const targetAddress = directAddress(scenario.target.agentName);
+
+      const started = yield* caller.send({
+        to: targetAddress,
+        text: GATHER_QUESTION,
+        collective: {
+          op: "gather",
+          deadline: 120,
+          requestedSchema: SLOT_SCHEMA,
+        },
+      });
+      const id = started.operationId ?? "";
+      const result = yield* Effect.forkScoped(nextItem(caller.messages));
+      const image = yield* readNanoClawImage();
+      yield* runNanoClawProbe(
+        image,
+        scenario.target.endpoint,
+        [
+          {
+            to: callerAddress,
+            text: "answering",
+            collectiveResponse: {
+              id,
+              action: "accept",
+              content: { slot: "tue" },
+            },
+          },
+        ],
+        {
+          platformId: callerAddress,
+          sender: callerAddress,
+          textPrefix: `MoltZap collective request ${id} from ${callerAddress}`,
+        },
+      );
+
+      expect(id).toMatch(/^col_/u);
+      expect(yield* Fiber.join(result)).toEqual({
+        kind: "collectiveResult",
+        id,
+        to: targetAddress,
+        question: GATHER_QUESTION,
+        outcomes: [
+          {
+            member: targetAddress,
+            outcome: { kind: "answered", content: { slot: "tue" } },
+          },
+        ],
+      });
+    }),
+  );
+}
+
 it("keeps OpenClaw host identities local across a durable exchange", () => {
   expect.hasAssertions();
   return Effect.runPromise(runOpenClawScenario());
 }, 300_000);
 
+it("runs a gather in both directions through the OpenClaw message tool", () => {
+  expect.hasAssertions();
+  return Effect.runPromise(runOpenClawGatherScenario());
+}, 300_000);
+
 it("routes NanoClaw inbound and outbound through its native host boundaries", () => {
   expect.hasAssertions();
   return Effect.runPromise(runNanoClawScenario());
+}, 300_000);
+
+it("answers a gather through NanoClaw's send_message", () => {
+  expect.hasAssertions();
+  return Effect.runPromise(runNanoClawGatherScenario());
 }, 300_000);

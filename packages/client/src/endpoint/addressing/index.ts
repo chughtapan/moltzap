@@ -59,9 +59,46 @@ interface ResolveMessageAddressInput {
 export function resolveMessageAddress(
   input: ResolveMessageAddressInput,
 ): Effect.Effect<ResolvedMessageAddress, SendError> {
-  return input.to.startsWith(AGENT_ADDRESS_PREFIX)
-    ? resolveDirect(input)
-    : resolveGroup(input);
+  return canonicalMessageAddress(input.to, input.localAgentCard.agentName).pipe(
+    Effect.flatMap(
+      (canonical): Effect.Effect<ResolvedMessageAddress, SendError> =>
+        canonical.kind === "direct"
+          ? resolveDirect(input, canonical)
+          : resolveGroup(input, canonical),
+    ),
+  );
+}
+
+/** A destination in canonical form, before any Registry lookup. */
+export type CanonicalMessageAddress =
+  | {
+      readonly kind: "direct";
+      readonly address: AgentAddress;
+      readonly remoteName: AgentName;
+    }
+  | {
+      readonly kind: "group";
+      readonly address: GroupAddress;
+      readonly memberNames: readonly AgentName[];
+    };
+
+/**
+ * Put one destination in canonical form, the rule every send shares. An
+ * `agent:` address names one other agent. A `group:` address names each agent
+ * once; the local agent is added when absent, and the complete group has 3 to
+ * 32 members in unsigned ASCII name order.
+ * @param to The validated destination input.
+ * @param localAgentName The local agent's Registry name.
+ * @returns The canonical address with its names, local agent included for a
+ *   group, or `invalid-address` or `membership-invalid`.
+ */
+export function canonicalMessageAddress(
+  to: MessageAddressInput,
+  localAgentName: string,
+): Effect.Effect<CanonicalMessageAddress, SendError> {
+  return to.startsWith(AGENT_ADDRESS_PREFIX)
+    ? canonicalDirect(to, localAgentName)
+    : canonicalGroup(to, localAgentName);
 }
 
 function invalidAddress(): SendError {
@@ -123,29 +160,67 @@ function lookupCard(
   );
 }
 
-function resolveDirect(
-  input: ResolveMessageAddressInput,
-): Effect.Effect<ResolvedDirectAddress, SendError> {
+function canonicalDirect(
+  to: MessageAddressInput,
+  localAgentName: string,
+): Effect.Effect<CanonicalMessageAddress, SendError> {
   return Effect.gen(function* () {
-    const agentName = yield* decodeAgentName(
-      input.to.slice(AGENT_ADDRESS_PREFIX.length),
+    const remoteName = yield* decodeAgentName(
+      to.slice(AGENT_ADDRESS_PREFIX.length),
     );
-    if (agentName === input.localAgentCard.agentName) {
+    if (remoteName === localAgentName) {
       return yield* invalidMembership();
     }
-    const remoteCard = yield* lookupCard(input.registry, agentName);
+    const address = yield* Schema.decodeUnknown(AgentAddress)(to).pipe(
+      Effect.mapError(invalidAddress),
+    );
+    return { kind: "direct", address, remoteName };
+  });
+}
+
+function canonicalGroup(
+  to: MessageAddressInput,
+  localAgentName: string,
+): Effect.Effect<CanonicalMessageAddress, SendError> {
+  return Effect.gen(function* () {
+    const explicitNames = yield* Effect.forEach(
+      to.slice(GROUP_ADDRESS_PREFIX.length).split(","),
+      decodeAgentName,
+      { concurrency: 1 },
+    );
+    if (new Set(explicitNames).size !== explicitNames.length) {
+      return yield* invalidMembership();
+    }
+    const localName = yield* decodeAgentName(localAgentName);
+    const memberNames = explicitNames.includes(localName)
+      ? explicitNames.slice()
+      : [...explicitNames, localName];
+    if (memberNames.length < 3 || memberNames.length > MAXIMUM_GROUP_MEMBERS) {
+      return yield* invalidMembership();
+    }
+    memberNames.sort(compareAscii);
+    const address = yield* Schema.decodeUnknown(GroupAddress)(
+      `${GROUP_ADDRESS_PREFIX}${memberNames.join(",")}`,
+    ).pipe(Effect.mapError(invalidAddress));
+    return { kind: "group", address, memberNames };
+  });
+}
+
+function resolveDirect(
+  input: ResolveMessageAddressInput,
+  canonical: Extract<CanonicalMessageAddress, { readonly kind: "direct" }>,
+): Effect.Effect<ResolvedDirectAddress, SendError> {
+  return Effect.gen(function* () {
+    const remoteCard = yield* lookupCard(input.registry, canonical.remoteName);
     const ordered = orderMemberCards([input.localAgentCard, remoteCard]);
     const first = ordered[0];
     const second = ordered[1];
     if (first === undefined || second === undefined) {
       return yield* Effect.dieMessage("direct membership lost a member");
     }
-    const address = yield* Schema.decodeUnknown(AgentAddress)(input.to).pipe(
-      Effect.mapError(invalidAddress),
-    );
     return {
       kind: "direct",
-      address,
+      address: canonical.address,
       memberCards: [first, second],
     };
   });
@@ -153,27 +228,11 @@ function resolveDirect(
 
 function resolveGroup(
   input: ResolveMessageAddressInput,
+  canonical: Extract<CanonicalMessageAddress, { readonly kind: "group" }>,
 ): Effect.Effect<ResolvedGroupAddress, SendError> {
   return Effect.gen(function* () {
-    const explicitNames = yield* Effect.forEach(
-      input.to.slice(GROUP_ADDRESS_PREFIX.length).split(","),
-      decodeAgentName,
-      { concurrency: 1 },
-    );
-    if (new Set(explicitNames).size !== explicitNames.length) {
-      return yield* invalidMembership();
-    }
-    const completeNames = explicitNames.includes(input.localAgentCard.agentName)
-      ? explicitNames
-      : [...explicitNames, input.localAgentCard.agentName];
-    if (
-      completeNames.length < 3 ||
-      completeNames.length > MAXIMUM_GROUP_MEMBERS
-    ) {
-      return yield* invalidMembership();
-    }
     const resolved = yield* Effect.forEach(
-      completeNames,
+      canonical.memberNames,
       (agentName) =>
         agentName === input.localAgentCard.agentName
           ? Effect.succeed(input.localAgentCard)
@@ -187,14 +246,9 @@ function resolveGroup(
     if (first === undefined || second === undefined || third === undefined) {
       return yield* Effect.dieMessage("group membership lost a member");
     }
-    const canonicalNames = completeNames.slice();
-    canonicalNames.sort(compareAscii);
-    const address = yield* Schema.decodeUnknown(GroupAddress)(
-      `${GROUP_ADDRESS_PREFIX}${canonicalNames.join(",")}`,
-    ).pipe(Effect.mapError(invalidAddress));
     return {
       kind: "group",
-      address,
+      address: canonical.address,
       memberCards: [first, second, third, ...ordered.slice(3)],
     };
   });

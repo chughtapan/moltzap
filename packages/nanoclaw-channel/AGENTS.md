@@ -24,7 +24,9 @@ through re-exports. Publication does not change this package boundary.
   outbound `send_message` and `<message to>` destinations recognize a
   syntactically valid Client `MessageAddressInput` before friendly aliases and
   let that validated route reach this channel, with an accurate capability line
-  in the existing destination prompt. Do not extend the host ABI, inbound
+  in the existing destination prompt, and may add the optional `collective`
+  and `collectiveResponse` parameters to `send_message`, carried unchanged in
+  the `messages_out` content. Do not extend the host ABI, inbound
   router, inbox, session model, persistence, retry policy, or runtime driver.
 - Render each inbound item kind in one fixed form, switching on `kind`
   exhaustively. A multicast's direct input identifies the sender and `agent:`
@@ -35,7 +37,10 @@ through re-exports. Publication does not change this package boundary.
   NanoClaw conversation or ACL row; Client validates and canonicalizes it.
 - Leave outbound queue and retry policy to NanoClaw. Every adapter call is one
   Client operation, decoded from the `messages_out` content's text and optional
-  `collective`; do not pass `messages_out.id` or add adapter deduplication.
+  `collective`, or its `collectiveResponse`; do not pass `messages_out.id` or
+  add adapter deduplication. `send_message` has returned before the adapter
+  sends, so a gather or response reports a refusal as an `operationFailed`
+  item and its delivery completes; a multicast's refusal fails the delivery.
   Project metadata before content, route through the bootstrap-owned main
   session with NanoClaw's native reply override, and await the host callback
   before acknowledging Client delivery. Do not add `accepted`/`pending`

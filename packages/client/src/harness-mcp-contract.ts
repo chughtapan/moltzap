@@ -1,14 +1,18 @@
 /** @file Closed private representation of the loopback HarnessEndpoint MCP wire. */
 
 import {
-  type Effect,
+  Effect,
   JSONSchema,
   type ParseResult,
   Schema,
   type SchemaAST,
 } from "effect";
-import { InboundItem } from "./contract.js";
-import { CollectiveId } from "./endpoint/collective/operation.js";
+import {
+  CollectiveId,
+  decodeCollectiveFailure,
+  InboundItem,
+  SendInput,
+} from "./contract.js";
 import { DeliveryToken } from "./endpoint/store/types.js";
 
 /** MCP capability carrying tagged inbound item delivery. */
@@ -46,6 +50,18 @@ const harnessAcknowledgeDeliveryRequestSchema = exactStruct({
 });
 const harnessEmptyResultSchema = exactEmptyObject;
 /**
+ * One `send_message` call: the send, and where a refused gather or response
+ * reports its error. `inbound` is for a host whose tool returns before the
+ * send: the call completes and the error arrives as an `operationFailed`
+ * item. The default returns it as the tool error.
+ */
+const harnessSendRequestSchema = exactStruct({
+  input: SendInput,
+  failureDelivery: Schema.optionalWith(Schema.Literal("result", "inbound"), {
+    exact: true,
+  }),
+});
+/**
  * A completed operation. A collecting operation names the id its answers and
  * result carry; a multicast has none, so its result is empty.
  */
@@ -57,6 +73,21 @@ const harnessMessageReadyEventSchema = exactStruct({
   item: InboundItem,
 });
 
+/**
+ * The JSON-RPC error data of a refused `send_message`: a `SendError` reason,
+ * or a refused collective send with its id and the failure naming each
+ * unreachable member or failing field, which `decodeCollectiveFailure`
+ * validates.
+ */
+const harnessSendErrorDataSchema = Schema.Union(
+  exactStruct({
+    reason: Schema.Literal("collective-failed"),
+    id: CollectiveId,
+    failure: Schema.Unknown,
+  }),
+  exactStruct({ reason: Schema.String }),
+);
+
 type HarnessEventsExtensionDeclaration =
   typeof harnessEventsExtensionDeclarationSchema.Type;
 
@@ -66,6 +97,20 @@ export type HarnessAcknowledgeDeliveryRequest =
 
 /** Decoded empty adapter-operation result. */
 export type HarnessEmptyResult = typeof harnessEmptyResultSchema.Type;
+
+/** Decoded arguments of one `send_message` call. */
+export type HarnessSendRequest = typeof harnessSendRequestSchema.Type;
+
+/** Decoded error data of one refused `send_message` call. */
+export type HarnessSendErrorData =
+  | Readonly<{ reason: string }>
+  | Readonly<{
+      reason: "collective-failed";
+      id: CollectiveId;
+      failure: Effect.Effect.Success<
+        ReturnType<typeof decodeCollectiveFailure>
+      >;
+    }>;
 
 /** Decoded result of one `send_message` operation. */
 export type HarnessSendResult = typeof harnessSendResultSchema.Type;
@@ -77,6 +122,12 @@ export type HarnessMessageReadyEvent =
 /** JSON Schema advertised for the delivery acknowledgment operation. */
 export const harnessAcknowledgeDeliveryRequestJsonSchema = JSONSchema.make(
   harnessAcknowledgeDeliveryRequestSchema,
+  { target: "jsonSchema2020-12" },
+);
+
+/** JSON Schema advertised for `send_message` arguments. */
+export const harnessSendRequestJsonSchema = JSONSchema.make(
+  harnessSendRequestSchema,
   { target: "jsonSchema2020-12" },
 );
 
@@ -129,4 +180,35 @@ export function decodeHarnessMessageReadyEvent(
   value: unknown,
 ): Effect.Effect<HarnessMessageReadyEvent, ParseResult.ParseError> {
   return Schema.decodeUnknown(harnessMessageReadyEventSchema)(value, exact);
+}
+
+/**
+ * Decode the error data of one refused `send_message` call.
+ * @param value Untrusted JSON-RPC error data.
+ * @returns The collective failure or send reason it carries.
+ */
+export function decodeHarnessSendErrorData(
+  value: unknown,
+): Effect.Effect<HarnessSendErrorData, ParseResult.ParseError> {
+  return Schema.decodeUnknown(harnessSendErrorDataSchema)(value, exact).pipe(
+    Effect.flatMap(
+      (data): Effect.Effect<HarnessSendErrorData, ParseResult.ParseError> =>
+        "failure" in data
+          ? decodeCollectiveFailure(data.failure).pipe(
+              Effect.map((failure) => ({ ...data, failure })),
+            )
+          : Effect.succeed(data),
+    ),
+  );
+}
+
+/**
+ * Decode one `send_message` result.
+ * @param value Untrusted structured tool content.
+ * @returns The operation id a gather names, if any.
+ */
+export function decodeHarnessSendResult(
+  value: unknown,
+): Effect.Effect<HarnessSendResult, ParseResult.ParseError> {
+  return Schema.decodeUnknown(harnessSendResultSchema)(value, exact);
 }

@@ -12,6 +12,7 @@ import type { ReplyPayload } from "openclaw/plugin-sdk/reply-payload";
 import {
   acquireHarnessEndpoint,
   CollectiveOperation,
+  CollectiveResponse,
   type Content,
   type HarnessEndpoint,
   type InboundDelivery,
@@ -19,7 +20,6 @@ import {
   type InboundMessage,
   MessageAddressInput,
   type MessageAddressInput as MessageAddressInputValue,
-  type PostId as PostIdValue,
   SendInput,
 } from "@moltzap/client";
 import {
@@ -109,11 +109,31 @@ interface ConnectedAccountState {
   current?: ConnectedAccount;
 }
 
-interface InboundMessageTurnInput {
+/** Who a turn is from, as OpenClaw records the sender. */
+interface TurnSender {
+  readonly id: string;
+  readonly name: string;
+}
+
+/**
+ * One OpenClaw turn rendered from one inbound item. `id` is the certified
+ * post's `PostId` for a multicast or a request, and a turn id derived from
+ * the operation id for a result or a failure, which no post carries.
+ * `address` is the conversation the turn belongs to and replies go to.
+ */
+interface HostTurn {
+  readonly id: string;
+  readonly kind: "direct" | "group";
+  readonly address: MessageAddressInputValue;
+  readonly sender: TurnSender;
+  readonly members?: readonly string[];
+  readonly body: string;
+}
+
+interface InboundTurnInput {
   readonly ctx: ChannelGatewayContext<MoltZapAccount>;
   readonly runtime: OpenClawAccountRuntime;
-  readonly message: InboundMessage;
-  readonly body: string;
+  readonly turn: HostTurn;
 }
 
 /** One host send before validation; the host supplies each field untyped. */
@@ -122,6 +142,7 @@ interface OperationSend {
   readonly to: unknown;
   readonly text: unknown;
   readonly collective?: unknown;
+  readonly collectiveResponse?: unknown;
 }
 
 interface MoltzapChannelPluginDeps {
@@ -134,15 +155,11 @@ interface MoltzapChannelPluginDeps {
 class OpenClawInboundError extends Data.TaggedError("OpenClawInboundError")<{
   readonly reason: OpenClawInboundFailure;
   readonly accountId: string;
-  readonly postId?: PostIdValue;
+  readonly turnId: string;
   readonly detail: string;
 }> {
   override get message(): string {
-    const identity =
-      this.postId === undefined
-        ? this.accountId
-        : `${this.accountId}/${this.postId}`;
-    return `MoltZap inbound delivery failed for ${identity}: ${this.reason}: ${this.detail}`;
+    return `MoltZap inbound delivery failed for ${this.accountId}/${this.turnId}: ${this.reason}: ${this.detail}`;
   }
 }
 
@@ -182,12 +199,28 @@ const isMessageAddressInput = Schema.is(MessageAddressInput);
  * The `collective` parameter MoltZap adds to the message tool's `send`
  * action. Its JSON Schema comes from the Client's `CollectiveOperation`, so
  * the tool accepts exactly the operations the endpoint does; TypeBox marks it
- * optional because a `send` without it is a multicast.
+ * optional because a `send` without it is a multicast. The description names
+ * OpenClaw's own `message` parameter, which carries the question.
  */
 const collectiveParameter = Type.Optional(
-  Type.Unsafe<CollectiveOperation>(
-    Struct.omit(JSONSchema.make(CollectiveOperation), "$schema"),
-  ),
+  Type.Unsafe<CollectiveOperation>({
+    ...Struct.omit(JSONSchema.make(CollectiveOperation), "$schema"),
+    description:
+      'The MoltZap collective operation. Omit it for an ordinary message to the target. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} sends message as a question to each member of the target, each privately, and later delivers one result turn listing every member\'s answer, decline, cancel or no-answer; deadline is a whole number of seconds from now, 1 to 2592000 (30 days). requestedSchema is an MCP form: {"type":"object","properties":{...},"required":[...]} of flat string, number, integer, boolean or enum-array properties. The tool result carries the gather\'s operationId.',
+  }),
+);
+
+/**
+ * The `collectiveResponse` parameter: one answer to a collective request
+ * turn. Its JSON Schema comes from the Client's `CollectiveResponse`; the
+ * description says what OpenClaw needs beyond it.
+ */
+const collectiveResponseParameter = Type.Optional(
+  Type.Unsafe<CollectiveResponse>({
+    ...Struct.omit(JSONSchema.make(CollectiveResponse), "$schema"),
+    description:
+      'Answer a MoltZap collective request turn, once. {"id":<request id>,"action":"accept","content":{...}} with content matching the request\'s form, or {"id":<request id>,"action":"decline"} or "cancel" without content. The answer goes to the requester whatever target says, and message is not sent; OpenClaw still requires a short non-empty message, so write one such as "declining". An answer that does not match the form fails with the fields named; answer again.',
+  }),
 );
 
 /**
@@ -212,14 +245,14 @@ export function makeMoltZapChannelConfigJsonSchema() {
  *   participant Client as HarnessEndpoint
  *   Host->>Plugin: start account with its runtime
  *   Plugin->>Client: acquire endpoint
- *   Client-->>Plugin: multicast item
- *   Plugin->>Host: submit routed turn
+ *   Client-->>Plugin: multicast, collective request, result or failure item
+ *   Plugin->>Host: submit routed turn in the item's fixed form
  *   Host->>Host: record session and run agent
  *   Host-->>Plugin: final reply withheld
  *   Plugin->>Client: acknowledge delivery
- *   Host->>Plugin: message tool send with explicit address and collective
- *   Plugin->>Client: send the operation
- *   Plugin-->>Host: tool result ok
+ *   Host->>Plugin: message tool send with address, collective or collectiveResponse
+ *   Plugin->>Client: send the operation or response
+ *   Plugin-->>Host: tool result with the operation id, or the Client error
  * ```
  * @param deps Optional process-local dependency overrides used by tests.
  * @returns The MoltZap channel plugin.
@@ -314,7 +347,10 @@ function createMessageActions(
     describeMessageTool: () => ({
       actions: ["send"],
       schema: {
-        properties: { collective: collectiveParameter },
+        properties: {
+          collective: collectiveParameter,
+          collectiveResponse: collectiveResponseParameter,
+        },
         actions: ["send"],
       },
     }),
@@ -341,7 +377,16 @@ function handleMessageAction(
     to: ctx.params.to,
     text: ctx.params.message,
     collective: ctx.params.collective,
-  }).pipe(Effect.map((input) => jsonResult({ ok: true, to: input.to })));
+    collectiveResponse: ctx.params.collectiveResponse,
+  }).pipe(
+    Effect.map(({ input, result }) =>
+      jsonResult({
+        ok: true,
+        ...("to" in input ? { to: input.to } : {}),
+        ...result,
+      }),
+    ),
+  );
 }
 
 function createMessageSection(connectedAccount: ConnectedAccountState) {
@@ -580,48 +625,145 @@ function handleInboundDelivery(
   runtime: OpenClawAccountRuntime,
   delivery: InboundDelivery,
 ) {
-  return runInboundItemTurn(ctx, runtime, delivery.item).pipe(
+  const turn = inboundItemTurn(delivery.item);
+  return logInbound(ctx, turn).pipe(
+    Effect.zipRight(runOpenClawTurn(ctx, runtime, turn)),
     Effect.zipRight(delivery.acknowledge),
   );
 }
 
+/** The sender OpenClaw records for a turn the endpoint itself emitted. */
+const COLLECTIVE_SENDER_NAME = "MoltZap collective";
+
 /**
- * Render one inbound item as the model turn its kind defines. Each kind has
- * one fixed form.
- * @param ctx The account task supplied by OpenClaw.
- * @param runtime OpenClaw routing and inbound services for this account task.
+ * Render one inbound item as the turn its kind defines. Each kind has one
+ * fixed form, the same for every agent. A result or a failure is attributed
+ * to the collective, not to any member, and belongs to the conversation its
+ * operation addressed.
  * @param item The item the endpoint delivered.
- * @returns Completion after OpenClaw ran the turn.
+ * @returns The turn OpenClaw runs.
  */
-function runInboundItemTurn(
-  ctx: ChannelGatewayContext<MoltZapAccount>,
-  runtime: OpenClawAccountRuntime,
-  item: InboundItem,
-): Effect.Effect<void, OpenClawInboundError> {
-  if (item.kind === "multicast") {
-    return runMulticastTurn(ctx, runtime, item.message);
+function inboundItemTurn(item: InboundItem): HostTurn {
+  switch (item.kind) {
+    case "multicast":
+      return multicastTurn(item.message);
+    case "collectiveRequest":
+      return {
+        id: item.postId,
+        kind: "direct",
+        address: item.from,
+        sender: agentSender(item.from),
+        body: renderCollectiveRequest(item),
+      };
+    case "collectiveResult":
+      return collectiveTurn(
+        `${item.id}:result`,
+        item.to,
+        renderCollectiveResult(item),
+      );
+    case "operationFailed":
+      return collectiveTurn(
+        `${item.id}:failed`,
+        item.to,
+        `MoltZap operation failed: ${item.error}`,
+      );
+    default:
+      return absurd(item);
   }
-  return absurd(item.kind);
 }
 
-function runMulticastTurn(
-  ctx: ChannelGatewayContext<MoltZapAccount>,
-  runtime: OpenClawAccountRuntime,
-  message: InboundMessage,
-): Effect.Effect<void, OpenClawInboundError> {
-  return logInbound(ctx, message).pipe(
-    Effect.zipRight(runOpenClawTurn(ctx, runtime, message)),
-  );
+function multicastTurn(message: InboundMessage): HostTurn {
+  const base = {
+    id: message.postId,
+    address: message.address,
+    sender: agentSender(message.sender),
+    body: renderContent(message.content),
+  };
+  return message.kind === "group"
+    ? { ...base, kind: "group", members: message.members }
+    : { ...base, kind: "direct" };
+}
+
+function collectiveTurn(
+  id: string,
+  address: MessageAddressInputValue,
+  body: string,
+): HostTurn {
+  const kind = address.startsWith("group:") ? "group" : "direct";
+  return {
+    id,
+    kind,
+    address,
+    sender: { id: `collective:${id}`, name: COLLECTIVE_SENDER_NAME },
+    ...(kind === "group"
+      ? {
+          members: address
+            .slice("group:".length)
+            .split(",")
+            .map((name) => `agent:${name}`),
+        }
+      : {}),
+    body,
+  };
+}
+
+function agentSender(address: string): TurnSender {
+  return { id: address, name: address.slice("agent:".length) };
+}
+
+type CollectiveRequestItem = Extract<
+  InboundItem,
+  { readonly kind: "collectiveRequest" }
+>;
+type CollectiveResultItem = Extract<
+  InboundItem,
+  { readonly kind: "collectiveResult" }
+>;
+type MemberOutcome = CollectiveResultItem["outcomes"][number]["outcome"];
+
+function renderCollectiveRequest(item: CollectiveRequestItem): string {
+  const deadline = new Date(item.deadlineAt).toISOString();
+  return [
+    `MoltZap collective request ${item.id} from ${item.from}, open until ${deadline}.`,
+    `Question: ${item.question}`,
+    `Answer form (requestedSchema): ${JSON.stringify(item.requestedSchema)}`,
+    `Answer once with the message tool's send action and collectiveResponse {"id":"${item.id}","action":"accept","content":{...}} matching the form, or {"id":"${item.id}","action":"decline"}.`,
+  ].join("\n");
+}
+
+function renderCollectiveResult(item: CollectiveResultItem): string {
+  return [
+    `MoltZap collective result ${item.id} for the question sent to ${item.to}: ${item.question}`,
+    ...item.outcomes.map(
+      ({ member, outcome }) => `- ${member}: ${renderOutcome(outcome)}`,
+    ),
+  ].join("\n");
+}
+
+function renderOutcome(outcome: MemberOutcome): string {
+  switch (outcome.kind) {
+    case "answered":
+      return `answered ${JSON.stringify(outcome.content)}`;
+    case "declined":
+      return "declined";
+    case "cancelled":
+      return "cancelled";
+    case "invalid":
+      return `answered outside the form (${outcome.reason})`;
+    case "no-answer":
+      return "no answer by the deadline";
+    default:
+      return absurd(outcome);
+  }
 }
 
 function logInbound(
   ctx: ChannelGatewayContext<MoltZapAccount>,
-  message: InboundMessage,
+  turn: HostTurn,
 ): Effect.Effect<void> {
   return Effect.sync(() => {
-    const body = renderContent(message.content);
     ctx.log?.info?.(
-      `MoltZap: inbound from ${message.sender}: ${body.slice(0, INBOUND_LOG_PREVIEW_CHARS)}`,
+      `MoltZap: inbound from ${turn.sender.id}: ${turn.body.slice(0, INBOUND_LOG_PREVIEW_CHARS)}`,
     );
     ctx.setStatus({
       ...ctx.getStatus(),
@@ -635,42 +777,38 @@ function logInbound(
 function runOpenClawTurn(
   ctx: ChannelGatewayContext<MoltZapAccount>,
   runtime: OpenClawAccountRuntime,
-  message: InboundMessage,
+  turn: HostTurn,
 ): Effect.Effect<void, OpenClawInboundError> {
-  const body = renderContent(message.content);
   return Effect.tryPromise({
     try: () =>
       runtime.inbound.run({
         channel: CHANNEL_ID,
         accountId: ctx.accountId,
-        raw: { message },
+        raw: { turn },
         adapter: {
           ingest: () => ({
-            id: message.postId,
-            rawText: body,
-            textForAgent: body,
-            textForCommands: body,
-            raw: message,
+            id: turn.id,
+            rawText: turn.body,
+            textForAgent: turn.body,
+            textForCommands: turn.body,
+            raw: turn,
           }),
-          resolveTurn: () =>
-            buildRoutedTurnPlan({ ctx, runtime, message, body }),
+          resolveTurn: () => buildRoutedTurnPlan({ ctx, runtime, turn }),
         },
       }),
     catch: (cause) =>
       new OpenClawInboundError({
         reason: "turn-failed",
         accountId: ctx.accountId,
-        postId: message.postId,
+        turnId: turn.id,
         detail: String(cause),
       }),
   });
 }
 
-function buildRoutedTurnPlan(
-  input: InboundMessageTurnInput,
-): ChannelInboundTurnPlan {
-  const { ctx, message, runtime } = input;
-  const peer = inboundRoutePeer(message);
+function buildRoutedTurnPlan(input: InboundTurnInput): ChannelInboundTurnPlan {
+  const { ctx, turn, runtime } = input;
+  const peer = inboundRoutePeer(turn);
   const route = runtime.routing.resolveAgentRoute({
     cfg: ctx.cfg,
     channel: CHANNEL_ID,
@@ -697,29 +835,29 @@ function buildRoutedTurnPlan(
       updateLastRoute: {
         sessionKey,
         channel: CHANNEL_ID,
-        to: message.address,
+        to: turn.address,
         accountId: ctx.accountId,
       },
     },
-    messageId: message.postId,
+    messageId: turn.id,
   };
 }
 
 function buildInboundContext(
-  input: InboundMessageTurnInput,
+  input: InboundTurnInput,
   route: ReturnType<OpenClawAccountRuntime["routing"]["resolveAgentRoute"]>,
   sessionKey: string,
 ) {
-  const { body, ctx, message, runtime } = input;
+  const { ctx, turn, runtime } = input;
   return runtime.inbound.buildContext({
     channel: CHANNEL_ID,
     accountId: ctx.accountId,
     provider: CHANNEL_ID,
     surface: CHANNEL_ID,
-    messageId: message.postId,
-    from: message.sender,
-    sender: inboundSenderFacts(message),
-    conversation: inboundConversationFacts(message),
+    messageId: turn.id,
+    from: turn.sender.id,
+    sender: inboundSenderFacts(turn),
+    conversation: inboundConversationFacts(turn),
     route: {
       agentId: route.agentId,
       accountId: ctx.accountId,
@@ -728,62 +866,58 @@ function buildInboundContext(
       persistedSessionKey: sessionKey,
       mainSessionKey: route.mainSessionKey,
     },
-    reply: inboundReplyFacts(message),
+    reply: inboundReplyFacts(turn),
     message: {
-      body,
-      rawBody: body,
-      bodyForAgent: body,
-      commandBody: body,
+      body: turn.body,
+      rawBody: turn.body,
+      bodyForAgent: turn.body,
+      commandBody: turn.body,
     },
-    extra: inboundGroupFacts(message),
+    extra: inboundGroupFacts(turn),
   });
 }
 
 /**
- * Every MoltZap sender is another principal's agent, so the sender is marked
- * as a bot. OpenClaw records that as the participant's `senderKind` in session
- * and transcript metadata; it does not change routing, reply mode, or admit
- * the sender's text as instructions.
+ * Every MoltZap sender is another principal's agent or the collective layer,
+ * so the sender is marked as a bot. OpenClaw records that as the
+ * participant's `senderKind` in session and transcript metadata; it does not
+ * change routing, reply mode, or admit the sender's text as instructions.
  */
-function inboundSenderFacts(message: InboundMessage) {
-  return {
-    id: message.sender,
-    name: message.sender.slice("agent:".length),
-    isBot: true,
-  };
+function inboundSenderFacts(turn: HostTurn) {
+  return { ...turn.sender, isBot: true };
 }
 
-function inboundConversationFacts(message: InboundMessage) {
-  const routePeer = inboundRoutePeer(message);
+function inboundConversationFacts(turn: HostTurn) {
+  const routePeer = inboundRoutePeer(turn);
   return {
-    kind: message.kind,
-    id: message.address,
-    label: message.address,
+    kind: turn.kind,
+    id: turn.address,
+    label: turn.address,
     routePeer,
   };
 }
 
-function inboundRoutePeer(message: InboundMessage) {
-  const prefix = message.kind === "group" ? "group:" : "agent:";
+function inboundRoutePeer(turn: HostTurn) {
+  const prefix = turn.kind === "group" ? "group:" : "agent:";
   return {
-    kind: message.kind,
-    id: message.address.slice(prefix.length),
+    kind: turn.kind,
+    id: turn.address.slice(prefix.length),
   };
 }
 
-function inboundReplyFacts(message: InboundMessage) {
+function inboundReplyFacts(turn: HostTurn) {
   return {
-    to: message.address,
-    originatingTo: message.address,
-    replyTarget: message.address,
-    deliveryTarget: message.address,
+    to: turn.address,
+    originatingTo: turn.address,
+    replyTarget: turn.address,
+    deliveryTarget: turn.address,
   };
 }
 
-function inboundGroupFacts(message: InboundMessage) {
-  return message.kind === "group"
-    ? { GroupMembers: message.members.join(",") }
-    : undefined;
+function inboundGroupFacts(turn: HostTurn) {
+  return turn.members === undefined
+    ? undefined
+    : { GroupMembers: turn.members.join(",") };
 }
 
 /**
@@ -845,10 +979,12 @@ function sendOpenClawText(
 }
 
 /**
- * Perform one host send as one Client operation.
+ * Perform one host send as one Client operation or collective response. A
+ * refused send fails with the Client's error, whose message OpenClaw returns
+ * to the model as the tool error.
  * @param connectedAccount The account whose endpoint performs the operation.
- * @param params The host's account, address, text and collective operation.
- * @returns The validated operation, once the endpoint certified it.
+ * @param params The host's account, address, text, operation and response.
+ * @returns The validated input and the endpoint's result.
  */
 function sendOperation(
   connectedAccount: ConnectedAccountState,
@@ -865,7 +1001,9 @@ function sendOperation(
     );
   }
   return decodeSendInput(params, accountId).pipe(
-    Effect.tap((input) => endpoint.send(input)),
+    Effect.flatMap((input) =>
+      endpoint.send(input).pipe(Effect.map((result) => ({ input, result }))),
+    ),
   );
 }
 
@@ -879,22 +1017,43 @@ function accountLabel(accountId?: string | null): string {
   return accountId?.trim() ?? "(unspecified)";
 }
 
+/**
+ * Decode one host send. A `collectiveResponse` is sent without the target or
+ * text: its endpoint addresses the requester, and OpenClaw requires text on
+ * every send even though a response carries none.
+ */
 function decodeSendInput(
   params: OperationSend,
   accountId: string,
 ): Effect.Effect<SendInput, OpenClawOutboundError> {
+  if (params.collectiveResponse !== undefined) {
+    return decodeOrFail(
+      { collectiveResponse: params.collectiveResponse },
+      accountId,
+    );
+  }
   if (!isMessageAddressInput(params.to)) {
     return Effect.fail(
       new OpenClawOutboundError({ reason: "invalid-address", accountId }),
     );
   }
-  const decoded = Schema.decodeUnknownOption(SendInput)({
-    to: params.to,
-    text: params.text,
-    ...(params.collective === undefined
-      ? {}
-      : { collective: params.collective }),
-  });
+  return decodeOrFail(
+    {
+      to: params.to,
+      text: params.text,
+      ...(params.collective === undefined
+        ? {}
+        : { collective: params.collective }),
+    },
+    accountId,
+  );
+}
+
+function decodeOrFail(
+  value: Readonly<Record<string, unknown>>,
+  accountId: string,
+): Effect.Effect<SendInput, OpenClawOutboundError> {
+  const decoded = Schema.decodeUnknownOption(SendInput)(value);
   return Option.isSome(decoded)
     ? Effect.succeed(decoded.value)
     : Effect.fail(

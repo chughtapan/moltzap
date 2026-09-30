@@ -19,10 +19,9 @@ import {
   InboundMessage,
   ListenError,
   SendError,
-  type SendInput,
 } from "../contract.js";
 import { resumeDisseminationObligations } from "./engine-dissemination.js";
-import { exportSend, prepareSend, proposeIntent } from "./engine-send.js";
+import { prepareSend, proposeIntent } from "./engine-send.js";
 import {
   type EndpointEngine,
   type EndpointEngineInput,
@@ -30,6 +29,8 @@ import {
   EngineOutboundError,
   type EnginePendingMessage,
   type EngineRuntime,
+  type EngineSendInput,
+  type EngineSentPost,
 } from "./engine-types.js";
 import { resumeEngineFolds } from "./protocol/index.js";
 import { installRecoveryBarrier } from "./recovery/barrier.js";
@@ -61,6 +62,8 @@ export type {
   EndpointEngine,
   EndpointEngineInput,
   EnginePendingMessage,
+  EngineSendInput,
+  EngineSentPost,
 } from "./engine-types.js";
 
 const initializationReasonByStoreReason = {
@@ -262,25 +265,14 @@ const drainOutbound = (
 
 const send = (
   runtime: EngineRuntime,
-  input: SendInput,
-): Effect.Effect<RecordHash, SendError> =>
+  input: EngineSendInput,
+): Effect.Effect<EngineSentPost, SendError> =>
   Effect.gen(function* () {
     const prepared = yield* prepareSend(runtime, input);
     yield* drainOutbound(runtime).pipe(Effect.mapError(outboundSendFailure));
     const recordHash = yield* Deferred.await(prepared.completion);
-    yield* Effect.uninterruptible(
-      exportSend(runtime, input, {
-        kind: "certified",
-        postId: prepared.postId,
-      }),
-    );
-    return recordHash;
-  }).pipe(
-    Effect.tapError((error) =>
-      exportSend(runtime, input, { kind: "failed", reason: error.reason }),
-    ),
-    Effect.withSpan("EndpointEngine.send"),
-  );
+    return { postId: prepared.postId, recordHash };
+  }).pipe(Effect.withSpan("EndpointEngine.send"));
 
 const runOutbound = (
   runtime: EngineRuntime,

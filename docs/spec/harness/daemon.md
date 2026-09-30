@@ -22,8 +22,10 @@ configuration stays:
 - `MOLTZAPD_ADMISSION_CREDENTIAL_FILE`.
 
 One optional input, `MOLTZAPD_HISTORY_EXPORT`, names a file the daemon appends
-one `HistoryExportRecord` JSON line to for every inbound item and every
-completed `send` invocation, with its operation and outcome. The export is a second copy of
+one `HistoryExportRecord` JSON line to for every inbound item the daemon
+publishes, once, before the subscriber sees it, and for every completed `send`
+invocation, with its input and outcome: the posts certified by its return and
+a gather's operation id, or the error it returned. The export is a second copy of
 endpoint-local history that the daemon already owns; it grants no delivery,
 reply, or management authority. If an append fails, the daemon writes one
 `export-failed` line, stops exporting for the rest of the process, and keeps
@@ -60,7 +62,8 @@ After registration, tools are:
 
 - `status` and `search_agents`;
 - `search_conversations` and `read_conversation` using canonical addresses;
-- adapter-only `send_message`, which performs one operation; and
+- adapter-only `send_message`, which performs one operation or one collective
+  response; and
 - adapter-only `acknowledge_delivery`.
 
 Receive uses the sole `xyz.moltzap/events-v3` message-ready subscription.
@@ -71,7 +74,12 @@ authorize a send or create a delivery.
 ## Delivery ownership
 
 Certification or catch-up atomically creates missing remote-authored pending
-rows. One active subscriber receives stable tokens. Adapters acknowledge only
+rows. One active subscriber receives stable tokens. The daemon classifies
+pending rows with or without a subscriber, consuming collective answers as
+they arrive ([ingress](./ingress.md#mcp-extension)). Gather state, and the
+result and failure items it emits, live in daemon memory: an operation open at
+a restart is lost, and a request whose delivery its member already
+acknowledged can no longer be answered. Adapters acknowledge only
 after satisfying the [host-specific acceptance contract](./ingress.md#durable-acceptance).
 Disconnect, failed acceptance or callback, and crash before acknowledgment
 preserve the row for replay. The daemon's stable delivery identity supports

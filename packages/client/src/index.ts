@@ -3,7 +3,9 @@
 // safer-arch-ignore no-folder-cycle: The root owns the public and loopback contracts consumed by endpoint internals while its server subpath composes daemon and endpoint capabilities into the one Client process boundary.
 export {
   AgentAddress,
+  CollectiveError,
   CollectiveOperation,
+  CollectiveResponse,
   ConnectError,
   Content,
   ContentPart,
@@ -22,6 +24,7 @@ export {
   PostId,
   SendError,
   SendInput,
+  type SendResult,
 } from "./contract.js";
 /** Acquire the structural endpoint for one loopback daemon endpoint. */
 // safer-arch-ignore no-public-vendor-type-leak: URL is the platform-standard endpoint locator required by the public acquisition contract.

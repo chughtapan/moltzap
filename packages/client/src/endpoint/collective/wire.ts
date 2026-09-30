@@ -14,12 +14,13 @@ import {
 } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { Data, Effect, Option, ParseResult, Schema } from "effect";
+import { createHash } from "node:crypto";
 import {
-  canonicalIdentifier,
-  Content,
-  exactStruct,
-  RecordHash,
-} from "../representation.js";
+  type AgentAddress,
+  AnswerContent,
+  CollectiveId,
+} from "../../contract.js";
+import { Content, exactStruct, RecordHash } from "../representation.js";
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the values they decode. */
 
@@ -27,9 +28,6 @@ type PostContent = typeof Content.Type;
 
 /** The `data` part key under which the collective layer carries its value. */
 export const COLLECTIVE_DATA_KEY = "xyz.moltzap/collective";
-
-/** Identity of one gather or all_gather, shared by its request, answers and close. */
-export const CollectiveId = canonicalIdentifier("CollectiveId", "col_");
 
 const mcpPrimitiveSchemaDefinition =
   specTypeSchemas.PrimitiveSchemaDefinition["~standard"];
@@ -80,7 +78,7 @@ const PrimitiveSchemaDefinition = Schema.transformOrFail(
  * Every `required` name must be a declared property, since an answer can carry
  * no other field.
  */
-export const RequestedSchema = exactStruct({
+export const FormModeSchema = exactStruct({
   $schema: Schema.optional(Schema.String),
   type: Schema.Literal("object"),
   properties: Schema.Record({
@@ -101,20 +99,33 @@ export const RequestedSchema = exactStruct({
   ),
 );
 /** A validated form-mode schema for one collective question. */
-export type RequestedSchema = typeof RequestedSchema.Type;
+export type FormModeSchema = typeof FormModeSchema.Type;
 
-/** A member's answer body; each field's value space is MCP `ElicitResult`'s. */
-const AnswerContent = Schema.Record({
-  key: Schema.String,
-  value: Schema.Union(
-    Schema.String,
-    Schema.JsonNumber,
-    Schema.Boolean,
-    Schema.Array(Schema.String),
-  ),
-});
-/** A structurally valid answer, validated against its request's schema separately. */
-export type AnswerContent = typeof AnswerContent.Type;
+/** 32 random bytes in base64url, which a requester binds its collective id to. */
+const CollectiveNonce = Schema.String.pipe(
+  Schema.pattern(/^[A-Za-z0-9_-]{43}$/),
+);
+
+const decodeCollectiveId = Schema.decodeUnknownSync(CollectiveId);
+
+/**
+ * The collective id a requester's nonce names: `col_` and the base64url
+ * SHA-256 of a domain tag, the requester's address and the nonce. A member
+ * accepts a request only when its id derives from the request's certified
+ * sender, so no agent can reuse an id another requester minted.
+ * @param requester The agent that minted the id.
+ * @param nonce The request's nonce.
+ * @returns The id the pair names.
+ */
+export const collectiveIdOf = (
+  requester: AgentAddress,
+  nonce: string,
+): CollectiveId =>
+  decodeCollectiveId(
+    `col_${createHash("sha256")
+      .update(`xyz.moltzap/collective-id\0${requester}\0${nonce}`)
+      .digest("base64url")}`,
+  );
 
 /** A plain post: multicast carries neither a deadline nor a schema. */
 const MulticastOperation = exactStruct({
@@ -123,16 +134,18 @@ const MulticastOperation = exactStruct({
 });
 
 /**
- * A question to every member. `deadlineAt` is absolute epoch milliseconds:
- * the sending endpoint converts the model's relative duration at send, and
+ * A question to every member. `id` derives from the requester and `nonce`
+ * through `collectiveIdOf`. `deadlineAt` is absolute epoch milliseconds: the
+ * sending endpoint converts the model's relative duration at send, and
  * endpoints assume zero clock skew.
  */
 const CollectingOperation = exactStruct({
   kind: Schema.Literal("operation"),
   op: Schema.Literal("gather", "all_gather"),
   id: CollectiveId,
+  nonce: CollectiveNonce,
   deadlineAt: Schema.Int.pipe(Schema.positive()),
-  requestedSchema: RequestedSchema,
+  requestedSchema: FormModeSchema,
 });
 
 /** A member's reply to one request; only `accept` carries content. */

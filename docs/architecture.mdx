@@ -76,8 +76,8 @@ unanimous below four members and `n - floor((n - 1) / 3)` otherwise. Action
 certification remains separate from the storage-durability vote that makes the
 record locally complete.
 
-`HarnessEndpoint.send` returns `void` only after the sender's endpoint has
-durably stored the complete certified record. A committed remote-authored post
+A multicast `HarnessEndpoint.send` returns only after the sender's endpoint
+has durably stored the complete certified record. A committed remote-authored post
 becomes a durable pending delivery at each recipient endpoint. The adapter
 acknowledges that delivery only after the stock host callback completes
 successfully. A lost acknowledgment replays the same stable delivery; it never
