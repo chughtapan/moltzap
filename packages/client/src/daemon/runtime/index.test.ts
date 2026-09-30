@@ -47,7 +47,7 @@ import {
   EngineOutboundError,
   type EnginePendingMessage,
 } from "../../endpoint/engine.js";
-import { encodeCanonical } from "../../endpoint/representation.js";
+import { encodeCanonical, RecordHash } from "../../endpoint/representation.js";
 import {
   type RouterWorker,
   type RouterWorkerInput,
@@ -216,6 +216,18 @@ const issueCard = (input: {
     });
   }).pipe(Effect.orDie);
 
+const makePendingMessage = Effect.all({
+  deliveryToken: Schema.decodeUnknown(DeliveryToken)(digest("dlv_", 4)),
+  recordHash: Schema.decodeUnknown(RecordHash)(digest("rch_", 6)),
+  message: Schema.decodeUnknown(InboundMessage)({
+    kind: "direct",
+    postId: digest("pst_", 5),
+    address: "agent:bob",
+    sender: "agent:bob",
+    content: [{ type: "text", text: "certified" }],
+  }),
+});
+
 const makeFixture = Effect.gen(function* () {
   const registryKeys = generateKeyPairSync("ed25519");
   const registrySignerPublicKey = yield* Schema.decodeUnknown(Ed25519PublicKey)(
@@ -248,22 +260,12 @@ const makeFixture = Effect.gen(function* () {
     principalId: localCard.principalId,
     agentName: localCard.agentName,
   });
-  const deliveryToken = yield* Schema.decodeUnknown(DeliveryToken)(
-    digest("dlv_", 4),
-  );
-  const message = yield* Schema.decodeUnknown(InboundMessage)({
-    kind: "direct",
-    postId: digest("pst_", 5),
-    address: "agent:bob",
-    sender: "agent:bob",
-    content: [{ type: "text", text: "certified" }],
-  });
   return {
     bootstrap,
     localCard,
     canonicalLocalCard: yield* encodeCanonical(AgentCard, localCard),
     registerRequest,
-    pending: { deliveryToken, message },
+    pending: yield* makePendingMessage,
   } satisfies Fixture;
 }).pipe(Effect.orDie);
 
@@ -458,7 +460,7 @@ function makeEngine(
     ),
   );
   return {
-    send: () => Effect.void,
+    send: () => Effect.succeed(delivery.pending.recordHash),
     readPendingMessages: () =>
       Effect.gen(function* () {
         delivery.reads += 1;
@@ -780,7 +782,8 @@ const receivesFirstDelivery = async (
     jsonrpc: "2.0",
     method: HARNESS_MESSAGE_READY_NOTIFICATION,
     params: {
-      ...pending,
+      deliveryToken: pending.deliveryToken,
+      message: pending.message,
       _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-1" },
     },
   });
@@ -816,7 +819,8 @@ const acknowledgeDuringReplacementDelivery = async (
     jsonrpc: "2.0",
     method: HARNESS_MESSAGE_READY_NOTIFICATION,
     params: {
-      ...pending,
+      deliveryToken: pending.deliveryToken,
+      message: pending.message,
       _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-2" },
     },
   });

@@ -196,7 +196,7 @@ function storedIntentMatches(
   if (
     pending === undefined ||
     stored.completedRecordHash !== undefined ||
-    runtime.completedPostIds.has(stored.postId)
+    runtime.completedPosts.has(stored.postId)
   ) {
     return false;
   }

@@ -21,8 +21,9 @@ const exactOptions = {
   onExcessProperty: "error" as const,
 };
 
-const exactStruct = <Fields extends Schema.Struct.Fields>(fields: Fields) =>
-  Schema.Struct(fields).annotations({ parseOptions: exactOptions });
+export const exactStruct = <Fields extends Schema.Struct.Fields>(
+  fields: Fields,
+) => Schema.Struct(fields).annotations({ parseOptions: exactOptions });
 
 const versionAndKind = <const Kind extends string>(kind: Kind) => ({
   moltzapVersion: Schema.Literal(MOLTZAP_VERSION),
@@ -36,7 +37,7 @@ const decodeCanonicalBase64Url = (value: string): Uint8Array | undefined =>
       Encoding.encodeBase64Url(bytes) === value ? bytes : undefined,
   });
 
-const canonicalIdentifier = <const Name extends string>(
+export const canonicalIdentifier = <const Name extends string>(
   name: Name,
   prefix: string,
 ) =>

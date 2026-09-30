@@ -22,6 +22,7 @@ import {
   initializeProtocol,
   type ProtocolEnvironment,
   type ProtocolState,
+  publishEveryPending,
   publishPendingMessages,
   type RuntimeSubscriptionHandler,
 } from "./protocol.js";
@@ -88,7 +89,7 @@ const makeSendOperation =
       if (protocol === undefined) {
         return Effect.fail(new SendError({ reason: "not-registered" }));
       }
-      return protocol.engine.send(request);
+      return protocol.engine.send(request).pipe(Effect.asVoid);
     });
 
 const forgetPublishedDelivery = (
@@ -223,6 +224,7 @@ export const makeDaemonController = (
       daemonScope,
       fatal,
       state,
+      classifyPending: publishEveryPending,
     };
     const reconciler = publishPendingMessages(environment, deliveryGate);
     const initialize = (agentCard: VerifiedAgentCard) =>

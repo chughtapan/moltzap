@@ -67,7 +67,7 @@ interface RecoveredEngineState {
   readonly conversations: Map<ConversationIdValue, EngineConversation>;
   readonly actionFolds: Map<ActionHash, EngineActionFold>;
   readonly recordFolds: Map<RecordHashValue, EngineActionFold>;
-  readonly completedPostIds: Set<string>;
+  readonly completedPosts: Map<string, RecordHashValue>;
   readonly postIntents: ReadonlyArray<EndpointRecovery["postIntents"][number]>;
   readonly outboundMessages: readonly StoredOutboundMessage[];
 }
@@ -113,11 +113,12 @@ export const recoverEngineState = (
       actionFolds,
       recordFolds,
     });
+    const completedPosts = yield* recoverCompletedPosts(recovery);
     return {
       conversations,
       actionFolds,
       recordFolds,
-      completedPostIds: completedPostIds(recovery),
+      completedPosts,
       postIntents: recovery.postIntents,
       outboundMessages,
     };
@@ -943,12 +944,24 @@ function makeFold(
   };
 }
 
-function completedPostIds(recovery: EndpointRecovery): Set<string> {
-  return new Set<string>(
-    recovery.postIntents
-      .filter((intent) => intent.completedRecordHash !== undefined)
-      .map((intent) => intent.postId),
-  );
+function recoverCompletedPosts(
+  recovery: EndpointRecovery,
+): Effect.Effect<Map<string, RecordHashValue>, ParseResult.ParseError> {
+  return Effect.forEach(
+    recovery.postIntents.flatMap((intent) =>
+      intent.completedRecordHash === undefined
+        ? []
+        : [{ postId: intent.postId, recordHash: intent.completedRecordHash }],
+    ),
+    (completed) =>
+      Schema.decodeUnknown(RecordHash)(completed.recordHash).pipe(
+        Effect.map((recordHash): [string, RecordHashValue] => [
+          completed.postId,
+          recordHash,
+        ]),
+      ),
+    { concurrency: 1 },
+  ).pipe(Effect.map((entries) => new Map(entries)));
 }
 
 function decodeStoredGenesis(

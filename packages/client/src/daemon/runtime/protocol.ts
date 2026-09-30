@@ -4,10 +4,12 @@ import type { VerifiedAgentCard } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Cause, type Context, Deferred, Effect, Scope } from "effect";
+import type { DeliveryAcknowledgeError } from "../../contract.js";
 import type { HistoryExportPort } from "../../endpoint/engine-types.js";
 import type {
   EndpointEngine,
   EngineInitializationError,
+  EnginePendingMessage,
 } from "../../endpoint/engine.js";
 import type { EndpointStore } from "../../endpoint/store.js";
 import type { HarnessMessageReadyEvent } from "../../harness-mcp-contract.js";
@@ -47,6 +49,22 @@ export interface ProtocolState {
   readonly publishedDeliveries: Set<string>;
 }
 
+/**
+ * What happens to one pending delivery: the subscriber receives it, or a layer
+ * inside the daemon takes it. The daemon acknowledges a consumed delivery and
+ * never publishes it.
+ */
+type PendingDisposition = "publish" | "consume";
+
+/** Decides each unpublished pending delivery's disposition before publication. */
+export type PendingClassifier = (
+  pending: EnginePendingMessage,
+) => Effect.Effect<PendingDisposition>;
+
+/** The classifier in place when no daemon layer consumes deliveries. */
+export const publishEveryPending: PendingClassifier = () =>
+  Effect.succeed("publish");
+
 /** Dependencies and owned resources available to one protocol lifecycle. */
 export interface ProtocolEnvironment {
   readonly store: EndpointStore;
@@ -58,6 +76,15 @@ export interface ProtocolEnvironment {
   readonly daemonScope: Scope.Scope;
   readonly fatal: Deferred.Deferred<never, DaemonRuntimeError>;
   readonly state: ProtocolState;
+  readonly classifyPending: PendingClassifier;
+}
+
+/** What one pass over pending deliveries reads and changes. */
+export interface PendingOffer {
+  readonly engine: Pick<EndpointEngine, "acknowledgeMessage">;
+  readonly handler: Pick<RuntimeSubscriptionHandler, "publish">;
+  readonly publishedDeliveries: Set<string>;
+  readonly classifyPending: PendingClassifier;
 }
 
 interface AcquireProtocolWorkerInput {
@@ -87,6 +114,47 @@ const mapWorkerInitializationError = (
   );
 
 /**
+ * Offer pending deliveries in order: acknowledge each one the classifier
+ * consumes and publish the rest, stopping at the first the subscriber refuses.
+ * The published event carries only the delivery token and message.
+ * @param offer The engine, subscriber, published set, and classifier.
+ * @param messages Pending deliveries in durable order.
+ * @returns Completion after every offered delivery is consumed or published.
+ */
+export const offerPendingMessages = (
+  offer: PendingOffer,
+  messages: readonly EnginePendingMessage[],
+): Effect.Effect<void, DeliveryAcknowledgeError> =>
+  Effect.gen(function* () {
+    for (const pending of messages) {
+      if (offer.publishedDeliveries.has(pending.deliveryToken)) {
+        continue;
+      }
+      const disposition = yield* offer.classifyPending(pending);
+      switch (disposition) {
+        case "consume":
+          yield* offer.engine.acknowledgeMessage(pending.deliveryToken);
+          break;
+        case "publish": {
+          const event: HarnessMessageReadyEvent = {
+            deliveryToken: pending.deliveryToken,
+            message: pending.message,
+          };
+          if (!offer.handler.publish(event)) {
+            return;
+          }
+          offer.publishedDeliveries.add(pending.deliveryToken);
+          break;
+        }
+        default: {
+          const exhaustive: never = disposition;
+          return exhaustive;
+        }
+      }
+    }
+  }).pipe(Effect.withSpan("offerPendingMessages"));
+
+/**
  * Publish newly durable messages while one active native subscriber exists.
  * @param environment Protocol resources and controller-owned delivery state.
  * @param deliveryGate Serializes pending reads with subscription changes.
@@ -103,26 +171,20 @@ export const publishPendingMessages = (
         return Effect.void;
       }
       return protocol.engine.readPendingMessages().pipe(
-        Effect.flatMap((messages) =>
-          Effect.sync(() => {
-            const handler = environment.state.handler;
-            if (handler === undefined) {
-              return;
-            }
-            for (const pending of messages) {
-              if (
-                environment.state.publishedDeliveries.has(pending.deliveryToken)
-              ) {
-                continue;
-              }
-              const event: HarnessMessageReadyEvent = pending;
-              if (!handler.publish(event)) {
-                return;
-              }
-              environment.state.publishedDeliveries.add(pending.deliveryToken);
-            }
-          }),
-        ),
+        Effect.flatMap((messages) => {
+          const handler = environment.state.handler;
+          return handler === undefined
+            ? Effect.void
+            : offerPendingMessages(
+                {
+                  engine: protocol.engine,
+                  handler,
+                  publishedDeliveries: environment.state.publishedDeliveries,
+                  classifyPending: environment.classifyPending,
+                },
+                messages,
+              );
+        }),
         Effect.catchAll(() =>
           Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
             Effect.asVoid,
