@@ -31,13 +31,15 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import type { OutboundMessageInput, StoredOutboundMessage } from "../store.js";
 import { decodeCanonical, encodeCanonical } from "../representation.js";
-import { detach, reattach, reportDetachment } from "./detachment.js";
 import {
+  detach,
   isTransportFailure,
   mapRouterFailure,
   pollBlipRetry,
+  reattach,
+  reportDetachment,
   type RouterCallFailure,
-} from "./failures.js";
+} from "./outage.js";
 import {
   isTransientRouterWorkerError,
   type RouterDiscontinuityReason,
