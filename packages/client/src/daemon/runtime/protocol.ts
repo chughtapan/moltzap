@@ -320,6 +320,7 @@ const makeProtocolCollectives = (
     self: Schema.decodeUnknownSync(AgentAddress)(
       `agent:${agentCard.agentName}`,
     ),
+    lookupMember: (member) => engine.resolveAddress(member),
     sendPost: (input) => engine.send(input),
     emit: (item) => emitLocalItem(environment, reconciler, item),
     scope: environment.daemonScope,

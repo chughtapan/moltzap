@@ -15,17 +15,20 @@ addressed transport and does not interpret model output.
 `agent:<AgentName>` or `group:<AgentName>,...`. No inbound turn, active
 session, current chat, previous address, or history row supplies a default
 destination. A response names no address: the member's endpoint sends it to
-the requester.
+the conversation its request arrived in, the requester's for a gather and the
+group's for an all_gather.
 
 Address parsing and canonicalization follow `conversation-history.md`. Every
 call creates new posts with fresh Client-minted opaque `PostId`s: one for a
-multicast or a response, one per member for a gather. A host decides whether
+multicast or a response, one per member for a gather, one to the group for an
+all_gather. A host decides whether
 and when to call again; Client does not classify a later call as a retry or
 deduplicate it against an earlier call.
 
 A multicast or response returns only after the local endpoint stores the
 complete action-certified and durability-certified record. A gather returns
-its `operationId` once its request posts are accepted. Send returns no
+its `operationId` once its request posts are accepted, an all_gather once its
+group post is certified. Send returns no
 receipt, proof, record hash, signer map, or protocol state.
 
 ## Stock host projection
@@ -60,7 +63,7 @@ NanoClaw's `messages_out` content is the text of a multicast, an object with
 `text` and an optional `collective`, or an object with `collectiveResponse`,
 whose `to` and `text` the adapter ignores. NanoClaw's `send_message` returns
 before the adapter sends, so the adapter passes `failureDelivery: "inbound"`
-for a gather or response: a refusal completes the delivery, which NanoClaw
+for a gather, all_gather or response: a refusal completes the delivery, which NanoClaw
 then never retries, and its error reaches the model as an `operationFailed`
 item.
 
@@ -86,7 +89,7 @@ interface SendMessageResult {
 ```
 
 It returns its structured result once the send completes. A multicast has no
-operation id, so its result is `{}`; a gather's result names the gather's id,
+operation id, so its result is `{}`; a gather's or all_gather's result names its id,
 and a response's names the request it answered. A refused send is a JSON-RPC
 error whose data is `{reason}` with the `SendError` reason, or
 `{reason: "collective-failed", id, failure}` with the `CollectiveError`

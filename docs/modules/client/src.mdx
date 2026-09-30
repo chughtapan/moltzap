@@ -51,7 +51,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L672)
+### [`CollectiveError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L690)
 
 _Class_
 
@@ -69,7 +69,7 @@ export class CollectiveError extends Data.TaggedError("CollectiveError")<{
 A collective send was refused. The message names each unreachable member or
 failing field, so a host can hand it to its model as the tool error.
 
-### [`CollectiveOperation`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L341)
+### [`CollectiveOperation`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L346)
 
 _TypeAlias_
 
@@ -79,17 +79,17 @@ export type CollectiveOperation = typeof CollectiveOperation.Type;
 
 A validated collective operation.
 
-### [`CollectiveOperation`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L333)
+### [`CollectiveOperation`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L338)
 
 _Variable_
 
 ```ts
 export const CollectiveOperation = Schema.Union(
   multicastOperation,
-  gatherOperation,
+  collectingOperation,
 ).annotations({
   description:
-    'The collective operation. Omit it, or its op, for multicast: one post to the to address. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} asks each member of to the message text as a question, privately, and returns one result with each member\'s answer, decline, or no-answer once all have replied or the deadline passes.',
+    'The collective operation. Omit it, or its op, for multicast: one post to the to address. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} asks each member of to the message text as a question, privately, and returns one result with each member\'s answer, decline, or no-answer once all have replied or the deadline passes. {"op":"all_gather","deadline":<seconds>,"requestedSchema":<form>} asks one question to a group: to must be a group: address, no member sees another\'s answer before the close, and everyone, the asker included, receives the same result at the close.',
 })
 ```
 
@@ -97,7 +97,7 @@ The collective operation one send performs, discriminated by `op`. Each
 operation is one member of this union; the schema carries no identifier so
 its JSON Schema embeds inline in a host tool's parameters.
 
-### [`CollectiveResponse`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L363)
+### [`CollectiveResponse`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L368)
 
 _TypeAlias_
 
@@ -107,7 +107,7 @@ export type CollectiveResponse = typeof CollectiveResponse.Type;
 
 A validated collective response.
 
-### [`CollectiveResponse`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L348)
+### [`CollectiveResponse`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L353)
 
 _Variable_
 
@@ -124,15 +124,15 @@ export const CollectiveResponse = Schema.Union(
   }),
 ).annotations({
   description:
-    'Answer a collective request: {"id":<request id>,"action":"accept","content":{...}} with content valid against the request\'s schema, or {"id":<request id>,"action":"decline"} or "cancel" without content. The reply goes to the requester whatever to says, and each request takes one answer.',
+    'Answer a collective request: {"id":<request id>,"action":"accept","content":{...}} with content valid against the request\'s schema, or {"id":<request id>,"action":"decline"} or "cancel" without content. The reply goes to the conversation the request arrived in, the requester for a gather and the group for an all_gather, whatever to says, and each request takes one answer.',
 })
 ```
 
 A member's reply to one collective request. Only `accept` carries content,
 valid against the request's schema; the member's endpoint addresses the
-reply to the requester.
+reply to the conversation the request arrived in.
 
-### [`ConnectError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L719)
+### [`ConnectError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L737)
 
 _Class_
 
@@ -194,7 +194,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L703)
+### [`DeliveryAcknowledgeError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L721)
 
 _Class_
 
@@ -212,7 +212,7 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
 
 Transport acknowledgment could not complete for one delivery.
 
-### [`DirectMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L444)
+### [`DirectMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L450)
 
 _TypeAlias_
 
@@ -246,7 +246,7 @@ export const GroupAddress = addressInput.pipe(
 
 A complete fixed-member group address in unsigned ASCII name order.
 
-### [`GroupMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L446)
+### [`GroupMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L452)
 
 _TypeAlias_
 
@@ -256,7 +256,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L743)
+### [`HarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L761)
 
 _Interface_
 
@@ -275,11 +275,11 @@ Every send is one operation or one collective response; the stream yields
 inbound items.
 
 A host whose tool returns before the send completes passes
-`failureDelivery: "inbound"`: a refused gather or response then completes
-and its error arrives as an `operationFailed` item on the stream. A
-multicast has no operation id, so its failure is always returned.
+`failureDelivery: "inbound"`: a refused gather, all_gather or response
+then completes and its error arrives as an `operationFailed` item on the
+stream. A multicast has no operation id, so its failure is always returned.
 
-### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L588)
+### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L605)
 
 _TypeAlias_
 
@@ -289,7 +289,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L569)
+### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L586)
 
 _Variable_
 
@@ -319,7 +319,7 @@ published it, a completed `send` invocation with its input and outcome, or
 the one line that says the export stopped. Readers decode the file line by
 line with this schema rather than copying its shape.
 
-### [`InboundDelivery`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L728)
+### [`InboundDelivery`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L746)
 
 _Interface_
 
@@ -332,7 +332,7 @@ export interface InboundDelivery {
 
 One inbound item plus its transport-only acknowledgment.
 
-### [`InboundItem`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L535)
+### [`InboundItem`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L551)
 
 _TypeAlias_
 
@@ -342,7 +342,7 @@ export type InboundItem = typeof InboundItem.Type;
 
 A validated inbound item.
 
-### [`InboundItem`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L526)
+### [`InboundItem`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L542)
 
 _Variable_
 
@@ -363,7 +363,7 @@ or duplicated, and multicasts that carry nothing besides that part; every
 other certified post becomes one item, and the endpoint itself emits
 results and failures.
 
-### [`InboundMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L454)
+### [`InboundMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L460)
 
 _TypeAlias_
 
@@ -373,7 +373,7 @@ export type InboundMessage = typeof InboundMessage.Type;
 
 A validated direct or group post.
 
-### [`InboundMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L449)
+### [`InboundMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L455)
 
 _Variable_
 
@@ -421,7 +421,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L688)
+### [`ListenError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L706)
 
 _Class_
 
@@ -484,7 +484,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`SendError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L591)
+### [`SendError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L608)
 
 _Class_
 
@@ -500,7 +500,7 @@ export class SendError extends Data.TaggedError("SendError")<{
 
 An addressed send failed before local certification completed.
 
-### [`SendInput`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L380)
+### [`SendInput`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L385)
 
 _TypeAlias_
 
@@ -510,7 +510,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L371)
+### [`SendInput`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L376)
 
 _Variable_
 
@@ -530,7 +530,7 @@ operation, multicast when `collective` is omitted; or a response to a
 collective request, which names no address because the member's endpoint
 derives it from the request.
 
-### [`SendResult`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L389)
+### [`SendResult`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L395)
 
 _Interface_
 

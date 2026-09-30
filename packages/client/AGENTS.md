@@ -39,8 +39,9 @@ The final `HarnessEndpoint` has these invariants:
 - daemon recovery resumes a persisted unfinished post, while a later host
   invocation creates another post even when target and content are identical;
 - a multicast or response returns only after the local endpoint durably stores
-  the complete certified record, and a gather returns its operation id once
-  its request posts are accepted;
+  the complete certified record, a gather returns its operation id once its
+  request posts are accepted, and an all_gather once its group post is
+  certified;
 - inbound deliveries carry items tagged by kind; a multicast or collective
   request item derives from a complete certified record, identifies the
   author and address, and carries no semantic reply authority; results and

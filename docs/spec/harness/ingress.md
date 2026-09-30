@@ -31,8 +31,8 @@ interface MessageReadyEvent {
 
 The daemon acknowledges a record it consumes without publishing it. It
 classifies pending records on every pass, whether or not a subscriber is
-attached, so answers are recorded and gather deadlines complete while no host
-listens; published items wait for one. A failed acknowledgment of a consumed
+attached, so answers are recorded, deadlines complete and all_gather closes
+apply while no host listens; published items wait for one. A failed acknowledgment of a consumed
 record is logged and the record stays pending: the next pass classifies it
 again, which records nothing twice, and acknowledges it again.
 
@@ -44,10 +44,10 @@ row. That row retains the same token across replay and restart, and no token
 can identify two delivery rows. The token is opaque outside the local daemon
 and has no post authority.
 
-Items the endpoint emits itself, a gather's `collectiveResult` and an
+Items the endpoint emits itself, a `collectiveResult` and an
 `operationFailed`, carry a token of the same form that the daemon mints in
 memory. They are offered after the durable deliveries and are lost at a daemon
-restart, like the gather state they come from.
+restart, like the collective state they come from.
 
 The daemon emits `notifications/subscriptions/acknowledged` before the first
 message-ready notification and echoes the accepted filter. Both notifications
@@ -64,9 +64,13 @@ part. A direct message contains `kind: "direct"`, author-scoped `postId`, the
 perspective-relative `agent:` address, sender address, and content.
 
 A `collectiveRequest` item carries the request's id and `PostId`, the
-requester, the question, the schema and `deadlineAt`. A `collectiveResult`
-item carries the gather's id, its address, its question and one outcome per
-member; only the requester receives it. An `operationFailed` item carries the
+requester, the conversation it arrived in, the question, the schema and
+`deadlineAt`. A `collectiveResult` item carries the operation's id, its
+address, its question and one outcome per member. Only the requester receives
+a gather's; the requester and every member receive an all_gather's, built from
+the answers its close lists, with the same outcomes and the close's
+`closePostId`. Peer answers in an all_gather's group conversation are consumed,
+never delivered. An `operationFailed` item carries the
 operation's id, its address and the error text a waiting host would have
 received ([client contract](./client.md#inbound-items)).
 

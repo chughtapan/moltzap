@@ -61,9 +61,13 @@ endpoint consumes the answers and, when every member has answered or the
 deadline passes, emits one result item. Every post an endpoint authors carries
 its operation part, so a receiving endpoint classifies each certified post by
 that part. A multicast becomes a multicast item without the part and a gather
-request a collective request item; the endpoint consumes answers, a post whose
+or all_gather request a collective request item; the endpoint consumes answers, a post whose
 part is malformed or duplicated, another collective value, and a multicast
-whose only part is its collective part. Gather state lives in daemon memory;
+whose only part is its collective part. All_gather asks a group one question
+in its conversation: every member endpoint consumes the answers there, the
+requester closes with a post listing the record hash of each answer it
+counted, and every member builds the same result from exactly those answers.
+Collective state lives in daemon memory;
 `endpoint/collective/operation.ts → makeCollectiveOperations` owns it.
 
 ### Catch-up

@@ -176,7 +176,7 @@ describe("OpenClaw message tool send action", () => {
     messageToolSendSurfacesCollectiveError,
   );
   vitestIt(
-    "offers an optional collectiveResponse parameter and the gather operation",
+    "offers an optional collectiveResponse parameter and the collecting operations",
     messageToolOffersCollectiveResponse,
   );
 });
@@ -695,7 +695,7 @@ function messageToolOffersCollectiveResponse() {
     ],
   });
   expect(schema.properties.collective).toMatchObject({
-    anyOf: [{}, { properties: { op: { enum: ["gather"] } } }],
+    anyOf: [{}, { properties: { op: { enum: ["gather", "all_gather"] } } }],
   });
 }
 
@@ -705,6 +705,7 @@ function rendersCollectiveRequest() {
     id: COLLECTIVE_ID,
     postId: postId(4),
     from: "agent:alice",
+    to: "agent:alice",
     question: "Which day?",
     requestedSchema: SLOT_SCHEMA,
     deadlineAt: Date.UTC(2026, 8, 30, 12),

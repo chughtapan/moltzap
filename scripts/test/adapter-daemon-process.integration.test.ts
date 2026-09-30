@@ -57,7 +57,7 @@ interface Scenario {
   readonly target: DaemonProcessFixture;
 }
 
-interface NanoClawScenario extends Scenario {
+interface GroupScenario extends Scenario {
   readonly peer: DaemonProcessFixture;
 }
 
@@ -453,18 +453,16 @@ function acquireScenario(
   });
 }
 
-function acquireNanoClawScenario(): Effect.Effect<
-  NanoClawScenario,
-  ProcessTestError,
-  Scope.Scope
-> {
+function acquireGroupScenario(
+  prefix: string,
+): Effect.Effect<GroupScenario, ProcessTestError, Scope.Scope> {
   return Effect.gen(function* () {
     const infrastructure = yield* acquireProcessInfrastructure;
     const [caller, target, peer] = yield* Effect.all(
       [
-        makeDaemonProcessFixture(infrastructure, "nanoclaw-caller"),
-        makeDaemonProcessFixture(infrastructure, "nanoclaw-target"),
-        makeDaemonProcessFixture(infrastructure, "nanoclaw-peer"),
+        makeDaemonProcessFixture(infrastructure, `${prefix}-caller`),
+        makeDaemonProcessFixture(infrastructure, `${prefix}-target`),
+        makeDaemonProcessFixture(infrastructure, `${prefix}-peer`),
       ] as const,
       { concurrency: 3 },
     );
@@ -1087,6 +1085,136 @@ function runOpenClawGatherScenario() {
   );
 }
 
+function runOpenClawAllGatherScenario() {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const scenario = yield* acquireGroupScenario("openclaw-all-gather");
+      const caller = yield* acquireHarnessEndpoint(scenario.caller.endpoint);
+      const peer = yield* acquireHarnessEndpoint(scenario.peer.endpoint);
+      const callerAddress = directAddress(scenario.caller.agentName);
+      const peerAddress = directAddress(scenario.peer.agentName);
+      const targetAddress = directAddress(scenario.target.agentName);
+      const group = groupAddress([
+        scenario.caller.agentName,
+        scenario.peer.agentName,
+        scenario.target.agentName,
+      ]);
+      const cfg = openClawConfig(scenario.target.stateDirectory);
+      const channelPlugin = yield* registerOpenClawChannel();
+      const turns = yield* Queue.unbounded<OpenClawInboundContext>();
+      const { abortController, runningGateway } = yield* startOpenClawGateway(
+        scenario.target,
+        channelPlugin,
+        makeTurnQueueRuntime(turns),
+      );
+      const messageTool = (params: OpenClawMessageActionContext["params"]) =>
+        effectFromPromise("OpenClaw message tool send", () =>
+          channelPlugin.actions.handleAction({
+            channel: "moltzap",
+            action: "send",
+            cfg,
+            accountId: OPENCLAW_ACCOUNT_ID,
+            params,
+          }),
+        );
+      const allGather = {
+        op: "all_gather",
+        deadline: 60,
+        requestedSchema: SLOT_SCHEMA,
+      } as const;
+
+      yield* caller.send({
+        to: group,
+        text: GATHER_QUESTION,
+        collective: allGather,
+      });
+      const requestTurn = yield* nextTurn(turns);
+      expect(requestTurn).toMatchObject({
+        ChatType: "group",
+        From: callerAddress,
+      });
+      const peerRequest = yield* nextItem(peer.messages).pipe(
+        Effect.flatMap(requireRequest),
+      );
+      yield* peer.send({
+        collectiveResponse: { id: peerRequest.id, action: "decline" },
+      });
+      const answered = yield* messageTool({
+        to: group,
+        message: "answering",
+        collectiveResponse: {
+          id: requestIdOf(requestTurn.Body),
+          action: "accept",
+          content: { slot: "tue" },
+        },
+      });
+      expect(answered.details).toMatchObject({ ok: true });
+      const callerResult = yield* nextItem(caller.messages);
+      expect(callerResult).toMatchObject({
+        kind: "collectiveResult",
+        id: peerRequest.id,
+        to: group,
+        outcomes: [
+          { member: peerAddress, outcome: { kind: "declined" } },
+          {
+            member: targetAddress,
+            outcome: { kind: "answered", content: { slot: "tue" } },
+          },
+        ],
+      });
+      expect(yield* nextItem(peer.messages)).toEqual(callerResult);
+      expect(yield* nextTurn(turns)).toMatchObject({
+        Body: `MoltZap collective result ${peerRequest.id} for the question sent to ${group}: ${GATHER_QUESTION}\n- ${peerAddress}: declined\n- ${targetAddress}: answered {"slot":"tue"}`,
+        ChatType: "group",
+        SenderName: "MoltZap collective",
+      });
+
+      const started = yield* messageTool({
+        to: group,
+        message: GATHER_QUESTION,
+        collective: allGather,
+      });
+      expect(started.details).toEqual({
+        ok: true,
+        to: group,
+        operationId: expect.stringMatching(/^col_/u),
+      });
+      const callerRequest = yield* nextItem(caller.messages).pipe(
+        Effect.flatMap(requireRequest),
+      );
+      yield* nextItem(peer.messages);
+      yield* caller.send({
+        collectiveResponse: {
+          id: callerRequest.id,
+          action: "accept",
+          content: { slot: "mon" },
+        },
+      });
+      yield* peer.send({
+        collectiveResponse: { id: callerRequest.id, action: "decline" },
+      });
+      expect(yield* nextTurn(turns)).toMatchObject({
+        Body: `MoltZap collective result ${callerRequest.id} for the question sent to ${group}: ${GATHER_QUESTION}\n- ${callerAddress}: answered {"slot":"mon"}\n- ${peerAddress}: declined`,
+        SenderName: "MoltZap collective",
+      });
+      expect(yield* nextItem(caller.messages)).toEqual(
+        yield* nextItem(peer.messages),
+      );
+
+      abortController.abort();
+      yield* Fiber.join(runningGateway).pipe(
+        Effect.timeoutFail({
+          duration: DELIVERY_TIMEOUT,
+          onTimeout: () =>
+            new ProcessTestError({
+              message: "timed out stopping OpenClaw gateway",
+            }),
+        }),
+      );
+    }),
+  );
+}
+
 function readNanoClawImage() {
   return effectFromPromise("NanoClaw build result", async () => {
     const result: unknown = JSON.parse(
@@ -1164,7 +1292,7 @@ function assertConversationContents(
 function runNanoClawScenario() {
   return Effect.scoped(
     Effect.gen(function* () {
-      const scenario = yield* acquireNanoClawScenario();
+      const scenario = yield* acquireGroupScenario("nanoclaw");
       const caller = yield* acquireHarnessEndpoint(scenario.caller.endpoint);
       const peer = yield* acquireHarnessEndpoint(scenario.peer.endpoint);
       const callerAddress = directAddress(scenario.caller.agentName);
@@ -1272,6 +1400,11 @@ it("keeps OpenClaw host identities local across a durable exchange", () => {
 it("runs a gather in both directions through the OpenClaw message tool", () => {
   expect.hasAssertions();
   return Effect.runPromise(runOpenClawGatherScenario());
+}, 300_000);
+
+it("runs an all_gather in both directions through the OpenClaw message tool", () => {
+  expect.hasAssertions();
+  return Effect.runPromise(runOpenClawAllGatherScenario());
 }, 300_000);
 
 it("routes NanoClaw inbound and outbound through its native host boundaries", () => {

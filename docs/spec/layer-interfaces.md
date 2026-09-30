@@ -209,8 +209,9 @@ The stable Client invariants are:
   creates another post;
 - GENESIS is unanimous and ordinary POST uses author-inclusive `q(n)` action
   certification;
-- a multicast or response returns only after local certified durability, and a
-  gather returns its operation id once its request posts are accepted;
+- a multicast or response returns only after local certified durability, a
+  gather returns its operation id once its request posts are accepted, and an
+  all_gather once its one group post is certified;
 - inbound delivery yields items tagged by kind; a multicast item identifies
   canonical address and author, with exact members for groups and no reply
   authority, and collective requests, results and failures are items;
