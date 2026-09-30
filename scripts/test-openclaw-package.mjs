@@ -35,6 +35,7 @@ const packageRoots = Object.freeze({
 });
 const OPENCLAW_VERSION = "2026.8.1";
 const OPENCLAW_COMMIT_SHA = "ea806575e6450e4d1efdfc72c19f04be982a1b9b";
+const COLLECTIVES_SKILL_PATH = "skills/moltzap-collectives/SKILL.md";
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-openclaw-pack-"));
 
 async function verifyPackedManifest(archive, manifests) {
@@ -77,6 +78,7 @@ async function verifyPackedManifest(archive, manifests) {
       "dist/plugin.js",
       "dist/plugin.d.ts",
       "openclaw.plugin.json",
+      COLLECTIVES_SKILL_PATH,
     ].map((path) => readFile(join(extractedPackage, path))),
   );
   const pluginManifest = JSON.parse(
@@ -84,7 +86,8 @@ async function verifyPackedManifest(archive, manifests) {
   );
   requireCondition(
     pluginManifest.id === "openclaw-channel" &&
-      JSON.stringify(pluginManifest.channels) === JSON.stringify(["moltzap"]),
+      JSON.stringify(pluginManifest.channels) === JSON.stringify(["moltzap"]) &&
+      JSON.stringify(pluginManifest.skills) === JSON.stringify(["./skills"]),
     "packed OpenClaw discovery manifest drifted",
   );
 }
@@ -197,29 +200,84 @@ async function verifyBundledHost(consumerRoot) {
     'requireCondition(extension.default.channelPlugin === registered, "stable OpenClaw channel entry did not expose the registered plugin");',
     "",
   ].join("\n");
+  const hostEnvironment = {
+    ...process.env,
+    HOME: stateRoot,
+    USERPROFILE: stateRoot,
+    NODE_PATH: undefined,
+    OPENCLAW_BUNDLED_PLUGINS_DIR: undefined,
+    OPENCLAW_CONFIG_PATH: configPath,
+    OPENCLAW_DISABLE_BUNDLED_PLUGINS: undefined,
+    OPENCLAW_HOME: stateRoot,
+    OPENCLAW_STATE_DIR: stateRoot,
+    OPENCLAW_TEST_TRUST_BUNDLED_PLUGINS_DIR: undefined,
+    VITEST: undefined,
+  };
   await exec(
     process.execPath,
     ["--input-type=module", "--eval", runtimeCheck],
     {
       cwd: consumerRoot,
       env: {
-        ...process.env,
-        HOME: stateRoot,
-        USERPROFILE: stateRoot,
-        NODE_PATH: undefined,
-        OPENCLAW_BUNDLED_PLUGINS_DIR: undefined,
-        OPENCLAW_CONFIG_PATH: configPath,
-        OPENCLAW_DISABLE_BUNDLED_PLUGINS: undefined,
-        OPENCLAW_HOME: stateRoot,
-        OPENCLAW_STATE_DIR: stateRoot,
-        OPENCLAW_TEST_TRUST_BUNDLED_PLUGINS_DIR: undefined,
-        VITEST: undefined,
+        ...hostEnvironment,
         MOLTZAP_OPENCLAW_BUNDLED_PLUGIN_ROOT: bundledPluginRoot,
         MOLTZAP_OPENCLAW_PLUGIN_LIST_COMMAND:
           await openClawPluginListCommand(openclawRoot),
       },
       maxBuffer: 16 * 1024 * 1024,
     },
+  );
+  await verifyPluginSkill({
+    consumerRoot,
+    openclawRoot,
+    bundledPluginRoot,
+    hostEnvironment,
+  });
+}
+
+/**
+ * Asks the pinned OpenClaw CLI for the collectives skill and requires that the
+ * plugin's manifest made it eligible and visible to the model with the packed
+ * text. OpenClaw copies plugin skills into its state directory, so the check
+ * compares content rather than paths.
+ * @param {object} options The assembled host.
+ * @param {string} options.consumerRoot Directory the CLI runs in.
+ * @param {string} options.openclawRoot Installed OpenClaw package root.
+ * @param {string} options.bundledPluginRoot The plugin's bundled root.
+ * @param {NodeJS.ProcessEnv} options.hostEnvironment The isolated host env.
+ * @returns {Promise<void>} Resolves when OpenClaw serves the skill.
+ */
+async function verifyPluginSkill({
+  consumerRoot,
+  openclawRoot,
+  bundledPluginRoot,
+  hostEnvironment,
+}) {
+  const { stdout } = await exec(
+    process.execPath,
+    [
+      join(openclawRoot, "openclaw.mjs"),
+      "skills",
+      "info",
+      "moltzap-collectives",
+      "--json",
+    ],
+    { cwd: consumerRoot, env: hostEnvironment, maxBuffer: 16 * 1024 * 1024 },
+  );
+  const skill = JSON.parse(stdout);
+  requireCondition(
+    skill.name === "moltzap-collectives" &&
+      skill.eligible === true &&
+      skill.modelVisible === true,
+    "OpenClaw did not serve the plugin's collectives skill to the model",
+  );
+  const [served, packed] = await Promise.all([
+    readFile(skill.filePath, "utf8"),
+    readFile(join(bundledPluginRoot, COLLECTIVES_SKILL_PATH), "utf8"),
+  ]);
+  requireCondition(
+    served === packed,
+    "OpenClaw served collectives skill text other than the packed file",
   );
 }
 

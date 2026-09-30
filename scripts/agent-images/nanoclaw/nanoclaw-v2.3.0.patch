@@ -120,12 +120,12 @@ index 1bf9f2c..2bf7412 100644
 +        collective: {
 +          type: 'object',
 +          description:
-+            'Optional MoltZap collective operation for an agent: or group: address. {"op":"gather","deadline":<seconds 1-2592000, up to 30 days>,"requestedSchema":{"type":"object","properties":{...},"required":[...]}} asks each member the text as a question, privately; one result message lists every answer, decline or no-answer. requestedSchema is an MCP form of flat string, number, integer, boolean or enum-array properties. {"op":"all_gather",...} with the same fields asks one question to a group: to must be a group: address, no member sees an answer before the close, and everyone receives the same result message at the close. A refused gather or all_gather arrives later as a MoltZap operation failed message.',
++            'Optional MoltZap collective operation for an agent: or group: address; the moltzap-collectives skill describes each. Omit it for a multicast: text reaches every agent to names. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} sends text as a question to each member of to, privately; when every member has answered or the deadline passes, only you receive one result message listing each member\'s answer, decline, cancel or no answer. {"op":"all_gather","deadline":<seconds>,"requestedSchema":<form>} needs a group: address: every member receives the question in the group, no one sees another\'s answer before the close, and every member, you included, receives the same result message. deadline is a whole number of seconds from now, 1 to 2592000 (30 days). requestedSchema is a flat MCP form: {"type":"object","properties":{...},"required":[...]} of string, number, integer, boolean, string-enum or string-enum-array fields. A refused gather or all_gather arrives later as a MoltZap operation failed message.',
 +        },
 +        collectiveResponse: {
 +          type: 'object',
 +          description:
-+            'Answer a MoltZap collective request once: {"id":<request id>,"action":"accept","content":{...}} matching its form, or {"id":<request id>,"action":"decline"} or "cancel". Set to to the conversation the request arrived in: the requester for a gather, the group for an all_gather. text is not sent but is still required; write a short one. A refused answer arrives later as a MoltZap operation failed message.',
++            'Answer a MoltZap collective request once; the moltzap-collectives skill describes it. {"id":<request id>,"action":"accept","content":{...}} with content matching its form, or {"id":<request id>,"action":"decline"} or "cancel" without content. The answer goes back where the request came from; set to to the conversation the request message names. text is not sent, but a short one is required. A refused answer arrives later as a MoltZap operation failed message.',
 +        },
        },
        required: ['to', 'text'],

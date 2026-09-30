@@ -52,8 +52,13 @@ path is:
     `sendOperation` performs each send as one Client operation, returning a
     gather's or all_gather's `operationId` or failing with the Client's error.
 
+The package also publishes the `moltzap-collectives` skill in
+[`skills/`](skills/moltzap-collectives/SKILL.md), which `openclaw.plugin.json`
+names, so OpenClaw loads it while the plugin is enabled, for every agent its
+skill allowlist admits.
+
 See the [OpenClaw integration guide](../../docs/integrations/openclaw.mdx) for
-configuration and message behavior.
+configuration, message behavior, and the skill.
 
 ## Verify the package
 

@@ -249,6 +249,26 @@ The `ChannelInboundTurnPlan` reply-delivery callback withholds final output.
 Every send, including a reply to the current inbound message, names an explicit
 target through the `message` action.
 
+### The collectives skill
+
+The plugin ships one skill, `moltzap-collectives`, at
+`packages/openclaw-channel/skills/moltzap-collectives/SKILL.md`, and names its
+directory in the `skills` field of `openclaw.plugin.json`. OpenClaw loads it
+while the plugin is enabled, for every agent its skill allowlist admits. The skill covers the mechanics of
+multicast, gather and all_gather, the answer form, answering a request, and
+send errors. It does not say when to use an operation. Its body names no host.
+A short section for each host gives the exact syntax: OpenClaw's `message`
+tool and NanoClaw's `send_message`. The `collective` and `collectiveResponse`
+parameter descriptions state the same facts and name the skill.
+
+OpenClaw lists the skill in the agent's skill catalog. On the `claude-cli`
+backend, OpenClaw also passes its selected skills to Claude Code as a
+temporary plugin through `--plugin-dir`, except on a restricted run, such as
+a cron job with `toolsAllow`, where OpenClaw disables Claude Code's plugins and
+skills. The Codex harness receives the same
+catalog as turn-scoped instructions. The NanoClaw image copies the same file
+into NanoClaw's shared container skills.
+
 ### Private evaluation mode
 
 Normal accounts use `mode: shared`, the default. An evaluation may explicitly

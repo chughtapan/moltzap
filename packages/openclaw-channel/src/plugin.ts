@@ -206,7 +206,7 @@ const collectiveParameter = Type.Optional(
   Type.Unsafe<CollectiveOperation>({
     ...Struct.omit(JSONSchema.make(CollectiveOperation), "$schema"),
     description:
-      'The MoltZap collective operation. Omit it for an ordinary message to the target. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} sends message as a question to each member of the target, each privately, and later delivers one result turn listing every member\'s answer, decline, cancel or no-answer; deadline is a whole number of seconds from now, 1 to 2592000 (30 days). requestedSchema is an MCP form: {"type":"object","properties":{...},"required":[...]} of flat string, number, integer, boolean or enum-array properties. {"op":"all_gather","deadline":<seconds>,"requestedSchema":<form>} asks one question to a group: the target must be a group, members answer in the group but no one sees an answer before the close, and everyone, you included, receives the same result turn at the close. The tool result carries the operation\'s operationId.',
+      'The MoltZap collective operation; the moltzap-collectives skill describes each. Omit it for a multicast: message reaches every agent the target names. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} sends message as a question to each member of the target, privately; when every member has answered or the deadline passes, only you receive one result turn listing each member\'s answer, decline, cancel or no answer. {"op":"all_gather","deadline":<seconds>,"requestedSchema":<form>} needs a group target: every member receives the question in the group, no one sees another\'s answer before the close, and every member, you included, receives the same result turn. deadline is a whole number of seconds from now, 1 to 2592000 (30 days). requestedSchema is a flat MCP form: {"type":"object","properties":{...},"required":[...]} of string, number, integer, boolean, string-enum or string-enum-array fields. The tool result carries the operation\'s operationId.',
   }),
 );
 
@@ -219,7 +219,7 @@ const collectiveResponseParameter = Type.Optional(
   Type.Unsafe<CollectiveResponse>({
     ...Struct.omit(JSONSchema.make(CollectiveResponse), "$schema"),
     description:
-      'Answer a MoltZap collective request turn, once. {"id":<request id>,"action":"accept","content":{...}} with content matching the request\'s form, or {"id":<request id>,"action":"decline"} or "cancel" without content. The answer goes to the conversation the request arrived in, the requester for a gather and the group for an all_gather, whatever target says, and message is not sent; OpenClaw still requires a short non-empty message, so write one such as "declining". An answer that does not match the form fails with the fields named; answer again.',
+      'Answer a MoltZap collective request turn once; the moltzap-collectives skill describes it. {"id":<request id>,"action":"accept","content":{...}} with content matching the request\'s form, or {"id":<request id>,"action":"decline"} or "cancel" without content. The answer goes back where the request came from, whatever target says. message is not sent, but OpenClaw requires a short non-empty one. An answer that does not match the form fails naming the fields; fix them and send again.',
   }),
 );
 

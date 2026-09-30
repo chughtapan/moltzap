@@ -3,6 +3,9 @@
   "channels": [
     "moltzap"
   ],
+  "skills": [
+    "./skills"
+  ],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
