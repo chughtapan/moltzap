@@ -149,6 +149,7 @@ const allAnsweredBehavior = Effect.gen(function* () {
     id: started.operationId,
     postId: expect.any(String),
     from: requester.address,
+    to: requester.address,
     question,
     requestedSchema: slotSchema,
     deadlineAt: expect.any(Number),
