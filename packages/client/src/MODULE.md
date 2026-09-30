@@ -73,7 +73,7 @@ The collective operation one send performs, discriminated by `op`. Each
 operation is one member of this union; the schema carries no identifier so
 its JSON Schema embeds inline in a host tool's parameters.
 
-### [`ConnectError`](./contract.ts#L443)
+### [`ConnectError`](./contract.ts#L444)
 
 _Class_
 
@@ -135,7 +135,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./contract.ts#L427)
+### [`DeliveryAcknowledgeError`](./contract.ts#L428)
 
 _Class_
 
@@ -197,7 +197,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./contract.ts#L461)
+### [`HarnessEndpoint`](./contract.ts#L462)
 
 _Interface_
 
@@ -211,7 +211,7 @@ export interface HarnessEndpoint {
 Structural runtime capability owned by one scoped endpoint connection.
 Every send is one operation; the stream yields inbound items.
 
-### [`HistoryExportRecord`](./contract.ts#L394)
+### [`HistoryExportRecord`](./contract.ts#L395)
 
 _TypeAlias_
 
@@ -221,7 +221,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord`](./contract.ts#L373)
+### [`HistoryExportRecord`](./contract.ts#L374)
 
 _Variable_
 
@@ -253,7 +253,7 @@ completed `send` invocation with its operation and outcome, or the one line
 that says the export stopped. Readers decode the file line by line with
 this schema rather than copying its shape.
 
-### [`InboundDelivery`](./contract.ts#L452)
+### [`InboundDelivery`](./contract.ts#L453)
 
 _Interface_
 
@@ -266,7 +266,7 @@ export interface InboundDelivery {
 
 One inbound item plus its transport-only acknowledgment.
 
-### [`InboundItem`](./contract.ts#L347)
+### [`InboundItem`](./contract.ts#L348)
 
 _TypeAlias_
 
@@ -276,7 +276,7 @@ export type InboundItem = typeof InboundItem.Type;
 
 A validated inbound item.
 
-### [`InboundItem`](./contract.ts#L343)
+### [`InboundItem`](./contract.ts#L344)
 
 _Variable_
 
@@ -287,8 +287,9 @@ export const InboundItem = Schema.Union(multicastItem).annotations({
 ```
 
 One inbound item, discriminated by `kind`. The endpoint consumes the
-collective layer's protocol posts; every other certified post becomes one
-item.
+collective layer's protocol posts, posts whose collective part is malformed
+or duplicated, and multicasts that carry nothing besides that part; every
+other certified post becomes one item.
 
 ### [`InboundMessage`](./contract.ts#L327)
 
@@ -348,7 +349,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./contract.ts#L412)
+### [`ListenError`](./contract.ts#L413)
 
 _Class_
 
@@ -411,7 +412,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`SendError`](./contract.ts#L397)
+### [`SendError`](./contract.ts#L398)
 
 _Class_
 

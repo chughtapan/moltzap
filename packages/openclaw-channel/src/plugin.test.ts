@@ -151,6 +151,10 @@ describe("OpenClaw message tool send action", () => {
     "rejects a message tool send whose collective operation is unknown",
     messageToolSendRejectsUnknownOperation,
   );
+  it(
+    "rejects a message tool send to an invalid address",
+    messageToolSendRejectsInvalidAddress,
+  );
   vitestIt(
     "offers the send action with an optional collective parameter",
     messageToolOffersOptionalCollective,
@@ -485,7 +489,31 @@ function messageToolSendRejectsUnknownOperation() {
       collective: { op: "broadcast" },
     }).pipe(Effect.flip);
 
-    expect(failure).toBeInstanceOf(OpenClawTestError);
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The closed failure reason is what the model reads back from the tool.
+    expect(failure.detail).toContain("invalid-operation");
+    expect(fake.sends).toEqual([]);
+
+    controller.abort();
+    yield* Effect.timeout(Fiber.join(fiber), "1 second");
+  });
+}
+
+function messageToolSendRejectsInvalidAddress() {
+  const fake = makeListeningEndpoint();
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
+  const controller = new AbortController();
+
+  return Effect.gen(function* () {
+    const fiber = yield* connectAccount(plugin, controller.signal);
+    const failure = yield* handleSendAction(plugin, {
+      to: "nova",
+      message: "hello",
+    }).pipe(Effect.flip);
+
+    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The closed failure reason is what the model reads back from the tool.
+    expect(failure.detail).toContain("invalid-address");
     expect(fake.sends).toEqual([]);
 
     controller.abort();

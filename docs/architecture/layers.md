@@ -57,7 +57,8 @@ when certified, and the default when a send names no operation. Every post an
 endpoint authors carries its operation part, so a receiving endpoint classifies
 each certified post by that part. A multicast becomes a multicast item without
 the part; the endpoint consumes a post whose part is malformed, duplicated, or
-another collective value.
+another collective value, and a multicast whose only part is its collective
+part.
 
 ### Catch-up
 

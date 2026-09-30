@@ -78,7 +78,7 @@ The collective operation one send performs, discriminated by `op`. Each
 operation is one member of this union; the schema carries no identifier so
 its JSON Schema embeds inline in a host tool's parameters.
 
-### [`ConnectError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L443)
+### [`ConnectError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L444)
 
 _Class_
 
@@ -140,7 +140,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L427)
+### [`DeliveryAcknowledgeError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L428)
 
 _Class_
 
@@ -202,7 +202,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L461)
+### [`HarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L462)
 
 _Interface_
 
@@ -216,7 +216,7 @@ export interface HarnessEndpoint {
 Structural runtime capability owned by one scoped endpoint connection.
 Every send is one operation; the stream yields inbound items.
 
-### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L394)
+### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L395)
 
 _TypeAlias_
 
@@ -226,7 +226,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L373)
+### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L374)
 
 _Variable_
 
@@ -258,7 +258,7 @@ completed `send` invocation with its operation and outcome, or the one line
 that says the export stopped. Readers decode the file line by line with
 this schema rather than copying its shape.
 
-### [`InboundDelivery`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L452)
+### [`InboundDelivery`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L453)
 
 _Interface_
 
@@ -271,7 +271,7 @@ export interface InboundDelivery {
 
 One inbound item plus its transport-only acknowledgment.
 
-### [`InboundItem`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L347)
+### [`InboundItem`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L348)
 
 _TypeAlias_
 
@@ -281,7 +281,7 @@ export type InboundItem = typeof InboundItem.Type;
 
 A validated inbound item.
 
-### [`InboundItem`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L343)
+### [`InboundItem`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L344)
 
 _Variable_
 
@@ -292,8 +292,9 @@ export const InboundItem = Schema.Union(multicastItem).annotations({
 ```
 
 One inbound item, discriminated by `kind`. The endpoint consumes the
-collective layer's protocol posts; every other certified post becomes one
-item.
+collective layer's protocol posts, posts whose collective part is malformed
+or duplicated, and multicasts that carry nothing besides that part; every
+other certified post becomes one item.
 
 ### [`InboundMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L327)
 
@@ -353,7 +354,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L412)
+### [`ListenError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L413)
 
 _Class_
 
@@ -416,7 +417,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`SendError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L397)
+### [`SendError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/contract.ts#L398)
 
 _Class_
 

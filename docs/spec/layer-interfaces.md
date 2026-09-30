@@ -362,8 +362,9 @@ topology and cross-address context.
   evidence.
 - Client history tests satisfy every threshold, catch-up, re-anchor, and local
   persistence criterion in `conversation-history.md`.
-- Client type canaries pin addressed send, direct/group delivery, transport
-  acknowledgment, `void` result, and management-absence boundary.
+- Client type canaries pin the operation send input, tagged inbound items over
+  direct/group messages, transport acknowledgment, `void` result, and
+  management-absence boundary.
 - Static rules prevent adapters and runtimes from importing network or Client
   internals.
 - Agent images run the host and daemon in one application container per agent

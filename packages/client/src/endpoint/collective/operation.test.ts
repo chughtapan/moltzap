@@ -4,6 +4,7 @@ import { Effect, Exit, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { InboundMessage, SendInput } from "../../contract.js";
 import { inboundItem, operationContent } from "./operation.js";
+import { COLLECTIVE_DATA_KEY, decodeCollectiveValue } from "./wire.js";
 
 const multicastPart = {
   type: "data",
@@ -17,6 +18,28 @@ const declinePart = {
       kind: "response",
       id: `col_${"A".repeat(43)}`,
       action: "decline",
+    },
+  },
+};
+const closePart = {
+  type: "data",
+  value: {
+    "xyz.moltzap/collective": {
+      kind: "close",
+      id: `col_${"A".repeat(43)}`,
+      included: [],
+    },
+  },
+};
+const gatherPart = {
+  type: "data",
+  value: {
+    "xyz.moltzap/collective": {
+      kind: "operation",
+      op: "gather",
+      id: `col_${"A".repeat(43)}`,
+      deadlineAt: 1_790_000_000_000,
+      requestedSchema: { type: "object", properties: {} },
     },
   },
 };
@@ -39,6 +62,13 @@ const directPost = (content: unknown) =>
 
 const classify = (content: unknown) =>
   Effect.runSync(inboundItem(directPost(content)));
+
+const decodesAsCollectiveValue = (part: {
+  readonly value: { readonly [COLLECTIVE_DATA_KEY]: unknown };
+}) =>
+  Exit.isSuccess(
+    Effect.runSyncExit(decodeCollectiveValue(part.value[COLLECTIVE_DATA_KEY])),
+  );
 
 // @agent-code-guard/regression-only: examples pin the explicit multicast part every authored post carries.
 describe("operation content", () => {
@@ -104,6 +134,18 @@ describe("inbound item classification", () => {
 
   it("consumes a collective response", () => {
     expect(classify([{ type: "text", text: "No" }, declinePart])).toEqual(
+      Option.none(),
+    );
+  });
+
+  it("consumes an all_gather close", () => {
+    expect(decodesAsCollectiveValue(closePart)).toBe(true);
+    expect(classify([closePart])).toEqual(Option.none());
+  });
+
+  it("consumes a collecting operation's request", () => {
+    expect(decodesAsCollectiveValue(gatherPart)).toBe(true);
+    expect(classify([{ type: "text", text: "Ready?" }, gatherPart])).toEqual(
       Option.none(),
     );
   });

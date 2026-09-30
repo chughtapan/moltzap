@@ -337,8 +337,9 @@ const multicastItem = exactStruct({
 
 /**
  * One inbound item, discriminated by `kind`. The endpoint consumes the
- * collective layer's protocol posts; every other certified post becomes one
- * item.
+ * collective layer's protocol posts, posts whose collective part is malformed
+ * or duplicated, and multicasts that carry nothing besides that part; every
+ * other certified post becomes one item.
  */
 export const InboundItem = Schema.Union(multicastItem).annotations({
   identifier: "InboundItem",
