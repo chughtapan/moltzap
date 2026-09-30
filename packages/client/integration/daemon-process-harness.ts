@@ -88,6 +88,7 @@ export interface DaemonProcessFixture {
   readonly endpoint: URL;
   readonly environment: Readonly<Record<string, string>>;
   readonly stateDirectory: string;
+  readonly agentPrivateKeyFile: string;
 }
 
 /** Private management calls used to bootstrap and inspect a real daemon. */
@@ -434,6 +435,7 @@ export const makeDaemonProcessFixture = (
       agentName,
       endpoint: new URL(`http://${LOOPBACK_HOST}:${port}/mcp`),
       stateDirectory,
+      agentPrivateKeyFile: keyPath,
       environment: {
         MOLTZAPD_STATE_DIRECTORY: stateDirectory,
         MOLTZAPD_MCP_PORT: String(port),
@@ -461,13 +463,19 @@ export const acquireDaemonProcess = (
     return running;
   });
 
+/** Exit code and captured output of a daemon that stopped before listening. */
+export interface DaemonStartupFailure {
+  readonly exitCode: number | null;
+  readonly logs: string;
+}
+
 /**
- * Starts one moltzapd that must stop before it listens and returns its exit
- * code. A daemon that listens instead fails the fixture.
+ * Starts one moltzapd that must stop before it listens. A daemon that listens
+ * instead fails the fixture.
  */
 export const awaitDaemonStartupFailure = (
   fixture: DaemonProcessFixture,
-): Effect.Effect<number | null, ProcessTestError, Scope.Scope> =>
+): Effect.Effect<DaemonStartupFailure, ProcessTestError, Scope.Scope> =>
   Effect.gen(function* () {
     const running = yield* managedProcess(
       DAEMON_BINARY,
@@ -487,7 +495,7 @@ export const awaitDaemonStartupFailure = (
       );
     }
     yield* waitForExit(running);
-    return running.child.exitCode;
+    return { exitCode: running.child.exitCode, logs: running.logs() };
   });
 
 const makeIdentifier = (prefix: "opn_" | "prn_"): string =>

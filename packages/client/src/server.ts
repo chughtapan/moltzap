@@ -28,7 +28,12 @@ export namespace MoltZapDaemon {
     "MoltZapDaemonStartupError",
   )<{
     readonly phase: "configuration" | "storage" | "listener";
-  }> {}
+  }> {
+    /** Names only the failed phase, so the process log says why startup stopped. */
+    override get message(): string {
+      return `moltzapd startup failed in phase ${this.phase}`;
+    }
+  }
 
   const runDaemon = Effect.gen(function* () {
     const configuration = yield* loadDaemonProcessConfiguration.pipe(

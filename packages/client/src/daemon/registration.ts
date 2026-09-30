@@ -52,7 +52,7 @@ export class DaemonRegistrationPersistenceError extends Data.TaggedError(
   "DaemonRegistrationPersistenceError",
 ) {}
 
-/** Configured or durable identity material is unavailable or disagrees with its closed bindings. */
+/** Configured or durable identity bytes disagree with their closed bindings. */
 export class DaemonRegistrationRepresentationError extends Data.TaggedError(
   "DaemonRegistrationRepresentationError",
 ) {}
@@ -218,7 +218,8 @@ const bindRegisteredIdentity = (input: {
  * @param input Complete registration dependencies.
  * @param input.request Closed caller-supplied registration fields.
  * @param input.store Minimal durable identity store.
- * @param input.bootstrap Configured public key, signer, and admission value.
+ * @param input.bootstrap Configured public key, signer, and deferred admission
+ *   credential, whose load failure refuses registration before Registry is called.
  * @returns The exact Registry result after any successful binding is durable.
  */
 export const registerDaemonIdentity = (input: {
@@ -229,14 +230,13 @@ export const registerDaemonIdentity = (input: {
   RegistryRegisterResult,
   | DaemonRegistrationUpstreamError
   | DaemonRegistrationPersistenceError
-  | DaemonRegistrationRepresentationError,
+  | DaemonRegistrationRepresentationError
+  | DaemonConfigurationError,
   Registry
 > =>
   Effect.gen(function* () {
     const request = yield* makeRegistryRequest(input);
-    const admissionCredential = yield* input.bootstrap.admissionCredential.pipe(
-      Effect.mapError(representationFailure),
-    );
+    const admissionCredential = yield* input.bootstrap.admissionCredential;
     const result = yield* Registry.register({
       request,
       admissionCredential,

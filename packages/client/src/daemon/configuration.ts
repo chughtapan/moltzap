@@ -21,6 +21,7 @@ const configuredPath = Schema.String.pipe(
   Schema.minLength(1),
   Schema.filter((value) => !value.includes("\u0000")),
 );
+const optionalConfiguredPath = Schema.Union(Schema.Literal(""), configuredPath);
 
 const isSerializedOrigin = (value: string): boolean => {
   if (!URL.canParse(value)) {
@@ -59,9 +60,13 @@ const configuredValues = Config.all({
   agentPrivateKeyFile: Config.redacted(
     Schema.Config("MOLTZAPD_AGENT_PRIVATE_KEY_FILE", configuredPath),
   ),
-  admissionCredentialFile: Config.redacted(
-    Schema.Config("MOLTZAPD_ADMISSION_CREDENTIAL_FILE", configuredPath),
-  ).pipe(Config.withDefault(undefined)),
+  admissionCredentialFile: Schema.Config(
+    "MOLTZAPD_ADMISSION_CREDENTIAL_FILE",
+    optionalConfiguredPath,
+  ).pipe(
+    Config.withDefault(""),
+    Config.map((path) => (path === "" ? undefined : Redacted.make(path))),
+  ),
   historyExport: Schema.Config("MOLTZAPD_HISTORY_EXPORT", configuredPath).pipe(
     Config.withDefault(undefined),
   ),
@@ -92,7 +97,8 @@ export interface DaemonProcessConfiguration {
   readonly agentPrivateKeyFile: Redacted.Redacted;
   /**
    * Admission credential file an unregistered daemon requires; a daemon whose
-   * state directory holds a registered identity never reads it.
+   * state directory holds a registered identity never reads it. An empty
+   * value is the same as an unset one.
    */
   readonly admissionCredentialFile?: Redacted.Redacted;
   /**

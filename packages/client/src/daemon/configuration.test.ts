@@ -96,6 +96,7 @@ const rejectsInvalidEnvironment = async () => {
     new Map([["MOLTZAPD_REGISTRY_ORIGIN", "https://registry.example/path"]]),
     new Map([["MOLTZAPD_ROUTER_ORIGIN", "ftp://router.example"]]),
     new Map([["MOLTZAPD_REGISTRY_SIGNER_PUBLIC_KEY", `${registrySigner} `]]),
+    new Map([["MOLTZAPD_ADMISSION_CREDENTIAL_FILE", "/run/\u0000admission"]]),
   ];
   for (const overrides of invalidOverrides) {
     expect(
@@ -133,6 +134,22 @@ const loadsBootstrapWithoutAdmissionFile = async () => {
   expect(bootstrap.agentPublicKey.x).toBe(
     "3rUJ92tIP0DE4ekmET1zme6SIWTp5G0KiF3ZjL-AoKg",
   );
+  expect(
+    await Effect.runPromise(failureReason(bootstrap.admissionCredential)),
+  ).toBe("admission-credential-file");
+};
+
+const treatsEmptyAdmissionFileAsUnset = async () => {
+  const directory = temporaryDirectory();
+  writeFileSync(join(directory, "agent.pem"), privateKey);
+  const configuration = await Effect.runPromise(
+    loadConfiguration(
+      directory,
+      new Map([["MOLTZAPD_ADMISSION_CREDENTIAL_FILE", ""]]),
+    ),
+  );
+  expect(configuration.admissionCredentialFile).toBeUndefined();
+  const bootstrap = await Effect.runPromise(loadDaemonBootstrap(configuration));
   expect(
     await Effect.runPromise(failureReason(bootstrap.admissionCredential)),
   ).toBe("admission-credential-file");
@@ -224,6 +241,10 @@ describe("daemon configuration", () => {
   it(
     "accepts an unset admission credential file until the credential is used",
     loadsBootstrapWithAdmissionFileUnset,
+  );
+  it(
+    "treats an empty admission credential file setting as unset",
+    treatsEmptyAdmissionFileAsUnset,
   );
 });
 

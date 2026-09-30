@@ -466,7 +466,9 @@ const refusesRegistrationWithoutCredential = async () => {
       ),
     ),
   );
-  expect(error).toBeInstanceOf(DaemonRegistrationRepresentationError);
+  expect(error).toEqual(
+    new DaemonConfigurationError({ reason: "admission-credential-file" }),
+  );
   expect(await Effect.runPromise(Ref.get(calls))).toEqual([]);
   expect(await Effect.runPromise(Ref.get(memory.binding))).toBeUndefined();
 };

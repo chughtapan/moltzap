@@ -250,6 +250,27 @@ const withMissingAdmissionCredential = (
   },
 });
 
+const withAdmissionCredentialFile = (
+  fixture: DaemonProcessFixture,
+  path: string,
+): DaemonProcessFixture => ({
+  ...fixture,
+  environment: {
+    ...fixture.environment,
+    MOLTZAPD_ADMISSION_CREDENTIAL_FILE: path,
+  },
+});
+
+const expectConfigurationFailure = (fixture: DaemonProcessFixture) =>
+  awaitDaemonStartupFailure(fixture).pipe(
+    Effect.map((failure) => {
+      expect(failure.exitCode).not.toBe(0);
+      expect(failure.logs).toContain(
+        "moltzapd startup failed in phase configuration",
+      );
+    }),
+  );
+
 const readActiveStatus = (fixture: DaemonProcessFixture) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -285,16 +306,27 @@ const admissionLifetimeBehavior = Effect.gen(function* () {
   expect((yield* readActiveStatus(registeredFixture)).kind).toBe("active");
   yield* stopProcess(missingRun);
 
-  expect(
-    yield* awaitDaemonStartupFailure(
-      withoutAdmissionCredential(unregisteredFixture),
+  const emptyRun = yield* acquireDaemonProcess(
+    withAdmissionCredentialFile(registeredFixture, ""),
+  );
+  expect((yield* readActiveStatus(registeredFixture)).kind).toBe("active");
+  yield* stopProcess(emptyRun);
+
+  const invalidRun = yield* acquireDaemonProcess(
+    withAdmissionCredentialFile(
+      registeredFixture,
+      registeredFixture.agentPrivateKeyFile,
     ),
-  ).not.toBe(0);
-  expect(
-    yield* awaitDaemonStartupFailure(
-      withMissingAdmissionCredential(unregisteredFixture),
-    ),
-  ).not.toBe(0);
+  );
+  expect((yield* readActiveStatus(registeredFixture)).kind).toBe("active");
+  yield* stopProcess(invalidRun);
+
+  yield* expectConfigurationFailure(
+    withoutAdmissionCredential(unregisteredFixture),
+  );
+  yield* expectConfigurationFailure(
+    withMissingAdmissionCredential(unregisteredFixture),
+  );
 }).pipe(Effect.scoped);
 
 it("restarts a registered daemon without the admission credential", () => {
