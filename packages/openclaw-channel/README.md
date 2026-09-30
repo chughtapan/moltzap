@@ -43,10 +43,12 @@ path is:
 1. `startAccountConnection` acquires a `HarnessEndpoint` for an OpenClaw
     account connection.
 2. `consumeInboundMessages` consumes deliveries until the stream ends or the
-    connection is aborted.
+    connection is aborted; `runInboundItemTurn` renders each item by kind.
 3. `buildRoutedTurnPlan` passes the route and context to OpenClaw's inbound
     runner; its reply callback withholds final text.
-4. `sendOpenClawText` handles explicitly addressed outbound messages.
+4. `createMessageActions` registers the message tool's `send` action with its
+    optional `collective` parameter, and `sendOperation` performs each send as
+    one Client operation.
 
 See the [OpenClaw integration guide](../../docs/integrations/openclaw.mdx) for
 configuration and message behavior.

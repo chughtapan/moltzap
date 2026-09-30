@@ -7,20 +7,21 @@ import {
   Schema,
   type SchemaAST,
 } from "effect";
-import { InboundMessage } from "./contract.js";
+import { InboundItem } from "./contract.js";
+import { CollectiveId } from "./endpoint/collective/operation.js";
 import { DeliveryToken } from "./endpoint/store/types.js";
 
-/** MCP capability carrying addressed message delivery. */
-export const HARNESS_EVENTS_EXTENSION = "xyz.moltzap/events-v2";
+/** MCP capability carrying tagged inbound item delivery. */
+export const HARNESS_EVENTS_EXTENSION = "xyz.moltzap/events-v3";
 
-/** Subscription filter requesting durable addressed messages. */
+/** Subscription filter requesting durable inbound items. */
 export const HARNESS_MESSAGE_READY_FILTER = "xyz.moltzap/messageReady";
 
-/** Notification method carrying one pending addressed message. */
+/** Notification method carrying one pending inbound item. */
 export const HARNESS_MESSAGE_READY_NOTIFICATION =
   "notifications/xyz.moltzap/message_ready";
 
-/** Adapter operation for an explicit addressed send. */
+/** Adapter operation performing one collective operation. */
 export const HARNESS_SEND_TOOL = "send_message";
 
 /** Adapter operation acknowledging successful stock host callback completion. */
@@ -44,9 +45,16 @@ const harnessAcknowledgeDeliveryRequestSchema = exactStruct({
   deliveryToken: DeliveryToken,
 });
 const harnessEmptyResultSchema = exactEmptyObject;
+/**
+ * A completed operation. A collecting operation names the id its answers and
+ * result carry; a multicast has none, so its result is empty.
+ */
+const harnessSendResultSchema = exactStruct({
+  operationId: Schema.optionalWith(CollectiveId, { exact: true }),
+});
 const harnessMessageReadyEventSchema = exactStruct({
   deliveryToken: DeliveryToken,
-  message: InboundMessage,
+  item: InboundItem,
 });
 
 type HarnessEventsExtensionDeclaration =
@@ -59,13 +67,22 @@ export type HarnessAcknowledgeDeliveryRequest =
 /** Decoded empty adapter-operation result. */
 export type HarnessEmptyResult = typeof harnessEmptyResultSchema.Type;
 
-/** One stable pending delivery emitted by the daemon. */
+/** Decoded result of one `send_message` operation. */
+export type HarnessSendResult = typeof harnessSendResultSchema.Type;
+
+/** One stable pending inbound item emitted by the daemon. */
 export type HarnessMessageReadyEvent =
   typeof harnessMessageReadyEventSchema.Type;
 
 /** JSON Schema advertised for the delivery acknowledgment operation. */
 export const harnessAcknowledgeDeliveryRequestJsonSchema = JSONSchema.make(
   harnessAcknowledgeDeliveryRequestSchema,
+  { target: "jsonSchema2020-12" },
+);
+
+/** JSON Schema advertised for `send_message` results. */
+export const harnessSendResultJsonSchema = JSONSchema.make(
+  harnessSendResultSchema,
   { target: "jsonSchema2020-12" },
 );
 
@@ -76,7 +93,7 @@ export const harnessEmptyResultJsonSchema = JSONSchema.make(
 );
 
 /**
- * Decode the exact events-v2 capability declaration.
+ * Decode the exact events-v3 capability declaration.
  * @param value Untrusted capability payload.
  * @returns The validated empty declaration.
  */

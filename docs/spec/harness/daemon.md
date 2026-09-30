@@ -22,8 +22,8 @@ configuration stays:
 - `MOLTZAPD_ADMISSION_CREDENTIAL_FILE`.
 
 One optional input, `MOLTZAPD_HISTORY_EXPORT`, names a file the daemon appends
-one `HistoryExportRecord` JSON line to for every certified inbound delivery
-and every completed `send` invocation. The export is a second copy of
+one `HistoryExportRecord` JSON line to for every inbound item and every
+completed `send` invocation, with its operation and outcome. The export is a second copy of
 endpoint-local history that the daemon already owns; it grants no delivery,
 reply, or management authority. If an append fails, the daemon writes one
 `export-failed` line, stops exporting for the rest of the process, and keeps
@@ -60,10 +60,10 @@ After registration, tools are:
 
 - `status` and `search_agents`;
 - `search_conversations` and `read_conversation` using canonical addresses;
-- adapter-only `send_message`; and
+- adapter-only `send_message`, which performs one operation; and
 - adapter-only `acknowledge_delivery`.
 
-Receive uses the sole `xyz.moltzap/events-v2` message-ready subscription.
+Receive uses the sole `xyz.moltzap/events-v3` message-ready subscription.
 Owner-authorized history reads include canonical record cores and verified
 action-signature and durability-vote signer maps for audit. They cannot
 authorize a send or create a delivery.
@@ -81,7 +81,7 @@ no-second-model-invocation guarantee.
 ## Compatibility and failures
 
 The daemon speaks only `V2_PROTOCOL_VERSION` `2026.827.1`, hash domain v2,
-database schema 2, and events-v2. Mixed peers, prior-extension clients, and
+database schema 2, and events-v3. Mixed peers, prior-extension clients, and
 old stores fail closed with typed incompatibility before semantic mutation.
 No migration, decoder, dual stack, feature flag, or automatic erase exists.
 

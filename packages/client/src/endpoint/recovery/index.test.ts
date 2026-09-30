@@ -1327,7 +1327,7 @@ const completeRestartRecovery = () =>
           fixture.engine.send(
             yield* Schema.decodeUnknown(SendInput)({
               to: `agent:${fixture.remote.card.agentName}`,
-              content: [{ type: "text", text: "normal traffic resumes" }],
+              text: "normal traffic resumes",
             }),
           ),
         );
@@ -1360,7 +1360,7 @@ const reproposesPendingPostAfterRestart = () =>
           fixture.engine.send(
             yield* Schema.decodeUnknown(SendInput)({
               to: `agent:${fixture.remote.card.agentName}`,
-              content: [{ type: "text", text: "survive Router restart" }],
+              text: "survive Router restart",
             }),
           ),
         );
@@ -1464,7 +1464,7 @@ const recoverSameRouterInstance = () =>
           fixture.engine.send(
             yield* Schema.decodeUnknown(SendInput)({
               to: `agent:${fixture.remote.card.agentName}`,
-              content: [{ type: "text", text: "retain this proposal" }],
+              text: "retain this proposal",
             }),
           ),
         );

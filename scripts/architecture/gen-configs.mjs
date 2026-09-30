@@ -87,6 +87,11 @@ const packageDefinitions = {
             "Identity activation, pinned-card recovery, and crash-recoverable registration shared by runtime composition, controller operations, and protocol acquisition",
         },
         {
+          file: "endpoint/collective/operation.ts",
+          reason:
+            "Collective-layer facade: operation content for sends, inbound item classification for the daemon, and the collective identity the MCP send result names",
+        },
+        {
           file: "endpoint/engine.ts",
           reason:
             "Private endpoint-engine facade composing protocol phases behind the daemon-owned EndpointEngine capability",

@@ -64,9 +64,11 @@ export class EngineOutboundError extends Data.TaggedError(
 }> {}
 
 /**
- * One durable delivery decoded for the daemon's sole subscriber. `recordHash`
- * names the certified record the delivery derives from; it stays inside the
- * daemon and never reaches the MCP event.
+ * One durable delivery decoded for the daemon's sole subscriber. `message` is
+ * the certified post with its complete content, collective part included; the
+ * daemon's classifier turns it into the item the subscriber receives.
+ * `recordHash` names the certified record the delivery derives from; it stays
+ * inside the daemon and never reaches the MCP event.
  */
 export interface EnginePendingMessage {
   readonly deliveryToken: DeliveryToken;

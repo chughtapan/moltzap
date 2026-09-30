@@ -31,10 +31,14 @@ re-exports. Publication follows `docs/spec/layer-interfaces.md` → Publication 
   members.
 - The stock reply-delivery callback withholds final text and sends nothing, in
   shared and in private evaluation mode. Every outbound callback names an
-  explicit `agent:` or `group:` target through the `message` tool. The host
-  decides which tools invoke that callback.
+  explicit `agent:` or `group:` target through the `message` tool. The model's
+  `send` reaches the plugin's `send` action with its optional `collective`
+  parameter; `message.send.text` serves OpenClaw's core-forced sends. The host
+  decides which tools invoke those callbacks.
+- Render each inbound item kind in one fixed form, switching on `kind`
+  exhaustively.
 - Leave outbound queue and retry policy to OpenClaw. Every plugin callback is
-  one Client send; do not pass queue identity or add provider-owned retries.
+  one Client operation; do not pass queue identity or add provider-owned retries.
 - Before Client acknowledgment, OpenClaw must durably accept the stable
   `PostId`. Identical replay after acceptance must not invoke the model again;
   the same `PostId` with changed payload must fail as a typed collision. These

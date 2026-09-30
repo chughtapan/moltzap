@@ -268,28 +268,26 @@ interface OpenClawGatewayContext {
   readonly setStatus: (status: OpenClawGatewayStatus) => void;
 }
 
-interface OpenClawMessageSendContext {
+interface OpenClawMessageActionContext {
+  readonly channel: string;
+  readonly action: "send";
   readonly cfg: OpenClawConfig;
   readonly accountId: string;
-  readonly to: string;
-  readonly text: string;
+  readonly params: { readonly to: string; readonly message: string };
 }
 
-interface OpenClawMessageSendResult {
-  readonly channel: string;
-  readonly messageId?: string;
+interface OpenClawMessageActionResult {
+  readonly details: unknown;
 }
 
 interface StableOpenClawChannelPlugin {
   readonly gateway: {
     readonly startAccount: (context: OpenClawGatewayContext) => Promise<void>;
   };
-  readonly message: {
-    readonly send: {
-      readonly text: (
-        context: OpenClawMessageSendContext,
-      ) => Promise<OpenClawMessageSendResult>;
-    };
+  readonly actions: {
+    readonly handleAction: (
+      context: OpenClawMessageActionContext,
+    ) => Promise<OpenClawMessageActionResult>;
   };
 }
 
@@ -317,13 +315,22 @@ interface OpenClawReplyFixture {
   readonly responseSent: Deferred.Deferred<void>;
   readonly sessions: RecordedSessionStore;
   /** The plugin's `message` tool path, the only way a reply becomes a post. */
-  readonly sendReply: () => Promise<OpenClawMessageSendResult>;
+  readonly sendReply: () => Promise<OpenClawMessageActionResult>;
 }
 
 type OpenClawRuntimeFixture = OpenClawReplyFixture;
 
-function textContent(text: string): Content {
-  return [{ type: "text", text }];
+/** The certified content of one multicast: its text, then its operation part. */
+function multicastContent(text: string): Content {
+  return [
+    { type: "text", text },
+    {
+      type: "data",
+      value: {
+        "xyz.moltzap/collective": { kind: "operation", op: "multicast" },
+      },
+    },
+  ];
 }
 
 function directAddress(agentName: string) {
@@ -649,7 +656,7 @@ function dispatchOpenClawReply(
       const sent = yield* effectFromPromise("OpenClaw message tool send", () =>
         fixture.sendReply(),
       );
-      expect(sent.messageId).toEqual(expect.any(String));
+      expect(sent.details).toEqual({ ok: true, to: fixture.callerAddress });
       const delivery = yield* effectFromPromise("OpenClaw reply delivery", () =>
         input.dispatcherOptions.deliver(
           { text: "private final text" },
@@ -680,14 +687,11 @@ function isStableOpenClawChannelPlugin(
     return false;
   }
   return (
-    "message" in value &&
-    typeof value.message === "object" &&
-    value.message !== null &&
-    "send" in value.message &&
-    typeof value.message.send === "object" &&
-    value.message.send !== null &&
-    "text" in value.message.send &&
-    typeof value.message.send.text === "function"
+    "actions" in value &&
+    typeof value.actions === "object" &&
+    value.actions !== null &&
+    "handleAction" in value.actions &&
+    typeof value.actions.handleAction === "function"
   );
 }
 
@@ -753,8 +757,9 @@ function runOpenClawScenario() {
       const caller = yield* acquireHarnessEndpoint(scenario.caller.endpoint);
       const callerAddress = directAddress(scenario.caller.agentName);
       const targetAddress = directAddress(scenario.target.agentName);
-      const initial = textContent("hello through the real OpenClaw adapter");
-      const reply = textContent(OPENCLAW_REPLY);
+      const initialText = "hello through the real OpenClaw adapter";
+      const initial = multicastContent(initialText);
+      const reply = multicastContent(OPENCLAW_REPLY);
       const responseSent = yield* Deferred.make<void>();
       const connected = yield* Deferred.make<void>();
       const sessions = new RecordedSessionStore();
@@ -766,11 +771,12 @@ function runOpenClawScenario() {
         responseSent,
         sessions,
         sendReply: () =>
-          channelPlugin.message.send.text({
+          channelPlugin.actions.handleAction({
+            channel: "moltzap",
+            action: "send",
             cfg,
             accountId: OPENCLAW_ACCOUNT_ID,
-            to: callerAddress,
-            text: OPENCLAW_REPLY,
+            params: { to: callerAddress, message: OPENCLAW_REPLY },
           }),
       });
 
@@ -823,10 +829,7 @@ function runOpenClawScenario() {
       const callerDelivery = yield* Effect.forkScoped(
         nextDelivery(caller.messages),
       );
-      yield* caller.send({
-        to: targetAddress,
-        content: initial,
-      });
+      yield* caller.send({ to: targetAddress, text: initialText });
       yield* Effect.raceFirst(
         awaitSignal(responseSent, "OpenClaw channel reply"),
         Fiber.join(runningGateway).pipe(
@@ -840,11 +843,14 @@ function runOpenClawScenario() {
         ),
       );
       const returned = yield* Fiber.join(callerDelivery);
-      expect(returned.message).toMatchObject({
-        kind: "direct",
-        address: targetAddress,
-        sender: targetAddress,
-        content: reply,
+      expect(returned.item).toMatchObject({
+        kind: "multicast",
+        message: {
+          kind: "direct",
+          address: targetAddress,
+          sender: targetAddress,
+          content: [{ type: "text", text: OPENCLAW_REPLY }],
+        },
       });
       yield* returned.acknowledge;
 
@@ -954,14 +960,11 @@ function runNanoClawScenario() {
         scenario.target.agentName,
         scenario.peer.agentName,
       ]);
-      const direct = textContent(NANOCLAW_DIRECT_REPLY);
-      const group = textContent(NANOCLAW_GROUP_REPLY);
-      const inbound = textContent(NANOCLAW_INBOUND);
+      const direct = multicastContent(NANOCLAW_DIRECT_REPLY);
+      const group = multicastContent(NANOCLAW_GROUP_REPLY);
+      const inbound = multicastContent(NANOCLAW_INBOUND);
 
-      yield* caller.send({
-        to: targetAddress,
-        content: inbound,
-      });
+      yield* caller.send({ to: targetAddress, text: NANOCLAW_INBOUND });
 
       const callerDeliveries = yield* Effect.forkScoped(
         nextDeliveries(caller.messages, 2),
@@ -987,29 +990,38 @@ function runNanoClawScenario() {
       const callerReceived = yield* Fiber.join(callerDeliveries);
       const peerReceived = yield* Fiber.join(peerDeliveries);
       expect(callerReceived).toHaveLength(2);
-      expect(callerReceived.map(({ message }) => message)).toEqual(
+      expect(callerReceived.map(({ item }) => item)).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({
-            kind: "direct",
-            address: targetAddress,
-            sender: targetAddress,
-            content: direct,
-          }),
-          expect.objectContaining({
+          {
+            kind: "multicast",
+            message: expect.objectContaining({
+              kind: "direct",
+              address: targetAddress,
+              sender: targetAddress,
+              content: [{ type: "text", text: NANOCLAW_DIRECT_REPLY }],
+            }),
+          },
+          {
+            kind: "multicast",
+            message: expect.objectContaining({
+              kind: "group",
+              address: sharedAddress,
+              sender: targetAddress,
+              content: [{ type: "text", text: NANOCLAW_GROUP_REPLY }],
+            }),
+          },
+        ]),
+      );
+      expect(peerReceived.map(({ item }) => item)).toEqual([
+        {
+          kind: "multicast",
+          message: expect.objectContaining({
             kind: "group",
             address: sharedAddress,
             sender: targetAddress,
-            content: group,
+            content: [{ type: "text", text: NANOCLAW_GROUP_REPLY }],
           }),
-        ]),
-      );
-      expect(peerReceived.map(({ message }) => message)).toEqual([
-        expect.objectContaining({
-          kind: "group",
-          address: sharedAddress,
-          sender: targetAddress,
-          content: group,
-        }),
+        },
       ]);
       yield* Effect.all(
         [...callerReceived, ...peerReceived].map(

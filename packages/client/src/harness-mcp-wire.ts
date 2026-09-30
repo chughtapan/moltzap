@@ -22,6 +22,8 @@ import {
   type HarnessEmptyResult,
   harnessEmptyResultJsonSchema,
   type HarnessMessageReadyEvent,
+  type HarnessSendResult,
+  harnessSendResultJsonSchema,
 } from "./harness-mcp-contract.js";
 import {
   type HarnessMcpSubscriptionHandler,
@@ -78,7 +80,7 @@ export interface HarnessMcpOperations {
   ) => Effect.Effect<ManagementReadConversationResult, ClosedOperationError>;
   readonly send: (
     input: SendInput,
-  ) => Effect.Effect<void, ClosedOperationError>;
+  ) => Effect.Effect<HarnessSendResult, ClosedOperationError>;
   readonly acknowledgeDelivery: (
     deliveryToken: DeliveryToken,
   ) => Effect.Effect<void, ClosedOperationError>;
@@ -162,6 +164,9 @@ const acknowledgeDeliveryInput =
   );
 const emptyOutput = makeStandardSchema<HarnessEmptyResult>(
   harnessEmptyResultJsonSchema,
+);
+const sendOutput = makeStandardSchema<HarnessSendResult>(
+  harnessSendResultJsonSchema,
 );
 
 const REGISTER_REASONS = new Set([
@@ -428,11 +433,11 @@ const registerAdapterTools = (
 ): void => {
   server.registerTool(
     HARNESS_SEND_TOOL,
-    { inputSchema: sendInput, outputSchema: emptyOutput },
+    { inputSchema: sendInput, outputSchema: sendOutput },
     (input, context) =>
-      runVoidOperation({
+      runOperation({
         operation: operations.send(input),
-        label: "Addressed send",
+        label: "Operation send",
         allowedReasons: SEND_REASONS,
         fallbackReason: "network-unavailable",
         signal: context.mcpReq.signal,
@@ -593,9 +598,9 @@ const handleSendToolCall = async (
     input.toolArguments,
     input.name,
   );
-  return await runValidatedVoidOperation(input.name, {
+  return await runValidatedOperation(sendOutput, input.name, {
     operation: operations.send(decoded),
-    label: "Addressed send",
+    label: "Operation send",
     allowedReasons: SEND_REASONS,
     fallbackReason: "network-unavailable",
     signal: input.signal,

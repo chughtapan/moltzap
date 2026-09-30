@@ -1,4 +1,4 @@
-/** @file Two real daemons certify, deliver, and recover addressed posts. */
+/** @file Two real daemons certify, deliver, and recover multicast operations. */
 
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
 import { AgentCard, type AgentName } from "@moltzap/identity";
@@ -32,11 +32,19 @@ const ACTIVE_TOOL_CATALOG = [
   "status",
 ] as const;
 
+const initialText = "hello from the first real daemon";
+const responseText = "addressed response from the second real daemon";
+const multicastPart = {
+  type: "data",
+  value: { "xyz.moltzap/collective": { kind: "operation", op: "multicast" } },
+} as const;
 const initialContent = [
-  { type: "text", text: "hello from the first real daemon" },
+  { type: "text", text: initialText },
+  multicastPart,
 ] as const satisfies Content;
 const responseContent = [
-  { type: "text", text: "addressed response from the second real daemon" },
+  { type: "text", text: responseText },
+  multicastPart,
 ] as const satisfies Content;
 
 function directAddress(agentName: AgentName): AgentAddress {
@@ -158,29 +166,29 @@ const processBehavior = Effect.gen(function* () {
         nextDelivery(target.messages),
       );
 
-      yield* caller.send({
-        to: targetAddress,
-        content: initialContent,
-      });
+      yield* caller.send({ to: targetAddress, text: initialText });
       const targetInbound = yield* Fiber.join(targetDelivery);
-      expect(targetInbound.message).toMatchObject({
-        kind: "direct",
-        address: callerAddress,
-        sender: callerAddress,
-        content: initialContent,
+      expect(targetInbound.item).toMatchObject({
+        kind: "multicast",
+        message: {
+          kind: "direct",
+          address: callerAddress,
+          sender: callerAddress,
+          content: [{ type: "text", text: initialText }],
+        },
       });
       yield* targetInbound.acknowledge;
 
-      yield* target.send({
-        to: callerAddress,
-        content: responseContent,
-      });
+      yield* target.send({ to: callerAddress, text: responseText });
       const callerInbound = yield* Fiber.join(callerDelivery);
-      expect(callerInbound.message).toMatchObject({
-        kind: "direct",
-        address: targetAddress,
-        sender: targetAddress,
-        content: responseContent,
+      expect(callerInbound.item).toMatchObject({
+        kind: "multicast",
+        message: {
+          kind: "direct",
+          address: targetAddress,
+          sender: targetAddress,
+          content: [{ type: "text", text: responseText }],
+        },
       });
       yield* callerInbound.acknowledge;
     }),

@@ -3,8 +3,8 @@
 import type { VerifiedAgentCard } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
-import { Cause, type Context, Deferred, Effect, Scope } from "effect";
-import type { DeliveryAcknowledgeError } from "../../contract.js";
+import { Cause, type Context, Deferred, Effect, Option, Scope } from "effect";
+import type { DeliveryAcknowledgeError, InboundItem } from "../../contract.js";
 import type { HistoryExportPort } from "../../endpoint/engine-types.js";
 import type {
   EndpointEngine,
@@ -14,6 +14,7 @@ import type {
 import type { EndpointStore } from "../../endpoint/store.js";
 import type { HarnessMessageReadyEvent } from "../../harness-mcp-contract.js";
 import type { DaemonBootstrap } from "../configuration.js";
+import { inboundItem } from "../../endpoint/collective/operation.js";
 import { decodeOuterBody } from "../../endpoint/representation.js";
 import {
   type RouterWorker,
@@ -50,20 +51,17 @@ export interface ProtocolState {
 }
 
 /**
- * What happens to one pending delivery: the subscriber receives it, or a layer
- * inside the daemon takes it. The daemon acknowledges a consumed delivery and
- * never publishes it.
+ * Decides what one unpublished pending delivery becomes: the item the
+ * subscriber receives, or none when a layer inside the daemon consumes it.
+ * The daemon acknowledges a consumed delivery and never publishes it.
  */
-type PendingDisposition = "publish" | "consume";
-
-/** Decides each unpublished pending delivery's disposition before publication. */
 export type PendingClassifier = (
   pending: EnginePendingMessage,
-) => Effect.Effect<PendingDisposition>;
+) => Effect.Effect<Option.Option<InboundItem>>;
 
-/** The classifier in place when no daemon layer consumes deliveries. */
-export const publishEveryPending: PendingClassifier = () =>
-  Effect.succeed("publish");
+/** The classifier the daemon installs: each post becomes its operation's item. */
+export const publishOperationItems: PendingClassifier = (pending) =>
+  inboundItem(pending.message);
 
 /** Dependencies and owned resources available to one protocol lifecycle. */
 export interface ProtocolEnvironment {
@@ -114,9 +112,42 @@ const mapWorkerInitializationError = (
   );
 
 /**
+ * Consume or publish one unpublished pending delivery.
+ * @param offer The engine, subscriber, published set, and classifier.
+ * @param pending One delivery the subscriber has not been offered.
+ * @returns False when the subscriber refused the item, true otherwise.
+ */
+const offerPending = (
+  offer: PendingOffer,
+  pending: EnginePendingMessage,
+): Effect.Effect<boolean, DeliveryAcknowledgeError> =>
+  offer.classifyPending(pending).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          offer.engine
+            .acknowledgeMessage(pending.deliveryToken)
+            .pipe(Effect.as(true)),
+        onSome: (item) =>
+          Effect.sync(() => {
+            const event: HarnessMessageReadyEvent = {
+              deliveryToken: pending.deliveryToken,
+              item,
+            };
+            if (!offer.handler.publish(event)) {
+              return false;
+            }
+            offer.publishedDeliveries.add(pending.deliveryToken);
+            return true;
+          }),
+      }),
+    ),
+  );
+
+/**
  * Offer pending deliveries in order: acknowledge each one the classifier
  * consumes and publish the rest, stopping at the first the subscriber refuses.
- * The published event carries only the delivery token and message.
+ * The published event carries only the delivery token and item.
  * @param offer The engine, subscriber, published set, and classifier.
  * @param messages Pending deliveries in durable order.
  * @returns Completion after every offered delivery is consumed or published.
@@ -130,26 +161,9 @@ export const offerPendingMessages = (
       if (offer.publishedDeliveries.has(pending.deliveryToken)) {
         continue;
       }
-      const disposition = yield* offer.classifyPending(pending);
-      switch (disposition) {
-        case "consume":
-          yield* offer.engine.acknowledgeMessage(pending.deliveryToken);
-          break;
-        case "publish": {
-          const event: HarnessMessageReadyEvent = {
-            deliveryToken: pending.deliveryToken,
-            message: pending.message,
-          };
-          if (!offer.handler.publish(event)) {
-            return;
-          }
-          offer.publishedDeliveries.add(pending.deliveryToken);
-          break;
-        }
-        default: {
-          const exhaustive: never = disposition;
-          return exhaustive;
-        }
+      const accepted = yield* offerPending(offer, pending);
+      if (!accepted) {
+        return;
       }
     }
   }).pipe(Effect.withSpan("offerPendingMessages"));

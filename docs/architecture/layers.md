@@ -43,6 +43,23 @@ Router anchor hash, action core, and `ActionHash`. Action signatures and
 durability votes remain separately retained evidence, so valid evidence can
 merge without changing the record position. There is no global offset.
 
+### Collective layer
+
+The certified post is an envelope: routing address, author, Router anchor,
+signatures and an opaque content body. The collective layer sits above it and
+below Tasks and norms. Every send is one collective operation, and the endpoint
+carries the operation as one `data` part of the post's content under the key
+`xyz.moltzap/collective`. Only endpoints read that part; Router and Registry
+see the envelope alone.
+
+Multicast is the only operation: one post to the send's address, complete
+when certified, and the default when a send names no operation. Every post an
+endpoint authors carries its operation part, so a receiving endpoint classifies
+each certified post by that part. A multicast becomes a multicast item without
+the part; the endpoint consumes a post whose part is malformed, duplicated, or
+another collective value, and a multicast whose only part is its collective
+part.
+
 ### Catch-up
 
 Fixed members automatically request and exchange missing complete certified

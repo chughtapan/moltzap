@@ -21,6 +21,7 @@ import {
   type SendInput,
 } from "../contract.js";
 import { resolveMessageAddress } from "./addressing/index.js";
+import { operationContent } from "./collective/operation.js";
 import { currentRecoveryBarrier } from "./recovery/barrier.js";
 import {
   type ActionCertifiedRecord,
@@ -540,8 +541,8 @@ export const prepareSend = (
 
 /**
  * Record one completed `send` invocation in the history export, keeping the
- * host's addressed input as it was given. When no export is configured the
- * no-op port records nothing.
+ * host's operation as it was given. When no export is configured the no-op
+ * port records nothing.
  */
 export const exportSend = (
   runtime: EngineRuntime,
@@ -552,8 +553,7 @@ export const exportSend = (
     Effect.flatMap((at) =>
       runtime.input.historyExport.record({
         kind: "outbound",
-        to: input.to,
-        content: input.content,
+        ...input,
         outcome,
         at,
       }),
@@ -571,6 +571,11 @@ function prepareIntent(
   input: SendInput,
 ): Effect.Effect<PreparedSend, SendError> {
   return Effect.gen(function* () {
+    const content = yield* operationContent(input).pipe(
+      Effect.catchTag("CollectiveContentError", () =>
+        Effect.fail(new SendError({ reason: "content-invalid" })),
+      ),
+    );
     const membership = yield* resolveMembership(runtime, input);
     const postId = yield* mintPostId().pipe(
       Effect.mapError(representationFailure),
@@ -582,7 +587,7 @@ function prepareIntent(
       membershipHash: membership.hash,
       authorAgentId: runtime.input.localAgentCard.agentId,
       postId,
-      content: input.content,
+      content,
     }).pipe(Effect.mapError(representationFailure));
     const canonicalIntent = yield* encodeCanonical(
       PostIntentSchema,

@@ -110,18 +110,52 @@ describe("public content", () => {
   });
 });
 
-// @agent-code-guard/regression-only: SendInput remains a closed two-field boundary with no host retry identity.
+// @agent-code-guard/regression-only: SendInput is a closed operation boundary with no host retry identity.
 describe("public send input", () => {
-  it("decodes only the exact send input fields", () => {
+  it("decodes a send without a collective operation", () => {
+    const input = { to: "agent:bob-agent", text: "Hello" };
+
+    expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
+  });
+
+  it("decodes an explicit multicast operation", () => {
     const input = {
       to: "agent:bob-agent",
-      content: [{ type: "text", text: "Hello" }],
+      text: "Hello",
+      collective: { op: "multicast" },
     };
 
     expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
+  });
+
+  it("decodes a collective operation that omits op", () => {
+    const input = { to: "agent:bob-agent", text: "Hello", collective: {} };
+
+    expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
+  });
+
+  it("rejects an operation this endpoint does not define", () => {
+    expect(
+      decodingFails(SendInput, {
+        to: "agent:bob-agent",
+        text: "Hello",
+        collective: { op: "broadcast" },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects fields outside the operation shape", () => {
+    const input = { to: "agent:bob-agent", text: "Hello" };
+
     expect(decodingFails(SendInput, { ...input, inherited: true })).toBe(true);
     expect(
       decodingFails(SendInput, { ...input, idempotencyKey: "outbox-43" }),
+    ).toBe(true);
+    expect(
+      decodingFails(SendInput, {
+        to: "agent:bob-agent",
+        content: [{ type: "text", text: "Hello" }],
+      }),
     ).toBe(true);
   });
 });

@@ -29,7 +29,7 @@ type PostContent = typeof Content.Type;
 export const COLLECTIVE_DATA_KEY = "xyz.moltzap/collective";
 
 /** Identity of one gather or all_gather, shared by its request, answers and close. */
-const CollectiveId = canonicalIdentifier("CollectiveId", "col_");
+export const CollectiveId = canonicalIdentifier("CollectiveId", "col_");
 
 const mcpPrimitiveSchemaDefinition =
   specTypeSchemas.PrimitiveSchemaDefinition["~standard"];
@@ -198,6 +198,17 @@ function collectivePartValue(
       )
     : Option.none();
 }
+
+/**
+ * Remove the collective part from post content, keeping every other part in
+ * order.
+ * @param content Certified post content.
+ * @returns The remaining parts, empty when the collective part was the only one.
+ */
+export const withoutCollectivePart = (
+  content: PostContent,
+): ReadonlyArray<PostContent[number]> =>
+  content.filter((part) => Option.isNone(collectivePartValue(part)));
 
 /**
  * Decode one untrusted collective value.

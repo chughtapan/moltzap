@@ -1,7 +1,9 @@
 /** @file Public barrel for the final endpoint runtime capability. */
+// safer-arch-ignore no-large-public-surface: The root is the one adapter-facing boundary, and each operation and inbound item is a closed schema its adapters decode; splitting them behind narrower entrypoints would give adapters a second import path for one contract.
 // safer-arch-ignore no-folder-cycle: The root owns the public and loopback contracts consumed by endpoint internals while its server subpath composes daemon and endpoint capabilities into the one Client process boundary.
 export {
   AgentAddress,
+  CollectiveOperation,
   ConnectError,
   Content,
   ContentPart,
@@ -12,6 +14,7 @@ export {
   type HarnessEndpoint,
   HistoryExportRecord,
   type InboundDelivery,
+  InboundItem,
   InboundMessage,
   JsonValue,
   ListenError,

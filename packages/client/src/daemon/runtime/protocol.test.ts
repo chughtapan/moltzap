@@ -1,6 +1,6 @@
 /** @file Pins the classification hook between pending reads and publication. */
 
-import { Effect, Encoding, Schema } from "effect";
+import { Effect, Encoding, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { HarnessMessageReadyEvent } from "../../harness-mcp-contract.js";
 import { InboundMessage } from "../../contract.js";
@@ -10,7 +10,7 @@ import {
   offerPendingMessages,
   type PendingClassifier,
   type PendingOffer,
-  publishEveryPending,
+  publishOperationItems,
 } from "./protocol.js";
 
 interface Observed {
@@ -53,15 +53,16 @@ const offerTo = (
   classifyPending,
 });
 
-const consumeEveryPending: PendingClassifier = () => Effect.succeed("consume");
+const consumeEveryPending: PendingClassifier = () =>
+  Effect.succeed(Option.none());
 
-// @agent-code-guard/regression-only: examples pin the two dispositions of the pending-delivery hook.
+// @agent-code-guard/regression-only: examples pin the two outcomes of the pending-delivery hook.
 describe("pending delivery classification", () => {
-  it("publishes every delivery as token and message when nothing consumes", () => {
+  it("publishes each plain post as a multicast item with its token", () => {
     const observed: Observed = { published: [], acknowledged: [] };
 
     Effect.runSync(
-      offerPendingMessages(offerTo(observed, publishEveryPending), [
+      offerPendingMessages(offerTo(observed, publishOperationItems), [
         first,
         second,
       ]),
@@ -69,8 +70,14 @@ describe("pending delivery classification", () => {
 
     expect(observed).toEqual({
       published: [
-        { deliveryToken: first.deliveryToken, message: first.message },
-        { deliveryToken: second.deliveryToken, message: second.message },
+        {
+          deliveryToken: first.deliveryToken,
+          item: { kind: "multicast", message: first.message },
+        },
+        {
+          deliveryToken: second.deliveryToken,
+          item: { kind: "multicast", message: second.message },
+        },
       ],
       acknowledged: [],
     });
