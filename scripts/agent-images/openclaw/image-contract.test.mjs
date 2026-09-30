@@ -1,14 +1,20 @@
-/** @file The OpenClaw image ships the host script its host command names, runs only a digest-verified Claude Code binary, denies the Claude Code tool that waits for a person, and patches the OpenClaw dist before the plugin installs against it. */
+/** @file The OpenClaw image ships the host script its host command names, runs only a digest-verified Claude Code binary, denies the Claude Code tool that waits for a person, patches the OpenClaw dist before the plugin installs against it, and gives each experiment variant its own tag. */
 
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { posix } from "node:path";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, posix } from "node:path";
 import { test } from "node:test";
 import {
   CLAUDE_CODE_SHA256,
   CLAUDE_CODE_VERSION,
+  experimentDockerfile,
+  experimentTag,
   FINGERPRINTED_FILES,
+  fingerprint,
+  OPENCLAW_EXPERIMENTS,
   packageManifest,
+  splitExperimentArguments,
   ZAI_PROVIDER_PATH,
   ZAI_PROVIDER_VERSION,
 } from "../build-openclaw-image.mjs";
@@ -172,5 +178,117 @@ test("the staged manifest pins the native Z.AI provider and fingerprints it", as
   assert.match(
     await sibling("Dockerfile"),
     /import\("@openclaw\/zai-provider\/dist\/index\.js"\)/u,
+  );
+});
+
+const HIDE = "--experiment-hide-collectives";
+const OMIT = "--experiment-omit-collectives-skill";
+
+/**
+ * @param {string} dockerfile Dockerfile text to stage.
+ * @returns {Promise<string>} The fingerprint of a staging directory holding
+ * that Dockerfile and fixed content for every other fingerprinted file.
+ */
+async function fingerprintWith(dockerfile) {
+  const root = await mkdtemp(join(tmpdir(), "moltzap-openclaw-fingerprint-"));
+  try {
+    await mkdir(join(root, "tarballs"));
+    await writeFile(join(root, "tarballs", "channel.tgz"), "tarball");
+    await Promise.all(
+      FINGERPRINTED_FILES.map((name) =>
+        writeFile(
+          join(root, name),
+          name === "Dockerfile" ? dockerfile : "fixed " + name,
+        ),
+      ),
+    );
+    return await fingerprint(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+test("a build without experiment flags stages the Dockerfile and tag unchanged", async () => {
+  const dockerfile = await sibling("Dockerfile");
+
+  assert.deepEqual(splitExperimentArguments(["--push", "--tag", "t"]), {
+    experiments: [],
+    buildArguments: ["--push", "--tag", "t"],
+  });
+  assert.equal(experimentDockerfile(dockerfile, []), dockerfile);
+  assert.equal(experimentTag("0123456789abcdef", []), "0123456789abcdef");
+});
+
+test("each experiment variant has its own fingerprint and tag", async () => {
+  const dockerfile = await sibling("Dockerfile");
+  const variants = [[], [HIDE], [OMIT], [HIDE, OMIT]];
+  const fingerprints = await Promise.all(
+    variants.map((experiments) =>
+      fingerprintWith(experimentDockerfile(dockerfile, experiments)),
+    ),
+  );
+  const tags = variants.map((experiments) =>
+    experimentTag("2026.930.0", experiments),
+  );
+
+  assert.equal(new Set(fingerprints).size, variants.length);
+  assert.deepEqual(tags, [
+    "2026.930.0",
+    "2026.930.0-hide-collectives",
+    "2026.930.0-omit-collectives-skill",
+    "2026.930.0-hide-collectives-omit-collectives-skill",
+  ]);
+});
+
+test("experiment flags are taken in a fixed order whatever the argument order", () => {
+  assert.deepEqual(
+    splitExperimentArguments([OMIT, "--push", HIDE, "--tag", "constructor"]),
+    {
+      experiments: [HIDE, OMIT],
+      buildArguments: ["--push", "--tag", "constructor"],
+    },
+  );
+});
+
+test("the hide-collectives variant sets the plugin's experiment switch for the host", async () => {
+  const plugin = await readFile(
+    new URL(
+      "../../../packages/openclaw-channel/src/plugin.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.equal(
+    experimentDockerfile("", [HIDE]),
+    "ENV MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES=true\n",
+  );
+  assert.match(
+    plugin,
+    /^const HIDE_COLLECTIVES_VARIABLE = "MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES";$/mu,
+  );
+});
+
+test("the omit-skill variant deletes the installed plugin's collectives skill directory", async () => {
+  const channel = new URL(
+    "../../../packages/openclaw-channel/",
+    import.meta.url,
+  );
+  const manifest = JSON.parse(
+    await readFile(new URL("openclaw.plugin.json", channel), "utf8"),
+  );
+
+  assert.equal(
+    OPENCLAW_EXPERIMENTS[OMIT].dockerfileLine,
+    "RUN rm -r /opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/moltzap-collectives",
+  );
+  assert.deepEqual(manifest.skills, ["./skills"]);
+  await readFile(
+    new URL("skills/moltzap-collectives/SKILL.md", channel),
+    "utf8",
+  );
+  assert.ok(
+    (await sibling("Dockerfile")).indexOf("npm install") > 0,
+    "the plugin must be installed before an appended line deletes its skill",
   );
 });

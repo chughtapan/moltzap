@@ -57,6 +57,15 @@ const TARGET_HINT =
   'Use an explicit "agent:<name>" or "group:<member>,<member>,..." address';
 const INBOUND_LOG_PREVIEW_CHARS = 80;
 
+/**
+ * Experiment control for evaluations that compare agents with and without
+ * collective operations. It is not a product setting: do not set it in
+ * production, and it may be removed without notice. When true, the message
+ * tool omits the `collective` and `collectiveResponse` parameters and a send
+ * carrying either fails with {@link OpenClawCollectivesUnavailableError}.
+ */
+const HIDE_COLLECTIVES_VARIABLE = "MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES";
+
 type OpenClawTargetKind = "user" | "group";
 type OpenClawOutboundFailure =
   | "account-not-connected"
@@ -85,20 +94,8 @@ const moltZapAccountSchema = Schema.Struct({
 /** One OpenClaw account bound to the process-local MCP endpoint. */
 type MoltZapAccount = Schema.Schema.Type<typeof moltZapAccountSchema>;
 
-/**
- * The `channels.moltzap` block of an OpenClaw configuration. `collectives`
- * defaults to true; false withholds the `collective` and `collectiveResponse`
- * message tool parameters and refuses a send that carries either, so an
- * evaluation can run the channel as plain multicast messaging.
- */
 const moltZapChannelConfigSchema = Schema.Struct({
   accounts: Schema.optional(Schema.Tuple(moltZapAccountSchema)),
-  collectives: Schema.optional(
-    Schema.Boolean.annotations({
-      description:
-        "Offer the collective and collectiveResponse message tool parameters. Defaults to true.",
-    }),
-  ),
 });
 const moltZapOpenClawConfigSchema = Schema.Struct({
   channels: Schema.optional(
@@ -186,7 +183,7 @@ class OpenClawOutboundError extends Data.TaggedError("OpenClawOutboundError")<{
 
 /**
  * A message tool send carrying `collective` or `collectiveResponse` while
- * `channels.moltzap.collectives` is false. The tool does not offer either
+ * {@link HIDE_COLLECTIVES_VARIABLE} is true. The tool does not offer either
  * parameter then, so the message tells the model to send without it.
  */
 class OpenClawCollectivesUnavailableError extends Data.TaggedError(
@@ -202,11 +199,10 @@ class OpenClawCollectivesUnavailableError extends Data.TaggedError(
 class OpenClawConfigurationError extends Data.TaggedError(
   "OpenClawConfigurationError",
 )<{
-  readonly source: "MOLTZAP_MCP_URL";
   readonly detail: string;
 }> {
   override get message(): string {
-    return `MoltZap configuration ${this.source} is invalid: ${this.detail}`;
+    return `MoltZap configuration is invalid: ${this.detail}`;
   }
 }
 
@@ -363,8 +359,8 @@ function createConfigSection() {
  * `send` here because the adapter defines no prepared payload or gateway
  * execution mode, so the `collective` parameter reaches the endpoint
  * unchanged. `message.send.text` remains for the sends OpenClaw's core makes
- * itself. With `channels.moltzap.collectives` false the tool offers `send`
- * without the collective parameters.
+ * itself. The tool offers `send` without the collective parameters while
+ * {@link HIDE_COLLECTIVES_VARIABLE} is true or unreadable.
  * @param connectedAccount The account whose endpoint performs the operation.
  * @returns The action adapter registered on the channel plugin.
  */
@@ -372,10 +368,13 @@ function createMessageActions(
   connectedAccount: ConnectedAccountState,
 ): ChannelMessageActionAdapter {
   return {
-    describeMessageTool: ({ cfg }) => ({
+    describeMessageTool: () => ({
       actions: ["send"],
-      ...(collectivesEnabled(cfg)
-        ? {
+      ...(Effect.runSync(
+        experimentHidesCollectives().pipe(Effect.orElseSucceed(() => true)),
+      )
+        ? {}
+        : {
             schema: {
               properties: {
                 collective: collectiveParameter,
@@ -383,8 +382,7 @@ function createMessageActions(
               },
               actions: ["send"],
             },
-          }
-        : {}),
+          }),
     }),
     supportsAction: ({ action }) => action === "send",
     handleAction: (ctx) =>
@@ -411,7 +409,7 @@ function handleMessageAction(
     collective: ctx.params.collective,
     collectiveResponse: ctx.params.collectiveResponse,
   };
-  return refuseDisabledCollectives(ctx.cfg, send).pipe(
+  return refuseHiddenCollectives(send).pipe(
     Effect.andThen(() => sendOperation(connectedAccount, send)),
     Effect.map(({ input, result }) =>
       jsonResult({
@@ -423,19 +421,38 @@ function handleMessageAction(
   );
 }
 
-function refuseDisabledCollectives(
-  cfg: OpenClawConfig,
+/**
+ * Refuse a send carrying a collective parameter while the experiment hides
+ * collectives. The switch is read only for such a send, so an unreadable
+ * value fails it with a configuration error naming the variable and leaves
+ * plain sends unaffected.
+ */
+function refuseHiddenCollectives(
   send: OperationSend,
-): Effect.Effect<void, OpenClawCollectivesUnavailableError> {
-  return (send.collective === undefined &&
-    send.collectiveResponse === undefined) ||
-    collectivesEnabled(cfg)
-    ? Effect.void
-    : Effect.fail(
-        new OpenClawCollectivesUnavailableError({
-          accountId: accountLabel(send.accountId),
-        }),
-      );
+): Effect.Effect<
+  void,
+  OpenClawCollectivesUnavailableError | ConfigError.ConfigError
+> {
+  if (send.collective === undefined && send.collectiveResponse === undefined) {
+    return Effect.void;
+  }
+  return experimentHidesCollectives().pipe(
+    Effect.flatMap((hidden) =>
+      hidden
+        ? Effect.fail(
+            new OpenClawCollectivesUnavailableError({
+              accountId: accountLabel(send.accountId),
+            }),
+          )
+        : Effect.void,
+    ),
+  );
+}
+
+function experimentHidesCollectives() {
+  return Config.boolean(HIDE_COLLECTIVES_VARIABLE).pipe(
+    Config.withDefault(false),
+  );
 }
 
 function createMessageSection(connectedAccount: ConnectedAccountState) {
@@ -463,19 +480,13 @@ function resolveAccount(
 }
 
 function resolveAccountList(cfg: OpenClawConfig): readonly MoltZapAccount[] {
-  return resolveChannelConfig(cfg)?.accounts ?? [];
-}
-
-function collectivesEnabled(cfg: OpenClawConfig): boolean {
-  return resolveChannelConfig(cfg)?.collectives ?? true;
-}
-
-function resolveChannelConfig(
-  cfg: OpenClawConfig,
-): Schema.Schema.Type<typeof moltZapChannelConfigSchema> | undefined {
-  return Option.getOrUndefined(
+  return Option.match(
     Schema.decodeUnknownOption(moltZapOpenClawConfigSchema)(cfg),
-  )?.channels?.moltzap;
+    {
+      onNone: () => [],
+      onSome: (decoded) => decoded.channels?.moltzap?.accounts ?? [],
+    },
+  );
 }
 
 function isExplicitMessageTarget(raw: string): boolean {
@@ -1172,8 +1183,9 @@ function runHostPromise<A, E extends Error | ConfigError.ConfigError>(
 function hostPromiseError(error: Error | ConfigError.ConfigError): Error {
   if (ConfigError.isConfigError(error)) {
     return new OpenClawConfigurationError({
-      source: "MOLTZAP_MCP_URL",
-      detail: error.message,
+      detail: ConfigError.isInvalidData(error)
+        ? `${error.path.join(".")}: ${error.message}`
+        : error.message,
     });
   }
   return error;

@@ -12,7 +12,7 @@ OpenClaw-specific types.
 
 ## Public surface
 
-### [`default`](./plugin.ts#L1182)
+### [`default`](./plugin.ts#L1194)
 
 _Variable_
 
