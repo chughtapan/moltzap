@@ -55,21 +55,24 @@ import {
   AgentAddress,
   CollectiveError,
   type CollectiveFailure,
-  CollectiveId,
+  type CollectiveId,
   type CollectiveMemberOutcome,
   type CollectiveOperation,
   type CollectiveResponse,
   type FailureDelivery,
   type InboundItem,
   type InboundMessage,
-  MessageAddressInput,
+  MAXIMUM_DEADLINE_SECONDS,
+  type MessageAddressInput,
   RequestedSchema,
   SendError,
   type SendInput,
   type SendResult,
 } from "../../contract.js";
+import { canonicalMessageAddress } from "../addressing/index.js";
 import { outcomeOfResponse, validateAnswer } from "./validation.js";
 import {
+  collectiveIdOf,
   type CollectiveValue,
   encodeCollectiveContent,
   FormModeSchema,
@@ -96,6 +99,28 @@ type ResponseValue = Extract<CollectiveValue, { readonly kind: "response" }>;
  * transport timeout.
  */
 const REQUEST_SEND_WAIT = Duration.seconds(20);
+
+/**
+ * The longest single sleep a deadline timer takes. A JavaScript timer longer
+ * than about 24.8 days never fires, so a longer deadline is reached in steps.
+ */
+const DEADLINE_TIMER_STEP = Duration.days(1);
+
+/**
+ * How far past the longest deadline a sender may state a received request's
+ * deadline still lies. It absorbs clock skew between the two endpoints; a
+ * request further out is consumed, which bounds how long its state is held
+ * and keeps every stored deadline a representable date.
+ */
+const RECEIVED_DEADLINE_ALLOWANCE = Duration.hours(1);
+
+/** The furthest past `now` a received request's deadline may lie. */
+const RECEIVED_DEADLINE_HORIZON = Duration.toMillis(
+  Duration.sum(
+    Duration.seconds(MAXIMUM_DEADLINE_SECONDS),
+    RECEIVED_DEADLINE_ALLOWANCE,
+  ),
+);
 
 /** What the collective layer needs from the daemon around it. */
 export interface CollectivePorts {
@@ -140,13 +165,21 @@ export interface CollectiveOperations {
   ) => Effect.Effect<Option.Option<InboundItem>>;
 }
 
-/** A gather this endpoint started that has not completed. */
-interface OpenGather {
+/** A gather this endpoint started, before its deadline timer is running. */
+interface GatherRequest {
   readonly to: MessageAddressInput;
   readonly question: string;
   readonly members: readonly [AgentAddress, ...AgentAddress[]];
   readonly requestedSchema: FormModeSchema;
   readonly outcomes: Map<AgentAddress, CollectiveMemberOutcome>;
+}
+
+/**
+ * A gather this endpoint started that has not completed. `timer` completes it
+ * at its deadline; completing it earlier interrupts the timer.
+ */
+interface OpenGather extends GatherRequest {
+  readonly timer: Fiber.RuntimeFiber<void>;
 }
 
 /**
@@ -166,14 +199,15 @@ interface CollectiveState {
   readonly requests: Map<CollectiveId, ReceivedRequest>;
 }
 
-const decodeCollectiveId = Schema.decodeUnknownSync(CollectiveId);
 const decodeAgentAddress = Schema.decodeUnknownOption(AgentAddress);
-const decodeAddressInput = Schema.decodeUnknownOption(MessageAddressInput);
 const decodeRequestedSchema = Schema.decodeUnknownOption(RequestedSchema);
 
-const mintCollectiveId = Effect.sync(() =>
-  decodeCollectiveId(`col_${randomBytes(32).toString("base64url")}`),
-);
+/** A fresh nonce and the id it binds to the requester. */
+const mintCollectiveId = (requester: AgentAddress) =>
+  Effect.sync(() => {
+    const nonce = randomBytes(32).toString("base64url");
+    return { id: collectiveIdOf(requester, nonce), nonce };
+  });
 
 const contentInvalid = () => new SendError({ reason: "content-invalid" });
 
@@ -295,61 +329,44 @@ function refusedAs<E>(id: CollectiveId, to: MessageAddressInput) {
 }
 
 /**
- * The members a gather asks: the one agent of an `agent:` address, or every
- * named member of a `group:` address but the requester, each once.
+ * The canonical address a gather's result and failure name, by the rule every
+ * send shares, and the members it asks: the one agent of an `agent:` address,
+ * or every member of a group but the requester.
  */
-function gatherMembers(
+function gatherAddress(
   to: MessageAddressInput,
   self: AgentAddress,
-): readonly AgentAddress[] {
-  if (to.startsWith("agent:")) {
-    return Option.toArray(decodeAgentAddress(to));
-  }
-  const names = to.slice("group:".length).split(",");
-  return EffectArray.dedupe(
-    names.flatMap((name) =>
-      Option.toArray(decodeAgentAddress(`agent:${name}`)),
-    ),
-  ).filter((member) => member !== self);
-}
-
-/** Order names by UTF-16 code unit, which is ASCII order for agent names. */
-function compareCodeUnits(left: string, right: string): number {
-  if (left === right) {
-    return 0;
-  }
-  return left < right ? -1 : 1;
+): Effect.Effect<
+  { readonly to: MessageAddressInput; readonly members: AgentAddress[] },
+  SendError
+> {
+  const selfName = self.slice("agent:".length);
+  return canonicalMessageAddress(to, selfName).pipe(
+    Effect.map((canonical) => {
+      if (canonical.kind === "direct") {
+        return { to: canonical.address, members: [canonical.address] };
+      }
+      return {
+        to: canonical.address,
+        members: canonical.memberNames
+          .filter((name) => name !== selfName)
+          .flatMap((name) =>
+            Option.toArray(decodeAgentAddress(`agent:${name}`)),
+          ),
+      };
+    }),
+  );
 }
 
 /**
- * The address a gather's result and failure name: an `agent:` address as
- * given, or a group's names with the requester added, each once and sorted,
- * which is the group conversation's own address.
- */
-function collectiveAddress(
-  to: MessageAddressInput,
-  self: AgentAddress,
-): MessageAddressInput {
-  if (to.startsWith("agent:")) {
-    return to;
-  }
-  const names = new Set([
-    ...to.slice("group:".length).split(","),
-    self.slice("agent:".length),
-  ]);
-  return decodeAddressInput(
-    `group:${[...names].sort(compareCodeUnits).join(",")}`,
-  ).pipe(Option.getOrElse(() => to));
-}
-
-/**
- * A validated gather ready to fan out: its open state, the request content
- * every member receives, and the milliseconds left until its deadline.
+ * A validated gather ready to fan out: its state, the request content every
+ * member receives, its absolute deadline, and the milliseconds left until it.
  */
 interface PreparedGather {
   readonly id: CollectiveId;
-  readonly open: OpenGather;
+  readonly open: GatherRequest;
   readonly content: PostContent;
+  readonly deadlineAt: number;
   readonly untilDeadline: number;
 }
 
@@ -380,14 +397,17 @@ function prepareGather(
   operation: GatherOperation,
 ): Effect.Effect<PreparedGather, RefusedSend<SendError | CollectiveError>> {
   return Effect.gen(function* () {
-    const id = yield* mintCollectiveId;
-    const to = collectiveAddress(requestedTo, state.ports.self);
+    const { id, nonce } = yield* mintCollectiveId(state.ports.self);
+    const { to, members } = yield* gatherAddress(
+      requestedTo,
+      state.ports.self,
+    ).pipe(Effect.mapError(refusedAs(id, requestedTo)));
     const refused = refusedAs<SendError | CollectiveError>(id, to);
     const requestedSchema = yield* formModeSchema(
       id,
       operation.requestedSchema,
     ).pipe(Effect.mapError(refused));
-    const [first, ...rest] = gatherMembers(to, state.ports.self);
+    const [first, ...rest] = members;
     if (first === undefined) {
       return yield* Effect.fail(
         refused(new SendError({ reason: "membership-invalid" })),
@@ -397,31 +417,32 @@ function prepareGather(
     const untilDeadline = Duration.toMillis(
       Duration.seconds(operation.deadline),
     );
+    const deadlineAt = now + untilDeadline;
     const content = yield* encodeCollectiveContent(
       {
         kind: "operation",
         op: "gather",
         id,
-        deadlineAt: now + untilDeadline,
+        nonce,
+        deadlineAt,
         requestedSchema,
       },
       question,
     ).pipe(Effect.mapError(() => refused(contentInvalid())));
-    const open: OpenGather = {
+    const open: GatherRequest = {
       to,
       question,
       members: [first, ...rest],
       requestedSchema,
       outcomes: new Map(),
     };
-    return { id, open, content, untilDeadline };
+    return { id, open, content, deadlineAt, untilDeadline };
   });
 }
 
 /**
- * Open the gather so answers can be recorded while its requests are still
- * being sent, fan the requests out, and schedule its completion at the
- * deadline.
+ * Start the gather's deadline timer, open the gather so answers can be
+ * recorded while its requests are still being sent, and fan the requests out.
  */
 function gather(
   state: CollectiveState,
@@ -439,18 +460,31 @@ function gather(
       question,
       operation,
     );
+    const timer = yield* sleepUntil(prepared.deadlineAt).pipe(
+      Effect.zipRight(completeGather(state, prepared.id)),
+      Effect.forkIn(state.ports.scope),
+    );
     yield* Effect.sync(() => {
-      state.gathers.set(prepared.id, prepared.open);
+      state.gathers.set(prepared.id, { ...prepared.open, timer });
     });
     const postIds = yield* sendRequests(state, prepared).pipe(
       Effect.mapError(refusedAs(prepared.id, prepared.open.to)),
     );
-    yield* Effect.sleep(Duration.millis(prepared.untilDeadline)).pipe(
-      Effect.zipRight(completeGather(state, prepared.id)),
-      Effect.forkIn(state.ports.scope),
-    );
     return { operationId: prepared.id, postIds };
   });
+}
+
+/** Sleep until the absolute time `at`, in steps no timer overflows. */
+function sleepUntil(at: number): Effect.Effect<void> {
+  return Clock.currentTimeMillis.pipe(
+    Effect.flatMap((now) =>
+      now >= at
+        ? Effect.void
+        : Effect.sleep(
+            Duration.min(Duration.millis(at - now), DEADLINE_TIMER_STEP),
+          ).pipe(Effect.zipRight(sleepUntil(at))),
+    ),
+  );
 }
 
 /** A member whose request post was refused, and why. */
@@ -540,8 +574,10 @@ function abandonGather(
     discard: true,
   }).pipe(
     Effect.zipRight(
-      Effect.sync(() => {
+      Effect.suspend(() => {
+        const open = state.gathers.get(id);
         state.gathers.delete(id);
+        return open === undefined ? Effect.void : Fiber.interrupt(open.timer);
       }),
     ),
   );
@@ -549,7 +585,8 @@ function abandonGather(
 
 /**
  * Close a gather and emit its result: each member's recorded outcome, or
- * no-answer. A gather completes once; a later call does nothing.
+ * no-answer. A gather completes once; a later call does nothing. The deadline
+ * timer calls it too, so it leaves the timer to its caller.
  */
 function completeGather(
   state: CollectiveState,
@@ -779,7 +816,8 @@ function questionText(content: PostContent): string {
 /**
  * Record a received gather request and present it as an item. A request
  * reaches its member in their direct conversation; one in a group, one past
- * its deadline, or one reusing another requester's id is consumed.
+ * its deadline, one whose deadline lies beyond `RECEIVED_DEADLINE_HORIZON`, or
+ * one whose id does not derive from its sender is consumed.
  */
 function requestItem(
   state: CollectiveState,
@@ -788,14 +826,15 @@ function requestItem(
 ): Effect.Effect<Option.Option<InboundItem>> {
   return Clock.currentTimeMillis.pipe(
     Effect.map((now) => {
-      if (message.kind !== "direct" || now >= value.deadlineAt) {
+      if (
+        message.kind !== "direct" ||
+        now >= value.deadlineAt ||
+        value.deadlineAt > now + RECEIVED_DEADLINE_HORIZON ||
+        collectiveIdOf(message.sender, value.nonce) !== value.id
+      ) {
         return Option.none();
       }
-      const known = state.requests.get(value.id);
-      if (known !== undefined && known.from !== message.sender) {
-        return Option.none();
-      }
-      if (known === undefined) {
+      if (!state.requests.has(value.id)) {
         forgetExpiredRequests(state, now);
         state.requests.set(value.id, {
           from: message.sender,
@@ -853,7 +892,9 @@ function recordAnswer(
       Effect.flatMap((outcome) => {
         open.outcomes.set(message.sender, outcome);
         return open.outcomes.size === open.members.length
-          ? completeGather(state, value.id)
+          ? completeGather(state, value.id).pipe(
+              Effect.zipRight(Fiber.interrupt(open.timer)),
+            )
           : Effect.void;
       }),
     );

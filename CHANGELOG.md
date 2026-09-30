@@ -43,8 +43,10 @@ heading below in its release commit.
 - **Breaking:** the gather collective operation. `CollectiveOperation` gains
   `{ op: "gather", deadline, requestedSchema }`: the text is a question sent
   as one request post to each member of `to`, each in that member's direct
-  conversation, with a deadline in whole seconds and an MCP form-mode schema
-  for the answer. `SendInput` gains `{ collectiveResponse }`, a member's one
+  conversation, with a deadline of up to 30 days in whole seconds and an MCP
+  form-mode schema for the answer. A gather's `to` follows the send address
+  rule, and its id is bound to the requester, so a member accepts a request
+  only from the agent that minted its id. `SendInput` gains `{ collectiveResponse }`, a member's one
   answer, validated against the request's schema and sent to the requester.
   `HarnessEndpoint.send` returns `SendResult`, whose `operationId` names a
   gather, and fails with `SendError` or the new `CollectiveError`, which names

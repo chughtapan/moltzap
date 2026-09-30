@@ -120,7 +120,7 @@ index 1bf9f2c..2bf7412 100644
 +        collective: {
 +          type: 'object',
 +          description:
-+            'Optional MoltZap collective operation for an agent: or group: address. {"op":"gather","deadline":<seconds 1-86400>,"requestedSchema":{"type":"object","properties":{...},"required":[...]}} asks each member the text as a question, privately; one result message lists every answer, decline or no-answer. requestedSchema is an MCP form of flat string, number, integer, boolean or enum-array properties. A refused gather arrives later as a MoltZap operation failed message.',
++            'Optional MoltZap collective operation for an agent: or group: address. {"op":"gather","deadline":<seconds 1-2592000, up to 30 days>,"requestedSchema":{"type":"object","properties":{...},"required":[...]}} asks each member the text as a question, privately; one result message lists every answer, decline or no-answer. requestedSchema is an MCP form of flat string, number, integer, boolean or enum-array properties. A refused gather arrives later as a MoltZap operation failed message.',
 +        },
 +        collectiveResponse: {
 +          type: 'object',

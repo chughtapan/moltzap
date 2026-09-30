@@ -61,7 +61,15 @@ const acknowledgeConsumed = (
 /**
  * Record an item in the history export the first time it is offered, then
  * offer it to the subscriber, yielding whether the subscriber took it. The
- * line lands before the item is visible.
+ * line lands before the item is visible, for the reason `makeHistoryExport`
+ * gives.
+ *
+ * The append runs inside the pass, under the delivery gate. It cannot
+ * deadlock: the export's own gate is taken only inside `record`, which takes
+ * no other lock, and a send records its outbound line without the delivery
+ * gate. Its cost is one append per item on first offer, only when an operator
+ * configured the export, and an acknowledgment waits for the pass that holds
+ * the gate.
  */
 const publishItem = (
   offer: PendingOffer,

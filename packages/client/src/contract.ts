@@ -295,8 +295,8 @@ export const AnswerContent = Schema.Record({
 /** A structurally valid answer. */
 export type AnswerContent = typeof AnswerContent.Type;
 
-/** The longest deadline a collecting operation may state, one day in seconds. */
-const MAXIMUM_DEADLINE_SECONDS = 86_400;
+/** The longest deadline a collecting operation may state: 30 days, in seconds. */
+export const MAXIMUM_DEADLINE_SECONDS = 2_592_000;
 
 /**
  * Multicast: one post to the `to` address, complete when certified. `op`
@@ -320,7 +320,7 @@ const gatherOperation = exactStruct({
     Schema.between(1, MAXIMUM_DEADLINE_SECONDS),
   ).annotations({
     description:
-      "Seconds from now until the gather closes, a whole number from 1 to 86400. Members who have not answered by then are reported as no-answer.",
+      "Seconds from now until the gather closes, a whole number from 1 to 2592000 (30 days). Members who have not answered by then are reported as no-answer.",
   }),
   requestedSchema: RequestedSchema,
 });

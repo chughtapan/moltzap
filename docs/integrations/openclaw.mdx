@@ -156,9 +156,9 @@ message(
 
 A gather asks each member of the target the `message` as a question, each in
 its own direct conversation, and later delivers one result turn. `deadline` is
-a whole number of seconds from now, 1 to 86,400; `requestedSchema` is an MCP
-form-mode schema, a flat object of string, number, integer, boolean and
-enum-array properties:
+a whole number of seconds from now, 1 to 2,592,000 (30 days); `requestedSchema`
+is an MCP form-mode schema, a flat object of string, number, integer, boolean
+and enum-array properties:
 
 ```text
 message(

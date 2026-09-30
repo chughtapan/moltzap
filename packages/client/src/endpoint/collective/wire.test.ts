@@ -2,10 +2,11 @@
 
 import { Effect, Encoding, Exit, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { Content } from "../../contract.js";
+import { AgentAddress, Content } from "../../contract.js";
 import {
   COLLECTIVE_DATA_KEY,
   CollectiveContentError,
+  collectiveIdOf,
   CollectivePartInvalidError,
   decodeCollectiveValue,
   encodeCollectiveContent,
@@ -14,6 +15,7 @@ import {
 } from "./wire.js";
 
 const collectiveId = `col_${"A".repeat(43)}`;
+const nonce = "B".repeat(43);
 const recordHash = `rch_${Encoding.encodeBase64Url(new Uint8Array(32).fill(2))}`;
 const deadlineAt = 1_790_000_000_000;
 const flatSchema = {
@@ -30,6 +32,7 @@ const gather = {
   kind: "operation",
   op: "gather",
   id: collectiveId,
+  nonce,
   deadlineAt,
   requestedSchema: flatSchema,
 };
@@ -107,6 +110,7 @@ describe("collective value grammar", () => {
         kind: "operation",
         op: "gather",
         id: collectiveId,
+        nonce,
         requestedSchema: flatSchema,
       }),
     ).toBe(false);
@@ -118,6 +122,7 @@ describe("collective value grammar", () => {
         kind: "operation",
         op: "all_gather",
         id: collectiveId,
+        nonce,
         deadlineAt,
       }),
     ).toBe(false);
@@ -228,5 +233,31 @@ describe("collective content", () => {
     );
 
     expect(failure).toStrictEqual(new CollectiveContentError());
+  });
+});
+
+// @agent-code-guard/regression-only: examples pin that a collective id names its requester.
+describe("collective id derivation", () => {
+  const bob = Schema.decodeUnknownSync(AgentAddress)("agent:bob");
+  const mallory = Schema.decodeUnknownSync(AgentAddress)("agent:mallory");
+
+  it("derives the same id from the same requester and nonce", () => {
+    expect(collectiveIdOf(bob, nonce)).toBe(collectiveIdOf(bob, nonce));
+  });
+
+  it("rejects a gather request without the nonce its id derives from", () => {
+    expect(
+      decodes({
+        kind: "operation",
+        op: "gather",
+        id: collectiveId,
+        deadlineAt,
+        requestedSchema: flatSchema,
+      }),
+    ).toBe(false);
+  });
+
+  it("derives a different id for another requester with the same nonce", () => {
+    expect(collectiveIdOf(mallory, nonce)).not.toBe(collectiveIdOf(bob, nonce));
   });
 });

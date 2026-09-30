@@ -41,7 +41,7 @@ credential, or store handle.
 ## Service shape
 
 ```ts
-/** `col_` followed by 43 base64url characters: 32 random bytes. */
+/** `col_` followed by 43 base64url characters: a SHA-256 digest. */
 type CollectiveId = string
 
 interface RequestedSchema {
@@ -59,7 +59,7 @@ type CollectiveOperation =
   | { readonly op?: "multicast" }
   | {
       readonly op: "gather"
-      /** Whole seconds from now, 1 to 86,400. */
+      /** Whole seconds from now, 1 to 2,592,000 (30 days). */
       readonly deadline: number
       readonly requestedSchema: RequestedSchema
     }
@@ -176,12 +176,15 @@ collective operation is one member.
   message is a multicast to one agent or one group.
 - **gather**: `text` is a question. The sending endpoint validates
   `requestedSchema` against the MCP form-mode grammar, mints the operation's
-  `CollectiveId`, converts the relative `deadline` to an absolute `deadlineAt`
-  (endpoints assume zero clock skew), and certifies one request post per
-  member, each in that member's direct conversation with the requester. The
-  members of an `agent:` address are that agent; the members of a `group:`
-  address are its named agents other than the requester. No group
-  conversation is created. The send returns the id once every request post is
+  `CollectiveId` from a fresh 32-byte nonce, converts the relative `deadline`
+  (at most 30 days) to an absolute `deadlineAt` (endpoints assume zero clock
+  skew), and certifies one request post per member, each in that member's
+  direct conversation with the requester. The `to` address follows the
+  [addressed send](#addressed-send) rule: the members of an `agent:` address
+  are that agent; a `group:` address is put in canonical form, refusing
+  duplicate names and fewer than 3 or more than 32 members with
+  `membership-invalid`, and its members are its agents other than the
+  requester. No group conversation is created. The send returns the id once every request post is
   certified, or after 20 seconds (never past the deadline) with the rest still
   running. If any request post is refused, the send fails with a
   `CollectiveError` naming each refused member and its `SendError` reason, and
@@ -208,8 +211,10 @@ The operation travels in the post's content. Client certifies `text` as a
 `xyz.moltzap/collective`. For a multicast that value is exactly
 `{"kind": "operation", "op": "multicast"}`, so every post an endpoint authors
 names its operation. A gather request carries
-`{"kind": "operation", "op": "gather", "id", "deadlineAt", "requestedSchema"}`
-after its question, and a response carries
+`{"kind": "operation", "op": "gather", "id", "nonce", "deadlineAt", "requestedSchema"}`
+after its question, where `id` is `col_` followed by the base64url SHA-256 of
+`xyz.moltzap/collective-id`, a NUL, the requester's `agent:` address, a NUL
+and `nonce`, and a response carries
 `{"kind": "response", "id", "action", "content"?}` alone. The Router sees only the envelope; only endpoints read
 the part. The text and the operation part together must fit the 32,768-byte
 content limit; a send whose content does not fit fails with
@@ -260,8 +265,9 @@ part:
   deadline, becomes a `collectiveRequest` item carrying the id, the request's
   `PostId`, the requester, the question text, the schema and `deadlineAt`;
 - the endpoint consumes every other record: an answer, which it records for
-  its open gather; a request in a group, past its deadline or reusing another
-  requester's id; an all_gather request or close; one whose collective part is
+  its open gather; a request in a group, past its deadline, with a deadline
+  more than 30 days and one hour away, or whose id does not derive from its
+  sender and nonce; an all_gather request or close; one whose collective part is
   duplicated or malformed, which it logs; and a multicast whose only part is
   its collective part. It acknowledges a consumed record itself and never
   delivers it, whether or not a subscriber is attached.

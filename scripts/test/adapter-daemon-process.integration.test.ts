@@ -1105,15 +1105,20 @@ function readNanoClawImage() {
   });
 }
 
+/**
+ * Run the NanoClaw probe against one daemon. Each destination is queued as
+ * `send_message` tool arguments, or through the final output when it is
+ * marked `final`. The probe first waits for the inbound message whose text is
+ * `text`, or starts with `textPrefix`.
+ */
 function runNanoClawProbe(
   image: string,
   endpoint: URL,
-  destinations: readonly { readonly to: string; readonly text: string }[],
+  destinations: readonly Readonly<Record<string, unknown>>[],
   inbound: {
     readonly platformId: string;
     readonly sender: string;
-    readonly text: string;
-  },
+  } & ({ readonly text: string } | { readonly textPrefix: string }),
 ) {
   return effectFromPromise("NanoClaw native host process", () =>
     executeFile(
@@ -1192,7 +1197,7 @@ function runNanoClawScenario() {
         scenario.target.endpoint,
         [
           { to: callerAddress, text: NANOCLAW_DIRECT_REPLY },
-          { to: sharedAddress, text: NANOCLAW_GROUP_REPLY },
+          { to: sharedAddress, text: NANOCLAW_GROUP_REPLY, final: true },
         ],
         {
           platformId: callerAddress,
@@ -1264,6 +1269,64 @@ function runNanoClawScenario() {
   );
 }
 
+function runNanoClawGatherScenario() {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const scenario = yield* acquireScenario("nanoclaw-gather");
+      const caller = yield* acquireHarnessEndpoint(scenario.caller.endpoint);
+      const callerAddress = directAddress(scenario.caller.agentName);
+      const targetAddress = directAddress(scenario.target.agentName);
+
+      const started = yield* caller.send({
+        to: targetAddress,
+        text: GATHER_QUESTION,
+        collective: {
+          op: "gather",
+          deadline: 120,
+          requestedSchema: SLOT_SCHEMA,
+        },
+      });
+      const id = started.operationId ?? "";
+      const result = yield* Effect.forkScoped(nextItem(caller.messages));
+      const image = yield* readNanoClawImage();
+      yield* runNanoClawProbe(
+        image,
+        scenario.target.endpoint,
+        [
+          {
+            to: callerAddress,
+            text: "answering",
+            collectiveResponse: {
+              id,
+              action: "accept",
+              content: { slot: "tue" },
+            },
+          },
+        ],
+        {
+          platformId: callerAddress,
+          sender: callerAddress,
+          textPrefix: `MoltZap collective request ${id} from ${callerAddress}`,
+        },
+      );
+
+      expect(id).toMatch(/^col_/u);
+      expect(yield* Fiber.join(result)).toEqual({
+        kind: "collectiveResult",
+        id,
+        to: targetAddress,
+        question: GATHER_QUESTION,
+        outcomes: [
+          {
+            member: targetAddress,
+            outcome: { kind: "answered", content: { slot: "tue" } },
+          },
+        ],
+      });
+    }),
+  );
+}
+
 it("keeps OpenClaw host identities local across a durable exchange", () => {
   expect.hasAssertions();
   return Effect.runPromise(runOpenClawScenario());
@@ -1277,4 +1340,9 @@ it("runs a gather in both directions through the OpenClaw message tool", () => {
 it("routes NanoClaw inbound and outbound through its native host boundaries", () => {
   expect.hasAssertions();
   return Effect.runPromise(runNanoClawScenario());
+}, 300_000);
+
+it("answers a gather through NanoClaw's send_message", () => {
+  expect.hasAssertions();
+  return Effect.runPromise(runNanoClawGatherScenario());
 }, 300_000);
