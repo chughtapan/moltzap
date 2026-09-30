@@ -1573,6 +1573,70 @@ const recoverColdStartAtUnchangedInstance = () =>
     ),
   );
 
+const recoverWhileDrainAwaitsWorker = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const sendStarted = yield* Deferred.make<undefined>();
+        const releaseSend = yield* Deferred.make<undefined>();
+        const fixture = yield* makeFixtureWithRouter((context) => ({
+          ...makeFixtureRouter(context),
+          send: () =>
+            Deferred.succeed(sendStarted, undefined).pipe(
+              Effect.zipRight(Deferred.await(releaseSend)),
+            ),
+        }));
+        yield* retainCertifiedRecord(fixture);
+        const sending = yield* Effect.fork(
+          fixture.engine.send(
+            yield* Effect.all({
+              to: Schema.decodeUnknown(MessageAddressInput)(
+                `agent:${fixture.remote.card.agentName}`,
+              ),
+              content: Schema.decodeUnknown(Content)([
+                { type: "text", text: "drained while the worker recovers" },
+              ]),
+            }),
+          ),
+        );
+        yield* Deferred.await(sendStarted).pipe(Effect.timeout("1 second"));
+        const recoveryOutbound = yield* Queue.unbounded<SignedMessage>();
+        const resumedOutbound = yield* Queue.unbounded<SignedMessage>();
+        yield* fixture.engine.abandonVolatileFolds("router_restarted");
+        const recovering = yield* Effect.fork(
+          fixture.engine.recoverCertifiedHistory({
+            reason: "router_restarted",
+            anchor: {
+              routerInstanceId: oldRouterInstanceId,
+              pollCursor,
+            },
+            resume: (outboundId) =>
+              forwardStoredOutbound(fixture.store, resumedOutbound, outboundId),
+            send: ({ message }) =>
+              Queue.offer(recoveryOutbound, message).pipe(Effect.asVoid),
+          }),
+        );
+        const request = yield* Queue.take(recoveryOutbound).pipe(
+          Effect.timeout("1 second"),
+          Effect.flatMap(decodeCatchUpRequest),
+        );
+        yield* catchUpIncompleteIngressFrom({
+          membership: fixture.membership,
+          responder: fixture.remote,
+          request,
+          routerInstanceId: oldRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* Fiber.join(recovering).pipe(Effect.timeout("1 second"));
+        yield* Deferred.succeed(releaseSend, undefined);
+        yield* Fiber.interrupt(sending);
+      }),
+    ),
+  );
+
 const recoverDisseminationObligations = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -2287,6 +2351,10 @@ describe("endpoint restart recovery", () => {
   it(
     "catches up without re-anchoring when a cold start finds the anchored Router instance",
     recoverColdStartAtUnchangedInstance,
+  );
+  it(
+    "finishes recovery while an outbound drain waits on the recovering worker",
+    recoverWhileDrainAwaitsWorker,
   );
   it(
     "rebuilds one discarded record dissemination without duplication",

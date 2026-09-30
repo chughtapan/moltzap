@@ -241,27 +241,47 @@ function resumeFoldFailure(): EngineInitializationError {
   return new EngineInitializationError({ reason: "persistence" });
 }
 
-const drainOutbound = (
+const peekOutbound = (
   runtime: EngineRuntime,
-): Effect.Effect<void, EngineOutboundError> =>
+): Effect.Effect<string | undefined> =>
+  runtime.outboundGate.withPermits(1)(Effect.sync(() => runtime.outbound[0]));
+
+const shiftOutbound = (
+  runtime: EngineRuntime,
+  outboundId: string,
+): Effect.Effect<void> =>
   runtime.outboundGate.withPermits(1)(
-    Effect.gen(function* () {
-      while (runtime.outbound.length > 0) {
-        const message = runtime.outbound[0];
-        if (message === undefined) {
-          return;
-        }
-        yield* runtime.input.routerWorker
-          .send(message)
-          .pipe(Effect.mapError(outboundFailure));
-        yield* Effect.sync(() => {
-          if (runtime.outbound[0] === message) {
-            runtime.outbound.shift();
-          }
-        });
+    Effect.sync(() => {
+      if (runtime.outbound[0] === outboundId) {
+        runtime.outbound.shift();
       }
     }),
   );
+
+/**
+ * Send queued outbox identities in order until the queue is empty.
+ *
+ * The outbound gate covers only reading and removing the queue head, never the
+ * worker send. A worker send waits while Router recovery runs, and recovery
+ * takes the outbound gate to resume intents, so holding the gate across the
+ * send would deadlock them. The worker serializes transmissions and a repeated
+ * outbox identity is inactive once sent, so concurrent drains stay ordered.
+ * @param runtime Engine whose queued outbox identities are sent.
+ * @returns Completion once no queued identity remains.
+ */
+const drainOutbound = (
+  runtime: EngineRuntime,
+): Effect.Effect<void, EngineOutboundError> =>
+  Effect.gen(function* () {
+    let outboundId = yield* peekOutbound(runtime);
+    while (outboundId !== undefined) {
+      yield* runtime.input.routerWorker
+        .send(outboundId)
+        .pipe(Effect.mapError(outboundFailure));
+      yield* shiftOutbound(runtime, outboundId);
+      outboundId = yield* peekOutbound(runtime);
+    }
+  });
 
 const send = (
   runtime: EngineRuntime,
