@@ -230,7 +230,8 @@ deadline, it certifies a close post `{"kind": "close", "id", "included"}` in
 the group conversation, where `included` lists, in member order, the certified
 record hash of every answer it counted. Once the close is certified it emits
 its `collectiveResult`, naming the close post in `closePostId`; if the close
-cannot be certified it emits an `operationFailed` item instead.
+cannot be certified it emits an `operationFailed` item instead, and its
+members emit nothing for the operation.
 
 Every member endpoint consumes the answer posts it receives in the group
 conversation and records them by record hash; no model sees a peer's answer
@@ -242,10 +243,13 @@ the close in the conversation's certified chain, and the endpoint stores and
 delivers a conversation's records in chain order, so each listed peer answer
 is already recorded when the close arrives. The member's own answer is
 recorded when its send returns; a close that arrives while that send is in
-flight waits for it. A close that lists an answer the endpoint does not hold,
+flight waits for it. Only the first close in the conversation counts; a later
+one changes nothing. A close that lists an answer the endpoint does not hold,
 comes from anyone but the requester, or names an unknown id is consumed and
 logged and produces no result. A member keeps an all_gather request for up to
-an hour past its deadline while it waits for the close.
+an hour past its deadline while it waits for the close. A member that first
+receives the request after its deadline, within that hour, keeps it without
+presenting it, so it still applies the close and emits the result.
 
 The operation travels in the post's content. Client certifies `text` as a
 `text` part followed by one `data` part whose value is an object with the key
@@ -311,8 +315,10 @@ part:
 - the endpoint consumes every other record: an answer, which it records for
   its open operation or, at an all_gather member, by record hash until the
   close; an all_gather close, which it applies or logs; a request in the wrong
-  kind of conversation, past its deadline, with a deadline more than 30 days
-  and one hour away, or whose id does not derive from its sender and nonce;
+  kind of conversation, past its deadline (an all_gather request within an
+  hour past it is still recorded for its close), with a deadline more than 30
+  days and one hour away, whose id does not derive from its sender and nonce,
+  or that reuses the id of a request the endpoint holds from another post;
   one whose collective part is duplicated or malformed, which it logs; and a
   multicast whose only part is its collective part. It acknowledges a
   consumed record itself and never delivers it, whether or not a subscriber

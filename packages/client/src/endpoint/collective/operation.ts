@@ -102,6 +102,17 @@ import {
   type SendResult,
 } from "../../contract.js";
 import { canonicalMessageAddress } from "../addressing/index.js";
+import {
+  type CertifiedAnswer,
+  type CollectiveResultItem,
+  type HeldClose,
+  keepFirstAnswer,
+  listedAnswers,
+  memberOutcomes,
+  type Members,
+  type ResponseValue,
+  type SharedAnswers,
+} from "./shared-answers.js";
 import { outcomeOfResponse, validateAnswer } from "./validation.js";
 import {
   collectiveIdOf,
@@ -123,8 +134,6 @@ type CollectingValue = Extract<
   CollectiveValue,
   { readonly kind: "operation"; readonly op: "gather" | "all_gather" }
 >;
-
-type ResponseValue = Extract<CollectiveValue, { readonly kind: "response" }>;
 
 type CloseValue = Extract<CollectiveValue, { readonly kind: "close" }>;
 
@@ -232,8 +241,6 @@ export interface CollectiveOperations {
   ) => Effect.Effect<Option.Option<InboundItem>>;
 }
 
-type Members = readonly [AgentAddress, ...AgentAddress[]];
-
 /**
  * A gather or all_gather this endpoint started, before its deadline timer is
  * running. `answerHashes` holds the certified record of each counted answer,
@@ -257,37 +264,15 @@ interface OpenGather extends GatherRequest {
   readonly timer: Fiber.RuntimeFiber<void>;
 }
 
-/** One answer certified in an all_gather's group conversation. */
-interface CertifiedAnswer {
-  readonly recordHash: RecordHash;
-  readonly response: ResponseValue;
-}
-
-/** A close whose listed answers wait for this member's own answer to certify. */
-interface HeldClose {
-  readonly postId: PostId;
-  readonly included: readonly RecordHash[];
-}
-
 /**
- * What a member of an all_gather keeps until the close: each member's first
- * answer certified in the group conversation, its own included, with the
- * record hash a close lists it by.
- */
-interface SharedAnswers {
-  readonly question: string;
-  readonly members: Members;
-  readonly answers: Map<AgentAddress, CertifiedAnswer>;
-  heldClose?: HeldClose;
-}
-
-/**
- * A request this endpoint received. `to` is the conversation it arrived in
- * and every answer goes to. `sending` holds the one answer in flight, so a
- * member answers at most once; a refused answer reopens the request. An
- * all_gather request carries `shared` and becomes `closed` at its close.
+ * A request this endpoint received. `postId` is the request post it came in,
+ * and `to` the conversation it arrived in and every answer goes to.
+ * `sending` holds the one answer in flight, so a member answers at most once;
+ * a refused answer reopens the request. An all_gather request carries
+ * `shared` and becomes `closed` at its close.
  */
 interface ReceivedRequest {
+  readonly postId: PostId;
   readonly from: AgentAddress;
   readonly to: MessageAddressInput;
   readonly requestedSchema: FormModeSchema;
@@ -665,7 +650,9 @@ function sendRequests(
 /**
  * Send an all_gather's one request post to the group and wait for it, never
  * past the deadline. A refused post, or one still uncertified when the wait
- * ends, abandons the all_gather: the group's GENESIS needs every member.
+ * ends, abandons the all_gather: the group's GENESIS needs every member. The
+ * operation is dropped before its unreachable members are looked up, so a
+ * deadline that passes during the lookups cannot close it.
  */
 function sendGroupRequest(
   state: CollectiveState,
@@ -680,8 +667,10 @@ function sendGroupRequest(
       }),
       Effect.map((post) => [post.postId]),
       Effect.catchAll((error) =>
-        unreachableMembers(state, prepared.open.members, error.reason).pipe(
-          Effect.tap(() => forgetGather(state, prepared.id)),
+        forgetGather(state, prepared.id).pipe(
+          Effect.zipRight(
+            unreachableMembers(state, prepared.open.members, error.reason),
+          ),
           Effect.flatMap((members) =>
             Effect.fail(
               collectiveFailure(prepared.id, {
@@ -785,24 +774,6 @@ function forgetGather(
     state.gathers.delete(id);
     return open === undefined ? Effect.void : Fiber.interrupt(open.timer);
   });
-}
-
-type CollectiveResultItem = Extract<
-  InboundItem,
-  { readonly kind: "collectiveResult" }
->;
-
-/** Each member's outcome in member order; a member without one had no answer. */
-function memberOutcomes(
-  members: Members,
-  outcomes: ReadonlyMap<AgentAddress, CollectiveMemberOutcome>,
-): CollectiveResultItem["outcomes"] {
-  const outcome = (member: AgentAddress) => ({
-    member,
-    outcome: outcomes.get(member) ?? { kind: "no-answer" as const },
-  });
-  const [first, ...rest] = members;
-  return [outcome(first), ...rest.map(outcome)];
 }
 
 /**
@@ -1011,7 +982,9 @@ function claimRequest(
  * reopened when it was refused. A member's own answer never arrives inbound,
  * so an all_gather member records it here, and applies a close that was
  * waiting for it; after a refused answer that close lists a record this
- * endpoint will not hold, so applying it drops it.
+ * endpoint will not hold, so applying it drops it. A request already closed
+ * stays closed: its result is out, and a close delivered again must not
+ * apply a second time.
  */
 function settleAnswer(
   state: CollectiveState,
@@ -1020,6 +993,9 @@ function settleAnswer(
   certified: Option.Option<CertifiedAnswer>,
 ): Effect.Effect<void> {
   return Effect.suspend(() => {
+    if (request.state === "closed") {
+      return Effect.void;
+    }
     request.state = Option.isSome(certified) ? "answered" : "open";
     const shared = request.shared;
     if (shared === undefined) {
@@ -1111,15 +1087,22 @@ function multicastItem(
 
 /**
  * The request state a request post opens, when it arrived where its
- * operation sends it: a gather's in the member's direct conversation with
- * the requester, an all_gather's in a group conversation, whose other
- * members are the ones asked.
+ * operation sends it and its id derives from its sender: a gather's in the
+ * member's direct conversation with the requester before its deadline, an
+ * all_gather's in a group conversation, whose other members are the ones
+ * asked, until `CLOSE_WAIT` past its deadline. A deadline beyond
+ * `RECEIVED_DEADLINE_HORIZON` opens nothing.
  */
 function receivedRequest(
   message: InboundMessage,
   value: CollectingValue,
+  now: number,
 ): Option.Option<ReceivedRequest> {
+  if (!trustedRequest(message, value, now)) {
+    return Option.none();
+  }
   const request = {
+    postId: message.postId,
     from: message.sender,
     to: message.address,
     requestedSchema: value.requestedSchema,
@@ -1127,9 +1110,11 @@ function receivedRequest(
     state: "open" as const,
   };
   if (value.op === "gather") {
-    return message.kind === "direct" ? Option.some(request) : Option.none();
+    return message.kind === "direct" && now < value.deadlineAt
+      ? Option.some(request)
+      : Option.none();
   }
-  if (message.kind !== "group") {
+  if (message.kind !== "group" || now >= retainedUntil(request, true)) {
     return Option.none();
   }
   const [first, ...rest] = message.members.filter(
@@ -1147,6 +1132,21 @@ function receivedRequest(
       });
 }
 
+/**
+ * Whether a request's id derives from its sender and its deadline lies
+ * within `RECEIVED_DEADLINE_HORIZON`.
+ */
+function trustedRequest(
+  message: InboundMessage,
+  value: CollectingValue,
+  now: number,
+): boolean {
+  return (
+    value.deadlineAt <= now + RECEIVED_DEADLINE_HORIZON &&
+    collectiveIdOf(message.sender, value.nonce) === value.id
+  );
+}
+
 function questionText(content: PostContent): string {
   return withoutCollectivePart(content)
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
@@ -1155,9 +1155,12 @@ function questionText(content: PostContent): string {
 
 /**
  * Record a received gather or all_gather request and present it as an item.
- * A request in the wrong kind of conversation, one past its deadline, one
- * whose deadline lies beyond `RECEIVED_DEADLINE_HORIZON`, or one whose id
- * does not derive from its sender is consumed.
+ * A request `receivedRequest` opens nothing for is consumed. So is a second
+ * request post reusing an id this endpoint holds: the answer goes to the
+ * conversation of the first, so presenting the second would show the host a
+ * different audience. An all_gather request past its deadline is kept
+ * without being presented, so a member that catches up late still applies
+ * the close and receives the result.
  */
 function requestItem(
   state: CollectiveState,
@@ -1166,20 +1169,20 @@ function requestItem(
 ): Effect.Effect<Option.Option<InboundItem>> {
   return Clock.currentTimeMillis.pipe(
     Effect.map((now) => {
-      const received = receivedRequest(message, value);
+      const received = receivedRequest(message, value, now);
+      const held = state.requests.get(value.id);
       if (
         Option.isNone(received) ||
-        now >= value.deadlineAt ||
-        value.deadlineAt > now + RECEIVED_DEADLINE_HORIZON ||
-        collectiveIdOf(message.sender, value.nonce) !== value.id
+        (held ?? received.value).postId !== message.postId
       ) {
         return Option.none();
       }
-      if (!state.requests.has(value.id)) {
+      if (held === undefined) {
         forgetExpiredRequests(state, now);
         state.requests.set(value.id, received.value);
       }
       return decodeRequestedSchema(value.requestedSchema).pipe(
+        Option.filter(() => now < value.deadlineAt),
         Option.map(
           (requestedSchema): InboundItem => ({
             kind: "collectiveRequest",
@@ -1197,18 +1200,24 @@ function requestItem(
   );
 }
 
-/**
- * Forget requests past their deadline. An all_gather request stays for
- * `CLOSE_WAIT` longer, since its close follows the deadline.
- */
+/** Forget every request past the time `retainedUntil` gives it. */
 function forgetExpiredRequests(state: CollectiveState, now: number): void {
-  const closeWait = Duration.toMillis(CLOSE_WAIT);
   for (const [id, request] of state.requests) {
-    const kept = request.shared === undefined ? 0 : closeWait;
-    if (now >= request.deadlineAt + kept) {
+    if (now >= retainedUntil(request, request.shared !== undefined)) {
       state.requests.delete(id);
     }
   }
+}
+
+/**
+ * When this endpoint drops a received request: at its deadline, or for an
+ * all_gather `CLOSE_WAIT` later, since its close follows the deadline.
+ */
+function retainedUntil(
+  request: Pick<ReceivedRequest, "deadlineAt">,
+  allGather: boolean,
+): number {
+  return request.deadlineAt + (allGather ? Duration.toMillis(CLOSE_WAIT) : 0);
 }
 
 /**
@@ -1294,15 +1303,10 @@ function recordPeerAnswer(
   ) {
     return;
   }
-  if (
-    shared.members.includes(message.sender) &&
-    !shared.answers.has(message.sender)
-  ) {
-    shared.answers.set(message.sender, {
-      recordHash: post.recordHash,
-      response: value,
-    });
-  }
+  keepFirstAnswer(shared, message.sender, {
+    recordHash: post.recordHash,
+    response: value,
+  });
 }
 
 /**
@@ -1310,8 +1314,9 @@ function recordPeerAnswer(
  * conversation of a request this endpoint holds counts. The held request's id
  * derives from its requester, so a close from any other sender names an id
  * that does not derive from that sender; it, and a close for an id this
- * endpoint does not hold, is consumed and logged. A close classified again
- * changes nothing.
+ * endpoint does not hold, is consumed and logged. Only the first close in the
+ * conversation counts, as at every other member: a later one, including one
+ * that arrives while the first is held, changes nothing.
  */
 function receiveClose(
   state: CollectiveState,
@@ -1330,7 +1335,7 @@ function receiveClose(
         `consumed close ${message.postId} from ${message.sender}: it closes no all_gather this endpoint was asked by its sender`,
       );
     }
-    if (request.state === "closed") {
+    if (request.state === "closed" || request.shared.heldClose !== undefined) {
       return Effect.void;
     }
     return applyClose(
@@ -1362,24 +1367,14 @@ function applyClose(
   close: HeldClose,
 ): Effect.Effect<void> {
   const { id, request, shared } = asked;
-  const byHash = new Map(
-    [...shared.answers].map(([member, answer]) => [
-      answer.recordHash,
-      { member, response: answer.response },
-    ]),
-  );
-  const answers = close.included.flatMap((hash) =>
-    Option.toArray(Option.fromNullable(byHash.get(hash))),
-  );
-  const missing = answers.length < close.included.length;
+  const { answers, missing, repeated } = listedAnswers(shared, close.included);
   if (missing && request.state === "sending") {
     shared.heldClose = close;
     return Effect.void;
   }
   request.state = "closed";
   shared.answers.clear();
-  const members = new Set(answers.map((answer) => answer.member));
-  if (missing || members.size < answers.length) {
+  if (missing || repeated) {
     return Effect.logWarning(
       `consumed close ${close.postId} of ${id}: it lists answers this endpoint does not hold`,
     );

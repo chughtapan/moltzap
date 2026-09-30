@@ -125,7 +125,7 @@ index 1bf9f2c..2bf7412 100644
 +        collectiveResponse: {
 +          type: 'object',
 +          description:
-+            'Answer a MoltZap collective request once: {"id":<request id>,"action":"accept","content":{...}} matching its form, or {"id":<request id>,"action":"decline"} or "cancel". Set to to the address the request arrived from: the requester for a gather, the group for an all_gather. text is not sent but is still required; write a short one. A refused answer arrives later as a MoltZap operation failed message.',
++            'Answer a MoltZap collective request once: {"id":<request id>,"action":"accept","content":{...}} matching its form, or {"id":<request id>,"action":"decline"} or "cancel". Set to to the conversation the request arrived in: the requester for a gather, the group for an all_gather. text is not sent but is still required; write a short one. A refused answer arrives later as a MoltZap operation failed message.',
 +        },
        },
        required: ['to', 'text'],

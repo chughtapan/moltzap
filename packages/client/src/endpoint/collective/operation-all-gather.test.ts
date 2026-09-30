@@ -285,6 +285,32 @@ function namesEveryMemberWhenTheGroupPostIsNotCertifiedInTime() {
   );
 }
 
+function doesNotCloseWhenTheDeadlinePassesDuringTheLookups() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const posts = { refused: 0 };
+      const layer = yield* makeLayer(observed, "agent:alice", {
+        sendPost: (input) =>
+          posts.refused++ === 0
+            ? Effect.fail(new SendError({ reason: "unknown-agent" }))
+            : certify(observed, input),
+        lookupMember: () => Effect.sleep(Duration.seconds(120)),
+      });
+      const sending = yield* Effect.fork(
+        failureOf(send(layer, allGatherInput())),
+      );
+      yield* TestClock.adjust(Duration.seconds(120));
+      yield* Fiber.join(sending);
+      yield* settle;
+
+      expect(observed.sent).toEqual([]);
+      expect(observed.emitted).toEqual([]);
+    }),
+  );
+}
+
 function closesWithTheRecordHashOfEachCountedAnswer() {
   const observed = newObserved();
 
@@ -450,6 +476,69 @@ function consumesAGroupRequestWhoseIdDoesNotDeriveFromItsSender() {
       const item = yield* classify(layer, "agent:carol", 10, requestValue);
 
       expect(item).toEqual(Option.none());
+    }),
+  );
+}
+
+function consumesASecondRequestPostThatReusesAHeldId() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(observed, "agent:bob");
+      yield* classify(layer, "agent:alice", 10, requestValue);
+      const reused = yield* layer.classify({
+        message: Schema.decodeUnknownSync(InboundMessage)({
+          kind: "direct",
+          postId: postId(20),
+          address: "agent:alice",
+          sender: "agent:alice",
+          content: [
+            { type: "text", text: "Private question?" },
+            {
+              type: "data",
+              value: { [collectiveKey]: { ...requestValue, op: "gather" } },
+            },
+          ],
+        }),
+        recordHash: recordHash(20),
+      });
+      const redelivered = yield* classify(
+        layer,
+        "agent:alice",
+        10,
+        requestValue,
+      );
+
+      expect(reused).toEqual(Option.none());
+      expect(redelivered).toMatchObject(Option.some({ to: group }));
+    }),
+  );
+}
+
+function keepsARequestFirstSeenAfterItsDeadlineForTheClose() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(observed, "agent:bob");
+      yield* TestClock.adjust(Duration.seconds(60));
+      const item = yield* classify(layer, "agent:alice", 10, requestValue);
+      yield* classify(layer, "agent:carol", 13, answer(requestId, "tue"));
+      yield* classify(layer, "agent:alice", 14, close(requestId, [13]));
+      const failure = yield* failureOf(respond(layer, "mon"));
+
+      expect(item).toEqual(Option.none());
+      expect(failure).toEqual({ kind: "request-expired" });
+      expect(observed.emitted).toMatchObject([
+        {
+          outcomes: [
+            { member: "agent:bob", outcome: { kind: "no-answer" } },
+            { member: "agent:carol", outcome: { kind: "answered" } },
+          ],
+          closePostId: postId(14),
+        },
+      ]);
     }),
   );
 }
@@ -633,6 +722,66 @@ function ignoresACloseFromAMemberOtherThanTheRequester() {
   );
 }
 
+function keepsItsResultWhenItsOwnAnswerSettlesAfterTheClose() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const certified = yield* Deferred.make<undefined>();
+      const layer = yield* makeLayer(observed, "agent:bob", {
+        sendPost: (input) =>
+          Deferred.await(certified).pipe(
+            Effect.zipRight(certify(observed, input)),
+          ),
+      });
+      yield* classify(layer, "agent:alice", 10, requestValue);
+      const answering = yield* Effect.fork(respond(layer, "mon"));
+      yield* settle;
+      yield* classify(layer, "agent:alice", 14, close(requestId, []));
+      yield* Deferred.succeed(certified, undefined);
+      yield* Fiber.join(answering);
+      yield* classify(layer, "agent:alice", 14, close(requestId, []));
+      const failure = yield* failureOf(respond(layer, "tue"));
+
+      expect(observed.emitted).toHaveLength(1);
+      expect(failure).toEqual({ kind: "request-expired" });
+    }),
+  );
+}
+
+function appliesOnlyTheFirstCloseWhileItsOwnAnswerIsInFlight() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const certified = yield* Deferred.make<undefined>();
+      const layer = yield* makeLayer(observed, "agent:bob", {
+        sendPost: (input) =>
+          Deferred.await(certified).pipe(
+            Effect.zipRight(certify(observed, input)),
+          ),
+      });
+      yield* classify(layer, "agent:alice", 10, requestValue);
+      const answering = yield* Effect.fork(respond(layer, "mon"));
+      yield* settle;
+      yield* classify(layer, "agent:alice", 14, close(requestId, [101]));
+      yield* classify(layer, "agent:alice", 15, close(requestId, []));
+      yield* Deferred.succeed(certified, undefined);
+      yield* Fiber.join(answering);
+
+      expect(observed.emitted).toMatchObject([
+        {
+          outcomes: [
+            { member: "agent:bob", outcome: { kind: "answered" } },
+            { member: "agent:carol", outcome: { kind: "no-answer" } },
+          ],
+          closePostId: postId(14),
+        },
+      ]);
+    }),
+  );
+}
+
 function ignoresACloseForAnUnknownId() {
   const observed = newObserved();
 
@@ -682,6 +831,10 @@ describe("all_gather at the requester", () => {
     namesEveryMemberWhenTheGroupPostIsNotCertifiedInTime,
   );
   it(
+    "does not close when the deadline passes during the member lookups",
+    doesNotCloseWhenTheDeadlinePassesDuringTheLookups,
+  );
+  it(
     "closes with the record hash of each counted answer",
     closesWithTheRecordHashOfEachCountedAnswer,
   );
@@ -712,6 +865,14 @@ describe("all_gather at a member", () => {
     "consumes a group request whose id does not derive from its sender",
     consumesAGroupRequestWhoseIdDoesNotDeriveFromItsSender,
   );
+  it(
+    "consumes a second request post that reuses a held id",
+    consumesASecondRequestPostThatReusesAHeldId,
+  );
+  it(
+    "keeps a request first seen after its deadline for the close",
+    keepsARequestFirstSeenAfterItsDeadlineForTheClose,
+  );
   it("posts its answer to the group", postsAMemberAnswerToTheGroup);
   it(
     "consumes a peer answer without publishing it",
@@ -740,6 +901,17 @@ describe("all_gather at a member", () => {
   it(
     "ignores a close from a member other than the requester",
     ignoresACloseFromAMemberOtherThanTheRequester,
+  );
+});
+
+describe("all_gather close at a member", () => {
+  it(
+    "keeps its result when its own answer settles after the close",
+    keepsItsResultWhenItsOwnAnswerSettlesAfterTheClose,
+  );
+  it(
+    "applies only the first close while its own answer is in flight",
+    appliesOnlyTheFirstCloseWhileItsOwnAnswerIsInFlight,
   );
   it("ignores a close for an unknown id", ignoresACloseForAnUnknownId);
   it(

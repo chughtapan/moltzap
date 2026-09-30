@@ -37,7 +37,13 @@ import {
 const LOOPBACK_HOST = "127.0.0.1";
 const ADMISSION_CREDENTIAL = "client-process-admission";
 const READY_STATUS = 204;
-const STARTUP_TIMEOUT = Duration.seconds(30);
+/**
+ * How long a child process has to listen or report healthy. A daemon listens
+ * in about 3 seconds on an idle 8-core host and has taken 14 seconds while
+ * other Nx projects build alongside it; the bound leaves room for that
+ * contention while still failing a process that never starts.
+ */
+const STARTUP_TIMEOUT = Duration.seconds(60);
 const SHUTDOWN_TIMEOUT = Duration.seconds(5);
 const POLL_INTERVAL = Duration.millis(25);
 const MODERN_PROTOCOL_VERSION = "2026-07-28";

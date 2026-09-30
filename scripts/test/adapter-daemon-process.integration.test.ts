@@ -1161,6 +1161,7 @@ function runOpenClawAllGatherScenario() {
             outcome: { kind: "answered", content: { slot: "tue" } },
           },
         ],
+        closePostId: expect.stringMatching(/^pst_/u),
       });
       expect(yield* nextItem(peer.messages)).toEqual(callerResult);
       expect(yield* nextTurn(turns)).toMatchObject({
@@ -1197,9 +1198,21 @@ function runOpenClawAllGatherScenario() {
         Body: `MoltZap collective result ${callerRequest.id} for the question sent to ${group}: ${GATHER_QUESTION}\n- ${callerAddress}: answered {"slot":"mon"}\n- ${peerAddress}: declined`,
         SenderName: "MoltZap collective",
       });
-      expect(yield* nextItem(caller.messages)).toEqual(
-        yield* nextItem(peer.messages),
-      );
+      const memberResult = yield* nextItem(caller.messages);
+      expect(memberResult).toMatchObject({
+        kind: "collectiveResult",
+        id: callerRequest.id,
+        to: group,
+        outcomes: [
+          {
+            member: callerAddress,
+            outcome: { kind: "answered", content: { slot: "mon" } },
+          },
+          { member: peerAddress, outcome: { kind: "declined" } },
+        ],
+        closePostId: expect.stringMatching(/^pst_/u),
+      });
+      expect(yield* nextItem(peer.messages)).toEqual(memberResult);
 
       abortController.abort();
       yield* Fiber.join(runningGateway).pipe(
@@ -1455,6 +1468,81 @@ function runNanoClawGatherScenario() {
   );
 }
 
+function runNanoClawAllGatherScenario() {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const scenario = yield* acquireGroupScenario("nanoclaw-all-gather");
+      const caller = yield* acquireHarnessEndpoint(scenario.caller.endpoint);
+      const peer = yield* acquireHarnessEndpoint(scenario.peer.endpoint);
+      const callerAddress = directAddress(scenario.caller.agentName);
+      const peerAddress = directAddress(scenario.peer.agentName);
+      const targetAddress = directAddress(scenario.target.agentName);
+      const group = groupAddress([
+        scenario.caller.agentName,
+        scenario.peer.agentName,
+        scenario.target.agentName,
+      ]);
+
+      const started = yield* caller.send({
+        to: group,
+        text: GATHER_QUESTION,
+        collective: {
+          op: "all_gather",
+          deadline: 120,
+          requestedSchema: SLOT_SCHEMA,
+        },
+      });
+      const id = started.operationId ?? "";
+      const callerResult = yield* Effect.forkScoped(nextItem(caller.messages));
+      const peerRequest = yield* nextItem(peer.messages).pipe(
+        Effect.flatMap(requireRequest),
+      );
+      yield* peer.send({
+        collectiveResponse: { id: peerRequest.id, action: "decline" },
+      });
+      const image = yield* readNanoClawImage();
+      yield* runNanoClawProbe(
+        image,
+        scenario.target.endpoint,
+        [
+          {
+            to: group,
+            text: "answering",
+            collectiveResponse: {
+              id,
+              action: "accept",
+              content: { slot: "tue" },
+            },
+          },
+        ],
+        {
+          platformId: group,
+          sender: callerAddress,
+          textPrefix: `MoltZap collective request ${id} from ${callerAddress}`,
+        },
+      );
+
+      const result = yield* Fiber.join(callerResult);
+      expect(peerRequest.id).toBe(id);
+      expect(result).toEqual({
+        kind: "collectiveResult",
+        id,
+        to: group,
+        question: GATHER_QUESTION,
+        outcomes: [
+          { member: peerAddress, outcome: { kind: "declined" } },
+          {
+            member: targetAddress,
+            outcome: { kind: "answered", content: { slot: "tue" } },
+          },
+        ],
+        closePostId: expect.stringMatching(/^pst_/u),
+      });
+      expect(yield* nextItem(peer.messages)).toEqual(result);
+    }),
+  );
+}
+
 it("keeps OpenClaw host identities local across a durable exchange", () => {
   expect.hasAssertions();
   return Effect.runPromise(runOpenClawScenario());
@@ -1478,4 +1566,9 @@ it("routes NanoClaw inbound and outbound through its native host boundaries", ()
 it("answers a gather through NanoClaw's send_message", () => {
   expect.hasAssertions();
   return Effect.runPromise(runNanoClawGatherScenario());
+}, 300_000);
+
+it("answers an all_gather through NanoClaw's send_message", () => {
+  expect.hasAssertions();
+  return Effect.runPromise(runNanoClawAllGatherScenario());
 }, 300_000);

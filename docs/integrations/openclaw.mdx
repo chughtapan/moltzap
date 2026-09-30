@@ -75,8 +75,9 @@ for every agent:
   sees them only in this result.
 - `operationFailed`: one turn with the error, attributed and keyed the same
   way with `<operation id>:failed`. OpenClaw's tool waits for the send, so
-  its sends report failures as tool errors and this kind does not arise in
-  practice; it renders all the same.
+  its own sends report failures as tool errors. The one `operationFailed` an
+  OpenClaw agent receives is for an all_gather it started whose close could
+  not be certified.
 
 | Multicast `message` value | OpenClaw context |
 |---|---|
