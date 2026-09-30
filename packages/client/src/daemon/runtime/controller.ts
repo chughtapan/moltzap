@@ -3,12 +3,17 @@
 import type { VerifiedAgentCard } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
-import { Deferred, Effect, Queue, Scope } from "effect";
-import type { HistoryExportPort } from "../../endpoint/engine-types.js";
+import { DateTime, Deferred, Effect, Queue, Scope } from "effect";
 import type { DeliveryToken, EndpointStore } from "../../endpoint/store.js";
 import type { HarnessMcpOperations } from "../../harness-mcp-wire.js";
 import type { DaemonBootstrap } from "../configuration.js";
-import { DeliveryAcknowledgeError, SendError } from "../../contract.js";
+import type { HistoryExportPort } from "./history-export.js";
+import {
+  DeliveryAcknowledgeError,
+  type HistoryExportRecord,
+  SendError,
+  type SendInput,
+} from "../../contract.js";
 import {
   type DaemonActivationError,
   type DaemonActivationPreparation,
@@ -22,7 +27,6 @@ import {
   initializeProtocol,
   type ProtocolEnvironment,
   type ProtocolState,
-  publishOperationItems,
   publishPendingMessages,
   type RuntimeSubscriptionHandler,
 } from "./protocol.js";
@@ -81,25 +85,75 @@ const makeRegisterOperation =
       ),
     );
 
+/**
+ * Record one completed `send` in the history export with its input and how it
+ * ended: the posts certified by its return, or the error it returned.
+ */
+const exportSend = (
+  environment: ProtocolEnvironment,
+  input: SendInput,
+  outcome: Extract<
+    HistoryExportRecord,
+    { readonly kind: "outbound" }
+  >["outcome"],
+): Effect.Effect<void> =>
+  DateTime.now.pipe(
+    Effect.flatMap((at) =>
+      environment.historyExport.record({
+        kind: "outbound",
+        input,
+        outcome,
+        at,
+      }),
+    ),
+  );
+
 const makeSendOperation =
-  (state: ProtocolState): HarnessMcpOperations["send"] =>
+  (environment: ProtocolEnvironment): HarnessMcpOperations["send"] =>
   (request) =>
     Effect.suspend(() => {
-      const protocol = state.activeProtocol;
+      const protocol = environment.state.activeProtocol;
       if (protocol === undefined) {
         return Effect.fail(new SendError({ reason: "not-registered" }));
       }
-      return protocol.engine.send(request).pipe(Effect.as({}));
+      return protocol.collectives
+        .send(request.input, request.failureDelivery ?? "result")
+        .pipe(
+          Effect.tapBoth({
+            onFailure: (error) =>
+              exportSend(environment, request.input, {
+                kind: "failed",
+                error: error.message,
+              }),
+            onSuccess: (outcome) =>
+              exportSend(environment, request.input, {
+                kind: "sent",
+                ...outcome,
+              }),
+          }),
+          Effect.map((outcome) =>
+            outcome.operationId === undefined
+              ? {}
+              : { operationId: outcome.operationId },
+          ),
+        );
     });
 
-const forgetPublishedDelivery = (
+const forgetDelivery = (
   state: ProtocolState,
   deliveryToken: DeliveryToken,
 ): Effect.Effect<void> =>
   Effect.sync(() => {
     state.publishedDeliveries.delete(deliveryToken);
+    state.exportedDeliveries.delete(deliveryToken);
+    state.classifiedItems.delete(deliveryToken);
   });
 
+/**
+ * Acknowledge one published delivery: an item the collective layer emitted is
+ * dropped from daemon memory, and a durable delivery is acknowledged in the
+ * store.
+ */
 const makeAcknowledgeDeliveryOperation =
   (
     state: ProtocolState,
@@ -114,11 +168,12 @@ const makeAcknowledgeDeliveryOperation =
             new DeliveryAcknowledgeError({ reason: "unknown-delivery" }),
           );
         }
-        return protocol.engine
-          .acknowledgeMessage(deliveryToken)
-          .pipe(
-            Effect.tap(() => forgetPublishedDelivery(state, deliveryToken)),
-          );
+        const acknowledge = state.localItems.delete(deliveryToken)
+          ? Effect.void
+          : protocol.engine.acknowledgeMessage(deliveryToken);
+        return acknowledge.pipe(
+          Effect.tap(() => forgetDelivery(state, deliveryToken)),
+        );
       }),
     );
 
@@ -171,7 +226,7 @@ const assembleDaemonController = (input: {
     operations: Object.freeze({
       ...input.management,
       register,
-      send: makeSendOperation(input.environment.state),
+      send: makeSendOperation(input.environment),
       acknowledgeDelivery: makeAcknowledgeDeliveryOperation(
         input.environment.state,
         input.deliveryGate,
@@ -213,6 +268,9 @@ export const makeDaemonController = (
     const state: ProtocolState = {
       subscriptionActive: false,
       publishedDeliveries: new Set(),
+      localItems: new Map(),
+      exportedDeliveries: new Set(),
+      classifiedItems: new Map(),
     };
     const environment: ProtocolEnvironment = {
       store: input.store,
@@ -224,7 +282,6 @@ export const makeDaemonController = (
       daemonScope,
       fatal,
       state,
-      classifyPending: publishOperationItems,
     };
     const reconciler = publishPendingMessages(environment, deliveryGate);
     const initialize = (agentCard: VerifiedAgentCard) =>

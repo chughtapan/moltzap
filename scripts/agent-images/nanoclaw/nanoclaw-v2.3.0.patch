@@ -2,7 +2,7 @@ diff --git a/container/agent-runner/src/destinations.ts b/container/agent-runner
 index 5bf3fc7..77da6b3 100644
 --- a/container/agent-runner/src/destinations.ts
 +++ b/container/agent-runner/src/destinations.ts
-@@ -6,9 +6,13 @@
+@@ -6,10 +6,14 @@
   * queries the table live on every lookup, so admin changes take effect
   * immediately — no restart required.
   *
@@ -19,11 +19,11 @@ index 5bf3fc7..77da6b3 100644
 +
  import { getAgentMailbox } from './mailbox/index.js';
  import type { Destination } from './mailbox/types.js';
+ 
 @@ -44,6 +48,20 @@ export function findByName(name: string): DestinationEntry | undefined {
    return destination && destinationEntry(destination);
  }
--
-+
+ 
 +/** Resolve an explicit MoltZap address before any local destination alias. */
 +export function findMessageDestination(name: string): DestinationEntry | undefined {
 +  if (Schema.is(MessageAddressInput)(name)) {
@@ -43,8 +43,7 @@ index 5bf3fc7..77da6b3 100644
    platformId: string | null | undefined,
 @@ -77,8 +95,7 @@ function buildDestinationsSection(mode: SessionMode): string {
    const lines = ['## Sending messages', ''];
--
-+
+ 
    if (all.length === 0) {
 -    lines.push('You currently have no configured destinations. You cannot send messages until an admin wires one up.');
 -    if (mode.kind === 'chat') return lines.join('\n');
@@ -55,16 +54,14 @@ index 5bf3fc7..77da6b3 100644
 @@ -89,11 +106,15 @@ function buildDestinationsSection(mode: SessionMode): string {
      }
    }
--
-+
+ 
 -  lines.push('');
 +  lines.push(
 +    '',
 +    'A supplied MoltZap `agent:name` or `group:name,...` address is also a valid explicit destination. Client validates and canonicalizes it.',
 +    '',
 +  );
--
-+
+ 
    if (mode.kind === 'task') {
      lines.push(
 -      'This is an isolated task run with no attached chat. Only notify someone when the task asks you to. For a user-visible message, call `send_message({ to: "name", text: "..." })`; for a file, call `send_file` with `to`. Always pass the explicit named destination.',
@@ -74,8 +71,7 @@ index 5bf3fc7..77da6b3 100644
      );
 @@ -101,7 +122,7 @@ function buildDestinationsSection(mode: SessionMode): string {
    }
--
-+
+ 
    lines.push(
 -    'Wrap each delivered message in a `<message to="name">…</message>` block; include several blocks in one response to address several destinations. `<internal>…</internal>` marks thinking you don\'t want sent.',
 +    'Wrap each delivered message in a `<message to="name-or-address">…</message>` block; include several blocks in one response to address several destinations. `<internal>…</internal>` marks thinking you don\'t want sent.',
@@ -83,14 +79,13 @@ index 5bf3fc7..77da6b3 100644
    lines.push('');
    lines.push(
 diff --git a/container/agent-runner/src/mcp-tools/core.ts b/container/agent-runner/src/mcp-tools/core.ts
-index 1bf9f2c..1acbbf3 100644
+index 1bf9f2c..2bf7412 100644
 --- a/container/agent-runner/src/mcp-tools/core.ts
 +++ b/container/agent-runner/src/mcp-tools/core.ts
 @@ -9,7 +9,7 @@
  import fs from 'fs';
  import path from 'path';
--
-+
+ 
 -import { findByName, getAllDestinations } from '../destinations.js';
 +import { findByName, findMessageDestination, getAllDestinations, type DestinationEntry } from '../destinations.js';
  import { getMessageIdBySeq, getRoutingBySeq, writeMessageOut } from '../db/messages-out.js';
@@ -107,7 +102,7 @@ index 1bf9f2c..1acbbf3 100644
    if (!dest) return { error: `Unknown destination "${to}". Known: ${destinationList()}` };
    if (dest.type === 'channel') {
      // If the destination is the same channel the session is bound to,
-@@ -70,13 +71,13 @@ function resolveRouting(
+@@ -70,15 +71,25 @@ function resolveRouting(
  export const sendMessage: McpToolDefinition = {
    tool: {
      name: 'send_message',
@@ -122,18 +117,41 @@ index 1bf9f2c..1acbbf3 100644
 +          description: 'Destination name or explicit MoltZap agent: or group: address.',
          },
          text: { type: 'string', description: 'Message content' },
++        collective: {
++          type: 'object',
++          description:
++            'Optional MoltZap collective operation for an agent: or group: address. {"op":"gather","deadline":<seconds 1-86400>,"requestedSchema":{"type":"object","properties":{...},"required":[...]}} asks each member the text as a question, privately; one result message lists every answer, decline or no-answer. requestedSchema is an MCP form of flat string, number, integer, boolean or enum-array properties. A refused gather arrives later as a MoltZap operation failed message.',
++        },
++        collectiveResponse: {
++          type: 'object',
++          description:
++            'Answer a MoltZap collective request once: {"id":<request id>,"action":"accept","content":{...}} matching its form, or {"id":<request id>,"action":"decline"} or "cancel". Set to to the requester. text is not sent but is still required; write a short one. A refused answer arrives later as a MoltZap operation failed message.',
++        },
        },
-@@ -89,7 +90,7 @@ export const sendMessage: McpToolDefinition = {
+       required: ['to', 'text'],
+     },
+@@ -88,8 +99,11 @@ export const sendMessage: McpToolDefinition = {
+     const text = args.text as string;
      if (!to) return err(`to is required. Options: ${destinationList()}`);
      if (!text) return err('text is required');
--
-+
++    const collective = args.collective === undefined ? {} : { collective: args.collective };
++    const collectiveResponse =
++      args.collectiveResponse === undefined ? {} : { collectiveResponse: args.collectiveResponse };
+ 
 -    const routing = resolveRouting(to);
 +    const routing = resolveRouting(to, findMessageDestination);
      if ('error' in routing) return err(routing.error);
--
-+
+ 
      const id = generateId();
+@@ -100,7 +114,7 @@ export const sendMessage: McpToolDefinition = {
+       platform_id: routing.platform_id,
+       channel_type: routing.channel_type,
+       thread_id: routing.thread_id,
+-      content: JSON.stringify({ text }),
++      content: JSON.stringify({ text, ...collective, ...collectiveResponse }),
+     });
+ 
+     log(`send_message: #${seq} → ${routing.resolvedName}`);
 diff --git a/container/agent-runner/src/poll-loop.ts b/container/agent-runner/src/poll-loop.ts
 index c7b5de0..6ea44ee 100644
 --- a/container/agent-runner/src/poll-loop.ts
@@ -179,8 +197,7 @@ index 5e2c028..71f8abd 100644
 @@ -344,8 +347,8 @@ async function deliverMessage(
      return;
    }
--
-+
+ 
 -  // Permission check: the source agent must be allowed to deliver to this
 -  // channel destination. Two ways it passes:
 +  // NanoClaw-owned channel destinations pass the local permission check in one

@@ -8,7 +8,7 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./client-runtime.ts#L80)
+### [`acquireHarnessEndpoint`](./client-runtime.ts#L83)
 
 _Function_
 
@@ -22,7 +22,7 @@ Acquire one real MCP-backed endpoint and its scoped connection.
 
 **Returns:** An endpoint whose resources remain live for the caller's scope.
 
-### [`AgentAddress`](./contract.ts#L130)
+### [`AgentAddress`](./contract.ts#L132)
 
 _TypeAlias_
 
@@ -32,7 +32,7 @@ export type AgentAddress = typeof AgentAddress.Type;
 
 A validated direct destination.
 
-### [`AgentAddress`](./contract.ts#L124)
+### [`AgentAddress`](./contract.ts#L126)
 
 _Variable_
 
@@ -46,7 +46,25 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveOperation`](./contract.ts#L252)
+### [`CollectiveError`](./contract.ts#L672)
+
+_Class_
+
+```ts
+export class CollectiveError extends Data.TaggedError("CollectiveError")<{
+  readonly id: CollectiveId;
+  readonly failure: CollectiveFailure;
+}> {
+  override get message(): string {
+    return `collective ${this.id} failed: ${describeCollectiveFailure(this.failure)}`;
+  }
+}
+```
+
+A collective send was refused. The message names each unreachable member or
+failing field, so a host can hand it to its model as the tool error.
+
+### [`CollectiveOperation`](./contract.ts#L341)
 
 _TypeAlias_
 
@@ -56,24 +74,60 @@ export type CollectiveOperation = typeof CollectiveOperation.Type;
 
 A validated collective operation.
 
-### [`CollectiveOperation`](./contract.ts#L245)
+### [`CollectiveOperation`](./contract.ts#L333)
 
 _Variable_
 
 ```ts
-export const CollectiveOperation = Schema.Union(multicastOperation).annotations(
-  {
-    description:
-      "The collective operation. Omit it, or its op, for multicast: one post to the to address.",
-  },
-)
+export const CollectiveOperation = Schema.Union(
+  multicastOperation,
+  gatherOperation,
+).annotations({
+  description:
+    'The collective operation. Omit it, or its op, for multicast: one post to the to address. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} asks each member of to the message text as a question, privately, and returns one result with each member\'s answer, decline, or no-answer once all have replied or the deadline passes.',
+})
 ```
 
 The collective operation one send performs, discriminated by `op`. Each
 operation is one member of this union; the schema carries no identifier so
 its JSON Schema embeds inline in a host tool's parameters.
 
-### [`ConnectError`](./contract.ts#L444)
+### [`CollectiveResponse`](./contract.ts#L363)
+
+_TypeAlias_
+
+```ts
+export type CollectiveResponse = typeof CollectiveResponse.Type;
+```
+
+A validated collective response.
+
+### [`CollectiveResponse`](./contract.ts#L348)
+
+_Variable_
+
+```ts
+export const CollectiveResponse = Schema.Union(
+  exactStruct({
+    id: CollectiveId,
+    action: Schema.Literal("accept"),
+    content: AnswerContent,
+  }),
+  exactStruct({
+    id: CollectiveId,
+    action: Schema.Literal("decline", "cancel"),
+  }),
+).annotations({
+  description:
+    'Answer a collective request: {"id":<request id>,"action":"accept","content":{...}} with content valid against the request\'s schema, or {"id":<request id>,"action":"decline"} or "cancel" without content. The reply goes to the requester whatever to says, and each request takes one answer.',
+})
+```
+
+A member's reply to one collective request. Only `accept` carries content,
+valid against the request's schema; the member's endpoint addresses the
+reply to the requester.
+
+### [`ConnectError`](./contract.ts#L719)
 
 _Class_
 
@@ -89,7 +143,7 @@ export class ConnectError extends Data.TaggedError("ConnectError")<{
 
 Acquiring the endpoint connection failed.
 
-### [`Content`](./contract.ts#L229)
+### [`Content`](./contract.ts#L231)
 
 _TypeAlias_
 
@@ -99,7 +153,7 @@ export type Content = typeof Content.Type;
 
 Validated nonempty semantic content.
 
-### [`Content`](./contract.ts#L224)
+### [`Content`](./contract.ts#L226)
 
 _Variable_
 
@@ -112,7 +166,7 @@ export const Content = contentStructure.pipe(
 
 Nonempty semantic content whose canonical JSON is at most 32,768 bytes.
 
-### [`ContentPart`](./contract.ts#L205)
+### [`ContentPart`](./contract.ts#L207)
 
 _TypeAlias_
 
@@ -122,7 +176,7 @@ export type ContentPart = typeof ContentPart.Type;
 
 A validated semantic message part.
 
-### [`ContentPart`](./contract.ts#L200)
+### [`ContentPart`](./contract.ts#L202)
 
 _Variable_
 
@@ -135,7 +189,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./contract.ts#L428)
+### [`DeliveryAcknowledgeError`](./contract.ts#L703)
 
 _Class_
 
@@ -153,7 +207,7 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
 
 Transport acknowledgment could not complete for one delivery.
 
-### [`DirectMessage`](./contract.ts#L317)
+### [`DirectMessage`](./contract.ts#L444)
 
 _TypeAlias_
 
@@ -163,7 +217,7 @@ export type DirectMessage = typeof directMessage.Type;
 
 One certified remote-authored direct message.
 
-### [`GroupAddress`](./contract.ts#L139)
+### [`GroupAddress`](./contract.ts#L141)
 
 _TypeAlias_
 
@@ -173,7 +227,7 @@ export type GroupAddress = typeof GroupAddress.Type;
 
 A validated canonical complete group destination.
 
-### [`GroupAddress`](./contract.ts#L133)
+### [`GroupAddress`](./contract.ts#L135)
 
 _Variable_
 
@@ -187,7 +241,7 @@ export const GroupAddress = addressInput.pipe(
 
 A complete fixed-member group address in unsigned ASCII name order.
 
-### [`GroupMessage`](./contract.ts#L319)
+### [`GroupMessage`](./contract.ts#L446)
 
 _TypeAlias_
 
@@ -197,21 +251,30 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./contract.ts#L462)
+### [`HarnessEndpoint`](./contract.ts#L743)
 
 _Interface_
 
 ```ts
 export interface HarnessEndpoint {
-  readonly send: (input: SendInput) => Effect.Effect<void, SendError>;
+  readonly send: (
+    input: SendInput,
+    options?: Readonly<{ failureDelivery?: FailureDelivery }>,
+  ) => Effect.Effect<SendResult, SendError | CollectiveError>;
   readonly messages: Stream.Stream<InboundDelivery, ListenError>;
 }
 ```
 
 Structural runtime capability owned by one scoped endpoint connection.
-Every send is one operation; the stream yields inbound items.
+Every send is one operation or one collective response; the stream yields
+inbound items.
 
-### [`HistoryExportRecord`](./contract.ts#L395)
+A host whose tool returns before the send completes passes
+`failureDelivery: "inbound"`: a refused gather or response then completes
+and its error arrives as an `operationFailed` item on the stream. A
+multicast has no operation id, so its failure is always returned.
+
+### [`HistoryExportRecord`](./contract.ts#L588)
 
 _TypeAlias_
 
@@ -221,7 +284,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord`](./contract.ts#L374)
+### [`HistoryExportRecord`](./contract.ts#L569)
 
 _Variable_
 
@@ -234,9 +297,7 @@ export const HistoryExportRecord = Schema.Union(
   }),
   exactStruct({
     kind: Schema.Literal("outbound"),
-    to: MessageAddressInput,
-    text: wellFormedString,
-    collective: Schema.optionalWith(CollectiveOperation, { exact: true }),
+    input: SendInput,
     outcome: historyExportSendOutcome,
     at: Schema.DateTimeUtc,
   }),
@@ -248,12 +309,12 @@ export const HistoryExportRecord = Schema.Union(
 ).annotations({ identifier: "HistoryExportRecord" })
 ```
 
-One line of the daemon's optional history export: an inbound item, a
-completed `send` invocation with its operation and outcome, or the one line
-that says the export stopped. Readers decode the file line by line with
-this schema rather than copying its shape.
+One line of the daemon's optional history export: an item as the daemon
+published it, a completed `send` invocation with its input and outcome, or
+the one line that says the export stopped. Readers decode the file line by
+line with this schema rather than copying its shape.
 
-### [`InboundDelivery`](./contract.ts#L453)
+### [`InboundDelivery`](./contract.ts#L728)
 
 _Interface_
 
@@ -266,7 +327,7 @@ export interface InboundDelivery {
 
 One inbound item plus its transport-only acknowledgment.
 
-### [`InboundItem`](./contract.ts#L348)
+### [`InboundItem`](./contract.ts#L535)
 
 _TypeAlias_
 
@@ -276,12 +337,17 @@ export type InboundItem = typeof InboundItem.Type;
 
 A validated inbound item.
 
-### [`InboundItem`](./contract.ts#L344)
+### [`InboundItem`](./contract.ts#L526)
 
 _Variable_
 
 ```ts
-export const InboundItem = Schema.Union(multicastItem).annotations({
+export const InboundItem = Schema.Union(
+  multicastItem,
+  collectiveRequestItem,
+  collectiveResultItem,
+  operationFailedItem,
+).annotations({
   identifier: "InboundItem",
 })
 ```
@@ -289,9 +355,10 @@ export const InboundItem = Schema.Union(multicastItem).annotations({
 One inbound item, discriminated by `kind`. The endpoint consumes the
 collective layer's protocol posts, posts whose collective part is malformed
 or duplicated, and multicasts that carry nothing besides that part; every
-other certified post becomes one item.
+other certified post becomes one item, and the endpoint itself emits
+results and failures.
 
-### [`InboundMessage`](./contract.ts#L327)
+### [`InboundMessage`](./contract.ts#L454)
 
 _TypeAlias_
 
@@ -301,7 +368,7 @@ export type InboundMessage = typeof InboundMessage.Type;
 
 A validated direct or group post.
 
-### [`InboundMessage`](./contract.ts#L322)
+### [`InboundMessage`](./contract.ts#L449)
 
 _Variable_
 
@@ -314,7 +381,7 @@ export const InboundMessage = Schema.Union(
 
 One certified remote-authored post, direct or to a fixed group.
 
-### [`JsonValue`](./contract.ts#L178)
+### [`JsonValue`](./contract.ts#L180)
 
 _TypeAlias_
 
@@ -330,7 +397,7 @@ export type JsonValue =
 
 A value accepted by the closed semantic content boundary.
 
-### [`JsonValue`](./contract.ts#L188)
+### [`JsonValue`](./contract.ts#L190)
 
 _Variable_
 
@@ -349,7 +416,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./contract.ts#L413)
+### [`ListenError`](./contract.ts#L688)
 
 _Class_
 
@@ -365,7 +432,7 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 
 The endpoint's sole inbound subscription failed.
 
-### [`MessageAddressInput`](./contract.ts#L144)
+### [`MessageAddressInput`](./contract.ts#L146)
 
 _TypeAlias_
 
@@ -375,7 +442,7 @@ export type MessageAddressInput = typeof MessageAddressInput.Type;
 
 A validated explicit destination input.
 
-### [`MessageAddressInput`](./contract.ts#L142)
+### [`MessageAddressInput`](./contract.ts#L144)
 
 _Variable_
 
@@ -385,7 +452,7 @@ export const MessageAddressInput = addressInput
 
 Either accepted destination input, including noncanonical group order.
 
-### [`PostId`](./contract.ts#L168)
+### [`PostId`](./contract.ts#L170)
 
 _TypeAlias_
 
@@ -395,13 +462,13 @@ export type PostId = typeof PostId.Type;
 
 A validated author-scoped post identity.
 
-### [`PostId`](./contract.ts#L159)
+### [`PostId`](./contract.ts#L161)
 
 _Variable_
 
 ```ts
 export const PostId = Schema.String.pipe(
-  Schema.filter(isCanonicalPostId, {
+  Schema.filter((value) => isCanonicalIdentifier("pst_", value), {
     identifier: "PostId",
     description: "Canonical author-scoped post identity",
   }),
@@ -412,7 +479,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`SendError`](./contract.ts#L398)
+### [`SendError`](./contract.ts#L591)
 
 _Class_
 
@@ -428,7 +495,7 @@ export class SendError extends Data.TaggedError("SendError")<{
 
 An addressed send failed before local certification completed.
 
-### [`SendInput`](./contract.ts#L264)
+### [`SendInput`](./contract.ts#L380)
 
 _TypeAlias_
 
@@ -436,22 +503,39 @@ _TypeAlias_
 export type SendInput = typeof SendInput.Type;
 ```
 
-Validated input for one operation.
+Validated input for one send.
 
-### [`SendInput`](./contract.ts#L258)
+### [`SendInput`](./contract.ts#L371)
 
 _Variable_
 
 ```ts
-export const SendInput = exactStruct({
-  to: MessageAddressInput,
-  text: wellFormedString,
-  collective: Schema.optionalWith(CollectiveOperation, { exact: true }),
-}).annotations({ identifier: "SendInput" })
+export const SendInput = Schema.Union(
+  exactStruct({
+    to: MessageAddressInput,
+    text: wellFormedString,
+    collective: Schema.optionalWith(CollectiveOperation, { exact: true }),
+  }),
+  exactStruct({ collectiveResponse: CollectiveResponse }),
+).annotations({ identifier: "SendInput" })
 ```
 
-One operation: its address, its body text and the collective operation it
-performs, multicast when `collective` is omitted.
+One send: an operation with its address, body text and collective
+operation, multicast when `collective` is omitted; or a response to a
+collective request, which names no address because the member's endpoint
+derives it from the request.
+
+### [`SendResult`](./contract.ts#L389)
+
+_Interface_
+
+```ts
+export interface SendResult {
+  readonly operationId?: CollectiveId;
+}
+```
+
+What a completed send returns: a collecting operation names its id.
 
 ## Files
 

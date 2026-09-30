@@ -12,11 +12,15 @@ import type {
 } from "openclaw/plugin-sdk/channel-core";
 import { live as it } from "@effect/vitest";
 import {
+  CollectiveError,
+  CollectiveResponse,
   type HarnessEndpoint,
   type InboundDelivery,
+  InboundItem,
   InboundMessage,
   ListenError,
   type SendInput,
+  type SendResult,
 } from "@moltzap/client";
 import { Data, Effect, Encoding, Fiber, Schema, Stream } from "effect";
 import { join } from "node:path";
@@ -45,7 +49,7 @@ const TEST_SESSION_STORE_PATH = join(
 
 type MoltZapPlugin = ReturnType<typeof createMoltzapChannelPlugin>;
 type OpenClawInboundRunInput = ChannelInboundEventRunnerParams<{
-  readonly message: InboundMessage;
+  readonly turn: object;
 }>;
 type ResolvedInboundTurn = Awaited<
   ReturnType<OpenClawInboundRunInput["adapter"]["resolveTurn"]>
@@ -159,13 +163,47 @@ describe("OpenClaw message tool send action", () => {
     "offers the send action with an optional collective parameter",
     messageToolOffersOptionalCollective,
   );
+  it(
+    "sends a gather and returns its operation id in the tool result",
+    messageToolSendReturnsGatherId,
+  );
+  it(
+    "sends a collectiveResponse without the target or message text",
+    messageToolSendsCollectiveResponse,
+  );
+  it(
+    "fails the tool with the Client error naming each unreachable member",
+    messageToolSendSurfacesCollectiveError,
+  );
+  vitestIt(
+    "offers an optional collectiveResponse parameter and the gather operation",
+    messageToolOffersCollectiveResponse,
+  );
+});
+
+describe("OpenClaw collective item turns", () => {
+  it(
+    "renders a collective request as a direct turn from the requester",
+    rendersCollectiveRequest,
+  );
+  it(
+    "renders a gather result as one group turn attributed to the collective",
+    rendersCollectiveResult,
+  );
+  it(
+    "renders an operation failure as a turn attributed to the collective",
+    rendersOperationFailure,
+  );
 });
 
 function upstreamRunnerAndAcknowledgment() {
   const events: string[] = [];
   const direct = directMessage();
   const group = groupMessage();
-  const fake = makeInboundEndpoint([direct, group], events);
+  const fake = makeInboundEndpoint(
+    [multicast(direct), multicast(group)],
+    events,
+  );
   const calls: DispatchObservation[] = [];
   const plans: ChannelInboundTurnPlan[] = [];
   const routePeers: RuntimeFixtureParams["routePeers"] = [];
@@ -185,18 +223,18 @@ function upstreamRunnerAndAcknowledgment() {
       { kind: "group", id: "alice,bob,carol" },
     ]);
     expect(calls).toHaveLength(2);
-    expectRoutedTurn(requireTurnPlan(plans, 0), direct.item.message.address);
-    expectRoutedTurn(requireTurnPlan(plans, 1), group.item.message.address);
-    expectDirectProjection(requireDispatchCall(calls, 0), direct.item.message);
-    expectGroupProjection(requireDispatchCall(calls, 1), group.item.message);
+    expectRoutedTurn(requireTurnPlan(plans, 0), direct.address);
+    expectRoutedTurn(requireTurnPlan(plans, 1), group.address);
+    expectDirectProjection(requireDispatchCall(calls, 0), direct);
+    expectGroupProjection(requireDispatchCall(calls, 1), group);
     expect(plans.every((plan) => plan.replyOptions === undefined)).toBe(true);
     expect(events).toEqual([
-      `record:${direct.item.message.postId}:${MAIN_SESSION_KEY}`,
-      `dispatch:${direct.item.message.postId}`,
-      `ack:${direct.item.message.postId}`,
-      `record:${group.item.message.postId}:${MAIN_SESSION_KEY}`,
-      `dispatch:${group.item.message.postId}`,
-      `ack:${group.item.message.postId}`,
+      `record:${direct.postId}:${MAIN_SESSION_KEY}`,
+      `dispatch:${direct.postId}`,
+      `ack:${direct.postId}`,
+      `record:${group.postId}:${MAIN_SESSION_KEY}`,
+      `dispatch:${group.postId}`,
+      `ack:${group.postId}`,
     ]);
     expect(fake.sends).toEqual([]);
     yield* proactiveSendFailsWhenDisconnected(plugin, fake, 0);
@@ -206,7 +244,7 @@ function upstreamRunnerAndAcknowledgment() {
 function privateModeUsesHostResolvedPeerSession() {
   const events: string[] = [];
   const message = groupMessage();
-  const fake = makeInboundEndpoint([message], events);
+  const fake = makeInboundEndpoint([multicast(message)], events);
   const calls: DispatchObservation[] = [];
   const plans: ChannelInboundTurnPlan[] = [];
   const runtime = makeObservedRuntime({
@@ -218,7 +256,7 @@ function privateModeUsesHostResolvedPeerSession() {
   const plugin = createMoltzapChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
-  const sessionKey = sessionKeyFor(message.item.message.address);
+  const sessionKey = sessionKeyFor(message.address);
 
   return Effect.gen(function* () {
     yield* startAccount(
@@ -231,26 +269,16 @@ function privateModeUsesHostResolvedPeerSession() {
       ),
     );
 
-    expectRoutedTurn(
-      requireTurnPlan(plans, 0),
-      message.item.message.address,
-      sessionKey,
-    );
-    expectGroupProjection(
-      requireDispatchCall(calls, 0),
-      message.item.message,
-      sessionKey,
-    );
-    expect(events).toContain(
-      `record:${message.item.message.postId}:${sessionKey}`,
-    );
+    expectRoutedTurn(requireTurnPlan(plans, 0), message.address, sessionKey);
+    expectGroupProjection(requireDispatchCall(calls, 0), message, sessionKey);
+    expect(events).toContain(`record:${message.postId}:${sessionKey}`);
   });
 }
 
 function failedHostTurnPreservesDelivery() {
   const events: string[] = [];
   const message = directMessage();
-  const fake = makeInboundEndpoint([message], events);
+  const fake = makeInboundEndpoint([multicast(message)], events);
   const runtime = makeObservedRuntime({
     events,
     calls: [],
@@ -271,8 +299,8 @@ function failedHostTurnPreservesDelivery() {
 
     expect(failure).toBeInstanceOf(OpenClawTestError);
     expect(events).toEqual([
-      `record:${message.item.message.postId}:${MAIN_SESSION_KEY}`,
-      `dispatch-failed:${message.item.message.postId}`,
+      `record:${message.postId}:${MAIN_SESSION_KEY}`,
+      `dispatch-failed:${message.postId}`,
     ]);
     expect(fake.sends).toEqual([]);
   });
@@ -281,7 +309,10 @@ function failedHostTurnPreservesDelivery() {
 function replayRemainsHostOwned() {
   const events: string[] = [];
   const message = directMessage();
-  const fake = makeInboundEndpoint([message, message], events);
+  const fake = makeInboundEndpoint(
+    [multicast(message), multicast(message)],
+    events,
+  );
   const calls: DispatchObservation[] = [];
   const runtime = makeObservedRuntime({ events, calls, routePeers: [] });
   const plugin = createMoltzapChannelPlugin({
@@ -532,10 +563,242 @@ function messageToolOffersOptionalCollective() {
 
   expect(discovery?.actions).toEqual(["send"]);
   expect(schema.properties.collective).toMatchObject({
-    type: "object",
-    properties: { op: { type: "string", enum: ["multicast"] } },
+    anyOf: [
+      { properties: { op: { type: "string", enum: ["multicast"] } } },
+      {},
+    ],
   });
   expect(Type.Object(schema.properties).required ?? []).toEqual([]);
+}
+
+const COLLECTIVE_ID = `col_${Encoding.encodeBase64Url(new Uint8Array(32).fill(5))}`;
+const SLOT_SCHEMA = {
+  type: "object",
+  properties: { slot: { type: "string", enum: ["mon", "tue"] } },
+  required: ["slot"],
+};
+
+function messageToolSendReturnsGatherId() {
+  const fake = makeEndpoint(
+    Stream.never,
+    [],
+    Effect.succeed({ operationId: collectiveId() }),
+  );
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
+  const controller = new AbortController();
+  const collective = {
+    op: "gather",
+    deadline: 300,
+    requestedSchema: SLOT_SCHEMA,
+  };
+
+  return Effect.gen(function* () {
+    const fiber = yield* connectAccount(plugin, controller.signal);
+    const result = yield* handleSendAction(plugin, {
+      to: "group:alice,bob,carol",
+      message: "Which day?",
+      collective,
+    });
+
+    expect(fake.sends).toEqual([
+      { to: "group:alice,bob,carol", text: "Which day?", collective },
+    ]);
+    expect(result.details).toEqual({
+      ok: true,
+      to: "group:alice,bob,carol",
+      operationId: COLLECTIVE_ID,
+    });
+
+    controller.abort();
+    yield* Effect.timeout(Fiber.join(fiber), "1 second");
+  });
+}
+
+function messageToolSendsCollectiveResponse() {
+  const fake = makeListeningEndpoint();
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
+  const controller = new AbortController();
+  const collectiveResponse = { id: COLLECTIVE_ID, action: "decline" };
+
+  return Effect.gen(function* () {
+    const fiber = yield* connectAccount(plugin, controller.signal);
+    yield* handleSendAction(plugin, {
+      to: "agent:nova",
+      message: "declining",
+      collectiveResponse,
+    });
+
+    expect(fake.sends).toEqual([{ collectiveResponse }]);
+
+    controller.abort();
+    yield* Effect.timeout(Fiber.join(fiber), "1 second");
+  });
+}
+
+function messageToolSendSurfacesCollectiveError() {
+  const refusal = new CollectiveError({
+    id: collectiveId(),
+    failure: {
+      kind: "members-unreachable",
+      members: [
+        {
+          member: Schema.decodeUnknownSync(InboundMessage)({
+            kind: "direct",
+            postId: postId(3),
+            address: "agent:carol",
+            sender: "agent:carol",
+            content: [{ type: "text", text: "unused" }],
+          }).sender,
+          reason: "unknown-agent",
+        },
+      ],
+    },
+  });
+  const fake = makeEndpoint(Stream.never, [], Effect.fail(refusal));
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
+  const controller = new AbortController();
+
+  return Effect.gen(function* () {
+    const fiber = yield* connectAccount(plugin, controller.signal);
+    const failure = yield* handleSendAction(plugin, {
+      to: "group:alice,bob,carol",
+      message: "Which day?",
+      collective: { op: "gather", deadline: 60, requestedSchema: SLOT_SCHEMA },
+    }).pipe(Effect.flip);
+
+    expect(failure.detail).toContain(refusal.message);
+
+    controller.abort();
+    yield* Effect.timeout(Fiber.join(fiber), "1 second");
+  });
+}
+
+function messageToolOffersCollectiveResponse() {
+  const discovery = createMoltzapChannelPlugin().actions?.describeMessageTool({
+    cfg: makeConfig(),
+  });
+  const schema = discovery?.schema;
+  if (schema === undefined || schema === null || Array.isArray(schema)) {
+    throw new Error("expected one message tool schema contribution");
+  }
+
+  expect(schema.properties.collectiveResponse).toMatchObject({
+    anyOf: [
+      { properties: { action: { enum: ["accept"] } } },
+      { properties: { action: { enum: ["decline", "cancel"] } } },
+    ],
+  });
+  expect(schema.properties.collective).toMatchObject({
+    anyOf: [{}, { properties: { op: { enum: ["gather"] } } }],
+  });
+}
+
+function rendersCollectiveRequest() {
+  const item = Schema.decodeUnknownSync(InboundItem)({
+    kind: "collectiveRequest",
+    id: COLLECTIVE_ID,
+    postId: postId(4),
+    from: "agent:alice",
+    question: "Which day?",
+    requestedSchema: SLOT_SCHEMA,
+    deadlineAt: Date.UTC(2026, 8, 30, 12),
+  });
+
+  return Effect.gen(function* () {
+    const call = yield* runItemTurn(item);
+
+    expect(call.ctx).toMatchObject({
+      Body: [
+        `MoltZap collective request ${COLLECTIVE_ID} from agent:alice, open until 2026-09-30T12:00:00.000Z.`,
+        "Question: Which day?",
+        `Answer form (requestedSchema): ${JSON.stringify(SLOT_SCHEMA)}`,
+        `Answer once with the message tool's send action and collectiveResponse {"id":"${COLLECTIVE_ID}","action":"accept","content":{...}} matching the form, or {"id":"${COLLECTIVE_ID}","action":"decline"}.`,
+      ].join("\n"),
+      ChatType: "direct",
+      From: "agent:alice",
+      MessageSid: postId(4),
+    });
+  });
+}
+
+function rendersCollectiveResult() {
+  const item = Schema.decodeUnknownSync(InboundItem)({
+    kind: "collectiveResult",
+    id: COLLECTIVE_ID,
+    to: "group:alice,bob,carol",
+    question: "Which day?",
+    outcomes: [
+      {
+        member: "agent:bob",
+        outcome: { kind: "answered", content: { slot: "mon" } },
+      },
+      { member: "agent:carol", outcome: { kind: "no-answer" } },
+    ],
+  });
+
+  return Effect.gen(function* () {
+    const call = yield* runItemTurn(item);
+
+    expect(call.ctx).toMatchObject({
+      Body: [
+        `MoltZap collective result ${COLLECTIVE_ID} for the question sent to group:alice,bob,carol: Which day?`,
+        '- agent:bob: answered {"slot":"mon"}',
+        "- agent:carol: no answer by the deadline",
+      ].join("\n"),
+      ChatId: "group:alice,bob,carol",
+      ChatType: "group",
+      SenderName: "MoltZap collective",
+      MessageSid: `${COLLECTIVE_ID}:result`,
+    });
+  });
+}
+
+function rendersOperationFailure() {
+  const item = Schema.decodeUnknownSync(InboundItem)({
+    kind: "operationFailed",
+    id: COLLECTIVE_ID,
+    to: "agent:alice",
+    error: "collective failed: this request's deadline has passed",
+  });
+
+  return Effect.gen(function* () {
+    const call = yield* runItemTurn(item);
+
+    expect(call.ctx).toMatchObject({
+      Body: "MoltZap operation failed: collective failed: this request's deadline has passed",
+      ChatId: "agent:alice",
+      SenderName: "MoltZap collective",
+      MessageSid: `${COLLECTIVE_ID}:failed`,
+    });
+  });
+}
+
+/** Run one item through the account's inbound path and return its dispatch. */
+function runItemTurn(item: InboundItem) {
+  const events: string[] = [];
+  const calls: DispatchObservation[] = [];
+  const fake = makeInboundEndpoint([item], events);
+  const runtime = makeObservedRuntime({ events, calls, routePeers: [] });
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
+  return startAccount(
+    plugin,
+    gatewayContext(new AbortController().signal, runtime),
+  ).pipe(Effect.map(() => requireDispatchCall(calls, 0)));
+}
+
+function collectiveId() {
+  return Schema.decodeUnknownSync(CollectiveResponse)({
+    id: COLLECTIVE_ID,
+    action: "decline",
+  }).id;
 }
 
 function connectAccount(plugin: MoltZapPlugin, abortSignal: AbortSignal) {
@@ -579,7 +842,7 @@ function handleSendAction(
 function emptyReplyRemainsInvisible() {
   const events: string[] = [];
   const message = directMessage();
-  const fake = makeInboundEndpoint([message], events);
+  const fake = makeInboundEndpoint([multicast(message)], events);
   const runtime = makeObservedRuntime({
     events,
     calls: [],
@@ -597,9 +860,9 @@ function emptyReplyRemainsInvisible() {
     );
 
     expect(events).toEqual([
-      `record:${message.item.message.postId}:${MAIN_SESSION_KEY}`,
-      `dispatch:${message.item.message.postId}`,
-      `ack:${message.item.message.postId}`,
+      `record:${message.postId}:${MAIN_SESSION_KEY}`,
+      `dispatch:${message.postId}`,
+      `ack:${message.postId}`,
     ]);
     expect(fake.sends).toEqual([]);
   });
@@ -775,36 +1038,48 @@ function observedReplyDispatch(
   };
 }
 
-function directMessage(): InboundDelivery {
-  return delivery(
-    Schema.decodeUnknownSync(InboundMessage)({
-      kind: "direct",
-      postId: postId(1),
-      address: "agent:alice",
-      sender: "agent:alice",
-      content: [
-        { type: "text", text: "hello" },
-        { type: "data", value: { count: 2 } },
-      ],
-    }),
-  );
+function directMessage(): InboundMessage {
+  return Schema.decodeUnknownSync(InboundMessage)({
+    kind: "direct",
+    postId: postId(1),
+    address: "agent:alice",
+    sender: "agent:alice",
+    content: [
+      { type: "text", text: "hello" },
+      { type: "data", value: { count: 2 } },
+    ],
+  });
 }
 
-function groupMessage(): InboundDelivery {
-  return delivery(
-    Schema.decodeUnknownSync(InboundMessage)({
-      kind: "group",
-      postId: postId(2),
-      address: "group:alice,bob,carol",
-      sender: "agent:bob",
-      members: ["agent:alice", "agent:bob", "agent:carol"],
-      content: [{ type: "text", text: "group message" }],
-    }),
-  );
+function groupMessage(): InboundMessage {
+  return Schema.decodeUnknownSync(InboundMessage)({
+    kind: "group",
+    postId: postId(2),
+    address: "group:alice,bob,carol",
+    sender: "agent:bob",
+    members: ["agent:alice", "agent:bob", "agent:carol"],
+    content: [{ type: "text", text: "group message" }],
+  });
 }
 
-function delivery(message: InboundMessage): InboundDelivery {
-  return { item: { kind: "multicast", message }, acknowledge: Effect.void };
+function multicast(message: InboundMessage): InboundItem {
+  return { kind: "multicast", message };
+}
+
+/** The turn id OpenClaw sees for an item, which the fake acknowledgment logs. */
+function itemTurnId(item: InboundItem): string {
+  switch (item.kind) {
+    case "multicast":
+      return item.message.postId;
+    case "collectiveRequest":
+      return item.postId;
+    case "collectiveResult":
+      return `${item.id}:result`;
+    case "operationFailed":
+      return `${item.id}:failed`;
+    default:
+      return item satisfies never;
+  }
 }
 
 function postId(fill: number): string {
@@ -812,25 +1087,32 @@ function postId(fill: number): string {
 }
 
 function makeInboundEndpoint(
-  deliveries: readonly InboundDelivery[],
+  items: readonly InboundItem[],
   events: string[],
 ): FakeHarnessEndpoint {
-  const acknowledged = deliveries.map((delivered) => ({
-    item: delivered.item,
-    acknowledge: Effect.sync(() => {
-      events.push(`ack:${delivered.item.message.postId}`);
+  const deliveries = items.map(
+    (item): InboundDelivery => ({
+      item,
+      acknowledge: Effect.sync(() => {
+        events.push(`ack:${itemTurnId(item)}`);
+      }),
     }),
-  }));
-  return makeEndpoint(Stream.fromIterable(acknowledged), events);
+  );
+  return makeEndpoint(Stream.fromIterable(deliveries), events);
 }
 
 function makeListeningEndpoint(): FakeHarnessEndpoint {
   return makeEndpoint(Stream.never, []);
 }
 
+/** The fake endpoint's default send outcome: a multicast's empty result. */
+const SEND_SUCCEEDS: Effect.Effect<SendResult, CollectiveError> =
+  Effect.succeed({});
+
 function makeEndpoint(
   messages: HarnessEndpoint["messages"],
   events: string[],
+  result: Effect.Effect<SendResult, CollectiveError> = SEND_SUCCEEDS,
 ): FakeHarnessEndpoint {
   const sends: SendInput[] = [];
   return {
@@ -839,8 +1121,8 @@ function makeEndpoint(
       send: (input) =>
         Effect.sync(() => {
           sends.push(input);
-          events.push(`send:${input.to}:${input.text}`);
-        }),
+          events.push(`send:${JSON.stringify(input)}`);
+        }).pipe(Effect.zipRight(result)),
       messages,
     },
   };

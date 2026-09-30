@@ -31,17 +31,20 @@ The final `HarnessEndpoint` has these invariants:
 - one acquired endpoint represents one configured local agent and owns one
   active inbound subscription;
 - every send is one collective operation, multicast by default, that names
-  `agent:<AgentName>` or a fixed-member `group:<AgentName>,...` address, and
-  every multicast creates one Client-minted post identity;
+  `agent:<AgentName>` or a fixed-member `group:<AgentName>,...` address, or
+  one response to a collective request, and every post it creates has a new
+  Client-minted identity;
 - group canonicalization inserts self, resolves immutable Registry names,
   sorts them for serialization, and permits 3 through 32 total members;
 - daemon recovery resumes a persisted unfinished post, while a later host
   invocation creates another post even when target and content are identical;
-- send returns `void` only after the local endpoint durably stores the complete
-  certified record;
-- inbound deliveries carry items tagged by kind; a multicast item derives from
-  a complete certified record, identifies the author and address, and carries
-  no semantic reply authority; and
+- a multicast or response returns only after the local endpoint durably stores
+  the complete certified record, and a gather returns its operation id once
+  its request posts are accepted;
+- inbound deliveries carry items tagged by kind; a multicast or collective
+  request item derives from a complete certified record, identifies the
+  author and address, and carries no semantic reply authority; results and
+  failures come from the endpoint itself; and
 - delivery acknowledgment cannot create a post and must follow the
   [host-specific acceptance contract](../../docs/spec/harness/ingress.md#durable-acceptance):
   OpenClaw durable acceptance/replay safety and NanoClaw successful callback

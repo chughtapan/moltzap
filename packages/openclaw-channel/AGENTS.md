@@ -33,8 +33,9 @@ re-exports. Publication follows `docs/spec/layer-interfaces.md` → Publication 
   shared and in private evaluation mode. Every outbound callback names an
   explicit `agent:` or `group:` target through the `message` tool. The model's
   `send` reaches the plugin's `send` action with its optional `collective`
-  parameter; `message.send.text` serves OpenClaw's core-forced sends. The host
-  decides which tools invoke those callbacks.
+  and `collectiveResponse` parameters; `message.send.text` serves OpenClaw's
+  core-forced sends, which carry no tool parameters. The host decides which
+  tools invoke those callbacks.
 - Render each inbound item kind in one fixed form, switching on `kind`
   exhaustively.
 - Leave outbound queue and retry policy to OpenClaw. Every plugin callback is

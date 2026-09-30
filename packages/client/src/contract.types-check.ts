@@ -1,17 +1,22 @@
 /**
  * @file The public Client is one addressed structural endpoint whose sends are
- * operations and whose inbound deliveries are tagged items. Every send carries
- * an address, text and an optional collective operation, multicast by
- * default; each inbound delivery carries one item plus transport-only
- * acknowledgment. A multicast item carries the certified direct or
- * complete-group message.
+ * operations or collective responses and whose inbound deliveries are tagged
+ * items. An operation carries an address, text and an optional collective
+ * operation, multicast by default or a gather with its deadline and schema; a
+ * response names its request and no address. Each inbound delivery carries
+ * one item plus transport-only acknowledgment: a multicast with the certified
+ * direct or complete-group message, a collective request, a gather result or
+ * an operation failure. A send returns the gather's id and fails with a
+ * closed send reason or a collective failure.
  */
 
 import type { DateTime, Effect, Scope, Stream } from "effect";
 import type {
   acquireHarnessEndpoint,
   AgentAddress,
+  CollectiveError,
   CollectiveOperation,
+  CollectiveResponse,
   ConnectError,
   Content,
   ContentPart,
@@ -24,22 +29,50 @@ import type {
   InboundDelivery,
   InboundItem,
   InboundMessage,
+  JsonValue,
   ListenError,
   MessageAddressInput,
   PostId,
   SendError,
   SendInput,
+  SendResult,
 } from "./index.js";
 
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 
-type ExpectedCollectiveOperation = Readonly<{ op?: "multicast" }>;
-type ExpectedSendInput = Readonly<{
-  to: MessageAddressInput;
-  text: string;
-  collective?: CollectiveOperation;
+type CollectiveId = CollectiveError["id"];
+type ExpectedRequestedSchema = Readonly<{
+  $schema?: string;
+  type: "object";
+  properties: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
+  required?: readonly string[];
 }>;
+type ExpectedAnswerContent = Readonly<
+  Record<string, string | number | boolean | readonly string[]>
+>;
+type ExpectedCollectiveOperation =
+  | Readonly<{ op?: "multicast" }>
+  | Readonly<{
+      op: "gather";
+      deadline: number;
+      requestedSchema: ExpectedRequestedSchema;
+    }>;
+type ExpectedCollectiveResponse =
+  | Readonly<{
+      id: CollectiveId;
+      action: "accept";
+      content: ExpectedAnswerContent;
+    }>
+  | Readonly<{ id: CollectiveId; action: "decline" | "cancel" }>;
+type ExpectedSendInput =
+  | Readonly<{
+      to: MessageAddressInput;
+      text: string;
+      collective?: CollectiveOperation;
+    }>
+  | Readonly<{ collectiveResponse: CollectiveResponse }>;
+type ExpectedSendResult = Readonly<{ operationId?: CollectiveId }>;
 type ExpectedDirectMessage = Readonly<{
   kind: "direct";
   postId: PostId;
@@ -60,24 +93,62 @@ type ExpectedGroupMessage = Readonly<{
   ];
   content: Content;
 }>;
-type ExpectedMulticastItem = Readonly<{
-  kind: "multicast";
-  message: InboundMessage;
-}>;
+type ExpectedMemberOutcome =
+  | Readonly<{ kind: "answered"; content: ExpectedAnswerContent }>
+  | Readonly<{ kind: "declined" }>
+  | Readonly<{ kind: "cancelled" }>
+  | Readonly<{ kind: "invalid"; reason: string }>
+  | Readonly<{ kind: "no-answer" }>;
+type ExpectedInboundItem =
+  | Readonly<{ kind: "multicast"; message: InboundMessage }>
+  | Readonly<{
+      kind: "collectiveRequest";
+      id: CollectiveId;
+      postId: PostId;
+      from: AgentAddress;
+      question: string;
+      requestedSchema: ExpectedRequestedSchema;
+      deadlineAt: number;
+    }>
+  | Readonly<{
+      kind: "collectiveResult";
+      id: CollectiveId;
+      to: MessageAddressInput;
+      question: string;
+      outcomes: readonly [
+        Readonly<{ member: AgentAddress; outcome: ExpectedMemberOutcome }>,
+        ...Array<
+          Readonly<{ member: AgentAddress; outcome: ExpectedMemberOutcome }>
+        >,
+      ];
+    }>
+  | Readonly<{
+      kind: "operationFailed";
+      id: CollectiveId;
+      to: MessageAddressInput;
+      error: string;
+    }>;
 type ExpectedDelivery = Readonly<{
   item: InboundItem;
   acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
 }>;
 type ExpectedEndpoint = Readonly<{
-  send: (input: SendInput) => Effect.Effect<void, SendError>;
+  send: (
+    input: SendInput,
+    options?: Readonly<{ failureDelivery?: "result" | "inbound" }>,
+  ) => Effect.Effect<SendResult, SendError | CollectiveError>;
   messages: Stream.Stream<InboundDelivery, ListenError>;
 }>;
 
 type CollectiveOperationIsExact = Expect<
   Equal<CollectiveOperation, ExpectedCollectiveOperation>
 >;
+type CollectiveResponseIsExact = Expect<
+  Equal<CollectiveResponse, ExpectedCollectiveResponse>
+>;
 type SendInputIsExact = Expect<Equal<SendInput, ExpectedSendInput>>;
-type InboundItemIsExact = Expect<Equal<InboundItem, ExpectedMulticastItem>>;
+type SendResultIsExact = Expect<Equal<SendResult, ExpectedSendResult>>;
+type InboundItemIsExact = Expect<Equal<InboundItem, ExpectedInboundItem>>;
 type DirectMessageIsExact = Expect<Equal<DirectMessage, ExpectedDirectMessage>>;
 type GroupMessageIsExact = Expect<Equal<GroupMessage, ExpectedGroupMessage>>;
 type InboundMessageIsExact = Expect<
@@ -89,12 +160,14 @@ type ExpectedHistoryExportRecord =
   | Readonly<{ kind: "inbound"; item: InboundItem; at: DateTime.Utc }>
   | Readonly<{
       kind: "outbound";
-      to: MessageAddressInput;
-      text: string;
-      collective?: CollectiveOperation;
+      input: SendInput;
       outcome:
-        | Readonly<{ kind: "certified"; postId: PostId }>
-        | Readonly<{ kind: "failed"; reason: SendError["reason"] }>;
+        | Readonly<{
+            kind: "sent";
+            operationId?: CollectiveId;
+            postIds: readonly PostId[];
+          }>
+        | Readonly<{ kind: "failed"; error: string }>;
       at: DateTime.Utc;
     }>
   | Readonly<{ kind: "export-failed"; reason: string; at: DateTime.Utc }>;
@@ -122,6 +195,17 @@ type SendReasonsAreExact = Expect<
     | "certification-unavailable"
     | "persistence-failed"
     | "network-unavailable"
+  >
+>;
+type CollectiveFailureKindsAreExact = Expect<
+  Equal<
+    CollectiveError["failure"]["kind"],
+    | "members-unreachable"
+    | "schema-invalid"
+    | "answer-invalid"
+    | "request-unknown"
+    | "request-answered"
+    | "request-expired"
   >
 >;
 type ListenReasonsAreExact = Expect<
@@ -161,7 +245,9 @@ type AcquisitionResultIsExact = Expect<
 /** Compile-time witnesses for the accepted public Client boundary. */
 export type HarnessEndpointCanaries = [
   CollectiveOperationIsExact,
+  CollectiveResponseIsExact,
   SendInputIsExact,
+  SendResultIsExact,
   InboundItemIsExact,
   DirectMessageIsExact,
   GroupMessageIsExact,
@@ -172,6 +258,7 @@ export type HarnessEndpointCanaries = [
   AgentAddressIsInput,
   GroupAddressIsInput,
   SendReasonsAreExact,
+  CollectiveFailureKindsAreExact,
   HistoryExportRecordIsExact,
   ListenReasonsAreExact,
   AcknowledgeReasonsAreExact,

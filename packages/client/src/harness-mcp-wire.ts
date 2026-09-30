@@ -11,8 +11,8 @@ import {
   type StandardSchemaV1,
 } from "@modelcontextprotocol/server";
 import { Cause, Effect, Exit, JSONSchema, Option, Schema } from "effect";
+import type { CollectiveError, SendError } from "./contract.js";
 import type { DeliveryToken } from "./endpoint/store.js";
-import { type SendInput, SendInput as SendInputSchema } from "./contract.js";
 import {
   HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
   HARNESS_EVENTS_EXTENSION,
@@ -22,6 +22,9 @@ import {
   type HarnessEmptyResult,
   harnessEmptyResultJsonSchema,
   type HarnessMessageReadyEvent,
+  type HarnessSendErrorData,
+  type HarnessSendRequest,
+  harnessSendRequestJsonSchema,
   type HarnessSendResult,
   harnessSendResultJsonSchema,
 } from "./harness-mcp-contract.js";
@@ -79,8 +82,8 @@ export interface HarnessMcpOperations {
     input: ManagementReadConversationRequest,
   ) => Effect.Effect<ManagementReadConversationResult, ClosedOperationError>;
   readonly send: (
-    input: SendInput,
-  ) => Effect.Effect<HarnessSendResult, ClosedOperationError>;
+    request: HarnessSendRequest,
+  ) => Effect.Effect<HarnessSendResult, SendError | CollectiveError>;
   readonly acknowledgeDelivery: (
     deliveryToken: DeliveryToken,
   ) => Effect.Effect<void, ClosedOperationError>;
@@ -155,8 +158,8 @@ const readConversationOutput =
   makeStandardSchema<ManagementReadConversationResult>(
     makeJsonSchema(managementReadConversationResultSchema),
   );
-const sendInput = makeStandardSchema<SendInput>(
-  JSONSchema.make(SendInputSchema, { target: "jsonSchema2020-12" }),
+const sendInput = makeStandardSchema<HarnessSendRequest>(
+  harnessSendRequestJsonSchema,
 );
 const acknowledgeDeliveryInput =
   makeStandardSchema<HarnessAcknowledgeDeliveryRequest>(
@@ -192,17 +195,6 @@ const READ_CONVERSATION_REASONS = new Set([
   "invalid-continuation",
   "history-gap",
   "persistence-failed",
-]);
-const SEND_REASONS = new Set([
-  "invalid-address",
-  "unknown-agent",
-  "membership-invalid",
-  "content-invalid",
-  "not-registered",
-  "version-mismatch",
-  "certification-unavailable",
-  "persistence-failed",
-  "network-unavailable",
 ]);
 const ACKNOWLEDGE_DELIVERY_REASONS = new Set([
   "unknown-delivery",
@@ -273,6 +265,50 @@ const runOperation = async <Value extends Readonly<Record<string, unknown>>>(
       {
         reason,
       },
+    );
+  }
+  return toolResult(outcome.value);
+};
+
+/**
+ * The error data a refused send carries: a collective failure keeps its id
+ * and the members or fields it names, so the loopback client rebuilds the
+ * same typed error the daemon raised.
+ */
+const sendErrorData = (
+  error: SendError | CollectiveError,
+): HarnessSendErrorData => {
+  switch (error._tag) {
+    case "SendError":
+      return { reason: error.reason };
+    case "CollectiveError":
+      return {
+        reason: "collective-failed",
+        id: error.id,
+        failure: error.failure,
+      };
+    default: {
+      const exhaustive: never = error;
+      return exhaustive;
+    }
+  }
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: MCP tool handlers are Promise callbacks, so this edge awaits Effect before returning the SDK result.
+const runSendOperation = async (
+  operation: Effect.Effect<HarnessSendResult, SendError | CollectiveError>,
+  signal: AbortSignal,
+) => {
+  const outcome = await Effect.runPromiseExit(operation, { signal });
+  if (Exit.isFailure(outcome)) {
+    const data = Option.match(Cause.failureOption(outcome.cause), {
+      onNone: (): HarnessSendErrorData => ({ reason: "network-unavailable" }),
+      onSome: sendErrorData,
+    });
+    throw new ProtocolError(
+      ProtocolErrorCode.InternalError,
+      "Operation send failed",
+      data,
     );
   }
   return toolResult(outcome.value);
@@ -435,13 +471,7 @@ const registerAdapterTools = (
     HARNESS_SEND_TOOL,
     { inputSchema: sendInput, outputSchema: sendOutput },
     (input, context) =>
-      runOperation({
-        operation: operations.send(input),
-        label: "Operation send",
-        allowedReasons: SEND_REASONS,
-        fallbackReason: "network-unavailable",
-        signal: context.mcpReq.signal,
-      }),
+      runSendOperation(operations.send(input), context.mcpReq.signal),
   );
   server.registerTool(
     HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
@@ -598,13 +628,11 @@ const handleSendToolCall = async (
     input.toolArguments,
     input.name,
   );
-  return await runValidatedOperation(sendOutput, input.name, {
-    operation: operations.send(decoded),
-    label: "Operation send",
-    allowedReasons: SEND_REASONS,
-    fallbackReason: "network-unavailable",
-    signal: input.signal,
-  });
+  return await validateToolOutput(
+    sendOutput,
+    await runSendOperation(operations.send(decoded), input.signal),
+    input.name,
+  );
 };
 
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.

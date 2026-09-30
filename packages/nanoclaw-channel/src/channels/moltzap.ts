@@ -1,12 +1,14 @@
 /** @file Projects the public MoltZap endpoint capability into NanoClaw. */
 import {
   acquireHarnessEndpoint,
+  type CollectiveError,
   type ConnectError,
   type Content,
   type ContentPart,
   type DeliveryAcknowledgeError,
   type HarnessEndpoint,
   type InboundDelivery,
+  type InboundItem,
   type InboundMessage as MoltZapInboundMessage,
   type SendError,
   SendInput,
@@ -89,11 +91,14 @@ interface MoltZapOutboundMessage {
   readonly files?: readonly MoltZapOutboundFile[];
 }
 
-/** The text and optional collective operation one `messages_out` row carries. */
-interface MoltZapOutboundOperation {
-  readonly text: string;
-  readonly collective?: unknown;
-}
+/**
+ * What one `messages_out` row carries: text with an optional collective
+ * operation for the row's address, or a collective response, which names no
+ * address because the endpoint answers the requester.
+ */
+type MoltZapOutboundOperation =
+  | Readonly<{ text: string; collective?: unknown }>
+  | Readonly<{ collectiveResponse: unknown }>;
 
 function decodeOutboundSend(
   address: string,
@@ -101,13 +106,17 @@ function decodeOutboundSend(
 ): Effect.Effect<SendInput, MoltZapChannelError> {
   return decodeOutboundOperation(message).pipe(
     Effect.flatMap((operation) =>
-      Schema.decodeUnknown(SendInput)({ to: address, ...operation }),
+      Schema.decodeUnknown(SendInput)(
+        "collectiveResponse" in operation
+          ? operation
+          : { to: address, ...operation },
+      ),
     ),
     Effect.catchTag("ParseError", () =>
       Effect.fail(
         new MoltZapChannelError({
           reason:
-            "MoltZap outbound delivery requires an explicit agent or group address, valid text and a known collective operation",
+            "MoltZap outbound delivery requires an explicit agent or group address, valid text and a known collective operation, or a valid collectiveResponse",
         }),
       ),
     ),
@@ -143,10 +152,11 @@ function decodeOutboundOperation(
 
 /**
  * Read the operation from NanoClaw's `messages_out` content: a bare string is
- * the text of a multicast, and an object carries `text` and an optional
+ * the text of a multicast, an object with `collectiveResponse` answers a
+ * collective request, and any other object carries `text` and an optional
  * `collective` operation.
  * @param message One outbound row as NanoClaw delivers it.
- * @returns The text and operation, or null when the row carries no text.
+ * @returns The operation, or null when the row carries neither text nor a response.
  */
 function extractOutboundOperation(
   message: MoltZapOutboundMessage,
@@ -155,17 +165,32 @@ function extractOutboundOperation(
   if (typeof content === "string") {
     return { text: content };
   }
-  if (
-    content === null ||
-    typeof content !== "object" ||
-    !("text" in content) ||
-    typeof content.text !== "string"
-  ) {
+  if (content === null || typeof content !== "object") {
+    return null;
+  }
+  if ("collectiveResponse" in content) {
+    return { collectiveResponse: content.collectiveResponse };
+  }
+  if (!("text" in content) || typeof content.text !== "string") {
     return null;
   }
   return "collective" in content
     ? { text: content.text, collective: content.collective }
     : { text: content.text };
+}
+
+/**
+ * Every send but a multicast has an operation id, so its refusal can
+ * arrive later as an `operationFailed` item. NanoClaw's `send_message` has
+ * already returned when the adapter sends, so those failures take that path
+ * and the delivery completes; the host never retries a refused one. A
+ * multicast failure still fails the delivery, leaving retry to NanoClaw.
+ */
+function failureDeliveryOf(input: SendInput): "result" | "inbound" {
+  return "collectiveResponse" in input ||
+    (input.collective?.op ?? "multicast") !== "multicast"
+    ? "inbound"
+    : "result";
 }
 
 function renderContent(content: Content): string {
@@ -185,6 +210,93 @@ function renderContentPart(part: ContentPart): string {
   }
 }
 
+/** The sender NanoClaw records for an item the endpoint itself emitted. */
+const COLLECTIVE_SENDER = "MoltZap collective";
+
+type CollectiveRequestItem = Extract<
+  InboundItem,
+  { readonly kind: "collectiveRequest" }
+>;
+type CollectiveResultItem = Extract<
+  InboundItem,
+  { readonly kind: "collectiveResult" }
+>;
+type MemberOutcome = CollectiveResultItem["outcomes"][number]["outcome"];
+
+/**
+ * Tell the model how to answer through NanoClaw's `send_message`: the
+ * `collectiveResponse` parameter, with `to` naming the requester.
+ */
+function renderCollectiveRequest(item: CollectiveRequestItem): string {
+  const deadline = new Date(item.deadlineAt).toISOString();
+  return [
+    `MoltZap collective request ${item.id} from ${item.from}, open until ${deadline}.`,
+    `Question: ${item.question}`,
+    `Answer form (requestedSchema): ${JSON.stringify(item.requestedSchema)}`,
+    `Answer once with send_message to ${item.from} and collectiveResponse {"id":"${item.id}","action":"accept","content":{...}} matching the form, or {"id":"${item.id}","action":"decline"}.`,
+  ].join("\n");
+}
+
+function renderCollectiveResult(item: CollectiveResultItem): string {
+  return [
+    `MoltZap collective result ${item.id} for the question sent to ${item.to}: ${item.question}`,
+    ...item.outcomes.map(
+      ({ member, outcome }) => `- ${member}: ${renderOutcome(outcome)}`,
+    ),
+  ].join("\n");
+}
+
+function renderOutcome(outcome: MemberOutcome): string {
+  switch (outcome.kind) {
+    case "answered":
+      return `answered ${JSON.stringify(outcome.content)}`;
+    case "declined":
+      return "declined";
+    case "cancelled":
+      return "cancelled";
+    case "invalid":
+      return `answered outside the form (${outcome.reason})`;
+    case "no-answer":
+      return "no answer by the deadline";
+    default:
+      return absurd(outcome);
+  }
+}
+
+/**
+ * NanoClaw's inbox shape for a request, result or failure. A group address
+ * keeps the native group flag and lists its members.
+ */
+function collectiveInbound(input: {
+  readonly id: string;
+  readonly address: string;
+  readonly sender: string;
+  readonly text: string;
+}): InboundMessage {
+  const isGroup = input.address.startsWith("group:");
+  return {
+    id: input.id,
+    kind: "chat",
+    timestamp: MOLTZAP_INBOUND_TIMESTAMP,
+    isMention: true,
+    content: {
+      text: input.text,
+      address: input.address,
+      sender: input.sender,
+      senderId: input.sender,
+      ...(isGroup
+        ? {
+            members: input.address
+              .slice("group:".length)
+              .split(",")
+              .map((name) => `agent:${name}`),
+          }
+        : {}),
+    },
+    isGroup,
+  };
+}
+
 /**
  * NanoClaw adapter backed by exactly one scoped `HarnessEndpoint`.
  *
@@ -193,12 +305,12 @@ function renderContentPart(part: ContentPart): string {
  *   participant Client as HarnessEndpoint
  *   participant Adapter as MoltZapChannelAdapter
  *   participant Host as NanoClaw host
- *   Client->>Adapter: InboundDelivery<br>multicast item
+ *   Client->>Adapter: InboundDelivery<br>multicast, request, result or failure
  *   Adapter->>Host: onMetadata<br>address and group shape
  *   Adapter->>Host: await onInboundEvent<br>main session and MoltZap reply route
  *   Adapter->>Client: acknowledge delivery
- *   Host->>Adapter: deliver<br>address, text and collective operation
- *   Adapter->>Client: send the operation
+ *   Host->>Adapter: deliver<br>address, text and collective or collectiveResponse
+ *   Adapter->>Client: send, a gather or response reporting failures inbound
  * ```
  *
  * The stream acknowledges after the stock host callback completes.
@@ -337,7 +449,7 @@ class MoltZapChannelAdapter {
   private deliverEffect(
     address: string,
     message: MoltZapOutboundMessage,
-  ): Effect.Effect<void, MoltZapChannelError | SendError> {
+  ): Effect.Effect<void, MoltZapChannelError | SendError | CollectiveError> {
     const activation = this.activation;
     if (activation?.state !== "active") {
       return Effect.fail(
@@ -347,7 +459,12 @@ class MoltZapChannelAdapter {
       );
     }
     return decodeOutboundSend(address, message).pipe(
-      Effect.flatMap((input) => activation.endpoint.send(input)),
+      Effect.flatMap((input) =>
+        activation.endpoint.send(input, {
+          failureDelivery: failureDeliveryOf(input),
+        }),
+      ),
+      Effect.asVoid,
     );
   }
 
@@ -358,28 +475,84 @@ class MoltZapChannelAdapter {
     if (config === null) {
       return Effect.void;
     }
-    const item = delivery.item;
-    if (item.kind === "multicast") {
-      return this.handleMulticast(config, item.message).pipe(
-        Effect.zipRight(delivery.acknowledge),
-      );
-    }
-    return absurd(item.kind);
+    return this.handleItem(config, delivery.item).pipe(
+      Effect.zipRight(delivery.acknowledge),
+    );
   }
 
   /**
-   * Hand one multicast to NanoClaw's main session with a MoltZap reply route.
+   * Hand one item to NanoClaw's main session with a MoltZap reply route, in
+   * the one fixed form its kind defines. A multicast keeps its message; a
+   * request is a direct message from the requester; a result or a failure is
+   * attributed to the collective and routed to the address its operation
+   * named.
    * @param config The host callbacks from the active setup.
-   * @param message The direct or group message the multicast carries.
+   * @param item The item the endpoint delivered.
    * @returns Completion after the host callback completed.
    */
-  private handleMulticast(
+  private handleItem(
     config: ChannelSetup,
-    message: MoltZapInboundMessage,
+    item: InboundItem,
   ): Effect.Effect<void, MoltZapChannelError> {
-    const address = message.address;
-    const isGroup = message.kind === "group";
-    const inbound = this.toInboundMessage(message);
+    switch (item.kind) {
+      case "multicast":
+        return this.handToHost(
+          config,
+          item.message.address,
+          this.toInboundMessage(item.message),
+        );
+      case "collectiveRequest":
+        return this.handToHost(
+          config,
+          item.from,
+          collectiveInbound({
+            id: item.postId,
+            address: item.from,
+            sender: item.from,
+            text: renderCollectiveRequest(item),
+          }),
+        );
+      case "collectiveResult":
+        return this.handToHost(
+          config,
+          item.to,
+          collectiveInbound({
+            id: `${item.id}:result`,
+            address: item.to,
+            sender: COLLECTIVE_SENDER,
+            text: renderCollectiveResult(item),
+          }),
+        );
+      case "operationFailed":
+        return this.handToHost(
+          config,
+          item.to,
+          collectiveInbound({
+            id: `${item.id}:failed`,
+            address: item.to,
+            sender: COLLECTIVE_SENDER,
+            text: `MoltZap operation failed: ${item.error}`,
+          }),
+        );
+      default:
+        return absurd(item);
+    }
+  }
+
+  /**
+   * Hand one projected message to NanoClaw's main session, replying to its
+   * MoltZap address.
+   * @param config The host callbacks from the active setup.
+   * @param address The MoltZap conversation the message belongs to.
+   * @param inbound The message in NanoClaw's inbox shape.
+   * @returns Completion after the host callback completed.
+   */
+  private handToHost(
+    config: ChannelSetup,
+    address: string,
+    inbound: InboundMessage,
+  ): Effect.Effect<void, MoltZapChannelError> {
+    const isGroup = inbound.isGroup === true;
     const content = JSON.stringify(inbound.content);
     if (content === undefined) {
       return Effect.fail(

@@ -49,8 +49,8 @@ function outbound(): HistoryExportRecord {
   });
   return {
     kind: "outbound",
-    ...input,
-    outcome: { kind: "certified", postId: POST_ID },
+    input,
+    outcome: { kind: "sent", postIds: [POST_ID] },
     at: AT,
   };
 }

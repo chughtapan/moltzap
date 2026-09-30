@@ -159,3 +159,81 @@ describe("public send input", () => {
     ).toBe(true);
   });
 });
+
+const collectiveId = `col_${Encoding.encodeBase64Url(new Uint8Array(32).fill(3))}`;
+const slotSchema = {
+  type: "object",
+  properties: { slot: { type: "string", enum: ["mon", "tue"] } },
+  required: ["slot"],
+};
+
+// @agent-code-guard/regression-only: gather inputs pin the collective send grammar.
+describe("public gather input", () => {
+  it("decodes a gather with a deadline in seconds and a schema", () => {
+    const input = {
+      to: "group:bob-agent,carol-agent",
+      text: "Which day?",
+      collective: { op: "gather", deadline: 300, requestedSchema: slotSchema },
+    };
+
+    expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
+  });
+
+  it("rejects a gather deadline that is not a whole number of seconds up to a day", () => {
+    const gather = (deadline: number) => ({
+      to: "agent:bob-agent",
+      text: "Which day?",
+      collective: { op: "gather", deadline, requestedSchema: slotSchema },
+    });
+
+    expect(decodingFails(SendInput, gather(0))).toBe(true);
+    expect(decodingFails(SendInput, gather(1.5))).toBe(true);
+    expect(decodingFails(SendInput, gather(86_401))).toBe(true);
+  });
+
+  it("rejects a gather without a requested schema", () => {
+    expect(
+      decodingFails(SendInput, {
+        to: "agent:bob-agent",
+        text: "Which day?",
+        collective: { op: "gather", deadline: 60 },
+      }),
+    ).toBe(true);
+  });
+});
+
+// @agent-code-guard/regression-only: response inputs pin how a member answers a collective request.
+describe("public collective response input", () => {
+  it("decodes a response that names no address", () => {
+    const input = {
+      collectiveResponse: {
+        id: collectiveId,
+        action: "accept",
+        content: { slot: "mon" },
+      },
+    };
+
+    expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
+  });
+
+  it("rejects a response that also names an address", () => {
+    expect(
+      decodingFails(SendInput, {
+        to: "agent:bob-agent",
+        collectiveResponse: { id: collectiveId, action: "decline" },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects content on a decline", () => {
+    expect(
+      decodingFails(SendInput, {
+        collectiveResponse: {
+          id: collectiveId,
+          action: "decline",
+          content: { slot: "mon" },
+        },
+      }),
+    ).toBe(true);
+  });
+});

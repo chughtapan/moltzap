@@ -14,12 +14,8 @@ import {
 } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { Data, Effect, Option, ParseResult, Schema } from "effect";
-import {
-  canonicalIdentifier,
-  Content,
-  exactStruct,
-  RecordHash,
-} from "../representation.js";
+import { AnswerContent, CollectiveId } from "../../contract.js";
+import { Content, exactStruct, RecordHash } from "../representation.js";
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the values they decode. */
 
@@ -27,9 +23,6 @@ type PostContent = typeof Content.Type;
 
 /** The `data` part key under which the collective layer carries its value. */
 export const COLLECTIVE_DATA_KEY = "xyz.moltzap/collective";
-
-/** Identity of one gather or all_gather, shared by its request, answers and close. */
-export const CollectiveId = canonicalIdentifier("CollectiveId", "col_");
 
 const mcpPrimitiveSchemaDefinition =
   specTypeSchemas.PrimitiveSchemaDefinition["~standard"];
@@ -80,7 +73,7 @@ const PrimitiveSchemaDefinition = Schema.transformOrFail(
  * Every `required` name must be a declared property, since an answer can carry
  * no other field.
  */
-export const RequestedSchema = exactStruct({
+export const FormModeSchema = exactStruct({
   $schema: Schema.optional(Schema.String),
   type: Schema.Literal("object"),
   properties: Schema.Record({
@@ -101,20 +94,7 @@ export const RequestedSchema = exactStruct({
   ),
 );
 /** A validated form-mode schema for one collective question. */
-export type RequestedSchema = typeof RequestedSchema.Type;
-
-/** A member's answer body; each field's value space is MCP `ElicitResult`'s. */
-const AnswerContent = Schema.Record({
-  key: Schema.String,
-  value: Schema.Union(
-    Schema.String,
-    Schema.JsonNumber,
-    Schema.Boolean,
-    Schema.Array(Schema.String),
-  ),
-});
-/** A structurally valid answer, validated against its request's schema separately. */
-export type AnswerContent = typeof AnswerContent.Type;
+export type FormModeSchema = typeof FormModeSchema.Type;
 
 /** A plain post: multicast carries neither a deadline nor a schema. */
 const MulticastOperation = exactStruct({
@@ -132,7 +112,7 @@ const CollectingOperation = exactStruct({
   op: Schema.Literal("gather", "all_gather"),
   id: CollectiveId,
   deadlineAt: Schema.Int.pipe(Schema.positive()),
-  requestedSchema: RequestedSchema,
+  requestedSchema: FormModeSchema,
 });
 
 /** A member's reply to one request; only `accept` carries content. */

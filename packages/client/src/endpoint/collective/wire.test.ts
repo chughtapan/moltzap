@@ -9,8 +9,8 @@ import {
   CollectivePartInvalidError,
   decodeCollectiveValue,
   encodeCollectiveContent,
+  FormModeSchema,
   readCollectiveValue,
-  RequestedSchema,
 } from "./wire.js";
 
 const collectiveId = `col_${"A".repeat(43)}`;
@@ -39,7 +39,7 @@ const decodes = (value: unknown): boolean =>
 
 const decodesSchema = (value: unknown): boolean =>
   Exit.isSuccess(
-    Effect.runSyncExit(Schema.decodeUnknown(RequestedSchema)(value)),
+    Effect.runSyncExit(Schema.decodeUnknown(FormModeSchema)(value)),
   );
 
 const decodeValue = (value: unknown) =>

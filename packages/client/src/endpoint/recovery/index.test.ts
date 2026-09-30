@@ -35,14 +35,13 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type { RouterWorkerIngress } from "../router-worker/index.js";
-import { SendInput } from "../../contract.js";
-import {
-  type EndpointEngineInput,
-  type EngineRegistryPort,
-  type EngineRouterPort,
-  noHistoryExport,
+import type {
+  EndpointEngineInput,
+  EngineRegistryPort,
+  EngineRouterPort,
 } from "../engine-types.js";
+import type { RouterWorkerIngress } from "../router-worker/index.js";
+import { Content, MessageAddressInput } from "../../contract.js";
 import { type EndpointEngine, makeEndpointEngine } from "../engine.js";
 import {
   type ActionCertifiedRecord as ActionCertifiedRecordValue,
@@ -472,7 +471,6 @@ const makeFixtureWithRouter = (
       store,
       actionPolicy: () => Effect.succeed("sign"),
       routerWorker: makeRouter({ store, normalOutbound }),
-      historyExport: noHistoryExport,
     } satisfies EndpointEngineInput;
     const engine = yield* makeEndpointEngine(input).pipe(Effect.orDie);
     return {
@@ -591,7 +589,6 @@ const addN4Foundation = (fixture: RecoveryFixture) =>
       },
     };
     const engine = yield* makeEndpointEngine({
-      historyExport: noHistoryExport,
       localAgentCard: fixture.local.card,
       signingAuthority: fixture.local.authority,
       registrySignerPublicKey: fixture.registrySignerPublicKey,
@@ -1325,9 +1322,13 @@ const completeRestartRecovery = () =>
 
         const sending = yield* Effect.fork(
           fixture.engine.send(
-            yield* Schema.decodeUnknown(SendInput)({
-              to: `agent:${fixture.remote.card.agentName}`,
-              text: "normal traffic resumes",
+            yield* Effect.all({
+              to: Schema.decodeUnknown(MessageAddressInput)(
+                `agent:${fixture.remote.card.agentName}`,
+              ),
+              content: Schema.decodeUnknown(Content)([
+                { type: "text", text: "normal traffic resumes" },
+              ]),
             }),
           ),
         );
@@ -1358,9 +1359,13 @@ const reproposesPendingPostAfterRestart = () =>
         yield* Ref.set(holdOutbound, true);
         const sending = yield* Effect.fork(
           fixture.engine.send(
-            yield* Schema.decodeUnknown(SendInput)({
-              to: `agent:${fixture.remote.card.agentName}`,
-              text: "survive Router restart",
+            yield* Effect.all({
+              to: Schema.decodeUnknown(MessageAddressInput)(
+                `agent:${fixture.remote.card.agentName}`,
+              ),
+              content: Schema.decodeUnknown(Content)([
+                { type: "text", text: "survive Router restart" },
+              ]),
             }),
           ),
         );
@@ -1462,9 +1467,13 @@ const recoverSameRouterInstance = () =>
         const fixture = yield* makeFixture;
         const sending = yield* Effect.fork(
           fixture.engine.send(
-            yield* Schema.decodeUnknown(SendInput)({
-              to: `agent:${fixture.remote.card.agentName}`,
-              text: "retain this proposal",
+            yield* Effect.all({
+              to: Schema.decodeUnknown(MessageAddressInput)(
+                `agent:${fixture.remote.card.agentName}`,
+              ),
+              content: Schema.decodeUnknown(Content)([
+                { type: "text", text: "retain this proposal" },
+              ]),
             }),
           ),
         );

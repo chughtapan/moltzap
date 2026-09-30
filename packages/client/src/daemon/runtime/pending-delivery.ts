@@ -1,0 +1,186 @@
+/**
+ * @file One pass over pending deliveries: the collective layer classifies
+ * each durable delivery, consumed ones are acknowledged, and the remaining
+ * items and the layer's own are published in order while a subscriber takes
+ * them.
+ */
+
+import { DateTime, Effect, Option, Schema } from "effect";
+import { randomBytes } from "node:crypto";
+import type { InboundItem } from "../../contract.js";
+import type { CollectiveOperations } from "../../endpoint/collective/operation.js";
+import type {
+  EndpointEngine,
+  EnginePendingMessage,
+} from "../../endpoint/engine.js";
+import type { HarnessMessageReadyEvent } from "../../harness-mcp-contract.js";
+import type { HistoryExportPort } from "./history-export.js";
+import { DeliveryToken } from "../../endpoint/store.js";
+
+/** The subscriber's publish edge; false means it refused the event. */
+interface Subscriber {
+  readonly publish: (event: HarnessMessageReadyEvent) => boolean;
+}
+
+/** What one pass over pending deliveries reads and changes. */
+export interface PendingOffer {
+  readonly engine: Pick<EndpointEngine, "acknowledgeMessage">;
+  readonly classify: CollectiveOperations["classify"];
+  /** The attached subscriber, absent while none is attached. */
+  readonly handler?: Subscriber;
+  readonly historyExport: HistoryExportPort;
+  readonly publishedDeliveries: Set<string>;
+  readonly exportedDeliveries: Set<string>;
+  /**
+   * The item each unacknowledged durable delivery classified into, so a
+   * delivery is decoded and classified once rather than on every pass.
+   */
+  readonly classifiedItems: Map<string, InboundItem>;
+}
+
+/**
+ * Acknowledge a delivery the collective layer consumed. A failed
+ * acknowledgment is logged and the delivery stays pending: the next pass
+ * classifies it again, which records nothing twice because a member's first
+ * answer is the only one a gather keeps, and acknowledges it again. It does
+ * not end the daemon, whose store failures surface through the pending read
+ * that starts every pass.
+ */
+const acknowledgeConsumed = (
+  offer: PendingOffer,
+  pending: EnginePendingMessage,
+): Effect.Effect<void> =>
+  offer.engine
+    .acknowledgeMessage(pending.deliveryToken)
+    .pipe(
+      Effect.catchAll((error) =>
+        Effect.logWarning(`consumed delivery stays pending: ${error.message}`),
+      ),
+    );
+
+/**
+ * Record an item in the history export the first time it is offered, then
+ * offer it to the subscriber, yielding whether the subscriber took it. The
+ * line lands before the item is visible.
+ */
+const publishItem = (
+  offer: PendingOffer,
+  handler: Subscriber,
+  event: HarnessMessageReadyEvent,
+): Effect.Effect<boolean> =>
+  Effect.gen(function* () {
+    if (!offer.exportedDeliveries.has(event.deliveryToken)) {
+      const at = yield* DateTime.now;
+      yield* offer.historyExport.record({
+        kind: "inbound",
+        item: event.item,
+        at,
+      });
+      offer.exportedDeliveries.add(event.deliveryToken);
+    }
+    if (!handler.publish(event)) {
+      return false;
+    }
+    offer.publishedDeliveries.add(event.deliveryToken);
+    return true;
+  });
+
+const classifyOnce = (
+  offer: PendingOffer,
+  pending: EnginePendingMessage,
+): Effect.Effect<Option.Option<HarnessMessageReadyEvent>> =>
+  offer.classify(pending.message).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () =>
+          acknowledgeConsumed(offer, pending).pipe(Effect.as(Option.none())),
+        onSome: (item) =>
+          Effect.sync(() => {
+            offer.classifiedItems.set(pending.deliveryToken, item);
+            return Option.some({
+              deliveryToken: pending.deliveryToken,
+              item,
+            });
+          }),
+      }),
+    ),
+  );
+
+/**
+ * Classify one durable delivery not yet published: acknowledge it when the
+ * collective layer consumes it, otherwise return its event, reusing the item
+ * an earlier pass classified.
+ */
+const classifyPending = (
+  offer: PendingOffer,
+  pending: EnginePendingMessage,
+): Effect.Effect<Option.Option<HarnessMessageReadyEvent>> => {
+  const { deliveryToken } = pending;
+  if (offer.publishedDeliveries.has(deliveryToken)) {
+    return Effect.succeed(Option.none());
+  }
+  const classified = offer.classifiedItems.get(deliveryToken);
+  return classified === undefined
+    ? classifyOnce(offer, pending)
+    : Effect.succeed(Option.some({ deliveryToken, item: classified }));
+};
+
+/** Publish events in order, skipping published ones, until one is refused. */
+const publishInOrder = (
+  offer: PendingOffer,
+  handler: Subscriber,
+  events: readonly HarnessMessageReadyEvent[],
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    for (const event of events) {
+      if (offer.publishedDeliveries.has(event.deliveryToken)) {
+        continue;
+      }
+      if (!(yield* publishItem(offer, handler, event))) {
+        return;
+      }
+    }
+  });
+
+/**
+ * Offer pending deliveries in order, then the collective layer's own items.
+ * Every durable delivery is classified: the layer consumes protocol posts,
+ * which are acknowledged here whether or not a subscriber is attached, so
+ * answers are recorded and deadlines complete with nobody listening. Items
+ * are published while a subscriber accepts them; after the first refusal,
+ * or with no subscriber, they stay pending for a later pass.
+ * @param offer The engine, classifier, subscriber and delivery bookkeeping.
+ * @param messages Pending durable deliveries in order.
+ * @param localItems Items the collective layer emitted, in order.
+ * @returns Completion after every delivery is consumed or offered.
+ */
+export const offerPendingMessages = (
+  offer: PendingOffer,
+  messages: readonly EnginePendingMessage[],
+  localItems: ReadonlyMap<DeliveryToken, InboundItem>,
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const classified = yield* Effect.forEach(
+      messages,
+      (pending) => classifyPending(offer, pending),
+      { concurrency: 1 },
+    );
+    const handler = offer.handler;
+    if (handler === undefined) {
+      return;
+    }
+    yield* publishInOrder(offer, handler, [
+      ...classified.flatMap((event) => Option.toArray(event)),
+      ...[...localItems].map(([deliveryToken, item]) => ({
+        deliveryToken,
+        item,
+      })),
+    ]);
+  }).pipe(Effect.withSpan("offerPendingMessages"));
+
+/** A delivery token for an item the collective layer emitted, held in memory. */
+export const mintLocalDeliveryToken = Effect.sync(() =>
+  Schema.decodeUnknownSync(DeliveryToken)(
+    `dlv_${randomBytes(32).toString("base64url")}`,
+  ),
+);

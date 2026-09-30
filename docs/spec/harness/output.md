@@ -10,20 +10,23 @@ addressed transport and does not interpret model output.
 ## Semantic send
 
 `HarnessEndpoint.send` accepts exactly `to`, `text` and an optional
-`collective` operation, multicast when omitted
-([operations](./client.md#operations)). `to` is
+`collective` operation, multicast when omitted, or exactly one
+`collectiveResponse` ([operations](./client.md#operations)). `to` is
 `agent:<AgentName>` or `group:<AgentName>,...`. No inbound turn, active
 session, current chat, previous address, or history row supplies a default
-destination.
+destination. A response names no address: the member's endpoint sends it to
+the requester.
 
 Address parsing and canonicalization follow `conversation-history.md`. Every
-call creates a new post with a fresh Client-minted opaque `PostId`. A host
-decides whether and when to call again; Client does not classify a later call
-as a retry or deduplicate it against an earlier call.
+call creates new posts with fresh Client-minted opaque `PostId`s: one for a
+multicast or a response, one per member for a gather. A host decides whether
+and when to call again; Client does not classify a later call as a retry or
+deduplicate it against an earlier call.
 
-Send returns `void` only after the local endpoint stores the complete
-action-certified and durability-certified record. It returns no receipt,
-proof, record hash, signer map, or protocol state.
+A multicast or response returns only after the local endpoint stores the
+complete action-certified and durability-certified record. A gather returns
+its `operationId` once its request posts are accepted. Send returns no
+receipt, proof, record hash, signer map, or protocol state.
 
 ## Stock host projection
 
@@ -39,14 +42,27 @@ stock final-output and session contract. The
 these scopes; host ownership does not make OpenClaw's privacy rule optional.
 
 The OpenClaw adapter registers the message tool's `send` action. It adds an
-optional `collective` parameter whose schema is Client's `CollectiveOperation`,
-and every `send` becomes one operation: the tool's `to`, its `message` text and
-its `collective`. A `send` without `collective` is a multicast. The action
-returns `{ok: true, to}` once the operation completes, and a failure reaches the
-model as the tool's error. `message.send.text` remains for sends OpenClaw's core
-makes itself and performs a multicast. NanoClaw's `messages_out` content is
-either the text of a multicast or an object with `text` and an optional
-`collective`.
+optional `collective` parameter whose schema is Client's `CollectiveOperation`
+and an optional `collectiveResponse` parameter whose schema is Client's
+`CollectiveResponse`. Every `send` becomes one operation: the tool's `to`, its
+`message` text and its `collective`, or, when `collectiveResponse` is present,
+that response alone; OpenClaw still requires non-empty `message` text, so a
+decline carries a short one. The action returns `{ok: true, to?,
+operationId?}` once the send completes, and a refusal reaches the model as the
+tool's error with the Client error's message, naming each unreachable member
+or failing field. `message.send.text` remains for sends OpenClaw's core makes
+itself and performs a multicast. Its context carries no tool parameters, and
+OpenClaw forces core delivery only for sends it builds from text and media, so
+a `collective` or `collectiveResponse` never reaches it; the adapter's
+`core-delivery.types-check.ts` pins that context.
+
+NanoClaw's `messages_out` content is the text of a multicast, an object with
+`text` and an optional `collective`, or an object with `collectiveResponse`,
+whose `to` and `text` the adapter ignores. NanoClaw's `send_message` returns
+before the adapter sends, so the adapter passes `failureDelivery: "inbound"`
+for a gather or response: a refusal completes the delivery, which NanoClaw
+then never retries, and its error reaches the model as an `operationFailed`
+item.
 
 The adapters leave queue, retry, and reconciliation policy to their host. They
 do not forward host queue identifiers into Client or add a MoltZap retry queue,
@@ -59,31 +75,35 @@ The adapter-only MCP tool `send_message` has exactly:
 
 ```ts
 interface SendMessageRequest {
-  readonly to: MessageAddressInput
-  readonly text: string
-  readonly collective?: CollectiveOperation
+  readonly input: SendInput
+  readonly failureDelivery?: "result" | "inbound"
 }
 
 interface SendMessageResult {
-  readonly operationId?: string
+  /** `col_` followed by 43 base64url characters. */
+  readonly operationId?: CollectiveId
 }
 ```
 
-It returns its structured result after local certified durability. A
-multicast has no operation id, so its result is `{}`; `operationId` names a
-collecting operation's id. It is
+It returns its structured result once the send completes. A multicast has no
+operation id, so its result is `{}`; a gather's result names the gather's id,
+and a response's names the request it answered. A refused send is a JSON-RPC
+error whose data is `{reason}` with the `SendError` reason, or
+`{reason: "collective-failed", id, failure}` with the `CollectiveError`
+failure, from which the loopback Client rebuilds the same typed error. It is
 not exposed as a second model messaging tool when the host already supplies
 native messaging.
 
 ## Failures and tests
 
-Failures map one-for-one to `HarnessEndpoint`'s closed `SendError` reasons.
+Failures map one-for-one to `HarnessEndpoint`'s closed `SendError` reasons and
+`CollectiveError` failures.
 Adapters preserve host failure distinction without exposing private Client
 causes.
 
 Acceptance proves explicit target-grammar validation, distinct identity for
 distinct calls, internal recovery of one persisted intent, first-send group
-creation/reuse, and `void` success only after local certification. Real OpenClaw
+creation/reuse, and success only after local certification. Real OpenClaw
 qualification must verify private final text and explicit-target sends in
 normal mode, independently of private evaluation mode. NanoClaw
 final-output qualification uses its own stock host path. Outbound retry tests

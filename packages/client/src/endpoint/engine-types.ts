@@ -13,17 +13,18 @@ import {
   Data,
   type Deferred,
   type Duration,
-  Effect,
+  type Effect,
   type Queue,
   type SubscriptionRef,
 } from "effect";
 import type {
+  Content,
   DeliveryAcknowledgeError,
-  HistoryExportRecord,
   InboundMessage,
   ListenError,
+  MessageAddressInput,
+  PostId,
   SendError,
-  SendInput,
 } from "../contract.js";
 import type {
   ActionCore,
@@ -109,18 +110,20 @@ export type EngineActionPolicy = (
 ) => Effect.Effect<EngineActionPolicyDecision>;
 
 /**
- * Sink for the daemon's optional history export. Recording never fails and
- * never blocks the protocol on its own outcome: an export that stops is the
- * sink's business, recorded in the file, not the engine's.
+ * One post the engine certifies: its address and its complete content. The
+ * collective layer above the engine builds the content, so the engine never
+ * reads the collective part.
  */
-export interface HistoryExportPort {
-  readonly record: (record: HistoryExportRecord) => Effect.Effect<void>;
+export interface EngineSendInput {
+  readonly to: MessageAddressInput;
+  readonly content: Content;
 }
 
-/** The export in place when the operator configured none: records vanish. */
-export const noHistoryExport: HistoryExportPort = Object.freeze({
-  record: () => Effect.void,
-});
+/** A locally certified post: its minted identity and its stored record's hash. */
+export interface EngineSentPost {
+  readonly postId: PostId;
+  readonly recordHash: RecordHash;
+}
 
 /** Stable private dependencies for one endpoint protocol engine. */
 export interface EndpointEngineInput {
@@ -133,14 +136,14 @@ export interface EndpointEngineInput {
   readonly actionPolicy: EngineActionPolicy;
   /** Overrides `ROUTER_ATTACH_TIMEOUT`; tests bound the wait in milliseconds. */
   readonly routerAttachTimeout?: Duration.Duration;
-  /** Where delivered and sent messages are recorded; `noHistoryExport` when the operator configured none. */
-  readonly historyExport: HistoryExportPort;
 }
 
 /** Stable private engine capability consumed by daemon composition. */
 export interface EndpointEngine {
-  /** Completes with the hash of the locally stored certified record of the minted post. */
-  readonly send: (input: SendInput) => Effect.Effect<RecordHash, SendError>;
+  /** Completes once the minted post's certified record is stored locally. */
+  readonly send: (
+    input: EngineSendInput,
+  ) => Effect.Effect<EngineSentPost, SendError>;
   readonly readPendingMessages: () => Effect.Effect<
     readonly EnginePendingMessage[],
     ListenError

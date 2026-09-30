@@ -2,12 +2,25 @@
 
 import { FileSystem } from "@effect/platform";
 import { DateTime, Effect, Schema } from "effect";
-import type { HistoryExportPort } from "../../endpoint/engine-types.js";
 import { HistoryExportRecord } from "../../contract.js";
 
 // safer-arch-ignore no-trivial-sink-file: The export writer is one replaceable process edge, kept beside the runtime that installs it rather than inside it so lifecycle composition stays free of file handling.
 
 const encodeLine = Schema.encode(Schema.parseJson(HistoryExportRecord));
+
+/**
+ * Sink for the daemon's optional history export. Recording never fails and
+ * never blocks the daemon on its own outcome: an export that stops is the
+ * sink's business, recorded in the file.
+ */
+export interface HistoryExportPort {
+  readonly record: (record: HistoryExportRecord) => Effect.Effect<void>;
+}
+
+/** The export in place when the operator configured none: records vanish. */
+export const noHistoryExport: HistoryExportPort = Object.freeze({
+  record: () => Effect.void,
+});
 
 /**
  * Open the daemon's history export against one file.

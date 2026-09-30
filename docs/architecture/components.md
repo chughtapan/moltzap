@@ -78,11 +78,13 @@ private Effect RPC groups, Layers, and daemon storage codecs remain private.
 
 The semantic Client boundary is deliberately small and exposes operations
 rather than posts. Every send is one collective operation, multicast by
-default, and names an explicit `agent:` or `group:` address. Every multicast
-creates one Client-minted post, while the host owns whether to call again. Send
-returns `void` only after local complete certification. Inbound delivery yields
-items tagged by kind; a multicast item identifies canonical address, verified
-author, content, and exact group members. Adapters
+default, and names an explicit `agent:` or `group:` address, or answers one
+collective request. Every multicast creates one Client-minted post and every
+gather one per member, while the host owns whether to call again. A multicast
+returns only after local complete certification and a gather returns its
+operation id. Inbound delivery yields items tagged by kind; a multicast item
+identifies canonical address, verified author, content, and exact group
+members, and collective requests, results and failures are items too. Adapters
 invoke the stock host boundary and then acknowledge delivery. The
 [host-specific acceptance contract](../spec/harness/ingress.md#durable-acceptance)
 defines the required completion and replay guarantees; this flow alone does

@@ -29,7 +29,12 @@ interface MessageReadyEvent {
 }
 ```
 
-The daemon acknowledges a record it consumes without publishing it.
+The daemon acknowledges a record it consumes without publishing it. It
+classifies pending records on every pass, whether or not a subscriber is
+attached, so answers are recorded and gather deadlines complete while no host
+listens; published items wait for one. A failed acknowledgment of a consumed
+record is logged and the record stays pending: the next pass classifies it
+again, which records nothing twice, and acknowledges it again.
 
 `DeliveryToken` is one JSON string matching
 `^dlv_[A-Za-z0-9_-]{43}$`. Its suffix is the canonical unpadded base64url
@@ -38,6 +43,11 @@ collision-checks a token once when it creates the durable pending-delivery
 row. That row retains the same token across replay and restart, and no token
 can identify two delivery rows. The token is opaque outside the local daemon
 and has no post authority.
+
+Items the endpoint emits itself, a gather's `collectiveResult` and an
+`operationFailed`, carry a token of the same form that the daemon mints in
+memory. They are offered after the durable deliveries and are lost at a daemon
+restart, like the gather state they come from.
 
 The daemon emits `notifications/subscriptions/acknowledged` before the first
 message-ready notification and echoes the accepted filter. Both notifications
@@ -49,9 +59,16 @@ delegates all standard requests.
 
 ## Delivery projection
 
-The only item kind is `multicast`, whose `message` is the certified post
-without its collective part. A direct message contains `kind: "direct"`, author-scoped `postId`, the
+A `multicast` item's `message` is the certified post without its collective
+part. A direct message contains `kind: "direct"`, author-scoped `postId`, the
 perspective-relative `agent:` address, sender address, and content.
+
+A `collectiveRequest` item carries the request's id and `PostId`, the
+requester, the question, the schema and `deadlineAt`. A `collectiveResult`
+item carries the gather's id, its address, its question and one outcome per
+member; only the requester receives it. An `operationFailed` item carries the
+operation's id, its address and the error text a waiting host would have
+received ([client contract](./client.md#inbound-items)).
 
 A group message contains `kind: "group"`, `postId`, canonical full group
 address, actual sender address, exact complete ordered AgentAddress membership,

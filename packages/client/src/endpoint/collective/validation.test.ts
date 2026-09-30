@@ -2,14 +2,11 @@
 
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import type { AnswerContent } from "../../contract.js";
 import { outcomeOfResponse, validateAnswer } from "./validation.js";
-import {
-  type AnswerContent,
-  decodeCollectiveResponse,
-  RequestedSchema,
-} from "./wire.js";
+import { decodeCollectiveResponse, FormModeSchema } from "./wire.js";
 
-const requestedSchema = Schema.decodeUnknownSync(RequestedSchema)({
+const requestedSchema = Schema.decodeUnknownSync(FormModeSchema)({
   type: "object",
   properties: {
     slot: { type: "string", enum: ["mon", "tue"] },
@@ -62,7 +59,7 @@ describe("answer validation", () => {
   });
 
   it("names a missing required field that shares an Object.prototype name", () => {
-    const toStringSchema = Schema.decodeUnknownSync(RequestedSchema)({
+    const toStringSchema = Schema.decodeUnknownSync(FormModeSchema)({
       type: "object",
       properties: { toString: { type: "string" } },
       required: ["toString"],
@@ -95,7 +92,7 @@ describe("member outcomes", () => {
 
     expect(
       Effect.runSync(outcomeOfResponse(requestedSchema, accepted)),
-    ).toEqual({ outcome: "answered", content: { slot: "mon" } });
+    ).toEqual({ kind: "answered", content: { slot: "mon" } });
   });
 
   it("records an accept failing the schema as invalid", () => {
@@ -108,7 +105,7 @@ describe("member outcomes", () => {
 
     expect(
       Effect.runSync(outcomeOfResponse(requestedSchema, accepted)),
-    ).toMatchObject({ outcome: "invalid" });
+    ).toMatchObject({ kind: "invalid" });
   });
 
   it("records a decline as declined", () => {
@@ -120,7 +117,7 @@ describe("member outcomes", () => {
 
     expect(
       Effect.runSync(outcomeOfResponse(requestedSchema, declined)),
-    ).toEqual({ outcome: "declined" });
+    ).toEqual({ kind: "declined" });
   });
 
   it("records a cancel as cancelled", () => {
@@ -132,6 +129,6 @@ describe("member outcomes", () => {
 
     expect(
       Effect.runSync(outcomeOfResponse(requestedSchema, cancelled)),
-    ).toEqual({ outcome: "cancelled" });
+    ).toEqual({ kind: "cancelled" });
   });
 });

@@ -18,11 +18,19 @@ it was built with.
 
 `HarnessEndpoint.send` performs one collective operation: text to an explicit
 `agent:` or `group:` address with an optional `collective` operation,
-multicast by default. Every multicast creates one post with a fresh
-Client-minted `PostId`; the host owns whether to invoke send again. Its
-`messages` stream yields inbound items tagged by kind. A multicast item carries
-the certified direct or group message with stable PostId, canonical sender and
-address, and exact group membership where applicable. Each delivery carries an
+multicast by default. A multicast creates one post with a fresh Client-minted
+`PostId`; the host owns whether to invoke send again. A gather asks each
+member the text as a question, one request post in each member's direct
+conversation, and returns its `operationId`; it fails with a
+`CollectiveError` naming each member whose request post was refused. A member
+answers with a `collectiveResponse`, which the endpoint validates against the
+request's form and sends to the requester. Its `messages` stream yields
+inbound items tagged by kind: a multicast item carries the certified direct or
+group message with stable PostId, canonical sender and address, and exact
+group membership where applicable; a `collectiveRequest` carries a question to
+answer; the requester alone receives the gather's `collectiveResult`; and a
+host whose tool returns before the send passes `failureDelivery: "inbound"` to
+receive a refused gather or response as an `operationFailed` item. Each delivery carries an
 adapter-only acknowledgment governed by the
 [host-specific acceptance contract](../../docs/spec/harness/ingress.md#durable-acceptance).
 Hosts implement the required persistence and replay guarantees. No inbound
@@ -35,7 +43,8 @@ Registry admission material, signing keys, raw Router credentials, or endpoint
 storage.
 
 Set `MOLTZAPD_HISTORY_EXPORT=<file>` to have the daemon append one JSON line
-per inbound item and per completed `send` invocation with its operation. Decode the
+per published inbound item and per completed `send` invocation with its input
+and outcome. Decode the
 file line by line with the root's `HistoryExportRecord` schema. An append that
 fails is recorded once as an `export-failed` line, after which the daemon stops
 exporting and keeps serving the agent.

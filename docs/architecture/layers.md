@@ -52,13 +52,19 @@ carries the operation as one `data` part of the post's content under the key
 `xyz.moltzap/collective`. Only endpoints read that part; Router and Registry
 see the envelope alone.
 
-Multicast is the only operation: one post to the send's address, complete
-when certified, and the default when a send names no operation. Every post an
-endpoint authors carries its operation part, so a receiving endpoint classifies
-each certified post by that part. A multicast becomes a multicast item without
-the part; the endpoint consumes a post whose part is malformed, duplicated, or
-another collective value, and a multicast whose only part is its collective
-part.
+Multicast is one post to the send's address, complete when certified, and
+the default when a send names no operation. Gather asks each member of the
+address one question: one request post in each member's direct conversation
+with the requester, answered at most once per member with a response post the
+member's endpoint validates against the request's form. The requester's
+endpoint consumes the answers and, when every member has answered or the
+deadline passes, emits one result item. Every post an endpoint authors carries
+its operation part, so a receiving endpoint classifies each certified post by
+that part. A multicast becomes a multicast item without the part and a gather
+request a collective request item; the endpoint consumes answers, a post whose
+part is malformed or duplicated, another collective value, and a multicast
+whose only part is its collective part. Gather state lives in daemon memory;
+`endpoint/collective/operation.ts → makeCollectiveOperations` owns it.
 
 ### Catch-up
 

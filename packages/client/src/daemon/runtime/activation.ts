@@ -8,7 +8,6 @@ import {
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import { Data, Deferred, Effect, type Scope } from "effect";
-import type { HistoryExportPort } from "../../endpoint/engine-types.js";
 import type {
   EndpointEngine,
   EndpointEngineInput,
@@ -25,6 +24,7 @@ import type { HarnessMessageReadyEvent } from "../../harness-mcp-contract.js";
 import type { HarnessMcpSubscriptionHandler } from "../../harness-mcp-subscription.js";
 import type { makeHarnessMcpHttpHandler } from "../../harness-mcp-wire.js";
 import type { DaemonBootstrap } from "../configuration.js";
+import type { HistoryExportPort } from "./history-export.js";
 import {
   decodeCanonical,
   encodeCanonical,

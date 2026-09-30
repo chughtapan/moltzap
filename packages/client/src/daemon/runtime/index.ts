@@ -8,7 +8,6 @@ import { Effect, type Scope } from "effect";
 import type { EndpointStore } from "../../endpoint/store.js";
 import type { DaemonBootstrap } from "../configuration.js";
 import packageJson from "../../../package.json" with { type: "json" };
-import { noHistoryExport } from "../../endpoint/engine-types.js";
 import { makeEndpointEngine } from "../../endpoint/engine.js";
 import { makeRouterWorker } from "../../endpoint/router-worker/index.js";
 import { acquireHarnessMcpHttpServer } from "../../harness-mcp-http.js";
@@ -19,7 +18,7 @@ import {
   prepareDaemonActivation,
 } from "./activation.js";
 import { makeDaemonController } from "./controller.js";
-import { makeHistoryExport } from "./history-export.js";
+import { makeHistoryExport, noHistoryExport } from "./history-export.js";
 
 const DAEMON_IMPLEMENTATION = {
   name: "moltzapd",

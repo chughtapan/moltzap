@@ -84,9 +84,12 @@ fixed-group boundary.
 ## Addressed Client boundary
 
 `HarnessEndpoint` exposes `send` and `messages`. Send names an explicit
-`agent:` or `group:` address, creates one Client-minted post per invocation,
-and returns `void` after local certified durability. Messages identify direct
-or group address, verified author, content, and exact members for groups, plus
+`agent:` or `group:` address, or answers one collective request, and creates
+new Client-minted posts: one for a multicast or response, returned after local
+certified durability, and one per member for a gather, which returns its
+operation id. Messages carry items tagged by kind; a multicast identifies
+direct or group address, verified author, content, and exact members for
+groups, plus
 a transport acknowledgment governed by the
 [host-specific acceptance and replay contract](./harness/ingress.md#durable-acceptance).
 Hosts implement their required guarantees. Registration, status, search,

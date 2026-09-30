@@ -42,12 +42,10 @@ import type {
   EngineActionFold,
   EngineRegistryPort,
   EngineRouterPort,
+  EngineSendInput,
+  EngineSentPost,
 } from "../engine-types.js";
-import {
-  type HistoryExportRecord,
-  SendError,
-  SendInput,
-} from "../../contract.js";
+import { Content, MessageAddressInput, SendError } from "../../contract.js";
 import { type EndpointEngine, makeEndpointEngine } from "../engine.js";
 import { recoverFoldEvidence } from "../recovery/store-evidence.js";
 import {
@@ -91,8 +89,6 @@ interface ProtocolHarness {
   readonly identities: readonly ProtocolIdentity[];
   readonly engines: readonly EndpointEngine[];
   readonly stores: readonly EndpointStore[];
-  /** Every history-export record each engine wrote, by engine index. */
-  readonly exported: readonly HistoryExportRecord[][];
   readonly membership: VerifiedMembership;
   readonly outbound: Queue.Queue<typeof SignedMessage.Type>;
   readonly groupAddress: string;
@@ -429,18 +425,6 @@ interface HarnessOptions {
   readonly attachTimeout?: Duration.Duration;
 }
 
-function recordingExport(
-  exported: readonly HistoryExportRecord[][],
-  index: number,
-): NonNullable<EndpointEngineInput["historyExport"]> {
-  return {
-    record: (record) =>
-      Effect.sync(() => {
-        exported[index]?.push(record);
-      }),
-  };
-}
-
 function makeProtocolHarness(
   options: HarnessOptions = {},
 ): Effect.Effect<ProtocolHarness, never, Scope.Scope> {
@@ -472,7 +456,6 @@ function makeProtocolHarness(
     const registry: EngineRegistryPort = {
       lookup: (request) => Effect.succeed(lookupIdentity(identities, request)),
     };
-    const exported = identities.map((): HistoryExportRecord[] => []);
     const engines = yield* Effect.forEach(
       identities,
       (identity, index) =>
@@ -496,7 +479,6 @@ function makeProtocolHarness(
               ...(options.attachTimeout === undefined
                 ? {}
                 : { routerAttachTimeout: options.attachTimeout }),
-              historyExport: recordingExport(exported, index),
             }),
           ),
         ),
@@ -513,7 +495,6 @@ function makeProtocolHarness(
       identities,
       engines,
       stores,
-      exported,
       membership,
       outbound,
       groupAddress: `group:${identities.map(({ card }) => card.agentName).join(",")}`,
@@ -523,10 +504,13 @@ function makeProtocolHarness(
   }).pipe(Effect.provide(NodeFileSystem.layer), Effect.orDie);
 }
 
-function sendInput(harness: ProtocolHarness, text: string) {
-  return Schema.decodeUnknown(SendInput)({
-    to: harness.groupAddress,
-    text,
+function sendInput(
+  harness: ProtocolHarness,
+  text: string,
+): Effect.Effect<EngineSendInput> {
+  return Effect.all({
+    to: Schema.decodeUnknown(MessageAddressInput)(harness.groupAddress),
+    content: Schema.decodeUnknown(Content)([{ type: "text", text }]),
   }).pipe(Effect.orDie);
 }
 
@@ -647,7 +631,7 @@ function pump(
 
 function certifyGenesisOf(
   harness: ProtocolHarness,
-  sending: Fiber.RuntimeFiber<RecordHash, SendError>,
+  sending: Fiber.RuntimeFiber<EngineSentPost, SendError>,
 ): Effect.Effect<RecordHash> {
   return Effect.gen(function* () {
     const initial = yield* takeReadyBatch(harness);
@@ -665,10 +649,11 @@ function certifyGenesisOf(
     expect(
       recoveries.map(({ certifiedRecords }) => certifiedRecords.length),
     ).toEqual([1, 1, 1, 1]);
-    return yield* Fiber.join(sending).pipe(
+    const sent = yield* Fiber.join(sending).pipe(
       Effect.timeout("1 second"),
       Effect.orDie,
     );
+    return sent.recordHash;
   });
 }
 
@@ -1199,12 +1184,6 @@ function retainsInterruptedDurableSend() {
         );
         expect(proposal.action.postIntent.content).toEqual([
           { type: "text", text: "retained send" },
-          {
-            type: "data",
-            value: {
-              "xyz.moltzap/collective": { kind: "operation", op: "multicast" },
-            },
-          },
         ]);
       }),
     ),
@@ -1212,51 +1191,6 @@ function retainsInterruptedDurableSend() {
 }
 
 // @agent-code-guard/regression-only: These stateful traces exercise durable quorum and interruption boundaries across real endpoint engines.
-function exportsCertifiedSendAndDeliveries() {
-  return Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const harness = yield* makeProtocolHarness();
-        yield* certifyGenesis(harness);
-        const author = yield* requireAt(harness.identities, 0, "identity");
-
-        const authorExports = yield* requireAt(harness.exported, 0, "records");
-        expect(authorExports).toHaveLength(1);
-        const [sent] = authorExports;
-        if (sent?.kind !== "outbound" || sent.outcome.kind !== "certified") {
-          return yield* Effect.dieMessage(
-            "the author did not export one certified send",
-          );
-        }
-        expect(sent).toMatchObject({
-          to: harness.groupAddress,
-          text: "open group",
-        });
-
-        for (const index of [1, 2, 3]) {
-          const received = yield* requireAt(harness.exported, index, "records");
-          expect(received).toHaveLength(1);
-          const [delivered] = received;
-          if (delivered?.kind !== "inbound") {
-            return yield* Effect.dieMessage(
-              `endpoint ${String(index)} did not export one inbound delivery`,
-            );
-          }
-          expect(delivered.item).toMatchObject({
-            kind: "multicast",
-            message: {
-              address: harness.groupAddress,
-              postId: sent.outcome.postId,
-              sender: `agent:${author.card.agentName}`,
-              content: [{ type: "text", text: sent.text }],
-            },
-          });
-        }
-      }),
-    ),
-  );
-}
-
 function sendReturnsTheStoredCertifiedRecordHash() {
   return Effect.runPromise(
     Effect.scoped(
@@ -1293,41 +1227,7 @@ function pendingDeliveryCarriesTheCertifiedRecordHash() {
   );
 }
 
-function exportsFailedSend() {
-  return Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const harness = yield* makeProtocolHarness();
-        yield* certifyGenesis(harness);
-        const engine = yield* requireAt(harness.engines, 0, "endpoint engine");
-        const input = Schema.decodeUnknownSync(SendInput)({
-          to: "agent:nobody",
-          text: "to nobody",
-        });
-
-        const failure = yield* engine.send(input).pipe(Effect.flip);
-
-        const records = yield* requireAt(harness.exported, 0, "records");
-        const failed = records.at(-1);
-        if (failed?.kind !== "outbound" || failed.outcome.kind !== "failed") {
-          return yield* Effect.dieMessage(
-            "the author did not export the failed send",
-          );
-        }
-        expect(failed.outcome.reason).toBe(failure.reason);
-        expect(failed.to).toBe(input.to);
-        expect(failed.text).toBe(input.text);
-      }),
-    ),
-  );
-}
-
 describe("fixed-post endpoint protocol", () => {
-  it(
-    "exports the author's certified send and every member's delivery",
-    exportsCertifiedSendAndDeliveries,
-    TEST_TIMEOUT_MS,
-  );
   it(
     "returns the hash of the send's locally stored certified record",
     sendReturnsTheStoredCertifiedRecordHash,
@@ -1336,11 +1236,6 @@ describe("fixed-post endpoint protocol", () => {
   it(
     "reads a pending delivery with the hash of its certified record",
     pendingDeliveryCarriesTheCertifiedRecordHash,
-    TEST_TIMEOUT_MS,
-  );
-  it(
-    "exports a send that failed with its reason",
-    exportsFailedSend,
     TEST_TIMEOUT_MS,
   );
   it(
