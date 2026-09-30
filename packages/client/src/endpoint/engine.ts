@@ -262,10 +262,13 @@ const shiftOutbound = (
  * Send queued outbox identities in order until the queue is empty.
  *
  * The outbound gate covers only reading and removing the queue head, never the
- * worker send. A worker send waits while Router recovery runs, and recovery
- * takes the outbound gate to resume intents, so holding the gate across the
- * send would deadlock them. The worker serializes transmissions and a repeated
- * outbox identity is inactive once sent, so concurrent drains stay ordered.
+ * worker send. A worker send queues behind a running recovery on the worker's
+ * recovery gate, and may run that recovery on its own fiber after it observes
+ * a Router restart; recovery takes the outbound gate to resume intents, so
+ * holding the gate across the send would deadlock either way. The worker
+ * serializes transmissions and a sent outbox identity is inactive, so
+ * concurrent drains stay ordered; a drain removes the head only when it is
+ * still the identity that drain sent.
  * @param runtime Engine whose queued outbox identities are sent.
  * @returns Completion once no queued identity remains.
  */
