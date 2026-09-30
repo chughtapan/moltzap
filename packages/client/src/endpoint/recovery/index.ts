@@ -191,7 +191,7 @@ function prepareRecoveryOutbox(
         case "cursor_invalid":
           return Effect.succeed(outbounds);
         case "router_restarted":
-          return discardRestartedOutbounds(runtime, outbounds);
+          return discardRestartedOutbounds(runtime, recovery, outbounds);
         default: {
           const exhaustive: never = recovery.reason;
           return exhaustive;
@@ -203,32 +203,65 @@ function prepareRecoveryOutbox(
 }
 
 /**
- * Resume retained same-instance envelopes in durable insertion order.
- * @param recovery Recovery transport fenced to the active Router instance.
+ * Queue retained envelopes until the Router worker enables normal ingress.
+ * Recovery polling ignores proposals and action votes, so transmitting these
+ * envelopes through its transport could consume the evidence they need.
+ * @param runtime Engine whose ordinary sender waits for the recovery fence.
  * @param outbounds Verified current envelopes retained by the endpoint store.
- * @returns Completion after every stable outbox identity is accepted or inactive.
+ * @returns Completion after retained identities are queued in durable order.
  */
 function resumeRecoveryOutbox(
-  recovery: RouterWorkerRecovery,
+  runtime: EngineRuntime,
   outbounds: readonly StoredOutboundMessage[],
-): Effect.Effect<void, RouterWorkerSendError> {
-  return Effect.forEach(
-    outbounds,
-    (outbound) => recovery.resume(outbound.outboundId),
-    { concurrency: 1, discard: true },
-  ).pipe(Effect.withSpan("resumeRecoveryOutbox"));
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    for (const outbound of outbounds) {
+      if (!runtime.outbound.includes(outbound.outboundId)) {
+        runtime.outbound.push(outbound.outboundId);
+      }
+    }
+  }).pipe(
+    Effect.zipRight(Queue.offer(runtime.outboundSignal, undefined)),
+    Effect.asVoid,
+    Effect.withSpan("resumeRecoveryOutbox"),
+  );
 }
 
+/**
+ * Classifies envelopes before catch-up can advance their conversation anchors.
+ * @param runtime Engine containing the verified pre-catch-up anchors.
+ * @param recovery Transport fenced to the newly observed Router instance.
+ * @param outbounds Verified envelopes in durable insertion order.
+ * @returns Same-instance envelopes with their original retry identity.
+ */
 function discardRestartedOutbounds(
   runtime: EngineRuntime,
+  recovery: RouterWorkerRecovery,
   outbounds: readonly StoredOutboundMessage[],
 ): Effect.Effect<readonly StoredOutboundMessage[], RouterWorkerRecoveryError> {
   if (outbounds.length === 0) {
     return Effect.succeed([]);
   }
+  const sameRouterConversations = new Set<string>(
+    [...runtime.conversations.values()]
+      .filter(
+        ({ currentAnchor }) =>
+          (currentAnchor.kind === "genesis_anchor_body"
+            ? currentAnchor.routerInstanceId
+            : currentAnchor.reanchor.routerInstanceId) ===
+          recovery.anchor.routerInstanceId,
+      )
+      .map(({ conversationId }) => conversationId),
+  );
+  const retained = outbounds.filter((outbound) =>
+    sameRouterConversations.has(outbound.conversationId),
+  );
+  const stale = outbounds.filter(
+    (outbound) => !sameRouterConversations.has(outbound.conversationId),
+  );
   return runtime.input.store
-    .discardOutbound(outbounds)
-    .pipe(Effect.mapError(recoveryFailure), Effect.as([]));
+    .discardOutbound(stale)
+    .pipe(Effect.mapError(recoveryFailure), Effect.as(retained));
 }
 
 function acceptRecoveryPacket(
@@ -780,12 +813,12 @@ function runRecovery(
       Deferred.await(state.completion),
       Fiber.join(sender),
     );
+    yield* resumeRecoveryOutbox(runtime, retainedOutbounds);
     yield* resumeDisseminationObligations(runtime).pipe(
       Effect.mapError(recoveryFailure),
     );
-    yield* resumeRecoveryOutbox(state.recovery, retainedOutbounds);
     yield* resumeEngineFolds(runtime).pipe(Effect.mapError(recoveryFailure));
-    yield* resumePendingIntents(runtime, state.recovery);
+    yield* resumeUncompletedIntents(runtime);
   });
 }
 
@@ -810,45 +843,6 @@ function recoverPositions(
   );
 }
 
-function resumePendingIntents(
-  runtime: EngineRuntime,
-  recovery: RouterWorkerRecovery,
-): Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError> {
-  return runtime.outboundGate.withPermits(1)(
-    preparePendingIntents(runtime, recovery).pipe(
-      Effect.zipRight(resumeUncompletedIntents(runtime)),
-      Effect.zipRight(sendResumedOutbound(runtime, recovery)),
-    ),
-  );
-}
-
-function preparePendingIntents(
-  runtime: EngineRuntime,
-  recovery: RouterWorkerRecovery,
-): Effect.Effect<void> {
-  switch (recovery.reason) {
-    case "feed_gap":
-    case "cursor_invalid":
-      return Effect.void;
-    case "router_restarted":
-      return resetPendingIntents(runtime);
-    default: {
-      const exhaustive: never = recovery.reason;
-      return exhaustive;
-    }
-  }
-}
-
-function resetPendingIntents(runtime: EngineRuntime): Effect.Effect<void> {
-  return Effect.sync(() => {
-    for (const intent of runtime.intents.values()) {
-      if (!runtime.completedPosts.has(intent.intent.postId)) {
-        intent.proposedActionHash = undefined;
-      }
-    }
-  });
-}
-
 function resumeUncompletedIntents(
   runtime: EngineRuntime,
 ): Effect.Effect<void, RouterWorkerRecoveryError> {
@@ -859,20 +853,5 @@ function resumeUncompletedIntents(
         ? Effect.void
         : proposeIntent(runtime, intent).pipe(Effect.mapError(recoveryFailure)),
     { concurrency: 1, discard: true },
-  );
-}
-
-function sendResumedOutbound(
-  runtime: EngineRuntime,
-  recovery: RouterWorkerRecovery,
-): Effect.Effect<void, RouterWorkerSendError> {
-  return Effect.sync(() => runtime.outbound.shift()).pipe(
-    Effect.flatMap((outboundId) =>
-      outboundId === undefined
-        ? Effect.void
-        : recovery
-            .resume(outboundId)
-            .pipe(Effect.zipRight(sendResumedOutbound(runtime, recovery))),
-    ),
   );
 }
