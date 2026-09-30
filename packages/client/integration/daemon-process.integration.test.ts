@@ -125,6 +125,92 @@ const readDurableHistory = (
     }),
   );
 
+/** Sends one addressed post and waits for the peer to receive it. */
+const deliverDirect = (input: {
+  readonly from: DaemonProcessFixture;
+  readonly to: DaemonProcessFixture;
+  readonly text: string;
+}) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const sender = yield* acquireHarnessEndpoint(input.from.endpoint);
+      const receiver = yield* acquireHarnessEndpoint(input.to.endpoint);
+      const delivery = yield* Effect.forkScoped(
+        nextDelivery(receiver.messages),
+      );
+      yield* sender.send({
+        to: directAddress(input.to.agentName),
+        text: input.text,
+      });
+      const inbound = yield* Fiber.join(delivery);
+      expect(inbound.item).toMatchObject({
+        kind: "multicast",
+        message: {
+          kind: "direct",
+          sender: directAddress(input.from.agentName),
+          content: [{ type: "text", text: input.text }],
+        },
+      });
+      yield* inbound.acknowledge;
+    }),
+  );
+
+const beforeRestartText = "sent before the daemon restarts";
+const fromRestartedText = "sent by the restarted daemon";
+const toRestartedText = "sent to the restarted daemon";
+
+const singleRestartBehavior = Effect.gen(function* () {
+  const infrastructure = yield* acquireProcessInfrastructure;
+  const [restartedFixture, peerFixture] = yield* Effect.all(
+    [
+      makeDaemonProcessFixture(infrastructure, "restart-subject"),
+      makeDaemonProcessFixture(infrastructure, "restart-peer"),
+    ] as const,
+    { concurrency: 2 },
+  );
+  const restartedDaemon = yield* acquireDaemonProcess(restartedFixture);
+  yield* acquireDaemonProcess(peerFixture);
+  yield* registerFixture(restartedFixture);
+  yield* registerFixture(peerFixture);
+
+  yield* deliverDirect({
+    from: restartedFixture,
+    to: peerFixture,
+    text: beforeRestartText,
+  });
+
+  yield* stopProcess(restartedDaemon);
+  yield* acquireDaemonProcess(restartedFixture);
+
+  yield* deliverDirect({
+    from: restartedFixture,
+    to: peerFixture,
+    text: fromRestartedText,
+  });
+  yield* deliverDirect({
+    from: peerFixture,
+    to: restartedFixture,
+    text: toRestartedText,
+  });
+
+  const history = yield* readDurableHistory(
+    restartedFixture,
+    directAddress(peerFixture.agentName),
+  );
+  expect(
+    history.records.map(({ recordCore }) => recordCore.action.kind),
+  ).toEqual(["GENESIS", "POST", "POST"]);
+  expect(
+    history.records.map(
+      ({ recordCore }) => recordCore.action.postIntent.content[0],
+    ),
+  ).toEqual([
+    { type: "text", text: beforeRestartText },
+    { type: "text", text: fromRestartedText },
+    { type: "text", text: toRestartedText },
+  ]);
+}).pipe(Effect.scoped);
+
 const processBehavior = Effect.gen(function* () {
   const infrastructure = yield* acquireProcessInfrastructure;
   const [callerFixture, targetFixture] = yield* Effect.all(
@@ -332,4 +418,9 @@ const admissionLifetimeBehavior = Effect.gen(function* () {
 it("restarts a registered daemon without the admission credential", () => {
   expect.hasAssertions();
   return Effect.runPromise(admissionLifetimeBehavior);
+}, 180_000);
+
+it("delivers both ways after one real daemon restarts while its peer stays up", () => {
+  expect.hasAssertions();
+  return Effect.runPromise(singleRestartBehavior);
 }, 180_000);

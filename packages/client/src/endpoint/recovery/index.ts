@@ -64,6 +64,7 @@ import {
 } from "./state.js";
 import {
   decodeStoredAnchor,
+  durableRouterInstanceId,
   recordFromStore,
   verifyRecoveredHistory,
   verifyStoredOutbounds,
@@ -124,6 +125,11 @@ export function acceptEngineRecoveryIngressWithRecovery(
 
 /**
  * Reconcile every certified chain and threshold-anchor a restarted Router.
+ *
+ * Re-anchoring is reserved for a conversation whose durable anchor names a
+ * Router instance other than the recovery anchor. A daemon cold start reports
+ * `router_restarted` because it has no prior instance in memory; conversations
+ * still anchored to the polled instance recover by catch-up alone.
  * @param runtime Engine whose durable histories require reconciliation.
  * @param recoveryInput Authenticated Router recovery callbacks and new anchor.
  * @returns Completion after history, folds, and pending intents resume safely.
@@ -145,13 +151,22 @@ export const recoverCertifiedHistory = (
       .pipe(Effect.mapError(recoveryFailure));
     const memberships = yield* recoverMemberships(runtime, recovered);
     yield* verifyRecoveredHistory(runtime, recovered, memberships);
-    const retainedOutbounds = yield* prepareRecoveryOutbox(
-      runtime,
+    const reanchoring = yield* reanchoringConversations(
       recoveryInput,
       recovered,
       memberships,
     );
-    const state = yield* makeRecoveryState(recoveryInput, memberships);
+    const retainedOutbounds = yield* prepareRecoveryOutbox(
+      runtime,
+      recovered,
+      memberships,
+      reanchoring,
+    );
+    const state = yield* makeRecoveryState(
+      recoveryInput,
+      memberships,
+      reanchoring,
+    );
     yield* Effect.sync(() => {
       installRecoveryState(runtime, state);
     });
@@ -166,18 +181,51 @@ export const recoverCertifiedHistory = (
   }).pipe(Effect.withSpan("recoverCertifiedHistory"));
 
 /**
- * Verify retained outer envelopes and invalidate only rows bound to an old Router.
- * @param runtime Engine whose local identity authored the retained envelopes.
- * @param recovery Router discontinuity and current recovery transport.
+ * Select conversations whose durable anchor names another Router instance.
+ * @param recovery Router discontinuity and the polled recovery anchor.
  * @param snapshot Exact durable state captured before recovery starts.
  * @param memberships Verified membership for every retained conversation.
+ * @returns Conversations that must re-anchor; empty unless the reason is a restart.
+ */
+function reanchoringConversations(
+  recovery: RouterWorkerRecovery,
+  snapshot: EndpointRecovery,
+  memberships: ReadonlyMap<ConversationIdValue, VerifiedMembership>,
+): Effect.Effect<ReadonlySet<string>, RouterWorkerRecoveryError> {
+  if (recovery.reason !== "router_restarted") {
+    return Effect.succeed(new Set<string>());
+  }
+  return Effect.filter(
+    memberships.values(),
+    (membership) =>
+      durableRouterInstanceId(membership, snapshot).pipe(
+        Effect.map((instance) => instance !== recovery.anchor.routerInstanceId),
+      ),
+    { concurrency: 1 },
+  ).pipe(
+    Effect.map(
+      (changed) =>
+        new Set<string>(
+          changed.map((membership) => membership.descriptor.conversationId),
+        ),
+    ),
+    Effect.withSpan("reanchoringConversations"),
+  );
+}
+
+/**
+ * Verify retained outer envelopes and invalidate only rows bound to an old Router.
+ * @param runtime Engine whose local identity authored the retained envelopes.
+ * @param snapshot Exact durable state captured before recovery starts.
+ * @param memberships Verified membership for every retained conversation.
+ * @param reanchoring Conversations anchored to another Router instance.
  * @returns Same-instance rows that must resume with their stable outbox identity.
  */
 function prepareRecoveryOutbox(
   runtime: EngineRuntime,
-  recovery: RouterWorkerRecovery,
   snapshot: EndpointRecovery,
   memberships: ReadonlyMap<ConversationIdValue, VerifiedMembership>,
+  reanchoring: ReadonlySet<string>,
 ): Effect.Effect<readonly StoredOutboundMessage[], RouterWorkerRecoveryError> {
   return verifyStoredOutbounds(
     runtime.input,
@@ -185,19 +233,20 @@ function prepareRecoveryOutbox(
     memberships,
   ).pipe(
     Effect.mapError(recoveryFailure),
-    Effect.flatMap((outbounds) => {
-      switch (recovery.reason) {
-        case "feed_gap":
-        case "cursor_invalid":
-          return Effect.succeed(outbounds);
-        case "router_restarted":
-          return discardRestartedOutbounds(runtime, outbounds);
-        default: {
-          const exhaustive: never = recovery.reason;
-          return exhaustive;
-        }
-      }
-    }),
+    Effect.flatMap((outbounds) =>
+      discardRestartedOutbounds(
+        runtime,
+        outbounds.filter((outbound) =>
+          reanchoring.has(outbound.conversationId),
+        ),
+      ).pipe(
+        Effect.as(
+          outbounds.filter(
+            (outbound) => !reanchoring.has(outbound.conversationId),
+          ),
+        ),
+      ),
+    ),
     Effect.withSpan("prepareRecoveryOutbox"),
   );
 }
@@ -222,13 +271,13 @@ function resumeRecoveryOutbox(
 function discardRestartedOutbounds(
   runtime: EngineRuntime,
   outbounds: readonly StoredOutboundMessage[],
-): Effect.Effect<readonly StoredOutboundMessage[], RouterWorkerRecoveryError> {
+): Effect.Effect<void, RouterWorkerRecoveryError> {
   if (outbounds.length === 0) {
-    return Effect.succeed([]);
+    return Effect.void;
   }
   return runtime.input.store
     .discardOutbound(outbounds)
-    .pipe(Effect.mapError(recoveryFailure), Effect.as([]));
+    .pipe(Effect.mapError(recoveryFailure), Effect.asVoid);
 }
 
 function acceptRecoveryPacket(
@@ -785,7 +834,7 @@ function runRecovery(
     );
     yield* resumeRecoveryOutbox(state.recovery, retainedOutbounds);
     yield* resumeEngineFolds(runtime).pipe(Effect.mapError(recoveryFailure));
-    yield* resumePendingIntents(runtime, state.recovery);
+    yield* resumePendingIntents(runtime, state);
   });
 }
 
@@ -812,37 +861,32 @@ function recoverPositions(
 
 function resumePendingIntents(
   runtime: EngineRuntime,
-  recovery: RouterWorkerRecovery,
+  state: ActiveRecoveryState,
 ): Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError> {
   return runtime.outboundGate.withPermits(1)(
-    preparePendingIntents(runtime, recovery).pipe(
+    resetReanchoredIntents(runtime, state.reanchoring).pipe(
       Effect.zipRight(resumeUncompletedIntents(runtime)),
-      Effect.zipRight(sendResumedOutbound(runtime, recovery)),
+      Effect.zipRight(sendResumedOutbound(runtime, state.recovery)),
     ),
   );
 }
 
-function preparePendingIntents(
+/**
+ * Forget proposals bound to a replaced anchor so they repropose at the new one.
+ * @param runtime Engine whose pending intents are examined.
+ * @param reanchoring Conversations anchored to another Router instance.
+ * @returns Completion after the affected proposals are cleared.
+ */
+function resetReanchoredIntents(
   runtime: EngineRuntime,
-  recovery: RouterWorkerRecovery,
+  reanchoring: ReadonlySet<string>,
 ): Effect.Effect<void> {
-  switch (recovery.reason) {
-    case "feed_gap":
-    case "cursor_invalid":
-      return Effect.void;
-    case "router_restarted":
-      return resetPendingIntents(runtime);
-    default: {
-      const exhaustive: never = recovery.reason;
-      return exhaustive;
-    }
-  }
-}
-
-function resetPendingIntents(runtime: EngineRuntime): Effect.Effect<void> {
   return Effect.sync(() => {
     for (const intent of runtime.intents.values()) {
-      if (!runtime.completedPosts.has(intent.intent.postId)) {
+      if (
+        reanchoring.has(intent.intent.conversationId) &&
+        !runtime.completedPosts.has(intent.intent.postId)
+      ) {
         intent.proposedActionHash = undefined;
       }
     }

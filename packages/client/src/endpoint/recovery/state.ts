@@ -38,6 +38,11 @@ import {
 /** Mutable state scoped to one authenticated catch-up and re-anchor run. */
 export interface ActiveRecoveryState {
   readonly recovery: RouterWorkerRecovery;
+  /**
+   * Conversations whose durable anchor names a Router instance other than the
+   * recovery anchor. Only these re-anchor; the rest recover by catch-up alone.
+   */
+  readonly reanchoring: ReadonlySet<string>;
   readonly outbound: Queue.Queue<RouterWorkerRecoverySend>;
   readonly completion: Deferred.Deferred<undefined, RouterWorkerRecoveryError>;
   readonly memberships: Map<ConversationIdValue, VerifiedMembership>;
@@ -261,15 +266,18 @@ export function observedAnchorIsResolved(
  * Allocate all volatile state for one bounded recovery session.
  * @param recovery RouterWorker callbacks and discontinuity anchor.
  * @param memberships Verified memberships that must be reconciled.
+ * @param reanchoring Conversations anchored to a different Router instance.
  * @returns Fresh queues, indexes, and completion signal for the run.
  */
 export const makeRecoveryState = (
   recovery: RouterWorkerRecovery,
   memberships: Map<ConversationIdValue, VerifiedMembership>,
+  reanchoring: ReadonlySet<string>,
 ): Effect.Effect<ActiveRecoveryState> =>
   Effect.gen(function* () {
     return {
       recovery,
+      reanchoring,
       outbound: yield* Queue.unbounded<RouterWorkerRecoverySend>(),
       completion: yield* Deferred.make<undefined, RouterWorkerRecoveryError>(),
       memberships,
