@@ -27,8 +27,11 @@ import {
   Option,
   Queue,
   Redacted,
+  Ref,
   Schema,
   type Scope,
+  Stream,
+  SubscriptionRef,
 } from "effect";
 import {
   createHash,
@@ -37,6 +40,7 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import type { DaemonRuntimeError } from "../../daemon/runtime/activation.js";
 import type {
   EndpointEngineInput,
   EngineActionFold,
@@ -46,6 +50,7 @@ import type {
   EngineSentPost,
 } from "../engine-types.js";
 import { Content, MessageAddressInput, SendError } from "../../contract.js";
+import { failFromBackgroundCause } from "../../daemon/runtime/protocol.js";
 import { type EndpointEngine, makeEndpointEngine } from "../engine.js";
 import { recoverFoldEvidence } from "../recovery/store-evidence.js";
 import {
@@ -72,8 +77,11 @@ import {
 import {
   type RouterIngressDisposition,
   type RouterTailAnchor,
+  RouterWorkerDiscontinuityError,
   type RouterWorkerIngress,
   RouterWorkerPersistenceError,
+  type RouterWorkerSendError,
+  RouterWorkerTransportError,
   RouterWorkerUnavailableError,
 } from "../router-worker/index.js";
 import { type EndpointStore, openEndpointStore } from "../store.js";
@@ -97,6 +105,8 @@ interface ProtocolHarness {
     endpointIndexes?: readonly number[],
   ) => Effect.Effect<readonly RouterIngressDisposition[]>;
   readonly drain: (endpointIndexes?: readonly number[]) => Effect.Effect<void>;
+  readonly registry: EngineRegistryPort;
+  readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
 }
 
 const MEMBER_COUNT = 4;
@@ -333,6 +343,9 @@ function signEveryAction(): Effect.Effect<"sign"> {
 
 type WorkerAttachment = Pick<EngineRouterPort, "awaitAnchor" | "currentAnchor">;
 
+/** Replaces a worker's transmit, given the scripted Router forward. */
+type WrapSend = (forward: EngineRouterPort["send"]) => EngineRouterPort["send"];
+
 function attachesWhenResolved(
   attached: Deferred.Deferred<RouterTailAnchor>,
 ): WorkerAttachment {
@@ -358,13 +371,15 @@ function scriptedRouterWorker(
   store: EndpointStore,
   outbound: Queue.Queue<typeof SignedMessage.Type>,
   attachment?: WorkerAttachment,
+  wrapSend?: WrapSend,
 ): EngineRouterPort {
   const anchor = { routerInstanceId, pollCursor };
+  const forward = (outboundId: string) =>
+    forwardStoredOutbound(store, outbound, outboundId);
   return {
     currentAnchor: attachment?.currentAnchor ?? Effect.succeed(anchor),
     awaitAnchor: attachment?.awaitAnchor ?? Effect.succeed(anchor),
-    send: (outboundId: string) =>
-      forwardStoredOutbound(store, outbound, outboundId),
+    send: wrapSend === undefined ? forward : wrapSend(forward),
   };
 }
 
@@ -423,6 +438,8 @@ interface HarnessOptions {
   /** Present when the author's Router worker has not attached yet. */
   readonly attachment?: WorkerAttachment;
   readonly attachTimeout?: Duration.Duration;
+  /** Replaces the author's worker transmit. */
+  readonly authorSend?: WrapSend;
 }
 
 function makeProtocolHarness(
@@ -475,6 +492,7 @@ function makeProtocolHarness(
                 store,
                 outbound,
                 index === 0 ? options.attachment : undefined,
+                index === 0 ? options.authorSend : undefined,
               ),
               ...(options.attachTimeout === undefined
                 ? {}
@@ -500,6 +518,8 @@ function makeProtocolHarness(
       groupAddress: `group:${identities.map(({ card }) => card.agentName).join(",")}`,
       deliver,
       drain,
+      registry,
+      registrySignerPublicKey,
     } satisfies ProtocolHarness;
   }).pipe(Effect.provide(NodeFileSystem.layer), Effect.orDie);
 }
@@ -1368,6 +1388,237 @@ describe("engine sends and Router-worker attachment", () => {
     "waits for attachment without holding the engine gate recovery needs",
     () =>
       Effect.runPromise(Effect.scoped(attachmentWaitLeavesTheEngineGateFree())),
+    TEST_TIMEOUT_MS,
+  );
+});
+
+/**
+ * The daemon forks `runOutbound` under `superviseBackground`, whose
+ * `catchAllCause` completes the process-wide `fatal` deferred through
+ * `failFromBackgroundCause`. This mirrors that supervision exactly.
+ */
+function superviseOutbound(
+  engine: EndpointEngine,
+  fatal: Deferred.Deferred<never, DaemonRuntimeError>,
+) {
+  return engine.runOutbound.pipe(
+    Effect.catchAllCause((cause) => failFromBackgroundCause(fatal, cause)),
+    Effect.interruptible,
+    Effect.forkScoped,
+  );
+}
+
+/**
+ * Router restart while a send drains: the worker was attached for the send's
+ * probe, then its transmit observes a transient worker state.
+ */
+function transientTransmitFailureLeavesDaemonAlive(
+  failure: RouterWorkerSendError,
+): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness({
+      authorSend: () => () => Effect.fail(failure),
+    });
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
+    yield* superviseOutbound(author, fatal);
+    const sendResult = yield* author
+      .send(yield* sendInput(harness, "router restarts mid-drain"))
+      .pipe(Effect.flip, Effect.orDie);
+    expect(sendResult).toStrictEqual(
+      new SendError({ reason: "network-unavailable" }),
+    );
+    yield* Effect.sleep("200 millis");
+    expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
+  });
+}
+
+/**
+ * Daemon cold start with a durable pending outbound row: the restarted
+ * worker starts `recovering` (as `makeRouterWorker` does) and `makeRuntime`
+ * pre-signals the outbound queue before the worker has polled once.
+ */
+function coldStartWithPendingOutboundLeavesDaemonAlive(): Effect.Effect<
+  void,
+  never,
+  Scope.Scope
+> {
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness({
+      authorSend: () => () => Effect.fail(new RouterWorkerUnavailableError()),
+    });
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    yield* author
+      .send(yield* sendInput(harness, "left pending before restart"))
+      .pipe(Effect.flip, Effect.orDie);
+    const identity = yield* requireAt(harness.identities, 0, "identity");
+    const store = yield* requireAt(harness.stores, 0, "endpoint store");
+    const restarted = yield* makeEndpointEngine({
+      localAgentCard: identity.card,
+      signingAuthority: identity.authority,
+      registrySignerPublicKey: harness.registrySignerPublicKey,
+      registry: harness.registry,
+      store,
+      actionPolicy: signEveryAction,
+      routerWorker: {
+        ...neverAttaches,
+        send: () => Effect.fail(new RouterWorkerUnavailableError()),
+      },
+    }).pipe(Effect.orDie);
+    const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
+    yield* superviseOutbound(restarted, fatal);
+    yield* Effect.sleep("200 millis");
+    expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
+  });
+}
+
+const outageAnchor = { routerInstanceId, pollCursor };
+
+function anchorWhile(
+  attached: SubscriptionRef.SubscriptionRef<boolean>,
+): WorkerAttachment {
+  return {
+    currentAnchor: SubscriptionRef.get(attached).pipe(
+      Effect.flatMap((up) =>
+        up
+          ? Effect.succeed(outageAnchor)
+          : Effect.fail(new RouterWorkerUnavailableError()),
+      ),
+    ),
+    awaitAnchor: attached.changes.pipe(
+      Stream.filter((up) => up),
+      Stream.runHead,
+      Effect.as(outageAnchor),
+    ),
+  };
+}
+
+function transmitWhile(
+  attached: SubscriptionRef.SubscriptionRef<boolean>,
+  armed: Ref.Ref<boolean>,
+  forward: EngineRouterPort["send"],
+  outboundId: string,
+) {
+  return Ref.getAndSet(armed, false).pipe(
+    Effect.flatMap((first) =>
+      first ? SubscriptionRef.set(attached, false) : Effect.void,
+    ),
+    Effect.zipRight(SubscriptionRef.get(attached)),
+    Effect.flatMap((up) =>
+      up
+        ? forward(outboundId)
+        : Effect.fail(new RouterWorkerUnavailableError()),
+    ),
+  );
+}
+
+/**
+ * A worker attached at the send's probe that detaches on its first transmit,
+ * as when the poll loop loses the Router mid-send, and reattaches when told.
+ */
+function detachesOnFirstTransmit(
+  attached: SubscriptionRef.SubscriptionRef<boolean>,
+) {
+  return Ref.make(true).pipe(
+    Effect.map(
+      (armed): HarnessOptions => ({
+        attachment: anchorWhile(attached),
+        authorSend: (forward) => (outboundId) =>
+          transmitWhile(attached, armed, forward, outboundId),
+      }),
+    ),
+  );
+}
+
+/**
+ * What a host sees when the Router drops during its send: the send returns
+ * `network-unavailable` promptly, the daemon stays up, and the durably queued
+ * envelope goes out and certifies once the worker re-anchors.
+ */
+function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    const attached = yield* SubscriptionRef.make(true);
+    const worker = yield* detachesOnFirstTransmit(attached);
+    const harness = yield* makeProtocolHarness(worker);
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
+    yield* superviseOutbound(author, fatal);
+
+    const failure = yield* author
+      .send(yield* sendInput(harness, "sent during outage"))
+      .pipe(Effect.timeout("1 second"), Effect.flip, Effect.orDie);
+    expect(failure).toStrictEqual(
+      new SendError({ reason: "network-unavailable" }),
+    );
+    yield* Effect.sleep("200 millis");
+    expect(yield* Queue.size(harness.outbound)).toBe(0);
+    expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
+
+    yield* SubscriptionRef.set(attached, true);
+    yield* pump(harness, yield* takeReadyBatch(harness));
+    const recoveries = yield* Effect.forEach(
+      harness.stores,
+      (store) => store.recover().pipe(Effect.orDie),
+      { concurrency: 1 },
+    );
+    expect(
+      recoveries.map(({ certifiedRecords }) => certifiedRecords.length),
+    ).toEqual([1, 1, 1, 1]);
+    expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
+  });
+}
+
+describe("issue 1003: a local send during a Router outage", () => {
+  it(
+    "returns network-unavailable at once and delivers the post after re-attachment",
+    () => Effect.runPromise(Effect.scoped(localSendDuringOutage())),
+    TEST_TIMEOUT_MS,
+  );
+});
+
+describe("issue 1003: outbound loop under a transient Router worker state", () => {
+  it(
+    "keeps the daemon alive when the worker reports unavailable mid-drain",
+    () =>
+      Effect.runPromise(
+        Effect.scoped(
+          transientTransmitFailureLeavesDaemonAlive(
+            new RouterWorkerUnavailableError(),
+          ),
+        ),
+      ),
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "keeps the daemon alive when a transmit observes a Router restart",
+    () =>
+      Effect.runPromise(
+        Effect.scoped(
+          transientTransmitFailureLeavesDaemonAlive(
+            new RouterWorkerDiscontinuityError(),
+          ),
+        ),
+      ),
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "keeps the daemon alive when the Router transport drops mid-drain",
+    () =>
+      Effect.runPromise(
+        Effect.scoped(
+          transientTransmitFailureLeavesDaemonAlive(
+            new RouterWorkerTransportError(),
+          ),
+        ),
+      ),
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "keeps a cold-started daemon alive with a pending outbound row",
+    () =>
+      Effect.runPromise(
+        Effect.scoped(coldStartWithPendingOutboundLeavesDaemonAlive()),
+      ),
     TEST_TIMEOUT_MS,
   );
 });

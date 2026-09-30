@@ -3,16 +3,14 @@
 import { AgentCard, AgentSigningAuthority } from "@moltzap/identity";
 import {
   Deferred,
+  Duration,
   Effect,
   Queue,
+  Schedule,
   Schema,
   type Scope,
   SubscriptionRef,
 } from "effect";
-import type {
-  RouterDiscontinuityReason,
-  RouterWorkerSendError,
-} from "./router-worker/index.js";
 import type { DeliveryToken, EndpointStoreError } from "./store.js";
 import {
   DeliveryAcknowledgeError,
@@ -47,6 +45,12 @@ import {
   PostIntent,
   RecordHash,
 } from "./representation.js";
+import {
+  isTransientRouterWorkerError,
+  type RouterDiscontinuityReason,
+  routerWorkerReconnectSchedule,
+  type RouterWorkerSendError,
+} from "./router-worker/index.js";
 
 type RecoveredStateError = Effect.Effect.Error<
   ReturnType<typeof recoverEngineState>
@@ -241,6 +245,14 @@ function resumeFoldFailure(): EngineInitializationError {
   return new EngineInitializationError({ reason: "persistence" });
 }
 
+/**
+ * How long a local send's own drain may run before the send fails as
+ * `network-unavailable`. With `ROUTER_ATTACH_TIMEOUT` it stays under the MCP
+ * SDK's `DEFAULT_REQUEST_TIMEOUT_MSEC`. The envelope stays queued, so the
+ * background drain still delivers it once the Router answers.
+ */
+const LOCAL_DRAIN_TIMEOUT = Duration.seconds(10);
+
 const peekOutbound = (
   runtime: EngineRuntime,
 ): Effect.Effect<string | undefined> =>
@@ -274,13 +286,11 @@ const shiftOutbound = (
  */
 const drainOutbound = (
   runtime: EngineRuntime,
-): Effect.Effect<void, EngineOutboundError> =>
+): Effect.Effect<void, RouterWorkerSendError> =>
   Effect.gen(function* () {
     let outboundId = yield* peekOutbound(runtime);
     while (outboundId !== undefined) {
-      yield* runtime.input.routerWorker
-        .send(outboundId)
-        .pipe(Effect.mapError(outboundFailure));
+      yield* runtime.input.routerWorker.send(outboundId);
       yield* shiftOutbound(runtime, outboundId);
       outboundId = yield* peekOutbound(runtime);
     }
@@ -292,16 +302,40 @@ const send = (
 ): Effect.Effect<EngineSentPost, SendError> =>
   Effect.gen(function* () {
     const prepared = yield* prepareSend(runtime, input);
-    yield* drainOutbound(runtime).pipe(Effect.mapError(outboundSendFailure));
+    yield* drainOutbound(runtime).pipe(
+      Effect.mapError((error) => outboundSendFailure(outboundFailure(error))),
+      Effect.timeoutFail({
+        duration: LOCAL_DRAIN_TIMEOUT,
+        onTimeout: () => new SendError({ reason: "network-unavailable" }),
+      }),
+    );
     const recordHash = yield* Deferred.await(prepared.completion);
     return { postId: prepared.postId, recordHash };
   }).pipe(Effect.withSpan("EndpointEngine.send"));
+
+/**
+ * Drain once the worker is attached, and after a transient worker failure
+ * back off, wait for the worker to re-anchor, and drain again. Recovery may
+ * have reset the queue meanwhile, so each attempt re-reads its head.
+ */
+const drainWhenAttached = (
+  runtime: EngineRuntime,
+): Effect.Effect<void, EngineOutboundError> =>
+  runtime.input.routerWorker.awaitAnchor.pipe(
+    Effect.zipRight(drainOutbound(runtime)),
+    Effect.retry(
+      routerWorkerReconnectSchedule.pipe(
+        Schedule.whileInput(isTransientRouterWorkerError),
+      ),
+    ),
+    Effect.mapError(outboundFailure),
+  );
 
 const runOutbound = (
   runtime: EngineRuntime,
 ): Effect.Effect<never, EngineOutboundError> =>
   Queue.take(runtime.outboundSignal).pipe(
-    Effect.zipRight(drainOutbound(runtime)),
+    Effect.zipRight(drainWhenAttached(runtime)),
     Effect.forever,
   );
 
@@ -495,7 +529,9 @@ const endpointEngine = (runtime: EngineRuntime): EndpointEngine =>
     recoverCertifiedHistory: (
       recovery: Parameters<EndpointEngine["recoverCertifiedHistory"]>[0],
     ) => recoverCertifiedHistory(runtime, recovery),
-    drainOutbound: drainOutbound(runtime),
+    drainOutbound: drainOutbound(runtime).pipe(
+      Effect.mapError(outboundFailure),
+    ),
     runOutbound: runOutbound(runtime),
     abandonVolatileFolds: (
       reason: Parameters<EndpointEngine["abandonVolatileFolds"]>[0],
