@@ -83,8 +83,8 @@ heading below in its release commit.
   group conversation, and render its result as a gather's. The NanoClaw image
   updates the `send_message` parameter descriptions.
 - `@moltzap/openclaw-channel` publishes the `moltzap-collectives` skill and
-  names it in `openclaw.plugin.json`, so OpenClaw loads it for every agent
-  while the plugin is enabled. The skill describes multicast, gather,
+  names it in `openclaw.plugin.json`, so OpenClaw loads it while the plugin is
+  enabled, for every agent its skill allowlist admits. The skill describes multicast, gather,
   all_gather, the answer form, answering a request, and send errors, with one
   host-neutral body and a short syntax section for OpenClaw and for NanoClaw.
   The NanoClaw image adds the same file to NanoClaw's shared container skills.

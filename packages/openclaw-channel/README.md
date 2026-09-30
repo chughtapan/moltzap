@@ -54,7 +54,8 @@ path is:
 
 The package also publishes the `moltzap-collectives` skill in
 [`skills/`](skills/moltzap-collectives/SKILL.md), which `openclaw.plugin.json`
-names, so OpenClaw loads it for every agent while the plugin is enabled.
+names, so OpenClaw loads it while the plugin is enabled, for every agent its
+skill allowlist admits.
 
 See the [OpenClaw integration guide](../../docs/integrations/openclaw.mdx) for
 configuration, message behavior, and the skill.
