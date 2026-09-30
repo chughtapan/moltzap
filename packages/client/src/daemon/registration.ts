@@ -14,7 +14,10 @@ import {
 } from "@moltzap/identity/registry";
 import { Data, Effect, Schema } from "effect";
 import type { EndpointStore, IdentityBinding } from "../endpoint/store.js";
-import type { DaemonBootstrap } from "./configuration.js";
+import type {
+  DaemonBootstrap,
+  DaemonConfigurationError,
+} from "./configuration.js";
 import {
   decodeCanonical,
   encodeCanonical,
@@ -131,6 +134,33 @@ export const readDaemonRegistrationState = (input: {
     }) satisfies DaemonRegistrationState;
   }).pipe(Effect.withSpan("readDaemonRegistrationState"));
 
+/**
+ * Loads the admission credential only while the store holds no identity
+ * binding, so an unregistered daemon fails closed without it and a registered
+ * daemon starts without reading it.
+ *
+ * @param input Startup admission dependencies.
+ * @param input.store Minimal durable identity store.
+ * @param input.bootstrap Configured deferred admission credential.
+ * @returns Nothing once startup admission is satisfied.
+ */
+export const requireAdmissionWhileUnregistered = (input: {
+  readonly store: Pick<DaemonRegistrationStore, "readIdentity">;
+  readonly bootstrap: DaemonBootstrap;
+}): Effect.Effect<
+  void,
+  DaemonRegistrationPersistenceError | DaemonConfigurationError
+> =>
+  input.store.readIdentity().pipe(
+    Effect.mapError(persistenceFailure),
+    Effect.flatMap((binding) =>
+      binding === undefined
+        ? Effect.asVoid(input.bootstrap.admissionCredential)
+        : Effect.void,
+    ),
+    Effect.withSpan("requireAdmissionWhileUnregistered"),
+  );
+
 const makeRegistryRequest = (input: {
   readonly request: DaemonRegistrationRequest;
   readonly bootstrap: DaemonBootstrap;
@@ -188,7 +218,8 @@ const bindRegisteredIdentity = (input: {
  * @param input Complete registration dependencies.
  * @param input.request Closed caller-supplied registration fields.
  * @param input.store Minimal durable identity store.
- * @param input.bootstrap Configured public key, signer, and admission value.
+ * @param input.bootstrap Configured public key, signer, and deferred admission
+ *   credential, whose load failure refuses registration before Registry is called.
  * @returns The exact Registry result after any successful binding is durable.
  */
 export const registerDaemonIdentity = (input: {
@@ -199,14 +230,16 @@ export const registerDaemonIdentity = (input: {
   RegistryRegisterResult,
   | DaemonRegistrationUpstreamError
   | DaemonRegistrationPersistenceError
-  | DaemonRegistrationRepresentationError,
+  | DaemonRegistrationRepresentationError
+  | DaemonConfigurationError,
   Registry
 > =>
   Effect.gen(function* () {
     const request = yield* makeRegistryRequest(input);
+    const admissionCredential = yield* input.bootstrap.admissionCredential;
     const result = yield* Registry.register({
       request,
-      admissionCredential: input.bootstrap.admissionCredential,
+      admissionCredential,
       signingAuthority: input.bootstrap.signingAuthority,
     }).pipe(Effect.mapError(upstreamFailure));
     if (result.kind === "registered") {

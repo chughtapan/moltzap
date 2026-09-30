@@ -30,7 +30,10 @@ import type {
   ManagementSearchConversationsResult,
   ManagementStatusResult,
 } from "../management-runtime.js";
-import type { DaemonBootstrap } from "./configuration.js";
+import type {
+  DaemonBootstrap,
+  DaemonConfigurationError,
+} from "./configuration.js";
 import { AgentAddress, GroupAddress, type SendError } from "../contract.js";
 import { resolveMessageAddress } from "../endpoint/addressing/index.js";
 import {
@@ -241,9 +244,12 @@ function mapRegistrationFailure(
   error:
     | DaemonRegistrationPersistenceError
     | DaemonRegistrationRepresentationError
-    | DaemonRegistrationUpstreamError,
+    | DaemonRegistrationUpstreamError
+    | DaemonConfigurationError,
 ): DaemonManagementError {
   switch (error._tag) {
+    case "DaemonConfigurationError":
+      return incompatibleDaemon();
     case "DaemonRegistrationPersistenceError":
       return persistenceFailure();
     case "DaemonRegistrationRepresentationError":
