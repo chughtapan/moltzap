@@ -647,8 +647,8 @@ function pump(
 
 function certifyGenesisOf(
   harness: ProtocolHarness,
-  sending: Fiber.RuntimeFiber<void, SendError>,
-): Effect.Effect<void> {
+  sending: Fiber.RuntimeFiber<RecordHash, SendError>,
+): Effect.Effect<RecordHash> {
   return Effect.gen(function* () {
     const initial = yield* takeReadyBatch(harness);
     const proposalMessage = yield* requireAt(initial, 0, "genesis proposal");
@@ -665,17 +665,20 @@ function certifyGenesisOf(
     expect(
       recoveries.map(({ certifiedRecords }) => certifiedRecords.length),
     ).toEqual([1, 1, 1, 1]);
-    yield* Fiber.join(sending).pipe(Effect.timeout("1 second"), Effect.orDie);
+    return yield* Fiber.join(sending).pipe(
+      Effect.timeout("1 second"),
+      Effect.orDie,
+    );
   });
 }
 
-function certifyGenesis(harness: ProtocolHarness): Effect.Effect<void> {
+function certifyGenesis(harness: ProtocolHarness): Effect.Effect<RecordHash> {
   return Effect.gen(function* () {
     const author = yield* requireAt(harness.engines, 0, "endpoint engine");
     const sending = yield* Effect.fork(
       author.send(yield* sendInput(harness, "open group")),
     );
-    yield* certifyGenesisOf(harness, sending);
+    return yield* certifyGenesisOf(harness, sending);
   });
 }
 
@@ -1243,6 +1246,42 @@ function exportsCertifiedSendAndDeliveries() {
   );
 }
 
+function sendReturnsTheStoredCertifiedRecordHash() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        const recordHash = yield* certifyGenesis(harness);
+        const authorStore = yield* requireAt(harness.stores, 0, "store");
+
+        const recovery = yield* authorStore.recover().pipe(Effect.orDie);
+
+        expect(
+          recovery.postIntents.map((intent) => intent.completedRecordHash),
+        ).toEqual([recordHash]);
+      }),
+    ),
+  );
+}
+
+function pendingDeliveryCarriesTheCertifiedRecordHash() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        const recordHash = yield* certifyGenesis(harness);
+        const member = yield* requireAt(harness.engines, 1, "endpoint engine");
+
+        const pending = yield* member.readPendingMessages().pipe(Effect.orDie);
+
+        expect(pending.map((message) => message.recordHash)).toEqual([
+          recordHash,
+        ]);
+      }),
+    ),
+  );
+}
+
 function exportsFailedSend() {
   return Effect.runPromise(
     Effect.scoped(
@@ -1276,6 +1315,16 @@ describe("fixed-post endpoint protocol", () => {
   it(
     "exports the author's certified send and every member's delivery",
     exportsCertifiedSendAndDeliveries,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "returns the hash of the send's locally stored certified record",
+    sendReturnsTheStoredCertifiedRecordHash,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "reads a pending delivery with the hash of its certified record",
+    pendingDeliveryCarriesTheCertifiedRecordHash,
     TEST_TIMEOUT_MS,
   );
   it(

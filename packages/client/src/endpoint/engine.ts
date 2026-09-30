@@ -1,7 +1,14 @@
 /** @file Private addressed-message engine acquisition and daemon seams. */
 
 import { AgentCard, AgentSigningAuthority } from "@moltzap/identity";
-import { Deferred, Effect, Queue, type Scope, SubscriptionRef } from "effect";
+import {
+  Deferred,
+  Effect,
+  Queue,
+  Schema,
+  type Scope,
+  SubscriptionRef,
+} from "effect";
 import type {
   RouterDiscontinuityReason,
   RouterWorkerSendError,
@@ -37,6 +44,7 @@ import {
   decodeCanonical,
   encodeCanonical,
   PostIntent,
+  RecordHash,
 } from "./representation.js";
 
 type RecoveredStateError = Effect.Effect.Error<
@@ -255,17 +263,18 @@ const drainOutbound = (
 const send = (
   runtime: EngineRuntime,
   input: SendInput,
-): Effect.Effect<void, SendError> =>
+): Effect.Effect<RecordHash, SendError> =>
   Effect.gen(function* () {
     const prepared = yield* prepareSend(runtime, input);
     yield* drainOutbound(runtime).pipe(Effect.mapError(outboundSendFailure));
-    yield* Deferred.await(prepared.completion);
+    const recordHash = yield* Deferred.await(prepared.completion);
     yield* Effect.uninterruptible(
       exportSend(runtime, input, {
         kind: "certified",
         postId: prepared.postId,
       }),
     );
+    return recordHash;
   }).pipe(
     Effect.tapError((error) =>
       exportSend(runtime, input, { kind: "failed", reason: error.reason }),
@@ -290,10 +299,14 @@ const readPendingMessages = (
       Effect.forEach(
         deliveries,
         (delivery) =>
-          decodeCanonical(InboundMessage, delivery.canonicalMessage).pipe(
+          Effect.all({
+            message: decodeCanonical(InboundMessage, delivery.canonicalMessage),
+            recordHash: Schema.decodeUnknown(RecordHash)(delivery.recordHash),
+          }).pipe(
             Effect.mapError(listenRepresentationFailure),
-            Effect.map((message) => ({
+            Effect.map(({ message, recordHash }) => ({
               deliveryToken: delivery.deliveryToken,
+              recordHash,
               message,
             })),
           ),
@@ -347,7 +360,7 @@ const makeRuntime = (
       input,
       conversations: recovered.conversations,
       intents: new Map(),
-      completedPostIds: recovered.completedPostIds,
+      completedPosts: recovered.completedPosts,
       actionFolds: recovered.actionFolds,
       recordFolds: recovered.recordFolds,
       outbound,
@@ -372,7 +385,7 @@ const hydratePostIntents = (
           PostIntent,
           stored.canonicalIntent,
         ).pipe(Effect.mapError(representationInitializationFailure));
-        const completion = yield* Deferred.make<undefined, SendError>();
+        const completion = yield* Deferred.make<RecordHash, SendError>();
         yield* Effect.sync(() => {
           runtime.intents.set(intent.postId, {
             intent,
@@ -380,8 +393,9 @@ const hydratePostIntents = (
             completion,
           });
         });
-        if (stored.completedRecordHash !== undefined) {
-          yield* Deferred.succeed(completion, undefined);
+        const completedRecordHash = runtime.completedPosts.get(intent.postId);
+        if (completedRecordHash !== undefined) {
+          yield* Deferred.succeed(completion, completedRecordHash);
         }
       }),
     { concurrency: 1, discard: true },
@@ -413,7 +427,7 @@ const resumeRuntime = (runtime: EngineRuntime) =>
     yield* Effect.forEach(
       runtime.intents.values(),
       (intent) =>
-        runtime.completedPostIds.has(intent.intent.postId)
+        runtime.completedPosts.has(intent.intent.postId)
           ? Effect.void
           : proposeIntent(runtime, intent).pipe(
               Effect.asVoid,

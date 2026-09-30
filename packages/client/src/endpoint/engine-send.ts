@@ -38,6 +38,7 @@ import {
   mintPostId,
   type PostIntent,
   PostIntent as PostIntentSchema,
+  type RecordHash,
   signOuterEvidence,
   signOuterPacket,
   type VerifiedMembership,
@@ -501,10 +502,13 @@ const awaitRouterAttachment = (
     Effect.asVoid,
   );
 
-/** One durably bound send: its minted identity and its completion latch. */
+/**
+ * One durably bound send: its minted identity and its completion latch, which
+ * yields the hash of the post's locally stored certified record.
+ */
 export interface PreparedSendHandle {
   readonly postId: PostId;
-  readonly completion: Deferred.Deferred<undefined, SendError>;
+  readonly completion: Deferred.Deferred<RecordHash, SendError>;
 }
 
 /** How one completed `send` invocation is recorded in the history export. */
@@ -639,7 +643,7 @@ function bindPreparedIntent(
 type IntentActivation =
   | Readonly<{
       kind: "ready";
-      completion: Deferred.Deferred<undefined, SendError>;
+      completion: Deferred.Deferred<RecordHash, SendError>;
     }>
   | Readonly<{
       kind: "waiting";
@@ -649,7 +653,7 @@ type IntentActivation =
 function activateIntent(
   runtime: EngineRuntime,
   prepared: PreparedSend,
-): Effect.Effect<Deferred.Deferred<undefined, SendError>, SendError> {
+): Effect.Effect<Deferred.Deferred<RecordHash, SendError>, SendError> {
   return runtime.gate
     .withPermits(1)(
       Effect.uninterruptible(activateIntentOnce(runtime, prepared)),
@@ -685,8 +689,9 @@ function activateIntentOnce(
     yield* bindPreparedIntent(runtime, prepared);
     const retained = runtime.intents.get(intent.postId);
     if (retained !== undefined) {
-      if (runtime.completedPostIds.has(intent.postId)) {
-        yield* Deferred.succeed(retained.completion, undefined);
+      const completedRecordHash = runtime.completedPosts.get(intent.postId);
+      if (completedRecordHash !== undefined) {
+        yield* Deferred.succeed(retained.completion, completedRecordHash);
       } else {
         yield* proposeIntent(runtime, retained);
       }
@@ -695,17 +700,18 @@ function activateIntentOnce(
         completion: retained.completion,
       } satisfies IntentActivation;
     }
-    const completion = yield* Deferred.make<undefined, SendError>();
+    const completion = yield* Deferred.make<RecordHash, SendError>();
     const localIntent: EnginePostIntent = {
       intent,
       canonicalIntent,
       completion,
     };
-    if (runtime.completedPostIds.has(intent.postId)) {
+    const completedRecordHash = runtime.completedPosts.get(intent.postId);
+    if (completedRecordHash !== undefined) {
       yield* Effect.sync(() => {
         runtime.intents.set(intent.postId, localIntent);
       });
-      yield* Deferred.succeed(completion, undefined);
+      yield* Deferred.succeed(completion, completedRecordHash);
     } else {
       yield* Effect.sync(() => {
         runtime.intents.set(intent.postId, localIntent);

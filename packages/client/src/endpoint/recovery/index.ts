@@ -842,7 +842,7 @@ function preparePendingIntents(
 function resetPendingIntents(runtime: EngineRuntime): Effect.Effect<void> {
   return Effect.sync(() => {
     for (const intent of runtime.intents.values()) {
-      if (!runtime.completedPostIds.has(intent.intent.postId)) {
+      if (!runtime.completedPosts.has(intent.intent.postId)) {
         intent.proposedActionHash = undefined;
       }
     }
@@ -855,7 +855,7 @@ function resumeUncompletedIntents(
   return Effect.forEach(
     runtime.intents.values(),
     (intent) =>
-      runtime.completedPostIds.has(intent.intent.postId)
+      runtime.completedPosts.has(intent.intent.postId)
         ? Effect.void
         : proposeIntent(runtime, intent).pipe(Effect.mapError(recoveryFailure)),
     { concurrency: 1, discard: true },

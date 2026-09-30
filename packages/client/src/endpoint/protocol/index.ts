@@ -410,7 +410,10 @@ const applyPromotionState = (
       recordHash: record.actionCertifiedRecord.recordHash,
       record,
     };
-    runtime.completedPostIds.add(fold.action.postIntent.postId);
+    runtime.completedPosts.set(
+      fold.action.postIntent.postId,
+      record.actionCertifiedRecord.recordHash,
+    );
     return fold.action.postIntent.authorAgentId ===
       runtime.input.localAgentCard.agentId
       ? runtime.intents.get(fold.action.postIntent.postId)
@@ -426,7 +429,10 @@ function completePromotion(
     Effect.flatMap((intent) =>
       intent === undefined
         ? Effect.void
-        : Deferred.succeed(intent.completion, undefined).pipe(Effect.asVoid),
+        : Deferred.succeed(
+            intent.completion,
+            record.actionCertifiedRecord.recordHash,
+          ).pipe(Effect.asVoid),
     ),
   );
 }
@@ -468,7 +474,7 @@ const rebasePendingIntents = (
     runtime.intents.values(),
     (pending) =>
       pending.intent.conversationId === conversationId &&
-      !runtime.completedPostIds.has(pending.intent.postId)
+      !runtime.completedPosts.has(pending.intent.postId)
         ? reproposePendingIntent(runtime, pending)
         : Effect.void,
     { concurrency: 1, discard: true },

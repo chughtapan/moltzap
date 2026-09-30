@@ -63,9 +63,14 @@ export class EngineOutboundError extends Data.TaggedError(
   readonly reason: "network" | "persistence" | "representation";
 }> {}
 
-/** One durable delivery decoded for the daemon's sole subscriber. */
+/**
+ * One durable delivery decoded for the daemon's sole subscriber. `recordHash`
+ * names the certified record the delivery derives from; it stays inside the
+ * daemon and never reaches the MCP event.
+ */
 export interface EnginePendingMessage {
   readonly deliveryToken: DeliveryToken;
+  readonly recordHash: RecordHash;
   readonly message: InboundMessage;
 }
 
@@ -132,7 +137,8 @@ export interface EndpointEngineInput {
 
 /** Stable private engine capability consumed by daemon composition. */
 export interface EndpointEngine {
-  readonly send: (input: SendInput) => Effect.Effect<void, SendError>;
+  /** Completes with the hash of the locally stored certified record of the minted post. */
+  readonly send: (input: SendInput) => Effect.Effect<RecordHash, SendError>;
   readonly readPendingMessages: () => Effect.Effect<
     readonly EnginePendingMessage[],
     ListenError
@@ -160,7 +166,7 @@ export interface EndpointEngine {
 export interface EnginePostIntent {
   readonly intent: PostIntent;
   readonly canonicalIntent: Uint8Array;
-  readonly completion: Deferred.Deferred<undefined, SendError>;
+  readonly completion: Deferred.Deferred<RecordHash, SendError>;
   proposedActionHash?: ActionHash;
 }
 
@@ -199,7 +205,8 @@ export interface EngineRuntime {
   readonly input: EndpointEngineInput;
   readonly conversations: Map<ConversationId, EngineConversation>;
   readonly intents: Map<string, EnginePostIntent>;
-  readonly completedPostIds: Set<string>;
+  /** Locally complete post ids and the hash of each one's certified record. */
+  readonly completedPosts: Map<string, RecordHash>;
   readonly actionFolds: Map<ActionHash, EngineActionFold>;
   readonly recordFolds: Map<RecordHash, EngineActionFold>;
   readonly outbound: string[];
