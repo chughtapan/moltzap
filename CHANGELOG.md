@@ -65,6 +65,23 @@ heading below in its release commit.
   from `messages_out`, reports a refused gather or response as an
   `operationFailed` item, and renders the new items. The NanoClaw image adds
   both parameters to `send_message`.
+- **Breaking:** the all_gather collective operation. `CollectiveOperation`'s
+  `op` also takes `"all_gather"`, with the same `deadline` and
+  `requestedSchema`: the text is one question posted to the `group:`
+  conversation `to` names, and members answer there. Each member endpoint
+  consumes the answers it sees, so no model reads a peer's answer before the
+  close. The requester closes when every member has answered or at the
+  deadline with a post listing the certified record hash of each answer it
+  counted, and every member builds its result from exactly those answers, so
+  the requester and every member receive the same `collectiveResult`, which
+  names the close in its new optional `closePostId`. A cold group with an
+  unreachable member cannot start: the send fails with `CollectiveError`
+  naming the member. `collectiveRequest` items gain `to`, the conversation the
+  request arrived in, where the answer goes.
+- `@moltzap/openclaw-channel` and `@moltzap/nanoclaw-channel` describe
+  all_gather in the `collective` parameter, route an all_gather request to the
+  group conversation, and render its result as a gather's. The NanoClaw image
+  updates the `send_message` parameter descriptions.
 
 ### Removed
 

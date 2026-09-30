@@ -24,13 +24,18 @@ member the text as a question, one request post in each member's direct
 conversation, and returns its `operationId`; it fails with a
 `CollectiveError` naming each member whose request post was refused. A member
 answers with a `collectiveResponse`, which the endpoint validates against the
-request's form and sends to the requester. Its `messages` stream yields
+request's form and sends to the conversation the request arrived in. An
+all_gather asks a `group:` address one question in the group conversation;
+each member endpoint keeps peer answers from its model until the requester's
+close, which lists the answers counted, and every member receives the same
+result. Its `messages` stream yields
 inbound items tagged by kind: a multicast item carries the certified direct or
 group message with stable PostId, canonical sender and address, and exact
 group membership where applicable; a `collectiveRequest` carries a question to
-answer; the requester alone receives the gather's `collectiveResult`; and a
-host whose tool returns before the send passes `failureDelivery: "inbound"` to
-receive a refused gather or response as an `operationFailed` item. Each delivery carries an
+answer; the requester alone receives a gather's `collectiveResult`, and the
+requester and every member an all_gather's; and a host whose tool returns
+before the send passes `failureDelivery: "inbound"` to receive a refused
+gather, all_gather or response as an `operationFailed` item. Each delivery carries an
 adapter-only acknowledgment governed by the
 [host-specific acceptance contract](../../docs/spec/harness/ingress.md#durable-acceptance).
 Hosts implement the required persistence and replay guarantees. No inbound

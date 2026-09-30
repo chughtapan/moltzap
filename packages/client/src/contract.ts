@@ -231,8 +231,9 @@ export const Content = contentStructure.pipe(
 export type Content = typeof Content.Type;
 
 /**
- * Identity of one gather, minted by the requesting endpoint. The request, each
- * member's answer, the result and any failure carry it.
+ * Identity of one gather or all_gather, minted by the requesting endpoint.
+ * The request, each member's answer, an all_gather's close, the result and
+ * any failure carry it.
  */
 export const CollectiveId = Schema.String.pipe(
   Schema.filter((value) => isCanonicalIdentifier("col_", value), {
@@ -308,19 +309,23 @@ const multicastOperation = exactStruct({
 });
 
 /**
- * Gather: the text is a question sent as one request post to each member of
- * `to`, each in that member's direct conversation with the requester. The
- * deadline is relative, in whole seconds; the sending endpoint converts it to
- * an absolute time at send.
+ * A collecting operation: the text is a question to every member of `to`.
+ * A gather sends one request post to each member, in that member's direct
+ * conversation with the requester, and only the requester receives the
+ * result. An all_gather sends one request post to the `group:` conversation
+ * `to` names; members answer there, no model sees a peer's answer before the
+ * requester's close, and every member receives the same result. The deadline
+ * is relative, in whole seconds; the sending endpoint converts it to an
+ * absolute time at send.
  */
-const gatherOperation = exactStruct({
-  op: Schema.Literal("gather"),
+const collectingOperation = exactStruct({
+  op: Schema.Literal("gather", "all_gather"),
   deadline: Schema.Number.pipe(
     Schema.int(),
     Schema.between(1, MAXIMUM_DEADLINE_SECONDS),
   ).annotations({
     description:
-      "Seconds from now until the gather closes, a whole number from 1 to 2592000 (30 days). Members who have not answered by then are reported as no-answer.",
+      "Seconds from now until the operation closes, a whole number from 1 to 2592000 (30 days). Members who have not answered by then are reported as no-answer.",
   }),
   requestedSchema: RequestedSchema,
 });
@@ -332,10 +337,10 @@ const gatherOperation = exactStruct({
  */
 export const CollectiveOperation = Schema.Union(
   multicastOperation,
-  gatherOperation,
+  collectingOperation,
 ).annotations({
   description:
-    'The collective operation. Omit it, or its op, for multicast: one post to the to address. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} asks each member of to the message text as a question, privately, and returns one result with each member\'s answer, decline, or no-answer once all have replied or the deadline passes.',
+    'The collective operation. Omit it, or its op, for multicast: one post to the to address. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} asks each member of to the message text as a question, privately, and returns one result with each member\'s answer, decline, or no-answer once all have replied or the deadline passes. {"op":"all_gather","deadline":<seconds>,"requestedSchema":<form>} asks one question to a group: to must be a group: address, no member sees another\'s answer before the close, and everyone, the asker included, receives the same result at the close.',
 });
 /** A validated collective operation. */
 export type CollectiveOperation = typeof CollectiveOperation.Type;
@@ -343,7 +348,7 @@ export type CollectiveOperation = typeof CollectiveOperation.Type;
 /**
  * A member's reply to one collective request. Only `accept` carries content,
  * valid against the request's schema; the member's endpoint addresses the
- * reply to the requester.
+ * reply to the conversation the request arrived in.
  */
 export const CollectiveResponse = Schema.Union(
   exactStruct({
@@ -357,7 +362,7 @@ export const CollectiveResponse = Schema.Union(
   }),
 ).annotations({
   description:
-    'Answer a collective request: {"id":<request id>,"action":"accept","content":{...}} with content valid against the request\'s schema, or {"id":<request id>,"action":"decline"} or "cancel" without content. The reply goes to the requester whatever to says, and each request takes one answer.',
+    'Answer a collective request: {"id":<request id>,"action":"accept","content":{...}} with content valid against the request\'s schema, or {"id":<request id>,"action":"decline"} or "cancel" without content. The reply goes to the conversation the request arrived in, the requester for a gather and the group for an all_gather, whatever to says, and each request takes one answer.',
 });
 /** A validated collective response. */
 export type CollectiveResponse = typeof CollectiveResponse.Type;
@@ -380,8 +385,9 @@ export const SendInput = Schema.Union(
 export type SendInput = typeof SendInput.Type;
 
 /**
- * Where a refused gather or response reports its error: returned to the
- * caller, or emitted as an `operationFailed` item while the send completes.
+ * Where a refused collecting operation or response reports its error:
+ * returned to the caller, or emitted as an `operationFailed` item while the
+ * send completes.
  */
 export type FailureDelivery = "result" | "inbound";
 
@@ -467,19 +473,23 @@ const epochMillis = Schema.Number.pipe(Schema.int(), Schema.positive());
 
 /**
  * A question another agent asked this one. `postId` is the certified request
- * post's; the member answers once with a `collectiveResponse` naming `id`.
+ * post's and `to` the conversation it arrived in: the requester's `agent:`
+ * address for a gather, the group's `group:` address for an all_gather. The
+ * member answers once with a `collectiveResponse` naming `id`, and the answer
+ * goes to `to`.
  */
 const collectiveRequestItem = exactStruct({
   kind: Schema.Literal("collectiveRequest"),
   id: CollectiveId,
   postId: PostId,
   from: AgentAddress,
+  to: MessageAddressInput,
   question: wellFormedString,
   requestedSchema: RequestedSchema,
   deadlineAt: epochMillis,
 });
 
-/** One member's outcome in a completed gather, discriminated by `kind`. */
+/** One member's outcome in a completed gather or all_gather, discriminated by `kind`. */
 const memberOutcome = Schema.Union(
   exactStruct({ kind: Schema.Literal("answered"), content: AnswerContent }),
   exactStruct({ kind: Schema.Literal("declined") }),
@@ -491,8 +501,12 @@ const memberOutcome = Schema.Union(
 export type CollectiveMemberOutcome = typeof memberOutcome.Type;
 
 /**
- * The result of a gather this endpoint started: exactly one outcome per
- * member, in member order. `to` is the address the gather named.
+ * The result of a gather this endpoint started, or of an all_gather this
+ * endpoint started or was asked: exactly one outcome per member, in member
+ * order. `to` is the address the operation named. An all_gather's result
+ * names its certified close post in `closePostId`; every member's result is
+ * built from exactly the answers that close lists, so each endpoint's result
+ * is the same.
  */
 const collectiveResultItem = exactStruct({
   kind: Schema.Literal("collectiveResult"),
@@ -502,12 +516,14 @@ const collectiveResultItem = exactStruct({
   outcomes: Schema.NonEmptyArray(
     exactStruct({ member: AgentAddress, outcome: memberOutcome }),
   ),
+  closePostId: Schema.optionalWith(PostId, { exact: true }),
 });
 
 /**
- * A collective send that failed after the host's tool had returned. `to` is
- * the operation's address, or the requester's for a response; `error` is the
- * text a waiting host would have received as the tool error.
+ * A collective send that failed after the host's tool had returned, or an
+ * all_gather whose close could not be certified. `to` is the operation's
+ * address, or the request's conversation for a response; `error` is the text
+ * a waiting host would have received as the tool error.
  */
 const operationFailedItem = exactStruct({
   kind: Schema.Literal("operationFailed"),
@@ -549,7 +565,8 @@ type SendFailure = typeof sendFailure.Type;
 
 /**
  * How one send ended in the history export: the posts certified by the time
- * it returned, with the operation id of a gather, or the error it returned.
+ * it returned, with the operation id of a gather or all_gather, or the
+ * error it returned.
  */
 const historyExportSendOutcome = Schema.Union(
   exactStruct({
@@ -597,9 +614,10 @@ export class SendError extends Data.TaggedError("SendError")<{
 }
 
 /**
- * Why a collective send was refused, discriminated by `kind`: a gather whose
- * schema is outside the form-mode grammar or whose request posts some member
- * refused, or a response the member's endpoint cannot send.
+ * Why a collective send was refused, discriminated by `kind`: a gather or
+ * all_gather whose schema is outside the form-mode grammar or whose request
+ * post some member could not receive, or a response the member's endpoint
+ * cannot send.
  */
 const collectiveFailure = Schema.Union(
   exactStruct({
@@ -736,9 +754,9 @@ export interface InboundDelivery {
  * inbound items.
  *
  * A host whose tool returns before the send completes passes
- * `failureDelivery: "inbound"`: a refused gather or response then completes
- * and its error arrives as an `operationFailed` item on the stream. A
- * multicast has no operation id, so its failure is always returned.
+ * `failureDelivery: "inbound"`: a refused gather, all_gather or response
+ * then completes and its error arrives as an `operationFailed` item on the
+ * stream. A multicast has no operation id, so its failure is always returned.
  */
 export interface HarnessEndpoint {
   readonly send: (

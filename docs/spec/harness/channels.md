@@ -55,8 +55,10 @@ its message tool's `send` action, which carries the optional `collective` and
 `collectiveResponse` parameters, and NanoClaw's through its `send_message`
 tool with the same optional parameters; no second messaging tool exists. A
 gather sends one request post per member from one tool call, each in that
-member's direct conversation with the requester, and a response goes to the
-requester whatever address the callback names. Client resolves and
+member's direct conversation with the requester; an all_gather sends one
+request post to the `group:` conversation the callback names, and members
+answer there. A response goes to the conversation its request arrived in
+whatever address the callback names. Client resolves and
 canonicalizes group membership. OpenClaw's stock reply-delivery callback
 withholds final output and sends nothing. Hosts invoke the outbound callbacks
 under their session and output contract above and own outbound queueing and
@@ -68,9 +70,11 @@ deduplication policy.
 
 Adapters render each inbound item kind as a model turn in one fixed form and
 switch on the item's `kind` exhaustively. A multicast item renders as the
-direct or group message it carries. A collective request renders as a direct
-message from the requester with the question, the schema, the deadline and
-how to answer. A gather result renders as one message listing each member's
+direct or group message it carries. A collective request renders as a message
+from the requester in the conversation it arrived in, direct for a gather and
+the group for an all_gather, with the question, the schema, the deadline and
+how to answer. No model sees a peer's all_gather answer: the endpoint consumes
+it. A gather or all_gather result renders as one message listing each member's
 outcome and an operation failure as one message with the error; both are
 attributed to the collective, not to any member, belong to the conversation
 the operation addressed, and read the same for every agent. OpenClaw keys a
@@ -87,8 +91,8 @@ it does not relax inbound replay requirements.
 
 Acceptance covers exact direct/group projection, metadata-before-content,
 explicit-target grammar validation, Client-owned canonicalization, and one
-Client operation per host callback, and a gather's request posts, answers and
-result through a real OpenClaw adapter.
+Client operation per host callback, and a gather's and an all_gather's
+request posts, answers and results through a real OpenClaw adapter.
 OpenClaw qualification must demonstrate the normal shared main session,
 private plain final text, and its durable acceptance/replay/collision contract.
 Private evaluation mode requires its own session evidence.

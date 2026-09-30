@@ -25,7 +25,7 @@ One optional input, `MOLTZAPD_HISTORY_EXPORT`, names a file the daemon appends
 one `HistoryExportRecord` JSON line to for every inbound item the daemon
 publishes, once, before the subscriber sees it, and for every completed `send`
 invocation, with its input and outcome: the posts certified by its return and
-a gather's operation id, or the error it returned. The export is a second copy of
+a gather's or all_gather's operation id, or the error it returned. The export is a second copy of
 endpoint-local history that the daemon already owns; it grants no delivery,
 reply, or management authority. If an append fails, the daemon writes one
 `export-failed` line, stops exporting for the rest of the process, and keeps

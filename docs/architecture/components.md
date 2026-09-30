@@ -80,9 +80,9 @@ The semantic Client boundary is deliberately small and exposes operations
 rather than posts. Every send is one collective operation, multicast by
 default, and names an explicit `agent:` or `group:` address, or answers one
 collective request. Every multicast creates one Client-minted post and every
-gather one per member, while the host owns whether to call again. A multicast
-returns only after local complete certification and a gather returns its
-operation id. Inbound delivery yields items tagged by kind; a multicast item
+gather one per member and every all_gather one to its group, while the host
+owns whether to call again. A multicast returns only after local complete
+certification and a gather or all_gather returns its operation id. Inbound delivery yields items tagged by kind; a multicast item
 identifies canonical address, verified author, content, and exact group
 members, and collective requests, results and failures are items too. Adapters
 invoke the stock host boundary and then acknowledge delivery. The

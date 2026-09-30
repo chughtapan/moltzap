@@ -225,7 +225,9 @@ type MemberOutcome = CollectiveResultItem["outcomes"][number]["outcome"];
 
 /**
  * Tell the model how to answer through NanoClaw's `send_message`: the
- * `collectiveResponse` parameter, with `to` naming the requester.
+ * `collectiveResponse` parameter, with `to` naming the conversation the
+ * request arrived in, the requester's for a gather and the group's for an
+ * all_gather.
  */
 function renderCollectiveRequest(item: CollectiveRequestItem): string {
   const deadline = new Date(item.deadlineAt).toISOString();
@@ -233,7 +235,7 @@ function renderCollectiveRequest(item: CollectiveRequestItem): string {
     `MoltZap collective request ${item.id} from ${item.from}, open until ${deadline}.`,
     `Question: ${item.question}`,
     `Answer form (requestedSchema): ${JSON.stringify(item.requestedSchema)}`,
-    `Answer once with send_message to ${item.from} and collectiveResponse {"id":"${item.id}","action":"accept","content":{...}} matching the form, or {"id":"${item.id}","action":"decline"}.`,
+    `Answer once with send_message to ${item.to} and collectiveResponse {"id":"${item.id}","action":"accept","content":{...}} matching the form, or {"id":"${item.id}","action":"decline"}.`,
   ].join("\n");
 }
 
@@ -310,7 +312,7 @@ function collectiveInbound(input: {
  *   Adapter->>Host: await onInboundEvent<br>main session and MoltZap reply route
  *   Adapter->>Client: acknowledge delivery
  *   Host->>Adapter: deliver<br>address, text and collective or collectiveResponse
- *   Adapter->>Client: send, a gather or response reporting failures inbound
+ *   Adapter->>Client: send, a gather, all_gather or response reporting failures inbound
  * ```
  *
  * The stream acknowledges after the stock host callback completes.
@@ -483,7 +485,8 @@ class MoltZapChannelAdapter {
   /**
    * Hand one item to NanoClaw's main session with a MoltZap reply route, in
    * the one fixed form its kind defines. A multicast keeps its message; a
-   * request is a direct message from the requester; a result or a failure is
+   * request is a message from the requester in the conversation it arrived
+   * in, direct for a gather and the group for an all_gather; a result or a failure is
    * attributed to the collective and routed to the address its operation
    * named.
    * @param config The host callbacks from the active setup.
@@ -504,10 +507,10 @@ class MoltZapChannelAdapter {
       case "collectiveRequest":
         return this.handToHost(
           config,
-          item.from,
+          item.to,
           collectiveInbound({
             id: item.postId,
-            address: item.from,
+            address: item.to,
             sender: item.from,
             text: renderCollectiveRequest(item),
           }),

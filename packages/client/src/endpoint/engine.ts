@@ -21,7 +21,7 @@ import {
   SendError,
 } from "../contract.js";
 import { resumeDisseminationObligations } from "./engine-dissemination.js";
-import { prepareSend, proposeIntent } from "./engine-send.js";
+import { prepareSend, proposeIntent, resolveAddress } from "./engine-send.js";
 import {
   type EndpointEngine,
   type EndpointEngineInput,
@@ -457,6 +457,8 @@ const endpointEngine = (runtime: EngineRuntime): EndpointEngine =>
   Object.freeze({
     send: (sendInput: Parameters<EndpointEngine["send"]>[0]) =>
       send(runtime, sendInput),
+    resolveAddress: (to: Parameters<EndpointEngine["resolveAddress"]>[0]) =>
+      resolveAddress(runtime, to),
     readPendingMessages: () => readPendingMessages(runtime),
     acknowledgeMessage: (
       deliveryToken: Parameters<EndpointEngine["acknowledgeMessage"]>[0],

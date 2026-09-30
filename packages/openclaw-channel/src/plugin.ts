@@ -206,7 +206,7 @@ const collectiveParameter = Type.Optional(
   Type.Unsafe<CollectiveOperation>({
     ...Struct.omit(JSONSchema.make(CollectiveOperation), "$schema"),
     description:
-      'The MoltZap collective operation. Omit it for an ordinary message to the target. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} sends message as a question to each member of the target, each privately, and later delivers one result turn listing every member\'s answer, decline, cancel or no-answer; deadline is a whole number of seconds from now, 1 to 2592000 (30 days). requestedSchema is an MCP form: {"type":"object","properties":{...},"required":[...]} of flat string, number, integer, boolean or enum-array properties. The tool result carries the gather\'s operationId.',
+      'The MoltZap collective operation. Omit it for an ordinary message to the target. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} sends message as a question to each member of the target, each privately, and later delivers one result turn listing every member\'s answer, decline, cancel or no-answer; deadline is a whole number of seconds from now, 1 to 2592000 (30 days). requestedSchema is an MCP form: {"type":"object","properties":{...},"required":[...]} of flat string, number, integer, boolean or enum-array properties. {"op":"all_gather","deadline":<seconds>,"requestedSchema":<form>} asks one question to a group: the target must be a group, members answer in the group but no one sees an answer before the close, and everyone, you included, receives the same result turn at the close. The tool result carries the operation\'s operationId.',
   }),
 );
 
@@ -219,7 +219,7 @@ const collectiveResponseParameter = Type.Optional(
   Type.Unsafe<CollectiveResponse>({
     ...Struct.omit(JSONSchema.make(CollectiveResponse), "$schema"),
     description:
-      'Answer a MoltZap collective request turn, once. {"id":<request id>,"action":"accept","content":{...}} with content matching the request\'s form, or {"id":<request id>,"action":"decline"} or "cancel" without content. The answer goes to the requester whatever target says, and message is not sent; OpenClaw still requires a short non-empty message, so write one such as "declining". An answer that does not match the form fails with the fields named; answer again.',
+      'Answer a MoltZap collective request turn, once. {"id":<request id>,"action":"accept","content":{...}} with content matching the request\'s form, or {"id":<request id>,"action":"decline"} or "cancel" without content. The answer goes to the conversation the request arrived in, the requester for a gather and the group for an all_gather, whatever target says, and message is not sent; OpenClaw still requires a short non-empty message, so write one such as "declining". An answer that does not match the form fails with the fields named; answer again.',
   }),
 );
 
@@ -637,9 +637,10 @@ const COLLECTIVE_SENDER_NAME = "MoltZap collective";
 
 /**
  * Render one inbound item as the turn its kind defines. Each kind has one
- * fixed form, the same for every agent. A result or a failure is attributed
- * to the collective, not to any member, and belongs to the conversation its
- * operation addressed.
+ * fixed form, the same for every agent. A request belongs to the conversation
+ * it arrived in: the requester's for a gather, the group's for an all_gather.
+ * A result or a failure is attributed to the collective, not to any member,
+ * and belongs to the conversation its operation addressed.
  * @param item The item the endpoint delivered.
  * @returns The turn OpenClaw runs.
  */
@@ -648,13 +649,12 @@ function inboundItemTurn(item: InboundItem): HostTurn {
     case "multicast":
       return multicastTurn(item.message);
     case "collectiveRequest":
-      return {
-        id: item.postId,
-        kind: "direct",
-        address: item.from,
-        sender: agentSender(item.from),
-        body: renderCollectiveRequest(item),
-      };
+      return addressedTurn(
+        item.postId,
+        item.to,
+        agentSender(item.from),
+        renderCollectiveRequest(item),
+      );
     case "collectiveResult":
       return collectiveTurn(
         `${item.id}:result`,
@@ -689,12 +689,30 @@ function collectiveTurn(
   address: MessageAddressInputValue,
   body: string,
 ): HostTurn {
+  return addressedTurn(
+    id,
+    address,
+    { id: `collective:${id}`, name: COLLECTIVE_SENDER_NAME },
+    body,
+  );
+}
+
+/**
+ * A turn in the conversation `address` names: a group address makes a group
+ * turn listing its members.
+ */
+function addressedTurn(
+  id: string,
+  address: MessageAddressInputValue,
+  sender: TurnSender,
+  body: string,
+): HostTurn {
   const kind = address.startsWith("group:") ? "group" : "direct";
   return {
     id,
     kind,
     address,
-    sender: { id: `collective:${id}`, name: COLLECTIVE_SENDER_NAME },
+    sender,
     ...(kind === "group"
       ? {
           members: address

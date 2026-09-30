@@ -77,6 +77,7 @@ const makeLayer = (
   Effect.map(Effect.scope, (scope) =>
     makeCollectiveOperations({
       self: alice,
+      lookupMember: () => Effect.void,
       sendPost: (input) => {
         const reason = refused[input.to];
         if (reason !== undefined) {
@@ -144,6 +145,10 @@ const answerPost = (sender: string, id: string, response: object) =>
       value: { [collectiveKey]: { kind: "response", id, ...response } },
     },
   ]);
+
+/** Classify one post as certified under the shared test record hash. */
+const classifyPost = (layer: CollectiveOperations, message: InboundMessage) =>
+  layer.classify({ message, recordHash });
 
 const send = (
   layer: CollectiveOperations,
@@ -316,7 +321,8 @@ function deliversAMulticastWithoutItsCollectivePart() {
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(newObserved());
-      const item = yield* layer.classify(
+      const item = yield* classifyPost(
+        layer,
         directPost("agent:bob", [
           { type: "text", text: "Hello" },
           multicastPart,
@@ -340,7 +346,7 @@ function deliversAPostWithoutACollectivePartAsAMulticast() {
     Effect.gen(function* () {
       const layer = yield* makeLayer(newObserved());
 
-      expect(yield* layer.classify(post)).toEqual(
+      expect(yield* classifyPost(layer, post)).toEqual(
         Option.some({ kind: "multicast", message: post }),
       );
     }),
@@ -351,7 +357,8 @@ function consumesAPostWhoseCollectivePartIsMalformed() {
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(newObserved());
-      const item = yield* layer.classify(
+      const item = yield* classifyPost(
+        layer,
         directPost("agent:bob", [
           { type: "text", text: "Hello" },
           { type: "data", value: { [collectiveKey]: { kind: "operation" } } },
@@ -369,7 +376,7 @@ function consumesAMulticastWhoseOnlyPartIsTheCollectivePart() {
       const layer = yield* makeLayer(newObserved());
 
       expect(
-        yield* layer.classify(directPost("agent:bob", [multicastPart])),
+        yield* classifyPost(layer, directPost("agent:bob", [multicastPart])),
       ).toEqual(Option.none());
     }),
   );
@@ -379,7 +386,8 @@ function consumesAPostThatCarriesTwoCollectiveParts() {
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(newObserved());
-      const item = yield* layer.classify(
+      const item = yield* classifyPost(
+        layer,
         directPost("agent:bob", [
           { type: "text", text: "Hello" },
           multicastPart,
@@ -392,14 +400,15 @@ function consumesAPostThatCarriesTwoCollectiveParts() {
   );
 }
 
-function consumesAnAllGatherClose() {
+function consumesACloseForAnAllGatherThisEndpointWasNotAsked() {
   const close = { kind: "close", id: requestId, included: [] };
 
   return run(
     Effect.gen(function* () {
       yield* decodeCollectiveValue(close);
       const layer = yield* makeLayer(newObserved());
-      const item = yield* layer.classify(
+      const item = yield* classifyPost(
+        layer,
         directPost("agent:bob", [
           { type: "data", value: { [collectiveKey]: close } },
         ]),
@@ -410,7 +419,7 @@ function consumesAnAllGatherClose() {
   );
 }
 
-function consumesAnAllGatherRequest() {
+function consumesAnAllGatherRequestInADirectConversation() {
   const request = {
     kind: "operation",
     op: "all_gather",
@@ -424,7 +433,8 @@ function consumesAnAllGatherRequest() {
     Effect.gen(function* () {
       yield* decodeCollectiveValue(request);
       const layer = yield* makeLayer(newObserved());
-      const item = yield* layer.classify(
+      const item = yield* classifyPost(
+        layer,
         directPost("agent:bob", [
           { type: "text", text: questionText },
           { type: "data", value: { [collectiveKey]: request } },
@@ -440,7 +450,7 @@ function deliversARequestPostAsACollectiveRequestItem() {
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(newObserved());
-      const item = yield* layer.classify(requestPost("agent:bob", 60_000));
+      const item = yield* classifyPost(layer, requestPost("agent:bob", 60_000));
 
       expect(item).toEqual(
         Option.some({
@@ -448,6 +458,7 @@ function deliversARequestPostAsACollectiveRequestItem() {
           id: requestId,
           postId: postId(9),
           from: "agent:bob",
+          to: "agent:bob",
           question: questionText,
           requestedSchema: slotSchema,
           deadlineAt: 60_000,
@@ -463,9 +474,9 @@ function consumesARequestPostWhoseDeadlineHasPassed() {
       const layer = yield* makeLayer(newObserved());
       yield* TestClock.adjust(Duration.seconds(61));
 
-      expect(yield* layer.classify(requestPost("agent:bob", 60_000))).toEqual(
-        Option.none(),
-      );
+      expect(
+        yield* classifyPost(layer, requestPost("agent:bob", 60_000)),
+      ).toEqual(Option.none());
     }),
   );
 }
@@ -476,7 +487,7 @@ function postsAValidAnswerToTheRequesterSDirectConversation() {
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(observed);
-      yield* layer.classify(requestPost("agent:bob", 60_000));
+      yield* classifyPost(layer, requestPost("agent:bob", 60_000));
       yield* send(layer, {
         collectiveResponse: {
           id: requestId,
@@ -513,7 +524,7 @@ function refusesAnAnswerThatFailsTheRequestSSchemaNamingTheField() {
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(observed);
-      yield* layer.classify(requestPost("agent:bob", 60_000));
+      yield* classifyPost(layer, requestPost("agent:bob", 60_000));
       const failure = yield* collectiveFailureOf(
         send(layer, {
           collectiveResponse: {
@@ -537,7 +548,7 @@ function refusesASecondAnswerToTheSameRequest() {
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(newObserved());
-      yield* layer.classify(requestPost("agent:bob", 60_000));
+      yield* classifyPost(layer, requestPost("agent:bob", 60_000));
       const decline = {
         collectiveResponse: { id: requestId, action: "decline" },
       };
@@ -569,7 +580,7 @@ function refusesAnAnswerAfterTheRequestSDeadline() {
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(newObserved());
-      yield* layer.classify(requestPost("agent:bob", 60_000));
+      yield* classifyPost(layer, requestPost("agent:bob", 60_000));
       yield* TestClock.adjust(Duration.seconds(60));
       const failure = yield* collectiveFailureOf(
         send(layer, {
@@ -587,7 +598,8 @@ function consumesAMemberSAnswerRatherThanDeliveringIt() {
     Effect.gen(function* () {
       const layer = yield* makeLayer(newObserved());
       const id = yield* startGather(layer);
-      const item = yield* layer.classify(
+      const item = yield* classifyPost(
+        layer,
         answerPost("agent:bob", id, {
           action: "accept",
           content: { slot: "mon" },
@@ -606,13 +618,15 @@ function emitsTheResultOnceEveryMemberHasAnswered() {
     Effect.gen(function* () {
       const layer = yield* makeLayer(observed);
       const id = yield* startGather(layer);
-      yield* layer.classify(
+      yield* classifyPost(
+        layer,
         answerPost("agent:bob", id, {
           action: "accept",
           content: { slot: "mon" },
         }),
       );
-      yield* layer.classify(
+      yield* classifyPost(
+        layer,
         answerPost("agent:carol", id, { action: "decline" }),
       );
 
@@ -642,7 +656,10 @@ function reportsASilentMemberAsNoAnswerAtTheDeadline() {
     Effect.gen(function* () {
       const layer = yield* makeLayer(observed);
       const id = yield* startGather(layer);
-      yield* layer.classify(answerPost("agent:bob", id, { action: "cancel" }));
+      yield* classifyPost(
+        layer,
+        answerPost("agent:bob", id, { action: "cancel" }),
+      );
       yield* TestClock.adjust(Duration.seconds(60));
 
       expect(observed.emitted).toEqual([
@@ -668,7 +685,8 @@ function recordsAnAnswerThatFailsTheSchemaAsInvalid() {
     Effect.gen(function* () {
       const layer = yield* makeLayer(observed);
       const id = yield* startGather(layer);
-      yield* layer.classify(
+      yield* classifyPost(
+        layer,
         answerPost("agent:bob", id, {
           action: "accept",
           content: { slot: "sun" },
@@ -690,8 +708,12 @@ function keepsAMemberSFirstAnswerAndIgnoresItsSecond() {
     Effect.gen(function* () {
       const layer = yield* makeLayer(observed);
       const id = yield* startGather(layer);
-      yield* layer.classify(answerPost("agent:bob", id, { action: "decline" }));
-      yield* layer.classify(
+      yield* classifyPost(
+        layer,
+        answerPost("agent:bob", id, { action: "decline" }),
+      );
+      yield* classifyPost(
+        layer,
         answerPost("agent:bob", id, {
           action: "accept",
           content: { slot: "mon" },
@@ -714,7 +736,8 @@ function changesNothingForAnAnswerThatArrivesAfterTheDeadline() {
       const layer = yield* makeLayer(observed);
       const id = yield* startGather(layer);
       yield* TestClock.adjust(Duration.seconds(60));
-      const late = yield* layer.classify(
+      const late = yield* classifyPost(
+        layer,
         answerPost("agent:bob", id, {
           action: "accept",
           content: { slot: "mon" },
@@ -825,8 +848,12 @@ function stopsTheDeadlineTimerOfAGatherEveryMemberAnswered() {
       const supervisor = yield* Supervisor.track;
       const layer = yield* makeLayer(observed);
       const id = yield* startGather(layer).pipe(Effect.supervised(supervisor));
-      yield* layer.classify(answerPost("agent:bob", id, { action: "decline" }));
-      yield* layer.classify(
+      yield* classifyPost(
+        layer,
+        answerPost("agent:bob", id, { action: "decline" }),
+      );
+      yield* classifyPost(
+        layer,
         answerPost("agent:carol", id, { action: "decline" }),
       );
 
@@ -853,10 +880,14 @@ function consumesARequestWhoseIdDoesNotDeriveFromItsSender() {
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(newObserved());
-      const takenOver = yield* layer.classify(
+      const takenOver = yield* classifyPost(
+        layer,
         requestPost("agent:mallory", 60_000),
       );
-      const honest = yield* layer.classify(requestPost("agent:bob", 60_000));
+      const honest = yield* classifyPost(
+        layer,
+        requestPost("agent:bob", 60_000),
+      );
 
       expect(takenOver).toEqual(Option.none());
       expect(Option.isSome(honest)).toBe(true);
@@ -868,7 +899,8 @@ function consumesARequestWhoseDeadlineLiesBeyondTheLongestAGatherStates() {
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(newObserved());
-      const item = yield* layer.classify(
+      const item = yield* classifyPost(
+        layer,
         requestPost("agent:bob", Duration.toMillis(Duration.days(31)) + 1),
       );
 
@@ -937,9 +969,15 @@ describe("inbound classification", () => {
     consumesAPostThatCarriesTwoCollectiveParts,
   );
 
-  it("consumes an all_gather close", consumesAnAllGatherClose);
+  it(
+    "consumes a close for an all_gather this endpoint was not asked",
+    consumesACloseForAnAllGatherThisEndpointWasNotAsked,
+  );
 
-  it("consumes an all_gather request", consumesAnAllGatherRequest);
+  it(
+    "consumes an all_gather request in a direct conversation",
+    consumesAnAllGatherRequestInADirectConversation,
+  );
 
   it(
     "delivers a request post as a collectiveRequest item",

@@ -39,7 +39,7 @@ through re-exports. Publication does not change this package boundary.
   Client operation, decoded from the `messages_out` content's text and optional
   `collective`, or its `collectiveResponse`; do not pass `messages_out.id` or
   add adapter deduplication. `send_message` has returned before the adapter
-  sends, so a gather or response reports a refusal as an `operationFailed`
+  sends, so a gather, all_gather or response reports a refusal as an `operationFailed`
   item and its delivery completes; a multicast's refusal fails the delivery.
   Project metadata before content, route through the bootstrap-owned main
   session with NanoClaw's native reply override, and await the host callback

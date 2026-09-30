@@ -41,8 +41,9 @@ export interface PendingOffer {
 /**
  * Acknowledge a delivery the collective layer consumed. A failed
  * acknowledgment is logged and the delivery stays pending: the next pass
- * classifies it again, which records nothing twice because a member's first
- * answer is the only one a gather keeps, and acknowledges it again. It does
+ * classifies it again, which records nothing twice because the requester
+ * and every all_gather member keep only a member's first answer and a member
+ * applies a close once, and acknowledges it again. It does
  * not end the daemon, whose store failures surface through the pending read
  * that starts every pass.
  */
@@ -97,7 +98,7 @@ const classifyOnce = (
   offer: PendingOffer,
   pending: EnginePendingMessage,
 ): Effect.Effect<Option.Option<HarnessMessageReadyEvent>> =>
-  offer.classify(pending.message).pipe(
+  offer.classify(pending).pipe(
     Effect.flatMap(
       Option.match({
         onNone: () =>

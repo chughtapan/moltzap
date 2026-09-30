@@ -1,4 +1,4 @@
-/** @file Three real daemons run gather operations end to end. */
+/** @file A requester and three members run all_gather operations through four real daemons. */
 
 import type { AgentName } from "@moltzap/identity";
 import { Duration, Effect, Queue, Schema, type Scope, Stream } from "effect";
@@ -25,6 +25,8 @@ import {
 const DELIVERY_TIMEOUT = Duration.seconds(60);
 const SILENT_MEMBER_DEADLINE_SECONDS = 15;
 const question = "Which day works for the review?";
+const group =
+  "group:all-gather-member-a,all-gather-member-b,all-gather-member-c,all-gather-requester";
 const slotSchema = {
   type: "object",
   properties: { slot: { type: "string", enum: ["mon", "tue"] } },
@@ -89,152 +91,139 @@ const nextItem = (participant: Participant) =>
 const send = (participant: Participant, input: unknown) =>
   participant.endpoint.send(Schema.decodeUnknownSync(SendInput)(input));
 
-const gather = (
-  requester: Participant,
-  members: readonly Participant[],
-  deadline: number,
-) =>
+const allGather = (requester: Participant, to: string, deadline: number) =>
   send(requester, {
-    to: `group:${[requester, ...members]
-      .map(({ address }) => address.slice("agent:".length))
-      .join(",")}`,
+    to,
     text: question,
-    collective: { op: "gather", deadline, requestedSchema: slotSchema },
+    collective: { op: "all_gather", deadline, requestedSchema: slotSchema },
+  });
+
+const answer = (member: Participant, id: unknown, slot: string) =>
+  send(member, {
+    collectiveResponse: { id, action: "accept", content: { slot } },
   });
 
 const acquireParticipants = Effect.gen(function* () {
   const infrastructure = yield* acquireProcessInfrastructure;
   const fixtures = yield* Effect.all(
-    ["gather-requester", "gather-member-a", "gather-member-b"].map((name) =>
-      makeDaemonProcessFixture(infrastructure, name),
-    ),
-    { concurrency: 3 },
+    [
+      "all-gather-requester",
+      "all-gather-member-a",
+      "all-gather-member-b",
+      "all-gather-member-c",
+    ].map((name) => makeDaemonProcessFixture(infrastructure, name)),
+    { concurrency: 4 },
   );
   yield* Effect.forEach(fixtures, acquireDaemonProcess, { discard: true });
   yield* Effect.forEach(fixtures, registerFixture, { discard: true });
-  return yield* Effect.forEach(fixtures, joinParticipant);
+  const [requester, first, second, third] = yield* Effect.forEach(
+    fixtures,
+    joinParticipant,
+  );
+  return requester === undefined ||
+    first === undefined ||
+    second === undefined ||
+    third === undefined
+    ? yield* Effect.dieMessage("expected four participants")
+    : { requester, first, second, third };
 });
 
-const requireThree = (participants: readonly Participant[]) => {
-  const [requester, first, second] = participants;
-  return requester === undefined || first === undefined || second === undefined
-    ? Effect.dieMessage("expected three participants")
-    : Effect.succeed({ requester, first, second });
-};
-
 const allAnsweredBehavior = Effect.gen(function* () {
-  const { requester, first, second } = yield* acquireParticipants.pipe(
-    Effect.flatMap(requireThree),
-  );
+  const { requester, first, second, third } = yield* acquireParticipants;
 
-  const unreachable = yield* send(requester, {
-    to: `group:gather-member-a,gather-nobody,gather-requester`,
-    text: question,
-    collective: { op: "gather", deadline: 60, requestedSchema: slotSchema },
-  }).pipe(Effect.flip);
+  const unreachable = yield* allGather(
+    requester,
+    "group:all-gather-member-a,all-gather-nobody,all-gather-requester",
+    60,
+  ).pipe(Effect.flip);
   expect(unreachable).toBeInstanceOf(CollectiveError);
   expect(unreachable).toMatchObject({
     failure: {
       kind: "members-unreachable",
-      members: [{ member: "agent:gather-nobody", reason: "unknown-agent" }],
+      members: [{ member: "agent:all-gather-nobody", reason: "unknown-agent" }],
     },
   });
-  expect(yield* nextItem(first)).toMatchObject({ kind: "collectiveRequest" });
 
-  const started = yield* gather(requester, [first, second], 60);
-  const firstRequest = yield* nextItem(first);
-  const secondRequest = yield* nextItem(second);
-  expect(firstRequest).toEqual({
+  const started = yield* allGather(requester, group, 60);
+  const request = {
     kind: "collectiveRequest",
     id: started.operationId,
     postId: expect.any(String),
     from: requester.address,
-    to: requester.address,
+    to: group,
     question,
     requestedSchema: slotSchema,
     deadlineAt: expect.any(Number),
-  });
-  expect(secondRequest).toMatchObject({ id: started.operationId });
+  };
+  expect(yield* nextItem(first)).toEqual(request);
+  expect(yield* nextItem(second)).toEqual(request);
+  expect(yield* nextItem(third)).toEqual(request);
 
-  const invalid = yield* send(first, {
-    collectiveResponse: {
-      id: started.operationId,
-      action: "accept",
-      content: { slot: "sun" },
-    },
-  }).pipe(Effect.flip);
-  expect(invalid).toMatchObject({
-    failure: { kind: "answer-invalid", fields: [{ field: "slot" }] },
-  });
-  yield* send(first, {
-    collectiveResponse: {
-      id: started.operationId,
-      action: "accept",
-      content: { slot: "tue" },
-    },
-  });
-  yield* send(second, {
+  yield* answer(first, started.operationId, "tue");
+  yield* answer(second, started.operationId, "mon");
+  yield* send(third, {
     collectiveResponse: { id: started.operationId, action: "decline" },
   });
 
-  expect(yield* nextItem(requester)).toEqual({
+  const requesterResult = yield* nextItem(requester);
+  expect(requesterResult).toEqual({
     kind: "collectiveResult",
     id: started.operationId,
-    to: "group:gather-member-a,gather-member-b,gather-requester",
+    to: group,
     question,
     outcomes: [
       {
         member: first.address,
         outcome: { kind: "answered", content: { slot: "tue" } },
       },
-      { member: second.address, outcome: { kind: "declined" } },
+      {
+        member: second.address,
+        outcome: { kind: "answered", content: { slot: "mon" } },
+      },
+      { member: third.address, outcome: { kind: "declined" } },
     ],
+    closePostId: expect.any(String),
   });
+  expect(yield* nextItem(first)).toEqual(requesterResult);
+  expect(yield* nextItem(second)).toEqual(requesterResult);
+  expect(yield* nextItem(third)).toEqual(requesterResult);
 }).pipe(Effect.scoped);
 
 const silentMemberBehavior = Effect.gen(function* () {
-  const { requester, first, second } = yield* acquireParticipants.pipe(
-    Effect.flatMap(requireThree),
-  );
+  const { requester, first, second, third } = yield* acquireParticipants;
 
-  const started = yield* gather(
+  const started = yield* allGather(
     requester,
-    [first, second],
+    group,
     SILENT_MEMBER_DEADLINE_SECONDS,
   );
   yield* nextItem(first);
   yield* nextItem(second);
-  yield* send(first, {
-    collectiveResponse: {
-      id: started.operationId,
-      action: "accept",
-      content: { slot: "mon" },
-    },
-  });
+  yield* nextItem(third);
+  yield* answer(first, started.operationId, "mon");
+  yield* answer(second, started.operationId, "mon");
 
-  expect(yield* nextItem(requester)).toMatchObject({
+  const requesterResult = yield* nextItem(requester);
+  expect(requesterResult).toMatchObject({
     kind: "collectiveResult",
     id: started.operationId,
     outcomes: [
-      {
-        member: first.address,
-        outcome: { kind: "answered", content: { slot: "mon" } },
-      },
-      { member: second.address, outcome: { kind: "no-answer" } },
+      { member: first.address, outcome: { kind: "answered" } },
+      { member: second.address, outcome: { kind: "answered" } },
+      { member: third.address, outcome: { kind: "no-answer" } },
     ],
   });
-  const late = yield* send(second, {
-    collectiveResponse: { id: started.operationId, action: "decline" },
-  }).pipe(Effect.flip);
-  expect(late).toMatchObject({ failure: { kind: "request-expired" } });
+  expect(yield* nextItem(first)).toEqual(requesterResult);
+  expect(yield* nextItem(second)).toEqual(requesterResult);
+  expect(yield* nextItem(third)).toEqual(requesterResult);
 }).pipe(Effect.scoped);
 
-it("gathers every member's answer through three real daemons", () => {
+it("gives the requester and every member the same all_gather result", () => {
   expect.hasAssertions();
   return Effect.runPromise(allAnsweredBehavior);
-}, 240_000);
+}, 300_000);
 
-it("reports a silent member as no-answer at the deadline", () => {
+it("closes an all_gather at the deadline without the silent member", () => {
   expect.hasAssertions();
   return Effect.runPromise(silentMemberBehavior);
-}, 240_000);
+}, 300_000);

@@ -50,7 +50,7 @@ path is:
 4. `createMessageActions` registers the message tool's `send` action with its
     optional `collective` and `collectiveResponse` parameters, and
     `sendOperation` performs each send as one Client operation, returning a
-    gather's `operationId` or failing with the Client's error.
+    gather's or all_gather's `operationId` or failing with the Client's error.
 
 See the [OpenClaw integration guide](../../docs/integrations/openclaw.mdx) for
 configuration and message behavior.

@@ -457,6 +457,7 @@ function makeEngine(
         postId: delivery.pending.message.postId,
         recordHash: delivery.pending.recordHash,
       }),
+    resolveAddress: () => Effect.void,
     readPendingMessages: () =>
       Effect.gen(function* () {
         delivery.reads += 1;

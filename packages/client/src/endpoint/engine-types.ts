@@ -144,6 +144,14 @@ export interface EndpointEngine {
   readonly send: (
     input: EngineSendInput,
   ) => Effect.Effect<EngineSentPost, SendError>;
+  /**
+   * Resolve an address through the Registry as a send would, without
+   * sending; the collective layer uses it to name the unreachable members of
+   * a refused group post.
+   */
+  readonly resolveAddress: (
+    to: MessageAddressInput,
+  ) => Effect.Effect<void, SendError>;
   readonly readPendingMessages: () => Effect.Effect<
     readonly EnginePendingMessage[],
     ListenError

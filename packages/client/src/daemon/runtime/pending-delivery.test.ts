@@ -52,14 +52,14 @@ const newObserved = (): Observed => ({
   exported: [],
 });
 
-const publishEveryPost: CollectiveOperations["classify"] = (message) =>
+const publishEveryPost: CollectiveOperations["classify"] = ({ message }) =>
   Effect.succeed(Option.some({ kind: "multicast", message }));
 
 const consumeEveryPost: CollectiveOperations["classify"] = () =>
   Effect.succeed(Option.none());
 
 /** Consumes the second pending post, as the collective layer does an answer. */
-const consumeSecond: CollectiveOperations["classify"] = (message) =>
+const consumeSecond: CollectiveOperations["classify"] = ({ message }) =>
   Effect.succeed(
     message.postId === second.message.postId
       ? Option.none()
@@ -257,7 +257,7 @@ function classifiesEachDeliveryOnce() {
   const classified: string[] = [];
   const offer = offerTo(
     observed,
-    (message) =>
+    ({ message }) =>
       Effect.sync(() => {
         classified.push(message.postId);
         return Option.some({ kind: "multicast", message });

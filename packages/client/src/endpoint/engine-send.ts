@@ -15,7 +15,11 @@ import type {
   OutboundMessageInput,
   PostIntent as StoredPostIntent,
 } from "./store.js";
-import { type PostId, SendError } from "../contract.js";
+import {
+  type MessageAddressInput,
+  type PostId,
+  SendError,
+} from "../contract.js";
 import { resolveMessageAddress } from "./addressing/index.js";
 import { currentRecoveryBarrier } from "./recovery/barrier.js";
 import {
@@ -119,12 +123,27 @@ const buildMembership = (runtime: EngineRuntime, resolved: ResolvedAddress) =>
     return membership;
   });
 
-const resolveMembership = (runtime: EngineRuntime, input: EngineSendInput) =>
+const resolveCards = (runtime: EngineRuntime, to: MessageAddressInput) =>
   resolveMessageAddress({
     localAgentCard: runtime.input.localAgentCard,
     registry: runtime.input.registry,
-    to: input.to,
-  }).pipe(Effect.flatMap((resolved) => buildMembership(runtime, resolved)));
+    to,
+  });
+
+/**
+ * Resolve an address to its members' Registry cards without sending, failing
+ * with the `SendError` a send to the same address would fail with.
+ */
+export const resolveAddress = (
+  runtime: EngineRuntime,
+  to: MessageAddressInput,
+): Effect.Effect<void, SendError> =>
+  resolveCards(runtime, to).pipe(Effect.asVoid);
+
+const resolveMembership = (runtime: EngineRuntime, input: EngineSendInput) =>
+  resolveCards(runtime, input.to).pipe(
+    Effect.flatMap((resolved) => buildMembership(runtime, resolved)),
+  );
 
 function enqueueOuterMessage(
   runtime: EngineRuntime,

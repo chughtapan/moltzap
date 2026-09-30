@@ -2,12 +2,14 @@
  * @file The public Client is one addressed structural endpoint whose sends are
  * operations or collective responses and whose inbound deliveries are tagged
  * items. An operation carries an address, text and an optional collective
- * operation, multicast by default or a gather with its deadline and schema; a
- * response names its request and no address. Each inbound delivery carries
- * one item plus transport-only acknowledgment: a multicast with the certified
- * direct or complete-group message, a collective request, a gather result or
- * an operation failure. A send returns the gather's id and fails with a
- * closed send reason or a collective failure.
+ * operation, multicast by default or a gather or all_gather with its deadline
+ * and schema; a response names its request and no address. Each inbound
+ * delivery carries one item plus transport-only acknowledgment: a multicast
+ * with the certified direct or complete-group message, a collective request
+ * naming the conversation it arrived in, a collective result that names an
+ * all_gather's close post, or an operation failure. A send returns a
+ * collecting operation's id and fails with a closed send reason or a
+ * collective failure.
  */
 
 import type { DateTime, Effect, Scope, Stream } from "effect";
@@ -54,7 +56,7 @@ type ExpectedAnswerContent = Readonly<
 type ExpectedCollectiveOperation =
   | Readonly<{ op?: "multicast" }>
   | Readonly<{
-      op: "gather";
+      op: "gather" | "all_gather";
       deadline: number;
       requestedSchema: ExpectedRequestedSchema;
     }>;
@@ -106,6 +108,7 @@ type ExpectedInboundItem =
       id: CollectiveId;
       postId: PostId;
       from: AgentAddress;
+      to: MessageAddressInput;
       question: string;
       requestedSchema: ExpectedRequestedSchema;
       deadlineAt: number;
@@ -121,6 +124,7 @@ type ExpectedInboundItem =
           Readonly<{ member: AgentAddress; outcome: ExpectedMemberOutcome }>
         >,
       ];
+      closePostId?: PostId;
     }>
   | Readonly<{
       kind: "operationFailed";
