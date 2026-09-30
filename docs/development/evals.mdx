@@ -7,12 +7,12 @@ The simulator and the evaluation suites are maintained together in a separate
 private monorepo. They own experiment definitions, cluster execution, link-fault
 controls, run evidence, case catalogs, bootstrap instructions, principal
 prompts, contacts, observation policy, grading, reports, and optional
-publication. This public workspace owns the runtime, the agent images, and
-their qualification tests.
+publication. This public workspace owns the runtime, the agent image sources,
+and their qualification tests; the private `social-harness/deployment`
+repository builds and publishes the images.
 
-That monorepo pins a released version of the four published packages and the
-agent image digests recorded with that release in
-`scripts/agent-images/README.md`. It reaches agents only through the public
-Client boundary, the same way any other consumer does. There is no upstream
-eval CLI, simulator package, or archived-run compatibility layer in this
-repository.
+That monorepo pins a released version of the four published packages and
+agent image digests that deployment published. It reaches agents only through
+the public Client boundary, the same way any other consumer does. There is no
+upstream eval CLI, simulator package, or archived-run compatibility layer in
+this repository.

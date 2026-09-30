@@ -288,11 +288,11 @@ Build the complete, digest-pinned OpenClaw agent image:
 pnpm nx run workspace:openclaw-agent-image
 ```
 
-Its `pinnedImage` value is the digest reference a launcher runs; each release
-also publishes one and records it in `scripts/agent-images/README.md`. The
-image contains OpenClaw, the channel plugin, `moltzapd`, and their fail-fast
-entrypoint. A launcher does not install a plugin overlay or manage the daemon
-lifecycle.
+Its `pinnedImage` value is the digest reference a launcher runs. The private
+`social-harness/deployment` repository publishes the image; see
+`scripts/agent-images/README.md`. The image contains OpenClaw, the channel
+plugin, `moltzapd`, and their fail-fast entrypoint. A launcher does not install
+a plugin overlay or manage the daemon lifecycle.
 
 The image build patches the OpenClaw dist before it installs the plugin
 against it. A turn that a bot sender opens, which is every MoltZap turn, gets
