@@ -18,6 +18,7 @@ import {
 import { PollCursor, RouterInstanceId } from "@moltzap/router";
 import canonicalize from "canonicalize";
 import {
+  Chunk,
   Deferred,
   Effect,
   Encoding,
@@ -1518,6 +1519,60 @@ const recoverSameRouterInstance = () =>
     ),
   );
 
+const recoverColdStartAtUnchangedInstance = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+        const retained = yield* stageCatchUpOutbound(fixture);
+        const recoveryOutbound = yield* Queue.unbounded<SignedMessage>();
+        const resumedOutbound = yield* Queue.unbounded<SignedMessage>();
+        yield* fixture.engine.abandonVolatileFolds("router_restarted");
+        const recovering = yield* Effect.fork(
+          fixture.engine.recoverCertifiedHistory({
+            reason: "router_restarted",
+            anchor: {
+              routerInstanceId: oldRouterInstanceId,
+              pollCursor,
+            },
+            resume: (outboundId) =>
+              forwardStoredOutbound(fixture.store, resumedOutbound, outboundId),
+            send: ({ message }) =>
+              Queue.offer(recoveryOutbound, message).pipe(Effect.asVoid),
+          }),
+        );
+        const request = yield* Queue.take(recoveryOutbound).pipe(
+          Effect.timeout("1 second"),
+          Effect.flatMap(decodeCatchUpRequest),
+        );
+        yield* catchUpIncompleteIngressFrom({
+          membership: fixture.membership,
+          responder: fixture.remote,
+          request,
+          routerInstanceId: oldRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* Fiber.join(recovering).pipe(Effect.timeout("1 second"));
+        expect(yield* Queue.size(recoveryOutbound)).toBe(0);
+        const recovered = yield* fixture.store.recover();
+        expect(recovered.stagedReanchors).toHaveLength(0);
+        expect(recovered.anchors).toHaveLength(1);
+        expect(recovered.positions[0]?.currentAnchorHash).toBe(
+          fixture.certifiedRecord.actionCertifiedRecord.recordCore.anchorHash,
+        );
+        const resumedIds = (yield* Queue.takeAll(resumedOutbound)).pipe(
+          Chunk.map((message) => message.messageId),
+          Chunk.toReadonlyArray,
+        );
+        expect(resumedIds).toContain(retained.messageId);
+      }),
+    ),
+  );
+
 const recoverDisseminationObligations = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -2228,6 +2283,10 @@ describe("endpoint restart recovery", () => {
   it(
     "resumes a same-instance persisted intent without reproposing",
     recoverSameRouterInstance,
+  );
+  it(
+    "catches up without re-anchoring when a cold start finds the anchored Router instance",
+    recoverColdStartAtUnchangedInstance,
   );
   it(
     "rebuilds one discarded record dissemination without duplication",

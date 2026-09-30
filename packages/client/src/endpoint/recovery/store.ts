@@ -153,6 +153,41 @@ export const recordFromStore = (
   );
 
 /**
+ * Resolve the Router instance named by one conversation's durable current anchor.
+ * @param membership Fixed membership that owns the conversation.
+ * @param recovery Complete verified store snapshot.
+ * @returns The instance bound by the genesis or completed re-anchor at the position.
+ */
+export function durableRouterInstanceId(
+  membership: VerifiedMembership,
+  recovery: EndpointRecovery,
+): Effect.Effect<
+  GenesisAnchorBodyValue["routerInstanceId"],
+  RouterWorkerRecoveryError
+> {
+  const conversationId = membership.descriptor.conversationId;
+  const position = recovery.positions.find(
+    (candidate) => candidate.conversationId === conversationId,
+  );
+  const stored = recovery.anchors.find(
+    (candidate) =>
+      candidate.conversationId === conversationId &&
+      candidate.anchorHash === position?.currentAnchorHash,
+  );
+  if (stored === undefined) {
+    return Effect.fail(recoveryFailure());
+  }
+  return decodeStoredAnchor(membership, stored).pipe(
+    Effect.map((anchor) =>
+      anchor.kind === "genesis_anchor_body"
+        ? anchor.routerInstanceId
+        : anchor.reanchor.routerInstanceId,
+    ),
+    Effect.mapError(recoveryFailure),
+  );
+}
+
+/**
  * Decode and verify one durable genesis or completed re-anchor row.
  * @param membership Fixed membership that owns the anchor.
  * @param stored Durable anchor row and canonical representation.
