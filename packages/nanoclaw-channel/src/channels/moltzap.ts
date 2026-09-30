@@ -23,6 +23,7 @@ import {
   Scope,
   Stream,
 } from "effect";
+import { absurd } from "effect/Function";
 import type { ChannelSetup, InboundMessage } from "./adapter.js";
 import { registerChannelAdapter } from "./channel-registry.js";
 
@@ -88,31 +89,34 @@ interface MoltZapOutboundMessage {
   readonly files?: readonly MoltZapOutboundFile[];
 }
 
+/** The text and optional collective operation one `messages_out` row carries. */
+interface MoltZapOutboundOperation {
+  readonly text: string;
+  readonly collective?: unknown;
+}
+
 function decodeOutboundSend(
   address: string,
   message: MoltZapOutboundMessage,
 ): Effect.Effect<SendInput, MoltZapChannelError> {
-  return decodeOutboundText(message).pipe(
-    Effect.flatMap((text) =>
-      Schema.decodeUnknown(SendInput)({
-        to: address,
-        content: [{ type: "text", text }],
-      }),
+  return decodeOutboundOperation(message).pipe(
+    Effect.flatMap((operation) =>
+      Schema.decodeUnknown(SendInput)({ to: address, ...operation }),
     ),
     Effect.catchTag("ParseError", () =>
       Effect.fail(
         new MoltZapChannelError({
           reason:
-            "MoltZap outbound delivery requires an explicit agent or group address and valid text",
+            "MoltZap outbound delivery requires an explicit agent or group address, valid text and a known collective operation",
         }),
       ),
     ),
   );
 }
 
-function decodeOutboundText(
+function decodeOutboundOperation(
   message: MoltZapOutboundMessage,
-): Effect.Effect<string, MoltZapChannelError> {
+): Effect.Effect<MoltZapOutboundOperation, MoltZapChannelError> {
   if (message.kind !== "chat") {
     return Effect.fail(
       new MoltZapChannelError({
@@ -127,30 +131,41 @@ function decodeOutboundText(
       }),
     );
   }
-  const text = extractOutboundText(message);
-  return text === null
+  const operation = extractOutboundOperation(message);
+  return operation === null
     ? Effect.fail(
         new MoltZapChannelError({
           reason: "MoltZap outbound messages require text content",
         }),
       )
-    : Effect.succeed(text);
+    : Effect.succeed(operation);
 }
 
-function extractOutboundText(message: MoltZapOutboundMessage): string | null {
+/**
+ * Read the operation from NanoClaw's `messages_out` content: a bare string is
+ * the text of a multicast, and an object carries `text` and an optional
+ * `collective` operation.
+ * @param message One outbound row as NanoClaw delivers it.
+ * @returns The text and operation, or null when the row carries no text.
+ */
+function extractOutboundOperation(
+  message: MoltZapOutboundMessage,
+): MoltZapOutboundOperation | null {
   const content = message.content;
   if (typeof content === "string") {
-    return content;
+    return { text: content };
   }
   if (
-    content !== null &&
-    typeof content === "object" &&
-    "text" in content &&
-    typeof content.text === "string"
+    content === null ||
+    typeof content !== "object" ||
+    !("text" in content) ||
+    typeof content.text !== "string"
   ) {
-    return content.text;
+    return null;
   }
-  return null;
+  return "collective" in content
+    ? { text: content.text, collective: content.collective }
+    : { text: content.text };
 }
 
 function renderContent(content: Content): string {
@@ -178,12 +193,12 @@ function renderContentPart(part: ContentPart): string {
  *   participant Client as HarnessEndpoint
  *   participant Adapter as MoltZapChannelAdapter
  *   participant Host as NanoClaw host
- *   Client->>Adapter: InboundDelivery
+ *   Client->>Adapter: InboundDelivery<br>multicast item
  *   Adapter->>Host: onMetadata<br>address and group shape
  *   Adapter->>Host: await onInboundEvent<br>main session and MoltZap reply route
  *   Adapter->>Client: acknowledge delivery
- *   Host->>Adapter: deliver<br>address and content
- *   Adapter->>Client: send addressed content
+ *   Host->>Adapter: deliver<br>address, text and collective operation
+ *   Adapter->>Client: send the operation
  * ```
  *
  * The stream acknowledges after the stock host callback completes.
@@ -343,7 +358,25 @@ class MoltZapChannelAdapter {
     if (config === null) {
       return Effect.void;
     }
-    const message = delivery.message;
+    const item = delivery.item;
+    if (item.kind === "multicast") {
+      return this.handleMulticast(config, item.message).pipe(
+        Effect.zipRight(delivery.acknowledge),
+      );
+    }
+    return absurd(item.kind);
+  }
+
+  /**
+   * Hand one multicast to NanoClaw's main session with a MoltZap reply route.
+   * @param config The host callbacks from the active setup.
+   * @param message The direct or group message the multicast carries.
+   * @returns Completion after the host callback completed.
+   */
+  private handleMulticast(
+    config: ChannelSetup,
+    message: MoltZapInboundMessage,
+  ): Effect.Effect<void, MoltZapChannelError> {
     const address = message.address;
     const isGroup = message.kind === "group";
     const inbound = this.toInboundMessage(message);
@@ -380,7 +413,7 @@ class MoltZapChannelAdapter {
         new MoltZapChannelError({
           reason: `NanoClaw inbound callback failed for ${address}: ${String(cause)}`,
         }),
-    }).pipe(Effect.zipRight(delivery.acknowledge), Effect.asVoid);
+    }).pipe(Effect.asVoid);
   }
 
   /**

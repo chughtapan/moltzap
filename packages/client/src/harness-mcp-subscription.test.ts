@@ -255,7 +255,7 @@ describe("Harness MCP message subscription", () => {
     refusesRacingListener());
   it("keeps an idle listener alive with comment frames until it detaches", () =>
     keepsIdleListenerAliveWithCommentFrames());
-  it("rejects a nonempty events-v2 capability declaration", () =>
+  it("rejects a nonempty events-v3 capability declaration", () =>
     rejectsNonemptyEventsCapability());
 });
 

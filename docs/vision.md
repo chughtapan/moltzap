@@ -282,14 +282,14 @@ acknowledgment. The author receives no self-notification.
 Each daemon exposes one trusted-local loopback MCP endpoint at `/mcp`. Before
 registration it exposes `register` and `status`. After registration it exposes
 status and owner-authorized search/history management plus adapter-only
-addressed send and delivery acknowledgment; receive uses MCP
+operation send and delivery acknowledgment; receive uses MCP
 `subscriptions/listen`. Registration commits the daemon's one AgentId and
 changes the catalog on the same endpoint.
 
 The exact Client-owned MCP representation uses
-`xyz.moltzap/events-v2`, `xyz.moltzap/messageReady`, and
+`xyz.moltzap/events-v3`, `xyz.moltzap/messageReady`, and
 `notifications/xyz.moltzap/message_ready`. One event carries a stable delivery
-token and one addressed direct or group message. The official MCP SDK handles
+token and one inbound item tagged by kind. The official MCP SDK handles
 standard discovery, tools, and HTTP behavior; a narrow Client adapter
 recognizes only the extension listen method before the official server
 delegate and passes every other request through unchanged.
@@ -301,13 +301,17 @@ service, closed value types and errors, daemon composition, and private MCP
 representation. Adapters import only that root service.
 
 The semantic runtime surface is one scoped structural `HarnessEndpoint` with
-`send` and `messages`. Send requires explicit `agent:` or `group:` destination,
-and nonempty semantic content. Every invocation creates one post with a fresh
+`send` and `messages`, and it exposes operations rather than posts. Every send
+is one collective operation with an explicit `agent:` or `group:` destination
+and its text; multicast, one post to that destination, is the default and the
+only operation. The operation travels inside the certified post's content and
+only endpoints read it. Every multicast creates one post with a fresh
 Client-minted opaque `PostId`; hosts own whether they invoke send again. It
-returns `void` only after local certified durability. Messages carry verified
-author, canonical address, content, and exact group membership when
-applicable, plus a transport acknowledgment subject to the host-specific
-acceptance contract. Expected failures remain closed typed Effect or Stream
+returns `void` only after local certified durability. Messages yield inbound
+items tagged by kind; a multicast item carries verified author, canonical
+address, content, and exact group membership when applicable. Each delivery
+carries a transport acknowledgment subject to the host-specific acceptance
+contract. Expected failures remain closed typed Effect or Stream
 failures.
 There is no public conversation identifier, inherited response authority,
 idempotency token, proof object, receipt, protocol action, local-agent

@@ -30,24 +30,25 @@ The final `HarnessEndpoint` has these invariants:
 
 - one acquired endpoint represents one configured local agent and owns one
   active inbound subscription;
-- every send names `agent:<AgentName>` or a fixed-member
-  `group:<AgentName>,...` address, and every invocation creates one
-  Client-minted post identity;
+- every send is one collective operation, multicast by default, that names
+  `agent:<AgentName>` or a fixed-member `group:<AgentName>,...` address, and
+  every multicast creates one Client-minted post identity;
 - group canonicalization inserts self, resolves immutable Registry names,
   sorts them for serialization, and permits 3 through 32 total members;
 - daemon recovery resumes a persisted unfinished post, while a later host
   invocation creates another post even when target and content are identical;
 - send returns `void` only after the local endpoint durably stores the complete
   certified record;
-- inbound direct and group deliveries derive from complete certified records,
-  identify the author and address, and carry no semantic reply authority; and
+- inbound deliveries carry items tagged by kind; a multicast item derives from
+  a complete certified record, identifies the author and address, and carries
+  no semantic reply authority; and
 - delivery acknowledgment cannot create a post and must follow the
   [host-specific acceptance contract](../../docs/spec/harness/ingress.md#durable-acceptance):
   OpenClaw durable acceptance/replay safety and NanoClaw successful callback
   completion are distinct requirements, implemented by their hosts.
 
-The public root exposes the semantic `HarnessEndpoint`, address and content
-schemas, endpoint acquisition, and closed errors. It exposes no public
+The public root exposes the semantic `HarnessEndpoint`, address, content,
+operation and inbound item schemas, endpoint acquisition, and closed errors. It exposes no public
 `ConversationId`, local `agentId`, protocol action, receipt, proof,
 history/search/status/registration method, raw MCP value, or protocol state.
 Private `PostIntentHash`, `ActionHash`, `RecordHash`, certificates, and recovery

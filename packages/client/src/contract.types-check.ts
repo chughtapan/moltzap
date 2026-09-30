@@ -1,13 +1,17 @@
 /**
- * @file The public Client is one addressed structural endpoint. Sends always
- * create one fresh Client-owned intent, and inbound deliveries carry a certified
- * direct or complete-group message plus transport-only acknowledgment.
+ * @file The public Client is one addressed structural endpoint whose sends are
+ * operations and whose inbound deliveries are tagged items. Every send carries
+ * an address, text and an optional collective operation, multicast by
+ * default; each inbound delivery carries one item plus transport-only
+ * acknowledgment. A multicast item carries the certified direct or
+ * complete-group message.
  */
 
 import type { DateTime, Effect, Scope, Stream } from "effect";
 import type {
   acquireHarnessEndpoint,
   AgentAddress,
+  CollectiveOperation,
   ConnectError,
   Content,
   ContentPart,
@@ -18,6 +22,7 @@ import type {
   HarnessEndpoint,
   HistoryExportRecord,
   InboundDelivery,
+  InboundItem,
   InboundMessage,
   ListenError,
   MessageAddressInput,
@@ -29,9 +34,11 @@ import type {
 type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 
+type ExpectedCollectiveOperation = Readonly<{ op?: "multicast" }>;
 type ExpectedSendInput = Readonly<{
   to: MessageAddressInput;
-  content: Content;
+  text: string;
+  collective?: CollectiveOperation;
 }>;
 type ExpectedDirectMessage = Readonly<{
   kind: "direct";
@@ -53,8 +60,12 @@ type ExpectedGroupMessage = Readonly<{
   ];
   content: Content;
 }>;
-type ExpectedDelivery = Readonly<{
+type ExpectedMulticastItem = Readonly<{
+  kind: "multicast";
   message: InboundMessage;
+}>;
+type ExpectedDelivery = Readonly<{
+  item: InboundItem;
   acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
 }>;
 type ExpectedEndpoint = Readonly<{
@@ -62,7 +73,11 @@ type ExpectedEndpoint = Readonly<{
   messages: Stream.Stream<InboundDelivery, ListenError>;
 }>;
 
+type CollectiveOperationIsExact = Expect<
+  Equal<CollectiveOperation, ExpectedCollectiveOperation>
+>;
 type SendInputIsExact = Expect<Equal<SendInput, ExpectedSendInput>>;
+type InboundItemIsExact = Expect<Equal<InboundItem, ExpectedMulticastItem>>;
 type DirectMessageIsExact = Expect<Equal<DirectMessage, ExpectedDirectMessage>>;
 type GroupMessageIsExact = Expect<Equal<GroupMessage, ExpectedGroupMessage>>;
 type InboundMessageIsExact = Expect<
@@ -71,11 +86,12 @@ type InboundMessageIsExact = Expect<
 type DeliveryIsExact = Expect<Equal<InboundDelivery, ExpectedDelivery>>;
 type EndpointIsExact = Expect<Equal<HarnessEndpoint, ExpectedEndpoint>>;
 type ExpectedHistoryExportRecord =
-  | Readonly<{ kind: "inbound"; message: InboundMessage; at: DateTime.Utc }>
+  | Readonly<{ kind: "inbound"; item: InboundItem; at: DateTime.Utc }>
   | Readonly<{
       kind: "outbound";
       to: MessageAddressInput;
-      content: Content;
+      text: string;
+      collective?: CollectiveOperation;
       outcome:
         | Readonly<{ kind: "certified"; postId: PostId }>
         | Readonly<{ kind: "failed"; reason: SendError["reason"] }>;
@@ -144,7 +160,9 @@ type AcquisitionResultIsExact = Expect<
 
 /** Compile-time witnesses for the accepted public Client boundary. */
 export type HarnessEndpointCanaries = [
+  CollectiveOperationIsExact,
   SendInputIsExact,
+  InboundItemIsExact,
   DirectMessageIsExact,
   GroupMessageIsExact,
   InboundMessageIsExact,

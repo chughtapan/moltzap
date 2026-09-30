@@ -31,7 +31,7 @@ serves one loopback `/mcp` endpoint:
 | State | MCP catalog |
 |---|---|
 | unregistered | `register`, `status` |
-| registered | `status`, `search_agents`, `search_conversations`, `read_conversation`, adapter `send_message`, adapter `acknowledge_delivery`, plus events-v2 `subscriptions/listen` |
+| registered | `status`, `search_agents`, `search_conversations`, `read_conversation`, adapter `send_message`, adapter `acknowledge_delivery`, plus events-v3 `subscriptions/listen` |
 
 Registration changes durable daemon state and therefore the catalog. There is
 no profile selector, profile file, bespoke CLI, Unix socket, stdio server,
@@ -76,11 +76,13 @@ injected `HarnessEndpoint` or reach it through MCP. Endpoint repositories,
 protocol folds, partial votes, certificate assemblers, raw Router messages,
 private Effect RPC groups, Layers, and daemon storage codecs remain private.
 
-The semantic Client boundary is deliberately small. Every send names an
-explicit `agent:` or `group:` address. Every call creates one Client-minted
-post, while the host owns whether to call again. Send returns `void` only after
-local complete certification. Inbound direct or group delivery identifies
-canonical address, verified author, content, and exact group members. Adapters
+The semantic Client boundary is deliberately small and exposes operations
+rather than posts. Every send is one collective operation, multicast by
+default, and names an explicit `agent:` or `group:` address. Every multicast
+creates one Client-minted post, while the host owns whether to call again. Send
+returns `void` only after local complete certification. Inbound delivery yields
+items tagged by kind; a multicast item identifies canonical address, verified
+author, content, and exact group members. Adapters
 invoke the stock host boundary and then acknowledge delivery. The
 [host-specific acceptance contract](../spec/harness/ingress.md#durable-acceptance)
 defines the required completion and replay guarantees; this flow alone does

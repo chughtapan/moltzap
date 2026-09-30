@@ -1,4 +1,4 @@
-/** @file Pins the exact events-v2 addressed-message MCP representation. */
+/** @file Pins the exact events-v3 operation MCP representation. */
 
 import { Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
@@ -47,11 +47,15 @@ function acceptsOnlyEmptyEventsDeclaration(): void {
 }
 
 function decodesExactOperationRequests(): void {
+  const operation = {
+    to: peerAddress,
+    text: "meeting invite sent",
+    collective: { op: "multicast" },
+  };
+
   expect(
-    Effect.runSync(
-      Schema.decodeUnknown(SendInput)({ to: peerAddress, content }, exact),
-    ),
-  ).toEqual({ to: peerAddress, content });
+    Effect.runSync(Schema.decodeUnknown(SendInput)(operation, exact)),
+  ).toEqual(operation);
   expect(
     Effect.runSync(decodeHarnessAcknowledgeDeliveryRequest({ deliveryToken })),
   ).toEqual({ deliveryToken });
@@ -73,17 +77,37 @@ function decodesCanonicalDirectDelivery(): void {
     content,
   };
 
+  const item = { kind: "multicast", message };
+
   expect(
-    Effect.runSync(decodeHarnessMessageReadyEvent({ deliveryToken, message })),
-  ).toEqual({ deliveryToken, message });
+    Effect.runSync(decodeHarnessMessageReadyEvent({ deliveryToken, item })),
+  ).toEqual({ deliveryToken, item });
   expect(
     Exit.isFailure(
       Effect.runSyncExit(
         decodeHarnessMessageReadyEvent({
           deliveryToken,
-          message,
+          item,
           replyGrant: "forbidden",
         }),
+      ),
+    ),
+  ).toBe(true);
+}
+
+function rejectsAnUntaggedMessage(): void {
+  const message: InboundMessage = {
+    kind: "direct",
+    postId,
+    address: senderAddress,
+    sender: senderAddress,
+    content,
+  };
+
+  expect(
+    Exit.isFailure(
+      Effect.runSyncExit(
+        decodeHarnessMessageReadyEvent({ deliveryToken, message }),
       ),
     ),
   ).toBe(true);
@@ -98,10 +122,11 @@ function decodesCanonicalGroupDelivery(): void {
     members: [senderAddress, peerAddress, thirdAddress],
     content,
   };
+  const item = { kind: "multicast", message };
 
   expect(
-    Effect.runSync(decodeHarnessMessageReadyEvent({ deliveryToken, message })),
-  ).toEqual({ deliveryToken, message });
+    Effect.runSync(decodeHarnessMessageReadyEvent({ deliveryToken, item })),
+  ).toEqual({ deliveryToken, item });
 }
 
 function rejectsInconsistentDeliveryIdentity(): void {
@@ -143,7 +168,10 @@ function rejectsInconsistentDeliveryIdentity(): void {
     expect(
       Exit.isFailure(
         Effect.runSyncExit(
-          decodeHarnessMessageReadyEvent({ deliveryToken, message }),
+          decodeHarnessMessageReadyEvent({
+            deliveryToken,
+            item: { kind: "multicast", message },
+          }),
         ),
       ),
     ).toBe(true);
@@ -151,17 +179,20 @@ function rejectsInconsistentDeliveryIdentity(): void {
 }
 
 // @agent-code-guard/regression-only: these examples pin the exact public wire grammar and its relational identity checks.
-describe("Harness MCP addressed-message representation", () => {
-  it("accepts only the empty events-v2 declaration", () => {
+describe("Harness MCP operation representation", () => {
+  it("accepts only the empty events-v3 declaration", () => {
     acceptsOnlyEmptyEventsDeclaration();
   });
   it("decodes exact send and acknowledgment requests", () => {
     decodesExactOperationRequests();
   });
-  it("decodes one canonical direct-message delivery", () => {
+  it("decodes one canonical direct multicast delivery", () => {
     decodesCanonicalDirectDelivery();
   });
-  it("decodes one canonical group-message delivery", () => {
+  it("rejects a delivery that carries a message without an item", () => {
+    rejectsAnUntaggedMessage();
+  });
+  it("decodes one canonical group multicast delivery", () => {
     decodesCanonicalGroupDelivery();
   });
   it("rejects deliveries whose address, members, and sender disagree", () => {

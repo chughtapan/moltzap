@@ -5,7 +5,7 @@ import {
   MOLTZAP_VERSION,
   SignedMessage,
 } from "@moltzap/identity";
-import { DateTime, Effect, Schema } from "effect";
+import { DateTime, Effect, Option, Schema } from "effect";
 import type {
   EngineActionFold,
   EngineConversation,
@@ -23,6 +23,7 @@ import {
   InboundMessage,
   type InboundMessage as InboundMessageValue,
 } from "../contract.js";
+import { inboundItem } from "./collective/operation.js";
 import {
   type ActionCertifiedRecord,
   type AnchorHash,
@@ -348,16 +349,28 @@ export const inboundDelivery = (
   );
 
 /**
- * Record one durable inbound delivery in the history export: exactly the
- * host-visible message the store now holds. When no export is configured the
- * no-op port records nothing.
+ * Record one durable inbound delivery in the history export as the item its
+ * subscriber receives; a post the endpoint consumes records nothing. When no
+ * export is configured the no-op port records nothing.
  */
 export const exportInbound = (
   runtime: EngineRuntime,
   message: InboundMessageValue,
 ): Effect.Effect<void> =>
-  DateTime.now.pipe(
-    Effect.flatMap((at) =>
-      runtime.input.historyExport.record({ kind: "inbound", message, at }),
+  inboundItem(message).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.void,
+        onSome: (item) =>
+          DateTime.now.pipe(
+            Effect.flatMap((at) =>
+              runtime.input.historyExport.record({
+                kind: "inbound",
+                item,
+                at,
+              }),
+            ),
+          ),
+      }),
     ),
   );

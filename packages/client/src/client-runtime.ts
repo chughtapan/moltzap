@@ -295,7 +295,7 @@ function readDelivery(
       Effect.fail(new ListenError({ reason: "decode-failed" })),
     ),
     Effect.map((event) => ({
-      message: event.message,
+      item: event.item,
       acknowledge: callAcknowledgeDelivery(client, event.deliveryToken),
     })),
   );

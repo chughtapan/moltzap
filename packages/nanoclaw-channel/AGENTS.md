@@ -26,13 +26,16 @@ through re-exports. Publication does not change this package boundary.
   let that validated route reach this channel, with an accurate capability line
   in the existing destination prompt. Do not extend the host ABI, inbound
   router, inbox, session model, persistence, retry policy, or runtime driver.
-- Direct input identifies the sender and `agent:` address. Group input retains
-  the canonical group address, sender, exact members, and native group flag.
+- Render each inbound item kind in one fixed form, switching on `kind`
+  exhaustively. A multicast's direct input identifies the sender and `agent:`
+  address; its group input retains the canonical group address, sender, exact
+  members, and native group flag.
 - NanoClaw owns friendly-name discovery and its own destination permissions.
   An explicit `agent:` or `group:` MoltZap address input needs no prior
   NanoClaw conversation or ACL row; Client validates and canonicalizes it.
 - Leave outbound queue and retry policy to NanoClaw. Every adapter call is one
-  Client send; do not pass `messages_out.id` or add adapter deduplication.
+  Client operation, decoded from the `messages_out` content's text and optional
+  `collective`; do not pass `messages_out.id` or add adapter deduplication.
   Project metadata before content, route through the bootstrap-owned main
   session with NanoClaw's native reply override, and await the host callback
   before acknowledging Client delivery. Do not add `accepted`/`pending`

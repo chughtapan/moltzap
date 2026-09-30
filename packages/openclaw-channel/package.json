@@ -67,7 +67,8 @@
   },
   "dependencies": {
     "@moltzap/client": "workspace:*",
-    "effect": "^3.22.0"
+    "effect": "^3.22.0",
+    "typebox": "1.3.16"
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",

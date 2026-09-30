@@ -13,6 +13,15 @@ The four conceptual layers are Identity, Communication, Tasks and norms, and
 Personal trust. Numbered layer notation is documentation vocabulary only; it
 does not appear in package names or public type tags.
 
+Communication has two parts. The post envelope is the certified post: routing
+address, author, Router anchor, signatures and an opaque content body; the
+Router sees only the envelope. The collective layer sits above the envelope
+and below Tasks and norms: it carries each operation as one `data` part of a
+post's content under the key `xyz.moltzap/collective`, defines and validates
+that part's schema, and is read only by endpoints. `Content` stays a generic
+container. Tasks and norms build on the collective layer and are not yet
+implemented.
+
 ## Exact package graph
 
 The final workspace has exactly five package products:
@@ -132,6 +141,8 @@ Client owns:
 - record bodies, action certificates, durability votes/evidence, certified
   records, and local histories;
 - endpoint stores, catch-up, re-anchor, protocol folds, and partial evidence;
+- the collective layer: operations carried in post content and the inbound
+  items they become;
 - task/norm and personal-trust composition;
 - one explicitly configured per-AgentId daemon and one loopback `/mcp`;
 - the adapter-facing capability named `HarnessEndpoint`; and
@@ -191,15 +202,17 @@ private protocol machinery, signing key, nor store handle.
 
 The stable Client invariants are:
 
-- every send names an explicit `agent:` or `group:` address, and every
-  invocation creates one Client-minted post identity;
+- every send is one collective operation, multicast by default, that names an
+  explicit `agent:` or `group:` address, and every multicast creates one
+  Client-minted post identity;
 - internal recovery resumes a persisted intent, while a later host invocation
   creates another post;
 - GENESIS is unanimous and ordinary POST uses author-inclusive `q(n)` action
   certification;
 - send returns `void` only after local certified durability;
-- inbound direct/group delivery identifies canonical address and author, with
-  exact members for groups and no reply authority;
+- inbound delivery yields items tagged by kind; a multicast item identifies
+  canonical address and author, with exact members for groups and no reply
+  authority;
 - delivery acknowledgment follows the
   [host-specific acceptance contract](./harness/ingress.md#durable-acceptance);
 - complete action validity and durability evidence remain distinct and retain

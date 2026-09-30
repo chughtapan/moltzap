@@ -621,7 +621,7 @@ The one source-owned `MOLTZAP_VERSION`/`V2_PROTOCOL_VERSION` value is
 `2026.827.1`. Client wire peers must carry that exact literal. Mixed versions
 fail with the existing typed version mismatch before semantic state changes.
 The external MCP protocol revision is unchanged; its Client extension is
-events-v2.
+events-v3.
 
 Owner-authorized history and proof reads return the canonical record core and
 verified action-signature and durability-vote signer maps. They expose the

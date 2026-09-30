@@ -526,7 +526,7 @@ function makeProtocolHarness(
 function sendInput(harness: ProtocolHarness, text: string) {
   return Schema.decodeUnknown(SendInput)({
     to: harness.groupAddress,
-    content: [{ type: "text", text }],
+    text,
   }).pipe(Effect.orDie);
 }
 
@@ -1199,6 +1199,12 @@ function retainsInterruptedDurableSend() {
         );
         expect(proposal.action.postIntent.content).toEqual([
           { type: "text", text: "retained send" },
+          {
+            type: "data",
+            value: {
+              "xyz.moltzap/collective": { kind: "operation", op: "multicast" },
+            },
+          },
         ]);
       }),
     ),
@@ -1222,8 +1228,10 @@ function exportsCertifiedSendAndDeliveries() {
             "the author did not export one certified send",
           );
         }
-        expect(sent.to).toBe(harness.groupAddress);
-        expect(sent.content).toEqual([{ type: "text", text: "open group" }]);
+        expect(sent).toMatchObject({
+          to: harness.groupAddress,
+          text: "open group",
+        });
 
         for (const index of [1, 2, 3]) {
           const received = yield* requireAt(harness.exported, index, "records");
@@ -1234,12 +1242,15 @@ function exportsCertifiedSendAndDeliveries() {
               `endpoint ${String(index)} did not export one inbound delivery`,
             );
           }
-          expect(delivered.message.address).toBe(harness.groupAddress);
-          expect(delivered.message.postId).toBe(sent.outcome.postId);
-          expect(delivered.message.sender).toBe(
-            `agent:${author.card.agentName}`,
-          );
-          expect(delivered.message.content).toEqual(sent.content);
+          expect(delivered.item).toMatchObject({
+            kind: "multicast",
+            message: {
+              address: harness.groupAddress,
+              postId: sent.outcome.postId,
+              sender: `agent:${author.card.agentName}`,
+              content: [{ type: "text", text: sent.text }],
+            },
+          });
         }
       }),
     ),
@@ -1291,7 +1302,7 @@ function exportsFailedSend() {
         const engine = yield* requireAt(harness.engines, 0, "endpoint engine");
         const input = Schema.decodeUnknownSync(SendInput)({
           to: "agent:nobody",
-          content: [{ type: "text", text: "to nobody" }],
+          text: "to nobody",
         });
 
         const failure = yield* engine.send(input).pipe(Effect.flip);
@@ -1305,7 +1316,7 @@ function exportsFailedSend() {
         }
         expect(failed.outcome.reason).toBe(failure.reason);
         expect(failed.to).toBe(input.to);
-        expect(failed.content).toEqual(input.content);
+        expect(failed.text).toBe(input.text);
       }),
     ),
   );

@@ -37,15 +37,22 @@ const PARK_POLL_INTERVAL = Duration.millis(25);
  */
 const QUIET_WINDOW = Duration.seconds(2);
 
-const heldContent = [
-  { type: "text", text: "posted while the target link is held" },
-] as const satisfies Content;
-const replyContent = [
-  { type: "text", text: "reply after the held delivery is released" },
-] as const satisfies Content;
-const followUpContent = [
-  { type: "text", text: "follow-up in the recovered conversation" },
-] as const satisfies Content;
+const heldText = "posted while the target link is held";
+const replyText = "reply after the held delivery is released";
+const followUpText = "follow-up in the recovered conversation";
+
+/** The certified content of one multicast: its text, then its operation part. */
+function multicastContent(text: string): Content {
+  return [
+    { type: "text", text },
+    {
+      type: "data",
+      value: {
+        "xyz.moltzap/collective": { kind: "operation", op: "multicast" },
+      },
+    },
+  ];
+}
 
 function directAddress(agentName: AgentName): AgentAddress {
   return Schema.decodeUnknownSync(AgentAddress)(`agent:${agentName}`);
@@ -150,7 +157,7 @@ const heldDeliveryBehavior = Effect.gen(function* () {
       yield* proxy.hold;
       yield* Effect.addFinalizer(() => proxy.release);
       const heldSend = yield* Effect.forkScoped(
-        sender.send({ to: targetAddress, content: heldContent }),
+        sender.send({ to: targetAddress, text: heldText }),
       );
       yield* awaitParkedResponse(proxy.parkedResponses);
       yield* expectQuiet(targetInbox);
@@ -158,32 +165,41 @@ const heldDeliveryBehavior = Effect.gen(function* () {
 
       yield* proxy.release;
       const released = yield* takeDelivery(targetInbox);
-      expect(released.message).toMatchObject({
-        kind: "direct",
-        address: senderAddress,
-        sender: senderAddress,
-        content: heldContent,
+      expect(released.item).toMatchObject({
+        kind: "multicast",
+        message: {
+          kind: "direct",
+          address: senderAddress,
+          sender: senderAddress,
+          content: [{ type: "text", text: heldText }],
+        },
       });
       yield* released.acknowledge;
       yield* Fiber.join(heldSend).pipe(bounded("held send never certified"));
 
-      yield* target.send({ to: senderAddress, content: replyContent });
+      yield* target.send({ to: senderAddress, text: replyText });
       const reply = yield* takeDelivery(senderInbox);
-      expect(reply.message).toMatchObject({
-        kind: "direct",
-        address: targetAddress,
-        sender: targetAddress,
-        content: replyContent,
+      expect(reply.item).toMatchObject({
+        kind: "multicast",
+        message: {
+          kind: "direct",
+          address: targetAddress,
+          sender: targetAddress,
+          content: [{ type: "text", text: replyText }],
+        },
       });
       yield* reply.acknowledge;
 
-      yield* sender.send({ to: targetAddress, content: followUpContent });
+      yield* sender.send({ to: targetAddress, text: followUpText });
       const followUp = yield* takeDelivery(targetInbox);
-      expect(followUp.message).toMatchObject({
-        kind: "direct",
-        address: senderAddress,
-        sender: senderAddress,
-        content: followUpContent,
+      expect(followUp.item).toMatchObject({
+        kind: "multicast",
+        message: {
+          kind: "direct",
+          address: senderAddress,
+          sender: senderAddress,
+          content: [{ type: "text", text: followUpText }],
+        },
       });
       yield* followUp.acknowledge;
 
@@ -193,7 +209,11 @@ const heldDeliveryBehavior = Effect.gen(function* () {
     }),
   );
 
-  const expectedContents = [heldContent, replyContent, followUpContent];
+  const expectedContents = [
+    multicastContent(heldText),
+    multicastContent(replyText),
+    multicastContent(followUpText),
+  ];
   for (const history of [
     yield* readHistory(senderFixture, targetAddress),
     yield* readHistory(targetFixture, senderAddress),

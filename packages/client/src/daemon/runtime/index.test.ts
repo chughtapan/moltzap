@@ -783,7 +783,7 @@ const receivesFirstDelivery = async (
     method: HARNESS_MESSAGE_READY_NOTIFICATION,
     params: {
       deliveryToken: pending.deliveryToken,
-      message: pending.message,
+      item: { kind: "multicast", message: pending.message },
       _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-1" },
     },
   });
@@ -820,7 +820,7 @@ const acknowledgeDuringReplacementDelivery = async (
     method: HARNESS_MESSAGE_READY_NOTIFICATION,
     params: {
       deliveryToken: pending.deliveryToken,
-      message: pending.message,
+      item: { kind: "multicast", message: pending.message },
       _meta: { [SUBSCRIPTION_ID_META_KEY]: "listener-2" },
     },
   });

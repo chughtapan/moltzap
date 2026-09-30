@@ -10,6 +10,26 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `HarnessEndpoint` sends and receives operations instead of
+  posts. `SendInput` is `{ to, text, collective? }`, where `collective` is a
+  `CollectiveOperation` keyed by `op`; multicast, one post to `to`, is the
+  default and the only operation. `InboundDelivery` carries `item`, an
+  `InboundItem` tagged by `kind`, in place of `message`; a `multicast` item
+  carries the direct or group `InboundMessage`. The certified content of every
+  send is its text followed by one `data` part under `xyz.moltzap/collective`
+  naming the operation, and a multicast item's message omits that part.
+  `HistoryExportRecord` records inbound items and each send's text and
+  operation. The daemon's MCP extension is `xyz.moltzap/events-v3`:
+  `send_message` takes the operation and returns an optional `operationId`,
+  and `message_ready` carries `item`. Update every consumer to the new shapes.
+- `@moltzap/openclaw-channel` registers the message tool's `send` action with
+  an optional `collective` parameter, and every model `send` is one operation.
+  It depends on `typebox` for that parameter's schema.
+- `@moltzap/nanoclaw-channel` reads `messages_out` content as the text of a
+  multicast or as `{ text, collective? }`.
+
 ### Removed
 
 - `@moltzap/simulator` leaves this repository and the npm release set. The

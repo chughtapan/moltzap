@@ -228,12 +228,39 @@ export const Content = contentStructure.pipe(
 /** Validated nonempty semantic content. */
 export type Content = typeof Content.Type;
 
-/** Complete semantic input for one addressed send. */
+/**
+ * Multicast: one post to the `to` address, complete when certified. `op`
+ * defaults to multicast, so an omitted `op` and an omitted `collective` mean
+ * the same operation.
+ */
+const multicastOperation = exactStruct({
+  op: Schema.optionalWith(Schema.Literal("multicast"), { exact: true }),
+});
+
+/**
+ * The collective operation one send performs, discriminated by `op`. Each
+ * operation is one member of this union; the schema carries no identifier so
+ * its JSON Schema embeds inline in a host tool's parameters.
+ */
+export const CollectiveOperation = Schema.Union(multicastOperation).annotations(
+  {
+    description:
+      "The collective operation. Omit it, or its op, for multicast: one post to the to address.",
+  },
+);
+/** A validated collective operation. */
+export type CollectiveOperation = typeof CollectiveOperation.Type;
+
+/**
+ * One operation: its address, its body text and the collective operation it
+ * performs, multicast when `collective` is omitted.
+ */
 export const SendInput = exactStruct({
   to: MessageAddressInput,
-  content: Content,
+  text: wellFormedString,
+  collective: Schema.optionalWith(CollectiveOperation, { exact: true }),
 }).annotations({ identifier: "SendInput" });
-/** Validated semantic input for one addressed send. */
+/** Validated input for one operation. */
 export type SendInput = typeof SendInput.Type;
 
 const directMessageStructure = exactStruct({
@@ -291,13 +318,33 @@ export type DirectMessage = typeof directMessage.Type;
 /** One certified remote-authored fixed-group message. */
 export type GroupMessage = typeof groupMessage.Type;
 
-/** Exact discriminated inbound message projection. */
+/** One certified remote-authored post, direct or to a fixed group. */
 export const InboundMessage = Schema.Union(
   directMessage,
   groupMessage,
 ).annotations({ identifier: "InboundMessage" });
-/** A validated direct or group inbound message. */
+/** A validated direct or group post. */
 export type InboundMessage = typeof InboundMessage.Type;
+
+/**
+ * A multicast delivered to this endpoint. The message content is the post's
+ * content without the collective layer's part.
+ */
+const multicastItem = exactStruct({
+  kind: Schema.Literal("multicast"),
+  message: InboundMessage,
+});
+
+/**
+ * One inbound item, discriminated by `kind`. The endpoint consumes the
+ * collective layer's protocol posts; every other certified post becomes one
+ * item.
+ */
+export const InboundItem = Schema.Union(multicastItem).annotations({
+  identifier: "InboundItem",
+});
+/** A validated inbound item. */
+export type InboundItem = typeof InboundItem.Type;
 
 const sendFailure = Schema.Literal(
   "invalid-address",
@@ -318,21 +365,22 @@ const historyExportSendOutcome = Schema.Union(
 );
 
 /**
- * One line of the daemon's optional history export: a certified inbound
- * delivery, a completed `send` invocation with its outcome, or the one line
+ * One line of the daemon's optional history export: an inbound item, a
+ * completed `send` invocation with its operation and outcome, or the one line
  * that says the export stopped. Readers decode the file line by line with
  * this schema rather than copying its shape.
  */
 export const HistoryExportRecord = Schema.Union(
   exactStruct({
     kind: Schema.Literal("inbound"),
-    message: InboundMessage,
+    item: InboundItem,
     at: Schema.DateTimeUtc,
   }),
   exactStruct({
     kind: Schema.Literal("outbound"),
     to: MessageAddressInput,
-    content: Content,
+    text: wellFormedString,
+    collective: Schema.optionalWith(CollectiveOperation, { exact: true }),
     outcome: historyExportSendOutcome,
     at: Schema.DateTimeUtc,
   }),
@@ -400,13 +448,16 @@ export class ConnectError extends Data.TaggedError("ConnectError")<{
   }
 }
 
-/** One message plus its transport-only acknowledgment. */
+/** One inbound item plus its transport-only acknowledgment. */
 export interface InboundDelivery {
-  readonly message: InboundMessage;
+  readonly item: InboundItem;
   readonly acknowledge: Effect.Effect<void, DeliveryAcknowledgeError>;
 }
 
-/** Structural runtime capability owned by one scoped endpoint connection. */
+/**
+ * Structural runtime capability owned by one scoped endpoint connection.
+ * Every send is one operation; the stream yields inbound items.
+ */
 export interface HarnessEndpoint {
   readonly send: (input: SendInput) => Effect.Effect<void, SendError>;
   readonly messages: Stream.Stream<InboundDelivery, ListenError>;

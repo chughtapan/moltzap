@@ -117,7 +117,7 @@ authority, or a host notification.
 
 The registered catalog also carries adapter-only `send_message` and
 `acknowledge_delivery`. Their exact inputs and semantics are owned by
-`harness/output.md` and `harness/ingress.md`. Receive uses the sole events-v2
+`harness/output.md` and `harness/ingress.md`. Receive uses the sole events-v3
 subscription.
 
 Runtime hosts expose their own native messaging mechanisms to models. They do

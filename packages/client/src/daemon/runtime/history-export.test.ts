@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   HistoryExportRecord,
-  InboundMessage,
+  InboundItem,
   PostId,
   SendInput,
 } from "../../contract.js";
@@ -27,12 +27,15 @@ const NO_SPACE = "ENOSPC: no space left on device";
 function inbound(): HistoryExportRecord {
   return {
     kind: "inbound",
-    message: Schema.decodeUnknownSync(InboundMessage)({
-      kind: "direct",
-      postId: POST_ID,
-      address: "agent:bob",
-      sender: "agent:bob",
-      content: [{ type: "text", text: "hello" }],
+    item: Schema.decodeUnknownSync(InboundItem)({
+      kind: "multicast",
+      message: {
+        kind: "direct",
+        postId: POST_ID,
+        address: "agent:bob",
+        sender: "agent:bob",
+        content: [{ type: "text", text: "hello" }],
+      },
     }),
     at: AT,
   };
@@ -41,12 +44,12 @@ function inbound(): HistoryExportRecord {
 function outbound(): HistoryExportRecord {
   const input = Schema.decodeUnknownSync(SendInput)({
     to: "agent:bob",
-    content: [{ type: "text", text: "hi" }],
+    text: "hi",
+    collective: { op: "multicast" },
   });
   return {
     kind: "outbound",
-    to: input.to,
-    content: input.content,
+    ...input,
     outcome: { kind: "certified", postId: POST_ID },
     at: AT,
   };

@@ -1,4 +1,4 @@
-/** @file Pins events-v2 discovery and failure isolation through loopback HTTP. */
+/** @file Pins events-v3 discovery and failure isolation through loopback HTTP. */
 
 import type { Implementation } from "@modelcontextprotocol/server";
 import {
@@ -303,7 +303,7 @@ function observeListeningSubscription(keepAliveMillis?: number) {
 
 // @agent-code-guard/regression-only: this boundary pins the exact capability and closed transport failures.
 describe("Harness MCP HTTP boundary", () => {
-  it("advertises the exact empty events-v2 capability", () =>
+  it("advertises the exact empty events-v3 capability", () =>
     advertisesExactEventsExtension());
   it("keeps malformed input separate from closed domain failures", () =>
     distinguishesProtocolAndDomainFailures());

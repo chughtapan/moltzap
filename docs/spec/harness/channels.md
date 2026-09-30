@@ -48,7 +48,10 @@ reply route do not define OpenClaw's guarantees.
 ## Adapter messaging
 
 A proactive outbound callback supplies one syntactically valid Client
-`MessageAddressInput` and becomes one Client send. Client resolves and
+`MessageAddressInput` and becomes one Client operation: multicast unless the
+callback names another `collective` operation. OpenClaw's model reaches
+operations through its message tool's `send` action, which carries the optional
+`collective` parameter; no second messaging tool exists. Client resolves and
 canonicalizes group membership. OpenClaw's stock reply-delivery callback
 withholds final output and sends nothing. Hosts invoke the outbound callbacks
 under their session and output contract above and own outbound queueing and
@@ -58,7 +61,10 @@ destination lookup; the explicit address itself is the complete Client route.
 Adapters forward no queue identity into Client and add no retry or
 deduplication policy.
 
-Inbound direct metadata contains sender and direct address. Inbound group
+Adapters render each inbound item kind as a model turn in one fixed form and
+switch on the item's `kind` exhaustively. A multicast item renders as the
+direct or group message it carries. Inbound direct metadata contains sender and
+direct address. Inbound group
 metadata contains `kind: group`, canonical full group address, sender, and
 exact members. Hosts use their ordinary group display and scheduling behavior.
 
@@ -70,7 +76,7 @@ it does not relax inbound replay requirements.
 
 Acceptance covers exact direct/group projection, metadata-before-content,
 explicit-target grammar validation, Client-owned canonicalization, and one
-Client send per host callback.
+Client operation per host callback.
 OpenClaw qualification must demonstrate the normal shared main session,
 private plain final text, and its durable acceptance/replay/collision contract.
 Private evaluation mode requires its own session evidence.

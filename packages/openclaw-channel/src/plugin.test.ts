@@ -3,6 +3,7 @@
 import type {
   ChannelAccountSnapshot,
   ChannelGatewayContext,
+  ChannelMessageActionContext,
   ChannelRuntimeSurface,
 } from "openclaw/plugin-sdk/channel-contract";
 import type {
@@ -25,6 +26,7 @@ import {
   type ChannelInboundTurnPlan,
   runChannelInboundEvent,
 } from "openclaw/plugin-sdk/channel-inbound";
+import { Type } from "typebox";
 import { describe, expect, vi, it as vitestIt } from "vitest";
 
 import manifest from "../openclaw.plugin.json" with { type: "json" };
@@ -43,7 +45,7 @@ const TEST_SESSION_STORE_PATH = join(
 
 type MoltZapPlugin = ReturnType<typeof createMoltzapChannelPlugin>;
 type OpenClawInboundRunInput = ChannelInboundEventRunnerParams<{
-  readonly message: InboundDelivery["message"];
+  readonly message: InboundMessage;
 }>;
 type ResolvedInboundTurn = Awaited<
   ReturnType<OpenClawInboundRunInput["adapter"]["resolveTurn"]>
@@ -136,6 +138,25 @@ describe("OpenClaw HarnessEndpoint adapter", () => {
   );
 });
 
+describe("OpenClaw message tool send action", () => {
+  it(
+    "sends a message tool send with its collective operation and returns ok",
+    messageToolSendCarriesCollective,
+  );
+  it(
+    "sends a message tool send without a collective operation as a multicast",
+    messageToolSendDefaultsToMulticast,
+  );
+  it(
+    "rejects a message tool send whose collective operation is unknown",
+    messageToolSendRejectsUnknownOperation,
+  );
+  vitestIt(
+    "offers the send action with an optional collective parameter",
+    messageToolOffersOptionalCollective,
+  );
+});
+
 function upstreamRunnerAndAcknowledgment() {
   const events: string[] = [];
   const direct = directMessage();
@@ -160,18 +181,18 @@ function upstreamRunnerAndAcknowledgment() {
       { kind: "group", id: "alice,bob,carol" },
     ]);
     expect(calls).toHaveLength(2);
-    expectRoutedTurn(requireTurnPlan(plans, 0), direct.message.address);
-    expectRoutedTurn(requireTurnPlan(plans, 1), group.message.address);
-    expectDirectProjection(requireDispatchCall(calls, 0), direct.message);
-    expectGroupProjection(requireDispatchCall(calls, 1), group.message);
+    expectRoutedTurn(requireTurnPlan(plans, 0), direct.item.message.address);
+    expectRoutedTurn(requireTurnPlan(plans, 1), group.item.message.address);
+    expectDirectProjection(requireDispatchCall(calls, 0), direct.item.message);
+    expectGroupProjection(requireDispatchCall(calls, 1), group.item.message);
     expect(plans.every((plan) => plan.replyOptions === undefined)).toBe(true);
     expect(events).toEqual([
-      `record:${direct.message.postId}:${MAIN_SESSION_KEY}`,
-      `dispatch:${direct.message.postId}`,
-      `ack:${direct.message.postId}`,
-      `record:${group.message.postId}:${MAIN_SESSION_KEY}`,
-      `dispatch:${group.message.postId}`,
-      `ack:${group.message.postId}`,
+      `record:${direct.item.message.postId}:${MAIN_SESSION_KEY}`,
+      `dispatch:${direct.item.message.postId}`,
+      `ack:${direct.item.message.postId}`,
+      `record:${group.item.message.postId}:${MAIN_SESSION_KEY}`,
+      `dispatch:${group.item.message.postId}`,
+      `ack:${group.item.message.postId}`,
     ]);
     expect(fake.sends).toEqual([]);
     yield* proactiveSendFailsWhenDisconnected(plugin, fake, 0);
@@ -193,7 +214,7 @@ function privateModeUsesHostResolvedPeerSession() {
   const plugin = createMoltzapChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
-  const sessionKey = sessionKeyFor(message.message.address);
+  const sessionKey = sessionKeyFor(message.item.message.address);
 
   return Effect.gen(function* () {
     yield* startAccount(
@@ -208,15 +229,17 @@ function privateModeUsesHostResolvedPeerSession() {
 
     expectRoutedTurn(
       requireTurnPlan(plans, 0),
-      message.message.address,
+      message.item.message.address,
       sessionKey,
     );
     expectGroupProjection(
       requireDispatchCall(calls, 0),
-      message.message,
+      message.item.message,
       sessionKey,
     );
-    expect(events).toContain(`record:${message.message.postId}:${sessionKey}`);
+    expect(events).toContain(
+      `record:${message.item.message.postId}:${sessionKey}`,
+    );
   });
 }
 
@@ -244,8 +267,8 @@ function failedHostTurnPreservesDelivery() {
 
     expect(failure).toBeInstanceOf(OpenClawTestError);
     expect(events).toEqual([
-      `record:${message.message.postId}:${MAIN_SESSION_KEY}`,
-      `dispatch-failed:${message.message.postId}`,
+      `record:${message.item.message.postId}:${MAIN_SESSION_KEY}`,
+      `dispatch-failed:${message.item.message.postId}`,
     ]);
     expect(fake.sends).toEqual([]);
   });
@@ -300,14 +323,8 @@ function proactiveSendUsesLocalReceiptIdentity() {
     expect(group.messageId).not.toHaveLength(0);
     expect(direct.messageId).not.toBe(group.messageId);
     expect(fake.sends).toEqual([
-      {
-        to: "agent:nova",
-        content: [{ type: "text", text: "hello nova" }],
-      },
-      {
-        to: "group:alice,bob,carol",
-        content: [{ type: "text", text: "hello group" }],
-      },
+      { to: "agent:nova", text: "hello nova" },
+      { to: "group:alice,bob,carol", text: "hello group" },
     ]);
     expect(plugin.messaging?.targetResolver?.looksLikeId?.("agent:nova")).toBe(
       true,
@@ -406,6 +423,131 @@ function rejectsInvalidTarget() {
   });
 }
 
+function messageToolSendCarriesCollective() {
+  const fake = makeListeningEndpoint();
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
+  const controller = new AbortController();
+
+  return Effect.gen(function* () {
+    const fiber = yield* connectAccount(plugin, controller.signal);
+    const result = yield* handleSendAction(plugin, {
+      to: "group:alice,bob,carol",
+      message: "hello group",
+      collective: { op: "multicast" },
+    });
+
+    expect(fake.sends).toEqual([
+      {
+        to: "group:alice,bob,carol",
+        text: "hello group",
+        collective: { op: "multicast" },
+      },
+    ]);
+    expect(result.details).toEqual({ ok: true, to: "group:alice,bob,carol" });
+
+    controller.abort();
+    yield* Effect.timeout(Fiber.join(fiber), "1 second");
+  });
+}
+
+function messageToolSendDefaultsToMulticast() {
+  const fake = makeListeningEndpoint();
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
+  const controller = new AbortController();
+
+  return Effect.gen(function* () {
+    const fiber = yield* connectAccount(plugin, controller.signal);
+    yield* handleSendAction(plugin, { to: "agent:nova", message: "hello" });
+
+    expect(fake.sends).toEqual([{ to: "agent:nova", text: "hello" }]);
+
+    controller.abort();
+    yield* Effect.timeout(Fiber.join(fiber), "1 second");
+  });
+}
+
+function messageToolSendRejectsUnknownOperation() {
+  const fake = makeListeningEndpoint();
+  const plugin = createMoltzapChannelPlugin({
+    harnessEndpointForAccount: () => fake.endpoint,
+  });
+  const controller = new AbortController();
+
+  return Effect.gen(function* () {
+    const fiber = yield* connectAccount(plugin, controller.signal);
+    const failure = yield* handleSendAction(plugin, {
+      to: "agent:nova",
+      message: "hello",
+      collective: { op: "broadcast" },
+    }).pipe(Effect.flip);
+
+    expect(failure).toBeInstanceOf(OpenClawTestError);
+    expect(fake.sends).toEqual([]);
+
+    controller.abort();
+    yield* Effect.timeout(Fiber.join(fiber), "1 second");
+  });
+}
+
+function messageToolOffersOptionalCollective() {
+  const discovery = createMoltzapChannelPlugin().actions?.describeMessageTool({
+    cfg: makeConfig(),
+  });
+  const schema = discovery?.schema;
+  if (schema === undefined || schema === null || Array.isArray(schema)) {
+    throw new Error("expected one message tool schema contribution");
+  }
+
+  expect(discovery?.actions).toEqual(["send"]);
+  expect(schema.properties.collective).toMatchObject({
+    type: "object",
+    properties: { op: { type: "string", enum: ["multicast"] } },
+  });
+  expect(Type.Object(schema.properties).required ?? []).toEqual([]);
+}
+
+function connectAccount(plugin: MoltZapPlugin, abortSignal: AbortSignal) {
+  const runtime = makeObservedRuntime({
+    events: [],
+    calls: [],
+    routePeers: [],
+  });
+  const setStatus = vi.fn();
+  return Effect.gen(function* () {
+    const fiber = yield* startAccount(
+      plugin,
+      gatewayContext(abortSignal, runtime, setStatus),
+    ).pipe(Effect.fork);
+    yield* waitForConnected(setStatus);
+    return fiber;
+  });
+}
+
+function handleSendAction(
+  plugin: MoltZapPlugin,
+  params: ChannelMessageActionContext["params"],
+) {
+  const handleAction = plugin.actions?.handleAction;
+  if (handleAction === undefined) {
+    return Effect.fail(testError("handleAction", "missing action handler"));
+  }
+  return Effect.tryPromise({
+    try: () =>
+      handleAction({
+        channel: "moltzap",
+        action: "send",
+        cfg: makeConfig(),
+        accountId: ACCOUNT_ID,
+        params,
+      }),
+    catch: (cause) => testError("handleAction", cause),
+  });
+}
+
 function emptyReplyRemainsInvisible() {
   const events: string[] = [];
   const message = directMessage();
@@ -427,9 +569,9 @@ function emptyReplyRemainsInvisible() {
     );
 
     expect(events).toEqual([
-      `record:${message.message.postId}:${MAIN_SESSION_KEY}`,
-      `dispatch:${message.message.postId}`,
-      `ack:${message.message.postId}`,
+      `record:${message.item.message.postId}:${MAIN_SESSION_KEY}`,
+      `dispatch:${message.item.message.postId}`,
+      `ack:${message.item.message.postId}`,
     ]);
     expect(fake.sends).toEqual([]);
   });
@@ -633,8 +775,8 @@ function groupMessage(): InboundDelivery {
   );
 }
 
-function delivery(message: InboundDelivery["message"]): InboundDelivery {
-  return { message, acknowledge: Effect.void };
+function delivery(message: InboundMessage): InboundDelivery {
+  return { item: { kind: "multicast", message }, acknowledge: Effect.void };
 }
 
 function postId(fill: number): string {
@@ -645,10 +787,10 @@ function makeInboundEndpoint(
   deliveries: readonly InboundDelivery[],
   events: string[],
 ): FakeHarnessEndpoint {
-  const acknowledged = deliveries.map((item) => ({
-    message: item.message,
+  const acknowledged = deliveries.map((delivered) => ({
+    item: delivered.item,
     acknowledge: Effect.sync(() => {
-      events.push(`ack:${item.message.postId}`);
+      events.push(`ack:${delivered.item.message.postId}`);
     }),
   }));
   return makeEndpoint(Stream.fromIterable(acknowledged), events);
@@ -669,11 +811,7 @@ function makeEndpoint(
       send: (input) =>
         Effect.sync(() => {
           sends.push(input);
-          const text = input.content
-            .filter((part) => part.type === "text")
-            .map((part) => part.text)
-            .join("\n");
-          events.push(`send:${input.to}:${text}`);
+          events.push(`send:${input.to}:${input.text}`);
         }),
       messages,
     },
@@ -805,7 +943,7 @@ function expectRoutedTurn(
 
 function expectDirectProjection(
   call: DispatchObservation,
-  message: InboundDelivery["message"],
+  message: InboundMessage,
   expectedSessionKey: string = MAIN_SESSION_KEY,
 ): void {
   expect(call.ctx).toMatchObject({
@@ -826,7 +964,7 @@ function expectDirectProjection(
 
 function expectGroupProjection(
   call: DispatchObservation,
-  message: InboundDelivery["message"],
+  message: InboundMessage,
   expectedSessionKey: string = MAIN_SESSION_KEY,
 ): void {
   expect(call.ctx).toMatchObject({
