@@ -31,6 +31,19 @@ jobs:
           pnpm install --lockfile-only --ignore-scripts
           git diff --exit-code pnpm-lock.yaml
       - run: pnpm build
+      - name: Inspect cached Client artifact
+        run: |
+          node --input-type=module <<'JS'
+          import { existsSync, readFileSync } from "node:fs";
+          const runPath = ".nx/cache/run.json";
+          if (existsSync(runPath)) {
+            const run = JSON.parse(readFileSync(runPath, "utf8"));
+            console.log(JSON.stringify(run.tasks, null, 2));
+          }
+          for (const file of ["index.js", "index.d.ts", "server.js", "tsconfig.tsbuildinfo"]) {
+            console.log(file, existsSync(`packages/client/dist/${file}`));
+          }
+          JS
       # The gates pack the four published packages and the NanoClaw adapter,
       # whose gate proves it still compiles against the Client ABI in isolation
       # (the image build copies its source, not a tarball); identity and router
