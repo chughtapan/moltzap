@@ -32,6 +32,7 @@ import {
   type Scope,
   Stream,
   SubscriptionRef,
+  TestContext,
 } from "effect";
 import {
   createHash,
@@ -49,6 +50,7 @@ import type {
   EngineSendInput,
   EngineSentPost,
 } from "../engine-types.js";
+import { advanceClock } from "../../__tests__/advance-clock.js";
 import { Content, MessageAddressInput, SendError } from "../../contract.js";
 import { failFromBackgroundCause } from "../../daemon/runtime/protocol.js";
 import { type EndpointEngine, makeEndpointEngine } from "../engine.js";
@@ -1408,16 +1410,64 @@ function superviseOutbound(
   );
 }
 
+/** Transmits a transient failure fails before its worker forwards again. */
+const FAILED_TRANSMITS = 10;
+
+/**
+ * Virtual time for a background drain to work through every failed transmit:
+ * the backoff reaches its 5 s cap well before `FAILED_TRANSMITS` attempts.
+ */
+const OUTAGE_SPAN = Duration.minutes(1);
+
+/**
+ * Fails the first `FAILED_TRANSMITS` transmits with `failure`, then forwards.
+ * @param failure Worker failure each early transmit reports.
+ * @param attempts Counts every transmit.
+ * @returns A transmit wrapper for the scripted worker.
+ */
+function failsThenForwards(
+  failure: RouterWorkerSendError,
+  attempts: Ref.Ref<number>,
+): WrapSend {
+  return (forward) => (outboundId) =>
+    Ref.getAndUpdate(attempts, (count) => count + 1).pipe(
+      Effect.flatMap((count) =>
+        count < FAILED_TRANSMITS ? Effect.fail(failure) : forward(outboundId),
+      ),
+    );
+}
+
+/**
+ * Asserts the background drain outlived every failed transmit and delivered.
+ * @param harness Harness whose Router queue receives forwarded envelopes.
+ * @param attempts Transmit count from `failsThenForwards`.
+ * @param fatal The supervised daemon's failure signal.
+ * @returns Completion after the assertions.
+ */
+function expectDrainedAlive(
+  harness: ProtocolHarness,
+  attempts: Ref.Ref<number>,
+  fatal: Deferred.Deferred<never, DaemonRuntimeError>,
+): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    expect(yield* Ref.get(attempts)).toBeGreaterThan(FAILED_TRANSMITS);
+    expect(yield* Queue.size(harness.outbound)).toBeGreaterThan(0);
+    expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
+  });
+}
+
 /**
  * Router restart while a send drains: the worker was attached for the send's
- * probe, then its transmit observes a transient worker state.
+ * probe, then its transmits observe a transient worker state for longer than
+ * any bounded retry would allow before the background drain delivers.
  */
 function transientTransmitFailureLeavesDaemonAlive(
   failure: RouterWorkerSendError,
 ): Effect.Effect<void, never, Scope.Scope> {
   return Effect.gen(function* () {
+    const attempts = yield* Ref.make(0);
     const harness = yield* makeProtocolHarness({
-      authorSend: () => () => Effect.fail(failure),
+      authorSend: failsThenForwards(failure, attempts),
     });
     const author = yield* requireAt(harness.engines, 0, "endpoint engine");
     const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
@@ -1428,15 +1478,16 @@ function transientTransmitFailureLeavesDaemonAlive(
     expect(sendResult).toStrictEqual(
       new SendError({ reason: "network-unavailable" }),
     );
-    yield* Effect.sleep("200 millis");
-    expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
+    yield* advanceClock(OUTAGE_SPAN);
+    yield* expectDrainedAlive(harness, attempts, fatal);
   });
 }
 
 /**
  * Daemon cold start with a durable pending outbound row: the restarted
- * worker starts `recovering` (as `makeRouterWorker` does) and `makeRuntime`
- * pre-signals the outbound queue before the worker has polled once.
+ * worker has not attached (as `makeRouterWorker` starts `recovering`) while
+ * `makeRuntime` pre-signals the outbound queue. The loop waits, and once the
+ * worker attaches it outlasts every failed transmit and delivers the row.
  */
 function coldStartWithPendingOutboundLeavesDaemonAlive(): Effect.Effect<
   void,
@@ -1453,6 +1504,8 @@ function coldStartWithPendingOutboundLeavesDaemonAlive(): Effect.Effect<
       .pipe(Effect.flip, Effect.orDie);
     const identity = yield* requireAt(harness.identities, 0, "identity");
     const store = yield* requireAt(harness.stores, 0, "endpoint store");
+    const attached = yield* Deferred.make<RouterTailAnchor>();
+    const attempts = yield* Ref.make(0);
     const restarted = yield* makeEndpointEngine({
       localAgentCard: identity.card,
       signingAuthority: identity.authority,
@@ -1460,14 +1513,72 @@ function coldStartWithPendingOutboundLeavesDaemonAlive(): Effect.Effect<
       registry: harness.registry,
       store,
       actionPolicy: signEveryAction,
-      routerWorker: {
-        ...neverAttaches,
-        send: () => Effect.fail(new RouterWorkerUnavailableError()),
-      },
+      routerWorker: scriptedRouterWorker(
+        store,
+        harness.outbound,
+        attachesWhenResolved(attached),
+        failsThenForwards(new RouterWorkerUnavailableError(), attempts),
+      ),
     }).pipe(Effect.orDie);
     const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
     yield* superviseOutbound(restarted, fatal);
-    yield* Effect.sleep("200 millis");
+    yield* advanceClock(OUTAGE_SPAN);
+    expect(yield* Ref.get(attempts)).toBe(0);
+    expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
+
+    yield* Deferred.succeed(attached, { routerInstanceId, pollCursor });
+    yield* advanceClock(OUTAGE_SPAN);
+    yield* expectDrainedAlive(harness, attempts, fatal);
+  });
+}
+
+/**
+ * Never answers the first transmit, as a Router that drops packets without a
+ * reset, and forwards every later one.
+ * @param transmits Counts every transmit.
+ * @returns A transmit wrapper for the scripted worker.
+ */
+function blackHolesFirstTransmit(transmits: Ref.Ref<number>): WrapSend {
+  const transmitOnce =
+    (forward: EngineRouterPort["send"], outboundId: string) =>
+    (count: number) =>
+      count === 0 ? Effect.never : forward(outboundId);
+  return (forward) => (outboundId) =>
+    Ref.getAndUpdate(transmits, (count) => count + 1).pipe(
+      Effect.flatMap(transmitOnce(forward, outboundId)),
+    );
+}
+
+/**
+ * A black-holed transmit holds the local send's drain: the send answers
+ * `network-unavailable` at `LOCAL_DRAIN_TIMEOUT`, and the background drain
+ * then delivers the envelope the interrupted transmit left queued.
+ */
+function blackHoledTransmitBoundsTheSend(): Effect.Effect<
+  void,
+  never,
+  Scope.Scope
+> {
+  return Effect.gen(function* () {
+    const transmits = yield* Ref.make(0);
+    const harness = yield* makeProtocolHarness({
+      authorSend: blackHolesFirstTransmit(transmits),
+    });
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
+    const sending = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "black-holed transmit")),
+    );
+    yield* advanceClock(Duration.seconds(9));
+    expect(yield* Fiber.poll(sending)).toEqual(Option.none());
+    yield* advanceClock(Duration.seconds(2));
+    expect(
+      yield* Fiber.join(sending).pipe(Effect.flip, Effect.orDie),
+    ).toStrictEqual(new SendError({ reason: "network-unavailable" }));
+    yield* superviseOutbound(author, fatal);
+    yield* advanceClock(Duration.seconds(1));
+    expect(yield* Ref.get(transmits)).toBe(2);
+    expect(yield* Queue.size(harness.outbound)).toBeGreaterThan(0);
     expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
   });
 }
@@ -1546,15 +1657,16 @@ function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
 
     const failure = yield* author
       .send(yield* sendInput(harness, "sent during outage"))
-      .pipe(Effect.timeout("1 second"), Effect.flip, Effect.orDie);
+      .pipe(Effect.flip, Effect.orDie);
     expect(failure).toStrictEqual(
       new SendError({ reason: "network-unavailable" }),
     );
-    yield* Effect.sleep("200 millis");
+    yield* advanceClock(OUTAGE_SPAN);
     expect(yield* Queue.size(harness.outbound)).toBe(0);
     expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
 
     yield* SubscriptionRef.set(attached, true);
+    yield* advanceClock(Duration.seconds(10));
     yield* pump(harness, yield* takeReadyBatch(harness));
     const recoveries = yield* Effect.forEach(
       harness.stores,
@@ -1568,10 +1680,27 @@ function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
   });
 }
 
+/**
+ * A scoped scenario on the TestClock, so backoff and timeouts pass in virtual
+ * time.
+ * @param scenario Scoped scenario to run.
+ * @returns The scenario with its scope closed and test services provided.
+ */
+function onTestClock(
+  scenario: Effect.Effect<void, never, Scope.Scope>,
+): Effect.Effect<void> {
+  return Effect.scoped(scenario).pipe(Effect.provide(TestContext.TestContext));
+}
+
 describe("issue 1003: a local send during a Router outage", () => {
   it(
     "returns network-unavailable at once and delivers the post after re-attachment",
-    () => Effect.runPromise(Effect.scoped(localSendDuringOutage())),
+    () => Effect.runPromise(onTestClock(localSendDuringOutage())),
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "bounds a black-holed transmit and lets the background drain deliver it",
+    () => Effect.runPromise(onTestClock(blackHoledTransmitBoundsTheSend())),
     TEST_TIMEOUT_MS,
   );
 });
@@ -1581,7 +1710,7 @@ describe("issue 1003: outbound loop under a transient Router worker state", () =
     "keeps the daemon alive when the worker reports unavailable mid-drain",
     () =>
       Effect.runPromise(
-        Effect.scoped(
+        onTestClock(
           transientTransmitFailureLeavesDaemonAlive(
             new RouterWorkerUnavailableError(),
           ),
@@ -1593,7 +1722,7 @@ describe("issue 1003: outbound loop under a transient Router worker state", () =
     "keeps the daemon alive when a transmit observes a Router restart",
     () =>
       Effect.runPromise(
-        Effect.scoped(
+        onTestClock(
           transientTransmitFailureLeavesDaemonAlive(
             new RouterWorkerDiscontinuityError(),
           ),
@@ -1605,7 +1734,7 @@ describe("issue 1003: outbound loop under a transient Router worker state", () =
     "keeps the daemon alive when the Router transport drops mid-drain",
     () =>
       Effect.runPromise(
-        Effect.scoped(
+        onTestClock(
           transientTransmitFailureLeavesDaemonAlive(
             new RouterWorkerTransportError(),
           ),
@@ -1617,7 +1746,7 @@ describe("issue 1003: outbound loop under a transient Router worker state", () =
     "keeps a cold-started daemon alive with a pending outbound row",
     () =>
       Effect.runPromise(
-        Effect.scoped(coldStartWithPendingOutboundLeavesDaemonAlive()),
+        onTestClock(coldStartWithPendingOutboundLeavesDaemonAlive()),
       ),
     TEST_TIMEOUT_MS,
   );
