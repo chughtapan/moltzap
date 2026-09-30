@@ -31,26 +31,6 @@ jobs:
           pnpm install --lockfile-only --ignore-scripts
           git diff --exit-code pnpm-lock.yaml
       - run: pnpm build
-      - name: Refresh incomplete Client cache entry
-        run: |
-          node --input-type=module <<'JS'
-          import { execFileSync } from "node:child_process";
-          import { existsSync, readFileSync } from "node:fs";
-          import { DbCache } from "./node_modules/nx/dist/src/tasks-runner/cache.js";
-          const run = JSON.parse(readFileSync(".nx/cache/run.json", "utf8"));
-          const task = run.tasks.find(({ taskId }) => taskId === "@moltzap/client:build");
-          if (task?.hash !== "11874291501271949104") {
-            throw new Error("Unexpected Client cache key");
-          }
-          execFileSync("pnpm", ["nx", "run", "@moltzap/client:build", "--skipNxCache"], { stdio: "inherit" });
-          for (const file of ["index.js", "index.d.ts", "server.js", "tsconfig.tsbuildinfo"]) {
-            if (!existsSync(`packages/client/dist/${file}`)) throw new Error(`Missing rebuilt ${file}`);
-          }
-          const cache = new DbCache({});
-          await cache.init();
-          await cache.put({ id: task.taskId, hash: task.hash }, "Client rebuilt from source after an incomplete cache artifact", ["packages/client/dist"], 0);
-          console.log(`Refreshed Client cache ${task.hash}`);
-          JS
       # The gates pack the four published packages and the NanoClaw adapter,
       # whose gate proves it still compiles against the Client ABI in isolation
       # (the image build copies its source, not a tarball); identity and router
