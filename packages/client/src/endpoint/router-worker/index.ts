@@ -31,6 +31,13 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import type { OutboundMessageInput, StoredOutboundMessage } from "../store.js";
 import { decodeCanonical, encodeCanonical } from "../representation.js";
+import { detach, reattach, reportDetachment } from "./detachment.js";
+import {
+  isTransportFailure,
+  mapRouterFailure,
+  pollBlipRetry,
+  type RouterCallFailure,
+} from "./failures.js";
 import {
   isTransientRouterWorkerError,
   type RouterDiscontinuityReason,
@@ -54,7 +61,7 @@ import {
   type RouterWorkerSendOutcome,
   type RouterWorkerServices,
   type RouterWorkerState,
-  RouterWorkerTransportError,
+  type RouterWorkerTransportError,
   RouterWorkerUnavailableError,
   type RouterWorkerVerifiedIngress,
 } from "./types.js";
@@ -67,6 +74,7 @@ export {
   RouterWorkerPersistenceError,
   RouterWorkerProtocolError,
   RouterWorkerRecoveryError,
+  RouterWorkerRejectedError,
   RouterWorkerTransportError,
   RouterWorkerUnavailableError,
 } from "./types.js";
@@ -90,14 +98,8 @@ export type {
 } from "./types.js";
 
 const mapAuthenticationError = () => new RouterWorkerAuthenticationError();
-const mapTransportError = () => new RouterWorkerTransportError();
 const mapProtocolError = () => new RouterWorkerProtocolError();
 const mapPersistenceError = () => new RouterWorkerPersistenceError();
-
-/** Bounded fixed-delay policy for poll-loop retries. */
-const routerWorkerRetrySchedule = Schedule.fixed(routerWorkerRetryDelay).pipe(
-  Schedule.intersect(Schedule.recurs(routerWorkerRetryAttempts - 1)),
-);
 
 const anchorFromOmittedResult = (
   result: RouterPollResult,
@@ -123,7 +125,7 @@ const pollRouterTail = (
   >,
 ): Effect.Effect<
   RouterTailAnchor,
-  RouterWorkerTransportError | RouterWorkerProtocolError
+  RouterCallFailure | RouterWorkerProtocolError
 > =>
   services.router
     .poll({
@@ -132,8 +134,8 @@ const pollRouterTail = (
       signingAuthority: caller.signingAuthority,
     })
     .pipe(
-      Effect.retry(routerWorkerRetrySchedule),
-      Effect.mapError(mapTransportError),
+      Effect.mapError(mapRouterFailure),
+      Effect.retry(pollBlipRetry),
       Effect.flatMap(anchorFromOmittedResult),
       Effect.interruptible,
     );
@@ -221,7 +223,7 @@ interface TransmitInput {
 
 type OutboundTransportError =
   | RouterWorkerPersistenceError
-  | RouterWorkerTransportError
+  | RouterCallFailure
   | RouterWorkerProtocolError;
 
 const retryUnknown = <Payload>(
@@ -347,10 +349,10 @@ function transmitOuter<Payload>(
       signingAuthority: runtime.input.signingAuthority,
     })
     .pipe(
-      Effect.mapError(mapTransportError),
+      Effect.mapError(mapRouterFailure),
       Effect.matchEffect({
         onFailure: (error) =>
-          input.attemptsRemaining <= 1
+          !isTransportFailure(error) || input.attemptsRemaining <= 1
             ? Effect.fail(error)
             : Effect.sleep(routerWorkerRetryDelay).pipe(
                 Effect.zipRight(
@@ -581,7 +583,7 @@ const pollRecoveringOnce = <Payload>(
         callerAgentId: runtime.input.callerAgentId,
         signingAuthority: runtime.input.signingAuthority,
       })
-      .pipe(Effect.mapError(mapTransportError));
+      .pipe(Effect.mapError(mapRouterFailure));
     switch (result.kind) {
       case "batch": {
         if (result.routerInstanceId !== snapshot.anchor.routerInstanceId) {
@@ -608,14 +610,7 @@ const pumpRecovery = <Payload>(
   recovering: RouterWorkerRecoveringState,
 ): Effect.Effect<never, RouterWorkerPollError> =>
   pollRecoveringOnce(runtime, operations, recovering.generation).pipe(
-    Effect.retry(
-      routerWorkerRetrySchedule.pipe(
-        Schedule.whileInput(
-          (error: RouterWorkerPollError) =>
-            error._tag === "RouterWorkerTransportError",
-        ),
-      ),
-    ),
+    Effect.retry(pollBlipRetry),
     Effect.forever,
     Effect.interruptible,
   );
@@ -789,31 +784,18 @@ const acceptVerified = <Payload>(
     Effect.catchTag("RouterWorkerPayloadInvalidError", () => Effect.void),
   );
 
-type RouterWorkerAnchoredState =
-  | RouterWorkerActiveState
-  | RouterWorkerDetachedState;
-
 const stateMatches = (
   state: RouterWorkerState,
   generation: number,
   routerInstanceId: RouterInstanceId,
-): state is RouterWorkerAnchoredState =>
-  state.kind !== "recovering" &&
+): state is RouterWorkerActiveState =>
+  state.kind === "active" &&
   state.generation === generation &&
   state.anchor.routerInstanceId === routerInstanceId;
 
-/**
- * Accept one same-instance batch and advance the cursor; an answered poll
- * also reattaches a detached worker at the same anchor.
- * @param runtime Worker whose state the batch advances.
- * @param snapshot Anchored state the poll was issued from.
- * @param result Same-instance batch the Router returned.
- * @param verified Authenticated ingress for every batch item, in order.
- * @returns Completion once the batch is durable and the worker is active.
- */
 const commitBatch = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
-  snapshot: RouterWorkerAnchoredState,
+  snapshot: RouterWorkerActiveState,
   result: Extract<RouterPollResult, { readonly kind: "batch" }>,
   verified: readonly RouterWorkerVerifiedIngress[],
 ): Effect.Effect<void, RouterWorkerPersistenceError> =>
@@ -833,8 +815,7 @@ const commitBatch = <Payload>(
         { concurrency: 1 },
       );
       yield* Ref.set(runtime.state, {
-        kind: "active",
-        generation: current.generation,
+        ...current,
         anchor: { ...current.anchor, pollCursor: result.pollCursor },
       });
     }),
@@ -929,7 +910,7 @@ const triggerDiscontinuity = <Payload>(
     Effect.gen(function* () {
       const current = yield* Ref.get(runtime.state);
       if (
-        current.kind === "active" &&
+        current.kind !== "recovering" &&
         current.generation !== observedGeneration
       ) {
         return;
@@ -953,7 +934,7 @@ const triggerDiscontinuity = <Payload>(
 
 const pollActiveOnce = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
-  snapshot: RouterWorkerAnchoredState,
+  snapshot: RouterWorkerActiveState,
 ): Effect.Effect<void, RouterWorkerPollError> =>
   runtime.router
     .poll({
@@ -962,7 +943,11 @@ const pollActiveOnce = <Payload>(
       signingAuthority: runtime.input.signingAuthority,
     })
     .pipe(
-      Effect.mapError(mapTransportError),
+      Effect.mapError(mapRouterFailure),
+      Effect.retry(pollBlipRetry),
+      Effect.tapErrorTag("RouterWorkerTransportError", () =>
+        detach(runtime, snapshot.generation),
+      ),
       Effect.flatMap((result) => {
         switch (result.kind) {
           case "batch":
@@ -997,16 +982,53 @@ const pollActiveOnce = <Payload>(
       Effect.interruptible,
     );
 
+/**
+ * Reattach a detached worker once the Router answers. The probe is an
+ * omitted-cursor poll, which the Router answers at once, whereas a
+ * continuation poll may be held for 25 s. The same instance reattaches at the
+ * retained anchor and cursor; another instance starts restart recovery.
+ * @param runtime Detached worker.
+ * @param snapshot Detached state the probe was issued from.
+ * @returns Completion once the worker is active again or recovering.
+ */
+const probeDetached = <Payload>(
+  runtime: RouterWorkerRuntime<Payload>,
+  snapshot: RouterWorkerDetachedState,
+): Effect.Effect<void, RouterWorkerPollError> =>
+  pollRouterTail(runtime, runtime.input).pipe(
+    Effect.flatMap((tail) =>
+      tail.routerInstanceId === snapshot.anchor.routerInstanceId
+        ? reattach(runtime, snapshot)
+        : triggerDiscontinuity(
+            runtime,
+            "router_restarted",
+            snapshot.generation,
+          ),
+    ),
+    Effect.interruptible,
+  );
+
 const makePollOnce = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
 ): Effect.Effect<void, RouterWorkerPollError> =>
   runtime.pollGate.withPermits(1)(
     Ref.get(runtime.state).pipe(
-      Effect.flatMap((state) =>
-        state.kind === "recovering"
-          ? runtime.recoveryGate.withPermits(1)(finishRecovery(runtime, state))
-          : pollActiveOnce(runtime, state),
-      ),
+      Effect.flatMap((state) => {
+        switch (state.kind) {
+          case "active":
+            return pollActiveOnce(runtime, state);
+          case "detached":
+            return probeDetached(runtime, state);
+          case "recovering":
+            return runtime.recoveryGate.withPermits(1)(
+              finishRecovery(runtime, state),
+            );
+          default: {
+            const exhaustive: never = state;
+            return exhaustive;
+          }
+        }
+      }),
     ),
   );
 
@@ -1039,23 +1061,6 @@ const makeSend = <Payload>(
     }
   });
 
-/**
- * Mark an active worker detached after its poll lost the Router, so sends and
- * the outbound drain wait for the next answered poll instead of transmitting.
- * @param runtime Worker whose poll lost the Router.
- * @returns Completion once an active state is detached; other states stay.
- */
-const detach = <Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-): Effect.Effect<void> =>
-  runtime.stateGate.withPermits(1)(
-    Ref.update(
-      runtime.state,
-      (state): RouterWorkerState =>
-        state.kind === "active" ? { ...state, kind: "detached" } : state,
-    ),
-  );
-
 const activeAnchor = (
   state: RouterWorkerState,
 ): Option.Option<RouterTailAnchor> =>
@@ -1082,16 +1087,18 @@ const makeWorker = <Payload>(
       Effect.flatMap(Effect.orDie),
     ),
     pollOnce,
-    run: pollOnce.pipe(
-      Effect.tapErrorTag("RouterWorkerTransportError", () => detach(runtime)),
-      Effect.retry(
-        routerWorkerReconnectSchedule.pipe(
-          Schedule.whileInput(isTransientRouterWorkerError),
+    run: Effect.zipRight(
+      reportDetachment(runtime),
+      pollOnce.pipe(
+        Effect.retry(
+          routerWorkerReconnectSchedule.pipe(
+            Schedule.whileInput(isTransientRouterWorkerError),
+          ),
         ),
+        Effect.forever,
       ),
-      Effect.forever,
-      Effect.interruptible,
-    ),
+      { concurrent: true },
+    ).pipe(Effect.interruptible),
     send: (outboundId: string) => makeSend(runtime, outboundId),
   });
 };

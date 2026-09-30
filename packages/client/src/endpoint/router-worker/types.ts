@@ -35,7 +35,10 @@ export class RouterWorkerPayloadInvalidError extends Data.TaggedError(
   "RouterWorkerPayloadInvalidError",
 ) {}
 
-/** Router communication exhausted its bounded retry allowance. */
+/**
+ * The Router could not be reached, timed out, or answered overloaded,
+ * unavailable, or internal error through a bounded run of quick retries.
+ */
 export class RouterWorkerTransportError extends Data.TaggedError(
   "RouterWorkerTransportError",
 ) {}
@@ -54,6 +57,22 @@ export class RouterWorkerRecoveryError extends Data.TaggedError(
 export class RouterWorkerDiscontinuityError extends Data.TaggedError(
   "RouterWorkerDiscontinuityError",
 ) {}
+
+/**
+ * The Router refused this endpoint's request itself: its authentication, its
+ * MoltZap version, its representation, or its local signature. Retrying
+ * cannot succeed, so the failure is fatal rather than an outage.
+ */
+export class RouterWorkerRejectedError extends Data.TaggedError(
+  "RouterWorkerRejectedError",
+)<{
+  readonly reason:
+    | "authentication"
+    | "version"
+    | "request"
+    | "response"
+    | "signing";
+}> {}
 
 /** A normal send was attempted while the worker is detached or recovering. */
 export class RouterWorkerUnavailableError extends Data.TaggedError(
@@ -79,6 +98,7 @@ export type RouterIngressDisposition = "accepted" | "ignored";
 export type RouterWorkerSendError =
   | RouterWorkerAuthenticationError
   | RouterWorkerPersistenceError
+  | RouterWorkerRejectedError
   | RouterWorkerTransportError
   | RouterWorkerProtocolError
   | RouterWorkerRecoveryError
@@ -89,6 +109,7 @@ export type RouterWorkerSendError =
 export type RouterWorkerPollError =
   | RouterWorkerAuthenticationError
   | RouterWorkerPersistenceError
+  | RouterWorkerRejectedError
   | RouterWorkerTransportError
   | RouterWorkerProtocolError
   | RouterWorkerRecoveryError
@@ -229,6 +250,8 @@ export interface RouterWorkerDetachedState {
   readonly kind: "detached";
   readonly generation: number;
   readonly anchor: RouterTailAnchor;
+  /** Epoch milliseconds of the Clock when the worker detached. */
+  readonly detachedAt: number;
 }
 
 /** Closed volatile lifecycle of the Router worker. */
@@ -270,13 +293,27 @@ export const routerWorkerRetryAttempts = 3;
 export const routerWorkerRetryDelay = "25 millis";
 
 /**
+ * Quick retries of one poll before a transport failure detaches the worker,
+ * spanning about 350 ms, so a connection reset or a single overloaded answer
+ * does not block sends.
+ */
+export const routerWorkerBlipSchedule = Schedule.exponential("50 millis").pipe(
+  Schedule.intersect(Schedule.recurs(3)),
+);
+
+/**
  * Backoff for work that waits out an unreachable or re-anchoring Router: the
- * poll loop and the outbound drain. It never ends, because a Router outage
- * halts progress rather than failing the endpoint.
+ * poll loop and the outbound drain. Delays grow from 100 ms to a 5 s cap and
+ * are jittered so endpoints do not return in lockstep after a Router restart.
+ * It never ends, because a Router outage halts progress rather than failing
+ * the endpoint.
  */
 export const routerWorkerReconnectSchedule = Schedule.exponential(
   "100 millis",
-).pipe(Schedule.union(Schedule.spaced("5 seconds")));
+).pipe(Schedule.union(Schedule.spaced("5 seconds")), Schedule.jittered);
+
+/** How often a detached worker repeats its warning while still detached. */
+export const routerWorkerDetachedReportInterval = "60 seconds";
 
 const transientByTag = {
   RouterWorkerAuthenticationError: false,
@@ -284,14 +321,15 @@ const transientByTag = {
   RouterWorkerPersistenceError: false,
   RouterWorkerProtocolError: false,
   RouterWorkerRecoveryError: false,
+  RouterWorkerRejectedError: false,
   RouterWorkerTransportError: true,
   RouterWorkerUnavailableError: true,
 } as const satisfies Readonly<Record<RouterWorkerPollError["_tag"], boolean>>;
 
 /**
  * Whether a worker failure ends once the Router answers and the worker
- * re-anchors. Every other failure is a protocol, persistence, or recovery
- * fault that stays fatal.
+ * re-anchors. Every other failure is a protocol, persistence, recovery, or
+ * Router-rejection fault that stays fatal.
  * @param error Poll or send failure; both unions share these tags.
  * @returns True for transport loss, a pending recovery, or a discontinuity.
  */

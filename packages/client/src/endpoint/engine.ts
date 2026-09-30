@@ -128,23 +128,28 @@ const resumeDispositionBySendReason = {
   Record<SendError["reason"], ResumeIntentDisposition>
 >;
 
+const outboundReasonByTag = {
+  RouterWorkerAuthenticationError: "representation",
+  RouterWorkerDiscontinuityError: "network",
+  RouterWorkerPersistenceError: "persistence",
+  RouterWorkerProtocolError: "representation",
+  RouterWorkerRecoveryError: "network",
+  RouterWorkerTransportError: "network",
+  RouterWorkerUnavailableError: "network",
+} as const satisfies Readonly<
+  Record<
+    Exclude<RouterWorkerSendError["_tag"], "RouterWorkerRejectedError">,
+    EngineOutboundError["reason"]
+  >
+>;
+
 const outboundFailure = (error: RouterWorkerSendError): EngineOutboundError => {
-  switch (error._tag) {
-    case "RouterWorkerPersistenceError":
-      return new EngineOutboundError({ reason: "persistence" });
-    case "RouterWorkerAuthenticationError":
-    case "RouterWorkerProtocolError":
-      return new EngineOutboundError({ reason: "representation" });
-    case "RouterWorkerDiscontinuityError":
-    case "RouterWorkerRecoveryError":
-    case "RouterWorkerTransportError":
-    case "RouterWorkerUnavailableError":
-      return new EngineOutboundError({ reason: "network" });
-    default: {
-      const exhaustive: never = error;
-      return exhaustive;
-    }
+  if (error._tag !== "RouterWorkerRejectedError") {
+    return new EngineOutboundError({ reason: outboundReasonByTag[error._tag] });
   }
+  return new EngineOutboundError({
+    reason: error.reason === "version" ? "version" : "representation",
+  });
 };
 
 function outboundSendFailure(error: EngineOutboundError): SendError {
@@ -155,6 +160,8 @@ function outboundSendFailure(error: EngineOutboundError): SendError {
       return new SendError({ reason: "network-unavailable" });
     case "representation":
       return new SendError({ reason: "certification-unavailable" });
+    case "version":
+      return new SendError({ reason: "version-mismatch" });
     default: {
       const exhaustive: never = error.reason;
       return exhaustive;
