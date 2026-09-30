@@ -14,6 +14,7 @@ import {
   type Context,
   Data,
   type Effect,
+  type Option,
   Schedule,
   type SubscriptionRef,
 } from "effect";
@@ -239,6 +240,11 @@ export interface RouterWorkerRecoveringState {
   readonly priorRouterInstanceId?: RouterInstanceId;
   readonly volatileFoldsAbandoned: boolean;
   readonly anchor?: RouterTailAnchor;
+  /**
+   * Clock epoch milliseconds when a recovery attempt first lost the Router;
+   * none once the Router answers the recovery's tail poll.
+   */
+  readonly unreachableSince: Option.Option<number>;
 }
 
 /**
@@ -312,7 +318,10 @@ export const routerWorkerReconnectSchedule = Schedule.exponential(
   "100 millis",
 ).pipe(Schedule.union(Schedule.spaced("5 seconds")), Schedule.jittered);
 
-/** How often a detached worker repeats its warning while still detached. */
+/**
+ * How often a worker that cannot reach the Router, detached or recovering,
+ * repeats its warning.
+ */
 export const routerWorkerDetachedReportInterval = "60 seconds";
 
 const transientByTag = {

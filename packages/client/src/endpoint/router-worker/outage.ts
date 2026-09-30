@@ -5,11 +5,15 @@
 
 import { Clock, Effect, Option, Ref, Schedule, Stream } from "effect";
 import {
+  isTransientRouterWorkerError,
   routerWorkerBlipSchedule,
   routerWorkerDetachedReportInterval,
   type RouterWorkerDetachedState,
+  type RouterWorkerPollError,
+  type RouterWorkerRecoveringState,
   RouterWorkerRejectedError,
   type RouterWorkerRuntime,
+  type RouterWorkerSendError,
   type RouterWorkerServices,
   type RouterWorkerState,
   RouterWorkerTransportError,
@@ -93,23 +97,6 @@ const logDetached = (state: RouterWorkerDetachedState): Effect.Effect<void> =>
     }),
   );
 
-const logStillDetached = (
-  state: RouterWorkerDetachedState,
-): Effect.Effect<void> =>
-  secondsSince(state.detachedAt).pipe(
-    Effect.flatMap((seconds) =>
-      Effect.logWarning(
-        `Router still unreachable: worker detached for ${String(seconds)} s`,
-      ).pipe(
-        Effect.annotateLogs({
-          generation: state.generation,
-          routerInstanceId: state.anchor.routerInstanceId,
-          detachedSeconds: seconds,
-        }),
-      ),
-    ),
-  );
-
 const logReattached = (state: RouterWorkerDetachedState): Effect.Effect<void> =>
   secondsSince(state.detachedAt).pipe(
     Effect.flatMap((seconds) =>
@@ -167,41 +154,178 @@ export const detach = <Payload>(
     ),
   );
 
-const detachedState = (
-  state: RouterWorkerState,
-): Option.Option<RouterWorkerDetachedState> =>
-  state.kind === "detached" ? Option.some(state) : Option.none();
+/** A worker waiting on an unreachable Router, detached or recovering. */
+interface Stall {
+  readonly kind: "detached" | "recovering";
+  readonly generation: number;
+  readonly since: number;
+}
 
-const sameDetachment = Option.getEquivalence(
-  (left: RouterWorkerDetachedState, right: RouterWorkerDetachedState) =>
+const stallOf = (state: RouterWorkerState): Option.Option<Stall> => {
+  switch (state.kind) {
+    case "active":
+      return Option.none();
+    case "detached":
+      return Option.some({
+        kind: "detached",
+        generation: state.generation,
+        since: state.detachedAt,
+      });
+    case "recovering":
+      return Option.map(state.unreachableSince, (since) => ({
+        kind: "recovering",
+        generation: state.generation,
+        since,
+      }));
+    default: {
+      const exhaustive: never = state;
+      return exhaustive;
+    }
+  }
+};
+
+const sameStall = Option.getEquivalence(
+  (left: Stall, right: Stall) =>
+    left.kind === right.kind &&
     left.generation === right.generation &&
-    left.detachedAt === right.detachedAt,
+    left.since === right.since,
 );
+
+const stallText = {
+  detached: "worker detached",
+  recovering: "recovery waiting",
+} as const satisfies Readonly<Record<Stall["kind"], string>>;
+
+const logStillStalled = (stall: Stall): Effect.Effect<void> =>
+  secondsSince(stall.since).pipe(
+    Effect.flatMap((seconds) =>
+      Effect.logWarning(
+        `Router still unreachable: ${stallText[stall.kind]} for ${String(seconds)} s`,
+      ).pipe(
+        Effect.annotateLogs({
+          generation: stall.generation,
+          unreachableSeconds: seconds,
+        }),
+      ),
+    ),
+  );
 
 /**
  * Repeat a warning every `routerWorkerDetachedReportInterval` for as long as
- * one detachment lasts, so a Router that stays down is never silent.
- * @param runtime Worker whose attachment state is watched.
+ * the worker waits on an unreachable Router, detached or recovering, so an
+ * outage is never silent however long it lasts.
+ * @param runtime Worker whose state is watched.
  * @returns A watcher that runs for the worker's lifetime.
  */
-export const reportDetachment = <Payload>(
+export const reportUnreachable = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
 ): Effect.Effect<void> =>
   runtime.state.changes.pipe(
-    Stream.map(detachedState),
-    Stream.changesWith(sameDetachment),
+    Stream.map(stallOf),
+    Stream.changesWith(sameStall),
     Stream.flatMap(
       Option.match({
         onNone: () => Stream.empty,
-        onSome: (state) =>
+        onSome: (stall) =>
           Stream.tick(routerWorkerDetachedReportInterval).pipe(
             Stream.drop(1),
-            Stream.mapEffect(() => logStillDetached(state)),
+            Stream.mapEffect(() => logStillStalled(stall)),
           ),
       }),
       { switch: true },
     ),
     Stream.runDrain,
+  );
+
+/**
+ * One line naming why the worker or the outbound drain failed; a Router
+ * rejection names what the Router refused.
+ * @param error Poll or send failure.
+ * @returns Human-readable reason for the log.
+ */
+export const describeRouterWorkerFailure = (
+  error: RouterWorkerPollError | RouterWorkerSendError,
+): string =>
+  error._tag === "RouterWorkerRejectedError"
+    ? `the Router rejected this endpoint's ${error.reason}`
+    : error._tag;
+
+const markUnreachable = (
+  state: RouterWorkerState,
+  error: RouterWorkerPollError,
+  now: number,
+): RouterWorkerState =>
+  state.kind === "recovering" &&
+  isTransportFailure(error) &&
+  Option.isNone(state.unreachableSince)
+    ? { ...state, unreachableSince: Option.some(now) }
+    : state;
+
+const logRecoveryAttemptFailed = (
+  state: RouterWorkerState,
+  error: RouterWorkerPollError,
+): Effect.Effect<void> =>
+  state.kind === "recovering"
+    ? Effect.logWarning(
+        `Router recovery attempt failed, retrying: ${describeRouterWorkerFailure(error)}`,
+      ).pipe(
+        Effect.annotateLogs({
+          generation: state.generation,
+          reason: state.reason,
+        }),
+      )
+    : Effect.void;
+
+/**
+ * Report a failed poll-loop step before the loop retries or ends: a fatal
+ * failure logs why the daemon exits, and a failed recovery attempt warns and
+ * marks when the Router was first unreachable.
+ * @param runtime Worker whose step failed.
+ * @param error The step's failure.
+ * @returns Completion once the failure is logged and recorded.
+ */
+export const noteRunFailure = <Payload>(
+  runtime: RouterWorkerRuntime<Payload>,
+  error: RouterWorkerPollError,
+): Effect.Effect<void> =>
+  isTransientRouterWorkerError(error)
+    ? Clock.currentTimeMillis.pipe(
+        Effect.flatMap((now) =>
+          runtime.stateGate.withPermits(1)(
+            Ref.updateAndGet(runtime.state, (state) =>
+              markUnreachable(state, error, now),
+            ),
+          ),
+        ),
+        Effect.flatMap((state) => logRecoveryAttemptFailed(state, error)),
+      )
+    : Effect.logError(
+        `Router worker stopping, daemon exits: ${describeRouterWorkerFailure(error)}`,
+      );
+
+/**
+ * Warn that a worker that had lost the Router now recovers from a
+ * discontinuity its first answered probe revealed.
+ * @param state The new recovering state.
+ * @returns Completion once logged.
+ */
+export const logRecoveryAfterLoss = (
+  state: RouterWorkerRecoveringState,
+): Effect.Effect<void> =>
+  Effect.logWarning(
+    `Router answered after a loss with ${state.reason}: recovering`,
+  ).pipe(Effect.annotateLogs({ generation: state.generation }));
+
+/**
+ * Note that certified-history recovery finished and the worker is active.
+ * @param state The recovering state recovery completed.
+ * @returns Completion once logged.
+ */
+export const logRecoveryComplete = (
+  state: RouterWorkerRecoveringState,
+): Effect.Effect<void> =>
+  Effect.logInfo(`Router recovery complete after ${state.reason}`).pipe(
+    Effect.annotateLogs({ generation: state.generation }),
   );
 
 /**

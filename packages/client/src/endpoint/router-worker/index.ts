@@ -34,10 +34,13 @@ import { decodeCanonical, encodeCanonical } from "../representation.js";
 import {
   detach,
   isTransportFailure,
+  logRecoveryAfterLoss,
+  logRecoveryComplete,
   mapRouterFailure,
+  noteRunFailure,
   pollBlipRetry,
   reattach,
-  reportDetachment,
+  reportUnreachable,
   type RouterCallFailure,
 } from "./outage.js";
 import {
@@ -80,6 +83,8 @@ export {
   RouterWorkerTransportError,
   RouterWorkerUnavailableError,
 } from "./types.js";
+/** Why the worker or the outbound drain failed, for logs. */
+export { describeRouterWorkerFailure } from "./outage.js";
 /** Transient-failure policy shared with the endpoint's outbound drain. */
 export {
   isTransientRouterWorkerError,
@@ -665,6 +670,7 @@ const finishRouterRecovery = <Payload>(
           generation: prepared.generation,
           anchor: current.anchor,
         });
+        yield* logRecoveryComplete(current);
       }),
     );
   }).pipe(Effect.withSpan("finishRouterRecovery"));
@@ -882,6 +888,7 @@ function anchorRecovery<Payload>(
         volatileFoldsAbandoned:
           current.reason === reason && current.volatileFoldsAbandoned,
         anchor,
+        unreachableSince: Option.none(),
       };
       yield* Ref.set(runtime.state, anchored);
       return anchored;
@@ -926,10 +933,14 @@ const triggerDiscontinuity = <Payload>(
         reason,
         priorRouterInstanceId: current.anchor.routerInstanceId,
         volatileFoldsAbandoned: false,
+        unreachableSince: Option.none(),
       };
       yield* runtime.stateGate.withPermits(1)(
         Ref.set(runtime.state, recovering),
       );
+      if (current.kind === "detached") {
+        yield* logRecoveryAfterLoss(recovering);
+      }
       return yield* finishRecovery(runtime, recovering);
     }),
   );
@@ -1090,8 +1101,9 @@ const makeWorker = <Payload>(
     ),
     pollOnce,
     run: Effect.zipRight(
-      reportDetachment(runtime),
+      reportUnreachable(runtime),
       pollOnce.pipe(
+        Effect.tapError((error) => noteRunFailure(runtime, error)),
         Effect.retry(
           routerWorkerReconnectSchedule.pipe(
             Schedule.whileInput(isTransientRouterWorkerError),
@@ -1135,6 +1147,7 @@ export const makeRouterWorker = <Payload>(
         generation: 0,
         reason: "router_restarted",
         volatileFoldsAbandoned: false,
+        unreachableSince: Option.none(),
       }),
       pollGate: yield* Effect.makeSemaphore(1),
       stateGate: yield* Effect.makeSemaphore(1),

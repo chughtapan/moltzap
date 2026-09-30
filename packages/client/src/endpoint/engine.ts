@@ -46,6 +46,7 @@ import {
   RecordHash,
 } from "./representation.js";
 import {
+  describeRouterWorkerFailure,
   isTransientRouterWorkerError,
   type RouterDiscontinuityReason,
   routerWorkerReconnectSchedule,
@@ -323,7 +324,8 @@ const send = (
 /**
  * Drain once the worker is attached, and after a transient worker failure
  * back off, wait for the worker to re-anchor, and drain again. Recovery may
- * have reset the queue meanwhile, so each attempt re-reads its head.
+ * have reset the queue meanwhile, so each attempt re-reads its head. A fatal
+ * failure is logged with its reason before it ends the daemon.
  */
 const drainWhenAttached = (
   runtime: EngineRuntime,
@@ -333,6 +335,11 @@ const drainWhenAttached = (
     Effect.retry(
       routerWorkerReconnectSchedule.pipe(
         Schedule.whileInput(isTransientRouterWorkerError),
+      ),
+    ),
+    Effect.tapError((error) =>
+      Effect.logError(
+        `Outbound drain stopping, daemon exits: ${describeRouterWorkerFailure(error)}`,
       ),
     ),
     Effect.mapError(outboundFailure),

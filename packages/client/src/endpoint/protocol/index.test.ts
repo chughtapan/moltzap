@@ -274,6 +274,7 @@ function forwardStoredOutbound(
   store: EndpointStore,
   outbound: Queue.Queue<typeof SignedMessage.Type>,
   outboundId: string,
+  transit?: Duration.DurationInput,
 ): Effect.Effect<void> {
   return store.beginOutbound(outboundId).pipe(
     Effect.flatMap((attempt) => {
@@ -285,6 +286,9 @@ function forwardStoredOutbound(
             SignedMessage,
             attempt.outbound.canonicalSignedMessage,
           ).pipe(
+            Effect.tap(() =>
+              transit === undefined ? Effect.void : Effect.sleep(transit),
+            ),
             Effect.flatMap((message) =>
               store
                 .completeOutbound(attempt.outbound)
@@ -1438,8 +1442,35 @@ function failsThenForwards(
 }
 
 /**
- * Asserts the background drain outlived every failed transmit and delivered
- * each queued envelope exactly once.
+ * The distinct action hashes each post was proposed under, across envelopes.
+ * @param messages Forwarded action-proposal envelopes.
+ * @returns For each PostId, the set of proposed action hashes.
+ */
+function proposalHashesByPost(
+  messages: ReadonlyArray<typeof SignedMessage.Type>,
+): Effect.Effect<Map<string, Set<string>>> {
+  return Effect.reduce(
+    messages,
+    new Map<string, Set<string>>(),
+    (byPost, message) =>
+      decodeActionProposal(message).pipe(
+        Effect.flatMap((proposal) =>
+          hashAction(proposal.action).pipe(
+            Effect.orDie,
+            Effect.map((hash) => {
+              const postId = proposal.action.postIntent.postId;
+              byPost.set(postId, (byPost.get(postId) ?? new Set()).add(hash));
+              return byPost;
+            }),
+          ),
+        ),
+      ),
+  );
+}
+
+/**
+ * Asserts the background drain outlived every failed transmit, forwarded
+ * each envelope once, and proposed each post under exactly one action hash.
  * @param harness Harness whose Router queue receives forwarded envelopes.
  * @param attempts Transmit count from `failsThenForwards`.
  * @param fatal The supervised daemon's failure signal.
@@ -1452,11 +1483,15 @@ function expectDrainedAlive(
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     expect(yield* Ref.get(attempts)).toBeGreaterThan(FAILED_TRANSMITS);
-    const delivered = Array.from(yield* Queue.takeAll(harness.outbound)).map(
-      ({ messageId }) => messageId,
-    );
+    const delivered = Array.from(yield* Queue.takeAll(harness.outbound));
     expect(delivered.length).toBeGreaterThan(0);
-    expect(new Set(delivered).size).toBe(delivered.length);
+    expect(new Set(delivered.map(({ messageId }) => messageId)).size).toBe(
+      delivered.length,
+    );
+    const hashesByPost = yield* proposalHashesByPost(delivered);
+    for (const hashes of hashesByPost.values()) {
+      expect(hashes.size).toBe(1);
+    }
     expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
   });
 }
@@ -1493,6 +1528,9 @@ function transientTransmitFailureLeavesDaemonAlive(
  * worker has not attached (as `makeRouterWorker` starts `recovering`) while
  * `makeRuntime` pre-signals the outbound queue. The loop waits, and once the
  * worker attaches it outlasts every failed transmit and delivers the row.
+ * The restarted engine also re-proposes the unfinished post, so the one
+ * proposal goes out twice in two envelopes with distinct message ids; peers
+ * de-duplicate it by action hash, which the assertions pin as one per post.
  */
 function coldStartWithPendingOutboundLeavesDaemonAlive(): Effect.Effect<
   void,
@@ -1604,6 +1642,78 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
       (yield* store.recover().pipe(Effect.orDie)).outboundMessages,
     ).toEqual([]);
     expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
+  });
+}
+
+/** Where a transmit forwards to, known once the harness exists. */
+interface ForwardTarget {
+  readonly store: EndpointStore;
+  readonly outbound: Queue.Queue<typeof SignedMessage.Type>;
+}
+
+/**
+ * A transmit that spends 100 ms in transit between beginning and completing
+ * its outbox row, serialized the way the real worker's `makeSend` holds its
+ * `recoveryGate` across `transmitOutbound`. A transmit that waited on the gate
+ * then finds the row inactive and forwards nothing.
+ * @param transmits Counts every transmit.
+ * @param target Store and Router queue, once the harness exists.
+ * @returns A transmit wrapper for the scripted worker.
+ */
+function serializedSlowTransmit(
+  transmits: Ref.Ref<number>,
+  target: Deferred.Deferred<ForwardTarget>,
+) {
+  const transmitUnder =
+    (recoveryGate: Effect.Semaphore) => (outboundId: string) =>
+      Ref.update(transmits, (count) => count + 1).pipe(
+        Effect.zipRight(Deferred.await(target)),
+        Effect.flatMap(({ store, outbound }) =>
+          recoveryGate.withPermits(1)(
+            forwardStoredOutbound(store, outbound, outboundId, "100 millis"),
+          ),
+        ),
+      );
+  return Effect.makeSemaphore(1).pipe(
+    Effect.map(
+      (recoveryGate): WrapSend =>
+        () =>
+          transmitUnder(recoveryGate),
+    ),
+  );
+}
+
+/**
+ * A local send's drain and the background drain run at once over the same
+ * queue head. Both transmit it, and the outbox row still goes out once.
+ */
+function concurrentDrainsSendEachOutboxOnce(): Effect.Effect<
+  void,
+  never,
+  Scope.Scope
+> {
+  return Effect.gen(function* () {
+    const transmits = yield* Ref.make(0);
+    const target = yield* Deferred.make<ForwardTarget>();
+    const harness = yield* makeProtocolHarness({
+      authorSend: yield* serializedSlowTransmit(transmits, target),
+    });
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const store = yield* requireAt(harness.stores, 0, "endpoint store");
+    yield* Deferred.succeed(target, { store, outbound: harness.outbound });
+    const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
+    yield* superviseOutbound(author, fatal);
+    const sending = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "drained twice at once")),
+    );
+    yield* advanceClock(Duration.seconds(1));
+    expect(yield* Ref.get(transmits)).toBe(2);
+    expect(yield* Queue.size(harness.outbound)).toBe(1);
+    expect(
+      (yield* store.recover().pipe(Effect.orDie)).outboundMessages,
+    ).toEqual([]);
+    expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
+    yield* Fiber.interrupt(sending);
   });
 }
 
@@ -1720,6 +1830,11 @@ describe("issue 1003: a local send during a Router outage", () => {
   it(
     "returns network-unavailable at once and delivers the post after re-attachment",
     () => Effect.runPromise(onTestClock(localSendDuringOutage())),
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "sends each outbox row once while the local and background drains race",
+    () => Effect.runPromise(onTestClock(concurrentDrainsSendEachOutboxOnce())),
     TEST_TIMEOUT_MS,
   );
   it(

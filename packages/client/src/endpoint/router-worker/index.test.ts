@@ -1201,6 +1201,9 @@ const captureLogs = (lines: LogLines) =>
 const logged = (lines: LogLines, text: string): boolean =>
   lines.some((line) => line.includes(text));
 
+const countLogged = (lines: LogLines, text: string): number =>
+  lines.filter((line) => line.includes(text)).length;
+
 /**
  * A worker scenario on the TestClock with captured logs.
  * @param lines Receives every logged line.
@@ -1504,6 +1507,130 @@ const staleFailureKeepsNewGenerationAttached = async (): Promise<void> => {
 };
 
 /**
+ * A Router lost after recovery started interrupts it: the loop stays up,
+ * warns on each failed attempt and every minute, and completes recovery
+ * once the Router answers, after which a held send goes out.
+ */
+const outageDuringRecoveryRecovers = async (): Promise<void> => {
+  const lines: LogLines = [];
+  const fixture = await Effect.runPromise(makeFixture);
+  const reachable = Effect.runSync(Ref.make(true));
+  const tail = Effect.runSync(Ref.make(routerInstanceId(117)));
+  const restarted = routerInstanceId(118);
+  const recoveryStarted = Effect.runSync(Deferred.make<void>());
+  const recover = () =>
+    Deferred.succeed(recoveryStarted, undefined).pipe(
+      Effect.zipRight(Effect.sleep("20 seconds")),
+    );
+  await Effect.runPromise(
+    withOutbox((store) =>
+      onTestClock(
+        lines,
+        Effect.gen(function* () {
+          const outbound = yield* prepareOutbound(
+            store,
+            "conversation:outage-during-recovery",
+            yield* signMessage({
+              card: fixture.localCard,
+              authority: fixture.localAuthority,
+              recipient: fixture.localCard.agentId,
+              id: 117,
+              body: "sent-after-recovery",
+            }),
+          );
+          const worker = yield* makeActiveRouterWorker(
+            makeInput(fixture, callbacks({ recover }), undefined, store),
+          );
+          const polling = yield* Effect.fork(worker.run);
+          yield* Ref.set(tail, restarted);
+          yield* advanceClock("1250 millis");
+          expect(yield* Deferred.isDone(recoveryStarted)).toBe(true);
+
+          yield* Ref.set(reachable, false);
+          yield* advanceClock("70 seconds");
+          expect(yield* Fiber.poll(polling)).toEqual(Option.none());
+          expect(logged(lines, "recovery attempt failed")).toBe(true);
+          expect(logged(lines, "recovery waiting for")).toBe(true);
+          expect(countLogged(lines, "recovery complete")).toBe(1);
+          expect(yield* worker.currentAnchor.pipe(Effect.flip)).toStrictEqual(
+            new RouterWorkerUnavailableError(),
+          );
+
+          yield* Ref.set(reachable, true);
+          yield* advanceClock("30 seconds");
+          expect(yield* worker.currentAnchor).toEqual({
+            routerInstanceId: restarted,
+            pollCursor: outageCursor,
+          });
+          expect(countLogged(lines, "recovery complete")).toBe(2);
+          yield* worker.send(outbound.outboundId);
+          expect((yield* store.recover()).outboundMessages).toEqual([]);
+          yield* Fiber.interrupt(polling);
+        }),
+        outageRouter({ reachable, tail }),
+        fixture,
+      ),
+    ),
+  );
+};
+
+/**
+ * A daemon cold-started while its Router is down keeps its recovering worker
+ * running and warning, then recovers and sends once the Router answers.
+ */
+const coldStartWithRouterDownRecovers = async (): Promise<void> => {
+  const lines: LogLines = [];
+  const fixture = await Effect.runPromise(makeFixture);
+  const instance = routerInstanceId(119);
+  const reachable = Effect.runSync(Ref.make(false));
+  const tail = Effect.runSync(Ref.make(instance));
+  await Effect.runPromise(
+    withOutbox((store) =>
+      onTestClock(
+        lines,
+        Effect.gen(function* () {
+          const outbound = yield* prepareOutbound(
+            store,
+            "conversation:cold-start-router-down",
+            yield* signMessage({
+              card: fixture.localCard,
+              authority: fixture.localAuthority,
+              recipient: fixture.localCard.agentId,
+              id: 119,
+              body: "sent-after-cold-start",
+            }),
+          );
+          const worker = yield* makeRouterWorker(
+            makeInput(fixture, callbacks(), undefined, store),
+          );
+          const polling = yield* Effect.fork(worker.run);
+          const attached = yield* Effect.fork(worker.awaitAnchor);
+          yield* advanceClock("70 seconds");
+          expect(yield* Fiber.poll(polling)).toEqual(Option.none());
+          expect(yield* Fiber.poll(attached)).toEqual(Option.none());
+          expect(logged(lines, "recovery attempt failed")).toBe(true);
+          expect(logged(lines, "recovery waiting for")).toBe(true);
+          expect(logged(lines, "recovery complete")).toBe(false);
+
+          yield* Ref.set(reachable, true);
+          yield* advanceClock("6 seconds");
+          expect(yield* Fiber.join(attached)).toEqual({
+            routerInstanceId: instance,
+            pollCursor: outageCursor,
+          });
+          expect(logged(lines, "recovery complete")).toBe(true);
+          yield* worker.send(outbound.outboundId);
+          expect((yield* store.recover()).outboundMessages).toEqual([]);
+          yield* Fiber.interrupt(polling);
+        }),
+        outageRouter({ reachable, tail }),
+        fixture,
+      ),
+    ),
+  );
+};
+
+/**
  * A Router rejection of the request itself is not an outage: the poll loop
  * ends at once and the daemon's background supervision fails the daemon.
  */
@@ -1525,8 +1652,9 @@ const rejectionEndsTheDaemon =
             ),
       send: () => Effect.die("no send in this scenario"),
     });
+    const lines: LogLines = [];
     await runOnTestClock(
-      [],
+      lines,
       Effect.gen(function* () {
         const worker = yield* makeActiveRouterWorker(
           makeInput(fixture, callbacks()),
@@ -1536,6 +1664,13 @@ const rejectionEndsTheDaemon =
           new RouterWorkerRejectedError({ reason }),
         );
         expect(yield* Ref.get(pollCalls)).toBe(1);
+        expect(
+          lines.some(
+            (line) =>
+              line.startsWith("ERROR") &&
+              line.includes(`rejected this endpoint's ${reason}`),
+          ),
+        ).toBe(true);
 
         const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
         yield* worker.run.pipe(
@@ -1667,6 +1802,16 @@ describe("private Router worker", () => {
     30_000,
   );
   it(
+    "stays up, warns, and completes a recovery the Router drops out of",
+    outageDuringRecoveryRecovers,
+    30_000,
+  );
+  it(
+    "cold-starts with the Router down, warns, and recovers when it answers",
+    coldStartWithRouterDownRecovers,
+    30_000,
+  );
+  it(
     "recovers from a restart a detached worker's probe discovers",
     detachedRestartRecovers,
     30_000,
@@ -1695,11 +1840,11 @@ describe("private Router worker", () => {
     30_000,
   );
   it(
-    "ends the daemon when the Router rejects the endpoint's authentication",
+    "logs why and ends the daemon when the Router rejects the endpoint's authentication",
     rejectionEndsTheDaemon(new AuthenticationFailedError(), "authentication"),
   );
   it(
-    "ends the daemon when the Router rejects the endpoint's version",
+    "logs why and ends the daemon when the Router rejects the endpoint's version",
     rejectionEndsTheDaemon(new VersionMismatchError(), "version"),
   );
   it(
