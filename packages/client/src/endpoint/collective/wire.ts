@@ -12,6 +12,7 @@ import {
   type PrimitiveSchemaDefinition as McpPrimitiveSchemaDefinition,
   specTypeSchemas,
 } from "@modelcontextprotocol/client";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { Data, Effect, Option, ParseResult, Schema } from "effect";
 import {
   canonicalIdentifier,
@@ -43,7 +44,9 @@ const McpPrimitiveSchema = Schema.declare(
  * One property of an MCP form-mode `requestedSchema`, as the MCP SDK's
  * `PrimitiveSchemaDefinition` accepts it. Decoding keeps the SDK's parsed
  * value, so keywords outside the form-mode grammar never travel or reach
- * answer validation.
+ * answer validation. The SDK grammar admits some schemas its own validator
+ * cannot compile, such as an empty `enum`; decoding compiles each property
+ * so answer validation never meets one.
  */
 const PrimitiveSchemaDefinition = Schema.transformOrFail(
   Schema.Unknown,
@@ -52,15 +55,21 @@ const PrimitiveSchemaDefinition = Schema.transformOrFail(
     strict: true,
     decode: (value) => {
       const result = mcpPrimitiveSchemaDefinition.validate(value);
-      return result.issues === undefined
-        ? ParseResult.succeed(result.value)
-        : ParseResult.fail(
-            new ParseResult.Type(
-              McpPrimitiveSchema.ast,
-              value,
-              "not an MCP form-mode primitive schema",
-            ),
-          );
+      const invalid = (message: string) =>
+        new ParseResult.Type(McpPrimitiveSchema.ast, value, message);
+      if (result.issues !== undefined) {
+        return ParseResult.fail(
+          invalid("not an MCP form-mode primitive schema"),
+        );
+      }
+      const definition = result.value;
+      return ParseResult.try({
+        try: () => {
+          new AjvJsonSchemaValidator().getValidator(definition);
+          return definition;
+        },
+        catch: () => invalid("not a compilable form-mode primitive schema"),
+      });
     },
     encode: (definition) => ParseResult.succeed(definition),
   },

@@ -179,6 +179,15 @@ describe("requested schema grammar", () => {
       }),
     ).toBe(false);
   });
+
+  it("rejects a property the answer validator cannot compile", () => {
+    expect(
+      decodesSchema({
+        type: "object",
+        properties: { slot: { type: "string", enum: [] } },
+      }),
+    ).toBe(false);
+  });
 });
 
 // @agent-code-guard/regression-only: examples pin how content carries at most one collective part within the size limit.

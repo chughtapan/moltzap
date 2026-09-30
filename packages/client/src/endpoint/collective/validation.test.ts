@@ -55,6 +55,26 @@ describe("answer validation", () => {
     ]);
   });
 
+  it("names an undeclared field that shares an Object.prototype name", () => {
+    expect(failingFields({ slot: "mon", constructor: "x" })).toEqual([
+      { field: "constructor", reason: "unexpected" },
+    ]);
+  });
+
+  it("names a missing required field that shares an Object.prototype name", () => {
+    const toStringSchema = Schema.decodeUnknownSync(RequestedSchema)({
+      type: "object",
+      properties: { toString: { type: "string" } },
+      required: ["toString"],
+    });
+
+    expect(
+      Effect.runSync(
+        Effect.flip(validateAnswer(toStringSchema, {})),
+      ).failures.map(({ field, reason }) => ({ field, reason })),
+    ).toEqual([{ field: "toString", reason: "missing" }]);
+  });
+
   it("names every failing field of one answer", () => {
     expect(failingFields({ slot: "wed", hours: -1 })).toEqual([
       { field: "slot", reason: "invalid" },

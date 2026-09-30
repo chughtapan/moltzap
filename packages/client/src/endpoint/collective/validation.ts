@@ -55,17 +55,26 @@ export type CollectiveMemberOutcome =
   | Readonly<{ outcome: "invalid"; reason: string }>
   | Readonly<{ outcome: "no_answer" }>;
 
+/**
+ * Field names come from peers, so a lookup ignores the prototype chain: an
+ * answer field named `constructor` must not find `Object.prototype.constructor`.
+ */
+const ownValue = <Value>(
+  record: Readonly<Record<string, Value>>,
+  key: string,
+): Value | undefined => (Object.hasOwn(record, key) ? record[key] : undefined);
+
 function fieldFailure(
   validator: jsonSchemaValidator,
   requestedSchema: RequestedSchema,
   content: AnswerContent,
   field: string,
 ): CollectiveFieldFailure | undefined {
-  const definition = requestedSchema.properties[field];
+  const definition = ownValue(requestedSchema.properties, field);
   if (definition === undefined) {
     return { field, reason: "unexpected" };
   }
-  const value = content[field];
+  const value = ownValue(content, field);
   if (value === undefined) {
     return requestedSchema.required?.includes(field) === true
       ? { field, reason: "missing" }
