@@ -391,9 +391,9 @@ Four packages publish to npm as one version set: `@moltzap/identity`,
 - The package version is independent of `MOLTZAP_VERSION`, the MCP revision,
   and every persisted-schema version. Advancing one never advances another.
 - Releases run from `main` through `.github/workflows/publish.yml` with npm
-  provenance; the same run pushes the OpenClaw and NanoClaw agent images
-  tagged with the version and records their digests in
-  `scripts/agent-images/README.md`.
+  provenance and publish npm packages only. The OpenClaw and NanoClaw agent
+  images build from `scripts/agent-images/`; the private
+  `social-harness/deployment` repository publishes them.
 - `scripts/architecture/check-boundaries.js` fails when a published manifest
   is private, when the four versions differ, when the NanoClaw adapter
   is not private, or when the release workflow's package list drifts from the
