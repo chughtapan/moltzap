@@ -32,16 +32,31 @@ import { createHash, randomBytes } from "node:crypto";
 import type { OutboundMessageInput, StoredOutboundMessage } from "../store.js";
 import { decodeCanonical, encodeCanonical } from "../representation.js";
 import {
+  detach,
+  isTransportFailure,
+  logRecoveryAfterLoss,
+  logRecoveryComplete,
+  mapRouterFailure,
+  noteRunFailure,
+  pollBlipRetry,
+  reattach,
+  reportUnreachable,
+  type RouterCallFailure,
+} from "./outage.js";
+import {
+  isTransientRouterWorkerError,
   type RouterDiscontinuityReason,
   type RouterTailAnchor,
   type RouterWorker,
   type RouterWorkerActiveState,
   RouterWorkerAuthenticationError,
+  type RouterWorkerDetachedState,
   RouterWorkerDiscontinuityError,
   type RouterWorkerInput,
   RouterWorkerPersistenceError,
   type RouterWorkerPollError,
   RouterWorkerProtocolError,
+  routerWorkerReconnectSchedule,
   type RouterWorkerRecoveringState,
   type RouterWorkerRecoverySend,
   routerWorkerRetryAttempts,
@@ -51,7 +66,7 @@ import {
   type RouterWorkerSendOutcome,
   type RouterWorkerServices,
   type RouterWorkerState,
-  RouterWorkerTransportError,
+  type RouterWorkerTransportError,
   RouterWorkerUnavailableError,
   type RouterWorkerVerifiedIngress,
 } from "./types.js";
@@ -64,8 +79,16 @@ export {
   RouterWorkerPersistenceError,
   RouterWorkerProtocolError,
   RouterWorkerRecoveryError,
+  RouterWorkerRejectedError,
   RouterWorkerTransportError,
   RouterWorkerUnavailableError,
+} from "./types.js";
+/** Why the worker or the outbound drain failed, for logs. */
+export { describeRouterWorkerFailure } from "./outage.js";
+/** Transient-failure policy shared with the endpoint's outbound drain. */
+export {
+  isTransientRouterWorkerError,
+  routerWorkerReconnectSchedule,
 } from "./types.js";
 /** Router-worker protocol and capability types used by endpoint composition. */
 export type {
@@ -82,14 +105,8 @@ export type {
 } from "./types.js";
 
 const mapAuthenticationError = () => new RouterWorkerAuthenticationError();
-const mapTransportError = () => new RouterWorkerTransportError();
 const mapProtocolError = () => new RouterWorkerProtocolError();
 const mapPersistenceError = () => new RouterWorkerPersistenceError();
-
-/** Bounded fixed-delay policy for poll-loop retries. */
-const routerWorkerRetrySchedule = Schedule.fixed(routerWorkerRetryDelay).pipe(
-  Schedule.intersect(Schedule.recurs(routerWorkerRetryAttempts - 1)),
-);
 
 const anchorFromOmittedResult = (
   result: RouterPollResult,
@@ -115,7 +132,7 @@ const pollRouterTail = (
   >,
 ): Effect.Effect<
   RouterTailAnchor,
-  RouterWorkerTransportError | RouterWorkerProtocolError
+  RouterCallFailure | RouterWorkerProtocolError
 > =>
   services.router
     .poll({
@@ -124,8 +141,8 @@ const pollRouterTail = (
       signingAuthority: caller.signingAuthority,
     })
     .pipe(
-      Effect.retry(routerWorkerRetrySchedule),
-      Effect.mapError(mapTransportError),
+      Effect.mapError(mapRouterFailure),
+      Effect.retry(pollBlipRetry),
       Effect.flatMap(anchorFromOmittedResult),
       Effect.interruptible,
     );
@@ -213,7 +230,7 @@ interface TransmitInput {
 
 type OutboundTransportError =
   | RouterWorkerPersistenceError
-  | RouterWorkerTransportError
+  | RouterCallFailure
   | RouterWorkerProtocolError;
 
 const retryUnknown = <Payload>(
@@ -339,10 +356,10 @@ function transmitOuter<Payload>(
       signingAuthority: runtime.input.signingAuthority,
     })
     .pipe(
-      Effect.mapError(mapTransportError),
+      Effect.mapError(mapRouterFailure),
       Effect.matchEffect({
         onFailure: (error) =>
-          input.attemptsRemaining <= 1
+          !isTransportFailure(error) || input.attemptsRemaining <= 1
             ? Effect.fail(error)
             : Effect.sleep(routerWorkerRetryDelay).pipe(
                 Effect.zipRight(
@@ -573,7 +590,7 @@ const pollRecoveringOnce = <Payload>(
         callerAgentId: runtime.input.callerAgentId,
         signingAuthority: runtime.input.signingAuthority,
       })
-      .pipe(Effect.mapError(mapTransportError));
+      .pipe(Effect.mapError(mapRouterFailure));
     switch (result.kind) {
       case "batch": {
         if (result.routerInstanceId !== snapshot.anchor.routerInstanceId) {
@@ -600,14 +617,7 @@ const pumpRecovery = <Payload>(
   recovering: RouterWorkerRecoveringState,
 ): Effect.Effect<never, RouterWorkerPollError> =>
   pollRecoveringOnce(runtime, operations, recovering.generation).pipe(
-    Effect.retry(
-      routerWorkerRetrySchedule.pipe(
-        Schedule.whileInput(
-          (error: RouterWorkerPollError) =>
-            error._tag === "RouterWorkerTransportError",
-        ),
-      ),
-    ),
+    Effect.retry(pollBlipRetry),
     Effect.forever,
     Effect.interruptible,
   );
@@ -660,6 +670,7 @@ const finishRouterRecovery = <Payload>(
           generation: prepared.generation,
           anchor: current.anchor,
         });
+        yield* logRecoveryComplete(current);
       }),
     );
   }).pipe(Effect.withSpan("finishRouterRecovery"));
@@ -877,6 +888,7 @@ function anchorRecovery<Payload>(
         volatileFoldsAbandoned:
           current.reason === reason && current.volatileFoldsAbandoned,
         anchor,
+        unreachableSince: Option.none(),
       };
       yield* Ref.set(runtime.state, anchored);
       return anchored;
@@ -907,7 +919,7 @@ const triggerDiscontinuity = <Payload>(
     Effect.gen(function* () {
       const current = yield* Ref.get(runtime.state);
       if (
-        current.kind === "active" &&
+        current.kind !== "recovering" &&
         current.generation !== observedGeneration
       ) {
         return;
@@ -921,10 +933,14 @@ const triggerDiscontinuity = <Payload>(
         reason,
         priorRouterInstanceId: current.anchor.routerInstanceId,
         volatileFoldsAbandoned: false,
+        unreachableSince: Option.none(),
       };
       yield* runtime.stateGate.withPermits(1)(
         Ref.set(runtime.state, recovering),
       );
+      if (current.kind === "detached") {
+        yield* logRecoveryAfterLoss(recovering);
+      }
       return yield* finishRecovery(runtime, recovering);
     }),
   );
@@ -940,7 +956,11 @@ const pollActiveOnce = <Payload>(
       signingAuthority: runtime.input.signingAuthority,
     })
     .pipe(
-      Effect.mapError(mapTransportError),
+      Effect.mapError(mapRouterFailure),
+      Effect.retry(pollBlipRetry),
+      Effect.tapErrorTag("RouterWorkerTransportError", () =>
+        detach(runtime, snapshot.generation),
+      ),
       Effect.flatMap((result) => {
         switch (result.kind) {
           case "batch":
@@ -975,16 +995,53 @@ const pollActiveOnce = <Payload>(
       Effect.interruptible,
     );
 
+/**
+ * Reattach a detached worker once the Router answers. The probe is an
+ * omitted-cursor poll, which the Router answers at once, whereas a
+ * continuation poll may be held for 25 s. The same instance reattaches at the
+ * retained anchor and cursor; another instance starts restart recovery.
+ * @param runtime Detached worker.
+ * @param snapshot Detached state the probe was issued from.
+ * @returns Completion once the worker is active again or recovering.
+ */
+const probeDetached = <Payload>(
+  runtime: RouterWorkerRuntime<Payload>,
+  snapshot: RouterWorkerDetachedState,
+): Effect.Effect<void, RouterWorkerPollError> =>
+  pollRouterTail(runtime, runtime.input).pipe(
+    Effect.flatMap((tail) =>
+      tail.routerInstanceId === snapshot.anchor.routerInstanceId
+        ? reattach(runtime, snapshot)
+        : triggerDiscontinuity(
+            runtime,
+            "router_restarted",
+            snapshot.generation,
+          ),
+    ),
+    Effect.interruptible,
+  );
+
 const makePollOnce = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
 ): Effect.Effect<void, RouterWorkerPollError> =>
   runtime.pollGate.withPermits(1)(
     Ref.get(runtime.state).pipe(
-      Effect.flatMap((state) =>
-        state.kind === "active"
-          ? pollActiveOnce(runtime, state)
-          : runtime.recoveryGate.withPermits(1)(finishRecovery(runtime, state)),
-      ),
+      Effect.flatMap((state) => {
+        switch (state.kind) {
+          case "active":
+            return pollActiveOnce(runtime, state);
+          case "detached":
+            return probeDetached(runtime, state);
+          case "recovering":
+            return runtime.recoveryGate.withPermits(1)(
+              finishRecovery(runtime, state),
+            );
+          default: {
+            const exhaustive: never = state;
+            return exhaustive;
+          }
+        }
+      }),
     ),
   );
 
@@ -1043,11 +1100,19 @@ const makeWorker = <Payload>(
       Effect.flatMap(Effect.orDie),
     ),
     pollOnce,
-    run: pollOnce.pipe(
-      Effect.retry(routerWorkerRetrySchedule),
-      Effect.forever,
-      Effect.interruptible,
-    ),
+    run: Effect.zipRight(
+      reportUnreachable(runtime),
+      pollOnce.pipe(
+        Effect.tapError((error) => noteRunFailure(runtime, error)),
+        Effect.retry(
+          routerWorkerReconnectSchedule.pipe(
+            Schedule.whileInput(isTransientRouterWorkerError),
+          ),
+        ),
+        Effect.forever,
+      ),
+      { concurrent: true },
+    ).pipe(Effect.interruptible),
     send: (outboundId: string) => makeSend(runtime, outboundId),
   });
 };
@@ -1082,6 +1147,7 @@ export const makeRouterWorker = <Payload>(
         generation: 0,
         reason: "router_restarted",
         volatileFoldsAbandoned: false,
+        unreachableSince: Option.none(),
       }),
       pollGate: yield* Effect.makeSemaphore(1),
       stateGate: yield* Effect.makeSemaphore(1),

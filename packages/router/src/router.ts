@@ -155,6 +155,24 @@ const decodeCanonicalResult = <A, I>(
     return result;
   });
 
+/**
+ * Gateway statuses an intermediary answers with while the Router behind it is
+ * down or restarting.
+ */
+const gatewayStatuses: ReadonlySet<number> = new Set([502, 503, 504]);
+
+/**
+ * Whether a response is a gateway's page rather than a Router answer: a
+ * gateway status without the Router's JSON content type. The Router itself
+ * could not be reached, so this is a connection failure, not an invalid
+ * Router response.
+ */
+const isGatewayPage = (
+  response: HttpClientResponse.HttpClientResponse,
+): boolean =>
+  gatewayStatuses.has(response.status) &&
+  response.headers["content-type"] !== routerJsonContentType;
+
 const decodeResponse = <A, I>(
   schema: Schema.Schema<A, I>,
   response: HttpClientResponse.HttpClientResponse,
@@ -163,6 +181,9 @@ const decodeResponse = <A, I>(
   RouterHttpEnvelopeError | RouterConnectionError | RouterInvalidResponseError
 > =>
   Effect.gen(function* () {
+    if (isGatewayPage(response)) {
+      return yield* Effect.fail(new RouterConnectionError());
+    }
     const bytes = yield* response.arrayBuffer.pipe(
       Effect.catchTag("ResponseError", () =>
         Effect.fail(new RouterConnectionError()),

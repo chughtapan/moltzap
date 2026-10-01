@@ -10,7 +10,14 @@ import type {
 } from "@moltzap/identity";
 import type { Registry } from "@moltzap/identity/registry";
 import type { PollCursor, Router, RouterInstanceId } from "@moltzap/router";
-import { type Context, Data, type Effect, type SubscriptionRef } from "effect";
+import {
+  type Context,
+  Data,
+  type Effect,
+  type Option,
+  Schedule,
+  type SubscriptionRef,
+} from "effect";
 import type { DecodedOuterBody } from "../representation.js";
 import type { EndpointStore } from "../store.js";
 
@@ -29,7 +36,10 @@ export class RouterWorkerPayloadInvalidError extends Data.TaggedError(
   "RouterWorkerPayloadInvalidError",
 ) {}
 
-/** Router communication exhausted its bounded retry allowance. */
+/**
+ * The Router could not be reached, timed out, or answered overloaded,
+ * unavailable, or internal error through a bounded run of quick retries.
+ */
 export class RouterWorkerTransportError extends Data.TaggedError(
   "RouterWorkerTransportError",
 ) {}
@@ -49,7 +59,23 @@ export class RouterWorkerDiscontinuityError extends Data.TaggedError(
   "RouterWorkerDiscontinuityError",
 ) {}
 
-/** A normal send was attempted while certified-history recovery owns the worker. */
+/**
+ * The Router refused this endpoint's request itself: its authentication, its
+ * MoltZap version, its representation, or its local signature. Retrying
+ * cannot succeed, so the failure is fatal rather than an outage.
+ */
+export class RouterWorkerRejectedError extends Data.TaggedError(
+  "RouterWorkerRejectedError",
+)<{
+  readonly reason:
+    | "authentication"
+    | "version"
+    | "request"
+    | "response"
+    | "signing";
+}> {}
+
+/** A normal send was attempted while the worker is detached or recovering. */
 export class RouterWorkerUnavailableError extends Data.TaggedError(
   "RouterWorkerUnavailableError",
 ) {}
@@ -73,6 +99,7 @@ export type RouterIngressDisposition = "accepted" | "ignored";
 export type RouterWorkerSendError =
   | RouterWorkerAuthenticationError
   | RouterWorkerPersistenceError
+  | RouterWorkerRejectedError
   | RouterWorkerTransportError
   | RouterWorkerProtocolError
   | RouterWorkerRecoveryError
@@ -83,6 +110,7 @@ export type RouterWorkerSendError =
 export type RouterWorkerPollError =
   | RouterWorkerAuthenticationError
   | RouterWorkerPersistenceError
+  | RouterWorkerRejectedError
   | RouterWorkerTransportError
   | RouterWorkerProtocolError
   | RouterWorkerRecoveryError
@@ -180,11 +208,17 @@ export interface RouterWorker {
   >;
   /**
    * The active anchor as soon as one exists: the current anchor while the
-   * worker is active, otherwise the anchor the next completed recovery
-   * publishes. Callers bound the wait; the worker itself never gives up.
+   * worker is active, otherwise the anchor the next answered poll or
+   * completed recovery publishes. Callers bound the wait; the worker itself
+   * never gives up.
    */
   readonly awaitAnchor: Effect.Effect<RouterTailAnchor>;
   readonly pollOnce: Effect.Effect<void, RouterWorkerPollError>;
+  /**
+   * Polls for the endpoint's lifetime. A transient failure detaches the
+   * worker and backs off until the Router answers; only a non-transient
+   * failure ends the loop.
+   */
   readonly run: Effect.Effect<never, RouterWorkerPollError>;
   readonly send: (
     outboundId: string,
@@ -206,11 +240,30 @@ export interface RouterWorkerRecoveringState {
   readonly priorRouterInstanceId?: RouterInstanceId;
   readonly volatileFoldsAbandoned: boolean;
   readonly anchor?: RouterTailAnchor;
+  /**
+   * Clock epoch milliseconds when a recovery attempt first lost the Router;
+   * none once the Router answers the recovery's tail poll.
+   */
+  readonly unreachableSince: Option.Option<number>;
+}
+
+/**
+ * Volatile cursor state while the Router stops answering an active worker.
+ * The next answered poll either reattaches at the same anchor or starts
+ * recovery, so no send runs until the Router's instance is known again.
+ */
+export interface RouterWorkerDetachedState {
+  readonly kind: "detached";
+  readonly generation: number;
+  readonly anchor: RouterTailAnchor;
+  /** Epoch milliseconds of the Clock when the worker detached. */
+  readonly detachedAt: number;
 }
 
 /** Closed volatile lifecycle of the Router worker. */
 export type RouterWorkerState =
   | RouterWorkerActiveState
+  | RouterWorkerDetachedState
   | RouterWorkerRecoveringState;
 
 /** Resolved public capabilities consumed by private worker mechanics. */
@@ -244,3 +297,51 @@ export type RouterWorkerSendOutcome =
 export const routerWorkerRetryAttempts = 3;
 /** Fixed interruptible spacing between bounded attempts. */
 export const routerWorkerRetryDelay = "25 millis";
+
+/**
+ * Quick retries of one poll before a transport failure detaches the worker,
+ * spanning about 350 ms, so a connection reset or a single overloaded answer
+ * does not block sends.
+ */
+export const routerWorkerBlipSchedule = Schedule.exponential("50 millis").pipe(
+  Schedule.intersect(Schedule.recurs(3)),
+);
+
+/**
+ * Backoff for work that waits out an unreachable or re-anchoring Router: the
+ * poll loop and the outbound drain. Delays grow from 100 ms to a 5 s cap and
+ * are jittered so endpoints do not return in lockstep after a Router restart.
+ * It never ends, because a Router outage halts progress rather than failing
+ * the endpoint.
+ */
+export const routerWorkerReconnectSchedule = Schedule.exponential(
+  "100 millis",
+).pipe(Schedule.union(Schedule.spaced("5 seconds")), Schedule.jittered);
+
+/**
+ * How often a worker that cannot reach the Router, detached or recovering,
+ * repeats its warning.
+ */
+export const routerWorkerDetachedReportInterval = "60 seconds";
+
+const transientByTag = {
+  RouterWorkerAuthenticationError: false,
+  RouterWorkerDiscontinuityError: true,
+  RouterWorkerPersistenceError: false,
+  RouterWorkerProtocolError: false,
+  RouterWorkerRecoveryError: false,
+  RouterWorkerRejectedError: false,
+  RouterWorkerTransportError: true,
+  RouterWorkerUnavailableError: true,
+} as const satisfies Readonly<Record<RouterWorkerPollError["_tag"], boolean>>;
+
+/**
+ * Whether a worker failure ends once the Router answers and the worker
+ * re-anchors. Every other failure is a protocol, persistence, recovery, or
+ * Router-rejection fault that stays fatal.
+ * @param error Poll or send failure; both unions share these tags.
+ * @returns True for transport loss, a pending recovery, or a discontinuity.
+ */
+export const isTransientRouterWorkerError = (
+  error: RouterWorkerPollError | RouterWorkerSendError,
+): boolean => transientByTag[error._tag];

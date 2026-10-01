@@ -61,7 +61,7 @@ export class EngineInitializationError extends Data.TaggedError(
 export class EngineOutboundError extends Data.TaggedError(
   "EngineOutboundError",
 )<{
-  readonly reason: "network" | "persistence" | "representation";
+  readonly reason: "network" | "persistence" | "representation" | "version";
 }> {}
 
 /**
