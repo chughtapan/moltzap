@@ -12,7 +12,19 @@ OpenClaw-specific types.
 
 ## Public surface
 
-### [`default`](./plugin.ts#L1194)
+### [`COLLECTIVE_PARAMETER_VISIBILITY`](./plugin.ts#L74)
+
+_Variable_
+
+```ts
+export const COLLECTIVE_PARAMETER_VISIBILITY = "all-configured"
+```
+
+Where the message tool shows the collective parameters: on every turn.
+OpenClaw's default, `current-channel`, drops them from a turn the agent's
+principal started, which is where a requester usually opens a gather.
+
+### [`default`](./plugin.ts#L1203)
 
 _Variable_
 

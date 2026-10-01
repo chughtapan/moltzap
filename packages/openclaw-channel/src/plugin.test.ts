@@ -36,6 +36,7 @@ import { describe, expect, vi, it as vitestIt } from "vitest";
 import manifest from "../openclaw.plugin.json" with { type: "json" };
 import { openClawTestStateDirectory } from "../vitest.setup.js";
 import {
+  COLLECTIVE_PARAMETER_VISIBILITY,
   createMoltzapChannelPlugin,
   makeMoltZapChannelConfigJsonSchema,
 } from "./plugin.js";
@@ -688,6 +689,7 @@ function messageToolOffersCollectiveResponse() {
     throw new Error("expected one message tool schema contribution");
   }
 
+  expect(schema.visibility).toBe(COLLECTIVE_PARAMETER_VISIBILITY);
   expect(schema.properties.collectiveResponse).toMatchObject({
     anyOf: [
       { properties: { action: { enum: ["accept"] } } },

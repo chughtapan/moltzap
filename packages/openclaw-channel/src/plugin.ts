@@ -66,6 +66,13 @@ const INBOUND_LOG_PREVIEW_CHARS = 80;
  */
 const HIDE_COLLECTIVES_VARIABLE = "MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES";
 
+/**
+ * Where the message tool shows the collective parameters: on every turn.
+ * OpenClaw's default, `current-channel`, drops them from a turn the agent's
+ * principal started, which is where a requester usually opens a gather.
+ */
+export const COLLECTIVE_PARAMETER_VISIBILITY = "all-configured";
+
 type OpenClawTargetKind = "user" | "group";
 type OpenClawOutboundFailure =
   | "account-not-connected"
@@ -360,7 +367,8 @@ function createConfigSection() {
  * execution mode, so the `collective` parameter reaches the endpoint
  * unchanged. `message.send.text` remains for the sends OpenClaw's core makes
  * itself. The tool offers `send` without the collective parameters while
- * {@link HIDE_COLLECTIVES_VARIABLE} is true or unreadable.
+ * {@link HIDE_COLLECTIVES_VARIABLE} is true or unreadable, and with
+ * {@link COLLECTIVE_PARAMETER_VISIBILITY} otherwise.
  * @param connectedAccount The account whose endpoint performs the operation.
  * @returns The action adapter registered on the channel plugin.
  */
@@ -381,6 +389,7 @@ function createMessageActions(
                 collectiveResponse: collectiveResponseParameter,
               },
               actions: ["send"],
+              visibility: COLLECTIVE_PARAMETER_VISIBILITY,
             },
           }),
     }),
