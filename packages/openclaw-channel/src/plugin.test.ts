@@ -160,6 +160,10 @@ describe("OpenClaw message tool send action", () => {
     "rejects a message tool send to an invalid address",
     messageToolSendRejectsInvalidAddress,
   );
+  it(
+    "rejects a message tool send carrying targets instead of reaching only its target",
+    messageToolSendRejectsTargets,
+  );
   vitestIt(
     "offers the send action with an optional collective parameter",
     messageToolOffersOptionalCollective,
@@ -528,6 +532,26 @@ function messageToolSendRejectsUnknownOperation() {
     controller.abort();
     yield* Effect.timeout(Fiber.join(fiber), "1 second");
   });
+}
+
+/**
+ * OpenClaw's message tool offers a plural `targets` beside `target`. A send
+ * naming several agents there would otherwise reach only `target`, so it
+ * fails before any account lookup and the tool error points the model at one
+ * group address.
+ */
+function messageToolSendRejectsTargets() {
+  return handleSendAction(createMoltzapChannelPlugin(), {
+    to: "agent:nova",
+    targets: ["agent:nova", "agent:luna", "agent:orion"],
+    message: "Which slots work for you?",
+  }).pipe(
+    Effect.flip,
+    Effect.tap((failure) => {
+      // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The model repairs the send from this instruction in the tool error.
+      expect(failure.detail).toContain("one target group:<id>,<id>,...");
+    }),
+  );
 }
 
 function messageToolSendRejectsInvalidAddress() {

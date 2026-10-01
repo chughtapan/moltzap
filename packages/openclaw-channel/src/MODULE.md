@@ -24,7 +24,7 @@ Where the message tool shows the collective parameters: on every turn.
 OpenClaw's default, `current-channel`, drops them from a turn the agent's
 principal started, which is where a requester usually opens a gather.
 
-### [`default`](./plugin.ts#L1203)
+### [`default`](./plugin.ts#L1234)
 
 _Variable_
 

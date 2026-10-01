@@ -203,6 +203,22 @@ class OpenClawCollectivesUnavailableError extends Data.TaggedError(
   }
 }
 
+/**
+ * A message tool send carrying OpenClaw's plural `targets`. A MoltZap send
+ * goes to exactly one address, so the send fails rather than reach only
+ * `target`; the message tells the model to name every member in one group
+ * address.
+ */
+class OpenClawTargetsUnsupportedError extends Data.TaggedError(
+  "OpenClawTargetsUnsupportedError",
+)<{
+  readonly accountId: string;
+}> {
+  override get message(): string {
+    return `MoltZap message delivery failed for account ${this.accountId}: targets is not supported; a MoltZap send has one recipient, so address several agents with one target group:<id>,<id>,... and omit targets`;
+  }
+}
+
 class OpenClawConfigurationError extends Data.TaggedError(
   "OpenClawConfigurationError",
 )<{
@@ -224,6 +240,8 @@ class OpenClawRuntimeError extends Data.TaggedError("OpenClawRuntimeError")<{
 }
 
 const isMessageAddressInput = Schema.is(MessageAddressInput);
+
+const carriesTargets = Schema.is(Schema.NonEmptyArray(Schema.Unknown));
 
 /**
  * The `collective` parameter MoltZap adds to the message tool's `send`
@@ -418,7 +436,8 @@ function handleMessageAction(
     collective: ctx.params.collective,
     collectiveResponse: ctx.params.collectiveResponse,
   };
-  return refuseHiddenCollectives(send).pipe(
+  return refuseTargets(ctx).pipe(
+    Effect.andThen(() => refuseHiddenCollectives(send)),
     Effect.andThen(() => sendOperation(connectedAccount, send)),
     Effect.map(({ input, result }) =>
       jsonResult({
@@ -428,6 +447,18 @@ function handleMessageAction(
       }),
     ),
   );
+}
+
+function refuseTargets(
+  ctx: ChannelMessageActionContext,
+): Effect.Effect<void, OpenClawTargetsUnsupportedError> {
+  return carriesTargets(ctx.params.targets)
+    ? Effect.fail(
+        new OpenClawTargetsUnsupportedError({
+          accountId: accountLabel(ctx.accountId),
+        }),
+      )
+    : Effect.void;
 }
 
 /**

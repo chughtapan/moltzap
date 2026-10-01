@@ -1,8 +1,8 @@
 /** @file Pins the collective values carried in a post's data part. */
 
-import { Effect, Encoding, Exit, Option, Schema } from "effect";
+import { Effect, Encoding, Exit, JSONSchema, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { AgentAddress, Content } from "../../contract.js";
+import { AgentAddress, Content, RequestedSchema } from "../../contract.js";
 import {
   COLLECTIVE_DATA_KEY,
   CollectiveContentError,
@@ -44,6 +44,57 @@ const decodesSchema = (value: unknown): boolean =>
   Exit.isSuccess(
     Effect.runSyncExit(Schema.decodeUnknown(FormModeSchema)(value)),
   );
+
+const formPropertyDescription = Schema.Struct({
+  properties: Schema.Struct({
+    properties: Schema.Struct({
+      additionalProperties: Schema.Struct({ description: Schema.String }),
+    }),
+  }),
+});
+
+const formPropertyExample = Schema.parseJson(
+  Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+);
+
+const EXAMPLE_START = '{"type"';
+
+/** The index just past the `}` that closes the `{` at `start`. */
+const objectEnd = (text: string, start: number): number => {
+  let depth = 0;
+  for (let index = start; index < text.length; index += 1) {
+    depth += Number(text[index] === "{") - Number(text[index] === "}");
+    if (depth === 0) {
+      return index + 1;
+    }
+  }
+  return text.length;
+};
+
+/**
+ * The JSON objects the `requestedSchema` property description shows a model,
+ * each a balanced `{"type"...}` span of the description text. Every span
+ * must parse, so a placeholder such as `[...]` fails here.
+ */
+const formPropertyExamples = (): ReadonlyArray<
+  Readonly<Record<string, unknown>>
+> => {
+  const { description } = Schema.decodeUnknownSync(formPropertyDescription)(
+    JSONSchema.make(RequestedSchema),
+  ).properties.properties.additionalProperties;
+  const examples: Array<Readonly<Record<string, unknown>>> = [];
+  let start = description.indexOf(EXAMPLE_START);
+  while (start !== -1) {
+    const end = objectEnd(description, start);
+    examples.push(
+      Schema.decodeUnknownSync(formPropertyExample)(
+        description.slice(start, end),
+      ),
+    );
+    start = description.indexOf(EXAMPLE_START, end);
+  }
+  return examples;
+};
 
 const decodeValue = (value: unknown) =>
   Effect.runSync(decodeCollectiveValue(value));
@@ -185,6 +236,18 @@ describe("requested schema grammar", () => {
     ).toBe(false);
   });
 
+  it("accepts a multi-select only when its items carry a string type", () => {
+    const multiSelect = (items: object) => ({
+      type: "object",
+      properties: { slots: { type: "array", items } },
+    });
+
+    expect(decodesSchema(multiSelect({ type: "string", enum: ["a"] }))).toBe(
+      true,
+    );
+    expect(decodesSchema(multiSelect({ enum: ["a"] }))).toBe(false);
+  });
+
   it("rejects a property the answer validator cannot compile", () => {
     expect(
       decodesSchema({
@@ -192,6 +255,21 @@ describe("requested schema grammar", () => {
         properties: { slot: { type: "string", enum: [] } },
       }),
     ).toBe(false);
+  });
+});
+
+describe("requested schema description", () => {
+  it("shows only property examples the grammar accepts", () => {
+    const examples = formPropertyExamples();
+
+    expect(examples.map((example) => example.type)).toEqual(
+      expect.arrayContaining(["string", "number", "boolean", "array"]),
+    );
+    for (const example of examples) {
+      expect(
+        decodesSchema({ type: "object", properties: { field: example } }),
+      ).toBe(true);
+    }
   });
 });
 

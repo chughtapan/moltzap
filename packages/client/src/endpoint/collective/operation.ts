@@ -476,7 +476,12 @@ interface PreparedGather {
   readonly untilDeadline: number;
 }
 
-/** Check a collecting operation's schema against the MCP form-mode grammar. */
+/**
+ * Check a collecting operation's schema against the MCP form-mode grammar.
+ * The failure's detail is one line per issue, each led by its path within
+ * the schema, such as `properties.slots: items.type: ...`, because the
+ * requester's model repairs the form from this text alone.
+ */
 function formModeSchema(
   id: CollectiveId,
   requestedSchema: CollectingOperation["requestedSchema"],
@@ -485,7 +490,13 @@ function formModeSchema(
     Effect.mapError((error) =>
       collectiveFailure(id, {
         kind: "schema-invalid",
-        detail: ParseResult.TreeFormatter.formatErrorSync(error),
+        detail: ParseResult.ArrayFormatter.formatErrorSync(error)
+          .map(({ path, message }) =>
+            path.length === 0
+              ? message
+              : `${path.map(String).join(".")}: ${message}`,
+          )
+          .join("; "),
       }),
     ),
   );

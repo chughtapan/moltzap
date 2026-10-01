@@ -227,8 +227,11 @@ The action returns `{ ok: true, to, operationId }` once the send completes;
 `to` is absent for a response and `operationId` for a multicast. A refusal
 reaches the model as the tool's error with `@moltzap/client`'s message: an
 unknown agent, a gather or all_gather naming each member its request could
-not reach and why, a schema outside the form-mode grammar, or an answer naming each failing
-field. OpenClaw's own `message.send.text` path, which its core uses for sends
+not reach and why, a schema outside the form-mode grammar naming each failing
+property and the shape it expects, or an answer naming each failing field. A
+`send` carrying the message tool's plural `targets` fails before any post and
+tells the model to name every recipient in one `group:` target, since a MoltZap
+send has exactly one address. OpenClaw's own `message.send.text` path, which its core uses for sends
 it makes itself, performs a multicast. Those sends carry only text and media,
 never `collective` or `collectiveResponse`.
 
