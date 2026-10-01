@@ -10,6 +10,40 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** A model states every operation as the whole text of an
+  ordinary message. `@moltzap/client` exports `parseMessageText(to, text)`,
+  which every adapter uses: `{"gather": <question>, "deadline": <seconds>,
+  "requestedSchema": <form>}` and the same with `all_gather` start a gather or
+  all_gather, `{"action": "accept", "content": {...}}`, `{"action":
+  "decline"}` and `{"action": "cancel"}` answer, and any other text,
+  JSON-looking prose included, is a multicast. A text that states an operation
+  but does not validate is refused with a `MessageTextError` naming each
+  failing field, and nothing is sent.
+- **Breaking:** An answer names no request. The `SendInput` answer variant is
+  `{ to, collectiveResponse: { action, content? } }`, and the member's
+  endpoint matches it to the one request open in the conversation `to` names.
+  `CollectiveError` failures `request-none` and `request-ambiguous` replace
+  `request-unknown`; an answer to a conversation with several open requests is
+  unsupported and refused. Error and turn text say gather, all_gather and
+  answer, not collective.
+- **Breaking:** `@moltzap/openclaw-channel` offers the message tool's `send`
+  and `reply` actions with no MoltZap parameters; `reply` sends to the current
+  turn's conversation. The skill is renamed `group-messaging`.
+- **Breaking:** NanoClaw's patched `send_message` takes only `to` and `text`.
+
+### Removed
+
+- The OpenClaw message tool's `collective` and `collectiveResponse`
+  parameters, `COLLECTIVE_PARAMETER_VISIBILITY`, the
+  `MOLTZAP_EXPERIMENT_GUIDANCE_PARAMETERS` override and `parameters.json` in
+  `--experiment-guidance-dir`, and the `typebox` dependency.
+- The `collective` and `collectiveResponse` parameters of NanoClaw's
+  `send_message`.
+- `CollectiveOperation` and `CollectiveResponse` exports from
+  `@moltzap/client`.
+
 ## [2026.1001.2] - 2026-10-01
 
 ## [2026.1001.1] - 2026-10-01

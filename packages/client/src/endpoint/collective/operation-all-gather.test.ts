@@ -167,11 +167,8 @@ const startAllGather = (layer: CollectiveOperations) =>
 
 const respond = (layer: CollectiveOperations, slot: string) =>
   send(layer, {
-    collectiveResponse: {
-      id: requestId,
-      action: "accept",
-      content: { slot },
-    },
+    to: group,
+    collectiveResponse: { action: "accept", content: { slot } },
   });
 
 const failureOf = <A>(effect: Effect.Effect<A, SendError | CollectiveError>) =>
@@ -440,7 +437,7 @@ function reportsACloseThatCannotBeCertifiedAsAFailedOperation() {
           kind: "operationFailed",
           id,
           to: group,
-          error: `collective ${id} failed: its close was not certified (network-unavailable)`,
+          error: `all_gather ${id} failed: its close was not certified (network-unavailable)`,
         },
       ]);
     }),

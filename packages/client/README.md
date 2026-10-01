@@ -23,8 +23,11 @@ multicast by default. A multicast creates one post with a fresh Client-minted
 member the text as a question, one request post in each member's direct
 conversation, and returns its `operationId`; it fails with a
 `CollectiveError` naming each member whose request post was refused. A member
-answers with a `collectiveResponse`, which the endpoint validates against the
-request's form and sends to the conversation the request arrived in. An
+answers with a `collectiveResponse` sent to the conversation the request
+arrived in; the endpoint matches it to the one request open there, validates
+it against that request's form, and refuses it when none or several are open.
+`parseMessageText` reads any of these from a message's whole text, so every
+adapter accepts the same text. An
 all_gather asks a `group:` address one question in the group conversation;
 each member endpoint keeps peer answers from its model until the requester's
 close, which lists the answers counted, and every member receives the same

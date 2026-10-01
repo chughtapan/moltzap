@@ -35,7 +35,7 @@ const packageRoots = Object.freeze({
 });
 const OPENCLAW_VERSION = "2026.8.1";
 const OPENCLAW_COMMIT_SHA = "ea806575e6450e4d1efdfc72c19f04be982a1b9b";
-const COLLECTIVES_SKILL_PATH = "skills/moltzap-collectives/SKILL.md";
+const GROUP_MESSAGING_SKILL_PATH = "skills/group-messaging/SKILL.md";
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-openclaw-pack-"));
 
 async function verifyPackedManifest(archive, manifests) {
@@ -78,7 +78,7 @@ async function verifyPackedManifest(archive, manifests) {
       "dist/plugin.js",
       "dist/plugin.d.ts",
       "openclaw.plugin.json",
-      COLLECTIVES_SKILL_PATH,
+      GROUP_MESSAGING_SKILL_PATH,
     ].map((path) => readFile(join(extractedPackage, path))),
   );
   const pluginManifest = JSON.parse(
@@ -242,7 +242,7 @@ async function verifyBundledHost(consumerRoot) {
 }
 
 /**
- * Asks the pinned OpenClaw CLI for the collectives skill and requires that the
+ * Asks the pinned OpenClaw CLI for the group-messaging skill and requires that the
  * plugin's manifest made it eligible and visible to the model with the packed
  * text. OpenClaw copies plugin skills into its state directory, so the check
  * compares content rather than paths.
@@ -265,30 +265,30 @@ async function verifyPluginSkill({
       join(openclawRoot, "openclaw.mjs"),
       "skills",
       "info",
-      "moltzap-collectives",
+      "group-messaging",
       "--json",
     ],
     { cwd: consumerRoot, env: hostEnvironment, maxBuffer: 16 * 1024 * 1024 },
   );
   const skill = JSON.parse(stdout);
   requireCondition(
-    skill.name === "moltzap-collectives" &&
+    skill.name === "group-messaging" &&
       skill.eligible === true &&
       skill.modelVisible === true,
-    "OpenClaw did not serve the plugin's collectives skill to the model",
+    "OpenClaw did not serve the plugin's group-messaging skill to the model",
   );
   const [served, packed] = await Promise.all([
     readFile(skill.filePath, "utf8"),
-    readFile(join(bundledPluginRoot, COLLECTIVES_SKILL_PATH), "utf8"),
+    readFile(join(bundledPluginRoot, GROUP_MESSAGING_SKILL_PATH), "utf8"),
   ]);
   requireCondition(
     served === packed,
-    "OpenClaw served collectives skill text other than the packed file",
+    "OpenClaw served group-messaging skill text other than the packed file",
   );
 }
 
 /**
- * Deletes the plugin's collectives skill directory, as the OpenClaw image's
+ * Deletes the plugin's group-messaging skill directory, as the OpenClaw image's
  * `--experiment-omit-collectives-skill` build does, and requires that the
  * pinned OpenClaw CLI no longer finds the skill.
  * @param {object} options The assembled host.
@@ -304,7 +304,7 @@ async function verifyOmittedPluginSkill({
   bundledPluginRoot,
   hostEnvironment,
 }) {
-  await rm(join(bundledPluginRoot, dirname(COLLECTIVES_SKILL_PATH)), {
+  await rm(join(bundledPluginRoot, dirname(GROUP_MESSAGING_SKILL_PATH)), {
     recursive: true,
   });
   const { stdout } = await exec(
@@ -314,8 +314,8 @@ async function verifyOmittedPluginSkill({
   );
   const listed = JSON.parse(stdout).skills.map((skill) => skill.name);
   requireCondition(
-    listed.length > 0 && !listed.includes("moltzap-collectives"),
-    `OpenClaw still lists the omitted collectives skill among ${listed.join(", ")}`,
+    listed.length > 0 && !listed.includes("group-messaging"),
+    `OpenClaw still lists the omitted group-messaging skill among ${listed.join(", ")}`,
   );
 }
 

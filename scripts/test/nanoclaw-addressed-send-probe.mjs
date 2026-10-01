@@ -47,8 +47,8 @@ async function replaceWorkspace(target) {
 
 /**
  * Queue each destination in order: one marked `final` through the agent's
- * final output, and any other as `send_message` tool arguments, which may
- * carry `collective` or `collectiveResponse`.
+ * final output, and any other as `send_message` tool arguments `to` and
+ * `text`, whose text may state a gather, all_gather or answer.
  * @param {ReadonlyArray<Record<string, unknown>>} destinations The sends.
  * @returns {Promise<void>} Completion once every send is queued.
  */

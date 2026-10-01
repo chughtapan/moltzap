@@ -368,7 +368,7 @@ function emitsARefusedGatherAsAnOperationFailedItemWhenFailuresGoInbound() {
           kind: "operationFailed",
           id: outcome.operationId,
           to: gatherTo,
-          error: `collective ${String(outcome.operationId)} failed: unreachable members: agent:carol (unknown-agent)`,
+          error: `operation ${String(outcome.operationId)} failed: unreachable members: agent:carol (unknown-agent)`,
         },
       ]);
     }),
@@ -547,11 +547,8 @@ function postsAValidAnswerToTheRequesterSDirectConversation() {
       const layer = yield* makeLayer(observed);
       yield* classifyPost(layer, requestPost("agent:bob", 60_000));
       yield* send(layer, {
-        collectiveResponse: {
-          id: requestId,
-          action: "accept",
-          content: { slot: "mon" },
-        },
+        to: "agent:bob",
+        collectiveResponse: { action: "accept", content: { slot: "mon" } },
       });
 
       expect(observed.sent).toEqual([
@@ -585,11 +582,8 @@ function refusesAnAnswerThatFailsTheRequestSSchemaNamingTheField() {
       yield* classifyPost(layer, requestPost("agent:bob", 60_000));
       const failure = yield* collectiveFailureOf(
         send(layer, {
-          collectiveResponse: {
-            id: requestId,
-            action: "accept",
-            content: { slot: "sun" },
-          },
+          to: "agent:bob",
+          collectiveResponse: { action: "accept", content: { slot: "sun" } },
         }),
       );
 
@@ -608,7 +602,8 @@ function refusesASecondAnswerToTheSameRequest() {
       const layer = yield* makeLayer(newObserved());
       yield* classifyPost(layer, requestPost("agent:bob", 60_000));
       const decline = {
-        collectiveResponse: { id: requestId, action: "decline" },
+        to: "agent:bob",
+        collectiveResponse: { action: "decline" },
       };
       yield* send(layer, decline);
 
@@ -619,17 +614,27 @@ function refusesASecondAnswerToTheSameRequest() {
   );
 }
 
-function refusesAnAnswerToARequestThisEndpointNeverReceived() {
+function reportsAnUnmatchedAnswerInTheConversationItWasSentTo() {
+  const observed = newObserved();
+
   return run(
     Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved());
-      const failure = yield* collectiveFailureOf(
-        send(layer, {
-          collectiveResponse: { id: requestId, action: "decline" },
-        }),
+      const layer = yield* makeLayer(observed);
+      const outcome = yield* send(
+        layer,
+        { to: "agent:bob", collectiveResponse: { action: "decline" } },
+        "inbound",
       );
 
-      expect(failure).toEqual({ kind: "request-unknown" });
+      expect(observed.sent).toEqual([]);
+      expect(observed.emitted).toEqual([
+        {
+          kind: "operationFailed",
+          id: outcome.operationId,
+          to: "agent:bob",
+          error: `operation ${outcome.operationId} failed: no gather or all_gather request is open in this conversation`,
+        },
+      ]);
     }),
   );
 }
@@ -642,7 +647,8 @@ function refusesAnAnswerAfterTheRequestSDeadline() {
       yield* TestClock.adjust(Duration.seconds(60));
       const failure = yield* collectiveFailureOf(
         send(layer, {
-          collectiveResponse: { id: requestId, action: "decline" },
+          to: "agent:bob",
+          collectiveResponse: { action: "decline" },
         }),
       );
 
@@ -1061,7 +1067,7 @@ describe("inbound classification", () => {
 // @agent-code-guard/regression-only: examples pin how a member answers a request.
 describe("collective responses", () => {
   it(
-    "posts a valid answer to the requester's direct conversation",
+    "posts a valid answer to the request open in the requester's direct conversation",
     postsAValidAnswerToTheRequesterSDirectConversation,
   );
 
@@ -1076,8 +1082,8 @@ describe("collective responses", () => {
   );
 
   it(
-    "refuses an answer to a request this endpoint never received",
-    refusesAnAnswerToARequestThisEndpointNeverReceived,
+    "reports an unmatched answer inbound in the conversation it was sent to",
+    reportsAnUnmatchedAnswerInTheConversationItWasSentTo,
   );
 
   it(

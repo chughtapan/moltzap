@@ -27,8 +27,8 @@
  *     RE-->>RM: operation id
  *   end
  *   ME->>MM: collectiveRequest item
- *   MM->>ME: send collectiveResponse id, action, content
- *   ME->>ME: validate content against the stored schema
+ *   MM->>ME: send collectiveResponse to the requester, action, content
+ *   ME->>ME: match the request open in that conversation&lt;br>validate content against its schema
  *   ME->>RE: response post in the direct conversation
  *   RE->>RE: consume, validate and record the answer
  *   Note over RE: complete when every member has an outcome&lt;br>or at the deadline
@@ -54,8 +54,8 @@
  *     RE-->>RM: operation id
  *   end
  *   ME->>MM: collectiveRequest item
- *   MM->>ME: send collectiveResponse id, action, content
- *   ME->>ME: validate content against the stored schema
+ *   MM->>ME: send collectiveResponse to the group, action, content
+ *   ME->>ME: match the request open in the group&lt;br>validate content against its schema
  *   ME->>RE: response post to the group
  *   ME->>ME: peer response posts, consumed and recorded by record hash
  *   Note over RE: complete when every member has an outcome&lt;br>or at the deadline
@@ -102,6 +102,11 @@ import {
   type SendResult,
 } from "../../contract.js";
 import { canonicalMessageAddress } from "../addressing/index.js";
+import {
+  matchOpenRequest,
+  type OpenRequest,
+  type RequestStatus,
+} from "./received-request.js";
 import {
   type CertifiedAnswer,
   type CollectiveResultItem,
@@ -223,8 +228,9 @@ export interface CollectiveOperations {
   /**
    * Perform one send. A gather completes once every request post is accepted
    * and fails naming each member whose post was refused; an all_gather
-   * completes once its group post is certified. A response is validated
-   * against its request's schema and addressed to the request's conversation.
+   * completes once its group post is certified. A response answers the one
+   * request open in the conversation its address names, validated against
+   * that request's schema.
    */
   readonly send: (
     input: SendInput,
@@ -266,18 +272,14 @@ interface OpenGather extends GatherRequest {
 
 /**
  * A request this endpoint received. `postId` is the request post it came in,
- * and `to` the conversation it arrived in and every answer goes to.
- * `sending` holds the one answer in flight, so a member answers at most once;
- * a refused answer reopens the request. An all_gather request carries
- * `shared` and becomes `closed` at its close.
+ * and every answer goes to `to`. A refused answer reopens the request; an
+ * all_gather request carries `shared`.
  */
-interface ReceivedRequest {
+interface ReceivedRequest extends RequestStatus {
   readonly postId: PostId;
   readonly from: AgentAddress;
-  readonly to: MessageAddressInput;
   readonly requestedSchema: FormModeSchema;
-  readonly deadlineAt: number;
-  state: "open" | "sending" | "answered" | "closed";
+  state: RequestStatus["state"];
   readonly shared?: SharedAnswers;
 }
 
@@ -328,7 +330,7 @@ export const makeCollectiveOperations = (
         ? reportFailure(
             state,
             failureDelivery,
-            respond(state, input.collectiveResponse),
+            respond(state, input.to, input.collectiveResponse),
           )
         : sendOperation(state, input, failureDelivery),
     classify: (message) => classify(state, message),
@@ -337,7 +339,7 @@ export const makeCollectiveOperations = (
 
 function sendOperation(
   state: CollectiveState,
-  input: Extract<SendInput, { readonly to: MessageAddressInput }>,
+  input: Extract<SendInput, { readonly text: string }>,
   failureDelivery: FailureDelivery,
 ): Effect.Effect<CollectiveSendOutcome, SendError | CollectiveError> {
   const operation = input.collective ?? {};
@@ -854,7 +856,7 @@ function closeAllGather(
           kind: "operationFailed",
           id: result.id,
           to: open.to,
-          error: `collective ${result.id} failed: its close was not certified (${error.reason})`,
+          error: `all_gather ${result.id} failed: its close was not certified (${error.reason})`,
         }),
       onSuccess: (post) =>
         state.ports.emit({ ...result, closePostId: post.postId }),
@@ -862,19 +864,23 @@ function closeAllGather(
   );
 }
 
+/**
+ * Answer the one request open in the conversation `to` names. The answer
+ * carries no request id, so the conversation decides which request it
+ * answers; with none open, or several, nothing is sent.
+ */
 function respond(
   state: CollectiveState,
+  to: MessageAddressInput,
   response: CollectiveResponse,
 ): Effect.Effect<
   CollectiveSendOutcome,
   RefusedSend<SendError | CollectiveError>
 > {
   return Effect.gen(function* () {
-    const { id } = response;
-    const now = yield* Clock.currentTimeMillis;
-    const request = yield* openRequest(state, id, now);
+    const { id, request } = yield* openRequest(state, to);
     const refused = refusedAs<SendError | CollectiveError>(id, request.to);
-    const value: ResponseValue = { kind: "response", ...response };
+    const value: ResponseValue = { kind: "response", id, ...response };
     const content = yield* responseContent(request, value).pipe(
       Effect.mapError(refused),
     );
@@ -898,51 +904,32 @@ function respond(
 }
 
 /**
- * The received request a response answers, refused when this endpoint never
- * received it, it was already answered, or its deadline or close has passed.
- * A refusal for an unknown request is addressed to the local agent, since no
- * requester is known.
+ * The one request open in the conversation `to` names. A refusal names an id
+ * minted for it, since no single request is answered.
  */
 function openRequest(
   state: CollectiveState,
-  id: CollectiveId,
-  now: number,
-): Effect.Effect<ReceivedRequest, RefusedSend<CollectiveError>> {
-  const request = state.requests.get(id);
-  if (request === undefined) {
-    return Effect.fail({
-      id,
-      to: state.ports.self,
-      error: collectiveFailure(id, { kind: "request-unknown" }),
-    });
-  }
-  const unavailable = requestUnavailable(request, now);
-  return unavailable === undefined
-    ? Effect.succeed(request)
-    : Effect.fail({
-        id,
-        to: request.to,
-        error: collectiveFailure(id, { kind: unavailable }),
-      });
-}
-
-function requestUnavailable(
-  request: ReceivedRequest,
-  now: number,
-): "request-answered" | "request-expired" | undefined {
-  switch (request.state) {
-    case "open":
-      return now >= request.deadlineAt ? "request-expired" : undefined;
-    case "sending":
-    case "answered":
-      return "request-answered";
-    case "closed":
-      return "request-expired";
-    default: {
-      const exhaustive: never = request.state;
-      return exhaustive;
-    }
-  }
+  to: MessageAddressInput,
+): Effect.Effect<
+  OpenRequest<ReceivedRequest>,
+  RefusedSend<SendError | CollectiveError>
+> {
+  return Effect.gen(function* () {
+    const now = yield* Clock.currentTimeMillis;
+    const { id } = yield* mintCollectiveId(state.ports.self);
+    const self = state.ports.self.slice("agent:".length);
+    const { address } = yield* canonicalMessageAddress(to, self).pipe(
+      Effect.mapError(refusedAs<SendError | CollectiveError>(id, to)),
+    );
+    return yield* matchOpenRequest(state.requests, address, now).pipe(
+      Effect.mapError((kind) =>
+        refusedAs<SendError | CollectiveError>(
+          id,
+          address,
+        )(collectiveFailure(id, { kind })),
+      ),
+    );
+  });
 }
 
 /**

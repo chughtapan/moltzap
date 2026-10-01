@@ -98,9 +98,10 @@ const allGather = (requester: Participant, to: string, deadline: number) =>
     collective: { op: "all_gather", deadline, requestedSchema: slotSchema },
   });
 
-const answer = (member: Participant, id: unknown, slot: string) =>
+const answer = (member: Participant, slot: string) =>
   send(member, {
-    collectiveResponse: { id, action: "accept", content: { slot } },
+    to: group,
+    collectiveResponse: { action: "accept", content: { slot } },
   });
 
 const acquireParticipants = Effect.gen(function* () {
@@ -159,10 +160,11 @@ const allAnsweredBehavior = Effect.gen(function* () {
   expect(yield* nextItem(second)).toEqual(request);
   expect(yield* nextItem(third)).toEqual(request);
 
-  yield* answer(first, started.operationId, "tue");
-  yield* answer(second, started.operationId, "mon");
+  yield* answer(first, "tue");
+  yield* answer(second, "mon");
   yield* send(third, {
-    collectiveResponse: { id: started.operationId, action: "decline" },
+    to: group,
+    collectiveResponse: { action: "decline" },
   });
 
   const requesterResult = yield* nextItem(requester);
@@ -200,8 +202,8 @@ const silentMemberBehavior = Effect.gen(function* () {
   yield* nextItem(first);
   yield* nextItem(second);
   yield* nextItem(third);
-  yield* answer(first, started.operationId, "mon");
-  yield* answer(second, started.operationId, "mon");
+  yield* answer(first, "mon");
+  yield* answer(second, "mon");
 
   const requesterResult = yield* nextItem(requester);
   expect(requesterResult).toMatchObject({

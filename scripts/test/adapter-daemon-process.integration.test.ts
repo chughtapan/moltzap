@@ -276,14 +276,12 @@ interface OpenClawGatewayContext {
 
 interface OpenClawMessageActionContext {
   readonly channel: string;
-  readonly action: "send";
+  readonly action: "send" | "reply";
   readonly cfg: OpenClawConfig;
   readonly accountId: string;
   readonly params: {
     readonly to: string;
     readonly message: string;
-    readonly collective?: object;
-    readonly collectiveResponse?: object;
   };
 }
 
@@ -973,10 +971,20 @@ function requireRequest(item: InboundItem) {
       );
 }
 
-/** The request id a model reads from a rendered collective request turn. */
-function requestIdOf(body: string): string {
-  return /collective request (col_[\w-]+) from/u.exec(body)?.[1] ?? "";
-}
+/** The text a model sends to ask its question, or to answer one. */
+const gatherText = (operation: "gather" | "all_gather") =>
+  JSON.stringify({
+    [operation]: GATHER_QUESTION,
+    deadline: 60,
+    requestedSchema: SLOT_SCHEMA,
+  });
+
+const acceptText = (slot: string) =>
+  JSON.stringify({ action: "accept", content: { slot } });
+
+/** The answer form line every rendered request carries. */
+const ANSWER_LINE =
+  'Answer with: {"action":"accept","content":{...}} where content matches the form, or {"action":"decline"}';
 
 function runOpenClawGatherScenario() {
   return Effect.scoped(
@@ -993,25 +1001,23 @@ function runOpenClawGatherScenario() {
         channelPlugin,
         makeTurnQueueRuntime(turns),
       );
-      const messageTool = (params: OpenClawMessageActionContext["params"]) =>
-        effectFromPromise("OpenClaw message tool send", () =>
+      const messageTool = (
+        action: OpenClawMessageActionContext["action"],
+        params: OpenClawMessageActionContext["params"],
+      ) =>
+        effectFromPromise(`OpenClaw message tool ${action}`, () =>
           channelPlugin.actions.handleAction({
             channel: "moltzap",
-            action: "send",
+            action,
             cfg,
             accountId: OPENCLAW_ACCOUNT_ID,
             params,
           }),
         );
 
-      const started = yield* messageTool({
+      const started = yield* messageTool("send", {
         to: callerAddress,
-        message: GATHER_QUESTION,
-        collective: {
-          op: "gather",
-          deadline: 60,
-          requestedSchema: SLOT_SCHEMA,
-        },
+        message: gatherText("gather"),
       });
       const request = yield* nextItem(caller.messages).pipe(
         Effect.flatMap(requireRequest),
@@ -1028,16 +1034,13 @@ function runOpenClawGatherScenario() {
         requestedSchema: SLOT_SCHEMA,
       });
       yield* caller.send({
-        collectiveResponse: {
-          id: request.id,
-          action: "accept",
-          content: { slot: "mon" },
-        },
+        to: targetAddress,
+        collectiveResponse: { action: "accept", content: { slot: "mon" } },
       });
       const resultTurn = yield* nextTurn(turns);
       expect(resultTurn).toMatchObject({
-        Body: `MoltZap collective result ${request.id} for the question sent to ${callerAddress}: ${GATHER_QUESTION}\n- ${callerAddress}: answered {"slot":"mon"}`,
-        SenderName: "MoltZap collective",
+        Body: `gather result for the question sent to ${callerAddress}: ${GATHER_QUESTION}\n- ${callerAddress}: answered {"slot":"mon"}`,
+        SenderName: "MoltZap",
       });
 
       yield* caller.send({
@@ -1051,14 +1054,10 @@ function runOpenClawGatherScenario() {
       });
       const requestTurn = yield* nextTurn(turns);
       expect(requestTurn.From).toBe(callerAddress);
-      const answered = yield* messageTool({
+      expect(requestTurn.Body).toContain(ANSWER_LINE);
+      const answered = yield* messageTool("reply", {
         to: callerAddress,
-        message: "answering",
-        collectiveResponse: {
-          id: requestIdOf(requestTurn.Body),
-          action: "accept",
-          content: { slot: "tue" },
-        },
+        message: acceptText("tue"),
       });
       expect(answered.details).toMatchObject({ ok: true });
       expect(yield* nextItem(caller.messages)).toMatchObject({
@@ -1107,11 +1106,14 @@ function runOpenClawAllGatherScenario() {
         channelPlugin,
         makeTurnQueueRuntime(turns),
       );
-      const messageTool = (params: OpenClawMessageActionContext["params"]) =>
-        effectFromPromise("OpenClaw message tool send", () =>
+      const messageTool = (
+        action: OpenClawMessageActionContext["action"],
+        params: OpenClawMessageActionContext["params"],
+      ) =>
+        effectFromPromise(`OpenClaw message tool ${action}`, () =>
           channelPlugin.actions.handleAction({
             channel: "moltzap",
-            action: "send",
+            action,
             cfg,
             accountId: OPENCLAW_ACCOUNT_ID,
             params,
@@ -1136,17 +1138,14 @@ function runOpenClawAllGatherScenario() {
       const peerRequest = yield* nextItem(peer.messages).pipe(
         Effect.flatMap(requireRequest),
       );
+      expect(requestTurn.Body).toContain(ANSWER_LINE);
       yield* peer.send({
-        collectiveResponse: { id: peerRequest.id, action: "decline" },
-      });
-      const answered = yield* messageTool({
         to: group,
-        message: "answering",
-        collectiveResponse: {
-          id: requestIdOf(requestTurn.Body),
-          action: "accept",
-          content: { slot: "tue" },
-        },
+        collectiveResponse: { action: "decline" },
+      });
+      const answered = yield* messageTool("reply", {
+        to: group,
+        message: acceptText("tue"),
       });
       expect(answered.details).toMatchObject({ ok: true });
       const callerResult = yield* nextItem(caller.messages);
@@ -1165,15 +1164,14 @@ function runOpenClawAllGatherScenario() {
       });
       expect(yield* nextItem(peer.messages)).toEqual(callerResult);
       expect(yield* nextTurn(turns)).toMatchObject({
-        Body: `MoltZap collective result ${peerRequest.id} for the question sent to ${group}: ${GATHER_QUESTION}\n- ${peerAddress}: declined\n- ${targetAddress}: answered {"slot":"tue"}`,
+        Body: `all_gather result for the question sent to ${group}: ${GATHER_QUESTION}\n- ${peerAddress}: declined\n- ${targetAddress}: answered {"slot":"tue"}`,
         ChatType: "group",
-        SenderName: "MoltZap collective",
+        SenderName: "MoltZap",
       });
 
-      const started = yield* messageTool({
+      const started = yield* messageTool("send", {
         to: group,
-        message: GATHER_QUESTION,
-        collective: allGather,
+        message: gatherText("all_gather"),
       });
       expect(started.details).toEqual({
         ok: true,
@@ -1185,18 +1183,16 @@ function runOpenClawAllGatherScenario() {
       );
       yield* nextItem(peer.messages);
       yield* caller.send({
-        collectiveResponse: {
-          id: callerRequest.id,
-          action: "accept",
-          content: { slot: "mon" },
-        },
+        to: group,
+        collectiveResponse: { action: "accept", content: { slot: "mon" } },
       });
       yield* peer.send({
-        collectiveResponse: { id: callerRequest.id, action: "decline" },
+        to: group,
+        collectiveResponse: { action: "decline" },
       });
       expect(yield* nextTurn(turns)).toMatchObject({
-        Body: `MoltZap collective result ${callerRequest.id} for the question sent to ${group}: ${GATHER_QUESTION}\n- ${callerAddress}: answered {"slot":"mon"}\n- ${peerAddress}: declined`,
-        SenderName: "MoltZap collective",
+        Body: `all_gather result for the question sent to ${group}: ${GATHER_QUESTION}\n- ${callerAddress}: answered {"slot":"mon"}\n- ${peerAddress}: declined`,
+        SenderName: "MoltZap",
       });
       const memberResult = yield* nextItem(caller.messages);
       expect(memberResult).toMatchObject({
@@ -1434,20 +1430,13 @@ function runNanoClawGatherScenario() {
         image,
         scenario.target.endpoint,
         [
-          {
-            to: callerAddress,
-            text: "answering",
-            collectiveResponse: {
-              id,
-              action: "accept",
-              content: { slot: "tue" },
-            },
-          },
+          { to: callerAddress, text: acceptText("tue") },
+          { to: callerAddress, text: gatherText("gather") },
         ],
         {
           platformId: callerAddress,
           sender: callerAddress,
-          textPrefix: `MoltZap collective request ${id} from ${callerAddress}`,
+          textPrefix: `gather from ${callerAddress}, open until`,
         },
       );
 
@@ -1463,6 +1452,14 @@ function runNanoClawGatherScenario() {
             outcome: { kind: "answered", content: { slot: "tue" } },
           },
         ],
+      });
+      expect(
+        yield* nextItem(caller.messages).pipe(Effect.flatMap(requireRequest)),
+      ).toMatchObject({
+        from: targetAddress,
+        to: targetAddress,
+        question: GATHER_QUESTION,
+        requestedSchema: SLOT_SCHEMA,
       });
     }),
   );
@@ -1498,27 +1495,21 @@ function runNanoClawAllGatherScenario() {
         Effect.flatMap(requireRequest),
       );
       yield* peer.send({
-        collectiveResponse: { id: peerRequest.id, action: "decline" },
+        to: group,
+        collectiveResponse: { action: "decline" },
       });
       const image = yield* readNanoClawImage();
       yield* runNanoClawProbe(
         image,
         scenario.target.endpoint,
         [
-          {
-            to: group,
-            text: "answering",
-            collectiveResponse: {
-              id,
-              action: "accept",
-              content: { slot: "tue" },
-            },
-          },
+          { to: group, text: acceptText("tue") },
+          { to: group, text: gatherText("all_gather") },
         ],
         {
           platformId: group,
           sender: callerAddress,
-          textPrefix: `MoltZap collective request ${id} from ${callerAddress}`,
+          textPrefix: `all_gather from ${callerAddress} to ${group}, open until`,
         },
       );
 
@@ -1538,7 +1529,42 @@ function runNanoClawAllGatherScenario() {
         ],
         closePostId: expect.stringMatching(/^pst_/u),
       });
-      expect(yield* nextItem(peer.messages)).toEqual(result);
+      const peerItems = [
+        yield* nextItem(peer.messages),
+        yield* nextItem(peer.messages),
+      ];
+      expect(peerItems).toContainEqual(result);
+      expect(peerItems).toContainEqual(
+        expect.objectContaining({ kind: "collectiveRequest", to: group }),
+      );
+
+      const nanoClawRequest = yield* nextItem(caller.messages).pipe(
+        Effect.flatMap(requireRequest),
+      );
+      expect(nanoClawRequest).toMatchObject({ from: targetAddress, to: group });
+      yield* caller.send({
+        to: group,
+        collectiveResponse: { action: "accept", content: { slot: "mon" } },
+      });
+      yield* peer.send({
+        to: group,
+        collectiveResponse: { action: "decline" },
+      });
+      const nanoClawResult = yield* nextItem(caller.messages);
+      expect(nanoClawResult).toMatchObject({
+        kind: "collectiveResult",
+        id: nanoClawRequest.id,
+        to: group,
+        outcomes: [
+          {
+            member: callerAddress,
+            outcome: { kind: "answered", content: { slot: "mon" } },
+          },
+          { member: peerAddress, outcome: { kind: "declined" } },
+        ],
+        closePostId: expect.stringMatching(/^pst_/u),
+      });
+      expect(yield* nextItem(peer.messages)).toEqual(nanoClawResult);
     }),
   );
 }
@@ -1563,12 +1589,12 @@ it("routes NanoClaw inbound and outbound through its native host boundaries", ()
   return Effect.runPromise(runNanoClawScenario());
 }, 300_000);
 
-it("answers a gather through NanoClaw's send_message", () => {
+it("answers and starts a gather through NanoClaw's send_message text", () => {
   expect.hasAssertions();
   return Effect.runPromise(runNanoClawGatherScenario());
 }, 300_000);
 
-it("answers an all_gather through NanoClaw's send_message", () => {
+it("answers and starts an all_gather through NanoClaw's send_message text", () => {
   expect.hasAssertions();
   return Effect.runPromise(runNanoClawAllGatherScenario());
 }, 300_000);

@@ -277,23 +277,21 @@ function redeliverySteps(harness: Harness): Step[] {
   });
 }
 
-/** The answer a member's host gives: carol sometimes declines. */
-const drawResponse = (
-  member: AgentAddress,
-  id: string,
-  random: () => number,
-) =>
+/**
+ * The answer a member's host gives, naming no request: carol sometimes
+ * declines.
+ */
+const drawResponse = (member: AgentAddress, random: () => number) =>
   member === carol && random() < 0.3
-    ? { id, action: "decline" }
-    : {
-        id,
-        action: "accept",
-        content: { slot: random() < 0.5 ? "mon" : "tue" },
-      };
+    ? { action: "decline" }
+    : { action: "accept", content: { slot: random() < 0.5 ? "mon" : "tue" } };
 
+/**
+ * Each member that has seen the request and not answered answers in the
+ * group's conversation, where its endpoint finds the one open request.
+ */
 function answerSteps(
   harness: Harness,
-  id: string,
   random: () => number,
   scope: Scope.Scope,
 ): Step[] {
@@ -303,7 +301,7 @@ function answerSteps(
         endpoint.self !== alice && !endpoint.answerStarted && endpoint.next > 0,
     )
     .map((endpoint): Step => {
-      const response = drawResponse(endpoint.self, id, random);
+      const response = drawResponse(endpoint.self, random);
       return [
         `${endpoint.self} answers`,
         Effect.suspend(() => {
@@ -311,6 +309,7 @@ function answerSteps(
           return endpoint.layer
             .send(
               Schema.decodeUnknownSync(SendInput)({
+                to: group,
                 collectiveResponse: response,
               }),
               "result",
@@ -569,7 +568,7 @@ const runSchedule = (seed: number, coverage: Coverage) =>
       const step = pickStep(
         [
           ...deliverySteps(harness),
-          ...answerSteps(harness, id, random, scope),
+          ...answerSteps(harness, random, scope),
           ...pendingSteps(harness),
           ...daveSteps(harness, id),
           ...secondCloseSteps(harness, id),

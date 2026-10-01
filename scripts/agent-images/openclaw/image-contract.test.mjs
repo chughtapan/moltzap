@@ -13,7 +13,6 @@ import {
   FINGERPRINTED_FILES,
   fingerprint,
   GUIDANCE_DIRECTORY_FLAG,
-  GUIDANCE_PARAMETERS_PATH,
   OPENCLAW_EXPERIMENTS,
   packageManifest,
   readGuidanceDirectory,
@@ -285,7 +284,7 @@ test("the hide-collectives variant sets the plugin's experiment switch for the h
   );
 });
 
-test("the omit-skill variant deletes the installed plugin's collectives skill directory", async () => {
+test("the omit-skill variant deletes the installed plugin's group-messaging skill directory", async () => {
   const channel = new URL(
     "../../../packages/openclaw-channel/",
     import.meta.url,
@@ -296,13 +295,10 @@ test("the omit-skill variant deletes the installed plugin's collectives skill di
 
   assert.equal(
     OPENCLAW_EXPERIMENTS[OMIT].dockerfileLine,
-    "RUN rm -r /opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/moltzap-collectives",
+    "RUN rm -r /opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/group-messaging",
   );
   assert.deepEqual(manifest.skills, ["./skills"]);
-  await readFile(
-    new URL("skills/moltzap-collectives/SKILL.md", channel),
-    "utf8",
-  );
+  await readFile(new URL("skills/group-messaging/SKILL.md", channel), "utf8");
   assert.ok(
     (await sibling("Dockerfile")).indexOf("npm install") > 0,
     "the plugin must be installed before an appended line deletes its skill",
@@ -329,9 +325,8 @@ async function withGuidance(files, check) {
 }
 
 const SKILL = {
-  "skill/SKILL.md": "---\nname: moltzap-collectives\n---\nBody\n",
+  "skill/SKILL.md": "---\nname: group-messaging\n---\nBody\n",
 };
-const PARAMETERS = { "parameters.json": '{"collective":"Gather answers."}' };
 
 test("the guidance flag takes its directory out of the build arguments beside the other flags", () => {
   assert.deepEqual(
@@ -368,17 +363,15 @@ test("the guidance flag takes its directory out of the build arguments beside th
   );
 });
 
-test("a guidance skill replaces the installed collectives skill directory", async () => {
+test("a guidance skill replaces the installed group-messaging skill directory", async () => {
   await withGuidance(SKILL, async (directory) => {
     const guidance = await readGuidanceDirectory(directory);
 
-    assert.equal(guidance.skill, true);
-    assert.equal(guidance.parameters, false);
     assert.equal(
       experimentDockerfile("FROM base", [], guidance),
       "FROM base\n" +
-        "RUN rm -r /opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/moltzap-collectives\n" +
-        "COPY guidance/skill/ /opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/moltzap-collectives/\n",
+        "RUN rm -r /opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/group-messaging\n" +
+        "COPY guidance/skill/ /opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/group-messaging/\n",
     );
     assert.throws(
       () => experimentDockerfile("FROM base", [OMIT], guidance),
@@ -387,39 +380,10 @@ test("a guidance skill replaces the installed collectives skill directory", asyn
   });
 });
 
-test("a guidance parameters file is copied, named by the plugin's switch, and loaded at build", async () => {
-  const plugin = await readFile(
-    new URL(
-      "../../../packages/openclaw-channel/src/plugin.ts",
-      import.meta.url,
-    ),
-    "utf8",
-  );
-  await withGuidance(PARAMETERS, async (directory) => {
-    const guidance = await readGuidanceDirectory(directory);
-    const lines = experimentDockerfile("FROM base", [], guidance).split("\n");
-
-    assert.deepEqual(lines.slice(1, 3), [
-      `COPY guidance/parameters.json ${GUIDANCE_PARAMETERS_PATH}`,
-      `ENV MOLTZAP_EXPERIMENT_GUIDANCE_PARAMETERS=${GUIDANCE_PARAMETERS_PATH}`,
-    ]);
-    assert.match(
-      lines[3],
-      /^RUN node .*import\("\/opt\/moltzap\/node_modules\/@moltzap\/openclaw-channel\/dist\/index\.js"\)/u,
-    );
-  });
-  assert.match(
-    plugin,
-    /^const GUIDANCE_PARAMETERS_VARIABLE =\s+"MOLTZAP_EXPERIMENT_GUIDANCE_PARAMETERS";$/mu,
-  );
-});
-
 test("each guidance candidate has its own tag suffix", async () => {
   const hashes = [];
   for (const files of [
     SKILL,
-    PARAMETERS,
-    { ...SKILL, ...PARAMETERS },
     { ...SKILL, "skill/SKILL.md": "---\nname: other\n---\nBody\n" },
     { ...SKILL, "skill/notes.md": "extra" },
   ]) {
@@ -440,10 +404,11 @@ test("each guidance candidate has its own tag suffix", async () => {
   assert.ok(hashes.every((hash) => /^[0-9a-f]{12}$/u.test(hash)));
 });
 
-test("a guidance directory holds only a skill with SKILL.md and a parameters file", async () => {
+test("a guidance directory holds only a skill with SKILL.md", async () => {
   for (const files of [
     {},
-    { ...PARAMETERS, "notes.md": "x" },
+    { ...SKILL, "parameters.json": "{}" },
+    { ...SKILL, "notes.md": "x" },
     { "skill/README.md": "x" },
   ]) {
     await withGuidance(files, (directory) =>

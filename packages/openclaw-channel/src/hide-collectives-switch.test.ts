@@ -1,6 +1,6 @@
 /**
- * @file The `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES` experiment switch: what
- * the message tool offers and which sends it refuses.
+ * @file The `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES` experiment switch: which
+ * message texts it refuses.
  */
 
 import type { ChannelMessageActionContext } from "openclaw/plugin-sdk/channel-contract";
@@ -11,10 +11,24 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMoltzapChannelPlugin } from "./plugin.js";
 
 const HIDE_COLLECTIVES = "MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES";
-const REFUSAL = "collective operations are not available";
+const REFUSAL = "gather, all_gather and answers are not available";
 const CONFIG: OpenClawConfig = {
   channels: { moltzap: { accounts: [{ id: "primary" }] } },
 };
+const SLOT_SCHEMA = {
+  type: "object",
+  properties: { slot: { type: "string", enum: ["mon", "tue"] } },
+};
+
+/** Texts that state an operation, one of them invalidly. */
+const OPERATION_TEXTS = [
+  { gather: "Which day?", deadline: 60, requestedSchema: SLOT_SCHEMA },
+  { all_gather: "Which day?", deadline: 60, requestedSchema: SLOT_SCHEMA },
+  { action: "accept", content: { slot: "mon" } },
+  { action: "decline" },
+  { action: "cancel" },
+  { gather: "Which day?", deadline: 0 },
+].map((value) => JSON.stringify(value));
 
 class SwitchTestError extends Data.TaggedError("SwitchTestError")<{
   readonly detail: string;
@@ -26,49 +40,58 @@ describe("OpenClaw hide-collectives experiment switch", () => {
   });
 
   it(
-    "offers the collective parameters when the switch is absent",
-    switchAbsentOffersParameters,
+    "offers the same send and reply actions whether or not the switch is set",
+    switchLeavesActionsUnchanged,
   );
   it(
-    "offers send without the collective parameters when the switch is true",
-    switchOnOmitsParameters,
+    "passes plain text on to the account when the switch is true",
+    switchOnPassesPlainText,
   );
   it(
-    "passes a send without collective parameters on to the account when the switch is true",
-    switchOnPassesPlainSend,
+    "passes JSON text without an operation key on to the account when the switch is true",
+    switchOnPassesJsonProse,
   );
   it(
-    "refuses every send carrying a collective or collectiveResponse value when the switch is true",
-    switchOnRefusesCollectiveParameters,
+    "refuses every operation text on send and reply when the switch is true",
+    switchOnRefusesOperationText,
   );
   it(
-    "fails a collective send naming the switch when its value is not a boolean",
-    invalidSwitchFailsCollectiveSend,
+    "fails an operation text naming the switch when its value is not a boolean",
+    invalidSwitchFailsOperationText,
   );
 });
 
-function switchAbsentOffersParameters() {
+function switchLeavesActionsUnchanged() {
+  vi.stubEnv(HIDE_COLLECTIVES, "true");
+  const hidden = describeTool();
   vi.stubEnv(HIDE_COLLECTIVES, undefined);
 
-  expect(offeredParameters()).toEqual(["collective", "collectiveResponse"]);
+  expect(hidden).toEqual({ actions: ["send", "reply"] });
+  expect(describeTool()).toEqual(hidden);
 }
 
-function switchOnOmitsParameters() {
-  vi.stubEnv(HIDE_COLLECTIVES, "true");
-
-  const discovery = createMoltzapChannelPlugin().actions?.describeMessageTool({
+function describeTool() {
+  return createMoltzapChannelPlugin().actions?.describeMessageTool({
     cfg: CONFIG,
   });
-
-  expect(discovery).toEqual({ actions: ["send"] });
 }
 
 /** No account is connected, so a send the switch admits fails as not connected. */
-function switchOnPassesPlainSend() {
+function switchOnPassesPlainText() {
   vi.stubEnv(HIDE_COLLECTIVES, "true");
 
+  return reachesAccount("hello");
+}
+
+function switchOnPassesJsonProse() {
+  vi.stubEnv(HIDE_COLLECTIVES, "true");
+
+  return reachesAccount('{"note": "mon or tue"}');
+}
+
+function reachesAccount(message: string) {
   return Effect.runPromise(
-    sendAction({ to: "agent:nova", message: "hello" }).pipe(
+    messageAction("send", { to: "agent:nova", message }).pipe(
       Effect.flip,
       Effect.tap((failure) => {
         // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The closed failure reason shows the send reached the account.
@@ -78,31 +101,34 @@ function switchOnPassesPlainSend() {
   );
 }
 
-function switchOnRefusesCollectiveParameters() {
+function switchOnRefusesOperationText() {
   vi.stubEnv(HIDE_COLLECTIVES, "true");
 
   return fc.assert(
     fc.asyncProperty(
-      fc.constantFrom("collective", "collectiveResponse"),
-      fc.jsonValue(),
-      (parameter, value) =>
-        refusedSend({
-          to: "agent:nova",
-          message: "Which day?",
-          [parameter]: value,
-        }),
+      fc.constantFrom("send" as const, "reply" as const),
+      fc.constantFrom(...OPERATION_TEXTS),
+      (action, message) =>
+        Effect.runPromise(
+          messageAction(action, { to: "agent:nova", message }).pipe(
+            Effect.flip,
+            Effect.tap((failure) => {
+              expect(failure.detail).toContain(REFUSAL);
+            }),
+            Effect.as(true),
+          ),
+        ),
     ),
   );
 }
 
-function invalidSwitchFailsCollectiveSend() {
+function invalidSwitchFailsOperationText() {
   vi.stubEnv(HIDE_COLLECTIVES, "sometimes");
 
   return Effect.runPromise(
-    sendAction({
+    messageAction("send", {
       to: "agent:nova",
-      message: "Which day?",
-      collective: { op: "multicast" },
+      message: '{"action":"decline"}',
     }).pipe(
       Effect.flip,
       Effect.tap((failure) => {
@@ -113,41 +139,19 @@ function invalidSwitchFailsCollectiveSend() {
 }
 
 /**
- * Names the parameters the message tool's schema contribution adds, or none
- * when the discovery carries no single contribution.
+ * The plugin checks the switch before it looks up the account, so a refusal
+ * needs no connected account.
  */
-function offeredParameters(): readonly string[] {
-  const schema = createMoltzapChannelPlugin().actions?.describeMessageTool({
-    cfg: CONFIG,
-  })?.schema;
-  return schema === undefined || schema === null || Array.isArray(schema)
-    ? []
-    : Object.keys(schema.properties);
-}
-
-/**
- * Runs one send and resolves true once it fails with the refusal, the form
- * `fc.asyncProperty` counts as a pass.
- */
-function refusedSend(params: ChannelMessageActionContext["params"]) {
-  return Effect.runPromise(
-    sendAction(params).pipe(
-      Effect.flip,
-      Effect.tap((failure) => {
-        expect(failure.detail).toContain(REFUSAL);
-      }),
-      Effect.as(true),
-    ),
-  );
-}
-
-function sendAction(params: ChannelMessageActionContext["params"]) {
+function messageAction(
+  action: "send" | "reply",
+  params: ChannelMessageActionContext["params"],
+) {
   const handleAction = createMoltzapChannelPlugin().actions?.handleAction;
   return Effect.tryPromise({
     try: () =>
       handleAction?.({
         channel: "moltzap",
-        action: "send",
+        action,
         cfg: CONFIG,
         accountId: "primary",
         params,

@@ -10,13 +10,14 @@ addressed transport and does not interpret model output.
 ## Semantic send
 
 `HarnessEndpoint.send` accepts exactly `to`, `text` and an optional
-`collective` operation, multicast when omitted, or exactly one
+`collective` operation, multicast when omitted, or `to` and one
 `collectiveResponse` ([operations](./client.md#operations)). `to` is
 `agent:<AgentName>` or `group:<AgentName>,...`. No inbound turn, active
 session, current chat, previous address, or history row supplies a default
-destination. A response names no address: the member's endpoint sends it to
-the conversation its request arrived in, the requester's for a gather and the
-group's for an all_gather.
+destination. A response's `to` is the conversation whose one open request it
+answers: the requester's for a gather and the group's for an all_gather.
+Adapters build the send from the model's message text with Client's
+`parseMessageText` ([message text](./client.md#message-text)).
 
 Address parsing and canonicalization follow `conversation-history.md`. Every
 call creates new posts with fresh Client-minted opaque `PostId`s: one for a
@@ -46,28 +47,24 @@ stock final-output and session contract. The
 [channel contract](./channels.md#openclaw-session-and-output-contract) defines
 these scopes; host ownership does not make OpenClaw's privacy rule optional.
 
-The OpenClaw adapter registers the message tool's `send` action. It adds an
-optional `collective` parameter whose schema is Client's `CollectiveOperation`
-and an optional `collectiveResponse` parameter whose schema is Client's
-`CollectiveResponse`. Every `send` becomes one operation: the tool's `to`, its
-`message` text and its `collective`, or, when `collectiveResponse` is present,
-that response alone; OpenClaw still requires non-empty `message` text, so a
-decline carries a short one. The action returns `{ok: true, to?,
-operationId?}` once the send completes, and a refusal reaches the model as the
-tool's error with the Client error's message, naming each unreachable member
-or failing field. `message.send.text` remains for sends OpenClaw's core makes
-itself and performs a multicast. Its context carries no tool parameters, and
-OpenClaw forces core delivery only for sends it builds from text and media, so
-a `collective` or `collectiveResponse` never reaches it; the adapter's
-`core-delivery.types-check.ts` pins that context.
+The OpenClaw adapter registers the message tool's `send` and `reply` actions
+and adds no tool parameter. Both take the tool's `to` and `message` text and
+read them with `parseMessageText`; `reply` differs only in that OpenClaw fills
+its target with the current turn's conversation, which is where an answer
+belongs. The action returns `{ok: true, to, operationId?}` once the send
+completes, and a refusal reaches the model as the tool's error: the parser's
+message naming each failing field, or the Client error's naming each
+unreachable member or failing field. `message.send.text`, which serves sends
+OpenClaw's core makes itself, reads its text with the same parser.
 
-NanoClaw's `messages_out` content is the text of a multicast, an object with
-`text` and an optional `collective`, or an object with `collectiveResponse`,
-whose `to` and `text` the adapter ignores. NanoClaw's `send_message` returns
-before the adapter sends, so the adapter passes `failureDelivery: "inbound"`
-for a gather, all_gather or response: a refusal completes the delivery, which NanoClaw
-then never retries, and its error reaches the model as an `operationFailed`
-item.
+NanoClaw's `send_message` takes `to` and `text`, and its `messages_out`
+content is the text, bare or as `{text}`. The adapter reads the text with
+`parseMessageText`. `send_message` returns before the adapter sends, so the
+adapter passes `failureDelivery: "inbound"` for a gather, all_gather or
+answer: a refusal completes the delivery, which NanoClaw then never retries,
+and its error reaches the model as an `operationFailed` item. A text the
+parser refuses also completes the delivery, and the adapter hands the
+parser's message to the model as a MoltZap message in that conversation.
 
 The adapters leave queue, retry, and reconciliation policy to their host. They
 do not forward host queue identifiers into Client or add a MoltZap retry queue,

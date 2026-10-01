@@ -21,7 +21,9 @@ The Client root exports closed Effect Schemas and corresponding types for:
 - `MessageAddressInput`, either accepted input form;
 - opaque `PostId`;
 - `Content` and its existing closed parts;
-- `CollectiveOperation`, `CollectiveResponse`, `SendInput` and `SendResult`;
+- `SendInput` and `SendResult`, and `parseMessageText` with its
+  `MessageTextError`, which read a send from a message's text
+  ([message text](#message-text));
 - `InboundMessage`, `InboundItem` and `InboundDelivery`;
 - `HistoryExportRecord`, one line of the daemon's optional history export
   (`harness/daemon.md`); and
@@ -65,12 +67,8 @@ type CollectiveOperation =
     }
 
 type CollectiveResponse =
-  | {
-      readonly id: CollectiveId
-      readonly action: "accept"
-      readonly content: AnswerContent
-    }
-  | { readonly id: CollectiveId; readonly action: "decline" | "cancel" }
+  | { readonly action: "accept"; readonly content: AnswerContent }
+  | { readonly action: "decline" | "cancel" }
 
 type SendInput =
   | {
@@ -78,7 +76,11 @@ type SendInput =
       readonly text: string
       readonly collective?: CollectiveOperation
     }
-  | { readonly collectiveResponse: CollectiveResponse }
+  | {
+      /** The conversation whose one open request this answers. */
+      readonly to: MessageAddressInput
+      readonly collectiveResponse: CollectiveResponse
+    }
 
 interface SendResult {
   readonly operationId?: CollectiveId
@@ -164,6 +166,11 @@ interface HarnessEndpoint {
 declare function acquireHarnessEndpoint(
   endpoint: URL,
 ): Effect.Effect<HarnessEndpoint, ConnectError, Scope.Scope>
+
+declare function parseMessageText(
+  to: MessageAddressInput,
+  text: string,
+): Either.Either<SendInput, MessageTextError>
 ```
 
 The service is structural, not a public `Context.Tag`. One acquired endpoint
@@ -206,14 +213,21 @@ collective operation is one member.
   the post's reason (`certification-unavailable` when it timed out) when each
   lookup succeeds.
 
-A member answers a request with a `collectiveResponse`. The member's endpoint
-validates `accept` content against the request's stored schema, refusing a
-failing answer with the fields named, and certifies the response post in the
-conversation the request arrived in: the requester's direct conversation for a
-gather, the group conversation for an all_gather. The member never chooses its
-address. Each request takes one answer: a second answer, an answer to an
-unknown request and an answer at or after the deadline or an all_gather's
-close are refused.
+A member answers a request with a `collectiveResponse` sent to the
+conversation the request arrived in: the requester's `agent:` address for a
+gather, the group's `group:` address for an all_gather. The answer names no
+request. The member's endpoint matches it to the one request open in that
+conversation, received and not yet answered, before its deadline and close.
+With none open the answer is refused with `request-none`, or with
+`request-answered` or `request-expired` when the conversation's requests were
+answered or have expired. With more than one open, answering is unsupported
+([moltzap#1125](https://github.com/chughtapan/moltzap/issues/1125)): the
+answer is refused with `request-ambiguous` and nothing is sent. Each
+refusal names an id minted for it, so an inbound failure routes to the
+conversation the answer was sent to. The endpoint validates `accept` content
+against the matched request's stored schema, refusing a failing answer with
+the fields named, and certifies the response post, which carries the
+request's id, in that conversation. Each request takes one answer.
 
 The requesting endpoint consumes every answer post. It validates each
 member's first answer in its direct conversation against the schema and
@@ -265,6 +279,28 @@ and `nonce`; a response carries `{"kind": "response", "id", "action",
 the part. The text and the operation part together must fit the 32,768-byte
 content limit; a send whose content does not fit fails with
 `content-invalid`.
+
+## Message text
+
+A model writes an operation as the whole text of an ordinary message, and
+every adapter reads that text with `parseMessageText`, so every host accepts
+the same text:
+
+```
+plain text                                                      multicast
+{"gather": <question>, "deadline": <seconds>, "requestedSchema": <form>}
+{"all_gather": <question>, "deadline": <seconds>, "requestedSchema": <form>}
+{"action": "accept", "content": {...}}                           answer
+{"action": "decline"}  |  {"action": "cancel"}                    answer
+```
+
+A text whose whole content is a JSON object with a `gather`, `all_gather` or
+`action` key states that operation. Any other text, including a JSON object
+without those keys or JSON inside prose, is a multicast of the text. A text
+that states an operation but does not validate (a missing, unexpected or
+invalid field, with `deadline` and `requestedSchema` checked exactly as in
+`SendInput`) is refused with a `MessageTextError` naming each failing field,
+and nothing is sent. The address the host's tool names becomes `to`.
 
 ## Addressed send
 
@@ -354,8 +390,8 @@ requirements.
 `kind`: `members-unreachable` with each refused member and its `SendError`
 reason, `schema-invalid` with a detail naming each failing path and the
 form-mode shape it expects, `answer-invalid` with each failing field and
-whether it is missing, unexpected or invalid, `request-unknown`,
-`request-answered`, or `request-expired`. Its message names the members,
+whether it is missing, unexpected or invalid, `request-none`,
+`request-ambiguous`, `request-answered`, or `request-expired`. Its message names the members,
 schema paths or fields, so a host hands it to its model as the tool error.
 
 `SendError.reason` is exactly one of:
@@ -402,6 +438,11 @@ methods and cannot create a delivery or authorize output.
   recovery retains the persisted identity for one unfinished intent.
 - A send without `collective` and a send with `{op: "multicast"}` certify the
   same content: the text part, then the explicit multicast part.
+- `parseMessageText` reads every operation shape, sends plain text and
+  JSON-looking prose as a multicast, and refuses a malformed operation naming
+  its fields.
+- An answer is matched to the one request open in its conversation; none
+  open and several open are refused, and nothing is sent.
 - Multicast items carry the certified content without its collective part, and
   the endpoint consumes records it does not deliver.
 - A gather fans out one request post per member, fails naming each unreachable
