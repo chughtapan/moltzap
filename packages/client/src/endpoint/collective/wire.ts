@@ -13,7 +13,7 @@ import {
   specTypeSchemas,
 } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
-import { Data, Effect, Option, ParseResult, Schema } from "effect";
+import { Data, Effect, Option, ParseResult, Predicate, Schema } from "effect";
 import { createHash } from "node:crypto";
 import {
   type AgentAddress,
@@ -38,6 +38,104 @@ const McpPrimitiveSchema = Schema.declare(
   { identifier: "PrimitiveSchemaDefinition" },
 );
 
+type FormModeCheck = typeof mcpPrimitiveSchemaDefinition;
+
+/**
+ * One form-mode shape: what a requester should write, the SDK schema for
+ * that shape alone, and which properties it is the intended shape of. The
+ * SDK's grammar is a union, whose failure names no keyword; the intended
+ * shape's own check names each failing keyword by path, so a requester can
+ * repair the property it meant to write.
+ */
+interface FormModeShape {
+  readonly expected: string;
+  readonly check: FormModeCheck;
+  readonly intends: (property: unknown) => boolean;
+}
+
+const declares = (property: unknown, ...types: readonly string[]): boolean =>
+  Predicate.hasProperty(property, "type") &&
+  types.some((type) => type === property.type);
+
+/** Form-mode shapes, each listed before any shape it refines. */
+const formModeShapes: readonly FormModeShape[] = [
+  {
+    expected:
+      'a titled single-select is {"type":"string","oneOf":[{"const":"a","title":"A"}]}',
+    check: specTypeSchemas.TitledSingleSelectEnumSchema["~standard"],
+    intends: (property) =>
+      declares(property, "string") && Predicate.hasProperty(property, "oneOf"),
+  },
+  {
+    expected: 'a single-select is {"type":"string","enum":["a","b"]}',
+    check: specTypeSchemas.UntitledSingleSelectEnumSchema["~standard"],
+    intends: (property) =>
+      declares(property, "string") && Predicate.hasProperty(property, "enum"),
+  },
+  {
+    expected:
+      'a string is {"type":"string"} with optional minLength, maxLength or format',
+    check: specTypeSchemas.StringSchema["~standard"],
+    intends: (property) => declares(property, "string"),
+  },
+  {
+    expected:
+      'a number is {"type":"number"} or {"type":"integer"} with optional minimum and maximum',
+    check: specTypeSchemas.NumberSchema["~standard"],
+    intends: (property) => declares(property, "number", "integer"),
+  },
+  {
+    expected: 'a boolean is {"type":"boolean"}',
+    check: specTypeSchemas.BooleanSchema["~standard"],
+    intends: (property) => declares(property, "boolean"),
+  },
+  {
+    expected:
+      'a titled multi-select is {"type":"array","items":{"anyOf":[{"const":"a","title":"A"}]}}',
+    check: specTypeSchemas.TitledMultiSelectEnumSchema["~standard"],
+    intends: (property) =>
+      declares(property, "array") &&
+      Predicate.hasProperty(property, "items") &&
+      Predicate.hasProperty(property.items, "anyOf"),
+  },
+  {
+    expected:
+      'a multi-select is {"type":"array","items":{"type":"string","enum":["a","b"]}}',
+    check: specTypeSchemas.UntitledMultiSelectEnumSchema["~standard"],
+    intends: (property) => declares(property, "array"),
+  },
+];
+
+/**
+ * Say why a property is outside the form-mode grammar: each keyword its
+ * intended shape rejects, by path within the property, then that shape.
+ * @param property A property the SDK's grammar rejected.
+ * @returns For example `items.type: Invalid input: expected "string"; a
+ *   multi-select is {"type":"array","items":{"type":"string","enum":["a","b"]}}`.
+ */
+function formModeViolation(property: unknown): string {
+  const shape = formModeShapes.find(({ intends }) => intends(property));
+  if (shape === undefined) {
+    return '"type" must be "string", "number", "integer", "boolean" or "array"';
+  }
+  return [
+    ...(shape.check.validate(property).issues ?? []).map(({ path, message }) =>
+      issueAt(path ?? [], message),
+    ),
+    shape.expected,
+  ].join("; ");
+}
+
+function issueAt(
+  path: ReadonlyArray<PropertyKey | { readonly key: PropertyKey }>,
+  message: string,
+): string {
+  const keys = path.map((segment) =>
+    String(Predicate.isObject(segment) ? segment.key : segment),
+  );
+  return keys.length === 0 ? message : `${keys.join(".")}: ${message}`;
+}
+
 /**
  * One property of an MCP form-mode `requestedSchema`, as the MCP SDK's
  * `PrimitiveSchemaDefinition` accepts it. Decoding keeps the SDK's parsed
@@ -56,9 +154,7 @@ const PrimitiveSchemaDefinition = Schema.transformOrFail(
       const invalid = (message: string) =>
         new ParseResult.Type(McpPrimitiveSchema.ast, value, message);
       if (result.issues !== undefined) {
-        return ParseResult.fail(
-          invalid("not an MCP form-mode primitive schema"),
-        );
+        return ParseResult.fail(invalid(formModeViolation(value)));
       }
       const definition = result.value;
       return ParseResult.try({
@@ -66,7 +162,10 @@ const PrimitiveSchemaDefinition = Schema.transformOrFail(
           new AjvJsonSchemaValidator().getValidator(definition);
           return definition;
         },
-        catch: () => invalid("not a compilable form-mode primitive schema"),
+        catch: (cause) =>
+          invalid(
+            `not a compilable form-mode primitive schema: ${cause instanceof Error ? cause.message : String(cause)}`,
+          ),
       });
     },
     encode: (definition) => ParseResult.succeed(definition),
@@ -88,10 +187,17 @@ export const FormModeSchema = exactStruct({
   required: Schema.optional(Schema.Array(Schema.String)),
 }).pipe(
   Schema.filter(
-    (schema) =>
-      (schema.required ?? []).every((name) =>
-        Object.hasOwn(schema.properties, name),
-      ),
+    (schema) => {
+      const undeclared = (schema.required ?? []).filter(
+        (name) => !Object.hasOwn(schema.properties, name),
+      );
+      return (
+        undeclared.length === 0 || {
+          path: ["required"],
+          message: `names ${undeclared.map((name) => JSON.stringify(name)).join(", ")}, which properties does not declare`,
+        }
+      );
+    },
     {
       identifier: "RequestedSchema",
       description: "Form-mode schema whose required names are properties",

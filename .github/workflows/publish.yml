@@ -1,20 +1,18 @@
 name: Publish to npm
 
-# One release publishes four packages at one calendar version, pushes the two
-# agent images tagged with that version, and records the image digests
-# beside the version in one release commit. The trigger is manual: the first
-# release proves the npm trusted publishers, the Workload Identity provider,
-# and the release App before any push-triggered variant is considered.
+# One release publishes four packages at one calendar version and records
+# that version in one release commit. The trigger is manual: the first
+# release proves the npm trusted publishers and the release App before any
+# push-triggered variant is considered.
 #
 # A rerun after a partial failure converges rather than minting a second
 # release. Before the release commit exists, the version is recomputed from
 # npm and the release tags (unchanged while nothing is published at it and
-# the UTC day has not turned) and an image an earlier attempt pushed for that
-# version from the same revision is reused by digest. Once the release commit
-# is on main, any run finds it, checks out its tree, and publishes whatever
-# that version still lacks on npm, however many commits landed since. A
-# release that can never complete is left behind by dispatching with
-# `start_new_version`, which mints the next version from the tip instead.
+# the UTC day has not turned). Once the release commit is on main, any run
+# finds it, checks out its tree, and publishes whatever that version still
+# lacks on npm, however many commits landed since. A release that can never
+# complete is left behind by dispatching with `start_new_version`, which
+# mints the next version from the tip instead.
 on:
   workflow_dispatch:
     inputs:
@@ -26,19 +24,19 @@ on:
         type: boolean
         default: false
 
-# Two releases must never interleave: both would compute the same version and
-# push different builds to the same image tags before either commits.
+# Two releases must never interleave: both would compute the same version from
+# the same npm state and race to push its release commit and tag.
 concurrency:
   group: publish
   cancel-in-progress: false
 
 # The push to main uses the release App token; the workflow token only needs
-# to read the repository and mint the OIDC token npm and Google verify.
+# to read the repository and mint the OIDC token npm verifies.
 permissions:
   contents: read
   id-token: write
 
-# `bash` here means `bash -eo pipefail`, so a builder that fails inside a
+# `bash` here means `bash -eo pipefail`, so a command that fails inside a
 # pipeline fails its step instead of handing a partial result to the next.
 defaults:
   run:
@@ -46,10 +44,6 @@ defaults:
 
 env:
   RELEASE_PACKAGES: identity router client openclaw-channel
-  # The Terraform `controller_repository` output of the evals monorepo's GKE
-  # module, copied into a repository variable next to the Workload Identity
-  # ones.
-  IMAGE_REPOSITORY: ${{ vars.GCP_IMAGE_REPOSITORY }}
 
 jobs:
   publish:
@@ -84,17 +78,13 @@ jobs:
       # The last release commit on main decides whether this run resumes it:
       # a version some package still lacks on npm is published from that
       # commit's own tree. Otherwise the run releases the dispatched commit,
-      # which must still be the tip of main so that the images, the recorded
-      # revision, and npm's provenance all describe one tree.
+      # which must still be the tip of main so that the release commit and
+      # npm's provenance describe one tree.
       - name: Decide whether this run bumps or resumes a release
         id: plan
         env:
           START_NEW_VERSION: ${{ inputs.start_new_version }}
         run: |
-          test -n "$IMAGE_REPOSITORY" || {
-            echo "ERROR: the GCP_IMAGE_REPOSITORY repository variable is unset; copy the Terraform controller_repository output"
-            exit 1
-          }
           git fetch origin main --quiet
           RELEASE_LINE=$(git log origin/main --format='%H %s' | grep -m1 ' chore(release): moltzap@' || true)
           if [ -n "$RELEASE_LINE" ]; then
@@ -164,67 +154,6 @@ jobs:
       - name: Verify the published closure installs from tarballs
         run: pnpm nx run-many -t test:pack --parallel=1
 
-      - uses: google-github-actions/auth@v2
-        if: steps.plan.outputs.mode == 'bump'
-        with:
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_RELEASE_SERVICE_ACCOUNT }}
-
-      - uses: google-github-actions/setup-gcloud@v2
-        if: steps.plan.outputs.mode == 'bump'
-
-      - name: Push the release images or reuse their existing digests
-        if: steps.plan.outputs.mode == 'bump'
-        env:
-          VERSION: ${{ steps.plan.outputs.version }}
-        run: |
-          gcloud auth configure-docker "${IMAGE_REPOSITORY%%/*}" --quiet
-          # Docker builds are not byte-reproducible, so an earlier attempt's
-          # image is reused rather than rebuilt. The attempt tag names the
-          # version and the source revision, because the packed workspace
-          # inside each image carries the stamped version: the same revision
-          # released on a later day is a different image. The version tag is
-          # then created or moved to that digest. Until the release commit is
-          # on main the version tag is not authoritative, so a leftover from
-          # an attempt on another revision is overwritten rather than trusted.
-          # gcloud reports a missing tag or image name as "Image not found";
-          # only that reads as empty. Any other failure, including a missing
-          # repository, aborts, because "absent" is what would justify a
-          # fresh push.
-          tag_digest() {
-            local output
-            if output=$(gcloud artifacts docker images describe "$1" \
-                --format='value(image_summary.digest)' 2>&1); then
-              printf '%s' "$output"
-            elif grep -q "Image not found" <<< "$output"; then
-              printf ''
-            else
-              echo "ERROR: could not describe $1: $output" >&2
-              return 1
-            fi
-          }
-          resolve_or_build() {
-            local name="$1" builder="$2" repository="$IMAGE_REPOSITORY/$1" digest
-            local attempt_tag="$repository:$VERSION-$GITHUB_SHA" version_tag="$repository:$VERSION"
-            digest=$(tag_digest "$attempt_tag")
-            if [ -n "$digest" ]; then
-              echo "reusing $attempt_tag@$digest" >&2
-            else
-              digest=$(node "$builder" --repository "$repository" --tag "$VERSION-$GITHUB_SHA" --push \
-                | tail -1 | jq -r .imageDigest)
-            fi
-            gcloud artifacts docker tags add "$repository@$digest" "$version_tag" --quiet
-            jq -n --arg name "$name" --arg repository "$repository" --arg digest "$digest" \
-              '{name: $name, repository: $repository, digest: $digest}'
-          }
-          {
-            resolve_or_build openclaw-agent scripts/agent-images/build-openclaw-image.mjs
-            resolve_or_build nanoclaw-agent scripts/agent-images/build-nanoclaw-image.mjs
-          } | jq -s --arg version "$VERSION" --arg revision "$GITHUB_SHA" \
-            '{version: $version, sourceRevision: $revision, images: .}' \
-            > "$RUNNER_TEMP/published-images.json"
-          cat "$RUNNER_TEMP/published-images.json"
-
       # The release App token is minted only now, scoped to contents, and
       # used for exactly one push.
       - uses: actions/create-github-app-token@v2
@@ -237,15 +166,13 @@ jobs:
 
       # The runner's pnpm install wired the husky hooks; the release commit
       # is made of generated output CI already gated, so the hooks stay out.
-      - name: Record digests, regenerate docs, and commit the release
+      - name: Regenerate docs and commit the release
         if: steps.plan.outputs.mode == 'bump'
         env:
           VERSION: ${{ steps.plan.outputs.version }}
           RELEASE_TOKEN: ${{ steps.app-token.outputs.token }}
           HUSKY: "0"
         run: |
-          node scripts/release/write-published-images.mjs \
-            --digests "$RUNNER_TEMP/published-images.json"
           pnpm docs:generate
           grep -qx '## \[Unreleased\]' CHANGELOG.md || { echo "CHANGELOG.md has no [Unreleased] section"; exit 1; }
           grep -q "^## \[$VERSION\]" CHANGELOG.md \
@@ -254,7 +181,7 @@ jobs:
           git config user.name "moltzap-release[bot]"
           git config user.email "moltzap-release[bot]@users.noreply.github.com"
           git add packages/*/package.json pnpm-lock.yaml CHANGELOG.md \
-            scripts/agent-images/README.md docs/ 'packages/**/MODULE.md' README.md
+            docs/ 'packages/**/MODULE.md' README.md
           git commit -m "chore(release): moltzap@$VERSION"
           git tag "v$VERSION"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$RELEASE_TOKEN" | base64 -w0)" \

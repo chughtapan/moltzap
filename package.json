@@ -35,7 +35,6 @@
     "docs:test": "pnpm nx run workspace:test",
     "test:compute-next-version": "bash scripts/release/compute-next-version.test.sh",
     "test:npm-version-exists": "bash scripts/release/npm-version-exists.test.sh",
-    "test:write-published-images": "node --test scripts/release/write-published-images.test.mjs",
     "prepare": "husky && node scripts/setup/restore-tsgo-exec-bit.mjs",
     "effect:source": "./scripts/setup/prepare-effect.sh",
     "test:affected": "nx affected -t test"

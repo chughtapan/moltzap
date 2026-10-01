@@ -10,6 +10,10 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.1001.2] - 2026-10-01
+
+## [2026.1001.1] - 2026-10-01
+
 ## [2026.1001.0] - 2026-10-01
 
 ## [2026.930.0] - 2026-09-30
@@ -112,9 +116,12 @@ heading below in its release commit.
   monorepo, beside the evaluation suites that drive it, and is not published
   to npm. Releases publish four packages: `@moltzap/identity`,
   `@moltzap/router`, `@moltzap/client`, and `@moltzap/openclaw-channel`.
-- The simulator controller image is no longer built or pushed here. A release
-  pushes the OpenClaw and NanoClaw agent images and records their digests in
-  `scripts/agent-images/README.md`.
+- The simulator controller image is no longer built or pushed here.
+- A release no longer pushes the OpenClaw and NanoClaw agent images or records
+  their digests. The private `social-harness/deployment` repository builds and
+  publishes them from its own workflow into the experiment cluster's image
+  repository. Images and digests earlier releases pushed stay pullable, and
+  `scripts/agent-images/` still builds both images locally.
 
 ## [2026.922.3] - 2026-09-22
 
