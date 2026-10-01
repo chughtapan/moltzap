@@ -35,6 +35,8 @@ import {
 } from "effect";
 import { absurd } from "effect/Function";
 import { randomUUID } from "node:crypto";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Plugin creation is synchronous: OpenClaw takes the plugin object at module load and describeMessageTool returns synchronously, so the guidance file cannot be read through the asynchronous platform FileSystem.
+import { readFileSync } from "node:fs";
 import { jsonResult } from "openclaw/plugin-sdk/channel-actions";
 import {
   type ChannelPlugin,
@@ -65,6 +67,34 @@ const INBOUND_LOG_PREVIEW_CHARS = 80;
  * carrying either fails with {@link OpenClawCollectivesUnavailableError}.
  */
 const HIDE_COLLECTIVES_VARIABLE = "MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES";
+
+/**
+ * Experiment control for evaluations that compare alternative model-facing
+ * guidance for collectives. It is not a product setting: do not set it in
+ * production, and it may be removed without notice. Its value is the path of
+ * a JSON file holding replacement descriptions for the message tool's
+ * `collective` and `collectiveResponse` parameters, read once when the plugin
+ * is created; see {@link guidanceOverrideSchema}. An unreadable or invalid
+ * file fails plugin creation with {@link OpenClawGuidanceOverrideError},
+ * because default guidance in its place would invalidate the comparison.
+ */
+const GUIDANCE_PARAMETERS_VARIABLE = "MOLTZAP_EXPERIMENT_GUIDANCE_PARAMETERS";
+
+/**
+ * The guidance file's shape. Each present key replaces that parameter's
+ * description; an absent key keeps the default. Any other key fails, so a
+ * misspelled key cannot leave the default description in place unnoticed.
+ */
+const guidanceOverrideSchema = Schema.Struct({
+  collective: Schema.optional(Schema.String),
+  collectiveResponse: Schema.optional(Schema.String),
+});
+
+/** Descriptions the message tool gives its two collective parameters. */
+interface CollectiveParameterDescriptions {
+  readonly collective: string;
+  readonly collectiveResponse: string;
+}
 
 /**
  * Where the message tool shows the collective parameters: on every turn.
@@ -189,6 +219,21 @@ class OpenClawOutboundError extends Data.TaggedError("OpenClawOutboundError")<{
 }
 
 /**
+ * The file {@link GUIDANCE_PARAMETERS_VARIABLE} names cannot be read or does
+ * not match {@link guidanceOverrideSchema}.
+ */
+class OpenClawGuidanceOverrideError extends Data.TaggedError(
+  "OpenClawGuidanceOverrideError",
+)<{
+  readonly path: string;
+  readonly detail: string;
+}> {
+  override get message(): string {
+    return `${GUIDANCE_PARAMETERS_VARIABLE} file ${this.path} is not usable: ${this.detail}`;
+  }
+}
+
+/**
  * A message tool send carrying `collective` or `collectiveResponse` while
  * {@link HIDE_COLLECTIVES_VARIABLE} is true. The tool does not offer either
  * parameter then, so the message tells the model to send without it.
@@ -225,33 +270,12 @@ class OpenClawRuntimeError extends Data.TaggedError("OpenClawRuntimeError")<{
 
 const isMessageAddressInput = Schema.is(MessageAddressInput);
 
-/**
- * The `collective` parameter MoltZap adds to the message tool's `send`
- * action. Its JSON Schema comes from the Client's `CollectiveOperation`, so
- * the tool accepts exactly the operations the endpoint does; TypeBox marks it
- * optional because a `send` without it is a multicast. The description names
- * OpenClaw's own `message` parameter, which carries the question.
- */
-const collectiveParameter = Type.Optional(
-  Type.Unsafe<CollectiveOperation>({
-    ...Struct.omit(JSONSchema.make(CollectiveOperation), "$schema"),
-    description:
-      'The MoltZap collective operation; the moltzap-collectives skill describes each. Omit it for a multicast: message reaches every agent the target names. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} sends message as a question to each member of the target, privately; when every member has answered or the deadline passes, only you receive one result turn listing each member\'s answer, decline, cancel or no answer. {"op":"all_gather","deadline":<seconds>,"requestedSchema":<form>} needs a group target: every member receives the question in the group, no one sees another\'s answer before the close, and every member, you included, receives the same result turn. deadline is a whole number of seconds from now, 1 to 2592000 (30 days). requestedSchema is a flat MCP form: {"type":"object","properties":{...},"required":[...]} of string, number, integer, boolean, string-enum or string-enum-array fields. The tool result carries the operation\'s operationId.',
-  }),
-);
-
-/**
- * The `collectiveResponse` parameter: one answer to a collective request
- * turn. Its JSON Schema comes from the Client's `CollectiveResponse`; the
- * description says what OpenClaw needs beyond it.
- */
-const collectiveResponseParameter = Type.Optional(
-  Type.Unsafe<CollectiveResponse>({
-    ...Struct.omit(JSONSchema.make(CollectiveResponse), "$schema"),
-    description:
-      'Answer a MoltZap collective request turn once; the moltzap-collectives skill describes it. {"id":<request id>,"action":"accept","content":{...}} with content matching the request\'s form, or {"id":<request id>,"action":"decline"} or "cancel" without content. The answer goes back where the request came from, whatever target says. message is not sent, but OpenClaw requires a short non-empty one. An answer that does not match the form fails naming the fields; fix them and send again.',
-  }),
-);
+const DEFAULT_PARAMETER_DESCRIPTIONS: CollectiveParameterDescriptions = {
+  collective:
+    'The MoltZap collective operation; the moltzap-collectives skill describes each. Omit it for a multicast: message reaches every agent the target names. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} sends message as a question to each member of the target, privately; when every member has answered or the deadline passes, only you receive one result turn listing each member\'s answer, decline, cancel or no answer. {"op":"all_gather","deadline":<seconds>,"requestedSchema":<form>} needs a group target: every member receives the question in the group, no one sees another\'s answer before the close, and every member, you included, receives the same result turn. deadline is a whole number of seconds from now, 1 to 2592000 (30 days). requestedSchema is a flat MCP form: {"type":"object","properties":{...},"required":[...]} of string, number, integer, boolean, string-enum or string-enum-array fields. The tool result carries the operation\'s operationId.',
+  collectiveResponse:
+    'Answer a MoltZap collective request turn once; the moltzap-collectives skill describes it. {"id":<request id>,"action":"accept","content":{...}} with content matching the request\'s form, or {"id":<request id>,"action":"decline"} or "cancel" without content. The answer goes back where the request came from, whatever target says. message is not sent, but OpenClaw requires a short non-empty one. An answer that does not match the form fails naming the fields; fix them and send again.',
+};
 
 /**
  * Returns the manifest schema for one MoltZap channel configuration.
@@ -284,6 +308,9 @@ export function makeMoltZapChannelConfigJsonSchema() {
  *   Plugin->>Client: send the operation or response
  *   Plugin-->>Host: tool result with the operation id, or the Client error
  * ```
+ *
+ * Creation reads {@link GUIDANCE_PARAMETERS_VARIABLE} and throws when its
+ * file is unusable, so a misconfigured experiment fails at plugin load.
  * @param deps Optional process-local dependency overrides used by tests.
  * @returns The MoltZap channel plugin.
  * @internal
@@ -292,6 +319,7 @@ export function createMoltzapChannelPlugin(
   deps: MoltzapChannelPluginDeps = {},
 ): ChannelPlugin<MoltZapAccount> {
   const connectedAccount: ConnectedAccountState = {};
+  const descriptions = Effect.runSync(collectiveParameterDescriptions());
   return {
     ...createChannelPluginBase<MoltZapAccount>({
       id: CHANNEL_ID,
@@ -304,7 +332,7 @@ export function createMoltzapChannelPlugin(
       startAccount: (ctx) =>
         startAccountConnection(ctx, connectedAccount, deps),
     },
-    actions: createMessageActions(connectedAccount),
+    actions: createMessageActions(connectedAccount, descriptions),
     message: createMessageSection(connectedAccount),
   };
 }
@@ -370,11 +398,14 @@ function createConfigSection() {
  * {@link HIDE_COLLECTIVES_VARIABLE} is true or unreadable, and with
  * {@link COLLECTIVE_PARAMETER_VISIBILITY} otherwise.
  * @param connectedAccount The account whose endpoint performs the operation.
+ * @param descriptions The collective parameters' descriptions.
  * @returns The action adapter registered on the channel plugin.
  */
 function createMessageActions(
   connectedAccount: ConnectedAccountState,
+  descriptions: CollectiveParameterDescriptions,
 ): ChannelMessageActionAdapter {
+  const properties = collectiveParameters(descriptions);
   return {
     describeMessageTool: () => ({
       actions: ["send"],
@@ -384,10 +415,7 @@ function createMessageActions(
         ? {}
         : {
             schema: {
-              properties: {
-                collective: collectiveParameter,
-                collectiveResponse: collectiveResponseParameter,
-              },
+              properties,
               actions: ["send"],
               visibility: COLLECTIVE_PARAMETER_VISIBILITY,
             },
@@ -397,6 +425,78 @@ function createMessageActions(
     handleAction: (ctx) =>
       runHostPromise(handleMessageAction(connectedAccount, ctx)),
   };
+}
+
+/**
+ * The `collective` and `collectiveResponse` parameters MoltZap adds to the
+ * message tool's `send` action. Their JSON Schemas come from the Client's
+ * `CollectiveOperation` and `CollectiveResponse`, so the tool accepts exactly
+ * what the endpoint does; TypeBox marks both optional because a `send`
+ * without either is a multicast. The descriptions say what OpenClaw needs
+ * beyond the schemas and name OpenClaw's own `message` parameter, which
+ * carries the question.
+ * @param descriptions The description for each parameter.
+ * @returns The two parameter schemas, keyed by parameter name.
+ */
+function collectiveParameters(descriptions: CollectiveParameterDescriptions) {
+  return {
+    collective: Type.Optional(
+      Type.Unsafe<CollectiveOperation>({
+        ...Struct.omit(JSONSchema.make(CollectiveOperation), "$schema"),
+        description: descriptions.collective,
+      }),
+    ),
+    collectiveResponse: Type.Optional(
+      Type.Unsafe<CollectiveResponse>({
+        ...Struct.omit(JSONSchema.make(CollectiveResponse), "$schema"),
+        description: descriptions.collectiveResponse,
+      }),
+    ),
+  };
+}
+
+/**
+ * The parameter descriptions for this process: the defaults, with any
+ * replacement the {@link GUIDANCE_PARAMETERS_VARIABLE} file supplies.
+ */
+function collectiveParameterDescriptions(): Effect.Effect<
+  CollectiveParameterDescriptions,
+  OpenClawGuidanceOverrideError | ConfigError.ConfigError
+> {
+  return Config.option(Config.string(GUIDANCE_PARAMETERS_VARIABLE)).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.succeed(DEFAULT_PARAMETER_DESCRIPTIONS),
+        onSome: (path) =>
+          readGuidanceOverride(path).pipe(
+            Effect.map((override) => ({
+              ...DEFAULT_PARAMETER_DESCRIPTIONS,
+              ...override,
+            })),
+          ),
+      }),
+    ),
+  );
+}
+
+function readGuidanceOverride(path: string) {
+  return Effect.try({
+    try: () => readFileSync(path, "utf8"),
+    catch: (cause) =>
+      new OpenClawGuidanceOverrideError({ path, detail: String(cause) }),
+  }).pipe(
+    Effect.flatMap((text) =>
+      Schema.decodeUnknown(Schema.parseJson(guidanceOverrideSchema), {
+        onExcessProperty: "error",
+      })(text).pipe(
+        // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Every unusable guidance file is one closed error naming the switch and the path, so the plugin's load failure says which experiment input to fix.
+        Effect.mapError(
+          (error) =>
+            new OpenClawGuidanceOverrideError({ path, detail: error.message }),
+        ),
+      ),
+    ),
+  );
 }
 
 function handleMessageAction(

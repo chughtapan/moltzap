@@ -12,8 +12,11 @@ import {
   experimentTag,
   FINGERPRINTED_FILES,
   fingerprint,
+  GUIDANCE_DIRECTORY_FLAG,
+  GUIDANCE_PARAMETERS_PATH,
   OPENCLAW_EXPERIMENTS,
   packageManifest,
+  readGuidanceDirectory,
   splitExperimentArguments,
   ZAI_PROVIDER_PATH,
   ZAI_PROVIDER_VERSION,
@@ -213,6 +216,7 @@ test("a build without experiment flags stages the Dockerfile and tag unchanged",
 
   assert.deepEqual(splitExperimentArguments(["--push", "--tag", "t"]), {
     experiments: [],
+    guidanceDirectory: undefined,
     buildArguments: ["--push", "--tag", "t"],
   });
   assert.equal(experimentDockerfile(dockerfile, []), dockerfile);
@@ -256,6 +260,7 @@ test("experiment flags are taken in a fixed order whatever the argument order", 
     splitExperimentArguments([OMIT, "--push", HIDE, "--tag", "constructor"]),
     {
       experiments: [HIDE, OMIT],
+      guidanceDirectory: undefined,
       buildArguments: ["--push", "--tag", "constructor"],
     },
   );
@@ -302,4 +307,147 @@ test("the omit-skill variant deletes the installed plugin's collectives skill di
     (await sibling("Dockerfile")).indexOf("npm install") > 0,
     "the plugin must be installed before an appended line deletes its skill",
   );
+});
+
+/**
+ * Run a check against a fresh guidance directory holding the given files.
+ * @param {Record<string, string>} files Content by path relative to the directory.
+ * @param {(directory: string) => Promise<void>} check The check to run.
+ * @returns {Promise<void>}
+ */
+async function withGuidance(files, check) {
+  const directory = await mkdtemp(join(tmpdir(), "moltzap-guidance-dir-"));
+  try {
+    for (const [path, content] of Object.entries(files)) {
+      await mkdir(posix.dirname(join(directory, path)), { recursive: true });
+      await writeFile(join(directory, path), content);
+    }
+    await check(directory);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+const SKILL = {
+  "skill/SKILL.md": "---\nname: moltzap-collectives\n---\nBody\n",
+};
+const PARAMETERS = { "parameters.json": '{"collective":"Gather answers."}' };
+
+test("the guidance flag takes its directory out of the build arguments beside the other flags", () => {
+  assert.deepEqual(
+    splitExperimentArguments([
+      "--tag",
+      "t",
+      GUIDANCE_DIRECTORY_FLAG,
+      "candidates/one",
+      HIDE,
+    ]),
+    {
+      experiments: [HIDE],
+      guidanceDirectory: "candidates/one",
+      buildArguments: ["--tag", "t"],
+    },
+  );
+  assert.throws(
+    () => splitExperimentArguments([GUIDANCE_DIRECTORY_FLAG]),
+    /needs a directory/u,
+  );
+  assert.throws(
+    () => splitExperimentArguments([GUIDANCE_DIRECTORY_FLAG, "--push"]),
+    /needs a directory/u,
+  );
+  assert.throws(
+    () =>
+      splitExperimentArguments([
+        GUIDANCE_DIRECTORY_FLAG,
+        "a",
+        GUIDANCE_DIRECTORY_FLAG,
+        "b",
+      ]),
+    /may be given once/u,
+  );
+});
+
+test("a guidance skill replaces the installed collectives skill directory", async () => {
+  await withGuidance(SKILL, async (directory) => {
+    const guidance = await readGuidanceDirectory(directory);
+
+    assert.equal(guidance.skill, true);
+    assert.equal(guidance.parameters, false);
+    assert.equal(
+      experimentDockerfile("FROM base", [], guidance),
+      "FROM base\n" +
+        "RUN rm -r /opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/moltzap-collectives\n" +
+        "COPY guidance/skill/ /opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/moltzap-collectives/\n",
+    );
+    assert.throws(
+      () => experimentDockerfile("FROM base", [OMIT], guidance),
+      /cannot be combined/u,
+    );
+  });
+});
+
+test("a guidance parameters file is copied, named by the plugin's switch, and loaded at build", async () => {
+  const plugin = await readFile(
+    new URL(
+      "../../../packages/openclaw-channel/src/plugin.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  await withGuidance(PARAMETERS, async (directory) => {
+    const guidance = await readGuidanceDirectory(directory);
+    const lines = experimentDockerfile("FROM base", [], guidance).split("\n");
+
+    assert.deepEqual(lines.slice(1, 3), [
+      `COPY guidance/parameters.json ${GUIDANCE_PARAMETERS_PATH}`,
+      `ENV MOLTZAP_EXPERIMENT_GUIDANCE_PARAMETERS=${GUIDANCE_PARAMETERS_PATH}`,
+    ]);
+    assert.match(
+      lines[3],
+      /^RUN node .*import\("\/opt\/moltzap\/node_modules\/@moltzap\/openclaw-channel\/dist\/index\.js"\)/u,
+    );
+  });
+  assert.match(
+    plugin,
+    /^const GUIDANCE_PARAMETERS_VARIABLE =\s+"MOLTZAP_EXPERIMENT_GUIDANCE_PARAMETERS";$/mu,
+  );
+});
+
+test("each guidance candidate has its own tag suffix", async () => {
+  const hashes = [];
+  for (const files of [
+    SKILL,
+    PARAMETERS,
+    { ...SKILL, ...PARAMETERS },
+    { ...SKILL, "skill/SKILL.md": "---\nname: other\n---\nBody\n" },
+    { ...SKILL, "skill/notes.md": "extra" },
+  ]) {
+    await withGuidance(files, async (directory) => {
+      hashes.push((await readGuidanceDirectory(directory)).hash);
+    });
+  }
+  await withGuidance(SKILL, async (directory) => {
+    const guidance = await readGuidanceDirectory(directory);
+    assert.equal(guidance.hash, hashes[0]);
+    assert.equal(
+      experimentTag("t", [HIDE], guidance),
+      `t-hide-collectives-guidance-${guidance.hash}`,
+    );
+  });
+
+  assert.equal(new Set(hashes).size, hashes.length);
+  assert.ok(hashes.every((hash) => /^[0-9a-f]{12}$/u.test(hash)));
+});
+
+test("a guidance directory holds only a skill with SKILL.md and a parameters file", async () => {
+  for (const files of [
+    {},
+    { ...PARAMETERS, "notes.md": "x" },
+    { "skill/README.md": "x" },
+  ]) {
+    await withGuidance(files, (directory) =>
+      assert.rejects(readGuidanceDirectory(directory)),
+    );
+  }
 });
