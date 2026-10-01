@@ -46,16 +46,20 @@ stock final-output and session contract. The
 [channel contract](./channels.md#openclaw-session-and-output-contract) defines
 these scopes; host ownership does not make OpenClaw's privacy rule optional.
 
-The OpenClaw adapter registers the message tool's `send` action. It adds an
-optional `collective` parameter whose schema is Client's `CollectiveOperation`
-and an optional `collectiveResponse` parameter whose schema is Client's
-`CollectiveResponse`. Every `send` becomes one operation: the tool's `to`, its
-`message` text and its `collective`, or, when `collectiveResponse` is present,
-that response alone; OpenClaw still requires non-empty `message` text, so a
-decline carries a short one. The action returns `{ok: true, to?,
-operationId?}` once the send completes, and a refusal reaches the model as the
-tool's error with the Client error's message, naming each unreachable member
-or failing field. `message.send.text` remains for sends OpenClaw's core makes
+The OpenClaw adapter registers the message tool's `send` and `reply` actions.
+It adds an optional `collective` parameter to `send`, whose schema is Client's
+`CollectiveOperation`, and a `collectiveResponse` parameter to `reply`, whose
+schema is Client's `CollectiveResponse`. Every `send` becomes one operation:
+the tool's `to`, its `message` text and its `collective`; a `send` carrying a
+`collectiveResponse` fails and names `reply`. A `reply` becomes one collective
+response: it requires `collectiveResponse`, fails when it carries `message` or
+`targets`, and ignores its target, which OpenClaw fills with the turn's
+conversation when the model gives none. OpenClaw requires `message` text on a
+`send` but not on a `reply`, so a response carries no unused text. MoltZap
+offers no other `reply`. The `send` action returns `{ok: true, to?,
+operationId?}` and the `reply` action `{ok: true}` once the operation
+completes, and a refusal reaches the model as the tool's error with the Client
+error's message, naming each unreachable member or failing field. `message.send.text` remains for sends OpenClaw's core makes
 itself and performs a multicast. Its context carries no tool parameters, and
 OpenClaw forces core delivery only for sends it builds from text and media, so
 a `collective` or `collectiveResponse` never reaches it; the adapter's

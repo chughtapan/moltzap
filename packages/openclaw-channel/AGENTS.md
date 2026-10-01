@@ -33,8 +33,9 @@ re-exports. Publication follows `docs/spec/layer-interfaces.md` → Publication 
   shared and in private evaluation mode. Every outbound callback names an
   explicit `agent:` or `group:` target through the `message` tool. The model's
   `send` reaches the plugin's `send` action with its optional `collective`
-  and `collectiveResponse` parameters; `message.send.text` serves OpenClaw's
-  core-forced sends, which carry no tool parameters. The host decides which
+  parameter, and its `reply` reaches the `reply` action, which carries only
+  `collectiveResponse`; `message.send.text` serves OpenClaw's core-forced
+  sends, which carry no tool parameters. The host decides which
   tools invoke those callbacks.
 - The `moltzap-collectives` skill and the `collective` and
   `collectiveResponse` descriptions state operation mechanics only, the same

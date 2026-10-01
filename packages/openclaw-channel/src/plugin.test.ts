@@ -4,6 +4,7 @@ import type {
   ChannelAccountSnapshot,
   ChannelGatewayContext,
   ChannelMessageActionContext,
+  ChannelMessageToolDiscovery,
   ChannelRuntimeSurface,
 } from "openclaw/plugin-sdk/channel-contract";
 import type {
@@ -165,16 +166,12 @@ describe("OpenClaw message tool send action", () => {
     messageToolSendRejectsTargets,
   );
   vitestIt(
-    "offers the send action with an optional collective parameter",
+    "offers send with an optional collective parameter, and reply",
     messageToolOffersOptionalCollective,
   );
   it(
     "sends a gather and returns its operation id in the tool result",
     messageToolSendReturnsGatherId,
-  );
-  it(
-    "sends a collectiveResponse without the target or message text",
-    messageToolSendsCollectiveResponse,
   );
   it(
     "fails the tool with the Client error naming each unreachable member",
@@ -581,12 +578,10 @@ function messageToolOffersOptionalCollective() {
   const discovery = createMoltzapChannelPlugin().actions?.describeMessageTool({
     cfg: makeConfig(),
   });
-  const schema = discovery?.schema;
-  if (schema === undefined || schema === null || Array.isArray(schema)) {
-    throw new Error("expected one message tool schema contribution");
-  }
+  const schema = contributionFor(discovery?.schema, "send");
 
-  expect(discovery?.actions).toEqual(["send"]);
+  expect(discovery?.actions).toEqual(["send", "reply"]);
+  expect(Object.keys(schema.properties)).toEqual(["collective"]);
   expect(schema.properties.collective).toMatchObject({
     anyOf: [
       { properties: { op: { type: "string", enum: ["multicast"] } } },
@@ -641,29 +636,6 @@ function messageToolSendReturnsGatherId() {
   });
 }
 
-function messageToolSendsCollectiveResponse() {
-  const fake = makeListeningEndpoint();
-  const plugin = createMoltzapChannelPlugin({
-    harnessEndpointForAccount: () => fake.endpoint,
-  });
-  const controller = new AbortController();
-  const collectiveResponse = { id: COLLECTIVE_ID, action: "decline" };
-
-  return Effect.gen(function* () {
-    const fiber = yield* connectAccount(plugin, controller.signal);
-    yield* handleSendAction(plugin, {
-      to: "agent:nova",
-      message: "declining",
-      collectiveResponse,
-    });
-
-    expect(fake.sends).toEqual([{ collectiveResponse }]);
-
-    controller.abort();
-    yield* Effect.timeout(Fiber.join(fiber), "1 second");
-  });
-}
-
 function messageToolSendSurfacesCollectiveError() {
   const refusal = new CollectiveError({
     id: collectiveId(),
@@ -708,21 +680,42 @@ function messageToolOffersCollectiveResponse() {
   const discovery = createMoltzapChannelPlugin().actions?.describeMessageTool({
     cfg: makeConfig(),
   });
-  const schema = discovery?.schema;
-  if (schema === undefined || schema === null || Array.isArray(schema)) {
-    throw new Error("expected one message tool schema contribution");
-  }
+  const send = contributionFor(discovery?.schema, "send");
+  const reply = contributionFor(discovery?.schema, "reply");
 
-  expect(schema.visibility).toBe(COLLECTIVE_PARAMETER_VISIBILITY);
-  expect(schema.properties.collectiveResponse).toMatchObject({
+  expect(send.visibility).toBe(COLLECTIVE_PARAMETER_VISIBILITY);
+  expect(reply.visibility).toBe(COLLECTIVE_PARAMETER_VISIBILITY);
+  expect(Object.keys(reply.properties)).toEqual(["collectiveResponse"]);
+  expect(reply.properties.collectiveResponse).toMatchObject({
     anyOf: [
       { properties: { action: { enum: ["accept"] } } },
       { properties: { action: { enum: ["decline", "cancel"] } } },
     ],
   });
-  expect(schema.properties.collective).toMatchObject({
+  expect(send.properties.collective).toMatchObject({
     anyOf: [{}, { properties: { op: { enum: ["gather", "all_gather"] } } }],
   });
+}
+
+/**
+ * Finds the one schema contribution the plugin scopes to `action`.
+ * @param schema The message tool discovery's schema.
+ * @param action The message tool action.
+ * @returns The contribution whose `actions` are exactly `[action]`.
+ */
+function contributionFor(
+  schema: ChannelMessageToolDiscovery["schema"],
+  action: "send" | "reply",
+) {
+  const contributions = Array.isArray(schema) ? schema : [];
+  const matching = contributions.filter(
+    ({ actions }) => actions?.length === 1 && actions[0] === action,
+  );
+  const [contribution] = matching;
+  if (matching.length !== 1 || contribution === undefined) {
+    throw new Error(`expected one schema contribution for ${action}`);
+  }
+  return contribution;
 }
 
 function rendersCollectiveRequest() {
@@ -745,7 +738,7 @@ function rendersCollectiveRequest() {
         `MoltZap collective request ${COLLECTIVE_ID} from agent:alice, open until 2026-09-30T12:00:00.000Z.`,
         "Question: Which day?",
         `Answer form (requestedSchema): ${JSON.stringify(SLOT_SCHEMA)}`,
-        `Answer once with the message tool's send action and collectiveResponse {"id":"${COLLECTIVE_ID}","action":"accept","content":{...}} matching the form, or {"id":"${COLLECTIVE_ID}","action":"decline"}.`,
+        `Answer once with the message tool's reply action and collectiveResponse {"id":"${COLLECTIVE_ID}","action":"accept","content":{...}} matching the form, or {"id":"${COLLECTIVE_ID}","action":"decline"}.`,
       ].join("\n"),
       ChatType: "direct",
       From: "agent:alice",

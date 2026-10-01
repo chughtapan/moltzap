@@ -48,10 +48,12 @@ path is:
 3. `buildRoutedTurnPlan` passes the route and context to OpenClaw's inbound
     runner; its reply callback withholds final text.
 4. `createMessageActions` registers the message tool's `send` action with its
-    optional `collective` and `collectiveResponse` parameters, which the
-    `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES` experiment switch withholds, and
+    optional `collective` parameter and its `reply` action with the
+    `collectiveResponse` parameter, which the
+    `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES` experiment switch withholds.
     `sendOperation` performs each send as one Client operation, returning a
-    gather's or all_gather's `operationId` or failing with the Client's error.
+    gather's or all_gather's `operationId` or failing with the Client's error,
+    and `sendResponse` sends each reply's collective response.
 
 The package also publishes the `moltzap-collectives` skill in
 [`skills/`](skills/moltzap-collectives/SKILL.md), which `openclaw.plugin.json`

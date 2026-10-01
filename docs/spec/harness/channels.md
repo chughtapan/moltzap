@@ -51,9 +51,10 @@ A proactive outbound callback supplies one syntactically valid Client
 `MessageAddressInput` and becomes one Client operation: multicast unless the
 callback names another `collective` operation, or one collective response when
 it carries a `collectiveResponse`. OpenClaw's model reaches operations through
-its message tool's `send` action, which carries the optional `collective` and
-`collectiveResponse` parameters, and NanoClaw's through its `send_message`
-tool with the same optional parameters; no second messaging tool exists. A
+its message tool: the `send` action carries the optional `collective`
+parameter and the `reply` action the `collectiveResponse`. NanoClaw's model
+reaches them through its `send_message` tool with both optional parameters; no
+second messaging tool exists. A
 gather sends one request post per member from one tool call, each in that
 member's direct conversation with the requester; an all_gather sends one
 request post to the `group:` conversation the callback names, and members

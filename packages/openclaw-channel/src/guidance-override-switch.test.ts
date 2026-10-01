@@ -28,7 +28,7 @@ interface ParameterSchema {
   readonly description?: string;
 }
 
-/** The plugin's single message tool schema contribution. */
+/** One message tool schema contribution as the plugin describes it. */
 interface Contribution {
   readonly visibility?: string;
   readonly properties: Readonly<Record<string, ParameterSchema>>;
@@ -121,7 +121,7 @@ function switchAbsentKeepsDefaults() {
     /^The MoltZap collective operation; the moltzap-collectives skill describes each\./u,
   );
   expect(properties.collectiveResponse?.description).toMatch(
-    /^Answer a MoltZap collective request turn once; the moltzap-collectives skill describes it\./u,
+    /^Answer a MoltZap collective request turn once with the reply action and this parameter only; the moltzap-collectives skill describes it\./u,
   );
 }
 
@@ -150,12 +150,23 @@ function stubGuidanceFile(text: string) {
   vi.stubEnv(GUIDANCE_PARAMETERS, path);
 }
 
+/**
+ * Merges the plugin's message tool schema contributions, one per action, into
+ * the parameters the model sees, and the visibility they share.
+ */
 function contribution(): Contribution {
   const schema = createMoltzapChannelPlugin().actions?.describeMessageTool({
     cfg: CONFIG,
   })?.schema;
-  if (schema === undefined || schema === null || Array.isArray(schema)) {
-    throw new Error("expected one message tool schema contribution");
+  if (!Array.isArray(schema)) {
+    throw new Error("expected one message tool schema contribution per action");
   }
-  return schema;
+  const visibilities = new Set(schema.map(({ visibility }) => visibility));
+  expect(visibilities.size).toBe(1);
+  return {
+    visibility: schema[0]?.visibility,
+    properties: Object.fromEntries(
+      schema.flatMap(({ properties }) => Object.entries(properties)),
+    ),
+  };
 }

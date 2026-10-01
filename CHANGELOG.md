@@ -10,6 +10,16 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `@moltzap/openclaw-channel` answers a collective request
+  through the message tool's `reply` action, which carries only
+  `collectiveResponse`, so a response no longer needs `message` text that is
+  never sent. The `send` action keeps `collective` and refuses a
+  `collectiveResponse`, naming `reply`; a `reply` without `collectiveResponse`,
+  or with `message` or `targets`, fails with an error saying what a reply
+  carries. A collective request turn now says to answer with `reply`.
+
 ## [2026.1001.2] - 2026-10-01
 
 ## [2026.1001.1] - 2026-10-01

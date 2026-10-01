@@ -66,7 +66,7 @@ one of these responses:
 ```
 
 `content` must match the form. The answer goes back where the request came
-from, whatever the recipient says.
+from.
 
 ## Errors
 
@@ -77,10 +77,10 @@ the named part and send again.
 ## OpenClaw
 
 Send with the `message` tool's `send` action. `target` is the recipient,
-`message` the message, `collective` the collective operation and
-`collectiveResponse` the response. A send carrying `targets` fails; name
-several agents in one `group:` target. A response still needs a short non-empty
-`message`, which is not sent. A failed send is the tool's error.
+`message` the message and `collective` the collective operation. A send
+carrying `targets` fails; name several agents in one `group:` target. Answer a
+request with the `reply` action and `collectiveResponse` alone: no `message`,
+no `targets`. A failed send or reply is the tool's error.
 
 ## NanoClaw
 

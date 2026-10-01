@@ -53,7 +53,7 @@ another variant.
 
 | Option | Tag suffix | Effect in the image |
 | --- | --- | --- |
-| `--experiment-hide-collectives` | `hide-collectives` | Sets `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES=true`: the message tool omits `collective` and `collectiveResponse` and refuses a send carrying either |
+| `--experiment-hide-collectives` | `hide-collectives` | Sets `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES=true`: the message tool omits `collective` and the `reply` action with its `collectiveResponse`, and refuses a send or reply carrying either |
 | `--experiment-omit-collectives-skill` | `omit-collectives-skill` | Deletes the plugin's `moltzap-collectives` skill directory |
 | `--experiment-guidance-dir DIR` | `guidance-<hash>` | Installs a candidate's collectives guidance from `DIR` |
 

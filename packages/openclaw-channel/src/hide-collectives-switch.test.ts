@@ -26,11 +26,11 @@ describe("OpenClaw hide-collectives experiment switch", () => {
   });
 
   it(
-    "offers the collective parameters when the switch is absent",
+    "offers reply and the collective parameters when the switch is absent",
     switchAbsentOffersParameters,
   );
   it(
-    "offers send without the collective parameters when the switch is true",
+    "offers send alone, without the collective parameters, when the switch is true",
     switchOnOmitsParameters,
   );
   it(
@@ -38,8 +38,12 @@ describe("OpenClaw hide-collectives experiment switch", () => {
     switchOnPassesPlainSend,
   );
   it(
-    "refuses every send carrying a collective or collectiveResponse value when the switch is true",
-    switchOnRefusesCollectiveParameters,
+    "refuses every send carrying a collective value when the switch is true",
+    switchOnRefusesCollective,
+  );
+  it(
+    "refuses every reply carrying a collectiveResponse value when the switch is true",
+    switchOnRefusesCollectiveResponse,
   );
   it(
     "fails a collective send naming the switch when its value is not a boolean",
@@ -50,7 +54,10 @@ describe("OpenClaw hide-collectives experiment switch", () => {
 function switchAbsentOffersParameters() {
   vi.stubEnv(HIDE_COLLECTIVES, undefined);
 
-  expect(offeredParameters()).toEqual(["collective", "collectiveResponse"]);
+  expect(offeredParameters()).toEqual({
+    send: ["collective"],
+    reply: ["collectiveResponse"],
+  });
 }
 
 function switchOnOmitsParameters() {
@@ -78,19 +85,26 @@ function switchOnPassesPlainSend() {
   );
 }
 
-function switchOnRefusesCollectiveParameters() {
+function switchOnRefusesCollective() {
   vi.stubEnv(HIDE_COLLECTIVES, "true");
 
   return fc.assert(
-    fc.asyncProperty(
-      fc.constantFrom("collective", "collectiveResponse"),
-      fc.jsonValue(),
-      (parameter, value) =>
-        refusedSend({
-          to: "agent:nova",
-          message: "Which day?",
-          [parameter]: value,
-        }),
+    fc.asyncProperty(fc.jsonValue(), (value) =>
+      refused("send", {
+        to: "agent:nova",
+        message: "Which day?",
+        collective: value,
+      }),
+    ),
+  );
+}
+
+function switchOnRefusesCollectiveResponse() {
+  vi.stubEnv(HIDE_COLLECTIVES, "true");
+
+  return fc.assert(
+    fc.asyncProperty(fc.jsonValue(), (value) =>
+      refused("reply", { collectiveResponse: value }),
     ),
   );
 }
@@ -113,25 +127,34 @@ function invalidSwitchFailsCollectiveSend() {
 }
 
 /**
- * Names the parameters the message tool's schema contribution adds, or none
- * when the discovery carries no single contribution.
+ * Names the parameters each message tool schema contribution adds, keyed by
+ * the actions it applies to.
  */
-function offeredParameters(): readonly string[] {
-  const schema = createMoltzapChannelPlugin().actions?.describeMessageTool({
+function offeredParameters(): Readonly<Record<string, readonly string[]>> {
+  const discovery = createMoltzapChannelPlugin().actions?.describeMessageTool({
     cfg: CONFIG,
-  })?.schema;
-  return schema === undefined || schema === null || Array.isArray(schema)
-    ? []
-    : Object.keys(schema.properties);
+  });
+  expect(discovery?.actions).toEqual(["send", "reply"]);
+  const schema = discovery?.schema ?? [];
+  const contributions = Array.isArray(schema) ? schema : [schema];
+  return Object.fromEntries(
+    contributions.map(({ actions, properties }) => [
+      (actions ?? []).join(","),
+      Object.keys(properties),
+    ]),
+  );
 }
 
 /**
- * Runs one send and resolves true once it fails with the refusal, the form
+ * Runs one action and resolves true once it fails with the refusal, the form
  * `fc.asyncProperty` counts as a pass.
  */
-function refusedSend(params: ChannelMessageActionContext["params"]) {
+function refused(
+  action: "send" | "reply",
+  params: ChannelMessageActionContext["params"],
+) {
   return Effect.runPromise(
-    sendAction(params).pipe(
+    messageAction(action, params).pipe(
       Effect.flip,
       Effect.tap((failure) => {
         expect(failure.detail).toContain(REFUSAL);
@@ -142,12 +165,19 @@ function refusedSend(params: ChannelMessageActionContext["params"]) {
 }
 
 function sendAction(params: ChannelMessageActionContext["params"]) {
+  return messageAction("send", params);
+}
+
+function messageAction(
+  action: "send" | "reply",
+  params: ChannelMessageActionContext["params"],
+) {
   const handleAction = createMoltzapChannelPlugin().actions?.handleAction;
   return Effect.tryPromise({
     try: () =>
       handleAction?.({
         channel: "moltzap",
-        action: "send",
+        action,
         cfg: CONFIG,
         accountId: "primary",
         params,

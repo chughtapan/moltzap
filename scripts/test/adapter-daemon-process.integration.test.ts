@@ -274,17 +274,23 @@ interface OpenClawGatewayContext {
   readonly setStatus: (status: OpenClawGatewayStatus) => void;
 }
 
-interface OpenClawMessageActionContext {
+type OpenClawMessageActionContext =
+  | OpenClawMessageActionCall<
+      "send",
+      {
+        readonly to: string;
+        readonly message: string;
+        readonly collective?: object;
+      }
+    >
+  | OpenClawMessageActionCall<"reply", { readonly collectiveResponse: object }>;
+
+interface OpenClawMessageActionCall<Action extends string, Params> {
   readonly channel: string;
-  readonly action: "send";
+  readonly action: Action;
   readonly cfg: OpenClawConfig;
   readonly accountId: string;
-  readonly params: {
-    readonly to: string;
-    readonly message: string;
-    readonly collective?: object;
-    readonly collectiveResponse?: object;
-  };
+  readonly params: Params;
 }
 
 interface OpenClawMessageActionResult {
@@ -993,7 +999,12 @@ function runOpenClawGatherScenario() {
         channelPlugin,
         makeTurnQueueRuntime(turns),
       );
-      const messageTool = (params: OpenClawMessageActionContext["params"]) =>
+      const messageTool = (
+        params: Extract<
+          OpenClawMessageActionContext,
+          { readonly action: "send" }
+        >["params"],
+      ) =>
         effectFromPromise("OpenClaw message tool send", () =>
           channelPlugin.actions.handleAction({
             channel: "moltzap",
@@ -1001,6 +1012,16 @@ function runOpenClawGatherScenario() {
             cfg,
             accountId: OPENCLAW_ACCOUNT_ID,
             params,
+          }),
+        );
+      const replyTool = (collectiveResponse: object) =>
+        effectFromPromise("OpenClaw message tool reply", () =>
+          channelPlugin.actions.handleAction({
+            channel: "moltzap",
+            action: "reply",
+            cfg,
+            accountId: OPENCLAW_ACCOUNT_ID,
+            params: { collectiveResponse },
           }),
         );
 
@@ -1051,14 +1072,10 @@ function runOpenClawGatherScenario() {
       });
       const requestTurn = yield* nextTurn(turns);
       expect(requestTurn.From).toBe(callerAddress);
-      const answered = yield* messageTool({
-        to: callerAddress,
-        message: "answering",
-        collectiveResponse: {
-          id: requestIdOf(requestTurn.Body),
-          action: "accept",
-          content: { slot: "tue" },
-        },
+      const answered = yield* replyTool({
+        id: requestIdOf(requestTurn.Body),
+        action: "accept",
+        content: { slot: "tue" },
       });
       expect(answered.details).toMatchObject({ ok: true });
       expect(yield* nextItem(caller.messages)).toMatchObject({
@@ -1107,7 +1124,12 @@ function runOpenClawAllGatherScenario() {
         channelPlugin,
         makeTurnQueueRuntime(turns),
       );
-      const messageTool = (params: OpenClawMessageActionContext["params"]) =>
+      const messageTool = (
+        params: Extract<
+          OpenClawMessageActionContext,
+          { readonly action: "send" }
+        >["params"],
+      ) =>
         effectFromPromise("OpenClaw message tool send", () =>
           channelPlugin.actions.handleAction({
             channel: "moltzap",
@@ -1115,6 +1137,16 @@ function runOpenClawAllGatherScenario() {
             cfg,
             accountId: OPENCLAW_ACCOUNT_ID,
             params,
+          }),
+        );
+      const replyTool = (collectiveResponse: object) =>
+        effectFromPromise("OpenClaw message tool reply", () =>
+          channelPlugin.actions.handleAction({
+            channel: "moltzap",
+            action: "reply",
+            cfg,
+            accountId: OPENCLAW_ACCOUNT_ID,
+            params: { collectiveResponse },
           }),
         );
       const allGather = {
@@ -1139,14 +1171,10 @@ function runOpenClawAllGatherScenario() {
       yield* peer.send({
         collectiveResponse: { id: peerRequest.id, action: "decline" },
       });
-      const answered = yield* messageTool({
-        to: group,
-        message: "answering",
-        collectiveResponse: {
-          id: requestIdOf(requestTurn.Body),
-          action: "accept",
-          content: { slot: "tue" },
-        },
+      const answered = yield* replyTool({
+        id: requestIdOf(requestTurn.Body),
+        action: "accept",
+        content: { slot: "tue" },
       });
       expect(answered.details).toMatchObject({ ok: true });
       const callerResult = yield* nextItem(caller.messages);
