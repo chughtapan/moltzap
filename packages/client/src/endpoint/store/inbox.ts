@@ -25,6 +25,38 @@ import {
 const MAXIMUM_PAGE_ITEMS = 50;
 const MAXIMUM_PAGE_BYTES = 2 * 1024 * 1024;
 
+/** Retained bytes remain readable after handoff or request-context retirement. */
+export function readInboxItem(
+  database: DatabaseSync,
+  deliveryToken: DeliveryToken,
+) {
+  const row = database
+    .prepare(
+      "SELECT sequence, canonical_item, acknowledged FROM runtime_inbox WHERE delivery_token = ?",
+    )
+    .get(deliveryToken);
+  return row === undefined
+    ? undefined
+    : {
+        deliveryToken,
+        sequence: readInteger(row, "sequence"),
+        canonicalItem: readBytes(row, "canonical_item"),
+        acknowledged: readInteger(row, "acknowledged") === 1,
+      };
+}
+
+/** Receipt retirement and callback progress commit together across crashes. */
+export function completeWebhookDelivery(
+  database: DatabaseSync,
+  deliveryToken: DeliveryToken,
+  canonicalState: Uint8Array,
+): void {
+  transaction(database, () => {
+    retireItem(database, deliveryToken);
+    writeEventState(database, canonicalState);
+  });
+}
+
 /**
  * Bind a delivery token to exactly one classified payload, including after ack.
  * @param database Exclusively owned endpoint database.
@@ -171,30 +203,6 @@ export function readInboxSummary(database: DatabaseSync): InboxSummary {
     newestSequence: newestSequence(database),
   };
 }
-
-const retireItem = (
-  database: DatabaseSync,
-  deliveryToken: DeliveryToken,
-): void => {
-  const retained = database
-    .prepare(
-      "SELECT delivery_token FROM runtime_inbox WHERE delivery_token = ?",
-    )
-    .get(deliveryToken);
-  if (retained === undefined) {
-    throw new StoreSignal("not-found");
-  }
-  database
-    .prepare(
-      "UPDATE runtime_inbox SET acknowledged = 1 WHERE delivery_token = ?",
-    )
-    .run(deliveryToken);
-  database
-    .prepare(
-      "UPDATE pending_deliveries SET acknowledged = 1 WHERE delivery_token = ?",
-    )
-    .run(deliveryToken);
-};
 
 /**
  * Retire the host projection and any underlying pending protocol row atomically.
@@ -353,4 +361,28 @@ export function writeEventState(
       "INSERT INTO runtime_events (singleton, canonical_state) VALUES (1, ?) ON CONFLICT(singleton) DO UPDATE SET canonical_state = excluded.canonical_state",
     )
     .run(canonicalState);
+}
+
+function retireItem(
+  database: DatabaseSync,
+  deliveryToken: DeliveryToken,
+): void {
+  const retained = database
+    .prepare(
+      "SELECT delivery_token FROM runtime_inbox WHERE delivery_token = ?",
+    )
+    .get(deliveryToken);
+  if (retained === undefined) {
+    throw new StoreSignal("not-found");
+  }
+  database
+    .prepare(
+      "UPDATE runtime_inbox SET acknowledged = 1 WHERE delivery_token = ?",
+    )
+    .run(deliveryToken);
+  database
+    .prepare(
+      "UPDATE pending_deliveries SET acknowledged = 1 WHERE delivery_token = ?",
+    )
+    .run(deliveryToken);
 }

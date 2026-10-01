@@ -1,6 +1,8 @@
 /** @file Pins Events discovery and failure isolation through loopback HTTP. */
 
 import type { Implementation } from "@modelcontextprotocol/server";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import {
   Client,
   fromJsonSchema,
@@ -9,13 +11,38 @@ import {
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { AgentCard } from "@moltzap/identity";
-import { Deferred, Duration, Effect, Fiber, Schema, Stream } from "effect";
+import {
+  Deferred,
+  Duration,
+  Effect,
+  Fiber,
+  Schema,
+  Scope,
+  Stream,
+} from "effect";
 import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { describe, expect, it } from "vitest";
 import { makeFixture } from "./__tests__/router-worker-fixtures.js";
 import { acquireHarnessEndpoint } from "./client-runtime/index.js";
-import { ListenError } from "./contract.js";
-import { INBOX_PENDING_EVENT } from "./harness-mcp-contract.js";
+import {
+  type HarnessEndpoint,
+  InboundItem,
+  ListenError,
+  SendInput,
+} from "./contract.js";
+import { readRuntimeEvent } from "./daemon/inbox/index.js";
+import { makeSendInvocations } from "./daemon/runtime/send-invocations.js";
+import {
+  DeliveryToken,
+  encodeRuntimeValue,
+  openEndpointStore,
+} from "./endpoint/store.js";
+import {
+  eventIdOf,
+  HARNESS_SEND_META_KEY,
+  type HarnessSendRequest,
+  INBOX_PENDING_EVENT,
+} from "./harness-mcp-contract.js";
 import { acquireHarnessMcpHttpServer } from "./harness-mcp-http.js";
 import {
   type HarnessMcpOperations,
@@ -33,6 +60,7 @@ const PRIVATE_STATUS_DEFECT = "private status defect";
 
 const unusedOperation = Effect.dieMessage("operation is outside this test");
 const operations: HarnessMcpOperations = {
+  readEvent: () => Effect.fail({ reason: "unknown-event" }),
   readInboxSummary: () =>
     Effect.succeed({ pendingCount: 0, newestSequence: 0 }),
   readInbox: () => Effect.succeed({ items: [] }),
@@ -321,8 +349,301 @@ function observeListeningSubscription(keepAliveMillis?: number) {
   });
 }
 
+const sendInput = Schema.decodeUnknownSync(SendInput)({
+  to: "agent:bob",
+  text: "one semantic action",
+});
+const sendResult = {};
+
+function acquireSendEndpoint(
+  selected: Pick<HarnessMcpOperations, "readStatus" | "send" | "readSend">,
+) {
+  return Effect.gen(function* () {
+    const { port } = yield* acquireBoundaryServer({
+      ...operations,
+      ...selected,
+    });
+    return yield* acquireHarnessEndpoint(
+      new URL(`http://127.0.0.1:${port}/mcp`),
+    );
+  });
+}
+
+function observeInvocations(directory: string) {
+  return Effect.gen(function* () {
+    const store = yield* openEndpointStore(directory);
+    const scope = yield* Scope.Scope;
+    const started = yield* Deferred.make<undefined>();
+    const retried = yield* Deferred.make<undefined>();
+    const complete = yield* Deferred.make<undefined>();
+    const executed: HarnessSendRequest[] = [];
+    let attempts = 0;
+    const invocations = yield* makeSendInvocations(
+      store,
+      (input) =>
+        Effect.sync(() => {
+          executed.push(input);
+        }).pipe(
+          Effect.zipRight(Deferred.succeed(started, undefined)),
+          Effect.zipRight(Deferred.await(complete)),
+          Effect.as(sendResult),
+        ),
+      scope,
+    );
+    const send: HarnessMcpOperations["send"] = (input) =>
+      Effect.sync(() => {
+        attempts += 1;
+      }).pipe(
+        Effect.zipRight(
+          Effect.suspend(() =>
+            attempts > 1 ? Deferred.succeed(retried, undefined) : Effect.void,
+          ),
+        ),
+        Effect.zipRight(invocations.send(input)),
+      );
+    return {
+      started,
+      retried,
+      complete,
+      executed,
+      send,
+      readSend: invocations.readSend,
+    };
+  });
+}
+
+const runtimeOptions = {
+  idempotencyKey: "runtime-call",
+  failureDelivery: "inbound",
+} as const;
+
+function checksSendConflicts(endpoint: HarnessEndpoint) {
+  return Effect.gen(function* () {
+    expect(
+      yield* endpoint
+        .send(sendInput, { ...runtimeOptions, failureDelivery: "result" })
+        .pipe(Effect.flip),
+    ).toMatchObject({ reason: "idempotency-conflict" });
+    expect(
+      yield* endpoint
+        .send({ ...sendInput, text: "changed" }, runtimeOptions)
+        .pipe(Effect.flip),
+    ).toMatchObject({ reason: "idempotency-conflict" });
+    yield* endpoint.send(sendInput, { idempotencyKey: "intentional-repeat" });
+    yield* endpoint.send(sendInput);
+  });
+}
+
+function checksRuntimeRetries(
+  directory: string,
+  readStatus: HarnessMcpOperations["readStatus"],
+) {
+  return Effect.gen(function* () {
+    const observed = yield* observeInvocations(directory);
+    const endpoint = yield* acquireSendEndpoint({ ...observed, readStatus });
+    const hostOptions = { ...runtimeOptions, hostContext: "stays in the host" };
+    const lost = yield* endpoint
+      .send(sendInput, hostOptions)
+      .pipe(Effect.forkScoped);
+    yield* Deferred.await(observed.started);
+    const retry = yield* endpoint
+      .send(sendInput, runtimeOptions)
+      .pipe(Effect.forkScoped);
+    yield* Deferred.await(observed.retried);
+    yield* Fiber.interrupt(lost);
+    yield* Deferred.succeed(observed.complete, undefined);
+    expect(yield* Fiber.join(retry)).toEqual(sendResult);
+    expect(observed.executed).toEqual([
+      { input: sendInput, ...runtimeOptions },
+    ]);
+    yield* checksSendConflicts(endpoint);
+    expect(observed.executed).toEqual([
+      { input: sendInput, ...runtimeOptions },
+      { input: sendInput, idempotencyKey: "intentional-repeat" },
+      { input: sendInput },
+    ]);
+  });
+}
+
+function checksRetainedRuntimeSend(
+  directory: string,
+  readStatus: HarnessMcpOperations["readStatus"],
+) {
+  return Effect.gen(function* () {
+    const store = yield* openEndpointStore(directory);
+    const scope = yield* Scope.Scope;
+    const invocations = yield* makeSendInvocations(
+      store,
+      () => unusedOperation,
+      scope,
+    );
+    const endpoint = yield* acquireSendEndpoint({ ...invocations, readStatus });
+    expect(yield* endpoint.send(sendInput, runtimeOptions)).toEqual(sendResult);
+  });
+}
+
+/** The real SDK and overridden dispatcher must preserve options before durable reservation. */
+function preservesRuntimeInvocationMetadata() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const directory = yield* fs.makeTempDirectoryScoped();
+        const fixture = yield* makeFixture;
+        const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
+        const readStatus: HarnessMcpOperations["readStatus"] = () =>
+          Effect.succeed({ kind: "active", agentCard });
+        yield* Effect.scoped(checksRuntimeRetries(directory, readStatus));
+        yield* Effect.scoped(checksRetainedRuntimeSend(directory, readStatus));
+      }),
+    ).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
+}
+
+const invalidSendCalls = [
+  { arguments: { input: sendInput, idempotencyKey: "model-key" } },
+  { arguments: { input: sendInput, failureDelivery: "inbound" } },
+  {
+    arguments: { input: sendInput, idempotencyKey: "model-key" },
+    _meta: {
+      [HARNESS_SEND_META_KEY]: { idempotencyKey: "runtime-key" },
+    },
+  },
+  ...[
+    null,
+    [],
+    "key",
+    { idempotencyKey: "" },
+    { idempotencyKey: "x\u0000y" },
+    { idempotencyKey: "é".repeat(65) },
+    { failureDelivery: "other" },
+    { unexpected: true },
+  ].map((metadata) => ({
+    arguments: { input: sendInput },
+    _meta: { [HARNESS_SEND_META_KEY]: metadata },
+  })),
+];
+
+const checksSemanticSendSchema = (client: Client) =>
+  Effect.tryPromise(() => client.listTools()).pipe(
+    Effect.tap((catalog) =>
+      Effect.sync(() => {
+        const schema = catalog.tools.find(
+          (tool) => tool.name === "send_message",
+        )?.inputSchema;
+        expect(schema?.additionalProperties).toBe(false);
+        expect(Object.keys(schema?.properties ?? {})).toEqual(["input"]);
+      }),
+    ),
+  );
+
+/** Model arguments and malformed metadata must fail before any send reaches execution. */
+function rejectsSendBookkeepingArguments() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
+        const executed: unknown[] = [];
+        const { port } = yield* acquireBoundaryServer({
+          ...operations,
+          readStatus: () => Effect.succeed({ kind: "active", agentCard }),
+          send: (input) =>
+            Effect.sync(() => {
+              executed.push(input);
+              return sendResult;
+            }),
+        });
+        const client = yield* acquireProtocolClient(
+          port,
+          "semantic-send-client",
+        );
+        yield* checksSemanticSendSchema(client);
+        for (const call of invalidSendCalls) {
+          const error = yield* Effect.tryPromise(() =>
+            client.callTool({ name: "send_message", ...call }),
+          ).pipe(Effect.flip);
+          expect(error).toMatchObject({
+            cause: { code: ProtocolErrorCode.InvalidParams },
+          });
+        }
+        expect(executed).toEqual([]);
+        yield* Effect.tryPromise(() =>
+          client.callTool({
+            name: "send_message",
+            arguments: { input: sendInput },
+            _meta: {
+              "another.example/trace": { id: "independent" },
+              [HARNESS_SEND_META_KEY]: { idempotencyKey: "é".repeat(64) },
+            },
+          }),
+        );
+        expect(executed).toEqual([
+          { input: sendInput, idempotencyKey: "é".repeat(64) },
+        ]);
+      }),
+    ),
+  );
+}
+
+function readsRetainedEventThroughSdk() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const store = yield* openEndpointStore(
+          yield* fs.makeTempDirectoryScoped(),
+        );
+        const fixture = yield* makeFixture;
+        const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
+        const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
+          `dlv_${Buffer.alloc(32, 7).toString("base64url")}`,
+        );
+        const item = Schema.decodeUnknownSync(InboundItem)({
+          kind: "operationFailed",
+          id: `col_${Buffer.alloc(32, 7).toString("base64url")}`,
+          to: "agent:bob",
+          error: "retained result",
+        });
+        const canonicalItem = yield* encodeRuntimeValue(item);
+        yield* store.putInboxItem({ deliveryToken, canonicalItem });
+        yield* store.acknowledgeInboxItem(deliveryToken);
+        const { port } = yield* acquireBoundaryServer({
+          ...operations,
+          readStatus: () => Effect.succeed({ kind: "active", agentCard }),
+          readEvent: ({ eventId }) => readRuntimeEvent(store, eventId),
+        });
+        const client = yield* acquireProtocolClient(
+          port,
+          "retained-event-client",
+        );
+        const result = yield* Effect.tryPromise(() =>
+          client.callTool({
+            name: "read_event",
+            arguments: { eventId: eventIdOf(deliveryToken) },
+          }),
+        );
+        expect(result.structuredContent).toEqual({ item });
+        expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
+      }),
+    ).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
+}
+
 // @agent-code-guard/regression-only: this boundary pins the exact capability and closed transport failures.
 describe("Harness MCP HTTP boundary", () => {
+  it(
+    "reads an acknowledged event through the SDK without redelivery",
+    readsRetainedEventThroughSdk,
+  );
+  it(
+    "preserves runtime send identity through retries, conflicts and restart",
+    preservesRuntimeInvocationMetadata,
+  );
+  it(
+    "rejects bookkeeping in model arguments and validates runtime metadata",
+    rejectsSendBookkeepingArguments,
+  );
   it("advertises the event descriptor before registration", () =>
     advertisesEventsBeforeRegistration());
   it("keeps malformed input separate from closed domain failures", () =>

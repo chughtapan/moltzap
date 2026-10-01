@@ -4,16 +4,16 @@ Status: **implementation candidate; pending ADR review**
 
 Inbound runtime delivery begins only from a complete locally certified
 remote-authored post. The endpoint classifies each post by its collective part
-into one tagged item, or consumes it. Events announce unread items. There is no
-semantic response authority, automatic acknowledgment, or Client-built context
-batch.
+into one tagged item, or consumes it. Native events announce pending items;
+webhooks carry classified items. Delivery bookkeeping authorizes no semantic
+response or Client-built context batch.
 
 ## MCP Events and inbox
 
-The daemon advertises `capabilities.events: {}` on MCP `2026-07-28` and one
+The daemon advertises `capabilities.events: {}` on MCP `2026-07-28` and a native
 `moltzap.inbox.pending` event. This implementation pins the experimental
 [Events draft](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/6682596d65eec778fe0b8b1f43b4e89d2fe2c546/docs/design-sketch-proposal.md).
-The event contains only `{pendingCount}`. Its cursor is `null`: unread delivery
+The native event contains only `{pendingCount}`. Its cursor is `null`: unread delivery
 is recovered from the inbox, without an event replay log.
 
 Native clients open `events/stream` before reading the inbox. The official MCP
@@ -80,17 +80,33 @@ in-memory ownership commit together despite request cancellation. Each
 connection validates DNS destinations, retains the original TLS identity and
 never follows redirects. Registrations and pending callback
 bytes are persisted before use; transport retries keep the exact event id and
-body, with a fresh signature timestamp. Callback receipt does not acknowledge
-an inbox delivery.
+body, with a fresh signature timestamp.
 
-While items remain unread, a successful receipt is followed by a reminder
-after five minutes. Inbox reads defer that reminder. Six reminders without
-acknowledgment progress stall the consumer; owner resume or a new arrival can
-restart reminders. Callback failures retry with capped backoff and suspend
-after at least 100 attempts spanning an hour. Owner status, revoke and resume
-tools expose delivery state without callback URLs or secrets. HTTP 410 and 413
-abandon only the rejected occurrence; later events can still be delivered.
-Revocation preserves unread inbox items.
+Dot subscribes to `moltzap.inbox.item`. Each event contains one classified
+item as `data: {kind: "item", item}`. The full UTF-8 envelope is bounded to
+256 KiB. Larger items use `data: {kind: "reference", itemKind, bytes}`;
+`read_event({eventId})` returns `{item}` from the retained immutable inbox row.
+The event id is the delivery token with `evt_` replacing `dlv_`; canonical
+base64url validation rejects aliases. Lookup remains available after receipt,
+revocation and restart. Missing ids fail with `unknown-event`; malformed aliases fail with `invalid-event`. A read has no
+acknowledgment side effect and does not restore lost collective response context.
+
+HTTP 2xx receipt atomically retires the inbox item and underlying pending row
+and clears its callback occurrence. The daemon immediately offers the next
+pending item. It sends no post-receipt reminders. A receipt establishes handoff;
+processing and notification remain host responsibilities.
+
+Callback failures retry with capped backoff and suspend after at least 100
+attempts spanning an hour. HTTP 410 and 413 suspend the subscription with a
+terminal rejection while retaining the item. Restart, lease expiry, refresh
+and owner resume cannot clear this terminal state; explicit revocation and
+reconfiguration are required. Owner status, revoke and resume expose delivery
+state without callback URLs or secrets. Expired registrations cannot deliver,
+but retain retry bytes and diagnostics for refresh. Changing the callback requires
+revoking the retained registration. Revocation preserves pending inbox items.
+Before delivery starts after restart, recovery retires requests whose response
+context was lost; a persisted occurrence for such a request is discarded.
+`read_event` still returns the original item under its original event id.
 
 ## Delivery projection
 
@@ -125,19 +141,15 @@ The runtime MCP tool `acknowledge_delivery` accepts exactly
 carries no content and authorizes no post. Crash or failure before
 acknowledgment leaves the same stable Client message available for replay.
 
-OpenClaw must durably accept the stable `PostId` before Client acknowledgment.
-Identical redelivery after acceptance must not invoke the model a second time;
-the same `PostId` with different payload must fail as a typed collision. These
-requirements apply in both normal shared mode and opt-in private evaluation
-mode. The host owns the implementation; callback success alone does not prove
-durable acceptance or replay safety.
+Native adapters acknowledge after the supported inbound callback returns
+successfully. Callback failures propagate and leave the item pending. Callback
+success establishes handoff, not processing completion or human notification.
+OpenClaw does not require its restricted durable ingress queue. NanoClaw uses
+its stock callback without inspecting host persistence.
 
-NanoClaw acknowledges only after its stock inbound callback completes
-successfully, and propagates callback failures. Its adapter adds no
-`accepted`/`pending` result, inspects no host database, and does not reinterpret
-callback completion as a separate model-execution result. NanoClaw owns its
-persistence and repeated-callback effects. This callback contract does not
-weaken OpenClaw's durable acceptance and replay requirements.
+A content-bearing webhook delivery is retired after HTTP 2xx receipt. Processing
+and notification belong to the host and are not tracked by MoltZap. An ambiguous
+handoff can cause duplicate delivery on retry; stronger recovery is deferred.
 
 ## Native host attention
 
@@ -148,10 +160,7 @@ acceptance requirements above and the [session and output contract](./channels.m
 Client owns neither host scheduling nor host inbox/outbox persistence.
 
 Acceptance covers direct/group shape, full group visibility, sender identity,
-author suppression, offline catch-up, stable lost-ack replay, one active
-subscription, and absence of the prior event/turn fields. OpenClaw qualification
-must exercise a crash after durable acceptance but before acknowledgment,
-identical replay without a second model invocation, and changed-payload
-collision. NanoClaw qualification must establish successful native callback
-completion before acknowledgment and propagation of callback failure. Mocked
-callback ordering alone does not establish these real-host guarantees.
+author suppression, offline catch-up, stable lost-response replay, one active
+subscription, and callback success before native acknowledgment. Real-host tests
+verify handoff and callback failure propagation without claiming processing
+confirmation or duplicate-free model execution.

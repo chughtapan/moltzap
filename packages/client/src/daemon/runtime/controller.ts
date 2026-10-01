@@ -4,18 +4,30 @@ import type { VerifiedAgentCard } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { DateTime, Deferred, Effect, Queue, Scope } from "effect";
-import type { DeliveryToken, EndpointStore } from "../../endpoint/store.js";
-import type { HarnessReadInboxRequest } from "../../harness-mcp-contract.js";
+import type {
+  EventStore,
+  HarnessReadInboxRequest,
+} from "../../harness-mcp-contract.js";
 import type { HarnessMcpOperations } from "../../harness-mcp-wire.js";
 import type { DaemonBootstrap } from "../configuration.js";
 import type { HistoryExportPort } from "./history-export.js";
 import {
   DeliveryAcknowledgeError,
   type HistoryExportRecord,
+  InboundItem,
   SendError,
   type SendInput,
 } from "../../contract.js";
-import { readRuntimeInbox, recoverRuntimeInbox } from "../inbox/index.js";
+import {
+  decodeRuntimeValue,
+  type DeliveryToken,
+  type EndpointStore,
+} from "../../endpoint/store.js";
+import {
+  readRuntimeEvent,
+  readRuntimeInbox,
+  recoverRuntimeInbox,
+} from "../inbox/index.js";
 import {
   type DaemonActivationError,
   type DaemonActivationPreparation,
@@ -45,6 +57,7 @@ interface DaemonControllerInput {
 /** Controller operations consumed by the daemon composition root. */
 export interface DaemonController {
   readonly operations: HarnessMcpOperations;
+  readonly eventStore: EventStore;
   readonly subscriptionChanged: (active: boolean) => void;
   readonly installHandler: (
     handler: RuntimeSubscriptionHandler,
@@ -270,6 +283,10 @@ const controllerOperations = (
     register,
     ...input.invocations,
     readInboxSummary: input.environment.store.readInboxSummary,
+    readEvent: ({ eventId }: { readonly eventId: string }) =>
+      input.environment.state.activeProtocol === undefined
+        ? Effect.fail({ reason: "not-registered" })
+        : readRuntimeEvent(input.environment.store, eventId),
     readInbox: (request: HarnessReadInboxRequest) =>
       input.environment.state.activeProtocol === undefined
         ? Effect.fail({ reason: "not-registered" })
@@ -282,10 +299,51 @@ const controllerOperations = (
   });
 };
 
+/** Webhook reads share export ordering with native inbox reads. */
+const readWebhookInbox = (
+  input: ControllerAssembly,
+  bounds: Parameters<EndpointStore["readInbox"]>[0],
+) =>
+  input.deliveryGate.withPermits(1)(
+    Effect.gen(function* () {
+      const page = yield* input.environment.store.readInbox(bounds);
+      for (const entry of page.items) {
+        if (
+          !input.environment.state.exportedDeliveries.has(entry.deliveryToken)
+        ) {
+          const item = yield* decodeRuntimeValue(
+            InboundItem,
+            entry.canonicalItem,
+          );
+          const at = yield* DateTime.now;
+          yield* input.environment.historyExport.record({
+            kind: "inbound",
+            item,
+            at,
+          });
+          input.environment.state.exportedDeliveries.add(entry.deliveryToken);
+        }
+      }
+      return page;
+    }),
+  );
+
 const assembleDaemonController = (
   input: ControllerAssembly,
 ): DaemonController => ({
   operations: controllerOperations(input),
+  eventStore: {
+    ...input.environment.store,
+    readInbox: (bounds) => readWebhookInbox(input, bounds),
+    completeWebhookDelivery: (token, bytes) =>
+      input.deliveryGate.withPermits(1)(
+        input.environment.store
+          .completeWebhookDelivery(token, bytes)
+          .pipe(
+            Effect.tap(() => forgetDelivery(input.environment.state, token)),
+          ),
+      ),
+  },
   subscriptionChanged: (active) => {
     input.changes.unsafeOffer(active);
   },

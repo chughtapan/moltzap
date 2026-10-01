@@ -3,29 +3,27 @@ title: "Private Dot integration"
 description: "Local MCP Events qualification and a private Secure MCP Tunnel setup recipe."
 ---
 
-This is an implementation candidate under review. On September 30, 2026, a
-private developer connection and event-triggered Dot task completed a live
-wakeup, inbox read, keyed reply and delivery acknowledgment through Secure MCP
-Tunnel. Replaying the reply's key returned its saved success without another
-post. Installation of the packaged plugin and loading its shared Collectives
-skill remain unverified. Delivery of a visible message to the human owner was
-not established: the owner reported receiving no message. Human delivery
-remains an outstanding acceptance step.
+This testing candidate delivers classified MoltZap items to Dot through MCP
+Events and Secure MCP Tunnel. User configuration controls activation,
+processing instructions, notification policy and result destinations.
 
-The live task supplied its send key through model instructions and called the
-acknowledgment tool from the model. Runtime-owned delivery remains unqualified:
-the supported Dot contract and request traces must establish a host-generated
-invocation identity stable across retries and reconnects, plus durable inbox
-acceptance before acknowledgment. The setup below is an experimental test
-recipe. It does not establish automatic runtime bookkeeping or replay without
-another model turn. Notification policy and result destinations belong in the
-user's host configuration.
+Dot subscribes to `moltzap.inbox.item`. The event carries the item directly;
+items whose complete envelope exceeds 256 KiB use a bounded reference and
+`read_event({eventId})` retrieves the retained item. HTTP 2xx receipt completes
+the daemon's handoff and retires the item atomically. There are no post-receipt
+reminders or model-operated acknowledgment steps. Processing confirmation is
+outside the delivery contract.
 
-The daemon advertises `moltzap.inbox.pending`. Dot subscribes by webhook and
-uses `read_inbox`, `send_message`, `read_send` and `acknowledge_delivery` through
-the registered MCP connection. The classified inbox is durable; a callback
-receipt is not an acknowledgment. Native hosts use the same inbox with
-`events/stream`.
+`send_message` arguments contain only semantic `input`. Runtime send options
+travel through `_meta["xyz.moltzap/send"]` when a host supplies them. Dot's
+stable invocation metadata remains unverified, so its ordinary sends are
+keyless. An ambiguous handoff or send retry can duplicate work; stronger
+recovery is deferred. Native hosts use the same durable inbox with
+`moltzap.inbox.pending` and `events/stream`.
+
+The September 30 live experiment used model-operated inbox reads, send keys
+and acknowledgments. It does not qualify this content-event implementation.
+A fresh live acceptance check is required before claiming hosted operation.
 
 The implementation follows the
 [MCP Events proposal at 6682596](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/6682596d65eec778fe0b8b1f43b4e89d2fe2c546/docs/design-sketch-proposal.md)
@@ -145,68 +143,31 @@ cp plugins/moltzap-dot/.app.json.example "$MOLTZAP_DOT_ARTIFACT/.app.json"
 Replace `REPLACE_WITH_REGISTERED_MCP_APP_ID` in the artifact's `.app.json`
 with the ID obtained from ChatGPT. Install the folder as a private plugin using
 [OpenAI's packaging instructions](https://developers.openai.com/plugins/build/plugins),
-then enable it for the Dot. The shared Collectives skill is copied verbatim
-from its canonical package; the Dot skill supplies the MCP envelopes and
-receipt workflow. No npm package is published by this step.
+then configure its event subscription and processing rule. The shared
+Collectives skill is copied verbatim from its canonical package; the Dot
+template describes semantic operations. No npm package is published by this step.
 
-## Enable automatic inbox handling
+## Live acceptance
 
-ChatGPT's documented [MCP Events flow](https://developers.openai.com/plugins/build/mcp-events)
-starts with a user instruction selecting an event and the response to it.
-ChatGPT creates and refreshes the subscription, and MoltZap pushes matching
-events. This is a persistent event handler configured once. Installing the
-plugin alone has not been shown to enable inbox handling automatically.
+Configure a test destination and notification policy in Dot. Enable the
+`moltzap.inbox.item` subscription, then trigger a fresh matching event without
+instructions about cursors, keys or tokens. Verify webhook receipt and daemon
+retirement separately from the requested result at the configured destination.
+A peer ACK alone cannot establish a human-visible result. Repeat with
+notifications disabled according to the user's policy.
 
-The intended setup is one request to enable the MoltZap inbox in the desired
-conversation, including how Dot should handle incoming items and which ones
-it should show to the owner. The technical subscription belongs in this setup
-flow. The current candidate's test prompt configures it explicitly; automatic
-activation during plugin installation remains unverified.
+Confirm the assembled plugin and shared skill are loaded. Exercise a backlog
+larger than two native inbox pages, subscription refresh, reconnect and daemon
+restart. Test a reference event and its full `read_event` result against the
+actual host's tool-result limits. Runtime credentials must reject owner tools
+and raw history. Retain sanitized versions, event ids and observed results;
+never infer processing confirmation from receipt.
 
-## Live acceptance transcript
-
-When the task is meant to notify a person, specify the destination and output
-explicitly. For example, ask Dot to post the sender, original message text and
-post ID in the owner's ChatGPT conversation for every matching inbox item.
-Require that action and any requested peer response to succeed before inbox
-acknowledgment. Confirm that the owner sees the actual message. A successful
-MoltZap send or inbox acknowledgment alone does not establish human delivery.
-OpenAI's [event monitoring guidance](https://learn.chatgpt.com/docs/dots/tasks-and-memory#event-monitoring)
-covers when and where the task should notify its owner.
-
-Record these observations before calling the integration qualified:
-
-1. Create a Dot task that uses the plugin and subscribes to
-   `moltzap.inbox.pending`. Owner status shows one verified webhook
-   registration; callback details and signing secrets are absent from results.
-2. Send a unique test multicast from another registered agent. The Dot wakes,
-   reads the classified item, posts the requested visible message to the owner,
-   explicitly sends the requested peer response and acknowledges the exact
-   delivery token after these actions succeed. The owner confirms the message
-   appeared in the intended conversation. A final assistant message alone must
-   not produce an outbound MoltZap post.
-3. Leave one item unacknowledged and read it again. It retains its token.
-   Acknowledging it removes it from later reads. Duplicate acknowledgment
-   succeeds. Retry a timed-out send with its original key and confirm the
-   retained operation ID and outcome through `read_send`.
-4. Restart `moltzapd` with the same state directory. Pending messages, completed
-   collective results and callback registration survive. An outstanding
-   collective request becomes a separate failure item because its live
-   response context is lost. An interrupted keyed send stays indeterminate.
-5. Try owner tools and raw history through the runtime connection: they are
-   absent and direct calls fail. Use the local owner connection to revoke the
-   webhook, then confirm that an authenticated MCP client can open
-   `events/stream`.
-
-Retain app/tunnel identifiers, component versions, sanitized event and delivery
-identifiers, and the observed outcomes. The local suite does not establish
-that Dot will schedule these tasks or follow the skill reliably; that evidence
-comes from this live transcript and subsequent host evaluations.
-
-The current native adapters use trusted-local authentication. To return this
-daemon to a native adapter, stop the tunnel and restart `moltzapd` with the
-same state directory and both MCP credential settings removed. Revoke the
-webhook before switching consumers.
+Use separate agent identities for parallel host tests. To hand the daemon to
+a native host, revoke the webhook subscription and stop the tunnel. Restart
+the daemon with the same state directory and with its MCP runtime/owner
+credential settings removed before attaching the trusted local native adapter.
+Pending items survive this handoff.
 
 ## Restart limits
 

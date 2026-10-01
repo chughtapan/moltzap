@@ -8,21 +8,33 @@ import {
 import {
   Deferred,
   Effect,
+  Fiber,
   Match,
   Schema,
   TestClock,
   TestContext,
 } from "effect";
 import { createHmac } from "node:crypto";
-import { describe, expect, it } from "vitest";
-import type { EndpointStore } from "../endpoint/store.js";
-import { INBOX_PENDING_EVENT } from "../harness-mcp-contract.js";
+// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests reopen a real SQLite directory across scoped runtime instances.
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { InboundItem } from "../contract.js";
+import { readRuntimeEvent } from "../daemon/inbox/index.js";
+import {
+  DeliveryToken,
+  encodeRuntimeValue,
+  type EndpointStore,
+  openEndpointStore,
+} from "../endpoint/store.js";
+import { eventIdOf, INBOX_ITEM_EVENT } from "../harness-mcp-contract.js";
+import { maximumEventBytes } from "./contract.js";
 import {
   isPublicWebhookAddress,
   sendWebhook,
   webhookHttpClientLayer,
 } from "./http.js";
-import { makeHarnessEvents } from "./index.js";
 import { makeWebhookEvents } from "./webhook.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals, sonarjs/no-hardcoded-ip -- Protocol codes and deliberately unsafe IP fixtures pin the callback trust boundary. */
@@ -30,7 +42,7 @@ import { makeWebhookEvents } from "./webhook.js";
 const secret = `whsec_${Buffer.alloc(32, 1).toString("base64")}`;
 const url = "https://callback.example/events";
 const input = {
-  name: INBOX_PENDING_EVENT,
+  name: INBOX_ITEM_EVENT,
   arguments: {},
   cursor: null,
   delivery: { mode: "webhook", url, secret },
@@ -43,7 +55,14 @@ const occurrence = Schema.Struct({
   eventId: Schema.String,
   name: Schema.String,
   timestamp: Schema.String,
-  data: Schema.Struct({ pendingCount: Schema.Number }),
+  data: Schema.Union(
+    Schema.Struct({ kind: Schema.Literal("item"), item: InboundItem }),
+    Schema.Struct({
+      kind: Schema.Literal("reference"),
+      itemKind: Schema.String,
+      bytes: Schema.Number,
+    }),
+  ),
   cursor: Schema.Null,
 });
 const callback = Schema.parseJson(Schema.Union(verification, occurrence));
@@ -74,9 +93,37 @@ const callbackResponse = (
     ),
   );
 
-const fixture = () => {
+const directories: string[] = [];
+const directory = () => {
+  const path = mkdtempSync(join(tmpdir(), "moltzap-webhook-"));
+  directories.push(path);
+  return path;
+};
+afterEach(() => {
+  for (const path of directories.splice(0)) {
+    rmSync(path, { recursive: true, force: true });
+  }
+});
+const token = (byte: number) =>
+  Schema.decodeUnknownSync(DeliveryToken)(
+    `dlv_${Buffer.alloc(32, byte).toString("base64url")}`,
+  );
+const item = (text = "failed request") =>
+  Schema.decodeUnknownSync(InboundItem)({
+    kind: "operationFailed",
+    id: `col_${Buffer.alloc(32, 1).toString("base64url")}`,
+    to: "agent:bob",
+    error: text,
+  });
+const enqueue = (store: EndpointStore, byte: number, text?: string) =>
+  encodeRuntimeValue(item(text ?? "failed request")).pipe(
+    Effect.flatMap((canonicalItem) =>
+      store.putInboxItem({ deliveryToken: token(byte), canonicalItem }),
+    ),
+  );
+
+const fixture = (store: EndpointStore) => {
   const gate = Effect.unsafeMakeSemaphore(1);
-  let bytes: Uint8Array | undefined;
   let status = 200;
   let challengeValid = true;
   let onEvent = Effect.void;
@@ -84,13 +131,6 @@ const fixture = () => {
     readonly body: string;
     readonly headers: Readonly<Record<string, string>>;
   }> = [];
-  const store: Pick<EndpointStore, "readEventState" | "writeEventState"> = {
-    readEventState: () => Effect.succeed(bytes),
-    writeEventState: (value) =>
-      Effect.sync(() => {
-        bytes = value;
-      }),
-  };
   const client = HttpClient.make((request) =>
     Effect.gen(function* () {
       const body = requestBody(request.body);
@@ -124,176 +164,263 @@ const fixture = () => {
 
 const signsVerifiesAndRotates = () =>
   Effect.runPromise(
-    Effect.gen(function* () {
-      const test = fixture();
-      const events = yield* test.acquire;
-      const grant = yield* events.subscribe(input, "runtime");
-      const control = test.posts[0];
-      expect(control?.headers["webhook-id"]).toMatch(/^msg_verification_/u);
-      expect(control?.headers["x-mcp-subscription-id"]).toBe(grant.id);
-      const expected = createHmac("sha256", Buffer.alloc(32, 1))
-        .update(
-          `${control?.headers["webhook-id"]}.${control?.headers["webhook-timestamp"]}.${control?.body}`,
-        )
-        .digest("base64");
-      expect(control?.headers["webhook-signature"]).toBe(`v1,${expected}`);
-      yield* events.observe({ pendingCount: 2, newestSequence: 2 });
-      expect(test.posts).toHaveLength(2);
-      expect(
-        Schema.decodeUnknownSync(Schema.parseJson(occurrence))(
-          test.posts[1]?.body,
-        ).data.pendingCount,
-      ).toBe(2);
-      expect((yield* events.status).pendingCount).toBe(2);
-      const rotated = {
-        ...input,
-        delivery: {
-          ...input.delivery,
-          secret: `whsec_${Buffer.alloc(32, 2).toString("base64")}`,
-        },
-      };
-      expect((yield* events.subscribe(rotated, "runtime")).id).toBe(grant.id);
-      expect(test.posts).toHaveLength(2);
-      test.challenge(false);
-      expect((yield* events.subscribe(input, "runtime")).id).toBe(grant.id);
-      expect(test.posts).toHaveLength(2);
-      yield* TestClock.adjust("11 minutes");
-      expect(
-        (yield* events.subscribe(input, "runtime").pipe(Effect.flip)).code,
-      ).toBe(-32015);
-      expect((yield* events.status).mode).toBe("webhook");
-      expect(
-        (yield* events
-          .unsubscribe({ ...input, delivery: { url } }, "owner")
-          .pipe(Effect.flip)).code,
-      ).toBe(-32011);
-      yield* events.unsubscribe({ ...input, delivery: { url } }, "runtime");
-      expect(events.hasActiveSubscription()).toBe(false);
-    }).pipe(Effect.provide(TestContext.TestContext)),
+    Effect.scoped(
+      Effect.gen(function* () {
+        const store = yield* openEndpointStore(directory());
+        const test = fixture(store);
+        const events = yield* test.acquire;
+        const grant = yield* events.subscribe(input, "runtime");
+        const control = test.posts[0];
+        expect(control?.headers["webhook-id"]).toMatch(/^msg_verification_/u);
+        const expected = createHmac("sha256", Buffer.alloc(32, 1))
+          .update(
+            `${control?.headers["webhook-id"]}.${control?.headers["webhook-timestamp"]}.${control?.body}`,
+          )
+          .digest("base64");
+        expect(control?.headers["webhook-signature"]).toBe(`v1,${expected}`);
+        yield* enqueue(store, 1);
+        yield* events.observe();
+        expect(
+          Schema.decodeUnknownSync(Schema.parseJson(occurrence))(
+            test.posts[1]?.body,
+          ).data,
+        ).toEqual({ kind: "item", item: item() });
+        expect((yield* events.status).pendingCount).toBe(0);
+        const rotated = {
+          ...input,
+          delivery: {
+            ...input.delivery,
+            secret: `whsec_${Buffer.alloc(32, 2).toString("base64")}`,
+          },
+        };
+        expect((yield* events.subscribe(rotated, "runtime")).id).toBe(grant.id);
+        test.challenge(false);
+        yield* TestClock.adjust("11 minutes");
+        expect(
+          (yield* events.subscribe(input, "runtime").pipe(Effect.flip)).code,
+        ).toBe(-32015);
+        expect(
+          (yield* events
+            .unsubscribe({ ...input, delivery: { url } }, "owner")
+            .pipe(Effect.flip)).code,
+        ).toBe(-32011);
+        yield* events.unsubscribe({ ...input, delivery: { url } }, "runtime");
+        expect(
+          (yield* readRuntimeEvent(store, eventIdOf(token(1)))).item,
+        ).toEqual(item());
+      }),
+    ).pipe(Effect.provide(TestContext.TestContext)),
   );
 
-const discardsRejectedOccurrences = () =>
+const retainsTerminalRejections = () =>
   Effect.runPromise(
-    Effect.gen(function* () {
-      for (const status of [410, 413]) {
-        const test = fixture();
-        const events = yield* test.acquire;
-        yield* events.subscribe(input, "runtime");
-        test.status(status);
-        yield* events.observe({ pendingCount: 1, newestSequence: 1 });
-        const rejected = test.posts[1]?.headers["webhook-id"];
-        yield* TestClock.adjust("3 seconds");
-        yield* events.observe({ pendingCount: 1, newestSequence: 1 });
-        expect(test.posts).toHaveLength(2);
-        expect(events.hasActiveSubscription()).toBe(true);
-        expect((yield* events.status).stalled).toBeNull();
-        test.status(200);
-        yield* events.observe({ pendingCount: 2, newestSequence: 2 });
-        expect(test.posts).toHaveLength(3);
-        expect(test.posts[2]?.headers["webhook-id"]).not.toBe(rejected);
-        expect((yield* events.status).pendingCount).toBe(2);
-      }
-    }).pipe(Effect.provide(TestContext.TestContext)),
+    Effect.scoped(
+      Effect.gen(function* () {
+        for (const status of [410, 413]) {
+          const store = yield* openEndpointStore(directory());
+          const test = fixture(store);
+          const events = yield* test.acquire;
+          yield* enqueue(store, 1);
+          yield* events.subscribe(input, "runtime");
+          test.status(status);
+          yield* events.observe();
+          expect((yield* events.status).stalled).toBe("terminal");
+          const restarted = yield* test.acquire;
+          test.status(200);
+          yield* restarted.subscribe(input, "runtime");
+          expect((yield* restarted.resume.pipe(Effect.flip)).code).toBe(-32014);
+          yield* TestClock.adjust("1 day");
+          yield* restarted.subscribe(input, "runtime");
+          yield* restarted.observe();
+          expect(test.posts).toHaveLength(4);
+          expect((yield* store.readInboxSummary()).pendingCount).toBe(1);
+          yield* restarted.revoke;
+          yield* restarted.subscribe(input, "runtime");
+          yield* restarted.observe();
+          expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
+        }
+      }),
+    ).pipe(Effect.provide(TestContext.TestContext)),
   );
 
 const permitsReadAndRevokeDuringDelivery = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const test = fixture();
+        const store = yield* openEndpointStore(directory());
+        const test = fixture(store);
         const events = yield* test.acquire;
+        yield* enqueue(store, 1);
         yield* events.subscribe(input, "runtime");
         const entered = yield* Deferred.make<undefined>();
         const release = yield* Deferred.make<undefined>();
-        const hub = yield* makeHarnessEvents({
-          gate: test.gate,
-          registered: () => true,
-          summary: () => Effect.succeed({ pendingCount: 1, newestSequence: 1 }),
-          webhook: events,
-        });
-        yield* Effect.addFinalizer(() => hub.close);
         test.onEvent(
-          hub.inboxRead.pipe(
-            Effect.orDie,
-            Effect.zipRight(Deferred.succeed(entered, undefined)),
+          Deferred.succeed(entered, undefined).pipe(
             Effect.zipRight(Deferred.await(release)),
+            Effect.asVoid,
           ),
         );
-        hub.notifyPending();
+        const delivery = yield* events.observe().pipe(Effect.fork);
         yield* Deferred.await(entered);
-        expect((yield* hub.status).pendingCount).toBe(1);
-        yield* hub.revoke;
+        expect(
+          (yield* readRuntimeEvent(store, eventIdOf(token(1)))).item,
+        ).toEqual(item());
+        yield* events.revoke;
         yield* Deferred.succeed(release, undefined);
-        yield* events.observe({ pendingCount: 0, newestSequence: 1 });
-        expect(events.hasActiveSubscription()).toBe(false);
+        yield* Fiber.join(delivery);
         expect((yield* events.status).mode).toBe("none");
+        expect(events.hasActiveSubscription()).toBe(false);
+        expect((yield* store.readInboxSummary()).pendingCount).toBe(1);
       }),
     ),
   );
 
-const retriesAcrossRestart = () =>
+const refreshPreservesTerminalReceipt = () =>
   Effect.runPromise(
-    Effect.gen(function* () {
-      const test = fixture();
-      const first = yield* test.acquire;
-      const grant = yield* first.subscribe(input, "runtime");
-      test.status(503);
-      yield* first.observe({ pendingCount: 1, newestSequence: 1 });
-      const original = test.posts[1];
-      if (original === undefined) {
-        return yield* Effect.dieMessage("Missing callback attempt");
-      }
-      const restarted = yield* test.acquire;
-      expect((yield* restarted.status).id).toBe(grant.id);
-      test.status(200);
-      yield* TestClock.adjust("3 seconds");
-      yield* restarted.observe({ pendingCount: 1, newestSequence: 1 });
-      expect(test.posts[2]?.body).toBe(original.body);
-      expect(test.posts[2]?.headers["webhook-id"]).toBe(
-        original.headers["webhook-id"],
-      );
-      expect(test.posts[2]?.headers["webhook-timestamp"]).not.toBe(
-        original.headers["webhook-timestamp"],
-      );
-      expect((yield* restarted.status).pendingCount).toBe(1);
-      yield* TestClock.adjust("4 minutes");
-      yield* restarted.inboxRead;
-      yield* TestClock.adjust("2 minutes");
-      yield* restarted.observe({ pendingCount: 1, newestSequence: 1 });
-      expect(test.posts).toHaveLength(3);
-      yield* TestClock.adjust("3 minutes");
-      yield* restarted.observe({ pendingCount: 1, newestSequence: 1 });
-      expect(test.posts[3]?.headers["webhook-id"]).not.toBe(
-        original.headers["webhook-id"],
-      );
-      yield* restarted.observe({ pendingCount: 0, newestSequence: 1 });
-      yield* TestClock.adjust("10 minutes");
-      yield* restarted.observe({ pendingCount: 0, newestSequence: 1 });
-      expect(test.posts).toHaveLength(4);
-    }).pipe(Effect.provide(TestContext.TestContext)),
+    Effect.scoped(
+      Effect.gen(function* () {
+        const store = yield* openEndpointStore(directory());
+        const test = fixture(store);
+        const events = yield* test.acquire;
+        yield* enqueue(store, 1);
+        yield* events.subscribe(input, "runtime");
+        const entered = yield* Deferred.make<undefined>();
+        const release = yield* Deferred.make<undefined>();
+        test.status(413);
+        test.onEvent(
+          Deferred.succeed(entered, undefined).pipe(
+            Effect.zipRight(Deferred.await(release)),
+            Effect.asVoid,
+          ),
+        );
+        const delivery = yield* events.observe().pipe(Effect.fork);
+        yield* Deferred.await(entered);
+        yield* events.subscribe(input, "runtime");
+        yield* events.resume;
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(delivery);
+        expect((yield* events.status).stalled).toBe("terminal");
+        expect((yield* store.readInboxSummary()).pendingCount).toBe(1);
+      }),
+    ).pipe(Effect.provide(TestContext.TestContext)),
   );
 
-const boundsRemindersAndLease = () =>
-  Effect.runPromise(
+const retriesAcrossRestart = () => {
+  const path = directory();
+  let original: string | undefined;
+  return Effect.runPromise(
     Effect.gen(function* () {
-      const test = fixture();
-      const events = yield* test.acquire;
-      yield* events.subscribe(input, "runtime");
-      yield* events.observe({ pendingCount: 1, newestSequence: 1 });
-      for (let index = 0; index < 7; index += 1) {
-        yield* TestClock.adjust("5 minutes");
-        yield* events.observe({ pendingCount: 1, newestSequence: 1 });
-      }
-      expect(test.posts).toHaveLength(8);
-      expect((yield* events.status).stalled).toBe("unhandled");
-      yield* events.observe({ pendingCount: 2, newestSequence: 2 });
-      expect((yield* events.status).stalled).toBeNull();
-      expect(test.posts).toHaveLength(9);
-      yield* TestClock.adjust("1 day");
-      yield* events.observe({ pendingCount: 2, newestSequence: 2 });
-      expect(events.hasActiveSubscription()).toBe(false);
-      expect((yield* events.status).mode).toBe("none");
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const store = yield* openEndpointStore(path);
+          const test = fixture(store);
+          const events = yield* test.acquire;
+          yield* enqueue(store, 1);
+          yield* events.subscribe(input, "runtime");
+          test.status(503);
+          yield* events.observe();
+          original = test.posts[1]?.body;
+          expect((yield* store.readInboxSummary()).pendingCount).toBe(1);
+        }),
+      );
+      yield* TestClock.adjust("3 seconds");
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const store = yield* openEndpointStore(path);
+          const test = fixture(store);
+          const events = yield* test.acquire;
+          yield* events.observe();
+          expect(test.posts[0]?.body).toBe(original);
+          expect(test.posts[0]?.headers["webhook-id"]).toBe(
+            eventIdOf(token(1)),
+          );
+          expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
+          yield* TestClock.adjust("10 minutes");
+          yield* events.observe();
+          expect(test.posts).toHaveLength(1);
+        }),
+      );
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const store = yield* openEndpointStore(path);
+          expect(
+            (yield* readRuntimeEvent(store, eventIdOf(token(1)))).item,
+          ).toEqual(item());
+        }),
+      );
     }).pipe(Effect.provide(TestContext.TestContext)),
+  );
+};
+
+const boundsPayloadAndDrains = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const store = yield* openEndpointStore(directory());
+        const test = fixture(store);
+        const events = yield* test.acquire;
+        const large = "世界".repeat(100_000);
+        yield* enqueue(store, 1, large);
+        for (let index = 2; index < 55; index += 1) {
+          yield* enqueue(store, index);
+        }
+        yield* events.subscribe(input, "runtime");
+        yield* events.observe();
+        expect(test.posts).toHaveLength(55);
+        const body = test.posts[1]?.body ?? "";
+        expect(Buffer.byteLength(body)).toBeLessThanOrEqual(maximumEventBytes);
+        expect(
+          Schema.decodeUnknownSync(Schema.parseJson(occurrence))(body).data
+            .kind,
+        ).toBe("reference");
+        expect(
+          (yield* readRuntimeEvent(store, eventIdOf(token(1)))).item,
+        ).toEqual(item(large));
+        expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
+        yield* enqueue(store, 55);
+        yield* TestClock.adjust("1 day");
+        yield* events.observe();
+        expect((yield* events.status).mode).toBe("webhook");
+        expect(events.hasActiveSubscription()).toBe(false);
+        expect((yield* store.readInboxSummary()).pendingCount).toBe(1);
+      }),
+    ).pipe(Effect.provide(TestContext.TestContext)),
+  );
+
+const removesRetiredOccurrence = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const store = yield* openEndpointStore(directory());
+        const test = fixture(store);
+        const events = yield* test.acquire;
+        yield* enqueue(store, 1);
+        yield* events.subscribe(input, "runtime");
+        test.status(503);
+        yield* events.observe();
+        const canonicalItem = yield* encodeRuntimeValue(item("replacement"));
+        yield* store.replaceInboxItem(token(1), {
+          deliveryToken: token(2),
+          canonicalItem,
+        });
+        const restarted = yield* test.acquire;
+        test.status(200);
+        yield* restarted.observe();
+        expect(test.posts[2]?.headers["webhook-id"]).toBe(eventIdOf(token(2)));
+        expect(
+          (yield* readRuntimeEvent(store, eventIdOf(token(1)))).item,
+        ).toEqual(item());
+        expect(
+          (yield* readRuntimeEvent(store, "evt_invalid").pipe(Effect.flip))
+            .reason,
+        ).toBe("invalid-event");
+        expect(
+          (yield* readRuntimeEvent(store, eventIdOf(token(3))).pipe(
+            Effect.flip,
+          )).reason,
+        ).toBe("unknown-event");
+      }),
+    ).pipe(Effect.provide(TestContext.TestContext)),
   );
 
 const rejectsUnsafeCallbacks = () =>
@@ -330,7 +457,7 @@ const rejectsUnsafeCallbacks = () =>
         url: "https://localhost/private",
       }).pipe(Effect.provide(webhookHttpClientLayer), Effect.flip);
       expect(dnsBlocked.reason).toBe("connection_refused");
-      const test = fixture();
+      const test = fixture(yield* openEndpointStore(directory()));
       test.status(302);
       const events = yield* test.acquire;
       expect(
@@ -338,14 +465,22 @@ const rejectsUnsafeCallbacks = () =>
       ).toBe(-32015);
       expect(test.posts).toHaveLength(1);
       expect(events.hasActiveSubscription()).toBe(false);
-    }),
+    }).pipe(Effect.scoped),
   );
 
 // @agent-code-guard/regression-only: these transcripts pin the external MCP draft, callback signatures, crash recovery and trust boundary.
 describe("local Dot webhook conformance", () => {
   it(
-    "abandons HTTP 410 and 413 occurrences without revoking the consumer",
-    discardsRejectedOccurrences,
+    "preserves a terminal response during concurrent refresh and resume",
+    refreshPreservesTerminalReceipt,
+  );
+  it(
+    "discards a retired occurrence while preserving its immutable read result",
+    removesRetiredOccurrence,
+  );
+  it(
+    "retains terminally rejected items across restart and refresh",
+    retainsTerminalRejections,
   );
   it(
     "allows callback inbox reads and ignores a receipt after owner revocation",
@@ -356,12 +491,12 @@ describe("local Dot webhook conformance", () => {
     signsVerifiesAndRotates,
   );
   it(
-    "retries exact event bytes after restart and keeps receipt separate from acknowledgment",
+    "retries exact event bytes after database reopen and retires only on receipt",
     retriesAcrossRestart,
   );
   it(
-    "bounds no-progress reminders and expires stale registration",
-    boundsRemindersAndLease,
+    "bounds complete envelopes, retains referenced payloads and drains beyond one page",
+    boundsPayloadAndDrains,
   );
   it(
     "rejects private destinations, DNS to loopback and redirects through Effect HttpClient",

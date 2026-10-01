@@ -67,6 +67,7 @@ export const mayInvokeHarnessTool = (
   [
     "send_message",
     "read_inbox",
+    "read_event",
     "read_send",
     "acknowledge_delivery",
     "search_agents",

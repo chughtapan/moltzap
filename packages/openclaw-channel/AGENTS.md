@@ -44,11 +44,10 @@ re-exports. Publication follows `docs/spec/layer-interfaces.md` → Publication 
   exhaustively.
 - Leave outbound queue and retry policy to OpenClaw. Every plugin callback is
   one Client operation; do not pass queue identity or add provider-owned retries.
-- Before Client acknowledgment, OpenClaw must durably accept the stable
-  `PostId`. Identical replay after acceptance must not invoke the model again;
-  the same `PostId` with changed payload must fail as a typed collision. These
-  requirements apply in both modes. Establish them through the supported host
-  integration; successful callback completion alone does not prove them.
+- Acknowledge Client delivery after the supported inbound callback returns
+  successfully; propagate callback failures. This establishes handoff only.
+  Processing and notification belong to the host. Its restricted durable
+  ingress queue is not a prerequisite. Ambiguous handoff replay is deferred.
 - Discovery, search, history, status, registration, and proof inspection use
   MCP rather than `HarnessEndpoint`.
 - Keep host failures and Client failures typed at the boundary. A delivery
@@ -66,11 +65,9 @@ target, and retry details do not define the final API.
 
 - Unit tests may fake the public Client capability to verify canonical
   projection, stock routing, outbound callbacks, and acknowledgment ordering.
-- Real-host qualification must cover shared main-session context, private
-  plain final text, explicit-target sends, and a crash after
-  durable acceptance but before acknowledgment. Identical replay must avoid a
-  second model invocation; changed-payload replay must fail as a typed
-  collision. Qualify private evaluation mode separately.
+- Real-host qualification covers shared main-session context, private final
+  text, explicit-target sends, successful callback handoff, and propagated
+  callback failures. It does not require processing confirmation.
 - Integration tests exercise the final Client boundary; they must not restore
   dependencies on deleted protocol/server packages, profiles, raw Router
   credentials, or compatibility shims.

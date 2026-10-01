@@ -9,7 +9,11 @@ import {
 import { Cause, Deferred, Effect, Exit, Option, Queue, Scope } from "effect";
 import { randomUUID } from "node:crypto";
 import type { InboxSummary } from "../endpoint/store.js";
-import { INBOX_PENDING_EVENT } from "../harness-mcp-contract.js";
+import {
+  INBOX_ITEM_EVENT,
+  INBOX_PENDING_EVENT,
+  itemEventDataJsonSchema,
+} from "../harness-mcp-contract.js";
 import {
   eventListInput,
   type EventStreamInput,
@@ -54,7 +58,6 @@ export interface HarnessEvents {
   readonly hasActiveSubscription: () => boolean;
   readonly notifyPending: () => boolean;
   readonly close: Effect.Effect<void>;
-  readonly inboxRead: Effect.Effect<void, ProtocolError>;
   readonly status: Effect.Effect<WebhookStatus, ProtocolError>;
   readonly revoke: Effect.Effect<void, ProtocolError>;
   readonly resume: Effect.Effect<void, ProtocolError>;
@@ -182,7 +185,7 @@ const publishPush = (push: ActivePush, summary: InboxSummary) => {
 const dispatch = (runtime: EventsRuntime, summary: InboxSummary) => {
   const push = runtime.active;
   return push === undefined
-    ? (runtime.options.webhook?.observe(summary) ?? Effect.void)
+    ? (runtime.options.webhook?.observe() ?? Effect.void)
     : publishPush(push, summary).pipe(
         Effect.catchAll(() =>
           Deferred.succeed(push.stop, undefined).pipe(Effect.asVoid),
@@ -270,11 +273,11 @@ const stream = (
     }),
   );
 
-const descriptor = (webhook: boolean) => ({
+const descriptor = () => ({
   name: INBOX_PENDING_EVENT,
   description:
-    "Unread MoltZap items are available. Read every inbox page and acknowledge each item after handling it. This wakeup contains no message content.",
-  delivery: webhook ? ["push", "webhook"] : ["push"],
+    "Runtime wakeup for pending MoltZap items. Native clients manage inbox consumption and handoff.",
+  delivery: ["push"],
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
   payloadSchema: {
     type: "object",
@@ -297,9 +300,23 @@ const installReadHandlers = (
       }
       return {
         events: [
-          descriptor(
-            runtime.options.webhook !== undefined && principal !== undefined,
-          ),
+          descriptor(),
+          ...(runtime.options.webhook !== undefined && principal !== undefined
+            ? [
+                {
+                  name: INBOX_ITEM_EVENT,
+                  description:
+                    "A MoltZap message, collective request, result, or failure. Large events reference their full content through read_event. Processing and notifications follow the user's task configuration.",
+                  delivery: ["webhook"],
+                  inputSchema: {
+                    type: "object",
+                    properties: {},
+                    additionalProperties: false,
+                  },
+                  payloadSchema: itemEventDataJsonSchema,
+                },
+              ]
+            : []),
         ],
       };
     },
@@ -317,7 +334,9 @@ const subscribe = (
   principal?: string,
 ) => {
   requireRegistered(runtime.options);
-  requireInboxEvent(input.name);
+  if (input.name !== INBOX_ITEM_EVENT) {
+    throw new ProtocolError(-32011, "Event not found", { kind: "event" });
+  }
   requireNoReplay(input.cursor);
   const webhook = runtime.options.webhook;
   if (
@@ -353,7 +372,9 @@ const unsubscribe = (
   input: EventUnsubscribeInput,
   principal?: string,
 ) => {
-  requireInboxEvent(input.name);
+  if (input.name !== INBOX_ITEM_EVENT) {
+    throw new ProtocolError(-32011, "Event not found", { kind: "event" });
+  }
   const webhook = runtime.options.webhook;
   if (webhook === undefined || principal === undefined) {
     throw new ProtocolError(-32011, "Subscription not found", {
@@ -438,7 +459,6 @@ const assembled = (runtime: EventsRuntime): HarnessEvents => ({
     return true;
   },
   close: close(runtime),
-  inboxRead: runtime.options.webhook?.inboxRead ?? Effect.void,
   status: status(runtime),
   revoke: revoke(runtime),
   resume: (runtime.options.webhook?.resume ?? Effect.void).pipe(

@@ -171,8 +171,10 @@ declare function acquireHarnessEndpoint(
 
 An optional `idempotencyKey` identifies one daemon-local send invocation. Reuse
 it only with the same validated input and failure routing. A keyless call is
-a new invocation. The [output contract](output.md)
+a new invocation. The [output contract](./output.md)
 defines retained outcomes, input conflicts and restart uncertainty.
+Runtime send options cross MCP in request metadata, outside model-generated
+arguments. The semantic input and public method signature are unchanged.
 
 
 The service is structural, not a public `Context.Tag`. One acquired endpoint
@@ -352,10 +354,9 @@ member list. Adapters do not reconstruct those facts from host state.
 `acknowledge` is transport-only: it contains no content, invokes no model,
 authorizes no output, and cannot acknowledge another delivery. Unacknowledged
 delivery may replay with identical message identity. Adapters must satisfy the
-[host-specific acceptance contract](./ingress.md#durable-acceptance): OpenClaw
-requires durable stable-PostId acceptance and replay safety; NanoClaw requires
-successful native callback completion. Host ownership does not waive those
-requirements.
+[handoff contract](./ingress.md#durable-acceptance): native callback success
+precedes acknowledgment. Callback failure leaves the item pending. Ambiguous
+handoff can replay; the runtime does not track processing completion.
 
 ## Closed failures
 

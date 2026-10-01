@@ -260,6 +260,16 @@ export interface HistoryPage {
 
 /** Private durable operations owned by one daemon process. */
 export interface EndpointStore {
+  readonly readInboxItem: (
+    deliveryToken: DeliveryToken,
+  ) => Effect.Effect<
+    (InboxEntry & { readonly acknowledged: boolean }) | undefined,
+    EndpointStoreError
+  >;
+  readonly completeWebhookDelivery: (
+    deliveryToken: DeliveryToken,
+    canonicalState: Uint8Array,
+  ) => Effect.Effect<void, EndpointStoreError>;
   readonly putInboxItem: (
     item: Omit<InboxEntry, "sequence">,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;

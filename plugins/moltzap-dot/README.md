@@ -1,7 +1,9 @@
 # Private Dot plugin candidate
 
 This folder is a packaging template for the implementation under review.
-It is not an installed or published plugin. Follow the
+The daemon delivers classified items through MCP Events and retires them on
+webhook receipt. The user configures processing and notification policy in Dot.
+This folder is not an installed or published plugin. Follow the
 [local setup and qualification recipe](../../docs/integrations/dot.mdx).
 
 Build a private artifact in a temporary directory. Copy `plugin.json` and

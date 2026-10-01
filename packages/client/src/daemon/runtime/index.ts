@@ -79,7 +79,7 @@ export const runDaemonRuntime = (
           implementation: DAEMON_IMPLEMENTATION,
           operations: controller.operations,
           credentials: input.bootstrap.mcpCredentials,
-          eventStore: input.store,
+          eventStore: controller.eventStore,
           onSubscriptionActiveChange: controller.subscriptionChanged,
         })
         .pipe(Effect.mapError(() => runtimeFailure("storage")));

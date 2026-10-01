@@ -23,11 +23,7 @@ import {
   Scope,
 } from "effect";
 import type { CollectiveError, SendError } from "./contract.js";
-import type {
-  DeliveryToken,
-  EndpointStore,
-  InboxSummary,
-} from "./endpoint/store.js";
+import type { DeliveryToken, InboxSummary } from "./endpoint/store.js";
 import {
   authenticateHarnessRequest,
   type HarnessMcpCredentials,
@@ -36,8 +32,10 @@ import {
 } from "./harness-mcp-auth.js";
 import {
   decodeHarnessReadSendRequest,
-  decodeHarnessSendRequest,
+  decodeHarnessSendCall,
+  type EventStore,
   HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
+  HARNESS_READ_EVENT_TOOL,
   HARNESS_READ_INBOX_TOOL,
   HARNESS_READ_SEND_TOOL,
   HARNESS_SEND_TOOL,
@@ -45,6 +43,7 @@ import {
   harnessAcknowledgeDeliveryRequestJsonSchema,
   type HarnessEmptyResult,
   harnessEmptyResultJsonSchema,
+  harnessFailureReasons,
   type HarnessReadInboxRequest,
   harnessReadInboxRequestJsonSchema,
   type HarnessReadInboxResult,
@@ -53,11 +52,14 @@ import {
   harnessReadSendRequestJsonSchema,
   type HarnessReadSendResult,
   harnessReadSendResultJsonSchema,
+  type HarnessSendArguments,
+  harnessSendArgumentsJsonSchema,
   type HarnessSendErrorData,
   type HarnessSendRequest,
-  harnessSendRequestJsonSchema,
   type HarnessSendResult,
   harnessSendResultJsonSchema,
+  readEventRequestSchema,
+  readEventResultSchema,
 } from "./harness-mcp-contract.js";
 import {
   type HarnessEvents,
@@ -100,6 +102,9 @@ type ClosedOperationError = Readonly<{ readonly reason: string }>;
 
 /** Structural daemon operations projected onto the loopback MCP boundary. */
 export interface HarnessMcpOperations {
+  readonly readEvent: (
+    input: typeof readEventRequestSchema.Type,
+  ) => Effect.Effect<typeof readEventResultSchema.Type, ClosedOperationError>;
   readonly readInboxSummary: () => Effect.Effect<
     InboxSummary,
     ClosedOperationError
@@ -141,10 +146,7 @@ export interface HarnessMcpEventHandler extends McpHttpHandler {
 }
 
 interface HarnessMcpHandlerOptions {
-  readonly eventStore?: Pick<
-    EndpointStore,
-    "readEventState" | "writeEventState"
-  >;
+  readonly eventStore?: EventStore;
   readonly credentials?: HarnessMcpCredentials;
   readonly implementation: Implementation;
   readonly operations: HarnessMcpOperations;
@@ -214,8 +216,8 @@ const readConversationOutput =
   makeStandardSchema<ManagementReadConversationResult>(
     makeJsonSchema(managementReadConversationResultSchema),
   );
-const sendInput = makeStandardSchema<HarnessSendRequest>(
-  harnessSendRequestJsonSchema,
+const sendInput = makeStandardSchema<HarnessSendArguments>(
+  harnessSendArgumentsJsonSchema,
 );
 const acknowledgeDeliveryInput =
   makeStandardSchema<HarnessAcknowledgeDeliveryRequest>(
@@ -226,6 +228,12 @@ const emptyOutput = makeStandardSchema<HarnessEmptyResult>(
 );
 const sendOutput = makeStandardSchema<HarnessSendResult>(
   harnessSendResultJsonSchema,
+);
+const readEventInput = makeStandardSchema<typeof readEventRequestSchema.Type>(
+  makeJsonSchema(readEventRequestSchema),
+);
+const readEventOutput = makeStandardSchema<typeof readEventResultSchema.Type>(
+  makeJsonSchema(readEventResultSchema),
 );
 const readInboxInput = makeStandardSchema<HarnessReadInboxRequest>(
   harnessReadInboxRequestJsonSchema,
@@ -239,42 +247,15 @@ const readSendInput = makeStandardSchema<HarnessReadSendRequest>(
 const readSendOutput = makeStandardSchema<HarnessReadSendResult>(
   harnessReadSendResultJsonSchema,
 );
-const RUNTIME_READ_REASONS = new Set([
-  "not-registered",
-  "invalid-continuation",
-  "persistence-failed",
-]);
-
-const REGISTER_REASONS = new Set([
-  "dependency-unavailable",
-  "persistence-failed",
-  "incompatible-daemon",
-]);
-const STATUS_REASONS = new Set(["persistence-failed", "incompatible-daemon"]);
-const SEARCH_AGENTS_REASONS = new Set([
-  "not-registered",
-  "dependency-unavailable",
-  "incompatible-daemon",
-]);
-const SEARCH_CONVERSATIONS_REASONS = new Set([
-  "not-registered",
-  "invalid-address",
-  "persistence-failed",
-]);
-const READ_CONVERSATION_REASONS = new Set([
-  "not-registered",
-  "invalid-address",
-  "unknown-agent",
-  "invalid-continuation",
-  "history-gap",
-  "persistence-failed",
-]);
-const ACKNOWLEDGE_DELIVERY_REASONS = new Set([
-  "unknown-delivery",
-  "delivery-conflict",
-  "persistence-failed",
-  "transport-failed",
-]);
+const {
+  RUNTIME_READ_REASONS,
+  REGISTER_REASONS,
+  STATUS_REASONS,
+  SEARCH_AGENTS_REASONS,
+  SEARCH_CONVERSATIONS_REASONS,
+  READ_CONVERSATION_REASONS,
+  ACKNOWLEDGE_DELIVERY_REASONS,
+} = harnessFailureReasons;
 
 const operationReason = (
   cause: unknown,
@@ -543,6 +524,49 @@ const registerReadTools = (
   );
 };
 
+function registerSendTool(
+  server: McpServer,
+  operations: HarnessMcpOperations,
+): void {
+  server.registerTool(
+    HARNESS_SEND_TOOL,
+    { inputSchema: sendInput, outputSchema: sendOutput },
+    (input, context) =>
+      handleSendToolCall(
+        {
+          name: HARNESS_SEND_TOOL,
+          toolArguments: input,
+          metadata: context.mcpReq._meta,
+          signal: context.mcpReq.signal,
+        },
+        operations,
+      ),
+  );
+}
+
+const registerEventReadTool = (
+  server: McpServer,
+  operations: HarnessMcpOperations,
+): void => {
+  server.registerTool(
+    HARNESS_READ_EVENT_TOOL,
+    {
+      description:
+        "Read the original full content of a MoltZap event by eventId. This read has no delivery or acknowledgment side effects.",
+      inputSchema: readEventInput,
+      outputSchema: readEventOutput,
+    },
+    (input, context) =>
+      runOperation({
+        operation: operations.readEvent(input),
+        label: "Event read",
+        allowedReasons: RUNTIME_READ_REASONS,
+        fallbackReason: "persistence-failed",
+        signal: context.mcpReq.signal,
+      }),
+  );
+};
+
 const registerAdapterTools = (
   server: McpServer,
   operations: HarnessMcpOperations,
@@ -571,12 +595,8 @@ const registerAdapterTools = (
         signal: context.mcpReq.signal,
       }),
   );
-  server.registerTool(
-    HARNESS_SEND_TOOL,
-    { inputSchema: sendInput, outputSchema: sendOutput },
-    (input, context) =>
-      runSendOperation(operations.send(input), context.mcpReq.signal),
-  );
+  registerSendTool(server, operations);
+  registerEventReadTool(server, operations);
   server.registerTool(
     HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
     { inputSchema: acknowledgeDeliveryInput, outputSchema: emptyOutput },
@@ -607,6 +627,7 @@ const registerActiveTools = (
 interface ToolCallInput {
   readonly name: string;
   readonly toolArguments: unknown;
+  readonly metadata: unknown;
   readonly signal: AbortSignal;
 }
 
@@ -741,12 +762,12 @@ const decodeInvocationInput = <A>(
   );
 
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
-const handleSendToolCall = async (
+async function handleSendToolCall(
   input: ToolCallInput,
   operations: HarnessMcpOperations,
-) => {
+) {
   const decoded = await decodeInvocationInput(
-    decodeHarnessSendRequest(input.toolArguments),
+    decodeHarnessSendCall(input.toolArguments, input.metadata),
     input.signal,
   );
   return await validateToolOutput(
@@ -754,7 +775,7 @@ const handleSendToolCall = async (
     await runSendOperation(operations.send(decoded), input.signal),
     input.name,
   );
-};
+}
 
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
 const handleAcknowledgeDeliveryToolCall = async (
@@ -775,12 +796,26 @@ const handleAcknowledgeDeliveryToolCall = async (
   });
 };
 
-// #ignore-sloppy-code-next-line[async-keyword]: Active tool dispatch returns the selected Promise-native MCP operation result.
-const handleActiveToolCall = async (
+// #ignore-sloppy-code-next-line[async-keyword]: Runtime read dispatch validates the selected MCP schema before invoking the operation.
+const handleInboxReadToolCall = async (
   input: ToolCallInput,
   operations: HarnessMcpOperations,
 ) => {
   switch (input.name) {
+    case HARNESS_READ_EVENT_TOOL:
+      return await runValidatedOperation(readEventOutput, input.name, {
+        operation: operations.readEvent(
+          await decodeToolInput(
+            readEventInput,
+            input.toolArguments,
+            input.name,
+          ),
+        ),
+        label: "Event read",
+        allowedReasons: RUNTIME_READ_REASONS,
+        fallbackReason: "persistence-failed",
+        signal: input.signal,
+      });
     case HARNESS_READ_INBOX_TOOL:
       return await runValidatedOperation(readInboxOutput, input.name, {
         operation: operations.readInbox(
@@ -795,6 +830,20 @@ const handleActiveToolCall = async (
         fallbackReason: "persistence-failed",
         signal: input.signal,
       });
+    default:
+      return toolNotFound(input.name);
+  }
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: Active tool dispatch returns the selected Promise-native MCP operation result.
+const handleActiveToolCall = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) => {
+  if ([HARNESS_READ_EVENT_TOOL, HARNESS_READ_INBOX_TOOL].includes(input.name)) {
+    return await handleInboxReadToolCall(input, operations);
+  }
+  switch (input.name) {
     case HARNESS_READ_SEND_TOOL:
       return await runValidatedOperation(readSendOutput, input.name, {
         operation: operations.readSend(
@@ -860,7 +909,7 @@ const ownerEventDescriptions = {
   revoke_event_subscription:
     "Release the active runtime consumer. Pending inbox items remain unread.",
   resume_event_subscription:
-    "Resume a stalled webhook consumer and remind it about unread items.",
+    "Resume transient callback retries. Terminal rejection requires revocation and reconfiguration.",
 };
 const ownerEventTools = [
   "event_subscription_status",
@@ -904,6 +953,7 @@ const installToolCallHandler = (
     const input = {
       name: request.params.name,
       toolArguments: request.params.arguments ?? {},
+      metadata: context.mcpReq._meta,
       signal: context.mcpReq.signal,
     };
     const ownerOperation = ownerEventOperation(authority.events, input.name);
@@ -933,16 +983,6 @@ const runtimeOperations = (
   events: HarnessEvents,
 ): HarnessMcpOperations => ({
   ...operations,
-  readInbox: (input) =>
-    operations
-      .readInbox(input)
-      .pipe(
-        Effect.tap(() =>
-          events.inboxRead.pipe(
-            Effect.mapError(() => ({ reason: "persistence-failed" })),
-          ),
-        ),
-      ),
   acknowledgeDelivery: (token) =>
     operations
       .acknowledgeDelivery(token)

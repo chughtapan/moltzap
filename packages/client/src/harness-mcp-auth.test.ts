@@ -9,6 +9,7 @@ import { AgentCard } from "@moltzap/identity";
 import { Effect, Redacted, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeFixture } from "./__tests__/router-worker-fixtures.js";
+import { HARNESS_SEND_META_KEY } from "./harness-mcp-contract.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
@@ -24,6 +25,7 @@ const info = { name: "local-dot-qualification", version: "1" };
 const unreachable = () =>
   Effect.dieMessage("unauthorized tool reached its operation");
 const operations: HarnessMcpOperations = {
+  readEvent: () => Effect.fail({ reason: "unknown-event" }),
   readStatus: () => Effect.succeed({ kind: "unregistered" }),
   register: unreachable,
   searchAgents: () => Effect.succeed({ kind: "not_found" }),
@@ -36,9 +38,11 @@ const operations: HarnessMcpOperations = {
   readSend: () => Effect.succeed({ state: "absent" }),
   acknowledgeDelivery: unreachable,
 };
+type RequestParams = Readonly<Record<string, unknown>> &
+  Partial<Record<"_meta", Readonly<Record<string, unknown>>>>;
 const makeRequest = (
   method: string,
-  params: Readonly<Record<string, unknown>>,
+  params: RequestParams,
   credential: string,
 ) =>
   new Request("http://127.0.0.1/mcp", {
@@ -57,6 +61,7 @@ const makeRequest = (
       params: {
         ...params,
         _meta: {
+          ...params._meta,
           [CLIENT_INFO_META_KEY]: info,
           [CLIENT_CAPABILITIES_META_KEY]: {},
           [PROTOCOL_VERSION_META_KEY]: "2026-07-28",
@@ -80,7 +85,7 @@ type Handler = Effect.Effect.Success<
 const request = (
   handler: Handler,
   method: string,
-  params: Readonly<Record<string, unknown>>,
+  params: RequestParams,
   credential: Redacted.Redacted,
 ) =>
   Effect.tryPromise(() =>
@@ -122,18 +127,23 @@ const checksRestrictedTools = (handler: Handler) =>
     });
   });
 
+const invalidInvocationCall = (name: string, idempotencyKey: string) =>
+  name === "read_send"
+    ? { name, arguments: { idempotencyKey } }
+    : {
+        name,
+        arguments: { input: { to: "agent:bob", text: "probe" } },
+        _meta: { [HARNESS_SEND_META_KEY]: { idempotencyKey } },
+      };
+
 const checksInvocationValidation = (handler: Handler) =>
   Effect.gen(function* () {
     for (const idempotencyKey of ["", "x\u0000y", "é".repeat(65)]) {
       for (const name of ["send_message", "read_send"]) {
-        const args =
-          name === "read_send"
-            ? { idempotencyKey }
-            : { idempotencyKey, input: { to: "agent:bob", text: "probe" } };
         const body = yield* request(
           handler,
           "tools/call",
-          { name, arguments: args },
+          invalidInvocationCall(name, idempotencyKey),
           credentials.runtime,
         ).pipe(
           Effect.flatMap(
@@ -143,6 +153,33 @@ const checksInvocationValidation = (handler: Handler) =>
         expect(body).toMatchObject({ error: { code: -32602 } });
       }
     }
+  });
+
+const checksEventAuthorization = (handler: Handler) =>
+  Effect.gen(function* () {
+    const params = {
+      name: "read_event",
+      arguments: {
+        eventId: `evt_${Buffer.alloc(32, 1).toString("base64url")}`,
+      },
+    };
+    for (const credential of ["", "wrong"]) {
+      const response = yield* Effect.tryPromise(() =>
+        handler.fetch(makeRequest("tools/call", params, credential)),
+      );
+      expect(response.status).toBe(401);
+    }
+    const body = yield* request(
+      handler,
+      "tools/call",
+      params,
+      credentials.runtime,
+    ).pipe(
+      Effect.flatMap(Schema.decodeUnknown(Schema.parseJson(Schema.Unknown))),
+    );
+    expect(body).toMatchObject({
+      error: { data: { reason: "unknown-event" } },
+    });
   });
 
 const checksCatalog = (handler: Handler, registered: boolean) =>
@@ -168,6 +205,7 @@ const checksCatalog = (handler: Handler, registered: boolean) =>
       expect(names).toEqual(
         expect.arrayContaining([
           "acknowledge_delivery",
+          "read_event",
           "read_inbox",
           "read_send",
           "search_agents",
@@ -175,6 +213,7 @@ const checksCatalog = (handler: Handler, registered: boolean) =>
         ]),
       );
       yield* checksInvocationValidation(handler);
+      yield* checksEventAuthorization(handler);
     } else {
       expect(names).toHaveLength(0);
     }

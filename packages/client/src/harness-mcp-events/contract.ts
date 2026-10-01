@@ -6,7 +6,8 @@ import {
   type ProtocolError,
 } from "@modelcontextprotocol/server";
 import { type Effect, JSONSchema, Schema } from "effect";
-import type { InboxSummary } from "../endpoint/store.js";
+/** Maximum complete UTF-8 callback body accepted by the event transport. */
+export const maximumEventBytes = 256 * 1024;
 
 /** Callback failures expose no upstream response or destination details. */
 export const callbackReasons = [
@@ -23,9 +24,8 @@ const webhookStatusSchema = Schema.Struct({
   id: Schema.optional(Schema.String),
   refreshBefore: Schema.optional(Schema.String),
   pendingCount: Schema.optional(Schema.NonNegativeInt),
-  reminders: Schema.optional(Schema.NonNegativeInt),
   stalled: Schema.optional(
-    Schema.NullOr(Schema.Literal("callback", "unhandled")),
+    Schema.NullOr(Schema.Literal("callback", "terminal")),
   ),
   lastError: Schema.optional(Schema.NullOr(Schema.Literal(...callbackReasons))),
 });
@@ -96,10 +96,7 @@ export interface HarnessWebhookEvents {
     input: EventUnsubscribeInput,
     principal: string,
   ) => Effect.Effect<void, ProtocolError>;
-  readonly observe: (
-    summary: InboxSummary,
-  ) => Effect.Effect<void, ProtocolError>;
-  readonly inboxRead: Effect.Effect<void, ProtocolError>;
+  readonly observe: () => Effect.Effect<void, ProtocolError>;
   readonly status: Effect.Effect<WebhookStatus, ProtocolError>;
   readonly revoke: Effect.Effect<void, ProtocolError>;
   readonly resume: Effect.Effect<void, ProtocolError>;

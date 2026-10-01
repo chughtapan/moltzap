@@ -49,8 +49,8 @@ The final `HarnessEndpoint` has these invariants:
   failures come from the endpoint itself; and
 - delivery acknowledgment cannot create a post and must follow the
   [host-specific acceptance contract](../../docs/spec/harness/ingress.md#durable-acceptance):
-  OpenClaw durable acceptance/replay safety and NanoClaw successful callback
-  completion are distinct requirements, implemented by their hosts.
+  native callback success and webhook HTTP receipt establish handoff only;
+  processing and notification remain host responsibilities.
 
 The public root exposes the semantic `HarnessEndpoint`, address, content,
 operation and inbound item schemas, endpoint acquisition, and closed errors. It exposes no public

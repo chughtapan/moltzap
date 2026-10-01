@@ -600,11 +600,9 @@ not block already-certified posts in another conversation.
 
 Crash before acknowledgment causes Client to replay the same stable delivery.
 The [host-specific acceptance contract](./harness/ingress.md#durable-acceptance)
-defines when adapters may acknowledge: OpenClaw requires durable stable-PostId
-acceptance, identical replay without another model invocation, and typed
-changed-payload collision; NanoClaw requires successful native callback
-completion with failures propagated. Host ownership is the implementation
-boundary for those requirements, not a waiver.
+defines when adapters may acknowledge: native callback success or webhook
+HTTP 2xx receipt. Callback failures leave the item pending. Ambiguous handoff
+may cause another host turn; processing confirmation is outside this contract.
 
 ## Persistence and compatibility
 

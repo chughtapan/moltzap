@@ -12,7 +12,7 @@ In trusted-local mode, before registration the catalog contains exactly `registe
 and `status`. Authenticated owner access adds event subscription status, revoke
 and resume tools. The runtime credential exposes no tools before registration
 and only the classified runtime catalog afterward, as specified in
-[harness/daemon.md](harness/daemon.md).
+[harness/daemon.md](./harness/daemon.md).
 Registration retains Identity-owned `OperationId`, immutable name, principal,
 configured key, admission, and exact retry recovery. An active binding changes
 the catalog on the same MCP endpoint.

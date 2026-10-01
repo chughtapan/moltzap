@@ -238,6 +238,8 @@ function makeStore(input: {
   readonly historyFailure?: EndpointStoreError;
 }): EndpointStore {
   return {
+    readInboxItem: () => Effect.succeed(undefined),
+    completeWebhookDelivery: () => Effect.void,
     putInboxItem: () => outsideManagementTest(),
     readInbox: () => outsideManagementTest(),
     readInboxSummary: () => outsideManagementTest(),

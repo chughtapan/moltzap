@@ -2,11 +2,6 @@
 
 import { Effect, Encoding, Option, Schema } from "effect";
 import { randomBytes } from "node:crypto";
-import type {
-  HarnessMessageReadyEvent,
-  HarnessReadInboxRequest,
-  HarnessReadInboxResult,
-} from "../../harness-mcp-contract.js";
 import { InboundItem, InboundMessage } from "../../contract.js";
 import {
   collectiveIdOf,
@@ -19,6 +14,41 @@ import {
   type EndpointStore,
   EndpointStoreError,
 } from "../../endpoint/store.js";
+import {
+  eventIdSchema,
+  type HarnessMessageReadyEvent,
+  type HarnessReadInboxRequest,
+  type HarnessReadInboxResult,
+} from "../../harness-mcp-contract.js";
+
+/**
+ * Invalid aliases cannot address the same retained item under another event id.
+ * @param store Retained immutable classified inbox.
+ * @param eventId Canonical event identity carried by a webhook.
+ * @returns The original item or a closed lookup failure.
+ */
+export const readRuntimeEvent = (
+  store: Pick<EndpointStore, "readInboxItem">,
+  eventId: string,
+) =>
+  Effect.gen(function* () {
+    yield* Schema.decodeUnknown(eventIdSchema)(eventId);
+    const token = yield* Schema.decodeUnknown(DeliveryToken)(
+      `dlv_${eventId.slice(4)}`,
+    );
+    const retained = yield* store.readInboxItem(token);
+    if (retained === undefined) {
+      return yield* Effect.fail({ reason: "unknown-event" });
+    }
+    return {
+      item: yield* decodeRuntimeValue(InboundItem, retained.canonicalItem),
+    };
+  }).pipe(
+    Effect.catchTag("ParseError", () =>
+      Effect.fail({ reason: "invalid-event" }),
+    ),
+    Effect.withSpan("readRuntimeEvent"),
+  );
 
 const cursorSchema = Schema.Struct({
   after: Schema.NonNegativeInt,

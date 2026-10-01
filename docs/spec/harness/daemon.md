@@ -116,8 +116,8 @@ the endpoint has lost their response context. Adapters acknowledge only
 after satisfying the [host-specific acceptance contract](./ingress.md#durable-acceptance).
 Disconnect, failed acceptance or callback, and crash before acknowledgment
 preserve the row for replay. The daemon's stable delivery identity supports
-host recovery; it does not itself prove OpenClaw's durable acceptance or
-no-second-model-invocation guarantee.
+runtime retry bookkeeping. Handoff completes at native callback success or
+webhook HTTP 2xx receipt; ambiguous retries may duplicate delivery.
 
 ## Compatibility and failures
 

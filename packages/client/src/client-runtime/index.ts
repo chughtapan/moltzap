@@ -26,6 +26,7 @@ import {
   decodeHarnessSendResult,
   HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
   HARNESS_READ_INBOX_TOOL,
+  HARNESS_SEND_META_KEY,
   HARNESS_SEND_TOOL,
   INBOX_PENDING_EVENT,
 } from "../harness-mcp-contract.js";
@@ -141,19 +142,26 @@ function callSend(
   client: Client,
   ...[input, options]: Parameters<HarnessEndpoint["send"]>
 ): Effect.Effect<SendResult, SendError | CollectiveError> {
-  const failureDelivery = options?.failureDelivery;
   return Effect.tryPromise({
     try: (signal) =>
       client.callTool(
         {
           name: HARNESS_SEND_TOOL,
-          arguments: {
-            input,
-            ...(options?.idempotencyKey === undefined
-              ? {}
-              : { idempotencyKey: options.idempotencyKey }),
-            ...(failureDelivery === undefined ? {} : { failureDelivery }),
-          },
+          arguments: { input },
+          ...(options === undefined
+            ? {}
+            : {
+                _meta: {
+                  [HARNESS_SEND_META_KEY]: {
+                    ...(options.idempotencyKey === undefined
+                      ? {}
+                      : { idempotencyKey: options.idempotencyKey }),
+                    ...(options.failureDelivery === undefined
+                      ? {}
+                      : { failureDelivery: options.failureDelivery }),
+                  },
+                },
+              }),
         },
         { signal },
       ),

@@ -37,7 +37,7 @@ reply to the current inbound message, is a deliberate native message-tool
 invocation that names an explicit target. OpenClaw's own message tool fills an
 omitted target with the inbound address; MoltZap neither relies on that
 fallback nor qualifies it. Neither mode changes OpenClaw's
-[durable acceptance and replay requirements](./ingress.md#durable-acceptance).
+[callback handoff requirements](./ingress.md#durable-acceptance).
 Hosts implement these requirements through their supported integration and
 configuration surfaces; Client supplies no session or prompt framework.
 
@@ -65,8 +65,11 @@ under their session and output contract above and own outbound queueing and
 retry policy. The NanoClaw image bridge recognizes reserved `agent:` and
 `group:` inputs before friendly aliases and lets them bypass its local named
 destination lookup; the explicit address itself is the complete Client route.
-Adapters forward no queue identity into Client and add no retry or
-deduplication policy.
+Adapters forward no arbitrary queue identity into Client and add no retry or
+deduplication policy. The runtime-owned invocation candidate permits a
+qualified logical invocation identity in `HarnessEndpoint.send` options,
+under the [output contract](./output.md). It requires supported host evidence
+on the actual send path; the current OpenClaw mapping remains unqualified.
 
 Adapters render each inbound item kind as a model turn in one fixed form and
 switch on the item's `kind` exhaustively. A multicast item renders as the
@@ -86,15 +89,16 @@ exact members. Hosts use their ordinary group display and scheduling behavior.
 Adapters project metadata before content and follow the host-specific
 [acceptance and acknowledgment contract](./ingress.md#durable-acceptance).
 Inbound acceptance never manufactures a semantic response. Outbound retry is a
-separate host decision: every later Client send invocation creates a new post;
-it does not relax inbound replay requirements.
+separate host decision: a new Client send invocation creates new posts, while
+retrying the same qualified invocation identity observes its retained outcome.
+Inbound callback failures leave delivery pending.
 
 Acceptance covers exact direct/group projection, metadata-before-content,
 explicit-target grammar validation, Client-owned canonicalization, and one
 Client operation per host callback, and a gather's and an all_gather's
 request posts, answers and results through a real OpenClaw adapter.
 OpenClaw qualification must demonstrate the normal shared main session,
-private plain final text, and its durable acceptance/replay/collision contract.
+private plain final text, and callback success or failure before acknowledgment.
 Private evaluation mode requires its own session evidence.
 NanoClaw qualification must show that its pinned bridge reaches the stock
 callback from generic tool and final-output sends and that inbound routing

@@ -1,5 +1,4 @@
 /** @file MCP Events signing and callback policy on the Effect HTTP client. */
-
 import {
   HttpClient,
   HttpClientRequest,
@@ -11,6 +10,7 @@ import { Data, Effect, Layer, Option, type Scope } from "effect";
 import { createHmac } from "node:crypto";
 import { lookup } from "node:dns";
 import { BlockList, isIP, type LookupFunction } from "node:net";
+import { maximumEventBytes } from "./contract.js";
 
 /** Closed callback diagnostics, never an upstream body, header or network address. */
 export type WebhookFailureReason =
@@ -185,7 +185,7 @@ const validatePost = (post: WebhookPost) =>
     if (
       url === undefined ||
       !validWebhookSecret(post.secret) ||
-      Buffer.byteLength(post.body, "utf8") > 256 * 1024
+      Buffer.byteLength(post.body, "utf8") > maximumEventBytes
     ) {
       return yield* Effect.fail(callbackFailure("connection_refused"));
     }

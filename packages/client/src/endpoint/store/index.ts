@@ -25,10 +25,12 @@ import { enqueueDisseminationOutbound } from "./dissemination.js";
 import {
   acknowledgeInboxItem,
   beginSendAttempt,
+  completeWebhookDelivery,
   finishSendAttempt,
   putInboxItem,
   readEventState,
   readInbox,
+  readInboxItem,
   readInboxSummary,
   readSendAttempt,
   replaceInboxItem,
@@ -88,6 +90,11 @@ function makeEndpointStore(state: StoreState): EndpointStore {
 
 function makeInboxOperations(state: StoreState, run: StoreRunner) {
   return {
+    readInboxItem: (token) => run(() => readInboxItem(state.database, token)),
+    completeWebhookDelivery: (token, value) =>
+      run(() => {
+        completeWebhookDelivery(state.database, token, value);
+      }),
     putInboxItem: (item) => run(() => putInboxItem(state.database, item)),
     readInbox: (input) => run(() => readInbox(state.database, input)),
     readInboxSummary: () => run(() => readInboxSummary(state.database)),

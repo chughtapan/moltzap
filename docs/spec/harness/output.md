@@ -83,7 +83,8 @@ then never retries, and its error reaches the model as an `operationFailed`
 item.
 
 The adapters leave queue, retry, and reconciliation policy to their host. They
-do not forward host queue identifiers into Client or add a MoltZap retry queue,
+may forward an identity that names one logical invocation through send options.
+Arbitrary host queue identifiers do not satisfy that contract. Adapters add no MoltZap retry queue,
 raw RPC fallback, second send tool, group-creation tool, peer directory, or
 provider-specific automatic-response rule.
 
@@ -94,6 +95,9 @@ The adapter-only MCP tool `send_message` has exactly:
 ```ts
 interface SendMessageRequest {
   readonly input: SendInput
+}
+
+interface RuntimeSendOptions {
   readonly failureDelivery?: "result" | "inbound"
   readonly idempotencyKey?: string
 }
@@ -103,6 +107,24 @@ interface SendMessageResult {
   readonly operationId?: CollectiveId
 }
 ```
+
+`RuntimeSendOptions` travels in request metadata at
+`_meta["xyz.moltzap/send"]`, outside the tool's argument schema. The MCP-backed
+`HarnessEndpoint` supplies it from send options. The daemon validates the
+semantic arguments and runtime options separately before reserving an
+invocation. Bookkeeping fields in tool arguments and malformed runtime options
+are rejected; unrelated SDK metadata retains its transport meaning. An
+omitted options entry denotes a keyless invocation with ordinary result
+delivery. There is no alternate argument format.
+
+A host that supplies an invocation identity must keep it stable across retries
+and reconnects and distinct for intentional repeats. A transport request id,
+an arbitrary queue id or message text does not establish this contract.
+Runtime code owns recovery lookup and retry policy; the model chooses semantic
+actions. Hosts without a qualified identity use ordinary keyless sends.
+Ambiguous handoff and action retries may duplicate delivery or sends; stronger
+cross-host recovery is deferred. Processing confirmation is outside this
+contract.
 
 It returns its structured result once the send completes. A multicast has no
 operation id, so its result is `{}`; a gather's or all_gather's result names its id,

@@ -38,8 +38,12 @@ import {
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { DaemonBootstrap } from "../configuration.js";
-import type { HistoryExportPort } from "./history-export.js";
-import { DeliveryAcknowledgeError, InboundMessage } from "../../contract.js";
+import {
+  DeliveryAcknowledgeError,
+  type HistoryExportRecord,
+  InboundItem,
+  InboundMessage,
+} from "../../contract.js";
 import {
   type EndpointEngine,
   EngineOutboundError,
@@ -53,12 +57,16 @@ import {
 } from "../../endpoint/router-worker/index.js";
 import {
   DeliveryToken,
+  encodeRuntimeValue,
   type EndpointRecovery,
   type EndpointStore,
   EndpointStoreError,
   type IdentityBinding,
 } from "../../endpoint/store.js";
-import { INBOX_PENDING_EVENT } from "../../harness-mcp-contract.js";
+import {
+  type EventStore,
+  INBOX_PENDING_EVENT,
+} from "../../harness-mcp-contract.js";
 import {
   type HarnessMcpEventHandler,
   type HarnessMcpOperations,
@@ -112,6 +120,8 @@ interface HarnessSignals {
 interface HarnessObservations {
   readonly events: string[];
   handler?: HarnessMcpEventHandler;
+  eventStore?: EventStore;
+  readonly records: HistoryExportRecord[];
   operations?: HarnessMcpOperations;
   historyExportPath?: string;
   workerOutbox?: RouterWorkerInput["outbox"];
@@ -133,6 +143,8 @@ interface RuntimeHarness {
   readonly events: string[];
   readonly failure: Deferred.Deferred<undefined>;
   readonly listenerReady: Deferred.Deferred<undefined>;
+  readonly records: HistoryExportRecord[];
+  readonly getEventStore: () => EventStore | undefined;
   readonly getHandler: () => HarnessMcpEventHandler | undefined;
   readonly getOperations: () => HarnessMcpOperations | undefined;
   readonly getWorkerOutbox: () => RouterWorkerInput["outbox"] | undefined;
@@ -142,8 +154,6 @@ interface RuntimeHarness {
 type BackgroundFailure = "none" | "outbound" | "worker";
 
 const EXPORT_PATH = "/var/run/moltzap/history.ndjson";
-/** The sink the fake edge hands out; this test observes only its opening. */
-const RECORDING_EXPORT: HistoryExportPort = { record: () => Effect.void };
 
 const identifier = (prefix: string, byte: number): string =>
   `${prefix}${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`;
@@ -278,6 +288,8 @@ const inactiveStoreOperations: Omit<
   EndpointStore,
   "readIdentity" | "bindIdentity" | "recover"
 > = {
+  readInboxItem: () => Effect.succeed(undefined),
+  completeWebhookDelivery: () => Effect.void,
   putInboxItem: () => outsideRuntimeTest(),
   readInbox: () => outsideRuntimeTest(),
   readInboxSummary: () => outsideRuntimeTest(),
@@ -426,6 +438,17 @@ const closeHandler = (handler: HarnessMcpEventHandler) =>
     catch: () => new Error("failed to close test MCP handler"),
   }).pipe(Effect.ignore);
 
+const recordingExport = (observations: HarnessObservations, path: string) =>
+  Effect.sync(() => {
+    observations.historyExportPath = path;
+    return {
+      record: (record: HistoryExportRecord) =>
+        Effect.sync(() => {
+          observations.records.push(record);
+        }),
+    };
+  });
+
 function makeRuntimeDependencies(
   input: RuntimeDependenciesInput,
 ): DaemonRuntimeDependencies {
@@ -451,6 +474,7 @@ function makeRuntimeDependencies(
       Effect.sync(() => {
         input.observations.events.push("handler");
         input.observations.operations = options.operations;
+        input.observations.eventStore = options.eventStore;
       }).pipe(Effect.zipRight(makeHarnessMcpHttpHandler(options))),
     acquireListener: ({ handler }) =>
       Effect.acquireRelease(
@@ -464,11 +488,7 @@ function makeRuntimeDependencies(
         ),
         () => closeHandler(handler),
       ).pipe(Effect.asVoid),
-    makeHistoryExport: (path) =>
-      Effect.sync(() => {
-        input.observations.historyExportPath = path;
-        return RECORDING_EXPORT;
-      }),
+    makeHistoryExport: (path) => recordingExport(input.observations, path),
   };
 }
 
@@ -548,7 +568,7 @@ const makeHarness = (
 ): Effect.Effect<RuntimeHarness> =>
   Effect.gen(function* () {
     const signals = yield* makeHarnessSignals;
-    const observations: HarnessObservations = { events: [] };
+    const observations: HarnessObservations = { events: [], records: [] };
     const delivery: DeliveryState = {
       pending: fixture.pending,
       acknowledged: false,
@@ -568,6 +588,8 @@ const makeHarness = (
       delivery,
       ...signals,
       events: observations.events,
+      records: observations.records,
+      getEventStore: () => observations.eventStore,
       getHandler: () => observations.handler,
       getOperations: () => observations.operations,
       getWorkerOutbox: () => observations.workerOutbox,
@@ -733,6 +755,31 @@ const opensConfiguredHistoryExport = async () => {
       "engine acquisition",
     );
     expect(harness.getHistoryExportPath()).toBe(EXPORT_PATH);
+    await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
+      digest("dlv_", 8),
+    );
+    const item = Schema.decodeUnknownSync(InboundItem)({
+      kind: "operationFailed",
+      id: digest("col_", 8),
+      to: "agent:bob",
+      error: "retained failure",
+    });
+    const canonicalItem = await Effect.runPromise(encodeRuntimeValue(item));
+    await Effect.runPromise(
+      store.putInboxItem({ deliveryToken, canonicalItem }),
+    );
+    const eventStore = harness.getEventStore();
+    if (eventStore === undefined) {
+      throw new Error("missing composed event store");
+    }
+    await Effect.runPromise(eventStore.readInbox({ limit: 1 }));
+    expect(harness.records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "inbound", item }),
+      ]),
+    );
   } finally {
     await Effect.runPromise(Fiber.interrupt(fiber));
   }

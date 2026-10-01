@@ -269,7 +269,51 @@ const migratesWithoutErasingIdentity = () => {
   );
 };
 
+const commitsReceiptAtomically = () => {
+  const path = directory();
+  const state = new TextEncoder().encode('{"registration":null}');
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const store = yield* openEndpointStore(path);
+          yield* persistInboxItem(store, {
+            deliveryToken: token(1),
+            item: failure,
+          });
+          yield* store.writeEventState(state);
+          const error = yield* store
+            .completeWebhookDelivery(token(1), new Uint8Array())
+            .pipe(Effect.flip);
+          expect(error.reason).toBe("invalid-input");
+          expect((yield* store.readInboxSummary()).pendingCount).toBe(1);
+          expect(yield* store.readEventState()).toEqual(state);
+          const next = new TextEncoder().encode(
+            '{"registration":{"outbox":null}}',
+          );
+          yield* store.completeWebhookDelivery(token(1), next);
+          expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
+          expect(yield* store.readEventState()).toEqual(next);
+        }),
+      );
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const store = yield* openEndpointStore(path);
+          expect((yield* store.readInboxItem(token(1)))?.acknowledged).toBe(
+            true,
+          );
+          expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
+        }),
+      );
+    }),
+  );
+};
+
 describe("durable runtime inbox", () => {
+  it(
+    "rolls back a failed receipt commit and retains a successful retirement across reopen",
+    commitsReceiptAtomically,
+  );
   it(
     "retains acknowledgment tombstones and rejects token payload collisions",
     preservesTokenBindings,

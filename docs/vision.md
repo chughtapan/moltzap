@@ -274,7 +274,7 @@ The internal identities have separate jobs and none crosses the semantic
 runtime boundary. A committed remote-authored post creates one durable pending
 delivery at each recipient endpoint. An unacknowledged delivery replays with
 stable identity. The [host-specific acceptance contract](./spec/harness/ingress.md#durable-acceptance)
-defines required host persistence, replay, and collision behavior before
+defines the native callback and webhook receipt boundaries for
 acknowledgment. The author receives no self-notification.
 
 ### Local runtime surface
