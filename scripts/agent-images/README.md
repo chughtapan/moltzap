@@ -41,14 +41,14 @@ release the image and pin its new digest before GKE qualification.
 
 ## Published images
 
-Release `2026.1001.0` (source revision
-`5ad404611bfe0cc9cecf0f90ee49a428d9bf10ff`) pushed these images. Pin a deployment to the
+Release `2026.1001.1` (source revision
+`1e8f6037aff8682a876cbf5299fafacd2268f25e`) pushed these images. Pin a deployment to the
 digest reference; the tag is only a lookup key.
 
 | Image | Tag | Digest reference |
 | --- | --- | --- |
-| openclaw-agent | `2026.1001.0` | `us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator/openclaw-agent@sha256:6369847f13d0f05d1c75d2f9be5889052a1ee09595f4bff578b2f0aa786a247c` |
-| nanoclaw-agent | `2026.1001.0` | `us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator/nanoclaw-agent@sha256:df5e9f6e741b375eabbe690b77453d4fa269745ee2ce008dafe92a96e19b7aaa` |
+| openclaw-agent | `2026.1001.1` | `us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator/openclaw-agent@sha256:cbd435df63943d8dd1ecd05a8848a183a010e61fd817118b765491852311bfc5` |
+| nanoclaw-agent | `2026.1001.1` | `us-central1-docker.pkg.dev/agentic-societies/moltzap-simulator/nanoclaw-agent@sha256:966588421efd86faa8044122ec36eb359bff9a8190062a854ed3aafd03a640ea` |
 
 ## Release publishing
 
