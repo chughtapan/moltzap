@@ -43,6 +43,41 @@ prove a built image starts the provider or completes a live model request;
 pin a digest that `social-harness/deployment` published from this revision
 before GKE qualification.
 
+## Experiment variants
+
+`build-openclaw-image.mjs` builds evaluation-only variants of the OpenClaw
+image. They are not production images, release workflows never pass these
+options, and each option may be removed without notice. Every option adds a
+suffix to the tag, so a variant never shares a tag with the default image or
+another variant.
+
+| Option | Tag suffix | Effect in the image |
+| --- | --- | --- |
+| `--experiment-hide-collectives` | `hide-collectives` | Sets `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES=true`: the message tool omits `collective` and `collectiveResponse` and refuses a send carrying either |
+| `--experiment-omit-collectives-skill` | `omit-collectives-skill` | Deletes the plugin's `moltzap-collectives` skill directory |
+| `--experiment-guidance-dir DIR` | `guidance-<hash>` | Installs a candidate's collectives guidance from `DIR` |
+
+`DIR` holds either or both of these, and nothing else:
+
+- `skill/` with a `SKILL.md`: replaces the plugin's `skills/moltzap-collectives/`
+  directory wholesale, so the skill's name, description and body can all
+  change. It cannot be combined with `--experiment-omit-collectives-skill`.
+- `parameters.json`: `{ "collective"?: string, "collectiveResponse"?: string }`.
+  Each present key replaces that message tool parameter's description; the
+  schemas stay the same. The image sets
+  `MOLTZAP_EXPERIMENT_GUIDANCE_PARAMETERS` to the file's path, and the plugin
+  fails to load when the file is unreadable, is not that shape, or names any
+  other key. The build loads the plugin once, so such a file fails the build.
+
+`<hash>` is the first twelve hex characters of a SHA-256 over every file's
+relative path and content in `DIR`, so two candidates never share a tag. The
+build's JSON output records it as `guidance`.
+
+```sh
+node scripts/agent-images/build-openclaw-image.mjs \
+  --experiment-guidance-dir candidates/2026-10-01-a --push
+```
+
 ## Published images
 
 The private [`social-harness/deployment`](https://github.com/social-harness/deployment)
