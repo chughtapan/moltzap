@@ -295,6 +295,64 @@ function failsAGatherWhoseSchemaIsOutsideTheFormModeGrammar() {
   );
 }
 
+/**
+ * A multi-select whose `items` omit `"type":"string"` is the form requesters
+ * most often get wrong, so the refusal names the property, the keyword and
+ * the shape that would pass.
+ */
+function namesTheFailingKeywordAndTheExpectedShapeOfAnInvalidProperty() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(observed);
+      const failure = yield* collectiveFailureOf(
+        send(
+          layer,
+          gatherInput(60, {
+            type: "object",
+            properties: {
+              note: { type: "string" },
+              slots: { type: "array", items: { enum: ["mon", "tue"] } },
+            },
+          }),
+        ),
+      );
+
+      expect(failure).toEqual({
+        kind: "schema-invalid",
+        detail:
+          'properties.slots: items.type: Invalid input: expected "string"; a multi-select is {"type":"array","items":{"type":"string","enum":["a","b"]}}',
+      });
+    }),
+  );
+}
+
+function namesTheUndeclaredRequiredField() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(observed);
+      const failure = yield* collectiveFailureOf(
+        send(
+          layer,
+          gatherInput(60, {
+            type: "object",
+            properties: { note: { type: "string" } },
+            required: ["slot"],
+          }),
+        ),
+      );
+
+      expect(failure).toEqual({
+        kind: "schema-invalid",
+        detail: 'required: names "slot", which properties does not declare',
+      });
+    }),
+  );
+}
+
 function emitsARefusedGatherAsAnOperationFailedItemWhenFailuresGoInbound() {
   const observed = newObserved();
 
@@ -934,6 +992,16 @@ describe("collective sends", () => {
   it(
     "fails a gather whose schema is outside the form-mode grammar",
     failsAGatherWhoseSchemaIsOutsideTheFormModeGrammar,
+  );
+
+  it(
+    "names the failing keyword and the expected shape of an invalid property",
+    namesTheFailingKeywordAndTheExpectedShapeOfAnInvalidProperty,
+  );
+
+  it(
+    "names a required field the schema does not declare",
+    namesTheUndeclaredRequiredField,
   );
 
   it(
