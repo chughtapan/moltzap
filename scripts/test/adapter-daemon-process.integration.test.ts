@@ -1280,6 +1280,28 @@ function readNanoClawImage() {
  * marked `final`. The probe first waits for the inbound message whose text is
  * `text`, or starts with `textPrefix`.
  */
+/** The patched `send_message`'s refusal of text beside a `collectiveResponse`. */
+const NANOCLAW_RESPONSE_TEXT_REFUSAL = "a collectiveResponse is sent alone";
+
+/**
+ * The last line of a NanoClaw collective request turn: answer with
+ * `send_message` and the response alone.
+ * @param id The request's collective id.
+ * @returns The line the adapter renders.
+ */
+function nanoClawAnswerInstruction(id: string): string {
+  return `Answer once with send_message and only collectiveResponse {"id":"${id}","action":"accept","content":{...}} matching the form, or {"id":"${id}","action":"decline"}.`;
+}
+
+/**
+ * Runs the NanoClaw send probe in the image against `endpoint`.
+ * @param image The NanoClaw agent image.
+ * @param endpoint The target agent's daemon MCP endpoint.
+ * @param destinations The `send_message` calls and final outputs to make.
+ * @param inbound The inbound message the probe waits for first.
+ * @param refusedDeliveries Rows the MoltZap adapter must refuse when handed them directly.
+ * @returns The probe's completion.
+ */
 function runNanoClawProbe(
   image: string,
   endpoint: URL,
@@ -1287,7 +1309,9 @@ function runNanoClawProbe(
   inbound: {
     readonly platformId: string;
     readonly sender: string;
+    readonly textSuffix?: string;
   } & ({ readonly text: string } | { readonly textPrefix: string }),
+  refusedDeliveries: readonly Readonly<Record<string, unknown>>[] = [],
 ) {
   return effectFromPromise("NanoClaw native host process", () =>
     executeFile(
@@ -1303,6 +1327,8 @@ function runNanoClawProbe(
         `NANOCLAW_DESTINATIONS_JSON=${JSON.stringify(destinations)}`,
         "--env",
         `NANOCLAW_INBOUND_JSON=${JSON.stringify(inbound)}`,
+        "--env",
+        `NANOCLAW_REFUSED_DELIVERIES_JSON=${JSON.stringify(refusedDeliveries)}`,
         "--volume",
         `${nanoClawProbePath}:/tmp/nanoclaw-addressed-send-probe.mjs:ro`,
         image,
@@ -1463,8 +1489,11 @@ function runNanoClawGatherScenario() {
         scenario.target.endpoint,
         [
           {
-            to: callerAddress,
+            refused: NANOCLAW_RESPONSE_TEXT_REFUSAL,
             text: "answering",
+            collectiveResponse: { id, action: "decline" },
+          },
+          {
             collectiveResponse: {
               id,
               action: "accept",
@@ -1476,7 +1505,18 @@ function runNanoClawGatherScenario() {
           platformId: callerAddress,
           sender: callerAddress,
           textPrefix: `MoltZap collective request ${id} from ${callerAddress}`,
+          textSuffix: nanoClawAnswerInstruction(id),
         },
+        [
+          {
+            platformId: callerAddress,
+            content: {
+              text: "answering",
+              collectiveResponse: { id, action: "decline" },
+            },
+            refused: "A MoltZap collectiveResponse is sent alone",
+          },
+        ],
       );
 
       expect(id).toMatch(/^col_/u);
@@ -1534,8 +1574,11 @@ function runNanoClawAllGatherScenario() {
         scenario.target.endpoint,
         [
           {
-            to: group,
+            refused: NANOCLAW_RESPONSE_TEXT_REFUSAL,
             text: "answering",
+            collectiveResponse: { id, action: "decline" },
+          },
+          {
             collectiveResponse: {
               id,
               action: "accept",
@@ -1547,6 +1590,7 @@ function runNanoClawAllGatherScenario() {
           platformId: group,
           sender: callerAddress,
           textPrefix: `MoltZap collective request ${id} from ${callerAddress}`,
+          textSuffix: nanoClawAnswerInstruction(id),
         },
       );
 

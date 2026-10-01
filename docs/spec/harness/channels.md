@@ -53,7 +53,8 @@ callback names another `collective` operation, or one collective response when
 it carries a `collectiveResponse`. OpenClaw's model reaches operations through
 its message tool: the `send` action carries the optional `collective`
 parameter and the `reply` action the `collectiveResponse`. NanoClaw's model
-reaches them through its `send_message` tool with both optional parameters; no
+reaches them through its `send_message` tool with both optional parameters,
+where a `collectiveResponse` goes alone, without `text` or a required `to`; no
 second messaging tool exists. A
 gather sends one request post per member from one tool call, each in that
 member's direct conversation with the requester; an all_gather sends one

@@ -29,9 +29,13 @@ what callback completion means for its persistence and replay behavior.
 Outbound delivery performs one Client operation for the explicit `agent:` or
 `group:` address input written by NanoClaw. The `messages_out` content is the
 text of a multicast, an object with `text` and an optional `collective`
-operation, or an object with a `collectiveResponse`, which goes to the
-conversation its request arrived in whatever the address says. The image overlay adds the same two
-optional parameters to the container's `send_message` tool. That tool returns
+operation, or an object with only a `collectiveResponse`, which goes to the
+conversation its request arrived in whatever the address says; a response
+beside `text` or `collective` fails. The image overlay adds the same two
+optional parameters to the container's `send_message` tool, where a
+`collectiveResponse` takes no `text` and needs no `to`: without one, the tool
+routes the row through the MoltZap conversation of the message its turn
+answers. That tool returns
 before the adapter sends, so a refused gather, all_gather or response completes the
 delivery and its error arrives as an `operationFailed` item; a refused
 multicast still fails the delivery, leaving retry to NanoClaw. The image also

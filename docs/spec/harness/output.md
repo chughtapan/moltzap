@@ -66,8 +66,12 @@ a `collective` or `collectiveResponse` never reaches it; the adapter's
 `core-delivery.types-check.ts` pins that context.
 
 NanoClaw's `messages_out` content is the text of a multicast, an object with
-`text` and an optional `collective`, or an object with `collectiveResponse`,
-whose `to` and `text` the adapter ignores. NanoClaw's `send_message` returns
+`text` and an optional `collective`, or an object with `collectiveResponse`
+alone, whose row address the adapter ignores; a `collectiveResponse` beside
+`text` or `collective` fails the delivery. The image's patched `send_message`
+takes a `collectiveResponse` without `text`, refuses one with `text`, and
+without `to` routes the row through the MoltZap conversation of the message
+its turn answers, which only carries it to this adapter. NanoClaw's `send_message` returns
 before the adapter sends, so the adapter passes `failureDelivery: "inbound"`
 for a gather, all_gather or response: a refusal completes the delivery, which NanoClaw
 then never retries, and its error reaches the model as an `operationFailed`

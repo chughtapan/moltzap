@@ -93,8 +93,8 @@ interface MoltZapOutboundMessage {
 
 /**
  * What one `messages_out` row carries: text with an optional collective
- * operation for the row's address, or a collective response, which names no
- * address because the endpoint answers the requester.
+ * operation for the row's address, or a collective response alone, which
+ * ignores the row's address because the endpoint answers the requester.
  */
 type MoltZapOutboundOperation =
   | Readonly<{ text: string; collective?: unknown }>
@@ -116,7 +116,7 @@ function decodeOutboundSend(
       Effect.fail(
         new MoltZapChannelError({
           reason:
-            "MoltZap outbound delivery requires an explicit agent or group address, valid text and a known collective operation, or a valid collectiveResponse",
+            "MoltZap outbound delivery requires an explicit agent or group address, valid text and a known collective operation, or a valid collectiveResponse alone",
         }),
       ),
     ),
@@ -141,42 +141,62 @@ function decodeOutboundOperation(
     );
   }
   const operation = extractOutboundOperation(message);
-  return operation === null
-    ? Effect.fail(
+  switch (operation) {
+    case "none":
+      return Effect.fail(
         new MoltZapChannelError({
           reason: "MoltZap outbound messages require text content",
         }),
-      )
-    : Effect.succeed(operation);
+      );
+    case "response-with-more":
+      return Effect.fail(
+        new MoltZapChannelError({
+          reason:
+            "A MoltZap collectiveResponse is sent alone; its text or collective would never be sent",
+        }),
+      );
+    default:
+      return Effect.succeed(operation);
+  }
 }
 
 /**
  * Read the operation from NanoClaw's `messages_out` content: a bare string is
- * the text of a multicast, an object with `collectiveResponse` answers a
+ * the text of a multicast, an object with only `collectiveResponse` answers a
  * collective request, and any other object carries `text` and an optional
- * `collective` operation.
+ * `collective` operation. A response beside text or an operation is refused,
+ * since the endpoint would send the response alone and drop the rest.
  * @param message One outbound row as NanoClaw delivers it.
- * @returns The operation, or null when the row carries neither text nor a response.
+ * @returns The operation, `"none"` when the row carries neither text nor a
+ * response, or `"response-with-more"` when a response carries more.
  */
 function extractOutboundOperation(
   message: MoltZapOutboundMessage,
-): MoltZapOutboundOperation | null {
+): MoltZapOutboundOperation | "none" | "response-with-more" {
   const content = message.content;
   if (typeof content === "string") {
     return { text: content };
   }
   if (content === null || typeof content !== "object") {
-    return null;
+    return "none";
   }
   if ("collectiveResponse" in content) {
-    return { collectiveResponse: content.collectiveResponse };
+    return extractResponse(content);
   }
   if (!("text" in content) || typeof content.text !== "string") {
-    return null;
+    return "none";
   }
   return "collective" in content
     ? { text: content.text, collective: content.collective }
     : { text: content.text };
+}
+
+function extractResponse(
+  content: object & Record<"collectiveResponse", unknown>,
+): MoltZapOutboundOperation | "response-with-more" {
+  return "text" in content || "collective" in content
+    ? "response-with-more"
+    : { collectiveResponse: content.collectiveResponse };
 }
 
 /**
@@ -225,9 +245,9 @@ type MemberOutcome = CollectiveResultItem["outcomes"][number]["outcome"];
 
 /**
  * Tell the model how to answer through NanoClaw's `send_message`: the
- * `collectiveResponse` parameter, with `to` naming the conversation the
- * request arrived in, the requester's for a gather and the group's for an
- * all_gather.
+ * `collectiveResponse` parameter alone. The patched tool routes it through
+ * the conversation of the turn it answers, and the endpoint sends it to the
+ * requester.
  */
 function renderCollectiveRequest(item: CollectiveRequestItem): string {
   const deadline = new Date(item.deadlineAt).toISOString();
@@ -235,7 +255,7 @@ function renderCollectiveRequest(item: CollectiveRequestItem): string {
     `MoltZap collective request ${item.id} from ${item.from}, open until ${deadline}.`,
     `Question: ${item.question}`,
     `Answer form (requestedSchema): ${JSON.stringify(item.requestedSchema)}`,
-    `Answer once with send_message to ${item.to} and collectiveResponse {"id":"${item.id}","action":"accept","content":{...}} matching the form, or {"id":"${item.id}","action":"decline"}.`,
+    `Answer once with send_message and only collectiveResponse {"id":"${item.id}","action":"accept","content":{...}} matching the form, or {"id":"${item.id}","action":"decline"}.`,
   ].join("\n");
 }
 
@@ -311,7 +331,7 @@ function collectiveInbound(input: {
  *   Adapter->>Host: onMetadata<br>address and group shape
  *   Adapter->>Host: await onInboundEvent<br>main session and MoltZap reply route
  *   Adapter->>Client: acknowledge delivery
- *   Host->>Adapter: deliver<br>address, text and collective or collectiveResponse
+ *   Host->>Adapter: deliver<br>address, text and collective, or collectiveResponse alone
  *   Adapter->>Client: send, a gather, all_gather or response reporting failures inbound
  * ```
  *

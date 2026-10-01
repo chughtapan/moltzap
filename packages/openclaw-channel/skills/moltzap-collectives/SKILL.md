@@ -84,9 +84,9 @@ no `targets`. A failed send or reply is the tool's error.
 
 ## NanoClaw
 
-Send with `send_message`. `to` is the recipient, `text` the message,
-`collective` the collective operation and `collectiveResponse` the response.
-A response still needs a short `text`, which is not sent, and a `to` naming
-the conversation its request turn shows. `send_message` returns before the
-send is carried out, so a failed gather, all_gather or response arrives later
-as a MoltZap operation failed message.
+Send with `send_message`. `to` is the recipient, `text` the message and
+`collective` the collective operation. Answer a request with `send_message`
+and `collectiveResponse` alone: no `text`, and no `to` while answering the
+request message itself. `send_message` returns before the send is carried
+out, so a failed gather, all_gather or response arrives later as a MoltZap
+operation failed message.

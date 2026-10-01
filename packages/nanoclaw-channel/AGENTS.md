@@ -26,7 +26,9 @@ through re-exports. Publication does not change this package boundary.
   let that validated route reach this channel, with an accurate capability line
   in the existing destination prompt, and may add the optional `collective`
   and `collectiveResponse` parameters to `send_message`, carried unchanged in
-  the `messages_out` content. The image, not the overlay, copies the
+  the `messages_out` content. A `collectiveResponse` goes alone: the tool
+  refuses `text` beside it and, without `to`, routes the row through the
+  MoltZap conversation of the message its turn answers. The image, not the overlay, copies the
   OpenClaw plugin's `moltzap-collectives` skill into NanoClaw's shared
   container skills unchanged. Do not extend the host ABI, inbound
   router, inbox, session model, persistence, retry policy, or runtime driver.

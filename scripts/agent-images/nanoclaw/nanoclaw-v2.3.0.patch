@@ -79,19 +79,20 @@ index 5bf3fc7..77da6b3 100644
    lines.push('');
    lines.push(
 diff --git a/container/agent-runner/src/mcp-tools/core.ts b/container/agent-runner/src/mcp-tools/core.ts
-index 1bf9f2c..2bf7412 100644
+index 1bf9f2c..aed1920 100644
 --- a/container/agent-runner/src/mcp-tools/core.ts
 +++ b/container/agent-runner/src/mcp-tools/core.ts
-@@ -9,7 +9,7 @@
+@@ -9,7 +9,8 @@
  import fs from 'fs';
  import path from 'path';
  
 -import { findByName, getAllDestinations } from '../destinations.js';
 +import { findByName, findMessageDestination, getAllDestinations, type DestinationEntry } from '../destinations.js';
++import { getMessageIn } from '../db/messages-in.js';
  import { getMessageIdBySeq, getRoutingBySeq, writeMessageOut } from '../db/messages-out.js';
  import { getCurrentInReplyTo } from '../db/session-state.js';
  import { getSessionRouting } from '../db/session-routing.js';
-@@ -48,8 +48,9 @@ function destinationList(): string {
+@@ -48,8 +49,9 @@ function destinationList(): string {
   */
  function resolveRouting(
    to: string,
@@ -102,7 +103,7 @@ index 1bf9f2c..2bf7412 100644
    if (!dest) return { error: `Unknown destination "${to}". Known: ${destinationList()}` };
    if (dest.type === 'channel') {
      // If the destination is the same channel the session is bound to,
-@@ -70,15 +71,25 @@ function resolveRouting(
+@@ -70,26 +72,38 @@ function resolveRouting(
  export const sendMessage: McpToolDefinition = {
    tool: {
      name: 'send_message',
@@ -125,18 +126,22 @@ index 1bf9f2c..2bf7412 100644
 +        collectiveResponse: {
 +          type: 'object',
 +          description:
-+            'Answer a MoltZap collective request once; the moltzap-collectives skill describes it. {"id":<request id>,"action":"accept","content":{...}} with content matching its form, or {"id":<request id>,"action":"decline"} or "cancel" without content. The answer goes back where the request came from; set to to the conversation the request message names. text is not sent, but a short one is required. A refused answer arrives later as a MoltZap operation failed message.',
++            'Answer a MoltZap collective request once, with this parameter alone: no text, and no to while answering the request message itself. {"id":<request id>,"action":"accept","content":{...}} with content matching its form, or {"id":<request id>,"action":"decline"} or "cancel" without content; the moltzap-collectives skill describes it. The answer goes back where the request came from. A refused answer arrives later as a MoltZap operation failed message.',
 +        },
        },
-       required: ['to', 'text'],
+-      required: ['to', 'text'],
++      required: [],
      },
-@@ -88,8 +99,11 @@ export const sendMessage: McpToolDefinition = {
-     const text = args.text as string;
+   },
+   async handler(args) {
+-    const to = args.to as string;
+-    const text = args.text as string;
++    const to = args.to as string | undefined;
++    const text = args.text as string | undefined;
++    if (args.collectiveResponse !== undefined) return sendCollectiveResponse(args.collectiveResponse, to, text);
      if (!to) return err(`to is required. Options: ${destinationList()}`);
      if (!text) return err('text is required');
 +    const collective = args.collective === undefined ? {} : { collective: args.collective };
-+    const collectiveResponse =
-+      args.collectiveResponse === undefined ? {} : { collectiveResponse: args.collectiveResponse };
  
 -    const routing = resolveRouting(to);
 +    const routing = resolveRouting(to, findMessageDestination);
@@ -148,10 +153,65 @@ index 1bf9f2c..2bf7412 100644
        channel_type: routing.channel_type,
        thread_id: routing.thread_id,
 -      content: JSON.stringify({ text }),
-+      content: JSON.stringify({ text, ...collective, ...collectiveResponse }),
++      content: JSON.stringify({ text, ...collective }),
      });
  
      log(`send_message: #${seq} → ${routing.resolvedName}`);
+@@ -108,6 +122,54 @@ export const sendMessage: McpToolDefinition = {
+   },
+ };
+ 
++/**
++ * Queue a MoltZap collective response. The MoltZap endpoint sends it to the
++ * requester, so the row's route only carries it to the MoltZap channel: the
++ * current turn's MoltZap conversation, or an explicit to when the agent
++ * answers from another turn. A response carries no text, so supplied text is
++ * refused rather than dropped.
++ */
++async function sendCollectiveResponse(collectiveResponse: unknown, to: string | undefined, text: string | undefined) {
++  if (text !== undefined) {
++    return err('a collectiveResponse is sent alone; omit text, since the answer goes back to the requester');
++  }
++  const routing = to ? resolveRouting(to, findMessageDestination) : currentMoltZapRouting();
++  if ('error' in routing) return err(routing.error);
++
++  const id = generateId();
++  const seq = await writeMessageOut({
++    id,
++    in_reply_to: getCurrentInReplyTo(),
++    kind: 'chat',
++    platform_id: routing.platform_id,
++    channel_type: routing.channel_type,
++    thread_id: routing.thread_id,
++    content: JSON.stringify({ collectiveResponse }),
++  });
++
++  log(`send_message: #${seq} → collective response via ${routing.resolvedName}`);
++  return ok(`Collective response sent (id: ${seq})`);
++}
++
++/** The MoltZap conversation of the message this turn answers, if it has one. */
++function currentMoltZapRouting():
++  | { channel_type: string; platform_id: string; thread_id: string | null; resolvedName: string }
++  | { error: string } {
++  const inReplyTo = getCurrentInReplyTo();
++  const current = inReplyTo ? getMessageIn(inReplyTo) : undefined;
++  if (current?.channel_type !== 'moltzap' || !current.platform_id) {
++    return {
++      error: 'this turn is not a MoltZap message; set to to the conversation the request message names',
++    };
++  }
++  return {
++    channel_type: current.channel_type,
++    platform_id: current.platform_id,
++    thread_id: null,
++    resolvedName: current.platform_id,
++  };
++}
++
+ export const sendFile: McpToolDefinition = {
+   tool: {
+     name: 'send_file',
 diff --git a/container/agent-runner/src/poll-loop.ts b/container/agent-runner/src/poll-loop.ts
 index c7b5de0..6ea44ee 100644
 --- a/container/agent-runner/src/poll-loop.ts

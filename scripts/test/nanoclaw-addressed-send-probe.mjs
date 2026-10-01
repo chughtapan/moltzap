@@ -48,17 +48,32 @@ async function replaceWorkspace(target) {
 /**
  * Queue each destination in order: one marked `final` through the agent's
  * final output, and any other as `send_message` tool arguments, which may
- * carry `collective` or `collectiveResponse`.
+ * carry `collective` or `collectiveResponse`. A destination marked `refused`
+ * must fail as a tool error containing that text and queues nothing. Like
+ * NanoClaw's poll loop, the probe first publishes the pending batch's reply
+ * route, which a `collectiveResponse` without `to` travels on.
  * @param {ReadonlyArray<Record<string, unknown>>} destinations The sends.
  * @returns {Promise<void>} Completion once every send is queued.
  */
 async function invokeOutboundPaths(destinations) {
   const source = `
     import '${RUNNER_ROOT}/modules/index.ts';
+    import { getPendingMessages } from '${RUNNER_ROOT}/db/messages-in.ts';
+    import { setCurrentInReplyTo } from '${RUNNER_ROOT}/db/session-state.ts';
+    import { extractRouting } from '${RUNNER_ROOT}/formatter.ts';
     import { sendMessage } from '${RUNNER_ROOT}/mcp-tools/core.ts';
     import { dispatchResultText } from '${RUNNER_ROOT}/poll-loop.ts';
     const destinations = JSON.parse(process.env.NANOCLAW_DESTINATIONS_JSON);
-    for (const { final, ...destination } of destinations) {
+    setCurrentInReplyTo(extractRouting(getPendingMessages(true)).inReplyTo);
+    for (const { final, refused, ...destination } of destinations) {
+      if (refused !== undefined) {
+        const toolResult = await sendMessage.handler(destination);
+        const error = toolResult.content.map(({ text }) => text).join('\\n');
+        if (toolResult.isError !== true || !error.includes(refused)) {
+          throw new Error('send_message did not refuse with "' + refused + '": ' + error);
+        }
+        continue;
+      }
       if (final !== true) {
         const toolResult = await sendMessage.handler(destination);
         if (toolResult.isError === true) {
@@ -112,6 +127,8 @@ async function waitForInbound(
         (expected.textPrefix === undefined
           ? decoded.text === expected.text
           : decoded.text.startsWith(expected.textPrefix)) &&
+        (expected.textSuffix === undefined ||
+          decoded.text.endsWith(expected.textSuffix)) &&
         decoded.address === expected.platformId &&
         decoded.sender === expected.sender &&
         decoded.senderId === expected.sender
@@ -121,6 +138,36 @@ async function waitForInbound(
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error("NanoClaw native inbox did not receive the MoltZap message");
+}
+
+/**
+ * Hand each `NANOCLAW_REFUSED_DELIVERIES_JSON` row straight to the MoltZap
+ * channel and require the adapter to reject it with the given text, so a row
+ * the tool would never write is still refused rather than partly sent.
+ * @param {{ deliver: Function }} deliveryAdapter NanoClaw's channel delivery adapter.
+ * @returns {Promise<void>} Completion once every row was refused.
+ */
+async function expectRefusedDeliveries(deliveryAdapter) {
+  const rows = JSON.parse(process.env.NANOCLAW_REFUSED_DELIVERIES_JSON ?? "[]");
+  for (const { platformId, content, refused } of rows) {
+    let failure;
+    try {
+      await deliveryAdapter.deliver(
+        "moltzap",
+        platformId,
+        null,
+        "chat",
+        JSON.stringify(content),
+      );
+    } catch (error) {
+      failure = String(error);
+    }
+    if (failure === undefined || !failure.includes(refused)) {
+      throw new Error(
+        `MoltZap adapter did not refuse with "${refused}": ${String(failure)}`,
+      );
+    }
+  }
 }
 
 async function main() {
@@ -230,14 +277,16 @@ async function main() {
     await invokeOutboundPaths(destinations);
     await deliverSessionMessages(session);
 
+    const queued = destinations.filter(({ refused }) => refused === undefined);
     const delivered = await withMailboxSession("agent", session.id, (mailbox) =>
       mailbox.getDeliveredIds(),
     );
-    if (delivered.size !== destinations.length) {
+    if (delivered.size !== queued.length) {
       throw new Error(
-        `NanoClaw delivered ${String(delivered.size)} of ${String(destinations.length)} queued messages`,
+        `NanoClaw delivered ${String(delivered.size)} of ${String(queued.length)} queued messages`,
       );
     }
+    await expectRefusedDeliveries(createChannelDeliveryAdapter());
   } finally {
     await teardownChannelAdapters();
     await closeDb();

@@ -19,6 +19,12 @@ heading below in its release commit.
   `collectiveResponse`, naming `reply`; a `reply` without `collectiveResponse`,
   or with `message` or `targets`, fails with an error saying what a reply
   carries. A collective request turn now says to answer with `reply`.
+- The NanoClaw image's `send_message` takes a `collectiveResponse` alone: it
+  refuses `text` beside one, and without `to` routes the response through the
+  MoltZap conversation of the message its turn answers. The
+  `@moltzap/nanoclaw-channel` adapter refuses a `messages_out` row carrying a
+  `collectiveResponse` with `text` or `collective`, and a collective request
+  turn says to answer with `collectiveResponse` only.
 
 ## [2026.1001.2] - 2026-10-01
 
