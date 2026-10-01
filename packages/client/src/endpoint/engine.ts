@@ -3,16 +3,14 @@
 import { AgentCard, AgentSigningAuthority } from "@moltzap/identity";
 import {
   Deferred,
+  Duration,
   Effect,
   Queue,
+  Schedule,
   Schema,
   type Scope,
   SubscriptionRef,
 } from "effect";
-import type {
-  RouterDiscontinuityReason,
-  RouterWorkerSendError,
-} from "./router-worker/index.js";
 import type { DeliveryToken, EndpointStoreError } from "./store.js";
 import {
   DeliveryAcknowledgeError,
@@ -47,6 +45,13 @@ import {
   PostIntent,
   RecordHash,
 } from "./representation.js";
+import {
+  describeRouterWorkerFailure,
+  isTransientRouterWorkerError,
+  type RouterDiscontinuityReason,
+  routerWorkerReconnectSchedule,
+  type RouterWorkerSendError,
+} from "./router-worker/index.js";
 
 type RecoveredStateError = Effect.Effect.Error<
   ReturnType<typeof recoverEngineState>
@@ -126,23 +131,28 @@ const resumeDispositionBySendReason = {
   Record<SendError["reason"], ResumeIntentDisposition>
 >;
 
+const outboundReasonByTag = {
+  RouterWorkerAuthenticationError: "representation",
+  RouterWorkerDiscontinuityError: "network",
+  RouterWorkerPersistenceError: "persistence",
+  RouterWorkerProtocolError: "representation",
+  RouterWorkerRecoveryError: "network",
+  RouterWorkerTransportError: "network",
+  RouterWorkerUnavailableError: "network",
+} as const satisfies Readonly<
+  Record<
+    Exclude<RouterWorkerSendError["_tag"], "RouterWorkerRejectedError">,
+    EngineOutboundError["reason"]
+  >
+>;
+
 const outboundFailure = (error: RouterWorkerSendError): EngineOutboundError => {
-  switch (error._tag) {
-    case "RouterWorkerPersistenceError":
-      return new EngineOutboundError({ reason: "persistence" });
-    case "RouterWorkerAuthenticationError":
-    case "RouterWorkerProtocolError":
-      return new EngineOutboundError({ reason: "representation" });
-    case "RouterWorkerDiscontinuityError":
-    case "RouterWorkerRecoveryError":
-    case "RouterWorkerTransportError":
-    case "RouterWorkerUnavailableError":
-      return new EngineOutboundError({ reason: "network" });
-    default: {
-      const exhaustive: never = error;
-      return exhaustive;
-    }
+  if (error._tag !== "RouterWorkerRejectedError") {
+    return new EngineOutboundError({ reason: outboundReasonByTag[error._tag] });
   }
+  return new EngineOutboundError({
+    reason: error.reason === "version" ? "version" : "representation",
+  });
 };
 
 function outboundSendFailure(error: EngineOutboundError): SendError {
@@ -153,6 +163,8 @@ function outboundSendFailure(error: EngineOutboundError): SendError {
       return new SendError({ reason: "network-unavailable" });
     case "representation":
       return new SendError({ reason: "certification-unavailable" });
+    case "version":
+      return new SendError({ reason: "version-mismatch" });
     default: {
       const exhaustive: never = error.reason;
       return exhaustive;
@@ -243,27 +255,56 @@ function resumeFoldFailure(): EngineInitializationError {
   return new EngineInitializationError({ reason: "persistence" });
 }
 
-const drainOutbound = (
+/**
+ * How long a local send's own drain may run before the send fails as
+ * `network-unavailable`. With `ROUTER_ATTACH_TIMEOUT` it stays under the MCP
+ * SDK's `DEFAULT_REQUEST_TIMEOUT_MSEC`. The envelope stays queued, so the
+ * background drain still delivers it once the Router answers.
+ */
+const LOCAL_DRAIN_TIMEOUT = Duration.seconds(10);
+
+const peekOutbound = (
   runtime: EngineRuntime,
-): Effect.Effect<void, EngineOutboundError> =>
+): Effect.Effect<string | undefined> =>
+  runtime.outboundGate.withPermits(1)(Effect.sync(() => runtime.outbound[0]));
+
+const shiftOutbound = (
+  runtime: EngineRuntime,
+  outboundId: string,
+): Effect.Effect<void> =>
   runtime.outboundGate.withPermits(1)(
-    Effect.gen(function* () {
-      while (runtime.outbound.length > 0) {
-        const message = runtime.outbound[0];
-        if (message === undefined) {
-          return;
-        }
-        yield* runtime.input.routerWorker
-          .send(message)
-          .pipe(Effect.mapError(outboundFailure));
-        yield* Effect.sync(() => {
-          if (runtime.outbound[0] === message) {
-            runtime.outbound.shift();
-          }
-        });
+    Effect.sync(() => {
+      if (runtime.outbound[0] === outboundId) {
+        runtime.outbound.shift();
       }
     }),
   );
+
+/**
+ * Send queued outbox identities in order until the queue is empty.
+ *
+ * The outbound gate covers only reading and removing the queue head, never the
+ * worker send. A worker send queues behind a running recovery on the worker's
+ * recovery gate, and may run that recovery on its own fiber after it observes
+ * a Router restart; recovery takes the outbound gate to resume intents, so
+ * holding the gate across the send would deadlock either way. The worker
+ * serializes transmissions and a sent outbox identity is inactive, so
+ * concurrent drains stay ordered; a drain removes the head only when it is
+ * still the identity that drain sent.
+ * @param runtime Engine whose queued outbox identities are sent.
+ * @returns Completion once no queued identity remains.
+ */
+const drainOutbound = (
+  runtime: EngineRuntime,
+): Effect.Effect<void, RouterWorkerSendError> =>
+  Effect.gen(function* () {
+    let outboundId = yield* peekOutbound(runtime);
+    while (outboundId !== undefined) {
+      yield* runtime.input.routerWorker.send(outboundId);
+      yield* shiftOutbound(runtime, outboundId);
+      outboundId = yield* peekOutbound(runtime);
+    }
+  });
 
 const send = (
   runtime: EngineRuntime,
@@ -271,16 +312,46 @@ const send = (
 ): Effect.Effect<EngineSentPost, SendError> =>
   Effect.gen(function* () {
     const prepared = yield* prepareSend(runtime, input);
-    yield* drainOutbound(runtime).pipe(Effect.mapError(outboundSendFailure));
+    yield* drainOutbound(runtime).pipe(
+      Effect.mapError((error) => outboundSendFailure(outboundFailure(error))),
+      Effect.timeoutFail({
+        duration: LOCAL_DRAIN_TIMEOUT,
+        onTimeout: () => new SendError({ reason: "network-unavailable" }),
+      }),
+    );
     const recordHash = yield* Deferred.await(prepared.completion);
     return { postId: prepared.postId, recordHash };
   }).pipe(Effect.withSpan("EndpointEngine.send"));
+
+/**
+ * Drain once the worker is attached, and after a transient worker failure
+ * back off, wait for the worker to re-anchor, and drain again. Recovery may
+ * have reset the queue meanwhile, so each attempt re-reads its head. A fatal
+ * failure is logged with its reason before it ends the daemon.
+ */
+const drainWhenAttached = (
+  runtime: EngineRuntime,
+): Effect.Effect<void, EngineOutboundError> =>
+  runtime.input.routerWorker.awaitAnchor.pipe(
+    Effect.zipRight(drainOutbound(runtime)),
+    Effect.retry(
+      routerWorkerReconnectSchedule.pipe(
+        Schedule.whileInput(isTransientRouterWorkerError),
+      ),
+    ),
+    Effect.tapError((error) =>
+      Effect.logError(
+        `Outbound drain stopping, daemon exits: ${describeRouterWorkerFailure(error)}`,
+      ),
+    ),
+    Effect.mapError(outboundFailure),
+  );
 
 const runOutbound = (
   runtime: EngineRuntime,
 ): Effect.Effect<never, EngineOutboundError> =>
   Queue.take(runtime.outboundSignal).pipe(
-    Effect.zipRight(drainOutbound(runtime)),
+    Effect.zipRight(drainWhenAttached(runtime)),
     Effect.forever,
   );
 
@@ -474,7 +545,9 @@ const endpointEngine = (runtime: EngineRuntime): EndpointEngine =>
     recoverCertifiedHistory: (
       recovery: Parameters<EndpointEngine["recoverCertifiedHistory"]>[0],
     ) => recoverCertifiedHistory(runtime, recovery),
-    drainOutbound: drainOutbound(runtime),
+    drainOutbound: drainOutbound(runtime).pipe(
+      Effect.mapError(outboundFailure),
+    ),
     runOutbound: runOutbound(runtime),
     abandonVolatileFolds: (
       reason: Parameters<EndpointEngine["abandonVolatileFolds"]>[0],

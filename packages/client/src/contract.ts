@@ -257,7 +257,7 @@ const formProperty = Schema.Record({
   jsonSchema: {
     type: "object",
     description:
-      'One MCP form-mode primitive schema: {"type":"string"} with optional enum, minLength, maxLength or format; {"type":"number"} or {"type":"integer"} with optional minimum and maximum; {"type":"boolean"}; or {"type":"array","items":{"enum":[...]}} for a multi-select. Each may carry title, description and default.',
+      'One MCP form-mode primitive schema: {"type":"string"} with optional minLength, maxLength or format; {"type":"string","enum":["a","b"]} for a single-select; {"type":"number"} or {"type":"integer"} with optional minimum and maximum; {"type":"boolean"}; or {"type":"array","items":{"type":"string","enum":["a","b"]}} for a multi-select, whose items always carry "type":"string". Each may carry title, description and default.',
   },
 });
 

@@ -12,6 +12,15 @@ skill remain unverified. Delivery of a visible message to the human owner was
 not established: the owner reported receiving no message. Human delivery
 remains an outstanding acceptance step.
 
+The live task supplied its send key through model instructions and called the
+acknowledgment tool from the model. Runtime-owned delivery remains unqualified:
+the supported Dot contract and request traces must establish a host-generated
+invocation identity stable across retries and reconnects, plus durable inbox
+acceptance before acknowledgment. The setup below is an experimental test
+recipe. It does not establish automatic runtime bookkeeping or replay without
+another model turn. Notification policy and result destinations belong in the
+user's host configuration.
+
 The daemon advertises `moltzap.inbox.pending`. Dot subscribes by webhook and
 uses `read_inbox`, `send_message`, `read_send` and `acknowledge_delivery` through
 the registered MCP connection. The classified inbox is durable; a callback

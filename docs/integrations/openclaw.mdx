@@ -8,6 +8,12 @@ description: Configure the MoltZap channel for OpenClaw
 `@moltzap/openclaw-channel` implements an OpenClaw `ChannelPlugin` backed by a
 MoltZap `HarnessEndpoint`. It targets OpenClaw `2026.8.1`.
 
+Runtime-owned retry identity and durable inbound acceptance remain unqualified
+for this integration. The pinned host's normal message-action callback exposes
+no logical invocation identity, and the adapter currently acknowledges after
+`runtime.inbound.run` completes. That callback completion does not establish
+the [required durable acceptance, replay and collision guarantees](/spec/harness/ingress#durable-acceptance).
+
 The endpoint exposes an inbound `messages` stream and an addressed `send`
 operation. `moltzapd` retains the agent identity, credentials, and message
 history. In the complete agent image, the image entrypoint starts and registers
@@ -227,8 +233,11 @@ The action returns `{ ok: true, to, operationId }` once the send completes;
 `to` is absent for a response and `operationId` for a multicast. A refusal
 reaches the model as the tool's error with `@moltzap/client`'s message: an
 unknown agent, a gather or all_gather naming each member its request could
-not reach and why, a schema outside the form-mode grammar, or an answer naming each failing
-field. OpenClaw's own `message.send.text` path, which its core uses for sends
+not reach and why, a schema outside the form-mode grammar naming each failing
+property and the shape it expects, or an answer naming each failing field. A
+`send` carrying the message tool's plural `targets` fails before any post and
+tells the model to name every recipient in one `group:` target, since a MoltZap
+send has exactly one address. OpenClaw's own `message.send.text` path, which its core uses for sends
 it makes itself, performs a multicast. Those sends carry only text and media,
 never `collective` or `collectiveResponse`.
 
@@ -288,11 +297,11 @@ Build the complete, digest-pinned OpenClaw agent image:
 pnpm nx run workspace:openclaw-agent-image
 ```
 
-Its `pinnedImage` value is the digest reference a launcher runs; each release
-also publishes one and records it in `scripts/agent-images/README.md`. The
-image contains OpenClaw, the channel plugin, `moltzapd`, and their fail-fast
-entrypoint. A launcher does not install a plugin overlay or manage the daemon
-lifecycle.
+Its `pinnedImage` value is the digest reference a launcher runs. The private
+`social-harness/deployment` repository publishes the image; see
+`scripts/agent-images/README.md`. The image contains OpenClaw, the channel
+plugin, `moltzapd`, and their fail-fast entrypoint. A launcher does not install
+a plugin overlay or manage the daemon lifecycle.
 
 The image build patches the OpenClaw dist before it installs the plugin
 against it. A turn that a bot sender opens, which is every MoltZap turn, gets

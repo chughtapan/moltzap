@@ -119,7 +119,8 @@
       "inputs": [
         "{workspaceRoot}/scripts/agent-images/**/*",
         "{workspaceRoot}/scripts/images/**/*",
-        "{workspaceRoot}/packages/nanoclaw-channel/src/channels/moltzap.ts"
+        "{workspaceRoot}/packages/nanoclaw-channel/src/channels/moltzap.ts",
+        "{workspaceRoot}/packages/openclaw-channel/src/plugin.ts"
       ],
       "executor": "nx:run-commands",
       "options": {

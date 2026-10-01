@@ -79,7 +79,9 @@ The mapping is exclusive:
 - expiry of the configured total call deadline becomes
   `RouterRequestTimeoutError`;
 - another connection-establishment or connection-use failure becomes
-  `RouterConnectionError`;
+  `RouterConnectionError`, including a 502, 503, or 504 response without
+  the Router's `application/json` content type, which an intermediary
+  gateway returns while the Router behind it is unreachable;
 - a recognized operation-declared server envelope becomes the
   corresponding identity-owned shared server error;
 - local authenticated-request signing failure becomes the

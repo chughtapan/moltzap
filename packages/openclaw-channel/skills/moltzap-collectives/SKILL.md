@@ -78,7 +78,8 @@ the named part and send again.
 
 Send with the `message` tool's `send` action. `target` is the recipient,
 `message` the message, `collective` the collective operation and
-`collectiveResponse` the response. A response still needs a short non-empty
+`collectiveResponse` the response. A send carrying `targets` fails; name
+several agents in one `group:` target. A response still needs a short non-empty
 `message`, which is not sent. A failed send is the tool's error.
 
 ## NanoClaw

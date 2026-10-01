@@ -131,6 +131,9 @@ function finishRestartedPosition(
   membership: VerifiedMembership,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   const conversationId = membership.descriptor.conversationId;
+  if (!state.reanchoring.has(conversationId)) {
+    return finishAnchoredPosition(runtime, state, membership);
+  }
   return durablePosition(runtime, conversationId).pipe(
     Effect.flatMap(({ recovery, position }) => {
       if (position === undefined) {
@@ -183,15 +186,8 @@ function advanceRestartedPosition(
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   const { head, membership, position, recovery, runtime, state } = input;
   const conversationId = membership.descriptor.conversationId;
-  const anchor = currentAnchorForRecovery(runtime, state, conversationId);
-  if (anchor !== undefined) {
-    const disseminate =
-      anchor.kind === "completed_reanchor"
-        ? queueRecoveryPacket(runtime, membership, anchor)
-        : Effect.void;
-    return disseminate.pipe(
-      Effect.zipRight(markConversationRecovered(runtime, conversationId)),
-    );
+  if (currentAnchorForRecovery(runtime, state, conversationId) !== undefined) {
+    return finishAnchoredPosition(runtime, state, membership);
   }
   if (hasStagedSuccessor(recovery, conversationId, head)) {
     return Effect.void;
@@ -202,6 +198,32 @@ function advanceRestartedPosition(
         ? Effect.void
         : proposeReanchor(runtime, membership, position),
     ),
+  );
+}
+
+/**
+ * Finish a conversation already anchored to the recovery Router instance.
+ *
+ * Catch-up alone reconciles it. A retained completed re-anchor for that
+ * instance is relayed again so members still recovering can finish.
+ * @param runtime Engine participating in active recovery.
+ * @param state Active recovery run.
+ * @param membership Fixed membership of the reconciled conversation.
+ * @returns Completion after the conversation is marked recovered.
+ */
+function finishAnchoredPosition(
+  runtime: EngineRuntime,
+  state: ActiveRecoveryState,
+  membership: VerifiedMembership,
+): Effect.Effect<void, RouterWorkerPersistenceError> {
+  const conversationId = membership.descriptor.conversationId;
+  const anchor = currentAnchorForRecovery(runtime, state, conversationId);
+  const relay =
+    anchor?.kind === "completed_reanchor"
+      ? queueRecoveryPacket(runtime, membership, anchor)
+      : Effect.void;
+  return relay.pipe(
+    Effect.zipRight(markConversationRecovered(runtime, conversationId)),
   );
 }
 
@@ -385,10 +407,13 @@ function voteTargetsRecovery(
   membership: VerifiedMembership,
   vote: PendingReanchorVote,
 ): boolean {
-  if (state.recovery.reason !== "router_restarted") {
+  const body = vote.statement.reanchor;
+  if (
+    state.recovery.reason !== "router_restarted" ||
+    !state.reanchoring.has(body.conversationId)
+  ) {
     return false;
   }
-  const body = vote.statement.reanchor;
   return (
     body.membershipHash === membership.hash &&
     body.routerInstanceId === state.recovery.anchor.routerInstanceId

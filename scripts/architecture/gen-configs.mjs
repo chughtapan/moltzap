@@ -117,6 +117,11 @@ const packageDefinitions = {
             "Closed endpoint-engine port and error vocabulary shared by every protocol phase",
         },
         {
+          file: "endpoint/router-worker/types.ts",
+          reason:
+            "Closed Router-worker state, error, and retry vocabulary shared by the worker and its outage handling",
+        },
+        {
           file: "endpoint/representation-codec.ts",
           reason:
             "Canonical encoding, signing, and hashing boundary beneath the complete representation facade",

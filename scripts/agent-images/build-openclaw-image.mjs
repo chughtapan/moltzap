@@ -4,15 +4,17 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import {
   copyFile,
+  cp,
   mkdir,
   mkdtemp,
   readFile,
   readdir,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
@@ -84,49 +86,182 @@ export const OPENCLAW_EXPERIMENTS = Object.freeze({
   },
 });
 
+/** The installed plugin's collectives skill directory. */
+const COLLECTIVES_SKILL_PATH =
+  "/opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/moltzap-collectives";
+
+/**
+ * Experiment control that replaces the model-facing collectives guidance
+ * with a candidate's, for a loop that compares candidates without a release
+ * per attempt. Like {@link OPENCLAW_EXPERIMENTS} it is not for production
+ * images and may be removed without notice. It takes a directory holding
+ * either or both of:
+ *
+ * - `skill/`: replaces the installed plugin's `moltzap-collectives` skill
+ *   directory wholesale, so the skill's name, description and body may all
+ *   change while its path stays the one the plugin manifest lists.
+ * - `parameters.json`: copied to {@link GUIDANCE_PARAMETERS_PATH}, which
+ *   `MOLTZAP_EXPERIMENT_GUIDANCE_PARAMETERS` names for the plugin; its
+ *   optional `collective` and `collectiveResponse` strings replace those
+ *   message tool parameter descriptions. The image build loads the plugin
+ *   once with it, so an unusable file fails the build.
+ *
+ * The tag suffix carries a hash of the directory's content, so two
+ * candidates never share a tag.
+ */
+export const GUIDANCE_DIRECTORY_FLAG = "--experiment-guidance-dir";
+
+/** Where the image holds a guidance candidate's `parameters.json`. */
+export const GUIDANCE_PARAMETERS_PATH =
+  "/opt/moltzap/agent/guidance-parameters.json";
+
+/**
+ * A guidance candidate read from its directory.
+ * @typedef {{directory: string, skill: boolean, parameters: boolean, hash: string}} GuidanceOverride
+ */
+
 /**
  * Separate the experiment flags from the shared image-build arguments.
  * @param {readonly string[]} args Process arguments after the script path.
- * @returns {{experiments: string[], buildArguments: string[]}} The experiment
- * flags in {@link OPENCLAW_EXPERIMENTS} order, and every other argument.
+ * @returns {{experiments: string[], guidanceDirectory: string | undefined, buildArguments: string[]}}
+ * The experiment flags in {@link OPENCLAW_EXPERIMENTS} order, the
+ * {@link GUIDANCE_DIRECTORY_FLAG} value if given, and every other argument.
  */
 export function splitExperimentArguments(args) {
+  const guidanceIndexes = args.flatMap((arg, index) =>
+    arg === GUIDANCE_DIRECTORY_FLAG ? [index] : [],
+  );
+  if (guidanceIndexes.length > 1) {
+    throw new TypeError(GUIDANCE_DIRECTORY_FLAG + " may be given once");
+  }
+  const guidanceIndex = guidanceIndexes[0];
+  const guidanceDirectory =
+    guidanceIndex === undefined ? undefined : args[guidanceIndex + 1];
+  if (
+    guidanceIndex !== undefined &&
+    (guidanceDirectory === undefined || guidanceDirectory.startsWith("--"))
+  ) {
+    throw new TypeError(GUIDANCE_DIRECTORY_FLAG + " needs a directory");
+  }
+  const remaining = args.filter(
+    (_arg, index) => index !== guidanceIndex && index !== guidanceIndex + 1,
+  );
   return {
     experiments: Object.keys(OPENCLAW_EXPERIMENTS).filter((flag) =>
-      args.includes(flag),
+      remaining.includes(flag),
     ),
-    buildArguments: args.filter(
+    guidanceDirectory,
+    buildArguments: remaining.filter(
       (arg) => !Object.hasOwn(OPENCLAW_EXPERIMENTS, arg),
     ),
   };
 }
 
 /**
+ * Read a guidance candidate directory and hash its content.
+ * @param {string} directory The {@link GUIDANCE_DIRECTORY_FLAG} value.
+ * @returns {Promise<GuidanceOverride>} What it holds and a twelve hex
+ * character hash of every file's relative path and content.
+ */
+export async function readGuidanceDirectory(directory) {
+  const entries = (await readdir(directory)).sort();
+  const unknown = entries.filter(
+    (name) => name !== "skill" && name !== "parameters.json",
+  );
+  if (unknown.length > 0 || entries.length === 0) {
+    throw new TypeError(
+      "guidance directory must hold skill/, parameters.json or both, not " +
+        (entries.length === 0 ? "nothing" : unknown.join(", ")),
+    );
+  }
+  const skill = entries.includes("skill");
+  const skillFile = skill
+    ? await stat(join(directory, "skill", "SKILL.md")).catch(() => undefined)
+    : undefined;
+  if (skill && skillFile?.isFile() !== true) {
+    throw new TypeError("guidance skill/ must hold SKILL.md");
+  }
+  const files = (
+    await readdir(directory, { recursive: true, withFileTypes: true })
+  )
+    .filter((entry) => entry.isFile())
+    .map((entry) => relative(directory, join(entry.parentPath, entry.name)))
+    .sort();
+  const hash = createHash("sha256");
+  for (const file of files) {
+    hash.update(file + "\0");
+    hash.update(await readFile(join(directory, file)));
+  }
+  return {
+    directory,
+    skill,
+    parameters: entries.includes("parameters.json"),
+    hash: hash.digest("hex").slice(0, 12),
+  };
+}
+
+/**
+ * @param {GuidanceOverride} guidance The selected candidate.
+ * @returns {string[]} The Dockerfile lines that install it.
+ */
+function guidanceDockerfileLines(guidance) {
+  return [
+    ...(guidance.skill
+      ? [
+          "RUN rm -r " + COLLECTIVES_SKILL_PATH,
+          "COPY guidance/skill/ " + COLLECTIVES_SKILL_PATH + "/",
+        ]
+      : []),
+    ...(guidance.parameters
+      ? [
+          "COPY guidance/parameters.json " + GUIDANCE_PARAMETERS_PATH,
+          "ENV MOLTZAP_EXPERIMENT_GUIDANCE_PARAMETERS=" +
+            GUIDANCE_PARAMETERS_PATH,
+          "RUN node --input-type=module --eval 'await import(\"/opt/moltzap/node_modules/@moltzap/openclaw-channel/dist/index.js\")'",
+        ]
+      : []),
+  ];
+}
+
+/**
  * @param {string} dockerfile The source Dockerfile text.
  * @param {readonly string[]} experiments Selected experiment flags.
+ * @param {GuidanceOverride} [guidance] The selected guidance candidate.
  * @returns {string} The Dockerfile to stage.
  */
-export function experimentDockerfile(dockerfile, experiments) {
-  if (experiments.length === 0) {
+export function experimentDockerfile(dockerfile, experiments, guidance) {
+  if (
+    guidance?.skill === true &&
+    experiments.includes("--experiment-omit-collectives-skill")
+  ) {
+    throw new TypeError(
+      "--experiment-omit-collectives-skill cannot be combined with a guidance skill/",
+    );
+  }
+  const lines = [
+    ...experiments.map((flag) => OPENCLAW_EXPERIMENTS[flag].dockerfileLine),
+    ...(guidance === undefined ? [] : guidanceDockerfileLines(guidance)),
+  ];
+  if (lines.length === 0) {
     return dockerfile;
   }
   return (
     dockerfile.replace(/\n?$/u, "\n") +
-    experiments
-      .map((flag) => OPENCLAW_EXPERIMENTS[flag].dockerfileLine + "\n")
-      .join("")
+    lines.map((line) => line + "\n").join("")
   );
 }
 
 /**
  * @param {string} tag The fingerprint or the caller's tag.
  * @param {readonly string[]} experiments Selected experiment flags.
+ * @param {GuidanceOverride} [guidance] The selected guidance candidate.
  * @returns {string} The tag with one suffix per experiment.
  */
-export function experimentTag(tag, experiments) {
+export function experimentTag(tag, experiments, guidance) {
   const suffixed = [
     tag,
     ...experiments.map((flag) => OPENCLAW_EXPERIMENTS[flag].tagSuffix),
+    ...(guidance === undefined ? [] : ["guidance-" + guidance.hash]),
   ].join("-");
   if (suffixed.length > 128) {
     throw new TypeError(
@@ -180,17 +315,30 @@ export function packageManifest(archives) {
 /**
  * @param {string} root Staging directory.
  * @param {readonly string[]} experiments Selected experiment flags.
+ * @param {GuidanceOverride | undefined} guidance The selected guidance candidate.
  * @returns {Promise<void>}
  */
-async function stageDockerfile(root, experiments) {
+async function stageDockerfile(root, experiments, guidance) {
   const dockerfile = await readFile(join(imageRoot, "Dockerfile"), "utf8");
   await writeFile(
     join(root, "Dockerfile"),
-    experimentDockerfile(dockerfile, experiments),
+    experimentDockerfile(dockerfile, experiments, guidance),
   );
 }
 
-async function stage(experiments) {
+/**
+ * Copy a guidance candidate into `guidance/` of the staging directory.
+ * @param {string} root Staging directory.
+ * @param {GuidanceOverride | undefined} guidance The selected guidance candidate.
+ * @returns {Promise<void>}
+ */
+async function stageGuidance(root, guidance) {
+  if (guidance !== undefined) {
+    await cp(guidance.directory, join(root, "guidance"), { recursive: true });
+  }
+}
+
+async function stage(experiments, guidance) {
   const root = await mkdtemp(join(tmpdir(), "moltzap-openclaw-image-"));
   const tarballs = join(root, "tarballs");
   await mkdir(tarballs);
@@ -202,7 +350,8 @@ async function stage(experiments) {
   );
   const archives = Object.fromEntries(packed);
   await Promise.all([
-    stageDockerfile(root, experiments),
+    stageDockerfile(root, experiments, guidance),
+    stageGuidance(root, guidance),
     copyFile(
       join(imageRoot, "host-command.json"),
       join(root, "host-command.json"),
@@ -276,9 +425,12 @@ export async function fingerprint(root) {
 }
 
 async function main() {
-  const { experiments, buildArguments } = splitExperimentArguments(
-    process.argv.slice(2),
-  );
+  const { experiments, guidanceDirectory, buildArguments } =
+    splitExperimentArguments(process.argv.slice(2));
+  const guidance =
+    guidanceDirectory === undefined
+      ? undefined
+      : await readGuidanceDirectory(resolve(guidanceDirectory));
   const options = parseImageBuildArguments(buildArguments, {
     script: "build-openclaw-image.mjs",
     label: "OpenClaw image",
@@ -299,12 +451,16 @@ async function main() {
       maxBuffer: 16 * 1024 * 1024,
     },
   );
-  const staging = await stage(experiments);
+  const staging = await stage(experiments, guidance);
   try {
     const image =
       options.repository +
       ":" +
-      experimentTag(options.tag ?? (await fingerprint(staging)), experiments);
+      experimentTag(
+        options.tag ?? (await fingerprint(staging)),
+        experiments,
+        guidance,
+      );
     const metadataPath = join(staging, "build-metadata.json");
     report((options.push ? "building and pushing " : "building ") + image);
     await exec(
@@ -344,6 +500,7 @@ async function main() {
         claudeCodeVersion: CLAUDE_CODE_VERSION,
         entrypoint: "/opt/moltzap/agent/entrypoint.mjs",
         experiments,
+        ...(guidance === undefined ? {} : { guidance: guidance.hash }),
         gatewayPort: 18_789,
       }) + "\n",
     );

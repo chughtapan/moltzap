@@ -361,10 +361,11 @@ requirements.
 
 `CollectiveError` carries the operation's `id` and one `failure`, keyed by
 `kind`: `members-unreachable` with each refused member and its `SendError`
-reason, `schema-invalid` with the validator's detail, `answer-invalid` with
-each failing field and whether it is missing, unexpected or invalid,
-`request-unknown`, `request-answered`, or `request-expired`. Its message names
-the members or fields, so a host hands it to its model as the tool error.
+reason, `schema-invalid` with a detail naming each failing path and the
+form-mode shape it expects, `answer-invalid` with each failing field and
+whether it is missing, unexpected or invalid, `request-unknown`,
+`request-answered`, or `request-expired`. Its message names the members,
+schema paths or fields, so a host hands it to its model as the tool error.
 
 `SendError.reason` is exactly one of:
 

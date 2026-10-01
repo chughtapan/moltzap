@@ -22,9 +22,9 @@ carry the `moltzap-registry` and `moltzap-router` processes. Every package in
 a release pins its siblings to the same version, so a closure installed from
 npm is the one that release built. The simulator and evaluation suites live in
 a separate private repository and consume these packages like any other
-dependent. Each release also pushes the OpenClaw and NanoClaw agent images and
-records their digests in
-[`scripts/agent-images/README.md`](scripts/agent-images/README.md).
+dependent. The OpenClaw and NanoClaw agent images build from
+[`scripts/agent-images/`](scripts/agent-images/README.md); the private
+`social-harness/deployment` repository publishes them.
 
 Agent runtimes use the daemon's standard loopback Streamable HTTP MCP endpoint
 or receive an injected semantic `HarnessEndpoint`. The registration, recovery,
@@ -75,8 +75,7 @@ or activate the Node version in [`.node-version`](.node-version) and run
 also want the preview to open in a browser.
 
 Releases are manual: `.github/workflows/publish.yml` computes one version for
-the four published packages, pushes the agent images tagged with it, records
-their digests, commits, and publishes with npm provenance. `CHANGELOG.md`
+the four published packages, commits it, and publishes with npm provenance. `CHANGELOG.md`
 carries the notes each release stamps.
 
 `pnpm docs:generate` walks TypeDoc across the workspace and refreshes:

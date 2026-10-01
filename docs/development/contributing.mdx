@@ -19,10 +19,22 @@ description: Contribution guidelines and conventions
 - `main` is the only long-lived branch; every change lands there by pull
   request.
 - Releases are manual runs of `.github/workflows/publish.yml`. One run
-  publishes the four public packages at one calendar version, pushes the
-  OpenClaw and NanoClaw agent images tagged with it, and commits the digests
-  and changelog stamp. The identities and repository settings a release needs
-  are listed under `Release publishing` in `scripts/agent-images/README.md`.
+  publishes the four public packages at one calendar version and commits the
+  version bump and changelog stamp. The job runs in the `release` GitHub
+  environment, whose required reviewers gate every release. The release
+  commit and tag are pushed with a GitHub App token: `RELEASE_APP_ID` is an
+  Actions variable and `RELEASE_APP_PRIVATE_KEY` an Actions secret for an App
+  installed on this repository with contents write access and allowed to push
+  `main`. npm publishes without a token, so each published package lists
+  `publish.yml` on this repository as a trusted publisher.
+- A release commit on `main` whose version some package still lacks on npm is
+  resumed by every later run. When that release can never complete, dispatch
+  with **Start a new version** checked: the run leaves the release commit
+  alone, takes the next free version from the tip, and the maintainer
+  deprecates whatever the abandoned version did publish.
+- The OpenClaw and NanoClaw agent images are built and published by the
+  private `social-harness/deployment` repository, not by a release here; see
+  `scripts/agent-images/README.md`.
 - Public design contracts live in `docs/vision.md` and `docs/spec/`; see
   `AGENTS.md` for package-specific instructions.
 
