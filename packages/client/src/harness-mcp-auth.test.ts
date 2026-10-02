@@ -202,8 +202,9 @@ const checksCatalog = (handler: Handler, registered: boolean) =>
     }
     yield* checksRestrictedTools(handler);
     if (registered) {
-      names.sort((left, right) => left.localeCompare(right));
-      expect(names).toEqual([
+      expect(
+        [...names].sort((left, right) => left.localeCompare(right)),
+      ).toEqual([
         "acknowledge_delivery",
         "read_event",
         "read_inbox",
