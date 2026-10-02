@@ -94,9 +94,6 @@ interface ReasonPayload {
  * @returns A closed send failure without transport details.
  */
 function sendFailure(cause: unknown): SendError | CollectiveError {
-  if (ProtocolError.isInstance(cause) && cause.code === -32602) {
-    return new SendError({ reason: "content-invalid" });
-  }
   const data: unknown = ProtocolError.isInstance(cause) ? cause.data : cause;
   return decodeHarnessSendErrorData(data).pipe(
     Effect.map((decoded) =>

@@ -25,9 +25,11 @@ import { describe, expect, it } from "vitest";
 import { makeFixture } from "./__tests__/router-worker-fixtures.js";
 import { acquireHarnessEndpoint } from "./client-runtime/index.js";
 import {
+  CollectiveId,
   type HarnessEndpoint,
   InboundItem,
   ListenError,
+  SendError,
   SendInput,
 } from "./contract.js";
 import { readRuntimeEvent } from "./daemon/inbox/index.js";
@@ -355,6 +357,48 @@ const sendInput = Schema.decodeUnknownSync(SendInput)({
 });
 const sendResult = {};
 
+const distinguishesSendValidationFailures = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const inactive = yield* acquireSendEndpoint(operations);
+        expect(yield* inactive.send(sendInput).pipe(Effect.flip)).toMatchObject(
+          {
+            reason: "network-unavailable",
+          },
+        );
+        const fixture = yield* makeFixture;
+        const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
+        const readStatus: HarnessMcpOperations["readStatus"] = () =>
+          Effect.succeed({ kind: "active", agentCard });
+        const refused = yield* acquireSendEndpoint({
+          ...operations,
+          readStatus,
+          send: () => Effect.fail(new SendError({ reason: "not-registered" })),
+        });
+        expect(yield* refused.send(sendInput).pipe(Effect.flip)).toMatchObject({
+          reason: "not-registered",
+        });
+        const invalidOutput = yield* acquireSendEndpoint({
+          ...operations,
+          readStatus,
+          send: () =>
+            Effect.succeed({
+              operationId: Schema.decodeUnknownSync(CollectiveId)(
+                `col_${"A".repeat(43)}`,
+              ),
+              unexpected: true,
+            }),
+        });
+        expect(
+          yield* invalidOutput.send(sendInput).pipe(Effect.flip),
+        ).toMatchObject({
+          reason: "network-unavailable",
+        });
+      }),
+    ),
+  );
+
 function acquireSendEndpoint(
   selected: Pick<HarnessMcpOperations, "readStatus" | "send" | "readSend">,
 ) {
@@ -637,6 +681,10 @@ function readsRetainedEventThroughSdk() {
 
 // @agent-code-guard/regression-only: this boundary pins the exact capability and closed transport failures.
 describe("Harness MCP HTTP boundary", () => {
+  it(
+    "keeps dispatch and invalid output distinct from rejected send input",
+    distinguishesSendValidationFailures,
+  );
   it(
     "reads an acknowledged event through the SDK without redelivery",
     readsRetainedEventThroughSdk,

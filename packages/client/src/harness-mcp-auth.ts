@@ -64,11 +64,4 @@ export const mayInvokeHarnessTool = (
   name: string,
 ): boolean =>
   role !== "runtime" ||
-  [
-    "send_message",
-    "read_inbox",
-    "read_event",
-    "read_send",
-    "acknowledge_delivery",
-    "search_agents",
-  ].includes(name);
+  ["send_message", "read_event", "search_agents"].includes(name);

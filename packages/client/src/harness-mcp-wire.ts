@@ -618,9 +618,11 @@ const registerActiveTools = (
 ): void => {
   if (role === "runtime") {
     registerSearchAgentsTool(server, operations);
-  } else {
-    registerReadTools(server, operations);
+    registerSendTool(server, operations);
+    registerEventReadTool(server, operations);
+    return;
   }
+  registerReadTools(server, operations);
   registerAdapterTools(server, operations);
 };
 
@@ -755,7 +757,11 @@ const decodeInvocationInput = <A>(
   runEventOperation(
     input.pipe(
       Effect.catchTag("ParseError", () =>
-        Effect.fail(new ProtocolError(-32602, "Invalid invocation arguments")),
+        Effect.fail(
+          new ProtocolError(-32602, "Invalid invocation arguments", {
+            reason: "content-invalid",
+          }),
+        ),
       ),
     ),
     signal,

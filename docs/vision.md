@@ -289,8 +289,8 @@ reference resolved by `read_event`. Runtime code acknowledges delivery at the
 host-specific handoff boundary. The official MCP SDK handles request
 validation, discovery, tools and stream framing.
 
-In authenticated tunnel mode, runtime credentials cannot read raw collective
-protocol history or invoke administration. Owner credentials retain those
+In authenticated tunnel mode, runtime credentials cannot retire inbox items,
+read raw collective protocol history or invoke administration. Owner credentials retain those
 management capabilities. The [daemon contract](./spec/harness/daemon.md) and
 [ingress contract](./spec/harness/ingress.md) specify the implementation
 candidate pending ADR review.

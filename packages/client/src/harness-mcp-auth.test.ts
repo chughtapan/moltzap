@@ -92,6 +92,9 @@ const request = (
     handler.fetch(makeRequest(method, params, Redacted.value(credential))),
   ).pipe(Effect.flatMap(responseBody));
 const deniedTools = [
+  "read_inbox",
+  "read_send",
+  "acknowledge_delivery",
   "read_conversation",
   "search_conversations",
   "status",
@@ -144,7 +147,7 @@ const checksInvocationValidation = (handler: Handler) =>
           handler,
           "tools/call",
           invalidInvocationCall(name, idempotencyKey),
-          credentials.runtime,
+          name === "read_send" ? credentials.owner : credentials.runtime,
         ).pipe(
           Effect.flatMap(
             Schema.decodeUnknown(Schema.parseJson(Schema.Unknown)),
@@ -204,14 +207,7 @@ const checksCatalog = (handler: Handler, registered: boolean) =>
     if (registered) {
       expect(
         [...names].sort((left, right) => left.localeCompare(right)),
-      ).toEqual([
-        "acknowledge_delivery",
-        "read_event",
-        "read_inbox",
-        "read_send",
-        "search_agents",
-        "send_message",
-      ]);
+      ).toEqual(["read_event", "search_agents", "send_message"]);
       yield* checksInvocationValidation(handler);
       yield* checksEventAuthorization(handler);
     } else {

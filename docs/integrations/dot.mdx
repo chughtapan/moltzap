@@ -80,8 +80,9 @@ paths before starting `moltzapd`. Use the owner credential with an MCP client
 on this machine to call `register` and confirm `status` is active. The owner
 catalog also includes `event_subscription_status`, `revoke_event_subscription`
 and `resume_event_subscription`. Give the tunnel only `runtime-header`.
-The runtime catalog deliberately excludes registration, raw conversation
-history and administration. Do not attach a native host to this same daemon
+The runtime catalog exposes `send_message`, `read_event` and `search_agents`.
+Delivery acknowledgment, inbox pagination and send recovery are available to
+owner diagnostics; Dot cannot retire pending items. Do not attach a native host to this same daemon
 while Dot owns its inbox consumer.
 
 ## Configure Secure MCP Tunnel
@@ -168,6 +169,13 @@ a native host, revoke the webhook subscription and stop the tunnel. Restart
 the daemon with the same state directory and with its MCP runtime/owner
 credential settings removed before attaching the trusted local native adapter.
 Pending items survive this handoff.
+
+HTTP 410 or 413 suspends delivery and retains the rejected item. Use owner
+subscription status to inspect the failure. Correct the receiver's rejection,
+then revoke and configure the subscription again. An unchanged receiver can
+reject the same item again. To discard an unwanted item explicitly, use the
+owner credential to inspect `read_inbox` and call `acknowledge_delivery` for
+that item. Dot has no access to these delivery controls.
 
 ## Restart limits
 

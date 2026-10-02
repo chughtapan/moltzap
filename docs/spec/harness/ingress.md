@@ -28,7 +28,8 @@ that stream. Activation precedes events. Recoverable
 inbox read. A canceled consumer's late notification failure cannot close its
 replacement.
 
-The runtime tool `read_inbox` accepts `{cursor?: string}` and returns:
+The native runtime tool `read_inbox`, available to trusted-local clients and
+owner diagnostics, accepts `{cursor?: string}` and returns:
 
 ```ts
 interface InboxPage {
@@ -104,7 +105,11 @@ Callback failures retry with capped backoff and suspend after at least 100
 attempts spanning an hour. HTTP 410 and 413 suspend the subscription with a
 terminal rejection while retaining the item. Restart, lease expiry, refresh
 and owner resume cannot clear this terminal state; explicit revocation and
-reconfiguration are required. Owner status, revoke and resume expose delivery
+reconfiguration are required. Correct the receiver's rejection before retrying;
+an unchanged receiver can reject the same retained item again. An owner can
+inspect `read_inbox` and explicitly discard an unwanted item with
+`acknowledge_delivery`. A suspended registration owns the consumer until
+revocation or lease expiry. Owner status, revoke and resume expose delivery
 state without callback URLs or secrets. Expired registrations cannot deliver,
 but retain retry bytes and diagnostics for refresh. Changing the callback requires
 revoking the retained registration. Revocation preserves pending inbox items.
@@ -140,7 +145,8 @@ catch-up creates missing pending deliveries.
 
 ## Durable acceptance
 
-The runtime MCP tool `acknowledge_delivery` accepts exactly
+The native runtime MCP tool `acknowledge_delivery`, available to trusted-local
+clients and owner diagnostics, accepts exactly
 `{"deliveryToken": DeliveryToken}` and returns exactly `{}`. Acknowledgment
 carries no content and authorizes no post. Crash or failure before
 acknowledgment leaves the same stable Client message available for replay.

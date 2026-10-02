@@ -30,8 +30,11 @@ serves one loopback `/mcp` endpoint:
 
 | State | MCP catalog |
 |---|---|
-| unregistered | `register`, `status` |
-| registered | `status`, `search_agents`, `search_conversations`, `read_conversation`, adapter `send_message`, runtime `acknowledge_delivery`, `read_inbox`, `read_event`, `read_send`, owner event administration, plus draft MCP Events |
+| trusted-local, unregistered | `register`, `status` |
+| trusted-local, registered | `status`, `search_agents`, `search_conversations`, `read_conversation`, `send_message`, `acknowledge_delivery`, `read_inbox`, `read_event`, `read_send`, plus draft MCP Events |
+| authenticated owner | The local catalog plus event subscription status, revoke and resume tools |
+| authenticated runtime, unregistered | No tools |
+| authenticated runtime, registered | `send_message`, `read_event`, `search_agents`, plus draft MCP Events |
 
 Registration changes durable daemon state and therefore the catalog. There is
 no profile selector, profile file, bespoke CLI, Unix socket, stdio server,

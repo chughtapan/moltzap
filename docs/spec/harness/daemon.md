@@ -45,9 +45,11 @@ Two optional paths, `MOLTZAPD_MCP_RUNTIME_CREDENTIAL_FILE` and
 `MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE`, enable authenticated tunnel mode. Supply
 both or neither. Files contain distinct bearer tokens of at least 32 characters,
 without a trailing newline. Runtime authority exposes only `send_message`,
-`read_inbox`, `read_event`, `read_send`, `acknowledge_delivery` and
-`search_agents` after registration. Before registration it exposes no tools. Owner authority also
-permits registration, status, raw history and event consumer administration.
+`read_event` and `search_agents` after registration. Before registration it
+exposes no tools. Owner authority also permits registration, status, raw history,
+inbox pagination, delivery acknowledgment, send recovery and event consumer
+administration. Trusted-local native clients retain these runtime delivery
+operations; the Dot model cannot retire pending items.
 Every request, including discovery, requires authentication in this mode.
 Neither file contains Registry or Router credentials.
 
@@ -90,13 +92,13 @@ history size.
 Before registration, owner tools include `register` and `status`. Registration recovery
 retains the accepted Identity `OperationId` behavior.
 
-After registration, tools are:
+After registration, the trusted-local and owner catalogs include:
 
 - `status` and `search_agents`;
 - `search_conversations` and `read_conversation` using canonical addresses;
 - adapter-only `send_message`, which performs one operation or one collective
   response;
-- runtime `acknowledge_delivery`, `read_inbox`, `read_event` and `read_send`; and
+- native runtime `acknowledge_delivery`, `read_inbox`, `read_event` and `read_send`; and
 - owner `event_subscription_status`, `revoke_event_subscription` and
   `resume_event_subscription`.
 
