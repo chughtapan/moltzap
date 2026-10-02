@@ -3,7 +3,9 @@
  * operations or collective responses and whose inbound deliveries are tagged
  * items. An operation carries an address, text and an optional collective
  * operation, multicast by default or a gather or all_gather with its deadline
- * and schema; a response names its request and no address. Each inbound
+ * and schema; a response names the conversation whose open request it
+ * answers and no request id. One parser reads either from a message's text,
+ * so every adapter accepts the same text. Each inbound
  * delivery carries one item plus transport-only acknowledgment: a multicast
  * with the certified direct or complete-group message, a collective request
  * naming the conversation it arrived in, a collective result that names an
@@ -13,13 +15,11 @@
  * executing a new collective operation.
  */
 
-import type { DateTime, Effect, Scope, Stream } from "effect";
+import type { DateTime, Effect, Either, Scope, Stream } from "effect";
 import type {
   acquireHarnessEndpoint,
   AgentAddress,
   CollectiveError,
-  CollectiveOperation,
-  CollectiveResponse,
   ConnectError,
   Content,
   ContentPart,
@@ -35,6 +35,8 @@ import type {
   JsonValue,
   ListenError,
   MessageAddressInput,
+  MessageTextError,
+  parseMessageText,
   PostId,
   SendError,
   SendInput,
@@ -62,19 +64,18 @@ type ExpectedCollectiveOperation =
       requestedSchema: ExpectedRequestedSchema;
     }>;
 type ExpectedCollectiveResponse =
-  | Readonly<{
-      id: CollectiveId;
-      action: "accept";
-      content: ExpectedAnswerContent;
-    }>
-  | Readonly<{ id: CollectiveId; action: "decline" | "cancel" }>;
+  | Readonly<{ action: "accept"; content: ExpectedAnswerContent }>
+  | Readonly<{ action: "decline" }>;
 type ExpectedSendInput =
   | Readonly<{
       to: MessageAddressInput;
       text: string;
-      collective?: CollectiveOperation;
+      collective?: ExpectedCollectiveOperation;
     }>
-  | Readonly<{ collectiveResponse: CollectiveResponse }>;
+  | Readonly<{
+      to: MessageAddressInput;
+      collectiveResponse: ExpectedCollectiveResponse;
+    }>;
 type ExpectedSendResult = Readonly<{ operationId?: CollectiveId }>;
 type ExpectedDirectMessage = Readonly<{
   kind: "direct";
@@ -99,7 +100,6 @@ type ExpectedGroupMessage = Readonly<{
 type ExpectedMemberOutcome =
   | Readonly<{ kind: "answered"; content: ExpectedAnswerContent }>
   | Readonly<{ kind: "declined" }>
-  | Readonly<{ kind: "cancelled" }>
   | Readonly<{ kind: "invalid"; reason: string }>
   | Readonly<{ kind: "no-answer" }>;
 type ExpectedInboundItem =
@@ -148,14 +148,20 @@ type ExpectedEndpoint = Readonly<{
   messages: Stream.Stream<InboundDelivery, ListenError>;
 }>;
 
-type CollectiveOperationIsExact = Expect<
-  Equal<CollectiveOperation, ExpectedCollectiveOperation>
->;
-type CollectiveResponseIsExact = Expect<
-  Equal<CollectiveResponse, ExpectedCollectiveResponse>
->;
 type SendInputIsExact = Expect<Equal<SendInput, ExpectedSendInput>>;
+type MessageTextParserIsExact = Expect<
+  Equal<
+    typeof parseMessageText,
+    (
+      to: MessageAddressInput,
+      text: string,
+    ) => Either.Either<SendInput, MessageTextError>
+  >
+>;
 type SendResultIsExact = Expect<Equal<SendResult, ExpectedSendResult>>;
+type SendResultKeysAreExact = Expect<
+  Equal<keyof SendResult, keyof ExpectedSendResult>
+>;
 type InboundItemIsExact = Expect<Equal<InboundItem, ExpectedInboundItem>>;
 type DirectMessageIsExact = Expect<Equal<DirectMessage, ExpectedDirectMessage>>;
 type GroupMessageIsExact = Expect<Equal<GroupMessage, ExpectedGroupMessage>>;
@@ -219,7 +225,8 @@ type CollectiveFailureKindsAreExact = Expect<
     | "members-unreachable"
     | "schema-invalid"
     | "answer-invalid"
-    | "request-unknown"
+    | "request-none"
+    | "request-ambiguous"
     | "request-answered"
     | "request-expired"
   >
@@ -260,10 +267,10 @@ type AcquisitionResultIsExact = Expect<
 
 /** Compile-time witnesses for the accepted public Client boundary. */
 export type HarnessEndpointCanaries = [
-  CollectiveOperationIsExact,
-  CollectiveResponseIsExact,
   SendInputIsExact,
+  MessageTextParserIsExact,
   SendResultIsExact,
+  SendResultKeysAreExact,
   InboundItemIsExact,
   DirectMessageIsExact,
   GroupMessageIsExact,

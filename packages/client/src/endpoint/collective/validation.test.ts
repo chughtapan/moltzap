@@ -1,6 +1,6 @@
 /** @file Pins answer validation and member outcomes against a form-mode schema. */
 
-import { Effect, Schema } from "effect";
+import { Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { AnswerContent } from "../../contract.js";
 import { outcomeOfResponse, validateAnswer } from "./validation.js";
@@ -120,15 +120,15 @@ describe("member outcomes", () => {
     ).toEqual({ kind: "declined" });
   });
 
-  it("records a cancel as cancelled", () => {
-    const cancelled = response({
-      kind: "response",
-      id: collectiveId,
-      action: "cancel",
-    });
+  it("refuses a cancel, which is no longer an answer", () => {
+    const decoded = Effect.runSyncExit(
+      decodeCollectiveResponse({
+        kind: "response",
+        id: collectiveId,
+        action: "cancel",
+      }),
+    );
 
-    expect(
-      Effect.runSync(outcomeOfResponse(requestedSchema, cancelled)),
-    ).toEqual({ kind: "cancelled" });
+    expect(Exit.isFailure(decoded)).toBe(true);
   });
 });

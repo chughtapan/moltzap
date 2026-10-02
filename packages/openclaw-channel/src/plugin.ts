@@ -11,8 +11,6 @@ import type { OpenClawPluginDefinition } from "openclaw/plugin-sdk/plugin-entry"
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-payload";
 import {
   acquireHarnessEndpoint,
-  CollectiveOperation,
-  CollectiveResponse,
   type Content,
   type HarnessEndpoint,
   type InboundDelivery,
@@ -20,23 +18,23 @@ import {
   type InboundMessage,
   MessageAddressInput,
   type MessageAddressInput as MessageAddressInputValue,
-  SendInput,
+  type MessageTextError,
+  parseMessageText,
+  type SendInput,
 } from "@moltzap/client";
 import {
   Config,
   ConfigError,
   Data,
   Effect,
+  Either,
   JSONSchema,
   Option,
   Schema,
   Stream,
-  Struct,
 } from "effect";
 import { absurd } from "effect/Function";
 import { randomUUID } from "node:crypto";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Plugin creation is synchronous: OpenClaw takes the plugin object at module load and describeMessageTool returns synchronously, so the guidance file cannot be read through the asynchronous platform FileSystem.
-import { readFileSync } from "node:fs";
 import { jsonResult } from "openclaw/plugin-sdk/channel-actions";
 import {
   type ChannelPlugin,
@@ -52,7 +50,6 @@ import {
   defineChannelMessageAdapter,
   waitUntilAbort,
 } from "openclaw/plugin-sdk/channel-outbound";
-import { Type } from "typebox";
 
 const CHANNEL_ID = "moltzap";
 const TARGET_HINT =
@@ -61,47 +58,20 @@ const INBOUND_LOG_PREVIEW_CHARS = 80;
 
 /**
  * Experiment control for evaluations that compare agents with and without
- * collective operations. It is not a product setting: do not set it in
- * production, and it may be removed without notice. When true, the message
- * tool omits the `collective` and `collectiveResponse` parameters and a send
- * carrying either fails with {@link OpenClawCollectivesUnavailableError}.
+ * gather, all_gather and answers. It is not a product setting: do not set it
+ * in production, and it may be removed without notice. When true, a message
+ * whose text states one of those operations fails with
+ * {@link OpenClawCollectivesUnavailableError}; plain text is sent as usual.
  */
 const HIDE_COLLECTIVES_VARIABLE = "MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES";
 
 /**
- * Experiment control for evaluations that compare alternative model-facing
- * guidance for collectives. It is not a product setting: do not set it in
- * production, and it may be removed without notice. Its value is the path of
- * a JSON file holding replacement descriptions for the message tool's
- * `collective` and `collectiveResponse` parameters, read once when the plugin
- * is created; see {@link guidanceOverrideSchema}. An unreadable or invalid
- * file fails plugin creation with {@link OpenClawGuidanceOverrideError},
- * because default guidance in its place would invalidate the comparison.
+ * The message tool actions MoltZap handles. Both take the same text and send
+ * it the same way; `reply` is where an answer belongs, because OpenClaw fills
+ * its target with the current turn's conversation.
  */
-const GUIDANCE_PARAMETERS_VARIABLE = "MOLTZAP_EXPERIMENT_GUIDANCE_PARAMETERS";
-
-/**
- * The guidance file's shape. Each present key replaces that parameter's
- * description; an absent key keeps the default. Any other key fails, so a
- * misspelled key cannot leave the default description in place unnoticed.
- */
-const guidanceOverrideSchema = Schema.Struct({
-  collective: Schema.optional(Schema.String),
-  collectiveResponse: Schema.optional(Schema.String),
-});
-
-/** Descriptions the message tool gives its two collective parameters. */
-interface CollectiveParameterDescriptions {
-  readonly collective: string;
-  readonly collectiveResponse: string;
-}
-
-/**
- * Where the message tool shows the collective parameters: on every turn.
- * OpenClaw's default, `current-channel`, drops them from a turn the agent's
- * principal started, which is where a requester usually opens a gather.
- */
-export const COLLECTIVE_PARAMETER_VISIBILITY = "all-configured";
+const MESSAGE_ACTIONS = ["send", "reply"] as const;
+type MessageAction = (typeof MESSAGE_ACTIONS)[number];
 
 type OpenClawTargetKind = "user" | "group";
 type OpenClawOutboundFailure =
@@ -183,12 +153,10 @@ interface InboundTurnInput {
 }
 
 /** One host send before validation; the host supplies each field untyped. */
-interface OperationSend {
+interface TextSend {
   readonly accountId?: string | null;
   readonly to: unknown;
   readonly text: unknown;
-  readonly collective?: unknown;
-  readonly collectiveResponse?: unknown;
 }
 
 interface MoltzapChannelPluginDeps {
@@ -219,24 +187,9 @@ class OpenClawOutboundError extends Data.TaggedError("OpenClawOutboundError")<{
 }
 
 /**
- * The file {@link GUIDANCE_PARAMETERS_VARIABLE} names cannot be read or does
- * not match {@link guidanceOverrideSchema}.
- */
-class OpenClawGuidanceOverrideError extends Data.TaggedError(
-  "OpenClawGuidanceOverrideError",
-)<{
-  readonly path: string;
-  readonly detail: string;
-}> {
-  override get message(): string {
-    return `${GUIDANCE_PARAMETERS_VARIABLE} file ${this.path} is not usable: ${this.detail}`;
-  }
-}
-
-/**
- * A message tool send carrying `collective` or `collectiveResponse` while
- * {@link HIDE_COLLECTIVES_VARIABLE} is true. The tool does not offer either
- * parameter then, so the message tells the model to send without it.
+ * A message whose text states a gather, all_gather or answer while
+ * {@link HIDE_COLLECTIVES_VARIABLE} is true. The message tells the model to
+ * send plain text instead.
  */
 class OpenClawCollectivesUnavailableError extends Data.TaggedError(
   "OpenClawCollectivesUnavailableError",
@@ -244,7 +197,7 @@ class OpenClawCollectivesUnavailableError extends Data.TaggedError(
   readonly accountId: string;
 }> {
   override get message(): string {
-    return `MoltZap collective operations are not available for account ${this.accountId}; send the message without collective or collectiveResponse`;
+    return `MoltZap message delivery failed for account ${this.accountId}: gather, all_gather and answers are not available; send plain text`;
   }
 }
 
@@ -288,13 +241,6 @@ const isMessageAddressInput = Schema.is(MessageAddressInput);
 
 const carriesTargets = Schema.is(Schema.NonEmptyArray(Schema.Unknown));
 
-const DEFAULT_PARAMETER_DESCRIPTIONS: CollectiveParameterDescriptions = {
-  collective:
-    'The MoltZap collective operation; the moltzap-collectives skill describes each. Omit it for a multicast: message reaches every agent the target names. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} sends message as a question to each member of the target, privately; when every member has answered or the deadline passes, only you receive one result turn listing each member\'s answer, decline, cancel or no answer. {"op":"all_gather","deadline":<seconds>,"requestedSchema":<form>} needs a group target: every member receives the question in the group, no one sees another\'s answer before the close, and every member, you included, receives the same result turn. deadline is a whole number of seconds from now, 1 to 2592000 (30 days). requestedSchema is a flat MCP form: {"type":"object","properties":{...},"required":[...]} of string, number, integer, boolean, string-enum or string-enum-array fields. The tool result carries the operation\'s operationId.',
-  collectiveResponse:
-    'Answer a MoltZap collective request turn once; the moltzap-collectives skill describes it. {"id":<request id>,"action":"accept","content":{...}} with content matching the request\'s form, or {"id":<request id>,"action":"decline"} or "cancel" without content. The answer goes back where the request came from, whatever target says. message is not sent, but OpenClaw requires a short non-empty one. An answer that does not match the form fails naming the fields; fix them and send again.',
-};
-
 /**
  * Returns the manifest schema for one MoltZap channel configuration.
  * @returns The JSON Schema embedded in the OpenClaw plugin manifest.
@@ -317,18 +263,16 @@ export function makeMoltZapChannelConfigJsonSchema() {
  *   participant Client as HarnessEndpoint
  *   Host->>Plugin: start account with its runtime
  *   Plugin->>Client: acquire endpoint
- *   Client-->>Plugin: multicast, collective request, result or failure item
+ *   Client-->>Plugin: multicast, request, result or failure item
  *   Plugin->>Host: submit routed turn in the item's fixed form
  *   Host->>Host: record session and run agent
  *   Host-->>Plugin: final reply withheld
  *   Plugin->>Client: acknowledge delivery
- *   Host->>Plugin: message tool send with address, collective or collectiveResponse
- *   Plugin->>Client: send the operation or response
- *   Plugin-->>Host: tool result with the operation id, or the Client error
+ *   Host->>Plugin: message tool send or reply with target and text
+ *   Plugin->>Plugin: parse the text as a multicast, gather, all_gather or answer
+ *   Plugin->>Client: send the operation
+ *   Plugin-->>Host: tool result with the operation id, or the error
  * ```
- *
- * Creation reads {@link GUIDANCE_PARAMETERS_VARIABLE} and throws when its
- * file is unusable, so a misconfigured experiment fails at plugin load.
  * @param deps Optional process-local dependency overrides used by tests.
  * @returns The MoltZap channel plugin.
  * @internal
@@ -337,7 +281,6 @@ export function createMoltzapChannelPlugin(
   deps: MoltzapChannelPluginDeps = {},
 ): ChannelPlugin<MoltZapAccount> {
   const connectedAccount: ConnectedAccountState = {};
-  const descriptions = Effect.runSync(collectiveParameterDescriptions());
   return {
     ...createChannelPluginBase<MoltZapAccount>({
       id: CHANNEL_ID,
@@ -350,7 +293,7 @@ export function createMoltzapChannelPlugin(
       startAccount: (ctx) =>
         startAccountConnection(ctx, connectedAccount, deps),
     },
-    actions: createMessageActions(connectedAccount, descriptions),
+    actions: createMessageActions(connectedAccount),
     message: createMessageSection(connectedAccount),
   };
 }
@@ -408,120 +351,31 @@ function createConfigSection() {
 }
 
 /**
- * The message tool's `send` action for MoltZap. OpenClaw routes every model
- * `send` here because the adapter defines no prepared payload or gateway
- * execution mode, so the `collective` parameter reaches the endpoint
- * unchanged. `message.send.text` remains for the sends OpenClaw's core makes
- * itself. The tool offers `send` without the collective parameters while
- * {@link HIDE_COLLECTIVES_VARIABLE} is true or unreadable, and with
- * {@link COLLECTIVE_PARAMETER_VISIBILITY} otherwise.
+ * The message tool's `send` and `reply` actions for MoltZap. OpenClaw routes
+ * every model `send` and `reply` here because the adapter defines no prepared
+ * payload or gateway execution mode. Both read the text with the Client's one
+ * parser, so a message's text states its operation; a `reply` with no
+ * target gets the current turn's conversation from OpenClaw.
+ * `message.send.text` remains for the sends OpenClaw's core makes itself.
  * @param connectedAccount The account whose endpoint performs the operation.
- * @param descriptions The collective parameters' descriptions.
  * @returns The action adapter registered on the channel plugin.
  */
 function createMessageActions(
   connectedAccount: ConnectedAccountState,
-  descriptions: CollectiveParameterDescriptions,
 ): ChannelMessageActionAdapter {
-  const properties = collectiveParameters(descriptions);
   return {
-    describeMessageTool: () => ({
-      actions: ["send"],
-      ...(Effect.runSync(
-        experimentHidesCollectives().pipe(Effect.orElseSucceed(() => true)),
-      )
-        ? {}
-        : {
-            schema: {
-              properties,
-              actions: ["send"],
-              visibility: COLLECTIVE_PARAMETER_VISIBILITY,
-            },
-          }),
-    }),
-    supportsAction: ({ action }) => action === "send",
+    describeMessageTool: () => ({ actions: [...MESSAGE_ACTIONS] }),
+    supportsAction: ({ action }) => isMessageAction(action),
     handleAction: (ctx) =>
       runHostPromise(handleMessageAction(connectedAccount, ctx)),
   };
-}
-
-/**
- * The `collective` and `collectiveResponse` parameters MoltZap adds to the
- * message tool's `send` action. Their JSON Schemas come from the Client's
- * `CollectiveOperation` and `CollectiveResponse`, so the tool accepts exactly
- * what the endpoint does; TypeBox marks both optional because a `send`
- * without either is a multicast. The descriptions say what OpenClaw needs
- * beyond the schemas and name OpenClaw's own `message` parameter, which
- * carries the question.
- * @param descriptions The description for each parameter.
- * @returns The two parameter schemas, keyed by parameter name.
- */
-function collectiveParameters(descriptions: CollectiveParameterDescriptions) {
-  return {
-    collective: Type.Optional(
-      Type.Unsafe<CollectiveOperation>({
-        ...Struct.omit(JSONSchema.make(CollectiveOperation), "$schema"),
-        description: descriptions.collective,
-      }),
-    ),
-    collectiveResponse: Type.Optional(
-      Type.Unsafe<CollectiveResponse>({
-        ...Struct.omit(JSONSchema.make(CollectiveResponse), "$schema"),
-        description: descriptions.collectiveResponse,
-      }),
-    ),
-  };
-}
-
-/**
- * The parameter descriptions for this process: the defaults, with any
- * replacement the {@link GUIDANCE_PARAMETERS_VARIABLE} file supplies.
- */
-function collectiveParameterDescriptions(): Effect.Effect<
-  CollectiveParameterDescriptions,
-  OpenClawGuidanceOverrideError | ConfigError.ConfigError
-> {
-  return Config.option(Config.string(GUIDANCE_PARAMETERS_VARIABLE)).pipe(
-    Effect.flatMap(
-      Option.match({
-        onNone: () => Effect.succeed(DEFAULT_PARAMETER_DESCRIPTIONS),
-        onSome: (path) =>
-          readGuidanceOverride(path).pipe(
-            Effect.map((override) => ({
-              ...DEFAULT_PARAMETER_DESCRIPTIONS,
-              ...override,
-            })),
-          ),
-      }),
-    ),
-  );
-}
-
-function readGuidanceOverride(path: string) {
-  return Effect.try({
-    try: () => readFileSync(path, "utf8"),
-    catch: (cause) =>
-      new OpenClawGuidanceOverrideError({ path, detail: String(cause) }),
-  }).pipe(
-    Effect.flatMap((text) =>
-      Schema.decodeUnknown(Schema.parseJson(guidanceOverrideSchema), {
-        onExcessProperty: "error",
-      })(text).pipe(
-        // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Every unusable guidance file is one closed error naming the switch and the path, so the plugin's load failure says which experiment input to fix.
-        Effect.mapError(
-          (error) =>
-            new OpenClawGuidanceOverrideError({ path, detail: error.message }),
-        ),
-      ),
-    ),
-  );
 }
 
 function handleMessageAction(
   connectedAccount: ConnectedAccountState,
   ctx: ChannelMessageActionContext,
 ) {
-  if (ctx.action !== "send") {
+  if (!isMessageAction(ctx.action)) {
     return Effect.fail(
       new OpenClawOutboundError({
         reason: "unsupported-action",
@@ -529,24 +383,22 @@ function handleMessageAction(
       }),
     );
   }
-  const send: OperationSend = {
-    accountId: ctx.accountId,
-    to: ctx.params.to,
-    text: ctx.params.message,
-    collective: ctx.params.collective,
-    collectiveResponse: ctx.params.collectiveResponse,
-  };
   return refuseTargets(ctx).pipe(
-    Effect.andThen(() => refuseHiddenCollectives(send)),
-    Effect.andThen(() => sendOperation(connectedAccount, send)),
-    Effect.map(({ input, result }) =>
-      jsonResult({
-        ok: true,
-        ...("to" in input ? { to: input.to } : {}),
-        ...result,
+    Effect.andThen(() =>
+      sendText(connectedAccount, {
+        accountId: ctx.accountId,
+        to: ctx.params.to,
+        text: ctx.params.message,
       }),
     ),
+    Effect.map(({ input, result }) =>
+      jsonResult({ ok: true, to: input.to, ...result }),
+    ),
   );
+}
+
+function isMessageAction(action: string): action is MessageAction {
+  return MESSAGE_ACTIONS.some((supported) => supported === action);
 }
 
 function refuseTargets(
@@ -562,31 +414,34 @@ function refuseTargets(
 }
 
 /**
- * Refuse a send carrying a collective parameter while the experiment hides
- * collectives. The switch is read only for such a send, so an unreadable
- * value fails it with a configuration error naming the variable and leaves
- * plain sends unaffected.
+ * Refuse a gather, all_gather or answer while the experiment hides them. The
+ * switch is read only for such a send, so an unreadable value fails it with a
+ * configuration error naming the variable and leaves plain sends unaffected.
+ * @param operation Whether the text states an operation, validly or not.
+ * @param accountId The account label the refusal names.
+ * @returns Success for plain text or while the switch is off.
  */
 function refuseHiddenCollectives(
-  send: OperationSend,
+  operation: boolean,
+  accountId: string,
 ): Effect.Effect<
   void,
   OpenClawCollectivesUnavailableError | ConfigError.ConfigError
 > {
-  if (send.collective === undefined && send.collectiveResponse === undefined) {
+  if (!operation) {
     return Effect.void;
   }
   return experimentHidesCollectives().pipe(
     Effect.flatMap((hidden) =>
       hidden
-        ? Effect.fail(
-            new OpenClawCollectivesUnavailableError({
-              accountId: accountLabel(send.accountId),
-            }),
-          )
+        ? Effect.fail(new OpenClawCollectivesUnavailableError({ accountId }))
         : Effect.void,
     ),
   );
+}
+
+function statesOperation(input: SendInput): boolean {
+  return "collectiveResponse" in input || input.collective !== undefined;
 }
 
 function experimentHidesCollectives() {
@@ -839,14 +694,14 @@ function handleInboundDelivery(
 }
 
 /** The sender OpenClaw records for a turn the endpoint itself emitted. */
-const COLLECTIVE_SENDER_NAME = "MoltZap collective";
+const ENDPOINT_SENDER_NAME = "MoltZap";
 
 /**
  * Render one inbound item as the turn its kind defines. Each kind has one
  * fixed form, the same for every agent. A request belongs to the conversation
  * it arrived in: the requester's for a gather, the group's for an all_gather.
- * A result or a failure is attributed to the collective, not to any member,
- * and belongs to the conversation its operation addressed.
+ * A result or a failure is attributed to MoltZap, not to any member, and
+ * belongs to the conversation its operation addressed.
  * @param item The item the endpoint delivered.
  * @returns The turn OpenClaw runs.
  */
@@ -862,16 +717,16 @@ function inboundItemTurn(item: InboundItem): HostTurn {
         renderCollectiveRequest(item),
       );
     case "collectiveResult":
-      return collectiveTurn(
+      return endpointTurn(
         `${item.id}:result`,
         item.to,
         renderCollectiveResult(item),
       );
     case "operationFailed":
-      return collectiveTurn(
+      return endpointTurn(
         `${item.id}:failed`,
         item.to,
-        `MoltZap operation failed: ${item.error}`,
+        `MoltZap: ${item.error}`,
       );
     default:
       return absurd(item);
@@ -890,7 +745,7 @@ function multicastTurn(message: InboundMessage): HostTurn {
     : { ...base, kind: "direct" };
 }
 
-function collectiveTurn(
+function endpointTurn(
   id: string,
   address: MessageAddressInputValue,
   body: string,
@@ -898,7 +753,7 @@ function collectiveTurn(
   return addressedTurn(
     id,
     address,
-    { id: `collective:${id}`, name: COLLECTIVE_SENDER_NAME },
+    { id: `moltzap:${id}`, name: ENDPOINT_SENDER_NAME },
     body,
   );
 }
@@ -945,19 +800,30 @@ type CollectiveResultItem = Extract<
 >;
 type MemberOutcome = CollectiveResultItem["outcomes"][number]["outcome"];
 
+/**
+ * A request turn: the question, its form, and the exact text that answers
+ * it. A gather arrives in the requester's direct conversation and an
+ * all_gather in the group's, so `reply` sends the answer where it belongs.
+ */
 function renderCollectiveRequest(item: CollectiveRequestItem): string {
   const deadline = new Date(item.deadlineAt).toISOString();
+  const asked = item.to.startsWith("group:")
+    ? `all_gather from ${item.from} to ${item.to}`
+    : `gather from ${item.from}`;
   return [
-    `MoltZap collective request ${item.id} from ${item.from}, open until ${deadline}.`,
+    `${asked}, open until ${deadline}.`,
     `Question: ${item.question}`,
-    `Answer form (requestedSchema): ${JSON.stringify(item.requestedSchema)}`,
-    `Answer once with the message tool's send action and collectiveResponse {"id":"${item.id}","action":"accept","content":{...}} matching the form, or {"id":"${item.id}","action":"decline"}.`,
+    `Form: ${JSON.stringify(item.requestedSchema)}`,
+    'Answer with: {"action":"accept","content":{...}} where content matches the form, or {"action":"decline"}',
+    `Send the answer once as the whole message text, with the message tool's reply action or send to ${item.to}.`,
   ].join("\n");
 }
 
+/** A result turn; only an all_gather's result names a close post. */
 function renderCollectiveResult(item: CollectiveResultItem): string {
+  const operation = item.closePostId === undefined ? "gather" : "all_gather";
   return [
-    `MoltZap collective result ${item.id} for the question sent to ${item.to}: ${item.question}`,
+    `${operation} result for the question sent to ${item.to}: ${item.question}`,
     ...item.outcomes.map(
       ({ member, outcome }) => `- ${member}: ${renderOutcome(outcome)}`,
     ),
@@ -970,12 +836,10 @@ function renderOutcome(outcome: MemberOutcome): string {
       return `answered ${JSON.stringify(outcome.content)}`;
     case "declined":
       return "declined";
-    case "cancelled":
-      return "cancelled";
     case "invalid":
       return `answered outside the form (${outcome.reason})`;
     case "no-answer":
-      return "no answer by the deadline";
+      return "no answer";
     default:
       return absurd(outcome);
   }
@@ -1195,7 +1059,7 @@ function sendOpenClawText(
   connectedAccount: ConnectedAccountState,
   ctx: ChannelMessageSendTextContext,
 ) {
-  return sendOperation(connectedAccount, {
+  return sendText(connectedAccount, {
     accountId: ctx.accountId,
     text: ctx.text,
     to: ctx.to,
@@ -1203,32 +1067,39 @@ function sendOpenClawText(
 }
 
 /**
- * Perform one host send as one Client operation or collective response. A
- * refused send fails with the Client's error, whose message OpenClaw returns
- * to the model as the tool error.
+ * Perform one host send as the one Client operation its text states. A
+ * refused send fails with an error whose message OpenClaw returns to the
+ * model as the tool error: the text's failing fields, or the Client's
+ * refusal.
  * @param connectedAccount The account whose endpoint performs the operation.
- * @param params The host's account, address, text, operation and response.
- * @returns The validated input and the endpoint's result.
+ * @param params The host's account, address and text.
+ * @returns The parsed input and the endpoint's result.
  */
-function sendOperation(
-  connectedAccount: ConnectedAccountState,
-  params: OperationSend,
-) {
+function sendText(connectedAccount: ConnectedAccountState, params: TextSend) {
   const accountId = accountLabel(params.accountId);
-  const endpoint = connectedEndpoint(connectedAccount, params.accountId);
-  if (endpoint === undefined) {
-    return Effect.fail(
-      new OpenClawOutboundError({
-        reason: "account-not-connected",
-        accountId,
-      }),
-    );
-  }
-  return decodeSendInput(params, accountId).pipe(
+  return readSendInput(params, accountId).pipe(
     Effect.flatMap((input) =>
-      endpoint.send(input).pipe(Effect.map((result) => ({ input, result }))),
+      requireEndpoint(connectedAccount, params).pipe(
+        Effect.flatMap((endpoint) => endpoint.send(input)),
+        Effect.map((result) => ({ input, result })),
+      ),
     ),
   );
+}
+
+function requireEndpoint(
+  connectedAccount: ConnectedAccountState,
+  params: TextSend,
+): Effect.Effect<HarnessEndpoint, OpenClawOutboundError> {
+  const endpoint = connectedEndpoint(connectedAccount, params.accountId);
+  return endpoint === undefined
+    ? Effect.fail(
+        new OpenClawOutboundError({
+          reason: "account-not-connected",
+          accountId: accountLabel(params.accountId),
+        }),
+      )
+    : Effect.succeed(endpoint);
 }
 
 /**
@@ -1242,47 +1113,40 @@ function accountLabel(accountId?: string | null): string {
 }
 
 /**
- * Decode one host send. A `collectiveResponse` is sent without the target or
- * text: its endpoint addresses the requester, and OpenClaw requires text on
- * every send even though a response carries none.
+ * Read one host send's target and text as a send input. Text that states a
+ * gather, all_gather or answer is refused while the experiment hides them,
+ * including text that states one invalidly.
  */
-function decodeSendInput(
-  params: OperationSend,
+function readSendInput(
+  params: TextSend,
   accountId: string,
-): Effect.Effect<SendInput, OpenClawOutboundError> {
-  if (params.collectiveResponse !== undefined) {
-    return decodeOrFail(
-      { collectiveResponse: params.collectiveResponse },
-      accountId,
-    );
-  }
+): Effect.Effect<
+  SendInput,
+  | OpenClawOutboundError
+  | MessageTextError
+  | OpenClawCollectivesUnavailableError
+  | ConfigError.ConfigError
+> {
   if (!isMessageAddressInput(params.to)) {
     return Effect.fail(
       new OpenClawOutboundError({ reason: "invalid-address", accountId }),
     );
   }
-  return decodeOrFail(
-    {
-      to: params.to,
-      text: params.text,
-      ...(params.collective === undefined
-        ? {}
-        : { collective: params.collective }),
-    },
-    accountId,
-  );
-}
-
-function decodeOrFail(
-  value: Readonly<Record<string, unknown>>,
-  accountId: string,
-): Effect.Effect<SendInput, OpenClawOutboundError> {
-  const decoded = Schema.decodeUnknownOption(SendInput)(value);
-  return Option.isSome(decoded)
-    ? Effect.succeed(decoded.value)
-    : Effect.fail(
-        new OpenClawOutboundError({ reason: "invalid-operation", accountId }),
-      );
+  if (typeof params.text !== "string") {
+    return Effect.fail(
+      new OpenClawOutboundError({ reason: "invalid-operation", accountId }),
+    );
+  }
+  return Either.match(parseMessageText(params.to, params.text), {
+    onLeft: (error) =>
+      refuseHiddenCollectives(true, accountId).pipe(
+        Effect.zipRight(Effect.fail(error)),
+      ),
+    onRight: (input) =>
+      refuseHiddenCollectives(statesOperation(input), accountId).pipe(
+        Effect.as(input),
+      ),
+  });
 }
 
 function makeMessageSendResult(messageId: string): ChannelMessageSendResult {

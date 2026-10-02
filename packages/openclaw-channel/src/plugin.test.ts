@@ -13,16 +13,17 @@ import type {
 import { live as it } from "@effect/vitest";
 import {
   CollectiveError,
-  CollectiveResponse,
   type HarnessEndpoint,
   type InboundDelivery,
   InboundItem,
   InboundMessage,
   ListenError,
+  MessageAddressInput,
+  parseMessageText,
   type SendInput,
   type SendResult,
 } from "@moltzap/client";
-import { Data, Effect, Encoding, Fiber, Schema, Stream } from "effect";
+import { Data, Effect, Either, Encoding, Fiber, Schema, Stream } from "effect";
 import { join } from "node:path";
 import {
   buildChannelInboundEventContext,
@@ -30,13 +31,11 @@ import {
   type ChannelInboundTurnPlan,
   runChannelInboundEvent,
 } from "openclaw/plugin-sdk/channel-inbound";
-import { Type } from "typebox";
 import { describe, expect, vi, it as vitestIt } from "vitest";
 
 import manifest from "../openclaw.plugin.json" with { type: "json" };
 import { openClawTestStateDirectory } from "../vitest.setup.js";
 import {
-  COLLECTIVE_PARAMETER_VISIBILITY,
   createMoltzapChannelPlugin,
   makeMoltZapChannelConfigJsonSchema,
 } from "./plugin.js";
@@ -143,18 +142,26 @@ describe("OpenClaw HarnessEndpoint adapter", () => {
   );
 });
 
-describe("OpenClaw message tool send action", () => {
-  it(
-    "sends a message tool send with its collective operation and returns ok",
-    messageToolSendCarriesCollective,
+describe("OpenClaw message tool send and reply actions", () => {
+  vitestIt(
+    "offers send and reply with no MoltZap parameters",
+    messageToolOffersSendAndReply,
   );
   it(
-    "sends a message tool send without a collective operation as a multicast",
-    messageToolSendDefaultsToMulticast,
+    "sends plain text and JSON prose as a multicast and returns ok",
+    messageToolSendsPlainText,
   );
   it(
-    "rejects a message tool send whose collective operation is unknown",
-    messageToolSendRejectsUnknownOperation,
+    "sends gather text as a gather and returns its operation id",
+    messageToolSendReturnsGatherId,
+  );
+  it(
+    "sends answer text from reply to the target conversation",
+    messageToolReplySendsAnswer,
+  );
+  it(
+    "refuses an invalid operation text naming the field, sending nothing",
+    messageToolRefusesInvalidOperationText,
   );
   it(
     "rejects a message tool send to an invalid address",
@@ -164,39 +171,27 @@ describe("OpenClaw message tool send action", () => {
     "rejects a message tool send carrying targets instead of reaching only its target",
     messageToolSendRejectsTargets,
   );
-  vitestIt(
-    "offers the send action with an optional collective parameter",
-    messageToolOffersOptionalCollective,
-  );
-  it(
-    "sends a gather and returns its operation id in the tool result",
-    messageToolSendReturnsGatherId,
-  );
-  it(
-    "sends a collectiveResponse without the target or message text",
-    messageToolSendsCollectiveResponse,
-  );
   it(
     "fails the tool with the Client error naming each unreachable member",
     messageToolSendSurfacesCollectiveError,
   );
-  vitestIt(
-    "offers an optional collectiveResponse parameter and the collecting operations",
-    messageToolOffersCollectiveResponse,
-  );
 });
 
-describe("OpenClaw collective item turns", () => {
+describe("OpenClaw operation item turns", () => {
   it(
-    "renders a collective request as a direct turn from the requester",
+    "renders a gather request with its form and the exact answer text",
     rendersCollectiveRequest,
   );
   it(
-    "renders a gather result as one group turn attributed to the collective",
+    "renders an all_gather request in the group's conversation",
+    rendersAllGatherRequest,
+  );
+  it(
+    "renders a gather result as one group turn attributed to MoltZap",
     rendersCollectiveResult,
   );
   it(
-    "renders an operation failure as a turn attributed to the collective",
+    "renders an operation failure as a turn attributed to MoltZap",
     rendersOperationFailure,
   );
 });
@@ -463,75 +458,125 @@ function rejectsInvalidTarget() {
   });
 }
 
-function messageToolSendCarriesCollective() {
-  const fake = makeListeningEndpoint();
-  const plugin = createMoltzapChannelPlugin({
-    harnessEndpointForAccount: () => fake.endpoint,
-  });
-  const controller = new AbortController();
+const COLLECTIVE_ID = `col_${Encoding.encodeBase64Url(new Uint8Array(32).fill(5))}`;
+/** The fake endpoint's default send outcome: a multicast's empty result. */
+const SEND_SUCCEEDS: Effect.Effect<SendResult, CollectiveError> =
+  Effect.succeed({});
 
-  return Effect.gen(function* () {
-    const fiber = yield* connectAccount(plugin, controller.signal);
-    const result = yield* handleSendAction(plugin, {
-      to: "group:alice,bob,carol",
-      message: "hello group",
-      collective: { op: "multicast" },
-    });
+const SLOT_SCHEMA = {
+  type: "object",
+  properties: { slot: { type: "string", enum: ["mon", "tue"] } },
+  required: ["slot"],
+};
 
-    expect(fake.sends).toEqual([
-      {
+function messageToolOffersSendAndReply() {
+  expect(
+    createMoltzapChannelPlugin().actions?.describeMessageTool({
+      cfg: makeConfig(),
+    }),
+  ).toEqual({ actions: ["send", "reply"] });
+}
+
+/** JSON prose without an operation key is plain text, sent whole. */
+function messageToolSendsPlainText() {
+  const prose = '{"note": "slots are mon or tue"}';
+  return withConnectedSend(
+    (plugin) =>
+      handleSendAction(plugin, { to: "agent:nova", message: prose }).pipe(
+        Effect.zipRight(
+          handleSendAction(plugin, {
+            to: "group:alice,bob,carol",
+            message: "hello group",
+          }),
+        ),
+      ),
+    (sends, result) => {
+      expect(sends).toEqual([
+        { to: "agent:nova", text: prose },
+        { to: "group:alice,bob,carol", text: "hello group" },
+      ]);
+      expect(result.details).toEqual({
+        ok: true,
         to: "group:alice,bob,carol",
-        text: "hello group",
-        collective: { op: "multicast" },
-      },
-    ]);
-    expect(result.details).toEqual({ ok: true, to: "group:alice,bob,carol" });
-
-    controller.abort();
-    yield* Effect.timeout(Fiber.join(fiber), "1 second");
-  });
+      });
+    },
+    SEND_SUCCEEDS,
+  );
 }
 
-function messageToolSendDefaultsToMulticast() {
-  const fake = makeListeningEndpoint();
-  const plugin = createMoltzapChannelPlugin({
-    harnessEndpointForAccount: () => fake.endpoint,
-  });
-  const controller = new AbortController();
-
-  return Effect.gen(function* () {
-    const fiber = yield* connectAccount(plugin, controller.signal);
-    yield* handleSendAction(plugin, { to: "agent:nova", message: "hello" });
-
-    expect(fake.sends).toEqual([{ to: "agent:nova", text: "hello" }]);
-
-    controller.abort();
-    yield* Effect.timeout(Fiber.join(fiber), "1 second");
-  });
+function messageToolSendReturnsGatherId() {
+  return withConnectedSend(
+    (plugin) =>
+      handleSendAction(plugin, {
+        to: "group:alice,bob,carol",
+        message: JSON.stringify({
+          gather: "Which day?",
+          deadline: 300,
+          requestedSchema: SLOT_SCHEMA,
+        }),
+      }),
+    (sends, result) => {
+      expect(sends).toEqual([
+        {
+          to: "group:alice,bob,carol",
+          text: "Which day?",
+          collective: {
+            op: "gather",
+            deadline: 300,
+            requestedSchema: SLOT_SCHEMA,
+          },
+        },
+      ]);
+      expect(result.details).toEqual({
+        ok: true,
+        to: "group:alice,bob,carol",
+        operationId: COLLECTIVE_ID,
+      });
+    },
+    Effect.succeed({ operationId: collectiveId() }),
+  );
 }
 
-function messageToolSendRejectsUnknownOperation() {
-  const fake = makeListeningEndpoint();
-  const plugin = createMoltzapChannelPlugin({
-    harnessEndpointForAccount: () => fake.endpoint,
+function messageToolReplySendsAnswer() {
+  return withConnectedSend(
+    (plugin) =>
+      handleMessageAction(plugin, "reply", {
+        to: "agent:alice",
+        message: '{"action":"accept","content":{"slot":"mon"}}',
+      }),
+    (sends) => {
+      expect(sends).toEqual([
+        {
+          to: "agent:alice",
+          collectiveResponse: { action: "accept", content: { slot: "mon" } },
+        },
+      ]);
+    },
+    SEND_SUCCEEDS,
+  );
+}
+
+function messageToolRefusesInvalidOperationText() {
+  const to = Schema.decodeUnknownSync(MessageAddressInput)(
+    "group:alice,bob,carol",
+  );
+  const message = JSON.stringify({
+    all_gather: "Which day?",
+    deadline: 0,
+    requestedSchema: SLOT_SCHEMA,
   });
-  const controller = new AbortController();
-
-  return Effect.gen(function* () {
-    const fiber = yield* connectAccount(plugin, controller.signal);
-    const failure = yield* handleSendAction(plugin, {
-      to: "agent:nova",
-      message: "hello",
-      collective: { op: "broadcast" },
-    }).pipe(Effect.flip);
-
-    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The closed failure reason is what the model reads back from the tool.
-    expect(failure.detail).toContain("invalid-operation");
-    expect(fake.sends).toEqual([]);
-
-    controller.abort();
-    yield* Effect.timeout(Fiber.join(fiber), "1 second");
+  const refusal = Either.match(parseMessageText(to, message), {
+    onLeft: (error) => error.message,
+    onRight: () => "the parser accepted the text",
   });
+  return withConnectedSend(
+    (plugin) => handleSendAction(plugin, { to, message }).pipe(Effect.flip),
+    (sends, failure) => {
+      expect(failure.detail).toContain(refusal);
+      expect(sends).toEqual([]);
+    },
+    SEND_SUCCEEDS,
+  );
 }
 
 /**
@@ -555,113 +600,18 @@ function messageToolSendRejectsTargets() {
 }
 
 function messageToolSendRejectsInvalidAddress() {
-  const fake = makeListeningEndpoint();
-  const plugin = createMoltzapChannelPlugin({
-    harnessEndpointForAccount: () => fake.endpoint,
-  });
-  const controller = new AbortController();
-
-  return Effect.gen(function* () {
-    const fiber = yield* connectAccount(plugin, controller.signal);
-    const failure = yield* handleSendAction(plugin, {
-      to: "nova",
-      message: "hello",
-    }).pipe(Effect.flip);
-
-    // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The closed failure reason is what the model reads back from the tool.
-    expect(failure.detail).toContain("invalid-address");
-    expect(fake.sends).toEqual([]);
-
-    controller.abort();
-    yield* Effect.timeout(Fiber.join(fiber), "1 second");
-  });
-}
-
-function messageToolOffersOptionalCollective() {
-  const discovery = createMoltzapChannelPlugin().actions?.describeMessageTool({
-    cfg: makeConfig(),
-  });
-  const schema = discovery?.schema;
-  if (schema === undefined || schema === null || Array.isArray(schema)) {
-    throw new Error("expected one message tool schema contribution");
-  }
-
-  expect(discovery?.actions).toEqual(["send"]);
-  expect(schema.properties.collective).toMatchObject({
-    anyOf: [
-      { properties: { op: { type: "string", enum: ["multicast"] } } },
-      {},
-    ],
-  });
-  expect(Type.Object(schema.properties).required ?? []).toEqual([]);
-}
-
-const COLLECTIVE_ID = `col_${Encoding.encodeBase64Url(new Uint8Array(32).fill(5))}`;
-const SLOT_SCHEMA = {
-  type: "object",
-  properties: { slot: { type: "string", enum: ["mon", "tue"] } },
-  required: ["slot"],
-};
-
-function messageToolSendReturnsGatherId() {
-  const fake = makeEndpoint(
-    Stream.never,
-    [],
-    Effect.succeed({ operationId: collectiveId() }),
+  return withConnectedSend(
+    (plugin) =>
+      handleSendAction(plugin, { to: "nova", message: "hello" }).pipe(
+        Effect.flip,
+      ),
+    (sends, failure) => {
+      // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The closed failure reason is what the model reads back from the tool.
+      expect(failure.detail).toContain("invalid-address");
+      expect(sends).toEqual([]);
+    },
+    SEND_SUCCEEDS,
   );
-  const plugin = createMoltzapChannelPlugin({
-    harnessEndpointForAccount: () => fake.endpoint,
-  });
-  const controller = new AbortController();
-  const collective = {
-    op: "gather",
-    deadline: 300,
-    requestedSchema: SLOT_SCHEMA,
-  };
-
-  return Effect.gen(function* () {
-    const fiber = yield* connectAccount(plugin, controller.signal);
-    const result = yield* handleSendAction(plugin, {
-      to: "group:alice,bob,carol",
-      message: "Which day?",
-      collective,
-    });
-
-    expect(fake.sends).toEqual([
-      { to: "group:alice,bob,carol", text: "Which day?", collective },
-    ]);
-    expect(result.details).toEqual({
-      ok: true,
-      to: "group:alice,bob,carol",
-      operationId: COLLECTIVE_ID,
-    });
-
-    controller.abort();
-    yield* Effect.timeout(Fiber.join(fiber), "1 second");
-  });
-}
-
-function messageToolSendsCollectiveResponse() {
-  const fake = makeListeningEndpoint();
-  const plugin = createMoltzapChannelPlugin({
-    harnessEndpointForAccount: () => fake.endpoint,
-  });
-  const controller = new AbortController();
-  const collectiveResponse = { id: COLLECTIVE_ID, action: "decline" };
-
-  return Effect.gen(function* () {
-    const fiber = yield* connectAccount(plugin, controller.signal);
-    yield* handleSendAction(plugin, {
-      to: "agent:nova",
-      message: "declining",
-      collectiveResponse,
-    });
-
-    expect(fake.sends).toEqual([{ collectiveResponse }]);
-
-    controller.abort();
-    yield* Effect.timeout(Fiber.join(fiber), "1 second");
-  });
 }
 
 function messageToolSendSurfacesCollectiveError() {
@@ -683,45 +633,44 @@ function messageToolSendSurfacesCollectiveError() {
       ],
     },
   });
-  const fake = makeEndpoint(Stream.never, [], Effect.fail(refusal));
+  return withConnectedSend(
+    (plugin) =>
+      handleSendAction(plugin, {
+        to: "group:alice,bob,carol",
+        message: JSON.stringify({
+          gather: "Which day?",
+          deadline: 60,
+          requestedSchema: SLOT_SCHEMA,
+        }),
+      }).pipe(Effect.flip),
+    (sends, failure) => {
+      expect(failure.detail).toContain(refusal.message);
+      expect(sends).toHaveLength(1);
+    },
+    Effect.fail(refusal),
+  );
+}
+
+/**
+ * Runs one message tool action against a connected account whose endpoint
+ * returns `result`, and hands the outcome and the recorded sends to `check`.
+ */
+function withConnectedSend<A, E>(
+  run: (plugin: MoltZapPlugin) => Effect.Effect<A, E | OpenClawTestError>,
+  check: (sends: readonly SendInput[], outcome: A) => void,
+  result: Effect.Effect<SendResult, CollectiveError>,
+) {
+  const fake = makeEndpoint(Stream.never, [], result);
   const plugin = createMoltzapChannelPlugin({
     harnessEndpointForAccount: () => fake.endpoint,
   });
   const controller = new AbortController();
-
   return Effect.gen(function* () {
     const fiber = yield* connectAccount(plugin, controller.signal);
-    const failure = yield* handleSendAction(plugin, {
-      to: "group:alice,bob,carol",
-      message: "Which day?",
-      collective: { op: "gather", deadline: 60, requestedSchema: SLOT_SCHEMA },
-    }).pipe(Effect.flip);
-
-    expect(failure.detail).toContain(refusal.message);
-
+    const outcome = yield* run(plugin);
+    check(fake.sends, outcome);
     controller.abort();
     yield* Effect.timeout(Fiber.join(fiber), "1 second");
-  });
-}
-
-function messageToolOffersCollectiveResponse() {
-  const discovery = createMoltzapChannelPlugin().actions?.describeMessageTool({
-    cfg: makeConfig(),
-  });
-  const schema = discovery?.schema;
-  if (schema === undefined || schema === null || Array.isArray(schema)) {
-    throw new Error("expected one message tool schema contribution");
-  }
-
-  expect(schema.visibility).toBe(COLLECTIVE_PARAMETER_VISIBILITY);
-  expect(schema.properties.collectiveResponse).toMatchObject({
-    anyOf: [
-      { properties: { action: { enum: ["accept"] } } },
-      { properties: { action: { enum: ["decline", "cancel"] } } },
-    ],
-  });
-  expect(schema.properties.collective).toMatchObject({
-    anyOf: [{}, { properties: { op: { enum: ["gather", "all_gather"] } } }],
   });
 }
 
@@ -742,16 +691,39 @@ function rendersCollectiveRequest() {
 
     expect(call.ctx).toMatchObject({
       Body: [
-        `MoltZap collective request ${COLLECTIVE_ID} from agent:alice, open until 2026-09-30T12:00:00.000Z.`,
+        "gather from agent:alice, open until 2026-09-30T12:00:00.000Z.",
         "Question: Which day?",
-        `Answer form (requestedSchema): ${JSON.stringify(SLOT_SCHEMA)}`,
-        `Answer once with the message tool's send action and collectiveResponse {"id":"${COLLECTIVE_ID}","action":"accept","content":{...}} matching the form, or {"id":"${COLLECTIVE_ID}","action":"decline"}.`,
+        `Form: ${JSON.stringify(SLOT_SCHEMA)}`,
+        'Answer with: {"action":"accept","content":{...}} where content matches the form, or {"action":"decline"}',
+        "Send the answer once as the whole message text, with the message tool's reply action or send to agent:alice.",
       ].join("\n"),
       ChatType: "direct",
       From: "agent:alice",
       MessageSid: postId(4),
     });
   });
+}
+
+function rendersAllGatherRequest() {
+  const [from, group] = ["agent:alice", "group:alice,bob,carol"];
+  const item = Schema.decodeUnknownSync(InboundItem)({
+    kind: "collectiveRequest",
+    id: COLLECTIVE_ID,
+    postId: postId(4),
+    from,
+    to: group,
+    question: "Which day?",
+    requestedSchema: SLOT_SCHEMA,
+    deadlineAt: Date.UTC(2026, 8, 30, 12),
+  });
+
+  return runItemTurn(item).pipe(
+    Effect.tap(({ ctx }) => {
+      expect(ctx).toMatchObject({ ChatType: "group", ChatId: group });
+      expect(ctx.Body).toContain(`all_gather from ${from} to ${group}, open`);
+      expect(ctx.Body).toContain(`send to ${group}.`);
+    }),
+  );
 }
 
 function rendersCollectiveResult() {
@@ -774,13 +746,13 @@ function rendersCollectiveResult() {
 
     expect(call.ctx).toMatchObject({
       Body: [
-        `MoltZap collective result ${COLLECTIVE_ID} for the question sent to group:alice,bob,carol: Which day?`,
+        "gather result for the question sent to group:alice,bob,carol: Which day?",
         '- agent:bob: answered {"slot":"mon"}',
-        "- agent:carol: no answer by the deadline",
+        "- agent:carol: no answer",
       ].join("\n"),
       ChatId: "group:alice,bob,carol",
       ChatType: "group",
-      SenderName: "MoltZap collective",
+      SenderName: "MoltZap",
       MessageSid: `${COLLECTIVE_ID}:result`,
     });
   });
@@ -791,16 +763,16 @@ function rendersOperationFailure() {
     kind: "operationFailed",
     id: COLLECTIVE_ID,
     to: "agent:alice",
-    error: "collective failed: this request's deadline has passed",
+    error: `operation ${COLLECTIVE_ID} failed: the request in this conversation has passed its deadline`,
   });
 
   return Effect.gen(function* () {
     const call = yield* runItemTurn(item);
 
     expect(call.ctx).toMatchObject({
-      Body: "MoltZap operation failed: collective failed: this request's deadline has passed",
+      Body: `MoltZap: operation ${COLLECTIVE_ID} failed: the request in this conversation has passed its deadline`,
       ChatId: "agent:alice",
-      SenderName: "MoltZap collective",
+      SenderName: "MoltZap",
       MessageSid: `${COLLECTIVE_ID}:failed`,
     });
   });
@@ -821,11 +793,18 @@ function runItemTurn(item: InboundItem) {
   ).pipe(Effect.map(() => requireDispatchCall(calls, 0)));
 }
 
-function collectiveId() {
-  return Schema.decodeUnknownSync(CollectiveResponse)({
+/** The test's operation id, branded through the one public schema that carries it. */
+function collectiveId(): CollectiveError["id"] {
+  const item = Schema.decodeUnknownSync(InboundItem)({
+    kind: "operationFailed",
     id: COLLECTIVE_ID,
-    action: "decline",
-  }).id;
+    to: "agent:alice",
+    error: "unused",
+  });
+  if (item.kind !== "operationFailed") {
+    throw new Error("expected an operationFailed item");
+  }
+  return item.id;
 }
 
 function connectAccount(plugin: MoltZapPlugin, abortSignal: AbortSignal) {
@@ -849,6 +828,14 @@ function handleSendAction(
   plugin: MoltZapPlugin,
   params: ChannelMessageActionContext["params"],
 ) {
+  return handleMessageAction(plugin, "send", params);
+}
+
+function handleMessageAction(
+  plugin: MoltZapPlugin,
+  action: "send" | "reply",
+  params: ChannelMessageActionContext["params"],
+) {
   const handleAction = plugin.actions?.handleAction;
   if (handleAction === undefined) {
     return Effect.fail(testError("handleAction", "missing action handler"));
@@ -857,7 +844,7 @@ function handleSendAction(
     try: () =>
       handleAction({
         channel: "moltzap",
-        action: "send",
+        action,
         cfg: makeConfig(),
         accountId: ACCOUNT_ID,
         params,
@@ -1131,10 +1118,6 @@ function makeInboundEndpoint(
 function makeListeningEndpoint(): FakeHarnessEndpoint {
   return makeEndpoint(Stream.never, []);
 }
-
-/** The fake endpoint's default send outcome: a multicast's empty result. */
-const SEND_SUCCEEDS: Effect.Effect<SendResult, CollectiveError> =
-  Effect.succeed({});
 
 function makeEndpoint(
   messages: HarnessEndpoint["messages"],

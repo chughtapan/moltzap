@@ -6,6 +6,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import {
   Client,
   fromJsonSchema,
+  type JsonSchemaType,
   ProtocolError,
   ProtocolErrorCode,
   StreamableHTTPClientTransport,
@@ -574,17 +575,44 @@ const invalidSendCalls = [
 ];
 
 const checksSemanticSendSchema = (client: Client) =>
-  Effect.tryPromise(() => client.listTools()).pipe(
-    Effect.tap((catalog) =>
-      Effect.sync(() => {
-        const schema = catalog.tools.find(
-          (tool) => tool.name === "send_message",
-        )?.inputSchema;
-        expect(schema?.additionalProperties).toBe(false);
-        expect(Object.keys(schema?.properties ?? {})).toEqual(["input"]);
-      }),
-    ),
-  );
+  Effect.tryPromise(async () => {
+    const catalog = await client.listTools();
+    const schema = catalog.tools.find(
+      (tool) => tool.name === "send_message",
+    )?.inputSchema;
+    if (schema === undefined) {
+      throw new Error("Expected the semantic send schema");
+    }
+    expect(schema.additionalProperties).toBe(false);
+    expect(Object.keys(schema.properties ?? {})).toEqual(["input"]);
+    const validator = fromJsonSchema(
+      // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The real server emits JSONSchema.make output; the SDK catalog type widens its nested properties to JSON values.
+      schema as JsonSchemaType,
+    );
+    for (const input of [
+      {
+        to: "group:alice,bob,carol",
+        text: "Ready?",
+        collective: {
+          op: "gather",
+          deadline: 600,
+          requestedSchema: {
+            type: "object",
+            properties: { ready: { type: "boolean", default: false } },
+            required: ["ready"],
+          },
+        },
+      },
+      {
+        to: "agent:bob",
+        collectiveResponse: { action: "accept", content: { ready: true } },
+      },
+    ]) {
+      expect(await validator["~standard"].validate({ input })).toHaveProperty(
+        "value",
+      );
+    }
+  });
 
 /** Model arguments and malformed metadata must fail before any send reaches execution. */
 function rejectsSendBookkeepingArguments() {

@@ -265,7 +265,7 @@ const CollectiveResponse = Schema.Union(
   exactStruct({
     kind: Schema.Literal("response"),
     id: CollectiveId,
-    action: Schema.Literal("decline", "cancel"),
+    action: Schema.Literal("decline"),
   }),
 );
 /** A validated collective response. */

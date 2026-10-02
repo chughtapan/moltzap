@@ -147,10 +147,8 @@ const makeSendOperation =
                 ...outcome,
               }),
           }),
-          Effect.map((outcome) =>
-            outcome.operationId === undefined
-              ? {}
-              : { operationId: outcome.operationId },
+          Effect.map(({ operationId }) =>
+            operationId === undefined ? {} : { operationId },
           ),
         );
     });

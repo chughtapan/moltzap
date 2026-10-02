@@ -89,7 +89,8 @@ const message = () =>
   });
 
 const response = {
-  collectiveResponse: { id, action: "accept", content: { answer: "yes" } },
+  to: sender,
+  collectiveResponse: { action: "accept", content: { answer: "yes" } },
 } as const;
 const makeCollectives = (counter: { count: number }, scope: Scope.Scope) =>
   makeCollectiveOperations({
@@ -168,7 +169,7 @@ const checkRecoveredRequest = (
         .pipe(Effect.flip);
       expect(rejected).toMatchObject({
         _tag: "CollectiveError",
-        failure: { kind: "request-unknown" },
+        failure: { kind: "request-none" },
       });
       expect(counter.count).toBe(1);
       yield* recoverRuntimeInbox(store);

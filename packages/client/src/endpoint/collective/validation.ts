@@ -141,8 +141,6 @@ export const outcomeOfResponse = (
       );
     case "decline":
       return Effect.succeed({ kind: "declined" });
-    case "cancel":
-      return Effect.succeed({ kind: "cancelled" });
     default: {
       const exhaustive: never = response;
       return exhaustive;

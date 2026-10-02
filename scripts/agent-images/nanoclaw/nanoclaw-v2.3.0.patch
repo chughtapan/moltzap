@@ -79,7 +79,7 @@ index 5bf3fc7..77da6b3 100644
    lines.push('');
    lines.push(
 diff --git a/container/agent-runner/src/mcp-tools/core.ts b/container/agent-runner/src/mcp-tools/core.ts
-index 1bf9f2c..2bf7412 100644
+index 1bf9f2c..1acbbf3 100644
 --- a/container/agent-runner/src/mcp-tools/core.ts
 +++ b/container/agent-runner/src/mcp-tools/core.ts
 @@ -9,7 +9,7 @@
@@ -102,7 +102,7 @@ index 1bf9f2c..2bf7412 100644
    if (!dest) return { error: `Unknown destination "${to}". Known: ${destinationList()}` };
    if (dest.type === 'channel') {
      // If the destination is the same channel the session is bound to,
-@@ -70,15 +71,25 @@ function resolveRouting(
+@@ -70,13 +71,13 @@ function resolveRouting(
  export const sendMessage: McpToolDefinition = {
    tool: {
      name: 'send_message',
@@ -117,41 +117,16 @@ index 1bf9f2c..2bf7412 100644
 +          description: 'Destination name or explicit MoltZap agent: or group: address.',
          },
          text: { type: 'string', description: 'Message content' },
-+        collective: {
-+          type: 'object',
-+          description:
-+            'Optional MoltZap collective operation for an agent: or group: address; the moltzap-collectives skill describes each. Omit it for a multicast: text reaches every agent to names. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} sends text as a question to each member of to, privately; when every member has answered or the deadline passes, only you receive one result message listing each member\'s answer, decline, cancel or no answer. {"op":"all_gather","deadline":<seconds>,"requestedSchema":<form>} needs a group: address: every member receives the question in the group, no one sees another\'s answer before the close, and every member, you included, receives the same result message. deadline is a whole number of seconds from now, 1 to 2592000 (30 days). requestedSchema is a flat MCP form: {"type":"object","properties":{...},"required":[...]} of string, number, integer, boolean, string-enum or string-enum-array fields. A refused gather or all_gather arrives later as a MoltZap operation failed message.',
-+        },
-+        collectiveResponse: {
-+          type: 'object',
-+          description:
-+            'Answer a MoltZap collective request once; the moltzap-collectives skill describes it. {"id":<request id>,"action":"accept","content":{...}} with content matching its form, or {"id":<request id>,"action":"decline"} or "cancel" without content. The answer goes back where the request came from; set to to the conversation the request message names. text is not sent, but a short one is required. A refused answer arrives later as a MoltZap operation failed message.',
-+        },
        },
-       required: ['to', 'text'],
-     },
-@@ -88,8 +99,11 @@ export const sendMessage: McpToolDefinition = {
-     const text = args.text as string;
+@@ -89,7 +90,7 @@ export const sendMessage: McpToolDefinition = {
      if (!to) return err(`to is required. Options: ${destinationList()}`);
      if (!text) return err('text is required');
-+    const collective = args.collective === undefined ? {} : { collective: args.collective };
-+    const collectiveResponse =
-+      args.collectiveResponse === undefined ? {} : { collectiveResponse: args.collectiveResponse };
  
 -    const routing = resolveRouting(to);
 +    const routing = resolveRouting(to, findMessageDestination);
      if ('error' in routing) return err(routing.error);
  
      const id = generateId();
-@@ -100,7 +114,7 @@ export const sendMessage: McpToolDefinition = {
-       platform_id: routing.platform_id,
-       channel_type: routing.channel_type,
-       thread_id: routing.thread_id,
--      content: JSON.stringify({ text }),
-+      content: JSON.stringify({ text, ...collective, ...collectiveResponse }),
-     });
- 
-     log(`send_message: #${seq} → ${routing.resolvedName}`);
 diff --git a/container/agent-runner/src/poll-loop.ts b/container/agent-runner/src/poll-loop.ts
 index c7b5de0..6ea44ee 100644
 --- a/container/agent-runner/src/poll-loop.ts

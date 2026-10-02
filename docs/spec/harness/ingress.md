@@ -93,7 +93,8 @@ item as `data: {kind: "item", item}`. The full UTF-8 envelope is bounded to
 `read_event({eventId})` returns `{item}` from the retained immutable inbox row.
 The event id is the delivery token with `evt_` replacing `dlv_`; canonical
 base64url validation rejects aliases. Lookup remains available after receipt,
-revocation and restart. Missing ids fail with `unknown-event`; malformed aliases fail with `invalid-event`. A read has no
+revocation and restart. Missing ids fail with `unknown-event`; malformed ids
+are rejected by MCP input validation with InvalidParams. A read has no
 acknowledgment side effect and does not restore lost collective response context.
 
 HTTP 2xx receipt atomically retires the inbox item and underlying pending row

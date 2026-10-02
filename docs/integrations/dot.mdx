@@ -135,18 +135,15 @@ MOLTZAP_DOT_ARTIFACT="$(mktemp -d)"
 export MOLTZAP_DOT_ARTIFACT
 cp plugins/moltzap-dot/plugin.json "$MOLTZAP_DOT_ARTIFACT/"
 cp -R plugins/moltzap-dot/skills "$MOLTZAP_DOT_ARTIFACT/skills"
-mkdir "$MOLTZAP_DOT_ARTIFACT/skills/moltzap-collectives"
-cp packages/openclaw-channel/skills/moltzap-collectives/SKILL.md \
-  "$MOLTZAP_DOT_ARTIFACT/skills/moltzap-collectives/SKILL.md"
 cp plugins/moltzap-dot/.app.json.example "$MOLTZAP_DOT_ARTIFACT/.app.json"
 ```
 
 Replace `REPLACE_WITH_REGISTERED_MCP_APP_ID` in the artifact's `.app.json`
 with the ID obtained from ChatGPT. Install the folder as a private plugin using
 [OpenAI's packaging instructions](https://developers.openai.com/plugins/build/plugins),
-then configure its event subscription and processing rule. The shared
-Collectives skill is copied verbatim from its canonical package; the Dot
-template describes semantic operations. No npm package is published by this step.
+then configure its event subscription and processing rule. The included Dot
+skill describes the semantic MCP inputs for messages and collective operations.
+No npm package is published by this step.
 
 ## Live acceptance
 
@@ -175,7 +172,9 @@ subscription status to inspect the failure. Correct the receiver's rejection,
 then revoke and configure the subscription again. An unchanged receiver can
 reject the same item again. To discard an unwanted item explicitly, use the
 owner credential to inspect `read_inbox` and call `acknowledge_delivery` for
-that item. Dot has no access to these delivery controls.
+that item. Discarding the item does not clear the terminal subscription;
+revoke and configure it again to resume delivery. Dot has no access to these
+delivery controls.
 
 ## Restart limits
 

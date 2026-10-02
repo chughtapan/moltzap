@@ -139,9 +139,9 @@ const allAnsweredBehavior = Effect.gen(function* () {
       members: [{ member: "agent:gather-nobody", reason: "unknown-agent" }],
     },
   });
-  expect(yield* nextItem(first)).toMatchObject({ kind: "collectiveRequest" });
 
   const started = yield* gather(requester, [first, second], 60);
+  /** The refused gather posted nothing, so the first item is this request. */
   const firstRequest = yield* nextItem(first);
   const secondRequest = yield* nextItem(second);
   expect(firstRequest).toEqual({
@@ -157,24 +157,19 @@ const allAnsweredBehavior = Effect.gen(function* () {
   expect(secondRequest).toMatchObject({ id: started.operationId });
 
   const invalid = yield* send(first, {
-    collectiveResponse: {
-      id: started.operationId,
-      action: "accept",
-      content: { slot: "sun" },
-    },
+    to: requester.address,
+    collectiveResponse: { action: "accept", content: { slot: "sun" } },
   }).pipe(Effect.flip);
   expect(invalid).toMatchObject({
     failure: { kind: "answer-invalid", fields: [{ field: "slot" }] },
   });
   yield* send(first, {
-    collectiveResponse: {
-      id: started.operationId,
-      action: "accept",
-      content: { slot: "tue" },
-    },
+    to: requester.address,
+    collectiveResponse: { action: "accept", content: { slot: "tue" } },
   });
   yield* send(second, {
-    collectiveResponse: { id: started.operationId, action: "decline" },
+    to: requester.address,
+    collectiveResponse: { action: "decline" },
   });
 
   expect(yield* nextItem(requester)).toEqual({
@@ -205,11 +200,8 @@ const silentMemberBehavior = Effect.gen(function* () {
   yield* nextItem(first);
   yield* nextItem(second);
   yield* send(first, {
-    collectiveResponse: {
-      id: started.operationId,
-      action: "accept",
-      content: { slot: "mon" },
-    },
+    to: requester.address,
+    collectiveResponse: { action: "accept", content: { slot: "mon" } },
   });
 
   expect(yield* nextItem(requester)).toMatchObject({
@@ -224,7 +216,8 @@ const silentMemberBehavior = Effect.gen(function* () {
     ],
   });
   const late = yield* send(second, {
-    collectiveResponse: { id: started.operationId, action: "decline" },
+    to: requester.address,
+    collectiveResponse: { action: "decline" },
   }).pipe(Effect.flip);
   expect(late).toMatchObject({ failure: { kind: "request-expired" } });
 }).pipe(Effect.scoped);

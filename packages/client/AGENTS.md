@@ -40,9 +40,8 @@ The final `HarnessEndpoint` has these invariants:
   create new invocations, while an explicit idempotency key binds one invocation
   and retains its observed outcome without replaying uncertain execution;
 - a multicast or response returns only after the local endpoint durably stores
-  the complete certified record, a gather returns its operation id once its
-  request posts are accepted, and an all_gather once its group post is
-  certified;
+  the complete certified record, a gather returns its operation id after its
+  bounded request-post wait, and an all_gather once its group post is certified;
 - inbound deliveries carry items tagged by kind; a multicast or collective
   request item derives from a complete certified record, identifies the
   author and address, and carries no semantic reply authority; results and

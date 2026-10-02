@@ -249,19 +249,16 @@ describe("public all_gather input", () => {
 
 // @agent-code-guard/regression-only: response inputs pin how a member answers a collective request.
 describe("public collective response input", () => {
-  it("decodes a response that names no address", () => {
+  it("decodes a response that names its conversation and no request", () => {
     const input = {
-      collectiveResponse: {
-        id: collectiveId,
-        action: "accept",
-        content: { slot: "mon" },
-      },
+      to: "agent:bob-agent",
+      collectiveResponse: { action: "accept", content: { slot: "mon" } },
     };
 
     expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
   });
 
-  it("rejects a response that also names an address", () => {
+  it("rejects a response that names a request id", () => {
     expect(
       decodingFails(SendInput, {
         to: "agent:bob-agent",
@@ -270,14 +267,19 @@ describe("public collective response input", () => {
     ).toBe(true);
   });
 
+  it("rejects a response without a conversation", () => {
+    expect(
+      decodingFails(SendInput, {
+        collectiveResponse: { action: "decline" },
+      }),
+    ).toBe(true);
+  });
+
   it("rejects content on a decline", () => {
     expect(
       decodingFails(SendInput, {
-        collectiveResponse: {
-          id: collectiveId,
-          action: "decline",
-          content: { slot: "mon" },
-        },
+        to: "agent:bob-agent",
+        collectiveResponse: { action: "decline", content: { slot: "mon" } },
       }),
     ).toBe(true);
   });

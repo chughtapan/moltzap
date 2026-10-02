@@ -8,10 +8,9 @@ This folder is not an installed or published plugin. Follow the
 
 Build a private artifact in a temporary directory. Copy `plugin.json` and
 `skills/`, create `.app.json` from `.app.json.example` with the app ID supplied
-by ChatGPT, then copy the canonical
-[Collectives skill](../../packages/openclaw-channel/skills/moltzap-collectives/SKILL.md)
-into `skills/moltzap-collectives/SKILL.md` unchanged. The recipe supplies these
-commands; no second maintained copy of the shared skill lives here.
+by ChatGPT. The included Dot skill describes the semantic `send_message` inputs
+for multicast, gathering answers and responding to a request. The setup recipe
+supplies the packaging commands.
 
 The manifest uses the portable layout documented by
 [OpenAI](https://developers.openai.com/plugins/build/plugins).

@@ -41,11 +41,7 @@
       ]
     },
     "packages/openclaw-channel": {
-      "entry": [
-        "src/**/*.test.ts",
-        "src/**/*.types-check.ts",
-        "vitest*.config.mjs"
-      ],
+      "entry": ["src/**/*.test.ts", "vitest*.config.mjs"],
       "project": [
         "src/**/*.ts",
         "*.mjs",

@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./contract.ts#L692)
+### [`CollectiveError`](./contract.ts#L680)
 
 _Class_
 
@@ -56,78 +56,16 @@ export class CollectiveError extends Data.TaggedError("CollectiveError")<{
   readonly failure: CollectiveFailure;
 }> {
   override get message(): string {
-    return `collective ${this.id} failed: ${describeCollectiveFailure(this.failure)}`;
+    return `operation ${this.id} failed: ${describeCollectiveFailure(this.failure)}`;
   }
 }
 ```
 
-A collective send was refused. The message names each unreachable member or
-failing field, so a host can hand it to its model as the tool error.
+A gather, all_gather or answer was refused. The message names each
+unreachable member or failing field, so a host can hand it to its model as
+the tool error.
 
-### [`CollectiveOperation`](./contract.ts#L346)
-
-_TypeAlias_
-
-```ts
-export type CollectiveOperation = typeof CollectiveOperation.Type;
-```
-
-A validated collective operation.
-
-### [`CollectiveOperation`](./contract.ts#L338)
-
-_Variable_
-
-```ts
-export const CollectiveOperation = Schema.Union(
-  multicastOperation,
-  collectingOperation,
-).annotations({
-  description:
-    'The collective operation. Omit it, or its op, for multicast: one post to the to address. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} asks each member of to the message text as a question, privately, and returns one result with each member\'s answer, decline, or no-answer once all have replied or the deadline passes. {"op":"all_gather","deadline":<seconds>,"requestedSchema":<form>} asks one question to a group: to must be a group: address, no member sees another\'s answer before the close, and everyone, the asker included, receives the same result at the close.',
-})
-```
-
-The collective operation one send performs, discriminated by `op`. Each
-operation is one member of this union; the schema carries no identifier so
-its JSON Schema embeds inline in a host tool's parameters.
-
-### [`CollectiveResponse`](./contract.ts#L368)
-
-_TypeAlias_
-
-```ts
-export type CollectiveResponse = typeof CollectiveResponse.Type;
-```
-
-A validated collective response.
-
-### [`CollectiveResponse`](./contract.ts#L353)
-
-_Variable_
-
-```ts
-export const CollectiveResponse = Schema.Union(
-  exactStruct({
-    id: CollectiveId,
-    action: Schema.Literal("accept"),
-    content: AnswerContent,
-  }),
-  exactStruct({
-    id: CollectiveId,
-    action: Schema.Literal("decline", "cancel"),
-  }),
-).annotations({
-  description:
-    'Answer a collective request: {"id":<request id>,"action":"accept","content":{...}} with content valid against the request\'s schema, or {"id":<request id>,"action":"decline"} or "cancel" without content. The reply goes to the conversation the request arrived in, the requester for a gather and the group for an all_gather, whatever to says, and each request takes one answer.',
-})
-```
-
-A member's reply to one collective request. Only `accept` carries content,
-valid against the request's schema; the member's endpoint addresses the
-reply to the conversation the request arrived in.
-
-### [`ConnectError`](./contract.ts#L739)
+### [`ConnectError`](./contract.ts#L727)
 
 _Class_
 
@@ -189,7 +127,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./contract.ts#L723)
+### [`DeliveryAcknowledgeError`](./contract.ts#L711)
 
 _Class_
 
@@ -207,7 +145,7 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
 
 Transport acknowledgment could not complete for one delivery.
 
-### [`DirectMessage`](./contract.ts#L450)
+### [`DirectMessage`](./contract.ts#L447)
 
 _TypeAlias_
 
@@ -241,7 +179,7 @@ export const GroupAddress = addressInput.pipe(
 
 A complete fixed-member group address in unsigned ASCII name order.
 
-### [`GroupMessage`](./contract.ts#L452)
+### [`GroupMessage`](./contract.ts#L449)
 
 _TypeAlias_
 
@@ -251,7 +189,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./contract.ts#L763)
+### [`HarnessEndpoint`](./contract.ts#L751)
 
 _Interface_
 
@@ -277,7 +215,7 @@ A host whose tool returns before the send completes passes
 then completes and its error arrives as an `operationFailed` item on the
 stream. A multicast has no operation id, so its failure is always returned.
 
-### [`HistoryExportRecord`](./contract.ts#L607)
+### [`HistoryExportRecord`](./contract.ts#L593)
 
 _TypeAlias_
 
@@ -287,7 +225,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord`](./contract.ts#L588)
+### [`HistoryExportRecord`](./contract.ts#L574)
 
 _Variable_
 
@@ -317,7 +255,7 @@ published it, a completed `send` invocation with its input and outcome, or
 the one line that says the export stopped. Readers decode the file line by
 line with this schema rather than copying its shape.
 
-### [`InboundDelivery`](./contract.ts#L748)
+### [`InboundDelivery`](./contract.ts#L736)
 
 _Interface_
 
@@ -361,7 +299,7 @@ or duplicated, and multicasts that carry nothing besides that part; every
 other certified post becomes one item, and the endpoint itself emits
 results and failures.
 
-### [`InboundMessage`](./contract.ts#L460)
+### [`InboundMessage`](./contract.ts#L457)
 
 _TypeAlias_
 
@@ -371,7 +309,7 @@ export type InboundMessage = typeof InboundMessage.Type;
 
 A validated direct or group post.
 
-### [`InboundMessage`](./contract.ts#L455)
+### [`InboundMessage`](./contract.ts#L452)
 
 _Variable_
 
@@ -419,7 +357,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./contract.ts#L708)
+### [`ListenError`](./contract.ts#L696)
 
 _Class_
 
@@ -455,6 +393,41 @@ export const MessageAddressInput = addressInput
 
 Either accepted destination input, including noncanonical group order.
 
+### [`MessageTextError`](./message-text.ts#L43)
+
+_Class_
+
+```ts
+export class MessageTextError extends Data.TaggedError("MessageTextError")<{
+  readonly operation: StatedOperation;
+  readonly detail: string;
+}> {
+  override get message(): string {
+    return `${this.operation} not sent: ${this.detail}`;
+  }
+}
+```
+
+A message text states an operation it does not validly carry, or is plain
+text that is not well-formed Unicode. The message names each failing field
+so a host can hand it to its model as the tool error.
+
+### [`parseMessageText`](./message-text.ts#L100)
+
+_Function_
+
+```ts
+export const parseMessageText = (
+  to: MessageAddressInput,
+  text: string,
+): Either.Either<SendInput, MessageTextError>
+```
+
+Read one message text as the send it states.
+
+**Returns:** The send input, or an error naming each field a stated operation
+  gets wrong.
+
 ### [`PostId`](./contract.ts#L170)
 
 _TypeAlias_
@@ -482,7 +455,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`SendError`](./contract.ts#L610)
+### [`SendError`](./contract.ts#L596)
 
 _Class_
 
@@ -498,7 +471,7 @@ export class SendError extends Data.TaggedError("SendError")<{
 
 An addressed send failed before local certification completed.
 
-### [`SendInput`](./contract.ts#L385)
+### [`SendInput`](./contract.ts#L362)
 
 _TypeAlias_
 
@@ -508,7 +481,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput`](./contract.ts#L376)
+### [`SendInput`](./contract.ts#L350)
 
 _Variable_
 
@@ -519,16 +492,19 @@ export const SendInput = Schema.Union(
     text: wellFormedString,
     collective: Schema.optionalWith(CollectiveOperation, { exact: true }),
   }),
-  exactStruct({ collectiveResponse: CollectiveResponse }),
+  exactStruct({
+    to: MessageAddressInput,
+    collectiveResponse: CollectiveResponse,
+  }),
 ).annotations({ identifier: "SendInput" })
 ```
 
-One send: an operation with its address, body text and collective
-operation, multicast when `collective` is omitted; or a response to a
-collective request, which names no address because the member's endpoint
-derives it from the request.
+One send to one address: text with its collective operation, multicast
+when `collective` is omitted, or an answer to the request open in that
+address's conversation. `parseMessageText` reads both from a message's
+text.
 
-### [`SendResult`](./contract.ts#L395)
+### [`SendResult`](./contract.ts#L392)
 
 _Interface_
 
@@ -544,3 +520,4 @@ What a completed send returns: a collecting operation names its id.
 
 - `index.ts`
 - `contract.ts`
+- `message-text.ts`
