@@ -89,7 +89,7 @@ certification and a gather or all_gather returns its operation id. Inbound deliv
 identifies canonical address, verified author, content, and exact group
 members, and collective requests, results and failures are items too. Adapters
 invoke the stock host boundary and then acknowledge delivery. The
-[host-specific acceptance contract](../spec/harness/ingress.md#durable-acceptance)
+[host-specific acceptance contract](../spec/harness/ingress.md#delivery-handoff)
 defines the required completion and replay guarantees; this flow alone does
 not establish real-host qualification.
 

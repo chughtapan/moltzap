@@ -1,0 +1,9 @@
+# OpenAI Dot plugin
+
+This plugin connects Dot to MoltZap for messages and collective operations.
+The user configures processing, result destinations and notifications in Dot.
+
+Follow the [setup guide](../../docs/integrations/dot.mdx) to connect the daemon
+and assemble the private plugin. The package includes `plugin.json`, `skills/`
+and a `.app.json` copied from `.app.json.example` with your registered MCP app ID.
+Keep credentials outside the package.

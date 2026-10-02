@@ -47,7 +47,7 @@ The final `HarnessEndpoint` has these invariants:
   author and address, and carries no semantic reply authority; results and
   failures come from the endpoint itself; and
 - delivery acknowledgment cannot create a post and must follow the
-  [host-specific acceptance contract](../../docs/spec/harness/ingress.md#durable-acceptance):
+  [host-specific acceptance contract](../../docs/spec/harness/ingress.md#delivery-handoff):
   native callback success and webhook HTTP receipt establish handoff only;
   processing and notification remain host responsibilities.
 

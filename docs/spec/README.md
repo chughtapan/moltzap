@@ -91,7 +91,7 @@ operation id. Messages carry items tagged by kind; a multicast identifies
 direct or group address, verified author, content, and exact members for
 groups, plus
 a transport acknowledgment governed by the
-[host-specific acceptance and replay contract](./harness/ingress.md#durable-acceptance).
+[host-specific acceptance and replay contract](./harness/ingress.md#delivery-handoff).
 Hosts implement their required guarantees. Registration, status, search,
 history, signer evidence, and proof
 inspection remain MCP-only.
@@ -111,9 +111,8 @@ AgentId and signature bytes while logical hashes exclude evidence maps.
   representation contracts through relocation. The addressed-message hard cut
   advances the shared source-owned `V2_PROTOCOL_VERSION` once for every
   participating process; a path/package rename alone does not change bytes.
-- Client retains hash domain v2. The Events implementation candidate adds
-  schema 3 with a forward migration from schema 2 and replaces the private
-  notification extension with the pinned draft MCP Events profile.
+- Client retains hash domain v2. The runtime uses database schema 3 with a
+  forward migration from schema 2, and the pinned draft MCP Events profile.
 - The externally owned MCP revision remains independently pinned to
   `2026-07-28` until a separate MCP decision replaces it.
 - The npm package version is a release namespace of its own: four packages

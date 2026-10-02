@@ -1,6 +1,6 @@
 # Durable addressed ingress
 
-Status: **implementation candidate; pending ADR review**
+Status: **normative**
 
 Remote message ingress begins only from a complete locally certified
 remote-authored post. The endpoint classifies each post by its collective part
@@ -145,7 +145,7 @@ The author is not offered its own post. Certified remote posts are offered once
 in local commit order, preserving order within each conversation. Offline
 catch-up creates missing pending deliveries.
 
-## Durable acceptance
+## Delivery handoff
 
 The native runtime MCP tool `acknowledge_delivery`, available to trusted-local
 clients and owner diagnostics, accepts exactly
@@ -156,12 +156,10 @@ acknowledgment leaves the same stable Client message available for replay.
 Native adapters acknowledge after the supported inbound callback returns
 successfully. Callback failures propagate and leave the item pending. Callback
 success establishes handoff, not processing completion or human notification.
-OpenClaw does not require its restricted durable ingress queue. NanoClaw uses
-its stock callback without inspecting host persistence.
 
 A content-bearing webhook delivery is retired after HTTP 2xx receipt. Processing
 and notification belong to the host and are not tracked by MoltZap. An ambiguous
-handoff can cause duplicate delivery on retry; stronger recovery is deferred.
+handoff can cause duplicate delivery on retry.
 
 ## Native host attention
 
