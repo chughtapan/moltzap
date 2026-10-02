@@ -100,7 +100,11 @@ interface WebhookRuntime {
   readonly clock: Clock.Clock;
   readonly gate: Effect.Semaphore;
   readonly deliveryGate: Effect.Semaphore;
-  verified?: { readonly id: string; readonly until: number };
+  verified?: {
+    readonly id: string;
+    readonly secretDigest: string;
+    readonly until: number;
+  };
   generation: number;
   state: State;
 }
@@ -142,8 +146,12 @@ const verify = (
   input: { readonly id: string; readonly url: string; readonly secret: string },
 ) =>
   Effect.gen(function* () {
+    const secretDigest = createHash("sha256")
+      .update(input.secret)
+      .digest("hex");
     if (
       runtime.verified?.id === input.id &&
+      runtime.verified.secretDigest === secretDigest &&
       runtime.verified.until > now(runtime)
     ) {
       return;
@@ -172,6 +180,7 @@ const verify = (
     }
     runtime.verified = {
       id: input.id,
+      secretDigest,
       until: now(runtime) + verificationLifetime,
     };
   });

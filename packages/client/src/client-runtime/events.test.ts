@@ -4,6 +4,7 @@ import {
   createMcpHandler,
   fromJsonSchema,
   McpServer,
+  ProtocolError,
   type ServerContext,
   SUBSCRIPTION_ID_META_KEY,
 } from "@modelcontextprotocol/server";
@@ -19,6 +20,7 @@ import { describe, expect, it } from "vitest";
 import { INBOX_PENDING_EVENT } from "../harness-mcp-contract.js";
 import { acquireHarnessMcpHttpServer } from "../harness-mcp-http.js";
 import { inboxWakeups } from "./events.js";
+import { acquireHarnessEndpoint } from "./index.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Closed transport errors and draft notification names are interoperability expectations. */
 
@@ -105,6 +107,41 @@ const boundsInitialHeaders = () =>
     ).pipe(Effect.provide(TestContext.TestContext)),
   );
 
+const classifiesCatalogFailures = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        for (const code of [-32601, -32603]) {
+          const handler = createMcpHandler(
+            () => {
+              const capabilities = { events: {}, logging: {} };
+              const server = new McpServer(
+                { name: "catalog-failure", version: "1" },
+                { capabilities },
+              );
+              server.server.setRequestHandler(
+                "events/list",
+                { params: fromJsonSchema({ type: "object" }) },
+                () => {
+                  throw new ProtocolError(code, "Catalog unavailable");
+                },
+              );
+              return server;
+            },
+            { legacy: "reject", responseMode: "auto" },
+          );
+          const endpoint = yield* endpointFor(handler);
+          const error = yield* acquireHarnessEndpoint(endpoint).pipe(
+            Effect.flip,
+          );
+          expect(error.reason).toBe(
+            code === -32601 ? "incompatible-daemon" : "transport-failed",
+          );
+        }
+      }),
+    ),
+  );
+
 const sendFrames = (
   context: ServerContext,
   receipts: ReadonlyArray<Deferred.Deferred<undefined>>,
@@ -167,6 +204,10 @@ const continuesAfterRecoverableErrors = () =>
 
 // @agent-code-guard/regression-only: these real HTTP transcripts pin external framing and bounded startup, without mocking transport methods.
 describe("native MCP Events reception", () => {
+  it(
+    "distinguishes an unsupported catalog from a transient catalog failure",
+    classifiesCatalogFailures,
+  );
   it(
     "bounds a connection whose server withholds HTTP headers",
     boundsInitialHeaders,

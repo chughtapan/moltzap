@@ -94,6 +94,9 @@ interface ReasonPayload {
  * @returns A closed send failure without transport details.
  */
 function sendFailure(cause: unknown): SendError | CollectiveError {
+  if (ProtocolError.isInstance(cause) && cause.code === -32602) {
+    return new SendError({ reason: "content-invalid" });
+  }
   const data: unknown = ProtocolError.isInstance(cause) ? cause.data : cause;
   return decodeHarnessSendErrorData(data).pipe(
     Effect.map((decoded) =>
@@ -233,7 +236,13 @@ function supportsInboxEvents(
       client.request({ method: "events/list", params: {} }, eventsListOutput, {
         signal,
       }),
-    catch: () => new ConnectError({ reason: "incompatible-daemon" }),
+    catch: (cause) =>
+      new ConnectError({
+        reason:
+          ProtocolError.isInstance(cause) && cause.code === -32601
+            ? "incompatible-daemon"
+            : "transport-failed",
+      }),
   }).pipe(
     Effect.map((catalog) =>
       catalog.events.some(
@@ -307,10 +316,17 @@ const unseenDeliveries = (
   return deliveries;
 };
 
+/**
+ * Prune completed snapshots so acknowledged history cannot accumulate in a live listener.
+ * @param client Scoped connection to the owning daemon.
+ * @param seen Tokens already offered by this listener, retained through pending reads.
+ * @returns New deliveries from one complete bounded inbox snapshot.
+ */
 function pendingInbox(
   client: Client,
   seen: Set<DeliveryToken>,
 ): Stream.Stream<InboundDelivery, ListenError> {
+  const retained = new Set<DeliveryToken>();
   const page = (cursor?: string): Stream.Stream<InboundDelivery, ListenError> =>
     Stream.unwrap(
       Effect.tryPromise({
@@ -326,6 +342,9 @@ function pendingInbox(
       }).pipe(
         Effect.flatMap(decodeInbox),
         Effect.map((result) => {
+          for (const entry of result.items) {
+            retained.add(entry.deliveryToken);
+          }
           const current = Stream.fromIterable(
             unseenDeliveries(client, seen, result.items),
           );
@@ -338,7 +357,18 @@ function pendingInbox(
         }),
       ),
     );
-  return page();
+  return Stream.concat(
+    page(),
+    Stream.execute(
+      Effect.sync(() => {
+        for (const token of seen) {
+          if (!retained.has(token)) {
+            seen.delete(token);
+          }
+        }
+      }),
+    ),
+  );
 }
 
 function acquireListenerSlot(

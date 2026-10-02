@@ -243,6 +243,35 @@ const retainsTerminalRejections = () =>
     ).pipe(Effect.provide(TestContext.TestContext)),
   );
 
+const verifiesRotatedSecret = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const store = yield* openEndpointStore(directory());
+        const test = fixture(store);
+        const events = yield* test.acquire;
+        const grant = yield* events.subscribe(input, "runtime");
+        const rotated = {
+          ...input,
+          delivery: {
+            ...input.delivery,
+            secret: `whsec_${Buffer.alloc(32, 2).toString("base64")}`,
+          },
+        };
+        test.challenge(false);
+        expect(
+          (yield* events.subscribe(rotated, "runtime").pipe(Effect.flip)).code,
+        ).toBe(-32015);
+        expect(test.posts).toHaveLength(2);
+        test.challenge(true);
+        expect((yield* events.subscribe(rotated, "runtime")).id).toBe(grant.id);
+        expect(test.posts).toHaveLength(3);
+        yield* events.subscribe(rotated, "runtime");
+        expect(test.posts).toHaveLength(3);
+      }),
+    ).pipe(Effect.provide(TestContext.TestContext)),
+  );
+
 const permitsReadAndRevokeDuringDelivery = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -351,6 +380,39 @@ const retriesAcrossRestart = () => {
     }).pipe(Effect.provide(TestContext.TestContext)),
   );
 };
+
+const resumesExhaustedCallbacks = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const store = yield* openEndpointStore(directory());
+        const test = fixture(store);
+        const events = yield* test.acquire;
+        yield* enqueue(store, 1);
+        yield* events.subscribe(input, "runtime");
+        test.status(503);
+        for (let attempt = 0; attempt < 99; attempt += 1) {
+          yield* events.observe();
+          yield* TestClock.adjust("5 minutes");
+        }
+        expect((yield* events.status).stalled).toBeNull();
+        yield* events.observe();
+        expect((yield* events.status).stalled).toBe("callback");
+        expect((yield* store.readInboxSummary()).pendingCount).toBe(1);
+        const restarted = yield* test.acquire;
+        test.status(200);
+        yield* TestClock.adjust("5 minutes");
+        yield* restarted.observe();
+        expect(test.posts).toHaveLength(101);
+        yield* restarted.resume;
+        yield* restarted.observe();
+        expect(test.posts).toHaveLength(102);
+        expect(test.posts.at(-1)?.body).toBe(test.posts[1]?.body);
+        expect((yield* events.status).pendingCount).toBe(0);
+        expect((yield* restarted.status).stalled).toBeNull();
+      }),
+    ).pipe(Effect.provide(TestContext.TestContext)),
+  );
 
 const boundsPayloadAndDrains = () =>
   Effect.runPromise(
@@ -470,6 +532,14 @@ const rejectsUnsafeCallbacks = () =>
 
 // @agent-code-guard/regression-only: these transcripts pin the external MCP draft, callback signatures, crash recovery and trust boundary.
 describe("local Dot webhook conformance", () => {
+  it(
+    "verifies a rotated secret before caching its challenge",
+    verifiesRotatedSecret,
+  );
+  it(
+    "retains exhausted callbacks until owner resume retries the same event",
+    resumesExhaustedCallbacks,
+  );
   it(
     "preserves a terminal response during concurrent refresh and resume",
     refreshPreservesTerminalReceipt,

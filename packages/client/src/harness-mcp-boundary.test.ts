@@ -419,6 +419,11 @@ const runtimeOptions = {
 
 function checksSendConflicts(endpoint: HarnessEndpoint) {
   return Effect.gen(function* () {
+    for (const idempotencyKey of ["", "bad\u0000key", "é".repeat(65)]) {
+      expect(
+        yield* endpoint.send(sendInput, { idempotencyKey }).pipe(Effect.flip),
+      ).toMatchObject({ reason: "content-invalid" });
+    }
     expect(
       yield* endpoint
         .send(sendInput, { ...runtimeOptions, failureDelivery: "result" })
