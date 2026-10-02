@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.1002.0] - 2026-10-02
+
 ### Changed
 
 - **Breaking:** A model states every operation as the whole text of an
