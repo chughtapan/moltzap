@@ -233,10 +233,12 @@ function outsideManagementTest<Value>(): Effect.Effect<Value> {
   return Effect.dieMessage("outside management test");
 }
 
-function makeStore(input: {
+interface StoreInput {
   readonly recovery: EndpointRecovery;
   readonly historyFailure?: EndpointStoreError;
-}): EndpointStore {
+}
+
+function makeStore(input: StoreInput): EndpointStore {
   return {
     readInboxItem: () => Effect.succeed(undefined),
     completeWebhookDelivery: () => Effect.void,

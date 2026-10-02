@@ -393,7 +393,7 @@ const unsubscribe = (
 const install = (
   runtime: EventsRuntime,
   server: McpServer["server"],
-  principal?: string,
+  principal = "local",
 ) => {
   installReadHandlers(runtime, server, principal);
   server.setRequestHandler(
