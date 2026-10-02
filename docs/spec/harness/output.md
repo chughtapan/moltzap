@@ -1,6 +1,6 @@
 # Host-native addressed output
 
-Status: **implementation candidate; pending ADR review**
+Status: **normative**
 
 Native adapters send through the stock host's proactive output callback,
 which supplies an explicit destination and performs one operation. OpenClaw’s
@@ -123,9 +123,7 @@ and reconnects and distinct for intentional repeats. A transport request id,
 an arbitrary queue id or message text does not establish this contract.
 Runtime code owns recovery lookup and retry policy; the model chooses semantic
 actions. Hosts without a qualified identity use ordinary keyless sends.
-Ambiguous handoff and action retries may duplicate delivery or sends; stronger
-cross-host recovery is deferred. Processing confirmation is outside this
-contract.
+Retrying a keyless send can create another post.
 
 It returns its structured result once the send completes. A multicast has no
 operation id, so its result is `{}`; a gather's or all_gather's result names its id,
@@ -150,4 +148,4 @@ operation-specific completion boundaries described above. Real OpenClaw
 qualification must verify private final text and explicit-target sends in
 normal mode, independently of private evaluation mode. NanoClaw
 final-output qualification uses its own stock host path. Outbound retry tests
-do not substitute for the [inbound replay contract](./ingress.md#durable-acceptance).
+do not substitute for the [inbound replay contract](./ingress.md#delivery-handoff).

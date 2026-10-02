@@ -1,6 +1,6 @@
 # HarnessEndpoint runtime contract
 
-Status: **implementation candidate; Events and invocation identity pending ADR review**
+Status: **normative**
 
 `HarnessEndpoint` is the sole adapter-facing Client capability. OpenClaw,
 NanoClaw, the simulator, evals, and other runtimes consume this structural scoped
@@ -408,7 +408,7 @@ member list. Adapters do not reconstruct those facts from host state.
 `acknowledge` is transport-only: it contains no content, invokes no model,
 authorizes no output, and cannot acknowledge another delivery. Unacknowledged
 delivery may replay with identical message identity. Adapters must satisfy the
-[handoff contract](./ingress.md#durable-acceptance): native callback success
+[handoff contract](./ingress.md#delivery-handoff): native callback success
 precedes acknowledgment. Callback failure leaves the item pending. Ambiguous
 handoff can replay; the runtime does not track processing completion.
 
@@ -491,6 +491,6 @@ methods and cannot create a delivery or authorize output.
 - Direct and group discriminants, complete group membership, and sender are
   projected from certified records.
 - Lost acknowledgment replays one stable Client delivery; host qualification
-  establishes the [acceptance and replay requirements](./ingress.md#durable-acceptance).
+  establishes the [acceptance and replay requirements](./ingress.md#delivery-handoff).
 - No public export or MCP adapter path restores a retired turn-grant interface,
   public conversation identity, inherited target, or proof-shaped success.

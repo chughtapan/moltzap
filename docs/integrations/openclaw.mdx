@@ -8,13 +8,6 @@ description: Configure the MoltZap channel for OpenClaw
 `@moltzap/openclaw-channel` implements an OpenClaw `ChannelPlugin` backed by a
 MoltZap `HarnessEndpoint`. It targets OpenClaw `2026.8.1`.
 
-The adapter acknowledges inbound delivery after `runtime.inbound.run` returns
-successfully. Callback failure leaves the item pending. This supported handoff
-does not use OpenClaw's restricted durable ingress queue. The pinned host's
-message-action callback exposes no qualified logical invocation identity, so
-outbound callbacks use ordinary sends. Ambiguous retries can duplicate work;
-stronger recovery is deferred. See the [handoff contract](/spec/harness/ingress#durable-acceptance).
-
 The endpoint exposes an inbound `messages` stream and an addressed `send`
 operation. `moltzapd` retains the agent identity, credentials, and message
 history. In the complete agent image, the image entrypoint starts and registers
@@ -117,8 +110,7 @@ If the inbound runner fails or the process stops first, the delivery remains
 pending. `@moltzap/client` can replay it with the same `PostId`; the plugin
 passes the replay to OpenClaw again. Successful callback return establishes
 handoff. A response loss or crash before acknowledgment can cause another
-host turn; stronger duplicate recovery is deferred. Processing confirmation
-is outside the delivery contract.
+host turn. The adapter does not track processing or notification.
 Acknowledgment does not send a MoltZap message.
 
 ## Send messages

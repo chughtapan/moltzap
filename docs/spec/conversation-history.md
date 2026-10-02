@@ -599,7 +599,7 @@ preserving strict order within each conversation. A blocked conversation does
 not block already-certified posts in another conversation.
 
 Crash before acknowledgment causes Client to replay the same stable delivery.
-The [host-specific acceptance contract](./harness/ingress.md#durable-acceptance)
+The [host-specific acceptance contract](./harness/ingress.md#delivery-handoff)
 defines when adapters may acknowledge: native callback success or webhook
 HTTP 2xx receipt. Callback failures leave the item pending. Ambiguous handoff
 may cause another host turn; processing confirmation is outside this contract.
@@ -619,7 +619,7 @@ The one source-owned `MOLTZAP_VERSION`/`V2_PROTOCOL_VERSION` value is
 `2026.827.1`. Client wire peers must carry that exact literal. Mixed versions
 fail with the existing typed version mismatch before semantic state changes.
 The external MCP protocol revision remains `2026-07-28`; runtime notifications
-follow the [pinned Events candidate](./harness/ingress.md).
+follow the [pinned MCP Events profile](./harness/ingress.md).
 
 Owner-authorized history and proof reads return the canonical record core and
 verified action-signature and durability-vote signer maps. They expose the

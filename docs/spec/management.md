@@ -1,6 +1,6 @@
 # Endpoint management and adapter MCP
 
-Status: **implementation candidate; runtime authority separation pending ADR review**
+Status: **normative**
 
 One loopback MCP endpoint serves owner-authorized management and the private
 adapter projection of `HarnessEndpoint`. Management can inspect local verified
@@ -195,5 +195,5 @@ never cross MCP.
 Acceptance proves exact pre/post-registration catalogs, registration recovery,
 canonical address paging, frozen history snapshots, signer-evidence audit,
 single-use continuation and restart invalidation, exact per-operation failures,
-absence of public conversation identity, adapter send/ack isolation, and prior
+absence of public conversation identity, adapter send/ack isolation, and
 runtime credential denial of raw history and owner operations.

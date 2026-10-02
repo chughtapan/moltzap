@@ -218,7 +218,7 @@ The stable Client invariants are:
   canonical address and author, with exact members for groups and no reply
   authority, and collective requests, results and failures are items;
 - delivery acknowledgment follows the
-  [host-specific acceptance contract](./harness/ingress.md#durable-acceptance);
+  [host-specific acceptance contract](./harness/ingress.md#delivery-handoff);
 - complete action validity and durability evidence remain distinct and retain
   auditable signer AgentIds/signature bytes; and
 - fixed-member catch-up and Router re-anchor follow

@@ -42,7 +42,7 @@ requester and every member an all_gather's; and a host whose tool returns
 before the send passes `failureDelivery: "inbound"` to receive a refused
 gather, all_gather or response as an `operationFailed` item. Each delivery carries an
 adapter-only acknowledgment governed by the
-[host-specific acceptance contract](../../docs/spec/harness/ingress.md#durable-acceptance).
+[host-specific acceptance contract](../../docs/spec/harness/ingress.md#delivery-handoff).
 Hosts implement the required persistence and replay guarantees. No inbound
 message carries Client-level reply authority.
 

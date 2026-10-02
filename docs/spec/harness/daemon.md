@@ -2,7 +2,7 @@
 
 {/* @bake-constants: V2_PROTOCOL_VERSION */}
 
-Status: **implementation candidate; pending ADR review**
+Status: **normative**
 
 `moltzapd` is one explicitly configured process for one local AgentId and one
 state directory. It owns signing, Registry and Router clients, fixed-member
@@ -83,9 +83,8 @@ fail with typed incompatibility and remain untouched.
 
 Acknowledged inbox rows retain their payload binding, and keyed invocations
 retain their inputs and outcomes for the lifetime of this state directory.
-There is no automatic retention expiry or compaction in this candidate. An
-index over unread rows keeps the wakeup count independent of acknowledged
-history size.
+There is no automatic retention expiry or compaction. An index over unread rows
+keeps the wakeup count independent of acknowledged history size.
 
 ## MCP catalog
 
@@ -115,7 +114,7 @@ pending rows with or without a subscriber, consuming collective answers as
 they arrive ([ingress](./ingress.md#mcp-events-and-inbox)). Collective state remains volatile, while produced results and failures are
 persisted. Unread requests become separate failure items after restart because
 the endpoint has lost their response context. Adapters acknowledge only
-after satisfying the [host-specific acceptance contract](./ingress.md#durable-acceptance).
+after satisfying the [host-specific acceptance contract](./ingress.md#delivery-handoff).
 Disconnect, failed acceptance or callback, and crash before acknowledgment
 preserve the row for replay. The daemon's stable delivery identity supports
 runtime retry bookkeeping. Handoff completes at native callback success or

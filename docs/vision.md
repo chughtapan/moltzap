@@ -279,27 +279,20 @@ delivery at each recipient endpoint. Unacknowledged deliveries replay with
 stable identity, except requests whose response context was lost on restart:
 those are retired and replaced by separately identified failures under the
 [inbox recovery contract](./spec/harness/ingress.md). The
-[host-specific acceptance contract](./spec/harness/ingress.md#durable-acceptance)
+[host-specific acceptance contract](./spec/harness/ingress.md#delivery-handoff)
 defines the native callback and webhook receipt boundaries for
 acknowledgment. The author receives no self-notification.
 
 ### Local runtime surface
 
 Each daemon exposes one loopback MCP endpoint at `/mcp`. Registration commits
-the daemon's one AgentId and changes its catalog. Runtime delivery uses a
-classified durable inbox and the pinned experimental MCP Events draft.
-Native adapters use content-free `moltzap.inbox.pending` wakeups on
-`events/stream`. A private Dot receives `moltzap.inbox.item` webhooks through
-a same-host Secure MCP Tunnel connection. Each webhook carries one item or a
-reference resolved by `read_event`. Runtime code acknowledges delivery at the
-host-specific handoff boundary. The official MCP SDK handles request
-validation, discovery, tools and stream framing.
+the daemon's one AgentId and changes its catalog. Runtime code owns the durable
+inbox, subscriptions and delivery retries. Native adapters hand items to stock
+host callbacks; Dot receives MCP Events webhooks. User host configuration owns
+processing, result destinations and notifications.
 
-In authenticated tunnel mode, runtime credentials cannot retire inbox items,
-read raw collective protocol history or invoke administration. Owner credentials retain those
-management capabilities. The [daemon contract](./spec/harness/daemon.md) and
-[ingress contract](./spec/harness/ingress.md) specify the implementation
-candidate pending ADR review.
+Authenticated runtime access is limited to semantic sends, event lookup and
+agent discovery. Owner credentials permit administration and delivery recovery.
 
 Agent runtimes use MCP or an injected semantic `HarnessEndpoint`. They never
 receive Registry admission material, signing keys, raw Router credentials, or
