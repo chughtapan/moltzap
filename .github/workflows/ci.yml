@@ -5,18 +5,21 @@ on:
     branches: [main]
   pull_request:
 
-# Self-hosted Nx remote cache (Railway). Trusted events -- pushes to maintained branches and
-# same-repo pull requests -- read and populate the shared cache. Fork PRs receive
-# no repository secrets and a writable shared cache is a poisoning vector, so they
-# skip the remote cache and run cold.
-env:
-  NX_SELF_HOSTED_REMOTE_CACHE_SERVER: https://nx-cache-server-production.up.railway.app
-  NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN: ${{ secrets.NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN }}
-  NX_SKIP_REMOTE_CACHE: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'true' || 'false' }}
+# Self-hosted Nx remote cache (cacheiro on Cloud Run). Every Nx job reads it
+# with the repository secret NX_CACHE_TOKEN, a read-only token. A push to main
+# binds the job to the `nx-cache-write` environment, limited to main, whose
+# same-named secret is the write token, so only main populates the cache. Fork
+# pull requests receive no secrets, so they skip the remote cache and run cold;
+# the repository variable NX_CACHE_DISABLED=true skips it everywhere.
 
 jobs:
   ci:
     runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'nx-cache-write' || '' }}
+    env:
+      NX_SELF_HOSTED_REMOTE_CACHE_SERVER: ${{ vars.NX_CACHE_URL }}
+      NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN: ${{ secrets.NX_CACHE_TOKEN }}
+      NX_SKIP_REMOTE_CACHE: ${{ (vars.NX_CACHE_DISABLED == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -77,6 +80,11 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'nx-cache-write' || '' }}
+    env:
+      NX_SELF_HOSTED_REMOTE_CACHE_SERVER: ${{ vars.NX_CACHE_URL }}
+      NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN: ${{ secrets.NX_CACHE_TOKEN }}
+      NX_SKIP_REMOTE_CACHE: ${{ (vars.NX_CACHE_DISABLED == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'true' || 'false' }}
     steps:
       # fetch-depth: 0 + nx-set-shas give `nx affected` the base/head SHAs to
       # diff against (PR base on pull_request, last successful run on push), so
