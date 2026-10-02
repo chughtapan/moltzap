@@ -3,7 +3,14 @@
  * settled when the requester stops waiting.
  */
 
-import { Effect, Either, Exit, Fiber, Option } from "effect";
+import {
+  Effect,
+  Array as EffectArray,
+  Either,
+  Exit,
+  Fiber,
+  Option,
+} from "effect";
 import type { AgentAddress, SendError } from "../../contract.js";
 import type { EngineSentPost } from "../engine-types.js";
 
@@ -17,32 +24,6 @@ export type RequestRefusal = Readonly<{
 export type RequestSend = Fiber.RuntimeFiber<
   Either.Either<EngineSentPost, RequestRefusal>
 >;
-
-/**
- * One member's request send once the wait has ended: its post, its refusal,
- * or, still pending, interrupted and reported `certification-unavailable`.
- * @param member The member the post asks.
- * @param send The post's send, possibly still running.
- * @returns The certified post, or the member's refusal.
- */
-export function settleRequest(
-  member: AgentAddress,
-  send: RequestSend,
-): Effect.Effect<Either.Either<EngineSentPost, RequestRefusal>> {
-  const pending = Either.left<RequestRefusal>({
-    member,
-    reason: "certification-unavailable",
-  });
-  return Fiber.poll(send).pipe(
-    Effect.flatMap(
-      Option.match({
-        onNone: () => Fiber.interruptFork(send).pipe(Effect.as(pending)),
-        onSome: (exit) =>
-          Effect.succeed(Exit.isSuccess(exit) ? exit.value : pending),
-      }),
-    ),
-  );
-}
 
 /** How many Registry lookups run at once; a group has at most 32 members. */
 const MEMBER_LOOKUP_CONCURRENCY = 8;
@@ -89,4 +70,46 @@ export const lookupRefusals = (
     { concurrency: MEMBER_LOOKUP_CONCURRENCY },
   ).pipe(
     Effect.map((lookups) => lookups.flatMap((found) => Option.toArray(found))),
+  );
+
+/**
+ * Where a gather's request posts stand when the send stops waiting: each
+ * certified post, each member refused, and each member still pending, whose
+ * send keeps running.
+ * @param members The members asked, in the order of their sends.
+ * @param sends Each member's request send.
+ * @returns The posts, refusals and pending members, in member order.
+ */
+export const requestsSoFar = (
+  members: readonly AgentAddress[],
+  sends: readonly RequestSend[],
+): Effect.Effect<{
+  readonly posts: EngineSentPost[];
+  readonly refused: RequestRefusal[];
+  readonly pending: AgentAddress[];
+}> =>
+  Effect.forEach(
+    EffectArray.zip(members, sends),
+    ([member, send]) =>
+      Fiber.poll(send).pipe(
+        Effect.map((poll) => ({
+          member,
+          result: Option.flatMap(poll, (exit) =>
+            Exit.isSuccess(exit) ? Option.some(exit.value) : Option.none(),
+          ),
+        })),
+      ),
+    { concurrency: 1 },
+  ).pipe(
+    Effect.map((states) => ({
+      posts: states.flatMap(({ result }) =>
+        Option.toArray(Option.flatMap(result, Either.getRight)),
+      ),
+      refused: states.flatMap(({ result }) =>
+        Option.toArray(Option.flatMap(result, Either.getLeft)),
+      ),
+      pending: states.flatMap(({ member, result }) =>
+        Option.isNone(result) ? [member] : [],
+      ),
+    })),
   );

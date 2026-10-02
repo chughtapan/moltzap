@@ -69,12 +69,13 @@ const newObserved = (): Observed => ({ sent: [], emitted: [] });
 /**
  * A collective layer over recording ports. Each certified post gets a fresh
  * PostId after `sendDelay`. A member named in `refused` refuses its post with
- * that reason, or never certifies it when the reason is `slow`; a member
- * named in `unknown` also fails the lookup that resolves it.
+ * that reason, never certifies it when the reason is `slow`, or certifies it
+ * five seconds late when it is `late`; a member named in `unknown` also fails
+ * the lookup that resolves it.
  */
 const makeLayer = (
   observed: Observed,
-  refused: Readonly<Record<string, SendError["reason"] | "slow">> = {},
+  refused: Readonly<Record<string, SendError["reason"] | "slow" | "late">> = {},
   sendDelay?: Duration.Duration,
   unknown: readonly string[] = [],
 ): Effect.Effect<CollectiveOperations, never, Scope.Scope> =>
@@ -90,10 +91,11 @@ const makeLayer = (
         if (reason === "slow") {
           return Effect.never;
         }
-        if (reason !== undefined) {
+        if (reason !== undefined && reason !== "late") {
           return Effect.fail(new SendError({ reason }));
         }
-        return Effect.sleep(sendDelay ?? Duration.zero).pipe(
+        const delay = reason === "late" ? Duration.seconds(5) : sendDelay;
+        return Effect.sleep(delay ?? Duration.zero).pipe(
           Effect.zipRight(
             Effect.sync(() => {
               observed.sent.push(input);
@@ -283,9 +285,9 @@ function refusesAGatherWithAnUnknownMemberBeforeAnyPost() {
 }
 
 /**
- * A member whose post is refused, or still uncertified when the wait ends,
- * is reported unreachable and ends as no-answer; the members reached still
- * answer, and the gather completes once they have.
+ * A refused post makes its member `no-answer` and is reported unreachable; a
+ * post still certifying when the send returns is reported pending, and its
+ * member ends `no-answer` only if it is still pending at the deadline.
  */
 function continuesAGatherPastMembersItCouldNotReach() {
   const observed = newObserved();
@@ -303,10 +305,8 @@ function continuesAGatherPastMembersItCouldNotReach() {
       const outcome = yield* Fiber.join(sending);
 
       expect(outcome).toMatchObject({
-        unreachable: [
-          { member: "agent:carol", reason: "network-unavailable" },
-          { member: "agent:dave", reason: "certification-unavailable" },
-        ],
+        unreachable: [{ member: "agent:carol", reason: "network-unavailable" }],
+        pending: ["agent:dave"],
       });
       expect(observed.sent.map((post) => post.to)).toEqual(["agent:bob"]);
 
@@ -315,6 +315,10 @@ function continuesAGatherPastMembersItCouldNotReach() {
         layer,
         answerPost("agent:bob", id, { action: "decline" }),
       );
+
+      expect(observed.emitted).toEqual([]);
+
+      yield* TestClock.adjust(Duration.seconds(60));
 
       expect(observed.emitted).toEqual([
         {
@@ -326,6 +330,51 @@ function continuesAGatherPastMembersItCouldNotReach() {
             { member: "agent:bob", outcome: { kind: "declined" } },
             { member: "agent:carol", outcome: { kind: "no-answer" } },
             { member: "agent:dave", outcome: { kind: "no-answer" } },
+          ],
+        },
+      ]);
+    }),
+  );
+}
+
+/** A post certified after the send stopped waiting still asks its member. */
+function countsAnAnswerToAPostCertifiedAfterTheWait() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(observed, { "agent:carol": "late" });
+      const sending = yield* Effect.fork(send(layer, gatherInput()));
+      yield* TestClock.adjust(Duration.seconds(1));
+      const outcome = yield* Fiber.join(sending);
+      yield* TestClock.adjust(Duration.seconds(5));
+      const id = outcome.operationId ?? requestId;
+      yield* classifyPost(
+        layer,
+        answerPost("agent:bob", id, { action: "decline" }),
+      );
+      yield* classifyPost(
+        layer,
+        answerPost("agent:carol", id, {
+          action: "accept",
+          content: { slot: "tue" },
+        }),
+      );
+
+      expect(outcome).toMatchObject({ pending: ["agent:carol"] });
+      expect(observed.sent.map((post) => post.to)).toEqual([
+        "agent:bob",
+        "agent:carol",
+      ]);
+      expect(observed.emitted).toMatchObject([
+        {
+          kind: "collectiveResult",
+          outcomes: [
+            { member: "agent:bob", outcome: { kind: "declined" } },
+            {
+              member: "agent:carol",
+              outcome: { kind: "answered", content: { slot: "tue" } },
+            },
           ],
         },
       ]);
@@ -969,32 +1018,36 @@ function asksTheOneAgentOfAnAgentAddress() {
 }
 
 /**
- * Posts still uncertified when the wait ends reach no one, so a gather whose
- * every post is still sending is refused, and nothing completes later.
+ * A deadline no later than the send wait, with every post still pending,
+ * ends the gather in one result and no refusal.
  */
-function refusesAGatherWhoseRequestPostsAreStillSending() {
+function endsAPendingGatherAtItsDeadlineInOneResult() {
   const observed = newObserved();
 
   return run(
     Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, {}, Duration.seconds(5));
-      const sending = yield* Effect.fork(
-        collectiveFailureOf(send(layer, gatherInput())),
-      );
-      yield* TestClock.adjust(Duration.seconds(1));
-
-      expect(yield* Fiber.join(sending)).toEqual({
-        kind: "members-unreachable",
-        members: [
-          { member: "agent:bob", reason: "certification-unavailable" },
-          { member: "agent:carol", reason: "certification-unavailable" },
-        ],
+      const layer = yield* makeLayer(observed, {
+        "agent:bob": "slow",
+        "agent:carol": "slow",
       });
-
+      const sending = yield* Effect.fork(send(layer, gatherInput(1)));
+      yield* TestClock.adjust(Duration.seconds(1));
+      const outcome = yield* Fiber.join(sending);
       yield* TestClock.adjust(Duration.seconds(60));
 
-      expect(observed.sent).toEqual([]);
-      expect(observed.emitted).toEqual([]);
+      expect(outcome).toMatchObject({ pending: ["agent:bob", "agent:carol"] });
+      expect(observed.emitted).toEqual([
+        {
+          kind: "collectiveResult",
+          id: outcome.operationId,
+          to: gatherTo,
+          question: questionText,
+          outcomes: [
+            { member: "agent:bob", outcome: { kind: "no-answer" } },
+            { member: "agent:carol", outcome: { kind: "no-answer" } },
+          ],
+        },
+      ]);
     }),
   );
 }
@@ -1090,8 +1143,12 @@ describe("collective sends", () => {
     refusesAGatherWithAnUnknownMemberBeforeAnyPost,
   );
   it(
-    "continues a gather past members it could not reach, as no-answer",
+    "continues a gather past refused and pending members, reporting each",
     continuesAGatherPastMembersItCouldNotReach,
+  );
+  it(
+    "counts an answer to a request post certified after the wait",
+    countsAnAnswerToAPostCertifiedAfterTheWait,
   );
   it(
     "fails a gather none of whose request posts was delivered",
@@ -1238,8 +1295,8 @@ describe("gather results", () => {
   );
 
   it(
-    "refuses a gather whose request posts are all still sending when the wait ends",
-    refusesAGatherWhoseRequestPostsAreStillSending,
+    "ends a gather whose posts are all pending at a deadline within the wait in one result and no refusal",
+    endsAPendingGatherAtItsDeadlineInOneResult,
   );
 
   it(

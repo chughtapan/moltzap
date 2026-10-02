@@ -388,14 +388,23 @@ export const UnreachableMembers = Schema.NonEmptyArray(
 /** Validated unreachable members. */
 export type UnreachableMembers = typeof UnreachableMembers.Type;
 
+/** Members whose request post was still being certified when a send returned. */
+export const PendingMembers = Schema.NonEmptyArray(AgentAddress).annotations({
+  identifier: "PendingMembers",
+});
+/** Validated pending members. */
+export type PendingMembers = typeof PendingMembers.Type;
+
 /**
- * What a completed send returns: a collecting operation names its id, and a
- * gather that reached only some of its members names the others, each of
- * which ends as `no-answer`.
+ * What a completed send returns: a collecting operation names its id. A
+ * gather names the members whose request post was refused, each of which
+ * ends as `no-answer`, and those whose post was still being certified, which
+ * are asked once it is and end as `no-answer` if it is not by the deadline.
  */
 export interface SendResult {
   readonly operationId?: CollectiveId;
   readonly unreachable?: UnreachableMembers;
+  readonly pending?: PendingMembers;
 }
 
 const directMessageStructure = exactStruct({
@@ -565,6 +574,7 @@ const historyExportSendOutcome = Schema.Union(
     kind: Schema.Literal("sent"),
     operationId: Schema.optionalWith(CollectiveId, { exact: true }),
     unreachable: Schema.optionalWith(UnreachableMembers, { exact: true }),
+    pending: Schema.optionalWith(PendingMembers, { exact: true }),
     postIds: Schema.Array(PostId),
   }),
   exactStruct({ kind: Schema.Literal("failed"), error: Schema.String }),

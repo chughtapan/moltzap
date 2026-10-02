@@ -31,10 +31,11 @@ heading below in its release commit.
 - **Breaking:** A gather is no longer abandoned when some members are
   unreachable. Every member is resolved before any post, and a malformed or
   unknown member refuses the gather or all_gather with nothing posted. A
-  resolved member whose request post is refused or not certified within the
-  wait ends as `no-answer`, and `SendResult.unreachable` (also in the MCP
-  `send_message` result and `HistoryExportRecord`) names each one; the send
-  fails only when no post was delivered.
+  resolved member whose request post is refused ends as `no-answer`; a post
+  still certifying after the 20-second wait keeps going and asks its member
+  once certified. `SendResult.unreachable` and `SendResult.pending` (also in
+  the MCP `send_message` result and `HistoryExportRecord`) name them; the
+  send fails only when every post was refused.
 - **Breaking:** Answers are `accept` or `decline`; `cancel` and the
   `cancelled` outcome are removed, and `no-answer` covers every member that
   did not answer.

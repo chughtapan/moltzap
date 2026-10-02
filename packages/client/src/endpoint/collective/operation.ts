@@ -72,7 +72,6 @@ import {
   Duration,
   Effect,
   Array as EffectArray,
-  Either,
   Fiber,
   Option,
   ParseResult,
@@ -112,7 +111,7 @@ import {
   lookupRefusals,
   type RequestRefusal,
   type RequestSend,
-  settleRequest,
+  requestsSoFar,
 } from "./request-sends.js";
 import {
   type CertifiedAnswer,
@@ -270,6 +269,7 @@ interface GatherRequest {
  */
 interface OpenGather extends GatherRequest {
   readonly timer: Fiber.RuntimeFiber<void>;
+  requestsSettled: boolean;
 }
 
 /**
@@ -587,7 +587,11 @@ function gather(
       Effect.forkIn(state.ports.scope),
     );
     yield* Effect.sync(() => {
-      state.gathers.set(prepared.id, { ...prepared.open, timer });
+      state.gathers.set(prepared.id, {
+        ...prepared.open,
+        timer,
+        requestsSettled: prepared.open.op === "all_gather",
+      });
     });
     const requests =
       prepared.open.op === "gather"
@@ -639,23 +643,24 @@ function sleepUntil(at: number): Effect.Effect<void> {
 }
 
 /**
- * Send one request post per member and wait for them, never past the
- * deadline. A member whose post was refused, or is still uncertified when
- * the wait ends, is recorded as `no-answer` and reported unreachable, and its
- * pending post is interrupted so the question never reaches it late; the
- * gather goes on with the members it reached. Only when it reached none is
- * the gather dropped and the send refused, naming every member.
+ * Send one request post per member, waiting at most the send wait. A pending
+ * send keeps running and settles its member when it completes: certified
+ * asks it, refused makes it `no-answer`, as does pending at the deadline.
+ * The send fails only when every post was refused and the gather has not
+ * completed, so an operation ends in exactly one refusal or one result.
  */
 function sendRequests(
   state: CollectiveState,
   prepared: PreparedGather,
 ): Effect.Effect<CollectiveSendOutcome, CollectiveError> {
   return Effect.gen(function* () {
+    const { id, open } = prepared;
     const sends = yield* Effect.forEach(
-      prepared.open.members,
+      open.members,
       (member): Effect.Effect<RequestSend> =>
         state.ports.sendPost({ to: member, content: prepared.content }).pipe(
           Effect.mapError((error) => ({ member, reason: error.reason })),
+          Effect.tapError((refusal) => recordRefusal(state, id, refusal)),
           Effect.either,
           Effect.forkIn(state.ports.scope),
         ),
@@ -664,57 +669,66 @@ function sendRequests(
     yield* Fiber.awaitAll(sends).pipe(
       Effect.timeoutOption(requestWait(state, prepared)),
     );
-    const results = yield* Effect.forEach(
-      EffectArray.zip(prepared.open.members, sends),
-      ([member, send]) => settleRequest(member, send),
-      { concurrency: 1 },
+    const { posts, refused, pending } = yield* requestsSoFar(
+      open.members,
+      sends,
     );
-    const posts = results.flatMap((result) =>
-      Option.toArray(Either.getRight(result)),
-    );
-    const [refusal, ...refusals] = results.flatMap((result) =>
-      Option.toArray(Either.getLeft(result)),
-    );
-    if (posts.length === 0 && refusal !== undefined) {
-      yield* forgetGather(state, prepared.id);
+    const [refusal, ...refusals] = refused;
+    if (
+      refusal !== undefined &&
+      refusals.length + 1 === open.members.length &&
+      state.gathers.has(id)
+    ) {
+      yield* forgetGather(state, id);
       return yield* Effect.fail(
-        collectiveFailure(prepared.id, {
+        collectiveFailure(id, {
           kind: "members-unreachable",
           members: [refusal, ...refusals],
         }),
       );
     }
-    yield* recordUnreachable(state, prepared.id, [
-      ...(refusal === undefined ? [] : [refusal]),
-      ...refusals,
-    ]);
+    yield* updateGather(state, id, (settled) => {
+      settled.requestsSettled = true;
+    });
     return {
       postIds: posts.map((post) => post.postId),
-      ...(refusal === undefined
-        ? {}
-        : { unreachable: [refusal, ...refusals] as const }),
+      ...(refusal === undefined ? {} : { unreachable: [refusal, ...refusals] }),
+      ...(EffectArray.isNonEmptyArray(pending) ? { pending } : {}),
     };
   });
 }
 
-/**
- * Record each member the gather did not reach as `no-answer`, and complete
- * the gather if every reached member has already answered. A gather the
- * deadline already completed is left as it is.
- */
-function recordUnreachable(
+/** Record a member whose request post was refused as `no-answer`. */
+function recordRefusal(
   state: CollectiveState,
   id: CollectiveId,
-  unreachable: readonly RequestRefusal[],
+  { member }: RequestRefusal,
+): Effect.Effect<void> {
+  return updateGather(state, id, ({ outcomes }) => {
+    if (!outcomes.has(member)) {
+      outcomes.set(member, { kind: "no-answer" });
+    }
+  });
+}
+
+/**
+ * Apply a change to an open gather, then complete it once its send has
+ * returned and every member has an outcome. Until the send returns, only the
+ * send decides whether the gather is refused, so no path can emit both a
+ * refusal and a result.
+ */
+function updateGather(
+  state: CollectiveState,
+  id: CollectiveId,
+  change: (open: OpenGather) => void,
 ): Effect.Effect<void> {
   return Effect.suspend(() => {
     const open = state.gathers.get(id);
-    unreachable
-      .filter(({ member }) => open?.outcomes.has(member) === false)
-      .forEach(({ member }) =>
-        open?.outcomes.set(member, { kind: "no-answer" }),
-      );
-    return open?.outcomes.size === open?.members.length && open !== undefined
+    if (open === undefined) {
+      return Effect.void;
+    }
+    change(open);
+    return open.requestsSettled && open.outcomes.size === open.members.length
       ? completeGather(state, id).pipe(
           Effect.zipRight(Fiber.interrupt(open.timer)),
         )
@@ -1275,13 +1289,10 @@ function recordCountedAnswer(
   }
   return outcomeOfResponse(open.requestedSchema, value).pipe(
     Effect.flatMap((outcome) => {
-      open.outcomes.set(message.sender, outcome);
-      open.answerHashes.set(message.sender, post.recordHash);
-      return open.outcomes.size === open.members.length
-        ? completeGather(state, value.id).pipe(
-            Effect.zipRight(Fiber.interrupt(open.timer)),
-          )
-        : Effect.void;
+      return updateGather(state, value.id, () => {
+        open.outcomes.set(message.sender, outcome);
+        open.answerHashes.set(message.sender, post.recordHash);
+      });
     }),
   );
 }

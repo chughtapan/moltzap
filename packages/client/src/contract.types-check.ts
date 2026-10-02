@@ -79,9 +79,11 @@ type ExpectedUnreachable = readonly [
   Readonly<{ member: AgentAddress; reason: SendError["reason"] }>,
   ...Array<Readonly<{ member: AgentAddress; reason: SendError["reason"] }>>,
 ];
+type ExpectedPending = readonly [AgentAddress, ...AgentAddress[]];
 type ExpectedSendResult = Readonly<{
   operationId?: CollectiveId;
   unreachable?: ExpectedUnreachable;
+  pending?: ExpectedPending;
 }>;
 type ExpectedDirectMessage = Readonly<{
   kind: "direct";
@@ -183,6 +185,7 @@ type ExpectedHistoryExportRecord =
             kind: "sent";
             operationId?: CollectiveId;
             unreachable?: ExpectedUnreachable;
+            pending?: ExpectedPending;
             postIds: readonly PostId[];
           }>
         | Readonly<{ kind: "failed"; error: string }>;

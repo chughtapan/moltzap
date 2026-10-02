@@ -248,15 +248,30 @@ function renderCollectiveResult(item: CollectiveResultItem): string {
   ].join("\n");
 }
 
-/** The members a gather did not reach; each ends as no-answer. */
-function renderUnreachable(
-  operationId: SendResult["operationId"],
-  unreachable: NonNullable<SendResult["unreachable"]>,
-): string {
-  const members = unreachable
-    .map(({ member, reason }) => `${member} (${reason})`)
-    .join(", ");
-  return `gather ${String(operationId)} did not reach ${members}; each ends as no answer, and the others were asked`;
+/**
+ * The members a gather has not reached yet: refused ones end as no answer,
+ * and pending ones are asked once their post is certified.
+ */
+function renderReach({
+  operationId,
+  unreachable,
+  pending,
+}: SendResult): string {
+  return [
+    `gather ${String(operationId)} is asking the members it reached.`,
+    ...(unreachable === undefined
+      ? []
+      : [
+          `Could not reach ${unreachable
+            .map(({ member, reason }) => `${member} (${reason})`)
+            .join(", ")}; each ends as no answer.`,
+        ]),
+    ...(pending === undefined
+      ? []
+      : [
+          `Still delivering to ${pending.join(", ")}; each is asked once delivered, or ends as no answer at the deadline.`,
+        ]),
+  ].join(" ");
 }
 
 function renderOutcome(outcome: MemberOutcome): string {
@@ -485,13 +500,11 @@ class MoltZapChannelAdapter {
               activation.endpoint
                 .send(input, { failureDelivery: failureDeliveryOf(input) })
                 .pipe(
-                  Effect.flatMap(({ operationId, unreachable }) =>
-                    unreachable === undefined
+                  Effect.flatMap((result) =>
+                    result.unreachable === undefined &&
+                    result.pending === undefined
                       ? Effect.void
-                      : this.reportToModel(
-                          to,
-                          renderUnreachable(operationId, unreachable),
-                        ),
+                      : this.reportToModel(to, renderReach(result)),
                   ),
                 ),
           }),

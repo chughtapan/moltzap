@@ -21,10 +21,10 @@ it was built with.
 multicast by default. A multicast creates one post with a fresh Client-minted
 `PostId`; the host owns whether to invoke send again. A gather asks each
 member the text as a question, one request post in each member's direct
-conversation, and returns its `operationId` with any members it could not
-reach, which end as `no-answer`; it fails with a `CollectiveError` before
-any post when a member is malformed or unknown, and when no post was
-delivered. A member
+conversation, and returns its `operationId` with the members whose post was
+refused, which end as `no-answer`, and those still being delivered; it fails
+with a `CollectiveError` before any post when a member is malformed or
+unknown, and when every post was refused. A member
 answers with a `collectiveResponse` sent to the conversation the request
 arrived in; the endpoint matches it to the one request open there, validates
 it against that request's form, and refuses it when none or several are open.

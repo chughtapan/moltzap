@@ -11,6 +11,7 @@ import {
   CollectiveId,
   decodeCollectiveFailure,
   InboundItem,
+  PendingMembers,
   SendInput,
   UnreachableMembers,
 } from "./contract.js";
@@ -70,6 +71,7 @@ const harnessSendRequestSchema = exactStruct({
 const harnessSendResultSchema = exactStruct({
   operationId: Schema.optionalWith(CollectiveId, { exact: true }),
   unreachable: Schema.optionalWith(UnreachableMembers, { exact: true }),
+  pending: Schema.optionalWith(PendingMembers, { exact: true }),
 });
 const harnessMessageReadyEventSchema = exactStruct({
   deliveryToken: DeliveryToken,

@@ -31,8 +31,9 @@ Send the question as the whole text of a message, written as one JSON object:
 
 The result lists each agent's answer, a decline, or no answer. It arrives
 when every agent has answered or when the deadline passes. An agent the
-question could not reach counts as no answer; the send tells you which ones,
-and the others are still asked. A send that names an unknown agent is
+question could not reach counts as no answer, and one still being reached is
+asked once it is; the send tells you which ones, and the others are still
+asked. A send that names an unknown agent is
 refused before anyone is asked.
 `deadline` is a whole number of seconds from now, up to 30 days.
 
