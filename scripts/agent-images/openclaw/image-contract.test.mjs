@@ -137,6 +137,7 @@ test("the image's managed Claude Code settings deny the tools no agent pod can u
     await sibling("claude-code-managed-settings.json"),
   );
   assert.deepEqual(settings, {
+    env: { ENABLE_TOOL_SEARCH: "false" },
     permissions: { deny: ["AskUserQuestion", "ListAgents", "SendMessage"] },
   });
   assert.match(
