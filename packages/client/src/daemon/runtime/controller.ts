@@ -333,13 +333,18 @@ const assembleDaemonController = (
   eventStore: {
     ...input.environment.store,
     readInbox: (bounds) => readWebhookInbox(input, bounds),
+    /** Shutdown can cancel a receipt waiting behind a failed publisher before committing it. */
     completeWebhookDelivery: (token, bytes) =>
-      input.deliveryGate.withPermits(1)(
-        input.environment.store
-          .completeWebhookDelivery(token, bytes)
-          .pipe(
-            Effect.tap(() => forgetDelivery(input.environment.state, token)),
+      Effect.uninterruptibleMask(() =>
+        input.deliveryGate.take(1).pipe(
+          Effect.interruptible,
+          Effect.flatMap((permits) =>
+            input.environment.store.completeWebhookDelivery(token, bytes).pipe(
+              Effect.tap(() => forgetDelivery(input.environment.state, token)),
+              Effect.ensuring(input.deliveryGate.release(permits)),
+            ),
           ),
+        ),
       ),
   },
   subscriptionChanged: (active) => {

@@ -852,6 +852,128 @@ const failsWhenStartupProjectionCannotPersist = () =>
     }),
   );
 
+const withReceiptFinalizer = (
+  harness: RuntimeHarness,
+  receipt: Deferred.Deferred<Fiber.RuntimeFiber<void, EndpointStoreError>>,
+): RuntimeHarness => ({
+  ...harness,
+  dependencies: {
+    ...harness.dependencies,
+    acquireListener: (input) =>
+      harness.dependencies
+        .acquireListener(input)
+        .pipe(
+          Effect.tap(() =>
+            Effect.addFinalizer(() =>
+              Deferred.await(receipt).pipe(
+                Effect.flatMap(Fiber.interrupt),
+                Effect.asVoid,
+              ),
+            ),
+          ),
+        ),
+  },
+});
+
+const closesWhileReceiptWaitsOnFailedPersistence = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const original = await Effect.runPromise(makeHarness(fixture, "none"));
+  original.delivery.acknowledged = true;
+  const entered = await Effect.runPromise(Deferred.make<undefined>());
+  const fail = await Effect.runPromise(Deferred.make<undefined>());
+  const receipt = await Effect.runPromise(
+    Deferred.make<Fiber.RuntimeFiber<void, EndpointStoreError>>(),
+  );
+  const harness = withReceiptFinalizer(original, receipt);
+  let commits = 0;
+  const store: EndpointStore = {
+    ...makeStore(fixture, true),
+    putInboxItem: () =>
+      Deferred.succeed(entered, undefined).pipe(
+        Effect.zipRight(Deferred.await(fail)),
+        Effect.zipRight(
+          Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+        ),
+      ),
+    completeWebhookDelivery: () =>
+      Effect.sync(() => {
+        commits += 1;
+      }),
+  };
+  const daemon = Effect.runFork(run(fixture, store, harness));
+  await awaitStage(Deferred.await(harness.listenerReady), "listener");
+  const eventStore = harness.getEventStore();
+  if (eventStore === undefined) {
+    throw new Error("expected the controller event store");
+  }
+  original.delivery.acknowledged = false;
+  const reader = responseReader(
+    await requireHandler(harness).fetch(makeListenRequest("fatal-receipt")),
+  );
+  await awaitStage(Deferred.await(entered), "failing inbox persistence");
+  const waiting = Effect.runFork(
+    eventStore
+      .completeWebhookDelivery(
+        fixture.pending.deliveryToken,
+        new Uint8Array([1]),
+      )
+      .pipe(Effect.uninterruptible),
+  );
+  await Effect.runPromise(Deferred.succeed(receipt, waiting));
+  await Effect.runPromise(Effect.yieldNow());
+  await Effect.runPromise(Deferred.succeed(fail, undefined));
+  expect(
+    await awaitStage(Fiber.join(daemon).pipe(Effect.flip), "fatal shutdown"),
+  ).toEqual(new DaemonRuntimeError({ phase: "storage" }));
+  expect(commits).toBe(0);
+  await reader.cancel();
+};
+
+const completesCallerStateAfterReceiptCommit = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
+  const committed = await Effect.runPromise(Deferred.make<undefined>());
+  const release = await Effect.runPromise(Deferred.make<undefined>());
+  const store: EndpointStore = {
+    ...makeStore(fixture, true),
+    completeWebhookDelivery: () =>
+      Deferred.succeed(committed, undefined).pipe(
+        Effect.zipRight(Deferred.await(release)),
+      ),
+  };
+  const daemon = Effect.runFork(run(fixture, store, harness));
+  try {
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const eventStore = harness.getEventStore();
+    if (eventStore === undefined) {
+      throw new Error("expected the controller event store");
+    }
+    let updated = false;
+    const receipt = Effect.runFork(
+      eventStore
+        .completeWebhookDelivery(
+          fixture.pending.deliveryToken,
+          new Uint8Array([1]),
+        )
+        .pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              updated = true;
+            }),
+          ),
+          Effect.uninterruptible,
+        ),
+    );
+    await awaitStage(Deferred.await(committed), "receipt commit");
+    await Effect.runPromise(Fiber.interruptFork(receipt));
+    await Effect.runPromise(Deferred.succeed(release, undefined));
+    await awaitStage(Fiber.await(receipt), "receipt state update");
+    expect(updated).toBe(true);
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(daemon));
+  }
+};
+
 const blocksRegistrationAndSupervisesOutbound = async () => {
   const fixture = await Effect.runPromise(makeFixture);
   const harness = await Effect.runPromise(
@@ -1015,6 +1137,14 @@ const replaysUntilAcknowledged = async () => {
 };
 
 describe("daemon runtime composition", () => {
+  it(
+    "finishes the masked caller state update after a committed receipt",
+    completesCallerStateAfterReceiptCommit,
+  );
+  it(
+    "closes after fatal persistence with a receipt waiting for the delivery gate",
+    closesWhileReceiptWaitsOnFailedPersistence,
+  );
   it(
     "fails startup when classified inbox persistence fails",
     failsWhenStartupProjectionCannotPersist,
