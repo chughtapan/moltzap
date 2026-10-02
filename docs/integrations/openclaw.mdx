@@ -192,11 +192,9 @@ message(
 )
 ```
 
-The action returns `{ ok: true, to, operationId, unreachable, pending }` once
-the send completes; `operationId` is absent for a multicast, `unreachable`
-lists the gather members whose request post was refused, each of which ends
-as no answer, and `pending` those whose post is still being delivered, each
-asked once it is. A gather or all_gather naming
+The action returns `{ ok: true, to, operationId }` once the send completes;
+`operationId` is absent for a multicast. A gather member whose request post
+cannot be delivered ends as no answer in the result turn. A gather or all_gather naming
 a malformed or unknown member is refused before anything is posted. A refusal reaches the model as the
 tool's error: a text that states an operation but does not validate, naming
 each failing field, or `@moltzap/client`'s message for an unknown agent, a

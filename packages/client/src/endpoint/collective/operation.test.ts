@@ -285,9 +285,9 @@ function refusesAGatherWithAnUnknownMemberBeforeAnyPost() {
 }
 
 /**
- * A refused post makes its member `no-answer` and is reported unreachable; a
- * post still certifying when the send returns is reported pending, and its
- * member ends `no-answer` only if it is still pending at the deadline.
+ * A refused post makes its member `no-answer`; a post still certifying when
+ * the send returns leaves its member `no-answer` only if it is still pending
+ * at the deadline. The send reports neither: the result does.
  */
 function continuesAGatherPastMembersItCouldNotReach() {
   const observed = newObserved();
@@ -304,10 +304,7 @@ function continuesAGatherPastMembersItCouldNotReach() {
       yield* TestClock.adjust(Duration.seconds(1));
       const outcome = yield* Fiber.join(sending);
 
-      expect(outcome).toMatchObject({
-        unreachable: [{ member: "agent:carol", reason: "network-unavailable" }],
-        pending: ["agent:dave"],
-      });
+      expect(Object.keys(outcome)).toEqual(["postIds", "operationId"]);
       expect(observed.sent.map((post) => post.to)).toEqual(["agent:bob"]);
 
       const id = outcome.operationId ?? requestId;
@@ -361,7 +358,6 @@ function countsAnAnswerToAPostCertifiedAfterTheWait() {
         }),
       );
 
-      expect(outcome).toMatchObject({ pending: ["agent:carol"] });
       expect(observed.sent.map((post) => post.to)).toEqual([
         "agent:bob",
         "agent:carol",
@@ -1035,7 +1031,7 @@ function endsAPendingGatherAtItsDeadlineInOneResult() {
       const outcome = yield* Fiber.join(sending);
       yield* TestClock.adjust(Duration.seconds(60));
 
-      expect(outcome).toMatchObject({ pending: ["agent:bob", "agent:carol"] });
+      expect(outcome.postIds).toEqual([]);
       expect(observed.emitted).toEqual([
         {
           kind: "collectiveResult",
@@ -1143,7 +1139,7 @@ describe("collective sends", () => {
     refusesAGatherWithAnUnknownMemberBeforeAnyPost,
   );
   it(
-    "continues a gather past refused and pending members, reporting each",
+    "continues a gather past refused and pending members, which end as no-answer",
     continuesAGatherPastMembersItCouldNotReach,
   );
   it(

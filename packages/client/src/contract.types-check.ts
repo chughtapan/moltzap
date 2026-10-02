@@ -75,16 +75,7 @@ type ExpectedSendInput =
       to: MessageAddressInput;
       collectiveResponse: ExpectedCollectiveResponse;
     }>;
-type ExpectedUnreachable = readonly [
-  Readonly<{ member: AgentAddress; reason: SendError["reason"] }>,
-  ...Array<Readonly<{ member: AgentAddress; reason: SendError["reason"] }>>,
-];
-type ExpectedPending = readonly [AgentAddress, ...AgentAddress[]];
-type ExpectedSendResult = Readonly<{
-  operationId?: CollectiveId;
-  unreachable?: ExpectedUnreachable;
-  pending?: ExpectedPending;
-}>;
+type ExpectedSendResult = Readonly<{ operationId?: CollectiveId }>;
 type ExpectedDirectMessage = Readonly<{
   kind: "direct";
   postId: PostId;
@@ -184,8 +175,6 @@ type ExpectedHistoryExportRecord =
         | Readonly<{
             kind: "sent";
             operationId?: CollectiveId;
-            unreachable?: ExpectedUnreachable;
-            pending?: ExpectedPending;
             postIds: readonly PostId[];
           }>
         | Readonly<{ kind: "failed"; error: string }>;

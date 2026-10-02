@@ -14,7 +14,6 @@ import {
   parseMessageText,
   type SendError,
   type SendInput,
-  type SendResult,
 } from "@moltzap/client";
 import {
   Config,
@@ -248,32 +247,6 @@ function renderCollectiveResult(item: CollectiveResultItem): string {
   ].join("\n");
 }
 
-/**
- * The members a gather has not reached yet: refused ones end as no answer,
- * and pending ones are asked once their post is certified.
- */
-function renderReach({
-  operationId,
-  unreachable,
-  pending,
-}: SendResult): string {
-  return [
-    `gather ${String(operationId)} is asking the members it reached.`,
-    ...(unreachable === undefined
-      ? []
-      : [
-          `Could not reach ${unreachable
-            .map(({ member, reason }) => `${member} (${reason})`)
-            .join(", ")}; each ends as no answer.`,
-        ]),
-    ...(pending === undefined
-      ? []
-      : [
-          `Still delivering to ${pending.join(", ")}; each is asked once delivered, or ends as no answer at the deadline.`,
-        ]),
-  ].join(" ");
-}
-
 function renderOutcome(outcome: MemberOutcome): string {
   switch (outcome.kind) {
     case "answered":
@@ -495,34 +468,26 @@ class MoltZapChannelAdapter {
           MoltZapChannelError | SendError | CollectiveError
         > =>
           Either.match(parseMessageText(to, text), {
-            onLeft: (error) => this.reportToModel(to, error.message),
+            onLeft: (error) => this.reportRefusedText(to, error.message),
             onRight: (input) =>
               activation.endpoint
                 .send(input, { failureDelivery: failureDeliveryOf(input) })
-                .pipe(
-                  Effect.flatMap((result) =>
-                    result.unreachable === undefined &&
-                    result.pending === undefined
-                      ? Effect.void
-                      : this.reportToModel(to, renderReach(result)),
-                  ),
-                ),
+                .pipe(Effect.asVoid),
           }),
       ),
     );
   }
 
   /**
-   * Tell the model, in the conversation it sent to, what became of a send
-   * whose `send_message` call has already returned: a refused operation text
-   * with each failing field, or the members a gather could not reach. A
-   * refused text completes its row, since NanoClaw retrying the same text
-   * would fail the same way.
+   * Hand a refused operation text back to the model as a MoltZap message in
+   * the conversation it was sent to. `send_message` has already returned, so
+   * this is how the model learns which field to fix; the row completes,
+   * since NanoClaw retrying the same text would fail the same way.
    * @param to The conversation the text was sent to.
-   * @param report What the model needs to know.
+   * @param report The parser's refusal naming each failing field.
    * @returns Completion after the host callback completed.
    */
-  private reportToModel(
+  private reportRefusedText(
     to: MessageAddressInput,
     report: string,
   ): Effect.Effect<void, MoltZapChannelError> {
@@ -533,7 +498,7 @@ class MoltZapChannelAdapter {
           config,
           to,
           endpointInbound({
-            id: `report:${randomUUID()}`,
+            id: `refused:${randomUUID()}`,
             address: to,
             sender: ENDPOINT_SENDER,
             text: `MoltZap: ${report}`,

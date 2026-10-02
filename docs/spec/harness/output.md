@@ -28,10 +28,10 @@ deduplicate it against an earlier call.
 
 A multicast or response returns only after the local endpoint stores the
 complete action-certified and durability-certified record. A gather returns
-its `operationId` once its request posts have settled or waited 20 seconds,
-with `unreachable` naming each member whose post was refused and `pending`
-each member whose post is still certifying, and an all_gather once its group
-post is certified. Either fails with `members-unreachable` before posting
+its `operationId` once its request posts have settled or waited 20 seconds;
+a member whose post is refused, or still pending at the deadline, ends as
+`no-answer` in its result. An all_gather returns once its group post is
+certified. Either fails with `members-unreachable` before posting
 when a member is malformed or unknown; a gather also fails when every post
 was refused, and an all_gather when its group post is refused or not
 certified within 20 seconds. Send returns no

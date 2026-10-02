@@ -74,11 +74,11 @@ export const lookupRefusals = (
 
 /**
  * Where a gather's request posts stand when the send stops waiting: each
- * certified post, each member refused, and each member still pending, whose
- * send keeps running.
+ * certified post and each member refused. A send still pending keeps
+ * running and is in neither.
  * @param members The members asked, in the order of their sends.
  * @param sends Each member's request send.
- * @returns The posts, refusals and pending members, in member order.
+ * @returns The posts and refusals, in member order.
  */
 export const requestsSoFar = (
   members: readonly AgentAddress[],
@@ -86,7 +86,6 @@ export const requestsSoFar = (
 ): Effect.Effect<{
   readonly posts: EngineSentPost[];
   readonly refused: RequestRefusal[];
-  readonly pending: AgentAddress[];
 }> =>
   Effect.forEach(
     EffectArray.zip(members, sends),
@@ -107,9 +106,6 @@ export const requestsSoFar = (
       ),
       refused: states.flatMap(({ result }) =>
         Option.toArray(Option.flatMap(result, Either.getLeft)),
-      ),
-      pending: states.flatMap(({ member, result }) =>
-        Option.isNone(result) ? [member] : [],
       ),
     })),
   );

@@ -669,10 +669,7 @@ function sendRequests(
     yield* Fiber.awaitAll(sends).pipe(
       Effect.timeoutOption(requestWait(state, prepared)),
     );
-    const { posts, refused, pending } = yield* requestsSoFar(
-      open.members,
-      sends,
-    );
+    const { posts, refused } = yield* requestsSoFar(open.members, sends);
     const [refusal, ...refusals] = refused;
     if (
       refusal !== undefined &&
@@ -690,11 +687,7 @@ function sendRequests(
     yield* updateGather(state, id, (settled) => {
       settled.requestsSettled = true;
     });
-    return {
-      postIds: posts.map((post) => post.postId),
-      ...(refusal === undefined ? {} : { unreachable: [refusal, ...refusals] }),
-      ...(EffectArray.isNonEmptyArray(pending) ? { pending } : {}),
-    };
+    return { postIds: posts.map((post) => post.postId) };
   });
 }
 

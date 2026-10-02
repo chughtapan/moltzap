@@ -84,13 +84,6 @@ type SendInput =
 
 interface SendResult {
   readonly operationId?: CollectiveId
-  /** Gather members whose request post was refused; each ends as no-answer. */
-  readonly unreachable?: readonly [
-    { readonly member: AgentAddress; readonly reason: SendError["reason"] },
-    ...{ readonly member: AgentAddress; readonly reason: SendError["reason"] }[],
-  ]
-  /** Gather members whose request post was still certifying when send returned. */
-  readonly pending?: readonly [AgentAddress, ...AgentAddress[]]
 }
 
 interface DirectMessage {
@@ -214,12 +207,12 @@ collective operation is one member.
   still certifying then keeps going, and the wait never counts as a failure.
   Each member settles when its post does: a certified post asks it, and its
   answer counts until the deadline; a refused post makes it `no-answer`; a
-  post still pending at the deadline leaves it `no-answer`. The send result
-  names in `unreachable` each member whose post was already refused, with its
-  `SendError` reason, and in `pending` each member whose post was still
-  certifying. The send fails with `members-unreachable` naming every member
-  only when every post was refused, and nothing starts. An operation ends in
-  exactly one refusal or one result.
+  post still pending at the deadline leaves it `no-answer`. An unreachable
+  member and a silent one are the same outcome, so the send reports neither;
+  the model learns both from the result. The send fails with
+  `members-unreachable` naming every member only when every post was
+  refused, and nothing starts. An operation ends in exactly one refusal or
+  one result.
 - **all_gather**: `text` is a question to a group. `to` must be a `group:`
   address, with the 3 to 32 members every group has; an `agent:` address fails
   with `membership-invalid`. Validation, the id and the deadline are as for a
@@ -469,7 +462,7 @@ methods and cannot create a delivery or authorize output.
   the endpoint consumes records it does not deliver.
 - A gather refuses an unknown member before any post, fans out one request
   post per member, keeps a post certifying past the send wait and counts that
-  member's answer, makes a refused member `no-answer` and reports it, fails
+  member's answer, makes a refused member `no-answer`, fails
   only when every post was refused, ends in exactly one refusal or result, validates answers on
   both sides, keeps each member's first answer,
   completes at the deadline with `no-answer` outcomes, and ignores a late

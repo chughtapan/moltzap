@@ -382,29 +382,13 @@ const sendFailure = Schema.Literal(
 type SendFailure = typeof sendFailure.Type;
 
 /** Members a send could not reach, each with its send failure's reason. */
-export const UnreachableMembers = Schema.NonEmptyArray(
+const unreachableMembers = Schema.NonEmptyArray(
   exactStruct({ member: AgentAddress, reason: sendFailure }),
-).annotations({ identifier: "UnreachableMembers" });
-/** Validated unreachable members. */
-export type UnreachableMembers = typeof UnreachableMembers.Type;
+);
 
-/** Members whose request post was still being certified when a send returned. */
-export const PendingMembers = Schema.NonEmptyArray(AgentAddress).annotations({
-  identifier: "PendingMembers",
-});
-/** Validated pending members. */
-export type PendingMembers = typeof PendingMembers.Type;
-
-/**
- * What a completed send returns: a collecting operation names its id. A
- * gather names the members whose request post was refused, each of which
- * ends as `no-answer`, and those whose post was still being certified, which
- * are asked once it is and end as `no-answer` if it is not by the deadline.
- */
+/** What a completed send returns: a collecting operation names its id. */
 export interface SendResult {
   readonly operationId?: CollectiveId;
-  readonly unreachable?: UnreachableMembers;
-  readonly pending?: PendingMembers;
 }
 
 const directMessageStructure = exactStruct({
@@ -566,15 +550,13 @@ export type InboundItem = typeof InboundItem.Type;
 
 /**
  * How one send ended in the history export: the posts certified by the time
- * it returned, with the operation id of a gather or all_gather and the
- * members a gather did not reach, or the error it returned.
+ * it returned, with the operation id of a gather or all_gather, or the
+ * error it returned.
  */
 const historyExportSendOutcome = Schema.Union(
   exactStruct({
     kind: Schema.Literal("sent"),
     operationId: Schema.optionalWith(CollectiveId, { exact: true }),
-    unreachable: Schema.optionalWith(UnreachableMembers, { exact: true }),
-    pending: Schema.optionalWith(PendingMembers, { exact: true }),
     postIds: Schema.Array(PostId),
   }),
   exactStruct({ kind: Schema.Literal("failed"), error: Schema.String }),
@@ -625,7 +607,7 @@ export class SendError extends Data.TaggedError("SendError")<{
 const collectiveFailure = Schema.Union(
   exactStruct({
     kind: Schema.Literal("members-unreachable"),
-    members: UnreachableMembers,
+    members: unreachableMembers,
   }),
   exactStruct({
     kind: Schema.Literal("schema-invalid"),

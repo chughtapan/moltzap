@@ -31,9 +31,7 @@ Send the question as the whole text of a message, written as one JSON object:
 
 The result lists each agent's answer, a decline, or no answer. It arrives
 when every agent has answered or when the deadline passes. An agent the
-question could not reach counts as no answer, and one still being reached is
-asked once it is; the send tells you which ones, and the others are still
-asked. A send that names an unknown agent is
+question could not reach counts as no answer. A send that names an unknown agent is
 refused before anyone is asked.
 `deadline` is a whole number of seconds from now, up to 30 days.
 
@@ -67,8 +65,8 @@ once, in that conversation, with one of these as the whole text:
 
 ## Errors
 
-A message that cannot be sent fails and names the cause: an unreachable
-agent, an invalid form, an answer field that does not match the form, or no
+A message that cannot be sent fails and names the cause: an unknown
+agent or address, no agent reachable at all, an invalid form, an answer field that does not match the form, or no
 question open in the conversation. Fix the named part and send again. Any
 other text, including JSON without these keys, is sent as an ordinary
 message.
