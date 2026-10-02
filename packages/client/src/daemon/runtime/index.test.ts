@@ -6,50 +6,26 @@ import {
   PROTOCOL_VERSION_META_KEY,
   SUBSCRIPTION_ID_META_KEY,
 } from "@modelcontextprotocol/server";
-import {
-  AgentCard,
-  AgentId,
-  AgentName,
-  AgentSigningAuthority,
-  type AgentSigningAuthority as AgentSigningAuthorityValue,
-  Ed25519PublicKey,
-  MOLTZAP_VERSION,
-  PrincipalId,
-  type VerifiedAgentCard,
-} from "@moltzap/identity";
+import { AgentCard } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
-import canonicalize from "canonicalize";
-import {
-  type Context,
-  Deferred,
-  Effect,
-  Encoding,
-  Fiber,
-  Option,
-  Redacted,
-  Schema,
-} from "effect";
-import {
-  createHash,
-  generateKeyPairSync,
-  type KeyObject,
-  sign as signBytes,
-} from "node:crypto";
+import { type Context, Deferred, Effect, Fiber, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import type { DaemonBootstrap } from "../configuration.js";
+import {
+  digest,
+  type Fixture,
+  makeFixture,
+} from "../../__tests__/daemon-runtime-fixtures.js";
 import {
   DeliveryAcknowledgeError,
   type HistoryExportRecord,
   InboundItem,
-  InboundMessage,
 } from "../../contract.js";
 import {
   type EndpointEngine,
   EngineOutboundError,
   type EnginePendingMessage,
 } from "../../endpoint/engine.js";
-import { encodeCanonical, RecordHash } from "../../endpoint/representation.js";
 import {
   type RouterWorker,
   type RouterWorkerInput,
@@ -72,7 +48,6 @@ import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
 } from "../../harness-mcp-wire.js";
-import { managementRegisterRequestSchema } from "../../management-runtime.js";
 import {
   type DaemonRuntimeDependencies,
   DaemonRuntimeError,
@@ -87,14 +62,6 @@ const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const EXPECTED_LISTENER_FAILURE = new DaemonRuntimeError({
   phase: "listener",
 });
-
-interface Fixture {
-  readonly bootstrap: DaemonBootstrap;
-  readonly localCard: VerifiedAgentCard;
-  readonly canonicalLocalCard: Uint8Array;
-  readonly registerRequest: typeof managementRegisterRequestSchema.Type;
-  readonly pending: EnginePendingMessage;
-}
 
 interface DeliveryState {
   readonly pending: EnginePendingMessage;
@@ -154,115 +121,6 @@ interface RuntimeHarness {
 type BackgroundFailure = "none" | "outbound" | "worker";
 
 const EXPORT_PATH = "/var/run/moltzap/history.ndjson";
-
-const identifier = (prefix: string, byte: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`;
-
-const digest = (prefix: string, byte: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
-
-const makeAuthority = () => {
-  const { privateKey } = generateKeyPairSync("ed25519");
-  return AgentSigningAuthority.fromPkcs8(
-    Redacted.make(privateKey.export({ format: "pem", type: "pkcs8" })),
-  );
-};
-
-const issueCard = (input: {
-  readonly authority: AgentSigningAuthorityValue;
-  readonly registryPrivateKey: KeyObject;
-  readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
-}): Effect.Effect<VerifiedAgentCard> =>
-  Effect.gen(function* () {
-    const thumbprint = createHash("sha256")
-      .update(canonicalize(input.registrySignerPublicKey) ?? "")
-      .digest("base64url");
-    const protectedText = canonicalize({
-      alg: "Ed25519",
-      kid: `urn:ietf:params:oauth:jwk-thumbprint:sha-256:${thumbprint}`,
-      typ: "application/vnd.moltzap.agent-card+jws",
-    });
-    const payloadText = canonicalize({
-      agentId: Schema.decodeUnknownSync(AgentId)(identifier("agt_", 1)),
-      agentName: Schema.decodeUnknownSync(AgentName)("alice"),
-      issuedAt: "2026-08-27T12:00:00Z",
-      kind: "agentCard",
-      moltzapVersion: MOLTZAP_VERSION,
-      principalId: Schema.decodeUnknownSync(PrincipalId)(identifier("prn_", 2)),
-      publicKey: AgentSigningAuthority.publicKey(input.authority),
-    });
-    if (protectedText === undefined || payloadText === undefined) {
-      return yield* Effect.dieMessage("canonical card fixture failed");
-    }
-    const protectedValue = Buffer.from(protectedText).toString("base64url");
-    const payload = Buffer.from(payloadText).toString("base64url");
-    const signature = signBytes(
-      null,
-      Buffer.from(`${protectedValue}.${payload}`),
-      input.registryPrivateKey,
-    ).toString("base64url");
-    const card = yield* Schema.decodeUnknown(AgentCard)({
-      payload,
-      signatures: [{ protected: protectedValue, signature }],
-    });
-    return yield* AgentCard.verify({
-      agentCard: card,
-      registrySignerPublicKey: input.registrySignerPublicKey,
-    });
-  }).pipe(Effect.orDie);
-
-const makePendingMessage = Effect.all({
-  deliveryToken: Schema.decodeUnknown(DeliveryToken)(digest("dlv_", 4)),
-  recordHash: Schema.decodeUnknown(RecordHash)(digest("rch_", 6)),
-  message: Schema.decodeUnknown(InboundMessage)({
-    kind: "direct",
-    postId: digest("pst_", 5),
-    address: "agent:bob",
-    sender: "agent:bob",
-    content: [{ type: "text", text: "certified" }],
-  }),
-});
-
-const makeFixture = Effect.gen(function* () {
-  const registryKeys = generateKeyPairSync("ed25519");
-  const registrySignerPublicKey = yield* Schema.decodeUnknown(Ed25519PublicKey)(
-    registryKeys.publicKey.export({ format: "jwk" }),
-  );
-  const signingAuthority = yield* makeAuthority();
-  const localCard = yield* issueCard({
-    authority: signingAuthority,
-    registryPrivateKey: registryKeys.privateKey,
-    registrySignerPublicKey,
-  });
-  const bootstrap: DaemonBootstrap = Object.freeze({
-    configuration: {
-      stateDirectory: "/var/lib/moltzapd",
-      mcpPort: 4319,
-      registryOrigin: new URL("https://registry.example"),
-      registrySignerPublicKey,
-      routerOrigin: new URL("https://router.example"),
-      agentPrivateKeyFile: Redacted.make("/run/secrets/agent.pem"),
-      admissionCredentialFile: Redacted.make("/run/secrets/admission"),
-    },
-    signingAuthority,
-    agentPublicKey: AgentSigningAuthority.publicKey(signingAuthority),
-    admissionCredential: Effect.succeed(Redacted.make("bootstrap-token=")),
-  });
-  const registerRequest = yield* Schema.decodeUnknown(
-    managementRegisterRequestSchema,
-  )({
-    operationId: identifier("opn_", 3),
-    principalId: localCard.principalId,
-    agentName: localCard.agentName,
-  });
-  return {
-    bootstrap,
-    localCard,
-    canonicalLocalCard: yield* encodeCanonical(AgentCard, localCard),
-    registerRequest,
-    pending: yield* makePendingMessage,
-  } satisfies Fixture;
-}).pipe(Effect.orDie);
 
 const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
   left.length === right.length &&
@@ -875,6 +733,16 @@ const withReceiptFinalizer = (
   },
 });
 
+const forkWaitingReceipt = (
+  store: EventStore,
+  token: typeof DeliveryToken.Type,
+) =>
+  Effect.runFork(
+    store
+      .completeWebhookDelivery(token, new Uint8Array([1]))
+      .pipe(Effect.uninterruptible),
+  );
+
 const closesWhileReceiptWaitsOnFailedPersistence = async () => {
   const fixture = await Effect.runPromise(makeFixture);
   const original = await Effect.runPromise(makeHarness(fixture, "none"));
@@ -911,14 +779,7 @@ const closesWhileReceiptWaitsOnFailedPersistence = async () => {
     await requireHandler(harness).fetch(makeListenRequest("fatal-receipt")),
   );
   await awaitStage(Deferred.await(entered), "failing inbox persistence");
-  const waiting = Effect.runFork(
-    eventStore
-      .completeWebhookDelivery(
-        fixture.pending.deliveryToken,
-        new Uint8Array([1]),
-      )
-      .pipe(Effect.uninterruptible),
-  );
+  const waiting = forkWaitingReceipt(eventStore, fixture.pending.deliveryToken);
   await Effect.runPromise(Deferred.succeed(receipt, waiting));
   await Effect.runPromise(Effect.yieldNow());
   await Effect.runPromise(Deferred.succeed(fail, undefined));

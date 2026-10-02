@@ -326,6 +326,24 @@ const readWebhookInbox = (
     }),
   );
 
+/** Waiters can stop during shutdown; an acquired receipt commits with its caller state intact. */
+const completeWebhookDelivery = (
+  input: ControllerAssembly,
+  token: DeliveryToken,
+  bytes: Uint8Array,
+) =>
+  Effect.uninterruptibleMask(() =>
+    input.deliveryGate.take(1).pipe(
+      Effect.interruptible,
+      Effect.flatMap((permits) =>
+        input.environment.store.completeWebhookDelivery(token, bytes).pipe(
+          Effect.tap(() => forgetDelivery(input.environment.state, token)),
+          Effect.ensuring(input.deliveryGate.release(permits)),
+        ),
+      ),
+    ),
+  );
+
 const assembleDaemonController = (
   input: ControllerAssembly,
 ): DaemonController => ({
@@ -333,19 +351,8 @@ const assembleDaemonController = (
   eventStore: {
     ...input.environment.store,
     readInbox: (bounds) => readWebhookInbox(input, bounds),
-    /** Shutdown can cancel a receipt waiting behind a failed publisher before committing it. */
     completeWebhookDelivery: (token, bytes) =>
-      Effect.uninterruptibleMask(() =>
-        input.deliveryGate.take(1).pipe(
-          Effect.interruptible,
-          Effect.flatMap((permits) =>
-            input.environment.store.completeWebhookDelivery(token, bytes).pipe(
-              Effect.tap(() => forgetDelivery(input.environment.state, token)),
-              Effect.ensuring(input.deliveryGate.release(permits)),
-            ),
-          ),
-        ),
-      ),
+      completeWebhookDelivery(input, token, bytes),
   },
   subscriptionChanged: (active) => {
     input.changes.unsafeOffer(active);
