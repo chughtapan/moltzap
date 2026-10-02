@@ -1,0 +1,44 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "adapter-daemon",
+  "implicitDependencies": [
+    "@moltzap/identity",
+    "@moltzap/router",
+    "@moltzap/client",
+    "@moltzap/openclaw-channel",
+    "@moltzap/nanoclaw-channel"
+  ],
+  "targets": {
+    "test:integration": {
+      "cache": false,
+      "inputs": [
+        "^production",
+        "{workspaceRoot}/scripts/test/adapter-daemon-process.integration.test.ts",
+        "{workspaceRoot}/scripts/test/adapter-daemon-vitest.config.ts",
+        "{workspaceRoot}/scripts/test/nanoclaw-addressed-send-probe.mjs",
+        "{workspaceRoot}/scripts/test/tsconfig.adapter-daemon.json",
+        "{workspaceRoot}/scripts/agent-images/build-nanoclaw-image.mjs",
+        "{workspaceRoot}/scripts/agent-images/nanoclaw/**/*",
+        "{workspaceRoot}/scripts/agent-images/shared/**/*",
+        "{workspaceRoot}/scripts/images/**/*",
+        "{workspaceRoot}/tools/workspace/project.json"
+      ],
+      "dependsOn": [
+        "^build",
+        {
+          "projects": ["workspace"],
+          "target": "nanoclaw-agent-image"
+        }
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": ".",
+        "parallel": false,
+        "commands": [
+          "pnpm exec tsc -p scripts/test/tsconfig.adapter-daemon.json",
+          "pnpm exec vitest run --config scripts/test/adapter-daemon-vitest.config.ts"
+        ]
+      }
+    }
+  }
+}
