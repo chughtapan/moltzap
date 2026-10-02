@@ -75,8 +75,9 @@ jobs:
       # A push to main runs every project. Each target builds what it needs
       # through dependsOn, so there is no separate build step.
       # adapter-daemon:test:integration builds the NanoClaw agent image, so a
-      # pull request builds it only when a package, the adapter-daemon test,
-      # or the image sources change.
+      # pull request builds it only when one of that target's declared inputs
+      # changes: a package, the lockfile, the adapter-daemon test and probe,
+      # the image sources, or tools/workspace/project.json.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0

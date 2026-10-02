@@ -15,6 +15,7 @@
         "^production",
         "{workspaceRoot}/scripts/test/adapter-daemon-process.integration.test.ts",
         "{workspaceRoot}/scripts/test/adapter-daemon-vitest.config.ts",
+        "{workspaceRoot}/scripts/test/nanoclaw-addressed-send-probe.mjs",
         "{workspaceRoot}/scripts/test/tsconfig.adapter-daemon.json",
         "{workspaceRoot}/scripts/agent-images/build-nanoclaw-image.mjs",
         "{workspaceRoot}/scripts/agent-images/nanoclaw/**/*",
