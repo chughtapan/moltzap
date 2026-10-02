@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./contract.ts#L680)
+### [`CollectiveError`](./contract.ts#L679)
 
 _Class_
 
@@ -65,7 +65,7 @@ A gather, all_gather or answer was refused. The message names each
 unreachable member or failing field, so a host can hand it to its model as
 the tool error.
 
-### [`ConnectError`](./contract.ts#L727)
+### [`ConnectError`](./contract.ts#L726)
 
 _Class_
 
@@ -127,7 +127,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./contract.ts#L711)
+### [`DeliveryAcknowledgeError`](./contract.ts#L710)
 
 _Class_
 
@@ -189,7 +189,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./contract.ts#L751)
+### [`HarnessEndpoint`](./contract.ts#L750)
 
 _Interface_
 
@@ -215,7 +215,7 @@ A host whose tool returns before the send completes passes
 then completes and its error arrives as an `operationFailed` item on the
 stream. A multicast has no operation id, so its failure is always returned.
 
-### [`HistoryExportRecord`](./contract.ts#L593)
+### [`HistoryExportRecord`](./contract.ts#L592)
 
 _TypeAlias_
 
@@ -225,7 +225,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord`](./contract.ts#L574)
+### [`HistoryExportRecord`](./contract.ts#L573)
 
 _Variable_
 
@@ -255,7 +255,7 @@ published it, a completed `send` invocation with its input and outcome, or
 the one line that says the export stopped. Readers decode the file line by
 line with this schema rather than copying its shape.
 
-### [`InboundDelivery`](./contract.ts#L736)
+### [`InboundDelivery`](./contract.ts#L735)
 
 _Interface_
 
@@ -357,7 +357,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./contract.ts#L696)
+### [`ListenError`](./contract.ts#L695)
 
 _Class_
 
@@ -455,7 +455,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`SendError`](./contract.ts#L596)
+### [`SendError`](./contract.ts#L595)
 
 _Class_
 

@@ -40,7 +40,7 @@ repository root:
 ```bash
 pnpm install --frozen-lockfile
 pnpm nx run @moltzap/client:build
-pnpm nx run @moltzap/client:test -- src/harness-mcp-events/index.test.ts src/harness-mcp-events/webhook.test.ts src/client-runtime/events.test.ts src/harness-mcp-auth.test.ts src/daemon/inbox/index.test.ts src/daemon/inbox/recovery.test.ts src/daemon/runtime/send-invocations.test.ts src/daemon/configuration.test.ts
+pnpm nx run @moltzap/client:test -- src/harness-mcp-events/index.test.ts src/harness-mcp-events/webhook.test.ts src/client-runtime/events.test.ts src/daemon/mcp-auth.test.ts src/daemon/inbox/index.test.ts src/daemon/inbox/recovery.test.ts src/daemon/runtime/send-invocations.test.ts src/daemon/configuration.test.ts
 ```
 
 These tests use real loopback HTTP for native Events, an injected Effect

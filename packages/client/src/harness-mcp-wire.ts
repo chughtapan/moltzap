@@ -29,7 +29,7 @@ import {
   type HarnessMcpCredentials,
   type HarnessMcpRole,
   mayInvokeHarnessTool,
-} from "./harness-mcp-auth.js";
+} from "./daemon/mcp-auth.js";
 import {
   decodeHarnessReadSendRequest,
   decodeHarnessSendCall,

@@ -8,10 +8,7 @@ import {
 import { Config, Data, Effect, Redacted, Schema } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Bootstrap reads configured credential files before the daemon composes its platform services.
 import { readFile } from "node:fs/promises";
-import {
-  credentialMatches,
-  type HarnessMcpCredentials,
-} from "../harness-mcp-auth.js";
+import { credentialMatches, type HarnessMcpCredentials } from "./mcp-auth.js";
 
 const canonicalUnsignedDecimal = Schema.String.pipe(
   Schema.pattern(/^(?:0|[1-9]\d*)$/u),

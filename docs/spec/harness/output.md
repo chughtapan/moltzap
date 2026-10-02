@@ -3,7 +3,7 @@
 Status: **implementation candidate; pending ADR review**
 
 Native adapters send through the stock host's proactive output callback,
-which supplies an explicit destination and performs one operation. Their
+which supplies an explicit destination and performs one operation. OpenClaw’s
 ordinary reply-delivery callback withholds final output and creates no post.
 Dot sends through the semantic MCP `send_message` tool. Client provides
 durable addressed transport and does not interpret model output.

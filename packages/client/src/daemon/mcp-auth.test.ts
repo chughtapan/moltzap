@@ -8,15 +8,15 @@ import {
 import { AgentCard } from "@moltzap/identity";
 import { Effect, Redacted, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { makeFixture } from "./__tests__/router-worker-fixtures.js";
+import { makeFixture } from "../__tests__/router-worker-fixtures.js";
 import {
   type EventStore,
   HARNESS_SEND_META_KEY,
-} from "./harness-mcp-contract.js";
+} from "../harness-mcp-contract.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
-} from "./harness-mcp-wire.js";
+} from "../harness-mcp-wire.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- HTTP and JSON-RPC codes are external conformance expectations. */
 

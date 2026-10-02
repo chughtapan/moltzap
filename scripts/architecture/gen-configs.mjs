@@ -77,6 +77,11 @@ const packageDefinitions = {
             "Exact private management schema boundary shared by daemon operations and its MCP catalog",
         },
         {
+          file: "daemon/mcp-auth.ts",
+          reason:
+            "Daemon-owned credential and role checks shared by private configuration and MCP request dispatch",
+        },
+        {
           file: "daemon/registration.ts",
           reason:
             "Crash-recoverable identity-registration boundary shared by daemon startup and management",
