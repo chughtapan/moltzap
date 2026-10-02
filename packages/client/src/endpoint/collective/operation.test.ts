@@ -4,6 +4,7 @@ import {
   Duration,
   Effect,
   Encoding,
+  Fiber,
   Option,
   Schema,
   type Scope,
@@ -34,6 +35,7 @@ import {
   readCollectiveValue,
 } from "./wire.js";
 
+/* eslint-disable max-lines -- One recording layer serves every send, classification and result case, so the cases stay beside the fixture they share. */
 const alice = Schema.decodeUnknownSync(AgentAddress)("agent:alice");
 const bob = Schema.decodeUnknownSync(AgentAddress)("agent:bob");
 const collectiveKey = "xyz.moltzap/collective";
@@ -66,20 +68,28 @@ const newObserved = (): Observed => ({ sent: [], emitted: [] });
 
 /**
  * A collective layer over recording ports. Each certified post gets a fresh
- * PostId after `sendDelay`; a member named in `refused` refuses its post with
- * that reason.
+ * PostId after `sendDelay`. A member named in `refused` refuses its post with
+ * that reason, or never certifies it when the reason is `slow`; a member
+ * named in `unknown` also fails the lookup that resolves it.
  */
 const makeLayer = (
   observed: Observed,
-  refused: Readonly<Record<string, SendError["reason"]>> = {},
+  refused: Readonly<Record<string, SendError["reason"] | "slow">> = {},
   sendDelay?: Duration.Duration,
+  unknown: readonly string[] = [],
 ): Effect.Effect<CollectiveOperations, never, Scope.Scope> =>
   Effect.map(Effect.scope, (scope) =>
     makeCollectiveOperations({
       self: alice,
-      lookupMember: () => Effect.void,
+      lookupMember: (member) =>
+        unknown.includes(member)
+          ? Effect.fail(new SendError({ reason: "unknown-agent" }))
+          : Effect.void,
       sendPost: (input) => {
         const reason = refused[input.to];
+        if (reason === "slow") {
+          return Effect.never;
+        }
         if (reason !== undefined) {
           return Effect.fail(new SendError({ reason }));
         }
@@ -255,20 +265,94 @@ function fansAGatherOutAsOneRequestPostPerMemberButTheRequester() {
   );
 }
 
-function failsAGatherNamingEachMemberWhoseRequestPostWasRefused() {
+function refusesAGatherWithAnUnknownMemberBeforeAnyPost() {
   const observed = newObserved();
 
   return run(
     Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, {
-        "agent:carol": "unknown-agent",
-      });
+      const layer = yield* makeLayer(observed, {}, undefined, ["agent:carol"]);
       const failure = yield* collectiveFailureOf(send(layer, gatherInput()));
 
       expect(failure).toEqual({
         kind: "members-unreachable",
         members: [{ member: "agent:carol", reason: "unknown-agent" }],
       });
+      expect(observed.sent).toEqual([]);
+    }),
+  );
+}
+
+/**
+ * A member whose post is refused, or still uncertified when the wait ends,
+ * is reported unreachable and ends as no-answer; the members reached still
+ * answer, and the gather completes once they have.
+ */
+function continuesAGatherPastMembersItCouldNotReach() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(observed, {
+        "agent:carol": "network-unavailable",
+        "agent:dave": "slow",
+      });
+      const sending = yield* Effect.fork(
+        send(layer, { ...gatherInput(), to: "group:alice,bob,carol,dave" }),
+      );
+      yield* TestClock.adjust(Duration.seconds(1));
+      const outcome = yield* Fiber.join(sending);
+
+      expect(outcome).toMatchObject({
+        unreachable: [
+          { member: "agent:carol", reason: "network-unavailable" },
+          { member: "agent:dave", reason: "certification-unavailable" },
+        ],
+      });
+      expect(observed.sent.map((post) => post.to)).toEqual(["agent:bob"]);
+
+      const id = outcome.operationId ?? requestId;
+      yield* classifyPost(
+        layer,
+        answerPost("agent:bob", id, { action: "decline" }),
+      );
+
+      expect(observed.emitted).toEqual([
+        {
+          kind: "collectiveResult",
+          id,
+          to: "group:alice,bob,carol,dave",
+          question: questionText,
+          outcomes: [
+            { member: "agent:bob", outcome: { kind: "declined" } },
+            { member: "agent:carol", outcome: { kind: "no-answer" } },
+            { member: "agent:dave", outcome: { kind: "no-answer" } },
+          ],
+        },
+      ]);
+    }),
+  );
+}
+
+function failsAGatherNoneOfWhosePostsWasDelivered() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(observed, {
+        "agent:bob": "network-unavailable",
+        "agent:carol": "persistence-failed",
+      });
+      const failure = yield* collectiveFailureOf(send(layer, gatherInput()));
+      yield* TestClock.adjust(Duration.seconds(60));
+
+      expect(failure).toEqual({
+        kind: "members-unreachable",
+        members: [
+          { member: "agent:bob", reason: "network-unavailable" },
+          { member: "agent:carol", reason: "persistence-failed" },
+        ],
+      });
+      expect(observed.emitted).toEqual([]);
     }),
   );
 }
@@ -358,9 +442,7 @@ function emitsARefusedGatherAsAnOperationFailedItemWhenFailuresGoInbound() {
 
   return run(
     Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, {
-        "agent:carol": "unknown-agent",
-      });
+      const layer = yield* makeLayer(observed, {}, undefined, ["agent:carol"]);
       const outcome = yield* send(layer, gatherInput(), "inbound");
 
       expect(observed.emitted).toEqual([
@@ -722,7 +804,7 @@ function reportsASilentMemberAsNoAnswerAtTheDeadline() {
       const id = yield* startGather(layer);
       yield* classifyPost(
         layer,
-        answerPost("agent:bob", id, { action: "cancel" }),
+        answerPost("agent:bob", id, { action: "decline" }),
       );
       yield* TestClock.adjust(Duration.seconds(60));
 
@@ -733,7 +815,7 @@ function reportsASilentMemberAsNoAnswerAtTheDeadline() {
           to: gatherTo,
           question: questionText,
           outcomes: [
-            { member: "agent:bob", outcome: { kind: "cancelled" } },
+            { member: "agent:bob", outcome: { kind: "declined" } },
             { member: "agent:carol", outcome: { kind: "no-answer" } },
           ],
         },
@@ -886,20 +968,33 @@ function asksTheOneAgentOfAnAgentAddress() {
   );
 }
 
-function completesAtTheDeadlineEvenWhileRequestPostsAreStillSending() {
+/**
+ * Posts still uncertified when the wait ends reach no one, so a gather whose
+ * every post is still sending is refused, and nothing completes later.
+ */
+function refusesAGatherWhoseRequestPostsAreStillSending() {
   const observed = newObserved();
 
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(observed, {}, Duration.seconds(5));
-      yield* startGather(layer).pipe(Effect.fork);
-      yield* TestClock.adjust(Duration.millis(59_999));
+      const sending = yield* Effect.fork(
+        collectiveFailureOf(send(layer, gatherInput())),
+      );
+      yield* TestClock.adjust(Duration.seconds(1));
 
+      expect(yield* Fiber.join(sending)).toEqual({
+        kind: "members-unreachable",
+        members: [
+          { member: "agent:bob", reason: "certification-unavailable" },
+          { member: "agent:carol", reason: "certification-unavailable" },
+        ],
+      });
+
+      yield* TestClock.adjust(Duration.seconds(60));
+
+      expect(observed.sent).toEqual([]);
       expect(observed.emitted).toEqual([]);
-
-      yield* TestClock.adjust(Duration.millis(1));
-
-      expect(observed.emitted).toMatchObject([{ kind: "collectiveResult" }]);
     }),
   );
 }
@@ -991,8 +1086,16 @@ describe("collective sends", () => {
   );
 
   it(
-    "fails a gather naming each member whose request post was refused",
-    failsAGatherNamingEachMemberWhoseRequestPostWasRefused,
+    "refuses a gather with an unknown member before posting to anyone",
+    refusesAGatherWithAnUnknownMemberBeforeAnyPost,
+  );
+  it(
+    "continues a gather past members it could not reach, as no-answer",
+    continuesAGatherPastMembersItCouldNotReach,
+  );
+  it(
+    "fails a gather none of whose request posts was delivered",
+    failsAGatherNoneOfWhosePostsWasDelivered,
   );
 
   it(
@@ -1135,8 +1238,8 @@ describe("gather results", () => {
   );
 
   it(
-    "completes at the deadline even while request posts are still sending",
-    completesAtTheDeadlineEvenWhileRequestPostsAreStillSending,
+    "refuses a gather whose request posts are all still sending when the wait ends",
+    refusesAGatherWhoseRequestPostsAreStillSending,
   );
 
   it(
@@ -1177,3 +1280,4 @@ describe("received request checks", () => {
     consumesARequestWhoseDeadlineLiesBeyondTheLongestAGatherStates,
   );
 });
+/* eslint-enable max-lines -- Restore repository defaults. */

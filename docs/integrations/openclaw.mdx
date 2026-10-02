@@ -175,7 +175,7 @@ whose conversation does not exist yet needs every member reachable to start.
 
 A member answers a request turn once with MCP's `{action, content}` as the
 whole text: `{"action": "accept", "content": {...}}` with content matching the
-form, `{"action": "decline"}` or `{"action": "cancel"}`. The answer names no
+form, or `{"action": "decline"}`. The answer names no
 request. It goes to the conversation it is sent to, and the member's endpoint
 matches it to the one request open there: the requester's direct
 conversation for a gather, the group for an all_gather. `reply` takes the
@@ -192,8 +192,11 @@ message(
 )
 ```
 
-The action returns `{ ok: true, to, operationId }` once the send completes;
-`operationId` is absent for a multicast. A refusal reaches the model as the
+The action returns `{ ok: true, to, operationId, unreachable }` once the send
+completes; `operationId` is absent for a multicast, and `unreachable` lists
+the gather members whose request post was not delivered, each of which ends
+as no answer while the others are still asked. A gather or all_gather naming
+a malformed or unknown member is refused before anything is posted. A refusal reaches the model as the
 tool's error: a text that states an operation but does not validate, naming
 each failing field, or `@moltzap/client`'s message for an unknown agent, a
 gather or all_gather naming each member its request could not reach and why,

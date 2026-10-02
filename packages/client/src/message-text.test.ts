@@ -77,6 +77,7 @@ const REFUSALS: ReadonlyArray<
   ],
   [{ all_gather: "Q", deadline: 60 }, "all_gather", "requestedSchema"],
   [{ action: "maybe" }, "answer", "action"],
+  [{ action: "cancel" }, "answer", "action"],
   [{ action: "accept" }, "answer", "content"],
   [{ action: "decline", content: { slot: "mon" } }, "answer", "content"],
   [{ action: "accept", content: { slot: "mon" }, id: "col_x" }, "answer", "id"],
@@ -154,12 +155,10 @@ function readsAnswers() {
     to: group,
     collectiveResponse: { action: "accept", content: { slot: "mon" } },
   });
-  for (const action of ["decline", "cancel"]) {
-    expect(parsed(JSON.stringify({ action }))).toEqual({
-      to: group,
-      collectiveResponse: { action },
-    });
-  }
+  expect(parsed('{"action": "decline"}')).toEqual({
+    to: group,
+    collectiveResponse: { action: "decline" },
+  });
 }
 
 function refusesIllFormedText() {

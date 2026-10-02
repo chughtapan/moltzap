@@ -139,13 +139,9 @@ const allAnsweredBehavior = Effect.gen(function* () {
       members: [{ member: "agent:gather-nobody", reason: "unknown-agent" }],
     },
   });
-  expect(yield* nextItem(first)).toMatchObject({ kind: "collectiveRequest" });
-  yield* send(first, {
-    to: requester.address,
-    collectiveResponse: { action: "decline" },
-  });
 
   const started = yield* gather(requester, [first, second], 60);
+  /** The refused gather posted nothing, so the first item is this request. */
   const firstRequest = yield* nextItem(first);
   const secondRequest = yield* nextItem(second);
   expect(firstRequest).toEqual({

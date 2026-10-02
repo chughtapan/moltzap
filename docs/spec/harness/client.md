@@ -68,7 +68,7 @@ type CollectiveOperation =
 
 type CollectiveResponse =
   | { readonly action: "accept"; readonly content: AnswerContent }
-  | { readonly action: "decline" | "cancel" }
+  | { readonly action: "decline" }
 
 type SendInput =
   | {
@@ -84,6 +84,11 @@ type SendInput =
 
 interface SendResult {
   readonly operationId?: CollectiveId
+  /** Gather members whose request post was not delivered; each ends as no-answer. */
+  readonly unreachable?: readonly [
+    { readonly member: AgentAddress; readonly reason: SendError["reason"] },
+    ...{ readonly member: AgentAddress; readonly reason: SendError["reason"] }[],
+  ]
 }
 
 interface DirectMessage {
@@ -113,7 +118,6 @@ type InboundMessage = DirectMessage | GroupMessage
 type CollectiveMemberOutcome =
   | { readonly kind: "answered"; readonly content: AnswerContent }
   | { readonly kind: "declined" }
-  | { readonly kind: "cancelled" }
   | { readonly kind: "invalid"; readonly reason: string }
   | { readonly kind: "no-answer" }
 
@@ -195,15 +199,27 @@ collective operation is one member.
   are that agent; a `group:` address is put in canonical form, refusing
   duplicate names and fewer than 3 or more than 32 members with
   `membership-invalid`, and its members are its agents other than the
-  requester. No group conversation is created. The send returns the id once every request post is
-  certified, or after 20 seconds (never past the deadline) with the rest still
-  running. If any request post is refused, the send fails with a
-  `CollectiveError` naming each refused member and its `SendError` reason, and
-  the gather is abandoned.
+  requester. No group conversation is created.
+
+  Address errors are checked before anything is sent: the endpoint resolves
+  every member through the engine's address resolution, and if any member is
+  malformed, unknown or makes the membership invalid (`invalid-address`,
+  `unknown-agent`, `membership-invalid`), the send fails with a
+  `CollectiveError` whose `members-unreachable` failure names each such member
+  and its reason, and no post is made. Delivery failures for members that
+  resolved do not abort the gather: a member whose request post is refused,
+  or not certified within 20 seconds (never past the deadline), is
+  unreachable. Its pending post is stopped, its outcome is `no-answer`, and
+  the send returns the id with `unreachable` naming each such member and its
+  `SendError` reason (`certification-unavailable` when it timed out). The
+  gather proceeds with the members it reached. Only when no member's post
+  was delivered does the send fail with `members-unreachable` naming every
+  member, and nothing starts.
 - **all_gather**: `text` is a question to a group. `to` must be a `group:`
   address, with the 3 to 32 members every group has; an `agent:` address fails
   with `membership-invalid`. Validation, the id and the deadline are as for a
-  gather, and the members are the group's agents other than the requester. The
+  gather, and the members are the group's agents other than the requester.
+  Address errors are refused before posting exactly as for a gather. The
   request is one post in the group conversation. The send returns the id once
   that post is certified. The group's GENESIS needs every member, so a cold
   group with an unreachable member cannot start: if the post is refused, or is
@@ -231,10 +247,11 @@ request's id, in that conversation. Each request takes one answer.
 
 The requesting endpoint consumes every answer post. It validates each
 member's first answer in its direct conversation against the schema and
-records one outcome per member: answered with content, declined, cancelled,
-or invalid with the validation message. When every member has an outcome, or
-at the deadline, it emits one `collectiveResult` item with each member's
-outcome, `no-answer` for the silent ones. An answer after that changes
+records one outcome per member: answered with content, declined, or invalid
+with the validation message. When every member has an outcome, or at the
+deadline, it emits one `collectiveResult` item with each member's outcome.
+`no-answer` covers every member that did not answer: one the gather could
+not reach and one silent at the deadline. An answer after that changes
 nothing. Collective state lives in daemon memory: an operation open at a
 daemon restart is lost.
 
@@ -291,7 +308,7 @@ plain text                                                      multicast
 {"gather": <question>, "deadline": <seconds>, "requestedSchema": <form>}
 {"all_gather": <question>, "deadline": <seconds>, "requestedSchema": <form>}
 {"action": "accept", "content": {...}}                           answer
-{"action": "decline"}  |  {"action": "cancel"}                    answer
+{"action": "decline"}                                            answer
 ```
 
 A text whose whole content is a JSON object with a `gather`, `all_gather` or
@@ -445,8 +462,10 @@ methods and cannot create a delivery or authorize output.
   open and several open are refused, and nothing is sent.
 - Multicast items carry the certified content without its collective part, and
   the endpoint consumes records it does not deliver.
-- A gather fans out one request post per member, fails naming each unreachable
-  member, validates answers on both sides, keeps each member's first answer,
+- A gather refuses an unknown member before any post, fans out one request
+  post per member, continues past members it could not reach as `no-answer`
+  and reports them, fails only when it reached none, validates answers on
+  both sides, keeps each member's first answer,
   completes at the deadline with `no-answer` outcomes, and ignores a late
   answer; three real daemons run it end to end.
 - An all_gather posts one request to the group, fails naming each unreachable

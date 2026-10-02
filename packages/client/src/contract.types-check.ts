@@ -64,7 +64,7 @@ type ExpectedCollectiveOperation =
     }>;
 type ExpectedCollectiveResponse =
   | Readonly<{ action: "accept"; content: ExpectedAnswerContent }>
-  | Readonly<{ action: "decline" | "cancel" }>;
+  | Readonly<{ action: "decline" }>;
 type ExpectedSendInput =
   | Readonly<{
       to: MessageAddressInput;
@@ -75,7 +75,14 @@ type ExpectedSendInput =
       to: MessageAddressInput;
       collectiveResponse: ExpectedCollectiveResponse;
     }>;
-type ExpectedSendResult = Readonly<{ operationId?: CollectiveId }>;
+type ExpectedUnreachable = readonly [
+  Readonly<{ member: AgentAddress; reason: SendError["reason"] }>,
+  ...Array<Readonly<{ member: AgentAddress; reason: SendError["reason"] }>>,
+];
+type ExpectedSendResult = Readonly<{
+  operationId?: CollectiveId;
+  unreachable?: ExpectedUnreachable;
+}>;
 type ExpectedDirectMessage = Readonly<{
   kind: "direct";
   postId: PostId;
@@ -99,7 +106,6 @@ type ExpectedGroupMessage = Readonly<{
 type ExpectedMemberOutcome =
   | Readonly<{ kind: "answered"; content: ExpectedAnswerContent }>
   | Readonly<{ kind: "declined" }>
-  | Readonly<{ kind: "cancelled" }>
   | Readonly<{ kind: "invalid"; reason: string }>
   | Readonly<{ kind: "no-answer" }>;
 type ExpectedInboundItem =
@@ -156,6 +162,9 @@ type MessageTextParserIsExact = Expect<
   >
 >;
 type SendResultIsExact = Expect<Equal<SendResult, ExpectedSendResult>>;
+type SendResultKeysAreExact = Expect<
+  Equal<keyof SendResult, keyof ExpectedSendResult>
+>;
 type InboundItemIsExact = Expect<Equal<InboundItem, ExpectedInboundItem>>;
 type DirectMessageIsExact = Expect<Equal<DirectMessage, ExpectedDirectMessage>>;
 type GroupMessageIsExact = Expect<Equal<GroupMessage, ExpectedGroupMessage>>;
@@ -173,6 +182,7 @@ type ExpectedHistoryExportRecord =
         | Readonly<{
             kind: "sent";
             operationId?: CollectiveId;
+            unreachable?: ExpectedUnreachable;
             postIds: readonly PostId[];
           }>
         | Readonly<{ kind: "failed"; error: string }>;
@@ -256,6 +266,7 @@ export type HarnessEndpointCanaries = [
   SendInputIsExact,
   MessageTextParserIsExact,
   SendResultIsExact,
+  SendResultKeysAreExact,
   InboundItemIsExact,
   DirectMessageIsExact,
   GroupMessageIsExact,

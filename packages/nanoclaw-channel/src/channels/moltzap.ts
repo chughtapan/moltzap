@@ -10,11 +10,11 @@ import {
   type InboundDelivery,
   type InboundItem,
   MessageAddressInput,
-  type MessageTextError,
   type InboundMessage as MoltZapInboundMessage,
   parseMessageText,
   type SendError,
   type SendInput,
+  type SendResult,
 } from "@moltzap/client";
 import {
   Config,
@@ -248,18 +248,27 @@ function renderCollectiveResult(item: CollectiveResultItem): string {
   ].join("\n");
 }
 
+/** The members a gather did not reach; each ends as no-answer. */
+function renderUnreachable(
+  operationId: SendResult["operationId"],
+  unreachable: NonNullable<SendResult["unreachable"]>,
+): string {
+  const members = unreachable
+    .map(({ member, reason }) => `${member} (${reason})`)
+    .join(", ");
+  return `gather ${String(operationId)} did not reach ${members}; each ends as no answer, and the others were asked`;
+}
+
 function renderOutcome(outcome: MemberOutcome): string {
   switch (outcome.kind) {
     case "answered":
       return `answered ${JSON.stringify(outcome.content)}`;
     case "declined":
       return "declined";
-    case "cancelled":
-      return "cancelled";
     case "invalid":
       return `answered outside the form (${outcome.reason})`;
     case "no-answer":
-      return "no answer by the deadline";
+      return "no answer";
     default:
       return absurd(outcome);
   }
@@ -471,40 +480,50 @@ class MoltZapChannelAdapter {
           MoltZapChannelError | SendError | CollectiveError
         > =>
           Either.match(parseMessageText(to, text), {
-            onLeft: (error) => this.reportRefusedText(to, error),
+            onLeft: (error) => this.reportToModel(to, error.message),
             onRight: (input) =>
               activation.endpoint
                 .send(input, { failureDelivery: failureDeliveryOf(input) })
-                .pipe(Effect.asVoid),
+                .pipe(
+                  Effect.flatMap(({ operationId, unreachable }) =>
+                    unreachable === undefined
+                      ? Effect.void
+                      : this.reportToModel(
+                          to,
+                          renderUnreachable(operationId, unreachable),
+                        ),
+                  ),
+                ),
           }),
       ),
     );
   }
 
   /**
-   * Hand a refused operation text back to the model as a failure message in
-   * the conversation it was sent to. `send_message` has already returned, so
-   * this is the only way the model learns which field to fix; the row
-   * completes, since NanoClaw retrying the same text would fail the same way.
+   * Tell the model, in the conversation it sent to, what became of a send
+   * whose `send_message` call has already returned: a refused operation text
+   * with each failing field, or the members a gather could not reach. A
+   * refused text completes its row, since NanoClaw retrying the same text
+   * would fail the same way.
    * @param to The conversation the text was sent to.
-   * @param error The parser's refusal naming each failing field.
+   * @param report What the model needs to know.
    * @returns Completion after the host callback completed.
    */
-  private reportRefusedText(
+  private reportToModel(
     to: MessageAddressInput,
-    error: MessageTextError,
+    report: string,
   ): Effect.Effect<void, MoltZapChannelError> {
     const config = this.setupConfig;
     return config === null
-      ? Effect.fail(new MoltZapChannelError({ reason: error.message }))
+      ? Effect.fail(new MoltZapChannelError({ reason: report }))
       : this.handToHost(
           config,
           to,
           endpointInbound({
-            id: `refused:${randomUUID()}`,
+            id: `report:${randomUUID()}`,
             address: to,
             sender: ENDPOINT_SENDER,
-            text: `MoltZap: ${error.message}`,
+            text: `MoltZap: ${report}`,
           }),
         );
   }

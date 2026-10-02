@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./contract.ts#L670)
+### [`CollectiveError`](./contract.ts#L685)
 
 _Class_
 
@@ -65,7 +65,7 @@ A gather, all_gather or answer was refused. The message names each
 unreachable member or failing field, so a host can hand it to its model as
 the tool error.
 
-### [`ConnectError`](./contract.ts#L717)
+### [`ConnectError`](./contract.ts#L732)
 
 _Class_
 
@@ -127,7 +127,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./contract.ts#L701)
+### [`DeliveryAcknowledgeError`](./contract.ts#L716)
 
 _Class_
 
@@ -145,7 +145,7 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
 
 Transport acknowledgment could not complete for one delivery.
 
-### [`DirectMessage`](./contract.ts#L427)
+### [`DirectMessage`](./contract.ts#L452)
 
 _TypeAlias_
 
@@ -179,7 +179,7 @@ export const GroupAddress = addressInput.pipe(
 
 A complete fixed-member group address in unsigned ASCII name order.
 
-### [`GroupMessage`](./contract.ts#L429)
+### [`GroupMessage`](./contract.ts#L454)
 
 _TypeAlias_
 
@@ -189,7 +189,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./contract.ts#L741)
+### [`HarnessEndpoint`](./contract.ts#L756)
 
 _Interface_
 
@@ -212,7 +212,7 @@ A host whose tool returns before the send completes passes
 then completes and its error arrives as an `operationFailed` item on the
 stream. A multicast has no operation id, so its failure is always returned.
 
-### [`HistoryExportRecord`](./contract.ts#L581)
+### [`HistoryExportRecord`](./contract.ts#L598)
 
 _TypeAlias_
 
@@ -222,7 +222,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord`](./contract.ts#L562)
+### [`HistoryExportRecord`](./contract.ts#L579)
 
 _Variable_
 
@@ -252,7 +252,7 @@ published it, a completed `send` invocation with its input and outcome, or
 the one line that says the export stopped. Readers decode the file line by
 line with this schema rather than copying its shape.
 
-### [`InboundDelivery`](./contract.ts#L726)
+### [`InboundDelivery`](./contract.ts#L741)
 
 _Interface_
 
@@ -265,7 +265,7 @@ export interface InboundDelivery {
 
 One inbound item plus its transport-only acknowledgment.
 
-### [`InboundItem`](./contract.ts#L527)
+### [`InboundItem`](./contract.ts#L556)
 
 _TypeAlias_
 
@@ -275,7 +275,7 @@ export type InboundItem = typeof InboundItem.Type;
 
 A validated inbound item.
 
-### [`InboundItem`](./contract.ts#L518)
+### [`InboundItem`](./contract.ts#L547)
 
 _Variable_
 
@@ -296,7 +296,7 @@ or duplicated, and multicasts that carry nothing besides that part; every
 other certified post becomes one item, and the endpoint itself emits
 results and failures.
 
-### [`InboundMessage`](./contract.ts#L437)
+### [`InboundMessage`](./contract.ts#L462)
 
 _TypeAlias_
 
@@ -306,7 +306,7 @@ export type InboundMessage = typeof InboundMessage.Type;
 
 A validated direct or group post.
 
-### [`InboundMessage`](./contract.ts#L432)
+### [`InboundMessage`](./contract.ts#L457)
 
 _Variable_
 
@@ -354,7 +354,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./contract.ts#L686)
+### [`ListenError`](./contract.ts#L701)
 
 _Class_
 
@@ -452,7 +452,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`SendError`](./contract.ts#L584)
+### [`SendError`](./contract.ts#L601)
 
 _Class_
 
@@ -501,17 +501,20 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./contract.ts#L372)
+### [`SendResult`](./contract.ts#L396)
 
 _Interface_
 
 ```ts
 export interface SendResult {
   readonly operationId?: CollectiveId;
+  readonly unreachable?: UnreachableMembers;
 }
 ```
 
-What a completed send returns: a collecting operation names its id.
+What a completed send returns: a collecting operation names its id, and a
+gather that reached only some of its members names the others, each of
+which ends as `no-answer`.
 
 ## Files
 

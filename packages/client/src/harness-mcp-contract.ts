@@ -12,6 +12,7 @@ import {
   decodeCollectiveFailure,
   InboundItem,
   SendInput,
+  UnreachableMembers,
 } from "./contract.js";
 import { DeliveryToken } from "./endpoint/store/types.js";
 
@@ -63,10 +64,12 @@ const harnessSendRequestSchema = exactStruct({
 });
 /**
  * A completed operation. A collecting operation names the id its answers and
- * result carry; a multicast has none, so its result is empty.
+ * result carry, and a gather the members it did not reach; a multicast has
+ * neither, so its result is empty.
  */
 const harnessSendResultSchema = exactStruct({
   operationId: Schema.optionalWith(CollectiveId, { exact: true }),
+  unreachable: Schema.optionalWith(UnreachableMembers, { exact: true }),
 });
 const harnessMessageReadyEventSchema = exactStruct({
   deliveryToken: DeliveryToken,

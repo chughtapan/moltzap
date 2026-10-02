@@ -10,7 +10,7 @@
  * {"gather": "Which day?", "deadline": 600, "requestedSchema": {...}}
  * {"all_gather": "Which day?", "deadline": 600, "requestedSchema": {...}}
  * {"action": "accept", "content": {...}}                        answer
- * {"action": "decline"}  |  {"action": "cancel"}                 answer
+ * {"action": "decline"}                                         answer
  * ```
  *
  * Only a whole text that is a JSON object with a `gather`, `all_gather` or
@@ -71,13 +71,13 @@ const AcceptText = exactStruct({
   content: AnswerContent,
 });
 
-const RefusalText = exactStruct({
-  action: Schema.Literal("decline", "cancel"),
+const DeclineText = exactStruct({
+  action: Schema.Literal("decline"),
 });
 
 /** The `action` key alone, so an unknown action is named as that field. */
 const AnswerAction = Schema.Struct({
-  action: Schema.Literal("accept", "decline", "cancel"),
+  action: Schema.Literal("accept", "decline"),
 });
 
 const decodeJsonText = Schema.decodeUnknownOption(
@@ -156,7 +156,7 @@ function answer(
       ({ action }): Either.Either<CollectiveResponse, MessageTextError> =>
         action === "accept"
           ? decodeText("answer", AcceptText, value)
-          : decodeText("answer", RefusalText, value),
+          : decodeText("answer", DeclineText, value),
     ),
     Either.flatMap((collectiveResponse) =>
       sendInput("answer", { to, collectiveResponse }),

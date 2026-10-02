@@ -16,8 +16,8 @@ heading below in its release commit.
   ordinary message. `@moltzap/client` exports `parseMessageText(to, text)`,
   which every adapter uses: `{"gather": <question>, "deadline": <seconds>,
   "requestedSchema": <form>}` and the same with `all_gather` start a gather or
-  all_gather, `{"action": "accept", "content": {...}}`, `{"action":
-  "decline"}` and `{"action": "cancel"}` answer, and any other text,
+  all_gather, `{"action": "accept", "content": {...}}` and `{"action":
+  "decline"}` answer, and any other text,
   JSON-looking prose included, is a multicast. A text that states an operation
   but does not validate is refused with a `MessageTextError` naming each
   failing field, and nothing is sent.
@@ -28,6 +28,16 @@ heading below in its release commit.
   `request-unknown`; an answer to a conversation with several open requests is
   unsupported and refused. Error and turn text say gather, all_gather and
   answer, not collective.
+- **Breaking:** A gather is no longer abandoned when some members are
+  unreachable. Every member is resolved before any post, and a malformed or
+  unknown member refuses the gather or all_gather with nothing posted. A
+  resolved member whose request post is refused or not certified within the
+  wait ends as `no-answer`, and `SendResult.unreachable` (also in the MCP
+  `send_message` result and `HistoryExportRecord`) names each one; the send
+  fails only when no post was delivered.
+- **Breaking:** Answers are `accept` or `decline`; `cancel` and the
+  `cancelled` outcome are removed, and `no-answer` covers every member that
+  did not answer.
 - **Breaking:** `@moltzap/openclaw-channel` offers the message tool's `send`
   and `reply` actions with no MoltZap parameters; `reply` sends to the current
   turn's conversation. The skill is renamed `group-messaging`.

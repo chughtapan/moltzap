@@ -335,7 +335,7 @@ const CollectiveResponse = Schema.Union(
     content: AnswerContent,
   }),
   exactStruct({
-    action: Schema.Literal("decline", "cancel"),
+    action: Schema.Literal("decline"),
   }),
 );
 /** A validated collective response. */
@@ -368,9 +368,34 @@ export type SendInput = typeof SendInput.Type;
  */
 export type FailureDelivery = "result" | "inbound";
 
-/** What a completed send returns: a collecting operation names its id. */
+const sendFailure = Schema.Literal(
+  "invalid-address",
+  "unknown-agent",
+  "membership-invalid",
+  "content-invalid",
+  "not-registered",
+  "version-mismatch",
+  "certification-unavailable",
+  "persistence-failed",
+  "network-unavailable",
+);
+type SendFailure = typeof sendFailure.Type;
+
+/** Members a send could not reach, each with its send failure's reason. */
+export const UnreachableMembers = Schema.NonEmptyArray(
+  exactStruct({ member: AgentAddress, reason: sendFailure }),
+).annotations({ identifier: "UnreachableMembers" });
+/** Validated unreachable members. */
+export type UnreachableMembers = typeof UnreachableMembers.Type;
+
+/**
+ * What a completed send returns: a collecting operation names its id, and a
+ * gather that reached only some of its members names the others, each of
+ * which ends as `no-answer`.
+ */
 export interface SendResult {
   readonly operationId?: CollectiveId;
+  readonly unreachable?: UnreachableMembers;
 }
 
 const directMessageStructure = exactStruct({
@@ -465,11 +490,15 @@ const collectiveRequestItem = exactStruct({
   deadlineAt: epochMillis,
 });
 
-/** One member's outcome in a completed gather or all_gather, discriminated by `kind`. */
+/**
+ * One member's outcome in a completed gather or all_gather, discriminated by
+ * `kind`. `no-answer` covers every member that did not answer: one whose
+ * request post was refused or not certified in time, and one silent at the
+ * deadline.
+ */
 const memberOutcome = Schema.Union(
   exactStruct({ kind: Schema.Literal("answered"), content: AnswerContent }),
   exactStruct({ kind: Schema.Literal("declined") }),
-  exactStruct({ kind: Schema.Literal("cancelled") }),
   exactStruct({ kind: Schema.Literal("invalid"), reason: Schema.String }),
   exactStruct({ kind: Schema.Literal("no-answer") }),
 );
@@ -526,28 +555,16 @@ export const InboundItem = Schema.Union(
 /** A validated inbound item. */
 export type InboundItem = typeof InboundItem.Type;
 
-const sendFailure = Schema.Literal(
-  "invalid-address",
-  "unknown-agent",
-  "membership-invalid",
-  "content-invalid",
-  "not-registered",
-  "version-mismatch",
-  "certification-unavailable",
-  "persistence-failed",
-  "network-unavailable",
-);
-type SendFailure = typeof sendFailure.Type;
-
 /**
  * How one send ended in the history export: the posts certified by the time
- * it returned, with the operation id of a gather or all_gather, or the
- * error it returned.
+ * it returned, with the operation id of a gather or all_gather and the
+ * members a gather did not reach, or the error it returned.
  */
 const historyExportSendOutcome = Schema.Union(
   exactStruct({
     kind: Schema.Literal("sent"),
     operationId: Schema.optionalWith(CollectiveId, { exact: true }),
+    unreachable: Schema.optionalWith(UnreachableMembers, { exact: true }),
     postIds: Schema.Array(PostId),
   }),
   exactStruct({ kind: Schema.Literal("failed"), error: Schema.String }),
@@ -598,9 +615,7 @@ export class SendError extends Data.TaggedError("SendError")<{
 const collectiveFailure = Schema.Union(
   exactStruct({
     kind: Schema.Literal("members-unreachable"),
-    members: Schema.NonEmptyArray(
-      exactStruct({ member: AgentAddress, reason: sendFailure }),
-    ),
+    members: UnreachableMembers,
   }),
   exactStruct({
     kind: Schema.Literal("schema-invalid"),

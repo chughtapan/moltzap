@@ -131,11 +131,10 @@ const makeSendOperation =
                 ...outcome,
               }),
           }),
-          Effect.map((outcome) =>
-            outcome.operationId === undefined
-              ? {}
-              : { operationId: outcome.operationId },
-          ),
+          Effect.map(({ operationId, unreachable }) => ({
+            ...(operationId === undefined ? {} : { operationId }),
+            ...(unreachable === undefined ? {} : { unreachable }),
+          })),
         );
     });
 

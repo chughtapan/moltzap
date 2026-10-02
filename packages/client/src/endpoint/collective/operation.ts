@@ -21,10 +21,11 @@
  *   RM->>RE: send gather to, question, deadline, schema
  *   RE->>RE: validate schema, mint id&lt;br>deadline = now + duration
  *   RE->>ME: one request post per member
- *   alt a request post is refused
+ *   alt no request post is accepted
  *     RE-->>RM: error naming each unreachable member
- *   else every request post accepted
+ *   else some request post accepted
  *     RE-->>RM: operation id
+ *     RE->>RE: record each refused or uncertified member as no-answer
  *   end
  *   ME->>MM: collectiveRequest item
  *   MM->>ME: send collectiveResponse to the requester, action, content
@@ -72,7 +73,6 @@ import {
   Effect,
   Array as EffectArray,
   Either,
-  Exit,
   Fiber,
   Option,
   ParseResult,
@@ -107,6 +107,13 @@ import {
   type OpenRequest,
   type RequestStatus,
 } from "./received-request.js";
+import {
+  isAddressRefusal,
+  lookupRefusals,
+  type RequestRefusal,
+  type RequestSend,
+  settleRequest,
+} from "./request-sends.js";
 import {
   type CertifiedAnswer,
   type CollectiveResultItem,
@@ -152,12 +159,6 @@ type CloseValue = Extract<CollectiveValue, { readonly kind: "close" }>;
  * transport timeout.
  */
 const REQUEST_SEND_WAIT = Duration.seconds(20);
-
-/**
- * How many Registry lookups a refused all_gather runs at once to name its
- * unreachable members; they are independent, and a group has at most 32.
- */
-const MEMBER_LOOKUP_CONCURRENCY = 8;
 
 /**
  * How long past its deadline a member keeps an all_gather request while it
@@ -226,8 +227,9 @@ interface CollectiveSendOutcome extends SendResult {
 /** The daemon's collective layer for one active identity. */
 export interface CollectiveOperations {
   /**
-   * Perform one send. A gather completes once every request post is accepted
-   * and fails naming each member whose post was refused; an all_gather
+   * Perform one send. A gather completes once its request posts are
+   * settled, recording each member it did not reach as no-answer, and
+   * fails naming every member only when it reached none; an all_gather
    * completes once its group post is certified. A response answers the one
    * request open in the conversation its address names, validated against
    * that request's schema.
@@ -506,8 +508,9 @@ function formModeSchema(
 
 /**
  * Validate a gather or all_gather before any post: mint its id, check its
- * schema against the form-mode grammar, name its members, fix its absolute
- * deadline, and build the request content within the content limit.
+ * schema against the form-mode grammar, name and resolve its members, fix
+ * its absolute deadline, and build the request content within the content
+ * limit.
  */
 function prepareGather(
   state: CollectiveState,
@@ -527,6 +530,9 @@ function prepareGather(
       id,
       operation.requestedSchema,
     ).pipe(Effect.mapError(refused));
+    yield* refuseAddressErrors(state, members).pipe(
+      Effect.mapError((failure) => refused(collectiveFailure(id, failure))),
+    );
     const now = yield* Clock.currentTimeMillis;
     const untilDeadline = Duration.toMillis(
       Duration.seconds(operation.deadline),
@@ -586,12 +592,37 @@ function gather(
     const requests =
       prepared.open.op === "gather"
         ? sendRequests(state, prepared)
-        : sendGroupRequest(state, prepared);
-    const postIds = yield* requests.pipe(
+        : sendGroupRequest(state, prepared).pipe(
+            Effect.map((postIds) => ({ postIds })),
+          );
+    const sent = yield* requests.pipe(
       Effect.mapError(refusedAs(prepared.id, prepared.open.to)),
     );
-    return { operationId: prepared.id, postIds };
+    return { ...sent, operationId: prepared.id };
   });
+}
+
+/**
+ * Resolve every member before any post through the engine's address
+ * resolution. A malformed or unknown member, or invalid membership, refuses
+ * the whole send naming each one; any other lookup failure is left to the
+ * post, which reports it as a delivery failure.
+ */
+function refuseAddressErrors(
+  state: CollectiveState,
+  members: Members,
+): Effect.Effect<void, CollectiveFailure> {
+  return lookupRefusals(members, state.ports.lookupMember).pipe(
+    Effect.map((refusals) => refusals.filter(isAddressRefusal)),
+    Effect.flatMap(([first, ...rest]) =>
+      first === undefined
+        ? Effect.void
+        : Effect.fail<CollectiveFailure>({
+            kind: "members-unreachable",
+            members: [first, ...rest],
+          }),
+    ),
+  );
 }
 
 /** Sleep until the absolute time `at`, in steps no timer overflows. */
@@ -607,26 +638,18 @@ function sleepUntil(at: number): Effect.Effect<void> {
   );
 }
 
-/** A member whose request post was refused, and why. */
-type RequestRefusal = Readonly<{
-  member: AgentAddress;
-  reason: SendError["reason"];
-}>;
-
-/** A request post in flight, resolving to the member's refusal, if any. */
-type RequestSend = Fiber.RuntimeFiber<
-  Either.Either<EngineSentPost, RequestRefusal>
->;
-
 /**
  * Send one request post per member and wait for them, never past the
- * deadline. Any refusal abandons the gather and names every refused member;
- * a post still pending when the wait ends is left running.
+ * deadline. A member whose post was refused, or is still uncertified when
+ * the wait ends, is recorded as `no-answer` and reported unreachable, and its
+ * pending post is interrupted so the question never reaches it late; the
+ * gather goes on with the members it reached. Only when it reached none is
+ * the gather dropped and the send refused, naming every member.
  */
 function sendRequests(
   state: CollectiveState,
   prepared: PreparedGather,
-): Effect.Effect<ReadonlyArray<EngineSentPost["postId"]>, CollectiveError> {
+): Effect.Effect<CollectiveSendOutcome, CollectiveError> {
   return Effect.gen(function* () {
     const sends = yield* Effect.forEach(
       prepared.open.members,
@@ -641,12 +664,19 @@ function sendRequests(
     yield* Fiber.awaitAll(sends).pipe(
       Effect.timeoutOption(requestWait(state, prepared)),
     );
-    const results = yield* settledSends(sends);
+    const results = yield* Effect.forEach(
+      EffectArray.zip(prepared.open.members, sends),
+      ([member, send]) => settleRequest(member, send),
+      { concurrency: 1 },
+    );
+    const posts = results.flatMap((result) =>
+      Option.toArray(Either.getRight(result)),
+    );
     const [refusal, ...refusals] = results.flatMap((result) =>
       Option.toArray(Either.getLeft(result)),
     );
-    if (refusal !== undefined) {
-      yield* abandonGather(state, prepared.id, sends);
+    if (posts.length === 0 && refusal !== undefined) {
+      yield* forgetGather(state, prepared.id);
       return yield* Effect.fail(
         collectiveFailure(prepared.id, {
           kind: "members-unreachable",
@@ -654,9 +684,41 @@ function sendRequests(
         }),
       );
     }
-    return results.flatMap((result) =>
-      Option.toArray(Either.getRight(result)).map((post) => post.postId),
-    );
+    yield* recordUnreachable(state, prepared.id, [
+      ...(refusal === undefined ? [] : [refusal]),
+      ...refusals,
+    ]);
+    return {
+      postIds: posts.map((post) => post.postId),
+      ...(refusal === undefined
+        ? {}
+        : { unreachable: [refusal, ...refusals] as const }),
+    };
+  });
+}
+
+/**
+ * Record each member the gather did not reach as `no-answer`, and complete
+ * the gather if every reached member has already answered. A gather the
+ * deadline already completed is left as it is.
+ */
+function recordUnreachable(
+  state: CollectiveState,
+  id: CollectiveId,
+  unreachable: readonly RequestRefusal[],
+): Effect.Effect<void> {
+  return Effect.suspend(() => {
+    const open = state.gathers.get(id);
+    unreachable
+      .filter(({ member }) => open?.outcomes.has(member) === false)
+      .forEach(({ member }) =>
+        open?.outcomes.set(member, { kind: "no-answer" }),
+      );
+    return open?.outcomes.size === open?.members.length && open !== undefined
+      ? completeGather(state, id).pipe(
+          Effect.zipRight(Fiber.interrupt(open.timer)),
+        )
+      : Effect.void;
   });
 }
 
@@ -708,31 +770,15 @@ function unreachableMembers(
   members: Members,
   groupReason: SendError["reason"],
 ): Effect.Effect<readonly [RequestRefusal, ...RequestRefusal[]]> {
-  return Effect.forEach(
-    members,
-    (member) =>
-      state.ports.lookupMember(member).pipe(
-        Effect.flip,
-        Effect.map(
-          (error): RequestRefusal => ({ member, reason: error.reason }),
-        ),
-        Effect.option,
-      ),
-    { concurrency: MEMBER_LOOKUP_CONCURRENCY },
-  ).pipe(
-    Effect.map((lookups) => {
-      const [first, ...rest] = lookups.flatMap((lookup) =>
-        Option.toArray(lookup),
-      );
-      if (first !== undefined) {
-        return [first, ...rest];
-      }
-      const [member, ...others] = members;
-      return [
-        { member, reason: groupReason },
-        ...others.map((other) => ({ member: other, reason: groupReason })),
-      ];
-    }),
+  return lookupRefusals(members, state.ports.lookupMember).pipe(
+    Effect.map(([first, ...rest]) =>
+      first === undefined
+        ? EffectArray.map(members, (member) => ({
+            member,
+            reason: groupReason,
+          }))
+        : [first, ...rest],
+    ),
   );
 }
 
@@ -745,36 +791,6 @@ function requestWait(
     state.ports.requestSendWait ?? REQUEST_SEND_WAIT,
     Duration.millis(prepared.untilDeadline),
   );
-}
-
-/** The request sends that have finished, each with its post or refusal. */
-function settledSends(
-  sends: readonly RequestSend[],
-): Effect.Effect<ReadonlyArray<Either.Either<EngineSentPost, RequestRefusal>>> {
-  return Effect.forEach(sends, (send) => Fiber.poll(send), {
-    concurrency: 1,
-  }).pipe(
-    Effect.map((polls) =>
-      polls.flatMap((poll) =>
-        Option.toArray(
-          Option.flatMap(poll, (exit) =>
-            Exit.isSuccess(exit) ? Option.some(exit.value) : Option.none(),
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-function abandonGather(
-  state: CollectiveState,
-  id: CollectiveId,
-  sends: readonly RequestSend[],
-): Effect.Effect<void> {
-  return Effect.forEach(sends, (send) => Fiber.interruptFork(send), {
-    concurrency: 1,
-    discard: true,
-  }).pipe(Effect.zipRight(forgetGather(state, id)));
 }
 
 /** Drop an operation this endpoint abandons, and stop its deadline timer. */

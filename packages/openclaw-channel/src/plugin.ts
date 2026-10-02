@@ -836,12 +836,10 @@ function renderOutcome(outcome: MemberOutcome): string {
       return `answered ${JSON.stringify(outcome.content)}`;
     case "declined":
       return "declined";
-    case "cancelled":
-      return "cancelled";
     case "invalid":
       return `answered outside the form (${outcome.reason})`;
     case "no-answer":
-      return "no answer by the deadline";
+      return "no answer";
     default:
       return absurd(outcome);
   }

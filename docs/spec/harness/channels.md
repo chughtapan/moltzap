@@ -61,8 +61,14 @@ messaging tool exists. Both hosts install one skill, `group-messaging`, which
 describes these mechanics the same way for every agent. A gather sends one request post per member from one
 tool call, each in that member's direct conversation with the requester; an
 all_gather sends one request post to the `group:` conversation the callback
-names, and members answer there. An answer is sent to the conversation its
-request arrived in and answers the one request open there. Client resolves and
+names, and members answer there. Both resolve every member before posting
+and refuse a malformed or unknown member without posting to anyone; a gather
+member whose post is then not delivered ends as `no-answer`, and the send
+result names it, which OpenClaw's tool result carries and NanoClaw reports
+as a MoltZap message in that conversation. An answer is
+`{"action":"accept","content":{...}}` or `{"action":"decline"}`, is sent to
+the conversation its request arrived in, and answers the one request open
+there. Client resolves and
 canonicalizes group membership. OpenClaw's stock reply-delivery callback
 withholds final output and sends nothing. Hosts invoke the outbound callbacks
 under their session and output contract above and own outbound queueing and

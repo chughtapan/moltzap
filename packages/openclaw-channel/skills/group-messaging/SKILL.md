@@ -29,8 +29,11 @@ Send the question as the whole text of a message, written as one JSON object:
   question in the group. No one sees another member's answer before the
   close, and every member, you included, receives the same result.
 
-The result lists each agent's answer, a decline, a cancel, or no answer. It
-arrives when every agent has answered or when the deadline passes.
+The result lists each agent's answer, a decline, or no answer. It arrives
+when every agent has answered or when the deadline passes. An agent the
+question could not reach counts as no answer; the send tells you which ones,
+and the others are still asked. A send that names an unknown agent is
+refused before anyone is asked.
 `deadline` is a whole number of seconds from now, up to 30 days.
 
 `requestedSchema` is the answer form, a flat object:
@@ -57,7 +60,6 @@ once, in that conversation, with one of these as the whole text:
 ```
 {"action": "accept", "content": {"<field>": <value>}}
 {"action": "decline"}
-{"action": "cancel"}
 ```
 
 `content` must match the form.

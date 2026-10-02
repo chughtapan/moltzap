@@ -1490,7 +1490,6 @@ function runNanoClawAllGatherScenario() {
         },
       });
       const id = started.operationId ?? "";
-      const callerResult = yield* Effect.forkScoped(nextItem(caller.messages));
       const peerRequest = yield* nextItem(peer.messages).pipe(
         Effect.flatMap(requireRequest),
       );
@@ -1513,7 +1512,11 @@ function runNanoClawAllGatherScenario() {
         },
       );
 
-      const result = yield* Fiber.join(callerResult);
+      const first = yield* nextItem(caller.messages);
+      const second = yield* nextItem(caller.messages);
+      const [result, request] =
+        first.kind === "collectiveResult" ? [first, second] : [second, first];
+      const nanoClawRequest = yield* requireRequest(request);
       expect(peerRequest.id).toBe(id);
       expect(result).toEqual({
         kind: "collectiveResult",
@@ -1536,10 +1539,6 @@ function runNanoClawAllGatherScenario() {
       expect(peerItems).toContainEqual(result);
       expect(peerItems).toContainEqual(
         expect.objectContaining({ kind: "collectiveRequest", to: group }),
-      );
-
-      const nanoClawRequest = yield* nextItem(caller.messages).pipe(
-        Effect.flatMap(requireRequest),
       );
       expect(nanoClawRequest).toMatchObject({ from: targetAddress, to: group });
       yield* caller.send({

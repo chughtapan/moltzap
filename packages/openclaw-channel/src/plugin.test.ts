@@ -12,6 +12,7 @@ import type {
 } from "openclaw/plugin-sdk/channel-core";
 import { live as it } from "@effect/vitest";
 import {
+  AgentAddress,
   CollectiveError,
   type HarnessEndpoint,
   type InboundDelivery,
@@ -40,6 +41,7 @@ import {
   makeMoltZapChannelConfigJsonSchema,
 } from "./plugin.js";
 
+/* eslint-disable max-lines -- The adapter cases share one fake endpoint and OpenClaw runtime fixture, so they stay beside it. */
 const ACCOUNT_ID = "primary";
 const MAIN_SESSION_KEY = "agent:primary:main";
 const TEST_SESSION_STORE_PATH = join(
@@ -152,7 +154,7 @@ describe("OpenClaw message tool send and reply actions", () => {
     messageToolSendsPlainText,
   );
   it(
-    "sends gather text as a gather and returns its operation id",
+    "sends gather text as a gather and returns its operation id and the members it did not reach",
     messageToolSendReturnsGatherId,
   );
   it(
@@ -531,9 +533,18 @@ function messageToolSendReturnsGatherId() {
         ok: true,
         to: "group:alice,bob,carol",
         operationId: COLLECTIVE_ID,
+        unreachable: [{ member: "agent:carol", reason: "network-unavailable" }],
       });
     },
-    Effect.succeed({ operationId: collectiveId() }),
+    Effect.succeed({
+      operationId: collectiveId(),
+      unreachable: [
+        {
+          member: Schema.decodeUnknownSync(AgentAddress)("agent:carol"),
+          reason: "network-unavailable",
+        },
+      ],
+    }),
   );
 }
 
@@ -748,7 +759,7 @@ function rendersCollectiveResult() {
       Body: [
         "gather result for the question sent to group:alice,bob,carol: Which day?",
         '- agent:bob: answered {"slot":"mon"}',
-        "- agent:carol: no answer by the deadline",
+        "- agent:carol: no answer",
       ].join("\n"),
       ChatId: "group:alice,bob,carol",
       ChatType: "group",
@@ -1312,3 +1323,4 @@ function sessionKeyFor(address: string): string {
 function sessionKeyForPeer(kind: string, id: string): string {
   return `agent:primary:moltzap:${kind}:${id}`;
 }
+/* eslint-enable max-lines -- Restore repository defaults. */
