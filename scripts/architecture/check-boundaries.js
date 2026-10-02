@@ -811,7 +811,7 @@ function checkNxGraph(graphFile) {
     rel(graphFile),
     "Nx project nodes drifted",
     Object.keys(graph.nodes),
-    [...FINAL_PACKAGE_NAMES, "workspace"],
+    [...FINAL_PACKAGE_NAMES, "workspace", "adapter-daemon"],
   );
 
   for (const [dir, expected] of Object.entries(FINAL_PACKAGES)) {
@@ -863,7 +863,6 @@ function checkNxGraph(graphFile) {
     "lint",
     "lint:architecture-boundaries",
     "lint:effect",
-    "test:integration",
   ]) {
     if (!Object.hasOwn(workspaceNode?.data?.targets ?? {}, target)) {
       failures.push(
@@ -876,6 +875,26 @@ function checkNxGraph(graphFile) {
     'Nx dependencies for "workspace" drifted',
     (graph.dependencies?.workspace ?? []).map(({ target }) => target),
     [],
+  );
+
+  const adapterDaemonNode = graph.nodes["adapter-daemon"];
+  if (adapterDaemonNode?.data?.root !== "tools/adapter-daemon") {
+    failures.push(
+      `${rel(graphFile)}: Nx project "adapter-daemon" root is "${adapterDaemonNode?.data?.root ?? "missing"}", expected "tools/adapter-daemon"`,
+    );
+  }
+  if (
+    !Object.hasOwn(adapterDaemonNode?.data?.targets ?? {}, "test:integration")
+  ) {
+    failures.push(
+      `${rel(graphFile)}: Nx project "adapter-daemon" is missing required target "test:integration"`,
+    );
+  }
+  failOnSetDrift(
+    rel(graphFile),
+    'Nx dependencies for "adapter-daemon" drifted',
+    (graph.dependencies?.["adapter-daemon"] ?? []).map(({ target }) => target),
+    [...FINAL_PACKAGE_NAMES],
   );
 }
 

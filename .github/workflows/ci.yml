@@ -46,30 +46,14 @@ jobs:
       - name: Lint
         run: pnpm lint
         timeout-minutes: 30
-      # The graph check pins every project, edge, root, and package-specific
-      # target. Exact runs execute the common package floor, with unit-test
-      # targets only where a package owns a unit-test surface.
-      - name: Verify five-product Nx graph and target floor
+      # `pnpm build` and `pnpm lint` already run every project's build, lint,
+      # and arch:check; this step pins the resolved graph itself: every
+      # project, root, edge, and package-specific target. Tests run in the
+      # `test` job.
+      - name: Verify the Nx project graph
         run: |
           pnpm nx graph --print > "${RUNNER_TEMP}/moltzap-project-graph.json"
           node scripts/architecture/check-boundaries.js --nx-graph "${RUNNER_TEMP}/moltzap-project-graph.json"
-          for project in @moltzap/identity @moltzap/router @moltzap/client @moltzap/openclaw-channel @moltzap/nanoclaw-channel; do
-            for target in build lint arch:check; do
-              pnpm nx run "${project}:${target}"
-            done
-          done
-          for project in @moltzap/identity @moltzap/router @moltzap/client @moltzap/openclaw-channel; do
-            for target in typecheck:tests test; do
-              pnpm nx run "${project}:${target}"
-            done
-          done
-          for project in @moltzap/identity @moltzap/router; do
-            pnpm nx run "${project}:typecheck"
-          done
-          for project in @moltzap/identity @moltzap/router @moltzap/client; do
-            pnpm nx run "${project}:test:integration"
-          done
-          pnpm nx run workspace:test:integration
       - run: pnpm format:check
       - run: pnpm docs:check:drift
       - run: pnpm docs:check
@@ -86,10 +70,13 @@ jobs:
       NX_SELF_HOSTED_REMOTE_CACHE_ACCESS_TOKEN: ${{ secrets.NX_CACHE_TOKEN }}
       NX_SKIP_REMOTE_CACHE: ${{ (vars.NX_CACHE_DISABLED == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'true' || 'false' }}
     steps:
-      # fetch-depth: 0 + nx-set-shas give `nx affected` the base/head SHAs to
-      # diff against (PR base on pull_request, last successful run on push), so
-      # only changed projects + their dependents run. `nx affected -t test`
-      # builds the affected chain via dependsOn ^build — no separate build step.
+      # A pull request runs only the projects its diff affects, against the PR
+      # base that nx-set-shas resolves; fetch-depth: 0 gives it that history.
+      # A push to main runs every project. Each target builds what it needs
+      # through dependsOn, so there is no separate build step.
+      # adapter-daemon:test:integration builds the NanoClaw agent image, so a
+      # pull request builds it only when a package, the adapter-daemon test,
+      # or the image sources change.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -101,4 +88,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - uses: nrwl/nx-set-shas@v4
-      - run: pnpm exec nx affected -t typecheck:tests test test:integration
+        if: github.event_name == 'pull_request'
+      - name: Test the affected projects
+        if: github.event_name == 'pull_request'
+        run: pnpm exec nx affected -t typecheck:tests test test:integration
+      - name: Test every project
+        if: github.event_name != 'pull_request'
+        run: pnpm exec nx run-many -t typecheck:tests test test:integration
