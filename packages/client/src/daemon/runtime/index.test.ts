@@ -314,6 +314,7 @@ const inactiveStoreOperations: Omit<
   completeReanchor: () => outsideRuntimeTest(),
   applyCatchUpReanchor: () => outsideRuntimeTest(),
   readPendingDeliveries: () => outsideRuntimeTest(),
+  readLegacyPendingDeliveries: () => outsideRuntimeTest(),
   acknowledgeDelivery: () => outsideRuntimeTest(),
   enqueueOutbound: () => outsideRuntimeTest(),
   enqueueDisseminationOutbound: () => outsideRuntimeTest(),
@@ -387,6 +388,7 @@ function makeStore(
     ...inactiveStoreOperations,
     ...makeInboxStore(onAcknowledge),
     readPendingDeliveries: () => Effect.succeed([]),
+    readLegacyPendingDeliveries: () => Effect.succeed([]),
     readIdentity: () => Effect.succeed(identity),
     bindIdentity: (candidate) =>
       Effect.suspend(() => {

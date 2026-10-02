@@ -151,13 +151,13 @@ const lostRequest = (request: {
 });
 
 /**
- * Raw requests can outlive a crash before projection or a schema upgrade.
+ * Requests predating durable projection may already have been answered.
  * @param store Daemon-owned persistence read before normal classification.
  * @returns Completion after lost requests are replaced atomically.
  */
 const retireUnprojectedRequests = (store: EndpointStore) =>
   Effect.gen(function* () {
-    const pending = yield* store.readPendingDeliveries();
+    const pending = yield* store.readLegacyPendingDeliveries();
     for (const entry of pending) {
       const message = yield* decodeRuntimeValue(
         InboundMessage,

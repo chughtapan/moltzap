@@ -266,6 +266,9 @@ function requireIntegerPragma(
 }
 
 const runtimeSchemaSql = `
+  CREATE TABLE runtime_legacy_deliveries (
+    delivery_token TEXT PRIMARY KEY REFERENCES pending_deliveries(delivery_token)
+  ) STRICT;
   CREATE TABLE runtime_inbox (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     delivery_token TEXT NOT NULL UNIQUE,
@@ -440,6 +443,8 @@ function upgradeDatabase(database: DatabaseSync): void {
     database,
     () => {
       database.exec(runtimeSchemaSql);
+      database.exec(`INSERT INTO runtime_legacy_deliveries (delivery_token)
+        SELECT delivery_token FROM pending_deliveries WHERE acknowledged = 0`);
       database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     },
     "EXCLUSIVE",

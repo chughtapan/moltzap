@@ -238,7 +238,7 @@ const migratesWithoutErasingIdentity = () => {
       yield* Effect.sync(() => {
         const database = new DatabaseSync(join(path, "moltzapd.sqlite3"));
         database.exec(
-          "DROP TABLE runtime_inbox; DROP TABLE runtime_sends; DROP TABLE runtime_events; PRAGMA user_version = 2",
+          "DROP TABLE runtime_inbox; DROP TABLE runtime_sends; DROP TABLE runtime_events; DROP TABLE runtime_legacy_deliveries; PRAGMA user_version = 2",
         );
         database.close();
       });

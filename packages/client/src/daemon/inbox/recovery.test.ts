@@ -1,6 +1,6 @@
 /** @file Schema upgrade preserves protocol state without reopening answered requests. */
 
-import { Effect, Encoding, Schema, Scope } from "effect";
+import { Effect, Encoding, Option, Schema, Scope } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- This regression constructs a real legacy SQLite database between independent daemon scopes.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +13,7 @@ import { collectiveIdOf } from "../../endpoint/collective/wire.js";
 import { RecordHash } from "../../endpoint/representation.js";
 import {
   type CertifiedRecord,
+  decodeRuntimeValue,
   type EndpointRecovery,
   openEndpointStore,
 } from "../../endpoint/store.js";
@@ -107,7 +108,11 @@ const makeCollectives = (counter: { count: number }, scope: Scope.Scope) =>
     emit: () => Effect.void,
     scope,
   });
-const storeLegacyRequest = (path: string, counter: { count: number }) =>
+const storeRequest = (
+  path: string,
+  counter: { count: number },
+  answered: boolean,
+) =>
   Effect.scoped(
     Effect.gen(function* () {
       const store = yield* openEndpointStore(path);
@@ -131,9 +136,11 @@ const storeLegacyRequest = (path: string, counter: { count: number }) =>
         messageId: "msg_legacy",
         canonicalSignedMessage: bytes("outbound"),
       });
-      const original = makeCollectives(counter, yield* Scope.Scope);
-      yield* original.classify({ message: request, recordHash });
-      yield* original.send(response, "result");
+      if (answered) {
+        const original = makeCollectives(counter, yield* Scope.Scope);
+        yield* original.classify({ message: request, recordHash });
+        yield* original.send(response, "result");
+      }
       return yield* store.recover();
     }),
   );
@@ -173,14 +180,15 @@ const preservesProtocolStateAndRetiresLegacyRequest = () => {
   const counter = { count: 0 };
   return Effect.runPromise(
     Effect.gen(function* () {
-      const before = yield* storeLegacyRequest(path, counter);
+      const before = yield* storeRequest(path, counter, true);
       yield* Effect.sync(() => {
         const database = new DatabaseSync(join(path, "moltzapd.sqlite3"));
         database.exec(
-          "DROP TABLE runtime_inbox; DROP TABLE runtime_sends; DROP TABLE runtime_events; PRAGMA user_version = 2",
+          "DROP TABLE runtime_inbox; DROP TABLE runtime_sends; DROP TABLE runtime_events; DROP TABLE runtime_legacy_deliveries; PRAGMA user_version = 2",
         );
         database.close();
       });
+      yield* Effect.scoped(openEndpointStore(path));
       yield* checkRecoveredRequest(path, counter, before);
     }).pipe(
       Effect.ensuring(
@@ -196,4 +204,54 @@ const preservesProtocolStateAndRetiresLegacyRequest = () => {
 it(
   "preserves locks, records and outbox on upgrade while retiring an answered legacy request",
   preservesProtocolStateAndRetiresLegacyRequest,
+);
+
+const preservesUnprojectedRequest = () => {
+  const path = mkdtempSync(join(tmpdir(), "moltzap-unprojected-request-"));
+  const counter = { count: 0 };
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const before = yield* storeRequest(path, counter, false);
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const store = yield* openEndpointStore(path);
+          yield* recoverRuntimeInbox(store);
+          const pending = yield* store.readPendingDeliveries();
+          expect(pending).toEqual(before.pendingDeliveries);
+          expect((yield* readRuntimeInbox(store, {})).items).toEqual([]);
+          const entry = pending[0];
+          if (entry === undefined) {
+            throw new Error(
+              "expected the unprojected request to remain pending",
+            );
+          }
+          const restarted = makeCollectives(counter, yield* Scope.Scope);
+          const item = yield* restarted.classify({
+            message: yield* decodeRuntimeValue(
+              InboundMessage,
+              entry.canonicalMessage,
+            ),
+            recordHash,
+          });
+          expect(Option.getOrNull(item)).toMatchObject({
+            kind: "collectiveRequest",
+            id,
+          });
+          yield* restarted.send(response, "result");
+          expect(counter.count).toBe(1);
+        }),
+      );
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          rmSync(path, { recursive: true, force: true });
+        }),
+      ),
+    ),
+  );
+};
+
+it(
+  "keeps an unprojected request answerable after restart of a current store",
+  preservesUnprojectedRequest,
 );

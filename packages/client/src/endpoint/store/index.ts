@@ -20,7 +20,11 @@ import {
   runStoreOperation,
   type StoreState,
 } from "./database/index.js";
-import { acknowledgeDelivery, readPendingDeliveries } from "./deliveries.js";
+import {
+  acknowledgeDelivery,
+  readLegacyPendingDeliveries,
+  readPendingDeliveries,
+} from "./deliveries.js";
 import { enqueueDisseminationOutbound } from "./dissemination.js";
 import {
   acknowledgeInboxItem,
@@ -168,6 +172,8 @@ function makeTransportOperations(state: StoreState, run: StoreRunner) {
   return {
     readPendingDeliveries: () =>
       run(() => readPendingDeliveries(state.database)),
+    readLegacyPendingDeliveries: () =>
+      run(() => readLegacyPendingDeliveries(state.database)),
     acknowledgeDelivery: (deliveryToken) =>
       run(() => acknowledgeDelivery(state.database, deliveryToken)),
     enqueueOutbound: (message) =>

@@ -266,6 +266,7 @@ function makeStore(input: {
     completeReanchor: () => outsideManagementTest(),
     applyCatchUpReanchor: () => outsideManagementTest(),
     readPendingDeliveries: () => outsideManagementTest(),
+    readLegacyPendingDeliveries: () => outsideManagementTest(),
     acknowledgeDelivery: () => outsideManagementTest(),
     enqueueOutbound: () => outsideManagementTest(),
     enqueueDisseminationOutbound: () => outsideManagementTest(),
