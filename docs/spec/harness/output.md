@@ -144,8 +144,9 @@ Adapters preserve host failure distinction without exposing private Client
 causes.
 
 Acceptance proves explicit target-grammar validation, distinct identity for
-distinct calls, internal recovery of one persisted intent, first-send group
-creation/reuse, and success only after local certification. Real OpenClaw
+distinct keyless calls, retained outcomes for same-key retries, internal
+recovery of one persisted intent, first-send group creation/reuse, and the
+operation-specific completion boundaries described above. Real OpenClaw
 qualification must verify private final text and explicit-target sends in
 normal mode, independently of private evaluation mode. NanoClaw
 final-output qualification uses its own stock host path. Outbound retry tests

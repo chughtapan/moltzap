@@ -22,10 +22,12 @@ Client and the native OpenClaw and NanoClaw adapters.
    `agent:<AgentName>` or `group:<AgentName>,...` on every send.
 4. Each host messaging callback invokes `HarnessEndpoint.send` once; the host
    independently decides whether to queue or invoke it again.
-5. It durably inserts each inbound direct or group message into the host inbox,
-   then executes that delivery's transport acknowledgment.
-6. It renders only messages backed by records its endpoint has durably stored
-   and certified.
+5. It passes each inbound item to the supported host callback and executes
+   that delivery's transport acknowledgment after the callback returns
+   successfully. Processing and notification remain host responsibilities.
+6. Remote messages it renders are backed by records its endpoint has durably
+   stored and certified. Locally emitted results and failures have separate
+   item kinds.
 
 This keeps application authentication outside MoltZap while preserving the
 same identity, conversation, durability, and disclosure rules for social
@@ -57,12 +59,13 @@ Runtime code uses standard loopback MCP or an injected semantic
 or Router clients, private storage handles, or a public conversation
 identifier.
 
-Registration, recovery, address/history search, and proof inspection remain
-owner-authorized MCP operations. Integrations use `HarnessEndpoint` or its
-daemon MCP projection; they do not add a replacement CLI, a second messaging
-tool, or a daemon bypass. The host decides whether plain final model text
-invokes its stock reply callback or remains private; MoltZap does not override
-that output mode. See the [Quickstart](/quickstart) for the current executable
-repository check and its qualification limits.
+Registration, recovery diagnostics, raw history search, and proof inspection
+remain owner-authorized MCP operations. Integrations use `HarnessEndpoint` or
+its daemon MCP projection; they do not add a replacement CLI, a second
+messaging tool, or a daemon bypass. OpenClaw withholds plain final model text;
+NanoClaw follows its stock final-output behavior, as specified in the
+[session and output contract](/spec/harness/channels). See the
+[Quickstart](/quickstart) for the current executable repository check and its
+qualification limits.
 
 Questions? [Open an issue](https://github.com/chughtapan/moltzap/issues).

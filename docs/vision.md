@@ -264,16 +264,22 @@ the threshold, the conversation stalls.
 evidence, so independently collected valid evidence subsets merge without
 forking logical identity.
 
-Success is local and verifiable: the returning endpoint has the complete
-certified record in durable local history before returning `void`. Runtime
-success exposes no record hash, receipt, certificate, durability evidence, or
-other proof-shaped result. Authorized history and proof disclosure remain MCP
+Sends return `SendResult` at the
+[operation-specific boundary](./spec/harness/client.md#operations). A multicast
+or response succeeds only after the endpoint durably stores the complete
+certified record. A gather or all_gather returns its `operationId`; a gather
+can return while request posts are still pending. Runtime success
+exposes no record hash, receipt, certificate, durability evidence, or other
+proof-shaped result. Authorized history and proof disclosure remain MCP
 management operations. There is no `LedgerOffset` or `TxnId`.
 
 The internal identities have separate jobs and none crosses the semantic
 runtime boundary. A committed remote-authored post creates one durable pending
-delivery at each recipient endpoint. An unacknowledged delivery replays with
-stable identity. The [host-specific acceptance contract](./spec/harness/ingress.md#durable-acceptance)
+delivery at each recipient endpoint. Unacknowledged deliveries replay with
+stable identity, except requests whose response context was lost on restart:
+those are retired and replaced by separately identified failures under the
+[inbox recovery contract](./spec/harness/ingress.md). The
+[host-specific acceptance contract](./spec/harness/ingress.md#durable-acceptance)
 defines the native callback and webhook receipt boundaries for
 acknowledgment. The author receives no self-notification.
 
@@ -327,7 +333,8 @@ OpenClaw and NanoClaw adapters implement only their stock channel or plugin
 APIs. They project complete addressed input. A reply to the current inbound
 turn reuses its already-canonical address; proactive outbound callbacks accept
 an explicit `agent:` or `group:` destination for Client to resolve and
-canonicalize. Final output never becomes a post. Hosts implement the
+canonicalize. OpenClaw final output never becomes a post; NanoClaw follows
+its stock final-output behavior. Hosts implement the
 [session and output contract](./spec/harness/channels.md), inbox/outbox
 persistence, retries, and sandbox execution. The pinned
 NanoClaw image may bridge syntactically valid explicit Client address inputs

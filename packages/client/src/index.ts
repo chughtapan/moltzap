@@ -24,7 +24,7 @@ export {
   SendInput,
   type SendResult,
 } from "./contract.js";
-/** Read the operation a model's message text states; every adapter uses it. */
+/** Read the operation stated in native OpenClaw and NanoClaw message text. */
 export { MessageTextError, parseMessageText } from "./message-text.js";
 /** Acquire the structural endpoint for one loopback daemon endpoint. */
 // safer-arch-ignore no-public-vendor-type-leak: URL is the platform-standard endpoint locator required by the public acquisition contract.

@@ -1,8 +1,8 @@
 /**
  * @file Reads the operation a message's text states.
  *
- * A model reaches every operation through its host's ordinary message tool,
- * as message text, and every adapter reads that text with
+ * In native hosts, a model reaches every operation through the ordinary
+ * message tool, as message text. The OpenClaw and NanoClaw adapters use
  * {@link parseMessageText}, so both hosts accept the same text:
  *
  * ```

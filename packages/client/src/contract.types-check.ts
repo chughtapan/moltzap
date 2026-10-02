@@ -5,7 +5,7 @@
  * operation, multicast by default or a gather or all_gather with its deadline
  * and schema; a response names the conversation whose open request it
  * answers and no request id. One parser reads either from a message's text,
- * so every adapter accepts the same text. Each inbound
+ * so the native channel adapters accept the same text. Each inbound
  * delivery carries one item plus transport-only acknowledgment: a multicast
  * with the certified direct or complete-group message, a collective request
  * naming the conversation it arrived in, a collective result that names an

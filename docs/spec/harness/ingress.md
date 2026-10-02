@@ -2,11 +2,12 @@
 
 Status: **implementation candidate; pending ADR review**
 
-Inbound runtime delivery begins only from a complete locally certified
+Remote message ingress begins only from a complete locally certified
 remote-authored post. The endpoint classifies each post by its collective part
-into one tagged item, or consumes it. Native events announce pending items;
-webhooks carry classified items. Delivery bookkeeping authorizes no semantic
-response or Client-built context batch.
+into one tagged item, or consumes it. Locally emitted collective results and
+failures also enter the durable inbox without requiring a remote post. Native
+events announce pending items; webhooks carry classified items. Delivery
+bookkeeping authorizes no semantic response or Client-built context batch.
 
 ## MCP Events and inbox
 

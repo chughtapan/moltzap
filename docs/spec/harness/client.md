@@ -308,9 +308,11 @@ content limit; a send whose content does not fit fails with
 
 ## Message text
 
-A model writes an operation as the whole text of an ordinary message, and
-every adapter reads that text with `parseMessageText`, so every host accepts
-the same text:
+In native hosts, a model writes an operation as the whole text of an ordinary
+message. The OpenClaw and NanoClaw adapters read that text with
+`parseMessageText`, so both accept the same text. Dot uses the structured
+semantic MCP input described in [Semantic send](./output.md#semantic-send).
+The native message grammar is:
 
 ```
 plain text                                                      multicast
@@ -341,9 +343,10 @@ Registry, and returns the canonical complete group spelling internally.
 Every post a `send` invocation creates is new: a multicast or response creates
 one, a gather one per member, an all_gather one to the group. Client mints each opaque `PostId` before durably
 binding the immutable intent and reuses that identity only while recovering or
-completing that invocation. A later call receives a different `PostId`, even
-when destination and text are identical. The host owns the choice to invoke
-send again. A multicast or response succeeds only after local complete action
+completing that invocation. A later keyless call receives a different `PostId`,
+even when destination and text are identical. A qualified runtime can identify
+retries with an invocation key and recover the retained outcome under the
+[send contract](./output.md#semantic-send). The host owns that retry choice. A multicast or response succeeds only after local complete action
 and durability certification; a gather or all_gather succeeds as described
 under [operations](#operations) and returns its `operationId`.
 
@@ -362,9 +365,9 @@ attachment itself needs.
 
 ## Inbound items
 
-Every delivery carries one item derived from one complete certified
-remote-authored record. The endpoint classifies each record by its collective
-part:
+Each delivery carries one classified remote item or a locally emitted result
+or failure. Remote-post classification starts only from a complete certified
+remote-authored record and uses its collective part:
 
 - a record whose part is a multicast operation, or that carries no collective
   part, becomes a `multicast` item whose message content is the record's
@@ -461,8 +464,9 @@ methods and cannot create a delivery or authorize output.
 - Public type canaries pin exactly the service and values above.
 - Address order, self insertion, duplicates, unknown names, and 2/3/32/33
   member boundaries are tested.
-- Distinct calls with identical input mint distinct posts, while restart
-  recovery retains the persisted identity for one unfinished intent.
+- Distinct keyless calls with identical input mint distinct posts. Same-key
+  retries retain one invocation outcome, and restart recovery retains the
+  persisted post identity for one unfinished intent.
 - A send without `collective` and a send with `{op: "multicast"}` certify the
   same content: the text part, then the explicit multicast part.
 - `parseMessageText` reads every operation shape, sends plain text and
