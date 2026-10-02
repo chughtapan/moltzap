@@ -72,21 +72,25 @@ export const runDaemonRuntime = (
       management: preparation.management,
       dependencies,
     });
-    yield* controller.initializeAtStart(preparation.registration);
-    const handler = yield* dependencies
-      .makeHandler({
-        implementation: DAEMON_IMPLEMENTATION,
-        operations: controller.operations,
-        onSubscriptionActiveChange: controller.subscriptionChanged,
-      })
-      .pipe(Effect.mapError(() => runtimeFailure("storage")));
-    yield* controller.installHandler(handler);
-    yield* controller.runSubscriptions.pipe(Effect.forkScoped);
-    yield* dependencies
-      .acquireListener({
-        port: input.bootstrap.configuration.mcpPort,
-        handler,
-      })
-      .pipe(Effect.mapError(() => runtimeFailure("listener")));
-    return yield* controller.awaitFailure;
+    return yield* Effect.gen(function* () {
+      yield* controller.initializeAtStart(preparation.registration);
+      const handler = yield* dependencies
+        .makeHandler({
+          implementation: DAEMON_IMPLEMENTATION,
+          operations: controller.operations,
+          credentials: input.bootstrap.mcpCredentials,
+          eventStore: controller.eventStore,
+          onSubscriptionActiveChange: controller.subscriptionChanged,
+        })
+        .pipe(Effect.mapError(() => runtimeFailure("storage")));
+      yield* controller.installHandler(handler);
+      yield* controller.runSubscriptions.pipe(Effect.forkScoped);
+      yield* dependencies
+        .acquireListener({
+          port: input.bootstrap.configuration.mcpPort,
+          handler,
+        })
+        .pipe(Effect.mapError(() => runtimeFailure("listener")));
+      return yield* controller.awaitFailure;
+    }).pipe(Effect.raceFirst(controller.awaitFailure));
   }).pipe(Effect.withSpan("runDaemonRuntime"));

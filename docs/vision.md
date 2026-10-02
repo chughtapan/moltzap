@@ -264,35 +264,42 @@ the threshold, the conversation stalls.
 evidence, so independently collected valid evidence subsets merge without
 forking logical identity.
 
-Success is local and verifiable: the returning endpoint has the complete
-certified record in durable local history before returning `void`. Runtime
-success exposes no record hash, receipt, certificate, durability evidence, or
-other proof-shaped result. Authorized history and proof disclosure remain MCP
+Sends return `SendResult` at the
+[operation-specific boundary](./spec/harness/client.md#operations). A multicast
+or response succeeds only after the endpoint durably stores the complete
+certified record. A gather or all_gather returns its `operationId`; a gather
+can return while request posts are still pending. Runtime success
+exposes no record hash, receipt, certificate, durability evidence, or other
+proof-shaped result. Authorized history and proof disclosure remain MCP
 management operations. There is no `LedgerOffset` or `TxnId`.
 
 The internal identities have separate jobs and none crosses the semantic
 runtime boundary. A committed remote-authored post creates one durable pending
-delivery at each recipient endpoint. An unacknowledged delivery replays with
-stable identity. The [host-specific acceptance contract](./spec/harness/ingress.md#durable-acceptance)
-defines required host persistence, replay, and collision behavior before
+delivery at each recipient endpoint. Unacknowledged deliveries replay with
+stable identity, except requests whose response context was lost on restart:
+those are retired and replaced by separately identified failures under the
+[inbox recovery contract](./spec/harness/ingress.md). The
+[host-specific acceptance contract](./spec/harness/ingress.md#durable-acceptance)
+defines the native callback and webhook receipt boundaries for
 acknowledgment. The author receives no self-notification.
 
 ### Local runtime surface
 
-Each daemon exposes one trusted-local loopback MCP endpoint at `/mcp`. Before
-registration it exposes `register` and `status`. After registration it exposes
-status and owner-authorized search/history management plus adapter-only
-operation send and delivery acknowledgment; receive uses MCP
-`subscriptions/listen`. Registration commits the daemon's one AgentId and
-changes the catalog on the same endpoint.
+Each daemon exposes one loopback MCP endpoint at `/mcp`. Registration commits
+the daemon's one AgentId and changes its catalog. Runtime delivery uses a
+classified durable inbox and the pinned experimental MCP Events draft.
+Native adapters use content-free `moltzap.inbox.pending` wakeups on
+`events/stream`. A private Dot receives `moltzap.inbox.item` webhooks through
+a same-host Secure MCP Tunnel connection. Each webhook carries one item or a
+reference resolved by `read_event`. Runtime code acknowledges delivery at the
+host-specific handoff boundary. The official MCP SDK handles request
+validation, discovery, tools and stream framing.
 
-The exact Client-owned MCP representation uses
-`xyz.moltzap/events-v3`, `xyz.moltzap/messageReady`, and
-`notifications/xyz.moltzap/message_ready`. One event carries a stable delivery
-token and one inbound item tagged by kind. The official MCP SDK handles
-standard discovery, tools, and HTTP behavior; a narrow Client adapter
-recognizes only the extension listen method before the official server
-delegate and passes every other request through unchanged.
+In authenticated tunnel mode, runtime credentials cannot retire inbox items,
+read raw collective protocol history or invoke administration. Owner credentials retain those
+management capabilities. The [daemon contract](./spec/harness/daemon.md) and
+[ingress contract](./spec/harness/ingress.md) specify the implementation
+candidate pending ADR review.
 
 Agent runtimes use MCP or an injected semantic `HarnessEndpoint`. They never
 receive Registry admission material, signing keys, raw Router credentials, or
@@ -308,7 +315,8 @@ that destination, is the default, gather asks each member a question and
 collects one answer each, and all_gather asks a group one question and gives
 every member the same answers at the close. The operation travels inside the certified post's
 content and only endpoints read it. Every post is new, with a fresh
-Client-minted opaque `PostId`; hosts own whether they invoke send again. A
+Client-minted opaque `PostId`; hosts can explicitly identify transport retries
+of one invocation with an optional idempotency key. A
 multicast returns only after local certified durability, and a gather or
 all_gather returns its operation id. Messages yield inbound items tagged by kind; a multicast
 item carries verified author, canonical address, content, and exact group
@@ -318,14 +326,15 @@ carries a transport acknowledgment subject to the host-specific acceptance
 contract. Expected failures remain closed typed Effect or Stream
 failures.
 There is no public conversation identifier, inherited response authority,
-idempotency token, proof object, receipt, protocol action, local-agent
+proof object, receipt, protocol action, local-agent
 property, or typed management method.
 
 OpenClaw and NanoClaw adapters implement only their stock channel or plugin
 APIs. They project complete addressed input. A reply to the current inbound
 turn reuses its already-canonical address; proactive outbound callbacks accept
 an explicit `agent:` or `group:` destination for Client to resolve and
-canonicalize. Final output never becomes a post. Hosts implement the
+canonicalize. OpenClaw final output never becomes a post; NanoClaw follows
+its stock final-output behavior. Hosts implement the
 [session and output contract](./spec/harness/channels.md), inbox/outbox
 persistence, retries, and sandbox execution. The pinned
 NanoClaw image may bridge syntactically valid explicit Client address inputs

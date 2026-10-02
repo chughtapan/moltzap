@@ -378,6 +378,8 @@ const sendFailure = Schema.Literal(
   "certification-unavailable",
   "persistence-failed",
   "network-unavailable",
+  "idempotency-conflict",
+  "outcome-unknown",
 );
 type SendFailure = typeof sendFailure.Type;
 
@@ -748,7 +750,10 @@ export interface InboundDelivery {
 export interface HarnessEndpoint {
   readonly send: (
     input: SendInput,
-    options?: Readonly<{ failureDelivery?: FailureDelivery }>,
+    options?: Readonly<{
+      failureDelivery?: FailureDelivery;
+      idempotencyKey?: string;
+    }>,
   ) => Effect.Effect<SendResult, SendError | CollectiveError>;
   readonly messages: Stream.Stream<InboundDelivery, ListenError>;
 }

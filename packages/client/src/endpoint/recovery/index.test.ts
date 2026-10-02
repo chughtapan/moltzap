@@ -77,6 +77,7 @@ import {
   verifyMembershipDescriptor,
 } from "../representation.js";
 import {
+  type RouterDiscontinuityReason,
   RouterWorkerDiscontinuityError,
   type RouterWorkerIngress,
 } from "../router-worker/index.js";
@@ -1312,18 +1313,18 @@ const completeRestartRecovery = () =>
           },
         });
         yield* Fiber.join(recovering).pipe(Effect.timeout("1 second"));
+        yield* fixture.engine.drainOutbound;
         const recovered = yield* fixture.store.recover();
         expect(recovered.certifiedRecords).toHaveLength(1);
         expect(recovered.outboundMessages).toHaveLength(0);
         expect(recovered.positions[0]?.currentAnchorHash).toBe(
           proposal.anchorHash,
         );
-        const resumedActionEvidence = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.timeout("1 second"),
-          Effect.flatMap(decodeEvidenceKind),
-        );
+        const resumedActionEvidence = yield* Queue.take(
+          fixture.normalOutbound,
+        ).pipe(Effect.timeout("1 second"), Effect.flatMap(decodeEvidenceKind));
         const resumedDurabilityEvidence = yield* Queue.take(
-          recoveryOutbound,
+          fixture.normalOutbound,
         ).pipe(Effect.timeout("1 second"), Effect.flatMap(decodeEvidenceKind));
         expect(resumedActionEvidence).toBe(actionSignatureKind);
         expect(resumedDurabilityEvidence).toBe(durabilityVoteKind);
@@ -1404,8 +1405,9 @@ const reproposesPendingPostAfterRestart = () =>
         );
         const staleActionHash = yield* hashAction(staleProposal.action);
 
+        yield* Queue.takeAll(fixture.normalOutbound);
         const recoveryOutbound = yield* Queue.unbounded<SignedMessage>();
-        const resumedOutbound = yield* Queue.unbounded<SignedMessage>();
+        const resumedOutbound = fixture.normalOutbound;
         yield* fixture.engine.abandonVolatileFolds("router_restarted");
         const recovering = yield* Effect.fork(
           fixture.engine.recoverCertifiedHistory({
@@ -1440,6 +1442,8 @@ const reproposesPendingPostAfterRestart = () =>
         );
         yield* Queue.take(recoveryOutbound).pipe(Effect.timeout("1 second"));
         yield* Fiber.join(recovering).pipe(Effect.timeout("1 second"));
+        yield* Ref.set(holdOutbound, false);
+        yield* fixture.engine.drainOutbound;
 
         const { message: reproposedMessage, proposal: reproposed } =
           yield* takeActionProposalAfterEvidence(resumedOutbound);
@@ -1468,7 +1472,7 @@ const reproposesPendingPostAfterRestart = () =>
     ),
   );
 
-const recoverSameRouterInstance = () =>
+const recoverSameRouterInstance = (reason: RouterDiscontinuityReason) =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
@@ -1490,11 +1494,11 @@ const recoverSameRouterInstance = () =>
         );
         const retained = yield* stageCatchUpOutbound(fixture);
         const recoveryOutbound = yield* Queue.unbounded<SignedMessage>();
-        const resumedOutbound = yield* Queue.unbounded<SignedMessage>();
-        yield* fixture.engine.abandonVolatileFolds("feed_gap");
+        const resumedOutbound = fixture.normalOutbound;
+        yield* fixture.engine.abandonVolatileFolds(reason);
         const recovering = yield* Effect.fork(
           fixture.engine.recoverCertifiedHistory({
-            reason: "feed_gap",
+            reason,
             anchor: {
               routerInstanceId: oldRouterInstanceId,
               pollCursor,
@@ -1515,12 +1519,13 @@ const recoverSameRouterInstance = () =>
           ),
         );
         yield* Fiber.join(recovering).pipe(Effect.timeout("1 second"));
+        yield* fixture.engine.drainOutbound;
         const resumed = yield* Queue.take(resumedOutbound).pipe(
           Effect.timeout("1 second"),
         );
-        expect(resumed.messageId).toBe(retained.messageId);
-        expect(yield* Queue.size(resumedOutbound)).toBe(0);
-        expect(yield* Queue.size(fixture.normalOutbound)).toBe(0);
+        expect(yield* encodeCanonical(SignedMessage, resumed)).toEqual(
+          retained.canonicalSignedMessage,
+        );
         yield* Fiber.interrupt(sending);
       }),
     ),
@@ -1534,7 +1539,7 @@ const recoverColdStartAtUnchangedInstance = () =>
         yield* retainCertifiedRecord(fixture);
         const retained = yield* stageCatchUpOutbound(fixture);
         const recoveryOutbound = yield* Queue.unbounded<SignedMessage>();
-        const resumedOutbound = yield* Queue.unbounded<SignedMessage>();
+        const resumedOutbound = fixture.normalOutbound;
         yield* fixture.engine.abandonVolatileFolds("router_restarted");
         const recovering = yield* Effect.fork(
           fixture.engine.recoverCertifiedHistory({
@@ -1565,6 +1570,8 @@ const recoverColdStartAtUnchangedInstance = () =>
         );
         yield* Fiber.join(recovering).pipe(Effect.timeout("1 second"));
         expect(yield* Queue.size(recoveryOutbound)).toBe(0);
+        expect(yield* Queue.size(resumedOutbound)).toBe(0);
+        yield* fixture.engine.drainOutbound;
         const recovered = yield* fixture.store.recover();
         expect(recovered.stagedReanchors).toHaveLength(0);
         expect(recovered.anchors).toHaveLength(1);
@@ -1604,7 +1611,7 @@ const recoverMixedRouterInstances = () =>
           membership: n4.membership,
         });
         const recoveryOutbound = yield* Queue.unbounded<SignedMessage>();
-        const resumedOutbound = yield* Queue.unbounded<SignedMessage>();
+        const resumedOutbound = fixture.normalOutbound;
         yield* n4.engine.abandonVolatileFolds("router_restarted");
         const recovering = yield* Effect.fork(
           n4.engine.recoverCertifiedHistory({
@@ -1688,6 +1695,8 @@ const recoverMixedRouterInstances = () =>
         );
         yield* Fiber.join(recovering).pipe(Effect.timeout("1 second"));
 
+        expect(yield* Queue.size(resumedOutbound)).toBe(0);
+        yield* n4.engine.drainOutbound;
         const after = yield* fixture.store.recover();
         expect(after.stagedReanchors).toEqual([]);
         expect(
@@ -1834,10 +1843,10 @@ const recoverWhileDrainAwaitsWorker = () =>
 
         yield* releaseHeldSend(held);
         yield* Fiber.join(draining).pipe(Effect.timeout("1 second"));
-        expect(yield* takeAllMessageIds(resumedOutbound)).toEqual([
+        expect(yield* takeAllMessageIds(fixture.normalOutbound)).toEqual([
           queued.messageId,
         ]);
-        expect(yield* takeAllMessageIds(fixture.normalOutbound)).toEqual([]);
+        expect(yield* takeAllMessageIds(resumedOutbound)).toEqual([]);
         expect((yield* fixture.store.recover()).outboundMessages).toEqual([]);
       }),
     ),
@@ -2027,7 +2036,7 @@ const recoverDisseminationObligations = () =>
         expect(before.disseminationObligations).toHaveLength(0);
         expect(before.outboundMessages).toHaveLength(1);
         const recoveryOutbound = yield* Queue.unbounded<SignedMessage>();
-        const resumedOutbound = yield* Queue.unbounded<SignedMessage>();
+        const resumedOutbound = fixture.normalOutbound;
         yield* fixture.engine.abandonVolatileFolds("router_restarted");
         const recovering = yield* Effect.fork(
           fixture.engine.recoverCertifiedHistory({
@@ -2065,6 +2074,7 @@ const recoverDisseminationObligations = () =>
           Effect.flatMap((message) => decodeOuterBody(message.body)),
         );
         yield* Fiber.join(recovering).pipe(Effect.timeout("1 second"));
+        yield* fixture.engine.drainOutbound;
         const rebuilt = yield* Queue.take(resumedOutbound).pipe(
           Effect.timeout("1 second"),
         );
@@ -2089,6 +2099,65 @@ const recoverDisseminationObligations = () =>
         const after = yield* fixture.store.recover();
         expect(after.disseminationObligations).toHaveLength(0);
         expect(after.outboundMessages).toHaveLength(0);
+      }),
+    ),
+  );
+
+const recoverWhileNormalSendIsHeld = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const sendEntered = yield* Deferred.make<undefined>();
+        const releaseSend = yield* Deferred.make<undefined>();
+        const fixture = yield* makeFixtureWithRouter((context) => {
+          const router = makeFixtureRouter(context);
+          return {
+            ...router,
+            send: (outboundId) =>
+              Deferred.succeed(sendEntered, undefined).pipe(
+                Effect.zipRight(Deferred.await(releaseSend)),
+                Effect.zipRight(router.send(outboundId)),
+              ),
+          };
+        });
+        const sending = yield* Effect.forkScoped(
+          fixture.engine.send({
+            to: Schema.decodeUnknownSync(MessageAddressInput)(
+              `agent:${fixture.remote.card.agentName}`,
+            ),
+            content: [{ type: "text", text: "retained during recovery" }],
+          }),
+        );
+        yield* Deferred.await(sendEntered).pipe(Effect.timeout("1 second"));
+        const recoveryOutbound = yield* Queue.unbounded<SignedMessage>();
+        yield* fixture.engine.abandonVolatileFolds("router_restarted");
+        const recovering = yield* Effect.forkScoped(
+          fixture.engine.recoverCertifiedHistory({
+            reason: "router_restarted",
+            anchor: { routerInstanceId: oldRouterInstanceId, pollCursor },
+            resume: () =>
+              Effect.dieMessage("normal replay must wait for active ingress"),
+            send: ({ message }) =>
+              Queue.offer(recoveryOutbound, message).pipe(Effect.asVoid),
+          }),
+        );
+        const request = yield* Queue.take(recoveryOutbound).pipe(
+          Effect.timeout("1 second"),
+          Effect.flatMap(decodeCatchUpRequest),
+        );
+        yield* catchUpIncompleteIngress(fixture, request).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* Fiber.join(recovering).pipe(Effect.timeout("1 second"));
+        expect((yield* fixture.store.recover()).postIntents).toHaveLength(1);
+        yield* Deferred.succeed(releaseSend, undefined);
+        yield* fixture.engine.drainOutbound.pipe(Effect.timeout("1 second"));
+        expect((yield* fixture.store.recover()).outboundMessages).toHaveLength(
+          0,
+        );
+        yield* Fiber.interrupt(sending);
       }),
     ),
   );
@@ -2693,6 +2762,10 @@ const blocksN4ReanchorBehindStagedSuccessor = () =>
 // @agent-code-guard/regression-only: these traces pin restart liveness and fail-closed ancestry handling.
 describe("endpoint restart recovery", () => {
   it(
+    "completes recovery before a held normal send resumes",
+    recoverWhileNormalSendIsHeld,
+  );
+  it(
     "recovers certificates when encoded and canonical AgentId orders differ",
     restartWithNonLexicalAgentOrder,
   );
@@ -2724,10 +2797,10 @@ describe("endpoint restart recovery", () => {
     "restarts an empty foundation at the new Router instance",
     restartEmptyConversation,
   );
-  it(
-    "resumes a same-instance persisted intent without reproposing",
-    recoverSameRouterInstance,
-  );
+  it("resumes a same-instance persisted intent without reproposing", () =>
+    recoverSameRouterInstance("feed_gap"));
+  it("preserves retained envelope bytes when startup finds the same Router", () =>
+    recoverSameRouterInstance("router_restarted"));
   it(
     "catches up without re-anchoring when a cold start finds the anchored Router instance",
     recoverColdStartAtUnchangedInstance,

@@ -93,10 +93,6 @@ export interface DaemonProcessFixture {
 
 /** Private management calls used to bootstrap and inspect a real daemon. */
 export interface DaemonManagementClient {
-  readonly listToolNames: () => Effect.Effect<
-    readonly string[],
-    ProcessTestError
-  >;
   readonly register: (
     input: ManagementRegisterRequest,
   ) => Effect.Effect<ManagementRegisterResult, ProcessTestError>;
@@ -544,15 +540,6 @@ const closeManagementClient = (client: Client): Effect.Effect<void> =>
       processTestError("could not close management client", cause),
   }).pipe(Effect.ignore);
 
-const listToolNames = (
-  client: Client,
-): Effect.Effect<readonly string[], ProcessTestError> =>
-  Effect.tryPromise({
-    try: (signal) =>
-      client.listTools(undefined, { cacheMode: "refresh", signal }),
-    catch: (cause) => processTestError("could not list MCP tools", cause),
-  }).pipe(Effect.map(({ tools }) => tools.map(({ name }) => name).sort()));
-
 const callExpectingProtocolError = (
   client: Client,
   name: string,
@@ -597,7 +584,6 @@ export const acquireDaemonManagementClient = (
       () => closeManagementClient(client),
     );
     return {
-      listToolNames: () => listToolNames(client),
       register: (request) =>
         callAndDecode({
           client,

@@ -1,6 +1,6 @@
 # HarnessEndpoint runtime contract
 
-Status: **cutover normative**
+Status: **implementation candidate; Events and invocation identity pending ADR review**
 
 `HarnessEndpoint` is the sole adapter-facing Client capability. OpenClaw,
 NanoClaw, the simulator, evals, and other runtimes consume this structural scoped
@@ -157,7 +157,10 @@ interface InboundDelivery {
 interface HarnessEndpoint {
   readonly send: (
     input: SendInput,
-    options?: { readonly failureDelivery?: "result" | "inbound" },
+    options?: {
+      readonly failureDelivery?: "result" | "inbound"
+      readonly idempotencyKey?: string
+    },
   ) => Effect.Effect<SendResult, SendError | CollectiveError>
   readonly messages: Stream.Stream<InboundDelivery, ListenError>
 }
@@ -171,6 +174,14 @@ declare function parseMessageText(
   text: string,
 ): Either.Either<SendInput, MessageTextError>
 ```
+
+An optional `idempotencyKey` identifies one daemon-local send invocation. Reuse
+it only with the same validated input and failure routing. A keyless call is
+a new invocation. The [output contract](./output.md)
+defines retained outcomes, input conflicts and restart uncertainty.
+Runtime send options cross MCP in request metadata, outside model-generated
+arguments. Callers supply semantic `input` and optional runtime `options`
+through the `send` signature above.
 
 The service is structural, not a public `Context.Tag`. One acquired endpoint
 represents one configured local AgentId and owns at most one active message
@@ -297,9 +308,11 @@ content limit; a send whose content does not fit fails with
 
 ## Message text
 
-A model writes an operation as the whole text of an ordinary message, and
-every adapter reads that text with `parseMessageText`, so every host accepts
-the same text:
+In native hosts, a model writes an operation as the whole text of an ordinary
+message. The OpenClaw and NanoClaw adapters read that text with
+`parseMessageText`, so both accept the same text. Dot uses the structured
+semantic MCP input described in [Semantic send](./output.md#semantic-send).
+The native message grammar is:
 
 ```
 plain text                                                      multicast
@@ -330,9 +343,10 @@ Registry, and returns the canonical complete group spelling internally.
 Every post a `send` invocation creates is new: a multicast or response creates
 one, a gather one per member, an all_gather one to the group. Client mints each opaque `PostId` before durably
 binding the immutable intent and reuses that identity only while recovering or
-completing that invocation. A later call receives a different `PostId`, even
-when destination and text are identical. The host owns the choice to invoke
-send again. A multicast or response succeeds only after local complete action
+completing that invocation. A later keyless call receives a different `PostId`,
+even when destination and text are identical. A qualified runtime can identify
+retries with an invocation key and recover the retained outcome under the
+[send contract](./output.md#semantic-send). The host owns that retry choice. A multicast or response succeeds only after local complete action
 and durability certification; a gather or all_gather succeeds as described
 under [operations](#operations) and returns its `operationId`.
 
@@ -351,9 +365,9 @@ attachment itself needs.
 
 ## Inbound items
 
-Every delivery carries one item derived from one complete certified
-remote-authored record. The endpoint classifies each record by its collective
-part:
+Each delivery carries one classified remote item or a locally emitted result
+or failure. Remote-post classification starts only from a complete certified
+remote-authored record and uses its collective part:
 
 - a record whose part is a multicast operation, or that carries no collective
   part, becomes a `multicast` item whose message content is the record's
@@ -380,7 +394,7 @@ a gather it started or an all_gather it started or was asked, and the
 `operationFailed` item of a refused send whose failures go inbound or of an
 all_gather whose close was not certified. Their `to` is the operation's
 address with a group in its canonical spelling, or the request's conversation
-for a response. They live in daemon memory until acknowledged.
+for a response. Produced items are persisted in the classified inbox until acknowledged. The open collective state remains process-local.
 
 Adapters render each item kind as a model turn in one fixed form and switch on
 `kind` exhaustively.
@@ -394,10 +408,9 @@ member list. Adapters do not reconstruct those facts from host state.
 `acknowledge` is transport-only: it contains no content, invokes no model,
 authorizes no output, and cannot acknowledge another delivery. Unacknowledged
 delivery may replay with identical message identity. Adapters must satisfy the
-[host-specific acceptance contract](./ingress.md#durable-acceptance): OpenClaw
-requires durable stable-PostId acceptance and replay safety; NanoClaw requires
-successful native callback completion. Host ownership does not waive those
-requirements.
+[handoff contract](./ingress.md#durable-acceptance): native callback success
+precedes acknowledgment. Callback failure leaves the item pending. Ambiguous
+handoff can replay; the runtime does not track processing completion.
 
 ## Closed failures
 
@@ -418,8 +431,10 @@ schema paths or fields, so a host hands it to its model as the tool error.
 - `not-registered`;
 - `version-mismatch`;
 - `certification-unavailable`;
-- `persistence-failed`; or
-- `network-unavailable`.
+- `persistence-failed`;
+- `network-unavailable`;
+- `idempotency-conflict`; or
+- `outcome-unknown`.
 
 `ListenError.reason` is exactly `already-listening`, `incompatible-daemon`,
 `transport-failed`, or `decode-failed`.
@@ -428,7 +443,7 @@ schema paths or fields, so a host hands it to its model as the tool error.
 `delivery-conflict`, `persistence-failed`, or `transport-failed`.
 
 `ConnectError.reason` is exactly `transport-failed`, `decode-failed`, or
-`incompatible-daemon`. Events-v3 absence or mismatch is
+`incompatible-daemon`. Required MCP Events discovery absence or mismatch is
 `incompatible-daemon`. Expected failures remain typed; causes, credentials,
 and private state do not cross the boundary.
 
@@ -449,8 +464,9 @@ methods and cannot create a delivery or authorize output.
 - Public type canaries pin exactly the service and values above.
 - Address order, self insertion, duplicates, unknown names, and 2/3/32/33
   member boundaries are tested.
-- Distinct calls with identical input mint distinct posts, while restart
-  recovery retains the persisted identity for one unfinished intent.
+- Distinct keyless calls with identical input mint distinct posts. Same-key
+  retries retain one invocation outcome, and restart recovery retains the
+  persisted post identity for one unfinished intent.
 - A send without `collective` and a send with `{op: "multicast"}` certify the
   same content: the text part, then the explicit multicast part.
 - `parseMessageText` reads every operation shape, sends plain text and

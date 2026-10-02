@@ -19,6 +19,9 @@ export type {
   HistoryPage,
   IdentityBinding,
   InboundDeliveryInput,
+  InboxEntry,
+  InboxPage,
+  InboxSummary,
   OutboundAttempt,
   OutboundMessageInput,
   PendingDelivery,
@@ -33,7 +36,14 @@ export type {
   StoredAnchor,
   StoredMembership,
   StoredOutboundMessage,
+  StoredSendAttempt,
   StoreMutation,
 } from "./store/types.js";
 /** Stable opaque durable-delivery identity. */
 export { DeliveryToken } from "./store/types.js";
+
+/** Canonical runtime persistence shares the store error vocabulary. */
+export {
+  decodeRuntimeValue,
+  encodeRuntimeValue,
+} from "./store/runtime-codec.js";

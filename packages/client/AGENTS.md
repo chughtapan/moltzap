@@ -36,20 +36,20 @@ The final `HarnessEndpoint` has these invariants:
   Client-minted identity;
 - group canonicalization inserts self, resolves immutable Registry names,
   sorts them for serialization, and permits 3 through 32 total members;
-- daemon recovery resumes a persisted unfinished post, while a later host
-  invocation creates another post even when target and content are identical;
+- daemon recovery resumes a persisted unfinished post; keyless host calls
+  create new invocations, while an explicit idempotency key binds one invocation
+  and retains its observed outcome without replaying uncertain execution;
 - a multicast or response returns only after the local endpoint durably stores
-  the complete certified record, a gather returns its operation id once its
-  request posts are accepted, and an all_gather once its group post is
-  certified;
+  the complete certified record, a gather returns its operation id after its
+  bounded request-post wait, and an all_gather once its group post is certified;
 - inbound deliveries carry items tagged by kind; a multicast or collective
   request item derives from a complete certified record, identifies the
   author and address, and carries no semantic reply authority; results and
   failures come from the endpoint itself; and
 - delivery acknowledgment cannot create a post and must follow the
   [host-specific acceptance contract](../../docs/spec/harness/ingress.md#durable-acceptance):
-  OpenClaw durable acceptance/replay safety and NanoClaw successful callback
-  completion are distinct requirements, implemented by their hosts.
+  native callback success and webhook HTTP receipt establish handoff only;
+  processing and notification remain host responsibilities.
 
 The public root exposes the semantic `HarnessEndpoint`, address, content,
 operation and inbound item schemas, endpoint acquisition, and closed errors. It exposes no public

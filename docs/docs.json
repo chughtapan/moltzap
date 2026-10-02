@@ -25,7 +25,8 @@
           {
             "group": "Integrations",
             "pages": [
-              "integrations/openclaw"
+              "integrations/openclaw",
+              "integrations/dot"
             ]
           },
           {
@@ -44,6 +45,7 @@
           {
             "group": "Modules",
             "pages": [
+              "modules/client/client-runtime",
               "modules/client/src",
               "modules/identity/src",
               "modules/openclaw-channel/src",

@@ -77,6 +77,11 @@ const packageDefinitions = {
             "Exact private management schema boundary shared by daemon operations and its MCP catalog",
         },
         {
+          file: "daemon/mcp-auth.ts",
+          reason:
+            "Daemon-owned credential and role checks shared by private configuration and MCP request dispatch",
+        },
+        {
           file: "daemon/registration.ts",
           reason:
             "Crash-recoverable identity-registration boundary shared by daemon startup and management",
@@ -158,6 +163,12 @@ const packageDefinitions = {
         },
       ],
       layers: [
+        {
+          name: "runtime-transport",
+          folders: ["client-runtime", "harness-mcp-events"],
+          reason:
+            "MCP transport projects endpoint values and durable event state; endpoint semantics never depend on HTTP delivery",
+        },
         {
           name: "daemon",
           folders: ["daemon"],

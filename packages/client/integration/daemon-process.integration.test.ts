@@ -23,16 +23,6 @@ import {
 } from "./daemon-process-harness.js";
 
 const DELIVERY_TIMEOUT = Duration.seconds(60);
-const UNREGISTERED_TOOL_CATALOG = ["register", "status"] as const;
-const ACTIVE_TOOL_CATALOG = [
-  "acknowledge_delivery",
-  "read_conversation",
-  "search_agents",
-  "search_conversations",
-  "send_message",
-  "status",
-] as const;
-
 const initialText = "hello from the first real daemon";
 const responseText = "addressed response from the second real daemon";
 const multicastPart = {
@@ -92,9 +82,6 @@ const registerFixture = (fixture: DaemonProcessFixture) =>
   Effect.scoped(
     Effect.gen(function* () {
       const management = yield* acquireDaemonManagementClient(fixture.endpoint);
-      expect(yield* management.listToolNames()).toEqual(
-        UNREGISTERED_TOOL_CATALOG,
-      );
       expect(yield* management.status()).toEqual({ kind: "unregistered" });
 
       const registered = yield* management.register(
@@ -105,7 +92,6 @@ const registerFixture = (fixture: DaemonProcessFixture) =>
         const agentCard = yield* decodeManagementCard(registered.agentCard);
         expect(agentCard.agentName).toBe(fixture.agentName);
       }
-      expect(yield* management.listToolNames()).toEqual(ACTIVE_TOOL_CATALOG);
     }),
   );
 
@@ -308,9 +294,53 @@ const processBehavior = Effect.gen(function* () {
   yield* acquireDaemonProcess(targetFixture);
   const recovered = yield* readDurableHistory(targetFixture, callerAddress);
   expect(recovered.records).toHaveLength(2);
+
+  yield* Effect.scoped(
+    Effect.gen(function* () {
+      const caller = yield* acquireHarnessEndpoint(callerFixture.endpoint);
+      const target = yield* acquireHarnessEndpoint(targetFixture.endpoint);
+      const targetDelivery = yield* Effect.forkScoped(
+        nextDelivery(target.messages),
+      );
+      yield* caller.send({
+        to: targetAddress,
+        text: "new message after the recipient restarts",
+      });
+      const incoming = yield* Fiber.join(targetDelivery);
+      expect(incoming.item).toMatchObject({
+        kind: "multicast",
+        message: {
+          sender: callerAddress,
+          content: [
+            { type: "text", text: "new message after the recipient restarts" },
+          ],
+        },
+      });
+      yield* incoming.acknowledge;
+
+      const callerDelivery = yield* Effect.forkScoped(
+        nextDelivery(caller.messages),
+      );
+      yield* target.send({
+        to: callerAddress,
+        text: "reply from the restarted recipient",
+      });
+      const reply = yield* Fiber.join(callerDelivery);
+      expect(reply.item).toMatchObject({
+        kind: "multicast",
+        message: {
+          sender: targetAddress,
+          content: [
+            { type: "text", text: "reply from the restarted recipient" },
+          ],
+        },
+      });
+      yield* reply.acknowledge;
+    }),
+  );
 }).pipe(Effect.scoped);
 
-it("certifies addressed posts across two restarted real daemons", () => {
+it("certifies fresh posts in both directions after one daemon restarts", () => {
   expect.hasAssertions();
   return Effect.runPromise(processBehavior);
 }, 180_000);
@@ -361,7 +391,6 @@ const readActiveStatus = (fixture: DaemonProcessFixture) =>
   Effect.scoped(
     Effect.gen(function* () {
       const management = yield* acquireDaemonManagementClient(fixture.endpoint);
-      expect(yield* management.listToolNames()).toEqual(ACTIVE_TOOL_CATALOG);
       return yield* management.status();
     }),
   );

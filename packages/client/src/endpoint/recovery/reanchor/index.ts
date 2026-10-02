@@ -27,6 +27,7 @@ import {
   type ReanchorBody as ReanchorBodyValue,
   RecordHash,
   type RecordHash as RecordHashValue,
+  type RouterAnchor,
   signEvidenceMessage,
   type VerifiedMembership,
   verifyCompletedReanchor,
@@ -139,6 +140,11 @@ function finishRestartedPosition(
         return Effect.fail(persistenceFailure());
       }
       if (position.headRecordHash === undefined) {
+        if (
+          currentAnchorForRecovery(runtime, state, conversationId) !== undefined
+        ) {
+          return markConversationRecovered(runtime, conversationId);
+        }
         return restartEmptyPosition({
           runtime,
           state,
@@ -180,9 +186,7 @@ function advanceRestartedPosition(
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   const { head, membership, position, recovery, runtime, state } = input;
   const conversationId = membership.descriptor.conversationId;
-  if (
-    completedAnchorForRecovery(runtime, state, conversationId) !== undefined
-  ) {
+  if (currentAnchorForRecovery(runtime, state, conversationId) !== undefined) {
     return finishAnchoredPosition(runtime, state, membership);
   }
   if (hasStagedSuccessor(recovery, conversationId, head)) {
@@ -213,11 +217,11 @@ function finishAnchoredPosition(
   membership: VerifiedMembership,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   const conversationId = membership.descriptor.conversationId;
-  const completed = completedAnchorForRecovery(runtime, state, conversationId);
+  const anchor = currentAnchorForRecovery(runtime, state, conversationId);
   const relay =
-    completed === undefined
-      ? Effect.void
-      : queueRecoveryPacket(runtime, membership, completed);
+    anchor?.kind === "completed_reanchor"
+      ? queueRecoveryPacket(runtime, membership, anchor)
+      : Effect.void;
   return relay.pipe(
     Effect.zipRight(markConversationRecovered(runtime, conversationId)),
   );
@@ -238,14 +242,27 @@ function observedHeadsResolve(
   );
 }
 
-function completedAnchorForRecovery(
+/**
+ * A daemon restart does not replace a verified anchor for the same Router.
+ * @param runtime Engine containing the current verified conversation anchors.
+ * @param state Recovery with an authenticated Router instance.
+ * @param conversationId Fixed conversation whose anchor is being reconciled.
+ * @returns The retained anchor only when it already names the current Router.
+ */
+function currentAnchorForRecovery(
   runtime: EngineRuntime,
   state: ActiveRecoveryState,
   conversationId: ConversationIdValue,
-): CompletedReanchorValue | undefined {
+): RouterAnchor | undefined {
   const anchor = runtime.conversations.get(conversationId)?.currentAnchor;
-  return anchor?.kind === "completed_reanchor" &&
-    anchor.reanchor.routerInstanceId === state.recovery.anchor.routerInstanceId
+  if (anchor === undefined) {
+    return undefined;
+  }
+  const routerInstanceId =
+    anchor.kind === "genesis_anchor_body"
+      ? anchor.routerInstanceId
+      : anchor.reanchor.routerInstanceId;
+  return routerInstanceId === state.recovery.anchor.routerInstanceId
     ? anchor
     : undefined;
 }

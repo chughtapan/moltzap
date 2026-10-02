@@ -5,17 +5,16 @@
  * them.
  */
 
-import { DateTime, Effect, Option, Schema } from "effect";
-import { randomBytes } from "node:crypto";
+import { DateTime, Effect, Option } from "effect";
 import type { InboundItem } from "../../contract.js";
 import type { CollectiveOperations } from "../../endpoint/collective/operation.js";
 import type {
   EndpointEngine,
   EnginePendingMessage,
 } from "../../endpoint/engine.js";
+import type { DeliveryToken } from "../../endpoint/store.js";
 import type { HarnessMessageReadyEvent } from "../../harness-mcp-contract.js";
 import type { HistoryExportPort } from "./history-export.js";
-import { DeliveryToken } from "../../endpoint/store.js";
 
 /** The subscriber's publish edge; false means it refused the event. */
 interface Subscriber {
@@ -26,6 +25,8 @@ interface Subscriber {
 export interface PendingOffer {
   readonly engine: Pick<EndpointEngine, "acknowledgeMessage">;
   readonly classify: CollectiveOperations["classify"];
+  /** Classified items are durable even while no host is attached. */
+  readonly persist: (event: HarnessMessageReadyEvent) => Effect.Effect<void>;
   /** The attached subscriber, absent while none is attached. */
   readonly handler?: Subscriber;
   readonly historyExport: HistoryExportPort;
@@ -104,13 +105,17 @@ const classifyOnce = (
         onNone: () =>
           acknowledgeConsumed(offer, pending).pipe(Effect.as(Option.none())),
         onSome: (item) =>
-          Effect.sync(() => {
-            offer.classifiedItems.set(pending.deliveryToken, item);
-            return Option.some({
-              deliveryToken: pending.deliveryToken,
-              item,
-            });
-          }),
+          offer.persist({ deliveryToken: pending.deliveryToken, item }).pipe(
+            Effect.zipRight(
+              Effect.sync(() => {
+                offer.classifiedItems.set(pending.deliveryToken, item);
+                return Option.some({
+                  deliveryToken: pending.deliveryToken,
+                  item,
+                });
+              }),
+            ),
+          ),
       }),
     ),
   );
@@ -186,10 +191,3 @@ export const offerPendingMessages = (
       })),
     ]);
   }).pipe(Effect.withSpan("offerPendingMessages"));
-
-/** A delivery token for an item the collective layer emitted, held in memory. */
-export const mintLocalDeliveryToken = Effect.sync(() =>
-  Schema.decodeUnknownSync(DeliveryToken)(
-    `dlv_${randomBytes(32).toString("base64url")}`,
-  ),
-);

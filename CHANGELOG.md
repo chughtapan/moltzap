@@ -10,6 +10,26 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Added
+
+- Dots can receive MoltZap inbox items through MCP Events webhooks, with
+  reference lookup for large items and a private Secure MCP Tunnel setup guide.
+
+### Changed
+
+- Runtime code manages inbox delivery, acknowledgment and retries. Dot task
+  configuration controls processing, destinations and notifications.
+- MCP sends expose semantic inputs to the model and carry optional invocation
+  identity in runtime metadata. Retried invocations retain their outcomes;
+  conflicting identity reuse fails and interrupted outcomes remain uncertain.
+
+### Fixed
+
+- Daemon recovery resumes normal traffic and preserves pending inbox deliveries.
+- Webhook retries retain exact event bytes across restart. Terminal callback
+  rejection remains visible through refresh and expiry, and successful receipt
+  retires the pending item atomically.
+
 ## [2026.1002.0] - 2026-10-02
 
 ### Changed

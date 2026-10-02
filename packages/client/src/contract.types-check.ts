@@ -5,13 +5,14 @@
  * operation, multicast by default or a gather or all_gather with its deadline
  * and schema; a response names the conversation whose open request it
  * answers and no request id. One parser reads either from a message's text,
- * so every adapter accepts the same text. Each inbound
+ * so the native channel adapters accept the same text. Each inbound
  * delivery carries one item plus transport-only acknowledgment: a multicast
  * with the certified direct or complete-group message, a collective request
  * naming the conversation it arrived in, a collective result that names an
  * all_gather's close post, or an operation failure. A send returns a
  * collecting operation's id and fails with a closed send reason or a
- * collective failure.
+ * collective failure. Optional invocation identity preserves a retried send without
+ * executing a new collective operation.
  */
 
 import type { DateTime, Effect, Either, Scope, Stream } from "effect";
@@ -139,7 +140,10 @@ type ExpectedDelivery = Readonly<{
 type ExpectedEndpoint = Readonly<{
   send: (
     input: SendInput,
-    options?: Readonly<{ failureDelivery?: "result" | "inbound" }>,
+    options?: Readonly<{
+      failureDelivery?: "result" | "inbound";
+      idempotencyKey?: string;
+    }>,
   ) => Effect.Effect<SendResult, SendError | CollectiveError>;
   messages: Stream.Stream<InboundDelivery, ListenError>;
 }>;
@@ -165,6 +169,12 @@ type InboundMessageIsExact = Expect<
   Equal<InboundMessage, DirectMessage | GroupMessage>
 >;
 type DeliveryIsExact = Expect<Equal<InboundDelivery, ExpectedDelivery>>;
+type SendOptionsAreExact = Expect<
+  Equal<
+    NonNullable<Parameters<HarnessEndpoint["send"]>[1]>,
+    NonNullable<Parameters<ExpectedEndpoint["send"]>[1]>
+  >
+>;
 type EndpointIsExact = Expect<Equal<HarnessEndpoint, ExpectedEndpoint>>;
 type ExpectedHistoryExportRecord =
   | Readonly<{ kind: "inbound"; item: InboundItem; at: DateTime.Utc }>
@@ -205,6 +215,8 @@ type SendReasonsAreExact = Expect<
     | "certification-unavailable"
     | "persistence-failed"
     | "network-unavailable"
+    | "idempotency-conflict"
+    | "outcome-unknown"
   >
 >;
 type CollectiveFailureKindsAreExact = Expect<
@@ -265,6 +277,7 @@ export type HarnessEndpointCanaries = [
   InboundMessageIsExact,
   DeliveryIsExact,
   EndpointIsExact,
+  SendOptionsAreExact,
   ContentIsNonempty,
   AgentAddressIsInput,
   GroupAddressIsInput,

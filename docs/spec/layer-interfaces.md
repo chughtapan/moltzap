@@ -205,14 +205,15 @@ The stable Client invariants are:
 - every send is one collective operation, multicast by default, that names an
   explicit `agent:` or `group:` address, or one response to a collective
   request, and every post it creates has a new Client-minted identity;
-- internal recovery resumes a persisted intent, while a later host invocation
-  creates another post;
+- internal recovery resumes a persisted intent. A new keyless call or a
+  different invocation key starts another invocation; same-key retries follow
+  the [retained-outcome contract](./harness/output.md#semantic-send);
 - GENESIS is unanimous and ordinary POST uses author-inclusive `q(n)` action
   certification;
 - a multicast or response returns only after local certified durability, a
-  gather returns its operation id once its request posts are accepted, or
-  after 20 seconds with the rest still sending, and an all_gather once its one
-  group post is certified;
+  gather returns its operation id after its bounded request-post wait, and
+  an all_gather once its group post is certified, under the
+  [operation-specific rules](./harness/client.md#operations);
 - inbound delivery yields items tagged by kind; a multicast item identifies
   canonical address and author, with exact members for groups and no reply
   authority, and collective requests, results and failures are items;
@@ -299,8 +300,10 @@ closed typed unions.
 5. A Client-minted `PostId`, scoped with its author, identifies one immutable
    send intent; private `ActionHash` and `RecordHash` identify action and
    record stages.
-6. Daemon restart resumes each persisted intent and replays unacknowledged
-   inbound delivery with stable identity.
+6. Daemon restart resumes each persisted intent. Pending inbox items retain
+   their identity, except requests whose response context was lost: those are
+   retired and replaced by separately identified failures under the
+   [inbox recovery contract](./harness/ingress.md).
 7. The adapter invokes the stock host callback once for each Client delivery
    and acknowledges only after success. Host persistence, deduplication, and
    replay effects remain outside MoltZap's guarantees.
@@ -366,7 +369,7 @@ topology and cross-address context.
 - Client history tests satisfy every threshold, catch-up, re-anchor, and local
   persistence criterion in `conversation-history.md`.
 - Client type canaries pin the operation send input, tagged inbound items over
-  direct/group messages, transport acknowledgment, `void` result, and
+  direct/group messages, transport acknowledgment, `SendResult`, and
   management-absence boundary.
 - Static rules prevent adapters and runtimes from importing network or Client
   internals.

@@ -233,11 +233,25 @@ function outsideManagementTest<Value>(): Effect.Effect<Value> {
   return Effect.dieMessage("outside management test");
 }
 
-function makeStore(input: {
+interface StoreInput {
   readonly recovery: EndpointRecovery;
   readonly historyFailure?: EndpointStoreError;
-}): EndpointStore {
+}
+
+function makeStore(input: StoreInput): EndpointStore {
   return {
+    readInboxItem: () => Effect.succeed(undefined),
+    completeWebhookDelivery: () => Effect.void,
+    putInboxItem: () => outsideManagementTest(),
+    readInbox: () => outsideManagementTest(),
+    readInboxSummary: () => outsideManagementTest(),
+    acknowledgeInboxItem: () => outsideManagementTest(),
+    replaceInboxItem: () => outsideManagementTest(),
+    beginSendAttempt: () => outsideManagementTest(),
+    finishSendAttempt: () => outsideManagementTest(),
+    readSendAttempt: () => outsideManagementTest(),
+    readEventState: () => outsideManagementTest(),
+    writeEventState: () => outsideManagementTest(),
     readIdentity: () => Effect.succeed(input.recovery.identity),
     bindIdentity: () => outsideManagementTest(),
     bindPostIntent: () => outsideManagementTest(),
@@ -254,6 +268,7 @@ function makeStore(input: {
     completeReanchor: () => outsideManagementTest(),
     applyCatchUpReanchor: () => outsideManagementTest(),
     readPendingDeliveries: () => outsideManagementTest(),
+    readLegacyPendingDeliveries: () => outsideManagementTest(),
     acknowledgeDelivery: () => outsideManagementTest(),
     enqueueOutbound: () => outsideManagementTest(),
     enqueueDisseminationOutbound: () => outsideManagementTest(),

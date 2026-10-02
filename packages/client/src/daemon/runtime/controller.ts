@@ -4,16 +4,30 @@ import type { VerifiedAgentCard } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { DateTime, Deferred, Effect, Queue, Scope } from "effect";
-import type { DeliveryToken, EndpointStore } from "../../endpoint/store.js";
+import type {
+  EventStore,
+  HarnessReadInboxRequest,
+} from "../../harness-mcp-contract.js";
 import type { HarnessMcpOperations } from "../../harness-mcp-wire.js";
 import type { DaemonBootstrap } from "../configuration.js";
 import type { HistoryExportPort } from "./history-export.js";
 import {
   DeliveryAcknowledgeError,
   type HistoryExportRecord,
+  InboundItem,
   SendError,
   type SendInput,
 } from "../../contract.js";
+import {
+  decodeRuntimeValue,
+  type DeliveryToken,
+  type EndpointStore,
+} from "../../endpoint/store.js";
+import {
+  readRuntimeEvent,
+  readRuntimeInbox,
+  recoverRuntimeInbox,
+} from "../inbox/index.js";
 import {
   type DaemonActivationError,
   type DaemonActivationPreparation,
@@ -30,6 +44,7 @@ import {
   publishPendingMessages,
   type RuntimeSubscriptionHandler,
 } from "./protocol.js";
+import { makeSendInvocations } from "./send-invocations.js";
 
 interface DaemonControllerInput {
   readonly store: EndpointStore;
@@ -42,6 +57,7 @@ interface DaemonControllerInput {
 /** Controller operations consumed by the daemon composition root. */
 export interface DaemonController {
   readonly operations: HarnessMcpOperations;
+  readonly eventStore: EventStore;
   readonly subscriptionChanged: (active: boolean) => void;
   readonly installHandler: (
     handler: RuntimeSubscriptionHandler,
@@ -145,17 +161,17 @@ const forgetDelivery = (
     state.publishedDeliveries.delete(deliveryToken);
     state.exportedDeliveries.delete(deliveryToken);
     state.classifiedItems.delete(deliveryToken);
+    state.localItems.delete(deliveryToken);
   });
 
 /**
- * Acknowledge one published delivery: an item the collective layer emitted is
- * dropped from daemon memory, and a durable delivery is acknowledged in the
- * store.
+ * Retire the durable inbox binding before dropping its process-local caches.
  */
 const makeAcknowledgeDeliveryOperation =
   (
     state: ProtocolState,
     deliveryGate: Effect.Semaphore,
+    store: EndpointStore,
   ): HarnessMcpOperations["acknowledgeDelivery"] =>
   (deliveryToken) =>
     deliveryGate.withPermits(1)(
@@ -166,9 +182,18 @@ const makeAcknowledgeDeliveryOperation =
             new DeliveryAcknowledgeError({ reason: "unknown-delivery" }),
           );
         }
-        const acknowledge = state.localItems.delete(deliveryToken)
-          ? Effect.void
-          : protocol.engine.acknowledgeMessage(deliveryToken);
+        const acknowledge = store.acknowledgeInboxItem(deliveryToken).pipe(
+          Effect.catchTag("EndpointStoreError", (error) =>
+            Effect.fail(
+              new DeliveryAcknowledgeError({
+                reason:
+                  error.reason === "not-found"
+                    ? "unknown-delivery"
+                    : "persistence-failed",
+              }),
+            ),
+          ),
+        );
         return acknowledge.pipe(
           Effect.tap(() => forgetDelivery(state, deliveryToken)),
         );
@@ -207,45 +232,152 @@ const initializeAtStart = (
   );
 };
 
-const assembleDaemonController = (input: {
+/** Export replayed local items before a host can read them after restart. */
+const readAndExportInbox = (
+  environment: ProtocolEnvironment,
+  gate: Effect.Semaphore,
+  request: HarnessReadInboxRequest,
+) =>
+  gate.withPermits(1)(
+    Effect.gen(function* () {
+      const page = yield* readRuntimeInbox(environment.store, request);
+      for (const entry of page.items) {
+        if (!environment.state.exportedDeliveries.has(entry.deliveryToken)) {
+          const at = yield* DateTime.now;
+          yield* environment.historyExport.record({
+            kind: "inbound",
+            item: entry.item,
+            at,
+          });
+          environment.state.exportedDeliveries.add(entry.deliveryToken);
+        }
+      }
+      return page;
+    }),
+  );
+
+interface ControllerAssembly {
+  readonly invocations: Effect.Effect.Success<
+    ReturnType<typeof makeSendInvocations>
+  >;
   readonly environment: ProtocolEnvironment;
   readonly management: DaemonActivationPreparation["management"];
   readonly changes: Queue.Queue<boolean>;
   readonly deliveryGate: Effect.Semaphore;
   readonly reconciler: Effect.Effect<void>;
   readonly initialize: InitializeProtocol;
-}): DaemonController => {
+}
+
+const controllerOperations = (
+  input: ControllerAssembly,
+): HarnessMcpOperations => {
   const register = makeRegisterOperation(
     input.environment,
     input.management,
     input.initialize,
   );
-  return {
-    operations: Object.freeze({
-      ...input.management,
-      register,
-      send: makeSendOperation(input.environment),
-      acknowledgeDelivery: makeAcknowledgeDeliveryOperation(
-        input.environment.state,
-        input.deliveryGate,
-      ),
-    }),
-    subscriptionChanged: (active) => {
-      input.changes.unsafeOffer(active);
-    },
-    installHandler: (handler) =>
-      Effect.sync(() => {
-        input.environment.state.handler = handler;
-      }),
-    runSubscriptions: runSubscriptionChanges(
-      input.environment,
-      input.changes,
-      input.reconciler,
+  return Object.freeze({
+    ...input.management,
+    register,
+    ...input.invocations,
+    readInboxSummary: input.environment.store.readInboxSummary,
+    readEvent: ({ eventId }: { readonly eventId: string }) =>
+      input.environment.state.activeProtocol === undefined
+        ? Effect.fail({ reason: "not-registered" })
+        : readRuntimeEvent(input.environment.store, eventId),
+    readInbox: (request: HarnessReadInboxRequest) =>
+      input.environment.state.activeProtocol === undefined
+        ? Effect.fail({ reason: "not-registered" })
+        : readAndExportInbox(input.environment, input.deliveryGate, request),
+    acknowledgeDelivery: makeAcknowledgeDeliveryOperation(
+      input.environment.state,
+      input.deliveryGate,
+      input.environment.store,
     ),
-    awaitFailure: Deferred.await(input.environment.fatal),
-    initializeAtStart: (state) => initializeAtStart(input.initialize, state),
-  };
+  });
 };
+
+/** Webhook reads share export ordering with native inbox reads. */
+const readWebhookInbox = (
+  input: ControllerAssembly,
+  bounds: Parameters<EndpointStore["readInbox"]>[0],
+) =>
+  input.deliveryGate.withPermits(1)(
+    Effect.gen(function* () {
+      const page = yield* input.environment.store.readInbox(bounds);
+      for (const entry of page.items) {
+        if (
+          !input.environment.state.exportedDeliveries.has(entry.deliveryToken)
+        ) {
+          const item = yield* decodeRuntimeValue(
+            InboundItem,
+            entry.canonicalItem,
+          );
+          const at = yield* DateTime.now;
+          yield* input.environment.historyExport.record({
+            kind: "inbound",
+            item,
+            at,
+          });
+          input.environment.state.exportedDeliveries.add(entry.deliveryToken);
+        }
+      }
+      return page;
+    }),
+  );
+
+/** Waiters can stop during shutdown; an acquired receipt commits with its caller state intact. */
+const completeWebhookDelivery = (
+  input: ControllerAssembly,
+  token: DeliveryToken,
+  bytes: Uint8Array,
+) =>
+  Effect.uninterruptibleMask(() =>
+    input.deliveryGate.take(1).pipe(
+      Effect.interruptible,
+      Effect.flatMap((permits) =>
+        input.environment.store.completeWebhookDelivery(token, bytes).pipe(
+          Effect.tap(() => forgetDelivery(input.environment.state, token)),
+          Effect.ensuring(input.deliveryGate.release(permits)),
+        ),
+      ),
+    ),
+  );
+
+const assembleDaemonController = (
+  input: ControllerAssembly,
+): DaemonController => ({
+  operations: controllerOperations(input),
+  eventStore: {
+    ...input.environment.store,
+    readInbox: (bounds) => readWebhookInbox(input, bounds),
+    completeWebhookDelivery: (token, bytes) =>
+      completeWebhookDelivery(input, token, bytes),
+  },
+  subscriptionChanged: (active) => {
+    input.changes.unsafeOffer(active);
+  },
+  installHandler: (handler) =>
+    Effect.sync(() => {
+      input.environment.state.handler = handler;
+      input.changes.unsafeOffer(handler.hasActiveSubscription());
+    }),
+  runSubscriptions: runSubscriptionChanges(
+    input.environment,
+    input.changes,
+    input.reconciler,
+  ),
+  awaitFailure: Deferred.await(input.environment.fatal),
+  initializeAtStart: (state) => initializeAtStart(input.initialize, state),
+});
+
+const initialProtocolState = (): ProtocolState => ({
+  subscriptionActive: false,
+  publishedDeliveries: new Set(),
+  localItems: new Map(),
+  exportedDeliveries: new Set(),
+  classifiedItems: new Map(),
+});
 
 /**
  * Acquire the daemon's protocol controller without starting the MCP listener.
@@ -254,8 +386,15 @@ const assembleDaemonController = (input: {
  */
 export const makeDaemonController = (
   input: DaemonControllerInput,
-): Effect.Effect<DaemonController, never, Registry | Router | Scope.Scope> =>
+): Effect.Effect<
+  DaemonController,
+  DaemonRuntimeError,
+  Registry | Router | Scope.Scope
+> =>
   Effect.gen(function* () {
+    yield* recoverRuntimeInbox(input.store).pipe(
+      Effect.mapError(() => runtimeFailure("storage")),
+    );
     const registry = yield* Registry;
     const router = yield* Router;
     const daemonScope = yield* Scope.Scope;
@@ -263,13 +402,7 @@ export const makeDaemonController = (
     const deliveryGate = yield* Effect.makeSemaphore(1);
     const changes = yield* Queue.unbounded<boolean>();
     const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
-    const state: ProtocolState = {
-      subscriptionActive: false,
-      publishedDeliveries: new Set(),
-      localItems: new Map(),
-      exportedDeliveries: new Set(),
-      classifiedItems: new Map(),
-    };
+    const state = initialProtocolState();
     const environment: ProtocolEnvironment = {
       store: input.store,
       bootstrap: input.bootstrap,
@@ -282,9 +415,15 @@ export const makeDaemonController = (
       state,
     };
     const reconciler = publishPendingMessages(environment, deliveryGate);
+    const invocations = yield* makeSendInvocations(
+      input.store,
+      makeSendOperation(environment),
+      daemonScope,
+    );
     const initialize = (agentCard: VerifiedAgentCard) =>
       initializeProtocol(environment, activationGate, reconciler, agentCard);
     return assembleDaemonController({
+      invocations,
       environment,
       management: input.management,
       changes,

@@ -29,9 +29,9 @@ export interface StoreState {
 }
 
 const DATABASE_NAME = "moltzapd.sqlite3";
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
-type PreflightDisposition = "initialize" | "reopen";
+type PreflightDisposition = "initialize" | "upgrade" | "reopen";
 
 /**
  * Acquires and exclusively locks one exact-version endpoint database.
@@ -132,9 +132,7 @@ function initializeStoreState(stateDirectory: string): StoreState {
     chmodSync(stateDirectory, 0o700);
     chmodSync(databasePath, 0o600);
     configureDatabase(database);
-    if (disposition === "initialize") {
-      initializeDatabase(database);
-    }
+    applySchema(database, disposition);
     return { database, snapshots: new Map(), closed: false };
   } catch (failure) {
     try {
@@ -144,6 +142,17 @@ function initializeStoreState(stateDirectory: string): StoreState {
       // Initialization reports only the original closed failure category.
     }
     throw failure;
+  }
+}
+
+function applySchema(
+  database: DatabaseSync,
+  disposition: PreflightDisposition,
+): void {
+  if (disposition === "initialize") {
+    initializeDatabase(database);
+  } else if (disposition === "upgrade") {
+    upgradeDatabase(database);
   }
 }
 
@@ -177,7 +186,7 @@ function preflightDatabase(database: DatabaseSync): PreflightDisposition {
     throw new StoreSignal("corrupt");
   }
   const version = readInteger(versionRow, "user_version");
-  if (version !== 0 && version !== SCHEMA_VERSION) {
+  if (version !== 0 && version !== 2 && version !== SCHEMA_VERSION) {
     throw new StoreSignal("incompatible");
   }
   if (version === 0) {
@@ -188,7 +197,7 @@ function preflightDatabase(database: DatabaseSync): PreflightDisposition {
     return "initialize";
   }
   requireHealthyDatabase(database);
-  return "reopen";
+  return version === 2 ? "upgrade" : "reopen";
 }
 
 function hasUserSchemaObjects(database: DatabaseSync): boolean {
@@ -255,6 +264,28 @@ function requireIntegerPragma(
     throw new StoreSignal("persistence");
   }
 }
+
+const runtimeSchemaSql = `
+  CREATE TABLE runtime_legacy_deliveries (
+    delivery_token TEXT PRIMARY KEY REFERENCES pending_deliveries(delivery_token)
+  ) STRICT;
+  CREATE TABLE runtime_inbox (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    delivery_token TEXT NOT NULL UNIQUE,
+    canonical_item BLOB NOT NULL,
+    acknowledged INTEGER NOT NULL DEFAULT 0 CHECK (acknowledged IN (0, 1))
+  ) STRICT;
+  CREATE INDEX runtime_inbox_unread ON runtime_inbox(sequence) WHERE acknowledged = 0;
+  CREATE TABLE runtime_sends (
+    invocation_key TEXT PRIMARY KEY,
+    canonical_input BLOB NOT NULL,
+    canonical_outcome BLOB
+  ) STRICT;
+  CREATE TABLE runtime_events (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    canonical_state BLOB NOT NULL
+  ) STRICT;
+`;
 
 const schemaSql = `
   CREATE TABLE identity_binding (
@@ -400,6 +431,20 @@ function initializeDatabase(database: DatabaseSync): void {
     database,
     () => {
       database.exec(schemaSql);
+      database.exec(runtimeSchemaSql);
+      database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    },
+    "EXCLUSIVE",
+  );
+}
+
+function upgradeDatabase(database: DatabaseSync): void {
+  transaction(
+    database,
+    () => {
+      database.exec(runtimeSchemaSql);
+      database.exec(`INSERT INTO runtime_legacy_deliveries (delivery_token)
+        SELECT delivery_token FROM pending_deliveries WHERE acknowledged = 0`);
       database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     },
     "EXCLUSIVE",
