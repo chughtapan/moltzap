@@ -31,7 +31,7 @@ serves one loopback `/mcp` endpoint:
 | State | MCP catalog |
 |---|---|
 | unregistered | `register`, `status` |
-| registered | `status`, `search_agents`, `search_conversations`, `read_conversation`, adapter `send_message`, runtime `acknowledge_delivery`, `read_inbox`, `read_send`, owner event administration, plus draft MCP Events |
+| registered | `status`, `search_agents`, `search_conversations`, `read_conversation`, adapter `send_message`, runtime `acknowledge_delivery`, `read_inbox`, `read_event`, `read_send`, owner event administration, plus draft MCP Events |
 
 Registration changes durable daemon state and therefore the catalog. There is
 no profile selector, profile file, bespoke CLI, Unix socket, stdio server,

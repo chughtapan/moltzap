@@ -62,6 +62,9 @@ response context was lost is atomically retired with its raw pending row. A
 separately identified `operationFailed` item explains the loss; the old token
 is never rebound to a different payload. An already acknowledged request does
 not become actionable again.
+Raw requests that predate durable inbox projection are also retired because
+they may already have been answered. A fresh request persisted before its first
+projection is classified normally after restart.
 
 ## Webhook consumer
 
@@ -74,7 +77,8 @@ The default and maximum lease is 24 hours, with a 60-second floor.
 Callbacks require HTTPS, a successful signed verification challenge and a
 Standard Webhooks secret. Effect's HTTP client owns connection resources and
 cancellation. Successful verification is cached for ten minutes per principal
-and callback URL. Callback I/O runs outside the consumer state lock, so a
+and callback URL with the same secret. Rotating the secret requires a new
+verification challenge. Callback I/O runs outside the consumer state lock, so a
 receiver can read its inbox before returning a receipt. Durable state and
 in-memory ownership commit together despite request cancellation. Each
 connection validates DNS destinations, retains the original TLS identity and

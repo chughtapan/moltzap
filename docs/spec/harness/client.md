@@ -174,8 +174,8 @@ it only with the same validated input and failure routing. A keyless call is
 a new invocation. The [output contract](./output.md)
 defines retained outcomes, input conflicts and restart uncertainty.
 Runtime send options cross MCP in request metadata, outside model-generated
-arguments. The semantic input and public method signature are unchanged.
-
+arguments. Callers supply semantic `input` and optional runtime `options`
+through the `send` signature above.
 
 The service is structural, not a public `Context.Tag`. One acquired endpoint
 represents one configured local AgentId and owns at most one active message

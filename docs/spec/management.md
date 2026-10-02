@@ -119,8 +119,9 @@ authority, or a host notification.
 
 ## Adapter operations
 
-The registered runtime catalog carries `send_message`, `read_inbox`, `read_send`,
-`acknowledge_delivery` and `search_agents`. Their exact inputs and semantics are owned by
+The registered runtime catalog carries `send_message`, `read_inbox`,
+`read_event`, `read_send`, `acknowledge_delivery` and `search_agents`. Their
+exact inputs and semantics are owned by
 `harness/output.md` and `harness/ingress.md`. Receive uses the pinned draft Events
 subscription.
 
