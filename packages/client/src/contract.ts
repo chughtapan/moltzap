@@ -232,8 +232,9 @@ export type Content = typeof Content.Type;
 
 /**
  * Identity of one gather or all_gather, minted by the requesting endpoint.
- * The request, each member's answer, an all_gather's close, the result and
- * any failure carry it.
+ * The request, each member's answer post, an all_gather's close, the result
+ * and any failure carry it. An answer that matches no single open request is
+ * refused under an id minted for the refusal, so its failure is named too.
  */
 export const CollectiveId = Schema.String.pipe(
   Schema.filter((value) => isCanonicalIdentifier("col_", value), {
@@ -245,21 +246,8 @@ export const CollectiveId = Schema.String.pipe(
 /** A validated collective operation id. */
 export type CollectiveId = typeof CollectiveId.Type;
 
-/**
- * One property of a form-mode schema as a caller states it. The JSON Schema
- * override keeps the recursive JSON value out of host tool schemas, which
- * cannot follow a `$ref` into definitions they do not carry.
- */
-const formProperty = Schema.Record({
-  key: Schema.String,
-  value: JsonValue,
-}).annotations({
-  jsonSchema: {
-    type: "object",
-    description:
-      'One MCP form-mode primitive schema: {"type":"string"} with optional minLength, maxLength or format; {"type":"string","enum":["a","b"]} for a single-select; {"type":"number"} or {"type":"integer"} with optional minimum and maximum; {"type":"boolean"}; or {"type":"array","items":{"type":"string","enum":["a","b"]}} for a multi-select, whose items always carry "type":"string". Each may carry title, description and default.',
-  },
-});
+/** One property of a form-mode schema as a caller states it. */
+const formProperty = Schema.Record({ key: Schema.String, value: JsonValue });
 
 /**
  * The MCP form-mode `requestedSchema` of a collecting operation: a flat object
@@ -271,9 +259,6 @@ export const RequestedSchema = exactStruct({
   type: Schema.Literal("object"),
   properties: Schema.Record({ key: Schema.String, value: formProperty }),
   required: Schema.optionalWith(Schema.Array(Schema.String), { exact: true }),
-}).annotations({
-  description:
-    "The answer form: an MCP form-mode requestedSchema, a flat object of primitive properties. For a free-form answer use one string property.",
 });
 /** A form-mode schema as stated by its requester. */
 export type RequestedSchema = typeof RequestedSchema.Type;
@@ -299,6 +284,12 @@ export type AnswerContent = typeof AnswerContent.Type;
 /** The longest deadline a collecting operation may state: 30 days, in seconds. */
 export const MAXIMUM_DEADLINE_SECONDS = 2_592_000;
 
+/** A collecting operation's relative deadline: whole seconds, up to 30 days. */
+export const DeadlineSeconds = Schema.Number.pipe(
+  Schema.int(),
+  Schema.between(1, MAXIMUM_DEADLINE_SECONDS),
+);
+
 /**
  * Multicast: one post to the `to` address, complete when certified. `op`
  * defaults to multicast, so an omitted `op` and an omitted `collective` mean
@@ -320,58 +311,41 @@ const multicastOperation = exactStruct({
  */
 const collectingOperation = exactStruct({
   op: Schema.Literal("gather", "all_gather"),
-  deadline: Schema.Number.pipe(
-    Schema.int(),
-    Schema.between(1, MAXIMUM_DEADLINE_SECONDS),
-  ).annotations({
-    description:
-      "Seconds from now until the operation closes, a whole number from 1 to 2592000 (30 days). Members who have not answered by then are reported as no-answer.",
-  }),
+  deadline: DeadlineSeconds,
   requestedSchema: RequestedSchema,
 });
 
-/**
- * The collective operation one send performs, discriminated by `op`. Each
- * operation is one member of this union; the schema carries no identifier so
- * its JSON Schema embeds inline in a host tool's parameters.
- */
-export const CollectiveOperation = Schema.Union(
+/** The collective operation one send performs, discriminated by `op`. */
+const CollectiveOperation = Schema.Union(
   multicastOperation,
   collectingOperation,
-).annotations({
-  description:
-    'The collective operation. Omit it, or its op, for multicast: one post to the to address. {"op":"gather","deadline":<seconds>,"requestedSchema":<form>} asks each member of to the message text as a question, privately, and returns one result with each member\'s answer, decline, or no-answer once all have replied or the deadline passes. {"op":"all_gather","deadline":<seconds>,"requestedSchema":<form>} asks one question to a group: to must be a group: address, no member sees another\'s answer before the close, and everyone, the asker included, receives the same result at the close.',
-});
+);
 /** A validated collective operation. */
 export type CollectiveOperation = typeof CollectiveOperation.Type;
 
 /**
- * A member's reply to one collective request. Only `accept` carries content,
- * valid against the request's schema; the member's endpoint addresses the
- * reply to the conversation the request arrived in.
+ * A member's answer to the one request open in the conversation it is sent
+ * to: the requester's direct conversation for a gather, the group for an
+ * all_gather. It is MCP's `ElicitResult`; only `accept` carries content,
+ * valid against the request's schema.
  */
-export const CollectiveResponse = Schema.Union(
+const CollectiveResponse = Schema.Union(
   exactStruct({
-    id: CollectiveId,
     action: Schema.Literal("accept"),
     content: AnswerContent,
   }),
   exactStruct({
-    id: CollectiveId,
-    action: Schema.Literal("decline", "cancel"),
+    action: Schema.Literal("decline"),
   }),
-).annotations({
-  description:
-    'Answer a collective request: {"id":<request id>,"action":"accept","content":{...}} with content valid against the request\'s schema, or {"id":<request id>,"action":"decline"} or "cancel" without content. The reply goes to the conversation the request arrived in, the requester for a gather and the group for an all_gather, whatever to says, and each request takes one answer.',
-});
+);
 /** A validated collective response. */
 export type CollectiveResponse = typeof CollectiveResponse.Type;
 
 /**
- * One send: an operation with its address, body text and collective
- * operation, multicast when `collective` is omitted; or a response to a
- * collective request, which names no address because the member's endpoint
- * derives it from the request.
+ * One send to one address: text with its collective operation, multicast
+ * when `collective` is omitted, or an answer to the request open in that
+ * address's conversation. `parseMessageText` reads both from a message's
+ * text.
  */
 export const SendInput = Schema.Union(
   exactStruct({
@@ -379,7 +353,10 @@ export const SendInput = Schema.Union(
     text: wellFormedString,
     collective: Schema.optionalWith(CollectiveOperation, { exact: true }),
   }),
-  exactStruct({ collectiveResponse: CollectiveResponse }),
+  exactStruct({
+    to: MessageAddressInput,
+    collectiveResponse: CollectiveResponse,
+  }),
 ).annotations({ identifier: "SendInput" });
 /** Validated input for one send. */
 export type SendInput = typeof SendInput.Type;
@@ -390,6 +367,24 @@ export type SendInput = typeof SendInput.Type;
  * send completes.
  */
 export type FailureDelivery = "result" | "inbound";
+
+const sendFailure = Schema.Literal(
+  "invalid-address",
+  "unknown-agent",
+  "membership-invalid",
+  "content-invalid",
+  "not-registered",
+  "version-mismatch",
+  "certification-unavailable",
+  "persistence-failed",
+  "network-unavailable",
+);
+type SendFailure = typeof sendFailure.Type;
+
+/** Members a send could not reach, each with its send failure's reason. */
+const unreachableMembers = Schema.NonEmptyArray(
+  exactStruct({ member: AgentAddress, reason: sendFailure }),
+);
 
 /** What a completed send returns: a collecting operation names its id. */
 export interface SendResult {
@@ -475,8 +470,7 @@ const epochMillis = Schema.Number.pipe(Schema.int(), Schema.positive());
  * A question another agent asked this one. `postId` is the certified request
  * post's and `to` the conversation it arrived in: the requester's `agent:`
  * address for a gather, the group's `group:` address for an all_gather. The
- * member answers once with a `collectiveResponse` naming `id`, and the answer
- * goes to `to`.
+ * member answers once with a `collectiveResponse` sent to `to`.
  */
 const collectiveRequestItem = exactStruct({
   kind: Schema.Literal("collectiveRequest"),
@@ -489,11 +483,15 @@ const collectiveRequestItem = exactStruct({
   deadlineAt: epochMillis,
 });
 
-/** One member's outcome in a completed gather or all_gather, discriminated by `kind`. */
+/**
+ * One member's outcome in a completed gather or all_gather, discriminated by
+ * `kind`. `no-answer` covers every member that did not answer: one whose
+ * request post was refused or not certified in time, and one silent at the
+ * deadline.
+ */
 const memberOutcome = Schema.Union(
   exactStruct({ kind: Schema.Literal("answered"), content: AnswerContent }),
   exactStruct({ kind: Schema.Literal("declined") }),
-  exactStruct({ kind: Schema.Literal("cancelled") }),
   exactStruct({ kind: Schema.Literal("invalid"), reason: Schema.String }),
   exactStruct({ kind: Schema.Literal("no-answer") }),
 );
@@ -549,19 +547,6 @@ export const InboundItem = Schema.Union(
 });
 /** A validated inbound item. */
 export type InboundItem = typeof InboundItem.Type;
-
-const sendFailure = Schema.Literal(
-  "invalid-address",
-  "unknown-agent",
-  "membership-invalid",
-  "content-invalid",
-  "not-registered",
-  "version-mismatch",
-  "certification-unavailable",
-  "persistence-failed",
-  "network-unavailable",
-);
-type SendFailure = typeof sendFailure.Type;
 
 /**
  * How one send ended in the history export: the posts certified by the time
@@ -622,9 +607,7 @@ export class SendError extends Data.TaggedError("SendError")<{
 const collectiveFailure = Schema.Union(
   exactStruct({
     kind: Schema.Literal("members-unreachable"),
-    members: Schema.NonEmptyArray(
-      exactStruct({ member: AgentAddress, reason: sendFailure }),
-    ),
+    members: unreachableMembers,
   }),
   exactStruct({
     kind: Schema.Literal("schema-invalid"),
@@ -640,7 +623,8 @@ const collectiveFailure = Schema.Union(
       }),
     ),
   }),
-  exactStruct({ kind: Schema.Literal("request-unknown") }),
+  exactStruct({ kind: Schema.Literal("request-none") }),
+  exactStruct({ kind: Schema.Literal("request-ambiguous") }),
   exactStruct({ kind: Schema.Literal("request-answered") }),
   exactStruct({ kind: Schema.Literal("request-expired") }),
 );
@@ -670,12 +654,14 @@ function describeCollectiveFailure(failure: CollectiveFailure): string {
             : `${field}: ${reason} (${detail})`,
         )
         .join("; ")}`;
-    case "request-unknown":
-      return "no open collective request has this id";
+    case "request-none":
+      return "no gather or all_gather request is open in this conversation";
+    case "request-ambiguous":
+      return "more than one gather or all_gather request is open in this conversation, and answering one of several is not supported; nothing was sent";
     case "request-answered":
-      return "this request was already answered";
+      return "the request in this conversation was already answered";
     case "request-expired":
-      return "this request's deadline has passed";
+      return "the request in this conversation has passed its deadline";
     default: {
       const exhaustive: never = failure;
       return exhaustive;
@@ -684,15 +670,16 @@ function describeCollectiveFailure(failure: CollectiveFailure): string {
 }
 
 /**
- * A collective send was refused. The message names each unreachable member or
- * failing field, so a host can hand it to its model as the tool error.
+ * A gather, all_gather or answer was refused. The message names each
+ * unreachable member or failing field, so a host can hand it to its model as
+ * the tool error.
  */
 export class CollectiveError extends Data.TaggedError("CollectiveError")<{
   readonly id: CollectiveId;
   readonly failure: CollectiveFailure;
 }> {
   override get message(): string {
-    return `collective ${this.id} failed: ${describeCollectiveFailure(this.failure)}`;
+    return `operation ${this.id} failed: ${describeCollectiveFailure(this.failure)}`;
   }
 }
 

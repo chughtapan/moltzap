@@ -21,14 +21,15 @@
  *   RM->>RE: send gather to, question, deadline, schema
  *   RE->>RE: validate schema, mint id&lt;br>deadline = now + duration
  *   RE->>ME: one request post per member
- *   alt a request post is refused
+ *   alt no request post is accepted
  *     RE-->>RM: error naming each unreachable member
- *   else every request post accepted
+ *   else some request post accepted
  *     RE-->>RM: operation id
+ *     RE->>RE: record each refused or uncertified member as no-answer
  *   end
  *   ME->>MM: collectiveRequest item
- *   MM->>ME: send collectiveResponse id, action, content
- *   ME->>ME: validate content against the stored schema
+ *   MM->>ME: send collectiveResponse to the requester, action, content
+ *   ME->>ME: match the request open in that conversation&lt;br>validate content against its schema
  *   ME->>RE: response post in the direct conversation
  *   RE->>RE: consume, validate and record the answer
  *   Note over RE: complete when every member has an outcome&lt;br>or at the deadline
@@ -54,8 +55,8 @@
  *     RE-->>RM: operation id
  *   end
  *   ME->>MM: collectiveRequest item
- *   MM->>ME: send collectiveResponse id, action, content
- *   ME->>ME: validate content against the stored schema
+ *   MM->>ME: send collectiveResponse to the group, action, content
+ *   ME->>ME: match the request open in the group&lt;br>validate content against its schema
  *   ME->>RE: response post to the group
  *   ME->>ME: peer response posts, consumed and recorded by record hash
  *   Note over RE: complete when every member has an outcome&lt;br>or at the deadline
@@ -71,8 +72,6 @@ import {
   Duration,
   Effect,
   Array as EffectArray,
-  Either,
-  Exit,
   Fiber,
   Option,
   ParseResult,
@@ -102,6 +101,18 @@ import {
   type SendResult,
 } from "../../contract.js";
 import { canonicalMessageAddress } from "../addressing/index.js";
+import {
+  matchOpenRequest,
+  type OpenRequest,
+  type RequestStatus,
+} from "./received-request.js";
+import {
+  isAddressRefusal,
+  lookupRefusals,
+  type RequestRefusal,
+  type RequestSend,
+  requestsSoFar,
+} from "./request-sends.js";
 import {
   type CertifiedAnswer,
   type CollectiveResultItem,
@@ -147,12 +158,6 @@ type CloseValue = Extract<CollectiveValue, { readonly kind: "close" }>;
  * transport timeout.
  */
 const REQUEST_SEND_WAIT = Duration.seconds(20);
-
-/**
- * How many Registry lookups a refused all_gather runs at once to name its
- * unreachable members; they are independent, and a group has at most 32.
- */
-const MEMBER_LOOKUP_CONCURRENCY = 8;
 
 /**
  * How long past its deadline a member keeps an all_gather request while it
@@ -221,10 +226,12 @@ interface CollectiveSendOutcome extends SendResult {
 /** The daemon's collective layer for one active identity. */
 export interface CollectiveOperations {
   /**
-   * Perform one send. A gather completes once every request post is accepted
-   * and fails naming each member whose post was refused; an all_gather
-   * completes once its group post is certified. A response is validated
-   * against its request's schema and addressed to the request's conversation.
+   * Perform one send. A gather completes once its request posts are
+   * settled, recording each member it did not reach as no-answer, and
+   * fails naming every member only when it reached none; an all_gather
+   * completes once its group post is certified. A response answers the one
+   * request open in the conversation its address names, validated against
+   * that request's schema.
    */
   readonly send: (
     input: SendInput,
@@ -262,22 +269,19 @@ interface GatherRequest {
  */
 interface OpenGather extends GatherRequest {
   readonly timer: Fiber.RuntimeFiber<void>;
+  requestsSettled: boolean;
 }
 
 /**
  * A request this endpoint received. `postId` is the request post it came in,
- * and `to` the conversation it arrived in and every answer goes to.
- * `sending` holds the one answer in flight, so a member answers at most once;
- * a refused answer reopens the request. An all_gather request carries
- * `shared` and becomes `closed` at its close.
+ * and every answer goes to `to`. A refused answer reopens the request; an
+ * all_gather request carries `shared`.
  */
-interface ReceivedRequest {
+interface ReceivedRequest extends RequestStatus {
   readonly postId: PostId;
   readonly from: AgentAddress;
-  readonly to: MessageAddressInput;
   readonly requestedSchema: FormModeSchema;
-  readonly deadlineAt: number;
-  state: "open" | "sending" | "answered" | "closed";
+  state: RequestStatus["state"];
   readonly shared?: SharedAnswers;
 }
 
@@ -328,7 +332,7 @@ export const makeCollectiveOperations = (
         ? reportFailure(
             state,
             failureDelivery,
-            respond(state, input.collectiveResponse),
+            respond(state, input.to, input.collectiveResponse),
           )
         : sendOperation(state, input, failureDelivery),
     classify: (message) => classify(state, message),
@@ -337,7 +341,7 @@ export const makeCollectiveOperations = (
 
 function sendOperation(
   state: CollectiveState,
-  input: Extract<SendInput, { readonly to: MessageAddressInput }>,
+  input: Extract<SendInput, { readonly text: string }>,
   failureDelivery: FailureDelivery,
 ): Effect.Effect<CollectiveSendOutcome, SendError | CollectiveError> {
   const operation = input.collective ?? {};
@@ -504,8 +508,9 @@ function formModeSchema(
 
 /**
  * Validate a gather or all_gather before any post: mint its id, check its
- * schema against the form-mode grammar, name its members, fix its absolute
- * deadline, and build the request content within the content limit.
+ * schema against the form-mode grammar, name and resolve its members, fix
+ * its absolute deadline, and build the request content within the content
+ * limit.
  */
 function prepareGather(
   state: CollectiveState,
@@ -525,6 +530,9 @@ function prepareGather(
       id,
       operation.requestedSchema,
     ).pipe(Effect.mapError(refused));
+    yield* refuseAddressErrors(state, members).pipe(
+      Effect.mapError((failure) => refused(collectiveFailure(id, failure))),
+    );
     const now = yield* Clock.currentTimeMillis;
     const untilDeadline = Duration.toMillis(
       Duration.seconds(operation.deadline),
@@ -579,17 +587,46 @@ function gather(
       Effect.forkIn(state.ports.scope),
     );
     yield* Effect.sync(() => {
-      state.gathers.set(prepared.id, { ...prepared.open, timer });
+      state.gathers.set(prepared.id, {
+        ...prepared.open,
+        timer,
+        requestsSettled: prepared.open.op === "all_gather",
+      });
     });
     const requests =
       prepared.open.op === "gather"
         ? sendRequests(state, prepared)
-        : sendGroupRequest(state, prepared);
-    const postIds = yield* requests.pipe(
+        : sendGroupRequest(state, prepared).pipe(
+            Effect.map((postIds) => ({ postIds })),
+          );
+    const sent = yield* requests.pipe(
       Effect.mapError(refusedAs(prepared.id, prepared.open.to)),
     );
-    return { operationId: prepared.id, postIds };
+    return { ...sent, operationId: prepared.id };
   });
+}
+
+/**
+ * Resolve every member before any post through the engine's address
+ * resolution. A malformed or unknown member, or invalid membership, refuses
+ * the whole send naming each one; any other lookup failure is left to the
+ * post, which reports it as a delivery failure.
+ */
+function refuseAddressErrors(
+  state: CollectiveState,
+  members: Members,
+): Effect.Effect<void, CollectiveFailure> {
+  return lookupRefusals(members, state.ports.lookupMember).pipe(
+    Effect.map((refusals) => refusals.filter(isAddressRefusal)),
+    Effect.flatMap(([first, ...rest]) =>
+      first === undefined
+        ? Effect.void
+        : Effect.fail<CollectiveFailure>({
+            kind: "members-unreachable",
+            members: [first, ...rest],
+          }),
+    ),
+  );
 }
 
 /** Sleep until the absolute time `at`, in steps no timer overflows. */
@@ -605,32 +642,25 @@ function sleepUntil(at: number): Effect.Effect<void> {
   );
 }
 
-/** A member whose request post was refused, and why. */
-type RequestRefusal = Readonly<{
-  member: AgentAddress;
-  reason: SendError["reason"];
-}>;
-
-/** A request post in flight, resolving to the member's refusal, if any. */
-type RequestSend = Fiber.RuntimeFiber<
-  Either.Either<EngineSentPost, RequestRefusal>
->;
-
 /**
- * Send one request post per member and wait for them, never past the
- * deadline. Any refusal abandons the gather and names every refused member;
- * a post still pending when the wait ends is left running.
+ * Send one request post per member, waiting at most the send wait. A pending
+ * send keeps running and settles its member when it completes: certified
+ * asks it, refused makes it `no-answer`, as does pending at the deadline.
+ * The send fails only when every post was refused and the gather has not
+ * completed, so an operation ends in exactly one refusal or one result.
  */
 function sendRequests(
   state: CollectiveState,
   prepared: PreparedGather,
-): Effect.Effect<ReadonlyArray<EngineSentPost["postId"]>, CollectiveError> {
+): Effect.Effect<CollectiveSendOutcome, CollectiveError> {
   return Effect.gen(function* () {
+    const { id, open } = prepared;
     const sends = yield* Effect.forEach(
-      prepared.open.members,
+      open.members,
       (member): Effect.Effect<RequestSend> =>
         state.ports.sendPost({ to: member, content: prepared.content }).pipe(
           Effect.mapError((error) => ({ member, reason: error.reason })),
+          Effect.tapError((refusal) => recordRefusal(state, id, refusal)),
           Effect.either,
           Effect.forkIn(state.ports.scope),
         ),
@@ -639,22 +669,63 @@ function sendRequests(
     yield* Fiber.awaitAll(sends).pipe(
       Effect.timeoutOption(requestWait(state, prepared)),
     );
-    const results = yield* settledSends(sends);
-    const [refusal, ...refusals] = results.flatMap((result) =>
-      Option.toArray(Either.getLeft(result)),
-    );
-    if (refusal !== undefined) {
-      yield* abandonGather(state, prepared.id, sends);
+    const { posts, refused } = yield* requestsSoFar(open.members, sends);
+    const [refusal, ...refusals] = refused;
+    if (
+      refusal !== undefined &&
+      refusals.length + 1 === open.members.length &&
+      state.gathers.has(id)
+    ) {
+      yield* forgetGather(state, id);
       return yield* Effect.fail(
-        collectiveFailure(prepared.id, {
+        collectiveFailure(id, {
           kind: "members-unreachable",
           members: [refusal, ...refusals],
         }),
       );
     }
-    return results.flatMap((result) =>
-      Option.toArray(Either.getRight(result)).map((post) => post.postId),
-    );
+    yield* updateGather(state, id, (settled) => {
+      settled.requestsSettled = true;
+    });
+    return { postIds: posts.map((post) => post.postId) };
+  });
+}
+
+/** Record a member whose request post was refused as `no-answer`. */
+function recordRefusal(
+  state: CollectiveState,
+  id: CollectiveId,
+  { member }: RequestRefusal,
+): Effect.Effect<void> {
+  return updateGather(state, id, ({ outcomes }) => {
+    if (!outcomes.has(member)) {
+      outcomes.set(member, { kind: "no-answer" });
+    }
+  });
+}
+
+/**
+ * Apply a change to an open gather, then complete it once its send has
+ * returned and every member has an outcome. Until the send returns, only the
+ * send decides whether the gather is refused, so no path can emit both a
+ * refusal and a result.
+ */
+function updateGather(
+  state: CollectiveState,
+  id: CollectiveId,
+  change: (open: OpenGather) => void,
+): Effect.Effect<void> {
+  return Effect.suspend(() => {
+    const open = state.gathers.get(id);
+    if (open === undefined) {
+      return Effect.void;
+    }
+    change(open);
+    return open.requestsSettled && open.outcomes.size === open.members.length
+      ? completeGather(state, id).pipe(
+          Effect.zipRight(Fiber.interrupt(open.timer)),
+        )
+      : Effect.void;
   });
 }
 
@@ -706,31 +777,15 @@ function unreachableMembers(
   members: Members,
   groupReason: SendError["reason"],
 ): Effect.Effect<readonly [RequestRefusal, ...RequestRefusal[]]> {
-  return Effect.forEach(
-    members,
-    (member) =>
-      state.ports.lookupMember(member).pipe(
-        Effect.flip,
-        Effect.map(
-          (error): RequestRefusal => ({ member, reason: error.reason }),
-        ),
-        Effect.option,
-      ),
-    { concurrency: MEMBER_LOOKUP_CONCURRENCY },
-  ).pipe(
-    Effect.map((lookups) => {
-      const [first, ...rest] = lookups.flatMap((lookup) =>
-        Option.toArray(lookup),
-      );
-      if (first !== undefined) {
-        return [first, ...rest];
-      }
-      const [member, ...others] = members;
-      return [
-        { member, reason: groupReason },
-        ...others.map((other) => ({ member: other, reason: groupReason })),
-      ];
-    }),
+  return lookupRefusals(members, state.ports.lookupMember).pipe(
+    Effect.map(([first, ...rest]) =>
+      first === undefined
+        ? EffectArray.map(members, (member) => ({
+            member,
+            reason: groupReason,
+          }))
+        : [first, ...rest],
+    ),
   );
 }
 
@@ -743,36 +798,6 @@ function requestWait(
     state.ports.requestSendWait ?? REQUEST_SEND_WAIT,
     Duration.millis(prepared.untilDeadline),
   );
-}
-
-/** The request sends that have finished, each with its post or refusal. */
-function settledSends(
-  sends: readonly RequestSend[],
-): Effect.Effect<ReadonlyArray<Either.Either<EngineSentPost, RequestRefusal>>> {
-  return Effect.forEach(sends, (send) => Fiber.poll(send), {
-    concurrency: 1,
-  }).pipe(
-    Effect.map((polls) =>
-      polls.flatMap((poll) =>
-        Option.toArray(
-          Option.flatMap(poll, (exit) =>
-            Exit.isSuccess(exit) ? Option.some(exit.value) : Option.none(),
-          ),
-        ),
-      ),
-    ),
-  );
-}
-
-function abandonGather(
-  state: CollectiveState,
-  id: CollectiveId,
-  sends: readonly RequestSend[],
-): Effect.Effect<void> {
-  return Effect.forEach(sends, (send) => Fiber.interruptFork(send), {
-    concurrency: 1,
-    discard: true,
-  }).pipe(Effect.zipRight(forgetGather(state, id)));
 }
 
 /** Drop an operation this endpoint abandons, and stop its deadline timer. */
@@ -854,7 +879,7 @@ function closeAllGather(
           kind: "operationFailed",
           id: result.id,
           to: open.to,
-          error: `collective ${result.id} failed: its close was not certified (${error.reason})`,
+          error: `all_gather ${result.id} failed: its close was not certified (${error.reason})`,
         }),
       onSuccess: (post) =>
         state.ports.emit({ ...result, closePostId: post.postId }),
@@ -862,19 +887,23 @@ function closeAllGather(
   );
 }
 
+/**
+ * Answer the one request open in the conversation `to` names. The answer
+ * carries no request id, so the conversation decides which request it
+ * answers; with none open, or several, nothing is sent.
+ */
 function respond(
   state: CollectiveState,
+  to: MessageAddressInput,
   response: CollectiveResponse,
 ): Effect.Effect<
   CollectiveSendOutcome,
   RefusedSend<SendError | CollectiveError>
 > {
   return Effect.gen(function* () {
-    const { id } = response;
-    const now = yield* Clock.currentTimeMillis;
-    const request = yield* openRequest(state, id, now);
+    const { id, request } = yield* openRequest(state, to);
     const refused = refusedAs<SendError | CollectiveError>(id, request.to);
-    const value: ResponseValue = { kind: "response", ...response };
+    const value: ResponseValue = { kind: "response", id, ...response };
     const content = yield* responseContent(request, value).pipe(
       Effect.mapError(refused),
     );
@@ -898,51 +927,32 @@ function respond(
 }
 
 /**
- * The received request a response answers, refused when this endpoint never
- * received it, it was already answered, or its deadline or close has passed.
- * A refusal for an unknown request is addressed to the local agent, since no
- * requester is known.
+ * The one request open in the conversation `to` names. A refusal names an id
+ * minted for it, since no single request is answered.
  */
 function openRequest(
   state: CollectiveState,
-  id: CollectiveId,
-  now: number,
-): Effect.Effect<ReceivedRequest, RefusedSend<CollectiveError>> {
-  const request = state.requests.get(id);
-  if (request === undefined) {
-    return Effect.fail({
-      id,
-      to: state.ports.self,
-      error: collectiveFailure(id, { kind: "request-unknown" }),
-    });
-  }
-  const unavailable = requestUnavailable(request, now);
-  return unavailable === undefined
-    ? Effect.succeed(request)
-    : Effect.fail({
-        id,
-        to: request.to,
-        error: collectiveFailure(id, { kind: unavailable }),
-      });
-}
-
-function requestUnavailable(
-  request: ReceivedRequest,
-  now: number,
-): "request-answered" | "request-expired" | undefined {
-  switch (request.state) {
-    case "open":
-      return now >= request.deadlineAt ? "request-expired" : undefined;
-    case "sending":
-    case "answered":
-      return "request-answered";
-    case "closed":
-      return "request-expired";
-    default: {
-      const exhaustive: never = request.state;
-      return exhaustive;
-    }
-  }
+  to: MessageAddressInput,
+): Effect.Effect<
+  OpenRequest<ReceivedRequest>,
+  RefusedSend<SendError | CollectiveError>
+> {
+  return Effect.gen(function* () {
+    const now = yield* Clock.currentTimeMillis;
+    const { id } = yield* mintCollectiveId(state.ports.self);
+    const self = state.ports.self.slice("agent:".length);
+    const { address } = yield* canonicalMessageAddress(to, self).pipe(
+      Effect.mapError(refusedAs<SendError | CollectiveError>(id, to)),
+    );
+    return yield* matchOpenRequest(state.requests, address, now).pipe(
+      Effect.mapError((kind) =>
+        refusedAs<SendError | CollectiveError>(
+          id,
+          address,
+        )(collectiveFailure(id, { kind })),
+      ),
+    );
+  });
 }
 
 /**
@@ -1272,13 +1282,10 @@ function recordCountedAnswer(
   }
   return outcomeOfResponse(open.requestedSchema, value).pipe(
     Effect.flatMap((outcome) => {
-      open.outcomes.set(message.sender, outcome);
-      open.answerHashes.set(message.sender, post.recordHash);
-      return open.outcomes.size === open.members.length
-        ? completeGather(state, value.id).pipe(
-            Effect.zipRight(Fiber.interrupt(open.timer)),
-          )
-        : Effect.void;
+      return updateGather(state, value.id, () => {
+        open.outcomes.set(message.sender, outcome);
+        open.answerHashes.set(message.sender, post.recordHash);
+      });
     }),
   );
 }

@@ -32,13 +32,12 @@ re-exports. Publication follows `docs/spec/layer-interfaces.md` → Publication 
 - The stock reply-delivery callback withholds final text and sends nothing, in
   shared and in private evaluation mode. Every outbound callback names an
   explicit `agent:` or `group:` target through the `message` tool. The model's
-  `send` reaches the plugin's `send` action with its optional `collective`
-  and `collectiveResponse` parameters; `message.send.text` serves OpenClaw's
-  core-forced sends, which carry no tool parameters. The host decides which
+  `send` and `reply` reach the plugin's actions, which add no tool parameter;
+  `message.send.text` serves OpenClaw's core-forced sends. Every path reads
+  its text with `@moltzap/client`'s `parseMessageText`. The host decides which
   tools invoke those callbacks.
-- The `moltzap-collectives` skill and the `collective` and
-  `collectiveResponse` descriptions state operation mechanics only, the same
-  for every agent. Its body names no host; per-host syntax sits in its host
+- The `group-messaging` skill states operation mechanics only, the same for
+  every agent. Its body names no host; per-host syntax sits in its host
   sections.
 - Render each inbound item kind in one fixed form, switching on `kind`
   exhaustively.

@@ -62,7 +62,7 @@ export const openClawWorkspacePackageNames = Object.freeze(
 
 /**
  * Experiment controls for evaluations that compare agents with and without
- * collective operations. They are not for production images and may be
+ * gather, all_gather and answers. They are not for production images and may be
  * removed without notice. Each one appends its line to the staged Dockerfile,
  * which the fingerprint hashes, and its suffix to the tag, so a variant never
  * shares a tag with the default image or another variant. A build without
@@ -71,7 +71,7 @@ export const openClawWorkspacePackageNames = Object.freeze(
  * `--experiment-hide-collectives` sets the plugin's
  * `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES` for the host.
  * `--experiment-omit-collectives-skill` deletes the installed plugin's
- * `moltzap-collectives` skill directory, so OpenClaw does not list the skill.
+ * `group-messaging` skill directory, so OpenClaw does not list the skill.
  * @type {Readonly<Record<string, {tagSuffix: string, dockerfileLine: string}>>}
  */
 export const OPENCLAW_EXPERIMENTS = Object.freeze({
@@ -82,42 +82,31 @@ export const OPENCLAW_EXPERIMENTS = Object.freeze({
   "--experiment-omit-collectives-skill": {
     tagSuffix: "omit-collectives-skill",
     dockerfileLine:
-      "RUN rm -r /opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/moltzap-collectives",
+      "RUN rm -r /opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/group-messaging",
   },
 });
 
-/** The installed plugin's collectives skill directory. */
-const COLLECTIVES_SKILL_PATH =
-  "/opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/moltzap-collectives";
+/** The installed plugin's group-messaging skill directory. */
+const GROUP_MESSAGING_SKILL_PATH =
+  "/opt/moltzap/node_modules/@moltzap/openclaw-channel/skills/group-messaging";
 
 /**
- * Experiment control that replaces the model-facing collectives guidance
+ * Experiment control that replaces the model-facing group-messaging skill
  * with a candidate's, for a loop that compares candidates without a release
  * per attempt. Like {@link OPENCLAW_EXPERIMENTS} it is not for production
  * images and may be removed without notice. It takes a directory holding
- * either or both of:
- *
- * - `skill/`: replaces the installed plugin's `moltzap-collectives` skill
- *   directory wholesale, so the skill's name, description and body may all
- *   change while its path stays the one the plugin manifest lists.
- * - `parameters.json`: copied to {@link GUIDANCE_PARAMETERS_PATH}, which
- *   `MOLTZAP_EXPERIMENT_GUIDANCE_PARAMETERS` names for the plugin; its
- *   optional `collective` and `collectiveResponse` strings replace those
- *   message tool parameter descriptions. The image build loads the plugin
- *   once with it, so an unusable file fails the build.
+ * `skill/`, which replaces the installed plugin's `group-messaging` skill
+ * directory wholesale, so the skill's name, description and body may all
+ * change while its path stays the one the plugin manifest lists.
  *
  * The tag suffix carries a hash of the directory's content, so two
  * candidates never share a tag.
  */
 export const GUIDANCE_DIRECTORY_FLAG = "--experiment-guidance-dir";
 
-/** Where the image holds a guidance candidate's `parameters.json`. */
-export const GUIDANCE_PARAMETERS_PATH =
-  "/opt/moltzap/agent/guidance-parameters.json";
-
 /**
  * A guidance candidate read from its directory.
- * @typedef {{directory: string, skill: boolean, parameters: boolean, hash: string}} GuidanceOverride
+ * @typedef {{directory: string, hash: string}} GuidanceOverride
  */
 
 /**
@@ -165,20 +154,16 @@ export function splitExperimentArguments(args) {
  */
 export async function readGuidanceDirectory(directory) {
   const entries = (await readdir(directory)).sort();
-  const unknown = entries.filter(
-    (name) => name !== "skill" && name !== "parameters.json",
-  );
-  if (unknown.length > 0 || entries.length === 0) {
+  if (entries.length !== 1 || entries[0] !== "skill") {
     throw new TypeError(
-      "guidance directory must hold skill/, parameters.json or both, not " +
-        (entries.length === 0 ? "nothing" : unknown.join(", ")),
+      "guidance directory must hold skill/ alone, not " +
+        (entries.length === 0 ? "nothing" : entries.join(", ")),
     );
   }
-  const skill = entries.includes("skill");
-  const skillFile = skill
-    ? await stat(join(directory, "skill", "SKILL.md")).catch(() => undefined)
-    : undefined;
-  if (skill && skillFile?.isFile() !== true) {
+  const skillFile = await stat(join(directory, "skill", "SKILL.md")).catch(
+    () => undefined,
+  );
+  if (skillFile?.isFile() !== true) {
     throw new TypeError("guidance skill/ must hold SKILL.md");
   }
   const files = (
@@ -192,36 +177,14 @@ export async function readGuidanceDirectory(directory) {
     hash.update(file + "\0");
     hash.update(await readFile(join(directory, file)));
   }
-  return {
-    directory,
-    skill,
-    parameters: entries.includes("parameters.json"),
-    hash: hash.digest("hex").slice(0, 12),
-  };
+  return { directory, hash: hash.digest("hex").slice(0, 12) };
 }
 
-/**
- * @param {GuidanceOverride} guidance The selected candidate.
- * @returns {string[]} The Dockerfile lines that install it.
- */
-function guidanceDockerfileLines(guidance) {
-  return [
-    ...(guidance.skill
-      ? [
-          "RUN rm -r " + COLLECTIVES_SKILL_PATH,
-          "COPY guidance/skill/ " + COLLECTIVES_SKILL_PATH + "/",
-        ]
-      : []),
-    ...(guidance.parameters
-      ? [
-          "COPY guidance/parameters.json " + GUIDANCE_PARAMETERS_PATH,
-          "ENV MOLTZAP_EXPERIMENT_GUIDANCE_PARAMETERS=" +
-            GUIDANCE_PARAMETERS_PATH,
-          "RUN node --input-type=module --eval 'await import(\"/opt/moltzap/node_modules/@moltzap/openclaw-channel/dist/index.js\")'",
-        ]
-      : []),
-  ];
-}
+/** The Dockerfile lines that install a guidance candidate's skill. */
+const GUIDANCE_DOCKERFILE_LINES = [
+  "RUN rm -r " + GROUP_MESSAGING_SKILL_PATH,
+  "COPY guidance/skill/ " + GROUP_MESSAGING_SKILL_PATH + "/",
+];
 
 /**
  * @param {string} dockerfile The source Dockerfile text.
@@ -231,7 +194,7 @@ function guidanceDockerfileLines(guidance) {
  */
 export function experimentDockerfile(dockerfile, experiments, guidance) {
   if (
-    guidance?.skill === true &&
+    guidance !== undefined &&
     experiments.includes("--experiment-omit-collectives-skill")
   ) {
     throw new TypeError(
@@ -240,7 +203,7 @@ export function experimentDockerfile(dockerfile, experiments, guidance) {
   }
   const lines = [
     ...experiments.map((flag) => OPENCLAW_EXPERIMENTS[flag].dockerfileLine),
-    ...(guidance === undefined ? [] : guidanceDockerfileLines(guidance)),
+    ...(guidance === undefined ? [] : GUIDANCE_DOCKERFILE_LINES),
   ];
   if (lines.length === 0) {
     return dockerfile;

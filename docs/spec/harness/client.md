@@ -21,7 +21,9 @@ The Client root exports closed Effect Schemas and corresponding types for:
 - `MessageAddressInput`, either accepted input form;
 - opaque `PostId`;
 - `Content` and its existing closed parts;
-- `CollectiveOperation`, `CollectiveResponse`, `SendInput` and `SendResult`;
+- `SendInput` and `SendResult`, and `parseMessageText` with its
+  `MessageTextError`, which read a send from a message's text
+  ([message text](#message-text));
 - `InboundMessage`, `InboundItem` and `InboundDelivery`;
 - `HistoryExportRecord`, one line of the daemon's optional history export
   (`harness/daemon.md`); and
@@ -65,12 +67,8 @@ type CollectiveOperation =
     }
 
 type CollectiveResponse =
-  | {
-      readonly id: CollectiveId
-      readonly action: "accept"
-      readonly content: AnswerContent
-    }
-  | { readonly id: CollectiveId; readonly action: "decline" | "cancel" }
+  | { readonly action: "accept"; readonly content: AnswerContent }
+  | { readonly action: "decline" }
 
 type SendInput =
   | {
@@ -78,7 +76,11 @@ type SendInput =
       readonly text: string
       readonly collective?: CollectiveOperation
     }
-  | { readonly collectiveResponse: CollectiveResponse }
+  | {
+      /** The conversation whose one open request this answers. */
+      readonly to: MessageAddressInput
+      readonly collectiveResponse: CollectiveResponse
+    }
 
 interface SendResult {
   readonly operationId?: CollectiveId
@@ -111,7 +113,6 @@ type InboundMessage = DirectMessage | GroupMessage
 type CollectiveMemberOutcome =
   | { readonly kind: "answered"; readonly content: AnswerContent }
   | { readonly kind: "declined" }
-  | { readonly kind: "cancelled" }
   | { readonly kind: "invalid"; readonly reason: string }
   | { readonly kind: "no-answer" }
 
@@ -164,6 +165,11 @@ interface HarnessEndpoint {
 declare function acquireHarnessEndpoint(
   endpoint: URL,
 ): Effect.Effect<HarnessEndpoint, ConnectError, Scope.Scope>
+
+declare function parseMessageText(
+  to: MessageAddressInput,
+  text: string,
+): Either.Either<SendInput, MessageTextError>
 ```
 
 The service is structural, not a public `Context.Tag`. One acquired endpoint
@@ -188,15 +194,30 @@ collective operation is one member.
   are that agent; a `group:` address is put in canonical form, refusing
   duplicate names and fewer than 3 or more than 32 members with
   `membership-invalid`, and its members are its agents other than the
-  requester. No group conversation is created. The send returns the id once every request post is
-  certified, or after 20 seconds (never past the deadline) with the rest still
-  running. If any request post is refused, the send fails with a
-  `CollectiveError` naming each refused member and its `SendError` reason, and
-  the gather is abandoned.
+  requester. No group conversation is created.
+
+  Address errors are checked before anything is sent: the endpoint resolves
+  every member through the engine's address resolution, and if any member is
+  malformed, unknown or makes the membership invalid (`invalid-address`,
+  `unknown-agent`, `membership-invalid`), the send fails with a
+  `CollectiveError` whose `members-unreachable` failure names each such member
+  and its reason, and no post is made. Delivery failures for members that
+  resolved do not abort the gather. The send waits for the request posts for
+  at most 20 seconds (never past the deadline) and returns the id; a post
+  still certifying then keeps going, and the wait never counts as a failure.
+  Each member settles when its post does: a certified post asks it, and its
+  answer counts until the deadline; a refused post makes it `no-answer`; a
+  post still pending at the deadline leaves it `no-answer`. An unreachable
+  member and a silent one are the same outcome, so the send reports neither;
+  the model learns both from the result. The send fails with
+  `members-unreachable` naming every member only when every post was
+  refused, and nothing starts. An operation ends in exactly one refusal or
+  one result.
 - **all_gather**: `text` is a question to a group. `to` must be a `group:`
   address, with the 3 to 32 members every group has; an `agent:` address fails
   with `membership-invalid`. Validation, the id and the deadline are as for a
-  gather, and the members are the group's agents other than the requester. The
+  gather, and the members are the group's agents other than the requester.
+  Address errors are refused before posting exactly as for a gather. The
   request is one post in the group conversation. The send returns the id once
   that post is certified. The group's GENESIS needs every member, so a cold
   group with an unreachable member cannot start: if the post is refused, or is
@@ -206,21 +227,29 @@ collective operation is one member.
   the post's reason (`certification-unavailable` when it timed out) when each
   lookup succeeds.
 
-A member answers a request with a `collectiveResponse`. The member's endpoint
-validates `accept` content against the request's stored schema, refusing a
-failing answer with the fields named, and certifies the response post in the
-conversation the request arrived in: the requester's direct conversation for a
-gather, the group conversation for an all_gather. The member never chooses its
-address. Each request takes one answer: a second answer, an answer to an
-unknown request and an answer at or after the deadline or an all_gather's
-close are refused.
+A member answers a request with a `collectiveResponse` sent to the
+conversation the request arrived in: the requester's `agent:` address for a
+gather, the group's `group:` address for an all_gather. The answer names no
+request. The member's endpoint matches it to the one request open in that
+conversation, received and not yet answered, before its deadline and close.
+With none open the answer is refused with `request-none`, or with
+`request-answered` or `request-expired` when the conversation's requests were
+answered or have expired. With more than one open, answering is unsupported
+([moltzap#1125](https://github.com/chughtapan/moltzap/issues/1125)): the
+answer is refused with `request-ambiguous` and nothing is sent. Each
+refusal names an id minted for it, so an inbound failure routes to the
+conversation the answer was sent to. The endpoint validates `accept` content
+against the matched request's stored schema, refusing a failing answer with
+the fields named, and certifies the response post, which carries the
+request's id, in that conversation. Each request takes one answer.
 
 The requesting endpoint consumes every answer post. It validates each
 member's first answer in its direct conversation against the schema and
-records one outcome per member: answered with content, declined, cancelled,
-or invalid with the validation message. When every member has an outcome, or
-at the deadline, it emits one `collectiveResult` item with each member's
-outcome, `no-answer` for the silent ones. An answer after that changes
+records one outcome per member: answered with content, declined, or invalid
+with the validation message. When every member has an outcome, or at the
+deadline, it emits one `collectiveResult` item with each member's outcome.
+`no-answer` covers every member that did not answer: one the gather could
+not reach and one silent at the deadline. An answer after that changes
 nothing. Collective state lives in daemon memory: an operation open at a
 daemon restart is lost.
 
@@ -265,6 +294,28 @@ and `nonce`; a response carries `{"kind": "response", "id", "action",
 the part. The text and the operation part together must fit the 32,768-byte
 content limit; a send whose content does not fit fails with
 `content-invalid`.
+
+## Message text
+
+A model writes an operation as the whole text of an ordinary message, and
+every adapter reads that text with `parseMessageText`, so every host accepts
+the same text:
+
+```
+plain text                                                      multicast
+{"gather": <question>, "deadline": <seconds>, "requestedSchema": <form>}
+{"all_gather": <question>, "deadline": <seconds>, "requestedSchema": <form>}
+{"action": "accept", "content": {...}}                           answer
+{"action": "decline"}                                            answer
+```
+
+A text whose whole content is a JSON object with a `gather`, `all_gather` or
+`action` key states that operation. Any other text, including a JSON object
+without those keys or JSON inside prose, is a multicast of the text. A text
+that states an operation but does not validate (a missing, unexpected or
+invalid field, with `deadline` and `requestedSchema` checked exactly as in
+`SendInput`) is refused with a `MessageTextError` naming each failing field,
+and nothing is sent. The address the host's tool names becomes `to`.
 
 ## Addressed send
 
@@ -354,8 +405,8 @@ requirements.
 `kind`: `members-unreachable` with each refused member and its `SendError`
 reason, `schema-invalid` with a detail naming each failing path and the
 form-mode shape it expects, `answer-invalid` with each failing field and
-whether it is missing, unexpected or invalid, `request-unknown`,
-`request-answered`, or `request-expired`. Its message names the members,
+whether it is missing, unexpected or invalid, `request-none`,
+`request-ambiguous`, `request-answered`, or `request-expired`. Its message names the members,
 schema paths or fields, so a host hands it to its model as the tool error.
 
 `SendError.reason` is exactly one of:
@@ -402,10 +453,18 @@ methods and cannot create a delivery or authorize output.
   recovery retains the persisted identity for one unfinished intent.
 - A send without `collective` and a send with `{op: "multicast"}` certify the
   same content: the text part, then the explicit multicast part.
+- `parseMessageText` reads every operation shape, sends plain text and
+  JSON-looking prose as a multicast, and refuses a malformed operation naming
+  its fields.
+- An answer is matched to the one request open in its conversation; none
+  open and several open are refused, and nothing is sent.
 - Multicast items carry the certified content without its collective part, and
   the endpoint consumes records it does not deliver.
-- A gather fans out one request post per member, fails naming each unreachable
-  member, validates answers on both sides, keeps each member's first answer,
+- A gather refuses an unknown member before any post, fans out one request
+  post per member, keeps a post certifying past the send wait and counts that
+  member's answer, makes a refused member `no-answer`, fails
+  only when every post was refused, ends in exactly one refusal or result, validates answers on
+  both sides, keeps each member's first answer,
   completes at the deadline with `no-answer` outcomes, and ignores a late
   answer; three real daemons run it end to end.
 - An all_gather posts one request to the group, fails naming each unreachable

@@ -53,21 +53,14 @@ another variant.
 
 | Option | Tag suffix | Effect in the image |
 | --- | --- | --- |
-| `--experiment-hide-collectives` | `hide-collectives` | Sets `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES=true`: the message tool omits `collective` and `collectiveResponse` and refuses a send carrying either |
-| `--experiment-omit-collectives-skill` | `omit-collectives-skill` | Deletes the plugin's `moltzap-collectives` skill directory |
-| `--experiment-guidance-dir DIR` | `guidance-<hash>` | Installs a candidate's collectives guidance from `DIR` |
+| `--experiment-hide-collectives` | `hide-collectives` | Sets `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES=true`: the message tool refuses text that states a gather, all_gather or answer; plain text is sent |
+| `--experiment-omit-collectives-skill` | `omit-collectives-skill` | Deletes the plugin's `group-messaging` skill directory |
+| `--experiment-guidance-dir DIR` | `guidance-<hash>` | Installs a candidate's `group-messaging` skill from `DIR` |
 
-`DIR` holds either or both of these, and nothing else:
-
-- `skill/` with a `SKILL.md`: replaces the plugin's `skills/moltzap-collectives/`
-  directory wholesale, so the skill's name, description and body can all
-  change. It cannot be combined with `--experiment-omit-collectives-skill`.
-- `parameters.json`: `{ "collective"?: string, "collectiveResponse"?: string }`.
-  Each present key replaces that message tool parameter's description; the
-  schemas stay the same. The image sets
-  `MOLTZAP_EXPERIMENT_GUIDANCE_PARAMETERS` to the file's path, and the plugin
-  fails to load when the file is unreadable, is not that shape, or names any
-  other key. The build loads the plugin once, so such a file fails the build.
+`DIR` holds `skill/` with a `SKILL.md`, and nothing else. It replaces the
+plugin's `skills/group-messaging/` directory wholesale, so the skill's name,
+description and body can all change. It cannot be combined with
+`--experiment-omit-collectives-skill`.
 
 `<hash>` is the first twelve hex characters of a SHA-256 over every file's
 relative path and content in `DIR`, so two candidates never share a tag. The
