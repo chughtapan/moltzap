@@ -9,7 +9,10 @@ import { AgentCard } from "@moltzap/identity";
 import { Effect, Redacted, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeFixture } from "./__tests__/router-worker-fixtures.js";
-import { HARNESS_SEND_META_KEY } from "./harness-mcp-contract.js";
+import {
+  type EventStore,
+  HARNESS_SEND_META_KEY,
+} from "./harness-mcp-contract.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
@@ -37,6 +40,15 @@ const operations: HarnessMcpOperations = {
     Effect.succeed({ pendingCount: 0, newestSequence: 0 }),
   readSend: () => Effect.succeed({ state: "absent" }),
   acknowledgeDelivery: unreachable,
+};
+const eventStore: EventStore = {
+  readEventState: () => Effect.succeed(undefined),
+  writeEventState: () => Effect.void,
+  readInbox: unreachable,
+  readInboxItem: () => Effect.succeed(undefined),
+  readInboxSummary: () =>
+    Effect.succeed({ pendingCount: 0, newestSequence: 0 }),
+  completeWebhookDelivery: () => Effect.void,
 };
 type RequestParams = Readonly<Record<string, unknown>> &
   Partial<Record<"_meta", Readonly<Record<string, unknown>>>>;
@@ -185,6 +197,34 @@ const checksEventAuthorization = (handler: Handler) =>
     });
   });
 
+const checksRuntimeEventCatalog = (handler: Handler) =>
+  Effect.gen(function* () {
+    const catalog = yield* request(
+      handler,
+      "events/list",
+      {},
+      credentials.runtime,
+    ).pipe(
+      Effect.flatMap(Schema.decodeUnknown(Schema.parseJson(Schema.Unknown))),
+    );
+    expect(catalog).toMatchObject({
+      result: {
+        events: [{ name: "moltzap.inbox.item", delivery: ["webhook"] }],
+      },
+    });
+    const refused = yield* request(
+      handler,
+      "events/stream",
+      { name: "moltzap.inbox.pending", arguments: {} },
+      credentials.runtime,
+    ).pipe(
+      Effect.flatMap(Schema.decodeUnknown(Schema.parseJson(Schema.Unknown))),
+    );
+    expect(refused).toMatchObject({
+      error: { code: -32014, data: { feature: "stream" } },
+    });
+  });
+
 const checksCatalog = (handler: Handler, registered: boolean) =>
   Effect.gen(function* () {
     for (const credential of ["", "wrong"]) {
@@ -204,6 +244,7 @@ const checksCatalog = (handler: Handler, registered: boolean) =>
       expect(names).not.toContain(denied);
     }
     yield* checksRestrictedTools(handler);
+    yield* checksRuntimeEventCatalog(handler);
     if (registered) {
       expect(
         [...names].sort((left, right) => left.localeCompare(right)),
@@ -288,6 +329,7 @@ const restrictsEveryDispatch = () =>
           const handler = yield* makeHarnessMcpHttpHandler({
             implementation: info,
             credentials,
+            eventStore,
             operations: {
               ...operations,
               readStatus: () =>

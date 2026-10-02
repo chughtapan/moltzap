@@ -286,10 +286,24 @@ const descriptor = () => ({
     additionalProperties: false,
   },
 });
+const streamForPrincipal = (
+  runtime: EventsRuntime,
+  input: EventStreamInput,
+  context: ServerContext,
+  principal: string,
+) =>
+  principal === "runtime"
+    ? Effect.fail(
+        new ProtocolError(-32014, "Native inbox streaming is unavailable", {
+          feature: "stream",
+        }),
+      )
+    : stream(runtime, input, context);
+
 const installReadHandlers = (
   runtime: EventsRuntime,
   server: McpServer["server"],
-  principal?: string,
+  principal = "local",
 ) => {
   server.setRequestHandler(
     "events/list",
@@ -300,7 +314,7 @@ const installReadHandlers = (
       }
       return {
         events: [
-          descriptor(),
+          ...(principal === "runtime" ? [] : [descriptor()]),
           ...(runtime.options.webhook !== undefined && principal !== undefined
             ? [
                 {
@@ -325,7 +339,10 @@ const installReadHandlers = (
     "events/stream",
     { params: eventStreamInput },
     (input, context) =>
-      runEventOperation(stream(runtime, input, context), context.mcpReq.signal),
+      runEventOperation(
+        streamForPrincipal(runtime, input, context, principal),
+        context.mcpReq.signal,
+      ),
   );
 };
 const subscribe = (
