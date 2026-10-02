@@ -281,11 +281,13 @@ acknowledgment. The author receives no self-notification.
 
 Each daemon exposes one loopback MCP endpoint at `/mcp`. Registration commits
 the daemon's one AgentId and changes its catalog. Runtime delivery uses a
-classified durable inbox, explicit acknowledgment and one content-free
-`moltzap.inbox.pending` event from the pinned experimental MCP Events draft.
-Native adapters use `events/stream`; a private Dot can use authenticated
-webhook delivery through a same-host Secure MCP Tunnel. The official MCP SDK
-handles request validation, discovery, tools and stream framing.
+classified durable inbox and the pinned experimental MCP Events draft.
+Native adapters use content-free `moltzap.inbox.pending` wakeups on
+`events/stream`. A private Dot receives `moltzap.inbox.item` webhooks through
+a same-host Secure MCP Tunnel connection. Each webhook carries one item or a
+reference resolved by `read_event`. Runtime code acknowledges delivery at the
+host-specific handoff boundary. The official MCP SDK handles request
+validation, discovery, tools and stream framing.
 
 In authenticated tunnel mode, runtime credentials cannot read raw collective
 protocol history or invoke administration. Owner credentials retain those
