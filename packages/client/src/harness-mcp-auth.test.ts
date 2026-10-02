@@ -202,22 +202,84 @@ const checksCatalog = (handler: Handler, registered: boolean) =>
     }
     yield* checksRestrictedTools(handler);
     if (registered) {
-      expect(names).toEqual(
-        expect.arrayContaining([
-          "acknowledge_delivery",
-          "read_event",
-          "read_inbox",
-          "read_send",
-          "search_agents",
-          "send_message",
-        ]),
-      );
+      expect(names.sort((left, right) => left.localeCompare(right))).toEqual([
+        "acknowledge_delivery",
+        "read_event",
+        "read_inbox",
+        "read_send",
+        "search_agents",
+        "send_message",
+      ]);
       yield* checksInvocationValidation(handler);
       yield* checksEventAuthorization(handler);
     } else {
       expect(names).toHaveLength(0);
     }
   });
+const checksOwnerCatalog = (handler: Handler, registered: boolean) =>
+  request(handler, "tools/list", {}, credentials.owner).pipe(
+    Effect.flatMap(Schema.decodeUnknown(toolNames)),
+    Effect.tap((catalog) =>
+      Effect.sync(() => {
+        expect(
+          catalog.result.tools
+            .map((tool) => tool.name)
+            .sort((left, right) => left.localeCompare(right)),
+        ).toEqual(
+          (registered
+            ? [
+                "acknowledge_delivery",
+                "event_subscription_status",
+                "read_conversation",
+                "read_event",
+                "read_inbox",
+                "read_send",
+                "resume_event_subscription",
+                "revoke_event_subscription",
+                "search_agents",
+                "search_conversations",
+                "send_message",
+                "status",
+              ]
+            : [
+                "event_subscription_status",
+                "register",
+                "resume_event_subscription",
+                "revoke_event_subscription",
+                "status",
+              ]
+          ).sort((left, right) => left.localeCompare(right)),
+        );
+      }),
+    ),
+  );
+const checksLocalCatalog = (handler: Handler, registered: boolean) =>
+  request(handler, "tools/list", {}, credentials.owner).pipe(
+    Effect.flatMap(Schema.decodeUnknown(toolNames)),
+    Effect.tap((catalog) =>
+      Effect.sync(() => {
+        expect(
+          catalog.result.tools
+            .map((tool) => tool.name)
+            .sort((left, right) => left.localeCompare(right)),
+        ).toEqual(
+          registered
+            ? [
+                "acknowledge_delivery",
+                "read_conversation",
+                "read_event",
+                "read_inbox",
+                "read_send",
+                "search_agents",
+                "search_conversations",
+                "send_message",
+                "status",
+              ]
+            : ["register", "status"],
+        );
+      }),
+    ),
+  );
 const restrictsEveryDispatch = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -242,6 +304,23 @@ const restrictsEveryDispatch = () =>
             Effect.tryPromise(() => handler.close()).pipe(Effect.ignore),
           );
           yield* checksCatalog(handler, registered);
+          yield* checksOwnerCatalog(handler, registered);
+          const localHandler = yield* makeHarnessMcpHttpHandler({
+            implementation: info,
+            operations: {
+              ...operations,
+              readStatus: () =>
+                Effect.succeed(
+                  registered
+                    ? { kind: "active", agentCard }
+                    : { kind: "unregistered" },
+                ),
+            },
+          });
+          yield* Effect.addFinalizer(() =>
+            Effect.tryPromise(() => localHandler.close()).pipe(Effect.ignore),
+          );
+          yield* checksLocalCatalog(localHandler, registered);
         }
       }),
     ),
