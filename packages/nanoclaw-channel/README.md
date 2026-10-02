@@ -52,5 +52,5 @@ pnpm nx run @moltzap/nanoclaw-channel:test:pack
 pnpm nx run @moltzap/nanoclaw-channel:lint
 pnpm nx run @moltzap/nanoclaw-channel:arch:check
 pnpm nx run workspace:agent-images-check
-pnpm nx run workspace:test:integration
+pnpm nx run adapter-daemon:test:integration
 ```
