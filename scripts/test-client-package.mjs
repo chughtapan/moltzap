@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
@@ -78,17 +78,55 @@ async function verifyPackedManifest(archive, manifest) {
 }
 
 /**
- * Fail when the packed root entry statically reaches the daemon runtime. Hosts
- * import the root, so it must stay off the inbox, the SQLite store, the engine,
- * the collective operation layer, wire signing and verification, the Router
- * client, and `node:sqlite`.
+ * Package-relative modules the packed root entry may load. Hosts import the
+ * root, so anything else it reaches statically, such as the inbox, the SQLite
+ * store, the engine, the collective operation layer, wire signing and
+ * verification, or the service, fails the check until it is reviewed and
+ * added here.
+ * @type {ReadonlySet<string>}
+ */
+const hostModules = new Set([
+  "dist/delivery/history-export.js",
+  "dist/delivery/operations.js",
+  "dist/endpoint/harness-endpoint/capability.js",
+  "dist/endpoint/harness-endpoint/events.js",
+  "dist/endpoint/harness-endpoint/index.js",
+  "dist/endpoint/implementation.js",
+  "dist/endpoint/mcp/schemas.js",
+  "dist/index.js",
+  "dist/store/types.js",
+  "dist/transport/collectives/forms.js",
+  "dist/transport/collectives/inbound.js",
+  "dist/transport/collectives/message-text.js",
+  "dist/transport/messaging/address.js",
+  "dist/transport/messaging/errors.js",
+  "dist/transport/messaging/message.js",
+  "dist/transport/wire/values.js",
+  "package.json",
+]);
+
+/**
+ * Bare specifiers the packed root entry may import, matched exactly, so a
+ * package subpath such as a Router or Registry server entry fails the check.
+ * @type {ReadonlySet<string>}
+ */
+const hostPackages = new Set([
+  "@effect/platform",
+  "@modelcontextprotocol/client",
+  "@moltzap/identity",
+  "canonicalize",
+  "effect",
+  "node:crypto",
+]);
+
+/**
+ * Fail when the packed root entry statically reaches a module or package
+ * outside the host allowlists.
  * @param {string} extractedPackage Directory of the unpacked client archive.
  * @param {string} entry Package-relative path of the root entry module.
  * @returns {Promise<void>}
  */
 async function verifyHostImportGraph(extractedPackage, entry) {
-  const daemonOnly =
-    /\/(delivery\/(host-delivery|inbox|pass|send-invocations|state)|store\/(index|store)|transport\/messaging\/index|transport\/collectives\/(index|operation)|transport\/wire\/(index|codec|schemas|verification))\.js$/u;
   const importPattern =
     /^(?:import|export)\s+(?!type\b)[^;]*?from\s+["']([^"']+)["']|^import\s+["']([^"']+)["']/gmu;
   const seen = new Set();
@@ -99,19 +137,21 @@ async function verifyHostImportGraph(extractedPackage, entry) {
       continue;
     }
     seen.add(file);
+    const module = relative(extractedPackage, file);
     requireCondition(
-      !daemonOnly.test(file),
-      `client root entry loads daemon module ${file.slice(extractedPackage.length)}`,
+      hostModules.has(module),
+      `client root entry loads ${module}, which is not a host module`,
     );
     const source = await readFile(file, "utf8");
     for (const match of source.matchAll(importPattern)) {
       const specifier = match[1] ?? match[2];
-      requireCondition(
-        specifier !== "node:sqlite" && specifier !== "@moltzap/router",
-        `client root entry loads ${specifier} through ${file.slice(extractedPackage.length)}`,
-      );
       if (specifier.startsWith(".")) {
         pending.push(resolve(dirname(file), specifier));
+      } else {
+        requireCondition(
+          hostPackages.has(specifier),
+          `client root entry imports ${specifier} through ${module}`,
+        );
       }
     }
   }

@@ -758,36 +758,36 @@ const emitsWhileAPassHoldsTheDeliveryGate = async () => {
   }
 };
 
-/** An emitted item the store cannot persist fails the daemon in storage. */
-const failsWhenAnEmittedItemCannotPersist = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const harness = yield* makeHarness(fixture, "none");
-      const store = makeStore(fixture, true, harness.delivery);
-      let accepted = 0;
-      const failingAfterStartup: EndpointStore = {
-        ...store,
-        putInboxItem: (item) =>
-          accepted++ === 0
-            ? store.putInboxItem(item)
-            : Effect.fail(new EndpointStoreError({ reason: "persistence" })),
-      };
-      const daemon = yield* Effect.fork(
-        run(fixture, failingAfterStartup, harness),
-      );
-      yield* Deferred.await(harness.listenerReady);
-      const send = yield* Effect.fork(
-        requireOperations(harness).send({
-          input: unmatchedResponse,
-          failureDelivery: "inbound",
-        }),
-      );
-      const error = yield* Fiber.join(daemon).pipe(Effect.flip);
-      yield* Fiber.interrupt(send);
-      expect(error).toEqual(new DaemonRuntimeError({ phase: "storage" }));
+/**
+ * An emitted item the store cannot persist fails the daemon in storage. The
+ * store rejects only items other than the fixture's startup delivery.
+ */
+const failsWhenAnEmittedItemCannotPersist = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
+  const store = makeStore(fixture, true, harness.delivery);
+  const rejectingEmissions: EndpointStore = {
+    ...store,
+    putInboxItem: (item) =>
+      item.deliveryToken === fixture.pending.deliveryToken
+        ? store.putInboxItem(item)
+        : Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+  };
+  const daemon = Effect.runFork(run(fixture, rejectingEmissions, harness));
+  await awaitStage(Deferred.await(harness.listenerReady), "listener");
+  const send = Effect.runFork(
+    requireOperations(harness).send({
+      input: unmatchedResponse,
+      failureDelivery: "inbound",
     }),
   );
+  const error = await awaitStage(
+    Fiber.join(daemon).pipe(Effect.flip),
+    "daemon failure after the rejected emission",
+  );
+  await Effect.runPromise(Fiber.interrupt(send));
+  expect(error).toEqual(new DaemonRuntimeError({ phase: "storage" }));
+};
 
 const withReceiptFinalizer = (
   harness: RuntimeHarness,

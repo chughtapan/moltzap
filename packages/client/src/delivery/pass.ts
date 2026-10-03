@@ -6,6 +6,7 @@
  */
 
 import { DateTime, Effect, Option } from "effect";
+import type { EndpointStoreError } from "../store/index.js";
 import type { DeliveryToken } from "../store/types.js";
 import type { InboundItem } from "../transport/collectives/inbound.js";
 import type { CollectiveOperations } from "../transport/collectives/index.js";
@@ -102,7 +103,9 @@ export interface PendingOffer {
   readonly engine: Pick<EndpointEngine, "acknowledgeMessage">;
   readonly classify: CollectiveOperations["classify"];
   /** Classified items are durable even while no host is attached. */
-  readonly persist: (event: HarnessMessageReadyEvent) => Effect.Effect<void>;
+  readonly persist: (
+    event: HarnessMessageReadyEvent,
+  ) => Effect.Effect<void, EndpointStoreError>;
   /** The attached subscriber, absent while none is attached. */
   readonly handler?: Subscriber;
   readonly historyExport: HistoryExportPort;
@@ -169,7 +172,7 @@ const publishItem = (
 const classifyOnce = (
   offer: PendingOffer,
   pending: EnginePendingMessage,
-): Effect.Effect<Option.Option<HarnessMessageReadyEvent>> =>
+): Effect.Effect<Option.Option<HarnessMessageReadyEvent>, EndpointStoreError> =>
   offer.classify(pending).pipe(
     Effect.flatMap(
       Option.match({
@@ -199,7 +202,10 @@ const classifyOnce = (
 const classifyPending = (
   offer: PendingOffer,
   pending: EnginePendingMessage,
-): Effect.Effect<Option.Option<HarnessMessageReadyEvent>> => {
+): Effect.Effect<
+  Option.Option<HarnessMessageReadyEvent>,
+  EndpointStoreError
+> => {
   const { deliveryToken } = pending;
   if (offer.state.publishedDeliveries.has(deliveryToken)) {
     return Effect.succeed(Option.none());
@@ -237,12 +243,13 @@ const publishInOrder = (
  * @param offer The engine, classifier and subscriber, and the delivery state
  * whose local items follow the durable deliveries.
  * @param messages Pending durable deliveries in order.
- * @returns Completion after every delivery is consumed or offered.
+ * @returns Completion after every delivery is consumed or offered, or the
+ * store's failure to keep a classified item, which ends the pass.
  */
 export const offerPendingMessages = (
   offer: PendingOffer,
   messages: readonly EnginePendingMessage[],
-): Effect.Effect<void> =>
+): Effect.Effect<void, EndpointStoreError> =>
   Effect.gen(function* () {
     const classified = yield* Effect.forEach(
       messages,

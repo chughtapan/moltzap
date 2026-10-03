@@ -1,4 +1,4 @@
-/** @file One service's delivery: its state, the inbox writes the delivery pass makes, and the operations hosts call. */
+/** @file One service's delivery: the inbox writes, the gated delivery pass and detach, and the operations hosts call. */
 
 import { DateTime, Effect, type Scope } from "effect";
 import type { SendInput } from "../transport/collectives/forms.js";
@@ -53,13 +53,11 @@ export interface HostDeliveryInput {
 
 /**
  * What the service supplies to one pass: the active protocol's pending read,
- * acknowledgment and classifier, the attached subscriber if any, and what to
- * do when the store cannot keep a classified item.
+ * acknowledgment and classifier, and the attached subscriber if any.
  */
 interface PassInput<E>
   extends Pick<PendingOffer, "engine" | "classify" | "handler"> {
   readonly readPending: Effect.Effect<readonly EnginePendingMessage[], E>;
-  readonly onStoreFailure: Effect.Effect<never>;
 }
 
 /** One service's delivery, created once and shared by the delivery pass and every host operation. */
@@ -71,11 +69,12 @@ export interface HostDelivery {
   /**
    * Run one pass under the delivery gate. `prepare` runs once the gate is
    * held, so the active protocol and subscriber it reads are current; it
-   * returns undefined when there is nothing to run.
+   * returns undefined when there is nothing to run. A store failure ends the
+   * pass and releases the gate.
    */
   readonly runPass: <E>(
     prepare: () => PassInput<E> | undefined,
-  ) => Effect.Effect<void, E>;
+  ) => Effect.Effect<void, E | EndpointStoreError>;
   /** Make an item the collective layer emitted durable and queue it for the next pass. */
   readonly queueLocalItem: (
     item: InboundItem,
@@ -159,44 +158,54 @@ const acknowledgeDelivery =
       ),
     );
 
+/**
+ * Read one inbox page under the delivery gate and export each entry's item
+ * once, so native and webhook reads share the pass's export ordering.
+ */
+const readExported = <
+  Page extends {
+    readonly items: ReadonlyArray<{ readonly deliveryToken: DeliveryToken }>;
+  },
+  E,
+>(
+  input: DeliveryContext,
+  read: Effect.Effect<Page, E>,
+  itemOf: (entry: Page["items"][number]) => Effect.Effect<InboundItem, E>,
+) =>
+  input.state.gate.withPermits(1)(
+    read.pipe(
+      Effect.tap((page) =>
+        Effect.forEach(
+          page.items,
+          (entry) =>
+            exportOnce(
+              input.state,
+              input.historyExport,
+              entry.deliveryToken,
+              itemOf(entry),
+            ),
+          { concurrency: 1, discard: true },
+        ),
+      ),
+    ),
+  );
+
 /** Export replayed local items before a host can read them after restart. */
 const readAndExportInbox = (
   input: DeliveryContext,
   request: HarnessReadInboxRequest,
 ) =>
-  input.state.gate.withPermits(1)(
-    Effect.gen(function* () {
-      const page = yield* readRuntimeInbox(input.store, request);
-      for (const entry of page.items) {
-        yield* exportOnce(
-          input.state,
-          input.historyExport,
-          entry.deliveryToken,
-          Effect.succeed(entry.item),
-        );
-      }
-      return page;
-    }),
+  readExported(input, readRuntimeInbox(input.store, request), (entry) =>
+    Effect.succeed(entry.item),
   );
 
-/** Webhook reads share export ordering with native inbox reads. */
+/** The webhook's raw page, decoding each stored item only to export it. */
 const readWebhookInbox = (
   input: DeliveryContext,
   bounds: Parameters<EndpointStore["readInbox"]>[0],
 ) =>
-  input.state.gate.withPermits(1)(
-    Effect.gen(function* () {
-      const page = yield* input.store.readInbox(bounds);
-      for (const entry of page.items) {
-        yield* exportOnce(
-          input.state,
-          input.historyExport,
-          entry.deliveryToken,
-          decodeRuntimeValue(InboundItem, entry.canonicalItem),
-        );
-      }
-      return page;
-    }),
+  readExported(input, input.store.readInbox(bounds), (entry) =>
+    decodeRuntimeValue(InboundItem, entry.canonicalItem),
   );
 
 /** Waiters can stop during shutdown; an acquired receipt commits with its caller state intact. */
@@ -240,10 +249,7 @@ const pendingOffer = <E>(
   engine: pass.engine,
   classify: pass.classify,
   ...(pass.handler === undefined ? {} : { handler: pass.handler }),
-  persist: (event) =>
-    persistInboxItem(input.store, event).pipe(
-      Effect.catchAll(() => pass.onStoreFailure),
-    ),
+  persist: (event) => persistInboxItem(input.store, event),
   historyExport: input.historyExport,
   state: input.state,
 });
@@ -251,7 +257,7 @@ const pendingOffer = <E>(
 const runPass = <E>(
   input: DeliveryContext,
   prepare: () => PassInput<E> | undefined,
-): Effect.Effect<void, E> =>
+): Effect.Effect<void, E | EndpointStoreError> =>
   input.state.gate.withPermits(1)(
     Effect.suspend(() => {
       const pass = prepare();

@@ -97,7 +97,9 @@ const mapWorkerInitializationError = (
  * Classify newly durable deliveries and publish what a subscriber can take.
  * The pass runs with or without a subscriber, so the collective layer
  * consumes protocol posts even while no host is attached. The active protocol
- * and subscriber are read once the delivery gate is held.
+ * and subscriber are read once the delivery gate is held. A failed pass
+ * signals the storage failure and never completes, so startup stops there;
+ * the gate is already released.
  * @param environment Protocol resources and the service's delivery.
  * @returns Completion after every current delivery is consumed or offered.
  */
@@ -119,16 +121,12 @@ export const publishPendingMessages = (
         ...(handler === undefined
           ? {}
           : { handler: { publish: handler.notifyPending } }),
-        onStoreFailure: Deferred.fail(
-          environment.fatal,
-          runtimeFailure("storage"),
-        ).pipe(Effect.zipRight(Effect.never)),
       };
     })
     .pipe(
       Effect.catchAll(() =>
         Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
-          Effect.asVoid,
+          Effect.zipRight(Effect.never),
         ),
       ),
     );
