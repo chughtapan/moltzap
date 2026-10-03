@@ -127,6 +127,24 @@ database schema 3, and the pinned draft MCP Events profile. Schema 2 has the
 explicit forward migration above. Incompatible wire peers and other store
 versions fail closed. Native adapters and the daemon must upgrade together.
 
+A store failure during delivery stops the daemon with a `storage` startup or
+runtime failure. This covers reading pending deliveries, persisting a
+classified item, and keeping a result or failure item that a collective
+operation produces. The delivery work that hit the failure ends instead of
+waiting, so inbox reads and acknowledgments are not held behind it while the
+daemon stops:
+
+- At startup, the daemon fails before it starts the MCP listener.
+- `register` returns `persistence-failed` when the first delivery pass after
+  activation fails.
+- `send_message` returns `persistence-failed` when the item its operation
+  produces cannot be kept: a gather's result, or a refused send's failure when
+  failures go inbound.
+- An item that could not be kept is not delivered. The pending row that
+  produced it stays unacknowledged and is classified again after restart,
+  under the volatile collective state described in
+  [Delivery ownership](#delivery-ownership).
+
 Acceptance covers single-process store ownership, explicit configuration,
 registration recovery, address-based management, signer-evidence audit,
 pending-delivery replay, exact catalog, and old-format rejection.
