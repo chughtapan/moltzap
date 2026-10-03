@@ -763,14 +763,14 @@ function rendersOperationFailure() {
     kind: "operationFailed",
     id: COLLECTIVE_ID,
     to: "agent:alice",
-    error: `operation ${COLLECTIVE_ID} failed: the request in this conversation has passed its deadline`,
+    error: "reply failed: the question's deadline has passed",
   });
 
   return Effect.gen(function* () {
     const call = yield* runItemTurn(item);
 
     expect(call.ctx).toMatchObject({
-      Body: `MoltZap: operation ${COLLECTIVE_ID} failed: the request in this conversation has passed its deadline`,
+      Body: "MoltZap: reply failed: the question's deadline has passed",
       ChatId: "agent:alice",
       SenderName: "MoltZap",
       MessageSid: `${COLLECTIVE_ID}:failed`,

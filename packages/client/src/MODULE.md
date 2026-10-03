@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./transport/collectives/forms.ts#L242)
+### [`CollectiveError`](./transport/collectives/forms.ts#L255)
 
 _Class_
 
@@ -56,14 +56,15 @@ export class CollectiveError extends Data.TaggedError("CollectiveError")<{
   readonly failure: CollectiveFailure;
 }> {
   override get message(): string {
-    return `operation ${this.id} failed: ${describeCollectiveFailure(this.failure)}`;
+    return describeCollectiveFailure(this.failure);
   }
 }
 ```
 
-A gather, all_gather or answer was refused. The message names each
-unreachable member or failing field, so a host can hand it to its model as
-the tool error.
+A gather, all_gather or answer was refused. The message is what a host
+hands its model as the tool error: the failed action and its cause, naming
+each unreachable member or failing field. The operation id stays in the
+error's data, not its message.
 
 ### [`ConnectError`](./endpoint/harness-endpoint/capability.ts#L23)
 
@@ -127,7 +128,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L60)
+### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L88)
 
 _Class_
 
@@ -357,7 +358,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./transport/messaging/errors.ts#L39)
+### [`ListenError`](./transport/messaging/errors.ts#L67)
 
 _Class_
 
@@ -455,21 +456,24 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`SendError`](./transport/messaging/errors.ts#L24)
+### [`SendError`](./transport/messaging/errors.ts#L51)
 
 _Class_
 
 ```ts
 export class SendError extends Data.TaggedError("SendError")<{
   readonly reason: SendFailure;
+  readonly detail?: string;
 }> {
   override get message(): string {
-    return `send failed: ${this.reason}`;
+    return `send failed: ${this.detail ?? sendFailureText[this.reason]}`;
   }
 }
 ```
 
-An addressed send failed before local certification completed.
+An addressed send failed before local certification completed. `detail`
+names the specific cause when the failing step knows it, such as which
+agent is unknown; the message is what a host hands its model.
 
 ### [`SendInput (type)`](./transport/collectives/forms.ts#L144)
 

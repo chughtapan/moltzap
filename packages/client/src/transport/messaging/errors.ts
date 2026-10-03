@@ -20,12 +20,40 @@ export const sendFailureReasons = [
 /** Why one addressed send failed. */
 export type SendFailure = (typeof sendFailureReasons)[number];
 
-/** An addressed send failed before local certification completed. */
+/**
+ * What each failure means, in words a model reads as a tool error. A failed
+ * send was not sent, so the text states only the cause; `outcome-unknown` is
+ * the one reason where the message may have gone out.
+ */
+export const sendFailureText: Readonly<Record<SendFailure, string>> = {
+  "invalid-address": "the address is not a valid agent: or group: address",
+  "unknown-agent": "an agent the address names is not a known agent",
+  "membership-invalid": "the address does not name a valid set of agents",
+  "content-invalid": "the message content is invalid",
+  "not-registered": "this agent is not registered with MoltZap",
+  "version-mismatch": "MoltZap is unavailable (version mismatch)",
+  "certification-unavailable":
+    "MoltZap is unavailable (certification unavailable)",
+  "persistence-failed":
+    "MoltZap is unavailable (the message could not be stored)",
+  "network-unavailable": "MoltZap is unavailable (network unavailable)",
+  "idempotency-conflict":
+    "this send repeats an earlier send with different content",
+  "outcome-unknown":
+    "the connection was lost; the message may or may not have been sent",
+};
+
+/**
+ * An addressed send failed before local certification completed. `detail`
+ * names the specific cause when the failing step knows it, such as which
+ * agent is unknown; the message is what a host hands its model.
+ */
 export class SendError extends Data.TaggedError("SendError")<{
   readonly reason: SendFailure;
+  readonly detail?: string;
 }> {
   override get message(): string {
-    return `send failed: ${this.reason}`;
+    return `send failed: ${this.detail ?? sendFailureText[this.reason]}`;
   }
 }
 

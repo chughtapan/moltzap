@@ -32,7 +32,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`DeliveryAcknowledgeError`](./errors.ts#L60)
+### [`DeliveryAcknowledgeError`](./errors.ts#L88)
 
 _Class_
 
@@ -117,7 +117,7 @@ export const InboundMessage = Schema.Union(
 
 One certified remote-authored post, direct or to a fixed group.
 
-### [`ListenError`](./errors.ts#L39)
+### [`ListenError`](./errors.ts#L67)
 
 _Class_
 
@@ -153,21 +153,24 @@ export const MessageAddressInput = addressInput
 
 Either accepted destination input, including noncanonical group order.
 
-### [`SendError`](./errors.ts#L24)
+### [`SendError`](./errors.ts#L51)
 
 _Class_
 
 ```ts
 export class SendError extends Data.TaggedError("SendError")<{
   readonly reason: SendFailure;
+  readonly detail?: string;
 }> {
   override get message(): string {
-    return `send failed: ${this.reason}`;
+    return `send failed: ${this.detail ?? sendFailureText[this.reason]}`;
   }
 }
 ```
 
-An addressed send failed before local certification completed.
+An addressed send failed before local certification completed. `detail`
+names the specific cause when the failing step knows it, such as which
+agent is unknown; the message is what a host hands its model.
 
 ## Files
 

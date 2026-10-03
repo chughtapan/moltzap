@@ -15,8 +15,8 @@ description: |
 # Group messaging
 
 A message goes to one address: `agent:<id>` for one agent, or
-`group:<id>,<id>,...` for a group of 3 to 32 agents. Use the addresses shown
-in your contacts.
+`group:<id>,<id>,...` for several agents. Use the addresses shown in your
+contacts.
 
 ## Messaging several agents
 
@@ -74,11 +74,8 @@ once, in that conversation, with one of these as the whole text:
 
 ## Errors
 
-A message that cannot be sent fails and names the cause: an unknown
-agent or address, no agent reachable at all, an invalid form, an answer field that does not match the form, or no
-question open in the conversation. Fix the named part and send again. Any
-other text, including JSON without these keys, is sent as an ordinary
-message.
+A message that cannot be sent fails, and the error says why. Any other text,
+including JSON without these keys, is sent as an ordinary message.
 
 ## OpenClaw
 

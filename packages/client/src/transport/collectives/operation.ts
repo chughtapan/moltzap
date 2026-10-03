@@ -477,7 +477,10 @@ function gatherAddress(
   op: CollectingOperation["op"],
 ): Effect.Effect<GatherAddress, SendError> {
   const selfName = self.slice("agent:".length);
-  const membershipInvalid = new SendError({ reason: "membership-invalid" });
+  const membershipInvalid = new SendError({
+    reason: "membership-invalid",
+    detail: "an all_gather asks a group of two or more other agents",
+  });
   return canonicalMessageAddress(to, selfName).pipe(
     Effect.flatMap((canonical): Effect.Effect<GatherAddress, SendError> => {
       if (canonical.kind === "direct") {

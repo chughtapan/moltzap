@@ -227,7 +227,7 @@ function refusesAnAllGatherToAnAgentAddress() {
         send(layer, allGatherInput("agent:bob")),
       );
 
-      expect(failure).toEqual(new SendError({ reason: "membership-invalid" }));
+      expect(failure).toMatchObject({ reason: "membership-invalid" });
     }),
   );
 }

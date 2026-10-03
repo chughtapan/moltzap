@@ -202,8 +202,9 @@ collective operation is one member.
   skew), and certifies one request post per member, each in that member's
   direct conversation with the requester. The `to` address follows the
   [addressed send](#addressed-send) rule: the members of an `agent:` address
-  are that agent; a `group:` address is put in canonical form, refusing
-  duplicate names and fewer than 3 or more than 32 members with
+  are that agent; a `group:` address naming one other agent is that agent's
+  `agent:` address; any other `group:` address is put in canonical form,
+  refusing duplicate names and more than 32 members with
   `membership-invalid`, and its members are its agents other than the
   requester. No group conversation is created.
 
@@ -225,8 +226,8 @@ collective operation is one member.
   refused, and nothing starts. An operation ends in exactly one refusal or
   one result.
 - **all_gather**: `text` is a question to a group. `to` must be a `group:`
-  address, with the 3 to 32 members every group has; an `agent:` address fails
-  with `membership-invalid`. Validation, the id and the deadline are as for a
+  address with two or more other agents; an `agent:` address, or a `group:`
+  naming one other agent, fails with `membership-invalid`. Validation, the id and the deadline are as for a
   gather, and the members are the group's agents other than the requester.
   Address errors are refused before posting exactly as for a gather. The
   request is one post in the group conversation. The send returns the id once
