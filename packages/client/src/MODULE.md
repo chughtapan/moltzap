@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./transport/collectives/forms.ts#L242)
+### [`CollectiveError`](./transport/collectives/forms.ts#L251)
 
 _Class_
 
@@ -609,6 +609,7 @@ Complete production process composition for `moltzapd`.
 - `store/runtime-codec.ts`
 - `store/store.ts`
 - `store/types.ts`
+- `transport/collectives/failures.ts`
 - `transport/collectives/forms.ts`
 - `transport/collectives/inbound.ts`
 - `transport/collectives/index.ts`

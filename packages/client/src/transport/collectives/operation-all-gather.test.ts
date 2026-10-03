@@ -19,9 +19,8 @@ import { AgentAddress } from "../messaging/address.js";
 import { SendError } from "../messaging/errors.js";
 import { InboundMessage } from "../messaging/message.js";
 import { PostId, RecordHash } from "../wire/index.js";
-import { CollectiveError, SendInput } from "./forms.js";
+import { CollectiveEmitError, CollectiveError, SendInput } from "./forms.js";
 import {
-  CollectiveEmitError,
   type CollectiveOperations,
   type CollectivePorts,
   makeCollectiveOperations,
@@ -970,14 +969,6 @@ describe("all_gather at a member", () => {
     holdsACloseUntilTheMemberOwnAnswerIsCertified,
   );
   it(
-    "fails a close whose member result cannot be kept",
-    failsACloseWhoseMemberResultCannotBeKept,
-  );
-  it(
-    "fails an answer that releases a close whose result cannot be kept",
-    failsAnAnswerThatReleasesAnUnkeptClose,
-  );
-  it(
     "excludes a peer answer that arrives after the close",
     excludesAPeerAnswerThatArrivesAfterTheClose,
   );
@@ -1004,5 +995,16 @@ describe("all_gather close at a member", () => {
   it(
     "ignores a close listing an answer it does not hold",
     ignoresACloseListingAnAnswerTheMemberDoesNotHold,
+  );
+});
+
+describe("all_gather member results the service cannot keep", () => {
+  it(
+    "fails a close whose member result cannot be kept",
+    failsACloseWhoseMemberResultCannotBeKept,
+  );
+  it(
+    "fails an answer that releases a close whose result cannot be kept",
+    failsAnAnswerThatReleasesAnUnkeptClose,
   );
 });
