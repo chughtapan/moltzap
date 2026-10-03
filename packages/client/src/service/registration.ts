@@ -13,10 +13,7 @@ import {
   type RegistryRegisterResult,
 } from "@moltzap/identity/registry";
 import { Data, Effect, Schema } from "effect";
-import type {
-  EndpointStore,
-  IdentityBinding,
-} from "../transport/history/index.js";
+import type { EndpointStore, IdentityBinding } from "../store/index.js";
 import type {
   DaemonBootstrap,
   DaemonConfigurationError,

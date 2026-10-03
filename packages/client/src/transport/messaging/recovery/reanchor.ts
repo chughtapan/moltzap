@@ -6,13 +6,13 @@ import {
   type SignedMessage as SignedMessageValue,
 } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
-import type { EndpointRecovery } from "../../../history/index.js";
-import type { EngineRuntime } from "../../types.js";
+import type { EndpointRecovery } from "../../../store/index.js";
+import type { EngineRuntime } from "../types.js";
 import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,
   RouterWorkerPersistenceError,
-} from "../../../router/index.js";
+} from "../../router/index.js";
 import {
   AnchorHash,
   type AnchorHash as AnchorHashValue,
@@ -37,8 +37,9 @@ import {
   verifyCompletedReanchor,
   verifyOuterMessage,
   verifyStableEvidence,
-} from "../../../wire/index.js";
-import { protocolEvidence } from "../../durability.js";
+} from "../../wire/index.js";
+import { protocolEvidence } from "../durability.js";
+import { restartEmptyPosition } from "./reanchor-empty.js";
 import {
   type ActiveRecoveryState,
   currentRecoveryState,
@@ -50,8 +51,7 @@ import {
   queueRecoveryEvidence,
   queueRecoveryPacket,
   requestCertifiedHistory,
-} from "../state.js";
-import { restartEmptyPosition } from "./empty.js";
+} from "./state.js";
 
 const acceptedDisposition: RouterIngressDisposition = "accepted";
 const ignoredDisposition: RouterIngressDisposition = "ignored";

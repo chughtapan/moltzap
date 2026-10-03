@@ -7,16 +7,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import {
-  DeliveryToken,
-  openEndpointStore,
-} from "../../transport/history/index.js";
+import { DeliveryToken, openEndpointStore } from "../store/index.js";
+import { InboundItem } from "../transport/collectives/inbound.js";
 import {
   persistInboxItem,
   readRuntimeInbox,
   recoverRuntimeInbox,
-} from "./index.js";
+} from "./inbox.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Durable tombstone and snapshot fixtures pin exact store outcomes. */
 

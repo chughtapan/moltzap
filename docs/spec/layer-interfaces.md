@@ -184,7 +184,8 @@ semantic chapters:
 - AuthenticatedHttp requires Registry so Router can resolve and cache verified
   immutable AgentCards without importing Registry internals;
 - Registry bootstrap does not require AuthenticatedHttp;
-- each server subpath exposes the admitted discard Layer that reads private
+- each process-composition subpath (Identity and Router `server`, Client
+  `service`) exposes the admitted discard Layer that reads private
   Effect Config and owns process composition; and
 - private Effect RPC remains in-process, typed, and absent from the network and
   export maps.

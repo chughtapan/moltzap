@@ -4,13 +4,14 @@ import { HttpClient } from "@effect/platform";
 import { ProtocolError } from "@modelcontextprotocol/server";
 import { type Clock, Effect, Schema } from "effect";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
-import { InboundItem } from "../../transport/collectives/inbound.js";
+import { eventIdOf, type EventStore } from "../../delivery/operations.js";
 import {
   decodeRuntimeValue,
   DeliveryToken,
   encodeRuntimeValue,
   type InboxEntry,
-} from "../../transport/history/index.js";
+} from "../../store/index.js";
+import { InboundItem } from "../../transport/collectives/inbound.js";
 import {
   callbackReasons,
   type EventSubscribeInput,
@@ -26,7 +27,7 @@ import {
   type WebhookFailureReason,
   webhookUrl,
 } from "./event-signing.js";
-import { eventIdOf, type EventStore, INBOX_ITEM_EVENT } from "./schemas.js";
+import { INBOX_ITEM_EVENT } from "./schemas.js";
 
 /** Persist the returned bytes before transmitting; retries must not regenerate them. */
 const encodeItemEvent = (entry: InboxEntry, timestamp: number) =>

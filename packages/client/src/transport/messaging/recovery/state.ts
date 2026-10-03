@@ -7,7 +7,7 @@ import {
   type SignedMessage as SignedMessageValue,
 } from "@moltzap/identity";
 import { Deferred, Effect, Queue, Schema } from "effect";
-import type { EndpointRecovery } from "../../history/index.js";
+import type { EndpointRecovery } from "../../../store/index.js";
 import type { EngineRuntime } from "../types.js";
 import {
   RouterWorkerPersistenceError,

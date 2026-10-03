@@ -5,8 +5,12 @@ import type { Registry } from "@moltzap/identity/registry";
 import type { Router } from "@moltzap/router";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect, type Scope } from "effect";
-import type { EndpointStore } from "../transport/history/index.js";
+import type { EndpointStore } from "../store/index.js";
 import type { DaemonBootstrap } from "./configuration.js";
+import {
+  makeHistoryExport,
+  noHistoryExport,
+} from "../delivery/history-export.js";
 import { packageVersion } from "../endpoint/implementation.js";
 import {
   acquireHarnessMcpHttpServer,
@@ -20,7 +24,6 @@ import {
   prepareDaemonActivation,
 } from "./activation.js";
 import { makeDaemonController } from "./controller.js";
-import { makeHistoryExport, noHistoryExport } from "./history-export.js";
 
 const DAEMON_IMPLEMENTATION = {
   name: "moltzapd",

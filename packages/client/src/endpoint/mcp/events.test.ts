@@ -20,15 +20,13 @@ import {
   Stream,
 } from "effect";
 import { describe, expect, it } from "vitest";
+import type { HarnessMessageReadyEvent } from "../../delivery/operations.js";
+import { DeliveryToken } from "../../store/index.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
-import { DeliveryToken } from "../../transport/history/index.js";
 import { acquireHarnessEndpoint } from "../harness-endpoint/index.js";
 import { type HarnessEvents, makeHarnessEvents } from "./events.js";
 import { acquireHarnessMcpHttpServer } from "./http.js";
-import {
-  type HarnessMessageReadyEvent,
-  INBOX_PENDING_EVENT,
-} from "./schemas.js";
+import { INBOX_PENDING_EVENT } from "./schemas.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- External MCP error codes and consumer ownership reasons are conformance expectations. */
 

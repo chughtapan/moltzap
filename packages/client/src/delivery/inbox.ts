@@ -3,24 +3,24 @@
 import { Effect, Encoding, Option, Schema } from "effect";
 import { randomBytes } from "node:crypto";
 import {
-  eventIdSchema,
-  type HarnessMessageReadyEvent,
-  type HarnessReadInboxRequest,
-  type HarnessReadInboxResult,
-} from "../../endpoint/mcp/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import {
-  collectiveIdOf,
-  readCollectiveValue,
-} from "../../transport/collectives/index.js";
-import {
   decodeRuntimeValue,
   DeliveryToken,
   encodeRuntimeValue,
   type EndpointStore,
   EndpointStoreError,
-} from "../../transport/history/index.js";
-import { InboundMessage } from "../../transport/messaging/message.js";
+} from "../store/index.js";
+import { InboundItem } from "../transport/collectives/inbound.js";
+import {
+  collectiveIdOf,
+  readCollectiveValue,
+} from "../transport/collectives/index.js";
+import { InboundMessage } from "../transport/messaging/message.js";
+import {
+  eventIdSchema,
+  type HarnessMessageReadyEvent,
+  type HarnessReadInboxRequest,
+  type HarnessReadInboxResult,
+} from "./operations.js";
 
 /**
  * Invalid aliases cannot address the same retained item under another event id.

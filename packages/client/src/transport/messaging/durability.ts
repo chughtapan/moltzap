@@ -11,7 +11,7 @@ import type {
   ProtocolEvidence,
   StagedRecord,
   CertifiedRecord as StoredCertifiedRecord,
-} from "../history/index.js";
+} from "../../store/index.js";
 import type { EngineActionFold, EngineConversation } from "./types.js";
 import {
   type ActionCertifiedRecord,

@@ -17,7 +17,7 @@ import {
   type Queue,
   type SubscriptionRef,
 } from "effect";
-import type { DeliveryToken, EndpointStore } from "../history/index.js";
+import type { DeliveryToken, EndpointStore } from "../../store/index.js";
 import type {
   RouterDiscontinuityReason,
   RouterIngressDisposition,

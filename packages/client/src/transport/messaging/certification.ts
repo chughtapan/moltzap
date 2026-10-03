@@ -6,7 +6,7 @@ import type {
   ConversationFoundation,
   EndpointStoreError,
   ProposalLock,
-} from "../history/index.js";
+} from "../../store/index.js";
 import type { SendError } from "./errors.js";
 import type {
   EngineActionFold,

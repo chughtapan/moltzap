@@ -29,7 +29,7 @@ import type {
   HistoryPage,
   ProtocolEvidence,
   CertifiedRecord as StoredCertifiedRecord,
-} from "../transport/history/index.js";
+} from "../store/index.js";
 import type { SendError } from "../transport/messaging/errors.js";
 import type {
   DaemonBootstrap,

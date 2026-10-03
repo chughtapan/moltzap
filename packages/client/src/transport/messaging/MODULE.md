@@ -32,7 +32,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`DeliveryAcknowledgeError`](./errors.ts#L54)
+### [`DeliveryAcknowledgeError`](./errors.ts#L60)
 
 _Class_
 

@@ -13,7 +13,7 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/endpoint/harness-endpoint/index.ts#L60)
+### [`acquireHarnessEndpoint`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/endpoint/harness-endpoint/index.ts#L47)
 
 _Function_
 
@@ -132,7 +132,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/messaging/errors.ts#L54)
+### [`DeliveryAcknowledgeError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/messaging/errors.ts#L60)
 
 _Class_
 
@@ -220,7 +220,7 @@ A host whose tool returns before the send completes passes
 then completes and its error arrives as an `operationFailed` item on the
 stream. A multicast has no operation id, so its failure is always returned.
 
-### [`HistoryExportRecord (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/history-export.ts#L52)
+### [`HistoryExportRecord (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/history-export.ts#L50)
 
 _TypeAlias_
 
@@ -230,7 +230,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/history-export.ts#L33)
+### [`HistoryExportRecord (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/history-export.ts#L31)
 
 _Variable_
 
@@ -523,6 +523,15 @@ What a completed send returns: a collecting operation names its id.
 
 ## Files
 
+- `delivery/history-export.ts`
+- `delivery/host-delivery.ts`
+- `delivery/inbox.ts`
+- `delivery/index.ts`
+- `delivery/operations.ts`
+- `delivery/pass.ts`
+- `delivery/README.md`
+- `delivery/send-invocations.ts`
+- `delivery/state.ts`
 - `endpoint/harness-endpoint/capability.ts`
 - `endpoint/harness-endpoint/events.ts`
 - `endpoint/harness-endpoint/index.ts`
@@ -543,16 +552,28 @@ What a completed send returns: a collecting operation names its id.
 - `service/activation.ts`
 - `service/configuration.ts`
 - `service/controller.ts`
-- `service/delivery.ts`
-- `service/history-export.ts`
-- `service/inbox/index.ts`
 - `service/index.ts`
 - `service/lifecycle.ts`
 - `service/management.ts`
 - `service/README.md`
 - `service/registration.ts`
-- `service/send-invocations.ts`
 - `service/supervision.ts`
+- `store/anchors.ts`
+- `store/database/index.ts`
+- `store/database/schema.ts`
+- `store/database/values.ts`
+- `store/deliveries.ts`
+- `store/dissemination.ts`
+- `store/inbox.ts`
+- `store/index.ts`
+- `store/outbound.ts`
+- `store/README.md`
+- `store/reads.ts`
+- `store/records.ts`
+- `store/rows/index.ts`
+- `store/runtime-codec.ts`
+- `store/store.ts`
+- `store/types.ts`
 - `transport/collectives/forms.ts`
 - `transport/collectives/inbound.ts`
 - `transport/collectives/index.ts`
@@ -564,22 +585,6 @@ What a completed send returns: a collecting operation names its id.
 - `transport/collectives/shared-answers.ts`
 - `transport/collectives/validation.ts`
 - `transport/collectives/wire.ts`
-- `transport/history/anchors.ts`
-- `transport/history/database/index.ts`
-- `transport/history/database/schema.ts`
-- `transport/history/database/values.ts`
-- `transport/history/deliveries.ts`
-- `transport/history/dissemination.ts`
-- `transport/history/inbox.ts`
-- `transport/history/index.ts`
-- `transport/history/outbound.ts`
-- `transport/history/README.md`
-- `transport/history/reads.ts`
-- `transport/history/records.ts`
-- `transport/history/rows/index.ts`
-- `transport/history/runtime-codec.ts`
-- `transport/history/store.ts`
-- `transport/history/types.ts`
 - `transport/messaging/address.ts`
 - `transport/messaging/certification.ts`
 - `transport/messaging/dissemination.ts`
@@ -594,8 +599,8 @@ What a completed send returns: a collecting operation names its id.
 - `transport/messaging/recovery/index.ts`
 - `transport/messaging/recovery/persistence.ts`
 - `transport/messaging/recovery/README.md`
-- `transport/messaging/recovery/reanchor/empty.ts`
-- `transport/messaging/recovery/reanchor/index.ts`
+- `transport/messaging/recovery/reanchor-empty.ts`
+- `transport/messaging/recovery/reanchor.ts`
 - `transport/messaging/recovery/state.ts`
 - `transport/messaging/send.ts`
 - `transport/messaging/types.ts`

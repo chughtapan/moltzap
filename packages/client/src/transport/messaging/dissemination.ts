@@ -1,7 +1,7 @@
 /** @file Recovery of durable certified-record dissemination obligations. */
 
 import { Effect, Schema } from "effect";
-import type { DisseminationObligation } from "../history/index.js";
+import type { DisseminationObligation } from "../../store/index.js";
 import type { EngineActionFold, EngineRuntime } from "./types.js";
 import { RouterWorkerPersistenceError } from "../router/index.js";
 import {

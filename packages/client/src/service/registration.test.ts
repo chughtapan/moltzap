@@ -12,10 +12,7 @@ import {
 } from "@moltzap/identity/registry";
 import { type Context, Effect, Layer, Redacted, Ref, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import {
-  EndpointStoreError,
-  type IdentityBinding,
-} from "../transport/history/index.js";
+import { EndpointStoreError, type IdentityBinding } from "../store/index.js";
 import {
   type DaemonBootstrap,
   DaemonConfigurationError,

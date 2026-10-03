@@ -175,6 +175,19 @@ describe("Client protocol representation", () => {
     "classifies only complete exact outer bodies",
     classifiesOnlyClosedOuterBodies,
   );
+  // Every wire hash identifier admits only its prefix over the canonical
+  // base64url of 32 bytes.
+  it("rejects hash identifiers outside the canonical 32-byte form", () => {
+    const canonical = identifier("ach_", 32, 5);
+    expect(Schema.decodeUnknownSync(ActionHash)(canonical)).toBe(canonical);
+    for (const candidate of [
+      identifier("rch_", 32, 5),
+      identifier("ach_", 31, 5),
+      `${canonical.slice(0, -1)}V`,
+    ]) {
+      expect(Schema.is(ActionHash)(candidate)).toBe(false);
+    }
+  });
   it("uses the admitted N2, N3, N4, and N10 quorum table", () => {
     expect(quorumThreshold(2)).toBe(2);
     expect(quorumThreshold(3)).toBe(3);

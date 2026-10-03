@@ -10,7 +10,7 @@ import type {
   EndpointRecovery,
   ProtocolEvidence,
   StoredOutboundMessage,
-} from "../../history/index.js";
+} from "../../../store/index.js";
 import type {
   EndpointEngineInput,
   EngineActionFold,

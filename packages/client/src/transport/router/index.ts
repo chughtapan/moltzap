@@ -32,7 +32,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type {
   OutboundMessageInput,
   StoredOutboundMessage,
-} from "../history/index.js";
+} from "../../store/index.js";
 import { decodeCanonical, encodeCanonical } from "../wire/index.js";
 import {
   detach,

@@ -2,27 +2,30 @@
 
 import { Deferred, Effect, Schema, type Scope } from "effect";
 import {
-  decodeHarnessSendErrorData,
-  decodeHarnessSendOutcome,
-  decodeHarnessSendRequest,
-  type HarnessMcpOperations,
-  type HarnessReadSendRequest,
-  type HarnessReadSendResult,
-  type HarnessSendOutcome,
-  type HarnessSendRequest,
-} from "../endpoint/mcp/index.js";
+  decodeRuntimeValue,
+  encodeRuntimeValue,
+  type EndpointStore,
+  EndpointStoreError,
+} from "../store/index.js";
 import {
   CollectiveError,
   SendInput,
   type SendResult,
 } from "../transport/collectives/forms.js";
 import {
-  decodeRuntimeValue,
-  encodeRuntimeValue,
-  type EndpointStore,
-  EndpointStoreError,
-} from "../transport/history/index.js";
-import { SendError } from "../transport/messaging/errors.js";
+  SendError,
+  sendFailureReasons,
+} from "../transport/messaging/errors.js";
+import {
+  decodeHarnessSendErrorData,
+  decodeHarnessSendOutcome,
+  decodeHarnessSendRequest,
+  type DeliveryOperations,
+  type HarnessReadSendRequest,
+  type HarnessReadSendResult,
+  type HarnessSendOutcome,
+  type HarnessSendRequest,
+} from "./operations.js";
 
 type SendFailure = SendError | CollectiveError;
 type PendingSend = Deferred.Deferred<SendResult, SendFailure>;
@@ -39,21 +42,8 @@ const errorOutcome = (error: SendFailure): HarnessSendOutcome => ({
       : { reason: error.reason },
 });
 
-const sendReasons: ReadonlyArray<SendError["reason"]> = [
-  "invalid-address",
-  "unknown-agent",
-  "membership-invalid",
-  "content-invalid",
-  "not-registered",
-  "version-mismatch",
-  "certification-unavailable",
-  "persistence-failed",
-  "network-unavailable",
-  "idempotency-conflict",
-  "outcome-unknown",
-];
 const isSendReason = (reason: string): reason is SendError["reason"] =>
-  sendReasons.some((value) => value === reason);
+  sendFailureReasons.some((value) => value === reason);
 
 const decodeStoredOutcome = (bytes: Uint8Array) =>
   decodeRuntimeValue(Schema.Unknown, bytes).pipe(
@@ -96,7 +86,7 @@ const replayOutcome = (
   );
 interface Invocations {
   readonly store: EndpointStore;
-  readonly execute: HarnessMcpOperations["send"];
+  readonly execute: DeliveryOperations["send"];
   readonly scope: Scope.Scope;
   readonly gate: Effect.Semaphore;
   readonly pending: Map<string, PendingSend>;
@@ -230,7 +220,7 @@ const send = (runtime: Invocations, request: HarnessSendRequest) =>
  */
 export const makeSendInvocations = (
   store: EndpointStore,
-  execute: HarnessMcpOperations["send"],
+  execute: DeliveryOperations["send"],
   scope: Scope.Scope,
 ) =>
   Effect.gen(function* () {

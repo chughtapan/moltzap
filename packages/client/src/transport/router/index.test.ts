@@ -59,7 +59,7 @@ import {
   type EndpointStore,
   openEndpointStore,
   type StoredOutboundMessage,
-} from "../history/index.js";
+} from "../../store/index.js";
 import { encodeCanonical } from "../wire/index.js";
 import {
   makeRouterWorker,

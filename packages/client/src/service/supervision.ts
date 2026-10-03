@@ -4,15 +4,18 @@ import type { VerifiedAgentCard } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Cause, type Context, Deferred, Effect, Schema, Scope } from "effect";
-import type {
-  DeliveryToken,
-  EndpointStore,
-} from "../transport/history/index.js";
+import type { HistoryExportPort } from "../delivery/history-export.js";
+import type { EndpointStore } from "../store/index.js";
 import type {
   EndpointEngine,
   EngineInitializationError,
 } from "../transport/messaging/index.js";
 import type { DaemonBootstrap } from "./configuration.js";
+import {
+  type HostDelivery,
+  offerPendingMessages,
+  type PendingOffer,
+} from "../delivery/index.js";
 import {
   type CollectiveOperations,
   type InboundItem,
@@ -33,8 +36,6 @@ import {
   DaemonRuntimeError,
   recoverPinnedSenderCards,
 } from "./activation.js";
-import { offerPendingMessages, type PendingOffer } from "./delivery.js";
-import { mintLocalDeliveryToken, persistInboxItem } from "./inbox/index.js";
 
 /** Subscription publisher installed after the MCP handler is acquired. */
 export type RuntimeSubscriptionHandler = Effect.Effect.Success<
@@ -54,30 +55,20 @@ export interface ProtocolState {
   activeProtocol?: ActiveProtocol;
   subscriptionActive: boolean;
   handler?: RuntimeSubscriptionHandler;
-  readonly publishedDeliveries: Set<string>;
-  /**
-   * Items the collective layer emitted, in emission order, each under a
-   * daemon-minted delivery token until the subscriber acknowledges it. They
-   * are durable before insertion; this map caches the current process values.
-   */
-  readonly localItems: Map<DeliveryToken, InboundItem>;
-  /** Deliveries whose item the history export already recorded. */
-  readonly exportedDeliveries: Set<string>;
-  /** The item each unacknowledged durable delivery classified into. */
-  readonly classifiedItems: Map<string, InboundItem>;
 }
 
 /** Dependencies and owned resources available to one protocol lifecycle. */
 export interface ProtocolEnvironment {
   readonly store: EndpointStore;
   readonly bootstrap: DaemonBootstrap;
-  readonly historyExport: PendingOffer["historyExport"];
+  readonly historyExport: HistoryExportPort;
   readonly dependencies: DaemonRuntimeDependencies;
   readonly registry: Context.Tag.Service<typeof Registry>;
   readonly router: Context.Tag.Service<typeof Router>;
   readonly daemonScope: Scope.Scope;
   readonly fatal: Deferred.Deferred<never, DaemonRuntimeError>;
   readonly state: ProtocolState;
+  readonly delivery: HostDelivery;
 }
 
 interface AcquireProtocolWorkerInput {
@@ -116,25 +107,28 @@ const pendingOffer = (
   protocol: ActiveProtocol,
 ): PendingOffer => {
   const { state } = environment;
+  const delivery = environment.delivery.state;
   const handler = state.subscriptionActive ? state.handler : undefined;
   return {
     engine: protocol.engine,
     classify: protocol.collectives.classify,
     persist: (event) =>
-      persistInboxItem(environment.store, event).pipe(
-        Effect.catchAll(() =>
-          Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
-            Effect.zipRight(Effect.never),
+      environment.delivery
+        .persist(event)
+        .pipe(
+          Effect.catchAll(() =>
+            Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
+              Effect.zipRight(Effect.never),
+            ),
           ),
         ),
-      ),
     ...(handler === undefined
       ? {}
       : { handler: { publish: handler.notifyPending } }),
     historyExport: environment.historyExport,
-    publishedDeliveries: state.publishedDeliveries,
-    exportedDeliveries: state.exportedDeliveries,
-    classifiedItems: state.classifiedItems,
+    publishedDeliveries: delivery.publishedDeliveries,
+    exportedDeliveries: delivery.exportedDeliveries,
+    classifiedItems: delivery.classifiedItems,
   };
 };
 
@@ -142,15 +136,14 @@ const pendingOffer = (
  * Classify newly durable deliveries and publish what a subscriber can take.
  * The pass runs with or without a subscriber, so the collective layer
  * consumes protocol posts even while no host is attached.
- * @param environment Protocol resources and controller-owned delivery state.
- * @param deliveryGate Serializes pending reads with subscription changes.
+ * @param environment Protocol resources and the delivery state whose gate
+ * serializes pending reads with subscription changes.
  * @returns Completion after every current delivery is consumed or offered.
  */
 export const publishPendingMessages = (
   environment: ProtocolEnvironment,
-  deliveryGate: Effect.Semaphore,
 ): Effect.Effect<void> =>
-  deliveryGate.withPermits(1)(
+  environment.delivery.state.gate.withPermits(1)(
     Effect.suspend(() => {
       const protocol = environment.state.activeProtocol;
       if (protocol === undefined) {
@@ -161,7 +154,7 @@ export const publishPendingMessages = (
           offerPendingMessages(
             pendingOffer(environment, protocol),
             messages,
-            environment.state.localItems,
+            environment.delivery.state.localItems,
           ),
         ),
         Effect.catchAll(() =>
@@ -177,26 +170,21 @@ export const publishPendingMessages = (
  * Queue an item the collective layer emitted and start a publication pass.
  * The pass is forked because the layer can emit from inside one, which holds
  * the delivery gate.
+ * @param environment The failure signal, service scope and delivery.
+ * @param reconciler The publication pass to fork.
+ * @param item The emitted item.
+ * @returns Completion once the item is durable and queued, without waiting on the gate.
  */
-const emitLocalItem = (
-  environment: ProtocolEnvironment,
+export const emitLocalItem = (
+  environment: Pick<ProtocolEnvironment, "fatal" | "daemonScope" | "delivery">,
   reconciler: Effect.Effect<void>,
   item: InboundItem,
 ): Effect.Effect<void> =>
-  mintLocalDeliveryToken.pipe(
-    Effect.tap((deliveryToken) =>
-      persistInboxItem(environment.store, { deliveryToken, item }).pipe(
-        Effect.catchAll(() =>
-          Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
-            Effect.zipRight(Effect.never),
-          ),
-        ),
+  environment.delivery.queueLocalItem(item).pipe(
+    Effect.catchAll(() =>
+      Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
+        Effect.zipRight(Effect.never),
       ),
-    ),
-    Effect.tap((deliveryToken) =>
-      Effect.sync(() => {
-        environment.state.localItems.set(deliveryToken, item);
-      }),
     ),
     Effect.zipRight(Effect.forkIn(reconciler, environment.daemonScope)),
     Effect.asVoid,

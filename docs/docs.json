@@ -45,8 +45,8 @@
           {
             "group": "Modules",
             "pages": [
+              "modules/client/delivery",
               "modules/client/endpoint/harness-endpoint",
-              "modules/client/service",
               "modules/client/src",
               "modules/client/transport/collectives",
               "modules/client/transport/messaging",

@@ -9,7 +9,7 @@ import { Deferred, Effect, Fiber, Queue, Schema, type Scope } from "effect";
 import type {
   EndpointRecovery,
   StoredOutboundMessage,
-} from "../../history/index.js";
+} from "../../../store/index.js";
 import type { EngineRuntime } from "../types.js";
 import {
   type RouterIngressDisposition,
@@ -59,7 +59,7 @@ import {
   acceptCompletedReanchor,
   acceptReanchorVote,
   positionReady,
-} from "./reanchor/index.js";
+} from "./reanchor.js";
 import {
   type ActiveRecoveryState,
   clearRecoveryState,

@@ -4,8 +4,8 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Deferred, Effect, Fiber, Schema, Scope } from "effect";
 import { describe, expect, it } from "vitest";
+import { openEndpointStore } from "../store/index.js";
 import { CollectiveId, SendInput } from "../transport/collectives/forms.js";
-import { openEndpointStore } from "../transport/history/index.js";
 import { SendError } from "../transport/messaging/errors.js";
 import { makeSendInvocations } from "./send-invocations.js";
 

@@ -3,17 +3,18 @@
 import { Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { InboundMessage } from "../../transport/messaging/message.js";
-import { SendInput } from "../../transport/collectives/forms.js";
-import { DeliveryToken } from "../../transport/history/index.js";
+import {
+  decodeHarnessAcknowledgeDeliveryRequest,
+  decodeHarnessMessageReadyEvent,
+  decodeHarnessSendErrorData,
+} from "../../delivery/operations.js";
+import { DeliveryToken } from "../../store/index.js";
+import { CollectiveId, SendInput } from "../../transport/collectives/forms.js";
 import {
   AgentAddress,
   GroupAddress,
 } from "../../transport/messaging/address.js";
 import { Content, PostId } from "../../transport/wire/index.js";
-import {
-  decodeHarnessAcknowledgeDeliveryRequest,
-  decodeHarnessMessageReadyEvent,
-} from "./schemas.js";
 
 const exact = { exact: true, onExcessProperty: "error" } as const;
 const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
@@ -30,6 +31,10 @@ const postId = Schema.decodeUnknownSync(PostId)(`pst_${"A".repeat(43)}`);
 const content = Schema.decodeUnknownSync(Content)([
   { type: "text", text: "meeting invite sent" },
 ]);
+
+const collectiveId = Schema.decodeUnknownSync(CollectiveId)(
+  `col_${"A".repeat(43)}`,
+);
 
 function decodesExactOperationRequests(): void {
   const operation = {
@@ -78,6 +83,32 @@ function decodesCanonicalDirectDelivery(): void {
       ),
     ),
   ).toBe(true);
+}
+
+function decodesUnreachableMembersBySendReason(): void {
+  for (const reason of ["unknown-agent", "network-unavailable"]) {
+    expect(
+      Effect.runSync(decodeHarnessSendErrorData(unreachableFailure(reason))),
+    ).toEqual(unreachableFailure(reason));
+  }
+  expect(
+    Exit.isFailure(
+      Effect.runSyncExit(
+        decodeHarnessSendErrorData(unreachableFailure("transport-failed")),
+      ),
+    ),
+  ).toBe(true);
+}
+
+function unreachableFailure(reason: string) {
+  return {
+    reason: "collective-failed",
+    id: collectiveId,
+    failure: {
+      kind: "members-unreachable",
+      members: [{ member: peerAddress, reason }],
+    },
+  };
 }
 
 function rejectsAnUntaggedMessage(): void {
@@ -179,5 +210,10 @@ describe("Harness MCP operation representation", () => {
   });
   it("rejects deliveries whose address, members, and sender disagree", () => {
     rejectsInconsistentDeliveryIdentity();
+  });
+  // A refused collective names each unreachable member with a send failure
+  // reason; a reason outside that vocabulary must not decode.
+  it("decodes unreachable members only with a send failure reason", () => {
+    decodesUnreachableMembersBySendReason();
   });
 });

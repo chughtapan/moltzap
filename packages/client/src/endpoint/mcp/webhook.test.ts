@@ -20,21 +20,22 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readRuntimeEvent } from "../../service/inbox/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
+import { readRuntimeEvent } from "../../delivery/inbox.js";
+import { eventIdOf } from "../../delivery/operations.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,
   type EndpointStore,
   openEndpointStore,
-} from "../../transport/history/index.js";
+} from "../../store/index.js";
+import { InboundItem } from "../../transport/collectives/inbound.js";
 import { maximumEventBytes } from "./event-schemas.js";
 import {
   isPublicWebhookAddress,
   sendWebhook,
   webhookHttpClientLayer,
 } from "./event-signing.js";
-import { eventIdOf, INBOX_ITEM_EVENT } from "./schemas.js";
+import { INBOX_ITEM_EVENT } from "./schemas.js";
 import { makeWebhookEvents } from "./webhook.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals, sonarjs/no-hardcoded-ip -- Protocol codes and deliberately unsafe IP fixtures pin the callback trust boundary. */

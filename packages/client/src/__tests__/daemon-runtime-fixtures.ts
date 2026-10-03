@@ -22,7 +22,7 @@ import {
 import type { DaemonBootstrap } from "../service/configuration.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
 import { managementRegisterRequestSchema } from "../endpoint/mcp/owner-tools.js";
-import { DeliveryToken } from "../transport/history/index.js";
+import { DeliveryToken } from "../store/index.js";
 import { InboundMessage } from "../transport/messaging/message.js";
 import { encodeCanonical, RecordHash } from "../transport/wire/index.js";
 

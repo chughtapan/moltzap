@@ -13,7 +13,7 @@ export {
 // safer-arch-ignore no-public-vendor-type-leak: URL is the platform-standard endpoint locator required by the public acquisition contract.
 export { acquireHarnessEndpoint } from "./endpoint/harness-endpoint/index.js";
 /** One line of the daemon's optional history export. */
-export { HistoryExportRecord } from "./service/history-export.js";
+export { HistoryExportRecord } from "./delivery/history-export.js";
 /** Send input and the closed error of a refused collective send. */
 export {
   CollectiveError,

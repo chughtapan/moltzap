@@ -1,12 +1,10 @@
-/** @file Append-only export of what one daemon delivered and sent. */
+/** @file The record of endpoint traffic: what the daemon delivered to its host and what the host sent. */
 
 import { FileSystem } from "@effect/platform";
 import { DateTime, Effect, Schema } from "effect";
 import { CollectiveId, SendInput } from "../transport/collectives/forms.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
 import { exactStruct, PostId } from "../transport/wire/index.js";
-
-// safer-arch-ignore no-trivial-sink-file: The export writer is one replaceable process edge, kept beside the runtime that installs it rather than inside it so lifecycle composition stays free of file handling.
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the nominal values they decode. */
 

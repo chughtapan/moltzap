@@ -4,7 +4,7 @@ import { NodeHttpClient } from "@effect/platform-node";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Data, Duration, Effect, Layer } from "effect";
-import { openEndpointStore } from "../transport/history/index.js";
+import { openEndpointStore } from "../store/index.js";
 import {
   type DaemonConfigurationError,
   loadDaemonBootstrap,

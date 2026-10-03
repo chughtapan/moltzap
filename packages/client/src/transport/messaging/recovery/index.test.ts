@@ -42,7 +42,7 @@ import type {
   EngineRegistryPort,
   EngineRouterPort,
 } from "../types.js";
-import { type EndpointStore, openEndpointStore } from "../../history/index.js";
+import { type EndpointStore, openEndpointStore } from "../../../store/index.js";
 import {
   type RouterDiscontinuityReason,
   RouterWorkerDiscontinuityError,

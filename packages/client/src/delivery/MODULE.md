@@ -1,14 +1,14 @@
-# client/service
+# client/delivery
 
-_`packages/client/src/service`_
+_`packages/client/src/delivery`_
 
 ## Purpose
 
-Production composition for one explicitly configured endpoint daemon.
+One service's delivery and the pass that classifies and publishes pending items, for the service to compose.
 
 ## Public surface
 
-### [`HistoryExportRecord`](./history-export.ts#L52)
+### [`HistoryExportRecord`](./history-export.ts#L50)
 
 _TypeAlias_
 
@@ -18,7 +18,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord`](./history-export.ts#L33)
+### [`HistoryExportRecord`](./history-export.ts#L31)
 
 _Variable_
 

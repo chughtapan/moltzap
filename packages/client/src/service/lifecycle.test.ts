@@ -11,22 +11,19 @@ import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { type Context, Deferred, Effect, Fiber, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import type { HistoryExportRecord } from "./history-export.js";
+import type { HistoryExportRecord } from "../delivery/history-export.js";
+import type { EventStore } from "../delivery/operations.js";
 import {
   digest,
   type Fixture,
   makeFixture,
 } from "../__tests__/daemon-runtime-fixtures.js";
-import {
-  type EventStore,
-  INBOX_PENDING_EVENT,
-} from "../endpoint/mcp/schemas.js";
+import { INBOX_PENDING_EVENT } from "../endpoint/mcp/schemas.js";
 import {
   type HarnessMcpEventHandler,
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
 } from "../endpoint/mcp/tools.js";
-import { InboundItem } from "../transport/collectives/inbound.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,
@@ -34,7 +31,8 @@ import {
   type EndpointStore,
   EndpointStoreError,
   type IdentityBinding,
-} from "../transport/history/index.js";
+} from "../store/index.js";
+import { InboundItem } from "../transport/collectives/inbound.js";
 import { DeliveryAcknowledgeError } from "../transport/messaging/errors.js";
 import {
   type EndpointEngine,

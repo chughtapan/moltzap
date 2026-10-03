@@ -2,15 +2,15 @@
 
 import { Effect, Encoding, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import type { HarnessMessageReadyEvent } from "../endpoint/mcp/schemas.js";
 import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type { HistoryExportRecord } from "./history-export.js";
+import type { HarnessMessageReadyEvent } from "./operations.js";
+import { DeliveryToken } from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
-import { DeliveryToken } from "../transport/history/index.js";
 import { DeliveryAcknowledgeError } from "../transport/messaging/errors.js";
 import { InboundMessage } from "../transport/messaging/message.js";
 import { RecordHash } from "../transport/wire/index.js";
-import { offerPendingMessages, type PendingOffer } from "./delivery.js";
+import { offerPendingMessages, type PendingOffer } from "./pass.js";
 
 interface Observed {
   readonly published: HarnessMessageReadyEvent[];

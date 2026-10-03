@@ -7,7 +7,7 @@ import type {
   EndpointStoreError,
   OutboundMessageInput,
   PostIntent as StoredPostIntent,
-} from "../history/index.js";
+} from "../../store/index.js";
 import type { RouterWorkerUnavailableError } from "../router/index.js";
 import type {
   EngineConversation,

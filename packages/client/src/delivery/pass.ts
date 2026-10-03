@@ -6,15 +6,15 @@
  */
 
 import { DateTime, Effect, Option } from "effect";
-import type { HarnessMessageReadyEvent } from "../endpoint/mcp/index.js";
+import type { DeliveryToken } from "../store/index.js";
 import type { InboundItem } from "../transport/collectives/inbound.js";
 import type { CollectiveOperations } from "../transport/collectives/index.js";
-import type { DeliveryToken } from "../transport/history/index.js";
 import type {
   EndpointEngine,
   EnginePendingMessage,
 } from "../transport/messaging/index.js";
 import type { HistoryExportPort } from "./history-export.js";
+import type { HarnessMessageReadyEvent } from "./operations.js";
 
 /** The subscriber's publish edge; false means it refused the event. */
 interface Subscriber {

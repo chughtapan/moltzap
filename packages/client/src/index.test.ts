@@ -73,6 +73,24 @@ describe("public post identifiers", () => {
 
     expect(Schema.decodeUnknownSync(PostId)(postId)).toBe(postId);
   });
+
+  // A PostId is `pst_` plus the canonical base64url of exactly 32 bytes, so
+  // each case breaks one of the prefix, the length, or the round trip.
+  it("rejects post identifiers that are not canonical 32-byte hashes", () => {
+    const hash = (byteLength: number) =>
+      Encoding.encodeBase64Url(new Uint8Array(byteLength).fill(7));
+    const canonical = hash(32);
+
+    for (const candidate of [
+      `cnv_${canonical}`,
+      `pst_${hash(31)}`,
+      `pst_${hash(33)}`,
+      `pst_${canonical.slice(0, -1)}d`,
+      `pst_${canonical}=`,
+    ]) {
+      expect(decodingFails(PostId, candidate)).toBe(true);
+    }
+  });
 });
 
 // @agent-code-guard/regression-only: Content schemas pin the exact semantic boundary and canonical byte cap.

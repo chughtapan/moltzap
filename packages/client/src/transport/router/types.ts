@@ -18,7 +18,7 @@ import {
   Schedule,
   type SubscriptionRef,
 } from "effect";
-import type { EndpointStore } from "../history/index.js";
+import type { EndpointStore } from "../../store/index.js";
 import type { DecodedOuterBody } from "../wire/index.js";
 
 /** An outer sender card could not be resolved, pinned, or authenticated. */

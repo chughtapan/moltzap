@@ -8,19 +8,19 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
 import {
-  collectiveIdOf,
-  makeCollectiveOperations,
-} from "../../transport/collectives/index.js";
-import {
   type CertifiedRecord,
   decodeRuntimeValue,
   type EndpointRecovery,
   openEndpointStore,
-} from "../../transport/history/index.js";
-import { AgentAddress } from "../../transport/messaging/address.js";
-import { InboundMessage } from "../../transport/messaging/message.js";
-import { PostId, RecordHash } from "../../transport/wire/index.js";
-import { readRuntimeInbox, recoverRuntimeInbox } from "./index.js";
+} from "../store/index.js";
+import {
+  collectiveIdOf,
+  makeCollectiveOperations,
+} from "../transport/collectives/index.js";
+import { AgentAddress } from "../transport/messaging/address.js";
+import { InboundMessage } from "../transport/messaging/message.js";
+import { PostId, RecordHash } from "../transport/wire/index.js";
+import { readRuntimeInbox, recoverRuntimeInbox } from "./inbox.js";
 
 const bytes = (value: string) => new TextEncoder().encode(value);
 const digest = (prefix: string, byte: number) =>

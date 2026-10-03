@@ -99,17 +99,17 @@
       "exports",
       "types"
     ],
-    "packages/client/src/transport/history/index.ts": [
+    "packages/client/src/store/index.ts": [
       "types"
     ],
-    "packages/client/src/transport/history/database/index.ts": [
+    "packages/client/src/store/database/index.ts": [
       "exports",
       "types"
     ],
-    "packages/client/src/transport/history/database/schema.ts": [
+    "packages/client/src/store/database/schema.ts": [
       "types"
     ],
-    "packages/client/src/transport/history/rows/index.ts": [
+    "packages/client/src/store/rows/index.ts": [
       "exports"
     ],
     "packages/client/src/endpoint/mcp/owner-tools.ts": [

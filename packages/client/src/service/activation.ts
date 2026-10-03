@@ -8,14 +8,12 @@ import {
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import { Data, Deferred, Effect, type Scope } from "effect";
+import type { HistoryExportPort } from "../delivery/history-export.js";
 import type {
   HarnessMcpEventHandler,
   makeHarnessMcpHttpHandler,
 } from "../endpoint/mcp/index.js";
-import type {
-  EndpointStore,
-  StoredMembership,
-} from "../transport/history/index.js";
+import type { EndpointStore, StoredMembership } from "../store/index.js";
 import type {
   EndpointEngine,
   EndpointEngineInput,
@@ -28,7 +26,6 @@ import type {
   RouterWorkerTransportError,
 } from "../transport/router/index.js";
 import type { DaemonBootstrap } from "./configuration.js";
-import type { HistoryExportPort } from "./history-export.js";
 import {
   decodeCanonical,
   encodeCanonical,

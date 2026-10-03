@@ -23,11 +23,22 @@ import {
   Scope,
 } from "effect";
 import type { CollectiveError } from "../../transport/collectives/forms.js";
-import type {
-  DeliveryToken,
-  InboxSummary,
-} from "../../transport/history/index.js";
 import type { SendError } from "../../transport/messaging/errors.js";
+import {
+  decodeHarnessReadSendRequest,
+  type DeliveryOperations,
+  type EventStore,
+  type HarnessAcknowledgeDeliveryRequest,
+  type HarnessReadInboxRequest,
+  type HarnessReadInboxResult,
+  type HarnessReadSendRequest,
+  type HarnessReadSendResult,
+  type HarnessSendArguments,
+  type HarnessSendErrorData,
+  type HarnessSendResult,
+  readEventRequestSchema,
+  readEventResultSchema,
+} from "../../delivery/operations.js";
 import {
   authenticateHarnessRequest,
   type HarnessMcpCredentials,
@@ -63,35 +74,22 @@ import {
   managementStatusResultSchema,
 } from "./owner-tools.js";
 import {
-  decodeHarnessReadSendRequest,
   decodeHarnessSendCall,
-  type EventStore,
   HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
   HARNESS_READ_EVENT_TOOL,
   HARNESS_READ_INBOX_TOOL,
   HARNESS_READ_SEND_TOOL,
   HARNESS_SEND_TOOL,
-  type HarnessAcknowledgeDeliveryRequest,
   harnessAcknowledgeDeliveryRequestJsonSchema,
   type HarnessEmptyResult,
   harnessEmptyResultJsonSchema,
   harnessFailureReasons,
-  type HarnessReadInboxRequest,
   harnessReadInboxRequestJsonSchema,
-  type HarnessReadInboxResult,
   harnessReadInboxResultJsonSchema,
-  type HarnessReadSendRequest,
   harnessReadSendRequestJsonSchema,
-  type HarnessReadSendResult,
   harnessReadSendResultJsonSchema,
-  type HarnessSendArguments,
   harnessSendArgumentsJsonSchema,
-  type HarnessSendErrorData,
-  type HarnessSendRequest,
-  type HarnessSendResult,
   harnessSendResultJsonSchema,
-  readEventRequestSchema,
-  readEventResultSchema,
 } from "./schemas.js";
 
 /* eslint-disable agent-code-guard/async-keyword -- Official MCP factories and callbacks are Promise-native. */
@@ -105,20 +103,7 @@ const READ_CONVERSATION_TOOL = "read_conversation";
 type ClosedOperationError = Readonly<{ readonly reason: string }>;
 
 /** Structural daemon operations projected onto the loopback MCP boundary. */
-export interface HarnessMcpOperations {
-  readonly readEvent: (
-    input: typeof readEventRequestSchema.Type,
-  ) => Effect.Effect<typeof readEventResultSchema.Type, ClosedOperationError>;
-  readonly readInboxSummary: () => Effect.Effect<
-    InboxSummary,
-    ClosedOperationError
-  >;
-  readonly readInbox: (
-    input: HarnessReadInboxRequest,
-  ) => Effect.Effect<HarnessReadInboxResult, ClosedOperationError>;
-  readonly readSend: (
-    input: HarnessReadSendRequest,
-  ) => Effect.Effect<HarnessReadSendResult, ClosedOperationError>;
+export interface HarnessMcpOperations extends DeliveryOperations {
   readonly readStatus: () => Effect.Effect<
     ManagementStatusResult,
     ClosedOperationError
@@ -135,12 +120,6 @@ export interface HarnessMcpOperations {
   readonly readConversation: (
     input: ManagementReadConversationRequest,
   ) => Effect.Effect<ManagementReadConversationResult, ClosedOperationError>;
-  readonly send: (
-    request: HarnessSendRequest,
-  ) => Effect.Effect<HarnessSendResult, SendError | CollectiveError>;
-  readonly acknowledgeDelivery: (
-    deliveryToken: DeliveryToken,
-  ) => Effect.Effect<void, ClosedOperationError>;
 }
 
 /** Official handler with one content-free daemon notification edge. */

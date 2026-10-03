@@ -52,7 +52,7 @@ import type {
 } from "./types.js";
 import { advanceClock } from "../../__tests__/advance-clock.js";
 import { failFromBackgroundCause } from "../../service/supervision.js";
-import { type EndpointStore, openEndpointStore } from "../history/index.js";
+import { type EndpointStore, openEndpointStore } from "../../store/index.js";
 import {
   type RouterIngressDisposition,
   type RouterTailAnchor,

@@ -44,11 +44,17 @@ export class ListenError extends Data.TaggedError("ListenError")<{
   }
 }
 
-type DeliveryAcknowledgeFailure =
-  | "unknown-delivery"
-  | "delivery-conflict"
-  | "persistence-failed"
-  | "transport-failed";
+/** Every reason one delivery acknowledgment can fail, in a fixed order. */
+export const deliveryAcknowledgeFailureReasons = [
+  "unknown-delivery",
+  "delivery-conflict",
+  "persistence-failed",
+  "transport-failed",
+] as const;
+
+/** Why one delivery acknowledgment failed. */
+export type DeliveryAcknowledgeFailure =
+  (typeof deliveryAcknowledgeFailureReasons)[number];
 
 /** Transport acknowledgment could not complete for one delivery. */
 export class DeliveryAcknowledgeError extends Data.TaggedError(

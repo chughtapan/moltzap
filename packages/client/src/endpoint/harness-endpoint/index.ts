@@ -8,22 +8,25 @@ import {
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { Data, Effect, Ref, type Scope, Stream } from "effect";
-import type { DeliveryToken } from "../../transport/history/index.js";
+import type { DeliveryToken } from "../../store/index.js";
+import {
+  decodeHarnessReadInboxResult,
+  decodeHarnessSendErrorData,
+  decodeHarnessSendResult,
+} from "../../delivery/operations.js";
 import {
   CollectiveError,
   type SendResult,
 } from "../../transport/collectives/forms.js";
 import {
   DeliveryAcknowledgeError,
+  deliveryAcknowledgeFailureReasons,
   ListenError,
   SendError,
   sendFailureReasons,
 } from "../../transport/messaging/errors.js";
 import { packageVersion } from "../implementation.js";
 import {
-  decodeHarnessReadInboxResult,
-  decodeHarnessSendErrorData,
-  decodeHarnessSendResult,
   HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
   HARNESS_READ_INBOX_TOOL,
   HARNESS_SEND_META_KEY,
@@ -46,12 +49,6 @@ const CLIENT_IMPLEMENTATION = {
 } as const;
 class CloseError extends Data.TaggedError("CloseError") {}
 
-const acknowledgeReasons: ReadonlyArray<DeliveryAcknowledgeError["reason"]> = [
-  "unknown-delivery",
-  "delivery-conflict",
-  "persistence-failed",
-  "transport-failed",
-];
 /**
  * Acquire one real MCP-backed endpoint and its scoped connection.
  * @param endpoint Loopback MCP URL for the configured endpoint daemon.
@@ -106,7 +103,9 @@ function sendFailure(cause: unknown): SendError | CollectiveError {
 
 function acknowledgeReason(cause: unknown): DeliveryAcknowledgeError["reason"] {
   const reason = operationReason(cause);
-  return isReason(reason, acknowledgeReasons) ? reason : "transport-failed";
+  return isReason(reason, deliveryAcknowledgeFailureReasons)
+    ? reason
+    : "transport-failed";
 }
 
 function operationReason(cause: unknown): unknown {

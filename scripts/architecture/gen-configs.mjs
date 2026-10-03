@@ -64,11 +64,18 @@ const clientDomains = [
       "Canonical protocol encoding, verification, and the message values every layer encodes",
   },
   {
-    name: "history",
-    root: "transport/history",
-    entrypoints: ["index.ts", "types.ts"],
+    name: "store",
+    root: "store",
+    entrypoints: [
+      "index.ts",
+      {
+        file: "types.ts",
+        reason:
+          "Store value schemas hosts read without loading the SQLite store",
+      },
+    ],
     reason:
-      "Certified local history, outbox, deliveries, and inbox in one SQLite replica",
+      "The one SQLite replica: certified history, outbox, deliveries, and the host inbox and send records as opaque bytes",
   },
   {
     name: "router",
@@ -79,16 +86,66 @@ const clientDomains = [
   {
     name: "messaging",
     root: "transport/messaging",
-    entrypoints: ["index.ts", "address.ts", "errors.ts", "message.ts"],
-    reason:
-      "Addressed send, GENESIS and POST certification, and recovery; schema files are separate entrypoints so hosts never load the engine",
+    entrypoints: [
+      "index.ts",
+      {
+        file: "address.ts",
+        reason:
+          "Address schemas and Registry resolution, read without loading the engine",
+      },
+      {
+        file: "errors.ts",
+        reason:
+          "Closed send, listen, and acknowledgment errors, read without loading the engine",
+      },
+      {
+        file: "message.ts",
+        reason: "Inbound message schemas, read without loading the engine",
+      },
+    ],
+    reason: "Addressed send, GENESIS and POST certification, and recovery",
   },
   {
     name: "collectives",
     root: "transport/collectives",
-    entrypoints: ["index.ts", "forms.ts", "inbound.ts", "message-text.ts"],
+    entrypoints: [
+      "index.ts",
+      {
+        file: "forms.ts",
+        reason:
+          "Send forms and collective errors, read without loading the operation layer",
+      },
+      {
+        file: "inbound.ts",
+        reason:
+          "Inbound item schemas, read without loading the operation layer",
+      },
+      {
+        file: "message-text.ts",
+        reason:
+          "The message-text parser native hosts call, without loading the operation layer",
+      },
+    ],
+    reason: "Gather and all_gather carried in posts",
+  },
+  {
+    name: "delivery",
+    root: "delivery",
+    entrypoints: [
+      "index.ts",
+      {
+        file: "operations.ts",
+        reason:
+          "The values harness operations take and return, decoded by hosts without loading the inbox or the store",
+      },
+      {
+        file: "history-export.ts",
+        reason:
+          "The history export line schema hosts decode, without loading the inbox or the store",
+      },
+    ],
     reason:
-      "Gather and all_gather carried in posts; schema files are separate entrypoints so hosts never load the operation layer",
+      "The host inbox, send invocations, the delivery pass, the history export, and the operations hosts call on them",
   },
   {
     name: "endpoint",
@@ -96,7 +153,10 @@ const clientDomains = [
     entrypoints: [
       "mcp/index.ts",
       "harness-endpoint/index.ts",
-      "implementation.ts",
+      {
+        file: "implementation.ts",
+        reason: "The package version both loopback MCP peers report",
+      },
     ],
     reason:
       "The loopback MCP, owner tools, and the HarnessEndpoint hosts connect to",
@@ -104,7 +164,7 @@ const clientDomains = [
   {
     name: "service",
     root: "service",
-    entrypoints: ["index.ts", "history-export.ts"],
+    entrypoints: ["index.ts"],
     reason:
       "The always-on process: configuration, registration, supervision, and wiring",
   },
@@ -112,16 +172,12 @@ const clientDomains = [
 
 /**
  * A domain's non-index entrypoints are deliberate boundaries, so declaring
- * one as an entrypoint also declares it a facade.
+ * one with its reason also declares it a facade.
  */
-const clientEntrypointFacades = clientDomains.flatMap(
-  ({ name, root, entrypoints }) =>
-    entrypoints
-      .filter((file) => !file.endsWith("index.ts"))
-      .map((file) => ({
-        file: `${root}/${file}`,
-        reason: `Schema entrypoint of the ${name} domain, imported without loading the domain's runtime`,
-      })),
+const clientEntrypointFacades = clientDomains.flatMap(({ root, entrypoints }) =>
+  entrypoints
+    .filter((entry) => typeof entry !== "string")
+    .map(({ file, reason }) => ({ file: `${root}/${file}`, reason })),
 );
 
 const packageDefinitions = {
@@ -144,7 +200,7 @@ const packageDefinitions = {
         {
           file: "endpoint/mcp/schemas.ts",
           reason:
-            "Private closed MCP schemas shared by daemon projection, loopback client decoding, and protocol-boundary tests",
+            "MCP tool names, Events constants, and JSON Schema projections shared by the tool catalog, the Events and webhook transports, and the HarnessEndpoint client",
         },
         {
           file: "service/registration.ts",
@@ -192,17 +248,17 @@ const packageDefinitions = {
             "Volatile catch-up and re-anchor coordination shared only by the recovery facade and its re-anchor implementation",
         },
         {
-          file: "transport/history/deliveries.ts",
+          file: "store/deliveries.ts",
           reason:
             "Pending-delivery SQL capability shared by record promotion, management recovery reads, and endpoint-store operations",
         },
         {
-          file: "transport/history/dissemination.ts",
+          file: "store/dissemination.ts",
           reason:
             "Dissemination-obligation SQL capability shared by record promotion, recovery reads, and atomic outbox enqueue",
         },
         {
-          file: "transport/history/outbound.ts",
+          file: "store/outbound.ts",
           reason:
             "Durable outbox SQL capability shared by endpoint-store operations, recovery reads, and dissemination transactions",
         },
@@ -226,7 +282,10 @@ const packageDefinitions = {
       domains: clientDomains.map(({ name, root, entrypoints, reason }) => ({
         name,
         roots: [`src/${root}`],
-        entrypoints: entrypoints.map((file) => `src/${root}/${file}`),
+        entrypoints: entrypoints.map(
+          (entry) =>
+            `src/${root}/${typeof entry === "string" ? entry : entry.file}`,
+        ),
         reason,
       })),
       layers: clientDomains.toReversed().map(({ name, root, reason }) => ({

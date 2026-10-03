@@ -25,24 +25,23 @@ import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { describe, expect, it } from "vitest";
 import type { HarnessEndpoint } from "../harness-endpoint/capability.js";
 import { makeFixture } from "../../__tests__/router-worker-fixtures.js";
-import { readRuntimeEvent } from "../../service/inbox/index.js";
-import { makeSendInvocations } from "../../service/send-invocations.js";
-import { CollectiveId, SendInput } from "../../transport/collectives/forms.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
+import { readRuntimeEvent } from "../../delivery/inbox.js";
+import {
+  eventIdOf,
+  type HarnessSendRequest,
+} from "../../delivery/operations.js";
+import { makeSendInvocations } from "../../delivery/send-invocations.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,
   openEndpointStore,
-} from "../../transport/history/index.js";
+} from "../../store/index.js";
+import { CollectiveId, SendInput } from "../../transport/collectives/forms.js";
+import { InboundItem } from "../../transport/collectives/inbound.js";
 import { ListenError, SendError } from "../../transport/messaging/errors.js";
 import { acquireHarnessEndpoint } from "../harness-endpoint/index.js";
 import { acquireHarnessMcpHttpServer } from "./http.js";
-import {
-  eventIdOf,
-  HARNESS_SEND_META_KEY,
-  type HarnessSendRequest,
-  INBOX_PENDING_EVENT,
-} from "./schemas.js";
+import { HARNESS_SEND_META_KEY, INBOX_PENDING_EVENT } from "./schemas.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,

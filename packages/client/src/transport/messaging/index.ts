@@ -11,7 +11,7 @@ import {
   type Scope,
   SubscriptionRef,
 } from "effect";
-import type { DeliveryToken, EndpointStoreError } from "../history/index.js";
+import type { DeliveryToken, EndpointStoreError } from "../../store/index.js";
 import {
   describeRouterWorkerFailure,
   isTransientRouterWorkerError,

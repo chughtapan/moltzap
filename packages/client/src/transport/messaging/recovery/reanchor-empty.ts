@@ -6,9 +6,9 @@ import type {
   ConversationFoundation,
   EndpointRecovery,
   PostIntent as StoredPostIntent,
-} from "../../../history/index.js";
-import type { EngineRuntime } from "../../types.js";
-import { RouterWorkerPersistenceError } from "../../../router/index.js";
+} from "../../../store/index.js";
+import type { EngineRuntime } from "../types.js";
+import { RouterWorkerPersistenceError } from "../../router/index.js";
 import {
   type ConversationId as ConversationIdValue,
   encodeCanonical,
@@ -16,11 +16,11 @@ import {
   type GenesisAnchorBody as GenesisAnchorBodyValue,
   hashAnchor,
   type VerifiedMembership,
-} from "../../../wire/index.js";
+} from "../../wire/index.js";
 import {
   type ActiveRecoveryState,
   markConversationRecovered,
-} from "../state.js";
+} from "./state.js";
 
 interface EmptyPositionRestartInput {
   readonly runtime: EngineRuntime;

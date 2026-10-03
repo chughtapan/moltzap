@@ -41,7 +41,7 @@ import {
   type EndpointRecovery,
   type EndpointStore,
   EndpointStoreError,
-} from "../transport/history/index.js";
+} from "../store/index.js";
 import {
   compareAgentIds,
   deriveConversationId,

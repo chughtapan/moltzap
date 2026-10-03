@@ -1,19 +1,19 @@
 ---
-title: "client/service"
-description: "Production composition for one explicitly configured endpoint daemon."
+title: "client/delivery"
+description: "One service's delivery and the pass that classifies and publishes pending items, for the service to compose."
 ---
 
-# client/service
+# client/delivery
 
-_`packages/client/src/service`_
+_`packages/client/src/delivery`_
 
 ## Purpose
 
-Production composition for one explicitly configured endpoint daemon.
+One service's delivery and the pass that classifies and publishes pending items, for the service to compose.
 
 ## Public surface
 
-### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/history-export.ts#L52)
+### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/history-export.ts#L50)
 
 _TypeAlias_
 
@@ -23,7 +23,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/service/history-export.ts#L33)
+### [`HistoryExportRecord`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/delivery/history-export.ts#L31)
 
 _Variable_
 

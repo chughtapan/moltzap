@@ -5,7 +5,7 @@ import { Effect, type ParseResult, Schema } from "effect";
 import type {
   EndpointRecovery,
   ProtocolEvidence,
-} from "../../history/index.js";
+} from "../../../store/index.js";
 import type { EngineActionFold } from "../types.js";
 import { RouterWorkerPersistenceError } from "../../router/index.js";
 import {

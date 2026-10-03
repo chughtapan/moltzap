@@ -8,7 +8,7 @@ import {
 } from "@modelcontextprotocol/server";
 import { Cause, Deferred, Effect, Exit, Option, Queue, Scope } from "effect";
 import { randomUUID } from "node:crypto";
-import type { InboxSummary } from "../../transport/history/index.js";
+import type { InboxSummary } from "../../store/index.js";
 import {
   eventListInput,
   type EventStreamInput,
