@@ -89,8 +89,8 @@ export const readSendRequestSchema = exactStruct({
 });
 
 /**
- * The JSON-RPC error data of a refused `send_message`: a `SendError` reason,
- * or a refused collective send with its id and the failure naming each
+ * The JSON-RPC error data of a refused `send_message`: a `SendError` reason
+ * with the detail naming its specific cause, or a refused collective send with its id and the failure naming each
  * unreachable member or failing field, which `decodeCollectiveFailure`
  * validates.
  */
@@ -100,7 +100,10 @@ const harnessSendErrorDataSchema = Schema.Union(
     id: CollectiveId,
     failure: Schema.Unknown,
   }),
-  exactStruct({ reason: Schema.String }),
+  exactStruct({
+    reason: Schema.String,
+    detail: Schema.optionalWith(Schema.String, { exact: true }),
+  }),
 );
 
 /** Exact retained result of one invocation; failure is not proof of no post. */
@@ -170,7 +173,7 @@ export type HarnessSendRequest = typeof harnessSendRequestSchema.Type;
 
 /** Decoded error data of one refused `send_message` call. */
 export type HarnessSendErrorData =
-  | Readonly<{ reason: string }>
+  | Readonly<{ reason: string; detail?: string }>
   | Readonly<{
       reason: "collective-failed";
       id: CollectiveId;
@@ -178,6 +181,30 @@ export type HarnessSendErrorData =
         ReturnType<typeof decodeCollectiveFailure>
       >;
     }>;
+
+/**
+ * The error data a refused send carries across the daemon boundary and into
+ * its durable invocation record: a collective failure keeps its id and the
+ * members or fields it names, and a send failure keeps the detail naming its
+ * cause, so the receiving side rebuilds the same typed error and message.
+ * @param error The refused send's typed error.
+ * @returns The JSON error data.
+ */
+export function sendErrorData(
+  error: SendError | CollectiveError,
+): HarnessSendErrorData {
+  if (error._tag === "CollectiveError") {
+    return {
+      reason: "collective-failed",
+      id: error.id,
+      failure: error.failure,
+    };
+  }
+  if (error.detail === undefined) {
+    return { reason: error.reason };
+  }
+  return { reason: error.reason, detail: error.detail };
+}
 
 /** Decoded result of one `send_message` operation. */
 export type HarnessSendResult = typeof harnessSendResultSchema.Type;

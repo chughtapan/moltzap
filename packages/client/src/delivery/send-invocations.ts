@@ -25,6 +25,7 @@ import {
   type HarnessReadSendResult,
   type HarnessSendOutcome,
   type HarnessSendRequest,
+  sendErrorData,
 } from "./operations.js";
 
 type SendFailure = SendError | CollectiveError;
@@ -36,10 +37,7 @@ const storedInputSchema = Schema.Struct({
 
 const errorOutcome = (error: SendFailure): HarnessSendOutcome => ({
   kind: "failure",
-  error:
-    error._tag === "CollectiveError"
-      ? { reason: "collective-failed", id: error.id, failure: error.failure }
-      : { reason: error.reason },
+  error: sendErrorData(error),
 });
 
 const isSendReason = (reason: string): reason is SendError["reason"] =>
@@ -66,6 +64,7 @@ const storedError = (value: unknown): Effect.Effect<never, SendFailure> =>
                 reason: isSendReason(error.reason)
                   ? error.reason
                   : "outcome-unknown",
+                ...(error.detail === undefined ? {} : { detail: error.detail }),
               }),
         ),
     ),

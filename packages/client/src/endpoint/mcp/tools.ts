@@ -38,6 +38,7 @@ import {
   type HarnessSendResult,
   readEventRequestSchema,
   readEventResultSchema,
+  sendErrorData,
 } from "../../delivery/operations.js";
 import {
   authenticateHarnessRequest,
@@ -305,30 +306,6 @@ const runOperation = async <Value extends Readonly<Record<string, unknown>>>(
     );
   }
   return toolResult(outcome.value);
-};
-
-/**
- * The error data a refused send carries: a collective failure keeps its id
- * and the members or fields it names, so the loopback client rebuilds the
- * same typed error the daemon raised.
- */
-const sendErrorData = (
-  error: SendError | CollectiveError,
-): HarnessSendErrorData => {
-  switch (error._tag) {
-    case "SendError":
-      return { reason: error.reason };
-    case "CollectiveError":
-      return {
-        reason: "collective-failed",
-        id: error.id,
-        failure: error.failure,
-      };
-    default: {
-      const exhaustive: never = error;
-      return exhaustive;
-    }
-  }
 };
 
 // #ignore-sloppy-code-next-line[async-keyword]: MCP tool handlers are Promise callbacks, so this edge awaits Effect before returning the SDK result.

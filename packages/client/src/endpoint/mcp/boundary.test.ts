@@ -395,6 +395,29 @@ const distinguishesSendValidationFailures = () =>
     ),
   );
 
+const carriesARefusalDetailAcrossTheDaemonBoundary = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
+        const refusal = new SendError({
+          reason: "unknown-agent",
+          detail: "agent:dana is not a known agent",
+        });
+        const endpoint = yield* acquireSendEndpoint({
+          ...operations,
+          readStatus: () => Effect.succeed({ kind: "active", agentCard }),
+          send: () => Effect.fail(refusal),
+        });
+
+        const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
+
+        expect(error.message).toBe(refusal.message);
+      }),
+    ),
+  );
+
 function acquireSendEndpoint(
   selected: Pick<HarnessMcpOperations, "readStatus" | "send" | "readSend">,
 ) {
@@ -707,6 +730,10 @@ describe("Harness MCP HTTP boundary", () => {
   it(
     "keeps dispatch and invalid output distinct from rejected send input",
     distinguishesSendValidationFailures,
+  );
+  it(
+    "carries a refusal's detail across the daemon boundary",
+    carriesARefusalDetailAcrossTheDaemonBoundary,
   );
   it(
     "reads an acknowledged event through the SDK without redelivery",

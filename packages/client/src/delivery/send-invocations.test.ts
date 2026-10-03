@@ -191,6 +191,35 @@ const preservesUncertaintyAndFailure = () =>
     ).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 
+const replaysARefusalWithItsDetail = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const path = yield* temporaryDirectory;
+        const store = yield* openEndpointStore(path);
+        const scope = yield* Scope.Scope;
+        const refusal = new SendError({
+          reason: "unknown-agent",
+          detail: "agent:dana is not a known agent",
+        });
+        const invocations = yield* makeSendInvocations(
+          store,
+          () => Effect.fail(refusal),
+          scope,
+        );
+        yield* invocations
+          .send({ input, idempotencyKey: "refused" })
+          .pipe(Effect.flip);
+
+        const replayed = yield* invocations
+          .send({ input, idempotencyKey: "refused" })
+          .pipe(Effect.flip);
+
+        expect(replayed.message).toBe(refusal.message);
+      }),
+    ).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
+
 // @agent-code-guard/regression-only: these crash and concurrency transcripts pin the invocation contract without asserting collective completion.
 describe("durable send invocations", () => {
   it(
@@ -201,6 +230,7 @@ describe("durable send invocations", () => {
     "leaves interrupted sends indeterminate and replays observed failures",
     preservesUncertaintyAndFailure,
   );
+  it("replays a refusal with its detail", replaysARefusalWithItsDetail);
 });
 
 /* eslint-enable agent-code-guard/no-hardcoded-assertion-literals -- Restore repository defaults. */

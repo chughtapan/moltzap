@@ -92,6 +92,9 @@ function sendFailure(cause: unknown): SendError | CollectiveError {
             reason: isReason(decoded.reason, sendFailureReasons)
               ? decoded.reason
               : "network-unavailable",
+            ...("detail" in decoded && decoded.detail !== undefined
+              ? { detail: decoded.detail }
+              : {}),
           }),
     ),
     Effect.orElseSucceed(
