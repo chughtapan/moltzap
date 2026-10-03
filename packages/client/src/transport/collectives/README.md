@@ -6,8 +6,10 @@ state an operation keeps between its request posts and its result.
 
 The service enters through `index.ts`, which exports
 `operation.ts → makeCollectiveOperations`: it turns each send into posts and
-each certified post into an item or nothing. Hosts and other domains read the
-schema entrypoints `forms.ts` (send forms and collective errors), `inbound.ts`
+each certified post into an item or nothing. It also exports
+`CollectiveEmitError`, the failure the service's emit port returns when it
+cannot keep an item the layer emits. Hosts and other domains read the schema
+entrypoints `forms.ts` (send forms and the errors sends return), `inbound.ts`
 (inbound items) and `message-text.ts` (the text parser) directly, so they never
 load the operation layer. The other modules are private: `wire.ts` encodes and
 decodes the collective part, `validation.ts` checks answers against a form,

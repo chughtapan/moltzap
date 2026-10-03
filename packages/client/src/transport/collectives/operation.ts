@@ -268,7 +268,9 @@ export interface CollectiveOperations {
    * Classify one certified remote post. Answers are recorded and consumed,
    * every other protocol post is consumed, and each remaining post becomes
    * one item. Classifying a post again yields the same result, so the daemon
-   * may run it on every pass over pending deliveries.
+   * may run it on every pass over pending deliveries. It fails with
+   * `CollectiveEmitError` when a result or failure the post completes cannot
+   * be kept, which ends the pass classifying it.
    */
   readonly classify: (
     post: CertifiedPost,
@@ -679,7 +681,9 @@ function sleepUntil(at: number): Effect.Effect<void> {
  * send keeps running and settles its member when it completes: certified
  * asks it, refused makes it `no-answer`, as does pending at the deadline.
  * The send fails only when every post was refused and the gather has not
- * completed, so an operation ends in exactly one refusal or one result.
+ * completed, so an operation ends in exactly one refusal or one result, or
+ * as persistence-failed when the result its settling completes cannot be
+ * kept.
  */
 function sendRequests(
   state: CollectiveState,
