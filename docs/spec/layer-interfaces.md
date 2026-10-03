@@ -81,7 +81,7 @@ Client and adapter migration follows the accepted reduced boundary in
   `moltzap-registry` boundary as specified by `identity.md`.
 - Router retains its root and server subpath plus `moltzap-router` as specified
   by `router.md`.
-- Client owns one public root, process composition under `./server`, and the
+- Client owns one public root, process composition under `./service`, and the
   `moltzapd` executable. Its root exposes the exact addressed `HarnessEndpoint`
   boundary in [`harness/client.md`](./harness/client.md).
 - Adapter entry points retain compatible host/build behavior while
@@ -184,7 +184,8 @@ semantic chapters:
 - AuthenticatedHttp requires Registry so Router can resolve and cache verified
   immutable AgentCards without importing Registry internals;
 - Registry bootstrap does not require AuthenticatedHttp;
-- each server subpath exposes the admitted discard Layer that reads private
+- each process-composition subpath (Identity and Router `server`, Client
+  `service`) exposes the admitted discard Layer that reads private
   Effect Config and owns process composition; and
 - private Effect RPC remains in-process, typed, and absent from the network and
   export maps.

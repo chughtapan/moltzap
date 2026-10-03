@@ -50,141 +50,260 @@ const sharedConfig = {
   allowedTestPublicSubpaths,
 };
 
+/**
+ * The client's domains, lowest layer first. A domain may import only the
+ * entrypoints of domains listed before it; the generator derives both the
+ * CUPID domains and the layer order from this one list.
+ */
+const clientDomains = [
+  {
+    name: "wire",
+    root: "transport/wire",
+    entrypoints: [
+      "index.ts",
+      {
+        file: "values.ts",
+        reason:
+          "Post ids, content, and member limits hosts decode without loading signing, verification, or the Router client",
+      },
+    ],
+    reason:
+      "Canonical protocol encoding, verification, and the message values every layer encodes",
+  },
+  {
+    name: "store",
+    root: "store",
+    entrypoints: [
+      "index.ts",
+      {
+        file: "types.ts",
+        reason:
+          "Store value schemas hosts read without loading the SQLite store",
+      },
+    ],
+    reason:
+      "The one SQLite replica: certified history, outbox, deliveries, and the host inbox and send records as opaque bytes",
+  },
+  {
+    name: "router",
+    root: "transport/router",
+    entrypoints: ["index.ts"],
+    reason: "The Router attach, poll, send, and outage worker",
+  },
+  {
+    name: "messaging",
+    root: "transport/messaging",
+    entrypoints: [
+      "index.ts",
+      {
+        file: "address.ts",
+        reason:
+          "Address schemas and Registry resolution, read without loading the engine",
+      },
+      {
+        file: "errors.ts",
+        reason:
+          "Closed send, listen, and acknowledgment errors, read without loading the engine",
+      },
+      {
+        file: "message.ts",
+        reason: "Inbound message schemas, read without loading the engine",
+      },
+    ],
+    reason: "Addressed send, GENESIS and POST certification, and recovery",
+  },
+  {
+    name: "collectives",
+    root: "transport/collectives",
+    entrypoints: [
+      "index.ts",
+      {
+        file: "forms.ts",
+        reason:
+          "Send forms and collective errors, read without loading the operation layer",
+      },
+      {
+        file: "inbound.ts",
+        reason:
+          "Inbound item schemas, read without loading the operation layer",
+      },
+      {
+        file: "message-text.ts",
+        reason:
+          "The message-text parser native hosts call, without loading the operation layer",
+      },
+    ],
+    reason: "Gather and all_gather carried in posts",
+  },
+  {
+    name: "delivery",
+    root: "delivery",
+    entrypoints: [
+      "index.ts",
+      {
+        file: "operations.ts",
+        reason:
+          "The values harness operations take and return, decoded by hosts without loading the inbox or the store",
+      },
+      {
+        file: "history-export.ts",
+        reason:
+          "The history export line schema hosts decode, without loading the inbox or the store",
+      },
+    ],
+    reason:
+      "The host inbox, send invocations, the delivery pass, the history export, and the operations hosts call on them",
+  },
+  {
+    name: "endpoint",
+    root: "endpoint",
+    entrypoints: [
+      "mcp/index.ts",
+      "harness-endpoint/index.ts",
+      {
+        file: "implementation.ts",
+        reason: "The package version both loopback MCP peers report",
+      },
+    ],
+    reason:
+      "The loopback MCP, owner tools, and the HarnessEndpoint hosts connect to",
+  },
+  {
+    name: "service",
+    root: "service",
+    entrypoints: ["index.ts"],
+    reason:
+      "The always-on process: configuration, registration, supervision, and wiring",
+  },
+];
+
+/**
+ * A domain's non-index entrypoints are deliberate boundaries, so declaring
+ * one with its reason also declares it a facade.
+ */
+const clientEntrypointFacades = clientDomains.flatMap(({ root, entrypoints }) =>
+  entrypoints
+    .filter((entry) => typeof entry !== "string")
+    .map(({ file, reason }) => ({ file: `${root}/${file}`, reason })),
+);
+
 const packageDefinitions = {
   client: {
     beforeShared: {
       maxFolderCycles: 1,
       folderReadmeFileNames: ["README.md", "../README.md"],
       facadeFiles: [
+        ...clientEntrypointFacades,
         {
-          file: "server.ts",
-          reason:
-            "Published process-composition boundary for the single configured endpoint daemon",
-        },
-        {
-          file: "harness-mcp-wire.ts",
-          reason:
-            "Private MCP operation facade shared by the daemon runtime and management catalog",
-        },
-        {
-          file: "harness-mcp-contract.ts",
-          reason:
-            "Private closed MCP schemas shared by daemon projection, loopback client decoding, and protocol-boundary tests",
-        },
-        {
-          file: "management-runtime.ts",
+          file: "endpoint/mcp/owner-tools.ts",
           reason:
             "Exact private management schema boundary shared by daemon operations and its MCP catalog",
         },
         {
-          file: "daemon/mcp-auth.ts",
+          file: "transport/messaging/certification.ts",
           reason:
-            "Daemon-owned credential and role checks shared by private configuration and MCP request dispatch",
+            "Router-ordered proposal selection and GENESIS/POST certification shared by the engine and its evidence routing",
         },
         {
-          file: "daemon/registration.ts",
+          file: "endpoint/mcp/schemas.ts",
+          reason:
+            "MCP tool names, Events constants, and JSON Schema projections shared by the tool catalog, the Events and webhook transports, and the HarnessEndpoint client",
+        },
+        {
+          file: "service/registration.ts",
           reason:
             "Crash-recoverable identity-registration boundary shared by daemon startup and management",
         },
         {
-          file: "daemon/runtime/activation.ts",
+          file: "service/activation.ts",
           reason:
             "Identity activation, pinned-card recovery, and crash-recoverable registration shared by runtime composition, controller operations, and protocol acquisition",
         },
         {
-          file: "endpoint/collective/operation.ts",
-          reason:
-            "Collective-layer facade: the daemon's stateful collective operations, which turn sends into posts and certified posts into inbound items",
-        },
-        {
-          file: "endpoint/collective/wire.ts",
+          file: "transport/collectives/wire.ts",
           reason:
             "Collective values carried in post content, shared by the operation layer and answer validation",
         },
         {
-          file: "endpoint/engine.ts",
-          reason:
-            "Private endpoint-engine facade composing protocol phases behind the daemon-owned EndpointEngine capability",
-        },
-        {
-          file: "endpoint/engine-durability.ts",
+          file: "transport/messaging/durability.ts",
           reason:
             "Durable action-fold transition boundary shared by engine protocol phases",
         },
         {
-          file: "endpoint/engine-send.ts",
+          file: "transport/messaging/send.ts",
           reason:
             "Addressed intent activation and durable send boundary shared by the endpoint engine phases",
         },
         {
-          file: "endpoint/engine-types.ts",
+          file: "transport/messaging/types.ts",
           reason:
             "Closed endpoint-engine port and error vocabulary shared by every protocol phase",
         },
         {
-          file: "endpoint/router-worker/types.ts",
+          file: "transport/router/types.ts",
           reason:
             "Closed Router-worker state, error, and retry vocabulary shared by the worker and its outage handling",
         },
         {
-          file: "endpoint/representation-codec.ts",
+          file: "transport/wire/codec.ts",
           reason:
             "Canonical encoding, signing, and hashing boundary beneath the complete representation facade",
         },
         {
-          file: "endpoint/representation.ts",
-          reason:
-            "Complete private protocol-representation facade consumed by endpoint and daemon modules",
-        },
-        {
-          file: "endpoint/recovery/state.ts",
+          file: "transport/messaging/recovery/state.ts",
           reason:
             "Volatile catch-up and re-anchor coordination shared only by the recovery facade and its re-anchor implementation",
         },
         {
-          file: "endpoint/store.ts",
-          reason:
-            "Private typed facade for the daemon-owned endpoint replica and its recovery state",
-        },
-        {
-          file: "endpoint/store/deliveries.ts",
+          file: "store/deliveries.ts",
           reason:
             "Pending-delivery SQL capability shared by record promotion, management recovery reads, and endpoint-store operations",
         },
         {
-          file: "endpoint/store/dissemination.ts",
+          file: "store/dissemination.ts",
           reason:
             "Dissemination-obligation SQL capability shared by record promotion, recovery reads, and atomic outbox enqueue",
         },
         {
-          file: "endpoint/store/outbound.ts",
+          file: "store/outbound.ts",
           reason:
             "Durable outbox SQL capability shared by endpoint-store operations, recovery reads, and dissemination transactions",
         },
       ],
-      layers: [
+      compositionRoots: [
         {
-          name: "runtime-transport",
-          folders: ["client-runtime", "harness-mcp-events"],
+          path: "src/index.ts",
           reason:
-            "MCP transport projects endpoint values and durable event state; endpoint semantics never depend on HTTP delivery",
+            "Package facade: re-exports the adapter-facing values each domain owns",
         },
         {
-          name: "daemon",
-          folders: ["daemon"],
-          reason:
-            "Process composition may depend on endpoint capabilities while endpoint protocol code never depends on daemon lifecycle",
+          path: "src/index.types-check.ts",
+          reason: "Type canary for the package facade's public types",
         },
         {
-          name: "endpoint",
-          folders: ["endpoint"],
+          path: "package.json",
           reason:
-            "Endpoint protocol, durability, recovery, Router work, and addressed delivery form the daemon's private semantic core",
+            "Package metadata whose version the loopback MCP peers report",
         },
       ],
+      domains: clientDomains.map(({ name, root, entrypoints, reason }) => ({
+        name,
+        roots: [`src/${root}`],
+        entrypoints: entrypoints.map(
+          (entry) =>
+            `src/${root}/${typeof entry === "string" ? entry : entry.file}`,
+        ),
+        reason,
+      })),
+      layers: clientDomains.toReversed().map(({ name, root, reason }) => ({
+        name,
+        folders: [root],
+        reason,
+      })),
     },
     afterShared: {
-      publicTypePackages,
+      publicTypePackages: [publicTypePackage.effect],
+      allowedTestPublicSubpaths: [],
     },
   },
   "nanoclaw-channel": {
@@ -357,6 +476,11 @@ function pathClaims(config) {
       folderPath(entry.folder),
     ),
     ...(config.layers ?? []).flatMap((layer) => layer.folders.map(folderPath)),
+    ...(config.compositionRoots ?? []).map((entry) => entry.path),
+    ...(config.domains ?? []).flatMap((domain) => [
+      ...domain.roots,
+      ...domain.entrypoints,
+    ]),
   ];
 }
 
@@ -383,8 +507,9 @@ if (danglingClaims.length > 0) {
       "Architecture config names paths that do not exist:",
       ...danglingClaims.map((claim) => `  ${claim}`),
       "",
-      "Every facadeFiles.file, folderChildCountOverrides.folder, and",
-      "layers[].folders entry must name a real path. Fix the entry in",
+      "Every facadeFiles.file, folderChildCountOverrides.folder,",
+      "layers[].folders, compositionRoots.path, and domains root or",
+      "entrypoint must name a real path. Fix the entry in",
       "scripts/architecture/gen-configs.mjs or restore the path it claims.",
     ].join("\n"),
   );

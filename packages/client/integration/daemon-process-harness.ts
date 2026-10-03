@@ -21,7 +21,7 @@ import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { MessageAddressInput } from "../src/contract.js";
+import type { MessageAddressInput } from "../src/index.js";
 import {
   managementReadConversationResultSchema,
   managementRegisterResultSchema,
@@ -32,7 +32,7 @@ import {
   type ManagementRegisterResult,
   type ManagementSearchConversationsResult,
   type ManagementStatusResult,
-} from "../src/management-runtime.js";
+} from "../src/endpoint/mcp/owner-tools.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const ADMISSION_CREDENTIAL = "client-process-admission";

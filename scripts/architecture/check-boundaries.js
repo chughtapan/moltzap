@@ -87,9 +87,9 @@ const FINAL_PACKAGES = {
     deps: ["identity", "router"],
     exports: {
       ".": { types: "./dist/index.d.ts", import: "./dist/index.js" },
-      "./server": {
-        types: "./dist/server.d.ts",
-        import: "./dist/server.js",
+      "./service": {
+        types: "./dist/service/index.d.ts",
+        import: "./dist/service/index.js",
       },
     },
     bin: { moltzapd: "./bin/moltzapd" },

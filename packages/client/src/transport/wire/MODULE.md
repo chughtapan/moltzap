@@ -1,0 +1,121 @@
+# client/transport/wire
+
+_`packages/client/src/transport/wire`_
+
+## Purpose
+
+Package-private facade for the complete Client protocol representation.
+
+## Public surface
+
+### [`Content`](./values.ts#L104)
+
+_TypeAlias_
+
+```ts
+export type Content = typeof Content.Type;
+```
+
+Validated nonempty semantic content.
+
+### [`Content`](./values.ts#L99)
+
+_Variable_
+
+```ts
+export const Content = contentStructure.pipe(
+  Schema.filter(contentFits),
+  Schema.annotations({ identifier: "Content" }),
+)
+```
+
+Nonempty semantic content whose canonical JSON is at most 32,768 bytes.
+
+### [`ContentPart`](./values.ts#L94)
+
+_TypeAlias_
+
+```ts
+export type ContentPart = typeof ContentPart.Type;
+```
+
+A validated semantic message part.
+
+### [`ContentPart`](./values.ts#L89)
+
+_Variable_
+
+```ts
+export const ContentPart = Schema.Union(
+  exactStruct({ type: Schema.Literal("text"), text: wellFormedString }),
+  exactStruct({ type: Schema.Literal("data"), value: JsonValue }),
+).annotations({ identifier: "ContentPart" })
+```
+
+One exact semantic part of a message.
+
+### [`JsonValue`](./values.ts#L67)
+
+_TypeAlias_
+
+```ts
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
+```
+
+A value accepted by the closed semantic content boundary.
+
+### [`JsonValue`](./values.ts#L77)
+
+_Variable_
+
+```ts
+export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
+  Schema.Union(
+    Schema.Null,
+    Schema.Boolean,
+    Schema.JsonNumber,
+    wellFormedString,
+    Schema.Array(JsonValue),
+    Schema.Record({ key: wellFormedString, value: JsonValue }),
+  ),
+).annotations({ identifier: "JsonValue" })
+```
+
+Runtime validation for the closed recursive JSON value.
+
+### [`PostId`](./values.ts#L56)
+
+_TypeAlias_
+
+```ts
+export type PostId = typeof PostId.Type;
+```
+
+A validated author-scoped post identity.
+
+### [`PostId`](./values.ts#L47)
+
+_Variable_
+
+```ts
+export const PostId = Schema.String.pipe(
+  Schema.filter((value) => isCanonicalIdentifier("pst_", value), {
+    identifier: "PostId",
+    description: "Canonical author-scoped post identity",
+  }),
+  Schema.brand("PostId"),
+  Schema.annotations({ identifier: "PostId" }),
+)
+```
+
+Opaque identity minted for one addressed-send invocation.
+
+## Files
+
+- `values.ts`

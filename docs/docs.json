@@ -45,8 +45,13 @@
           {
             "group": "Modules",
             "pages": [
-              "modules/client/client-runtime",
+              "modules/client/delivery",
+              "modules/client/endpoint/harness-endpoint",
+              "modules/client/service",
               "modules/client/src",
+              "modules/client/transport/collectives",
+              "modules/client/transport/messaging",
+              "modules/client/transport/wire",
               "modules/identity/src",
               "modules/openclaw-channel/src",
               "modules/router/src"

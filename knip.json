@@ -76,43 +76,43 @@
     }
   },
   "ignoreIssues": {
-    "packages/client/src/endpoint/engine-types.ts": [
+    "packages/client/src/transport/messaging/types.ts": [
       "types"
     ],
-    "packages/client/src/endpoint/engine.ts": [
+    "packages/client/src/transport/messaging/index.ts": [
       "exports",
       "types"
     ],
-    "packages/client/src/endpoint/representation-canonical.ts": [
+    "packages/client/src/transport/wire/canonical.ts": [
       "exports"
     ],
-    "packages/client/src/endpoint/representation-codec.ts": [
+    "packages/client/src/transport/wire/codec.ts": [
       "exports"
     ],
-    "packages/client/src/endpoint/representation-schemas.ts": [
+    "packages/client/src/transport/wire/schemas.ts": [
       "exports"
     ],
-    "packages/client/src/endpoint/representation-verification.ts": [
+    "packages/client/src/transport/wire/verification.ts": [
       "exports"
     ],
-    "packages/client/src/endpoint/representation.ts": [
+    "packages/client/src/transport/wire/index.ts": [
       "exports",
       "types"
     ],
-    "packages/client/src/endpoint/store.ts": [
+    "packages/client/src/store/index.ts": [
       "types"
     ],
-    "packages/client/src/endpoint/store/database/index.ts": [
+    "packages/client/src/store/database/index.ts": [
       "exports",
       "types"
     ],
-    "packages/client/src/endpoint/store/database/schema.ts": [
+    "packages/client/src/store/database/schema.ts": [
       "types"
     ],
-    "packages/client/src/endpoint/store/rows/index.ts": [
+    "packages/client/src/store/rows/index.ts": [
       "exports"
     ],
-    "packages/client/src/management-runtime.ts": [
+    "packages/client/src/endpoint/mcp/owner-tools.ts": [
       "exports"
     ]
   }

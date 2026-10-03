@@ -42,7 +42,7 @@ import {
   generateKeyPairSync,
   sign as signBytes,
 } from "node:crypto";
-import type { RouterWorkerInput } from "../endpoint/router-worker/index.js";
+import type { RouterWorkerInput } from "../transport/router/index.js";
 
 /** Payload decoded by the scripted worker callback. */
 export interface TestPayload {

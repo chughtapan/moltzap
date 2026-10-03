@@ -1,0 +1,46 @@
+/** @file Private typed facade for one daemon-owned endpoint store. */
+
+/** Closed error value and scoped store acquisition. */
+export { EndpointStoreError, openEndpointStore } from "./store.js";
+/** Closed non-diagnostic persistence failure categories. */
+export type { EndpointStoreFailure } from "./database/index.js";
+/** Canonical private DTOs and the EndpointStore capability. */
+export type {
+  CertifiedRecord,
+  CompletedReanchor,
+  ConversationFoundation,
+  ConversationPage,
+  ConversationPosition,
+  DisseminationKind,
+  DisseminationObligation,
+  EmptyConversationRestart,
+  EndpointRecovery,
+  EndpointStore,
+  HistoryPage,
+  IdentityBinding,
+  InboundDeliveryInput,
+  InboxEntry,
+  InboxPage,
+  InboxSummary,
+  OutboundAttempt,
+  OutboundMessageInput,
+  PendingDelivery,
+  PostIntent,
+  PostIntentBinding,
+  ProposalLock,
+  ProtocolEvidence,
+  RecoveredReanchor,
+  RestartedEmptyConversation,
+  StagedReanchor,
+  StagedRecord,
+  StoredAnchor,
+  StoredMembership,
+  StoredOutboundMessage,
+  StoredSendAttempt,
+  StoreMutation,
+} from "./types.js";
+/** Stable opaque durable-delivery identity. */
+export { DeliveryToken } from "./types.js";
+
+/** Canonical runtime persistence shares the store error vocabulary. */
+export { decodeRuntimeValue, encodeRuntimeValue } from "./runtime-codec.js";
