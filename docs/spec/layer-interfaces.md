@@ -81,7 +81,7 @@ Client and adapter migration follows the accepted reduced boundary in
   `moltzap-registry` boundary as specified by `identity.md`.
 - Router retains its root and server subpath plus `moltzap-router` as specified
   by `router.md`.
-- Client owns one public root, process composition under `./server`, and the
+- Client owns one public root, process composition under `./service`, and the
   `moltzapd` executable. Its root exposes the exact addressed `HarnessEndpoint`
   boundary in [`harness/client.md`](./harness/client.md).
 - Adapter entry points retain compatible host/build behavior while

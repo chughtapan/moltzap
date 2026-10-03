@@ -43,8 +43,8 @@ async function verifyPackedManifest(archive, manifest) {
   requireCondition(
     exportEntries.length === 2 &&
       exportEntries.some(([subpath]) => subpath === ".") &&
-      exportEntries.some(([subpath]) => subpath === "./server"),
-    "packed client must expose exactly the root and ./server entrypoints",
+      exportEntries.some(([subpath]) => subpath === "./service"),
+    "packed client must expose exactly the root and ./service entrypoints",
   );
   const targets = [manifest.main, manifest.types];
   for (const [, value] of exportEntries) {
@@ -91,9 +91,9 @@ async function verifyConsumerImports(archives, publicSpecifiers) {
       .join("\n") +
       `\nconst root = await import("@moltzap/client");\n` +
       `if (!("HistoryExportRecord" in root)) throw new Error("Client root does not export HistoryExportRecord");\n` +
-      `\nconst server = await import("@moltzap/client/server");\n` +
-      `if (Object.keys(server).join(",") !== "MoltZapDaemon") throw new Error("unexpected Client server exports");\n` +
-      `if (Object.keys(server.MoltZapDaemon).sort().join(",") !== "StartupError,layer") throw new Error("unexpected MoltZapDaemon namespace");\n`,
+      `\nconst service = await import("@moltzap/client/service");\n` +
+      `if (Object.keys(service).join(",") !== "MoltZapService") throw new Error("unexpected Client service exports");\n` +
+      `if (Object.keys(service.MoltZapService).sort().join(",") !== "StartupError,layer") throw new Error("unexpected MoltZapService namespace");\n`,
   );
   await exec(process.execPath, [checkPath], {
     cwd: consumerRoot,

@@ -41,12 +41,14 @@ const SOURCE_LINK_BASE = "https://github.com/chughtapan/moltzap/blob/main";
  * public barrels contain behavioral exports.
  */
 const REQUIRED_MODULE_FOLDERS = [
+  "packages/client/src",
   "packages/identity/src",
   "packages/router/src",
 ] as const;
 
 /** TypeDoc package projects required by the final MODULE pages. */
 const REQUIRED_PACKAGE_NAMES = [
+  "@moltzap/client",
   "@moltzap/identity",
   "@moltzap/router",
 ] as const;

@@ -68,7 +68,7 @@ in its conversation: every member endpoint consumes the answers there, the
 requester closes with a post listing the record hash of each answer it
 counted, and every member builds the same result from exactly those answers.
 Collective state lives in daemon memory;
-`endpoint/collective/operation.ts → makeCollectiveOperations` owns it.
+`transport/collectives/index.ts → makeCollectiveOperations` owns it.
 
 ### Catch-up
 

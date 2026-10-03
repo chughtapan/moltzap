@@ -6,148 +6,254 @@
   ],
   "facadeFiles": [
     {
-      "file": "server.ts",
-      "reason": "Published process-composition boundary for the single configured endpoint daemon"
+      "file": "transport/history/types.ts",
+      "reason": "Schema entrypoint of the history domain, imported without loading the domain's runtime"
     },
     {
-      "file": "harness-mcp-wire.ts",
-      "reason": "Private MCP operation facade shared by the daemon runtime and management catalog"
+      "file": "transport/messaging/address.ts",
+      "reason": "Schema entrypoint of the messaging domain, imported without loading the domain's runtime"
     },
     {
-      "file": "harness-mcp-contract.ts",
-      "reason": "Private closed MCP schemas shared by daemon projection, loopback client decoding, and protocol-boundary tests"
+      "file": "transport/messaging/errors.ts",
+      "reason": "Schema entrypoint of the messaging domain, imported without loading the domain's runtime"
     },
     {
-      "file": "management-runtime.ts",
+      "file": "transport/messaging/message.ts",
+      "reason": "Schema entrypoint of the messaging domain, imported without loading the domain's runtime"
+    },
+    {
+      "file": "transport/collectives/forms.ts",
+      "reason": "Schema entrypoint of the collectives domain, imported without loading the domain's runtime"
+    },
+    {
+      "file": "transport/collectives/inbound.ts",
+      "reason": "Schema entrypoint of the collectives domain, imported without loading the domain's runtime"
+    },
+    {
+      "file": "transport/collectives/message-text.ts",
+      "reason": "Schema entrypoint of the collectives domain, imported without loading the domain's runtime"
+    },
+    {
+      "file": "endpoint/implementation.ts",
+      "reason": "Schema entrypoint of the endpoint domain, imported without loading the domain's runtime"
+    },
+    {
+      "file": "service/history-export.ts",
+      "reason": "Schema entrypoint of the service domain, imported without loading the domain's runtime"
+    },
+    {
+      "file": "endpoint/mcp/owner-tools.ts",
       "reason": "Exact private management schema boundary shared by daemon operations and its MCP catalog"
     },
     {
-      "file": "daemon/mcp-auth.ts",
-      "reason": "Daemon-owned credential and role checks shared by private configuration and MCP request dispatch"
+      "file": "transport/messaging/certification.ts",
+      "reason": "Router-ordered proposal selection and GENESIS/POST certification shared by the engine and its evidence routing"
     },
     {
-      "file": "daemon/registration.ts",
+      "file": "endpoint/mcp/schemas.ts",
+      "reason": "Private closed MCP schemas shared by daemon projection, loopback client decoding, and protocol-boundary tests"
+    },
+    {
+      "file": "service/registration.ts",
       "reason": "Crash-recoverable identity-registration boundary shared by daemon startup and management"
     },
     {
-      "file": "daemon/runtime/activation.ts",
+      "file": "service/activation.ts",
       "reason": "Identity activation, pinned-card recovery, and crash-recoverable registration shared by runtime composition, controller operations, and protocol acquisition"
     },
     {
-      "file": "endpoint/collective/operation.ts",
-      "reason": "Collective-layer facade: the daemon's stateful collective operations, which turn sends into posts and certified posts into inbound items"
-    },
-    {
-      "file": "endpoint/collective/wire.ts",
+      "file": "transport/collectives/wire.ts",
       "reason": "Collective values carried in post content, shared by the operation layer and answer validation"
     },
     {
-      "file": "endpoint/engine.ts",
-      "reason": "Private endpoint-engine facade composing protocol phases behind the daemon-owned EndpointEngine capability"
-    },
-    {
-      "file": "endpoint/engine-durability.ts",
+      "file": "transport/messaging/durability.ts",
       "reason": "Durable action-fold transition boundary shared by engine protocol phases"
     },
     {
-      "file": "endpoint/engine-send.ts",
+      "file": "transport/messaging/send.ts",
       "reason": "Addressed intent activation and durable send boundary shared by the endpoint engine phases"
     },
     {
-      "file": "endpoint/engine-types.ts",
+      "file": "transport/messaging/types.ts",
       "reason": "Closed endpoint-engine port and error vocabulary shared by every protocol phase"
     },
     {
-      "file": "endpoint/router-worker/types.ts",
+      "file": "transport/router/types.ts",
       "reason": "Closed Router-worker state, error, and retry vocabulary shared by the worker and its outage handling"
     },
     {
-      "file": "endpoint/representation-codec.ts",
+      "file": "transport/wire/codec.ts",
       "reason": "Canonical encoding, signing, and hashing boundary beneath the complete representation facade"
     },
     {
-      "file": "endpoint/representation.ts",
-      "reason": "Complete private protocol-representation facade consumed by endpoint and daemon modules"
-    },
-    {
-      "file": "endpoint/recovery/state.ts",
+      "file": "transport/messaging/recovery/state.ts",
       "reason": "Volatile catch-up and re-anchor coordination shared only by the recovery facade and its re-anchor implementation"
     },
     {
-      "file": "endpoint/store.ts",
-      "reason": "Private typed facade for the daemon-owned endpoint replica and its recovery state"
-    },
-    {
-      "file": "endpoint/store/deliveries.ts",
+      "file": "transport/history/deliveries.ts",
       "reason": "Pending-delivery SQL capability shared by record promotion, management recovery reads, and endpoint-store operations"
     },
     {
-      "file": "endpoint/store/dissemination.ts",
+      "file": "transport/history/dissemination.ts",
       "reason": "Dissemination-obligation SQL capability shared by record promotion, recovery reads, and atomic outbox enqueue"
     },
     {
-      "file": "endpoint/store/outbound.ts",
+      "file": "transport/history/outbound.ts",
       "reason": "Durable outbox SQL capability shared by endpoint-store operations, recovery reads, and dissemination transactions"
+    }
+  ],
+  "compositionRoots": [
+    {
+      "path": "src/index.ts",
+      "reason": "Package facade: re-exports the adapter-facing values each domain owns"
+    },
+    {
+      "path": "src/index.types-check.ts",
+      "reason": "Type canary for the package facade's public types"
+    },
+    {
+      "path": "package.json",
+      "reason": "Package metadata whose version the loopback MCP peers report"
+    }
+  ],
+  "domains": [
+    {
+      "name": "wire",
+      "roots": [
+        "src/transport/wire"
+      ],
+      "entrypoints": [
+        "src/transport/wire/index.ts"
+      ],
+      "reason": "Canonical protocol encoding, verification, and the message values every layer encodes"
+    },
+    {
+      "name": "history",
+      "roots": [
+        "src/transport/history"
+      ],
+      "entrypoints": [
+        "src/transport/history/index.ts",
+        "src/transport/history/types.ts"
+      ],
+      "reason": "Certified local history, outbox, deliveries, and inbox in one SQLite replica"
+    },
+    {
+      "name": "router",
+      "roots": [
+        "src/transport/router"
+      ],
+      "entrypoints": [
+        "src/transport/router/index.ts"
+      ],
+      "reason": "The Router attach, poll, send, and outage worker"
+    },
+    {
+      "name": "messaging",
+      "roots": [
+        "src/transport/messaging"
+      ],
+      "entrypoints": [
+        "src/transport/messaging/index.ts",
+        "src/transport/messaging/address.ts",
+        "src/transport/messaging/errors.ts",
+        "src/transport/messaging/message.ts"
+      ],
+      "reason": "Addressed send, GENESIS and POST certification, and recovery; schema files are separate entrypoints so hosts never load the engine"
+    },
+    {
+      "name": "collectives",
+      "roots": [
+        "src/transport/collectives"
+      ],
+      "entrypoints": [
+        "src/transport/collectives/index.ts",
+        "src/transport/collectives/forms.ts",
+        "src/transport/collectives/inbound.ts",
+        "src/transport/collectives/message-text.ts"
+      ],
+      "reason": "Gather and all_gather carried in posts; schema files are separate entrypoints so hosts never load the operation layer"
+    },
+    {
+      "name": "endpoint",
+      "roots": [
+        "src/endpoint"
+      ],
+      "entrypoints": [
+        "src/endpoint/mcp/index.ts",
+        "src/endpoint/harness-endpoint/index.ts",
+        "src/endpoint/implementation.ts"
+      ],
+      "reason": "The loopback MCP, owner tools, and the HarnessEndpoint hosts connect to"
+    },
+    {
+      "name": "service",
+      "roots": [
+        "src/service"
+      ],
+      "entrypoints": [
+        "src/service/index.ts",
+        "src/service/history-export.ts"
+      ],
+      "reason": "The always-on process: configuration, registration, supervision, and wiring"
     }
   ],
   "layers": [
     {
-      "name": "runtime-transport",
+      "name": "service",
       "folders": [
-        "client-runtime",
-        "harness-mcp-events"
+        "service"
       ],
-      "reason": "MCP transport projects endpoint values and durable event state; endpoint semantics never depend on HTTP delivery"
-    },
-    {
-      "name": "daemon",
-      "folders": [
-        "daemon"
-      ],
-      "reason": "Process composition may depend on endpoint capabilities while endpoint protocol code never depends on daemon lifecycle"
+      "reason": "The always-on process: configuration, registration, supervision, and wiring"
     },
     {
       "name": "endpoint",
       "folders": [
         "endpoint"
       ],
-      "reason": "Endpoint protocol, durability, recovery, Router work, and addressed delivery form the daemon's private semantic core"
+      "reason": "The loopback MCP, owner tools, and the HarnessEndpoint hosts connect to"
+    },
+    {
+      "name": "collectives",
+      "folders": [
+        "transport/collectives"
+      ],
+      "reason": "Gather and all_gather carried in posts; schema files are separate entrypoints so hosts never load the operation layer"
+    },
+    {
+      "name": "messaging",
+      "folders": [
+        "transport/messaging"
+      ],
+      "reason": "Addressed send, GENESIS and POST certification, and recovery; schema files are separate entrypoints so hosts never load the engine"
+    },
+    {
+      "name": "router",
+      "folders": [
+        "transport/router"
+      ],
+      "reason": "The Router attach, poll, send, and outage worker"
+    },
+    {
+      "name": "history",
+      "folders": [
+        "transport/history"
+      ],
+      "reason": "Certified local history, outbox, deliveries, and inbox in one SQLite replica"
+    },
+    {
+      "name": "wire",
+      "folders": [
+        "transport/wire"
+      ],
+      "reason": "Canonical protocol encoding, verification, and the message values every layer encodes"
     }
   ],
   "publicTypePackages": [
     {
       "package": "effect",
       "reason": "Foundational Effect runtime; intentionally part of the public contract"
-    },
-    {
-      "package": "@effect/platform",
-      "reason": "Effect platform abstractions used at boundaries"
-    },
-    {
-      "package": "@effect/platform-node",
-      "reason": "Effect Node integration used at boundaries"
-    },
-    {
-      "package": "@effect/rpc",
-      "reason": "RPC descriptors are the public contract; Rpc/RpcGroup types cross the boundary by design"
-    },
-    {
-      "package": "@moltzap/client",
-      "reason": "Intra-monorepo client SDK; channels depend on its public surface"
     }
   ],
-  "allowedTestPublicSubpaths": [
-    {
-      "subpath": "./test-utils",
-      "reason": "Test helpers exposed for cross-package integration testing"
-    },
-    {
-      "subpath": "./test",
-      "reason": "Test harness API for downstream packages"
-    },
-    {
-      "subpath": "./test-support",
-      "reason": "Channel test support exposed for integration tests"
-    }
-  ]
+  "allowedTestPublicSubpaths": []
 }

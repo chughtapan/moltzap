@@ -8,7 +8,7 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./client-runtime/index.ts#L68)
+### [`acquireHarnessEndpoint`](./endpoint/harness-endpoint/index.ts#L60)
 
 _Function_
 
@@ -22,7 +22,7 @@ Acquire one real MCP-backed endpoint and its scoped connection.
 
 **Returns:** An endpoint whose resources remain live for the caller's scope.
 
-### [`AgentAddress`](./contract.ts#L132)
+### [`AgentAddress (type)`](./transport/messaging/address.ts#L66)
 
 _TypeAlias_
 
@@ -32,7 +32,7 @@ export type AgentAddress = typeof AgentAddress.Type;
 
 A validated direct destination.
 
-### [`AgentAddress`](./contract.ts#L126)
+### [`AgentAddress (value)`](./transport/messaging/address.ts#L60)
 
 _Variable_
 
@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./contract.ts#L679)
+### [`CollectiveError`](./transport/collectives/forms.ts#L242)
 
 _Class_
 
@@ -65,7 +65,7 @@ A gather, all_gather or answer was refused. The message names each
 unreachable member or failing field, so a host can hand it to its model as
 the tool error.
 
-### [`ConnectError`](./contract.ts#L726)
+### [`ConnectError`](./endpoint/harness-endpoint/capability.ts#L23)
 
 _Class_
 
@@ -81,7 +81,7 @@ export class ConnectError extends Data.TaggedError("ConnectError")<{
 
 Acquiring the endpoint connection failed.
 
-### [`Content`](./contract.ts#L231)
+### [`Content (type)`](./transport/wire/values.ts#L103)
 
 _TypeAlias_
 
@@ -91,7 +91,7 @@ export type Content = typeof Content.Type;
 
 Validated nonempty semantic content.
 
-### [`Content`](./contract.ts#L226)
+### [`Content (value)`](./transport/wire/values.ts#L98)
 
 _Variable_
 
@@ -104,7 +104,7 @@ export const Content = contentStructure.pipe(
 
 Nonempty semantic content whose canonical JSON is at most 32,768 bytes.
 
-### [`ContentPart`](./contract.ts#L207)
+### [`ContentPart (type)`](./transport/wire/values.ts#L93)
 
 _TypeAlias_
 
@@ -114,7 +114,7 @@ export type ContentPart = typeof ContentPart.Type;
 
 A validated semantic message part.
 
-### [`ContentPart`](./contract.ts#L202)
+### [`ContentPart (value)`](./transport/wire/values.ts#L88)
 
 _Variable_
 
@@ -127,7 +127,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./contract.ts#L710)
+### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L54)
 
 _Class_
 
@@ -145,7 +145,7 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
 
 Transport acknowledgment could not complete for one delivery.
 
-### [`DirectMessage`](./contract.ts#L447)
+### [`DirectMessage`](./transport/messaging/message.ts#L65)
 
 _TypeAlias_
 
@@ -155,7 +155,7 @@ export type DirectMessage = typeof directMessage.Type;
 
 One certified remote-authored direct message.
 
-### [`GroupAddress`](./contract.ts#L141)
+### [`GroupAddress (type)`](./transport/messaging/address.ts#L75)
 
 _TypeAlias_
 
@@ -165,7 +165,7 @@ export type GroupAddress = typeof GroupAddress.Type;
 
 A validated canonical complete group destination.
 
-### [`GroupAddress`](./contract.ts#L135)
+### [`GroupAddress (value)`](./transport/messaging/address.ts#L69)
 
 _Variable_
 
@@ -179,7 +179,7 @@ export const GroupAddress = addressInput.pipe(
 
 A complete fixed-member group address in unsigned ASCII name order.
 
-### [`GroupMessage`](./contract.ts#L449)
+### [`GroupMessage`](./transport/messaging/message.ts#L67)
 
 _TypeAlias_
 
@@ -189,7 +189,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`HarnessEndpoint`](./contract.ts#L750)
+### [`HarnessEndpoint`](./endpoint/harness-endpoint/capability.ts#L47)
 
 _Interface_
 
@@ -215,7 +215,7 @@ A host whose tool returns before the send completes passes
 then completes and its error arrives as an `operationFailed` item on the
 stream. A multicast has no operation id, so its failure is always returned.
 
-### [`HistoryExportRecord`](./contract.ts#L592)
+### [`HistoryExportRecord (type)`](./service/history-export.ts#L52)
 
 _TypeAlias_
 
@@ -225,7 +225,7 @@ export type HistoryExportRecord = typeof HistoryExportRecord.Type;
 
 A validated line of the daemon's history export.
 
-### [`HistoryExportRecord`](./contract.ts#L573)
+### [`HistoryExportRecord (value)`](./service/history-export.ts#L33)
 
 _Variable_
 
@@ -255,7 +255,7 @@ published it, a completed `send` invocation with its input and outcome, or
 the one line that says the export stopped. Readers decode the file line by
 line with this schema rather than copying its shape.
 
-### [`InboundDelivery`](./contract.ts#L735)
+### [`InboundDelivery`](./endpoint/harness-endpoint/capability.ts#L32)
 
 _Interface_
 
@@ -268,7 +268,7 @@ export interface InboundDelivery {
 
 One inbound item plus its transport-only acknowledgment.
 
-### [`InboundItem`](./contract.ts#L551)
+### [`InboundItem (type)`](./transport/collectives/inbound.ts#L103)
 
 _TypeAlias_
 
@@ -278,7 +278,7 @@ export type InboundItem = typeof InboundItem.Type;
 
 A validated inbound item.
 
-### [`InboundItem`](./contract.ts#L542)
+### [`InboundItem (value)`](./transport/collectives/inbound.ts#L94)
 
 _Variable_
 
@@ -299,7 +299,7 @@ or duplicated, and multicasts that carry nothing besides that part; every
 other certified post becomes one item, and the endpoint itself emits
 results and failures.
 
-### [`InboundMessage`](./contract.ts#L457)
+### [`InboundMessage (type)`](./transport/messaging/message.ts#L75)
 
 _TypeAlias_
 
@@ -309,7 +309,7 @@ export type InboundMessage = typeof InboundMessage.Type;
 
 A validated direct or group post.
 
-### [`InboundMessage`](./contract.ts#L452)
+### [`InboundMessage (value)`](./transport/messaging/message.ts#L70)
 
 _Variable_
 
@@ -322,7 +322,7 @@ export const InboundMessage = Schema.Union(
 
 One certified remote-authored post, direct or to a fixed group.
 
-### [`JsonValue`](./contract.ts#L180)
+### [`JsonValue (type)`](./transport/wire/values.ts#L66)
 
 _TypeAlias_
 
@@ -338,7 +338,7 @@ export type JsonValue =
 
 A value accepted by the closed semantic content boundary.
 
-### [`JsonValue`](./contract.ts#L190)
+### [`JsonValue (value)`](./transport/wire/values.ts#L76)
 
 _Variable_
 
@@ -357,7 +357,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./contract.ts#L695)
+### [`ListenError`](./transport/messaging/errors.ts#L39)
 
 _Class_
 
@@ -373,7 +373,7 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 
 The endpoint's sole inbound subscription failed.
 
-### [`MessageAddressInput`](./contract.ts#L146)
+### [`MessageAddressInput (type)`](./transport/messaging/address.ts#L80)
 
 _TypeAlias_
 
@@ -383,7 +383,7 @@ export type MessageAddressInput = typeof MessageAddressInput.Type;
 
 A validated explicit destination input.
 
-### [`MessageAddressInput`](./contract.ts#L144)
+### [`MessageAddressInput (value)`](./transport/messaging/address.ts#L78)
 
 _Variable_
 
@@ -393,7 +393,7 @@ export const MessageAddressInput = addressInput
 
 Either accepted destination input, including noncanonical group order.
 
-### [`MessageTextError`](./message-text.ts#L43)
+### [`MessageTextError`](./transport/collectives/message-text.ts#L44)
 
 _Class_
 
@@ -412,7 +412,7 @@ A message text states an operation it does not validly carry, or is plain
 text that is not well-formed Unicode. The message names each failing field
 so a host can hand it to its model as the tool error.
 
-### [`parseMessageText`](./message-text.ts#L100)
+### [`parseMessageText`](./transport/collectives/message-text.ts#L96)
 
 _Function_
 
@@ -428,7 +428,7 @@ Read one message text as the send it states.
 **Returns:** The send input, or an error naming each field a stated operation
   gets wrong.
 
-### [`PostId`](./contract.ts#L170)
+### [`PostId (type)`](./transport/wire/values.ts#L55)
 
 _TypeAlias_
 
@@ -438,7 +438,7 @@ export type PostId = typeof PostId.Type;
 
 A validated author-scoped post identity.
 
-### [`PostId`](./contract.ts#L161)
+### [`PostId (value)`](./transport/wire/values.ts#L46)
 
 _Variable_
 
@@ -455,7 +455,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`SendError`](./contract.ts#L595)
+### [`SendError`](./transport/messaging/errors.ts#L24)
 
 _Class_
 
@@ -471,7 +471,7 @@ export class SendError extends Data.TaggedError("SendError")<{
 
 An addressed send failed before local certification completed.
 
-### [`SendInput`](./contract.ts#L362)
+### [`SendInput (type)`](./transport/collectives/forms.ts#L144)
 
 _TypeAlias_
 
@@ -481,7 +481,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput`](./contract.ts#L350)
+### [`SendInput (value)`](./transport/collectives/forms.ts#L132)
 
 _Variable_
 
@@ -504,7 +504,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./contract.ts#L392)
+### [`SendResult`](./transport/collectives/forms.ts#L162)
 
 _Interface_
 
@@ -518,6 +518,89 @@ What a completed send returns: a collecting operation names its id.
 
 ## Files
 
+- `endpoint/harness-endpoint/capability.ts`
+- `endpoint/harness-endpoint/events.ts`
+- `endpoint/harness-endpoint/index.ts`
+- `endpoint/implementation.ts`
+- `endpoint/mcp/auth.ts`
+- `endpoint/mcp/event-schemas.ts`
+- `endpoint/mcp/event-signing.ts`
+- `endpoint/mcp/events.ts`
+- `endpoint/mcp/http.ts`
+- `endpoint/mcp/index.ts`
+- `endpoint/mcp/owner-tools.ts`
+- `endpoint/mcp/README.md`
+- `endpoint/mcp/schemas.ts`
+- `endpoint/mcp/tools.ts`
+- `endpoint/mcp/webhook.ts`
 - `index.ts`
-- `contract.ts`
-- `message-text.ts`
+- `README.md`
+- `service/activation.ts`
+- `service/configuration.ts`
+- `service/controller.ts`
+- `service/delivery.ts`
+- `service/history-export.ts`
+- `service/inbox/index.ts`
+- `service/index.ts`
+- `service/lifecycle.ts`
+- `service/management.ts`
+- `service/README.md`
+- `service/registration.ts`
+- `service/send-invocations.ts`
+- `service/supervision.ts`
+- `transport/collectives/forms.ts`
+- `transport/collectives/inbound.ts`
+- `transport/collectives/index.ts`
+- `transport/collectives/message-text.ts`
+- `transport/collectives/operation.ts`
+- `transport/collectives/README.md`
+- `transport/collectives/received-request.ts`
+- `transport/collectives/request-sends.ts`
+- `transport/collectives/shared-answers.ts`
+- `transport/collectives/validation.ts`
+- `transport/collectives/wire.ts`
+- `transport/history/anchors.ts`
+- `transport/history/database/index.ts`
+- `transport/history/database/schema.ts`
+- `transport/history/database/values.ts`
+- `transport/history/deliveries.ts`
+- `transport/history/dissemination.ts`
+- `transport/history/inbox.ts`
+- `transport/history/index.ts`
+- `transport/history/outbound.ts`
+- `transport/history/README.md`
+- `transport/history/reads.ts`
+- `transport/history/records.ts`
+- `transport/history/rows/index.ts`
+- `transport/history/runtime-codec.ts`
+- `transport/history/store.ts`
+- `transport/history/types.ts`
+- `transport/messaging/address.ts`
+- `transport/messaging/certification.ts`
+- `transport/messaging/dissemination.ts`
+- `transport/messaging/durability.ts`
+- `transport/messaging/errors.ts`
+- `transport/messaging/evidence.ts`
+- `transport/messaging/index.ts`
+- `transport/messaging/message.ts`
+- `transport/messaging/README.md`
+- `transport/messaging/recovery/barrier.ts`
+- `transport/messaging/recovery/evidence.ts`
+- `transport/messaging/recovery/index.ts`
+- `transport/messaging/recovery/persistence.ts`
+- `transport/messaging/recovery/README.md`
+- `transport/messaging/recovery/reanchor/empty.ts`
+- `transport/messaging/recovery/reanchor/index.ts`
+- `transport/messaging/recovery/state.ts`
+- `transport/messaging/send.ts`
+- `transport/messaging/types.ts`
+- `transport/router/index.ts`
+- `transport/router/outage.ts`
+- `transport/router/types.ts`
+- `transport/wire/canonical.ts`
+- `transport/wire/codec.ts`
+- `transport/wire/index.ts`
+- `transport/wire/README.md`
+- `transport/wire/schemas.ts`
+- `transport/wire/values.ts`
+- `transport/wire/verification.ts`

@@ -19,12 +19,12 @@ import {
   type KeyObject,
   sign as signBytes,
 } from "node:crypto";
-import type { DaemonBootstrap } from "../daemon/configuration.js";
-import type { EnginePendingMessage } from "../endpoint/engine.js";
-import { InboundMessage } from "../contract.js";
-import { encodeCanonical, RecordHash } from "../endpoint/representation.js";
-import { DeliveryToken } from "../endpoint/store.js";
-import { managementRegisterRequestSchema } from "../management-runtime.js";
+import type { DaemonBootstrap } from "../service/configuration.js";
+import type { EnginePendingMessage } from "../transport/messaging/index.js";
+import { managementRegisterRequestSchema } from "../endpoint/mcp/owner-tools.js";
+import { DeliveryToken } from "../transport/history/index.js";
+import { InboundMessage } from "../transport/messaging/message.js";
+import { encodeCanonical, RecordHash } from "../transport/wire/index.js";
 
 /** Binds the daemon bootstrap to the signed identity used by its pending message. */
 export interface Fixture {

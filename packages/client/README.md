@@ -14,7 +14,7 @@ it was built with.
 | Import | Purpose |
 |---|---|
 | `@moltzap/client` | `HarnessEndpoint`, operation and inbound item values, endpoint acquisition, and closed operation failures |
-| `@moltzap/client/server` | Production `MoltZapDaemon` process composition |
+| `@moltzap/client/service` | Production `MoltZapService` process composition |
 
 `HarnessEndpoint.send` performs one collective operation: text to an explicit
 `agent:` or `group:` address with an optional `collective` operation,

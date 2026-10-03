@@ -1,0 +1,286 @@
+/** @file Public addressed-message schema behavior. */
+
+import { Either, Encoding, Schema } from "effect";
+import { describe, expect, it } from "vitest";
+import {
+  AgentAddress,
+  Content,
+  GroupAddress,
+  MessageAddressInput,
+  PostId,
+  SendInput,
+} from "./index.js";
+
+const canonicalGroup32 = `group:${Array.from(
+  Array(32).keys(),
+  (index) => `member-${String(index).padStart(2, "0")}`,
+).join(",")}`;
+
+const canonicalGroup33 = `group:${Array.from(
+  Array(33).keys(),
+  (index) => `member-${String(index).padStart(2, "0")}`,
+).join(",")}`;
+
+const decodingFails = (
+  schema: Schema.Schema.AnyNoContext,
+  value: unknown,
+): boolean =>
+  Either.match(Schema.decodeUnknownEither(schema)(value), {
+    onLeft: () => true,
+    onRight: () => false,
+  });
+
+// @agent-code-guard/regression-only: Address schemas pin the accepted public runtime grammar.
+describe("public address schemas", () => {
+  it("accepts exact agent addresses and arbitrary group input order", () => {
+    const direct = "agent:alice-agent";
+    const unorderedGroup = "group:carol-agent,bob-agent";
+
+    expect(Schema.decodeUnknownSync(AgentAddress)(direct)).toBe(direct);
+    expect(Schema.decodeUnknownSync(MessageAddressInput)(unorderedGroup)).toBe(
+      unorderedGroup,
+    );
+  });
+
+  it("accepts canonical 3-member and 32-member groups", () => {
+    const threeMembers = "group:alice-agent,bob-agent,carol-agent";
+
+    expect(Schema.decodeUnknownSync(GroupAddress)(threeMembers)).toBe(
+      threeMembers,
+    );
+    expect(Schema.decodeUnknownSync(GroupAddress)(canonicalGroup32)).toBe(
+      canonicalGroup32,
+    );
+  });
+
+  it("rejects noncanonical, 2-member, and 33-member group outputs", () => {
+    expect(
+      decodingFails(GroupAddress, "group:carol-agent,alice-agent,bob-agent"),
+    ).toBe(true);
+    expect(decodingFails(GroupAddress, "group:alice-agent,bob-agent")).toBe(
+      true,
+    );
+    expect(decodingFails(GroupAddress, canonicalGroup33)).toBe(true);
+  });
+});
+
+// @agent-code-guard/regression-only: Identifier schemas pin the closed durable send grammar.
+describe("public post identifiers", () => {
+  it("accepts the exact post identifier grammar", () => {
+    const postId = `pst_${Encoding.encodeBase64Url(
+      new Uint8Array(32).fill(7),
+    )}`;
+
+    expect(Schema.decodeUnknownSync(PostId)(postId)).toBe(postId);
+  });
+});
+
+// @agent-code-guard/regression-only: Content schemas pin the exact semantic boundary and canonical byte cap.
+describe("public content", () => {
+  it("accepts exact nonempty semantic content", () => {
+    const content = [
+      { type: "text", text: "Meet at 10?" },
+      { type: "data", value: { available: true, hour: 10 } },
+    ];
+
+    expect(Schema.decodeUnknownSync(Content)(content)).toEqual(content);
+  });
+
+  it("accepts content at the exact canonical byte cap", () => {
+    const text = "a".repeat(32_741);
+    const content = [{ type: "text", text }];
+
+    expect(Schema.decodeUnknownSync(Content)(content)).toEqual(content);
+  });
+
+  it("rejects empty, non-JSON, ill-formed, oversized, and open content", () => {
+    expect(decodingFails(Content, [])).toBe(true);
+    expect(decodingFails(Content, [{ type: "data", value: Number.NaN }])).toBe(
+      true,
+    );
+    expect(decodingFails(Content, [{ type: "text", text: "\ud800" }])).toBe(
+      true,
+    );
+    expect(
+      decodingFails(Content, [{ type: "text", text: "a".repeat(32_742) }]),
+    ).toBe(true);
+    expect(
+      decodingFails(Content, [{ type: "text", text: "hello", extra: true }]),
+    ).toBe(true);
+  });
+});
+
+// @agent-code-guard/regression-only: SendInput is a closed operation boundary with no host retry identity.
+describe("public send input", () => {
+  it("decodes a send without a collective operation", () => {
+    const input = { to: "agent:bob-agent", text: "Hello" };
+
+    expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
+  });
+
+  it("decodes an explicit multicast operation", () => {
+    const input = {
+      to: "agent:bob-agent",
+      text: "Hello",
+      collective: { op: "multicast" },
+    };
+
+    expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
+  });
+
+  it("decodes a collective operation that omits op", () => {
+    const input = { to: "agent:bob-agent", text: "Hello", collective: {} };
+
+    expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
+  });
+
+  it("rejects an operation this endpoint does not define", () => {
+    expect(
+      decodingFails(SendInput, {
+        to: "agent:bob-agent",
+        text: "Hello",
+        collective: { op: "broadcast" },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects fields outside the operation shape", () => {
+    const input = { to: "agent:bob-agent", text: "Hello" };
+
+    expect(decodingFails(SendInput, { ...input, inherited: true })).toBe(true);
+    expect(
+      decodingFails(SendInput, { ...input, idempotencyKey: "outbox-43" }),
+    ).toBe(true);
+    expect(
+      decodingFails(SendInput, {
+        to: "agent:bob-agent",
+        content: [{ type: "text", text: "Hello" }],
+      }),
+    ).toBe(true);
+  });
+});
+
+const collectiveId = `col_${Encoding.encodeBase64Url(new Uint8Array(32).fill(3))}`;
+const slotSchema = {
+  type: "object",
+  properties: { slot: { type: "string", enum: ["mon", "tue"] } },
+  required: ["slot"],
+};
+
+// @agent-code-guard/regression-only: gather inputs pin the collective send grammar.
+describe("public gather input", () => {
+  it("decodes a gather with a deadline in seconds and a schema", () => {
+    const input = {
+      to: "group:bob-agent,carol-agent",
+      text: "Which day?",
+      collective: { op: "gather", deadline: 300, requestedSchema: slotSchema },
+    };
+
+    expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
+  });
+
+  it("accepts a gather deadline of up to 30 days", () => {
+    const input = {
+      to: "agent:bob-agent",
+      text: "Which day?",
+      collective: {
+        op: "gather",
+        deadline: 2_592_000,
+        requestedSchema: slotSchema,
+      },
+    };
+
+    expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
+  });
+
+  it("rejects a gather deadline that is not a whole number of seconds up to 30 days", () => {
+    const gather = (deadline: number) => ({
+      to: "agent:bob-agent",
+      text: "Which day?",
+      collective: { op: "gather", deadline, requestedSchema: slotSchema },
+    });
+
+    expect(decodingFails(SendInput, gather(0))).toBe(true);
+    expect(decodingFails(SendInput, gather(1.5))).toBe(true);
+    expect(decodingFails(SendInput, gather(2_592_001))).toBe(true);
+  });
+
+  it("rejects a gather without a requested schema", () => {
+    expect(
+      decodingFails(SendInput, {
+        to: "agent:bob-agent",
+        text: "Which day?",
+        collective: { op: "gather", deadline: 60 },
+      }),
+    ).toBe(true);
+  });
+});
+
+// @agent-code-guard/regression-only: all_gather inputs pin the group collective send grammar.
+describe("public all_gather input", () => {
+  it("decodes an all_gather with a deadline in seconds and a schema", () => {
+    const input = {
+      to: "group:bob-agent,carol-agent",
+      text: "Which day?",
+      collective: {
+        op: "all_gather",
+        deadline: 300,
+        requestedSchema: slotSchema,
+      },
+    };
+
+    expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
+  });
+
+  it("rejects an all_gather deadline beyond 30 days", () => {
+    expect(
+      decodingFails(SendInput, {
+        to: "group:bob-agent,carol-agent",
+        text: "Which day?",
+        collective: {
+          op: "all_gather",
+          deadline: 2_592_001,
+          requestedSchema: slotSchema,
+        },
+      }),
+    ).toBe(true);
+  });
+});
+
+// @agent-code-guard/regression-only: response inputs pin how a member answers a collective request.
+describe("public collective response input", () => {
+  it("decodes a response that names its conversation and no request", () => {
+    const input = {
+      to: "agent:bob-agent",
+      collectiveResponse: { action: "accept", content: { slot: "mon" } },
+    };
+
+    expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
+  });
+
+  it("rejects a response that names a request id", () => {
+    expect(
+      decodingFails(SendInput, {
+        to: "agent:bob-agent",
+        collectiveResponse: { id: collectiveId, action: "decline" },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects a response without a conversation", () => {
+    expect(
+      decodingFails(SendInput, {
+        collectiveResponse: { action: "decline" },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects content on a decline", () => {
+    expect(
+      decodingFails(SendInput, {
+        to: "agent:bob-agent",
+        collectiveResponse: { action: "decline", content: { slot: "mon" } },
+      }),
+    ).toBe(true);
+  });
+});
