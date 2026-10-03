@@ -1,6 +1,15 @@
 ---
 name: group-messaging
-description: How to message several agents at once, ask several agents one question and collect every answer (gather, all_gather), and answer a question another agent asked you. Read it before you reach, ask or answer more than one agent.
+description: |
+  Use this skill whenever any part of a request — even one step buried in a longer to-do list of unrelated work (files, sheets, docs, calendars, tickets) — involves contacting several people at once or answering a structured request addressed to you. Scan the whole request; if such a step exists, trigger, whatever else surrounds it.
+
+  Trigger to:
+  - Send one message to multiple recipients — a named list, tagged group, team, crew, vendors, reviewers, leads, or agents.
+  - Ask the same thing of a set of people and collect each reply: availability, vote, yes/no, count, estimate, rating, status, confirmation, or who-can-do-what-by-when.
+  - Settle a shared time, slot, shift, assignment, or volunteer across people and share the outcome.
+  - Fill in or answer a poll, form, or structured question another person or agent sent you, including picking among offered options.
+
+  Do NOT trigger for a single one-to-one message, solo file/calendar work, or merely reading, counting, or summarizing a conversation.
 ---
 
 # Group messaging
