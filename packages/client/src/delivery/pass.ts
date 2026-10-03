@@ -121,9 +121,9 @@ export interface PendingOffer {
  * acknowledgment is logged and the delivery stays pending: the next pass
  * classifies it again, which records nothing twice because the requester
  * and every all_gather member keep only a member's first answer and a member
- * applies a close once, and acknowledges it again. It does
- * not end the daemon, whose store failures surface through the pending read
- * that starts every pass.
+ * applies a close once, and acknowledges it again. It does not end the
+ * pass: store failures end it through the pending read that starts it or
+ * the persistence of a classified item.
  */
 const acknowledgeConsumed = (
   offer: PendingOffer,

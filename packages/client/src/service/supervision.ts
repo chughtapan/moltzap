@@ -98,14 +98,14 @@ const mapWorkerInitializationError = (
  * The pass runs with or without a subscriber, so the collective layer
  * consumes protocol posts even while no host is attached. The active protocol
  * and subscriber are read once the delivery gate is held. A failed pass
- * signals the storage failure and never completes, so startup stops there;
- * the gate is already released.
+ * releases the gate, signals the storage failure, and fails with it, so
+ * startup and registration stop there instead of continuing.
  * @param environment Protocol resources and the service's delivery.
  * @returns Completion after every current delivery is consumed or offered.
  */
 export const publishPendingMessages = (
   environment: ProtocolEnvironment,
-): Effect.Effect<void> =>
+): Effect.Effect<void, DaemonRuntimeError> =>
   environment.delivery
     .runPass(() => {
       const { state } = environment;
@@ -124,11 +124,12 @@ export const publishPendingMessages = (
       };
     })
     .pipe(
-      Effect.catchAll(() =>
-        Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
-          Effect.zipRight(Effect.never),
-        ),
-      ),
+      Effect.catchAll(() => {
+        const failure = runtimeFailure("storage");
+        return Deferred.fail(environment.fatal, failure).pipe(
+          Effect.zipRight(Effect.fail(failure)),
+        );
+      }),
     );
 
 /**
@@ -138,7 +139,7 @@ export const publishPendingMessages = (
  */
 const emitLocalItem = (
   environment: ProtocolEnvironment,
-  reconciler: Effect.Effect<void>,
+  reconciler: Effect.Effect<void, DaemonRuntimeError>,
   item: InboundItem,
 ): Effect.Effect<void> =>
   environment.delivery.queueLocalItem(item).pipe(
@@ -147,7 +148,9 @@ const emitLocalItem = (
         Effect.zipRight(Effect.never),
       ),
     ),
-    Effect.zipRight(Effect.forkIn(reconciler, environment.daemonScope)),
+    Effect.zipRight(
+      Effect.forkIn(Effect.ignore(reconciler), environment.daemonScope),
+    ),
     Effect.asVoid,
   );
 
@@ -280,7 +283,7 @@ const checkExistingProtocol = (
  */
 const makeProtocolCollectives = (
   environment: ProtocolEnvironment,
-  reconciler: Effect.Effect<void>,
+  reconciler: Effect.Effect<void, DaemonRuntimeError>,
   agentCard: VerifiedAgentCard,
   engine: EndpointEngine,
 ): CollectiveOperations =>
@@ -297,7 +300,7 @@ const makeProtocolCollectives = (
 /** Hold the active protocol with its collective layer for later operations. */
 const retainActiveProtocol = (
   environment: ProtocolEnvironment,
-  reconciler: Effect.Effect<void>,
+  reconciler: Effect.Effect<void, DaemonRuntimeError>,
   protocol: Omit<ActiveProtocol, "collectives">,
 ): void => {
   environment.state.activeProtocol = {
@@ -322,7 +325,7 @@ const retainActiveProtocol = (
 export const initializeProtocol = (
   environment: ProtocolEnvironment,
   activationGate: Effect.Semaphore,
-  reconciler: Effect.Effect<void>,
+  reconciler: Effect.Effect<void, DaemonRuntimeError>,
   agentCard: VerifiedAgentCard,
 ): Effect.Effect<void, DaemonActivationError> =>
   activationGate
@@ -347,7 +350,7 @@ export const initializeProtocol = (
           agentCard,
           pinnedSenderCards,
           awaitEngine,
-          publishPending: reconciler,
+          publishPending: Effect.ignore(reconciler),
         });
         const engine = yield* acquireProtocolEngine(
           environment,
@@ -363,7 +366,7 @@ export const initializeProtocol = (
         yield* superviseBackground(environment, worker.run);
         yield* superviseBackground(environment, engine.runOutbound);
         yield* reconciler.pipe(
-          Effect.mapError(() => activationFailure("upstream")),
+          Effect.mapError(() => activationFailure("persistence")),
         );
       }),
     )

@@ -85,7 +85,7 @@ const makeRegisterOperation =
 const runSubscriptionChanges = (
   environment: ProtocolEnvironment,
   changes: Queue.Queue<boolean>,
-  reconciler: Effect.Effect<void>,
+  reconciler: Effect.Effect<void, DaemonRuntimeError>,
 ): Effect.Effect<never, DaemonRuntimeError> =>
   Queue.take(changes).pipe(
     Effect.flatMap((active) =>
@@ -118,7 +118,7 @@ interface ControllerAssembly {
   readonly environment: ProtocolEnvironment;
   readonly management: DaemonActivationPreparation["management"];
   readonly changes: Queue.Queue<boolean>;
-  readonly reconciler: Effect.Effect<void>;
+  readonly reconciler: Effect.Effect<void, DaemonRuntimeError>;
   readonly initialize: InitializeProtocol;
 }
 

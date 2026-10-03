@@ -34,7 +34,10 @@ import {
 } from "../store/index.js";
 import { SendInput } from "../transport/collectives/forms.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
-import { DeliveryAcknowledgeError } from "../transport/messaging/errors.js";
+import {
+  DeliveryAcknowledgeError,
+  ListenError,
+} from "../transport/messaging/errors.js";
 import {
   type EndpointEngine,
   EngineOutboundError,
@@ -66,6 +69,7 @@ interface DeliveryState {
   readonly events: string[];
   acknowledged: boolean;
   readBarrier?: ReadBarrier;
+  failReads?: boolean;
   reads: number;
 }
 
@@ -388,6 +392,11 @@ function makeEngine(
     resolveAddress: () => Effect.void,
     readPendingMessages: () =>
       Effect.gen(function* () {
+        if (delivery.failReads === true) {
+          return yield* Effect.fail(
+            new ListenError({ reason: "transport-failed" }),
+          );
+        }
         delivery.reads += 1;
         const messages = delivery.acknowledged ? [] : [delivery.pending];
         const barrier = delivery.readBarrier;
@@ -959,6 +968,48 @@ const blocksRegistrationAndSupervisesOutbound = async () => {
   }
 };
 
+/**
+ * Registration runs the first delivery pass uninterruptibly. When that pass
+ * cannot read pending deliveries, registration must still settle and the
+ * daemon fail in storage, rather than the request waiting forever.
+ */
+const settlesRegistrationWhenThePassFails = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
+  harness.delivery.failReads = true;
+  const fiber = Effect.runFork(
+    run(fixture, makeStore(fixture, false), harness),
+  );
+  try {
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const registration = await awaitStage(
+      Effect.exit(requireOperations(harness).register(fixture.registerRequest)),
+      "registration settling after the failed pass",
+    );
+    expect(registration._tag).toBe("Failure");
+    expect(
+      await awaitStage(Effect.flip(Fiber.join(fiber)), "daemon failure"),
+    ).toEqual(new DaemonRuntimeError({ phase: "storage" }));
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(fiber));
+  }
+};
+
+/** A startup pass that cannot read pending deliveries stops before the listener. */
+const failsStartupWhenThePendingReadFails = () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const harness = yield* makeHarness(fixture, "none");
+      harness.delivery.failReads = true;
+      const error = yield* run(fixture, makeStore(fixture, true), harness).pipe(
+        Effect.flip,
+      );
+      expect(error).toEqual(new DaemonRuntimeError({ phase: "storage" }));
+      expect(harness.events).toEqual(["worker", "engine"]);
+    }),
+  );
+
 const receivesFirstDelivery = async (
   handler: HarnessMcpEventHandler,
 ): Promise<undefined> => {
@@ -1096,6 +1147,14 @@ describe("daemon runtime composition", () => {
   it(
     "fails the daemon when an emitted item cannot persist",
     failsWhenAnEmittedItemCannotPersist,
+  );
+  it(
+    "fails startup when the pending read fails",
+    failsStartupWhenThePendingReadFails,
+  );
+  it(
+    "settles registration when its first delivery pass fails",
+    settlesRegistrationWhenThePassFails,
   );
   it("opens the configured history export", opensConfiguredHistoryExport);
   it(
