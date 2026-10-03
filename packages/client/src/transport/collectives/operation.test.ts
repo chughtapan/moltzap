@@ -27,6 +27,7 @@ import {
 } from "./forms.js";
 import {
   type CollectiveOperations,
+  type CollectivePorts,
   makeCollectiveOperations,
 } from "./operation.js";
 import {
@@ -1397,6 +1398,78 @@ describe("received request checks", () => {
     consumesARequestWhoseDeadlineLiesBeyondTheLongestAGatherStates,
   );
 });
+/**
+ * Certify Bob's post at once and refuse Carol's after half a second, so
+ * Carol's refusal lands inside the send's wait.
+ */
+const refuseCarolLater =
+  (observed: Observed): CollectivePorts["sendPost"] =>
+  (input) =>
+    input.to === "agent:carol"
+      ? Effect.sleep(Duration.millis(500)).pipe(
+          Effect.zipRight(
+            Effect.fail(new SendError({ reason: "network-unavailable" })),
+          ),
+        )
+      : Effect.sync(() => {
+          observed.sent.push(input);
+          return {
+            postId: Schema.decodeUnknownSync(PostId)(postId(1)),
+            recordHash,
+          };
+        });
+
+/** The collective id a recorded request post carries. */
+const requestIdOf = (post?: EngineSendInput) =>
+  (post === undefined
+    ? Effect.succeed(Option.none())
+    : readCollectiveValue(post.content)
+  ).pipe(
+    Effect.map(
+      Option.match({
+        onNone: () => requestId,
+        onSome: (value) => ("id" in value ? value.id : requestId),
+      }),
+    ),
+  );
+
+/**
+ * A gather whose last outcome arrives before its request sends return
+ * completes when they settle; when that result cannot be kept, the send
+ * fails as persistence-failed. Bob's post certifies at once and he declines;
+ * Carol's post is refused later, inside the send's wait.
+ */
+function failsAGatherSendWhoseSettlingResultCannotBeKept() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* Effect.map(Effect.scope, (scope) =>
+        makeCollectiveOperations({
+          self: alice,
+          lookupMember: () => Effect.void,
+          sendPost: refuseCarolLater(observed),
+          emit: unkeptEmit,
+          scope,
+          requestSendWait: Duration.seconds(1),
+        }),
+      );
+      const sending = yield* Effect.fork(send(layer, gatherInput()));
+      yield* TestClock.adjust(Duration.millis(100));
+      const id = yield* requestIdOf(observed.sent[0]);
+      yield* classifyPost(
+        layer,
+        answerPost("agent:bob", id, { action: "decline" }),
+      );
+      yield* TestClock.adjust(Duration.millis(500));
+
+      expect(yield* Effect.flip(Fiber.join(sending))).toEqual(
+        new SendError({ reason: "persistence-failed" }),
+      );
+    }),
+  );
+}
+
 describe("emitted items the service cannot keep", () => {
   it(
     "fails the completing answer when the result cannot be kept",
@@ -1405,6 +1478,10 @@ describe("emitted items the service cannot keep", () => {
   it(
     "fails a send whose inbound refusal cannot be kept",
     failsASendWhoseInboundRefusalCannotBeKept,
+  );
+  it(
+    "fails a gather send whose settling result cannot be kept",
+    failsAGatherSendWhoseSettlingResultCannotBeKept,
   );
 });
 
