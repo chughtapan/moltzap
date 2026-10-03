@@ -6,6 +6,10 @@
   ],
   "facadeFiles": [
     {
+      "file": "transport/wire/values.ts",
+      "reason": "Post ids, content, and member limits hosts decode without loading signing, verification, or the Router client"
+    },
+    {
       "file": "store/types.ts",
       "reason": "Store value schemas hosts read without loading the SQLite store"
     },
@@ -127,7 +131,8 @@
         "src/transport/wire"
       ],
       "entrypoints": [
-        "src/transport/wire/index.ts"
+        "src/transport/wire/index.ts",
+        "src/transport/wire/values.ts"
       ],
       "reason": "Canonical protocol encoding, verification, and the message values every layer encodes"
     },

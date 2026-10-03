@@ -5,9 +5,12 @@ This tree implements `@moltzap/client`. Agent runtimes use the semantic
 and one configured local daemon.
 
 Domains, lowest first. A domain imports only the declared entrypoints of
-domains below it, which `pnpm arch:check` enforces. Each domain's entrypoint is
-its `index.ts`, plus schema files that hosts can load without the domain's
-runtime; `scripts/architecture/gen-configs.mjs → clientDomains` lists them.
+domains below it, which `pnpm arch:check` enforces.
+`scripts/architecture/gen-configs.mjs → clientDomains` lists each domain's
+entrypoints: usually its `index.ts`, plus schema files that hosts can load
+without the domain's runtime. `endpoint/` has no root `index.ts`; its
+entrypoints are `mcp/index.ts`, `harness-endpoint/index.ts`, and
+`implementation.ts`.
 
 - `transport/wire/`: canonical encoding, verification, and the message values
   every layer encodes.

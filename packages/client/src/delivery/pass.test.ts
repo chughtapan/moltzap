@@ -10,7 +10,11 @@ import { InboundItem } from "../transport/collectives/inbound.js";
 import { DeliveryAcknowledgeError } from "../transport/messaging/errors.js";
 import { InboundMessage } from "../transport/messaging/message.js";
 import { RecordHash } from "../transport/wire/index.js";
-import { offerPendingMessages, type PendingOffer } from "./pass.js";
+import {
+  makeDeliveryState,
+  offerPendingMessages,
+  type PendingOffer,
+} from "./pass.js";
 
 interface Observed {
   readonly published: HarnessMessageReadyEvent[];
@@ -42,8 +46,6 @@ const localItem = Schema.decodeUnknownSync(InboundItem)({
   to: "agent:bob",
   error: "collective failed",
 });
-const noLocalItems = new Map<DeliveryToken, InboundItem>();
-
 const newObserved = (): Observed => ({
   published: [],
   acknowledged: [],
@@ -86,20 +88,14 @@ const offerTo = (
         observed.exported.push(record);
       }),
   },
-  publishedDeliveries: new Set(),
-  exportedDeliveries: new Set(),
-  classifiedItems: new Map(),
+  state: Effect.runSync(makeDeliveryState),
 });
 
 function publishesEachClassifiedPostWithItsDeliveryToken() {
   const observed = newObserved();
 
   Effect.runSync(
-    offerPendingMessages(
-      offerTo(observed, publishEveryPost),
-      [first, second],
-      noLocalItems,
-    ),
+    offerPendingMessages(offerTo(observed, publishEveryPost), [first, second]),
   );
 
   expect(observed.published).toEqual([
@@ -118,11 +114,7 @@ function acknowledgesAConsumedDeliveryWithoutPublishingIt() {
   const observed = newObserved();
 
   Effect.runSync(
-    offerPendingMessages(
-      offerTo(observed, consumeEveryPost),
-      [first],
-      noLocalItems,
-    ),
+    offerPendingMessages(offerTo(observed, consumeEveryPost), [first]),
   );
 
   expect(observed).toMatchObject({
@@ -135,11 +127,10 @@ function consumesDeliveriesWhileNoSubscriberIsAttached() {
   const observed = newObserved();
 
   Effect.runSync(
-    offerPendingMessages(
-      offerTo(observed, consumeEveryPost, "detached"),
-      [first, second],
-      noLocalItems,
-    ),
+    offerPendingMessages(offerTo(observed, consumeEveryPost, "detached"), [
+      first,
+      second,
+    ]),
   );
 
   expect(observed.acknowledged).toEqual([
@@ -152,11 +143,9 @@ function leavesADeliverableItemPendingWhileNoSubscriberIsAttached() {
   const observed = newObserved();
 
   Effect.runSync(
-    offerPendingMessages(
-      offerTo(observed, publishEveryPost, "detached"),
-      [first],
-      noLocalItems,
-    ),
+    offerPendingMessages(offerTo(observed, publishEveryPost, "detached"), [
+      first,
+    ]),
   );
 
   expect(observed).toEqual({ published: [], acknowledged: [], exported: [] });
@@ -178,7 +167,7 @@ function goesOnToLaterDeliveriesWhenAcknowledgingAConsumedOneFails() {
     },
   };
 
-  Effect.runSync(offerPendingMessages(offer, [first, second], noLocalItems));
+  Effect.runSync(offerPendingMessages(offer, [first, second]));
 
   expect(observed.acknowledged).toEqual([second.deliveryToken]);
 }
@@ -191,12 +180,10 @@ function stopsPublishingAtARefusalButStillConsumesLaterDeliveries() {
     handler: { publish: () => false },
   };
 
-  Effect.runSync(
-    offerPendingMessages(offer, [first, second, third], noLocalItems),
-  );
+  Effect.runSync(offerPendingMessages(offer, [first, second, third]));
 
   expect(observed.acknowledged).toEqual([second.deliveryToken]);
-  expect(offer.publishedDeliveries.size).toBe(0);
+  expect(offer.state.publishedDeliveries.size).toBe(0);
 }
 
 function publishesThePostsAroundAConsumedOneAndAcknowledgesOnlyIt() {
@@ -204,11 +191,11 @@ function publishesThePostsAroundAConsumedOneAndAcknowledgesOnlyIt() {
   const third = pendingMessage(3);
 
   Effect.runSync(
-    offerPendingMessages(
-      offerTo(observed, consumeSecond),
-      [first, second, third],
-      noLocalItems,
-    ),
+    offerPendingMessages(offerTo(observed, consumeSecond), [
+      first,
+      second,
+      third,
+    ]),
   );
 
   expect(observed.published.map((event) => event.deliveryToken)).toEqual([
@@ -220,14 +207,10 @@ function publishesThePostsAroundAConsumedOneAndAcknowledgesOnlyIt() {
 
 function publishesTheCollectiveLayerSOwnItemsAfterDurableDeliveries() {
   const observed = newObserved();
+  const offer = offerTo(observed, publishEveryPost);
+  offer.state.localItems.set(localToken, localItem);
 
-  Effect.runSync(
-    offerPendingMessages(
-      offerTo(observed, publishEveryPost),
-      [first],
-      new Map([[localToken, localItem]]),
-    ),
-  );
+  Effect.runSync(offerPendingMessages(offer, [first]));
 
   expect(observed.published.map((event) => event.deliveryToken)).toEqual([
     first.deliveryToken,
@@ -239,9 +222,9 @@ function recordsEachPublishedItemInTheHistoryExportOnce() {
   const observed = newObserved();
   const offer = offerTo(observed, publishEveryPost);
 
-  Effect.runSync(offerPendingMessages(offer, [first], noLocalItems));
-  offer.publishedDeliveries.clear();
-  Effect.runSync(offerPendingMessages(offer, [first], noLocalItems));
+  Effect.runSync(offerPendingMessages(offer, [first]));
+  offer.state.publishedDeliveries.clear();
+  Effect.runSync(offerPendingMessages(offer, [first]));
 
   expect(observed.exported).toMatchObject([
     {
@@ -264,8 +247,8 @@ function classifiesEachDeliveryOnce() {
     "detached",
   );
 
-  Effect.runSync(offerPendingMessages(offer, [first], noLocalItems));
-  Effect.runSync(offerPendingMessages(offer, [first], noLocalItems));
+  Effect.runSync(offerPendingMessages(offer, [first]));
+  Effect.runSync(offerPendingMessages(offer, [first]));
 
   expect(classified).toEqual([first.message.postId]);
 }

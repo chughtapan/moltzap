@@ -22,7 +22,7 @@
 
 import { Data, Either, Option, ParseResult, Predicate, Schema } from "effect";
 import type { MessageAddressInput } from "../messaging/address.js";
-import { exactStruct } from "../wire/index.js";
+import { exactStruct } from "../wire/values.js";
 import {
   AnswerContent,
   type CollectiveResponse,

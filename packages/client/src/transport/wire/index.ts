@@ -9,7 +9,6 @@ export {
   encodeCanonical,
 } from "./canonical.js";
 export {
-  compareAgentIds,
   decodeDirectPacket,
   type DecodedOuterBody,
   decodeEvidenceMessage,
@@ -53,7 +52,6 @@ export {
   EvidenceStatement,
   GenesisActionCore,
   GenesisAnchorBody,
-  maximumMembers,
   MembershipDescriptor,
   MembershipHash,
   PostActionCore,
@@ -67,12 +65,14 @@ export {
   RouterAnchor,
 } from "./schemas.js";
 export {
+  compareAgentIds,
   Content,
   ContentPart,
   exactStruct,
   isCanonicalIdentifier,
   JsonValue,
   maximumContentBytes,
+  maximumMembers,
   PostId,
   wellFormedString,
 } from "./values.js";

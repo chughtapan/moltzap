@@ -11,7 +11,7 @@ import {
   type VerifiedAgentCard,
   type VerifiedSignedMessage,
 } from "@moltzap/identity";
-import { Effect, Either, Encoding, Schema } from "effect";
+import { Effect, Encoding, Schema } from "effect";
 import { createHash, randomBytes } from "node:crypto";
 import {
   type ClientRepresentationError,
@@ -46,7 +46,12 @@ import {
   RecordHash,
   type RecordHash as RecordHashValue,
 } from "./schemas.js";
-import { PostId, type PostId as PostIdValue } from "./values.js";
+import {
+  compareAgentIds,
+  decodeCanonicalBase64Url,
+  PostId,
+  type PostId as PostIdValue,
+} from "./values.js";
 
 /* eslint-disable jsdoc/require-jsdoc -- The package-private representation facade documents this closed protocol vocabulary. */
 
@@ -56,13 +61,6 @@ const MESSAGE_ID_BYTE_LENGTH = 16;
 const CLIENT_DOMAIN = "moltzap/client/v2/";
 const EVIDENCE_MESSAGE_ID_DOMAIN = `${CLIENT_DOMAIN}evidence-message-id\0`;
 const utf8Encoder = new TextEncoder();
-
-const decodeCanonicalBase64Url = (value: string): Uint8Array | undefined =>
-  Either.match(Encoding.decodeBase64Url(value), {
-    onLeft: () => undefined,
-    onRight: (bytes) =>
-      Encoding.encodeBase64Url(bytes) === value ? bytes : undefined,
-  });
 
 const domainHash = <A, I, R>(input: {
   readonly artifact: string;
@@ -83,22 +81,6 @@ const domainHash = <A, I, R>(input: {
         : Effect.fail(representationFailure()),
     ),
   );
-
-export const compareAgentIds = (left: AgentId, right: AgentId): number => {
-  const leftBytes = decodeCanonicalBase64Url(left.slice(4));
-  const rightBytes = decodeCanonicalBase64Url(right.slice(4));
-  if (leftBytes === undefined || rightBytes === undefined) {
-    return 0;
-  }
-  const length = Math.min(leftBytes.byteLength, rightBytes.byteLength);
-  for (let index = 0; index < length; index += 1) {
-    const difference = (leftBytes[index] ?? 0) - (rightBytes[index] ?? 0);
-    if (difference !== 0) {
-      return difference;
-    }
-  }
-  return leftBytes.byteLength - rightBytes.byteLength;
-};
 
 const sortedDistinctAgentIds = (agentIds: readonly AgentId[]): boolean => {
   for (let index = 1; index < agentIds.length; index += 1) {

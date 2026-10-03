@@ -59,7 +59,14 @@ const clientDomains = [
   {
     name: "wire",
     root: "transport/wire",
-    entrypoints: ["index.ts"],
+    entrypoints: [
+      "index.ts",
+      {
+        file: "values.ts",
+        reason:
+          "Post ids, content, and member limits hosts decode without loading signing, verification, or the Router client",
+      },
+    ],
     reason:
       "Canonical protocol encoding, verification, and the message values every layer encodes",
   },

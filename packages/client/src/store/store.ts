@@ -1,4 +1,4 @@
-/** @file Store assembly behind the history entrypoint. */
+/** @file Store assembly behind the store's index.ts entrypoint. */
 
 import { Effect, type Scope } from "effect";
 import type { EndpointStore } from "./types.js";

@@ -14,7 +14,7 @@ import {
   SendInput,
 } from "../transport/collectives/forms.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
-import { exactStruct } from "../transport/wire/index.js";
+import { exactStruct } from "../transport/wire/values.js";
 
 const exact: SchemaAST.ParseOptions = {
   exact: true,

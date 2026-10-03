@@ -3,6 +3,7 @@
 import { DateTime, Effect, type Scope } from "effect";
 import type { SendInput } from "../transport/collectives/forms.js";
 import type { CollectiveOperations } from "../transport/collectives/index.js";
+import type { EnginePendingMessage } from "../transport/messaging/index.js";
 import type {
   HistoryExportPort,
   HistoryExportRecord,
@@ -10,7 +11,6 @@ import type {
 import type {
   DeliveryOperations,
   EventStore,
-  HarnessMessageReadyEvent,
   HarnessReadInboxRequest,
 } from "./operations.js";
 import {
@@ -31,12 +31,15 @@ import {
   readRuntimeInbox,
   recoverRuntimeInbox,
 } from "./inbox.js";
-import { makeSendInvocations } from "./send-invocations.js";
 import {
   type DeliveryState,
+  exportOnce,
   forgetDelivery,
   makeDeliveryState,
-} from "./state.js";
+  offerPendingMessages,
+  type PendingOffer,
+} from "./pass.js";
+import { makeSendInvocations } from "./send-invocations.js";
 
 /** What one service's delivery reads and writes. */
 export interface HostDeliveryInput {
@@ -48,15 +51,31 @@ export interface HostDeliveryInput {
   readonly scope: Scope.Scope;
 }
 
+/**
+ * What the service supplies to one pass: the active protocol's pending read,
+ * acknowledgment and classifier, the attached subscriber if any, and what to
+ * do when the store cannot keep a classified item.
+ */
+interface PassInput<E>
+  extends Pick<PendingOffer, "engine" | "classify" | "handler"> {
+  readonly readPending: Effect.Effect<readonly EnginePendingMessage[], E>;
+  readonly onStoreFailure: Effect.Effect<never>;
+}
+
 /** One service's delivery, created once and shared by the delivery pass and every host operation. */
 export interface HostDelivery {
-  readonly state: DeliveryState;
   readonly operations: DeliveryOperations;
   readonly eventStore: EventStore;
-  /** Make a classified item durable before any host can observe its token. */
-  readonly persist: (
-    event: HarnessMessageReadyEvent,
-  ) => Effect.Effect<void, EndpointStoreError>;
+  /** Forget what the departed subscriber took, so the next one is offered it again. */
+  readonly detach: Effect.Effect<void>;
+  /**
+   * Run one pass under the delivery gate. `prepare` runs once the gate is
+   * held, so the active protocol and subscriber it reads are current; it
+   * returns undefined when there is nothing to run.
+   */
+  readonly runPass: <E>(
+    prepare: () => PassInput<E> | undefined,
+  ) => Effect.Effect<void, E>;
   /** Make an item the collective layer emitted durable and queue it for the next pass. */
   readonly queueLocalItem: (
     item: InboundItem,
@@ -149,15 +168,12 @@ const readAndExportInbox = (
     Effect.gen(function* () {
       const page = yield* readRuntimeInbox(input.store, request);
       for (const entry of page.items) {
-        if (!input.state.exportedDeliveries.has(entry.deliveryToken)) {
-          const at = yield* DateTime.now;
-          yield* input.historyExport.record({
-            kind: "inbound",
-            item: entry.item,
-            at,
-          });
-          input.state.exportedDeliveries.add(entry.deliveryToken);
-        }
+        yield* exportOnce(
+          input.state,
+          input.historyExport,
+          entry.deliveryToken,
+          Effect.succeed(entry.item),
+        );
       }
       return page;
     }),
@@ -172,15 +188,12 @@ const readWebhookInbox = (
     Effect.gen(function* () {
       const page = yield* input.store.readInbox(bounds);
       for (const entry of page.items) {
-        if (!input.state.exportedDeliveries.has(entry.deliveryToken)) {
-          const item = yield* decodeRuntimeValue(
-            InboundItem,
-            entry.canonicalItem,
-          );
-          const at = yield* DateTime.now;
-          yield* input.historyExport.record({ kind: "inbound", item, at });
-          input.state.exportedDeliveries.add(entry.deliveryToken);
-        }
+        yield* exportOnce(
+          input.state,
+          input.historyExport,
+          entry.deliveryToken,
+          decodeRuntimeValue(InboundItem, entry.canonicalItem),
+        );
       }
       return page;
     }),
@@ -219,6 +232,40 @@ const queueLocalItem =
       Effect.asVoid,
     );
 
+/** The pass's view of the service's delivery and the protocol it serves. */
+const pendingOffer = <E>(
+  input: DeliveryContext,
+  pass: PassInput<E>,
+): PendingOffer => ({
+  engine: pass.engine,
+  classify: pass.classify,
+  ...(pass.handler === undefined ? {} : { handler: pass.handler }),
+  persist: (event) =>
+    persistInboxItem(input.store, event).pipe(
+      Effect.catchAll(() => pass.onStoreFailure),
+    ),
+  historyExport: input.historyExport,
+  state: input.state,
+});
+
+const runPass = <E>(
+  input: DeliveryContext,
+  prepare: () => PassInput<E> | undefined,
+): Effect.Effect<void, E> =>
+  input.state.gate.withPermits(1)(
+    Effect.suspend(() => {
+      const pass = prepare();
+      if (pass === undefined) {
+        return Effect.void;
+      }
+      return pass.readPending.pipe(
+        Effect.flatMap((messages) =>
+          offerPendingMessages(pendingOffer(input, pass), messages),
+        ),
+      );
+    }),
+  );
+
 /**
  * Recover the inbox left by the previous process, then build the service's
  * delivery over it.
@@ -246,9 +293,11 @@ export const makeHostDelivery = (
         completeWebhookDelivery(input, token, bytes),
     };
     return {
-      state: input.state,
-      persist: (event: HarnessMessageReadyEvent) =>
-        persistInboxItem(input.store, event),
+      detach: Effect.sync(() => {
+        input.state.publishedDeliveries.clear();
+      }),
+      runPass: <E>(prepare: () => PassInput<E> | undefined) =>
+        runPass(input, prepare),
       queueLocalItem: queueLocalItem(input),
       operations: Object.freeze({
         ...invocations,

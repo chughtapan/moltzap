@@ -12,12 +12,11 @@ import {
   Content,
   exactStruct,
   isCanonicalIdentifier,
+  maximumMembers,
   PostId,
 } from "./values.js";
 
 /* eslint-disable jsdoc/require-jsdoc -- These package-private Schema names are the exact closed protocol vocabulary. */
-
-export const maximumMembers = 32;
 
 const versionAndKind = <const Kind extends string>(kind: Kind) => ({
   moltzapVersion: Schema.Literal(MOLTZAP_VERSION),

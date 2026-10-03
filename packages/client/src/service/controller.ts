@@ -91,10 +91,10 @@ const runSubscriptionChanges = (
     Effect.flatMap((active) =>
       Effect.sync(() => {
         environment.state.subscriptionActive = active;
-        if (!active) {
-          environment.delivery.state.publishedDeliveries.clear();
-        }
-      }).pipe(Effect.zipRight(reconciler)),
+      }).pipe(
+        Effect.zipRight(active ? Effect.void : environment.delivery.detach),
+        Effect.zipRight(reconciler),
+      ),
     ),
     Effect.forever,
     Effect.catchAllCause((cause) =>

@@ -1,12 +1,12 @@
 /**
- * @file One pass over pending deliveries: the collective layer classifies
- * each durable delivery, consumed ones are acknowledged, and the remaining
- * items and the layer's own are published in order while a subscriber takes
- * them.
+ * @file The delivery state one service keeps, and one pass over pending
+ * deliveries: the collective layer classifies each durable delivery, consumed
+ * ones are acknowledged, and the remaining items and the layer's own are
+ * published in order while a subscriber takes them.
  */
 
 import { DateTime, Effect, Option } from "effect";
-import type { DeliveryToken } from "../store/index.js";
+import type { DeliveryToken } from "../store/types.js";
 import type { InboundItem } from "../transport/collectives/inbound.js";
 import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type {
@@ -15,6 +15,82 @@ import type {
 } from "../transport/messaging/index.js";
 import type { HistoryExportPort } from "./history-export.js";
 import type { HarnessMessageReadyEvent } from "./operations.js";
+
+/**
+ * One instance per service, shared by the delivery pass, host reads,
+ * acknowledgments and webhook receipts. `gate` serializes those so an item is
+ * exported once and retired once. Emitting a local item never waits on it:
+ * the collective layer can emit from inside a pass that already holds it.
+ */
+export interface DeliveryState {
+  readonly gate: Effect.Semaphore;
+  /** Deliveries the attached subscriber already took. */
+  readonly publishedDeliveries: Set<string>;
+  /** Deliveries whose item the history export already recorded. */
+  readonly exportedDeliveries: Set<string>;
+  /** The item each unacknowledged durable delivery classified into. */
+  readonly classifiedItems: Map<string, InboundItem>;
+  /**
+   * Items the collective layer emitted, in emission order, each under a
+   * service-minted delivery token until the host acknowledges it. They are
+   * durable before insertion; this map caches the current process values.
+   */
+  readonly localItems: Map<DeliveryToken, InboundItem>;
+}
+
+/** Empty delivery state with its own gate. */
+export const makeDeliveryState: Effect.Effect<DeliveryState> = Effect.map(
+  Effect.makeSemaphore(1),
+  (gate) => ({
+    gate,
+    publishedDeliveries: new Set(),
+    exportedDeliveries: new Set(),
+    classifiedItems: new Map(),
+    localItems: new Map(),
+  }),
+);
+
+/**
+ * Drop a retired delivery from every process-local cache.
+ * @param state The shared delivery state.
+ * @param deliveryToken The retired delivery.
+ * @returns Completion once the caches no longer hold it.
+ */
+export const forgetDelivery = (
+  state: DeliveryState,
+  deliveryToken: DeliveryToken,
+): Effect.Effect<void> =>
+  Effect.sync(() => {
+    state.publishedDeliveries.delete(deliveryToken);
+    state.exportedDeliveries.delete(deliveryToken);
+    state.classifiedItems.delete(deliveryToken);
+    state.localItems.delete(deliveryToken);
+  });
+
+/**
+ * Record a delivery's item in the history export the first time any path
+ * offers or reads it. The item is read only on that first time, so a caller
+ * holding stored bytes decodes them only when the line is written.
+ * @param state The shared delivery state.
+ * @param historyExport The export the line goes to.
+ * @param deliveryToken The delivery the item belongs to.
+ * @param item The item, read only when the delivery is not yet exported.
+ * @returns Completion once the line is recorded or was already recorded.
+ */
+export const exportOnce = <E>(
+  state: DeliveryState,
+  historyExport: HistoryExportPort,
+  deliveryToken: DeliveryToken,
+  item: Effect.Effect<InboundItem, E>,
+): Effect.Effect<void, E> =>
+  state.exportedDeliveries.has(deliveryToken)
+    ? Effect.void
+    : Effect.gen(function* () {
+        const inbound = yield* item;
+        const at = yield* DateTime.now;
+        yield* historyExport.record({ kind: "inbound", item: inbound, at });
+        state.exportedDeliveries.add(deliveryToken);
+      }).pipe(Effect.withSpan("exportOnce"));
 
 /** The subscriber's publish edge; false means it refused the event. */
 interface Subscriber {
@@ -30,13 +106,11 @@ export interface PendingOffer {
   /** The attached subscriber, absent while none is attached. */
   readonly handler?: Subscriber;
   readonly historyExport: HistoryExportPort;
-  readonly publishedDeliveries: Set<string>;
-  readonly exportedDeliveries: Set<string>;
   /**
-   * The item each unacknowledged durable delivery classified into, so a
-   * delivery is decoded and classified once rather than on every pass.
+   * The service's delivery state. Its classified items let a delivery be
+   * decoded and classified once rather than on every pass.
    */
-  readonly classifiedItems: Map<string, InboundItem>;
+  readonly state: DeliveryState;
 }
 
 /**
@@ -79,19 +153,16 @@ const publishItem = (
   event: HarnessMessageReadyEvent,
 ): Effect.Effect<boolean> =>
   Effect.gen(function* () {
-    if (!offer.exportedDeliveries.has(event.deliveryToken)) {
-      const at = yield* DateTime.now;
-      yield* offer.historyExport.record({
-        kind: "inbound",
-        item: event.item,
-        at,
-      });
-      offer.exportedDeliveries.add(event.deliveryToken);
-    }
+    yield* exportOnce(
+      offer.state,
+      offer.historyExport,
+      event.deliveryToken,
+      Effect.succeed(event.item),
+    );
     if (!handler.publish(event)) {
       return false;
     }
-    offer.publishedDeliveries.add(event.deliveryToken);
+    offer.state.publishedDeliveries.add(event.deliveryToken);
     return true;
   });
 
@@ -108,7 +179,7 @@ const classifyOnce = (
           offer.persist({ deliveryToken: pending.deliveryToken, item }).pipe(
             Effect.zipRight(
               Effect.sync(() => {
-                offer.classifiedItems.set(pending.deliveryToken, item);
+                offer.state.classifiedItems.set(pending.deliveryToken, item);
                 return Option.some({
                   deliveryToken: pending.deliveryToken,
                   item,
@@ -130,10 +201,10 @@ const classifyPending = (
   pending: EnginePendingMessage,
 ): Effect.Effect<Option.Option<HarnessMessageReadyEvent>> => {
   const { deliveryToken } = pending;
-  if (offer.publishedDeliveries.has(deliveryToken)) {
+  if (offer.state.publishedDeliveries.has(deliveryToken)) {
     return Effect.succeed(Option.none());
   }
-  const classified = offer.classifiedItems.get(deliveryToken);
+  const classified = offer.state.classifiedItems.get(deliveryToken);
   return classified === undefined
     ? classifyOnce(offer, pending)
     : Effect.succeed(Option.some({ deliveryToken, item: classified }));
@@ -147,7 +218,7 @@ const publishInOrder = (
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
     for (const event of events) {
-      if (offer.publishedDeliveries.has(event.deliveryToken)) {
+      if (offer.state.publishedDeliveries.has(event.deliveryToken)) {
         continue;
       }
       if (!(yield* publishItem(offer, handler, event))) {
@@ -163,15 +234,14 @@ const publishInOrder = (
  * answers are recorded and deadlines complete with nobody listening. Items
  * are published while a subscriber accepts them; after the first refusal,
  * or with no subscriber, they stay pending for a later pass.
- * @param offer The engine, classifier, subscriber and delivery bookkeeping.
+ * @param offer The engine, classifier and subscriber, and the delivery state
+ * whose local items follow the durable deliveries.
  * @param messages Pending durable deliveries in order.
- * @param localItems Items the collective layer emitted, in order.
  * @returns Completion after every delivery is consumed or offered.
  */
 export const offerPendingMessages = (
   offer: PendingOffer,
   messages: readonly EnginePendingMessage[],
-  localItems: ReadonlyMap<DeliveryToken, InboundItem>,
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
     const classified = yield* Effect.forEach(
@@ -185,7 +255,7 @@ export const offerPendingMessages = (
     }
     yield* publishInOrder(offer, handler, [
       ...classified.flatMap((event) => Option.toArray(event)),
-      ...[...localItems].map(([deliveryToken, item]) => ({
+      ...[...offer.state.localItems].map(([deliveryToken, item]) => ({
         deliveryToken,
         item,
       })),

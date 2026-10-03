@@ -50,7 +50,7 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
 
 Transport acknowledgment could not complete for one delivery.
 
-### [`DirectMessage`](./message.ts#L65)
+### [`DirectMessage`](./message.ts#L70)
 
 _TypeAlias_
 
@@ -84,7 +84,7 @@ export const GroupAddress = addressInput.pipe(
 
 A complete fixed-member group address in unsigned ASCII name order.
 
-### [`GroupMessage`](./message.ts#L67)
+### [`GroupMessage`](./message.ts#L72)
 
 _TypeAlias_
 
@@ -94,7 +94,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`InboundMessage`](./message.ts#L75)
+### [`InboundMessage`](./message.ts#L80)
 
 _TypeAlias_
 
@@ -104,7 +104,7 @@ export type InboundMessage = typeof InboundMessage.Type;
 
 A validated direct or group post.
 
-### [`InboundMessage`](./message.ts#L70)
+### [`InboundMessage`](./message.ts#L75)
 
 _Variable_
 

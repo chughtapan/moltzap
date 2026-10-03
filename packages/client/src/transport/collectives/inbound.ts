@@ -3,7 +3,7 @@
 import { Schema } from "effect";
 import { AgentAddress, MessageAddressInput } from "../messaging/address.js";
 import { InboundMessage } from "../messaging/message.js";
-import { exactStruct, PostId, wellFormedString } from "../wire/index.js";
+import { exactStruct, PostId, wellFormedString } from "../wire/values.js";
 import { AnswerContent, CollectiveId, RequestedSchema } from "./forms.js";
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the nominal values they decode. */

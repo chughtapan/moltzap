@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import {
@@ -61,6 +61,7 @@ async function verifyPackedManifest(archive, manifest) {
       });
     });
   }
+  await verifyHostImportGraph(extractedPackage, manifest.main);
   const daemonPath = join(extractedPackage, manifest.bin.moltzapd);
   const daemon = await readFile(daemonPath, "utf8");
   requireCondition(
@@ -74,6 +75,46 @@ async function verifyPackedManifest(archive, manifest) {
   return exportEntries.map(([subpath]) =>
     subpath === "." ? manifest.name : `${manifest.name}/${subpath.slice(2)}`,
   );
+}
+
+/**
+ * Fail when the packed root entry statically reaches the daemon runtime. Hosts
+ * import the root, so it must stay off the inbox, the SQLite store, the engine,
+ * the collective operation layer, wire signing and verification, the Router
+ * client, and `node:sqlite`.
+ * @param {string} extractedPackage Directory of the unpacked client archive.
+ * @param {string} entry Package-relative path of the root entry module.
+ * @returns {Promise<void>}
+ */
+async function verifyHostImportGraph(extractedPackage, entry) {
+  const daemonOnly =
+    /\/(delivery\/(host-delivery|inbox|pass|send-invocations|state)|store\/(index|store)|transport\/messaging\/index|transport\/collectives\/(index|operation)|transport\/wire\/(index|codec|schemas|verification))\.js$/u;
+  const importPattern =
+    /^(?:import|export)\s+(?!type\b)[^;]*?from\s+["']([^"']+)["']|^import\s+["']([^"']+)["']/gmu;
+  const seen = new Set();
+  const pending = [resolve(extractedPackage, entry)];
+  while (pending.length > 0) {
+    const file = pending.pop();
+    if (seen.has(file)) {
+      continue;
+    }
+    seen.add(file);
+    requireCondition(
+      !daemonOnly.test(file),
+      `client root entry loads daemon module ${file.slice(extractedPackage.length)}`,
+    );
+    const source = await readFile(file, "utf8");
+    for (const match of source.matchAll(importPattern)) {
+      const specifier = match[1] ?? match[2];
+      requireCondition(
+        specifier !== "node:sqlite" && specifier !== "@moltzap/router",
+        `client root entry loads ${specifier} through ${file.slice(extractedPackage.length)}`,
+      );
+      if (specifier.startsWith(".")) {
+        pending.push(resolve(dirname(file), specifier));
+      }
+    }
+  }
 }
 
 async function verifyConsumerImports(archives, publicSpecifiers) {

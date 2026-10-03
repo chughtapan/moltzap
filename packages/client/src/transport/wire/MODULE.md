@@ -8,7 +8,7 @@ Package-private facade for the complete Client protocol representation.
 
 ## Public surface
 
-### [`Content`](./values.ts#L103)
+### [`Content`](./values.ts#L104)
 
 _TypeAlias_
 
@@ -18,7 +18,7 @@ export type Content = typeof Content.Type;
 
 Validated nonempty semantic content.
 
-### [`Content`](./values.ts#L98)
+### [`Content`](./values.ts#L99)
 
 _Variable_
 
@@ -31,7 +31,7 @@ export const Content = contentStructure.pipe(
 
 Nonempty semantic content whose canonical JSON is at most 32,768 bytes.
 
-### [`ContentPart`](./values.ts#L93)
+### [`ContentPart`](./values.ts#L94)
 
 _TypeAlias_
 
@@ -41,7 +41,7 @@ export type ContentPart = typeof ContentPart.Type;
 
 A validated semantic message part.
 
-### [`ContentPart`](./values.ts#L88)
+### [`ContentPart`](./values.ts#L89)
 
 _Variable_
 
@@ -54,7 +54,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`JsonValue`](./values.ts#L66)
+### [`JsonValue`](./values.ts#L67)
 
 _TypeAlias_
 
@@ -70,7 +70,7 @@ export type JsonValue =
 
 A value accepted by the closed semantic content boundary.
 
-### [`JsonValue`](./values.ts#L76)
+### [`JsonValue`](./values.ts#L77)
 
 _Variable_
 
@@ -89,7 +89,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`PostId`](./values.ts#L55)
+### [`PostId`](./values.ts#L56)
 
 _TypeAlias_
 
@@ -99,7 +99,7 @@ export type PostId = typeof PostId.Type;
 
 A validated author-scoped post identity.
 
-### [`PostId`](./values.ts#L46)
+### [`PostId`](./values.ts#L47)
 
 _Variable_
 

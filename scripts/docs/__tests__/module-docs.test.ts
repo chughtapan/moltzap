@@ -111,6 +111,19 @@ beforeAll(async () => {
     'export namespace RouterServer {\n  export const layer = "layer";\n}\n',
   );
 
+  writeFixture(
+    "packages/client/package.json",
+    JSON.stringify({ name: "@moltzap/client" }),
+  );
+  writeFixture(
+    "packages/client/src/index.ts",
+    "/** @file Public client values. */\nexport interface HarnessEndpoint {}\n",
+  );
+  writeFixture(
+    "packages/client/src/service/index.ts",
+    "/** @file Process composition. */\nexport namespace MoltZapService {}\n",
+  );
+
   writeFixture("docs/modules/legacy/src.mdx", "stale page\n");
   writeFixture("packages/legacy/src/MODULE.md", "# stale module\n");
 
@@ -205,6 +218,37 @@ beforeAll(async () => {
                     "packages/identity/src/registry/client.ts",
                     1,
                   ),
+                },
+              ],
+            },
+          ],
+        },
+        {
+          name: "@moltzap/client",
+          children: [
+            {
+              id: 19,
+              name: "index",
+              kind: ReflectionKind.Module,
+              children: [
+                {
+                  id: 20,
+                  name: "HarnessEndpoint",
+                  kind: ReflectionKind.Interface,
+                  sources: source("packages/client/src/index.ts", 2),
+                },
+              ],
+            },
+            {
+              id: 21,
+              name: "service",
+              kind: ReflectionKind.Module,
+              children: [
+                {
+                  id: 22,
+                  name: "MoltZapService",
+                  kind: ReflectionKind.Namespace,
+                  sources: source("packages/client/src/service/index.ts", 2),
                 },
               ],
             },
@@ -369,9 +413,14 @@ describe("module documentation", () => {
 
   it("uses final package paths and main-branch source links", () => {
     expect(rendered.map(({ folder, pageSlug }) => [folder, pageSlug])).toEqual([
+      ["packages/client/src", "client/src"],
+      ["packages/client/src/service", "client/service"],
       ["packages/identity/src", "identity/src"],
       ["packages/router/src", "router/src"],
     ]);
+    expect(
+      readFileSync(join(sandbox, "packages/client/src/MODULE.md"), "utf8"),
+    ).toContain("### `@moltzap/client/service`");
     expect(identityModule).toContain("# identity/src\n");
     expect(identityModule).toContain("_`packages/identity/src`_");
     expect(existsSync(join(sandbox, "docs/modules/router/src.mdx"))).toBe(true);

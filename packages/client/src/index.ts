@@ -1,5 +1,5 @@
 /** @file Public barrel for the final endpoint runtime capability. */
-// safer-arch-ignore no-folder-cycle: Importing package.json for the MCP implementation version places the package root in the endpoint's dependencies, while this facade re-exports from endpoint and service.
+// safer-arch-ignore no-folder-cycle: Importing package.json for the MCP implementation version places the package root in the endpoint's dependencies, while this facade re-exports from endpoint/harness-endpoint.
 // safer-arch-ignore require-curated-public-facade: Each re-export names one domain's adapter-facing values; the root re-exports them from their owners instead of from a shared contract module.
 // safer-arch-ignore no-large-public-surface: The root is the one adapter-facing boundary, and each operation and inbound item is a closed schema its adapters decode; splitting them behind narrower entrypoints would give adapters a second import path for one contract.
 
@@ -51,4 +51,4 @@ export {
   ContentPart,
   JsonValue,
   PostId,
-} from "./transport/wire/index.js";
+} from "./transport/wire/values.js";

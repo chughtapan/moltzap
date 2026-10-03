@@ -4,7 +4,7 @@ _`packages/client/src/delivery`_
 
 ## Purpose
 
-One service's delivery and the pass that classifies and publishes pending items, for the service to compose.
+One service's delivery, for the service to compose.
 
 ## Public surface
 

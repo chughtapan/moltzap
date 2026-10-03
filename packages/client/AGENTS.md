@@ -15,10 +15,11 @@ private action evidence, or protocol folds to runtimes.
 
 The source under this package is the accepted cutover implementation. Maintain
 it behind the final Client boundary; do not expand, wrap, or preserve retired
-machinery through a compatibility facade. In particular, do not add a service
-object, channel-core abstraction, profile acquisition, protocol/server proxy,
-bespoke CLI, Unix socket, generic-send path, or standalone notification
-catalog.
+machinery through a compatibility facade. In particular, do not add a
+host-side service facade, channel-core abstraction, profile acquisition,
+protocol/server proxy, bespoke CLI, Unix socket, generic-send path, or
+standalone notification catalog. The `./service` subpath is the admitted
+process composition that `moltzapd` runs; it is not such a facade.
 
 Further work may harden or validate the implementation without widening its
 public surface or relocating its admitted Identity and Router dependencies.

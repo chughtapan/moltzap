@@ -55,6 +55,7 @@ const REQUIRED_PACKAGE_NAMES = [
 
 /** Package subpaths admitted to generated final module documentation. */
 export const REQUIRED_PACKAGE_SUBPATHS = [
+  "@moltzap/client/service",
   "@moltzap/identity/registry",
   "@moltzap/identity/registry/server",
   "@moltzap/router/server",

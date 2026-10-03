@@ -1,5 +1,6 @@
-/** @file Message values every layer above the wire encodes: post ids and content. */
+/** @file Message values every layer above the wire encodes: post ids, content, and member limits and order. */
 
+import type { AgentId } from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import { Either, Encoding, Schema } from "effect";
 
@@ -140,5 +141,45 @@ function contentFits(
     },
   );
 }
+
+/** The largest group membership a conversation address or descriptor admits. */
+export const maximumMembers = 32;
+
+/**
+ * Decode base64url only in its canonical encoding, so one key has one text form.
+ * @param value The base64url text.
+ * @returns The bytes, or undefined when the text is not canonical base64url.
+ */
+export const decodeCanonicalBase64Url = (
+  value: string,
+): Uint8Array | undefined =>
+  Either.match(Encoding.decodeBase64Url(value), {
+    onLeft: () => undefined,
+    onRight: (bytes) =>
+      Encoding.encodeBase64Url(bytes) === value ? bytes : undefined,
+  });
+
+/**
+ * Order agent ids by their decoded key bytes, the order membership
+ * descriptors and group addresses use.
+ * @param left One agent id.
+ * @param right The other agent id.
+ * @returns A negative, zero, or positive comparison result.
+ */
+export const compareAgentIds = (left: AgentId, right: AgentId): number => {
+  const leftBytes = decodeCanonicalBase64Url(left.slice(4));
+  const rightBytes = decodeCanonicalBase64Url(right.slice(4));
+  if (leftBytes === undefined || rightBytes === undefined) {
+    return 0;
+  }
+  const length = Math.min(leftBytes.byteLength, rightBytes.byteLength);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (leftBytes[index] ?? 0) - (rightBytes[index] ?? 0);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return leftBytes.byteLength - rightBytes.byteLength;
+};
 
 /* eslint-enable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Restore the package naming rules after the Schema/type pairs. */

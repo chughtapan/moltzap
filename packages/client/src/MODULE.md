@@ -8,7 +8,7 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./endpoint/harness-endpoint/index.ts#L47)
+### [`acquireHarnessEndpoint`](./endpoint/harness-endpoint/index.ts#L57)
 
 _Function_
 
@@ -81,7 +81,7 @@ export class ConnectError extends Data.TaggedError("ConnectError")<{
 
 Acquiring the endpoint connection failed.
 
-### [`Content (type)`](./transport/wire/values.ts#L103)
+### [`Content (type)`](./transport/wire/values.ts#L104)
 
 _TypeAlias_
 
@@ -91,7 +91,7 @@ export type Content = typeof Content.Type;
 
 Validated nonempty semantic content.
 
-### [`Content (value)`](./transport/wire/values.ts#L98)
+### [`Content (value)`](./transport/wire/values.ts#L99)
 
 _Variable_
 
@@ -104,7 +104,7 @@ export const Content = contentStructure.pipe(
 
 Nonempty semantic content whose canonical JSON is at most 32,768 bytes.
 
-### [`ContentPart (type)`](./transport/wire/values.ts#L93)
+### [`ContentPart (type)`](./transport/wire/values.ts#L94)
 
 _TypeAlias_
 
@@ -114,7 +114,7 @@ export type ContentPart = typeof ContentPart.Type;
 
 A validated semantic message part.
 
-### [`ContentPart (value)`](./transport/wire/values.ts#L88)
+### [`ContentPart (value)`](./transport/wire/values.ts#L89)
 
 _Variable_
 
@@ -145,7 +145,7 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
 
 Transport acknowledgment could not complete for one delivery.
 
-### [`DirectMessage`](./transport/messaging/message.ts#L65)
+### [`DirectMessage`](./transport/messaging/message.ts#L70)
 
 _TypeAlias_
 
@@ -179,7 +179,7 @@ export const GroupAddress = addressInput.pipe(
 
 A complete fixed-member group address in unsigned ASCII name order.
 
-### [`GroupMessage`](./transport/messaging/message.ts#L67)
+### [`GroupMessage`](./transport/messaging/message.ts#L72)
 
 _TypeAlias_
 
@@ -299,7 +299,7 @@ or duplicated, and multicasts that carry nothing besides that part; every
 other certified post becomes one item, and the endpoint itself emits
 results and failures.
 
-### [`InboundMessage (type)`](./transport/messaging/message.ts#L75)
+### [`InboundMessage (type)`](./transport/messaging/message.ts#L80)
 
 _TypeAlias_
 
@@ -309,7 +309,7 @@ export type InboundMessage = typeof InboundMessage.Type;
 
 A validated direct or group post.
 
-### [`InboundMessage (value)`](./transport/messaging/message.ts#L70)
+### [`InboundMessage (value)`](./transport/messaging/message.ts#L75)
 
 _Variable_
 
@@ -322,7 +322,7 @@ export const InboundMessage = Schema.Union(
 
 One certified remote-authored post, direct or to a fixed group.
 
-### [`JsonValue (type)`](./transport/wire/values.ts#L66)
+### [`JsonValue (type)`](./transport/wire/values.ts#L67)
 
 _TypeAlias_
 
@@ -338,7 +338,7 @@ export type JsonValue =
 
 A value accepted by the closed semantic content boundary.
 
-### [`JsonValue (value)`](./transport/wire/values.ts#L76)
+### [`JsonValue (value)`](./transport/wire/values.ts#L77)
 
 _Variable_
 
@@ -428,7 +428,7 @@ Read one message text as the send it states.
 **Returns:** The send input, or an error naming each field a stated operation
   gets wrong.
 
-### [`PostId (type)`](./transport/wire/values.ts#L55)
+### [`PostId (type)`](./transport/wire/values.ts#L56)
 
 _TypeAlias_
 
@@ -438,7 +438,7 @@ export type PostId = typeof PostId.Type;
 
 A validated author-scoped post identity.
 
-### [`PostId (value)`](./transport/wire/values.ts#L46)
+### [`PostId (value)`](./transport/wire/values.ts#L47)
 
 _Variable_
 
@@ -516,6 +516,47 @@ export interface SendResult {
 
 What a completed send returns: a collecting operation names its id.
 
+## Package subpaths
+
+### `@moltzap/client/service`
+
+#### [`MoltZapService`](./service/index.ts#L24)
+
+_Namespace_
+
+#### [`MoltZapService.StartupError`](./service/index.ts#L26)
+
+_Class_
+
+```ts
+  export class StartupError extends Data.TaggedError(
+    "MoltZapServiceStartupError",
+  )<{
+    readonly phase: "configuration" | "storage" | "listener";
+  }> {
+    /**
+     * Names only the failed phase, so the process log says why startup stopped.
+     * @returns The startup failure message.
+     */
+    override get message(): string {
+      return `moltzapd startup failed in phase ${this.phase}`;
+    }
+  }
+```
+
+Closed daemon startup phase without configuration or platform detail.
+
+#### [`MoltZapService.layer`](./service/index.ts#L75)
+
+_Variable_
+
+```ts
+  export const layer: Layer.Layer<never, StartupError> =
+    Layer.scopedDiscard(runDaemon)
+```
+
+Complete production process composition for `moltzapd`.
+
 ## Files
 
 - `delivery/history-export.ts`
@@ -526,7 +567,6 @@ What a completed send returns: a collecting operation names its id.
 - `delivery/pass.ts`
 - `delivery/README.md`
 - `delivery/send-invocations.ts`
-- `delivery/state.ts`
 - `endpoint/harness-endpoint/capability.ts`
 - `endpoint/harness-endpoint/events.ts`
 - `endpoint/harness-endpoint/index.ts`

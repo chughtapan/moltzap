@@ -17,6 +17,11 @@ heading below in its release commit.
 
 ### Changed
 
+- **Breaking:** The daemon's process-composition subpath `@moltzap/client/server`
+  is now `@moltzap/client/service`, and `MoltZapDaemon` is now
+  `MoltZapService`. Its startup error `_tag` is now
+  `MoltZapServiceStartupError`. There is no alias for the old names. The
+  `moltzapd` binary and the package root are unchanged.
 - Runtime code manages inbox delivery, acknowledgment and retries. Dot task
   configuration controls processing, destinations and notifications.
 - MCP sends expose semantic inputs to the model and carry optional invocation

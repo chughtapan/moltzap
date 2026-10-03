@@ -5,17 +5,13 @@ import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Cause, type Context, Deferred, Effect, Schema, Scope } from "effect";
 import type { HistoryExportPort } from "../delivery/history-export.js";
+import type { HostDelivery } from "../delivery/index.js";
 import type { EndpointStore } from "../store/index.js";
 import type {
   EndpointEngine,
   EngineInitializationError,
 } from "../transport/messaging/index.js";
 import type { DaemonBootstrap } from "./configuration.js";
-import {
-  type HostDelivery,
-  offerPendingMessages,
-  type PendingOffer,
-} from "../delivery/index.js";
 import {
   type CollectiveOperations,
   type InboundItem,
@@ -98,85 +94,52 @@ const mapWorkerInitializationError = (
   );
 
 /**
- * What one pass reads and changes, from the active protocol and the
- * controller's delivery state. Items are offered only to an attached
- * subscriber.
- */
-const pendingOffer = (
-  environment: ProtocolEnvironment,
-  protocol: ActiveProtocol,
-): PendingOffer => {
-  const { state } = environment;
-  const delivery = environment.delivery.state;
-  const handler = state.subscriptionActive ? state.handler : undefined;
-  return {
-    engine: protocol.engine,
-    classify: protocol.collectives.classify,
-    persist: (event) =>
-      environment.delivery
-        .persist(event)
-        .pipe(
-          Effect.catchAll(() =>
-            Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
-              Effect.zipRight(Effect.never),
-            ),
-          ),
-        ),
-    ...(handler === undefined
-      ? {}
-      : { handler: { publish: handler.notifyPending } }),
-    historyExport: environment.historyExport,
-    publishedDeliveries: delivery.publishedDeliveries,
-    exportedDeliveries: delivery.exportedDeliveries,
-    classifiedItems: delivery.classifiedItems,
-  };
-};
-
-/**
  * Classify newly durable deliveries and publish what a subscriber can take.
  * The pass runs with or without a subscriber, so the collective layer
- * consumes protocol posts even while no host is attached.
- * @param environment Protocol resources and the delivery state whose gate
- * serializes pending reads with subscription changes.
+ * consumes protocol posts even while no host is attached. The active protocol
+ * and subscriber are read once the delivery gate is held.
+ * @param environment Protocol resources and the service's delivery.
  * @returns Completion after every current delivery is consumed or offered.
  */
 export const publishPendingMessages = (
   environment: ProtocolEnvironment,
 ): Effect.Effect<void> =>
-  environment.delivery.state.gate.withPermits(1)(
-    Effect.suspend(() => {
-      const protocol = environment.state.activeProtocol;
+  environment.delivery
+    .runPass(() => {
+      const { state } = environment;
+      const protocol = state.activeProtocol;
       if (protocol === undefined) {
-        return Effect.void;
+        return undefined;
       }
-      return protocol.engine.readPendingMessages().pipe(
-        Effect.flatMap((messages) =>
-          offerPendingMessages(
-            pendingOffer(environment, protocol),
-            messages,
-            environment.delivery.state.localItems,
-          ),
+      const handler = state.subscriptionActive ? state.handler : undefined;
+      return {
+        readPending: protocol.engine.readPendingMessages(),
+        engine: protocol.engine,
+        classify: protocol.collectives.classify,
+        ...(handler === undefined
+          ? {}
+          : { handler: { publish: handler.notifyPending } }),
+        onStoreFailure: Deferred.fail(
+          environment.fatal,
+          runtimeFailure("storage"),
+        ).pipe(Effect.zipRight(Effect.never)),
+      };
+    })
+    .pipe(
+      Effect.catchAll(() =>
+        Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
+          Effect.asVoid,
         ),
-        Effect.catchAll(() =>
-          Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
-            Effect.asVoid,
-          ),
-        ),
-      );
-    }),
-  );
+      ),
+    );
 
 /**
  * Queue an item the collective layer emitted and start a publication pass.
  * The pass is forked because the layer can emit from inside one, which holds
  * the delivery gate.
- * @param environment The failure signal, service scope and delivery.
- * @param reconciler The publication pass to fork.
- * @param item The emitted item.
- * @returns Completion once the item is durable and queued, without waiting on the gate.
  */
-export const emitLocalItem = (
-  environment: Pick<ProtocolEnvironment, "fatal" | "daemonScope" | "delivery">,
+const emitLocalItem = (
+  environment: ProtocolEnvironment,
   reconciler: Effect.Effect<void>,
   item: InboundItem,
 ): Effect.Effect<void> =>

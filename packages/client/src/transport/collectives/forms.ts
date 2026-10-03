@@ -8,7 +8,7 @@ import {
   isCanonicalIdentifier,
   JsonValue,
   wellFormedString,
-} from "../wire/index.js";
+} from "../wire/values.js";
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the nominal values they decode. */
 

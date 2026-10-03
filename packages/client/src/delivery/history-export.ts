@@ -4,7 +4,7 @@ import { FileSystem } from "@effect/platform";
 import { DateTime, Effect, Schema } from "effect";
 import { CollectiveId, SendInput } from "../transport/collectives/forms.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
-import { exactStruct, PostId } from "../transport/wire/index.js";
+import { exactStruct, PostId } from "../transport/wire/values.js";
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the nominal values they decode. */
 

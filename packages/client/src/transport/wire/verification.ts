@@ -18,7 +18,6 @@ import {
   sameBytes,
 } from "./canonical.js";
 import {
-  compareAgentIds,
   deriveConversationId,
   deriveEvidenceMessageId,
   hashAction,
@@ -51,6 +50,7 @@ import {
   type RecordCore,
   type RecordHash,
 } from "./schemas.js";
+import { compareAgentIds } from "./values.js";
 
 /* eslint-disable jsdoc/require-jsdoc -- The package-private representation facade documents these closed verification operations. */
 

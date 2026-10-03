@@ -32,6 +32,7 @@ import {
   EndpointStoreError,
   type IdentityBinding,
 } from "../store/index.js";
+import { SendInput } from "../transport/collectives/forms.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
 import { DeliveryAcknowledgeError } from "../transport/messaging/errors.js";
 import {
@@ -706,6 +707,88 @@ const failsWhenStartupProjectionCannotPersist = () =>
     }),
   );
 
+/** A response to no open request, which the collective layer refuses. */
+const unmatchedResponse = Schema.decodeUnknownSync(SendInput)({
+  to: "agent:bob",
+  collectiveResponse: { action: "decline" },
+});
+
+/**
+ * A pass holds the delivery gate while the collective layer emits, so an
+ * emission that waited on the gate would deadlock the daemon. Here a pass is
+ * held inside its pending read while a refused send routes its failure
+ * inbound; the send returns and its item is readable once the pass ends.
+ */
+const emitsWhileAPassHoldsTheDeliveryGate = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
+  const fiber = Effect.runFork(
+    run(fixture, makeStore(fixture, true, harness.delivery), harness),
+  );
+  try {
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const readBarrier: ReadBarrier = {
+      entered: await Effect.runPromise(Deferred.make<undefined>()),
+      release: await Effect.runPromise(Deferred.make<undefined>()),
+    };
+    harness.delivery.readBarrier = readBarrier;
+    const reader = responseReader(
+      await requireHandler(harness).fetch(makeListenRequest("listener-1")),
+    );
+    await awaitFrame(reader, "subscription acknowledgment");
+    await awaitStage(Deferred.await(readBarrier.entered), "held pass");
+
+    const operations = requireOperations(harness);
+    const sent = await awaitStage(
+      operations.send({ input: unmatchedResponse, failureDelivery: "inbound" }),
+      "send while the pass holds the delivery gate",
+    );
+    await Effect.runPromise(Deferred.succeed(readBarrier.release, undefined));
+    const inbox = await awaitStage(operations.readInbox({}), "inbox read");
+
+    expect(inbox.items.map(({ item }) => item)).toContainEqual(
+      expect.objectContaining({
+        kind: "operationFailed",
+        id: sent.operationId,
+      }),
+    );
+    await reader.cancel();
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(fiber));
+  }
+};
+
+/** An emitted item the store cannot persist fails the daemon in storage. */
+const failsWhenAnEmittedItemCannotPersist = () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const harness = yield* makeHarness(fixture, "none");
+      const store = makeStore(fixture, true, harness.delivery);
+      let accepted = 0;
+      const failingAfterStartup: EndpointStore = {
+        ...store,
+        putInboxItem: (item) =>
+          accepted++ === 0
+            ? store.putInboxItem(item)
+            : Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+      };
+      const daemon = yield* Effect.fork(
+        run(fixture, failingAfterStartup, harness),
+      );
+      yield* Deferred.await(harness.listenerReady);
+      const send = yield* Effect.fork(
+        requireOperations(harness).send({
+          input: unmatchedResponse,
+          failureDelivery: "inbound",
+        }),
+      );
+      const error = yield* Fiber.join(daemon).pipe(Effect.flip);
+      yield* Fiber.interrupt(send);
+      expect(error).toEqual(new DaemonRuntimeError({ phase: "storage" }));
+    }),
+  );
+
 const withReceiptFinalizer = (
   harness: RuntimeHarness,
   receipt: Deferred.Deferred<Fiber.RuntimeFiber<void, EndpointStoreError>>,
@@ -1005,6 +1088,14 @@ describe("daemon runtime composition", () => {
   it(
     "fails startup when classified inbox persistence fails",
     failsWhenStartupProjectionCannotPersist,
+  );
+  it(
+    "emits a local item while a pass holds the delivery gate",
+    emitsWhileAPassHoldsTheDeliveryGate,
+  );
+  it(
+    "fails the daemon when an emitted item cannot persist",
+    failsWhenAnEmittedItemCannotPersist,
   );
   it("opens the configured history export", opensConfiguredHistoryExport);
   it(

@@ -19,7 +19,7 @@ import {
   readSendResultSchema,
 } from "../../delivery/operations.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
-import { exactStruct } from "../../transport/wire/index.js";
+import { exactStruct } from "../../transport/wire/values.js";
 
 /** A content-free wakeup to read the classified runtime inbox. */
 export const INBOX_PENDING_EVENT = "moltzap.inbox.pending";

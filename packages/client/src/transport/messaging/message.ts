@@ -1,7 +1,12 @@
 /** @file Certified inbound messages, direct or to a fixed group. */
 
 import { Schema } from "effect";
-import { Content, exactStruct, maximumMembers, PostId } from "../wire/index.js";
+import {
+  Content,
+  exactStruct,
+  maximumMembers,
+  PostId,
+} from "../wire/values.js";
 import {
   AgentAddress,
   GroupAddress,

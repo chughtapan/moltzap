@@ -3,7 +3,7 @@
 import type { Registry } from "@moltzap/identity/registry";
 import { AgentName, type VerifiedAgentCard } from "@moltzap/identity";
 import { type Context, Effect, Schema } from "effect";
-import { compareAgentIds, maximumMembers } from "../wire/index.js";
+import { compareAgentIds, maximumMembers } from "../wire/values.js";
 import { SendError } from "./errors.js";
 
 const AGENT_ADDRESS_PREFIX = "agent:";
