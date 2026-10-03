@@ -59,6 +59,27 @@ const activationRuntimeFailure = (
 ): DaemonRuntimeError =>
   runtimeFailure(error.reason === "upstream" ? "listener" : "storage");
 
+/**
+ * The register tool's closed reason for an activation failure: a local
+ * storage fault is persistence-failed; an upstream or representation fault
+ * is dependency-unavailable.
+ */
+const registerFailureReason = (
+  reason: DaemonActivationError["reason"],
+): "persistence-failed" | "dependency-unavailable" => {
+  switch (reason) {
+    case "persistence":
+      return "persistence-failed";
+    case "upstream":
+    case "representation":
+      return "dependency-unavailable";
+    default: {
+      const exhaustive: never = reason;
+      return exhaustive;
+    }
+  }
+};
+
 const makeRegisterOperation =
   (
     environment: ProtocolEnvironment,
@@ -79,6 +100,9 @@ const makeRegisterOperation =
             result,
           ),
         ),
+        Effect.catchTag("DaemonActivationError", (error) =>
+          Effect.fail({ reason: registerFailureReason(error.reason) }),
+        ),
       ),
     );
 
@@ -93,7 +117,7 @@ const runSubscriptionChanges = (
         environment.state.subscriptionActive = active;
       }).pipe(
         Effect.zipRight(active ? Effect.void : environment.delivery.detach),
-        Effect.zipRight(reconciler),
+        Effect.zipRight(Effect.ignore(reconciler)),
       ),
     ),
     Effect.forever,

@@ -439,7 +439,7 @@ const settlesRegistrationWhenThePassFails = async () => {
       Effect.exit(requireOperations(harness).register(fixture.registerRequest)),
       "registration settling after the failed pass",
     );
-    expect(Exit.isFailure(registration)).toBe(true);
+    expect(registration).toEqual(Exit.fail({ reason: "persistence-failed" }));
     expect(
       await awaitStage(Effect.flip(Fiber.join(fiber)), "daemon failure"),
     ).toEqual(new DaemonRuntimeError({ phase: "storage" }));
