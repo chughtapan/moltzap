@@ -8,11 +8,9 @@
 import { DateTime, Effect, Option } from "effect";
 import type { EndpointStoreError } from "../store/index.js";
 import type { DeliveryToken } from "../store/types.js";
+import type { CollectiveEmitError } from "../transport/collectives/forms.js";
 import type { InboundItem } from "../transport/collectives/inbound.js";
-import type {
-  CollectiveEmitError,
-  CollectiveOperations,
-} from "../transport/collectives/index.js";
+import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type {
   EndpointEngine,
   EnginePendingMessage,

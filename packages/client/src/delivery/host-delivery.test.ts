@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type { HistoryExportRecord } from "./history-export.js";
 import {
   DeliveryToken,
@@ -13,12 +14,12 @@ import {
   EndpointStoreError,
   openEndpointStore,
 } from "../store/index.js";
-import { CollectiveId, SendInput } from "../transport/collectives/forms.js";
-import { InboundItem } from "../transport/collectives/inbound.js";
 import {
   CollectiveEmitError,
-  type CollectiveOperations,
-} from "../transport/collectives/index.js";
+  CollectiveId,
+  SendInput,
+} from "../transport/collectives/forms.js";
+import { InboundItem } from "../transport/collectives/inbound.js";
 import { SendError } from "../transport/messaging/errors.js";
 import { InboundMessage } from "../transport/messaging/message.js";
 import { PostId, RecordHash } from "../transport/wire/index.js";

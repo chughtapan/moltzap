@@ -69,7 +69,6 @@
 
 import {
   Clock,
-  Data,
   Duration,
   Effect,
   Array as EffectArray,
@@ -79,7 +78,6 @@ import {
   Schema,
   type Scope,
 } from "effect";
-import { randomBytes } from "node:crypto";
 import type { EngineSendInput, EngineSentPost } from "../messaging/index.js";
 import type { InboundMessage } from "../messaging/message.js";
 import type { PostId, RecordHash } from "../wire/index.js";
@@ -91,6 +89,14 @@ import {
 } from "../messaging/address.js";
 import { SendError } from "../messaging/errors.js";
 import {
+  type CollectiveSendOutcome,
+  emitFailureAsSendError,
+  refusedAs,
+  type RefusedSend,
+  reportFailure,
+} from "./failures.js";
+import {
+  type CollectiveEmitError,
   CollectiveError,
   type CollectiveFailure,
   type CollectiveId,
@@ -100,7 +106,6 @@ import {
   MAXIMUM_DEADLINE_SECONDS,
   RequestedSchema,
   type SendInput,
-  type SendResult,
 } from "./forms.js";
 import {
   matchOpenRequest,
@@ -131,6 +136,7 @@ import {
   type CollectiveValue,
   encodeCollectiveContent,
   FormModeSchema,
+  mintCollectiveId,
   readCollectiveValue,
   withoutCollectivePart,
 } from "./wire.js";
@@ -224,32 +230,6 @@ interface CertifiedPost {
   readonly recordHash: RecordHash;
 }
 
-/** One completed send: the posts certified by its return, and a collective id. */
-interface CollectiveSendOutcome extends SendResult {
-  readonly postIds: ReadonlyArray<EngineSentPost["postId"]>;
-}
-
-/**
- * The service could not keep an item the layer emitted. The service has
- * already reported its own failure, so the layer only stops the work that
- * emitted the item.
- */
-export class CollectiveEmitError extends Data.TaggedError(
-  "CollectiveEmitError",
-) {}
-
-/** A send whose emitted item could not be kept fails as persistence-failed. */
-function emitFailureAsSendError<A, E, R>(
-  effect: Effect.Effect<A, E | CollectiveEmitError, R>,
-): Effect.Effect<A, Exclude<E, CollectiveEmitError> | SendError, R> {
-  return Effect.catchIf(
-    effect,
-    (error): error is CollectiveEmitError =>
-      error instanceof CollectiveEmitError,
-    () => Effect.fail(new SendError({ reason: "persistence-failed" })),
-  );
-}
-
 /** The daemon's collective layer for one active identity. */
 export interface CollectiveOperations {
   /**
@@ -268,7 +248,9 @@ export interface CollectiveOperations {
    * Classify one certified remote post. Answers are recorded and consumed,
    * every other protocol post is consumed, and each remaining post becomes
    * one item. Classifying a post again yields the same result, so the daemon
-   * may run it on every pass over pending deliveries.
+   * may run it on every pass over pending deliveries. It fails with
+   * `CollectiveEmitError` when a result or failure the post completes cannot
+   * be kept, which ends the pass classifying it.
    */
   readonly classify: (
     post: CertifiedPost,
@@ -328,13 +310,6 @@ interface CollectiveState {
 const decodeAgentAddress = Schema.decodeUnknownOption(AgentAddress);
 const decodeRequestedSchema = Schema.decodeUnknownOption(RequestedSchema);
 
-/** A fresh nonce and the id it binds to the requester. */
-const mintCollectiveId = (requester: AgentAddress) =>
-  Effect.sync(() => {
-    const nonce = randomBytes(32).toString("base64url");
-    return { id: collectiveIdOf(requester, nonce), nonce };
-  });
-
 const contentInvalid = () => new SendError({ reason: "content-invalid" });
 
 const collectiveFailure = (id: CollectiveId, failure: CollectiveFailure) =>
@@ -357,7 +332,7 @@ export const makeCollectiveOperations = (
     send: (input, failureDelivery) =>
       "collectiveResponse" in input
         ? reportFailure(
-            state,
+            state.ports.emit,
             failureDelivery,
             respond(state, input.to, input.collectiveResponse),
           )
@@ -379,7 +354,7 @@ function sendOperation(
     case "gather":
     case "all_gather":
       return reportFailure(
-        state,
+        state.ports.emit,
         failureDelivery,
         gather(state, input.to, input.text, operation),
       );
@@ -403,59 +378,6 @@ function multicast(
     Effect.flatMap((content) => state.ports.sendPost({ to, content })),
     Effect.map((post) => ({ postIds: [post.postId] })),
   );
-}
-
-/**
- * A refused collective send, with the address its failure item routes to.
- * The address is the operation's own, or the requester's for a response.
- */
-interface RefusedSend<E> {
-  readonly id: CollectiveId;
-  readonly to: MessageAddressInput;
-  readonly error: E;
-}
-
-/**
- * Deliver a refused collective send's error where the host wants it. With
- * `inbound` the send completes, naming the operation, and the error arrives
- * as an `operationFailed` item carrying the same text.
- */
-function reportFailure(
-  state: CollectiveState,
-  failureDelivery: FailureDelivery,
-  send: Effect.Effect<
-    CollectiveSendOutcome,
-    RefusedSend<SendError | CollectiveError>
-  >,
-): Effect.Effect<CollectiveSendOutcome, SendError | CollectiveError> {
-  return send.pipe(
-    Effect.catchAll((refused) => {
-      switch (failureDelivery) {
-        case "result":
-          return Effect.fail(refused.error);
-        case "inbound":
-          return state.ports
-            .emit({
-              kind: "operationFailed",
-              id: refused.id,
-              to: refused.to,
-              error: refused.error.message,
-            })
-            .pipe(
-              emitFailureAsSendError,
-              Effect.as({ operationId: refused.id, postIds: [] }),
-            );
-        default: {
-          const exhaustive: never = failureDelivery;
-          return exhaustive;
-        }
-      }
-    }),
-  );
-}
-
-function refusedAs<E>(id: CollectiveId, to: MessageAddressInput) {
-  return (error: E): RefusedSend<E> => ({ id, to, error });
 }
 
 /** A collecting operation's canonical address and the members it asks. */
@@ -682,7 +604,9 @@ function sleepUntil(at: number): Effect.Effect<void> {
  * send keeps running and settles its member when it completes: certified
  * asks it, refused makes it `no-answer`, as does pending at the deadline.
  * The send fails only when every post was refused and the gather has not
- * completed, so an operation ends in exactly one refusal or one result.
+ * completed, so an operation ends in exactly one refusal or one result, or
+ * as persistence-failed when the result its settling completes cannot be
+ * kept.
  */
 function sendRequests(
   state: CollectiveState,

@@ -37,6 +37,7 @@ import {
 } from "../store/index.js";
 import { SendInput } from "../transport/collectives/forms.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
+import { SendError } from "../transport/messaging/errors.js";
 import { DaemonRuntimeError } from "./lifecycle.js";
 
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- The focused tests drive the official Promise-native MCP stream boundary. */
@@ -221,8 +222,10 @@ const emitsWhileAPassHoldsTheDeliveryGate = async () => {
 };
 
 /**
- * An emitted item the store cannot persist fails the daemon in storage. The
- * store rejects only items other than the fixture's startup delivery.
+ * An emitted item the store cannot persist fails its send as
+ * persistence-failed, rather than leaving the send waiting, and fails the
+ * daemon in storage. The store rejects only items other than the fixture's
+ * startup delivery.
  */
 const failsWhenAnEmittedItemCannotPersist = async () => {
   const fixture = await Effect.runPromise(makeFixture);
@@ -237,17 +240,22 @@ const failsWhenAnEmittedItemCannotPersist = async () => {
   };
   const daemon = Effect.runFork(run(fixture, rejectingEmissions, harness));
   await awaitStage(Deferred.await(harness.listenerReady), "listener");
-  const send = Effect.runFork(
-    requireOperations(harness).send({
-      input: unmatchedResponse,
-      failureDelivery: "inbound",
-    }),
+  const sent = await awaitStage(
+    Effect.exit(
+      requireOperations(harness).send({
+        input: unmatchedResponse,
+        failureDelivery: "inbound",
+      }),
+    ),
+    "send whose refusal cannot be kept",
   );
   const error = await awaitStage(
     Fiber.join(daemon).pipe(Effect.flip),
     "daemon failure after the rejected emission",
   );
-  await Effect.runPromise(Fiber.interrupt(send));
+  expect(sent).toEqual(
+    Exit.fail(new SendError({ reason: "persistence-failed" })),
+  );
   expect(error).toEqual(new DaemonRuntimeError({ phase: "storage" }));
 };
 

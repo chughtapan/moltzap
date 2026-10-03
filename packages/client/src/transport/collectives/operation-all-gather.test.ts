@@ -19,7 +19,7 @@ import { AgentAddress } from "../messaging/address.js";
 import { SendError } from "../messaging/errors.js";
 import { InboundMessage } from "../messaging/message.js";
 import { PostId, RecordHash } from "../wire/index.js";
-import { CollectiveError, SendInput } from "./forms.js";
+import { CollectiveEmitError, CollectiveError, SendInput } from "./forms.js";
 import {
   type CollectiveOperations,
   type CollectivePorts,
@@ -72,7 +72,9 @@ const certify = (observed: Observed, input: EngineSendInput) =>
 const makeLayer = (
   observed: Observed,
   self: string,
-  overrides: Partial<Pick<CollectivePorts, "sendPost" | "lookupMember">> = {},
+  overrides: Partial<
+    Pick<CollectivePorts, "sendPost" | "lookupMember" | "emit">
+  > = {},
 ): Effect.Effect<CollectiveOperations, never, Scope.Scope> =>
   Effect.map(Effect.scope, (scope) =>
     makeCollectiveOperations({
@@ -687,6 +689,57 @@ function holdsACloseUntilTheMemberOwnAnswerIsCertified() {
   );
 }
 
+/** A port that keeps no item the layer emits. */
+const unkeptEmit = { emit: () => Effect.fail(new CollectiveEmitError()) };
+
+/**
+ * A close whose member result cannot be kept fails its classification, so
+ * the pass classifying it ends instead of waiting.
+ */
+function failsACloseWhoseMemberResultCannotBeKept() {
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(newObserved(), "agent:bob", unkeptEmit);
+      yield* classify(layer, "agent:alice", 10, requestValue);
+      const failure = yield* Effect.flip(
+        classify(layer, "agent:alice", 14, close(requestId, [])),
+      );
+
+      expect(failure).toEqual(new CollectiveEmitError());
+    }),
+  );
+}
+
+/**
+ * A member answer that releases a held close whose result cannot be kept
+ * fails as persistence-failed.
+ */
+function failsAnAnswerThatReleasesAnUnkeptClose() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const certified = yield* Deferred.make<undefined>();
+      const layer = yield* makeLayer(observed, "agent:bob", {
+        ...unkeptEmit,
+        sendPost: (input) =>
+          Deferred.await(certified).pipe(
+            Effect.zipRight(certify(observed, input)),
+          ),
+      });
+      yield* classify(layer, "agent:alice", 10, requestValue);
+      const answering = yield* Effect.fork(respond(layer, "mon"));
+      yield* settle;
+      yield* classify(layer, "agent:alice", 14, close(requestId, [101]));
+      yield* Deferred.succeed(certified, undefined);
+
+      expect(yield* Effect.flip(Fiber.join(answering))).toEqual(
+        new SendError({ reason: "persistence-failed" }),
+      );
+    }),
+  );
+}
+
 function excludesAPeerAnswerThatArrivesAfterTheClose() {
   const observed = newObserved();
 
@@ -942,5 +995,16 @@ describe("all_gather close at a member", () => {
   it(
     "ignores a close listing an answer it does not hold",
     ignoresACloseListingAnAnswerTheMemberDoesNotHold,
+  );
+});
+
+describe("all_gather member results the service cannot keep", () => {
+  it(
+    "fails a close whose member result cannot be kept",
+    failsACloseWhoseMemberResultCannotBeKept,
+  );
+  it(
+    "fails an answer that releases a close whose result cannot be kept",
+    failsAnAnswerThatReleasesAnUnkeptClose,
   );
 });

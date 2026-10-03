@@ -19,9 +19,13 @@ import { AgentAddress } from "../messaging/address.js";
 import { SendError } from "../messaging/errors.js";
 import { InboundMessage } from "../messaging/message.js";
 import { PostId, RecordHash } from "../wire/index.js";
-import { CollectiveError, type FailureDelivery, SendInput } from "./forms.js";
 import {
   CollectiveEmitError,
+  CollectiveError,
+  type FailureDelivery,
+  SendInput,
+} from "./forms.js";
+import {
   type CollectiveOperations,
   makeCollectiveOperations,
 } from "./operation.js";
@@ -70,12 +74,26 @@ const newObserved = (): Observed => ({ sent: [], emitted: [] });
  * the lookup that resolves it. With `emitFails`, the service keeps no item
  * the layer emits.
  */
+/** An emit port that keeps nothing. */
+const unkeptEmit = () => Effect.fail(new CollectiveEmitError());
+
+/** An emit port that records each item. */
+const recordEmitted = (observed: Observed) => (item: InboundItem) =>
+  Effect.sync(() => {
+    observed.emitted.push(item);
+  });
+
 const makeLayer = (
   observed: Observed,
   refused: Readonly<Record<string, SendError["reason"] | "slow" | "late">> = {},
   sendDelay?: Duration.Duration,
-  unknown: readonly string[] = [],
-  emitFails = false,
+  {
+    unknown = [],
+    emitFails = false,
+  }: {
+    readonly unknown?: readonly string[];
+    readonly emitFails?: boolean;
+  } = {},
 ): Effect.Effect<CollectiveOperations, never, Scope.Scope> =>
   Effect.map(Effect.scope, (scope) =>
     makeCollectiveOperations({
@@ -107,12 +125,7 @@ const makeLayer = (
           ),
         );
       },
-      emit: (item) =>
-        emitFails
-          ? Effect.fail(new CollectiveEmitError())
-          : Effect.sync(() => {
-              observed.emitted.push(item);
-            }),
+      emit: emitFails ? unkeptEmit : recordEmitted(observed),
       scope,
       requestSendWait: Duration.seconds(1),
     }),
@@ -272,7 +285,9 @@ function refusesAGatherWithAnUnknownMemberBeforeAnyPost() {
 
   return run(
     Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, {}, undefined, ["agent:carol"]);
+      const layer = yield* makeLayer(observed, {}, undefined, {
+        unknown: ["agent:carol"],
+      });
       const failure = yield* collectiveFailureOf(send(layer, gatherInput()));
 
       expect(failure).toEqual({
@@ -488,7 +503,9 @@ function emitsARefusedGatherAsAnOperationFailedItemWhenFailuresGoInbound() {
   return run(
     Effect.gen(function* () {
       const unknownMember = "agent:carol";
-      const layer = yield* makeLayer(observed, {}, undefined, [unknownMember]);
+      const layer = yield* makeLayer(observed, {}, undefined, {
+        unknown: [unknownMember],
+      });
       const outcome = yield* send(layer, gatherInput(), "inbound");
 
       const [emitted, ...rest] = observed.emitted;
@@ -849,7 +866,9 @@ function emitsTheResultOnceEveryMemberHasAnswered() {
 function failsTheCompletingAnswerWhenTheResultCannotBeKept() {
   return run(
     Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved(), {}, undefined, [], true);
+      const layer = yield* makeLayer(newObserved(), {}, undefined, {
+        emitFails: true,
+      });
       const id = yield* startGather(layer);
       yield* classifyPost(
         layer,
@@ -871,7 +890,9 @@ function failsTheCompletingAnswerWhenTheResultCannotBeKept() {
 function failsASendWhoseInboundRefusalCannotBeKept() {
   return run(
     Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved(), {}, undefined, [], true);
+      const layer = yield* makeLayer(newObserved(), {}, undefined, {
+        emitFails: true,
+      });
       const failure = yield* Effect.flip(
         send(
           layer,
@@ -1303,16 +1324,6 @@ describe("gather results", () => {
   );
 
   it(
-    "fails the completing answer when the result cannot be kept",
-    failsTheCompletingAnswerWhenTheResultCannotBeKept,
-  );
-
-  it(
-    "fails a send whose inbound refusal cannot be kept",
-    failsASendWhoseInboundRefusalCannotBeKept,
-  );
-
-  it(
     "reports a silent member as no-answer at the deadline",
     reportsASilentMemberAsNoAnswerAtTheDeadline,
   );
@@ -1385,4 +1396,15 @@ describe("received request checks", () => {
     consumesARequestWhoseDeadlineLiesBeyondTheLongestAGatherStates,
   );
 });
+describe("emitted items the service cannot keep", () => {
+  it(
+    "fails the completing answer when the result cannot be kept",
+    failsTheCompletingAnswerWhenTheResultCannotBeKept,
+  );
+  it(
+    "fails a send whose inbound refusal cannot be kept",
+    failsASendWhoseInboundRefusalCannotBeKept,
+  );
+});
+
 /* eslint-enable max-lines -- Restore repository defaults. */

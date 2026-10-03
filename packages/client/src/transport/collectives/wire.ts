@@ -14,7 +14,7 @@ import {
 } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { Data, Effect, Option, ParseResult, Predicate, Schema } from "effect";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { AgentAddress } from "../messaging/address.js";
 import { Content, exactStruct, RecordHash } from "../wire/index.js";
 import { AnswerContent, CollectiveId } from "./forms.js";
@@ -229,6 +229,13 @@ export const collectiveIdOf = (
       .update(`xyz.moltzap/collective-id\0${requester}\0${nonce}`)
       .digest("base64url")}`,
   );
+
+/** A fresh nonce and the id it binds to the requester. */
+export const mintCollectiveId = (requester: AgentAddress) =>
+  Effect.sync(() => {
+    const nonce = randomBytes(32).toString("base64url");
+    return { id: collectiveIdOf(requester, nonce), nonce };
+  });
 
 /** A plain post: multicast carries neither a deadline nor a schema. */
 const MulticastOperation = exactStruct({

@@ -8,7 +8,7 @@ The collective operations the daemon service composes.
 
 ## Public surface
 
-### [`CollectiveError`](./forms.ts#L255)
+### [`CollectiveError`](./forms.ts#L264)
 
 _Class_
 

@@ -1,11 +1,11 @@
 /** @file One service's delivery: the inbox writes, the gated delivery pass and detach, and the operations hosts call. */
 
 import { DateTime, Effect, type Scope } from "effect";
-import type { SendInput } from "../transport/collectives/forms.js";
 import type {
   CollectiveEmitError,
-  CollectiveOperations,
-} from "../transport/collectives/index.js";
+  SendInput,
+} from "../transport/collectives/forms.js";
+import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
 import type {
   HistoryExportPort,

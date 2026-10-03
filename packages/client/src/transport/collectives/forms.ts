@@ -247,6 +247,15 @@ function describeCollectiveFailure(failure: CollectiveFailure): string {
 }
 
 /**
+ * The service could not keep an item the layer emitted. The service has
+ * already reported its own failure, so the layer only stops the work that
+ * emitted the item.
+ */
+export class CollectiveEmitError extends Data.TaggedError(
+  "CollectiveEmitError",
+) {}
+
+/**
  * A gather, all_gather or answer was refused. The message is what a host
  * hands its model as the tool error: the failed action and its cause, naming
  * each unreachable member or failing field. The operation id stays in the
