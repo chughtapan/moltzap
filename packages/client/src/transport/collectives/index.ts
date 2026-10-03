@@ -2,6 +2,7 @@
 
 /** The daemon's stateful gather and all_gather operations. */
 export {
+  CollectiveEmitError,
   type CollectiveOperations,
   makeCollectiveOperations,
 } from "./operation.js";

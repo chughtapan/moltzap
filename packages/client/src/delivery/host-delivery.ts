@@ -2,7 +2,10 @@
 
 import { DateTime, Effect, type Scope } from "effect";
 import type { SendInput } from "../transport/collectives/forms.js";
-import type { CollectiveOperations } from "../transport/collectives/index.js";
+import type {
+  CollectiveEmitError,
+  CollectiveOperations,
+} from "../transport/collectives/index.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
 import type {
   HistoryExportPort,
@@ -74,7 +77,7 @@ export interface HostDelivery {
    */
   readonly runPass: <E>(
     prepare: () => PassInput<E> | undefined,
-  ) => Effect.Effect<void, E | EndpointStoreError>;
+  ) => Effect.Effect<void, E | EndpointStoreError | CollectiveEmitError>;
   /** Make an item the collective layer emitted durable and queue it for the next pass. */
   readonly queueLocalItem: (
     item: InboundItem,
@@ -257,7 +260,7 @@ const pendingOffer = <E>(
 const runPass = <E>(
   input: DeliveryContext,
   prepare: () => PassInput<E> | undefined,
-): Effect.Effect<void, E | EndpointStoreError> =>
+): Effect.Effect<void, E | EndpointStoreError | CollectiveEmitError> =>
   input.state.gate.withPermits(1)(
     Effect.suspend(() => {
       const pass = prepare();

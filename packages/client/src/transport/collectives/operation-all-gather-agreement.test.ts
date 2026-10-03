@@ -241,7 +241,7 @@ function deliverySteps(harness: Harness): Step[] {
           }
           endpoint.next = next.index + 1;
           endpoint.lastClassified = next.record;
-          return classifyRecord(endpoint, next.record);
+          return Effect.orDie(classifyRecord(endpoint, next.record));
         }),
       ],
     ];
@@ -265,7 +265,7 @@ function redeliverySteps(harness: Harness): Step[] {
           if (isClose(record)) {
             harness.coverage.redeliveredClose += 1;
           }
-          return classifyRecord(endpoint, record);
+          return Effect.orDie(classifyRecord(endpoint, record));
         }),
       ],
     ];

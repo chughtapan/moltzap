@@ -9,7 +9,10 @@ import { DateTime, Effect, Option } from "effect";
 import type { EndpointStoreError } from "../store/index.js";
 import type { DeliveryToken } from "../store/types.js";
 import type { InboundItem } from "../transport/collectives/inbound.js";
-import type { CollectiveOperations } from "../transport/collectives/index.js";
+import type {
+  CollectiveEmitError,
+  CollectiveOperations,
+} from "../transport/collectives/index.js";
 import type {
   EndpointEngine,
   EnginePendingMessage,
@@ -172,7 +175,10 @@ const publishItem = (
 const classifyOnce = (
   offer: PendingOffer,
   pending: EnginePendingMessage,
-): Effect.Effect<Option.Option<HarnessMessageReadyEvent>, EndpointStoreError> =>
+): Effect.Effect<
+  Option.Option<HarnessMessageReadyEvent>,
+  EndpointStoreError | CollectiveEmitError
+> =>
   offer.classify(pending).pipe(
     Effect.flatMap(
       Option.match({
@@ -204,7 +210,7 @@ const classifyPending = (
   pending: EnginePendingMessage,
 ): Effect.Effect<
   Option.Option<HarnessMessageReadyEvent>,
-  EndpointStoreError
+  EndpointStoreError | CollectiveEmitError
 > => {
   const { deliveryToken } = pending;
   if (offer.state.publishedDeliveries.has(deliveryToken)) {
@@ -244,12 +250,12 @@ const publishInOrder = (
  * whose local items follow the durable deliveries.
  * @param messages Pending durable deliveries in order.
  * @returns Completion after every delivery is consumed or offered, or the
- * store's failure to keep a classified item, which ends the pass.
+ * store's failure to keep a classified or emitted item, which ends the pass.
  */
 export const offerPendingMessages = (
   offer: PendingOffer,
   messages: readonly EnginePendingMessage[],
-): Effect.Effect<void, EndpointStoreError> =>
+): Effect.Effect<void, EndpointStoreError | CollectiveEmitError> =>
   Effect.gen(function* () {
     const classified = yield* Effect.forEach(
       messages,

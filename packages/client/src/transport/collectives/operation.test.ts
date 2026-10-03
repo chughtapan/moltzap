@@ -21,6 +21,7 @@ import { InboundMessage } from "../messaging/message.js";
 import { PostId, RecordHash } from "../wire/index.js";
 import { CollectiveError, type FailureDelivery, SendInput } from "./forms.js";
 import {
+  CollectiveEmitError,
   type CollectiveOperations,
   makeCollectiveOperations,
 } from "./operation.js";
@@ -66,13 +67,15 @@ const newObserved = (): Observed => ({ sent: [], emitted: [] });
  * PostId after `sendDelay`. A member named in `refused` refuses its post with
  * that reason, never certifies it when the reason is `slow`, or certifies it
  * five seconds late when it is `late`; a member named in `unknown` also fails
- * the lookup that resolves it.
+ * the lookup that resolves it. With `emitFails`, the service keeps no item
+ * the layer emits.
  */
 const makeLayer = (
   observed: Observed,
   refused: Readonly<Record<string, SendError["reason"] | "slow" | "late">> = {},
   sendDelay?: Duration.Duration,
   unknown: readonly string[] = [],
+  emitFails = false,
 ): Effect.Effect<CollectiveOperations, never, Scope.Scope> =>
   Effect.map(Effect.scope, (scope) =>
     makeCollectiveOperations({
@@ -105,9 +108,11 @@ const makeLayer = (
         );
       },
       emit: (item) =>
-        Effect.sync(() => {
-          observed.emitted.push(item);
-        }),
+        emitFails
+          ? Effect.fail(new CollectiveEmitError())
+          : Effect.sync(() => {
+              observed.emitted.push(item);
+            }),
       scope,
       requestSendWait: Duration.seconds(1),
     }),
@@ -835,6 +840,49 @@ function emitsTheResultOnceEveryMemberHasAnswered() {
   );
 }
 
+/**
+ * The answer that completes a gather fails its classification when the result
+ * cannot be kept, so the pass classifying it ends instead of waiting.
+ */
+function failsTheCompletingAnswerWhenTheResultCannotBeKept() {
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(newObserved(), {}, undefined, [], true);
+      const id = yield* startGather(layer);
+      yield* classifyPost(
+        layer,
+        answerPost("agent:bob", id, { action: "decline" }),
+      );
+      const failure = yield* Effect.flip(
+        classifyPost(
+          layer,
+          answerPost("agent:carol", id, { action: "decline" }),
+        ),
+      );
+
+      expect(failure).toEqual(new CollectiveEmitError());
+    }),
+  );
+}
+
+/** A refusal routed inbound that cannot be kept fails the send as persistence-failed. */
+function failsASendWhoseInboundRefusalCannotBeKept() {
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(newObserved(), {}, undefined, [], true);
+      const failure = yield* Effect.flip(
+        send(
+          layer,
+          { to: "agent:bob", collectiveResponse: { action: "decline" } },
+          "inbound",
+        ),
+      );
+
+      expect(failure).toEqual(new SendError({ reason: "persistence-failed" }));
+    }),
+  );
+}
+
 function reportsASilentMemberAsNoAnswerAtTheDeadline() {
   const observed = newObserved();
 
@@ -1253,6 +1301,16 @@ describe("gather results", () => {
   it(
     "emits the result once every member has answered",
     emitsTheResultOnceEveryMemberHasAnswered,
+  );
+
+  it(
+    "fails the completing answer when the result cannot be kept",
+    failsTheCompletingAnswerWhenTheResultCannotBeKept,
+  );
+
+  it(
+    "fails a send whose inbound refusal cannot be kept",
+    failsASendWhoseInboundRefusalCannotBeKept,
   );
 
   it(

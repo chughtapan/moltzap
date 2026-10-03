@@ -6,7 +6,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type { HistoryExportRecord } from "./history-export.js";
 import {
   DeliveryToken,
@@ -16,8 +15,13 @@ import {
 } from "../store/index.js";
 import { CollectiveId, SendInput } from "../transport/collectives/forms.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
+import {
+  CollectiveEmitError,
+  type CollectiveOperations,
+} from "../transport/collectives/index.js";
 import { SendError } from "../transport/messaging/errors.js";
-import { PostId } from "../transport/wire/index.js";
+import { InboundMessage } from "../transport/messaging/message.js";
+import { PostId, RecordHash } from "../transport/wire/index.js";
 import { makeHostDelivery } from "./host-delivery.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Closed error reasons and export record kinds are the contract under test. */
@@ -251,6 +255,43 @@ const reportsAcknowledgmentPersistenceFailure = () =>
     }),
   );
 
+/**
+ * A pass whose classification fails because an emitted item could not be
+ * kept ends with that failure and releases the delivery gate, so a host read
+ * that waits on the gate still completes.
+ */
+const releasesTheGateWhenAPassFails = () =>
+  run(
+    Effect.gen(function* () {
+      const { delivery, slot } = yield* deliveryFixture;
+      slot.collectives = { send: () => Effect.dieMessage("unexpected send") };
+      const pending = {
+        deliveryToken: unboundToken,
+        recordHash: Schema.decodeUnknownSync(RecordHash)(identifier("rch_", 5)),
+        message: Schema.decodeUnknownSync(InboundMessage)({
+          kind: "direct",
+          postId: identifier("pst_", 5),
+          address: "agent:bob",
+          sender: "agent:bob",
+          content: [{ type: "text", text: "pending" }],
+        }),
+      };
+      const failure = yield* Effect.flip(
+        delivery.runPass(() => ({
+          readPending: Effect.succeed([pending]),
+          engine: { acknowledgeMessage: () => Effect.void },
+          classify: () => Effect.fail(new CollectiveEmitError()),
+        })),
+      );
+      const page = yield* delivery.operations
+        .readInbox({})
+        .pipe(Effect.timeout("1 second"));
+
+      expect(failure).toEqual(new CollectiveEmitError());
+      expect(page.items).toEqual([]);
+    }),
+  );
+
 describe("host delivery", () => {
   it(
     "refuses host operations until a collective layer is active",
@@ -268,6 +309,10 @@ describe("host delivery", () => {
   it(
     "reports a store failure while acknowledging as persistence-failed",
     reportsAcknowledgmentPersistenceFailure,
+  );
+  it(
+    "releases the delivery gate when a pass fails",
+    releasesTheGateWhenAPassFails,
   );
 });
 

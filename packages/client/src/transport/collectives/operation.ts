@@ -69,6 +69,7 @@
 
 import {
   Clock,
+  Data,
   Duration,
   Effect,
   Array as EffectArray,
@@ -204,8 +205,13 @@ export interface CollectivePorts {
   readonly sendPost: (
     input: EngineSendInput,
   ) => Effect.Effect<EngineSentPost, SendError>;
-  /** Queue an item the layer emits itself: a result or a failure. */
-  readonly emit: (item: InboundItem) => Effect.Effect<void>;
+  /**
+   * Queue an item the layer emits itself: a result or a failure. It fails
+   * when the item cannot be kept, which ends the work that emitted it.
+   */
+  readonly emit: (
+    item: InboundItem,
+  ) => Effect.Effect<void, CollectiveEmitError>;
   /** Owns deadline timers and request sends that outlive their send call. */
   readonly scope: Scope.Scope;
   /** Overrides `REQUEST_SEND_WAIT`; tests bound the wait. */
@@ -221,6 +227,27 @@ interface CertifiedPost {
 /** One completed send: the posts certified by its return, and a collective id. */
 interface CollectiveSendOutcome extends SendResult {
   readonly postIds: ReadonlyArray<EngineSentPost["postId"]>;
+}
+
+/**
+ * The service could not keep an item the layer emitted. The service has
+ * already reported its own failure, so the layer only stops the work that
+ * emitted the item.
+ */
+export class CollectiveEmitError extends Data.TaggedError(
+  "CollectiveEmitError",
+) {}
+
+/** A send whose emitted item could not be kept fails as persistence-failed. */
+function emitFailureAsSendError<A, E, R>(
+  effect: Effect.Effect<A, E | CollectiveEmitError, R>,
+): Effect.Effect<A, Exclude<E, CollectiveEmitError> | SendError, R> {
+  return Effect.catchIf(
+    effect,
+    (error): error is CollectiveEmitError =>
+      error instanceof CollectiveEmitError,
+    () => Effect.fail(new SendError({ reason: "persistence-failed" })),
+  );
 }
 
 /** The daemon's collective layer for one active identity. */
@@ -245,7 +272,7 @@ export interface CollectiveOperations {
    */
   readonly classify: (
     post: CertifiedPost,
-  ) => Effect.Effect<Option.Option<InboundItem>>;
+  ) => Effect.Effect<Option.Option<InboundItem>, CollectiveEmitError>;
 }
 
 /**
@@ -414,7 +441,10 @@ function reportFailure(
               to: refused.to,
               error: refused.error.message,
             })
-            .pipe(Effect.as({ operationId: refused.id, postIds: [] }));
+            .pipe(
+              emitFailureAsSendError,
+              Effect.as({ operationId: refused.id, postIds: [] }),
+            );
         default: {
           const exhaustive: never = failureDelivery;
           return exhaustive;
@@ -583,7 +613,7 @@ function gather(
       operation,
     );
     const timer = yield* sleepUntil(prepared.deadlineAt).pipe(
-      Effect.zipRight(completeGather(state, prepared.id)),
+      Effect.zipRight(Effect.ignore(completeGather(state, prepared.id))),
       Effect.forkIn(state.ports.scope),
     );
     yield* Effect.sync(() => {
@@ -600,7 +630,9 @@ function gather(
             Effect.map((postIds) => ({ postIds })),
           );
     const sent = yield* requests.pipe(
-      Effect.mapError(refusedAs(prepared.id, prepared.open.to)),
+      Effect.mapError(
+        refusedAs<SendError | CollectiveError>(prepared.id, prepared.open.to),
+      ),
     );
     return { ...sent, operationId: prepared.id };
   });
@@ -652,7 +684,7 @@ function sleepUntil(at: number): Effect.Effect<void> {
 function sendRequests(
   state: CollectiveState,
   prepared: PreparedGather,
-): Effect.Effect<CollectiveSendOutcome, CollectiveError> {
+): Effect.Effect<CollectiveSendOutcome, CollectiveError | SendError> {
   return Effect.gen(function* () {
     const { id, open } = prepared;
     const sends = yield* Effect.forEach(
@@ -684,9 +716,11 @@ function sendRequests(
         }),
       );
     }
-    yield* updateGather(state, id, (settled) => {
-      settled.requestsSettled = true;
-    });
+    yield* emitFailureAsSendError(
+      updateGather(state, id, (settled) => {
+        settled.requestsSettled = true;
+      }),
+    );
     return { postIds: posts.map((post) => post.postId) };
   });
 }
@@ -697,11 +731,13 @@ function recordRefusal(
   id: CollectiveId,
   { member }: RequestRefusal,
 ): Effect.Effect<void> {
-  return updateGather(state, id, ({ outcomes }) => {
-    if (!outcomes.has(member)) {
-      outcomes.set(member, { kind: "no-answer" });
-    }
-  });
+  return Effect.ignore(
+    updateGather(state, id, ({ outcomes }) => {
+      if (!outcomes.has(member)) {
+        outcomes.set(member, { kind: "no-answer" });
+      }
+    }),
+  );
 }
 
 /**
@@ -714,7 +750,7 @@ function updateGather(
   state: CollectiveState,
   id: CollectiveId,
   change: (open: OpenGather) => void,
-): Effect.Effect<void> {
+): Effect.Effect<void, CollectiveEmitError> {
   return Effect.suspend(() => {
     const open = state.gathers.get(id);
     if (open === undefined) {
@@ -822,7 +858,7 @@ function forgetGather(
 function completeGather(
   state: CollectiveState,
   id: CollectiveId,
-): Effect.Effect<void> {
+): Effect.Effect<void, CollectiveEmitError> {
   return Effect.suspend(() => {
     const open = state.gathers.get(id);
     if (open === undefined) {
@@ -862,7 +898,7 @@ function closeAllGather(
   state: CollectiveState,
   open: OpenGather,
   result: CollectiveResultItem,
-): Effect.Effect<void> {
+): Effect.Effect<void, CollectiveEmitError> {
   const included = open.members.flatMap((member) =>
     Option.toArray(Option.fromNullable(open.answerHashes.get(member))),
   );
@@ -919,7 +955,10 @@ function respond(
             Option.some({ recordHash: sent.recordHash, response: value }),
           ),
       }),
-      Effect.onInterrupt(() => settleAnswer(state, id, request, Option.none())),
+      Effect.onInterrupt(() =>
+        Effect.ignore(settleAnswer(state, id, request, Option.none())),
+      ),
+      emitFailureAsSendError,
       Effect.mapError(refused),
     );
     return { operationId: id, postIds: [post.postId] };
@@ -1012,7 +1051,7 @@ function settleAnswer(
   id: CollectiveId,
   request: ReceivedRequest,
   certified: Option.Option<CertifiedAnswer>,
-): Effect.Effect<void> {
+): Effect.Effect<void, CollectiveEmitError> {
   return Effect.suspend(() => {
     if (request.state === "closed") {
       return Effect.void;
@@ -1036,7 +1075,7 @@ function settleAnswer(
 function classify(
   state: CollectiveState,
   post: CertifiedPost,
-): Effect.Effect<Option.Option<InboundItem>> {
+): Effect.Effect<Option.Option<InboundItem>, CollectiveEmitError> {
   const { message } = post;
   return readCollectiveValue(message.content).pipe(
     Effect.flatMap(
@@ -1060,7 +1099,7 @@ function collectiveItem(
   state: CollectiveState,
   post: CertifiedPost,
   value: CollectiveValue,
-): Effect.Effect<Option.Option<InboundItem>> {
+): Effect.Effect<Option.Option<InboundItem>, CollectiveEmitError> {
   switch (value.kind) {
     case "operation":
       return operationItem(state, post.message, value);
@@ -1252,7 +1291,7 @@ function recordAnswer(
   state: CollectiveState,
   post: CertifiedPost,
   value: ResponseValue,
-): Effect.Effect<void> {
+): Effect.Effect<void, CollectiveEmitError> {
   return Effect.suspend(() => {
     const open = state.gathers.get(value.id);
     if (open !== undefined) {
@@ -1271,7 +1310,7 @@ function recordCountedAnswer(
   open: OpenGather,
   post: CertifiedPost,
   value: ResponseValue,
-): Effect.Effect<void> {
+): Effect.Effect<void, CollectiveEmitError> {
   const { message } = post;
   if (
     !answeredInConversation(open, message) ||
@@ -1340,7 +1379,7 @@ function receiveClose(
   state: CollectiveState,
   message: InboundMessage,
   value: CloseValue,
-): Effect.Effect<void> {
+): Effect.Effect<void, CollectiveEmitError> {
   return Effect.suspend(() => {
     const request = state.requests.get(value.id);
     if (
@@ -1383,7 +1422,7 @@ function applyClose(
   state: CollectiveState,
   asked: AskedAllGather,
   close: HeldClose,
-): Effect.Effect<void> {
+): Effect.Effect<void, CollectiveEmitError> {
   const { id, request, shared } = asked;
   const { answers, missing, repeated } = listedAnswers(shared, close.included);
   if (missing && request.state === "sending") {

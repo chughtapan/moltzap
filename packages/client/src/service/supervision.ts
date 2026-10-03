@@ -13,6 +13,7 @@ import type {
 } from "../transport/messaging/index.js";
 import type { DaemonBootstrap } from "./configuration.js";
 import {
+  CollectiveEmitError,
   type CollectiveOperations,
   type InboundItem,
   makeCollectiveOperations,
@@ -135,17 +136,19 @@ export const publishPendingMessages = (
 /**
  * Queue an item the collective layer emitted and start a publication pass.
  * The pass is forked because the layer can emit from inside one, which holds
- * the delivery gate.
+ * the delivery gate. An item the store cannot keep signals the storage
+ * failure and fails the emission, so a pass that emitted it ends and
+ * releases the gate.
  */
 const emitLocalItem = (
   environment: ProtocolEnvironment,
   reconciler: Effect.Effect<void, DaemonRuntimeError>,
   item: InboundItem,
-): Effect.Effect<void> =>
+): Effect.Effect<void, CollectiveEmitError> =>
   environment.delivery.queueLocalItem(item).pipe(
     Effect.catchAll(() =>
       Deferred.fail(environment.fatal, runtimeFailure("storage")).pipe(
-        Effect.zipRight(Effect.never),
+        Effect.zipRight(Effect.fail(new CollectiveEmitError())),
       ),
     ),
     Effect.zipRight(

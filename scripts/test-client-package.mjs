@@ -120,15 +120,18 @@ const hostPackages = new Set([
 ]);
 
 /**
- * Fail when the packed root entry statically reaches a module or package
- * outside the host allowlists.
+ * Fail when the packed root entry reaches a module or package outside the
+ * host allowlists, through a static or literal dynamic import, or loads a
+ * module it names only at run time.
  * @param {string} extractedPackage Directory of the unpacked client archive.
  * @param {string} entry Package-relative path of the root entry module.
  * @returns {Promise<void>}
  */
 async function verifyHostImportGraph(extractedPackage, entry) {
   const importPattern =
-    /^(?:import|export)\s+(?!type\b)[^;]*?from\s+["']([^"']+)["']|^import\s+["']([^"']+)["']/gmu;
+    /^(?:import|export)\s+(?!type\b)[^;]*?from\s+["']([^"']+)["']|^import\s+["']([^"']+)["']|\bimport\(\s*["']([^"']+)["']\s*\)/gmu;
+  const unresolvableLoad =
+    /\bimport\(\s*[^"'\s]|\bcreateRequire\b|\brequire\(/u;
   const seen = new Set();
   const pending = [resolve(extractedPackage, entry)];
   while (pending.length > 0) {
@@ -143,8 +146,12 @@ async function verifyHostImportGraph(extractedPackage, entry) {
       `client root entry loads ${module}, which is not a host module`,
     );
     const source = await readFile(file, "utf8");
+    requireCondition(
+      !unresolvableLoad.test(source),
+      `client root entry loads a module ${module} names only at run time`,
+    );
     for (const match of source.matchAll(importPattern)) {
-      const specifier = match[1] ?? match[2];
+      const specifier = match[1] ?? match[2] ?? match[3];
       if (specifier.startsWith(".")) {
         pending.push(resolve(dirname(file), specifier));
       } else {
