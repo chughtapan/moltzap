@@ -62,6 +62,10 @@
       "reason": "MCP tool names, Events constants, and JSON Schema projections shared by the tool catalog, the Events and webhook transports, and the HarnessEndpoint client"
     },
     {
+      "file": "service/configuration.ts",
+      "reason": "Exact process configuration and loaded bootstrap authority shared by daemon startup, registration, supervision, and management"
+    },
+    {
       "file": "service/registration.ts",
       "reason": "Crash-recoverable identity-registration boundary shared by daemon startup and management"
     },
@@ -125,6 +129,16 @@
     }
   ],
   "domains": [
+    {
+      "name": "identity",
+      "roots": [
+        "src/identity"
+      ],
+      "entrypoints": [
+        "src/identity/index.ts"
+      ],
+      "reason": "The agent signing key and secret credential files, read exactly and failing closed"
+    },
     {
       "name": "wire",
       "roots": [
@@ -274,6 +288,13 @@
         "transport/wire"
       ],
       "reason": "Canonical protocol encoding, verification, and the message values every layer encodes"
+    },
+    {
+      "name": "identity",
+      "folders": [
+        "identity"
+      ],
+      "reason": "The agent signing key and secret credential files, read exactly and failing closed"
     }
   ],
   "publicTypePackages": [

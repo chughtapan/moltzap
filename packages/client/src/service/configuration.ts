@@ -6,12 +6,17 @@ import {
   type Ed25519PublicKey as Ed25519PublicKeyValue,
 } from "@moltzap/identity";
 import { Config, Data, Effect, Redacted, Schema } from "effect";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Bootstrap reads configured credential files before the daemon composes its platform services.
-import { readFile } from "node:fs/promises";
 import {
   credentialMatches,
   type HarnessMcpCredentials,
 } from "../endpoint/mcp/index.js";
+import {
+  type CredentialError,
+  credentialText,
+  loadAdmissionCredential,
+  loadSigningAuthority,
+  readCredential,
+} from "../identity/index.js";
 
 const canonicalUnsignedDecimal = Schema.String.pipe(
   Schema.pattern(/^(?:0|[1-9]\d*)$/u),
@@ -45,11 +50,6 @@ const origin = Schema.String.pipe(
 const compactPublicKeyJson = Schema.String.pipe(
   Schema.pattern(/^\{"crv":"Ed25519","kty":"OKP","x":"[A-Za-z0-9_-]{43}"\}$/u),
   Schema.compose(Schema.parseJson(Ed25519PublicKey)),
-);
-const admissionCredential = Schema.String.pipe(
-  Schema.minLength(8),
-  Schema.maxLength(512),
-  Schema.pattern(/^[A-Za-z0-9\-._~+/]+=*$/u),
 );
 
 const configuredValues = Config.all({
@@ -153,68 +153,15 @@ export const loadDaemonProcessConfiguration: Effect.Effect<
   Effect.withSpan("loadDaemonProcessConfiguration"),
 );
 
-const utf8Decoder = new TextDecoder("utf-8", {
-  fatal: true,
-  ignoreBOM: true,
-});
+const credentialFailure =
+  (
+    fileReason: DaemonConfigurationFailure,
+    valueReason: DaemonConfigurationFailure,
+  ) =>
+  (error: CredentialError): DaemonConfigurationError =>
+    configurationError(error.stage === "file" ? fileReason : valueReason);
 
-const readExactUtf8 = (
-  path: Redacted.Redacted,
-  reason:
-    | "agent-private-key-file"
-    | "admission-credential-file"
-    | "mcp-runtime-credential-file"
-    | "mcp-owner-credential-file",
-): Effect.Effect<string, DaemonConfigurationError> =>
-  Effect.tryPromise({
-    try: () => readFile(Redacted.value(path)),
-    catch: () => configurationError(reason),
-  }).pipe(
-    Effect.flatMap((bytes) =>
-      Effect.try({
-        try: () => utf8Decoder.decode(bytes),
-        catch: () => configurationError(reason),
-      }),
-    ),
-  );
-
-const loadSigningAuthority = (
-  configuration: DaemonProcessConfiguration,
-): Effect.Effect<AgentSigningAuthority, DaemonConfigurationError> =>
-  readExactUtf8(
-    configuration.agentPrivateKeyFile,
-    "agent-private-key-file",
-  ).pipe(
-    Effect.flatMap((privateKey) =>
-      AgentSigningAuthority.fromPkcs8(Redacted.make(privateKey)),
-    ),
-    Effect.mapError((error) =>
-      error._tag === "DaemonConfigurationError"
-        ? error
-        : configurationError("agent-private-key"),
-    ),
-  );
-
-const loadAdmissionCredential = (
-  configuration: DaemonProcessConfiguration,
-): Effect.Effect<Redacted.Redacted, DaemonConfigurationError> =>
-  (configuration.admissionCredentialFile === undefined
-    ? Effect.fail(configurationError("admission-credential-file"))
-    : readExactUtf8(
-        configuration.admissionCredentialFile,
-        "admission-credential-file",
-      )
-  ).pipe(
-    Effect.flatMap(Schema.decodeUnknown(admissionCredential)),
-    Effect.map(Redacted.make),
-    Effect.mapError((error) =>
-      error._tag === "DaemonConfigurationError"
-        ? error
-        : configurationError("admission-credential"),
-    ),
-  );
-
-const mcpCredential = admissionCredential.pipe(Schema.minLength(32));
+const mcpCredential = credentialText.pipe(Schema.minLength(32));
 
 const loadMcpCredentials = (
   configuration: DaemonProcessConfiguration,
@@ -228,35 +175,35 @@ const loadMcpCredentials = (
     if (runtimePath === undefined || ownerPath === undefined) {
       return yield* Effect.fail(configurationError("mcp-credential"));
     }
-    const runtime = yield* readExactUtf8(
-      runtimePath,
-      "mcp-runtime-credential-file",
-    ).pipe(
-      Effect.flatMap(Schema.decodeUnknown(mcpCredential)),
-      Effect.mapError((error) =>
-        error._tag === "DaemonConfigurationError"
-          ? error
-          : configurationError("mcp-credential"),
+    const runtime = yield* readCredential(runtimePath, mcpCredential).pipe(
+      Effect.mapError(
+        credentialFailure("mcp-runtime-credential-file", "mcp-credential"),
       ),
-      Effect.map(Redacted.make),
     );
-    const owner = yield* readExactUtf8(
-      ownerPath,
-      "mcp-owner-credential-file",
-    ).pipe(
-      Effect.flatMap(Schema.decodeUnknown(mcpCredential)),
-      Effect.mapError((error) =>
-        error._tag === "DaemonConfigurationError"
-          ? error
-          : configurationError("mcp-credential"),
+    const owner = yield* readCredential(ownerPath, mcpCredential).pipe(
+      Effect.mapError(
+        credentialFailure("mcp-owner-credential-file", "mcp-credential"),
       ),
-      Effect.map(Redacted.make),
     );
     if (credentialMatches(Redacted.value(runtime), owner)) {
       return yield* Effect.fail(configurationError("mcp-credential"));
     }
     return { runtime, owner };
   });
+
+const loadConfiguredAdmissionCredential = (
+  configuration: DaemonProcessConfiguration,
+): Effect.Effect<Redacted.Redacted, DaemonConfigurationError> =>
+  configuration.admissionCredentialFile === undefined
+    ? Effect.fail(configurationError("admission-credential-file"))
+    : loadAdmissionCredential(configuration.admissionCredentialFile).pipe(
+        Effect.mapError(
+          credentialFailure(
+            "admission-credential-file",
+            "admission-credential",
+          ),
+        ),
+      );
 
 /**
  * Reads the agent private key and constructs the configured Ed25519 authority.
@@ -268,9 +215,15 @@ export const loadDaemonBootstrap = (
   configuration: DaemonProcessConfiguration,
 ): Effect.Effect<DaemonBootstrap, DaemonConfigurationError> =>
   Effect.gen(function* () {
-    const signingAuthority = yield* loadSigningAuthority(configuration);
+    const signingAuthority = yield* loadSigningAuthority(
+      configuration.agentPrivateKeyFile,
+    ).pipe(
+      Effect.mapError(
+        credentialFailure("agent-private-key-file", "agent-private-key"),
+      ),
+    );
     const admissionCredential = yield* Effect.cached(
-      loadAdmissionCredential(configuration),
+      loadConfiguredAdmissionCredential(configuration),
     );
     const mcpCredentials = yield* loadMcpCredentials(configuration);
     return Object.freeze({

@@ -586,6 +586,8 @@ Complete production process composition for `moltzapd`.
 - `endpoint/mcp/schemas.ts`
 - `endpoint/mcp/tools.ts`
 - `endpoint/mcp/webhook.ts`
+- `identity/credentials.ts`
+- `identity/index.ts`
 - `index.ts`
 - `README.md`
 - `service/activation.ts`
