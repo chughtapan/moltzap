@@ -11,8 +11,8 @@ import type {
   ProtocolEvidence,
   StagedRecord,
   CertifiedRecord as StoredCertifiedRecord,
-} from "../../store/index.js";
-import type { EngineActionFold, EngineConversation } from "./types.js";
+} from "../../../store/index.js";
+import type { EngineActionFold, EngineConversation } from "../runtime/index.js";
 import {
   type ActionCertifiedRecord,
   type AnchorHash,
@@ -24,12 +24,12 @@ import {
   hashRecord,
   type RecordCore,
   RecordCore as RecordCoreSchema,
-} from "../wire/index.js";
-import { AgentAddress, compareAscii, GroupAddress } from "../wire/values.js";
+} from "../../wire/index.js";
+import { AgentAddress, compareAscii, GroupAddress } from "../../wire/values.js";
 import {
   InboundMessage,
   type InboundMessage as InboundMessageValue,
-} from "./message.js";
+} from "../message.js";
 
 function requireNonEmpty<Value>(
   values: readonly Value[],

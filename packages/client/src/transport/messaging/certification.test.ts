@@ -49,7 +49,7 @@ import type {
   EngineRouterPort,
   EngineSendInput,
   EngineSentPost,
-} from "./types.js";
+} from "./runtime/index.js";
 import { advanceClock } from "../../__tests__/advance-clock.js";
 import { failFromBackgroundCause } from "../../service/supervision.js";
 import { type EndpointStore, openEndpointStore } from "../../store/index.js";

@@ -14,7 +14,7 @@ import type {
   EnginePostIntent,
   EngineRuntime,
   EngineSendInput,
-} from "./types.js";
+} from "./runtime/index.js";
 import {
   type ActionCertifiedRecord,
   type ActionCore,

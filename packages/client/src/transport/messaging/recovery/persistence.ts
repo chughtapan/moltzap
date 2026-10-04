@@ -17,7 +17,7 @@ import type {
   EngineCertifiedHead,
   EngineConversation,
   EngineRuntime,
-} from "../types.js";
+} from "../runtime/index.js";
 import {
   RouterWorkerPersistenceError,
   RouterWorkerRecoveryError,

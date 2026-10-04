@@ -10,7 +10,7 @@ import type {
   EndpointRecovery,
   StoredOutboundMessage,
 } from "../../../store/index.js";
-import type { EngineRuntime } from "../types.js";
+import type { EngineRuntime } from "../runtime/index.js";
 import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,
@@ -40,13 +40,6 @@ import {
   verifyCatchUpPage,
   verifyOuterMessage,
 } from "../../wire/index.js";
-import {
-  acceptEngineIngress as acceptProtocolIngress,
-  acceptEngineRecoveryIngress as acceptProtocolRecoveryIngress,
-  resumeEngineFolds,
-} from "../certification.js";
-import { resumeDisseminationObligations } from "../dissemination.js";
-import { proposeIntent } from "../send.js";
 import { completeRecoveryBarrier, currentRecoveryBarrier } from "./barrier.js";
 import {
   decodeStoredAnchor,
@@ -59,7 +52,7 @@ import {
   acceptCompletedReanchor,
   acceptReanchorVote,
   positionReady,
-} from "./reanchor.js";
+} from "../reanchor/index.js";
 import {
   type ActiveRecoveryState,
   clearRecoveryState,
@@ -71,7 +64,7 @@ import {
   queueRecoveryPacket,
   recoverMemberships,
   requestCertifiedHistory,
-} from "./state.js";
+} from "../recovery-session/index.js";
 
 /** Reconstruct the complete private engine state from durable storage. */
 export { recoverEngineState } from "./persistence.js";
@@ -107,7 +100,7 @@ export function acceptEngineIngressWithRecovery(
   return ingress.payload.kind === "direct" &&
     ingress.payload.packet.kind === "catch_up_request"
     ? acceptCatchUpRequest(runtime, ingress, ingress.payload.packet)
-    : acceptProtocolIngress(runtime, ingress);
+    : runtime.phases.acceptIngress(runtime, ingress);
 }
 
 /**
@@ -645,13 +638,15 @@ function applyCatchUpPage(
     ...ingress,
     payload: { kind: "direct", packet: page.item },
   };
-  return acceptProtocolRecoveryIngress(runtime, recordIngress).pipe(
-    Effect.flatMap((disposition) =>
-      disposition === "accepted"
-        ? Effect.void
-        : Effect.fail(persistenceFailure()),
-    ),
-  );
+  return runtime.phases
+    .acceptRecoveryIngress(runtime, recordIngress)
+    .pipe(
+      Effect.flatMap((disposition) =>
+        disposition === "accepted"
+          ? Effect.void
+          : Effect.fail(persistenceFailure()),
+      ),
+    );
 }
 
 function persistenceFailure(): RouterWorkerPersistenceError {
@@ -806,7 +801,7 @@ function acceptRecoveryRecord(
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  return acceptProtocolRecoveryIngress(runtime, ingress).pipe(
+  return runtime.phases.acceptRecoveryIngress(runtime, ingress).pipe(
     Effect.tap((disposition) => {
       if (
         disposition !== "accepted" ||
@@ -844,10 +839,12 @@ function runRecovery(
       Fiber.join(sender),
     );
     yield* resumeRecoveryOutbox(runtime, retainedOutbounds);
-    yield* resumeDisseminationObligations(runtime).pipe(
-      Effect.mapError(recoveryFailure),
-    );
-    yield* resumeEngineFolds(runtime).pipe(Effect.mapError(recoveryFailure));
+    yield* runtime.phases
+      .resumeDissemination(runtime)
+      .pipe(Effect.mapError(recoveryFailure));
+    yield* runtime.phases
+      .resumeFolds(runtime)
+      .pipe(Effect.mapError(recoveryFailure));
     yield* resumePendingIntents(runtime, state);
   });
 }
@@ -914,7 +911,9 @@ function resumeUncompletedIntents(
     (intent) =>
       runtime.completedPosts.has(intent.intent.postId)
         ? Effect.void
-        : proposeIntent(runtime, intent).pipe(Effect.mapError(recoveryFailure)),
+        : runtime.phases
+            .proposeIntent(runtime, intent)
+            .pipe(Effect.mapError(recoveryFailure)),
     { concurrency: 1, discard: true },
   );
 }

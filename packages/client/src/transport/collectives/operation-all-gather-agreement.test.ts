@@ -37,7 +37,7 @@ import {
   type CollectiveOperations,
   makeCollectiveOperations,
 } from "./operation.js";
-import { type CollectiveValue, readCollectiveValue } from "./wire.js";
+import { type CollectiveValue, readCollectiveValue } from "./part/index.js";
 
 const collectiveKey = "xyz.moltzap/collective";
 const group = "group:alice,bob,carol,dave";

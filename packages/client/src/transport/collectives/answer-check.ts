@@ -7,7 +7,7 @@
  */
 
 import { Predicate } from "effect";
-import type { FormField } from "./form-grammar.js";
+import type { FormField } from "./part/index.js";
 import type { AnswerContent } from "./forms.js";
 import { matchesFormat } from "./answer-formats.js";
 

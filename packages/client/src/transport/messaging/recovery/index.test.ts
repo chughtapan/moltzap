@@ -41,7 +41,7 @@ import type {
   EndpointEngineInput,
   EngineRegistryPort,
   EngineRouterPort,
-} from "../types.js";
+} from "../runtime/index.js";
 import { type EndpointStore, openEndpointStore } from "../../../store/index.js";
 import {
   type RouterDiscontinuityReason,

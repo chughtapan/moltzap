@@ -25,7 +25,7 @@ import {
   type CollectivePorts,
   makeCollectiveOperations,
 } from "./operation.js";
-import { collectiveIdOf, readCollectiveValue } from "./wire.js";
+import { collectiveIdOf, readCollectiveValue } from "./part/index.js";
 
 const collectiveKey = "xyz.moltzap/collective";
 const group = "group:alice,bob,carol";

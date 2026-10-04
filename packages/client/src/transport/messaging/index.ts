@@ -26,7 +26,11 @@ import {
   PostIntent,
   RecordHash,
 } from "../wire/index.js";
-import { resumeEngineFolds } from "./certification.js";
+import {
+  acceptEngineIngress,
+  acceptEngineRecoveryIngress,
+  resumeEngineFolds,
+} from "./certification.js";
 import { resumeDisseminationObligations } from "./dissemination.js";
 import { DeliveryAcknowledgeError, ListenError, SendError } from "./errors.js";
 import { InboundMessage } from "./message.js";
@@ -37,24 +41,34 @@ import {
   recoverCertifiedHistory,
   recoverEngineState,
 } from "./recovery/index.js";
-import { prepareSend, proposeIntent, resolveAddress } from "./send.js";
+import {
+  prepareSend,
+  proposeIntent,
+  queueCertifiedPacket,
+  queueEvidence,
+  resolveAddress,
+} from "./send.js";
 import {
   type EndpointEngine,
   type EndpointEngineInput,
   EngineInitializationError,
   EngineOutboundError,
   type EnginePendingMessage,
+  type EnginePhases,
   type EngineRuntime,
   type EngineSendInput,
   type EngineSentPost,
-} from "./types.js";
+} from "./runtime/index.js";
 
 type RecoveredStateError = Effect.Effect.Error<
   ReturnType<typeof recoverEngineState>
 >;
 
 /** Closed engine errors used by daemon composition. */
-export { EngineInitializationError, EngineOutboundError } from "./types.js";
+export {
+  EngineInitializationError,
+  EngineOutboundError,
+} from "./runtime/index.js";
 /** Private engine contracts retained behind the daemon boundary. */
 export type {
   EndpointEngine,
@@ -62,7 +76,7 @@ export type {
   EnginePendingMessage,
   EngineSendInput,
   EngineSentPost,
-} from "./types.js";
+} from "./runtime/index.js";
 
 const initializationReasonByStoreReason = {
   closed: "persistence",
@@ -404,6 +418,17 @@ const bindLocalIdentity = (
     Effect.mapError(bindIdentityFailure),
   );
 
+/** Each engine phase that another phase starts, bound once for every runtime. */
+const enginePhases: EnginePhases = {
+  proposeIntent,
+  queueCertifiedPacket,
+  queueEvidence,
+  acceptIngress: acceptEngineIngress,
+  acceptRecoveryIngress: acceptEngineRecoveryIngress,
+  resumeFolds: resumeEngineFolds,
+  resumeDissemination: resumeDisseminationObligations,
+};
+
 const makeRuntime = (
   input: EndpointEngineInput,
   recovered: Effect.Effect.Success<ReturnType<typeof recoverEngineState>>,
@@ -428,6 +453,7 @@ const makeRuntime = (
       gate: yield* Effect.makeSemaphore(1),
       outboundGate: yield* Effect.makeSemaphore(1),
       revision: yield* SubscriptionRef.make(0),
+      phases: enginePhases,
     };
   });
 

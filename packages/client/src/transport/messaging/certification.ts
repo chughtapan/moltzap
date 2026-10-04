@@ -13,7 +13,7 @@ import type {
   EngineConversation,
   EnginePostIntent,
   EngineRuntime,
-} from "./types.js";
+} from "./runtime/index.js";
 import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,
@@ -52,14 +52,13 @@ import {
   recordAnchorHash,
   stagedRecord,
   storedCertifiedRecord,
-} from "./durability.js";
+} from "./records/index.js";
 import {
   evidenceMatchesFold,
   evidenceRoute,
   type EvidenceRoute,
   verifiedEvidenceForRoute,
 } from "./evidence.js";
-import { proposeIntent, queueCertifiedPacket, queueEvidence } from "./send.js";
 
 const persistenceFailure = () => new RouterWorkerPersistenceError();
 
@@ -274,7 +273,7 @@ const localActionEvidence = (
       yield* mergeEvidence(runtime, fold, "action", evidence);
     }
     yield* Effect.uninterruptible(
-      queueEvidence(runtime, fold.conversation, evidence).pipe(
+      runtime.phases.queueEvidence(runtime, fold.conversation, evidence).pipe(
         Effect.mapError(() => persistenceFailure()),
         Effect.zipRight(
           Effect.sync(() => {
@@ -383,7 +382,7 @@ const localDurabilityEvidence = (
       yield* mergeEvidence(runtime, fold, "durability", evidence);
     }
     yield* Effect.uninterruptible(
-      queueEvidence(runtime, fold.conversation, evidence).pipe(
+      runtime.phases.queueEvidence(runtime, fold.conversation, evidence).pipe(
         Effect.mapError(() => persistenceFailure()),
         Effect.zipRight(
           Effect.sync(() => {
@@ -454,7 +453,7 @@ const reproposePendingIntent = (
   runtime: EngineRuntime,
   pending: EnginePostIntent,
 ): Effect.Effect<void, RouterWorkerPersistenceError> =>
-  proposeIntent(runtime, pending).pipe(
+  runtime.phases.proposeIntent(runtime, pending).pipe(
     Effect.asVoid,
     Effect.catchTag("SendError", (error) =>
       reproposalDispositionByReason[error.reason] === "ignore"
@@ -554,10 +553,12 @@ const promote = (
       : persistPromotionWithDelivery(runtime, stored, source, delivery);
     const queuePromotion =
       source === "assembled"
-        ? queueCertifiedPacket(runtime, fold.conversation, record).pipe(
-            Effect.mapError(() => persistenceFailure()),
-            Effect.zipRight(markCertifiedPacketQueued(fold)),
-          )
+        ? runtime.phases
+            .queueCertifiedPacket(runtime, fold.conversation, record)
+            .pipe(
+              Effect.mapError(() => persistenceFailure()),
+              Effect.zipRight(markCertifiedPacketQueued(fold)),
+            )
         : Effect.sync(() => {
             fold.actionCertifiedRecordQueued = true;
             fold.certifiedRecordQueued = true;
@@ -626,15 +627,17 @@ const stageActionCertificate = (
     });
     if (source === "assembled") {
       yield* Effect.uninterruptible(
-        queueCertifiedPacket(runtime, fold.conversation, record).pipe(
-          Effect.mapError(() => persistenceFailure()),
-          Effect.zipRight(
-            Effect.sync(() => {
-              fold.actionCertifiedRecordQueued = true;
-            }),
+        runtime.phases
+          .queueCertifiedPacket(runtime, fold.conversation, record)
+          .pipe(
+            Effect.mapError(() => persistenceFailure()),
+            Effect.zipRight(
+              Effect.sync(() => {
+                fold.actionCertifiedRecordQueued = true;
+              }),
+            ),
+            Effect.zipRight(updateFold),
           ),
-          Effect.zipRight(updateFold),
-        ),
       );
     } else {
       yield* Effect.sync(() => {

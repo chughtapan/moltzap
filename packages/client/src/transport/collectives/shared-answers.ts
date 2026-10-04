@@ -12,7 +12,7 @@
 import type { AgentAddress } from "../wire/values.js";
 import type { PostId, RecordHash } from "../wire/index.js";
 import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
-import type { CollectiveValue } from "./wire.js";
+import type { CollectiveValue } from "./part/index.js";
 
 /** The members a collecting operation asks, in member order. */
 export type Members = readonly [AgentAddress, ...AgentAddress[]];

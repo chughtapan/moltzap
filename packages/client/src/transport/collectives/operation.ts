@@ -140,7 +140,7 @@ import {
   mintCollectiveId,
   readCollectiveValue,
   withoutCollectivePart,
-} from "./wire.js";
+} from "./part/index.js";
 
 type PostContent = InboundMessage["content"];
 

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { CollectiveId } from "./forms.js";
 import { AgentAddress, MessageAddressInput } from "../wire/values.js";
 import { matchOpenRequest, type RequestStatus } from "./received-request.js";
-import { collectiveIdOf } from "./wire.js";
+import { collectiveIdOf } from "./part/index.js";
 
 const NOW = 1_000_000;
 const bob = Schema.decodeUnknownSync(AgentAddress)("agent:bob");

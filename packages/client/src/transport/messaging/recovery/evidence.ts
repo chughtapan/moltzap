@@ -6,7 +6,7 @@ import type {
   EndpointRecovery,
   ProtocolEvidence,
 } from "../../../store/index.js";
-import type { EngineActionFold } from "../types.js";
+import type { EngineActionFold } from "../runtime/index.js";
 import { RouterWorkerPersistenceError } from "../../router/index.js";
 import {
   type ActionHash,

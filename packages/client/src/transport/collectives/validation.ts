@@ -9,7 +9,7 @@
 import { Data, Effect } from "effect";
 import type { AnswerContent, CollectiveFailure } from "./forms.js";
 import type { CollectiveMemberOutcome } from "./inbound.js";
-import type { CollectiveResponse, FormModeSchema } from "./wire.js";
+import type { CollectiveResponse, FormModeSchema } from "./part/index.js";
 import { answerIssues } from "./answer-check.js";
 
 /**
