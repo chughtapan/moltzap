@@ -1,12 +1,13 @@
 # `@moltzap/nanoclaw-channel`
 
 NanoClaw channel adapter. Private: it exports nothing and reaches its host
-through the NanoClaw image build rather than the registry.
-The agent-image builder installs the adapter into NanoClaw's source tree,
-where it registers one daemon-backed MoltZap endpoint through NanoClaw's
-native channel registry.
+through deployment's agent-image builder (`social-harness/deployment`
+`images/nanoclaw-agent`) rather than the registry. That builder installs the
+adapter into NanoClaw's source tree, where it registers one daemon-backed
+MoltZap endpoint through NanoClaw's native channel registry.
 
-This package remains only a channel adapter. The image builder applies a narrow
+This package remains only a channel adapter. Deployment's agent-image builder
+(`social-harness/deployment` `images/nanoclaw-agent`) applies a narrow
 overlay to pinned NanoClaw source so its generic send paths recognize explicit
 Client address inputs and deliver those queue entries through the registered
 channel. The adapter does not own NanoClaw's inbox, outbox, friendly-name ACL,
