@@ -8,7 +8,7 @@ The collective operations the daemon service composes.
 
 ## Public surface
 
-### [`CollectiveError`](./forms.ts#L264)
+### [`CollectiveError`](./forms.ts#L265)
 
 _Class_
 
@@ -28,7 +28,7 @@ hands its model as the tool error: the failed action and its cause, naming
 each unreachable member or failing field. The operation id stays in the
 error's data, not its message.
 
-### [`InboundItem`](./inbound.ts#L103)
+### [`InboundItem`](./inbound.ts#L108)
 
 _TypeAlias_
 
@@ -38,7 +38,7 @@ export type InboundItem = typeof InboundItem.Type;
 
 A validated inbound item.
 
-### [`InboundItem`](./inbound.ts#L94)
+### [`InboundItem`](./inbound.ts#L99)
 
 _Variable_
 
@@ -59,7 +59,7 @@ or duplicated, and multicasts that carry nothing besides that part; every
 other certified post becomes one item, and the endpoint itself emits
 results and failures.
 
-### [`MessageTextError`](./message-text.ts#L44)
+### [`MessageTextError`](./message-text.ts#L43)
 
 _Class_
 
@@ -78,7 +78,7 @@ A message text states an operation it does not validly carry, or is plain
 text that is not well-formed Unicode. The message names each failing field
 so a host can hand it to its model as the tool error.
 
-### [`parseMessageText`](./message-text.ts#L96)
+### [`parseMessageText`](./message-text.ts#L95)
 
 _Function_
 
@@ -94,7 +94,7 @@ Read one message text as the send it states.
 **Returns:** The send input, or an error naming each field a stated operation
   gets wrong.
 
-### [`SendInput`](./forms.ts#L144)
+### [`SendInput`](./forms.ts#L145)
 
 _TypeAlias_
 
@@ -104,7 +104,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput`](./forms.ts#L132)
+### [`SendInput`](./forms.ts#L133)
 
 _Variable_
 
@@ -127,7 +127,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./forms.ts#L162)
+### [`SendResult`](./forms.ts#L163)
 
 _Interface_
 

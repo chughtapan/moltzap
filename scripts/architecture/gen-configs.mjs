@@ -251,21 +251,6 @@ const packageDefinitions = {
           reason:
             "Volatile catch-up and re-anchor coordination shared only by the recovery facade and its re-anchor implementation",
         },
-        {
-          file: "store/deliveries.ts",
-          reason:
-            "Pending-delivery SQL capability shared by record promotion, management recovery reads, and endpoint-store operations",
-        },
-        {
-          file: "store/dissemination.ts",
-          reason:
-            "Dissemination-obligation SQL capability shared by record promotion, recovery reads, and atomic outbox enqueue",
-        },
-        {
-          file: "store/outbound.ts",
-          reason:
-            "Durable outbox SQL capability shared by endpoint-store operations, recovery reads, and dissemination transactions",
-        },
       ],
       compositionRoots: [
         {
