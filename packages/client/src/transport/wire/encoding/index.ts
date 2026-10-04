@@ -10,13 +10,10 @@ export {
   sameBytes,
 } from "./canonical.js";
 export {
-  decodeDirectPacket,
   type DecodedOuterBody,
-  decodeEvidenceMessage,
   decodeOuterBody,
   deriveConversationId,
   deriveEvidenceMessageId,
-  encodeActionCore,
   hashAction,
   hashAnchor,
   hashMembershipDescriptor,

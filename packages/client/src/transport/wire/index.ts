@@ -6,13 +6,10 @@
 export {
   ClientRepresentationError,
   decodeCanonical,
-  decodeDirectPacket,
   type DecodedOuterBody,
-  decodeEvidenceMessage,
   decodeOuterBody,
   deriveConversationId,
   deriveEvidenceMessageId,
-  encodeActionCore,
   encodeCanonical,
   hashAction,
   hashAnchor,

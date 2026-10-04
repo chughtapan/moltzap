@@ -18,7 +18,6 @@ import {
   readSendRequestSchema,
   readSendResultSchema,
 } from "../../delivery/operations.js";
-import { exactStruct } from "../../transport/wire/values.js";
 import { HARNESS_SEND_META_KEY } from "./names.js";
 
 const exact: SchemaAST.ParseOptions = {

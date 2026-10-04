@@ -222,12 +222,12 @@ export const deriveEvidenceMessageId = (
     ).pipe(Effect.mapError(representationFailure));
   }).pipe(Effect.withSpan("deriveEvidenceMessageId"));
 
-export const decodeDirectPacket = (
+const decodeDirectPacket = (
   bytes: Uint8Array,
 ): Effect.Effect<DirectPacketValue, ClientRepresentationError> =>
   decodeCanonical(DirectPacket, bytes);
 
-export const decodeEvidenceMessage = (
+const decodeEvidenceMessage = (
   bytes: Uint8Array,
 ): Effect.Effect<SignedMessageValue, ClientRepresentationError> =>
   decodeCanonical(SignedMessage, bytes);
@@ -329,10 +329,5 @@ export const signOuterEvidence = (input: {
   encodeCanonical(SignedMessage, input.evidence).pipe(
     Effect.flatMap((body) => signOuterBody({ ...input, body })),
   );
-
-export const encodeActionCore = (
-  action: ActionCore,
-): Effect.Effect<Uint8Array, ClientRepresentationError> =>
-  encodeCanonical(ActionCore, action);
 
 /* eslint-enable jsdoc/require-jsdoc -- Restore package documentation rules. */
