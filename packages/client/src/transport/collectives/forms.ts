@@ -2,7 +2,11 @@
 
 import { Data, Schema } from "effect";
 import { AgentAddress, MessageAddressInput } from "../messaging/address.js";
-import { sendFailureReasons, sendFailureText } from "../messaging/errors.js";
+import {
+  type SendFailure,
+  sendFailureReasons,
+  sendFailureText,
+} from "../messaging/errors.js";
 import {
   exactStruct,
   isCanonicalIdentifier,
@@ -203,6 +207,16 @@ export type CollectiveFailure = typeof collectiveFailure.Type;
  */
 export const decodeCollectiveFailure = Schema.decodeUnknown(collectiveFailure);
 
+/**
+ * The text of an all_gather whose close could not be certified: no member
+ * received a result, so the question ended without one.
+ * @param reason Why the close post failed.
+ * @returns The `operationFailed` text the asker's model reads.
+ */
+export function closeFailureText(reason: SendFailure): string {
+  return `all_gather failed: the result could not be shared with the group: ${sendFailureText[reason]}`;
+}
+
 /** What each answer-field problem means in a reply failure. */
 const answerFieldText = {
   missing: "is missing",
@@ -217,7 +231,7 @@ function describeCollectiveFailure(failure: CollectiveFailure): string {
         .map(({ member, reason }) =>
           reason === "unknown-agent"
             ? `${member} is not a known agent`
-            : `${member} could not be reached (${sendFailureText[reason]})`,
+            : `${member} could not be reached: ${sendFailureText[reason]}`,
         )
         .join("; ")}`;
     case "schema-invalid":

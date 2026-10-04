@@ -11,7 +11,7 @@ import type { OpenClawPluginDefinition } from "openclaw/plugin-sdk/plugin-entry"
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-payload";
 import {
   acquireHarnessEndpoint,
-  type Content,
+  groupMembers,
   type HarnessEndpoint,
   type InboundDelivery,
   type InboundItem,
@@ -20,6 +20,9 @@ import {
   type MessageAddressInput as MessageAddressInputValue,
   type MessageTextError,
   parseMessageText,
+  renderCollectiveRequest,
+  renderCollectiveResult,
+  renderContent,
   type SendInput,
 } from "@moltzap/client";
 import {
@@ -177,43 +180,44 @@ class OpenClawInboundError extends Data.TaggedError("OpenClawInboundError")<{
   }
 }
 
+/** What each refused host send means, in words its model reads as the tool error. */
+const outboundFailureText: Readonly<Record<OpenClawOutboundFailure, string>> = {
+  "account-not-connected": "this agent is not connected to MoltZap",
+  "invalid-address": "the address is not a valid agent: or group: address",
+  "invalid-operation": "the message has no text",
+  "unsupported-action": "MoltZap supports only send and reply",
+};
+
 class OpenClawOutboundError extends Data.TaggedError("OpenClawOutboundError")<{
   readonly reason: OpenClawOutboundFailure;
-  readonly accountId: string;
 }> {
   override get message(): string {
-    return `MoltZap message delivery failed for account ${this.accountId}: ${this.reason}`;
+    return `send failed: ${outboundFailureText[this.reason]}`;
   }
 }
 
 /**
  * A message whose text states a gather, all_gather or answer while
- * {@link HIDE_COLLECTIVES_VARIABLE} is true. The message tells the model to
- * send plain text instead.
+ * {@link HIDE_COLLECTIVES_VARIABLE} is true.
  */
 class OpenClawCollectivesUnavailableError extends Data.TaggedError(
   "OpenClawCollectivesUnavailableError",
-)<{
-  readonly accountId: string;
-}> {
+) {
   override get message(): string {
-    return `MoltZap message delivery failed for account ${this.accountId}: gather, all_gather and answers are not available; send plain text`;
+    return "send failed: gather, all_gather and answers are not available";
   }
 }
 
 /**
  * A message tool send carrying OpenClaw's plural `targets`. A MoltZap send
  * goes to exactly one address, so the send fails rather than reach only
- * `target`; the message tells the model to name every member in one group
- * address.
+ * `target`.
  */
 class OpenClawTargetsUnsupportedError extends Data.TaggedError(
   "OpenClawTargetsUnsupportedError",
-)<{
-  readonly accountId: string;
-}> {
+) {
   override get message(): string {
-    return `MoltZap message delivery failed for account ${this.accountId}: targets is not supported; a MoltZap send has one recipient, so address several agents with one target group:<id>,<id>,... and omit targets`;
+    return "send failed: targets is not supported; a send goes to one target address";
   }
 }
 
@@ -377,10 +381,7 @@ function handleMessageAction(
 ) {
   if (!isMessageAction(ctx.action)) {
     return Effect.fail(
-      new OpenClawOutboundError({
-        reason: "unsupported-action",
-        accountId: accountLabel(ctx.accountId),
-      }),
+      new OpenClawOutboundError({ reason: "unsupported-action" }),
     );
   }
   return refuseTargets(ctx).pipe(
@@ -391,9 +392,7 @@ function handleMessageAction(
         text: ctx.params.message,
       }),
     ),
-    Effect.map(({ input, result }) =>
-      jsonResult({ ok: true, to: input.to, ...result }),
-    ),
+    Effect.map(({ input }) => jsonResult({ ok: true, to: input.to })),
   );
 }
 
@@ -405,11 +404,7 @@ function refuseTargets(
   ctx: ChannelMessageActionContext,
 ): Effect.Effect<void, OpenClawTargetsUnsupportedError> {
   return carriesTargets(ctx.params.targets)
-    ? Effect.fail(
-        new OpenClawTargetsUnsupportedError({
-          accountId: accountLabel(ctx.accountId),
-        }),
-      )
+    ? Effect.fail(new OpenClawTargetsUnsupportedError())
     : Effect.void;
 }
 
@@ -418,12 +413,10 @@ function refuseTargets(
  * switch is read only for such a send, so an unreadable value fails it with a
  * configuration error naming the variable and leaves plain sends unaffected.
  * @param operation Whether the text states an operation, validly or not.
- * @param accountId The account label the refusal names.
  * @returns Success for plain text or while the switch is off.
  */
 function refuseHiddenCollectives(
   operation: boolean,
-  accountId: string,
 ): Effect.Effect<
   void,
   OpenClawCollectivesUnavailableError | ConfigError.ConfigError
@@ -434,7 +427,7 @@ function refuseHiddenCollectives(
   return experimentHidesCollectives().pipe(
     Effect.flatMap((hidden) =>
       hidden
-        ? Effect.fail(new OpenClawCollectivesUnavailableError({ accountId }))
+        ? Effect.fail(new OpenClawCollectivesUnavailableError())
         : Effect.void,
     ),
   );
@@ -714,7 +707,10 @@ function inboundItemTurn(item: InboundItem): HostTurn {
         item.postId,
         item.to,
         agentSender(item.from),
-        renderCollectiveRequest(item),
+        renderCollectiveRequest(
+          item,
+          `Send the answer once as the whole message text, with the message tool's reply action or send to ${item.to}.`,
+        ),
       );
     case "collectiveResult":
       return endpointTurn(
@@ -723,11 +719,7 @@ function inboundItemTurn(item: InboundItem): HostTurn {
         renderCollectiveResult(item),
       );
     case "operationFailed":
-      return endpointTurn(
-        `${item.id}:failed`,
-        item.to,
-        `MoltZap: ${item.error}`,
-      );
+      return endpointTurn(`${item.id}:failed`, item.to, item.error);
     default:
       return absurd(item);
   }
@@ -768,81 +760,14 @@ function addressedTurn(
   sender: TurnSender,
   body: string,
 ): HostTurn {
-  const kind = address.startsWith("group:") ? "group" : "direct";
-  return {
-    id,
-    kind,
-    address,
-    sender,
-    ...(kind === "group"
-      ? {
-          members: address
-            .slice("group:".length)
-            .split(",")
-            .map((name) => `agent:${name}`),
-        }
-      : {}),
-    body,
-  };
+  const members = groupMembers(address);
+  return members.length === 0
+    ? { id, kind: "direct", address, sender, body }
+    : { id, kind: "group", address, sender, members, body };
 }
 
 function agentSender(address: string): TurnSender {
   return { id: address, name: address.slice("agent:".length) };
-}
-
-type CollectiveRequestItem = Extract<
-  InboundItem,
-  { readonly kind: "collectiveRequest" }
->;
-type CollectiveResultItem = Extract<
-  InboundItem,
-  { readonly kind: "collectiveResult" }
->;
-type MemberOutcome = CollectiveResultItem["outcomes"][number]["outcome"];
-
-/**
- * A request turn: the question, its form, and the exact text that answers
- * it. A gather arrives in the requester's direct conversation and an
- * all_gather in the group's, so `reply` sends the answer where it belongs.
- */
-function renderCollectiveRequest(item: CollectiveRequestItem): string {
-  const deadline = new Date(item.deadlineAt).toISOString();
-  const asked = item.to.startsWith("group:")
-    ? `all_gather from ${item.from} to ${item.to}`
-    : `gather from ${item.from}`;
-  return [
-    `${asked}, open until ${deadline}.`,
-    `Question: ${item.question}`,
-    `Form: ${JSON.stringify(item.requestedSchema)}`,
-    'Answer with: {"action":"accept","content":{...}} where content matches the form, or {"action":"decline"}',
-    `Send the answer once as the whole message text, with the message tool's reply action or send to ${item.to}.`,
-  ].join("\n");
-}
-
-/** A result turn; only an all_gather's result names a close post. */
-function renderCollectiveResult(item: CollectiveResultItem): string {
-  const operation = item.closePostId === undefined ? "gather" : "all_gather";
-  return [
-    `${operation} result for the question sent to ${item.to}: ${item.question}`,
-    ...item.outcomes.map(
-      ({ member, outcome }) => `- ${member}: ${renderOutcome(outcome)}`,
-    ),
-  ].join("\n");
-}
-
-function renderOutcome(outcome: MemberOutcome): string {
-  switch (outcome.kind) {
-    case "answered":
-      return `answered ${JSON.stringify(outcome.content)}`;
-    case "declined":
-      return "declined";
-    case "invalid":
-      return `answered outside the form (${outcome.reason})`;
-    case "no-answer":
-      return "no answer";
-    default:
-      return absurd(outcome);
-  }
 }
 
 function logInbound(
@@ -1029,17 +954,6 @@ function withholdFinalText(
   return Promise.resolve({ visibleReplySent: false as const });
 }
 
-function renderContent(content: Content): string {
-  return content.map((part) => renderContentPart(part)).join("\n");
-}
-
-function renderContentPart(part: Content[number]): string {
-  if (part.type === "text") {
-    return part.text;
-  }
-  return JSON.stringify(part.value) ?? "null";
-}
-
 function removeConnectedEndpoint(
   connectedAccount: ConnectedAccountState,
   accountId: string,
@@ -1076,8 +990,7 @@ function sendOpenClawText(
  * @returns The parsed input and the endpoint's result.
  */
 function sendText(connectedAccount: ConnectedAccountState, params: TextSend) {
-  const accountId = accountLabel(params.accountId);
-  return readSendInput(params, accountId).pipe(
+  return readSendInput(params).pipe(
     Effect.flatMap((input) =>
       requireEndpoint(connectedAccount, params).pipe(
         Effect.flatMap((endpoint) => endpoint.send(input)),
@@ -1094,22 +1007,9 @@ function requireEndpoint(
   const endpoint = connectedEndpoint(connectedAccount, params.accountId);
   return endpoint === undefined
     ? Effect.fail(
-        new OpenClawOutboundError({
-          reason: "account-not-connected",
-          accountId: accountLabel(params.accountId),
-        }),
+        new OpenClawOutboundError({ reason: "account-not-connected" }),
       )
     : Effect.succeed(endpoint);
-}
-
-/**
- * Name the host's account in an outbound error, including when the host sent
- * none.
- * @param accountId The account id the host supplied, if any.
- * @returns The trimmed id, or a placeholder the error message can print.
- */
-function accountLabel(accountId?: string | null): string {
-  return accountId?.trim() ?? "(unspecified)";
 }
 
 /**
@@ -1119,7 +1019,6 @@ function accountLabel(accountId?: string | null): string {
  */
 function readSendInput(
   params: TextSend,
-  accountId: string,
 ): Effect.Effect<
   SendInput,
   | OpenClawOutboundError
@@ -1129,23 +1028,21 @@ function readSendInput(
 > {
   if (!isMessageAddressInput(params.to)) {
     return Effect.fail(
-      new OpenClawOutboundError({ reason: "invalid-address", accountId }),
+      new OpenClawOutboundError({ reason: "invalid-address" }),
     );
   }
   if (typeof params.text !== "string") {
     return Effect.fail(
-      new OpenClawOutboundError({ reason: "invalid-operation", accountId }),
+      new OpenClawOutboundError({ reason: "invalid-operation" }),
     );
   }
   return Either.match(parseMessageText(params.to, params.text), {
     onLeft: (error) =>
-      refuseHiddenCollectives(true, accountId).pipe(
+      refuseHiddenCollectives(error.operation !== "message").pipe(
         Effect.zipRight(Effect.fail(error)),
       ),
     onRight: (input) =>
-      refuseHiddenCollectives(statesOperation(input), accountId).pipe(
-        Effect.as(input),
-      ),
+      refuseHiddenCollectives(statesOperation(input)).pipe(Effect.as(input)),
   });
 }
 

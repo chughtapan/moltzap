@@ -397,7 +397,7 @@ function closesWithTheRecordHashOfEachCountedAnswer() {
   );
 }
 
-function publishesTheRequesterResultNamingItsCertifiedClose() {
+function publishesTheRequesterResultOnceItsCloseIsCertified() {
   const observed = newObserved();
 
   return run(
@@ -411,6 +411,7 @@ function publishesTheRequesterResultNamingItsCertifiedClose() {
       expect(observed.emitted).toEqual([
         {
           kind: "collectiveResult",
+          op: "all_gather",
           id,
           to: group,
           question: questionText,
@@ -424,7 +425,6 @@ function publishesTheRequesterResultNamingItsCertifiedClose() {
               outcome: { kind: "answered", content: { slot: "tue" } },
             },
           ],
-          closePostId: postId(102),
         },
       ]);
     }),
@@ -495,7 +495,8 @@ function reportsACloseThatCannotBeCertifiedAsAFailedOperation() {
           kind: "operationFailed",
           id,
           to: group,
-          error: `all_gather ${id} failed: its close was not certified (network-unavailable)`,
+          error:
+            "all_gather failed: the result could not be shared with the group: MoltZap is unavailable (network unavailable)",
         },
       ]);
     }),
@@ -511,6 +512,7 @@ function deliversAGroupRequestAsAnItemAddressedToTheGroup() {
       expect(item).toEqual(
         Option.some({
           kind: "collectiveRequest",
+          op: "all_gather",
           id: requestId,
           postId: postId(10),
           from: "agent:alice",
@@ -591,7 +593,6 @@ function keepsARequestFirstSeenAfterItsDeadlineForTheClose() {
             { member: "agent:bob", outcome: { kind: "no-answer" } },
             { member: "agent:carol", outcome: { kind: "answered" } },
           ],
-          closePostId: postId(14),
         },
       ]);
     }),
@@ -646,6 +647,7 @@ function buildsTheMemberResultFromExactlyTheListedAnswers() {
       expect(observed.emitted).toEqual([
         {
           kind: "collectiveResult",
+          op: "all_gather",
           id: requestId,
           to: group,
           question: questionText,
@@ -656,7 +658,6 @@ function buildsTheMemberResultFromExactlyTheListedAnswers() {
             },
             { member: "agent:carol", outcome: { kind: "no-answer" } },
           ],
-          closePostId: postId(14),
         },
       ]);
     }),
@@ -881,7 +882,6 @@ function appliesOnlyTheFirstCloseWhileItsOwnAnswerIsInFlight() {
             { member: "agent:bob", outcome: { kind: "answered" } },
             { member: "agent:carol", outcome: { kind: "no-answer" } },
           ],
-          closePostId: postId(14),
         },
       ]);
     }),
@@ -953,8 +953,8 @@ describe("all_gather at the requester", () => {
     closesWithTheRecordHashOfEachCountedAnswer,
   );
   it(
-    "publishes its result naming its certified close",
-    publishesTheRequesterResultNamingItsCertifiedClose,
+    "publishes its result once its close is certified",
+    publishesTheRequesterResultOnceItsCloseIsCertified,
   );
   it(
     "closes at the deadline without the silent member",

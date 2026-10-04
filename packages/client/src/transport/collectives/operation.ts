@@ -96,6 +96,7 @@ import {
   reportFailure,
 } from "./failures.js";
 import {
+  closeFailureText,
   type CollectiveEmitError,
   CollectiveError,
   type CollectiveFailure,
@@ -805,6 +806,7 @@ function completeGather(
     state.gathers.delete(id);
     const result: CollectiveResultItem = {
       kind: "collectiveResult",
+      op: open.op,
       id,
       to: open.to,
       question: open.question,
@@ -828,8 +830,7 @@ function completeGather(
 
 /**
  * Post an all_gather's close, listing the certified record of every answer
- * its result counts, and emit the result once the close is certified, naming
- * the close post. A close that cannot be certified ends the operation as an
+ * its result counts, and emit the result once the close is certified. A close that cannot be certified ends the operation as an
  * `operationFailed` item, since members then have no result to agree on.
  */
 function closeAllGather(
@@ -853,10 +854,9 @@ function closeAllGather(
           kind: "operationFailed",
           id: result.id,
           to: open.to,
-          error: `all_gather ${result.id} failed: its close was not certified (${error.reason})`,
+          error: closeFailureText(error.reason),
         }),
-      onSuccess: (post) =>
-        state.ports.emit({ ...result, closePostId: post.postId }),
+      onSuccess: () => state.ports.emit(result),
     }),
   );
 }
@@ -1184,6 +1184,7 @@ function requestItem(
         Option.map(
           (requestedSchema): InboundItem => ({
             kind: "collectiveRequest",
+            op: value.op,
             id: value.id,
             postId: message.postId,
             from: message.sender,
@@ -1385,11 +1386,11 @@ function applyClose(
     Effect.flatMap((outcomes) =>
       state.ports.emit({
         kind: "collectiveResult",
+        op: "all_gather",
         id,
         to: request.to,
         question: shared.question,
         outcomes: memberOutcomes(shared.members, new Map(outcomes)),
-        closePostId: close.postId,
       }),
     ),
   );

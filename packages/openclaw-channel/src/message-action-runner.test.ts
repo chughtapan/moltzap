@@ -288,7 +288,7 @@ function refusesInvalidOperationText() {
       params: { message: '{"action":"accept"}' },
       toolContext: MOLTZAP_TURN_CONTEXT,
     },
-    "answer not sent: content: is missing",
+    "reply failed: invalid answer: content: is missing",
   );
 }
 

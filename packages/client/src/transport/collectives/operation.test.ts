@@ -336,6 +336,7 @@ function continuesAGatherPastMembersItCouldNotReach() {
       expect(observed.emitted).toEqual([
         {
           kind: "collectiveResult",
+          op: "gather",
           id,
           to: "group:alice,bob,carol,dave",
           question: questionText,
@@ -381,6 +382,7 @@ function countsAnAnswerToAPostCertifiedAfterTheWait() {
       expect(observed.emitted).toMatchObject([
         {
           kind: "collectiveResult",
+          op: "gather",
           outcomes: [
             { member: "agent:bob", outcome: { kind: "declined" } },
             {
@@ -661,6 +663,7 @@ function deliversARequestPostAsACollectiveRequestItem() {
       expect(item).toEqual(
         Option.some({
           kind: "collectiveRequest",
+          op: "gather",
           id: requestId,
           postId: postId(9),
           from: "agent:bob",
@@ -844,6 +847,7 @@ function emitsTheResultOnceEveryMemberHasAnswered() {
       expect(observed.emitted).toEqual([
         {
           kind: "collectiveResult",
+          op: "gather",
           id,
           to: gatherTo,
           question: questionText,
@@ -923,6 +927,7 @@ function reportsASilentMemberAsNoAnswerAtTheDeadline() {
       expect(observed.emitted).toEqual([
         {
           kind: "collectiveResult",
+          op: "gather",
           id,
           to: gatherTo,
           question: questionText,
@@ -1099,6 +1104,7 @@ function endsAPendingGatherAtItsDeadlineInOneResult() {
       expect(observed.emitted).toEqual([
         {
           kind: "collectiveResult",
+          op: "gather",
           id: outcome.operationId,
           to: gatherTo,
           question: questionText,

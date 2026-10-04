@@ -20,6 +20,9 @@ const multicastItem = exactStruct({
 /** Absolute epoch milliseconds; endpoints assume zero clock skew. */
 const epochMillis = Schema.Number.pipe(Schema.int(), Schema.positive());
 
+/** Which collecting operation an item belongs to. */
+const collectingOp = Schema.Literal("gather", "all_gather");
+
 /**
  * A question another agent asked this one. `postId` is the certified request
  * post's and `to` the conversation it arrived in: the requester's `agent:`
@@ -28,6 +31,7 @@ const epochMillis = Schema.Number.pipe(Schema.int(), Schema.positive());
  */
 const collectiveRequestItem = exactStruct({
   kind: Schema.Literal("collectiveRequest"),
+  op: collectingOp,
   id: CollectiveId,
   postId: PostId,
   from: AgentAddress,
@@ -55,20 +59,19 @@ export type CollectiveMemberOutcome = typeof memberOutcome.Type;
 /**
  * The result of a gather this endpoint started, or of an all_gather this
  * endpoint started or was asked: exactly one outcome per member, in member
- * order. `to` is the address the operation named. An all_gather's result
- * names its certified close post in `closePostId`; every member's result is
- * built from exactly the answers that close lists, so each endpoint's result
- * is the same.
+ * order. `to` is the address the operation named. Every member's all_gather
+ * result is built from exactly the answers the requester's close lists, so
+ * each endpoint's result is the same.
  */
 const collectiveResultItem = exactStruct({
   kind: Schema.Literal("collectiveResult"),
+  op: collectingOp,
   id: CollectiveId,
   to: MessageAddressInput,
   question: wellFormedString,
   outcomes: Schema.NonEmptyArray(
     exactStruct({ member: AgentAddress, outcome: memberOutcome }),
   ),
-  closePostId: Schema.optionalWith(PostId, { exact: true }),
 });
 
 /**

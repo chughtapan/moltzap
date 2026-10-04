@@ -105,7 +105,7 @@ describe("message text", () => {
       const error = refusal(JSON.stringify(value));
 
       expect(error.operation).toBe(operation);
-      expect(error.message).toContain(`${operation} not sent: ${field}: `);
+      expect(error.message).toContain(`invalid ${operation}: ${field}: `);
     },
   );
   it(
@@ -165,7 +165,7 @@ function readsAnswers() {
 function refusesIllFormedText() {
   const error = refusal("broken \ud800 text");
 
-  expect(error.message).toContain(`${error.operation} not sent: `);
+  expect(error.message).toContain(`invalid ${error.operation}: `);
 }
 
 function parsed(text: string) {

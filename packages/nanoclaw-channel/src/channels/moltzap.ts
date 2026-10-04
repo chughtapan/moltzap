@@ -3,17 +3,18 @@ import {
   acquireHarnessEndpoint,
   type CollectiveError,
   type ConnectError,
-  type Content,
-  type ContentPart,
   type DeliveryAcknowledgeError,
+  groupMembers,
   type HarnessEndpoint,
   type InboundDelivery,
   type InboundItem,
   MessageAddressInput,
   type InboundMessage as MoltZapInboundMessage,
   parseMessageText,
-  type SendError,
-  type SendInput,
+  renderCollectiveRequest,
+  renderCollectiveResult,
+  renderContent,
+  SendError,
 } from "@moltzap/client";
 import {
   Config,
@@ -173,106 +174,44 @@ function extractOutboundText(message: MoltZapOutboundMessage): string | null {
 }
 
 /**
- * Every send but a multicast has an operation id, so its refusal can
- * arrive later as an `operationFailed` item. NanoClaw's `send_message` has
- * already returned when the adapter sends, so those failures take that path
- * and the delivery completes; the host never retries a refused one. A
- * multicast failure still fails the delivery, leaving retry to NanoClaw.
+ * Send failures no retry can fix: the address or content itself is wrong.
+ * The model hears of these; any other failure stays with NanoClaw's retry.
  */
-function failureDeliveryOf(input: SendInput): "result" | "inbound" {
-  return "collectiveResponse" in input ||
-    (input.collective?.op ?? "multicast") !== "multicast"
-    ? "inbound"
-    : "result";
-}
+const FINAL_REFUSALS: ReadonlySet<SendError["reason"]> = new Set([
+  "invalid-address",
+  "unknown-agent",
+  "membership-invalid",
+  "content-invalid",
+]);
 
-function renderContent(content: Content): string {
-  return content.map((part) => renderContentPart(part)).join("\n");
-}
-
-function renderContentPart(part: ContentPart): string {
-  switch (part.type) {
-    case "text":
-      return part.text;
-    case "data":
-      return JSON.stringify(part.value);
-    default: {
-      const exhaustivePart: never = part;
-      return exhaustivePart;
-    }
-  }
+function isFinalRefusal(error: unknown): error is SendError {
+  return error instanceof SendError && FINAL_REFUSALS.has(error.reason);
 }
 
 /** The sender NanoClaw records for an item the endpoint itself emitted. */
 const ENDPOINT_SENDER = "MoltZap";
 
-type CollectiveRequestItem = Extract<
-  InboundItem,
-  { readonly kind: "collectiveRequest" }
->;
-type CollectiveResultItem = Extract<
-  InboundItem,
-  { readonly kind: "collectiveResult" }
->;
-type MemberOutcome = CollectiveResultItem["outcomes"][number]["outcome"];
-
-/**
- * A request message: the question, its form, and the exact text that answers
- * it through `send_message`, addressed to the conversation the request
- * arrived in, the requester's for a gather and the group's for an
- * all_gather.
- */
-function renderCollectiveRequest(item: CollectiveRequestItem): string {
-  const deadline = new Date(item.deadlineAt).toISOString();
-  const asked = item.to.startsWith("group:")
-    ? `all_gather from ${item.from} to ${item.to}`
-    : `gather from ${item.from}`;
-  return [
-    `${asked}, open until ${deadline}.`,
-    `Question: ${item.question}`,
-    `Form: ${JSON.stringify(item.requestedSchema)}`,
-    'Answer with: {"action":"accept","content":{...}} where content matches the form, or {"action":"decline"}',
-    `Send the answer once as the whole text of send_message to ${item.to}.`,
-  ].join("\n");
-}
-
-/** A result message; only an all_gather's result names a close post. */
-function renderCollectiveResult(item: CollectiveResultItem): string {
-  const operation = item.closePostId === undefined ? "gather" : "all_gather";
-  return [
-    `${operation} result for the question sent to ${item.to}: ${item.question}`,
-    ...item.outcomes.map(
-      ({ member, outcome }) => `- ${member}: ${renderOutcome(outcome)}`,
-    ),
-  ].join("\n");
-}
-
-function renderOutcome(outcome: MemberOutcome): string {
-  switch (outcome.kind) {
-    case "answered":
-      return `answered ${JSON.stringify(outcome.content)}`;
-    case "declined":
-      return "declined";
-    case "invalid":
-      return `answered outside the form (${outcome.reason})`;
-    case "no-answer":
-      return "no answer";
-    default:
-      return absurd(outcome);
-  }
+/** A message MoltZap itself sends the model: a result or a refusal. */
+function fromEndpoint(
+  id: string,
+  address: MessageAddressInput,
+  text: string,
+): InboundMessage {
+  return endpointInbound({ id, address, sender: ENDPOINT_SENDER, text });
 }
 
 /**
- * NanoClaw's inbox shape for a request, result or failure. A group address
- * keeps the native group flag and lists its members.
+ * NanoClaw's inbox shape for any delivered message, question, result or
+ * failure. A group address keeps the native group flag and lists its members.
  */
 function endpointInbound(input: {
   readonly id: string;
-  readonly address: string;
+  readonly address: MessageAddressInput;
   readonly sender: string;
   readonly text: string;
 }): InboundMessage {
-  const isGroup = input.address.startsWith("group:");
+  const members = groupMembers(input.address);
+  const isGroup = members.length > 0;
   return {
     id: input.id,
     kind: "chat",
@@ -283,14 +222,7 @@ function endpointInbound(input: {
       address: input.address,
       sender: input.sender,
       senderId: input.sender,
-      ...(isGroup
-        ? {
-            members: input.address
-              .slice("group:".length)
-              .split(",")
-              .map((name) => `agent:${name}`),
-          }
-        : {}),
+      ...(isGroup ? { members } : {}),
     },
     isGroup,
   };
@@ -471,20 +403,25 @@ class MoltZapChannelAdapter {
             onLeft: (error) => this.reportRefusedText(to, error.message),
             onRight: (input) =>
               activation.endpoint
-                .send(input, { failureDelivery: failureDeliveryOf(input) })
-                .pipe(Effect.asVoid),
+                .send(input, { failureDelivery: "inbound" })
+                .pipe(
+                  Effect.asVoid,
+                  Effect.catchIf(isFinalRefusal, (error) =>
+                    this.reportRefusedText(to, error.message),
+                  ),
+                ),
           }),
       ),
     );
   }
 
   /**
-   * Hand a refused operation text back to the model as a MoltZap message in
-   * the conversation it was sent to. `send_message` has already returned, so
-   * this is how the model learns which field to fix; the row completes,
-   * since NanoClaw retrying the same text would fail the same way.
+   * Hand a refused send back to the model as a MoltZap message in the
+   * conversation it was sent to. `send_message` has already returned, so this
+   * is how the model learns of it; the row completes, since NanoClaw retrying
+   * the same text would fail the same way.
    * @param to The conversation the text was sent to.
-   * @param report The parser's refusal naming each failing field.
+   * @param report The refusal's text.
    * @returns Completion after the host callback completed.
    */
   private reportRefusedText(
@@ -497,12 +434,7 @@ class MoltZapChannelAdapter {
       : this.handToHost(
           config,
           to,
-          endpointInbound({
-            id: `refused:${randomUUID()}`,
-            address: to,
-            sender: ENDPOINT_SENDER,
-            text: `MoltZap: ${report}`,
-          }),
+          fromEndpoint(`refused:${randomUUID()}`, to, report),
         );
   }
 
@@ -547,30 +479,27 @@ class MoltZapChannelAdapter {
             id: item.postId,
             address: item.to,
             sender: item.from,
-            text: renderCollectiveRequest(item),
+            text: renderCollectiveRequest(
+              item,
+              `Send the answer once as the whole text of send_message to ${item.to}.`,
+            ),
           }),
         );
       case "collectiveResult":
         return this.handToHost(
           config,
           item.to,
-          endpointInbound({
-            id: `${item.id}:result`,
-            address: item.to,
-            sender: ENDPOINT_SENDER,
-            text: renderCollectiveResult(item),
-          }),
+          fromEndpoint(
+            `${item.id}:result`,
+            item.to,
+            renderCollectiveResult(item),
+          ),
         );
       case "operationFailed":
         return this.handToHost(
           config,
           item.to,
-          endpointInbound({
-            id: `${item.id}:failed`,
-            address: item.to,
-            sender: ENDPOINT_SENDER,
-            text: `MoltZap: ${item.error}`,
-          }),
+          fromEndpoint(`${item.id}:failed`, item.to, item.error),
         );
       default:
         return absurd(item);
@@ -634,41 +563,12 @@ class MoltZapChannelAdapter {
    * @returns NanoClaw's stable native inbox representation.
    */
   private toInboundMessage(message: MoltZapInboundMessage): InboundMessage {
-    const base = {
+    return endpointInbound({
       id: message.postId,
-      kind: "chat" as const,
-      timestamp: MOLTZAP_INBOUND_TIMESTAMP,
-      isMention: true,
-    };
-    switch (message.kind) {
-      case "direct":
-        return {
-          ...base,
-          content: {
-            text: renderContent(message.content),
-            address: message.address,
-            sender: message.sender,
-            senderId: message.sender,
-          },
-          isGroup: false,
-        };
-      case "group":
-        return {
-          ...base,
-          content: {
-            text: renderContent(message.content),
-            address: message.address,
-            sender: message.sender,
-            senderId: message.sender,
-            members: message.members,
-          },
-          isGroup: true,
-        };
-      default: {
-        const exhaustiveMessage: never = message;
-        return exhaustiveMessage;
-      }
-    }
+      address: message.address,
+      sender: message.sender,
+      text: renderContent(message.content),
+    });
   }
 }
 

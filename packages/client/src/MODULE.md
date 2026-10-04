@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./transport/collectives/forms.ts#L264)
+### [`CollectiveError`](./transport/collectives/forms.ts#L278)
 
 _Class_
 
@@ -180,6 +180,19 @@ export const GroupAddress = addressInput.pipe(
 
 A complete fixed-member group address in unsigned ASCII name order.
 
+### [`groupMembers`](./transport/collectives/render.ts#L37)
+
+_Function_
+
+```ts
+export function groupMembers(address: MessageAddressInput): readonly string[]
+```
+
+The agents a group address names, as `agent:` addresses, in its order; a
+direct address names none. Hosts list them on a group turn.
+
+**Returns:** The group's member addresses, or an empty list.
+
 ### [`GroupMessage`](./transport/messaging/message.ts#L72)
 
 _TypeAlias_
@@ -269,7 +282,7 @@ export interface InboundDelivery {
 
 One inbound item plus its transport-only acknowledgment.
 
-### [`InboundItem (type)`](./transport/collectives/inbound.ts#L103)
+### [`InboundItem (type)`](./transport/collectives/inbound.ts#L106)
 
 _TypeAlias_
 
@@ -279,7 +292,7 @@ export type InboundItem = typeof InboundItem.Type;
 
 A validated inbound item.
 
-### [`InboundItem (value)`](./transport/collectives/inbound.ts#L94)
+### [`InboundItem (value)`](./transport/collectives/inbound.ts#L97)
 
 _Variable_
 
@@ -404,7 +417,8 @@ export class MessageTextError extends Data.TaggedError("MessageTextError")<{
   readonly detail: string;
 }> {
   override get message(): string {
-    return `${this.operation} not sent: ${this.detail}`;
+    const action = this.operation === "answer" ? "reply" : "send";
+    return `${action} failed: invalid ${this.operation}: ${this.detail}`;
   }
 }
 ```
@@ -413,7 +427,7 @@ A message text states an operation it does not validly carry, or is plain
 text that is not well-formed Unicode. The message names each failing field
 so a host can hand it to its model as the tool error.
 
-### [`parseMessageText`](./transport/collectives/message-text.ts#L96)
+### [`parseMessageText`](./transport/collectives/message-text.ts#L97)
 
 _Function_
 
@@ -456,6 +470,48 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
+### [`renderCollectiveRequest`](./transport/collectives/render.ts#L54)
+
+_Function_
+
+```ts
+export function renderCollectiveRequest(
+  item: CollectiveRequestItem,
+  howToAnswer: string,
+): string
+```
+
+A question another agent asked: who asked and until when, the question,
+its form, and the exact text that answers it. Only the last line differs
+by host, since each host's model sends the answer through its own tool.
+
+**Returns:** The text of the model's turn.
+
+### [`renderCollectiveResult`](./transport/collectives/render.ts#L76)
+
+_Function_
+
+```ts
+export function renderCollectiveResult(item: CollectiveResultItem): string
+```
+
+A gather's or all_gather's result: the question and one line per member.
+
+**Returns:** The text of the model's turn.
+
+### [`renderContent`](./transport/collectives/render.ts#L23)
+
+_Function_
+
+```ts
+export function renderContent(content: Content): string
+```
+
+A message's content as the text a model reads: each text part as written,
+each data part as JSON, one part per line.
+
+**Returns:** The text a host puts in the model's turn.
+
 ### [`SendError`](./transport/messaging/errors.ts#L51)
 
 _Class_
@@ -475,7 +531,7 @@ An addressed send failed before local certification completed. `detail`
 names the specific cause when the failing step knows it, such as which
 agent is unknown; the message is what a host hands its model.
 
-### [`SendInput (type)`](./transport/collectives/forms.ts#L144)
+### [`SendInput (type)`](./transport/collectives/forms.ts#L148)
 
 _TypeAlias_
 
@@ -485,7 +541,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput (value)`](./transport/collectives/forms.ts#L132)
+### [`SendInput (value)`](./transport/collectives/forms.ts#L136)
 
 _Variable_
 
@@ -508,7 +564,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./transport/collectives/forms.ts#L162)
+### [`SendResult`](./transport/collectives/forms.ts#L166)
 
 _Interface_
 
@@ -626,6 +682,7 @@ Complete production process composition for `moltzapd`.
 - `transport/collectives/operation.ts`
 - `transport/collectives/README.md`
 - `transport/collectives/received-request.ts`
+- `transport/collectives/render.ts`
 - `transport/collectives/request-sends.ts`
 - `transport/collectives/shared-answers.ts`
 - `transport/collectives/validation.ts`
