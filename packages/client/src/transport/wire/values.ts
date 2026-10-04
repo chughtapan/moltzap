@@ -194,22 +194,22 @@ const isAgentName = Schema.is(AgentName);
  * @param value A candidate address.
  * @returns The name, or undefined when the value is not an agent address.
  */
-export function parseAgentAddress(value: string): string | undefined {
+export const parseAgentAddress = (value: string): string | undefined => {
   if (!value.startsWith(AGENT_ADDRESS_PREFIX)) {
     return undefined;
   }
   const name = value.slice(AGENT_ADDRESS_PREFIX.length);
   return isAgentName(name) ? name : undefined;
-}
+};
 
 /**
  * The names a `group:` address lists, in the order given.
  * @param value A candidate address.
  * @returns The names, or undefined when the value is not a group address.
  */
-export function parseGroupAddress(
+export const parseGroupAddress = (
   value: string,
-): readonly string[] | undefined {
+): readonly string[] | undefined => {
   if (!value.startsWith(GROUP_ADDRESS_PREFIX)) {
     return undefined;
   }
@@ -217,7 +217,7 @@ export function parseGroupAddress(
   return names.length > 0 && names.every((name) => isAgentName(name))
     ? names
     : undefined;
-}
+};
 
 const addressInput = Schema.String.pipe(
   Schema.filter(
@@ -261,7 +261,7 @@ export type MessageAddressInput = typeof MessageAddressInput.Type;
  * @param right The other name.
  * @returns Negative, zero, or positive as `left` sorts before, with, or after `right`.
  */
-export function compareAscii(left: string, right: string): number {
+export const compareAscii = (left: string, right: string): number => {
   const sharedLength = Math.min(left.length, right.length);
   for (let index = 0; index < sharedLength; index += 1) {
     const difference = left.charCodeAt(index) - right.charCodeAt(index);
@@ -270,7 +270,7 @@ export function compareAscii(left: string, right: string): number {
     }
   }
   return left.length - right.length;
-}
+};
 
 function isCanonicalGroupAddress(value: string): boolean {
   const names = parseGroupAddress(value);

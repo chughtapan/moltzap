@@ -27,8 +27,8 @@ import type {
 } from "../../transport/router/index.js";
 import type { DaemonBootstrap } from "../bootstrap.js";
 import {
-  type DecodedOuterBody,
   decodeCanonical,
+  type DecodedOuterBody,
   encodeCanonical,
   MembershipDescriptor,
   verifyMembershipDescriptor,

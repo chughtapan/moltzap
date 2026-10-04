@@ -16,9 +16,10 @@ import {
   exactStruct,
   RecordHash,
 } from "../../wire/index.js";
-import { FormFieldSchema } from "./grammar.js";
 import { AnswerContent, CollectiveId } from "../forms.js";
+import { FormFieldSchema } from "./grammar.js";
 
+/** One admitted form field, the shape answer checks read. */
 export type { FormField } from "./grammar.js";
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the values they decode. */
@@ -89,7 +90,11 @@ export const collectiveIdOf = (
       .digest("base64url")}`,
   );
 
-/** A fresh nonce and the id it binds to the requester. */
+/**
+ * A fresh nonce and the id it binds to the requester.
+ * @param requester The address the id names as the operation's requester.
+ * @returns The nonce and the collective id derived from it.
+ */
 export const mintCollectiveId = (requester: AgentAddress) =>
   Effect.sync(() => {
     const nonce = randomBytes(32).toString("base64url");

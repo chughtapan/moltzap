@@ -40,14 +40,6 @@ import {
   verifyCatchUpPage,
   verifyOuterMessage,
 } from "../../wire/index.js";
-import { completeRecoveryBarrier, currentRecoveryBarrier } from "./barrier.js";
-import {
-  decodeStoredAnchor,
-  durableRouterInstanceId,
-  recordFromStore,
-  verifyRecoveredHistory,
-  verifyStoredOutbounds,
-} from "./persistence.js";
 import {
   acceptCompletedReanchor,
   acceptReanchorVote,
@@ -65,6 +57,14 @@ import {
   recoverMemberships,
   requestCertifiedHistory,
 } from "../recovery-session/index.js";
+import { completeRecoveryBarrier, currentRecoveryBarrier } from "./barrier.js";
+import {
+  decodeStoredAnchor,
+  durableRouterInstanceId,
+  recordFromStore,
+  verifyRecoveredHistory,
+  verifyStoredOutbounds,
+} from "./persistence.js";
 
 /** Reconstruct the complete private engine state from durable storage. */
 export { recoverEngineState } from "./persistence.js";

@@ -42,13 +42,6 @@ import {
   recoverEngineState,
 } from "./recovery/index.js";
 import {
-  prepareSend,
-  proposeIntent,
-  queueCertifiedPacket,
-  queueEvidence,
-  resolveAddress,
-} from "./send.js";
-import {
   type EndpointEngine,
   type EndpointEngineInput,
   EngineInitializationError,
@@ -59,6 +52,13 @@ import {
   type EngineSendInput,
   type EngineSentPost,
 } from "./runtime/index.js";
+import {
+  prepareSend,
+  proposeIntent,
+  queueCertifiedPacket,
+  queueEvidence,
+  resolveAddress,
+} from "./send.js";
 
 type RecoveredStateError = Effect.Effect.Error<
   ReturnType<typeof recoverEngineState>

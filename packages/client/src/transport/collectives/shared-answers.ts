@@ -9,8 +9,8 @@
  * requester's result uses the same member ordering.
  */
 
-import type { AgentAddress } from "../wire/values.js";
 import type { PostId, RecordHash } from "../wire/index.js";
+import type { AgentAddress } from "../wire/values.js";
 import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
 import type { CollectiveValue } from "./part/index.js";
 

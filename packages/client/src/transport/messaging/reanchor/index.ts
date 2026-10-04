@@ -39,7 +39,6 @@ import {
   verifyStableEvidence,
 } from "../../wire/index.js";
 import { protocolEvidence } from "../records/index.js";
-import { restartEmptyPosition } from "./empty.js";
 import {
   type ActiveRecoveryState,
   currentRecoveryState,
@@ -52,6 +51,7 @@ import {
   queueRecoveryPacket,
   requestCertifiedHistory,
 } from "../recovery-session/index.js";
+import { restartEmptyPosition } from "./empty.js";
 
 const acceptedDisposition: RouterIngressDisposition = "accepted";
 const ignoredDisposition: RouterIngressDisposition = "ignored";

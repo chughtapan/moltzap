@@ -10,8 +10,8 @@ import {
   Schema,
 } from "effect";
 import { describe, expect, it } from "vitest";
-import { AgentAddress } from "../../wire/values.js";
 import { Content } from "../../wire/index.js";
+import { AgentAddress } from "../../wire/values.js";
 import {
   COLLECTIVE_DATA_KEY,
   CollectiveContentError,

@@ -10,8 +10,8 @@ import {
   compareAscii,
   GROUP_ADDRESS_PREFIX,
   GroupAddress,
-  type MessageAddressInput,
   maximumMembers,
+  type MessageAddressInput,
 } from "../wire/values.js";
 import { SendError } from "./errors.js";
 

@@ -4,12 +4,12 @@ import { NodeHttpClient } from "@effect/platform-node";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Data, Duration, Effect, Layer } from "effect";
+import type { DaemonConfigurationError } from "./bootstrap.js";
 import { openEndpointStore } from "../store/index.js";
 import {
   loadDaemonBootstrap,
   loadDaemonProcessConfiguration,
 } from "./configuration.js";
-import { type DaemonConfigurationError } from "./bootstrap.js";
 import { runDaemonRuntime } from "./lifecycle.js";
 import {
   type DaemonRegistrationPersistenceError,

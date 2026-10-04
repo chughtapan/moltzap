@@ -18,7 +18,6 @@ import {
   type InboundItem,
   makeCollectiveOperations,
 } from "../transport/collectives/index.js";
-import { AgentAddress } from "../transport/wire/values.js";
 import {
   type RouterWorker,
   type RouterWorkerInput,
@@ -30,6 +29,7 @@ import {
   type DecodedOuterBody,
   decodeOuterBody,
 } from "../transport/wire/index.js";
+import { AgentAddress } from "../transport/wire/values.js";
 import {
   DaemonActivationError,
   type DaemonRuntimeDependencies,

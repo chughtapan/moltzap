@@ -1,14 +1,14 @@
 /** @file The items an endpoint delivers to its host: messages and collective requests, results and failures. */
 
 import { Schema } from "effect";
+import { InboundMessage } from "../messaging/message.js";
 import {
   AgentAddress,
-  MessageAddressInput,
   exactStruct,
+  MessageAddressInput,
   PostId,
   wellFormedString,
 } from "../wire/values.js";
-import { InboundMessage } from "../messaging/message.js";
 import { AnswerContent, CollectiveId, RequestedSchema } from "./forms.js";
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the nominal values they decode. */

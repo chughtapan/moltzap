@@ -1,15 +1,15 @@
 /** @file Collective operations, answers and the closed errors of a refused collective send. */
 
 import { Data, Schema } from "effect";
+import { sendFailureReasons, sendFailureText } from "../messaging/errors.js";
 import {
   AgentAddress,
-  MessageAddressInput,
   exactStruct,
   isCanonicalIdentifier,
   JsonValue,
+  MessageAddressInput,
   wellFormedString,
 } from "../wire/values.js";
-import { sendFailureReasons, sendFailureText } from "../messaging/errors.js";
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the nominal values they decode. */
 

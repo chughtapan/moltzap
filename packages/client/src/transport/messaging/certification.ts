@@ -45,6 +45,12 @@ import {
   verifyStableEvidence,
 } from "../wire/index.js";
 import {
+  evidenceMatchesFold,
+  evidenceRoute,
+  type EvidenceRoute,
+  verifiedEvidenceForRoute,
+} from "./evidence.js";
+import {
   inboundDelivery,
   makeActionCertifiedRecord,
   makeCertifiedRecord,
@@ -53,12 +59,6 @@ import {
   stagedRecord,
   storedCertifiedRecord,
 } from "./records/index.js";
-import {
-  evidenceMatchesFold,
-  evidenceRoute,
-  type EvidenceRoute,
-  verifiedEvidenceForRoute,
-} from "./evidence.js";
 
 const persistenceFailure = () => new RouterWorkerPersistenceError();
 

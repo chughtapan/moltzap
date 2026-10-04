@@ -55,6 +55,13 @@ import {
   webhookStatusJsonSchema,
 } from "./events.js";
 import {
+  HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
+  HARNESS_READ_EVENT_TOOL,
+  HARNESS_READ_INBOX_TOOL,
+  HARNESS_READ_SEND_TOOL,
+  HARNESS_SEND_TOOL,
+} from "./names.js";
+import {
   type ManagementReadConversationRequest,
   managementReadConversationRequestSchema,
   type ManagementReadConversationResult,
@@ -87,13 +94,6 @@ import {
   harnessSendArgumentsJsonSchema,
   harnessSendResultJsonSchema,
 } from "./schemas.js";
-import {
-  HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
-  HARNESS_READ_EVENT_TOOL,
-  HARNESS_READ_INBOX_TOOL,
-  HARNESS_READ_SEND_TOOL,
-  HARNESS_SEND_TOOL,
-} from "./names.js";
 
 /* eslint-disable agent-code-guard/async-keyword -- Official MCP factories and callbacks are Promise-native. */
 

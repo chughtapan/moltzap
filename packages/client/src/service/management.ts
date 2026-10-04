@@ -34,11 +34,6 @@ import type { SendError } from "../transport/messaging/errors.js";
 import type { DaemonBootstrap, DaemonConfigurationError } from "./bootstrap.js";
 import { resolveMessageAddress } from "../transport/messaging/address.js";
 import {
-  AgentAddress,
-  compareAscii,
-  GroupAddress,
-} from "../transport/wire/values.js";
-import {
   type CertifiedRecord,
   compareAgentIds,
   decodeCanonical,
@@ -53,6 +48,11 @@ import {
   verifyRecordCore,
   verifyStableEvidence,
 } from "../transport/wire/index.js";
+import {
+  AgentAddress,
+  compareAscii,
+  GroupAddress,
+} from "../transport/wire/values.js";
 import {
   type DaemonRegistrationPersistenceError,
   type DaemonRegistrationRepresentationError,

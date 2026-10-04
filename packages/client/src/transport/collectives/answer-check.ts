@@ -7,8 +7,8 @@
  */
 
 import { Predicate } from "effect";
-import type { FormField } from "./part/index.js";
 import type { AnswerContent } from "./forms.js";
+import type { FormField } from "./part/index.js";
 import { matchesFormat } from "./answer-formats.js";
 
 type AnswerValue = AnswerContent[string];

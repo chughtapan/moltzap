@@ -14,12 +14,6 @@ import {
 import { Effect, Encoding, Schema } from "effect";
 import { createHash, randomBytes } from "node:crypto";
 import {
-  type ClientRepresentationError,
-  decodeCanonical,
-  encodeCanonical,
-  representationFailure,
-} from "./canonical.js";
-import {
   ActionCore,
   ActionHash,
   type ActionHash as ActionHashValue,
@@ -52,6 +46,12 @@ import {
   PostId,
   type PostId as PostIdValue,
 } from "../values.js";
+import {
+  type ClientRepresentationError,
+  decodeCanonical,
+  encodeCanonical,
+  representationFailure,
+} from "./canonical.js";
 
 /* eslint-disable jsdoc/require-jsdoc -- The package-private representation facade documents this closed protocol vocabulary. */
 

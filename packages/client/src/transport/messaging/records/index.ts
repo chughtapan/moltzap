@@ -304,8 +304,11 @@ const projectInboundMessage = (
 
 /**
  * Encode the remote projection atomically retained during promotion.
- * The recipient is the local agent that owns the pending delivery, which
- * `AgentId` cannot express and nothing here checks.
+ * @param conversation The verified conversation the record belongs to.
+ * @param record The certified record projected for the local host.
+ * @param recipientAgentId The local agent that owns the pending delivery,
+ * which `AgentId` cannot express and nothing here checks.
+ * @returns The canonical inbound message bound to its recipient.
  */
 export const inboundDelivery = (
   conversation: EngineConversation,

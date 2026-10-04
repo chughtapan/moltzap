@@ -10,10 +10,10 @@ import { Either, Encoding, Schema } from "effect";
 import {
   AgentAddress,
   exactStruct,
+  GroupAddress,
   RecordCore,
   RecordHash,
   RouterAnchor,
-  GroupAddress,
 } from "../../transport/wire/index.js";
 
 const exactOptions = {

@@ -9,6 +9,7 @@ import type {
   PostIntent as StoredPostIntent,
 } from "../../store/index.js";
 import type { RouterWorkerUnavailableError } from "../router/index.js";
+import type { MessageAddressInput } from "../wire/values.js";
 import type {
   EngineConversation,
   EnginePostIntent,
@@ -39,7 +40,6 @@ import {
   verifyMembershipDescriptor,
 } from "../wire/index.js";
 import { resolveMessageAddress } from "./address.js";
-import { type MessageAddressInput } from "../wire/values.js";
 import { SendError } from "./errors.js";
 import { currentRecoveryBarrier } from "./recovery/barrier.js";
 
