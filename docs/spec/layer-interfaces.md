@@ -211,9 +211,8 @@ The stable Client invariants are:
   the [retained-outcome contract](./harness/output.md#semantic-send);
 - GENESIS is unanimous and ordinary POST uses author-inclusive `q(n)` action
   certification;
-- a multicast or response returns only after local certified durability, a
-  gather returns its operation id after its bounded request-post wait, and
-  an all_gather once its group post is certified, under the
+- a multicast or response returns only after local certified durability, and
+  a gather or all_gather under the
   [operation-specific rules](./harness/client.md#operations);
 - inbound delivery yields items tagged by kind; a multicast item identifies
   canonical address and author, with exact members for groups and no reply
