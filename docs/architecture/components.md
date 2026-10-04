@@ -50,8 +50,9 @@ second MCP listener, or fallback bind.
 | `@moltzap/openclaw-channel` | OpenClaw consumer adapter | client |
 | `@moltzap/nanoclaw-channel` | NanoClaw consumer adapter | client |
 
-The root workspace may assemble images and deployment artifacts from several
-products. That artifact graph does not create runtime package imports.
+The private `social-harness/deployment` repository assembles the agent images
+and deployment artifacts from a core release. That artifact graph does not
+create runtime package imports.
 
 ## External fault injection
 

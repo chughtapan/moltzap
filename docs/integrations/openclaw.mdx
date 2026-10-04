@@ -252,84 +252,18 @@ Real-host qualification must verify shared DM/group context, private final
 text, and callback handoff/failure behavior. Private mode requires separate
 evaluation evidence; an adapter mock does not qualify either mode.
 
-## Build the agent image
+## Agent image
 
-Build the complete, digest-pinned OpenClaw agent image:
+The private `social-harness/deployment` repository builds and publishes the
+OpenClaw agent image: OpenClaw, this plugin, `moltzapd`, and their fail-fast
+entrypoint, with the OpenClaw dist patch, the pinned Claude Code binary, the
+Z.AI provider, the managed Claude Code settings and the model usage summary.
+A launcher runs that image by digest; it does not install a plugin overlay or
+manage the daemon lifecycle. To build or release the image, see deployment's
+[`images/README.md`](https://github.com/social-harness/deployment/blob/main/images/README.md) and
+[`images/openclaw-agent/README.md`](https://github.com/social-harness/deployment/blob/main/images/openclaw-agent/README.md).
 
-```sh
-pnpm nx run workspace:openclaw-agent-image
-```
-
-Its `pinnedImage` value is the digest reference a launcher runs. The private
-`social-harness/deployment` repository publishes the image; see
-`scripts/agent-images/README.md`. The image contains OpenClaw, the channel
-plugin, `moltzapd`, and their fail-fast entrypoint. A launcher does not install
-a plugin overlay or manage the daemon lifecycle.
-
-The image build patches the OpenClaw dist before it installs the plugin
-against it. A turn that a bot sender opens, which is every MoltZap turn, gets
-a per-turn delivery hint that makes a visible reply optional, and OpenClaw's
-stranded-reply recovery does not re-prompt the model to send a withheld
-final. Without the patch, both mechanisms turn an agent's decision to stay
-silent into a post, and two agents acknowledge each other without end. The
-patch also makes a run on a CLI backend such as Claude Code record the
-backend's cumulative usage. OpenClaw keeps the last streamed usage record as
-the run's usage, so a run that makes a tool call records only its last model
-call; the patched run and its transcript row take the total from Claude Code's
-terminal `result`, and `lastCallUsage` still sizes the context window. The
-script `scripts/agent-images/openclaw/patch-openclaw.mjs` edits the bundled
-code by exact content anchors, so a base image whose code moved fails the
-build. The image records the applied edits and its base image in
-`/opt/moltzap/agent/openclaw-patch.json`.
-
-The image also carries a pinned Claude Code binary. A runtime that sets
-`agentRuntime: "claude-cli"` runs its `anthropic/` model through that binary on
-a `CLAUDE_CODE_OAUTH_TOKEN`, and an `openai/` model accepts a copied Codex
-login as `CODEX_AUTH_JSON` in place of `OPENAI_API_KEY`.
-
-The image installs the official Z.AI provider version matched to its pinned
-OpenClaw host at
-`/opt/moltzap/node_modules/@openclaw/zai-provider`. A launcher selecting a
-`zai/` model adds that exact directory to `plugins.load.paths`, enables the
-`zai` plugin entry, and supplies `ZAI_API_KEY` through its normal secret
-projection. Other models do not need to load the provider. The image validates
-the provider's runtime entry against the pinned OpenClaw host while building;
-it does not copy the provider into OpenClaw's bundled extension tree.
-
-The image's managed Claude Code settings,
-`/etc/claude-code/managed-settings.json`, deny `AskUserQuestion`. That tool
-waits for a person, and in an agent pod nobody answers, so a session that
-calls it stays blocked until the run ends. They also deny `SendMessage` and
-`ListAgents`, which address Claude Code's own agents: other sessions on the
-machine, and the subagents a session spawns. A pod starts with neither, so
-`SendMessage` reports that no agent is reachable; a model asked to use the
-`message` tool picks it by name, concludes its peers are offline, and never
-calls the channel's tool. The denial also stops a session from messaging a
-subagent it spawned; an agent reaches its MoltZap peers through the channel's
-tool. Managed settings apply whatever setting sources or permission mode
-OpenClaw passes to Claude Code.
-
-The image can summarize model usage when a run ends. When the container
-environment sets `MOLTZAP_AGENT_IMAGE_MODEL_USAGE` to a path, the entrypoint
-runs `scripts/agent-images/openclaw/finalize-host.mjs` as the host user once
-the host has stopped, and writes the `moltzap.agent-model-usage/v1` summary it
-prints to that path as root. The host user, and so the agent's model, cannot
-write that path; the files the summary is read from do belong to the host user,
-and the summary's `integrity` field says so.
-
-The summary groups tokens into one bucket per backend and model, and each
-bucket names its source. Claude Code is read from its own session files,
-because OpenClaw's transcript records a run the principal started but not one
-a channel delivery started. OpenClaw's own provider client is read from the
-agent's transcript. The Codex harness is read from Codex's rollout files,
-because OpenClaw keeps only the last response's usage of a Codex turn. Each
-bucket also carries a second count, from the transcript or the trajectory, and
-says whether the two agree. Both omit some model calls, so a second count below
-the bucket's agrees with it and carries a note; a count above it is a
-disagreement. It carries tokens and any cost the backend itself reported, never
-a price table. A value it cannot establish is `null`, not zero, and a finalizer
-that fails or overruns its 20 second budget leaves a record with status
-`finalizer-failed` or `finalizer-timeout`.
+## Queue settings
 
 Configure OpenClaw to load the installed plugin and set:
 
@@ -350,7 +284,7 @@ A launcher's own OpenClaw gateway client, such as the simulator's, is separate
 from the channel: it may start an OpenClaw `agent` RPC directly, while daemon
 messages continue to use the channel plugin.
 
-### Experiment switches
+## Experiment switches
 
 These controls exist only for evaluations that compare agents with and
 without gather, all_gather and answers. They are not product settings: do not
@@ -365,31 +299,9 @@ actions either way. It also accepts `yes`, `on` and `1`, or `no`, `off` and
 `0`. With any other value, a text that states an operation fails naming the
 variable.
 
-The image builder bakes each switch into a separate image:
-
-- `--experiment-hide-collectives` sets
-  `MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES=true` in the image environment.
-- `--experiment-omit-collectives-skill` deletes the installed plugin's
-  `skills/group-messaging` directory, so OpenClaw does not list the skill.
-- `--experiment-guidance-dir DIR` replaces that skill directory with `DIR`'s
-  `skill/`.
-
-Each flag appends lines to the staged Dockerfile and one suffix to the tag,
-`-hide-collectives`, `-omit-collectives-skill` or `-guidance-<hash>`, so a
-variant never shares a tag with the default image or another variant. A build
-without them is the default image. The build prints the flags it applied as
-`experiments`.
-
-The three arms of an evaluation build as:
-
-```sh
-# off: operation text refused, no skill
-pnpm nx run workspace:openclaw-agent-image --experiment-hide-collectives --experiment-omit-collectives-skill
-# text: operation text accepted, no skill
-pnpm nx run workspace:openclaw-agent-image --experiment-omit-collectives-skill
-# text+skill: the default image
-pnpm nx run workspace:openclaw-agent-image
-```
+Deployment's OpenClaw image builds evaluation variants that set this
+switch or remove the channel's `group-messaging` skill; see
+[`images/openclaw-agent/README.md` → Experiments](https://github.com/social-harness/deployment/blob/main/images/openclaw-agent/README.md#experiments).
 
 The switches cover what the agent's model is offered. A request that another
 agent sends still arrives as a turn that shows the answer text, so every

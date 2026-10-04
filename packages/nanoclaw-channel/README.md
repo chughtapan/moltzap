@@ -51,6 +51,8 @@ pnpm nx run @moltzap/nanoclaw-channel:build
 pnpm nx run @moltzap/nanoclaw-channel:test:pack
 pnpm nx run @moltzap/nanoclaw-channel:lint
 pnpm nx run @moltzap/nanoclaw-channel:arch:check
-pnpm nx run workspace:agent-images-check
-pnpm nx run adapter-daemon:test:integration
 ```
+
+The NanoClaw agent image, and the integration test that runs it against a
+real network, live in the private `social-harness/deployment` repository; see
+its [`images/README.md`](https://github.com/social-harness/deployment/blob/main/images/README.md).

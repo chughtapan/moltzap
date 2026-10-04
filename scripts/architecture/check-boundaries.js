@@ -894,7 +894,9 @@ function checkNxGraph(graphFile) {
     rel(graphFile),
     'Nx dependencies for "adapter-daemon" drifted',
     (graph.dependencies?.["adapter-daemon"] ?? []).map(({ target }) => target),
-    [...FINAL_PACKAGE_NAMES],
+    ["identity", "router", "client", "openclaw-channel"].map(
+      (dir) => FINAL_PACKAGES[dir].npmName,
+    ),
   );
 }
 
