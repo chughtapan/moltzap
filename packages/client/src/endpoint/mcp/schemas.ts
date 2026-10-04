@@ -1,4 +1,4 @@
-/** @file MCP framing of the harness operations: tool names, send metadata, Events constants, and JSON Schema projections. */
+/** @file MCP framing of the harness operations: send metadata and JSON Schema projections. */
 
 import {
   Effect,
@@ -18,32 +18,7 @@ import {
   readSendRequestSchema,
   readSendResultSchema,
 } from "../../delivery/operations.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
-import { exactStruct } from "../../transport/wire/values.js";
-
-/** A content-free wakeup to read the classified runtime inbox. */
-export const INBOX_PENDING_EVENT = "moltzap.inbox.pending";
-
-/** Classified content delivered directly to a webhook consumer. */
-export const INBOX_ITEM_EVENT = "moltzap.inbox.item";
-
-/** Semantic retrieval of content referenced by a large webhook event. */
-export const HARNESS_READ_EVENT_TOOL = "read_event";
-
-/** Adapter operation performing one collective operation. */
-export const HARNESS_SEND_TOOL = "send_message";
-
-/** Runtime send options travel outside model-generated tool arguments. */
-export const HARNESS_SEND_META_KEY = "xyz.moltzap/send";
-
-/** Retires an inbox item after its host-specific acceptance contract is met. */
-export const HARNESS_ACKNOWLEDGE_DELIVERY_TOOL = "acknowledge_delivery";
-
-/** Runtime read of classified deliveries whose host acceptance is pending. */
-export const HARNESS_READ_INBOX_TOOL = "read_inbox";
-
-/** Lookup of a retained invocation, distinct from collective completion. */
-export const HARNESS_READ_SEND_TOOL = "read_send";
+import { HARNESS_SEND_META_KEY } from "./names.js";
 
 const exact: SchemaAST.ParseOptions = {
   exact: true,
@@ -54,26 +29,6 @@ const exactEmptyObject = Schema.Record({
   key: Schema.String,
   value: Schema.Never,
 }).annotations({ parseOptions: exact });
-
-/** Inline content or an explicit reference without truncating stored content. */
-const itemEventDataSchema = Schema.Union(
-  exactStruct({ kind: Schema.Literal("item"), item: InboundItem }),
-  exactStruct({
-    kind: Schema.Literal("reference"),
-    itemKind: Schema.Literal(
-      "multicast",
-      "collectiveRequest",
-      "collectiveResult",
-      "operationFailed",
-    ),
-    bytes: Schema.NonNegativeInt,
-  }),
-);
-
-/** Classified webhook payload advertised through MCP event discovery. */
-export const itemEventDataJsonSchema = JSONSchema.make(itemEventDataSchema, {
-  target: "jsonSchema2020-12",
-});
 
 const harnessEmptyResultSchema = exactEmptyObject;
 

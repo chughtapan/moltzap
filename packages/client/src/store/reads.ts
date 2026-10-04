@@ -21,9 +21,11 @@ import {
   type StoreState,
   validateContinuation,
 } from "./database/index.js";
-import { readRetainedDeliveries } from "./deliveries.js";
-import { readPendingDissemination } from "./dissemination.js";
-import { readPendingOutbound } from "./outbound.js";
+import {
+  readPendingDissemination,
+  readPendingOutbound,
+  readRetainedDeliveries,
+} from "./queues/index.js";
 import {
   readCertifiedRecord,
   readConversationPosition,

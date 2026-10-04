@@ -18,7 +18,7 @@ import {
 } from "effect";
 import { describe, expect, it } from "vitest";
 import { acquireHarnessMcpHttpServer } from "../mcp/http.js";
-import { INBOX_PENDING_EVENT } from "../mcp/schemas.js";
+import { INBOX_PENDING_EVENT } from "../mcp/names.js";
 import { inboxWakeups } from "./events.js";
 import { acquireHarnessEndpoint } from "./index.js";
 

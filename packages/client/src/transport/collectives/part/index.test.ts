@@ -10,8 +10,8 @@ import {
   Schema,
 } from "effect";
 import { describe, expect, it } from "vitest";
-import { AgentAddress } from "../messaging/address.js";
-import { Content } from "../wire/index.js";
+import { Content } from "../../wire/index.js";
+import { AgentAddress } from "../../wire/values.js";
 import {
   COLLECTIVE_DATA_KEY,
   CollectiveContentError,
@@ -21,7 +21,7 @@ import {
   encodeCollectiveContent,
   FormModeSchema,
   readCollectiveValue,
-} from "./wire.js";
+} from "./index.js";
 
 const collectiveId = `col_${"A".repeat(43)}`;
 const nonce = "B".repeat(43);

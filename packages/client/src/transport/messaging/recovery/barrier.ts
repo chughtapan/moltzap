@@ -1,7 +1,7 @@
 /** @file Completion barrier shared by protocol activation and recovery. */
 
 import { Deferred, Effect } from "effect";
-import type { EngineRuntime } from "../types.js";
+import type { EngineRuntime } from "../runtime/index.js";
 
 const recoveryBarriers = new WeakMap<
   EngineRuntime,

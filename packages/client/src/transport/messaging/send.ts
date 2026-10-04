@@ -9,12 +9,13 @@ import type {
   PostIntent as StoredPostIntent,
 } from "../../store/index.js";
 import type { RouterWorkerUnavailableError } from "../router/index.js";
+import type { MessageAddressInput } from "../wire/values.js";
 import type {
   EngineConversation,
   EnginePostIntent,
   EngineRuntime,
   EngineSendInput,
-} from "./types.js";
+} from "./runtime/index.js";
 import {
   type ActionCertifiedRecord,
   type ActionCore,
@@ -38,7 +39,7 @@ import {
   type VerifiedMembership,
   verifyMembershipDescriptor,
 } from "../wire/index.js";
-import { type MessageAddressInput, resolveMessageAddress } from "./address.js";
+import { resolveMessageAddress } from "./address.js";
 import { SendError } from "./errors.js";
 import { currentRecoveryBarrier } from "./recovery/barrier.js";
 

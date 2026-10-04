@@ -41,7 +41,7 @@ import type {
   EndpointEngineInput,
   EngineRegistryPort,
   EngineRouterPort,
-} from "../types.js";
+} from "../runtime/index.js";
 import { type EndpointStore, openEndpointStore } from "../../../store/index.js";
 import {
   type RouterDiscontinuityReason,
@@ -81,7 +81,7 @@ import {
   type VerifiedMembership,
   verifyMembershipDescriptor,
 } from "../../wire/index.js";
-import { MessageAddressInput } from "../address.js";
+import { MessageAddressInput } from "../../wire/values.js";
 import { type EndpointEngine, makeEndpointEngine } from "../index.js";
 
 /* eslint-disable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- One exact cryptographic trace keeps protocol order and assertions together. */

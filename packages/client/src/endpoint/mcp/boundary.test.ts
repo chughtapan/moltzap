@@ -41,7 +41,7 @@ import { InboundItem } from "../../transport/collectives/inbound.js";
 import { ListenError, SendError } from "../../transport/messaging/errors.js";
 import { acquireHarnessEndpoint } from "../harness-endpoint/index.js";
 import { acquireHarnessMcpHttpServer } from "./http.js";
-import { HARNESS_SEND_META_KEY, INBOX_PENDING_EVENT } from "./schemas.js";
+import { HARNESS_SEND_META_KEY, INBOX_PENDING_EVENT } from "./names.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,

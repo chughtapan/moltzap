@@ -71,7 +71,7 @@ const clientDomains = [
       {
         file: "values.ts",
         reason:
-          "Post ids, content, and member limits hosts decode without loading signing, verification, or the Router client",
+          "Addresses, post ids, content, and member limits hosts decode without loading signing, verification, or the Router client",
       },
     ],
     reason:
@@ -105,7 +105,7 @@ const clientDomains = [
       {
         file: "address.ts",
         reason:
-          "Address schemas and Registry resolution, read without loading the engine",
+          "Registry resolution of a validated address, read without loading the engine",
       },
       {
         file: "errors.ts",
@@ -199,89 +199,7 @@ const packageDefinitions = {
     beforeShared: {
       maxFolderCycles: 1,
       folderReadmeFileNames: ["README.md", "../README.md"],
-      facadeFiles: [
-        ...clientEntrypointFacades,
-        {
-          file: "endpoint/mcp/owner-tools.ts",
-          reason:
-            "Exact private management schema boundary shared by daemon operations and its MCP catalog",
-        },
-        {
-          file: "transport/messaging/certification.ts",
-          reason:
-            "Router-ordered proposal selection and GENESIS/POST certification shared by the engine and its evidence routing",
-        },
-        {
-          file: "endpoint/mcp/schemas.ts",
-          reason:
-            "MCP tool names, Events constants, and JSON Schema projections shared by the tool catalog, the Events and webhook transports, and the HarnessEndpoint client",
-        },
-        {
-          file: "service/configuration.ts",
-          reason:
-            "Exact process configuration and loaded bootstrap authority shared by daemon startup, registration, supervision, and management",
-        },
-        {
-          file: "service/registration.ts",
-          reason:
-            "Crash-recoverable identity-registration boundary shared by daemon startup and management",
-        },
-        {
-          file: "service/activation.ts",
-          reason:
-            "Identity activation, pinned-card recovery, and crash-recoverable registration shared by runtime composition, controller operations, and protocol acquisition",
-        },
-        {
-          file: "transport/collectives/wire.ts",
-          reason:
-            "Collective values carried in post content, shared by the operation layer and answer validation",
-        },
-        {
-          file: "transport/messaging/durability.ts",
-          reason:
-            "Durable action-fold transition boundary shared by engine protocol phases",
-        },
-        {
-          file: "transport/messaging/send.ts",
-          reason:
-            "Addressed intent activation and durable send boundary shared by the endpoint engine phases",
-        },
-        {
-          file: "transport/messaging/types.ts",
-          reason:
-            "Closed endpoint-engine port and error vocabulary shared by every protocol phase",
-        },
-        {
-          file: "transport/router/types.ts",
-          reason:
-            "Closed Router-worker state, error, and retry vocabulary shared by the worker and its outage handling",
-        },
-        {
-          file: "transport/wire/codec.ts",
-          reason:
-            "Canonical encoding, signing, and hashing boundary beneath the complete representation facade",
-        },
-        {
-          file: "transport/messaging/recovery/state.ts",
-          reason:
-            "Volatile catch-up and re-anchor coordination shared only by the recovery facade and its re-anchor implementation",
-        },
-        {
-          file: "store/deliveries.ts",
-          reason:
-            "Pending-delivery SQL capability shared by record promotion, management recovery reads, and endpoint-store operations",
-        },
-        {
-          file: "store/dissemination.ts",
-          reason:
-            "Dissemination-obligation SQL capability shared by record promotion, recovery reads, and atomic outbox enqueue",
-        },
-        {
-          file: "store/outbound.ts",
-          reason:
-            "Durable outbox SQL capability shared by endpoint-store operations, recovery reads, and dissemination transactions",
-        },
-      ],
+      facadeFiles: clientEntrypointFacades,
       compositionRoots: [
         {
           path: "src/index.ts",

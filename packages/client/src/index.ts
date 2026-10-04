@@ -39,7 +39,7 @@ export {
   AgentAddress,
   GroupAddress,
   MessageAddressInput,
-} from "./transport/messaging/address.js";
+} from "./transport/wire/values.js";
 /** The closed errors of sending, listening, and acknowledging delivery. */
 export {
   DeliveryAcknowledgeError,

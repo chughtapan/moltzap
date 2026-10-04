@@ -8,7 +8,7 @@ import type { HistoryExportPort } from "../delivery/history-export.js";
 import type { EventStore } from "../delivery/operations.js";
 import type { HarnessMcpOperations } from "../endpoint/mcp/index.js";
 import type { EndpointStore } from "../store/index.js";
-import type { DaemonBootstrap } from "./configuration.js";
+import type { DaemonBootstrap } from "./bootstrap.js";
 import { makeHostDelivery } from "../delivery/index.js";
 import {
   type DaemonActivationError,
@@ -17,7 +17,7 @@ import {
   DaemonRuntimeError,
   finishRegistration,
   type InitializeProtocol,
-} from "./activation.js";
+} from "./activation/index.js";
 import {
   failFromBackgroundCause,
   initializeProtocol,

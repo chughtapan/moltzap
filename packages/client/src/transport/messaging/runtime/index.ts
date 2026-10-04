@@ -17,7 +17,7 @@ import {
   type Queue,
   type SubscriptionRef,
 } from "effect";
-import type { DeliveryToken, EndpointStore } from "../../store/index.js";
+import type { DeliveryToken, EndpointStore } from "../../../store/index.js";
 import type {
   RouterDiscontinuityReason,
   RouterIngressDisposition,
@@ -28,8 +28,9 @@ import type {
   RouterWorkerRecoveryError,
   RouterWorkerSendError,
   RouterWorkerUnavailableError,
-} from "../router/index.js";
+} from "../../router/index.js";
 import type {
+  ActionCertifiedRecord,
   ActionCore,
   ActionHash,
   CertifiedRecord,
@@ -41,14 +42,14 @@ import type {
   RecordHash,
   RouterAnchor,
   VerifiedMembership,
-} from "../wire/index.js";
-import type { MessageAddressInput } from "./address.js";
+} from "../../wire/index.js";
+import type { MessageAddressInput } from "../../wire/values.js";
 import type {
   DeliveryAcknowledgeError,
   ListenError,
   SendError,
-} from "./errors.js";
-import type { InboundMessage } from "./message.js";
+} from "../errors.js";
+import type { InboundMessage } from "../message.js";
 
 /** Engine acquisition could not establish one coherent durable endpoint. */
 export class EngineInitializationError extends Data.TaggedError(
@@ -227,4 +228,41 @@ export interface EngineRuntime {
   readonly gate: Effect.Semaphore;
   readonly outboundGate: Effect.Semaphore;
   readonly revision: SubscriptionRef.SubscriptionRef<number>;
+  readonly phases: EnginePhases;
+}
+
+/**
+ * The operations one engine phase starts in another. The engine assembly
+ * supplies them, so send, certification, dissemination and recovery depend
+ * on this contract instead of on each other.
+ */
+export interface EnginePhases {
+  readonly proposeIntent: (
+    runtime: EngineRuntime,
+    intent: EnginePostIntent,
+  ) => Effect.Effect<ActionHash, SendError>;
+  readonly queueCertifiedPacket: (
+    runtime: EngineRuntime,
+    conversation: EngineConversation,
+    packet: ActionCertifiedRecord | CertifiedRecord,
+  ) => Effect.Effect<void, SendError>;
+  readonly queueEvidence: (
+    runtime: EngineRuntime,
+    conversation: EngineConversation,
+    evidence: SignedMessage,
+  ) => Effect.Effect<void, SendError>;
+  readonly acceptIngress: (
+    runtime: EngineRuntime,
+    ingress: RouterWorkerIngress<DecodedOuterBody>,
+  ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
+  readonly acceptRecoveryIngress: (
+    runtime: EngineRuntime,
+    ingress: RouterWorkerIngress<DecodedOuterBody>,
+  ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
+  readonly resumeFolds: (
+    runtime: EngineRuntime,
+  ) => Effect.Effect<void, RouterWorkerPersistenceError>;
+  readonly resumeDissemination: (
+    runtime: EngineRuntime,
+  ) => Effect.Effect<void, RouterWorkerPersistenceError>;
 }

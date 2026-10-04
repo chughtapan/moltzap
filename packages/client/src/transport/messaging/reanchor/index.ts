@@ -7,7 +7,7 @@ import {
 } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import type { EndpointRecovery } from "../../../store/index.js";
-import type { EngineRuntime } from "../types.js";
+import type { EngineRuntime } from "../runtime/index.js";
 import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,
@@ -38,8 +38,7 @@ import {
   verifyOuterMessage,
   verifyStableEvidence,
 } from "../../wire/index.js";
-import { protocolEvidence } from "../durability.js";
-import { restartEmptyPosition } from "./reanchor-empty.js";
+import { protocolEvidence } from "../records/index.js";
 import {
   type ActiveRecoveryState,
   currentRecoveryState,
@@ -51,7 +50,8 @@ import {
   queueRecoveryEvidence,
   queueRecoveryPacket,
   requestCertifiedHistory,
-} from "./state.js";
+} from "../recovery-session/index.js";
+import { restartEmptyPosition } from "./empty.js";
 
 const acceptedDisposition: RouterIngressDisposition = "accepted";
 const ignoredDisposition: RouterIngressDisposition = "ignored";

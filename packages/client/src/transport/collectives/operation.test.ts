@@ -15,10 +15,10 @@ import {
 import { describe, expect, it } from "vitest";
 import type { EngineSendInput } from "../messaging/index.js";
 import type { InboundItem } from "./inbound.js";
-import { AgentAddress } from "../messaging/address.js";
 import { SendError } from "../messaging/errors.js";
 import { InboundMessage } from "../messaging/message.js";
 import { PostId, RecordHash } from "../wire/index.js";
+import { AgentAddress } from "../wire/values.js";
 import {
   CollectiveEmitError,
   CollectiveError,
@@ -34,7 +34,7 @@ import {
   collectiveIdOf,
   decodeCollectiveValue,
   readCollectiveValue,
-} from "./wire.js";
+} from "./part/index.js";
 
 /* eslint-disable max-lines -- One recording layer serves every send, classification and result case, so the cases stay beside the fixture they share. */
 const alice = Schema.decodeUnknownSync(AgentAddress)("agent:alice");

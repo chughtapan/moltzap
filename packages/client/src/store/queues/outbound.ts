@@ -6,7 +6,7 @@ import type {
   OutboundMessageInput,
   StoredOutboundMessage,
   StoreMutation,
-} from "./types.js";
+} from "../types.js";
 import {
   copyBytes,
   readBytes,
@@ -18,7 +18,7 @@ import {
   requireText,
   StoreSignal,
   transaction,
-} from "./database/index.js";
+} from "../database/index.js";
 
 type OutboundDisposition = "accepted" | "discarded" | "pending";
 

@@ -8,7 +8,7 @@ The collective operations the daemon service composes.
 
 ## Public surface
 
-### [`CollectiveError`](./forms.ts#L278)
+### [`CollectiveError`](./forms.ts#L279)
 
 _Class_
 
@@ -28,7 +28,7 @@ hands its model as the tool error: the failed action and its cause, naming
 each unreachable member or failing field. The operation id stays in the
 error's data, not its message.
 
-### [`groupMembers`](./render.ts#L37)
+### [`groupMembers`](./render.ts#L36)
 
 _Function_
 
@@ -41,7 +41,7 @@ direct address names none. Hosts list them on a group turn.
 
 **Returns:** The group's member addresses, or an empty list.
 
-### [`InboundItem`](./inbound.ts#L106)
+### [`InboundItem`](./inbound.ts#L111)
 
 _TypeAlias_
 
@@ -51,7 +51,7 @@ export type InboundItem = typeof InboundItem.Type;
 
 A validated inbound item.
 
-### [`InboundItem`](./inbound.ts#L97)
+### [`InboundItem`](./inbound.ts#L102)
 
 _Variable_
 
@@ -72,7 +72,7 @@ or duplicated, and multicasts that carry nothing besides that part; every
 other certified post becomes one item, and the endpoint itself emits
 results and failures.
 
-### [`MessageTextError`](./message-text.ts#L44)
+### [`MessageTextError`](./message-text.ts#L43)
 
 _Class_
 
@@ -92,7 +92,7 @@ A message text states an operation it does not validly carry, or is plain
 text that is not well-formed Unicode. The message names each failing field
 so a host can hand it to its model as the tool error.
 
-### [`parseMessageText`](./message-text.ts#L97)
+### [`parseMessageText`](./message-text.ts#L96)
 
 _Function_
 
@@ -108,7 +108,7 @@ Read one message text as the send it states.
 **Returns:** The send input, or an error naming each field a stated operation
   gets wrong.
 
-### [`renderCollectiveRequest`](./render.ts#L54)
+### [`renderCollectiveRequest`](./render.ts#L53)
 
 _Function_
 
@@ -125,7 +125,7 @@ by host, since each host's model sends the answer through its own tool.
 
 **Returns:** The text of the model's turn.
 
-### [`renderCollectiveResult`](./render.ts#L76)
+### [`renderCollectiveResult`](./render.ts#L75)
 
 _Function_
 
@@ -137,7 +137,7 @@ A gather's or all_gather's result: the question and one line per member.
 
 **Returns:** The text of the model's turn.
 
-### [`renderContent`](./render.ts#L23)
+### [`renderContent`](./render.ts#L22)
 
 _Function_
 
@@ -150,7 +150,7 @@ each data part as JSON, one part per line.
 
 **Returns:** The text a host puts in the model's turn.
 
-### [`SendInput`](./forms.ts#L148)
+### [`SendInput`](./forms.ts#L149)
 
 _TypeAlias_
 
@@ -160,7 +160,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput`](./forms.ts#L136)
+### [`SendInput`](./forms.ts#L137)
 
 _Variable_
 
@@ -183,7 +183,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./forms.ts#L166)
+### [`SendResult`](./forms.ts#L167)
 
 _Interface_
 

@@ -3,7 +3,7 @@
 import { SignedMessage } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
 import type { RouterWorkerIngress } from "../router/index.js";
-import type { EngineActionFold, EngineRuntime } from "./types.js";
+import type { EngineActionFold, EngineRuntime } from "./runtime/index.js";
 import {
   ClientRepresentationError,
   decodeCanonical,

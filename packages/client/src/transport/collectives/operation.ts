@@ -80,14 +80,15 @@ import {
 } from "effect";
 import type { EngineSendInput, EngineSentPost } from "../messaging/index.js";
 import type { InboundMessage } from "../messaging/message.js";
-import type { PostId, RecordHash } from "../wire/index.js";
 import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
+import { canonicalMessageAddress } from "../messaging/address.js";
+import { SendError } from "../messaging/errors.js";
 import {
   AgentAddress,
-  canonicalMessageAddress,
   type MessageAddressInput,
-} from "../messaging/address.js";
-import { SendError } from "../messaging/errors.js";
+  type PostId,
+  type RecordHash,
+} from "../wire/index.js";
 import {
   type CollectiveSendOutcome,
   emitFailureAsSendError,
@@ -108,6 +109,15 @@ import {
   RequestedSchema,
   type SendInput,
 } from "./forms.js";
+import {
+  collectiveIdOf,
+  type CollectiveValue,
+  encodeCollectiveContent,
+  FormModeSchema,
+  mintCollectiveId,
+  readCollectiveValue,
+  withoutCollectivePart,
+} from "./part/index.js";
 import {
   matchOpenRequest,
   type OpenRequest,
@@ -132,15 +142,6 @@ import {
   type SharedAnswers,
 } from "./shared-answers.js";
 import { outcomeOfResponse, validateAnswer } from "./validation.js";
-import {
-  collectiveIdOf,
-  type CollectiveValue,
-  encodeCollectiveContent,
-  FormModeSchema,
-  mintCollectiveId,
-  readCollectiveValue,
-  withoutCollectivePart,
-} from "./wire.js";
 
 type PostContent = InboundMessage["content"];
 

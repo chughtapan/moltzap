@@ -32,7 +32,7 @@ export const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
   return true;
 };
 
-export const canonicalBytes = (
+const canonicalBytes = (
   value: unknown,
 ): Effect.Effect<Uint8Array, ClientRepresentationError> =>
   Effect.try({

@@ -12,11 +12,11 @@ import {
 } from "@moltzap/identity/registry";
 import { type Context, Effect, Layer, Redacted, Ref, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { EndpointStoreError, type IdentityBinding } from "../store/index.js";
+import { EndpointStoreError, type IdentityBinding } from "../../store/index.js";
 import {
   type DaemonBootstrap,
   DaemonConfigurationError,
-} from "./configuration.js";
+} from "../bootstrap.js";
 import {
   DaemonRegistrationPersistenceError,
   DaemonRegistrationRepresentationError,
@@ -27,7 +27,7 @@ import {
   readDaemonRegistrationState,
   registerDaemonIdentity,
   requireAdmissionWhileUnregistered,
-} from "./registration.js";
+} from "./index.js";
 
 /* eslint-disable agent-code-guard/async-keyword -- Static signed fixtures and exact state/error outcomes pin the registration recovery contract. */
 

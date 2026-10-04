@@ -22,7 +22,7 @@ Acquire one real MCP-backed endpoint and its scoped connection.
 
 **Returns:** An endpoint whose resources remain live for the caller's scope.
 
-### [`AgentAddress (type)`](./transport/messaging/address.ts#L66)
+### [`AgentAddress (type)`](./transport/wire/values.ts#L242)
 
 _TypeAlias_
 
@@ -32,7 +32,7 @@ export type AgentAddress = typeof AgentAddress.Type;
 
 A validated direct destination.
 
-### [`AgentAddress (value)`](./transport/messaging/address.ts#L60)
+### [`AgentAddress (value)`](./transport/wire/values.ts#L236)
 
 _Variable_
 
@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./transport/collectives/forms.ts#L278)
+### [`CollectiveError`](./transport/collectives/forms.ts#L279)
 
 _Class_
 
@@ -146,7 +146,7 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
 
 Transport acknowledgment could not complete for one delivery.
 
-### [`DirectMessage`](./transport/messaging/message.ts#L70)
+### [`DirectMessage`](./transport/messaging/message.ts#L68)
 
 _TypeAlias_
 
@@ -156,7 +156,7 @@ export type DirectMessage = typeof directMessage.Type;
 
 One certified remote-authored direct message.
 
-### [`GroupAddress (type)`](./transport/messaging/address.ts#L75)
+### [`GroupAddress (type)`](./transport/wire/values.ts#L251)
 
 _TypeAlias_
 
@@ -166,7 +166,7 @@ export type GroupAddress = typeof GroupAddress.Type;
 
 A validated canonical complete group destination.
 
-### [`GroupAddress (value)`](./transport/messaging/address.ts#L69)
+### [`GroupAddress (value)`](./transport/wire/values.ts#L245)
 
 _Variable_
 
@@ -180,7 +180,7 @@ export const GroupAddress = addressInput.pipe(
 
 A complete fixed-member group address in unsigned ASCII name order.
 
-### [`groupMembers`](./transport/collectives/render.ts#L37)
+### [`groupMembers`](./transport/collectives/render.ts#L36)
 
 _Function_
 
@@ -193,7 +193,7 @@ direct address names none. Hosts list them on a group turn.
 
 **Returns:** The group's member addresses, or an empty list.
 
-### [`GroupMessage`](./transport/messaging/message.ts#L72)
+### [`GroupMessage`](./transport/messaging/message.ts#L70)
 
 _TypeAlias_
 
@@ -282,7 +282,7 @@ export interface InboundDelivery {
 
 One inbound item plus its transport-only acknowledgment.
 
-### [`InboundItem (type)`](./transport/collectives/inbound.ts#L106)
+### [`InboundItem (type)`](./transport/collectives/inbound.ts#L111)
 
 _TypeAlias_
 
@@ -292,7 +292,7 @@ export type InboundItem = typeof InboundItem.Type;
 
 A validated inbound item.
 
-### [`InboundItem (value)`](./transport/collectives/inbound.ts#L97)
+### [`InboundItem (value)`](./transport/collectives/inbound.ts#L102)
 
 _Variable_
 
@@ -313,7 +313,7 @@ or duplicated, and multicasts that carry nothing besides that part; every
 other certified post becomes one item, and the endpoint itself emits
 results and failures.
 
-### [`InboundMessage (type)`](./transport/messaging/message.ts#L80)
+### [`InboundMessage (type)`](./transport/messaging/message.ts#L78)
 
 _TypeAlias_
 
@@ -323,7 +323,7 @@ export type InboundMessage = typeof InboundMessage.Type;
 
 A validated direct or group post.
 
-### [`InboundMessage (value)`](./transport/messaging/message.ts#L75)
+### [`InboundMessage (value)`](./transport/messaging/message.ts#L73)
 
 _Variable_
 
@@ -387,7 +387,7 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 
 The endpoint's sole inbound subscription failed.
 
-### [`MessageAddressInput (type)`](./transport/messaging/address.ts#L80)
+### [`MessageAddressInput (type)`](./transport/wire/values.ts#L256)
 
 _TypeAlias_
 
@@ -397,7 +397,7 @@ export type MessageAddressInput = typeof MessageAddressInput.Type;
 
 A validated explicit destination input.
 
-### [`MessageAddressInput (value)`](./transport/messaging/address.ts#L78)
+### [`MessageAddressInput (value)`](./transport/wire/values.ts#L254)
 
 _Variable_
 
@@ -407,7 +407,7 @@ export const MessageAddressInput = addressInput
 
 Either accepted destination input, including noncanonical group order.
 
-### [`MessageTextError`](./transport/collectives/message-text.ts#L44)
+### [`MessageTextError`](./transport/collectives/message-text.ts#L43)
 
 _Class_
 
@@ -427,7 +427,7 @@ A message text states an operation it does not validly carry, or is plain
 text that is not well-formed Unicode. The message names each failing field
 so a host can hand it to its model as the tool error.
 
-### [`parseMessageText`](./transport/collectives/message-text.ts#L97)
+### [`parseMessageText`](./transport/collectives/message-text.ts#L96)
 
 _Function_
 
@@ -470,7 +470,7 @@ export const PostId = Schema.String.pipe(
 
 Opaque identity minted for one addressed-send invocation.
 
-### [`renderCollectiveRequest`](./transport/collectives/render.ts#L54)
+### [`renderCollectiveRequest`](./transport/collectives/render.ts#L53)
 
 _Function_
 
@@ -487,7 +487,7 @@ by host, since each host's model sends the answer through its own tool.
 
 **Returns:** The text of the model's turn.
 
-### [`renderCollectiveResult`](./transport/collectives/render.ts#L76)
+### [`renderCollectiveResult`](./transport/collectives/render.ts#L75)
 
 _Function_
 
@@ -499,7 +499,7 @@ A gather's or all_gather's result: the question and one line per member.
 
 **Returns:** The text of the model's turn.
 
-### [`renderContent`](./transport/collectives/render.ts#L23)
+### [`renderContent`](./transport/collectives/render.ts#L22)
 
 _Function_
 
@@ -531,7 +531,7 @@ An addressed send failed before local certification completed. `detail`
 names the specific cause when the failing step knows it, such as which
 agent is unknown; the message is what a host hands its model.
 
-### [`SendInput (type)`](./transport/collectives/forms.ts#L148)
+### [`SendInput (type)`](./transport/collectives/forms.ts#L149)
 
 _TypeAlias_
 
@@ -541,7 +541,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput (value)`](./transport/collectives/forms.ts#L136)
+### [`SendInput (value)`](./transport/collectives/forms.ts#L137)
 
 _Variable_
 
@@ -564,7 +564,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./transport/collectives/forms.ts#L166)
+### [`SendResult`](./transport/collectives/forms.ts#L167)
 
 _Interface_
 
@@ -637,6 +637,7 @@ Complete production process composition for `moltzapd`.
 - `endpoint/mcp/events.ts`
 - `endpoint/mcp/http.ts`
 - `endpoint/mcp/index.ts`
+- `endpoint/mcp/names.ts`
 - `endpoint/mcp/owner-tools.ts`
 - `endpoint/mcp/README.md`
 - `endpoint/mcp/schemas.ts`
@@ -646,24 +647,27 @@ Complete production process composition for `moltzapd`.
 - `identity/index.ts`
 - `index.ts`
 - `README.md`
-- `service/activation.ts`
+- `service/activation/index.ts`
+- `service/bootstrap.ts`
 - `service/configuration.ts`
 - `service/controller.ts`
 - `service/index.ts`
 - `service/lifecycle.ts`
 - `service/management.ts`
 - `service/README.md`
-- `service/registration.ts`
+- `service/registration/index.ts`
 - `service/supervision.ts`
 - `store/anchors.ts`
 - `store/database/index.ts`
 - `store/database/schema.ts`
 - `store/database/values.ts`
-- `store/deliveries.ts`
-- `store/dissemination.ts`
 - `store/inbox.ts`
 - `store/index.ts`
-- `store/outbound.ts`
+- `store/queues/deliveries.ts`
+- `store/queues/dissemination.ts`
+- `store/queues/index.ts`
+- `store/queues/outbound.ts`
+- `store/queues/README.md`
 - `store/README.md`
 - `store/reads.ts`
 - `store/records.ts`
@@ -674,43 +678,44 @@ Complete production process composition for `moltzapd`.
 - `transport/collectives/answer-check.ts`
 - `transport/collectives/answer-formats.ts`
 - `transport/collectives/failures.ts`
-- `transport/collectives/form-grammar.ts`
 - `transport/collectives/forms.ts`
 - `transport/collectives/inbound.ts`
 - `transport/collectives/index.ts`
 - `transport/collectives/message-text.ts`
 - `transport/collectives/operation.ts`
+- `transport/collectives/part/grammar.ts`
+- `transport/collectives/part/index.ts`
 - `transport/collectives/README.md`
 - `transport/collectives/received-request.ts`
 - `transport/collectives/render.ts`
 - `transport/collectives/request-sends.ts`
 - `transport/collectives/shared-answers.ts`
 - `transport/collectives/validation.ts`
-- `transport/collectives/wire.ts`
 - `transport/messaging/address.ts`
 - `transport/messaging/certification.ts`
 - `transport/messaging/dissemination.ts`
-- `transport/messaging/durability.ts`
 - `transport/messaging/errors.ts`
 - `transport/messaging/evidence.ts`
 - `transport/messaging/index.ts`
 - `transport/messaging/message.ts`
 - `transport/messaging/README.md`
+- `transport/messaging/reanchor/empty.ts`
+- `transport/messaging/reanchor/index.ts`
+- `transport/messaging/records/index.ts`
+- `transport/messaging/recovery-session/index.ts`
 - `transport/messaging/recovery/barrier.ts`
 - `transport/messaging/recovery/evidence.ts`
 - `transport/messaging/recovery/index.ts`
 - `transport/messaging/recovery/persistence.ts`
 - `transport/messaging/recovery/README.md`
-- `transport/messaging/recovery/reanchor-empty.ts`
-- `transport/messaging/recovery/reanchor.ts`
-- `transport/messaging/recovery/state.ts`
+- `transport/messaging/runtime/index.ts`
 - `transport/messaging/send.ts`
-- `transport/messaging/types.ts`
 - `transport/router/index.ts`
 - `transport/router/outage.ts`
 - `transport/router/types.ts`
-- `transport/wire/canonical.ts`
-- `transport/wire/codec.ts`
+- `transport/wire/encoding/canonical.ts`
+- `transport/wire/encoding/codec.ts`
+- `transport/wire/encoding/index.ts`
 - `transport/wire/index.ts`
 - `transport/wire/README.md`
 - `transport/wire/schemas.ts`

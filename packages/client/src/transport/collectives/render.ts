@@ -1,7 +1,6 @@
 /** @file The text a host's model reads for a delivered message, question or result, the same on every host. */
 
-import type { MessageAddressInput } from "../messaging/address.js";
-import type { Content } from "../wire/values.js";
+import type { Content, MessageAddressInput } from "../wire/values.js";
 import type { InboundItem } from "./inbound.js";
 
 type CollectiveRequestItem = Extract<
