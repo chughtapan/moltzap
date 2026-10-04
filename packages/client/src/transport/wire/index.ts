@@ -6,9 +6,6 @@
 export {
   ClientRepresentationError,
   decodeCanonical,
-  encodeCanonical,
-} from "./canonical.js";
-export {
   decodeDirectPacket,
   type DecodedOuterBody,
   decodeEvidenceMessage,
@@ -16,6 +13,7 @@ export {
   deriveConversationId,
   deriveEvidenceMessageId,
   encodeActionCore,
+  encodeCanonical,
   hashAction,
   hashAnchor,
   hashMembershipDescriptor,
@@ -26,7 +24,7 @@ export {
   signEvidenceMessage,
   signOuterEvidence,
   signOuterPacket,
-} from "./codec.js";
+} from "./encoding/index.js";
 export {
   ActionCertificate,
   ActionCertifiedRecord,

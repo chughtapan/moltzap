@@ -227,11 +227,6 @@ const packageDefinitions = {
             "Closed endpoint-engine port and error vocabulary shared by every protocol phase",
         },
         {
-          file: "transport/wire/codec.ts",
-          reason:
-            "Canonical encoding, signing, and hashing boundary beneath the complete representation facade",
-        },
-        {
           file: "transport/messaging/recovery/state.ts",
           reason:
             "Volatile catch-up and re-anchor coordination shared only by the recovery facade and its re-anchor implementation",

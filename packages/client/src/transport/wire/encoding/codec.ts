@@ -45,13 +45,13 @@ import {
   RecordCore,
   RecordHash,
   type RecordHash as RecordHashValue,
-} from "./schemas.js";
+} from "../schemas.js";
 import {
   compareAgentIds,
   decodeCanonicalBase64Url,
   PostId,
   type PostId as PostIdValue,
-} from "./values.js";
+} from "../values.js";
 
 /* eslint-disable jsdoc/require-jsdoc -- The package-private representation facade documents this closed protocol vocabulary. */
 
