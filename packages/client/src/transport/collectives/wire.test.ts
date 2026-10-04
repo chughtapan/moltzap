@@ -1,6 +1,14 @@
 /** @file Pins the collective values carried in a post's data part. */
 
-import { Effect, Encoding, Exit, Option, Schema } from "effect";
+import {
+  Effect,
+  Either,
+  Encoding,
+  Exit,
+  Option,
+  ParseResult,
+  Schema,
+} from "effect";
 import { describe, expect, it } from "vitest";
 import { AgentAddress } from "../messaging/address.js";
 import { Content } from "../wire/index.js";
@@ -45,6 +53,16 @@ const decodesSchema = (value: unknown): boolean =>
   Exit.isSuccess(
     Effect.runSyncExit(Schema.decodeUnknown(FormModeSchema)(value)),
   );
+
+/** Each issue message of a schema that fails to decode; empty if it decodes. */
+const schemaIssues = (value: unknown) =>
+  Either.match(Schema.decodeUnknownEither(FormModeSchema)(value), {
+    onLeft: (error) =>
+      ParseResult.ArrayFormatter.formatErrorSync(error).map(
+        ({ message }) => message,
+      ),
+    onRight: () => [],
+  });
 
 const decodeValue = (value: unknown) =>
   Effect.runSync(decodeCollectiveValue(value));
@@ -198,13 +216,44 @@ describe("requested schema grammar", () => {
     expect(decodesSchema(multiSelect({ enum: ["a"] }))).toBe(false);
   });
 
-  it("rejects a property the answer validator cannot compile", () => {
+  it("rejects a select whose enum offers no option", () => {
     expect(
       decodesSchema({
         type: "object",
         properties: { slot: { type: "string", enum: [] } },
       }),
     ).toBe(false);
+  });
+});
+
+// @agent-code-guard/regression-only: examples pin which keywords an admitted property keeps.
+describe("admitted form fields", () => {
+  it("keeps only the keywords of the shape that admits a property", () => {
+    const decoded = Schema.decodeUnknownSync(FormModeSchema)({
+      type: "object",
+      properties: {
+        slot: { type: "string", enum: ["a"], minLength: 2, pattern: "x" },
+        named: { type: "string", enum: ["a"], enumNames: ["A"] },
+        misnamed: { type: "string", enum: ["a"], enumNames: [1] },
+      },
+    });
+
+    expect(decoded.properties).toEqual({
+      slot: { type: "string", enum: ["a"] },
+      named: { type: "string", enum: ["a"], enumNames: ["A"] },
+      misnamed: { type: "string", enum: ["a"] },
+    });
+  });
+
+  it("names the empty enum of a select that offers no option", () => {
+    expect(
+      schemaIssues({
+        type: "object",
+        properties: {
+          slots: { type: "array", items: { type: "string", enum: [] } },
+        },
+      }),
+    ).toEqual(["items.enum: Invalid input: expected at least one option"]);
   });
 });
 

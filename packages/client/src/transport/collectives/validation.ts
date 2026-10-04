@@ -1,25 +1,20 @@
 /**
  * @file Answer validation against a collective request's form-mode schema.
  *
- * Validation runs field by field with the MCP SDK's JSON Schema validator so
- * a failure names each failing field rather than one combined message. The
- * form-mode grammar is flat, so a field's property schema is the whole rule
- * for that field.
+ * Validation runs field by field so a failure names each failing field rather
+ * than one combined message. The form-mode grammar is flat, so a field's
+ * property schema is the whole rule for that field.
  */
 
-import {
-  fromJsonSchema,
-  type jsonSchemaValidator,
-} from "@modelcontextprotocol/client";
-import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { Data, Effect } from "effect";
 import type { AnswerContent, CollectiveFailure } from "./forms.js";
 import type { CollectiveMemberOutcome } from "./inbound.js";
 import type { CollectiveResponse, FormModeSchema } from "./wire.js";
+import { answerIssues } from "./answer-check.js";
 
 /**
- * Why one answer field failed its request's schema; `detail` is the SDK
- * validator's message for an `invalid` field.
+ * Why one answer field failed its request's schema; `detail` names each
+ * keyword an `invalid` field fails.
  */
 export type CollectiveFieldFailure = Extract<
   CollectiveFailure,
@@ -56,7 +51,6 @@ const ownValue = <Value>(
 ): Value | undefined => (Object.hasOwn(record, key) ? record[key] : undefined);
 
 function fieldFailure(
-  validator: jsonSchemaValidator,
   requestedSchema: FormModeSchema,
   content: AnswerContent,
   field: string,
@@ -71,22 +65,14 @@ function fieldFailure(
       ? { field, reason: "missing" }
       : undefined;
   }
-  const result = fromJsonSchema(definition, validator)["~standard"].validate(
-    value,
-  );
-  if (result instanceof Promise) {
-    return { field, reason: "invalid", detail: "asynchronous validator" };
-  }
-  const detail = result.issues?.map((issue) => issue.message).join(", ");
-  return detail === undefined
+  const issues = answerIssues(definition, value);
+  return issues.length === 0
     ? undefined
-    : { field, reason: "invalid", detail };
+    : { field, reason: "invalid", detail: issues.join(", ") };
 }
 
 /**
- * Check an answer against the schema its request carried. Each call compiles
- * with its own validator: the SDK's shared default caches every compiled
- * schema for the life of the process, and request schemas are unbounded.
+ * Check an answer against the schema its request carried.
  * @param requestedSchema The request's form-mode schema.
  * @param content The member's answer.
  * @returns The answer unchanged, or an error naming every failing field.
@@ -99,9 +85,8 @@ export const validateAnswer = (
     ...Object.keys(requestedSchema.properties),
     ...Object.keys(content),
   ]);
-  const validator = new AjvJsonSchemaValidator();
   const [first, ...rest] = [...fields].flatMap((field) => {
-    const failure = fieldFailure(validator, requestedSchema, content, field);
+    const failure = fieldFailure(requestedSchema, content, field);
     return failure === undefined ? [] : [failure];
   });
   return first === undefined
