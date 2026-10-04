@@ -6,6 +6,6 @@ JCS encoding, hashing and signing, verification, and the message values
 canonical bytes and the hashes and signatures over them; `verification.ts`
 builds on it.
 
-Other domains use `index.ts`. Hosts read `values.ts` (post ids, content, and
+Other domains use `index.ts`. Hosts read `values.ts` (addresses, post ids, content, and
 member limits) directly, so they never load signing, verification, or the
 Router client. Nothing here depends on another Client domain.
