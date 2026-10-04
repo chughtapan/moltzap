@@ -437,6 +437,12 @@ schema paths or fields, so a host hands it to its model as the tool error.
 - `idempotency-conflict`; or
 - `outcome-unknown`.
 
+A `SendError` or collective refusal message is the failed action, then its
+cause: `send failed: agent:dana is not a known agent`, or `reply failed: the
+question's deadline has passed`. It names the specific input when the failing
+step knows it and states no remedy. A failed send was not sent, except
+`outcome-unknown`, whose text says the message may have been sent.
+
 `ListenError.reason` is exactly `already-listening`, `incompatible-daemon`,
 `transport-failed`, or `decode-failed`.
 
