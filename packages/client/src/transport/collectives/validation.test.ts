@@ -100,8 +100,8 @@ const accepts = (field: object, value: AnswerContent[string]) =>
     Effect.runSyncExit(validateAnswer(fieldSchema(field), { field: value })),
   );
 
-// @agent-code-guard/regression-only: examples pin which keyword an invalid single value names.
-describe("single-value answer keywords", () => {
+// @agent-code-guard/regression-only: examples pin which keyword an invalid string answer names.
+describe("string answer keywords", () => {
   it("names both the type and the enum a mistyped selection fails", () => {
     expect(keywordsOf({ type: "string", enum: ["mon"] }, 3)).toEqual([
       "invalid",
@@ -124,11 +124,11 @@ describe("single-value answer keywords", () => {
     ]);
   });
 
-  it("refuses a fraction for an integer and a value below the minimum", () => {
-    const field = { type: "integer", minimum: 1 };
+  it("counts a string's maximum length in code points", () => {
+    const field = { type: "string", maxLength: 2 };
 
-    expect(keywordsOf(field, 1.5)).toEqual(["invalid", "type"]);
-    expect(keywordsOf(field, 0)).toEqual(["invalid", "minimum"]);
+    expect(accepts(field, "\u{1F600}\u{1F600}")).toBe(true);
+    expect(keywordsOf(field, "abc")).toEqual(["invalid", "maxLength"]);
   });
 
   it("refuses a titled single-select value that two options share", () => {
@@ -146,6 +146,33 @@ describe("single-value answer keywords", () => {
   });
 });
 
+// @agent-code-guard/regression-only: examples pin which keyword an invalid number or boolean names.
+describe("number and boolean answer keywords", () => {
+  it("accepts a fraction for a number and refuses a value above the maximum", () => {
+    const field = { type: "number", maximum: 2 };
+
+    expect(accepts(field, 1.5)).toBe(true);
+    expect(accepts(field, 2)).toBe(true);
+    expect(keywordsOf(field, 2.5)).toEqual(["invalid", "maximum"]);
+    expect(keywordsOf(field, "1")).toEqual(["invalid", "type"]);
+  });
+
+  it("refuses a string for a boolean", () => {
+    expect(accepts({ type: "boolean" }, false)).toBe(true);
+    expect(keywordsOf({ type: "boolean" }, "true")).toEqual([
+      "invalid",
+      "type",
+    ]);
+  });
+
+  it("refuses a fraction for an integer and a value below the minimum", () => {
+    const field = { type: "integer", minimum: 1 };
+
+    expect(keywordsOf(field, 1.5)).toEqual(["invalid", "type"]);
+    expect(keywordsOf(field, 0)).toEqual(["invalid", "minimum"]);
+  });
+});
+
 // @agent-code-guard/regression-only: examples pin which keyword an invalid multi-select names.
 describe("multi-select answer keywords", () => {
   it("names each selected item outside a multi-select's options", () => {
@@ -160,6 +187,17 @@ describe("multi-select answer keywords", () => {
       "maxItems",
       "items[1].enum",
     ]);
+  });
+
+  it("refuses fewer selections than the minimum", () => {
+    const field = {
+      type: "array",
+      minItems: 1,
+      items: { type: "string", enum: ["a"] },
+    };
+
+    expect(accepts(field, ["a"])).toBe(true);
+    expect(keywordsOf(field, [])).toEqual(["invalid", "minItems"]);
   });
 
   it("checks a titled multi-select's items against its option consts", () => {

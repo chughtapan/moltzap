@@ -7,11 +7,15 @@ const judged = (format: AnswerFormat, texts: readonly string[]) =>
   texts.map((text) => matchesFormat(format, text));
 
 // @agent-code-guard/regression-only: examples pin each format's accepted and refused strings.
-describe("answer formats", () => {
+describe("date answer formats", () => {
   it("accepts calendar dates and refuses impossible ones", () => {
     expect(
       judged("date", ["2024-02-29", "2023-02-29", "2024-13-01", "2024-2-01"]),
     ).toEqual([true, false, false, false]);
+  });
+
+  it("applies the century rule to February 29", () => {
+    expect(judged("date", ["2000-02-29", "1900-02-29"])).toEqual([true, false]);
   });
 
   it("requires a time zone on a date-time", () => {
@@ -35,6 +39,19 @@ describe("answer formats", () => {
     ).toEqual([true, true, false]);
   });
 
+  it("admits a leap second whose UTC reading borrows across midnight", () => {
+    expect(
+      judged("date-time", [
+        "2024-01-01T00:59:60+01:00",
+        "2024-01-01T00:00:60+00:01",
+        "2024-01-01T00:59:60+02:00",
+      ]),
+    ).toEqual([true, true, false]);
+  });
+});
+
+// @agent-code-guard/regression-only: examples pin each format's accepted and refused strings.
+describe("address answer formats", () => {
   it("requires a dotted host name in an email", () => {
     expect(
       judged("email", ["a.b@example.com", "a@example", ".a@example.com"]),
