@@ -384,11 +384,11 @@ The three arms of an evaluation build as:
 
 ```sh
 # off: operation text refused, no skill
-node scripts/agent-images/build-openclaw-image.mjs --experiment-hide-collectives --experiment-omit-collectives-skill
+pnpm nx run workspace:openclaw-agent-image --experiment-hide-collectives --experiment-omit-collectives-skill
 # text: operation text accepted, no skill
-node scripts/agent-images/build-openclaw-image.mjs --experiment-omit-collectives-skill
+pnpm nx run workspace:openclaw-agent-image --experiment-omit-collectives-skill
 # text+skill: the default image
-node scripts/agent-images/build-openclaw-image.mjs
+pnpm nx run workspace:openclaw-agent-image
 ```
 
 The switches cover what the agent's model is offered. A request that another

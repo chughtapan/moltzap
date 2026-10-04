@@ -1,4 +1,13 @@
-/** @file Builds the pinned, complete NanoClaw agent image. */
+/**
+ * @file Builds the pinned, complete NanoClaw agent image.
+ *
+ * It packs the workspace packages' `dist/` as they stand and builds none of
+ * them: run it through `nx run workspace:nanoclaw-agent-image`, whose
+ * `dependsOn` has the invoking Nx graph build them first. A build started from
+ * here would be a second Nx process writing the same `dist/` while that graph's
+ * own builds run; one process's `clean-dist` then removes the other's emitted
+ * files, and the partial tree is cached under the build's hash.
+ */
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import {
@@ -47,13 +56,6 @@ export const NANOCLAW_SOURCE_REVISION =
 export const NANOCLAW_SOURCE_ARCHIVE_SHA256 =
   "68663a0a06feb64d2366b7d6770a2ad9afc82765c9f1e8f0245bd4cbabeb1006";
 export const NANOCLAW_SOURCE_URL = `https://github.com/nanocoai/nanoclaw/archive/${NANOCLAW_SOURCE_REVISION}.tar.gz`;
-export const nanoclawWorkspacePackageNames = Object.freeze([
-  "@moltzap/client",
-  "@moltzap/identity",
-  "@moltzap/router",
-  "@moltzap/nanoclaw-channel",
-]);
-
 const packageDirectories = {
   client: join(workspaceRoot, "packages/client"),
   identity: join(workspaceRoot, "packages/identity"),
@@ -270,21 +272,6 @@ async function main() {
     defaultRepository: DEFAULT_REPOSITORY,
   });
   await requireDockerBuildxDriver("NanoClaw image");
-  report("building MoltZap workspace dependencies");
-  await exec(
-    "pnpm",
-    [
-      "nx",
-      "run-many",
-      "--target=build",
-      `--projects=${nanoclawWorkspacePackageNames.join(",")}`,
-    ],
-    {
-      cwd: workspaceRoot,
-      timeout: BUILD_TIMEOUT_MILLIS,
-      maxBuffer: 16 * 1024 * 1024,
-    },
-  );
   const staging = await stage();
   try {
     const agentBaseImage = await buildAgentBase(staging);

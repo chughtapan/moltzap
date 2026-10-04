@@ -66,8 +66,11 @@ description and body can all change. It cannot be combined with
 relative path and content in `DIR`, so two candidates never share a tag. The
 build's JSON output records it as `guidance`.
 
+Run the builder through its Nx target, which builds the workspace packages it
+packs first and passes the options through:
+
 ```sh
-node scripts/agent-images/build-openclaw-image.mjs \
+pnpm nx run workspace:openclaw-agent-image \
   --experiment-guidance-dir candidates/2026-10-01-a --push
 ```
 

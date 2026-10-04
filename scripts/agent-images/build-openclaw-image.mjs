@@ -1,4 +1,14 @@
-/** Build a complete OpenClaw agent image from pinned upstream and local packages. */
+/**
+ * @file Builds a complete OpenClaw agent image from pinned upstream and local
+ * packages.
+ *
+ * It packs the workspace packages' `dist/` as they stand and builds none of
+ * them: run it through `nx run workspace:openclaw-agent-image`, whose
+ * `dependsOn` has the invoking Nx graph build them first. A build started from
+ * here would be a second Nx process writing the same `dist/` while that graph's
+ * own builds run; one process's `clean-dist` then removes the other's emitted
+ * files, and the partial tree is cached under the build's hash.
+ */
 
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -56,9 +66,6 @@ const workspacePackages = {
   "@moltzap/openclaw-channel": join(workspaceRoot, "packages/openclaw-channel"),
   "@moltzap/router": join(workspaceRoot, "packages/router"),
 };
-export const openClawWorkspacePackageNames = Object.freeze(
-  Object.keys(workspacePackages),
-);
 
 /**
  * Experiment controls for evaluations that compare agents with and without
@@ -399,21 +406,6 @@ async function main() {
     label: "OpenClaw image",
     defaultRepository: DEFAULT_REPOSITORY,
   });
-  report("building MoltZap workspace dependencies");
-  await exec(
-    "pnpm",
-    [
-      "nx",
-      "run-many",
-      "--target=build",
-      "--projects=" + openClawWorkspacePackageNames.join(","),
-    ],
-    {
-      cwd: workspaceRoot,
-      timeout: BUILD_TIMEOUT_MILLIS,
-      maxBuffer: 16 * 1024 * 1024,
-    },
-  );
   const staging = await stage(experiments, guidance);
   try {
     const image =
