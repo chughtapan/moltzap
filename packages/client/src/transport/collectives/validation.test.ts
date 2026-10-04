@@ -80,6 +80,99 @@ describe("answer validation", () => {
   });
 });
 
+const fieldSchema = (field: object) =>
+  Schema.decodeUnknownSync(FormModeSchema)({
+    type: "object",
+    properties: { field },
+  });
+
+/** The keyword each issue of an invalid field's detail names, in order. */
+const keywordsOf = (field: object, value: AnswerContent[string]) =>
+  Effect.runSync(
+    Effect.flip(validateAnswer(fieldSchema(field), { field: value })),
+  ).failures.flatMap(({ reason, detail }) => [
+    reason,
+    ...(detail ?? "").split(", ").map((issue) => issue.split(":")[0]),
+  ]);
+
+const accepts = (field: object, value: AnswerContent[string]) =>
+  Exit.isSuccess(
+    Effect.runSyncExit(validateAnswer(fieldSchema(field), { field: value })),
+  );
+
+// @agent-code-guard/regression-only: examples pin which keyword an invalid single value names.
+describe("single-value answer keywords", () => {
+  it("names both the type and the enum a mistyped selection fails", () => {
+    expect(keywordsOf({ type: "string", enum: ["mon"] }, 3)).toEqual([
+      "invalid",
+      "type",
+      "enum",
+    ]);
+  });
+
+  it("counts a string's length in code points", () => {
+    const field = { type: "string", minLength: 2 };
+
+    expect(accepts(field, "\u{1F600}\u{1F600}")).toBe(true);
+    expect(keywordsOf(field, "\u{1F600}")).toEqual(["invalid", "minLength"]);
+  });
+
+  it("names the format a string fails", () => {
+    expect(keywordsOf({ type: "string", format: "email" }, "a@b")).toEqual([
+      "invalid",
+      "format",
+    ]);
+  });
+
+  it("refuses a fraction for an integer and a value below the minimum", () => {
+    const field = { type: "integer", minimum: 1 };
+
+    expect(keywordsOf(field, 1.5)).toEqual(["invalid", "type"]);
+    expect(keywordsOf(field, 0)).toEqual(["invalid", "minimum"]);
+  });
+
+  it("refuses a titled single-select value that two options share", () => {
+    const field = {
+      type: "string",
+      oneOf: [
+        { const: "a", title: "A" },
+        { const: "a", title: "Also A" },
+        { const: "b", title: "B" },
+      ],
+    };
+
+    expect(accepts(field, "b")).toBe(true);
+    expect(keywordsOf(field, "a")).toEqual(["invalid", "oneOf"]);
+  });
+});
+
+// @agent-code-guard/regression-only: examples pin which keyword an invalid multi-select names.
+describe("multi-select answer keywords", () => {
+  it("names each selected item outside a multi-select's options", () => {
+    const field = {
+      type: "array",
+      maxItems: 1,
+      items: { type: "string", enum: ["a"] },
+    };
+
+    expect(keywordsOf(field, ["a", "b"])).toEqual([
+      "invalid",
+      "maxItems",
+      "items[1].enum",
+    ]);
+  });
+
+  it("checks a titled multi-select's items against its option consts", () => {
+    const field = {
+      type: "array",
+      items: { anyOf: [{ const: "a", title: "A" }] },
+    };
+
+    expect(accepts(field, ["a"])).toBe(true);
+    expect(keywordsOf(field, ["b"])).toEqual(["invalid", "items[0].anyOf"]);
+  });
+});
+
 // @agent-code-guard/regression-only: examples pin the one outcome each response action records.
 describe("member outcomes", () => {
   it("records a valid accept as answered with its content", () => {

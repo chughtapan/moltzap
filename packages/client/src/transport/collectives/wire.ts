@@ -8,15 +8,11 @@
  * each shape in turn.
  */
 
-import {
-  type PrimitiveSchemaDefinition as McpPrimitiveSchemaDefinition,
-  specTypeSchemas,
-} from "@modelcontextprotocol/client";
-import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
-import { Data, Effect, Option, ParseResult, Predicate, Schema } from "effect";
+import { Data, Effect, Option, Schema } from "effect";
 import { createHash, randomBytes } from "node:crypto";
 import type { AgentAddress } from "../messaging/address.js";
 import { Content, exactStruct, RecordHash } from "../wire/index.js";
+import { FormFieldSchema } from "./form-grammar.js";
 import { AnswerContent, CollectiveId } from "./forms.js";
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the values they decode. */
@@ -25,149 +21,6 @@ type PostContent = typeof Content.Type;
 
 /** The `data` part key under which the collective layer carries its value. */
 export const COLLECTIVE_DATA_KEY = "xyz.moltzap/collective";
-
-const mcpPrimitiveSchemaDefinition =
-  specTypeSchemas.PrimitiveSchemaDefinition["~standard"];
-
-const McpPrimitiveSchema = Schema.declare(
-  (value): value is McpPrimitiveSchemaDefinition =>
-    mcpPrimitiveSchemaDefinition.validate(value).issues === undefined,
-  { identifier: "PrimitiveSchemaDefinition" },
-);
-
-type FormModeCheck = typeof mcpPrimitiveSchemaDefinition;
-
-/**
- * One form-mode shape: what a requester should write, the SDK schema for
- * that shape alone, and which properties it is the intended shape of. The
- * SDK's grammar is a union, whose failure names no keyword; the intended
- * shape's own check names each failing keyword by path, so a requester can
- * repair the property it meant to write.
- */
-interface FormModeShape {
-  readonly expected: string;
-  readonly check: FormModeCheck;
-  readonly intends: (property: unknown) => boolean;
-}
-
-const declares = (property: unknown, ...types: readonly string[]): boolean =>
-  Predicate.hasProperty(property, "type") &&
-  types.some((type) => type === property.type);
-
-/** Form-mode shapes, each listed before any shape it refines. */
-const formModeShapes: readonly FormModeShape[] = [
-  {
-    expected:
-      'a titled single-select is {"type":"string","oneOf":[{"const":"a","title":"A"}]}',
-    check: specTypeSchemas.TitledSingleSelectEnumSchema["~standard"],
-    intends: (property) =>
-      declares(property, "string") && Predicate.hasProperty(property, "oneOf"),
-  },
-  {
-    expected: 'a single-select is {"type":"string","enum":["a","b"]}',
-    check: specTypeSchemas.UntitledSingleSelectEnumSchema["~standard"],
-    intends: (property) =>
-      declares(property, "string") && Predicate.hasProperty(property, "enum"),
-  },
-  {
-    expected:
-      'a string is {"type":"string"} with optional minLength, maxLength or format',
-    check: specTypeSchemas.StringSchema["~standard"],
-    intends: (property) => declares(property, "string"),
-  },
-  {
-    expected:
-      'a number is {"type":"number"} or {"type":"integer"} with optional minimum and maximum',
-    check: specTypeSchemas.NumberSchema["~standard"],
-    intends: (property) => declares(property, "number", "integer"),
-  },
-  {
-    expected: 'a boolean is {"type":"boolean"}',
-    check: specTypeSchemas.BooleanSchema["~standard"],
-    intends: (property) => declares(property, "boolean"),
-  },
-  {
-    expected:
-      'a titled multi-select is {"type":"array","items":{"anyOf":[{"const":"a","title":"A"}]}}',
-    check: specTypeSchemas.TitledMultiSelectEnumSchema["~standard"],
-    intends: (property) =>
-      declares(property, "array") &&
-      Predicate.hasProperty(property, "items") &&
-      Predicate.hasProperty(property.items, "anyOf"),
-  },
-  {
-    expected:
-      'a multi-select is {"type":"array","items":{"type":"string","enum":["a","b"]}}',
-    check: specTypeSchemas.UntitledMultiSelectEnumSchema["~standard"],
-    intends: (property) => declares(property, "array"),
-  },
-];
-
-/**
- * Say why a property is outside the form-mode grammar: each keyword its
- * intended shape rejects, by path within the property, then that shape.
- * @param property A property the SDK's grammar rejected.
- * @returns For example `items.type: Invalid input: expected "string"; a
- *   multi-select is {"type":"array","items":{"type":"string","enum":["a","b"]}}`.
- */
-function formModeViolation(property: unknown): string {
-  const shape = formModeShapes.find(({ intends }) => intends(property));
-  if (shape === undefined) {
-    return '"type" must be "string", "number", "integer", "boolean" or "array"';
-  }
-  return [
-    ...(shape.check.validate(property).issues ?? []).map(({ path, message }) =>
-      issueAt(path ?? [], message),
-    ),
-    shape.expected,
-  ].join("; ");
-}
-
-function issueAt(
-  path: ReadonlyArray<PropertyKey | { readonly key: PropertyKey }>,
-  message: string,
-): string {
-  const keys = path.map((segment) =>
-    String(Predicate.isObject(segment) ? segment.key : segment),
-  );
-  return keys.length === 0 ? message : `${keys.join(".")}: ${message}`;
-}
-
-/**
- * One property of an MCP form-mode `requestedSchema`, as the MCP SDK's
- * `PrimitiveSchemaDefinition` accepts it. Decoding keeps the SDK's parsed
- * value, so keywords outside the form-mode grammar never travel or reach
- * answer validation. The SDK grammar admits some schemas its own validator
- * cannot compile, such as an empty `enum`; decoding compiles each property
- * so answer validation never meets one.
- */
-const PrimitiveSchemaDefinition = Schema.transformOrFail(
-  Schema.Unknown,
-  McpPrimitiveSchema,
-  {
-    strict: true,
-    decode: (value) => {
-      const result = mcpPrimitiveSchemaDefinition.validate(value);
-      const invalid = (message: string) =>
-        new ParseResult.Type(McpPrimitiveSchema.ast, value, message);
-      if (result.issues !== undefined) {
-        return ParseResult.fail(invalid(formModeViolation(value)));
-      }
-      const definition = result.value;
-      return ParseResult.try({
-        try: () => {
-          new AjvJsonSchemaValidator().getValidator(definition);
-          return definition;
-        },
-        catch: (cause) =>
-          invalid(
-            `not a compilable form-mode primitive schema: ${cause instanceof Error ? cause.message : String(cause)}`,
-          ),
-      });
-    },
-    encode: (definition) => ParseResult.succeed(definition),
-  },
-);
 
 /**
  * The MCP form-mode `requestedSchema`: a flat object of primitive properties.
@@ -179,7 +32,7 @@ export const FormModeSchema = exactStruct({
   type: Schema.Literal("object"),
   properties: Schema.Record({
     key: Schema.String,
-    value: PrimitiveSchemaDefinition,
+    value: FormFieldSchema,
   }),
   required: Schema.optional(Schema.Array(Schema.String)),
 }).pipe(
