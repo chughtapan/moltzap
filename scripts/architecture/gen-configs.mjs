@@ -57,6 +57,13 @@ const sharedConfig = {
  */
 const clientDomains = [
   {
+    name: "identity",
+    root: "identity",
+    entrypoints: ["index.ts"],
+    reason:
+      "The agent signing key and secret credential files, read exactly and failing closed",
+  },
+  {
     name: "wire",
     root: "transport/wire",
     entrypoints: [
@@ -208,6 +215,11 @@ const packageDefinitions = {
           file: "endpoint/mcp/schemas.ts",
           reason:
             "MCP tool names, Events constants, and JSON Schema projections shared by the tool catalog, the Events and webhook transports, and the HarnessEndpoint client",
+        },
+        {
+          file: "service/configuration.ts",
+          reason:
+            "Exact process configuration and loaded bootstrap authority shared by daemon startup, registration, supervision, and management",
         },
         {
           file: "service/registration.ts",

@@ -12,6 +12,8 @@ without the domain's runtime. `endpoint/` has no root `index.ts`; its
 entrypoints are `mcp/index.ts`, `harness-endpoint/index.ts`, and
 `implementation.ts`.
 
+- `identity/`: the agent signing key and secret credential files, read
+  exactly and failing closed.
 - `transport/wire/`: canonical encoding, verification, and the message values
   every layer encodes.
 - `store/`: the one SQLite replica: certified history, outbox, deliveries,
