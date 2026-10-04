@@ -9,7 +9,7 @@
  */
 
 import { Either } from "effect";
-import type { MessageAddressInput } from "../messaging/address.js";
+import type { MessageAddressInput } from "../wire/values.js";
 import type { CollectiveFailure, CollectiveId } from "./forms.js";
 
 /**

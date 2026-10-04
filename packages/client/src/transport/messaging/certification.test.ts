@@ -41,7 +41,7 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type { DaemonRuntimeError } from "../../service/activation.js";
+import type { DaemonRuntimeError } from "../../service/activation/index.js";
 import type {
   EndpointEngineInput,
   EngineActionFold,
@@ -49,7 +49,7 @@ import type {
   EngineRouterPort,
   EngineSendInput,
   EngineSentPost,
-} from "./types.js";
+} from "./runtime/index.js";
 import { advanceClock } from "../../__tests__/advance-clock.js";
 import { failFromBackgroundCause } from "../../service/supervision.js";
 import { type EndpointStore, openEndpointStore } from "../../store/index.js";
@@ -85,7 +85,7 @@ import {
   type VerifiedMembership,
   verifyMembershipDescriptor,
 } from "../wire/index.js";
-import { MessageAddressInput } from "./address.js";
+import { MessageAddressInput } from "../wire/values.js";
 import { SendError } from "./errors.js";
 import { type EndpointEngine, makeEndpointEngine } from "./index.js";
 import { recoverFoldEvidence } from "./recovery/evidence.js";

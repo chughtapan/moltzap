@@ -1,8 +1,8 @@
 /** @file How a collective send reports failure: a refused send, routed to its result or inbound, and an emitted item the service cannot keep. */
 
 import { Effect } from "effect";
-import type { MessageAddressInput } from "../messaging/address.js";
 import type { EngineSentPost } from "../messaging/index.js";
+import type { MessageAddressInput } from "../wire/values.js";
 import type { InboundItem } from "./inbound.js";
 import { SendError } from "../messaging/errors.js";
 import {

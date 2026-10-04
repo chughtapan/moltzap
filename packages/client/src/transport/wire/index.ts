@@ -6,16 +6,11 @@
 export {
   ClientRepresentationError,
   decodeCanonical,
-  encodeCanonical,
-} from "./canonical.js";
-export {
-  decodeDirectPacket,
   type DecodedOuterBody,
-  decodeEvidenceMessage,
   decodeOuterBody,
   deriveConversationId,
   deriveEvidenceMessageId,
-  encodeActionCore,
+  encodeCanonical,
   hashAction,
   hashAnchor,
   hashMembershipDescriptor,
@@ -26,7 +21,7 @@ export {
   signEvidenceMessage,
   signOuterEvidence,
   signOuterPacket,
-} from "./codec.js";
+} from "./encoding/index.js";
 export {
   ActionCertificate,
   ActionCertifiedRecord,
@@ -65,14 +60,17 @@ export {
   RouterAnchor,
 } from "./schemas.js";
 export {
+  AgentAddress,
   compareAgentIds,
   Content,
   ContentPart,
   exactStruct,
+  GroupAddress,
   isCanonicalIdentifier,
   JsonValue,
   maximumContentBytes,
   maximumMembers,
+  MessageAddressInput,
   PostId,
   wellFormedString,
 } from "./values.js";

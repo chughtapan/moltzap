@@ -2,17 +2,15 @@
 
 import { Schema } from "effect";
 import {
+  AgentAddress,
   Content,
   exactStruct,
-  maximumMembers,
-  PostId,
-} from "../wire/values.js";
-import {
-  AgentAddress,
   GroupAddress,
+  maximumMembers,
   parseAgentAddress,
   parseGroupAddress,
-} from "./address.js";
+  PostId,
+} from "../wire/values.js";
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the nominal values they decode. */
 

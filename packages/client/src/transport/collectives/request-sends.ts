@@ -11,9 +11,9 @@ import {
   Fiber,
   Option,
 } from "effect";
-import type { AgentAddress } from "../messaging/address.js";
 import type { SendError } from "../messaging/errors.js";
 import type { EngineSentPost } from "../messaging/index.js";
+import type { AgentAddress } from "../wire/values.js";
 
 /** A member whose request post was refused, and why. */
 export type RequestRefusal = Readonly<{

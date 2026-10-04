@@ -1,11 +1,7 @@
-/** @file Exact daemon process configuration and redacted bootstrap material. */
+/** @file Loads the daemon process configuration and its redacted bootstrap material from the environment. */
 
-import {
-  AgentSigningAuthority,
-  Ed25519PublicKey,
-  type Ed25519PublicKey as Ed25519PublicKeyValue,
-} from "@moltzap/identity";
-import { Config, Data, Effect, Redacted, Schema } from "effect";
+import { AgentSigningAuthority, Ed25519PublicKey } from "@moltzap/identity";
+import { Config, Effect, Redacted, Schema } from "effect";
 import {
   credentialMatches,
   type HarnessMcpCredentials,
@@ -17,6 +13,12 @@ import {
   loadSigningAuthority,
   readCredential,
 } from "../identity/index.js";
+import {
+  type DaemonBootstrap,
+  DaemonConfigurationError,
+  type DaemonConfigurationFailure,
+  type DaemonProcessConfiguration,
+} from "./bootstrap.js";
 
 const canonicalUnsignedDecimal = Schema.String.pipe(
   Schema.pattern(/^(?:0|[1-9]\d*)$/u),
@@ -81,63 +83,6 @@ const configuredValues = Config.all({
     Schema.Config("MOLTZAPD_MCP_OWNER_CREDENTIAL_FILE", configuredPath),
   ).pipe(Config.withDefault(undefined)),
 });
-
-/** Closed reason that daemon configuration cannot become startup authority. */
-export type DaemonConfigurationFailure =
-  | "environment"
-  | "agent-private-key-file"
-  | "agent-private-key"
-  | "admission-credential-file"
-  | "admission-credential"
-  | "mcp-runtime-credential-file"
-  | "mcp-owner-credential-file"
-  | "mcp-credential";
-
-/** One non-diagnostic daemon configuration failure. */
-export class DaemonConfigurationError extends Data.TaggedError(
-  "DaemonConfigurationError",
-)<{
-  readonly reason: DaemonConfigurationFailure;
-}> {}
-
-/** Exact non-secret values and redacted secret-file locations for one daemon. */
-export interface DaemonProcessConfiguration {
-  readonly stateDirectory: string;
-  readonly mcpPort: number;
-  readonly registryOrigin: URL;
-  readonly registrySignerPublicKey: Ed25519PublicKeyValue;
-  readonly routerOrigin: URL;
-  readonly agentPrivateKeyFile: Redacted.Redacted;
-  /**
-   * Admission credential file an unregistered daemon requires; a daemon whose
-   * state directory holds a registered identity never reads it. An empty
-   * value is the same as an unset one.
-   */
-  readonly admissionCredentialFile?: Redacted.Redacted;
-  /**
-   * File the daemon appends its delivered and sent messages to, one JSON
-   * line each, when the operator asks for that record.
-   */
-  readonly historyExport?: string;
-  readonly mcpRuntimeCredentialFile?: Redacted.Redacted;
-  readonly mcpOwnerCredentialFile?: Redacted.Redacted;
-}
-
-/** Loaded private authority required by daemon registration and network calls. */
-export interface DaemonBootstrap {
-  readonly configuration: DaemonProcessConfiguration;
-  readonly signingAuthority: AgentSigningAuthority;
-  readonly agentPublicKey: Ed25519PublicKeyValue;
-  /**
-   * Reads and validates the admission credential file on first use, then
-   * replays that outcome. Loading the bootstrap never reads the file.
-   */
-  readonly admissionCredential: Effect.Effect<
-    Redacted.Redacted,
-    DaemonConfigurationError
-  >;
-  readonly mcpCredentials?: HarnessMcpCredentials;
-}
 
 const configurationError = (
   reason: DaemonConfigurationFailure,

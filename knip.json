@@ -76,18 +76,12 @@
     }
   },
   "ignoreIssues": {
-    "packages/client/src/transport/messaging/types.ts": [
+    "packages/client/src/transport/messaging/runtime/index.ts": [
       "types"
     ],
     "packages/client/src/transport/messaging/index.ts": [
       "exports",
       "types"
-    ],
-    "packages/client/src/transport/wire/canonical.ts": [
-      "exports"
-    ],
-    "packages/client/src/transport/wire/codec.ts": [
-      "exports"
     ],
     "packages/client/src/transport/wire/schemas.ts": [
       "exports"

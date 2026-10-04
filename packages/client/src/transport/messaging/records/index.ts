@@ -11,8 +11,8 @@ import type {
   ProtocolEvidence,
   StagedRecord,
   CertifiedRecord as StoredCertifiedRecord,
-} from "../../store/index.js";
-import type { EngineActionFold, EngineConversation } from "./types.js";
+} from "../../../store/index.js";
+import type { EngineActionFold, EngineConversation } from "../runtime/index.js";
 import {
   type ActionCertifiedRecord,
   type AnchorHash,
@@ -24,12 +24,12 @@ import {
   hashRecord,
   type RecordCore,
   RecordCore as RecordCoreSchema,
-} from "../wire/index.js";
-import { AgentAddress, compareAscii, GroupAddress } from "./address.js";
+} from "../../wire/index.js";
+import { AgentAddress, compareAscii, GroupAddress } from "../../wire/values.js";
 import {
   InboundMessage,
   type InboundMessage as InboundMessageValue,
-} from "./message.js";
+} from "../message.js";
 
 function requireNonEmpty<Value>(
   values: readonly Value[],
@@ -304,8 +304,11 @@ const projectInboundMessage = (
 
 /**
  * Encode the remote projection atomically retained during promotion.
- * The recipient is the local agent that owns the pending delivery, which
- * `AgentId` cannot express and nothing here checks.
+ * @param conversation The verified conversation the record belongs to.
+ * @param record The certified record projected for the local host.
+ * @param recipientAgentId The local agent that owns the pending delivery,
+ * which `AgentId` cannot express and nothing here checks.
+ * @returns The canonical inbound message bound to its recipient.
  */
 export const inboundDelivery = (
   conversation: EngineConversation,

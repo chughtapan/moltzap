@@ -8,30 +8,6 @@ Private addressed-message engine acquisition and daemon seams.
 
 ## Public surface
 
-### [`AgentAddress`](./address.ts#L66)
-
-_TypeAlias_
-
-```ts
-export type AgentAddress = typeof AgentAddress.Type;
-```
-
-A validated direct destination.
-
-### [`AgentAddress`](./address.ts#L60)
-
-_Variable_
-
-```ts
-export const AgentAddress = addressInput.pipe(
-  Schema.filter((value) => parseAgentAddress(value) !== undefined),
-  Schema.brand("AgentAddress"),
-  Schema.annotations({ identifier: "AgentAddress" }),
-)
-```
-
-An explicit direct destination using one canonical Registry name.
-
 ### [`DeliveryAcknowledgeError`](./errors.ts#L88)
 
 _Class_
@@ -50,7 +26,7 @@ export class DeliveryAcknowledgeError extends Data.TaggedError(
 
 Transport acknowledgment could not complete for one delivery.
 
-### [`DirectMessage`](./message.ts#L70)
+### [`DirectMessage`](./message.ts#L68)
 
 _TypeAlias_
 
@@ -60,31 +36,7 @@ export type DirectMessage = typeof directMessage.Type;
 
 One certified remote-authored direct message.
 
-### [`GroupAddress`](./address.ts#L75)
-
-_TypeAlias_
-
-```ts
-export type GroupAddress = typeof GroupAddress.Type;
-```
-
-A validated canonical complete group destination.
-
-### [`GroupAddress`](./address.ts#L69)
-
-_Variable_
-
-```ts
-export const GroupAddress = addressInput.pipe(
-  Schema.filter(isCanonicalGroupAddress),
-  Schema.brand("GroupAddress"),
-  Schema.annotations({ identifier: "GroupAddress" }),
-)
-```
-
-A complete fixed-member group address in unsigned ASCII name order.
-
-### [`GroupMessage`](./message.ts#L72)
+### [`GroupMessage`](./message.ts#L70)
 
 _TypeAlias_
 
@@ -94,7 +46,7 @@ export type GroupMessage = typeof groupMessage.Type;
 
 One certified remote-authored fixed-group message.
 
-### [`InboundMessage`](./message.ts#L80)
+### [`InboundMessage`](./message.ts#L78)
 
 _TypeAlias_
 
@@ -104,7 +56,7 @@ export type InboundMessage = typeof InboundMessage.Type;
 
 A validated direct or group post.
 
-### [`InboundMessage`](./message.ts#L75)
+### [`InboundMessage`](./message.ts#L73)
 
 _Variable_
 
@@ -133,26 +85,6 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 
 The endpoint's sole inbound subscription failed.
 
-### [`MessageAddressInput`](./address.ts#L80)
-
-_TypeAlias_
-
-```ts
-export type MessageAddressInput = typeof MessageAddressInput.Type;
-```
-
-A validated explicit destination input.
-
-### [`MessageAddressInput`](./address.ts#L78)
-
-_Variable_
-
-```ts
-export const MessageAddressInput = addressInput
-```
-
-Either accepted destination input, including noncanonical group order.
-
 ### [`SendError`](./errors.ts#L51)
 
 _Class_
@@ -174,6 +106,5 @@ agent is unknown; the message is what a host hands its model.
 
 ## Files
 
-- `address.ts`
 - `errors.ts`
 - `message.ts`

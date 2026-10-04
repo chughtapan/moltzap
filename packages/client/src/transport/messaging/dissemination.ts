@@ -2,7 +2,7 @@
 
 import { Effect, Schema } from "effect";
 import type { DisseminationObligation } from "../../store/index.js";
-import type { EngineActionFold, EngineRuntime } from "./types.js";
+import type { EngineActionFold, EngineRuntime } from "./runtime/index.js";
 import { RouterWorkerPersistenceError } from "../router/index.js";
 import {
   type ActionCertifiedRecord,
@@ -10,8 +10,10 @@ import {
   ConversationId,
   RecordHash,
 } from "../wire/index.js";
-import { makeActionCertifiedRecord, recordAnchorHash } from "./durability.js";
-import { queueCertifiedPacket } from "./send.js";
+import {
+  makeActionCertifiedRecord,
+  recordAnchorHash,
+} from "./records/index.js";
 
 interface VerifiedDisseminationObligation {
   readonly fold: EngineActionFold;
@@ -48,10 +50,12 @@ function attachObligation(
     const { fold, recordHash } = yield* obligationFold(runtime, obligation);
     const packet = yield* packetForObligation(fold, obligation, recordHash);
     yield* Effect.uninterruptible(
-      queueCertifiedPacket(runtime, fold.conversation, packet).pipe(
-        Effect.mapError(persistenceFailure),
-        Effect.zipRight(markQueued(fold, obligation.kind)),
-      ),
+      runtime.phases
+        .queueCertifiedPacket(runtime, fold.conversation, packet)
+        .pipe(
+          Effect.mapError(persistenceFailure),
+          Effect.zipRight(markQueued(fold, obligation.kind)),
+        ),
     );
   });
 }

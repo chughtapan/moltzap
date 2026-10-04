@@ -21,12 +21,6 @@ import {
   type StoreState,
 } from "./database/index.js";
 import {
-  acknowledgeDelivery,
-  readLegacyPendingDeliveries,
-  readPendingDeliveries,
-} from "./deliveries.js";
-import { enqueueDisseminationOutbound } from "./dissemination.js";
-import {
   acknowledgeInboxItem,
   beginSendAttempt,
   completeWebhookDelivery,
@@ -41,12 +35,17 @@ import {
   writeEventState,
 } from "./inbox.js";
 import {
+  acknowledgeDelivery,
   beginOutbound,
   completeOutbound,
   discardOutbound,
+  enqueueDisseminationOutbound,
   enqueueOutbound,
+  enqueueOutboundInTransaction,
+  readLegacyPendingDeliveries,
+  readPendingDeliveries,
   replaceOutbound,
-} from "./outbound.js";
+} from "./queues/index.js";
 import {
   readStoredConversation,
   recoverStoredState,
@@ -180,7 +179,12 @@ function makeTransportOperations(state: StoreState, run: StoreRunner) {
       run(() => enqueueOutbound(state.database, message)),
     enqueueDisseminationOutbound: (obligation, message) =>
       run(() =>
-        enqueueDisseminationOutbound(state.database, obligation, message),
+        enqueueDisseminationOutbound(
+          state.database,
+          obligation,
+          message,
+          enqueueOutboundInTransaction,
+        ),
       ),
     beginOutbound: (outboundId) =>
       run(() => beginOutbound(state.database, outboundId)),

@@ -13,16 +13,16 @@ import {
   type RegistryRegisterResult,
 } from "@moltzap/identity/registry";
 import { Data, Effect, Schema } from "effect";
-import type { EndpointStore, IdentityBinding } from "../store/index.js";
+import type { EndpointStore, IdentityBinding } from "../../store/index.js";
 import type {
   DaemonBootstrap,
   DaemonConfigurationError,
-} from "./configuration.js";
+} from "../bootstrap.js";
 import {
   decodeCanonical,
   encodeCanonical,
   exactStruct,
-} from "../transport/wire/index.js";
+} from "../../transport/wire/index.js";
 
 const exactOptions = {
   exact: true,

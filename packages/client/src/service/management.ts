@@ -31,16 +31,8 @@ import type {
   CertifiedRecord as StoredCertifiedRecord,
 } from "../store/index.js";
 import type { SendError } from "../transport/messaging/errors.js";
-import type {
-  DaemonBootstrap,
-  DaemonConfigurationError,
-} from "./configuration.js";
-import {
-  AgentAddress,
-  compareAscii,
-  GroupAddress,
-  resolveMessageAddress,
-} from "../transport/messaging/address.js";
+import type { DaemonBootstrap, DaemonConfigurationError } from "./bootstrap.js";
+import { resolveMessageAddress } from "../transport/messaging/address.js";
 import {
   type CertifiedRecord,
   compareAgentIds,
@@ -57,13 +49,18 @@ import {
   verifyStableEvidence,
 } from "../transport/wire/index.js";
 import {
+  AgentAddress,
+  compareAscii,
+  GroupAddress,
+} from "../transport/wire/values.js";
+import {
   type DaemonRegistrationPersistenceError,
   type DaemonRegistrationRepresentationError,
   type DaemonRegistrationState,
   type DaemonRegistrationUpstreamError,
   readDaemonRegistrationState,
   registerDaemonIdentity,
-} from "./registration.js";
+} from "./registration/index.js";
 
 type ManagementOperation =
   | "readStatus"

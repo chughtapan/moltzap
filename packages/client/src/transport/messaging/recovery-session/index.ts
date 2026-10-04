@@ -8,7 +8,7 @@ import {
 } from "@moltzap/identity";
 import { Deferred, Effect, Queue, Schema } from "effect";
 import type { EndpointRecovery } from "../../../store/index.js";
-import type { EngineRuntime } from "../types.js";
+import type { EngineRuntime } from "../runtime/index.js";
 import {
   RouterWorkerPersistenceError,
   type RouterWorkerRecovery,

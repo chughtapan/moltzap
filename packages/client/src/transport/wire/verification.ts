@@ -13,20 +13,18 @@ import { Effect, Schema } from "effect";
 import {
   type ClientRepresentationError,
   decodeCanonical,
-  encodeCanonical,
-  representationFailure,
-  sameBytes,
-} from "./canonical.js";
-import {
   deriveConversationId,
   deriveEvidenceMessageId,
+  encodeCanonical,
   hashAction,
   hashAnchor,
   hashMembershipDescriptor,
   hashPostIntent,
   hashRecord,
   type OuterMembership,
-} from "./codec.js";
+  representationFailure,
+  sameBytes,
+} from "./encoding/index.js";
 import {
   type ActionCertifiedRecord,
   type ActionCore,

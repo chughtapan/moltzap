@@ -1,12 +1,13 @@
 /** @file Collective operations, answers and the closed errors of a refused collective send. */
 
 import { Data, Schema } from "effect";
-import { AgentAddress, MessageAddressInput } from "../messaging/address.js";
 import { sendFailureReasons, sendFailureText } from "../messaging/errors.js";
 import {
+  AgentAddress,
   exactStruct,
   isCanonicalIdentifier,
   JsonValue,
+  MessageAddressInput,
   wellFormedString,
 } from "../wire/values.js";
 

@@ -6,9 +6,21 @@ import {
   type ServerContext,
   SUBSCRIPTION_ID_META_KEY,
 } from "@modelcontextprotocol/server";
-import { Cause, Deferred, Effect, Exit, Option, Queue, Scope } from "effect";
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Exit,
+  JSONSchema,
+  Option,
+  Queue,
+  Schema,
+  Scope,
+} from "effect";
 import { randomUUID } from "node:crypto";
 import type { InboxSummary } from "../../store/index.js";
+import { InboundItem } from "../../transport/collectives/inbound.js";
+import { exactStruct } from "../../transport/wire/values.js";
 import {
   eventListInput,
   type EventStreamInput,
@@ -20,17 +32,33 @@ import {
   type HarnessWebhookEvents,
   type WebhookStatus,
 } from "./event-schemas.js";
-import {
-  INBOX_ITEM_EVENT,
-  INBOX_PENDING_EVENT,
-  itemEventDataJsonSchema,
-} from "./schemas.js";
+import { INBOX_ITEM_EVENT, INBOX_PENDING_EVENT } from "./names.js";
 /** Durable callback delivery shares this consumer boundary. */
 export { makeWebhookEvents } from "./webhook.js";
 /** Owner-only diagnostics use the same closed status schema. */
 export { webhookStatusJsonSchema } from "./event-schemas.js";
 /** Effect HTTP connection policy for callback delivery. */
 export { webhookHttpClientLayer } from "./event-signing.js";
+
+/** Inline content or an explicit reference without truncating stored content. */
+const itemEventDataSchema = Schema.Union(
+  exactStruct({ kind: Schema.Literal("item"), item: InboundItem }),
+  exactStruct({
+    kind: Schema.Literal("reference"),
+    itemKind: Schema.Literal(
+      "multicast",
+      "collectiveRequest",
+      "collectiveResult",
+      "operationFailed",
+    ),
+    bytes: Schema.NonNegativeInt,
+  }),
+);
+
+/** Classified webhook payload advertised through MCP event discovery. */
+const itemEventDataJsonSchema = JSONSchema.make(itemEventDataSchema, {
+  target: "jsonSchema2020-12",
+});
 
 interface ActivePush {
   readonly context: ServerContext;

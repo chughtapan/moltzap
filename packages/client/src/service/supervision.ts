@@ -11,14 +11,13 @@ import type {
   EndpointEngine,
   EngineInitializationError,
 } from "../transport/messaging/index.js";
-import type { DaemonBootstrap } from "./configuration.js";
+import type { DaemonBootstrap } from "./bootstrap.js";
 import {
   CollectiveEmitError,
   type CollectiveOperations,
   type InboundItem,
   makeCollectiveOperations,
 } from "../transport/collectives/index.js";
-import { AgentAddress } from "../transport/messaging/address.js";
 import {
   type RouterWorker,
   type RouterWorkerInput,
@@ -26,13 +25,17 @@ import {
   type RouterWorkerProtocolError,
   type RouterWorkerTransportError,
 } from "../transport/router/index.js";
-import { decodeOuterBody } from "../transport/wire/index.js";
+import {
+  type DecodedOuterBody,
+  decodeOuterBody,
+} from "../transport/wire/index.js";
+import { AgentAddress } from "../transport/wire/values.js";
 import {
   DaemonActivationError,
   type DaemonRuntimeDependencies,
   DaemonRuntimeError,
   recoverPinnedSenderCards,
-} from "./activation.js";
+} from "./activation/index.js";
 
 /** Subscription publisher installed after the MCP handler is acquired. */
 export type RuntimeSubscriptionHandler = Effect.Effect.Success<
@@ -191,7 +194,7 @@ const superviseBackground = (
 const makeWorkerCallbacks = (
   awaitEngine: Effect.Effect<EndpointEngine>,
   publishPending: Effect.Effect<void>,
-): RouterWorkerInput["callbacks"] => ({
+): RouterWorkerInput<DecodedOuterBody>["callbacks"] => ({
   pinSenderCard: () => awaitEngine.pipe(Effect.asVoid),
   decodePayload: (message) =>
     decodeOuterBody(message.body).pipe(

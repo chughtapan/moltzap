@@ -18,7 +18,7 @@ import {
 } from "effect";
 import { randomUUID } from "node:crypto";
 import { ListenError } from "../../transport/messaging/errors.js";
-import { INBOX_PENDING_EVENT } from "../mcp/schemas.js";
+import { INBOX_PENDING_EVENT } from "../mcp/names.js";
 
 const protocolVersion = "2026-07-28";
 const metadataSchema = Schema.Struct({

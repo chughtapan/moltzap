@@ -9,10 +9,8 @@ import {
 import { Either, Encoding, Schema } from "effect";
 import {
   AgentAddress,
-  GroupAddress,
-} from "../../transport/messaging/address.js";
-import {
   exactStruct,
+  GroupAddress,
   RecordCore,
   RecordHash,
   RouterAnchor,

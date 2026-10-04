@@ -35,7 +35,7 @@ import {
   sendWebhook,
   webhookHttpClientLayer,
 } from "./event-signing.js";
-import { INBOX_ITEM_EVENT } from "./schemas.js";
+import { INBOX_ITEM_EVENT } from "./names.js";
 import { makeWebhookEvents } from "./webhook.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals, sonarjs/no-hardcoded-ip -- Protocol codes and deliberately unsafe IP fixtures pin the callback trust boundary. */

@@ -1,6 +1,6 @@
-/** @file Message values every layer above the wire encodes: post ids, content, and member limits and order. */
+/** @file Message values every layer above the wire encodes: addresses, post ids, content, and member limits and order. */
 
-import type { AgentId } from "@moltzap/identity";
+import { type AgentId, AgentName } from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import { Either, Encoding, Schema } from "effect";
 
@@ -181,5 +181,118 @@ export const compareAgentIds = (left: AgentId, right: AgentId): number => {
   }
   return leftBytes.byteLength - rightBytes.byteLength;
 };
+
+/** The scheme of an address naming one agent. */
+export const AGENT_ADDRESS_PREFIX = "agent:";
+/** The scheme of an address listing a group's members. */
+export const GROUP_ADDRESS_PREFIX = "group:";
+
+const isAgentName = Schema.is(AgentName);
+
+/**
+ * The registry name an `agent:` address names.
+ * @param value A candidate address.
+ * @returns The name, or undefined when the value is not an agent address.
+ */
+export const parseAgentAddress = (value: string): string | undefined => {
+  if (!value.startsWith(AGENT_ADDRESS_PREFIX)) {
+    return undefined;
+  }
+  const name = value.slice(AGENT_ADDRESS_PREFIX.length);
+  return isAgentName(name) ? name : undefined;
+};
+
+/**
+ * The names a `group:` address lists, in the order given.
+ * @param value A candidate address.
+ * @returns The names, or undefined when the value is not a group address.
+ */
+export const parseGroupAddress = (
+  value: string,
+): readonly string[] | undefined => {
+  if (!value.startsWith(GROUP_ADDRESS_PREFIX)) {
+    return undefined;
+  }
+  const names = value.slice(GROUP_ADDRESS_PREFIX.length).split(",");
+  return names.length > 0 && names.every((name) => isAgentName(name))
+    ? names
+    : undefined;
+};
+
+const addressInput = Schema.String.pipe(
+  Schema.filter(
+    (value) =>
+      parseAgentAddress(value) !== undefined ||
+      parseGroupAddress(value) !== undefined,
+    {
+      identifier: "MessageAddressInput",
+      description: "An agent address or syntactically valid group input",
+    },
+  ),
+  Schema.brand("MessageAddressInput"),
+);
+
+/** An explicit direct destination using one canonical Registry name. */
+export const AgentAddress = addressInput.pipe(
+  Schema.filter((value) => parseAgentAddress(value) !== undefined),
+  Schema.brand("AgentAddress"),
+  Schema.annotations({ identifier: "AgentAddress" }),
+);
+/** A validated direct destination. */
+export type AgentAddress = typeof AgentAddress.Type;
+
+/** A complete fixed-member group address in unsigned ASCII name order. */
+export const GroupAddress = addressInput.pipe(
+  Schema.filter(isCanonicalGroupAddress),
+  Schema.brand("GroupAddress"),
+  Schema.annotations({ identifier: "GroupAddress" }),
+);
+/** A validated canonical complete group destination. */
+export type GroupAddress = typeof GroupAddress.Type;
+
+/** Either accepted destination input, including noncanonical group order. */
+export const MessageAddressInput = addressInput;
+/** A validated explicit destination input. */
+export type MessageAddressInput = typeof MessageAddressInput.Type;
+
+/**
+ * Unsigned ASCII order, the order a canonical group address lists its names in.
+ * @param left One name.
+ * @param right The other name.
+ * @returns Negative, zero, or positive as `left` sorts before, with, or after `right`.
+ */
+export const compareAscii = (left: string, right: string): number => {
+  const sharedLength = Math.min(left.length, right.length);
+  for (let index = 0; index < sharedLength; index += 1) {
+    const difference = left.charCodeAt(index) - right.charCodeAt(index);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return left.length - right.length;
+};
+
+function isCanonicalGroupAddress(value: string): boolean {
+  const names = parseGroupAddress(value);
+  if (
+    names === undefined ||
+    names.length < 3 ||
+    names.length > maximumMembers
+  ) {
+    return false;
+  }
+  for (let index = 1; index < names.length; index += 1) {
+    const previous = names[index - 1];
+    const current = names[index];
+    if (
+      previous === undefined ||
+      current === undefined ||
+      compareAscii(previous, current) >= 0
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /* eslint-enable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Restore the package naming rules after the Schema/type pairs. */

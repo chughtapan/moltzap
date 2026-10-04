@@ -8,6 +8,30 @@ Package-private facade for the complete Client protocol representation.
 
 ## Public surface
 
+### [`AgentAddress`](./values.ts#L242)
+
+_TypeAlias_
+
+```ts
+export type AgentAddress = typeof AgentAddress.Type;
+```
+
+A validated direct destination.
+
+### [`AgentAddress`](./values.ts#L236)
+
+_Variable_
+
+```ts
+export const AgentAddress = addressInput.pipe(
+  Schema.filter((value) => parseAgentAddress(value) !== undefined),
+  Schema.brand("AgentAddress"),
+  Schema.annotations({ identifier: "AgentAddress" }),
+)
+```
+
+An explicit direct destination using one canonical Registry name.
+
 ### [`Content`](./values.ts#L104)
 
 _TypeAlias_
@@ -54,6 +78,30 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
+### [`GroupAddress`](./values.ts#L251)
+
+_TypeAlias_
+
+```ts
+export type GroupAddress = typeof GroupAddress.Type;
+```
+
+A validated canonical complete group destination.
+
+### [`GroupAddress`](./values.ts#L245)
+
+_Variable_
+
+```ts
+export const GroupAddress = addressInput.pipe(
+  Schema.filter(isCanonicalGroupAddress),
+  Schema.brand("GroupAddress"),
+  Schema.annotations({ identifier: "GroupAddress" }),
+)
+```
+
+A complete fixed-member group address in unsigned ASCII name order.
+
 ### [`JsonValue`](./values.ts#L67)
 
 _TypeAlias_
@@ -88,6 +136,26 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 ```
 
 Runtime validation for the closed recursive JSON value.
+
+### [`MessageAddressInput`](./values.ts#L256)
+
+_TypeAlias_
+
+```ts
+export type MessageAddressInput = typeof MessageAddressInput.Type;
+```
+
+A validated explicit destination input.
+
+### [`MessageAddressInput`](./values.ts#L254)
+
+_Variable_
+
+```ts
+export const MessageAddressInput = addressInput
+```
+
+Either accepted destination input, including noncanonical group order.
 
 ### [`PostId`](./values.ts#L56)
 

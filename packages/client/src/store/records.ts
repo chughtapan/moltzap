@@ -21,8 +21,10 @@ import {
   StoreSignal,
   transaction,
 } from "./database/index.js";
-import { retainDeliveryInTransaction } from "./deliveries.js";
-import { retainDisseminationInTransaction } from "./dissemination.js";
+import {
+  retainDeliveryInTransaction,
+  retainDisseminationInTransaction,
+} from "./queues/index.js";
 import {
   findProposalLock,
   findStagedReanchor,

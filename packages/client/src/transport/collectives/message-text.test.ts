@@ -2,7 +2,7 @@
 
 import { Either, FastCheck as fc, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { MessageAddressInput } from "../messaging/address.js";
+import { MessageAddressInput } from "../wire/values.js";
 import { MAXIMUM_DEADLINE_SECONDS } from "./forms.js";
 import { type MessageTextError, parseMessageText } from "./message-text.js";
 

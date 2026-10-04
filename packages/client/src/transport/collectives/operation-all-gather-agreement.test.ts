@@ -29,15 +29,15 @@ import {
 import { describe, expect, it } from "vitest";
 import type { EngineSentPost } from "../messaging/index.js";
 import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
-import { AgentAddress } from "../messaging/address.js";
 import { InboundMessage } from "../messaging/message.js";
 import { Content, PostId, RecordHash } from "../wire/index.js";
+import { AgentAddress } from "../wire/values.js";
 import { SendInput } from "./forms.js";
 import {
   type CollectiveOperations,
   makeCollectiveOperations,
 } from "./operation.js";
-import { type CollectiveValue, readCollectiveValue } from "./wire.js";
+import { type CollectiveValue, readCollectiveValue } from "./part/index.js";
 
 const collectiveKey = "xyz.moltzap/collective";
 const group = "group:alice,bob,carol,dave";

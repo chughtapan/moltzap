@@ -14,12 +14,6 @@ import {
 import { Effect, Encoding, Schema } from "effect";
 import { createHash, randomBytes } from "node:crypto";
 import {
-  type ClientRepresentationError,
-  decodeCanonical,
-  encodeCanonical,
-  representationFailure,
-} from "./canonical.js";
-import {
   ActionCore,
   ActionHash,
   type ActionHash as ActionHashValue,
@@ -45,13 +39,19 @@ import {
   RecordCore,
   RecordHash,
   type RecordHash as RecordHashValue,
-} from "./schemas.js";
+} from "../schemas.js";
 import {
   compareAgentIds,
   decodeCanonicalBase64Url,
   PostId,
   type PostId as PostIdValue,
-} from "./values.js";
+} from "../values.js";
+import {
+  type ClientRepresentationError,
+  decodeCanonical,
+  encodeCanonical,
+  representationFailure,
+} from "./canonical.js";
 
 /* eslint-disable jsdoc/require-jsdoc -- The package-private representation facade documents this closed protocol vocabulary. */
 
@@ -222,12 +222,12 @@ export const deriveEvidenceMessageId = (
     ).pipe(Effect.mapError(representationFailure));
   }).pipe(Effect.withSpan("deriveEvidenceMessageId"));
 
-export const decodeDirectPacket = (
+const decodeDirectPacket = (
   bytes: Uint8Array,
 ): Effect.Effect<DirectPacketValue, ClientRepresentationError> =>
   decodeCanonical(DirectPacket, bytes);
 
-export const decodeEvidenceMessage = (
+const decodeEvidenceMessage = (
   bytes: Uint8Array,
 ): Effect.Effect<SignedMessageValue, ClientRepresentationError> =>
   decodeCanonical(SignedMessage, bytes);
@@ -329,10 +329,5 @@ export const signOuterEvidence = (input: {
   encodeCanonical(SignedMessage, input.evidence).pipe(
     Effect.flatMap((body) => signOuterBody({ ...input, body })),
   );
-
-export const encodeActionCore = (
-  action: ActionCore,
-): Effect.Effect<Uint8Array, ClientRepresentationError> =>
-  encodeCanonical(ActionCore, action);
 
 /* eslint-enable jsdoc/require-jsdoc -- Restore package documentation rules. */

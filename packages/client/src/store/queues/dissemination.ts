@@ -7,7 +7,7 @@ import type {
   OutboundMessageInput,
   StoredOutboundMessage,
   StoreMutation,
-} from "./types.js";
+} from "../types.js";
 import {
   readOptionalText,
   readText,
@@ -15,8 +15,7 @@ import {
   requireText,
   StoreSignal,
   transaction,
-} from "./database/index.js";
-import { enqueueOutboundInTransaction } from "./outbound.js";
+} from "../database/index.js";
 
 /**
  * Retains one logical packet requirement inside a record-state transaction.
@@ -51,18 +50,24 @@ export function retainDisseminationInTransaction(
  * @param database Exclusively owned endpoint database.
  * @param obligation Expected durable packet requirement.
  * @param message Complete canonical outer envelope.
+ * @param enqueueInTransaction The outbox insert, run inside this transaction
+ * so the obligation and its envelope commit together.
  * @returns The current durable envelope under its stable outbox identity.
  */
 export function enqueueDisseminationOutbound(
   database: DatabaseSync,
   obligation: DisseminationObligation,
   message: OutboundMessageInput,
+  enqueueInTransaction: (
+    database: DatabaseSync,
+    message: OutboundMessageInput,
+  ) => StoredOutboundMessage,
 ): StoredOutboundMessage {
   validateObligation(obligation);
   requireEqual(obligation.conversationId, message.conversationId);
   return transaction(database, () => {
     const retained = requireObligation(database, obligation);
-    const outbound = enqueueOutboundInTransaction(database, message);
+    const outbound = enqueueInTransaction(database, message);
     if (
       retained.outboundId !== undefined &&
       retained.outboundId !== outbound.outboundId

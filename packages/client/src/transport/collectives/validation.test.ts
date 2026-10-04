@@ -3,8 +3,8 @@
 import { Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { AnswerContent } from "./forms.js";
+import { decodeCollectiveResponse, FormModeSchema } from "./part/index.js";
 import { outcomeOfResponse, validateAnswer } from "./validation.js";
-import { decodeCollectiveResponse, FormModeSchema } from "./wire.js";
 
 const requestedSchema = Schema.decodeUnknownSync(FormModeSchema)({
   type: "object",

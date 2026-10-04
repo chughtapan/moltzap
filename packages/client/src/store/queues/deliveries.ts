@@ -12,15 +12,15 @@ import {
   requireText,
   StoreSignal,
   transaction,
-} from "./database/index.js";
-import { readPendingDelivery, readStoredIdentity } from "./rows/index.js";
+} from "../database/index.js";
+import { readPendingDelivery, readStoredIdentity } from "../rows/index.js";
 import {
   type CertifiedRecord,
   DeliveryToken,
   type InboundDeliveryInput,
   type PendingDelivery,
   type StoreMutation,
-} from "./types.js";
+} from "../types.js";
 
 const deliveryColumns = `
   delivery_token, conversation_id, record_hash, recipient_agent_id,

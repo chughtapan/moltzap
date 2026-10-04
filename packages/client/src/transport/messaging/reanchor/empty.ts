@@ -7,7 +7,7 @@ import type {
   EndpointRecovery,
   PostIntent as StoredPostIntent,
 } from "../../../store/index.js";
-import type { EngineRuntime } from "../types.js";
+import type { EngineRuntime } from "../runtime/index.js";
 import { RouterWorkerPersistenceError } from "../../router/index.js";
 import {
   type ConversationId as ConversationIdValue,
@@ -20,7 +20,7 @@ import {
 import {
   type ActiveRecoveryState,
   markConversationRecovered,
-} from "./state.js";
+} from "../recovery-session/index.js";
 
 interface EmptyPositionRestartInput {
   readonly runtime: EngineRuntime;

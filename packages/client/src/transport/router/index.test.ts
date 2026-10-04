@@ -52,7 +52,7 @@ import {
   unavailableRegistryLayer,
   unreachableOutbox,
 } from "../../__tests__/router-worker-fixtures.js";
-import { DaemonRuntimeError } from "../../service/activation.js";
+import { DaemonRuntimeError } from "../../service/activation/index.js";
 import { failFromBackgroundCause } from "../../service/supervision.js";
 import {
   type ConversationFoundation,
