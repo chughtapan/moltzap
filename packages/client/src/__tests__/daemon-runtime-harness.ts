@@ -11,7 +11,7 @@ import { type Context, Deferred, Effect } from "effect";
 import type { HistoryExportRecord } from "../delivery/history-export.js";
 import type { EventStore } from "../delivery/operations.js";
 import type { Fixture } from "./daemon-runtime-fixtures.js";
-import { INBOX_PENDING_EVENT } from "../endpoint/mcp/schemas.js";
+import { INBOX_PENDING_EVENT } from "../endpoint/mcp/names.js";
 import {
   type HarnessMcpEventHandler,
   type HarnessMcpOperations,
@@ -108,7 +108,7 @@ interface HarnessObservations {
   readonly records: HistoryExportRecord[];
   operations?: HarnessMcpOperations;
   historyExportPath?: string;
-  workerOutbox?: RouterWorkerInput["outbox"];
+  workerOutbox?: RouterWorkerInput<unknown>["outbox"];
 }
 
 interface RuntimeDependenciesInput {
@@ -132,7 +132,9 @@ export interface RuntimeHarness {
   readonly getEventStore: () => EventStore | undefined;
   readonly getHandler: () => HarnessMcpEventHandler | undefined;
   readonly getOperations: () => HarnessMcpOperations | undefined;
-  readonly getWorkerOutbox: () => RouterWorkerInput["outbox"] | undefined;
+  readonly getWorkerOutbox: () =>
+    | RouterWorkerInput<unknown>["outbox"]
+    | undefined;
   readonly getHistoryExportPath: () => string | undefined;
 }
 

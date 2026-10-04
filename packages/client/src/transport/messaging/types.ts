@@ -42,7 +42,7 @@ import type {
   RouterAnchor,
   VerifiedMembership,
 } from "../wire/index.js";
-import type { MessageAddressInput } from "./address.js";
+import type { MessageAddressInput } from "../wire/values.js";
 import type {
   DeliveryAcknowledgeError,
   ListenError,

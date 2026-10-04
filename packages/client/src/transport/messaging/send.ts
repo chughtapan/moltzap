@@ -38,7 +38,8 @@ import {
   type VerifiedMembership,
   verifyMembershipDescriptor,
 } from "../wire/index.js";
-import { type MessageAddressInput, resolveMessageAddress } from "./address.js";
+import { resolveMessageAddress } from "./address.js";
+import { type MessageAddressInput } from "../wire/values.js";
 import { SendError } from "./errors.js";
 import { currentRecoveryBarrier } from "./recovery/barrier.js";
 

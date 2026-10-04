@@ -29,7 +29,7 @@ import {
 import { describe, expect, it } from "vitest";
 import type { EngineSentPost } from "../messaging/index.js";
 import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
-import { AgentAddress } from "../messaging/address.js";
+import { AgentAddress } from "../wire/values.js";
 import { InboundMessage } from "../messaging/message.js";
 import { Content, PostId, RecordHash } from "../wire/index.js";
 import { SendInput } from "./forms.js";

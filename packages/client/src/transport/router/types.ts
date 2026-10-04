@@ -19,7 +19,6 @@ import {
   type SubscriptionRef,
 } from "effect";
 import type { EndpointStore } from "../../store/index.js";
-import type { DecodedOuterBody } from "../wire/index.js";
 
 /** An outer sender card could not be resolved, pinned, or authenticated. */
 export class RouterWorkerAuthenticationError extends Data.TaggedError(
@@ -150,7 +149,7 @@ type RouterWorkerOutbox = Pick<
 >;
 
 /** Private endpoint callbacks around the Router worker's ordering boundary. */
-export interface RouterWorkerCallbacks<Payload = DecodedOuterBody> {
+export interface RouterWorkerCallbacks<Payload> {
   readonly pinSenderCard: (
     card: VerifiedAgentCard,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
@@ -188,7 +187,7 @@ interface RouterWorkerOverrides {
 }
 
 /** Complete private construction input for one registered endpoint. */
-export interface RouterWorkerInput<Payload = DecodedOuterBody> {
+export interface RouterWorkerInput<Payload> {
   readonly callerAgentId: AgentId;
   readonly callerAgentCard: VerifiedAgentCard;
   /** Durable membership cards available before Registry connectivity. */

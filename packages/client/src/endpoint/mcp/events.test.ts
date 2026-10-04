@@ -26,7 +26,7 @@ import { InboundItem } from "../../transport/collectives/inbound.js";
 import { acquireHarnessEndpoint } from "../harness-endpoint/index.js";
 import { type HarnessEvents, makeHarnessEvents } from "./events.js";
 import { acquireHarnessMcpHttpServer } from "./http.js";
-import { INBOX_PENDING_EVENT } from "./schemas.js";
+import { INBOX_PENDING_EVENT } from "./names.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- External MCP error codes and consumer ownership reasons are conformance expectations. */
 

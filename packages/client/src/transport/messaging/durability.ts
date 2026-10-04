@@ -25,7 +25,7 @@ import {
   type RecordCore,
   RecordCore as RecordCoreSchema,
 } from "../wire/index.js";
-import { AgentAddress, compareAscii, GroupAddress } from "./address.js";
+import { AgentAddress, compareAscii, GroupAddress } from "../wire/values.js";
 import {
   InboundMessage,
   type InboundMessage as InboundMessageValue,

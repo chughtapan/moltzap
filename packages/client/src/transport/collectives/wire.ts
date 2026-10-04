@@ -10,7 +10,7 @@
 
 import { Data, Effect, Option, Schema } from "effect";
 import { createHash, randomBytes } from "node:crypto";
-import type { AgentAddress } from "../messaging/address.js";
+import type { AgentAddress } from "../wire/values.js";
 import { Content, exactStruct, RecordHash } from "../wire/index.js";
 import { FormFieldSchema } from "./form-grammar.js";
 import { AnswerContent, CollectiveId } from "./forms.js";

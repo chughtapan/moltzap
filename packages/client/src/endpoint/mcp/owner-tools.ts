@@ -9,13 +9,11 @@ import {
 import { Either, Encoding, Schema } from "effect";
 import {
   AgentAddress,
-  GroupAddress,
-} from "../../transport/messaging/address.js";
-import {
   exactStruct,
   RecordCore,
   RecordHash,
   RouterAnchor,
+  GroupAddress,
 } from "../../transport/wire/index.js";
 
 const exactOptions = {

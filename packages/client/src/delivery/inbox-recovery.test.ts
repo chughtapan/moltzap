@@ -17,7 +17,7 @@ import {
   collectiveIdOf,
   makeCollectiveOperations,
 } from "../transport/collectives/index.js";
-import { AgentAddress } from "../transport/messaging/address.js";
+import { AgentAddress } from "../transport/wire/values.js";
 import { InboundMessage } from "../transport/messaging/message.js";
 import { PostId, RecordHash } from "../transport/wire/index.js";
 import { readRuntimeInbox, recoverRuntimeInbox } from "./inbox.js";

@@ -32,7 +32,7 @@ import {
   HARNESS_SEND_META_KEY,
   HARNESS_SEND_TOOL,
   INBOX_PENDING_EVENT,
-} from "../mcp/schemas.js";
+} from "../mcp/names.js";
 import {
   ConnectError,
   type HarnessEndpoint,

@@ -80,13 +80,14 @@ import {
 } from "effect";
 import type { EngineSendInput, EngineSentPost } from "../messaging/index.js";
 import type { InboundMessage } from "../messaging/message.js";
-import type { PostId, RecordHash } from "../wire/index.js";
 import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
+import { canonicalMessageAddress } from "../messaging/address.js";
 import {
   AgentAddress,
-  canonicalMessageAddress,
   type MessageAddressInput,
-} from "../messaging/address.js";
+  type PostId,
+  type RecordHash,
+} from "../wire/index.js";
 import { SendError } from "../messaging/errors.js";
 import {
   type CollectiveSendOutcome,

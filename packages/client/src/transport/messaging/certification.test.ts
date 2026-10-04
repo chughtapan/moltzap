@@ -85,7 +85,7 @@ import {
   type VerifiedMembership,
   verifyMembershipDescriptor,
 } from "../wire/index.js";
-import { MessageAddressInput } from "./address.js";
+import { MessageAddressInput } from "../wire/values.js";
 import { SendError } from "./errors.js";
 import { type EndpointEngine, makeEndpointEngine } from "./index.js";
 import { recoverFoldEvidence } from "./recovery/evidence.js";

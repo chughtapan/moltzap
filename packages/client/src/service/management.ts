@@ -35,12 +35,12 @@ import type {
   DaemonBootstrap,
   DaemonConfigurationError,
 } from "./configuration.js";
+import { resolveMessageAddress } from "../transport/messaging/address.js";
 import {
   AgentAddress,
   compareAscii,
   GroupAddress,
-  resolveMessageAddress,
-} from "../transport/messaging/address.js";
+} from "../transport/wire/values.js";
 import {
   type CertifiedRecord,
   compareAgentIds,

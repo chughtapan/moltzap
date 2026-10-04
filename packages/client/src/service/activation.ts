@@ -27,6 +27,7 @@ import type {
 } from "../transport/router/index.js";
 import type { DaemonBootstrap } from "./configuration.js";
 import {
+  type DecodedOuterBody,
   decodeCanonical,
   encodeCanonical,
   MembershipDescriptor,
@@ -56,7 +57,7 @@ export class DaemonActivationError extends Data.TaggedError(
 /** Replaceable process edges used only by focused lifecycle tests. */
 export interface DaemonRuntimeDependencies {
   readonly makeWorker: (
-    input: RouterWorkerInput,
+    input: RouterWorkerInput<DecodedOuterBody>,
   ) => Effect.Effect<
     RouterWorker,
     RouterWorkerTransportError | RouterWorkerProtocolError,

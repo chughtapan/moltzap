@@ -76,11 +76,6 @@ import {
 } from "./owner-tools.js";
 import {
   decodeHarnessSendCall,
-  HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
-  HARNESS_READ_EVENT_TOOL,
-  HARNESS_READ_INBOX_TOOL,
-  HARNESS_READ_SEND_TOOL,
-  HARNESS_SEND_TOOL,
   harnessAcknowledgeDeliveryRequestJsonSchema,
   type HarnessEmptyResult,
   harnessEmptyResultJsonSchema,
@@ -92,6 +87,13 @@ import {
   harnessSendArgumentsJsonSchema,
   harnessSendResultJsonSchema,
 } from "./schemas.js";
+import {
+  HARNESS_ACKNOWLEDGE_DELIVERY_TOOL,
+  HARNESS_READ_EVENT_TOOL,
+  HARNESS_READ_INBOX_TOOL,
+  HARNESS_READ_SEND_TOOL,
+  HARNESS_SEND_TOOL,
+} from "./names.js";
 
 /* eslint-disable agent-code-guard/async-keyword -- Official MCP factories and callbacks are Promise-native. */
 

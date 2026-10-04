@@ -27,7 +27,7 @@ import {
   type WebhookFailureReason,
   webhookUrl,
 } from "./event-signing.js";
-import { INBOX_ITEM_EVENT } from "./schemas.js";
+import { INBOX_ITEM_EVENT } from "./names.js";
 
 /** Persist the returned bytes before transmitting; retries must not regenerate them. */
 const encodeItemEvent = (entry: InboxEntry, timestamp: number) =>

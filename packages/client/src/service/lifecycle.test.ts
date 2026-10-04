@@ -28,7 +28,7 @@ import {
   type RuntimeHarness,
   SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION,
 } from "../__tests__/daemon-runtime-harness.js";
-import { INBOX_PENDING_EVENT } from "../endpoint/mcp/schemas.js";
+import { INBOX_PENDING_EVENT } from "../endpoint/mcp/names.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,

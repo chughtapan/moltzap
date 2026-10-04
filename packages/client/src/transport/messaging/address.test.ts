@@ -21,10 +21,9 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { maximumMembers } from "../wire/values.js";
+import { maximumMembers, MessageAddressInput } from "../wire/values.js";
 import {
   type AddressRegistryPort,
-  MessageAddressInput,
   type ResolvedMessageAddress,
   resolveMessageAddress,
 } from "./address.js";

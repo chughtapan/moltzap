@@ -3,7 +3,7 @@
 import { Either, FastCheck as fc, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CollectiveId } from "./forms.js";
-import { AgentAddress, MessageAddressInput } from "../messaging/address.js";
+import { AgentAddress, MessageAddressInput } from "../wire/values.js";
 import { matchOpenRequest, type RequestStatus } from "./received-request.js";
 import { collectiveIdOf } from "./wire.js";
 

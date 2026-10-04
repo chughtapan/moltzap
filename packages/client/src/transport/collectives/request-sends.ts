@@ -11,7 +11,7 @@ import {
   Fiber,
   Option,
 } from "effect";
-import type { AgentAddress } from "../messaging/address.js";
+import type { AgentAddress } from "../wire/values.js";
 import type { SendError } from "../messaging/errors.js";
 import type { EngineSentPost } from "../messaging/index.js";
 

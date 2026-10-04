@@ -6,13 +6,11 @@ import {
   exactStruct,
   maximumMembers,
   PostId,
-} from "../wire/values.js";
-import {
   AgentAddress,
   GroupAddress,
   parseAgentAddress,
   parseGroupAddress,
-} from "./address.js";
+} from "../wire/values.js";
 
 /* eslint-disable @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- Effect Schemas share their domain names with the nominal values they decode. */
 

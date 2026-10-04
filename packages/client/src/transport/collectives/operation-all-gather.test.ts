@@ -15,7 +15,7 @@ import {
 import { describe, expect, it } from "vitest";
 import type { EngineSendInput, EngineSentPost } from "../messaging/index.js";
 import type { InboundItem } from "./inbound.js";
-import { AgentAddress } from "../messaging/address.js";
+import { AgentAddress } from "../wire/values.js";
 import { SendError } from "../messaging/errors.js";
 import { InboundMessage } from "../messaging/message.js";
 import { PostId, RecordHash } from "../wire/index.js";

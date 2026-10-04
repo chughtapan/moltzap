@@ -65,14 +65,17 @@ export {
   RouterAnchor,
 } from "./schemas.js";
 export {
+  AgentAddress,
   compareAgentIds,
   Content,
   ContentPart,
   exactStruct,
+  GroupAddress,
   isCanonicalIdentifier,
   JsonValue,
   maximumContentBytes,
   maximumMembers,
+  MessageAddressInput,
   PostId,
   wellFormedString,
 } from "./values.js";

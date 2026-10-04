@@ -71,7 +71,7 @@ const clientDomains = [
       {
         file: "values.ts",
         reason:
-          "Post ids, content, and member limits hosts decode without loading signing, verification, or the Router client",
+          "Addresses, post ids, content, and member limits hosts decode without loading signing, verification, or the Router client",
       },
     ],
     reason:
@@ -105,7 +105,7 @@ const clientDomains = [
       {
         file: "address.ts",
         reason:
-          "Address schemas and Registry resolution, read without loading the engine",
+          "Registry resolution of a validated address, read without loading the engine",
       },
       {
         file: "errors.ts",
@@ -202,19 +202,9 @@ const packageDefinitions = {
       facadeFiles: [
         ...clientEntrypointFacades,
         {
-          file: "endpoint/mcp/owner-tools.ts",
-          reason:
-            "Exact private management schema boundary shared by daemon operations and its MCP catalog",
-        },
-        {
           file: "transport/messaging/certification.ts",
           reason:
             "Router-ordered proposal selection and GENESIS/POST certification shared by the engine and its evidence routing",
-        },
-        {
-          file: "endpoint/mcp/schemas.ts",
-          reason:
-            "MCP tool names, Events constants, and JSON Schema projections shared by the tool catalog, the Events and webhook transports, and the HarnessEndpoint client",
         },
         {
           file: "service/configuration.ts",
@@ -250,11 +240,6 @@ const packageDefinitions = {
           file: "transport/messaging/types.ts",
           reason:
             "Closed endpoint-engine port and error vocabulary shared by every protocol phase",
-        },
-        {
-          file: "transport/router/types.ts",
-          reason:
-            "Closed Router-worker state, error, and retry vocabulary shared by the worker and its outage handling",
         },
         {
           file: "transport/wire/codec.ts",

@@ -10,7 +10,7 @@ import { Effect, Redacted, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { EventStore } from "../../delivery/operations.js";
 import { makeFixture } from "../../__tests__/router-worker-fixtures.js";
-import { HARNESS_SEND_META_KEY } from "./schemas.js";
+import { HARNESS_SEND_META_KEY } from "./names.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,

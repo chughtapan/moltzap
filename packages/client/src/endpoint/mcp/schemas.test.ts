@@ -10,10 +10,7 @@ import {
 } from "../../delivery/operations.js";
 import { DeliveryToken } from "../../store/index.js";
 import { CollectiveId, SendInput } from "../../transport/collectives/forms.js";
-import {
-  AgentAddress,
-  GroupAddress,
-} from "../../transport/messaging/address.js";
+import { AgentAddress, GroupAddress } from "../../transport/wire/values.js";
 import { Content, PostId } from "../../transport/wire/index.js";
 
 const exact = { exact: true, onExcessProperty: "error" } as const;
