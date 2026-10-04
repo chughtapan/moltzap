@@ -31,7 +31,7 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type { DaemonBootstrap } from "./configuration.js";
+import type { DaemonBootstrap } from "./bootstrap.js";
 import {
   managementReadConversationRequestSchema,
   managementSearchConversationsRequestSchema,

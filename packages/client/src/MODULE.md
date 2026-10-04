@@ -591,14 +591,15 @@ Complete production process composition for `moltzapd`.
 - `identity/index.ts`
 - `index.ts`
 - `README.md`
-- `service/activation.ts`
+- `service/activation/index.ts`
+- `service/bootstrap.ts`
 - `service/configuration.ts`
 - `service/controller.ts`
 - `service/index.ts`
 - `service/lifecycle.ts`
 - `service/management.ts`
 - `service/README.md`
-- `service/registration.ts`
+- `service/registration/index.ts`
 - `service/supervision.ts`
 - `store/anchors.ts`
 - `store/database/index.ts`

@@ -54,18 +54,6 @@
       "reason": "Router-ordered proposal selection and GENESIS/POST certification shared by the engine and its evidence routing"
     },
     {
-      "file": "service/configuration.ts",
-      "reason": "Exact process configuration and loaded bootstrap authority shared by daemon startup, registration, supervision, and management"
-    },
-    {
-      "file": "service/registration.ts",
-      "reason": "Crash-recoverable identity-registration boundary shared by daemon startup and management"
-    },
-    {
-      "file": "service/activation.ts",
-      "reason": "Identity activation, pinned-card recovery, and crash-recoverable registration shared by runtime composition, controller operations, and protocol acquisition"
-    },
-    {
       "file": "transport/collectives/wire.ts",
       "reason": "Collective values carried in post content, shared by the operation layer and answer validation"
     },

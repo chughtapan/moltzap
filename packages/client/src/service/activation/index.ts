@@ -8,39 +8,39 @@ import {
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import { Data, Deferred, Effect, type Scope } from "effect";
-import type { HistoryExportPort } from "../delivery/history-export.js";
+import type { HistoryExportPort } from "../../delivery/history-export.js";
 import type {
   HarnessMcpEventHandler,
   makeHarnessMcpHttpHandler,
-} from "../endpoint/mcp/index.js";
-import type { EndpointStore, StoredMembership } from "../store/index.js";
+} from "../../endpoint/mcp/index.js";
+import type { EndpointStore, StoredMembership } from "../../store/index.js";
 import type {
   EndpointEngine,
   EndpointEngineInput,
   EngineInitializationError,
-} from "../transport/messaging/index.js";
+} from "../../transport/messaging/index.js";
 import type {
   RouterWorker,
   RouterWorkerInput,
   RouterWorkerProtocolError,
   RouterWorkerTransportError,
-} from "../transport/router/index.js";
-import type { DaemonBootstrap } from "./configuration.js";
+} from "../../transport/router/index.js";
+import type { DaemonBootstrap } from "../bootstrap.js";
 import {
   type DecodedOuterBody,
   decodeCanonical,
   encodeCanonical,
   MembershipDescriptor,
   verifyMembershipDescriptor,
-} from "../transport/wire/index.js";
+} from "../../transport/wire/index.js";
 import {
   type DaemonManagementOperations,
   makeDaemonManagementOperations,
-} from "./management.js";
+} from "../management.js";
 import {
   type DaemonRegistrationState,
   readDaemonRegistrationState,
-} from "./registration.js";
+} from "../registration/index.js";
 
 /** Closed private daemon failure projected onto the public startup phases. */
 export class DaemonRuntimeError extends Data.TaggedError("DaemonRuntimeError")<{

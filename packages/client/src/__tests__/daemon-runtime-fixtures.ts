@@ -19,7 +19,7 @@ import {
   type KeyObject,
   sign as signBytes,
 } from "node:crypto";
-import type { DaemonBootstrap } from "../service/configuration.js";
+import type { DaemonBootstrap } from "../service/bootstrap.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
 import { managementRegisterRequestSchema } from "../endpoint/mcp/owner-tools.js";
 import { DeliveryToken } from "../store/index.js";

@@ -6,7 +6,7 @@ import type { Router } from "@moltzap/router";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect, type Scope } from "effect";
 import type { EndpointStore } from "../store/index.js";
-import type { DaemonBootstrap } from "./configuration.js";
+import type { DaemonBootstrap } from "./bootstrap.js";
 import {
   makeHistoryExport,
   noHistoryExport,
@@ -22,7 +22,7 @@ import {
   type DaemonRuntimeDependencies,
   DaemonRuntimeError,
   prepareDaemonActivation,
-} from "./activation.js";
+} from "./activation/index.js";
 import { makeDaemonController } from "./controller.js";
 
 const DAEMON_IMPLEMENTATION = {

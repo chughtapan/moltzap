@@ -6,15 +6,15 @@ import { Router } from "@moltzap/router";
 import { Data, Duration, Effect, Layer } from "effect";
 import { openEndpointStore } from "../store/index.js";
 import {
-  type DaemonConfigurationError,
   loadDaemonBootstrap,
   loadDaemonProcessConfiguration,
 } from "./configuration.js";
+import { type DaemonConfigurationError } from "./bootstrap.js";
 import { runDaemonRuntime } from "./lifecycle.js";
 import {
   type DaemonRegistrationPersistenceError,
   requireAdmissionWhileUnregistered,
-} from "./registration.js";
+} from "./registration/index.js";
 
 const REGISTRY_REQUEST_TIMEOUT = Duration.seconds(30);
 const ROUTER_SEND_TIMEOUT = Duration.seconds(30);

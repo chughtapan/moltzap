@@ -8,11 +8,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  type DaemonConfigurationError,
-  type DaemonProcessConfiguration,
   loadDaemonBootstrap,
   loadDaemonProcessConfiguration,
 } from "./configuration.js";
+import type {
+  DaemonConfigurationError,
+  DaemonProcessConfiguration,
+} from "./bootstrap.js";
 
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/no-hardcoded-assertion-literals -- Exact keys, spellings, redaction, and closed reasons are the configuration contract under test. */
 

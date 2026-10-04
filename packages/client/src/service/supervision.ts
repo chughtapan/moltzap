@@ -11,7 +11,7 @@ import type {
   EndpointEngine,
   EngineInitializationError,
 } from "../transport/messaging/index.js";
-import type { DaemonBootstrap } from "./configuration.js";
+import type { DaemonBootstrap } from "./bootstrap.js";
 import {
   CollectiveEmitError,
   type CollectiveOperations,
@@ -35,7 +35,7 @@ import {
   type DaemonRuntimeDependencies,
   DaemonRuntimeError,
   recoverPinnedSenderCards,
-} from "./activation.js";
+} from "./activation/index.js";
 
 /** Subscription publisher installed after the MCP handler is acquired. */
 export type RuntimeSubscriptionHandler = Effect.Effect.Success<

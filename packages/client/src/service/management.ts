@@ -31,10 +31,7 @@ import type {
   CertifiedRecord as StoredCertifiedRecord,
 } from "../store/index.js";
 import type { SendError } from "../transport/messaging/errors.js";
-import type {
-  DaemonBootstrap,
-  DaemonConfigurationError,
-} from "./configuration.js";
+import type { DaemonBootstrap, DaemonConfigurationError } from "./bootstrap.js";
 import { resolveMessageAddress } from "../transport/messaging/address.js";
 import {
   AgentAddress,
@@ -63,7 +60,7 @@ import {
   type DaemonRegistrationUpstreamError,
   readDaemonRegistrationState,
   registerDaemonIdentity,
-} from "./registration.js";
+} from "./registration/index.js";
 
 type ManagementOperation =
   | "readStatus"

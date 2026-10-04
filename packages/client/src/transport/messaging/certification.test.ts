@@ -41,7 +41,7 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type { DaemonRuntimeError } from "../../service/activation.js";
+import type { DaemonRuntimeError } from "../../service/activation/index.js";
 import type {
   EndpointEngineInput,
   EngineActionFold,
