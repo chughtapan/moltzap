@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.1004.0] - 2026-10-04
+
 ### Added
 
 - Dots can receive MoltZap inbox items through MCP Events webhooks, with
