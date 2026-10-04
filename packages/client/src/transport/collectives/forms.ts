@@ -2,7 +2,7 @@
 
 import { Data, Schema } from "effect";
 import { AgentAddress, MessageAddressInput } from "../messaging/address.js";
-import { sendFailureReasons } from "../messaging/errors.js";
+import { sendFailureReasons, sendFailureText } from "../messaging/errors.js";
 import {
   exactStruct,
   isCanonicalIdentifier,
@@ -203,30 +203,42 @@ export type CollectiveFailure = typeof collectiveFailure.Type;
  */
 export const decodeCollectiveFailure = Schema.decodeUnknown(collectiveFailure);
 
+/** What each answer-field problem means in a reply failure. */
+const answerFieldText = {
+  missing: "is missing",
+  unexpected: "is not in the form",
+  invalid: "is invalid",
+} as const;
+
 function describeCollectiveFailure(failure: CollectiveFailure): string {
   switch (failure.kind) {
     case "members-unreachable":
-      return `unreachable members: ${failure.members
-        .map(({ member, reason }) => `${member} (${reason})`)
-        .join(", ")}`;
-    case "schema-invalid":
-      return `requestedSchema is not an MCP form-mode schema: ${failure.detail}`;
-    case "answer-invalid":
-      return `content does not match the request's schema: ${failure.fields
-        .map(({ field, reason, detail }) =>
-          detail === undefined
-            ? `${field}: ${reason}`
-            : `${field}: ${reason} (${detail})`,
+      return `send failed: ${failure.members
+        .map(({ member, reason }) =>
+          reason === "unknown-agent"
+            ? `${member} is not a known agent`
+            : `${member} could not be reached (${sendFailureText[reason]})`,
         )
         .join("; ")}`;
+    case "schema-invalid":
+      return `send failed: the form is invalid (${failure.detail})`;
+    case "answer-invalid":
+      return `reply failed: ${failure.fields
+        .map(({ field, reason, detail }) => {
+          const problem = answerFieldText[reason];
+          return detail === undefined
+            ? `field "${field}" ${problem}`
+            : `field "${field}" ${problem} (${detail})`;
+        })
+        .join("; ")}`;
     case "request-none":
-      return "no gather or all_gather request is open in this conversation";
+      return "reply failed: no question is open in this conversation";
     case "request-ambiguous":
-      return "more than one gather or all_gather request is open in this conversation, and answering one of several is not supported; nothing was sent";
+      return "reply failed: more than one question is open in this conversation, and answering one of several is not supported";
     case "request-answered":
-      return "the request in this conversation was already answered";
+      return "reply failed: the question was already answered";
     case "request-expired":
-      return "the request in this conversation has passed its deadline";
+      return "reply failed: the question's deadline has passed";
     default: {
       const exhaustive: never = failure;
       return exhaustive;
@@ -244,16 +256,17 @@ export class CollectiveEmitError extends Data.TaggedError(
 ) {}
 
 /**
- * A gather, all_gather or answer was refused. The message names each
- * unreachable member or failing field, so a host can hand it to its model as
- * the tool error.
+ * A gather, all_gather or answer was refused. The message is what a host
+ * hands its model as the tool error: the failed action and its cause, naming
+ * each unreachable member or failing field. The operation id stays in the
+ * error's data, not its message.
  */
 export class CollectiveError extends Data.TaggedError("CollectiveError")<{
   readonly id: CollectiveId;
   readonly failure: CollectiveFailure;
 }> {
   override get message(): string {
-    return `operation ${this.id} failed: ${describeCollectiveFailure(this.failure)}`;
+    return describeCollectiveFailure(this.failure);
   }
 }
 

@@ -8,7 +8,7 @@ The collective operations the daemon service composes.
 
 ## Public surface
 
-### [`CollectiveError`](./forms.ts#L251)
+### [`CollectiveError`](./forms.ts#L264)
 
 _Class_
 
@@ -18,14 +18,15 @@ export class CollectiveError extends Data.TaggedError("CollectiveError")<{
   readonly failure: CollectiveFailure;
 }> {
   override get message(): string {
-    return `operation ${this.id} failed: ${describeCollectiveFailure(this.failure)}`;
+    return describeCollectiveFailure(this.failure);
   }
 }
 ```
 
-A gather, all_gather or answer was refused. The message names each
-unreachable member or failing field, so a host can hand it to its model as
-the tool error.
+A gather, all_gather or answer was refused. The message is what a host
+hands its model as the tool error: the failed action and its cause, naming
+each unreachable member or failing field. The operation id stays in the
+error's data, not its message.
 
 ### [`InboundItem`](./inbound.ts#L103)
 

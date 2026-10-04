@@ -151,8 +151,10 @@ export type CanonicalMessageAddress =
 /**
  * Put one destination in canonical form, the rule every send shares. An
  * `agent:` address names one other agent. A `group:` address names each agent
- * once; the local agent is added when absent, and the complete group has 3 to
- * 32 members in unsigned ASCII name order.
+ * once and the local agent is added when absent. Naming one other agent makes
+ * it that agent's direct address, since the two-member set is the direct
+ * conversation; otherwise the complete group has 3 to `maximumMembers` members
+ * in unsigned ASCII name order.
  * @param to The validated destination input.
  * @param localAgentName The local agent's Registry name.
  * @returns The canonical address with its names, local agent included for a
@@ -188,8 +190,15 @@ function invalidAddress(): SendError {
   return new SendError({ reason: "invalid-address" });
 }
 
-function invalidMembership(): SendError {
-  return new SendError({ reason: "membership-invalid" });
+function invalidMembership(detail: string): SendError {
+  return new SendError({ reason: "membership-invalid", detail });
+}
+
+function unknownAgent(agentName: AgentName): SendError {
+  return new SendError({
+    reason: "unknown-agent",
+    detail: `${AGENT_ADDRESS_PREFIX}${agentName} is not a known agent`,
+  });
 }
 
 function mapRegistryFailure(error: { readonly _tag: string }): SendError {
@@ -246,11 +255,11 @@ function lookupCard(
     Effect.mapError(mapRegistryFailure),
     Effect.flatMap((result) => {
       if (result.kind === "not_found") {
-        return Effect.fail(new SendError({ reason: "unknown-agent" }));
+        return Effect.fail(unknownAgent(agentName));
       }
       return result.agentCard.agentName === agentName
         ? Effect.succeed(result.agentCard)
-        : Effect.fail(new SendError({ reason: "unknown-agent" }));
+        : Effect.fail(unknownAgent(agentName));
     }),
   );
 }
@@ -264,7 +273,7 @@ function canonicalDirect(
       to.slice(AGENT_ADDRESS_PREFIX.length),
     );
     if (remoteName === localAgentName) {
-      return yield* invalidMembership();
+      return yield* invalidMembership("the address names only you");
     }
     const address = yield* Schema.decodeUnknown(AgentAddress)(to).pipe(
       Effect.mapError(invalidAddress),
@@ -284,14 +293,29 @@ function canonicalGroup(
       { concurrency: 1 },
     );
     if (new Set(explicitNames).size !== explicitNames.length) {
-      return yield* invalidMembership();
+      return yield* invalidMembership(
+        "the address names an agent more than once",
+      );
     }
     const localName = yield* decodeAgentName(localAgentName);
     const memberNames = explicitNames.includes(localName)
       ? explicitNames.slice()
       : [...explicitNames, localName];
-    if (memberNames.length < 3 || memberNames.length > maximumMembers) {
-      return yield* invalidMembership();
+    const others = memberNames.filter((name) => name !== localName);
+    const [onlyOther] = others;
+    if (onlyOther === undefined) {
+      return yield* invalidMembership("the address names only you");
+    }
+    if (others.length === 1) {
+      const address = yield* Schema.decodeUnknown(AgentAddress)(
+        `${AGENT_ADDRESS_PREFIX}${onlyOther}`,
+      ).pipe(Effect.mapError(invalidAddress));
+      return { kind: "direct", address, remoteName: onlyOther };
+    }
+    if (memberNames.length > maximumMembers) {
+      return yield* invalidMembership(
+        `a group has at most ${String(maximumMembers)} members`,
+      );
     }
     memberNames.sort(compareAscii);
     const address = yield* Schema.decodeUnknown(GroupAddress)(

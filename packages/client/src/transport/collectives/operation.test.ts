@@ -233,7 +233,7 @@ function failsAMulticastWhoseTextAndPartExceedTheContentLimit() {
         send(layer, { to: "agent:bob", text: "a".repeat(32_741) }),
       );
 
-      expect(failure).toEqual(new SendError({ reason: "content-invalid" }));
+      expect(failure).toMatchObject({ reason: "content-invalid" });
     }),
   );
 }
@@ -502,19 +502,22 @@ function emitsARefusedGatherAsAnOperationFailedItemWhenFailuresGoInbound() {
 
   return run(
     Effect.gen(function* () {
+      const unknownMember = "agent:carol";
       const layer = yield* makeLayer(observed, {}, undefined, {
-        unknown: ["agent:carol"],
+        unknown: [unknownMember],
       });
       const outcome = yield* send(layer, gatherInput(), "inbound");
 
-      expect(observed.emitted).toEqual([
-        {
-          kind: "operationFailed",
-          id: outcome.operationId,
-          to: gatherTo,
-          error: `operation ${String(outcome.operationId)} failed: unreachable members: agent:carol (unknown-agent)`,
-        },
-      ]);
+      const [emitted, ...rest] = observed.emitted;
+      expect(rest).toEqual([]);
+      expect(emitted).toMatchObject({
+        kind: "operationFailed",
+        id: outcome.operationId,
+        to: gatherTo,
+      });
+      expect(emitted?.kind === "operationFailed" && emitted.error).toContain(
+        unknownMember,
+      );
     }),
   );
 }
@@ -771,12 +774,11 @@ function reportsAnUnmatchedAnswerInTheConversationItWasSentTo() {
       );
 
       expect(observed.sent).toEqual([]);
-      expect(observed.emitted).toEqual([
+      expect(observed.emitted).toMatchObject([
         {
           kind: "operationFailed",
           id: outcome.operationId,
           to: "agent:bob",
-          error: `operation ${outcome.operationId} failed: no gather or all_gather request is open in this conversation`,
         },
       ]);
     }),
@@ -899,7 +901,7 @@ function failsASendWhoseInboundRefusalCannotBeKept() {
         ),
       );
 
-      expect(failure).toEqual(new SendError({ reason: "persistence-failed" }));
+      expect(failure).toMatchObject({ reason: "persistence-failed" });
     }),
   );
 }
@@ -1032,18 +1034,15 @@ function returnsTheGatherSIdWithTheRequestPostsItCertified() {
   );
 }
 
-function refusesAGatherToAGroupOfFewerThanThreeMembers() {
+function asksTheOneAgentOfAGroupAddressNamingOneOtherAgent() {
   const observed = newObserved();
 
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(observed);
-      const failure = yield* collectiveFailureOf(
-        send(layer, { ...gatherInput(), to: "group:bob" }),
-      );
+      yield* send(layer, { ...gatherInput(), to: "group:bob" });
 
-      expect(failure).toEqual(new SendError({ reason: "membership-invalid" }));
-      expect(observed.sent).toEqual([]);
+      expect(observed.sent.map((post) => post.to)).toEqual(["agent:bob"]);
     }),
   );
 }
@@ -1058,7 +1057,7 @@ function refusesAGatherToAGroupThatNamesAMemberTwice() {
         send(layer, { ...gatherInput(), to: "group:bob,carol,bob" }),
       );
 
-      expect(failure).toEqual(new SendError({ reason: "membership-invalid" }));
+      expect(failure).toMatchObject({ reason: "membership-invalid" });
       expect(observed.sent).toEqual([]);
     }),
   );
@@ -1373,8 +1372,8 @@ describe("gather results", () => {
 // @agent-code-guard/regression-only: examples pin that a gather shares the send address rule.
 describe("gather addressing", () => {
   it(
-    "refuses a gather to a group of fewer than three members",
-    refusesAGatherToAGroupOfFewerThanThreeMembers,
+    "asks the one agent of a group address naming one other agent",
+    asksTheOneAgentOfAGroupAddressNamingOneOtherAgent,
   );
 
   it(

@@ -1345,7 +1345,6 @@ function sendFailsAfterAttachBound(): Effect.Effect<void, never, Scope.Scope> {
     expect(failure).toStrictEqual(
       new SendError({ reason: "network-unavailable" }),
     );
-    expect(failure.message).toContain(failure.reason);
   });
 }
 

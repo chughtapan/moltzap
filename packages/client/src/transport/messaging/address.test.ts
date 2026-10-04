@@ -21,6 +21,7 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { maximumMembers } from "../wire/values.js";
 import {
   type AddressRegistryPort,
   MessageAddressInput,
@@ -198,57 +199,134 @@ describe("resolved address state", () => {
     ));
 });
 
+const membershipInvalid = "membership-invalid";
+const unknownAgent = "unknown-agent";
+
 // @agent-code-guard/regression-only: Resolution pins closed membership and lookup failures.
 describe("invalid address membership", () => {
-  it("rejects self-direct, repeated names, and unknown agents", () =>
+  it("refuses a direct address to self", () =>
     Effect.runPromise(
       Effect.gen(function* () {
         const fixture = yield* makeFixture;
-        const expectedMembershipFailure = "membership-invalid";
-        const expectedUnknownFailure = "unknown-agent";
-        const selfDirect = yield* resolveMessageAddress({
+
+        const error = yield* resolveMessageAddress({
           localAgentCard: fixture.cards[0],
           registry: fixture.registry,
           to: decodeInput("agent:agent-1"),
         }).pipe(Effect.flip);
-        const duplicate = yield* resolveMessageAddress({
+
+        expect(error.reason).toBe(membershipInvalid);
+        expect(error.detail).toBeDefined();
+      }),
+    ));
+
+  it("refuses a group naming an agent twice", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+
+        const error = yield* resolveMessageAddress({
           localAgentCard: fixture.cards[0],
           registry: fixture.registry,
           to: decodeInput("group:agent-10,agent-10"),
         }).pipe(Effect.flip);
-        const unknown = yield* resolveMessageAddress({
+
+        expect(error.reason).toBe(membershipInvalid);
+        expect(error.detail).toBeDefined();
+      }),
+    ));
+
+  it("refuses an unknown agent and names it in the message", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const address = "agent:unknown-agent";
+
+        const error = yield* resolveMessageAddress({
           localAgentCard: fixture.cards[0],
           registry: fixture.registry,
-          to: decodeInput("agent:unknown-agent"),
+          to: decodeInput(address),
         }).pipe(Effect.flip);
 
-        expect(selfDirect.reason).toBe(expectedMembershipFailure);
-        expect(duplicate.reason).toBe(expectedMembershipFailure);
-        expect(unknown.reason).toBe(expectedUnknownFailure);
+        expect(error.reason).toBe(unknownAgent);
+        expect(error.message).toContain(address);
+      }),
+    ));
+});
+
+// @agent-code-guard/regression-only: Resolution pins the direct address a one-other-agent group names.
+describe("group naming one other agent", () => {
+  it("resolves to that agent's direct conversation", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const direct = yield* resolveMessageAddress({
+          localAgentCard: fixture.cards[0],
+          registry: fixture.registry,
+          to: decodeInput("agent:agent-2"),
+        });
+
+        const resolved = yield* resolveMessageAddress({
+          localAgentCard: fixture.cards[0],
+          registry: fixture.registry,
+          to: decodeInput("group:agent-2"),
+        });
+
+        expect(resolved).toEqual(direct);
+      }),
+    ));
+
+  it("resolves to that agent's direct conversation when self is listed too", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const direct = yield* resolveMessageAddress({
+          localAgentCard: fixture.cards[0],
+          registry: fixture.registry,
+          to: decodeInput("agent:agent-2"),
+        });
+
+        const resolved = yield* resolveMessageAddress({
+          localAgentCard: fixture.cards[0],
+          registry: fixture.registry,
+          to: decodeInput("group:agent-1,agent-2"),
+        });
+
+        expect(resolved).toEqual(direct);
       }),
     ));
 });
 
 // @agent-code-guard/regression-only: Resolution pins the accepted group-size boundary.
-describe("invalid group size", () => {
-  it("rejects final group totals of 2 and 33", () =>
+describe("group size", () => {
+  it("refuses a group naming only self", () =>
     Effect.runPromise(
       Effect.gen(function* () {
         const fixture = yield* makeFixture;
-        const expectedFailure = "membership-invalid";
-        const twoMembers = yield* resolveMessageAddress({
+
+        const error = yield* resolveMessageAddress({
           localAgentCard: fixture.cards[0],
           registry: fixture.registry,
-          to: decodeInput("group:agent-2"),
+          to: decodeInput("group:agent-1"),
         }).pipe(Effect.flip);
-        const thirtyThreeMembers = yield* resolveMessageAddress({
+
+        expect(error.reason).toBe(membershipInvalid);
+      }),
+    ));
+
+  it("refuses a group over the member limit and states the limit", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+
+        const error = yield* resolveMessageAddress({
           localAgentCard: fixture.cards[0],
           registry: fixture.registry,
           to: decodeInput(`group:${thirtyTwoRemoteNames}`),
         }).pipe(Effect.flip);
 
-        expect(twoMembers.reason).toBe(expectedFailure);
-        expect(thirtyThreeMembers.reason).toBe(expectedFailure);
+        expect(error.reason).toBe(membershipInvalid);
+        expect(error.message).toContain(String(maximumMembers));
       }),
     ));
 });

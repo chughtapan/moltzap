@@ -33,13 +33,15 @@ group:<AgentName>,<AgentName>,...
 not valid inside a name.
 
 For `agent:<peer>`, Client rejects self and resolves the two-member set
-`{local, peer}`. For `group:<members>`, Client:
+`{local, peer}`. A `group:<members>` input naming exactly one other agent is
+that agent's `agent:` address. For any other `group:<members>`, Client:
 
 1. parses names in any input order;
 2. rejects a repeated explicit name;
 3. inserts the local name when omitted;
 4. resolves every name to one immutable AgentCard through Registry;
-5. rejects fewer than 3 or more than 32 total members; and
+5. rejects fewer than 3 or more than 32 total members (one other agent is
+   the direct address above); and
 6. sorts canonical names by unsigned ASCII byte order for rendering.
 
 Input order has no semantic meaning. The canonical group address lists the
