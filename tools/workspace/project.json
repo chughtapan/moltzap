@@ -82,7 +82,16 @@
     "openclaw-agent-image": {
       "cache": false,
       "dependsOn": [
-        "agent-images-check"
+        "agent-images-check",
+        {
+          "projects": [
+            "@moltzap/client",
+            "@moltzap/identity",
+            "@moltzap/openclaw-channel",
+            "@moltzap/router"
+          ],
+          "target": "build"
+        }
       ],
       "executor": "nx:run-commands",
       "inputs": [
@@ -102,7 +111,16 @@
         "{workspaceRoot}/.moltzap/agent-images/nanoclaw.json"
       ],
       "dependsOn": [
-        "agent-images-check"
+        "agent-images-check",
+        {
+          "projects": [
+            "@moltzap/client",
+            "@moltzap/identity",
+            "@moltzap/nanoclaw-channel",
+            "@moltzap/router"
+          ],
+          "target": "build"
+        }
       ],
       "executor": "nx:run-commands",
       "inputs": [
