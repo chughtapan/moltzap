@@ -308,6 +308,38 @@ function namesEveryMemberWhenTheGroupPostIsNotCertifiedInTime() {
   );
 }
 
+/**
+ * Runs on the live clock: the deadline timer is scheduled just before the
+ * group post's wait, so it fires first, which a test clock that wakes both at
+ * one instant cannot show.
+ */
+function endsInItsResultAloneWhenTheDeadlinePassesBeforeTheGroupPostCertifies() {
+  const observed = newObserved();
+
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const posts = { attempted: 0 };
+      const layer = yield* makeLayer(observed, "agent:alice", {
+        sendPost: (input) =>
+          posts.attempted++ === 0 ? Effect.never : certify(observed, input),
+      });
+      yield* send(layer, {
+        ...allGatherInput(),
+        collective: {
+          op: "all_gather",
+          deadline: 1,
+          requestedSchema: slotSchema,
+        },
+      });
+      yield* Effect.sleep(Duration.millis(50));
+
+      expect(observed.emitted).toMatchObject([
+        { kind: "collectiveResult", to: group },
+      ]);
+    }).pipe(Effect.scoped),
+  );
+}
+
 function doesNotCloseWhenTheDeadlinePassesDuringTheLookups() {
   const observed = newObserved();
 
@@ -903,6 +935,10 @@ describe("all_gather at the requester", () => {
   it(
     "names every member when the group post is not certified in time",
     namesEveryMemberWhenTheGroupPostIsNotCertifiedInTime,
+  );
+  it(
+    "ends in its result alone when the deadline passes before the group post certifies",
+    endsInItsResultAloneWhenTheDeadlinePassesBeforeTheGroupPostCertifies,
   );
   it(
     "refuses an all_gather with an unknown member before posting",

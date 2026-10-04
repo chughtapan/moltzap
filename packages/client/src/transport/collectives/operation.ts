@@ -696,8 +696,11 @@ function updateGather(
  * Send an all_gather's one request post to the group and wait for it, never
  * past the deadline. A refused post, or one still uncertified when the wait
  * ends, abandons the all_gather: the group's GENESIS needs every member. The
- * operation is dropped before its unreachable members are looked up, so a
- * deadline that passes during the lookups cannot close it.
+ * deadline timer is forked just before the wait starts, so it can complete
+ * the all_gather first; its result then stands and the send succeeds, so an
+ * operation ends in exactly one refusal or one result. The operation is
+ * dropped before its unreachable members are looked up, so a deadline that
+ * passes during the lookups cannot close it.
  */
 function sendGroupRequest(
   state: CollectiveState,
@@ -712,18 +715,26 @@ function sendGroupRequest(
       }),
       Effect.map((post) => [post.postId]),
       Effect.catchAll((error) =>
-        forgetGather(state, prepared.id).pipe(
-          Effect.zipRight(
-            unreachableMembers(state, prepared.open.members, error.reason),
-          ),
-          Effect.flatMap((members) =>
-            Effect.fail(
-              collectiveFailure(prepared.id, {
-                kind: "members-unreachable",
-                members,
-              }),
-            ),
-          ),
+        Effect.suspend(() =>
+          state.gathers.has(prepared.id)
+            ? forgetGather(state, prepared.id).pipe(
+                Effect.zipRight(
+                  unreachableMembers(
+                    state,
+                    prepared.open.members,
+                    error.reason,
+                  ),
+                ),
+                Effect.flatMap((members) =>
+                  Effect.fail(
+                    collectiveFailure(prepared.id, {
+                      kind: "members-unreachable",
+                      members,
+                    }),
+                  ),
+                ),
+              )
+            : Effect.succeed([]),
         ),
       ),
     );
