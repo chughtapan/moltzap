@@ -5,8 +5,7 @@
     "@moltzap/identity",
     "@moltzap/router",
     "@moltzap/client",
-    "@moltzap/openclaw-channel",
-    "@moltzap/nanoclaw-channel"
+    "@moltzap/openclaw-channel"
   ],
   "targets": {
     "test:integration": {
@@ -15,20 +14,10 @@
         "^production",
         "{workspaceRoot}/scripts/test/adapter-daemon-process.integration.test.ts",
         "{workspaceRoot}/scripts/test/adapter-daemon-vitest.config.ts",
-        "{workspaceRoot}/scripts/test/nanoclaw-addressed-send-probe.mjs",
-        "{workspaceRoot}/scripts/test/tsconfig.adapter-daemon.json",
-        "{workspaceRoot}/scripts/agent-images/build-nanoclaw-image.mjs",
-        "{workspaceRoot}/scripts/agent-images/nanoclaw/**/*",
-        "{workspaceRoot}/scripts/agent-images/shared/**/*",
-        "{workspaceRoot}/scripts/images/**/*",
-        "{workspaceRoot}/tools/workspace/project.json"
+        "{workspaceRoot}/scripts/test/tsconfig.adapter-daemon.json"
       ],
       "dependsOn": [
-        "^build",
-        {
-          "projects": ["workspace"],
-          "target": "nanoclaw-agent-image"
-        }
+        "^build"
       ],
       "executor": "nx:run-commands",
       "options": {

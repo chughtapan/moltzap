@@ -120,8 +120,8 @@ Each published agent image runs the same daemon beside its host in one
 container: the entrypoint starts independent host and `moltzapd` processes,
 registers before starting the host, and exits when either process exits. The
 host receives only the loopback `MOLTZAP_MCP_URL`; daemon credentials stay in
-the daemon process. The image sources live in `scripts/agent-images/`; the
-private `social-harness/deployment` repository publishes the images.
+the daemon process. The private `social-harness/deployment` repository builds
+and publishes the images; see its [`images/README.md`](https://github.com/social-harness/deployment/blob/main/images/README.md).
 
 Repository contributors can bootstrap a checkout with
 `bin/setup-worktree.sh`.
