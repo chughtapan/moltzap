@@ -206,6 +206,22 @@ const writeProtectedHeader = (header: unknown): string =>
 const flipFirstByte = (value: string): string =>
   `${value.startsWith("A") ? "B" : "A"}${value.slice(1)}`;
 
+const BASE64URL_ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/**
+ * Sets the lowest bit of the final base64url character. When the text length
+ * is not a multiple of four that bit is padding, which a canonical spelling
+ * leaves clear, so the result is a noncanonical spelling of the same bytes.
+ * The jose library decodes such a spelling and opens the body, so only the
+ * representation check refuses it.
+ *
+ * @param value Canonical base64url text whose length is not a multiple of four.
+ * @returns A noncanonical spelling of the same bytes.
+ */
+const respellFinalCharacter = (value: string): string =>
+  `${value.slice(0, -1)}${BASE64URL_ALPHABET.charAt(BASE64URL_ALPHABET.indexOf(value.slice(-1)) + 1)}`;
+
 const plaintext = utf8Encoder.encode(PLAINTEXT_TEXT);
 
 /**
@@ -351,6 +367,94 @@ it.each([1, 3, 32])(
   KEY_AGREEMENT_HEAVY_TIMEOUT_MS,
 );
 
+/**
+ * AgentId bytes whose spellings sort differently as text: byte 66 spells
+ * `agt_QkJC…` and byte 67 spells `agt_Q0ND…`, so a text sort puts 67 first
+ * while the canonical bytewise recipient order puts 66 first.
+ */
+const TEXT_ORDER_INVERTING_BYTES = [66, 67];
+
+/**
+ * Seals from `sender` with the recipient cards in the order given, signs to
+ * the same recipients, and checks that every recipient opens the plaintext.
+ *
+ * @param sender Sender of the SignedMessage.
+ * @param recipients Recipients in the order the sender lists their cards.
+ * @returns Completion once every recipient opens.
+ */
+const expectEveryListedRecipientOpens = (
+  sender: Member,
+  recipients: readonly Member[],
+) =>
+  Effect.gen(function* () {
+    const sealed = yield* sealFrom(sender, recipients, plaintext);
+    const signedMessage = yield* signBody(sender, recipients, sealed);
+
+    const opened = yield* Effect.forEach(
+      recipients,
+      (member) => openAs(member, signedMessage),
+      { concurrency: FIXTURE_CONCURRENCY },
+    );
+
+    expect(opened).toEqual(recipients.map(() => plaintext));
+  });
+
+/**
+ * Runs `expectEveryListedRecipientOpens` over generated orders of the
+ * recipient cards, starting with the reverse of the canonical order.
+ *
+ * @param sender Sender of the SignedMessage.
+ * @param recipients Recipients in canonical order.
+ * @returns The fast-check run, rejecting with the shrunk counterexample.
+ */
+const everyRecipientCardOrderOpens = (
+  sender: Member,
+  recipients: readonly Member[],
+) =>
+  fc.assert(
+    fc.asyncProperty(
+      fc.shuffledSubarray([...recipients], {
+        minLength: recipients.length,
+        maxLength: recipients.length,
+      }),
+      (order) =>
+        Effect.runPromise(expectEveryListedRecipientOpens(sender, order)),
+    ),
+    { numRuns: 8, examples: [[[...recipients].reverse()]] },
+  );
+
+/**
+ * Value: protects=seal orders entries by the canonical bytewise AgentId order
+ * whatever order the caller lists the cards in; fails_when=seal keeps the
+ * caller's order or sorts AgentIds as text; why_new=every other test lists
+ * recipients already in canonical order, with AgentIds whose text and byte
+ * orders agree; seam=none.
+ */
+it(
+  "opens for every recipient whatever order the sender lists the recipient cards in",
+  () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const group = yield* makeGroup(2);
+        const textOrderInverting = yield* Effect.forEach(
+          TEXT_ORDER_INVERTING_BYTES,
+          (byte) => makeMember(group.registrySigningAuthority, byte),
+          { concurrency: FIXTURE_CONCURRENCY },
+        );
+
+        yield* Effect.tryPromise({
+          try: () =>
+            everyRecipientCardOrderOpens(group.sender, [
+              ...group.recipients,
+              ...textOrderInverting,
+            ]),
+          catch: (counterexample) => counterexample,
+        });
+      }),
+    ),
+  KEY_AGREEMENT_HEAVY_TIMEOUT_MS,
+);
+
 it(
   "opens every generated plaintext exactly and seals it to the reported length",
   () =>
@@ -418,6 +522,66 @@ it.each([
               encrypted_key: flipFirstByte(recipient.encrypted_key),
             }
           : recipient,
+      ),
+    }),
+  },
+  /**
+   * Value: protects=open refuses a noncanonical base64url spelling of the
+   * same ciphertext bytes; fails_when=the ciphertext member accepts any
+   * base64url text; why_new=the other ciphertext row changes the decoded
+   * bytes, which content authentication refuses anyway; seam=none.
+   */
+  {
+    part: "ciphertext spelling",
+    tamper: (body: RawSealedBody): RawSealedBody => ({
+      ...body,
+      ciphertext: respellFinalCharacter(body.ciphertext),
+    }),
+  },
+  /**
+   * Value: protects=open refuses a noncanonical spelling of the same tag
+   * bytes; fails_when=the tag member checks only its decoded length;
+   * why_new=the other tag row changes the decoded bytes; seam=none.
+   */
+  {
+    part: "authentication tag spelling",
+    tamper: (body: RawSealedBody): RawSealedBody => ({
+      ...body,
+      tag: respellFinalCharacter(body.tag),
+    }),
+  },
+  /**
+   * Value: protects=open refuses a noncanonical spelling of the same wrapped
+   * key bytes; fails_when=the encrypted_key member checks only its decoded
+   * length; why_new=the other encrypted_key row changes the wrapped key, which
+   * key unwrap refuses anyway; seam=none.
+   */
+  {
+    part: "encrypted_key spelling of the opening recipient",
+    tamper: (body: RawSealedBody): RawSealedBody => ({
+      ...body,
+      recipients: body.recipients.map((recipient, index) =>
+        index === 1
+          ? {
+              ...recipient,
+              encrypted_key: respellFinalCharacter(recipient.encrypted_key),
+            }
+          : recipient,
+      ),
+    }),
+  },
+  /**
+   * Value: protects=a multi-recipient body opens only when every entry
+   * carries its own ephemeral key; fails_when=the placement check inspects
+   * only the opener's entry, which jose then opens; why_new=the existing
+   * placement tests move every ephemeral key at once; seam=none.
+   */
+  {
+    part: "ephemeral-key placement of another recipient's entry",
+    tamper: (body: RawSealedBody): RawSealedBody => ({
+      ...body,
+      recipients: body.recipients.map((recipient, index) =>
+        index === 0 ? { encrypted_key: recipient.encrypted_key } : recipient,
       ),
     }),
   },
@@ -634,6 +798,95 @@ it("refuses a multi-recipient body that shares one ephemeral key through the pro
     }),
   ));
 
+/**
+ * Seals `plaintext` to the sender and peer as `SealedBody.seal` does, with
+ * `addedMembers` appended to the protected header.
+ *
+ * @param sender Sender and first recipient.
+ * @param peer Second recipient.
+ * @param addedMembers Protected-header members beyond alg, enc, and sender.
+ * @returns Canonical bytes of the General JWE.
+ */
+const sealWithProtectedMembers = (
+  sender: Member,
+  peer: Member,
+  addedMembers: Readonly<Record<string, string>>,
+) =>
+  Effect.gen(function* () {
+    const representation = yield* Effect.tryPromise({
+      try: () =>
+        new GeneralEncrypt(plaintext)
+          .setProtectedHeader({
+            alg: "ECDH-ES+A256KW",
+            enc: "A256GCM",
+            [SENDER_HEADER]: sender.agentCard.agentId,
+            ...addedMembers,
+          })
+          .addRecipient(
+            Either.getOrThrow(x25519PublicJwk(sender.agentCard.publicKey)),
+          )
+          .addRecipient(
+            Either.getOrThrow(x25519PublicJwk(peer.agentCard.publicKey)),
+          )
+          .encrypt(),
+      catch: () => new Error("hand sealing failed"),
+    });
+    return yield* encodeCanonicalJson(representation);
+  });
+
+interface ProtectedMembersCase {
+  readonly added: string;
+  readonly members: Readonly<Record<string, string>>;
+  readonly result: string;
+  readonly expected: Either.Either<Uint8Array, SealedBodyOpeningError>;
+}
+
+/**
+ * Value: protects=open refuses a protected header with a member beyond alg,
+ * enc, and sender, which jose itself opens; fails_when=the protected-header
+ * Schema stops refusing excess members; why_new=the aad row of the body table
+ * adds an outer member, and rewriting a sealed header fails content
+ * authentication before header exactness is reached; seam=none.
+ */
+it.each<ProtectedMembersCase>([
+  {
+    added: "no member",
+    members: {},
+    result: "the plaintext",
+    expected: Either.right(plaintext),
+  },
+  {
+    added: "a content-type member",
+    members: { cty: "text/plain" },
+    result: "SealedBodyOpeningError",
+    expected: Either.left(new SealedBodyOpeningError()),
+  },
+])(
+  "returns $result for a hand-sealed body whose protected header adds $added",
+  ({ members, expected }) =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const group = yield* makeGroup(2);
+        const sealed = yield* sealWithProtectedMembers(
+          group.sender,
+          group.peer,
+          members,
+        );
+        const signedMessage = yield* signBody(
+          group.sender,
+          group.recipients,
+          sealed,
+        );
+
+        const outcome = yield* openAs(group.peer, signedMessage).pipe(
+          Effect.either,
+        );
+
+        expect(outcome).toStrictEqual(expected);
+      }),
+    ),
+);
+
 it("opens the same sealed bytes re-wrapped under a new MessageId", () =>
   Effect.runPromise(
     Effect.gen(function* () {
@@ -729,8 +982,16 @@ it(
   KEY_AGREEMENT_HEAVY_TIMEOUT_MS,
 );
 
+/**
+ * Value: protects=the reported largest plaintext seals within the body cap,
+ * one more byte exceeds it, and the largest body signs and opens at 1, 2,
+ * and 128 recipients; fails_when=open's recipient-entry bound or body
+ * decoding refuses a body seal produces at the size or recipient limit;
+ * why_new=no other test opens a body sealed to 128 recipients or a body at
+ * the size limit; seam=none.
+ */
 it.each([1, 2, 128])(
-  "seals the reported largest plaintext for %i recipients within the body cap and one more byte beyond it",
+  "seals and opens the reported largest plaintext for %i recipients within the body cap, and one more byte exceeds it",
   (recipientCount) =>
     Effect.runPromise(
       Effect.gen(function* () {
@@ -749,7 +1010,15 @@ it.each([1, 2, 128])(
           group.recipients,
           new Uint8Array(largestPlaintextBytes + 1),
         );
+        const signedMessage = yield* signBody(
+          group.sender,
+          group.recipients,
+          largest,
+        );
 
+        expect((yield* openAs(group.sender, signedMessage)).byteLength).toBe(
+          largestPlaintextBytes,
+        );
         expect(largest.byteLength).toBeLessThanOrEqual(SIGNED_MESSAGE_BODY_CAP);
         expect(oneMore.byteLength).toBeGreaterThan(SIGNED_MESSAGE_BODY_CAP);
         expect(
