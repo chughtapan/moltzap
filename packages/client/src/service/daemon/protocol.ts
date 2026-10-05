@@ -150,7 +150,10 @@ const retainMembershipCards = (
 
 /**
  * The unique canonical sender cards pinned by durable memberships, plus the
- * local card, sorted for Router worker acquisition.
+ * local card. They are sorted by AgentId string so acquisition sees a
+ * deterministic list. That is not the decoded-byte order `compareAgentIds`
+ * gives; the Router worker keys the cards by AgentId, so nothing depends on
+ * the order.
  */
 const recoverPinnedSenderCards = (
   environment: ProtocolEnvironment,
