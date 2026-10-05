@@ -4,7 +4,6 @@ import { NodeHttpClient } from "@effect/platform-node";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Data, Duration, Effect, Layer } from "effect";
-import type { DaemonConfigurationError } from "./bootstrap.js";
 import { openEndpointStore } from "../store/index.js";
 import {
   loadDaemonBootstrap,
@@ -12,8 +11,8 @@ import {
 } from "./configuration.js";
 import { runDaemonRuntime } from "./lifecycle.js";
 import {
-  type DaemonRegistrationPersistenceError,
-  requireAdmissionWhileUnregistered,
+  readDaemonRegistrationState,
+  requireAdmission,
 } from "./registration/index.js";
 
 const REGISTRY_REQUEST_TIMEOUT = Duration.seconds(30);
@@ -47,8 +46,12 @@ export namespace MoltZapService {
     const store = yield* openEndpointStore(configuration.stateDirectory).pipe(
       Effect.mapError(storageFailure),
     );
-    yield* requireAdmissionWhileUnregistered({ store, bootstrap }).pipe(
-      Effect.mapError(admissionFailure),
+    const registration = yield* readDaemonRegistrationState({
+      store,
+      bootstrap,
+    }).pipe(Effect.mapError(storageFailure));
+    yield* requireAdmission(registration, bootstrap).pipe(
+      Effect.mapError(configurationFailure),
     );
     const networkContext = yield* Layer.build(
       Layer.merge(
@@ -64,7 +67,7 @@ export namespace MoltZapService {
         }),
       ).pipe(Layer.provide(NodeHttpClient.layer)),
     );
-    return yield* runDaemonRuntime({ store, bootstrap }).pipe(
+    return yield* runDaemonRuntime({ store, bootstrap, registration }).pipe(
       Effect.provide(networkContext),
       // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public process layer deliberately projects private runtime failures onto its closed startup phase.
       Effect.mapError((error) => new StartupError({ phase: error.phase })),
@@ -81,20 +84,5 @@ export namespace MoltZapService {
 
   function storageFailure(): StartupError {
     return new StartupError({ phase: "storage" });
-  }
-
-  function admissionFailure(
-    error: DaemonConfigurationError | DaemonRegistrationPersistenceError,
-  ): StartupError {
-    switch (error._tag) {
-      case "DaemonConfigurationError":
-        return configurationFailure();
-      case "DaemonRegistrationPersistenceError":
-        return storageFailure();
-      default: {
-        const exhaustive: never = error;
-        return exhaustive;
-      }
-    }
   }
 }

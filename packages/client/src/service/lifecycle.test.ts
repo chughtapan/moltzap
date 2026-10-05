@@ -479,6 +479,98 @@ const settlesRegistrationWhenThePassFails = async () => {
   }
 };
 
+/** Restart over `store` and expect the daemon to start active with `agentCard`. */
+const expectActiveAfterRestart = async (
+  fixture: Fixture,
+  store: EndpointStore,
+  agentCard: typeof AgentCard.Encoded,
+) => {
+  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
+  const daemon = Effect.runFork(run(fixture, store, harness));
+  try {
+    await awaitStage(Deferred.await(harness.listenerReady), "restart");
+    expect(
+      await Effect.runPromise(requireOperations(harness).readStatus()),
+      "status after restart",
+    ).toEqual({ kind: "active", agentCard });
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(daemon));
+  }
+};
+
+/**
+ * Start a registration, interrupt it once engine activation has begun, then
+ * release activation and wait for the interrupt to settle. `yieldNow` lets
+ * the interrupt reach the registration before activation is released.
+ */
+const interruptRegistrationDuringActivation = async (
+  fixture: Fixture,
+  harness: RuntimeHarness,
+) => {
+  const registration = Effect.runFork(
+    requireOperations(harness).register(fixture.registerRequest),
+  );
+  await awaitStage(Deferred.await(harness.engineEntered), "engine acquisition");
+  const interruption = Effect.runFork(Fiber.interrupt(registration));
+  await Effect.runPromise(Effect.yieldNow());
+  await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
+  await awaitStage(Fiber.join(interruption), "interrupted registration");
+};
+
+/**
+ * Cancelling an MCP request aborts its signal, which interrupts the tool's
+ * operation. By the time engine activation starts, registration has bound the
+ * identity and the daemon reports active, so an interrupt that stopped
+ * activation there would leave a daemon that reports active with no
+ * protocol, refusing inbox reads and sends as not registered until it
+ * restarts. Registration and activation therefore run uninterruptibly: an
+ * interrupt that arrives while activation is blocked still lets it finish,
+ * deliver, and restart registered.
+ */
+const finishesRegistrationWhenInterrupted = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
+  const store = makeStore(fixture, false);
+  const agentCard = await Effect.runPromise(
+    Schema.encode(AgentCard)(fixture.localCard),
+  );
+  const daemon = Effect.runFork(run(fixture, store, harness));
+  try {
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    await interruptRegistrationDuringActivation(fixture, harness);
+    const operations = requireOperations(harness);
+
+    expect(
+      await Effect.runPromise(operations.readStatus()),
+      "status after the interrupted registration",
+    ).toEqual({ kind: "active", agentCard });
+    expect(
+      await Effect.runPromise(
+        Effect.exit(
+          operations.readInbox({}).pipe(Effect.map((page) => page.items)),
+        ),
+      ),
+      "inbox once the interrupted activation finishes",
+    ).toEqual(
+      Exit.succeed([
+        {
+          deliveryToken: fixture.pending.deliveryToken,
+          item: { kind: "multicast", message: fixture.pending.message },
+        },
+      ]),
+    );
+    expect(
+      await awaitStage(
+        operations.register(fixture.registerRequest),
+        "registration retried after the interrupt",
+      ),
+    ).toEqual({ kind: "registered", agentCard });
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(daemon));
+  }
+  await expectActiveAfterRestart(fixture, store, agentCard);
+};
+
 const receivesFirstDelivery = async (
   handler: HarnessMcpEventHandler,
 ): Promise<undefined> => {
@@ -625,6 +717,10 @@ describe("daemon runtime composition", () => {
     blocksStartupAndSupervisesWorker());
   it("does not finish registration before engine activation", () =>
     blocksRegistrationAndSupervisesOutbound());
+  it(
+    "finishes registration and activation when the register request is interrupted",
+    finishesRegistrationWhenInterrupted,
+  );
   it("publishes durable deliveries before completing acknowledgment", () =>
     replaysUntilAcknowledged());
 });
