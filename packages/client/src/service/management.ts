@@ -47,8 +47,8 @@ import {
   RecordCore as RecordCoreSchema,
   type RouterAnchor,
   RouterAnchor as RouterAnchorSchema,
+  type VerifiedMembership,
   verifyCertifiedRecord,
-  type verifyMembershipDescriptor,
   verifyRecordCore,
   verifyStableEvidence,
 } from "../transport/wire/index.js";
@@ -82,9 +82,6 @@ type RegistryService = Context.Tag.Service<typeof Registry>;
 type MessageAddress = ManagementSearchConversationsResult["addresses"][number];
 type HistoryRecord = ManagementReadConversationResult["records"][number];
 type SignerEvidence = HistoryRecord["actionSignatures"][number];
-type VerifiedMembership = Effect.Effect.Success<
-  ReturnType<typeof verifyMembershipDescriptor>
->;
 type VerifiedRecordCore = Effect.Effect.Success<
   ReturnType<typeof verifyRecordCore>
 >;
@@ -306,9 +303,7 @@ function addressNames(address: string): readonly string[] {
 }
 
 function renderMembershipAddress(
-  membership: Effect.Effect.Success<
-    ReturnType<typeof verifyMembershipDescriptor>
-  >,
+  membership: VerifiedMembership,
   localAgentCard: VerifiedAgentCard,
 ): Effect.Effect<MessageAddress, DaemonManagementError> {
   const localMember = membership.members.find(

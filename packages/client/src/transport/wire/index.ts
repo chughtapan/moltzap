@@ -11,6 +11,7 @@ export {
   deriveConversationId,
   deriveEvidenceMessageId,
   encodeCanonical,
+  equalCanonical,
   hashAction,
   hashAnchor,
   hashMembershipDescriptor,

@@ -1,6 +1,7 @@
 /**
- * @file Certificate assembly shared by the records the engine builds and the
- * records it restores from the store: signer order and the record envelopes.
+ * @file Certificate assembly: the signer order every certificate requires,
+ * which re-anchor shares, and the record envelopes shared by the records the
+ * engine builds and the records it restores from the store.
  */
 
 import { MOLTZAP_VERSION, SignedMessage } from "@moltzap/identity";
