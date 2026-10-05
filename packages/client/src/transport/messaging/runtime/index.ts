@@ -12,7 +12,10 @@ import type {
   VerifiedAgentCard,
 } from "@moltzap/identity";
 import type { Deferred, Effect } from "effect";
-import type { EndpointStore } from "../../../store/index.js";
+import type {
+  EndpointStore,
+  EndpointStoreError,
+} from "../../../store/index.js";
 import type {
   RouterIngressDisposition,
   RouterTailAnchor,
@@ -153,9 +156,18 @@ export interface EngineRuntime {
 }
 
 /**
- * The engine's outbox: the only signer of outer envelopes, their durable
- * staging, and the ordered queue of outbox identities the Router worker
- * transmits. Engine assembly builds it, and phases reach it only through
+ * Why the outbox could not stage an envelope: signing or canonical encoding
+ * failed, or the store refused the row. Each phase maps it to its own error.
+ */
+export type EngineOutboxError = ClientRepresentationError | EndpointStoreError;
+
+/**
+ * The engine's outbox. It is the only caller of the outer-envelope signers,
+ * so every outer body the engine originates is built and signed here. Outside
+ * a recovery run it stages each signed envelope in the durable outbox and
+ * keeps the ordered queue of outbox identities the Router worker transmits; a
+ * running recovery hands its signed envelopes to the worker's recovery queue
+ * instead. Engine assembly builds it, and phases reach it only through
  * `EngineRuntime.outbox`.
  */
 export interface EngineOutbox {
@@ -167,21 +179,25 @@ export interface EngineOutbox {
   readonly queuePacket: (
     conversation: EngineConversation,
     packet: DirectPacket,
-  ) => Effect.Effect<void, SendError>;
+  ) => Effect.Effect<void, EngineOutboxError>;
   /** Relay stable inner evidence; its signer attribution is unchanged. */
   readonly queueEvidence: (
     conversation: EngineConversation,
     evidence: SignedMessage,
-  ) => Effect.Effect<void, SendError>;
+  ) => Effect.Effect<void, EngineOutboxError>;
   /** Attach the signed packet to its durable dissemination obligation. */
   readonly queueCertifiedPacket: (
     conversation: EngineConversation,
     packet: ActionCertifiedRecord | CertifiedRecord,
-  ) => Effect.Effect<void, SendError>;
+  ) => Effect.Effect<void, EngineOutboxError>;
+  /**
+   * Stage an envelope that `sign` returned. Any other `SignedMessage` would
+   * bypass the outbox's single signing point.
+   */
   readonly enqueueSigned: (
     conversationId: ConversationId,
     message: SignedMessage,
-  ) => Effect.Effect<void, SendError>;
+  ) => Effect.Effect<void, EngineOutboxError>;
   readonly resume: (outboundIds: readonly string[]) => Effect.Effect<void>;
   /** Forget every queued identity; the store keeps the envelopes. */
   readonly clear: () => void;

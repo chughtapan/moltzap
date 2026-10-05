@@ -11,6 +11,7 @@ import type { RouterWorkerUnavailableError } from "../router/index.js";
 import type { MessageAddressInput } from "../wire/values.js";
 import type {
   EngineConversation,
+  EngineOutboxError,
   EnginePostIntent,
   EngineRuntime,
 } from "./runtime/index.js";
@@ -66,12 +67,19 @@ const sendReasonByStoreReason = {
   Record<EndpointStoreError["reason"], SendError["reason"]>
 >;
 
+function outboxFailure(error: EngineOutboxError): SendError {
+  return error._tag === "EndpointStoreError"
+    ? storeFailure(error)
+    : representationFailure();
+}
+
 function storeFailure(error: EndpointStoreError): SendError {
   return new SendError({ reason: sendReasonByStoreReason[error.reason] });
 }
 
-const representationFailure = (): SendError =>
-  new SendError({ reason: "certification-unavailable" });
+function representationFailure(): SendError {
+  return new SendError({ reason: "certification-unavailable" });
+}
 
 /**
  * How long a send waits for the Router worker to attach before failing as
@@ -255,6 +263,7 @@ function queueAuthorizedProposal(
           action: proposal.action,
         })
         .pipe(
+          Effect.mapError(outboxFailure),
           Effect.zipRight(
             Effect.sync(() => {
               proposal.localIntent.proposedActionHash = proposal.actionHash;
