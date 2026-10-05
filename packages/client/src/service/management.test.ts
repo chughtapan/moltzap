@@ -310,9 +310,9 @@ function localRegisterRequest(fixture: IdentityFixture) {
 }
 
 /**
- * The production Registry client with a 50 ms request deadline over an HTTP
- * client that records each request in `requested` and never answers, as a
- * stalled Registry connection behaves.
+ * The production Registry client with a 1 s request deadline over an HTTP
+ * client that completes `requested` when a request arrives and never answers,
+ * as a stalled Registry connection behaves.
  */
 function silentRegistryLayer(
   fixture: IdentityFixture,
@@ -322,7 +322,7 @@ function silentRegistryLayer(
     origin: fixture.bootstrap.configuration.registryOrigin,
     registrySignerPublicKey:
       fixture.bootstrap.configuration.registrySignerPublicKey,
-    requestTimeout: Duration.millis(50),
+    requestTimeout: Duration.seconds(1),
   }).pipe(
     Layer.provide(
       Layer.succeed(
@@ -341,8 +341,10 @@ function silentRegistryLayer(
  * The register tool runs uninterruptibly so a cancelled request still binds.
  * That region must not also hold the Registry client's deadline off: a
  * Registry that never answers ends the call at the deadline, not never. The
- * register runs detached so a masked call that never ends fails this test at
- * its own bound instead of holding the test fiber open.
+ * deadline covers request signing too, so it is long enough for signing to
+ * reach the HTTP client on a loaded machine. The register runs detached so a
+ * masked call that never ends fails this test at its own bound instead of
+ * holding the test fiber open.
  */
 const failsAtTheRegistryDeadline = () =>
   Effect.gen(function* () {
@@ -359,7 +361,7 @@ const failsAtTheRegistryDeadline = () =>
     const error = yield* Fiber.join(registration).pipe(
       Effect.flip,
       Effect.timeoutFail({
-        duration: Duration.seconds(2),
+        duration: Duration.seconds(3),
         onTimeout: () => "register outlived the Registry deadline",
       }),
     );
