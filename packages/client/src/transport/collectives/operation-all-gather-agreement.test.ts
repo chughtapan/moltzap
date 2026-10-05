@@ -33,6 +33,7 @@ import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
 import {
   alice,
   collectiveKey,
+  operationIdOf,
   postId,
   questionText,
   recordHashOf,
@@ -190,7 +191,6 @@ const makeEndpoint = (harness: Harness, self: AgentAddress) =>
           Effect.asVoid,
         ),
       scope,
-      requestSendWait: Duration.seconds(1),
     });
     return { self, layer, emitted, published, answerQueued, next: 0 };
   });
@@ -597,9 +597,7 @@ const startSchedule = (coverage: Coverage) =>
         requestedSchema: slotSchema,
       },
     });
-    const id = yield* Effect.fromNullable(outcome.operationId).pipe(
-      Effect.orElse(() => Effect.dieMessage("all_gather returned no id")),
-    );
+    const id = yield* operationIdOf(outcome);
     return { harness, id };
   });
 

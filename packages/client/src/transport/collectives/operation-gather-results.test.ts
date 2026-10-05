@@ -2,8 +2,8 @@
 
 import { Duration, Effect, Fiber, Option, Supervisor, TestClock } from "effect";
 import { describe, expect, it } from "vitest";
+import type { CollectivePorts } from "./operation.js";
 import {
-  alice,
   answerPost,
   certifyNext,
   classifyPost,
@@ -22,7 +22,6 @@ import {
 } from "../../__tests__/collective-operation-fixtures.js";
 import { SendError } from "../messaging/errors.js";
 import { CollectiveEmitError } from "./forms.js";
-import { type CollectivePorts, makeCollectiveOperations } from "./operation.js";
 
 /**
  * Certify Bob's post at once and refuse Carol's after half a second, so
@@ -245,7 +244,7 @@ function returnsTheGatherSIdWithTheRequestPostsItCertified() {
       const { id } = yield* firstRequestOf(observed);
 
       expect(outcome).toEqual({
-        postIds: [postId(1), postId(2)],
+        postIds: [postId(101), postId(102)],
         operationId: id,
       });
     }),
@@ -330,7 +329,7 @@ function completesAGatherWhoseDeadlineIsThirtyDaysAway() {
 function failsTheCompletingAnswerWhenTheResultCannotBeKept() {
   return run(
     Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved(), { emitFails: true });
+      const layer = yield* makeLayer(newObserved(), { emit: unkeptEmit });
       const id = yield* startGather(layer);
       yield* classifyPost(
         layer,
@@ -352,7 +351,7 @@ function failsTheCompletingAnswerWhenTheResultCannotBeKept() {
 function failsASendWhoseInboundRefusalCannotBeKept() {
   return run(
     Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved(), { emitFails: true });
+      const layer = yield* makeLayer(newObserved(), { emit: unkeptEmit });
       const failure = yield* Effect.flip(
         send(
           layer,
@@ -377,16 +376,10 @@ function failsAGatherSendWhoseSettlingResultCannotBeKept() {
 
   return run(
     Effect.gen(function* () {
-      const layer = yield* Effect.map(Effect.scope, (scope) =>
-        makeCollectiveOperations({
-          self: alice,
-          lookupMember: () => Effect.void,
-          sendPost: refuseCarolLater(observed),
-          emit: unkeptEmit,
-          scope,
-          requestSendWait: Duration.seconds(1),
-        }),
-      );
+      const layer = yield* makeLayer(observed, {
+        sendPost: refuseCarolLater(observed),
+        emit: unkeptEmit,
+      });
       const sending = yield* Effect.fork(send(layer, gatherInput()));
       yield* TestClock.adjust(Duration.millis(100));
       const { id } = yield* firstRequestOf(observed);
