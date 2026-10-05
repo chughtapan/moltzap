@@ -2,7 +2,7 @@
 
 import type { Registry } from "@moltzap/identity/registry";
 import { AgentName, type VerifiedAgentCard } from "@moltzap/identity";
-import { type Context, Effect, Schema } from "effect";
+import { type Context, Effect, type ParseResult, Schema } from "effect";
 import {
   AGENT_ADDRESS_PREFIX,
   AgentAddress,
@@ -101,6 +101,27 @@ export function canonicalMessageAddress(
   return to.startsWith(AGENT_ADDRESS_PREFIX)
     ? canonicalDirect(to, localAgentName)
     : canonicalGroup(to, localAgentName);
+}
+
+/**
+ * Render a fixed membership's group address: every member's Registry name,
+ * the local agent's included, in unsigned ASCII order. This is the one place
+ * that orders a group's names, so the names it returns list the members in
+ * the address's order.
+ * @param names The members' names, in any order.
+ * @returns The canonical group address and the names in its order, or the
+ *   parse error when the names cannot form one.
+ */
+export function renderGroupAddress<Name extends string>(
+  names: readonly Name[],
+): Effect.Effect<
+  { readonly address: GroupAddress; readonly names: readonly Name[] },
+  ParseResult.ParseError
+> {
+  const ordered = [...names].sort(compareAscii);
+  return Schema.decodeUnknown(GroupAddress)(
+    `${GROUP_ADDRESS_PREFIX}${ordered.join(",")}`,
+  ).pipe(Effect.map((address) => ({ address, names: ordered })));
 }
 
 function invalidAddress(): SendError {
@@ -211,11 +232,10 @@ function canonicalGroup(
         `a group has at most ${String(maximumMembers)} members`,
       );
     }
-    memberNames.sort(compareAscii);
-    const address = yield* Schema.decodeUnknown(GroupAddress)(
-      `${GROUP_ADDRESS_PREFIX}${memberNames.join(",")}`,
-    ).pipe(Effect.mapError(invalidAddress));
-    return { kind: "group", address, memberNames };
+    const group = yield* renderGroupAddress(memberNames).pipe(
+      Effect.mapError(invalidAddress),
+    );
+    return { kind: "group", address: group.address, memberNames: group.names };
   });
 }
 

@@ -28,6 +28,13 @@ heading below in its release commit.
   bodies sealed to the agent. Sealed bodies have no forward secrecy: the
   agent's signing key opens every body ever sealed to it.
 
+### Changed
+
+- The daemon's `status` owner tool reports a registration as soon as its
+  identity binding commits, while the protocol is still activating. The
+  daemon verifies its stored identity once at startup, and the owner tools
+  read the daemon's registration state rather than the store.
+
 ### Fixed
 
 - A daemon recovering from a Router restart no longer exits when a peer's
@@ -38,6 +45,10 @@ heading below in its release commit.
 - A daemon recovering from a Router restart no longer exits when a peer's
   re-anchor vote, held while its own catch-up ran, completes the re-anchor
   before the daemon proposes its own.
+- `register` ends with `dependency-unavailable` when the Registry does not
+  answer within its 30-second deadline. It previously waited out a slow
+  reply before reporting the timeout, and never returned on a stalled
+  connection.
 
 ## [2026.1005.0] - 2026-10-05
 

@@ -7,9 +7,9 @@ GENESIS/POST certification, durable dissemination, and recovery.
 The service uses `index.ts`, which declares the engine contract
 (`EndpointEngine`, its errors, and the pending-message value) and composes the
 endpoint engine. Other domains read the entrypoints `address.ts` (Registry
-resolution of an address), `errors.ts` (closed send, listen, and
-acknowledgment errors) and `message.ts` (inbound messages) directly, so they
-never load the engine.
+resolution of an address and the canonical group address of a fixed
+membership), `errors.ts` (closed send, listen, and acknowledgment errors) and
+`message.ts` (inbound messages) directly, so they never load the engine.
 
 Inside the engine, `runtime/index.ts` is the kernel: the dependencies an
 engine is built from and the state every phase reads. It is deliberately a
