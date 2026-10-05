@@ -9,8 +9,11 @@ import {
   SignedMessage,
 } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
-import type { EndpointRecovery } from "../../../store/index.js";
 import type { EngineRuntime } from "../runtime/index.js";
+import {
+  type EndpointRecovery,
+  isSemanticStoreRejection,
+} from "../../../store/index.js";
 import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,
@@ -104,6 +107,8 @@ export function makeCatchUpState(): CatchUpState {
 
 /**
  * Queue a signed catch-up request at the engine's current durable position.
+ * A run that has ended, or that does not hold the conversation, such as one a
+ * member created during recovery, asks for nothing.
  * @param run Recovery run that owns the request.
  * @param conversationId Private conversation identity to reconcile.
  * @returns Completion after the request is stored in the recovery queue.
@@ -115,7 +120,7 @@ export const requestCertifiedHistory = (
   Effect.gen(function* () {
     const membership = run.membership(conversationId);
     if (!run.isActive() || membership === undefined) {
-      return yield* Effect.fail(persistenceFailure());
+      return;
     }
     const { position } = yield* durablePosition(run.runtime, conversationId);
     if (position === undefined) {
@@ -502,7 +507,7 @@ function pageSuccessorHash(
 /**
  * Apply a verified page's item. A record item goes through certification's
  * recovery path, which ignores a record that does not extend the
- * conversation.
+ * conversation, and a completed re-anchor the store refuses is ignored too.
  * @param runtime Engine whose store and conversations take the item.
  * @param ingress Verified Router delivery carrying the page.
  * @param page Verified catch-up page for the pending request.
@@ -515,7 +520,9 @@ function applyCatchUpPage(
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
   if (page.item.kind === "completed_reanchor") {
     return applyCaughtUpReanchor(runtime, page.item).pipe(
-      Effect.as(acceptedDisposition),
+      Effect.map((applied) =>
+        applied ? acceptedDisposition : ignoredDisposition,
+      ),
     );
   }
   const recordIngress: RouterWorkerIngress<DecodedOuterBody> = {
@@ -529,35 +536,57 @@ function persistenceFailure(): RouterWorkerPersistenceError {
   return new RouterWorkerPersistenceError();
 }
 
+/**
+ * Make a member's caught-up completed re-anchor durable and the
+ * conversation's current anchor. The store refuses one that conflicts with
+ * durable state, such as a completion from an anchor and Router instance this
+ * endpoint already staged another candidate for. That refusal comes from the
+ * member's input, not a failed store, so the completion does not count.
+ * @param runtime Engine whose store and conversation take the anchor.
+ * @param completed Verified completed re-anchor from a catch-up page.
+ * @returns Whether the anchor was applied; false when the store refused it.
+ */
 function applyCaughtUpReanchor(
   runtime: EngineRuntime,
   completed: CompletedReanchorValue,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
+): Effect.Effect<boolean, RouterWorkerPersistenceError> {
   return Effect.gen(function* () {
-    yield* runtime.input.store.applyCatchUpReanchor({
-      conversationId: completed.reanchor.conversationId,
-      anchorHash: completed.anchorHash,
-      previousAnchorHash: completed.reanchor.previousAnchorHash,
-      routerInstanceId: completed.reanchor.routerInstanceId,
-      selectedRecordHash: completed.reanchor.selectedRecordHash,
-      canonicalBody: yield* encodeCanonical(
-        ReanchorBody,
-        completed.reanchor,
-      ).pipe(Effect.mapError(persistenceFailure)),
-      canonicalCompletedReanchor: yield* encodeCanonical(
-        CompletedReanchor,
-        completed,
-      ).pipe(Effect.mapError(persistenceFailure)),
-    });
-    yield* Effect.sync(() => {
-      const conversation = runtime.conversations.get(
-        completed.reanchor.conversationId,
+    const applied = yield* runtime.input.store
+      .applyCatchUpReanchor({
+        conversationId: completed.reanchor.conversationId,
+        anchorHash: completed.anchorHash,
+        previousAnchorHash: completed.reanchor.previousAnchorHash,
+        routerInstanceId: completed.reanchor.routerInstanceId,
+        selectedRecordHash: completed.reanchor.selectedRecordHash,
+        canonicalBody: yield* encodeCanonical(
+          ReanchorBody,
+          completed.reanchor,
+        ).pipe(Effect.mapError(persistenceFailure)),
+        canonicalCompletedReanchor: yield* encodeCanonical(
+          CompletedReanchor,
+          completed,
+        ).pipe(Effect.mapError(persistenceFailure)),
+      })
+      .pipe(
+        Effect.as(true),
+        Effect.catchTag("EndpointStoreError", (error) =>
+          isSemanticStoreRejection(error)
+            ? Effect.succeed(false)
+            : Effect.fail(persistenceFailure()),
+        ),
       );
-      if (conversation !== undefined) {
-        conversation.currentAnchor = completed;
-      }
-    });
-  }).pipe(Effect.mapError(persistenceFailure));
+    if (applied) {
+      yield* Effect.sync(() => {
+        const conversation = runtime.conversations.get(
+          completed.reanchor.conversationId,
+        );
+        if (conversation !== undefined) {
+          conversation.currentAnchor = completed;
+        }
+      });
+    }
+    return applied;
+  });
 }
 
 function recordIncompleteResponder(

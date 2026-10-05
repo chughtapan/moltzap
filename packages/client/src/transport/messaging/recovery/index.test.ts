@@ -1018,23 +1018,25 @@ const catchUpPageIngress = (
     return ingress;
   }).pipe(Effect.orDie);
 
-const catchUpRecordIngressFrom = (input: {
+const catchUpPageIngressFrom = (input: {
   readonly membership: VerifiedMembership;
   readonly responder: IdentityFixture;
   readonly request: CatchUpRequest;
-  readonly record: CertifiedRecord;
+  readonly item: CatchUpPage["item"];
   readonly routerInstanceId: typeof RouterInstanceId.Type;
 }): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> =>
   Effect.gen(function* () {
-    const recordHash = input.record.actionCertifiedRecord.recordHash;
     const attestation = yield* signEvidenceMessage({
       statement: {
         moltzapVersion: MOLTZAP_VERSION,
         kind: "catch_up_attestation",
         signerAgentId: input.responder.card.agentId,
         request: input.request,
-        itemKind: "certified_record",
-        itemHash: recordHash,
+        itemKind: input.item.kind,
+        itemHash:
+          input.item.kind === "certified_record"
+            ? input.item.actionCertifiedRecord.recordHash
+            : input.item.anchorHash,
         hasMore: false,
       },
       agentCard: input.responder.card,
@@ -1044,7 +1046,7 @@ const catchUpRecordIngressFrom = (input: {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "catch_up_page",
       request: input.request,
-      item: input.record,
+      item: input.item,
       hasMore: false,
       attestation: yield* Schema.encode(SignedMessage)(attestation),
     };
@@ -1207,6 +1209,52 @@ const peerVoteFor = (fixture: RecoveryFixture, reanchor: ReanchorBody) =>
       }),
     ),
   );
+
+/**
+ * A completed re-anchor of `reanchor` certified by `voters`, whose votes the
+ * certificate lists in decoded AgentId order.
+ * @param reanchor Re-anchor body every voter signs.
+ * @param voters Members whose votes form the certificate, at least one.
+ * @returns The completed re-anchor.
+ */
+const completedReanchorBy = (
+  reanchor: ReanchorBody,
+  voters: readonly IdentityFixture[],
+) =>
+  Effect.gen(function* () {
+    const anchorHash = yield* hashAnchor(reanchor);
+    const ordered = [...voters].sort((left, right) =>
+      compareAgentIds(left.card.agentId, right.card.agentId),
+    );
+    const [first, ...rest] = yield* Effect.forEach(
+      ordered,
+      (voter) =>
+        encodedEvidence(voter, {
+          moltzapVersion: MOLTZAP_VERSION,
+          kind: "reanchor_vote",
+          signerAgentId: voter.card.agentId,
+          anchorHash,
+          reanchor,
+        }),
+      { concurrency: 1 },
+    );
+    if (first === undefined) {
+      return yield* Effect.dieMessage("a re-anchor certificate needs a vote");
+    }
+    const completed: CompletedReanchor = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "completed_reanchor",
+      anchorHash,
+      reanchor,
+      certificate: {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "reanchor_certificate",
+        anchorHash,
+        votes: [first, ...rest],
+      },
+    };
+    return completed;
+  }).pipe(Effect.orDie);
 
 /**
  * A peer's correctly signed vote to re-anchor the fixture conversation at the
@@ -2932,11 +2980,11 @@ const recoversN4PartiallyDisseminatedSuccessor = () =>
         ).toHaveLength(0);
         expect(Option.isNone(yield* Queue.poll(recoveryOutbound))).toBe(true);
 
-        yield* catchUpRecordIngressFrom({
+        yield* catchUpPageIngressFrom({
           membership: n4.membership,
           responder: n4.fourth,
           request: n4Request,
-          record: history.certifiedSuccessor,
+          item: history.certifiedSuccessor,
           routerInstanceId: newRouterInstanceId,
         }).pipe(
           Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
@@ -3570,10 +3618,10 @@ const reanchorsPastHeldVoteForUnsuppliedHead = () =>
   );
 
 /**
- * After the run restarts the direct conversation's empty foundation, a peer's
- * vote for it has no head to re-anchor, so it is reported ignored and the run
- * still recovers the N4 conversation. Fails when the vote ends recovery with
- * a persistence failure.
+ * After the run restarts the direct conversation's empty foundation, that
+ * conversation is anchored to the run's Router instance, so a peer's vote for
+ * it is reported ignored and the run still recovers the N4 conversation.
+ * Fails when the vote ends recovery with a persistence failure.
  */
 const ignoresReanchorVoteForRestartedEmptyConversation = () =>
   Effect.runPromise(
@@ -3613,11 +3661,12 @@ const ignoresReanchorVoteForRestartedEmptyConversation = () =>
   );
 
 /**
- * After the run restarts the direct conversation's empty foundation, a
- * relayed completed re-anchor for it has no head to re-anchor, so it is
- * reported ignored and the run still recovers the N4 conversation. Fails when
- * the completion ends recovery with a persistence failure, or is reported
- * accepted although the run took none of its votes.
+ * After the run restarts the direct conversation's empty foundation, that
+ * conversation is anchored to the run's Router instance, so a relayed
+ * completed re-anchor for it is reported ignored and the run still recovers
+ * the N4 conversation. Fails when the completion ends recovery with a
+ * persistence failure, or is reported accepted although the run took none of
+ * its votes.
  */
 const ignoresRelayedCompletionForRestartedEmptyConversation = () =>
   Effect.runPromise(
@@ -3636,33 +3685,10 @@ const ignoresRelayedCompletionForRestartedEmptyConversation = () =>
           selectedRecordHash: recordHash,
           routerInstanceId: newRouterInstanceId,
         };
-        const anchorHash = yield* hashAnchor(reanchor);
-        const localVote = yield* encodedEvidence(fixture.local, {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "reanchor_vote",
-          signerAgentId: fixture.local.card.agentId,
-          anchorHash,
-          reanchor,
-        });
-        const peerVote = yield* encodedEvidence(fixture.remote, {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "reanchor_vote",
-          signerAgentId: fixture.remote.card.agentId,
-          anchorHash,
-          reanchor,
-        });
-        const completed: DirectPacket = {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "completed_reanchor",
-          anchorHash,
-          reanchor,
-          certificate: {
-            moltzapVersion: MOLTZAP_VERSION,
-            kind: "reanchor_certificate",
-            anchorHash,
-            votes: [localVote, peerVote],
-          },
-        };
+        const completed = yield* completedReanchorBy(reanchor, [
+          fixture.local,
+          fixture.remote,
+        ]);
         const { recovery, outbound } = yield* forkRecovery(
           n4.engine,
           "router_restarted",
@@ -3723,11 +3749,11 @@ const ignoresCatchUpPageWithConflictingSuccessor = () =>
         const first = yield* takeCatchUpRequest(outbound);
         const applied = yield* deliverRecovery(
           fixture.engine,
-          catchUpRecordIngressFrom({
+          catchUpPageIngressFrom({
             membership: fixture.membership,
             responder: fixture.remote,
             request: first,
-            record: fixture.certifiedRecord,
+            item: fixture.certifiedRecord,
             routerInstanceId: oldRouterInstanceId,
           }),
         );
@@ -3735,11 +3761,11 @@ const ignoresCatchUpPageWithConflictingSuccessor = () =>
 
         const conflict = yield* deliverRecovery(
           fixture.engine,
-          catchUpRecordIngressFrom({
+          catchUpPageIngressFrom({
             membership: fixture.membership,
             responder: fixture.remote,
             request: first,
-            record: conflicting,
+            item: conflicting,
             routerInstanceId: oldRouterInstanceId,
           }),
         );
@@ -3790,11 +3816,11 @@ const ignoresCatchUpPageWhoseRecordDoesNotExtendTheConversation = () =>
 
         const page = yield* deliverRecovery(
           fixture.engine,
-          catchUpRecordIngressFrom({
+          catchUpPageIngressFrom({
             membership: fixture.membership,
             responder: fixture.remote,
             request,
-            record: elsewhere,
+            item: elsewhere,
             routerInstanceId: oldRouterInstanceId,
           }),
         );
@@ -3906,7 +3932,7 @@ const keepsOneCandidateAfterTheHeadMovesPastIt = () =>
       Effect.gen(function* () {
         const fixture = yield* makeFixture;
         const n4 = yield* addN4Foundation(fixture);
-        const { recovery, outbound, successor, advancedRequest } =
+        const { recovery, outbound, staged, successor, advancedRequest } =
           yield* advanceN4HeadPastStagedCandidate(fixture, n4);
 
         const [, , ready] = yield* answerN4Incomplete(
@@ -3914,9 +3940,26 @@ const keepsOneCandidateAfterTheHeadMovesPastIt = () =>
           n4,
           advancedRequest,
         );
+        const conversationId = n4.membership.descriptor.conversationId;
+        const durable = yield* fixture.store.recover();
 
         expect(successor).toBe(acceptedDisposition);
         expect(ready).toBe(acceptedDisposition);
+        expect(
+          durable.stagedReanchors
+            .filter((candidate) => candidate.conversationId === conversationId)
+            .map(({ anchorHash }) => anchorHash),
+        ).toEqual([staged.anchorHash]);
+        expect(
+          durable.evidence
+            .filter(
+              (row) =>
+                row.kind === "reanchor" &&
+                row.conversationId === conversationId &&
+                row.evidenceKey === fixture.local.card.agentId,
+            )
+            .map(({ subjectId }) => subjectId),
+        ).toEqual([staged.anchorHash]);
         expect(Option.isNone(yield* Queue.poll(outbound))).toBe(true);
         expect(yield* directAnchorHash(fixture)).toBe(
           yield* restartedDirectAnchorHash(fixture),
@@ -3982,6 +4025,216 @@ const ignoresReanchorVoteConflictingWithAStoredCopy = () =>
     ),
   );
 
+/**
+ * A two-member conversation between the fixture's endpoint and a new member,
+ * which the endpoint's store does not hold yet, and its certified GENESIS
+ * record.
+ * @param fixture Endpoint the conversation includes.
+ * @returns The new member, the conversation's membership, and its record.
+ */
+const unstoredConversationWith = (fixture: RecoveryFixture) =>
+  Effect.gen(function* () {
+    const authority = yield* makeTestAuthority();
+    const member: IdentityFixture = {
+      card: yield* issueTestCard({
+        byte: 5,
+        name: "recovery-5",
+        authority,
+        registryKeys: fixture.registryKeys,
+      }),
+      authority,
+    };
+    const conversationId = yield* deriveConversationId([
+      fixture.local.card.agentId,
+      member.card.agentId,
+    ]);
+    const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "membership_descriptor",
+      conversationId,
+      members: yield* Effect.forEach(
+        [fixture.local, member],
+        (identity) => Schema.encode(AgentCard)(identity.card),
+        { concurrency: 1 },
+      ),
+    });
+    const membership = yield* verifyMembershipDescriptor(
+      descriptor,
+      fixture.registrySignerPublicKey,
+    );
+    const genesis = yield* buildCertifiedGenesis(
+      fixture.local,
+      member,
+      membership,
+    );
+    return { member, membership, genesis };
+  }).pipe(Effect.orDie);
+
+/**
+ * The endpoint staged its candidate at the N4 head, and a certified
+ * successor then moved the head. The other three members certify a
+ * re-anchor at the new head from the same anchor and Router instance, and a
+ * member's catch-up page carries it. The endpoint's store already holds a
+ * candidate for that anchor and Router instance and refuses the completion,
+ * so the page is reported ignored, the refused completion does not become the
+ * conversation's anchor, and a member's vote for the staged candidate is
+ * still held. Fails when the store's refusal ends recovery with a persistence
+ * failure, or the refused completion is taken as the current anchor.
+ */
+const ignoresCaughtUpReanchorConflictingWithTheStagedCandidate = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const n4 = yield* addN4Foundation(fixture);
+        const { recovery, history, staged, advancedRequest } =
+          yield* advanceN4HeadPastStagedCandidate(fixture, n4);
+        const completed = yield* completedReanchorBy(
+          {
+            ...staged.reanchor,
+            selectedRecordHash:
+              history.certifiedSuccessor.actionCertifiedRecord.recordHash,
+          },
+          [fixture.remote, n4.third, n4.fourth],
+        );
+
+        const page = yield* deliverRecovery(
+          n4.engine,
+          catchUpPageIngressFrom({
+            membership: n4.membership,
+            responder: fixture.remote,
+            request: advancedRequest,
+            item: completed,
+            routerInstanceId: newRouterInstanceId,
+          }),
+        ).pipe(Effect.exit);
+
+        const heldVote = yield* deliverRecovery(
+          n4.engine,
+          peerReanchorVoteIngressFrom({
+            membership: n4.membership,
+            responder: n4.third,
+            proposal: staged,
+            routerInstanceId: newRouterInstanceId,
+          }),
+        );
+
+        expect(page).toStrictEqual(Exit.succeed(ignoredDisposition));
+        expect(heldVote).toBe(acceptedDisposition);
+        expect(Option.isNone(yield* Fiber.poll(recovery))).toBe(true);
+        yield* Fiber.interrupt(recovery);
+      }),
+    ),
+  );
+
+/**
+ * A member creates a new conversation with this endpoint while it recovers,
+ * and the conversation's certified GENESIS record arrives as recovery
+ * traffic. The run holds no membership for that conversation, so it applies
+ * the record without asking for its history and keeps running. Fails when
+ * asking for that conversation's history ends recovery with a persistence
+ * failure.
+ */
+const acceptsGenesisOfAConversationCreatedDuringRecovery = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const created = yield* unstoredConversationWith(fixture);
+        const { recovery, outbound } = yield* forkRecovery(
+          fixture.engine,
+          "feed_gap",
+          oldRouterInstanceId,
+        );
+        yield* takeCatchUpRequest(outbound);
+
+        const genesis = yield* deliverRecovery(
+          fixture.engine,
+          directPacketIngressFrom({
+            membership: created.membership,
+            sender: created.member,
+            packet: created.genesis,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        ).pipe(Effect.exit);
+        const position = (yield* fixture.store.recover()).positions.find(
+          ({ conversationId }) =>
+            conversationId === created.membership.descriptor.conversationId,
+        );
+
+        expect(genesis).toStrictEqual(Exit.succeed(acceptedDisposition));
+        expect(position?.headRecordHash).toBe(
+          created.genesis.actionCertifiedRecord.recordHash,
+        );
+        expect(Option.isNone(yield* Fiber.poll(recovery))).toBe(true);
+        yield* Fiber.interrupt(recovery);
+      }),
+    ),
+  );
+
+/**
+ * The run re-anchors the fixture conversation and keeps running while the N4
+ * conversation waits for its catch-up. A member's vote from the new anchor at
+ * the same Router instance asks for a second re-anchor nobody needs, so it is
+ * reported ignored and the endpoint stages no candidate for it. Fails when
+ * the vote stages a candidate from the new anchor and the endpoint signs a
+ * vote for it.
+ */
+const ignoresReanchorVoteAfterTheConversationReanchored = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+        const n4 = yield* addN4Foundation(fixture);
+        const { recovery, outbound } = yield* forkRecovery(
+          n4.engine,
+          "router_restarted",
+          newRouterInstanceId,
+        );
+        const requests = yield* takeN4Requests(fixture, n4, outbound);
+        yield* deliverRecovery(
+          n4.engine,
+          catchUpIncompleteIngressFrom({
+            membership: fixture.membership,
+            responder: fixture.remote,
+            request: requests.direct,
+            routerInstanceId: newRouterInstanceId,
+          }),
+        );
+        const proposal = yield* Queue.take(outbound).pipe(
+          Effect.timeout("1 second"),
+          Effect.flatMap(decodeReanchorVote),
+        );
+        const completing = yield* deliverRecovery(
+          n4.engine,
+          peerReanchorVoteIngress(fixture, proposal),
+        );
+
+        const fromNewAnchor = yield* deliverRecovery(
+          n4.engine,
+          peerVoteFor(fixture, {
+            ...proposal.reanchor,
+            previousAnchorHash: proposal.anchorHash,
+          }),
+        );
+        const staged = (yield* fixture.store.recover()).stagedReanchors.filter(
+          ({ conversationId }) =>
+            conversationId === fixture.membership.descriptor.conversationId,
+        );
+
+        expect(completing).toBe(acceptedDisposition);
+        expect(yield* directAnchorHash(fixture)).toBe(proposal.anchorHash);
+        expect(fromNewAnchor).toBe(ignoredDisposition);
+        expect(staged.map(({ anchorHash }) => anchorHash)).toEqual([
+          proposal.anchorHash,
+        ]);
+        expect(Option.isNone(yield* Fiber.poll(recovery))).toBe(true);
+        yield* Fiber.interrupt(recovery);
+      }),
+    ),
+  );
+
 // @agent-code-guard/regression-only: these traces pin that input from a peer never ends a recovery run.
 describe("peer input during recovery", () => {
   it(
@@ -4027,6 +4280,18 @@ describe("peer input during recovery", () => {
   it(
     "ignores a re-anchor vote that conflicts with a stored copy of the same vote",
     ignoresReanchorVoteConflictingWithAStoredCopy,
+  );
+  it(
+    "ignores a caught-up re-anchor that conflicts with its staged candidate",
+    ignoresCaughtUpReanchorConflictingWithTheStagedCandidate,
+  );
+  it(
+    "accepts the GENESIS of a conversation created during recovery",
+    acceptsGenesisOfAConversationCreatedDuringRecovery,
+  );
+  it(
+    "ignores a re-anchor vote once its conversation has re-anchored",
+    ignoresReanchorVoteAfterTheConversationReanchored,
   );
 });
 
@@ -4284,59 +4549,21 @@ const adoptsReanchorCompletedWhileItWasDown = () =>
           selectedRecordHash: recordHash,
           routerInstanceId: newRouterInstanceId,
         };
-        const anchorHash = yield* hashAnchor(reanchor);
-        const completed: CompletedReanchor = {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "completed_reanchor",
-          anchorHash,
-          reanchor,
-          certificate: {
-            moltzapVersion: MOLTZAP_VERSION,
-            kind: "reanchor_certificate",
-            anchorHash,
-            votes: [
-              yield* encodedEvidence(fixture.local, {
-                moltzapVersion: MOLTZAP_VERSION,
-                kind: "reanchor_vote",
-                signerAgentId: fixture.local.card.agentId,
-                anchorHash,
-                reanchor,
-              }),
-              yield* encodedEvidence(fixture.remote, {
-                moltzapVersion: MOLTZAP_VERSION,
-                kind: "reanchor_vote",
-                signerAgentId: fixture.remote.card.agentId,
-                anchorHash,
-                reanchor,
-              }),
-            ],
-          },
-        };
+        const completed = yield* completedReanchorBy(reanchor, [
+          fixture.local,
+          fixture.remote,
+        ]);
+        const { anchorHash } = completed;
         const { recovery, outbound, request } =
           yield* startRestartRecovery(fixture);
-        const attestation = yield* encodedEvidence(fixture.remote, {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "catch_up_attestation",
-          signerAgentId: fixture.remote.card.agentId,
-          request,
-          itemKind: "completed_reanchor",
-          itemHash: anchorHash,
-          hasMore: false,
-        });
 
         const page = yield* deliverRecovery(
           fixture.engine,
-          directPacketIngressFrom({
+          catchUpPageIngressFrom({
             membership: fixture.membership,
-            sender: fixture.remote,
-            packet: {
-              moltzapVersion: MOLTZAP_VERSION,
-              kind: "catch_up_page",
-              request,
-              item: completed,
-              hasMore: false,
-              attestation,
-            },
+            responder: fixture.remote,
+            request,
+            item: completed,
             routerInstanceId: newRouterInstanceId,
           }),
         );
@@ -4679,6 +4906,219 @@ const endsOnlyAfterItsLastEnvelopeIsSent = () =>
     ),
   );
 
+/**
+ * A store that holds its next full read, once armed, until the test releases
+ * it. A test arms it just before the step whose read it wants to hold.
+ * @param store Store the engine under test reads.
+ * @returns The wrapped store, the arm switch, the signal that a read is
+ *     held, and the release.
+ */
+const holdNextStoreRead = (store: EndpointStore) =>
+  Effect.gen(function* () {
+    const armed = yield* Ref.make(false);
+    const held = yield* Deferred.make<undefined>();
+    const release = yield* Deferred.make<undefined>();
+    const gated: EndpointStore = {
+      ...store,
+      recover: () =>
+        Ref.getAndSet(armed, false).pipe(
+          Effect.flatMap((hold) =>
+            hold
+              ? Deferred.succeed(held, undefined).pipe(
+                  Effect.zipRight(Deferred.await(release)),
+                  Effect.zipRight(store.recover()),
+                )
+              : store.recover(),
+          ),
+        ),
+    };
+    return {
+      store: gated,
+      arm: Ref.set(armed, true),
+      held: Deferred.await(held).pipe(Effect.timeout("1 second")),
+      release: Deferred.succeed(release, undefined),
+    };
+  });
+
+/**
+ * A member's catch-up request arrives after the run has completed and while
+ * its tail still resumes the outbox, dissemination, and folds. The run's
+ * sender stops when the run ends, so the answer goes to the durable outbox,
+ * which the Router worker sends once recovery ends. The test holds the
+ * tail's next store read until the request is answered, and holds every
+ * answer the run's own send takes. Fails when the answer is queued to the
+ * ending run's sender and is lost with it.
+ */
+const answersCatchUpRequestThatArrivesAsTheRunEnds = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const tail = yield* holdNextStoreRead(fixture.store);
+        const engine = yield* makeEndpointEngine({
+          ...fixture.input,
+          store: tail.store,
+        }).pipe(Effect.orDie);
+        const { recovery, outbound } = yield* forkRecovery(
+          engine,
+          "feed_gap",
+          oldRouterInstanceId,
+          (queue, message) =>
+            decodeOuterBody(message.body).pipe(
+              Effect.orDie,
+              Effect.flatMap((body) =>
+                body.kind === "direct" &&
+                body.packet.kind === "catch_up_incomplete"
+                  ? Effect.never
+                  : recordSend(queue, message),
+              ),
+            ),
+        );
+        const own = yield* takeCatchUpRequest(outbound);
+        const peerRequest: CatchUpRequest = {
+          ...own,
+          requesterAgentId: fixture.remote.card.agentId,
+        };
+
+        yield* tail.arm;
+        yield* deliverRecovery(
+          engine,
+          catchUpIncompleteIngressFrom({
+            membership: fixture.membership,
+            responder: fixture.remote,
+            request: own,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        );
+        yield* tail.held;
+        const answered = yield* deliverRecovery(
+          engine,
+          directPacketIngressFrom({
+            membership: fixture.membership,
+            sender: fixture.remote,
+            packet: peerRequest,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        );
+        yield* tail.release;
+        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
+        const durable = yield* Effect.forEach(
+          (yield* fixture.store.recover()).outboundMessages,
+          (row) =>
+            decodeCanonical(SignedMessage, row.canonicalSignedMessage).pipe(
+              Effect.flatMap((message) => decodeOuterBody(message.body)),
+            ),
+          { concurrency: 1 },
+        );
+
+        expect(answered).toBe(acceptedDisposition);
+        expect(durable).toMatchObject([
+          {
+            kind: "direct",
+            packet: { kind: "catch_up_incomplete", request: peerRequest },
+          },
+        ]);
+      }),
+    ),
+  );
+
+/**
+ * The store fails, rather than refuses, while applying a member's caught-up
+ * completed re-anchor. That is a local failure, so the page fails with a
+ * persistence error instead of being reported ignored. Fails when every store
+ * error on that path is treated as a refusal.
+ */
+const failsWhenTheStoreFailsWhileApplyingACaughtUpReanchor = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+        const failingStore: EndpointStore = {
+          ...fixture.store,
+          applyCatchUpReanchor: () =>
+            Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+        };
+        const engine = yield* makeEndpointEngine({
+          ...fixture.input,
+          store: failingStore,
+        }).pipe(Effect.orDie);
+        const { recordCore, recordHash } =
+          fixture.certifiedRecord.actionCertifiedRecord;
+        const completed = yield* completedReanchorBy(
+          {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "reanchor_body",
+            conversationId: recordCore.action.conversationId,
+            membershipHash: fixture.membership.hash,
+            previousAnchorHash: recordCore.anchorHash,
+            selectedRecordHash: recordHash,
+            routerInstanceId: newRouterInstanceId,
+          },
+          [fixture.local, fixture.remote],
+        );
+        const { recovery, request } = yield* startRestartRecovery({
+          ...fixture,
+          engine,
+        });
+
+        const page = yield* deliverRecovery(
+          engine,
+          catchUpPageIngressFrom({
+            membership: fixture.membership,
+            responder: fixture.remote,
+            request,
+            item: completed,
+            routerInstanceId: newRouterInstanceId,
+          }),
+        ).pipe(Effect.exit);
+
+        expect(page).toStrictEqual(
+          Exit.fail(new RouterWorkerPersistenceError()),
+        );
+        yield* Fiber.interrupt(recovery);
+      }),
+    ),
+  );
+
+/**
+ * A member's incomplete answer readies a restarted position, and the run
+ * ends while the endpoint reads the position to advance it. The ended run
+ * proposes and signs nothing, and the answer still counts. Fails when the
+ * ended run's proposal fails the answer with a persistence error.
+ */
+const proposesNothingOnceItsRunHasEnded = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+        const position = yield* holdNextStoreRead(fixture.store);
+        const engine = yield* makeEndpointEngine({
+          ...fixture.input,
+          store: position.store,
+        }).pipe(Effect.orDie);
+        const { recovery, outbound, request } = yield* startRestartRecovery({
+          ...fixture,
+          engine,
+        });
+
+        yield* position.arm;
+        const answering = yield* Effect.fork(
+          deliverRecovery(engine, catchUpIncompleteIngress(fixture, request)),
+        );
+        yield* position.held;
+        yield* Fiber.interrupt(recovery);
+        yield* position.release;
+        const answered = yield* Fiber.await(answering);
+
+        expect(answered).toStrictEqual(Exit.succeed(acceptedDisposition));
+        expect((yield* fixture.store.recover()).stagedReanchors).toEqual([]);
+        expect(Option.isNone(yield* Queue.poll(outbound))).toBe(true);
+      }),
+    ),
+  );
+
 // @agent-code-guard/regression-only: these traces pin the catch-up and re-anchor work a recovery run routes between its phases and its store.
 describe("catch-up and re-anchor inside a recovery run", () => {
   it(
@@ -4700,6 +5140,18 @@ describe("catch-up and re-anchor inside a recovery run", () => {
   it(
     "fails when the store fails while persisting a member's vote",
     failsWhenTheStoreFailsWhilePersistingAPeerVote,
+  );
+  it(
+    "answers a catch-up request that arrives as the run ends",
+    answersCatchUpRequestThatArrivesAsTheRunEnds,
+  );
+  it(
+    "fails when the store fails while applying a caught-up re-anchor",
+    failsWhenTheStoreFailsWhileApplyingACaughtUpReanchor,
+  );
+  it(
+    "proposes nothing once its run has ended",
+    proposesNothingOnceItsRunHasEnded,
   );
   it(
     "certifies a restart re-anchor with its votes in decoded agent-id order",

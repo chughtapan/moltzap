@@ -9,7 +9,7 @@ import {
   SignedMessage,
   type SignedMessage as SignedMessageValue,
 } from "@moltzap/identity";
-import { Effect, Schema } from "effect";
+import { Effect, type ParseResult, Schema } from "effect";
 import type { EndpointRecovery } from "../../../store/index.js";
 import type { EngineRuntime } from "../runtime/index.js";
 import {
@@ -22,6 +22,7 @@ import {
 import {
   AnchorHash,
   type AnchorHash as AnchorHashValue,
+  type ClientRepresentationError,
   type CompletedReanchor as CompletedReanchorValue,
   type ConversationId as ConversationIdValue,
   decodeCanonical,
@@ -51,7 +52,6 @@ import { restartEmptyPosition } from "./empty.js";
 import {
   assembleCompletedReanchor,
   decodeReanchorVotes,
-  makeReanchorVotes,
   type PendingReanchorVote,
   persistCompletedReanchor,
   persistReanchorVote,
@@ -95,18 +95,23 @@ export interface ReanchorRunPort {
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
 }
 
-/** One recovery run's re-anchor: the run's port and its vote memory. */
+/**
+ * One recovery run's re-anchor: the run's port, its vote memory, and the
+ * conversations whose position is ready to take votes.
+ */
 export interface ReanchorRun extends ReanchorRunPort {
   readonly votes: ReanchorVotes;
+  readonly positionsReady: Set<ConversationIdValue>;
 }
 
 /**
- * Start one recovery run's re-anchor with empty vote memory.
+ * Start one recovery run's re-anchor with empty vote memory and no position
+ * ready yet.
  * @param port What the run exposes to its re-anchor.
  * @returns The run's re-anchor, which the run passes to every operation.
  */
 export function startReanchorRun(port: ReanchorRunPort): ReanchorRun {
-  return { ...port, votes: makeReanchorVotes() };
+  return { ...port, votes: new Map(), positionsReady: new Set() };
 }
 
 /**
@@ -121,7 +126,7 @@ export function positionReady(
   membership: VerifiedMembership,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return Effect.sync(() => {
-    run.votes.positionsReady.add(membership.descriptor.conversationId);
+    run.positionsReady.add(membership.descriptor.conversationId);
   }).pipe(Effect.zipRight(finishRestartedPosition(run, membership)));
 }
 
@@ -261,25 +266,6 @@ function finishAnchoredPosition(
   return relay.pipe(Effect.zipRight(run.markRecovered(conversationId)));
 }
 
-/**
- * A daemon restart does not replace a verified anchor for the same Router.
- * @param run Recovery with an authenticated Router instance.
- * @param conversationId Fixed conversation whose anchor is being reconciled.
- * @returns The retained anchor only when it already names the current Router.
- */
-function currentAnchorForRecovery(
-  run: ReanchorRun,
-  conversationId: ConversationIdValue,
-): RouterAnchor | undefined {
-  const anchor = run.runtime.conversations.get(conversationId)?.currentAnchor;
-  if (anchor === undefined) {
-    return undefined;
-  }
-  return anchorRouterInstanceId(anchor) === run.routerInstanceId
-    ? anchor
-    : undefined;
-}
-
 function acceptReanchorVoteEffect(
   run: ReanchorRun,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
@@ -306,20 +292,25 @@ function acceptReanchorVoteEffect(
 /**
  * Verify a re-anchor vote's outer envelope and evidence against the
  * conversation's membership, then offer the vote to the active recovery run.
- * A vote that fails either check is reported ignored like any other unusable
- * input, as is a verified vote the run does not take.
+ * A vote that fails either check fails with a representation error, which
+ * the caller reports as ignored like any other unusable input.
  * @param run Recovery run that receives the vote.
  * @param ingress Router delivery whose outer envelope carries the vote.
  * @param message The vote's evidence message from that envelope.
  * @param membership Recovered membership of the vote's conversation.
- * @returns Whether the vote was accepted or ignored.
+ * @returns Accepted when the run took the vote, ignored when it did not.
  */
 function verifyInboundVote(
   run: ReanchorRun,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   message: SignedMessageValue,
   membership: VerifiedMembership,
-) {
+): Effect.Effect<
+  RouterIngressDisposition,
+  | ClientRepresentationError
+  | ParseResult.ParseError
+  | RouterWorkerPersistenceError
+> {
   return verifyOuterMessage({ message: ingress.message, membership }).pipe(
     Effect.zipRight(Schema.encode(SignedMessage)(message)),
     Effect.flatMap((representation) =>
@@ -409,8 +400,9 @@ function processCompletedVotes(
  * Take a vote into the active recovery run when it targets that run's Router
  * restart and names the anchor its body hashes to. Before the position is
  * ready the vote is held; once it is ready the position judges it. A vote
- * outside a restart, after the run has ended, or one the ready position
- * declines changes nothing, so the caller reports it as ignored.
+ * outside a restart, after the run has ended, for a conversation already
+ * anchored to the run's Router instance, or one the ready position declines
+ * changes nothing, so the caller reports it as ignored.
  * @param run Recovery run the vote targets.
  * @param membership Verified membership of the vote's conversation.
  * @param vote Verified re-anchor vote and its signed message.
@@ -432,7 +424,7 @@ function processReanchorVote(
       }
       return rememberReanchorVote(run.votes, vote).pipe(
         Effect.zipRight(
-          run.votes.positionsReady.has(vote.statement.reanchor.conversationId)
+          run.positionsReady.has(vote.statement.reanchor.conversationId)
             ? processReadyReanchorVote(run, membership, vote)
             : Effect.succeed(true),
         ),
@@ -441,6 +433,16 @@ function processReanchorVote(
   );
 }
 
+/**
+ * Whether a vote targets this run's re-anchor. Only a conversation the run
+ * re-anchors after a Router restart takes votes, and only until it is
+ * anchored to the run's Router instance: a vote from that new anchor would
+ * start a second re-anchor at the same instance, which no restart calls for.
+ * @param run Recovery run the vote arrived in.
+ * @param membership Verified membership of the vote's conversation.
+ * @param vote Verified re-anchor vote.
+ * @returns Whether the run takes the vote.
+ */
 function voteTargetsRecovery(
   run: ReanchorRun,
   membership: VerifiedMembership,
@@ -449,7 +451,8 @@ function voteTargetsRecovery(
   const body = vote.statement.reanchor;
   if (
     run.reason !== "router_restarted" ||
-    !run.reanchoring.has(body.conversationId)
+    !run.reanchoring.has(body.conversationId) ||
+    currentAnchorForRecovery(run, body.conversationId) !== undefined
   ) {
     return false;
   }
@@ -460,9 +463,27 @@ function voteTargetsRecovery(
 }
 
 /**
+ * A daemon restart does not replace a verified anchor for the same Router.
+ * @param run Recovery with an authenticated Router instance.
+ * @param conversationId Fixed conversation whose anchor is being reconciled.
+ * @returns The retained anchor only when it already names the current Router.
+ */
+function currentAnchorForRecovery(
+  run: ReanchorRun,
+  conversationId: ConversationIdValue,
+): RouterAnchor | undefined {
+  const anchor = run.runtime.conversations.get(conversationId)?.currentAnchor;
+  if (anchor === undefined) {
+    return undefined;
+  }
+  return anchorRouterInstanceId(anchor) === run.routerInstanceId
+    ? anchor
+    : undefined;
+}
+
+/**
  * Apply a vote to a conversation whose position is ready. A conversation with
- * no head, such as one whose empty foundation the run restarted, has nothing
- * to re-anchor, so the vote is declined.
+ * no head has nothing to re-anchor, so the vote is declined.
  * @param run Recovery run the vote targets.
  * @param membership Verified membership of the vote's conversation.
  * @param vote Verified re-anchor vote and its signed message.
@@ -596,7 +617,7 @@ function selectedHeadAction(
     return Effect.succeed(declineVote);
   }
   return Effect.sync(() => {
-    run.votes.positionsReady.delete(body.conversationId);
+    run.positionsReady.delete(body.conversationId);
   }).pipe(
     Effect.zipRight(run.requestCatchUp(body.conversationId)),
     Effect.as(holdVote),
@@ -641,13 +662,24 @@ function hasStagedReanchor(
   );
 }
 
+/**
+ * Propose this endpoint's re-anchor at its durable head. The run can end
+ * while the position is being advanced, such as during the vote replay; an
+ * ended run proposes nothing.
+ * @param run Recovery run the proposal belongs to.
+ * @param membership Fixed membership of the conversation.
+ * @param position Durable position with a certified head.
+ * @returns Completion once the candidate is voted for, or left unproposed.
+ */
 function proposeReanchor(
   run: ReanchorRun,
   membership: VerifiedMembership,
   position: EndpointRecovery["positions"][number],
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
+  if (!run.isActive()) {
+    return Effect.void;
+  }
   if (
-    !run.isActive() ||
     run.reason !== "router_restarted" ||
     position.headRecordHash === undefined
   ) {
@@ -812,7 +844,7 @@ function candidateMatchesPosition(
     return false;
   }
   return [
-    run.votes.positionsReady.has(body.conversationId),
+    run.positionsReady.has(body.conversationId),
     body.membershipHash === membership.hash,
     body.previousAnchorHash === position.currentAnchorHash,
     body.selectedRecordHash === position.headRecordHash,
@@ -871,6 +903,15 @@ function persistReanchorCandidate(
   );
 }
 
+/**
+ * Make sure this endpoint's own vote for a staged candidate is stored, sent,
+ * and held. A run that has ended signs and sends nothing.
+ * @param run Recovery run the vote belongs to.
+ * @param membership Fixed membership of the conversation.
+ * @param body Staged re-anchor body.
+ * @param anchorHash Hash of `body`.
+ * @returns Completion once the vote is stored, sent, and held.
+ */
 function ensureLocalReanchorVote(
   run: ReanchorRun,
   membership: VerifiedMembership,
@@ -878,7 +919,7 @@ function ensureLocalReanchorVote(
   anchorHash: AnchorHashValue,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   if (!run.isActive()) {
-    return Effect.fail(persistenceFailure());
+    return Effect.void;
   }
   const localAgentId = run.runtime.input.localAgentCard.agentId;
   const statement = localReanchorVoteStatement(run.runtime, body, anchorHash);
@@ -952,7 +993,7 @@ function completeReanchorAtThreshold(
   body: ReanchorBodyValue,
   anchorHash: AnchorHashValue,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
-  if (run.isActive() && run.isRecovered(body.conversationId)) {
+  if (!run.isActive() || run.isRecovered(body.conversationId)) {
     return Effect.void;
   }
   return decodeReanchorVotes(run.runtime, membership, body, anchorHash).pipe(
@@ -1000,9 +1041,7 @@ function replayReanchorVotes(
   conversationId: ConversationIdValue,
   headRecordHash: RecordHashValue,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
-  const candidates = run.isActive()
-    ? run.votes.pendingVotes.get(conversationId)
-    : undefined;
+  const candidates = run.isActive() ? run.votes.get(conversationId) : undefined;
   if (candidates === undefined) {
     return Effect.void;
   }

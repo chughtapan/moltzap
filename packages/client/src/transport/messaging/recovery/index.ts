@@ -69,6 +69,13 @@ interface RecoveryRun {
   readonly catchUp: CatchUpRun;
   readonly reanchor: ReanchorRun;
   pendingOutbound: number;
+  /**
+   * Set when the run completes. The run then starts no new catch-up or
+   * re-anchor work, and because its sender stops when the run ends, an
+   * envelope queued after completion takes the durable outbox, which the
+   * Router worker sends once recovery ends.
+   */
+  completed: boolean;
 }
 
 const activeRuns = new WeakMap<EngineRuntime, RecoveryRun>();
@@ -341,7 +348,9 @@ function recoveryFailure(): RouterWorkerRecoveryError {
  * run's members for the history after it. The Router worker polls recovery
  * traffic while the run is still starting and until it has finished, so a
  * record can arrive with no run active; it is applied, and a run that starts
- * later catches up from the durable position.
+ * later catches up from the durable position. A record for a conversation the
+ * run does not hold, such as one a member created during recovery, is
+ * applied without a request.
  * @param runtime Engine whose store takes the record.
  * @param ingress Verified Router delivery carrying the record.
  * @returns Whether the record was applied or ignored.
@@ -494,7 +503,7 @@ function makeRecoveryRun(
       catchUp: {
         ...catchUpResponder(runtime),
         state: makeCatchUpState(),
-        isActive: () => activeRuns.get(runtime) === run,
+        isActive: () => activeRuns.get(runtime) === run && !run.completed,
         membership: (conversationId) => memberships.get(conversationId),
         onPositionReady: (conversationId) =>
           positionReady(runtime, run, conversationId).pipe(
@@ -506,7 +515,7 @@ function makeRecoveryRun(
         reason: recovery.reason,
         routerInstanceId: recovery.anchor.routerInstanceId,
         reanchoring,
-        isActive: () => activeRuns.get(runtime) === run,
+        isActive: () => activeRuns.get(runtime) === run && !run.completed,
         membership: (conversationId) => memberships.get(conversationId),
         isRecovered: (conversationId) =>
           run.completedConversations.has(conversationId),
@@ -518,6 +527,7 @@ function makeRecoveryRun(
           requestCertifiedHistory(run.catchUp, conversationId),
       }),
       pendingOutbound: 0,
+      completed: false,
     };
     return run;
   }).pipe(Effect.withSpan("makeRecoveryState"));
@@ -542,9 +552,11 @@ function catchUpResponder(runtime: EngineRuntime): CatchUpResponder {
 
 /**
  * Route a conversation whose catch-up position is ready: to re-anchor after a
- * Router restart, and straight to recovered for any other reason.
+ * Router restart, and straight to recovered for any other reason. A member's
+ * answer can complete a position after the run has ended; nothing is left to
+ * route then.
  * @param runtime Engine the run recovers.
- * @param run Active recovery run.
+ * @param run Recovery run that asked for the position.
  * @param conversationId Conversation whose position is ready.
  * @returns Completion once re-anchor has taken the position or it is recovered.
  */
@@ -555,7 +567,7 @@ function positionReady(
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   const membership = run.memberships.get(conversationId);
   if (activeRuns.get(runtime) !== run || membership === undefined) {
-    return Effect.fail(persistenceFailure());
+    return Effect.void;
   }
   return run.recovery.reason === "router_restarted"
     ? reanchorPositionReady(run.reanchor, membership)
@@ -583,17 +595,21 @@ function markRecovered(
 }
 
 function completeRecoveryIfIdle(run: RecoveryRun): Effect.Effect<void> {
-  return Effect.suspend(() =>
-    run.completedConversations.size === run.memberships.size &&
-    run.pendingOutbound === 0
-      ? Deferred.succeed(run.completion, undefined).pipe(Effect.asVoid)
-      : Effect.void,
-  );
+  return Effect.suspend(() => {
+    if (
+      run.completedConversations.size !== run.memberships.size ||
+      run.pendingOutbound !== 0
+    ) {
+      return Effect.void;
+    }
+    run.completed = true;
+    return Deferred.succeed(run.completion, undefined).pipe(Effect.asVoid);
+  });
 }
 
 /**
  * Sign one outer envelope through the outbox, then route it: to the active
- * run's queue while a recovery runs, otherwise to the durable outbox.
+ * run's queue until the run completes, otherwise to the durable outbox.
  * @param runtime Engine whose outbox signs the envelope.
  * @param membership Verified fixed membership for the outer envelope.
  * @param body Recovery packet or relayed evidence the envelope carries.
@@ -617,18 +633,18 @@ function enqueueOuter(
   conversationId: ConversationIdValue,
   message: SignedMessage,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
-  const run = activeRuns.get(runtime);
-  if (run !== undefined) {
-    return Effect.sync(() => {
-      run.pendingOutbound += 1;
-    }).pipe(
-      Effect.zipRight(Queue.offer(run.outbound, { conversationId, message })),
+  return Effect.suspend(() => {
+    const run = activeRuns.get(runtime);
+    if (run === undefined || run.completed) {
+      return runtime.outbox
+        .enqueueSigned(conversationId, message)
+        .pipe(Effect.mapError(persistenceFailure));
+    }
+    run.pendingOutbound += 1;
+    return Queue.offer(run.outbound, { conversationId, message }).pipe(
       Effect.asVoid,
     );
-  }
-  return runtime.outbox
-    .enqueueSigned(conversationId, message)
-    .pipe(Effect.mapError(persistenceFailure));
+  });
 }
 
 /**

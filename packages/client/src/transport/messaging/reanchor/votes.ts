@@ -33,35 +33,20 @@ import {
 } from "../../wire/index.js";
 import { orderedSignatures, protocolEvidence } from "../history/index.js";
 
-/** One verified re-anchor vote retained until its ancestry is resolved. */
+/** One verified re-anchor vote and its signed message, held for the rest of the run. */
 export interface PendingReanchorVote {
   readonly message: SignedMessageValue;
   readonly statement: ReanchorVoteStatementValue;
 }
 
 /**
- * One recovery run's re-anchor memory: the votes it holds per conversation and
- * candidate anchor, and the conversations whose position is ready to take
- * votes.
+ * One recovery run's re-anchor vote memory: the votes it holds per
+ * conversation and candidate anchor.
  */
-export interface ReanchorVotes {
-  readonly pendingVotes: Map<
-    ConversationIdValue,
-    Map<AnchorHashValue, Map<AgentId, PendingReanchorVote>>
-  >;
-  readonly positionsReady: Set<ConversationIdValue>;
-}
-
-/**
- * Start a run's vote memory with nothing held.
- * @returns Empty vote memory.
- */
-export function makeReanchorVotes(): ReanchorVotes {
-  return {
-    pendingVotes: new Map(),
-    positionsReady: new Set(),
-  };
-}
+export type ReanchorVotes = Map<
+  ConversationIdValue,
+  Map<AnchorHashValue, Map<AgentId, PendingReanchorVote>>
+>;
 
 /**
  * Hold a verified vote for the rest of the run.
@@ -76,7 +61,7 @@ export function rememberReanchorVote(
   return Effect.sync(() => {
     const conversationId = vote.statement.reanchor.conversationId;
     const candidates =
-      votes.pendingVotes.get(conversationId) ??
+      votes.get(conversationId) ??
       new Map<
         AnchorHashValue,
         Map<
@@ -84,7 +69,7 @@ export function rememberReanchorVote(
           PendingReanchorVote
         >
       >();
-    votes.pendingVotes.set(conversationId, candidates);
+    votes.set(conversationId, candidates);
     const signers =
       candidates.get(vote.statement.anchorHash) ??
       new Map<
@@ -107,7 +92,7 @@ export function reanchorVoteIsRemembered(
   vote: PendingReanchorVote,
 ): boolean {
   return (
-    votes.pendingVotes
+    votes
       .get(vote.statement.reanchor.conversationId)
       ?.get(vote.statement.anchorHash)
       ?.has(vote.statement.signerAgentId) === true

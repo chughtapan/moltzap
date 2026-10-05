@@ -468,9 +468,11 @@ most one candidate for one conversation, preceding anchor, and Router
 instance. New actions bind the durable new anchor. Catch-up and re-anchor do
 not create runtime messages by themselves. Verified catch-up or re-anchor
 input from a member that the endpoint cannot apply, such as input naming an
-anchor, record, or position it cannot resolve, does not count: it may leave
-that conversation unrecovered, but it never stops the endpoint or its other
-conversations.
+anchor, record, or position it cannot resolve, does not count and never stops
+the endpoint. It can leave that conversation unrecovered. Recovery finishes
+only when every conversation has recovered. Until then the endpoint's own sends
+and pending intents wait for every conversation, and the action traffic members
+send meanwhile is ignored.
 
 ## Direct packets and Router envelopes
 
