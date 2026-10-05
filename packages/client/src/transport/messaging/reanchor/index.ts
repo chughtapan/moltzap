@@ -310,7 +310,11 @@ function verifyInboundVote(
       return processReanchorVote(runtime, membership, {
         message: verified.message,
         statement: verified.statement,
-      }).pipe(Effect.as(acceptedDisposition));
+      }).pipe(
+        Effect.map((taken) =>
+          taken ? acceptedDisposition : ignoredDisposition,
+        ),
+      );
     }),
     Effect.mapError(persistenceFailure),
   );
@@ -368,7 +372,7 @@ function processCompletedVotes(
           return processReanchorVote(runtime, membership, {
             message: verified.message,
             statement: verified.statement,
-          });
+          }).pipe(Effect.asVoid);
         }),
         Effect.mapError(persistenceFailure),
       ),
@@ -376,20 +380,30 @@ function processCompletedVotes(
   );
 }
 
+/**
+ * Takes a vote into the active recovery run when it targets that run's Router
+ * restart and names the anchor its body hashes to. A vote outside a restart,
+ * or after the run has ended, changes nothing, so the caller reports it as
+ * ignored.
+ * @param runtime Engine whose active recovery run receives the vote.
+ * @param membership Verified membership of the vote's conversation.
+ * @param vote Verified re-anchor vote and its signed message.
+ * @returns Whether the run took the vote.
+ */
 function processReanchorVote(
   runtime: EngineRuntime,
   membership: VerifiedMembership,
   vote: PendingReanchorVote,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
+): Effect.Effect<boolean, RouterWorkerPersistenceError> {
   const state = currentRecoveryState(runtime);
   if (state === undefined || !voteTargetsRecovery(state, membership, vote)) {
-    return Effect.void;
+    return Effect.succeed(false);
   }
   return hashAnchor(vote.statement.reanchor).pipe(
     Effect.mapError(persistenceFailure),
     Effect.flatMap((expectedHash) => {
       if (expectedHash !== vote.statement.anchorHash) {
-        return Effect.void;
+        return Effect.succeed(false);
       }
       return rememberReanchorVote(state, vote).pipe(
         Effect.zipRight(
@@ -397,6 +411,7 @@ function processReanchorVote(
             ? processReadyReanchorVote(runtime, state, membership, vote)
             : Effect.void,
         ),
+        Effect.as(true),
       );
     }),
   );
@@ -1096,7 +1111,7 @@ function replayCandidateVotes(
     votes.values(),
     (vote) =>
       vote.statement.reanchor.selectedRecordHash === headRecordHash
-        ? processReanchorVote(runtime, membership, vote)
+        ? processReanchorVote(runtime, membership, vote).pipe(Effect.asVoid)
         : Effect.void,
     { concurrency: 1, discard: true },
   );
