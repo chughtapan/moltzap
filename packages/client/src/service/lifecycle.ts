@@ -5,25 +5,42 @@ import type { Registry } from "@moltzap/identity/registry";
 import type { Router } from "@moltzap/router";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect, type Scope } from "effect";
-import type { EndpointStore } from "../store/index.js";
-import type { DaemonBootstrap } from "./bootstrap.js";
 import {
+  type HistoryExportPort,
   makeHistoryExport,
   noHistoryExport,
 } from "../delivery/history-export.js";
 import { packageVersion } from "../endpoint/implementation.js";
 import {
   acquireHarnessMcpHttpServer,
+  type HarnessMcpEventHandler,
   makeHarnessMcpHttpHandler,
 } from "../endpoint/mcp/index.js";
 import { makeEndpointEngine } from "../transport/messaging/index.js";
 import { makeRouterWorker } from "../transport/router/index.js";
 import {
-  type DaemonRuntimeDependencies,
-  DaemonRuntimeError,
-  prepareDaemonActivation,
-} from "./activation/index.js";
-import { makeDaemonController } from "./controller.js";
+  type DaemonStartup,
+  makeDaemon,
+  type ProtocolEdges,
+} from "./daemon/index.js";
+import { DaemonRuntimeError, runtimeFailure } from "./errors.js";
+import { makeDaemonManagementOperations } from "./management.js";
+
+/** Closed daemon startup and supervision failure. */
+export { DaemonRuntimeError };
+
+/** Replaceable process edges used by focused lifecycle tests. */
+export interface DaemonRuntimeDependencies extends ProtocolEdges {
+  readonly makeHandler: typeof makeHarnessMcpHttpHandler;
+  readonly acquireListener: (input: {
+    readonly port: number;
+    readonly handler: HarnessMcpEventHandler;
+  }) => Effect.Effect<void, Error, Scope.Scope>;
+  /** Opens the operator-configured history export against one file. */
+  readonly makeHistoryExport: (
+    path: string,
+  ) => Effect.Effect<HistoryExportPort>;
+}
 
 const DAEMON_IMPLEMENTATION = {
   name: "moltzapd",
@@ -40,62 +57,54 @@ const productionDependencies: DaemonRuntimeDependencies = {
     makeHistoryExport(path).pipe(Effect.provide(NodeFileSystem.layer)),
 };
 
-const runtimeFailure = (
-  phase: DaemonRuntimeError["phase"],
-): DaemonRuntimeError => new DaemonRuntimeError({ phase });
-
-/** Closed daemon startup and supervision failure. */
-export { DaemonRuntimeError };
-/** Replaceable process edges used by focused lifecycle tests. */
-export type { DaemonRuntimeDependencies };
-
 /**
  * Run all daemon-owned protocol and MCP resources until a supervised failure.
- * @param input Daemon-owned persistence and fixed endpoint configuration.
- * @param input.store Durable endpoint store owned by this daemon process.
- * @param input.bootstrap Validated identity, network, and listener configuration.
+ * @param input The store, bootstrap and registration state read at startup.
  * @param dependencies Replaceable process edges used by focused lifecycle tests.
  * @returns A scoped process effect that ends only when a supervised resource fails.
  */
 export const runDaemonRuntime = (
-  input: {
-    readonly store: EndpointStore;
-    readonly bootstrap: DaemonBootstrap;
-  },
+  input: DaemonStartup,
   dependencies: DaemonRuntimeDependencies = productionDependencies,
 ): Effect.Effect<never, DaemonRuntimeError, Registry | Router | Scope.Scope> =>
   Effect.gen(function* () {
-    const preparation = yield* prepareDaemonActivation(input);
     const exportPath = input.bootstrap.configuration.historyExport;
     const historyExport =
       exportPath === undefined
         ? noHistoryExport
         : yield* dependencies.makeHistoryExport(exportPath);
-    const controller = yield* makeDaemonController({
+    const daemon = yield* makeDaemon({
       ...input,
       historyExport,
-      management: preparation.management,
-      dependencies,
+      edges: dependencies,
+    });
+    const management = yield* makeDaemonManagementOperations({
+      store: input.store,
+      bootstrap: input.bootstrap,
+      registration: daemon,
     });
     return yield* Effect.gen(function* () {
-      yield* controller.initializeAtStart(preparation.registration);
+      yield* daemon.activateAtStart;
       const handler = yield* dependencies
         .makeHandler({
           implementation: DAEMON_IMPLEMENTATION,
-          operations: controller.operations,
+          operations: Object.freeze({
+            ...management,
+            ...daemon.deliveryOperations,
+          }),
           credentials: input.bootstrap.mcpCredentials,
-          eventStore: controller.eventStore,
-          onSubscriptionActiveChange: controller.subscriptionChanged,
+          eventStore: daemon.eventStore,
+          onSubscriptionActiveChange: daemon.subscriptionChanged,
         })
         .pipe(Effect.mapError(() => runtimeFailure("storage")));
-      yield* controller.installHandler(handler);
-      yield* controller.runSubscriptions.pipe(Effect.forkScoped);
+      yield* daemon.installHandler(handler);
+      yield* daemon.runSubscriptions.pipe(Effect.forkScoped);
       yield* dependencies
         .acquireListener({
           port: input.bootstrap.configuration.mcpPort,
           handler,
         })
         .pipe(Effect.mapError(() => runtimeFailure("listener")));
-      return yield* controller.awaitFailure;
-    }).pipe(Effect.raceFirst(controller.awaitFailure));
+      return yield* daemon.awaitFailure;
+    }).pipe(Effect.raceFirst(daemon.awaitFailure));
   }).pipe(Effect.withSpan("runDaemonRuntime"));

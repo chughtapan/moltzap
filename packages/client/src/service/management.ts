@@ -32,7 +32,11 @@ import type {
 } from "../store/index.js";
 import type { SendError } from "../transport/messaging/errors.js";
 import type { DaemonBootstrap, DaemonConfigurationError } from "./bootstrap.js";
-import { resolveMessageAddress } from "../transport/messaging/address.js";
+import type { DaemonActivationError } from "./errors.js";
+import {
+  renderGroupAddress,
+  resolveMessageAddress,
+} from "../transport/messaging/address.js";
 import {
   type CertifiedRecord,
   compareAgentIds,
@@ -48,17 +52,12 @@ import {
   verifyRecordCore,
   verifyStableEvidence,
 } from "../transport/wire/index.js";
-import {
-  AgentAddress,
-  compareAscii,
-  GroupAddress,
-} from "../transport/wire/values.js";
+import { AgentAddress } from "../transport/wire/values.js";
 import {
   type DaemonRegistrationPersistenceError,
   type DaemonRegistrationRepresentationError,
   type DaemonRegistrationState,
   type DaemonRegistrationUpstreamError,
-  readDaemonRegistrationState,
   registerDaemonIdentity,
 } from "./registration/index.js";
 
@@ -92,6 +91,20 @@ type VerifiedRecordCore = Effect.Effect.Success<
 type VerifiedEvidence = Effect.Effect.Success<
   ReturnType<typeof verifyStableEvidence>
 >;
+
+/** The daemon's registration state and the activation a registration starts. */
+interface RegistrationPort {
+  readonly readRegistration: () => DaemonRegistrationState;
+  readonly activateRegistered: (
+    agentCard: VerifiedAgentCard,
+  ) => Effect.Effect<void, DaemonActivationError>;
+}
+
+interface ManagementInput {
+  readonly store: EndpointStore;
+  readonly bootstrap: DaemonBootstrap;
+  readonly registration: RegistrationPort;
+}
 
 interface VerifiedStoredEvidence {
   readonly representation: unknown;
@@ -206,40 +219,36 @@ function encodeAgentCard(
   );
 }
 
-function readActiveIdentityForAgentSearch(input: {
-  readonly store: EndpointStore;
-  readonly bootstrap: DaemonBootstrap;
-}): Effect.Effect<VerifiedAgentCard, DaemonManagementError> {
-  return readActiveIdentity(input).pipe(
-    Effect.mapError((error) =>
-      error.reason === "persistence-failed" ? incompatibleDaemon() : error,
-    ),
-  );
+function readActiveCard(
+  registration: RegistrationPort,
+): Effect.Effect<VerifiedAgentCard, DaemonManagementError> {
+  return Effect.suspend(() => {
+    const state = registration.readRegistration();
+    return state.kind === "active"
+      ? Effect.succeed(state.agentCard)
+      : Effect.fail(managementFailure("not-registered"));
+  });
 }
 
-function readActiveIdentityForLocalManagement(input: {
-  readonly store: EndpointStore;
-  readonly bootstrap: DaemonBootstrap;
-}): Effect.Effect<VerifiedAgentCard, DaemonManagementError> {
-  return readActiveIdentity(input).pipe(
-    Effect.mapError((error) =>
-      error.reason === "not-registered" ? error : persistenceFailure(),
-    ),
-  );
-}
-
-function readActiveIdentity(input: {
-  readonly store: EndpointStore;
-  readonly bootstrap: DaemonBootstrap;
-}): Effect.Effect<VerifiedAgentCard, DaemonManagementError> {
-  return readDaemonRegistrationState(input).pipe(
-    Effect.mapError(mapRegistrationFailure),
-    Effect.flatMap((state) =>
-      state.kind === "active"
-        ? Effect.succeed(state.agentCard)
-        : Effect.fail(managementFailure("not-registered")),
-    ),
-  );
+/**
+ * The register tool's closed reason for an activation failure: a local
+ * storage fault is persistence-failed; an upstream or representation fault
+ * is dependency-unavailable.
+ */
+function registerFailureReason(
+  reason: DaemonActivationError["reason"],
+): "persistence-failed" | "dependency-unavailable" {
+  switch (reason) {
+    case "persistence":
+      return "persistence-failed";
+    case "upstream":
+    case "representation":
+      return "dependency-unavailable";
+    default: {
+      const exhaustive: never = reason;
+      return exhaustive;
+    }
+  }
 }
 
 function mapRegistrationFailure(
@@ -326,11 +335,9 @@ function renderMembershipAddress(
           Effect.mapError(persistenceFailure),
         );
   }
-  const names = membership.members.map((member) => member.agentName);
-  names.sort(compareAscii);
-  return Schema.decodeUnknown(GroupAddress)(`group:${names.join(",")}`).pipe(
-    Effect.mapError(persistenceFailure),
-  );
+  return renderGroupAddress(
+    membership.members.map((member) => member.agentName),
+  ).pipe(Effect.mapError(persistenceFailure));
 }
 
 function decodeStoredMembership(
@@ -792,41 +799,48 @@ function managementFailure(reason: ManagementFailure): DaemonManagementError {
 }
 
 const readStatusOperation =
-  (input: {
-    readonly store: EndpointStore;
-    readonly bootstrap: DaemonBootstrap;
-  }): DaemonManagementOperations["readStatus"] =>
+  (registration: RegistrationPort): DaemonManagementOperations["readStatus"] =>
   () =>
-    readDaemonRegistrationState(input).pipe(
-      Effect.mapError(mapRegistrationFailure),
-      Effect.flatMap(encodeStatus),
-    );
+    Effect.suspend(() => encodeStatus(registration.readRegistration()));
 
+/**
+ * Registration and the activation it starts run as one uninterruptible step,
+ * so the Registry call, the binding commit, the daemon's switch to active and
+ * the protocol activation all finish even when the MCP request is cancelled.
+ */
 const registerOperation =
   (
-    input: {
-      readonly store: EndpointStore;
-      readonly bootstrap: DaemonBootstrap;
-    },
+    input: ManagementInput,
     registry: RegistryService,
   ): DaemonManagementOperations["register"] =>
   (request) =>
-    registerDaemonIdentity({ ...input, request }).pipe(
-      Effect.provideService(Registry, registry),
-      Effect.mapError(mapRegistrationFailure),
-      Effect.flatMap(encodeRegisterResult),
+    Effect.uninterruptible(
+      registerDaemonIdentity({
+        request,
+        store: input.store,
+        bootstrap: input.bootstrap,
+      }).pipe(
+        Effect.provideService(Registry, registry),
+        Effect.mapError(mapRegistrationFailure),
+        Effect.tap((result) =>
+          result.kind === "registered"
+            ? input.registration.activateRegistered(result.agentCard)
+            : Effect.void,
+        ),
+        Effect.catchTag("DaemonActivationError", (error) =>
+          Effect.fail({ reason: registerFailureReason(error.reason) }),
+        ),
+        Effect.flatMap(encodeRegisterResult),
+      ),
     );
 
 const searchAgentsOperation =
   (
-    input: {
-      readonly store: EndpointStore;
-      readonly bootstrap: DaemonBootstrap;
-    },
+    input: ManagementInput,
     registry: RegistryService,
   ): DaemonManagementOperations["searchAgents"] =>
   (request) =>
-    readActiveIdentityForAgentSearch(input).pipe(
+    readActiveCard(input.registration).pipe(
       Effect.flatMap(() => {
         if ("agentId" in request || "agentName" in request) {
           return registry
@@ -846,13 +860,10 @@ const searchAgentsOperation =
     );
 
 const searchConversationsOperation =
-  (input: {
-    readonly store: EndpointStore;
-    readonly bootstrap: DaemonBootstrap;
-  }): DaemonManagementOperations["searchConversations"] =>
+  (input: ManagementInput): DaemonManagementOperations["searchConversations"] =>
   (request) =>
     Effect.gen(function* () {
-      const localAgentCard = yield* readActiveIdentityForLocalManagement(input);
+      const localAgentCard = yield* readActiveCard(input.registration);
       const recovery = yield* input.store
         .recover()
         .pipe(Effect.mapError(persistenceFailure));
@@ -866,15 +877,12 @@ const searchConversationsOperation =
 
 const readConversationOperation =
   (
-    input: {
-      readonly store: EndpointStore;
-      readonly bootstrap: DaemonBootstrap;
-    },
+    input: ManagementInput,
     registry: RegistryService,
   ): DaemonManagementOperations["readConversation"] =>
   (request) =>
     Effect.gen(function* () {
-      const localAgentCard = yield* readActiveIdentityForLocalManagement(input);
+      const localAgentCard = yield* readActiveCard(input.registration);
       const storeRequest =
         "continuation" in request
           ? request
@@ -902,21 +910,21 @@ const readConversationOperation =
     });
 
 /**
- * Builds management operations with one captured Registry service.
+ * Builds management operations with one captured Registry service. Status
+ * and the registered check read the daemon's registration state, never the
+ * store.
  *
- * @param input Daemon bootstrap authority and its exclusively owned store.
- * @param input.store Durable endpoint state owned by this daemon.
- * @param input.bootstrap Fixed identity and service configuration.
+ * @param input The daemon's exclusively owned store, its fixed identity and
+ *   service configuration, and its registration port.
  * @returns Closed operations ready for the loopback MCP presentation.
  */
-export const makeDaemonManagementOperations = (input: {
-  readonly store: EndpointStore;
-  readonly bootstrap: DaemonBootstrap;
-}): Effect.Effect<DaemonManagementOperations, never, Registry> =>
+export const makeDaemonManagementOperations = (
+  input: ManagementInput,
+): Effect.Effect<DaemonManagementOperations, never, Registry> =>
   Effect.gen(function* () {
     const registry = yield* Registry;
     const operations: DaemonManagementOperations = {
-      readStatus: readStatusOperation(input),
+      readStatus: readStatusOperation(input.registration),
       register: registerOperation(input, registry),
       searchAgents: searchAgentsOperation(input, registry),
       searchConversations: searchConversationsOperation(input),

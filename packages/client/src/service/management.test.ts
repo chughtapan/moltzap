@@ -180,6 +180,14 @@ function makeStore(input: StoreInput): EndpointStore {
   };
 }
 
+/** The daemon's registration port, active with `card` and never activating. */
+function activeRegistration(card: VerifiedAgentCard) {
+  return {
+    readRegistration: () => ({ kind: "active", agentCard: card }) as const,
+    activateRegistered: () => Effect.void,
+  };
+}
+
 function makeRegistryLayer(cards: readonly VerifiedAgentCard[]) {
   const lookup = (
     request: Parameters<Context.Tag.Service<typeof Registry>["lookup"]>[0],
@@ -212,6 +220,7 @@ describe("addressed daemon management", () => {
         const operations = yield* makeDaemonManagementOperations({
           store: makeStore({ recovery }),
           bootstrap: fixture.bootstrap,
+          registration: activeRegistration(fixture.cards[0]),
         }).pipe(Effect.provide(makeRegistryLayer(fixture.cards)));
 
         expect(yield* operations.searchConversations({})).toEqual({
@@ -233,6 +242,7 @@ describe("addressed daemon management", () => {
             historyFailure: new EndpointStoreError({ reason: "not-found" }),
           }),
           bootstrap: fixture.bootstrap,
+          registration: activeRegistration(fixture.cards[0]),
         }).pipe(Effect.provide(makeRegistryLayer(fixture.cards)));
         const request = Schema.decodeUnknownSync(
           managementReadConversationRequestSchema,
