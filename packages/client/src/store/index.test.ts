@@ -2,11 +2,15 @@
 
 import { Effect } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests create and inspect exact real-SQLite permission fixtures around the scoped Effect resource.
-import { chmodSync, mkdtempSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { chmodSync, statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import {
+  bytes,
+  databasePath,
+  stateDirectory,
+  withStore,
+} from "../__tests__/store-schema-fixtures.js";
 import {
   type CertifiedRecord,
   type ConversationFoundation,
@@ -41,8 +45,6 @@ const DELETE_JOURNAL_ROW = Object.freeze({ journal_mode: "delete" });
 const LEGACY_TABLE_ROW = Object.freeze({ name: "legacy_state" });
 const POST_INTENTS_TABLE_ROW = Object.freeze({ name: "post_intents" });
 const UNEXPECTED_TABLE_ROW = Object.freeze({ name: "unexpected_state" });
-
-const temporaryDirectories: string[] = [];
 
 function initializesEmptyV0Database() {
   const directory = stateDirectory();
@@ -959,23 +961,6 @@ function bindLocalIdentity(
   });
 }
 
-function stateDirectory(): string {
-  const directory = mkdtempSync(join(tmpdir(), "moltzap-store-"));
-  temporaryDirectories.push(directory);
-  return directory;
-}
-
-function databasePath(directory: string): string {
-  return join(directory, "moltzapd.sqlite3");
-}
-
-function withStore<Value>(
-  directory: string,
-  use: (store: EndpointStore) => Effect.Effect<Value, EndpointStoreError>,
-): Effect.Effect<Value, EndpointStoreError> {
-  return Effect.scoped(openEndpointStore(directory).pipe(Effect.flatMap(use)));
-}
-
 function expectReason<Value>(
   effect: Effect.Effect<Value, EndpointStoreError>,
   reason: EndpointStoreError["reason"],
@@ -991,16 +976,6 @@ function expectReason<Value>(
     Effect.asVoid,
   );
 }
-
-function bytes(value: string): Uint8Array {
-  return new TextEncoder().encode(value);
-}
-
-afterEach(() => {
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
 
 describe("endpoint SQLite preflight", () => {
   it("initializes an empty v0 database directly at the current schema and reopens it", () =>

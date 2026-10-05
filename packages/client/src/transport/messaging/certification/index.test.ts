@@ -17,7 +17,6 @@ import {
   Deferred,
   Duration,
   Effect,
-  Encoding,
   Fiber,
   Option,
   Queue,
@@ -33,6 +32,7 @@ import { describe, expect, it } from "vitest";
 import type { AddressRegistryPort } from "../address.js";
 import { advanceClock } from "../../../__tests__/advance-clock.js";
 import {
+  digest,
   identifier,
   issueTestCard,
   makeTestAuthority,
@@ -113,19 +113,15 @@ interface ProtocolHarness {
 const MEMBER_COUNT = 4;
 const TEST_TIMEOUT_MS = 30_000;
 
-function hashIdentifier(prefix: string, byte: number): string {
-  return `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
-}
-
 const routerInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
   identifier("rti_", 31),
 );
 const pollCursor = fixturePollCursor(32);
 const unrelatedConversationId = Schema.decodeUnknownSync(ConversationId)(
-  hashIdentifier("cnv_", 35),
+  digest("cnv_", 35),
 );
 const unrelatedMembershipHash = Schema.decodeUnknownSync(MembershipHash)(
-  hashIdentifier("mbr_", 36),
+  digest("mbr_", 36),
 );
 const endpointIndexes = Object.freeze([0, 1, 2, 3]);
 
@@ -1246,12 +1242,15 @@ describe("fixed-post endpoint protocol", () => {
 /* eslint-enable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- Restore repository defaults. */
 
 /**
- * Virtual time short of the send's 45 s Router-attachment bound, so a send
- * still waiting for the worker to attach is pending.
+ * Virtual time short of `ATTACH_BOUND`, so a send still waiting for the
+ * worker to attach is pending.
  */
 const WITHIN_ATTACH_BOUND = Duration.seconds(30);
 
-/** The send's Router-attachment bound, after which it fails. */
+/**
+ * The send's Router-attachment bound, after which it fails, mirroring the
+ * private `send.ts → ROUTER_ATTACH_TIMEOUT`.
+ */
 const ATTACH_BOUND = Duration.seconds(45);
 
 function sendHeldUntilAttached(): Effect.Effect<void, never, Scope.Scope> {
@@ -1554,10 +1553,17 @@ function blackHolesFirstTransmit(
 }
 
 /**
- * A black-holed transmit holds the local send's drain: the send answers
- * `network-unavailable` at `LOCAL_DRAIN_TIMEOUT`, and the background drain
- * then delivers the envelope the interrupted transmit left begun, exactly
- * once however often the queue drains afterwards.
+ * The local send's drain bound, after which it answers `network-unavailable`,
+ * mirroring the private `index.ts → LOCAL_DRAIN_TIMEOUT`.
+ */
+const DRAIN_BOUND = Duration.seconds(10);
+
+/**
+ * A black-holed transmit holds the local send's drain: the send is still
+ * pending one second short of `DRAIN_BOUND` and answers `network-unavailable`
+ * one second past it. The background drain then delivers the envelope the
+ * interrupted transmit left begun, exactly once however often the queue
+ * drains afterwards.
  */
 function blackHoledTransmitBoundsTheSend(): Effect.Effect<
   void,
@@ -1577,7 +1583,7 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
     const sending = yield* Effect.fork(
       author.send(yield* sendInput(harness, "black-holed transmit")),
     );
-    yield* advanceClock(Duration.seconds(9));
+    yield* advanceClock(Duration.subtract(DRAIN_BOUND, Duration.seconds(1)));
     expect(yield* Fiber.poll(sending)).toEqual(Option.none());
     yield* advanceClock(Duration.seconds(2));
     expect(

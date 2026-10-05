@@ -26,7 +26,7 @@ export interface RegistryKeyPair {
 }
 
 /** What one test card binds; `byte` fills both its AgentId and PrincipalId. */
-export interface TestCardInput {
+interface TestCardInput {
   readonly byte: number;
   readonly name: string;
   readonly authority: AgentSigningAuthority;
@@ -43,6 +43,18 @@ export interface TestCardInput {
  */
 export function identifier(prefix: string, byte: number): string {
   return `${prefix}${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`;
+}
+
+/**
+ * A prefixed identifier over 32 repeated bytes, the form of PostId,
+ * RecordHash, DeliveryToken, CollectiveId and the other digest-shaped
+ * identifiers.
+ * @param prefix Identifier prefix, such as `pst_`.
+ * @param byte Value repeated across all 32 bytes.
+ * @returns The identifier text, before schema decoding.
+ */
+export function digest(prefix: string, byte: number): string {
+  return `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
 }
 
 /**

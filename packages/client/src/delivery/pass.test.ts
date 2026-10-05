@@ -1,14 +1,18 @@
 /** @file Pins the pass that consumes and publishes pending deliveries. */
 
-import { Effect, Encoding, Option, Schema } from "effect";
+import { Effect, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type { HistoryExportRecord } from "./history-export.js";
 import type { HarnessMessageReadyEvent } from "./operations.js";
-import { DeliveryToken } from "../store/index.js";
+import {
+  consumeOnly,
+  pendingMessage,
+  publishEveryPost,
+  recordAcknowledgments,
+  takeEvery,
+} from "../__tests__/pending-delivery-fixtures.js";
 import { DeliveryAcknowledgeError } from "../transport/messaging/errors.js";
-import { InboundMessage } from "../transport/messaging/message.js";
-import { RecordHash } from "../transport/wire/index.js";
 import {
   makeDeliveryState,
   offerPendingMessages,
@@ -21,21 +25,6 @@ interface Observed {
   readonly exported: HistoryExportRecord[];
 }
 
-const digest = (prefix: string, byte: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
-
-const pendingMessage = (byte: number) => ({
-  deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", byte)),
-  recordHash: Schema.decodeUnknownSync(RecordHash)(digest("rch_", byte)),
-  message: Schema.decodeUnknownSync(InboundMessage)({
-    kind: "direct",
-    postId: digest("pst_", byte),
-    address: "agent:bob",
-    sender: "agent:bob",
-    content: [{ type: "text", text: `delivery ${String(byte)}` }],
-  }),
-});
-
 const first = pendingMessage(1);
 const second = pendingMessage(2);
 const newObserved = (): Observed => ({
@@ -44,42 +33,19 @@ const newObserved = (): Observed => ({
   exported: [],
 });
 
-const publishEveryPost: CollectiveOperations["classify"] = ({ message }) =>
-  Effect.succeed(Option.some({ kind: "multicast", message }));
-
 const consumeEveryPost: CollectiveOperations["classify"] = () =>
   Effect.succeed(Option.none());
-
-/** Consumes the second pending post, as the collective layer does an answer. */
-const consumeSecond: CollectiveOperations["classify"] = ({ message }) =>
-  Effect.succeed(
-    message.postId === second.message.postId
-      ? Option.none()
-      : Option.some({ kind: "multicast", message }),
-  );
 
 const offerTo = (
   observed: Observed,
   classify: CollectiveOperations["classify"],
   subscriber: "attached" | "detached" = "attached",
 ): PendingOffer => ({
-  engine: {
-    acknowledgeMessage: (deliveryToken) =>
-      Effect.sync(() => {
-        observed.acknowledged.push(deliveryToken);
-      }),
-  },
+  engine: recordAcknowledgments(observed.acknowledged),
   classify,
   persist: () => Effect.void,
   ...(subscriber === "attached"
-    ? {
-        handler: {
-          publish: (event) => {
-            observed.published.push(event);
-            return true;
-          },
-        },
-      }
+    ? { handler: takeEvery(observed.published) }
     : {}),
   historyExport: {
     record: (record) =>
@@ -176,7 +142,7 @@ function publishesThePostsAroundAConsumedOneAndAcknowledgesOnlyIt() {
   const third = pendingMessage(3);
 
   Effect.runSync(
-    offerPendingMessages(offerTo(observed, consumeSecond), [
+    offerPendingMessages(offerTo(observed, consumeOnly(second)), [
       first,
       second,
       third,

@@ -3,7 +3,6 @@
 import type {
   AgentId,
   AgentSigningAuthority,
-  MessageId,
   SignedMessage,
   VerifiedAgentCard,
   VerifiedSignedMessage,
@@ -170,22 +169,6 @@ export interface RouterWorkerCallbacks<Payload> {
   ) => Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError>;
 }
 
-/** Focused test seams that retain production postconditions. */
-interface RouterWorkerOverrides {
-  readonly verifyOuter?: (input: {
-    readonly signedMessage: SignedMessage;
-    readonly agentCard: VerifiedAgentCard;
-  }) => Effect.Effect<VerifiedSignedMessage, RouterWorkerAuthenticationError>;
-  readonly rewrapOuter?: (input: {
-    readonly signedMessage: SignedMessage;
-    readonly messageId: MessageId;
-  }) => Effect.Effect<SignedMessage, RouterWorkerProtocolError>;
-  readonly makeMessageId?: () => Effect.Effect<
-    MessageId,
-    RouterWorkerProtocolError
-  >;
-}
-
 /** Complete private construction input for one registered endpoint. */
 export interface RouterWorkerInput<Payload> {
   readonly callerAgentId: AgentId;
@@ -195,8 +178,6 @@ export interface RouterWorkerInput<Payload> {
   readonly signingAuthority: AgentSigningAuthority;
   readonly outbox: RouterWorkerOutbox;
   readonly callbacks: RouterWorkerCallbacks<Payload>;
-  /** Test seams preserve production postconditions and are not process configuration. */
-  readonly overrides?: RouterWorkerOverrides;
 }
 
 /** One endpoint-wide Router worker. */
