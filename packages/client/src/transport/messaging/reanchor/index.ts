@@ -306,8 +306,8 @@ function acceptReanchorVoteEffect(
 /**
  * Verify a re-anchor vote's outer envelope and evidence against the
  * conversation's membership, then offer the vote to the active recovery run.
- * A vote that fails verification is ignored like any other unusable input,
- * so only a store failure ends the run.
+ * A vote that fails either check is reported ignored like any other unusable
+ * input, as is a verified vote the run does not take.
  * @param runtime Engine whose active recovery run receives the vote.
  * @param ingress Router delivery whose outer envelope carries the vote.
  * @param message The vote's evidence message from that envelope.

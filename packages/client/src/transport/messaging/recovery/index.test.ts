@@ -1137,20 +1137,27 @@ const peerReanchorVoteIngress = (
     routerInstanceId: newRouterInstanceId,
   });
 
+/**
+ * Router ingress carrying a re-anchor vote whose outer envelope `responder`
+ * signs and addresses to `membership`. The vote's evidence is signed by
+ * `evidenceSigner` when given, otherwise by `responder`.
+ */
 function peerReanchorVoteIngressFrom(input: {
   readonly membership: VerifiedMembership;
   readonly responder: IdentityFixture;
   readonly proposal: ReanchorVote;
   readonly routerInstanceId: typeof RouterInstanceId.Type;
+  readonly evidenceSigner?: IdentityFixture;
 }): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> {
+  const signer = input.evidenceSigner ?? input.responder;
   return Effect.gen(function* () {
     const evidence = yield* signEvidenceMessage({
       statement: {
         ...input.proposal,
-        signerAgentId: input.responder.card.agentId,
+        signerAgentId: signer.card.agentId,
       },
-      agentCard: input.responder.card,
-      signingAuthority: input.responder.authority,
+      agentCard: signer.card,
+      signingAuthority: signer.authority,
     });
     const message = yield* signOuterEvidence({
       evidence,
@@ -2565,6 +2572,51 @@ const ignoresReanchorVoteAddressedBeyondItsMembers = () =>
     ),
   );
 
+/**
+ * A member's envelope carrying re-anchor vote evidence signed by an agent
+ * outside the conversation passes the envelope check and fails the evidence
+ * membership check, so it is reported ignored and the run still takes the
+ * peer's genuine vote. Fails when the evidence check surfaces as a
+ * persistence failure, which ends the Router worker's poll loop.
+ */
+const ignoresReanchorVoteWhoseEvidenceSignerIsNotAMember = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const { recovery, proposal } = yield* proposeAtRestart(fixture);
+        const outsiderAuthority = yield* makeTestAuthority();
+        const outsider = yield* issueTestCard({
+          byte: 3,
+          name: "recovery-outsider",
+          authority: outsiderAuthority,
+          registryKeys: fixture.registryKeys,
+        });
+
+        const forged = yield* peerReanchorVoteIngressFrom({
+          membership: fixture.membership,
+          responder: fixture.remote,
+          proposal,
+          routerInstanceId: newRouterInstanceId,
+          evidenceSigner: { card: outsider, authority: outsiderAuthority },
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        const genuine = yield* peerReanchorVoteIngress(fixture, proposal).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
+
+        expect(forged).toBe(ignoredDisposition);
+        expect(genuine).toBe(acceptedDisposition);
+      }),
+    ),
+  );
+
 const rebroadcastsPersistedLocalVote = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -3116,6 +3168,10 @@ describe("endpoint restart recovery", () => {
   it(
     "ignores a re-anchor vote whose envelope is addressed beyond its members",
     ignoresReanchorVoteAddressedBeyondItsMembers,
+  );
+  it(
+    "ignores a re-anchor vote whose evidence an agent outside the conversation signed",
+    ignoresReanchorVoteWhoseEvidenceSignerIsNotAMember,
   );
   it(
     "replays a peer's re-anchor vote held from before its catch-up completed",
