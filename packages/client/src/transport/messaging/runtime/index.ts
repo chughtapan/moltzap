@@ -162,13 +162,11 @@ export interface EngineRuntime {
 export type EngineOutboxError = ClientRepresentationError | EndpointStoreError;
 
 /**
- * The engine's outbox. It is the only caller of the outer-envelope signers,
- * so every outer body the engine originates is built and signed here. Outside
- * a recovery run it stages each signed envelope in the durable outbox and
- * keeps the ordered queue of outbox identities the Router worker transmits; a
- * running recovery hands its signed envelopes to the worker's recovery queue
- * instead. Engine assembly builds it, and phases reach it only through
- * `EngineRuntime.outbox`.
+ * The engine's outbox: the only caller of the outer-envelope signers. Outside
+ * a recovery run it stages each signed envelope durably and queues its outbox
+ * identity for the Router worker; a running recovery routes its signed
+ * envelopes to the worker's recovery queue instead. Phases reach it only
+ * through `EngineRuntime.outbox`.
  */
 export interface EngineOutbox {
   /** Sign an envelope for a caller that routes it, as recovery does. */

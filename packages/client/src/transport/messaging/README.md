@@ -22,9 +22,6 @@ shares with its re-anchor). A phase starts work in another phase only through
 `EngineRuntime.phases`, which `index.ts` supplies, so phases never import each
 other.
 
-`outbox.ts` is the engine's outbox and the only caller of the outer-envelope
-signers, so every outer body the engine originates is built and signed there.
-Outside a recovery run it stages each signed envelope in the durable outbox and
-keeps the ordered queue the Router worker transmits; a running recovery hands
-its signed envelopes to the worker's recovery queue instead. Only `index.ts`
-imports it; phases reach it through `EngineRuntime.outbox`.
+`outbox.ts` builds `EngineOutbox`, the only caller of the outer-envelope
+signers. Only `index.ts` imports it; phases reach it through
+`EngineRuntime.outbox`.
