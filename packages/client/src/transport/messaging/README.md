@@ -22,6 +22,4 @@ shares with its re-anchor). A phase starts work in another phase only through
 `EngineRuntime.phases`, which `index.ts` supplies, so phases never import each
 other.
 
-`outbox.ts` builds `EngineOutbox`, the only caller of the outer-envelope
-signers. Only `index.ts` imports it; phases reach it through
-`EngineRuntime.outbox`.
+`outbox.ts` builds the `EngineOutbox` port; only `index.ts` imports it.

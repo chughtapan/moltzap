@@ -162,11 +162,12 @@ export interface EngineRuntime {
 export type EngineOutboxError = ClientRepresentationError | EndpointStoreError;
 
 /**
- * The engine's outbox: the only caller of the outer-envelope signers. Outside
- * a recovery run it stages each signed envelope durably and queues its outbox
- * identity for the Router worker; a running recovery routes its signed
- * envelopes to the worker's recovery queue instead. Phases reach it only
- * through `EngineRuntime.outbox`.
+ * The engine's outbox: the only caller of the outer-envelope signers, so the
+ * engine builds and signs every outer body here; the Router worker's retry
+ * re-signs a staged body unchanged. Its queue operations always stage the
+ * signed envelope durably and queue its outbox identity for the Router
+ * worker; `sign` serves a caller that routes the envelope itself. Phases
+ * reach it only through `EngineRuntime.outbox`.
  */
 export interface EngineOutbox {
   /** Sign an envelope for a caller that routes it, as recovery does. */
@@ -189,8 +190,8 @@ export interface EngineOutbox {
     packet: ActionCertifiedRecord | CertifiedRecord,
   ) => Effect.Effect<void, EngineOutboxError>;
   /**
-   * Stage an envelope that `sign` returned. Any other `SignedMessage` would
-   * bypass the outbox's single signing point.
+   * Stage an envelope that `sign` returned; any other `SignedMessage` would
+   * skip the outbox's signing.
    */
   readonly enqueueSigned: (
     conversationId: ConversationId,
