@@ -273,7 +273,7 @@ const localActionEvidence = (
       yield* mergeEvidence(runtime, fold, "action", evidence);
     }
     yield* Effect.uninterruptible(
-      runtime.phases.queueEvidence(runtime, fold.conversation, evidence).pipe(
+      runtime.outbox.queueEvidence(fold.conversation, evidence).pipe(
         Effect.mapError(() => persistenceFailure()),
         Effect.zipRight(
           Effect.sync(() => {
@@ -382,7 +382,7 @@ const localDurabilityEvidence = (
       yield* mergeEvidence(runtime, fold, "durability", evidence);
     }
     yield* Effect.uninterruptible(
-      runtime.phases.queueEvidence(runtime, fold.conversation, evidence).pipe(
+      runtime.outbox.queueEvidence(fold.conversation, evidence).pipe(
         Effect.mapError(() => persistenceFailure()),
         Effect.zipRight(
           Effect.sync(() => {
@@ -545,8 +545,8 @@ const promote = (
       : persistPromotionWithDelivery(runtime, stored, source, delivery);
     const queuePromotion =
       source === "assembled"
-        ? runtime.phases
-            .queueCertifiedPacket(runtime, fold.conversation, record)
+        ? runtime.outbox
+            .queueCertifiedPacket(fold.conversation, record)
             .pipe(Effect.mapError(() => persistenceFailure()))
         : Effect.void;
     yield* Effect.uninterruptible(
@@ -612,8 +612,8 @@ const stageActionCertificate = (
     });
     const queueStaged =
       source === "assembled"
-        ? runtime.phases
-            .queueCertifiedPacket(runtime, fold.conversation, record)
+        ? runtime.outbox
+            .queueCertifiedPacket(fold.conversation, record)
             .pipe(Effect.mapError(() => persistenceFailure()))
         : Effect.void;
     yield* Effect.uninterruptible(
