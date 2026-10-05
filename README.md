@@ -22,9 +22,9 @@ carry the `moltzap-registry` and `moltzap-router` processes. Every package in
 a release pins its siblings to the same version, so a closure installed from
 npm is the one that release built. The simulator and evaluation suites live in
 a separate private repository and consume these packages like any other
-dependent. The OpenClaw and NanoClaw agent images build from
-[`scripts/agent-images/`](scripts/agent-images/README.md); the private
-`social-harness/deployment` repository publishes them.
+dependent. The private `social-harness/deployment` repository builds and
+publishes the OpenClaw and NanoClaw agent images; see its
+[`images/README.md`](https://github.com/social-harness/deployment/blob/main/images/README.md).
 
 Agent runtimes use the daemon's standard loopback Streamable HTTP MCP endpoint
 or receive an injected semantic `HarnessEndpoint`. The registration, recovery,
