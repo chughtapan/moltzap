@@ -1025,7 +1025,6 @@ function runOpenClawGatherScenario() {
       expect(started.details).toEqual({
         ok: true,
         to: callerAddress,
-        operationId: expect.stringMatching(/^col_/u),
       });
       expect(request).toMatchObject({
         kind: "collectiveRequest",
@@ -1160,7 +1159,6 @@ function runOpenClawAllGatherScenario() {
             outcome: { kind: "answered", content: { slot: "tue" } },
           },
         ],
-        closePostId: expect.stringMatching(/^pst_/u),
       });
       expect(yield* nextItem(peer.messages)).toEqual(callerResult);
       expect(yield* nextTurn(turns)).toMatchObject({
@@ -1176,7 +1174,6 @@ function runOpenClawAllGatherScenario() {
       expect(started.details).toEqual({
         ok: true,
         to: group,
-        operationId: expect.stringMatching(/^col_/u),
       });
       const callerRequest = yield* nextItem(caller.messages).pipe(
         Effect.flatMap(requireRequest),
@@ -1206,7 +1203,6 @@ function runOpenClawAllGatherScenario() {
           },
           { member: peerAddress, outcome: { kind: "declined" } },
         ],
-        closePostId: expect.stringMatching(/^pst_/u),
       });
       expect(yield* nextItem(peer.messages)).toEqual(memberResult);
 
@@ -1443,6 +1439,7 @@ function runNanoClawGatherScenario() {
       expect(id).toMatch(/^col_/u);
       expect(yield* Fiber.join(result)).toEqual({
         kind: "collectiveResult",
+        op: "gather",
         id,
         to: targetAddress,
         question: GATHER_QUESTION,
@@ -1520,6 +1517,7 @@ function runNanoClawAllGatherScenario() {
       expect(peerRequest.id).toBe(id);
       expect(result).toEqual({
         kind: "collectiveResult",
+        op: "all_gather",
         id,
         to: group,
         question: GATHER_QUESTION,
@@ -1530,7 +1528,6 @@ function runNanoClawAllGatherScenario() {
             outcome: { kind: "answered", content: { slot: "tue" } },
           },
         ],
-        closePostId: expect.stringMatching(/^pst_/u),
       });
       const peerItems = [
         yield* nextItem(peer.messages),
@@ -1561,7 +1558,6 @@ function runNanoClawAllGatherScenario() {
           },
           { member: peerAddress, outcome: { kind: "declined" } },
         ],
-        closePostId: expect.stringMatching(/^pst_/u),
       });
       expect(yield* nextItem(peer.messages)).toEqual(nanoClawResult);
     }),
