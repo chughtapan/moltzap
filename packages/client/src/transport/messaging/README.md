@@ -18,11 +18,12 @@ depends on no phase. `history/` builds the durable records a fold certifies
 and reads stored history back, and `startup.ts` rebuilds the engine's state
 from the store when the engine starts.
 The phases are `send.ts`, `certification/` (certification, evidence routing,
-and the dissemination resume), `recovery/` (catch-up), `reanchor/`
-(Router-restart re-anchor) and `recovery-session/` (the state one recovery run
-shares with its re-anchor). A phase starts work in another phase only through
-`EngineRuntime.phases`, which `index.ts` supplies, so phases never import each
-other.
+and the dissemination resume), `recovery/` (recovery runs and catch-up) and
+`reanchor/` (Router-restart re-anchor). A phase starts work in another phase
+only through `EngineRuntime.phases`, which `index.ts` supplies, or through a
+port the called phase defines and the caller builds: recovery builds the
+`ReanchorRunPort` its re-anchor runs against. Phases never import each
+other's internals.
 
 `outbox.ts` is the engine's outbox and the only signer of outer envelopes: it
 signs, stages each envelope in the durable outbox, and keeps the ordered queue

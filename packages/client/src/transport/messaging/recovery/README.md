@@ -4,8 +4,9 @@ This directory owns local catch-up and Router-restart recovery. It
 reconstructs only verified durable state and blocks normal protocol traffic
 until the recovered position is safe to use.
 
-Start with `index.ts`. It is the private facade for recovery lifecycle,
-catch-up, and ingress coordination. The messaging engine uses that facade,
-and the engine and outbound path also share the readiness barrier. Other recovery
-modules remain private to this directory. Re-anchor lives in `../reanchor/`,
-and the state a recovery run shares with it lives in `../recovery-session/`.
+Start with `index.ts`. It owns the recovery run: its lifecycle, ingress
+dispatch, outbound queue and completion accounting. It builds the ports the
+run's catch-up and re-anchor use. `catch-up.ts` asks members for history after
+a position and answers their requests. `barrier.ts` blocks normal traffic
+during a run; the engine and the send path share it. Re-anchor lives in
+`../reanchor/` and reaches the run only through its `ReanchorRunPort`.

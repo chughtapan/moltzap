@@ -1,11 +1,11 @@
-/** @file Authenticated catch-up coordination and recovery lifecycle. */
+/**
+ * @file Recovery run lifecycle: one authenticated catch-up and re-anchor run
+ * per Router discontinuity, its ingress dispatch, its outbound queue and
+ * completion accounting, and the ports its catch-up and re-anchor use.
+ */
 
-import {
-  type AgentId,
-  MOLTZAP_VERSION,
-  SignedMessage,
-} from "@moltzap/identity";
-import { Deferred, Effect, Fiber, Queue, Schema, type Scope } from "effect";
+import type { SignedMessage } from "@moltzap/identity";
+import { Deferred, Effect, Fiber, Queue, type Scope } from "effect";
 import type {
   EndpointRecovery,
   StoredOutboundMessage,
@@ -17,71 +17,63 @@ import {
   RouterWorkerPersistenceError,
   type RouterWorkerRecovery,
   RouterWorkerRecoveryError,
+  type RouterWorkerRecoverySend,
   type RouterWorkerSendError,
 } from "../../router/index.js";
 import {
-  type AnchorHash as AnchorHashValue,
-  type CatchUpIncomplete,
-  type CatchUpPage,
-  type CatchUpRequest as CatchUpRequestValue,
-  type CertifiedRecord,
-  CompletedReanchor,
-  type CompletedReanchor as CompletedReanchorValue,
   type ConversationId as ConversationIdValue,
   type DecodedOuterBody,
   type DirectPacket,
-  encodeCanonical,
   memberCard,
-  ReanchorBody,
-  type RecordHash as RecordHashValue,
-  signEvidenceMessage,
   type VerifiedMembership,
-  verifyCatchUpIncomplete,
-  verifyCatchUpPage,
-  verifyOuterMessage,
 } from "../../wire/index.js";
 import {
-  decodeStoredAnchor,
   durableRouterInstanceId,
-  recordFromStore,
   verifyRecoveredHistory,
+  verifyStoredMemberships,
   verifyStoredOutbounds,
 } from "../history/index.js";
 import {
   acceptCompletedReanchor,
   acceptReanchorVote,
-  positionReady,
+  positionReady as reanchorPositionReady,
+  type ReanchorRun,
+  startReanchorRun,
 } from "../reanchor/index.js";
-import {
-  type ActiveRecoveryState,
-  clearRecoveryState,
-  completeRecoveryIfIdle,
-  currentRecoveryState,
-  installRecoveryState,
-  makeRecoveryState,
-  outboundCommitted,
-  queueRecoveryEnvelope,
-  recoverMemberships,
-  requestCertifiedHistory,
-} from "../recovery-session/index.js";
 import { completeRecoveryBarrier, currentRecoveryBarrier } from "./barrier.js";
+import {
+  acceptCatchUpIncomplete,
+  acceptCatchUpPage,
+  acceptCatchUpRequest,
+  type CatchUpResponder,
+  type CatchUpRun,
+  type CatchUpState,
+  makeCatchUpState,
+  requestCertifiedHistory,
+} from "./catch-up.js";
 
-interface CatchUpSuccessor {
-  readonly item: CertifiedRecord | CompletedReanchorValue;
-  readonly hasMore: boolean;
+/**
+ * One authenticated recovery run. Its catch-up and re-anchor reach it only
+ * through the ports built here.
+ */
+interface RecoveryRun {
+  readonly recovery: RouterWorkerRecovery;
+  /**
+   * Conversations whose durable anchor names a Router instance other than the
+   * recovery anchor. Only these re-anchor; the rest recover by catch-up alone.
+   */
+  readonly reanchoring: ReadonlySet<string>;
+  readonly memberships: Map<ConversationIdValue, VerifiedMembership>;
+  readonly outbound: Queue.Queue<RouterWorkerRecoverySend>;
+  readonly completion: Deferred.Deferred<undefined, RouterWorkerRecoveryError>;
+  readonly completedConversations: Set<ConversationIdValue>;
+  readonly catchUp: CatchUpState;
+  readonly reanchor: ReanchorRun;
+  pendingOutbound: number;
 }
 
-type CatchUpSuccessorRow =
-  | Readonly<{
-      kind: "record";
-      value: EndpointRecovery["certifiedRecords"][number];
-    }>
-  | Readonly<{
-      kind: "reanchor";
-      value: EndpointRecovery["anchors"][number];
-    }>;
+const activeRuns = new WeakMap<EngineRuntime, RecoveryRun>();
 
-const acceptedDisposition: RouterIngressDisposition = "accepted";
 const ignoredDisposition: RouterIngressDisposition = "ignored";
 
 /**
@@ -96,7 +88,11 @@ export function acceptEngineIngressWithRecovery(
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
   return ingress.payload.kind === "direct" &&
     ingress.payload.packet.kind === "catch_up_request"
-    ? acceptCatchUpRequest(runtime, ingress, ingress.payload.packet)
+    ? acceptCatchUpRequest(
+        catchUpResponder(runtime),
+        ingress,
+        ingress.payload.packet,
+      )
     : runtime.phases.acceptIngress(runtime, ingress);
 }
 
@@ -111,7 +107,10 @@ export function acceptEngineRecoveryIngressWithRecovery(
   ingress: RouterWorkerIngress<DecodedOuterBody>,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
   if (ingress.payload.kind === "evidence") {
-    return acceptReanchorVote(runtime, ingress, ingress.payload.message);
+    const run = activeRuns.get(runtime);
+    return run === undefined
+      ? Effect.succeed(ignoredDisposition)
+      : acceptReanchorVote(run.reanchor, ingress, ingress.payload.message);
   }
   return acceptRecoveryPacket(runtime, ingress, ingress.payload.packet);
 }
@@ -136,7 +135,7 @@ export const recoverCertifiedHistory = (
     if (barrier === undefined) {
       return yield* Effect.fail(recoveryFailure());
     }
-    if (currentRecoveryState(runtime) !== undefined) {
+    if (activeRuns.has(runtime)) {
       return yield* Effect.fail(recoveryFailure());
     }
     const recovered = yield* runtime.input.store
@@ -155,18 +154,21 @@ export const recoverCertifiedHistory = (
       memberships,
       reanchoring,
     );
-    const state = yield* makeRecoveryState(
+    const run = yield* makeRecoveryRun(
+      runtime,
       recoveryInput,
       memberships,
       reanchoring,
     );
     yield* Effect.sync(() => {
-      installRecoveryState(runtime, state);
+      activeRuns.set(runtime, run);
     });
-    yield* Effect.scoped(runRecovery(runtime, state, retainedOutbounds)).pipe(
+    yield* Effect.scoped(runRecovery(runtime, run, retainedOutbounds)).pipe(
       Effect.ensuring(
         Effect.sync(() => {
-          clearRecoveryState(runtime, state);
+          if (activeRuns.get(runtime) === run) {
+            activeRuns.delete(runtime);
+          }
         }),
       ),
     );
@@ -283,13 +285,11 @@ function acceptRecoveryPacket(
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
   switch (packet.kind) {
     case "catch_up_request":
-      return acceptCatchUpRequest(runtime, ingress, packet);
+      return acceptCatchUpRequest(catchUpResponder(runtime), ingress, packet);
     case "catch_up_page":
-      return acceptCatchUpPage(runtime, ingress, packet);
     case "catch_up_incomplete":
-      return acceptCatchUpIncomplete(runtime, ingress, packet);
     case "completed_reanchor":
-      return acceptCompletedReanchor(runtime, ingress, packet);
+      return acceptRunPacket(runtime, ingress, packet);
     case "certified_record":
       return acceptRecoveryRecord(runtime, ingress);
     case "action_proposal":
@@ -302,494 +302,39 @@ function acceptRecoveryPacket(
   }
 }
 
+function acceptRunPacket(
+  runtime: EngineRuntime,
+  ingress: RouterWorkerIngress<DecodedOuterBody>,
+  packet: Extract<
+    DirectPacket,
+    {
+      readonly kind:
+        | "catch_up_page"
+        | "catch_up_incomplete"
+        | "completed_reanchor";
+    }
+  >,
+): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
+  const run = activeRuns.get(runtime);
+  if (run === undefined) {
+    return Effect.succeed(ignoredDisposition);
+  }
+  switch (packet.kind) {
+    case "catch_up_page":
+      return acceptCatchUpPage(catchUpRun(runtime, run), ingress, packet);
+    case "catch_up_incomplete":
+      return acceptCatchUpIncomplete(catchUpRun(runtime, run), ingress, packet);
+    case "completed_reanchor":
+      return acceptCompletedReanchor(run.reanchor, ingress, packet);
+    default: {
+      const exhaustive: never = packet;
+      return exhaustive;
+    }
+  }
+}
+
 function recoveryFailure(): RouterWorkerRecoveryError {
   return new RouterWorkerRecoveryError();
-}
-
-function acceptCatchUpRequest(
-  runtime: EngineRuntime,
-  ingress: RouterWorkerIngress<DecodedOuterBody>,
-  request: CatchUpRequestValue,
-): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  const membership = membershipFor(runtime, request.conversationId);
-  if (membership === undefined) {
-    return Effect.succeed(ignoredDisposition);
-  }
-  const senderAgentId = ingress.message.senderAgentId;
-  const requestMatchesMembership =
-    senderAgentId !== runtime.input.localAgentCard.agentId &&
-    senderAgentId === request.requesterAgentId &&
-    request.membershipHash === membership.hash &&
-    memberCard(membership, senderAgentId) !== undefined;
-  if (!requestMatchesMembership) {
-    return Effect.succeed(ignoredDisposition);
-  }
-  return verifyOuterMessage({
-    message: ingress.message,
-    membership,
-  }).pipe(
-    Effect.flatMap(() => respondToCatchUp(runtime, membership, request)),
-    Effect.as(acceptedDisposition),
-    Effect.catchTag("ClientRepresentationError", () =>
-      Effect.succeed(ignoredDisposition),
-    ),
-  );
-}
-
-function membershipFor(
-  runtime: EngineRuntime,
-  conversationId: ConversationIdValue,
-): VerifiedMembership | undefined {
-  return (
-    currentRecoveryState(runtime)?.memberships.get(conversationId) ??
-    runtime.conversations.get(conversationId)?.membership
-  );
-}
-
-function respondToCatchUp(
-  runtime: EngineRuntime,
-  membership: VerifiedMembership,
-  request: CatchUpRequestValue,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
-  return runtime.input.store.recover().pipe(
-    Effect.mapError(persistenceFailure),
-    Effect.flatMap((recovery) =>
-      decodeCatchUpSuccessor(runtime, membership, recovery, request),
-    ),
-    Effect.flatMap((successor) =>
-      successor === undefined
-        ? sendCatchUpIncomplete(runtime, membership, request)
-        : sendCatchUpPage(runtime, membership, request, successor),
-    ),
-  );
-}
-
-function decodeCatchUpSuccessor(
-  runtime: EngineRuntime,
-  membership: VerifiedMembership,
-  recovery: EndpointRecovery,
-  request: CatchUpRequestValue,
-): Effect.Effect<CatchUpSuccessor | undefined, RouterWorkerPersistenceError> {
-  return Effect.gen(function* () {
-    const rows = successorRows(recovery, request);
-    if (rows.length > 1) {
-      return yield* Effect.fail(persistenceFailure());
-    }
-    const row = rows[0];
-    if (row === undefined) {
-      return undefined;
-    }
-    const item = yield* decodeSuccessorRow(runtime, membership, recovery, row);
-    const later = successorRows(recovery, nextRequest(request, item));
-    if (later.length > 1) {
-      return yield* Effect.fail(persistenceFailure());
-    }
-    return { item, hasMore: later.length === 1 };
-  }).pipe(Effect.mapError(persistenceFailure));
-}
-
-function decodeSuccessorRow(
-  runtime: EngineRuntime,
-  membership: VerifiedMembership,
-  recovery: EndpointRecovery,
-  row: CatchUpSuccessorRow,
-) {
-  if (row.kind === "record") {
-    return decodeStoredRecordSuccessor(runtime, membership, recovery, row);
-  }
-  return decodeStoredAnchor(membership, row.value).pipe(
-    Effect.flatMap((anchor) =>
-      anchor.kind === "completed_reanchor"
-        ? Effect.succeed(anchor)
-        : Effect.fail(persistenceFailure()),
-    ),
-  );
-}
-
-function decodeStoredRecordSuccessor(
-  runtime: EngineRuntime,
-  membership: VerifiedMembership,
-  recovery: EndpointRecovery,
-  row: Extract<CatchUpSuccessorRow, { readonly kind: "record" }>,
-) {
-  const anchor = recovery.anchors.find(
-    (candidate) =>
-      candidate.conversationId === row.value.conversationId &&
-      candidate.anchorHash === row.value.anchorHash,
-  );
-  if (anchor === undefined) {
-    return Effect.fail(persistenceFailure());
-  }
-  return decodeStoredAnchor(membership, anchor).pipe(
-    Effect.flatMap((decodedAnchor) =>
-      recordFromStore(runtime.input, row.value, decodedAnchor),
-    ),
-  );
-}
-
-function successorRows(
-  recovery: EndpointRecovery,
-  request: CatchUpRequestValue,
-): readonly CatchUpSuccessorRow[] {
-  if (request.knownRecordHash === null) {
-    return recovery.certifiedRecords
-      .filter(
-        (record) =>
-          record.conversationId === request.conversationId &&
-          record.previousRecordHash === undefined,
-      )
-      .map((value) => recordSuccessor(value));
-  }
-  const reanchors = recovery.anchors
-    .filter(
-      (anchor) =>
-        anchor.conversationId === request.conversationId &&
-        anchor.previousAnchorHash === request.knownAnchorHash &&
-        anchor.selectedRecordHash === request.knownRecordHash,
-    )
-    .map((value) => reanchorSuccessor(value));
-  const records = recovery.certifiedRecords
-    .filter(
-      (record) =>
-        record.conversationId === request.conversationId &&
-        record.previousRecordHash === request.knownRecordHash &&
-        record.anchorHash === request.knownAnchorHash,
-    )
-    .map((value) => recordSuccessor(value));
-  return [...reanchors, ...records];
-}
-
-function recordSuccessor(
-  value: EndpointRecovery["certifiedRecords"][number],
-): CatchUpSuccessorRow {
-  return { kind: "record", value };
-}
-
-function reanchorSuccessor(
-  value: EndpointRecovery["anchors"][number],
-): CatchUpSuccessorRow {
-  return { kind: "reanchor", value };
-}
-
-function nextRequest(
-  request: CatchUpRequestValue,
-  item: CertifiedRecord | CompletedReanchorValue,
-): CatchUpRequestValue {
-  if (item.kind === "completed_reanchor") {
-    return { ...request, knownAnchorHash: item.anchorHash };
-  }
-  return {
-    ...request,
-    knownRecordHash: item.actionCertifiedRecord.recordHash,
-    knownAnchorHash: item.actionCertifiedRecord.recordCore.anchorHash,
-  };
-}
-
-function sendCatchUpIncomplete(
-  runtime: EngineRuntime,
-  membership: VerifiedMembership,
-  request: CatchUpRequestValue,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
-  return Effect.gen(function* () {
-    const attestation = yield* signCatchUpAttestation(runtime, request, {
-      kind: "incomplete",
-      hash: null,
-      hasMore: false,
-    });
-    yield* queueRecoveryEnvelope(runtime, membership, {
-      kind: "direct",
-      packet: {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "catch_up_incomplete",
-        request,
-        attestation,
-      },
-    });
-  });
-}
-
-function sendCatchUpPage(
-  runtime: EngineRuntime,
-  membership: VerifiedMembership,
-  request: CatchUpRequestValue,
-  successor: CatchUpSuccessor,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
-  return Effect.gen(function* () {
-    const hash =
-      successor.item.kind === "certified_record"
-        ? successor.item.actionCertifiedRecord.recordHash
-        : successor.item.anchorHash;
-    const attestation = yield* signCatchUpAttestation(runtime, request, {
-      kind: successor.item.kind,
-      hash,
-      hasMore: successor.hasMore,
-    });
-    yield* queueRecoveryEnvelope(runtime, membership, {
-      kind: "direct",
-      packet: {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "catch_up_page",
-        request,
-        item: successor.item,
-        hasMore: successor.hasMore,
-        attestation,
-      },
-    });
-  });
-}
-
-function signCatchUpAttestation(
-  runtime: EngineRuntime,
-  request: CatchUpRequestValue,
-  item: Readonly<{
-    kind: "certified_record" | "completed_reanchor" | "incomplete";
-    hash: RecordHashValue | AnchorHashValue | null;
-    hasMore: boolean;
-  }>,
-) {
-  return signEvidenceMessage({
-    statement: {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "catch_up_attestation",
-      signerAgentId: runtime.input.localAgentCard.agentId,
-      request,
-      itemKind: item.kind,
-      itemHash: item.hash,
-      hasMore: item.hasMore,
-    },
-    agentCard: runtime.input.localAgentCard,
-    signingAuthority: runtime.input.signingAuthority,
-  }).pipe(
-    Effect.flatMap((message) => Schema.encode(SignedMessage)(message)),
-    Effect.mapError(persistenceFailure),
-  );
-}
-
-function acceptCatchUpPage(
-  runtime: EngineRuntime,
-  ingress: RouterWorkerIngress<DecodedOuterBody>,
-  page: CatchUpPage,
-): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  const context = pendingCatchUpContext(
-    runtime,
-    page.request,
-    ingress.message.senderAgentId,
-  );
-  if (context === undefined) {
-    return Effect.succeed(ignoredDisposition);
-  }
-  return Effect.gen(function* () {
-    yield* verifyOuterMessage({
-      message: ingress.message,
-      membership: context.membership,
-    });
-    yield* verifyCatchUpPage({
-      page,
-      membership: context.membership,
-      responseSenderAgentId: ingress.message.senderAgentId,
-      registrySignerPublicKey: runtime.input.registrySignerPublicKey,
-    });
-    const key = requestKey(page.request);
-    const successorHash = pageSuccessorHash(page);
-    const retained = context.state.acceptedSuccessors.get(key);
-    if (retained !== undefined) {
-      return retained === successorHash
-        ? acceptedDisposition
-        : yield* Effect.fail(persistenceFailure());
-    }
-    if (!sameRequest(context.pending, page.request)) {
-      return ignoredDisposition;
-    }
-    yield* applyCatchUpPage(runtime, ingress, page);
-    yield* Effect.sync(() => {
-      context.state.acceptedSuccessors.set(key, successorHash);
-    });
-    yield* requestCertifiedHistory(runtime, page.request.conversationId);
-    return acceptedDisposition;
-  }).pipe(
-    Effect.catchTag("ClientRepresentationError", () =>
-      Effect.succeed(ignoredDisposition),
-    ),
-  );
-}
-
-function pageSuccessorHash(
-  page: CatchUpPage,
-): RecordHashValue | AnchorHashValue {
-  return page.item.kind === "certified_record"
-    ? page.item.actionCertifiedRecord.recordHash
-    : page.item.anchorHash;
-}
-
-function applyCatchUpPage(
-  runtime: EngineRuntime,
-  ingress: RouterWorkerIngress<DecodedOuterBody>,
-  page: CatchUpPage,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
-  if (page.item.kind === "completed_reanchor") {
-    return applyCaughtUpReanchor(runtime, page.item);
-  }
-  const recordIngress: RouterWorkerIngress<DecodedOuterBody> = {
-    ...ingress,
-    payload: { kind: "direct", packet: page.item },
-  };
-  return runtime.phases
-    .acceptRecoveryIngress(runtime, recordIngress)
-    .pipe(
-      Effect.flatMap((disposition) =>
-        disposition === "accepted"
-          ? Effect.void
-          : Effect.fail(persistenceFailure()),
-      ),
-    );
-}
-
-function persistenceFailure(): RouterWorkerPersistenceError {
-  return new RouterWorkerPersistenceError();
-}
-
-function applyCaughtUpReanchor(
-  runtime: EngineRuntime,
-  completed: CompletedReanchorValue,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
-  return Effect.gen(function* () {
-    yield* runtime.input.store.applyCatchUpReanchor({
-      conversationId: completed.reanchor.conversationId,
-      anchorHash: completed.anchorHash,
-      previousAnchorHash: completed.reanchor.previousAnchorHash,
-      routerInstanceId: completed.reanchor.routerInstanceId,
-      selectedRecordHash: completed.reanchor.selectedRecordHash,
-      canonicalBody: yield* encodeCanonical(
-        ReanchorBody,
-        completed.reanchor,
-      ).pipe(Effect.mapError(persistenceFailure)),
-      canonicalCompletedReanchor: yield* encodeCanonical(
-        CompletedReanchor,
-        completed,
-      ).pipe(Effect.mapError(persistenceFailure)),
-    });
-    yield* Effect.sync(() => {
-      const conversation = runtime.conversations.get(
-        completed.reanchor.conversationId,
-      );
-      if (conversation !== undefined) {
-        conversation.currentAnchor = completed;
-      }
-    });
-  }).pipe(Effect.mapError(persistenceFailure));
-}
-
-function acceptCatchUpIncomplete(
-  runtime: EngineRuntime,
-  ingress: RouterWorkerIngress<DecodedOuterBody>,
-  incomplete: CatchUpIncomplete,
-): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  const context = pendingCatchUpContext(
-    runtime,
-    incomplete.request,
-    ingress.message.senderAgentId,
-  );
-  if (context === undefined) {
-    return Effect.succeed(ignoredDisposition);
-  }
-  return Effect.gen(function* () {
-    yield* verifyOuterMessage({
-      message: ingress.message,
-      membership: context.membership,
-    });
-    yield* verifyCatchUpIncomplete({
-      incomplete,
-      membership: context.membership,
-      responseSenderAgentId: ingress.message.senderAgentId,
-    });
-    if (!sameRequest(context.pending, incomplete.request)) {
-      return ignoredDisposition;
-    }
-    const positionIsReady = yield* Effect.sync(() =>
-      recordIncompleteResponder(
-        context,
-        incomplete.request.conversationId,
-        ingress.message.senderAgentId,
-      ),
-    );
-    if (!positionIsReady) {
-      return acceptedDisposition;
-    }
-    yield* positionReady(runtime, incomplete.request.conversationId);
-    return acceptedDisposition;
-  }).pipe(
-    Effect.catchTag("ClientRepresentationError", () =>
-      Effect.succeed(ignoredDisposition),
-    ),
-  );
-}
-
-function recordIncompleteResponder(
-  context: Readonly<{
-    state: ActiveRecoveryState;
-    membership: VerifiedMembership;
-  }>,
-  conversationId: ConversationIdValue,
-  senderAgentId: AgentId,
-): boolean {
-  const responders =
-    context.state.incompleteResponders.get(conversationId) ??
-    new Set<AgentId>();
-  responders.add(senderAgentId);
-  context.state.incompleteResponders.set(conversationId, responders);
-  const requiredRemoteResponders = context.membership.members.length - 1;
-  if (responders.size < requiredRemoteResponders) {
-    return false;
-  }
-  context.state.pendingRequests.delete(conversationId);
-  context.state.incompleteResponders.delete(conversationId);
-  return true;
-}
-
-function sameRequest(
-  left: CatchUpRequestValue,
-  right: CatchUpRequestValue,
-): boolean {
-  return requestKey(left) === requestKey(right);
-}
-
-function requestKey(request: CatchUpRequestValue): string {
-  return [
-    request.conversationId,
-    request.membershipHash,
-    request.requesterAgentId,
-    request.knownRecordHash ?? "null",
-    request.knownAnchorHash ?? "null",
-  ].join("\u0000");
-}
-
-function pendingCatchUpContext(
-  runtime: EngineRuntime,
-  request: CatchUpRequestValue,
-  senderAgentId: AgentId,
-):
-  | Readonly<{
-      state: ActiveRecoveryState;
-      membership: VerifiedMembership;
-      pending: CatchUpRequestValue;
-    }>
-  | undefined {
-  const state = currentRecoveryState(runtime);
-  if (state === undefined) {
-    return undefined;
-  }
-  const membership = state.memberships.get(request.conversationId);
-  const pending = state.pendingRequests.get(request.conversationId);
-  if (membership === undefined || pending === undefined) {
-    return undefined;
-  }
-  if (senderAgentId === runtime.input.localAgentCard.agentId) {
-    return undefined;
-  }
-  if (memberCard(membership, senderAgentId) === undefined) {
-    return undefined;
-  }
-  return { state, membership, pending };
 }
 
 function acceptRecoveryRecord(
@@ -805,18 +350,21 @@ function acceptRecoveryRecord(
       ) {
         return Effect.void;
       }
-      return requestCertifiedHistory(
-        runtime,
-        ingress.payload.packet.actionCertifiedRecord.recordCore.action
-          .conversationId,
-      );
+      const run = activeRuns.get(runtime);
+      return run === undefined
+        ? Effect.fail(persistenceFailure())
+        : requestCertifiedHistory(
+            catchUpRun(runtime, run),
+            ingress.payload.packet.actionCertifiedRecord.recordCore.action
+              .conversationId,
+          );
     }),
   );
 }
 
 function runRecovery(
   runtime: EngineRuntime,
-  state: ActiveRecoveryState,
+  run: RecoveryRun,
   retainedOutbounds: readonly StoredOutboundMessage[],
 ): Effect.Effect<
   void,
@@ -824,15 +372,12 @@ function runRecovery(
   Scope.Scope
 > {
   return Effect.gen(function* () {
-    const sender = yield* sendRecoveryOutbound(state).pipe(Effect.forkScoped);
-    yield* recoverPositions(runtime, state).pipe(
+    const sender = yield* sendRecoveryOutbound(run).pipe(Effect.forkScoped);
+    yield* recoverPositions(runtime, run).pipe(
       Effect.mapError(recoveryFailure),
     );
-    yield* completeRecoveryIfIdle(state);
-    yield* Effect.raceFirst(
-      Deferred.await(state.completion),
-      Fiber.join(sender),
-    );
+    yield* completeRecoveryIfIdle(run);
+    yield* Effect.raceFirst(Deferred.await(run.completion), Fiber.join(sender));
     yield* resumeRecoveryOutbox(runtime, retainedOutbounds);
     yield* runtime.phases
       .resumeDissemination(runtime)
@@ -840,37 +385,42 @@ function runRecovery(
     yield* runtime.phases
       .resumeFolds(runtime)
       .pipe(Effect.mapError(recoveryFailure));
-    yield* resumePendingIntents(runtime, state);
+    yield* resumePendingIntents(runtime, run);
   });
 }
 
 function sendRecoveryOutbound(
-  state: ActiveRecoveryState,
+  run: RecoveryRun,
 ): Effect.Effect<never, RouterWorkerSendError> {
-  return Queue.take(state.outbound).pipe(
-    Effect.flatMap((message) => state.recovery.send(message)),
-    Effect.tap(() => outboundCommitted(state)),
+  return Queue.take(run.outbound).pipe(
+    Effect.flatMap((message) => run.recovery.send(message)),
+    Effect.tap(() =>
+      Effect.sync(() => {
+        run.pendingOutbound -= 1;
+      }).pipe(Effect.zipRight(completeRecoveryIfIdle(run))),
+    ),
     Effect.forever,
   );
 }
 
 function recoverPositions(
   runtime: EngineRuntime,
-  state: ActiveRecoveryState,
+  run: RecoveryRun,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return Effect.forEach(
-    state.memberships.keys(),
-    (conversationId) => requestCertifiedHistory(runtime, conversationId),
+    run.memberships.keys(),
+    (conversationId) =>
+      requestCertifiedHistory(catchUpRun(runtime, run), conversationId),
     { concurrency: 1, discard: true },
   );
 }
 
 function resumePendingIntents(
   runtime: EngineRuntime,
-  state: ActiveRecoveryState,
+  run: RecoveryRun,
 ): Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError> {
   return runtime.outbox.serialized(
-    resetReanchoredIntents(runtime, state.reanchoring).pipe(
+    resetReanchoredIntents(runtime, run.reanchoring).pipe(
       Effect.zipRight(resumeUncompletedIntents(runtime)),
     ),
   );
@@ -911,4 +461,219 @@ function resumeUncompletedIntents(
             .pipe(Effect.mapError(recoveryFailure)),
     { concurrency: 1, discard: true },
   );
+}
+
+/**
+ * Allocate one run's queue, accounting, catch-up state, and re-anchor.
+ * @param runtime Engine the run recovers.
+ * @param recovery RouterWorker callbacks and discontinuity anchor.
+ * @param memberships Verified memberships that must be reconciled.
+ * @param reanchoring Conversations anchored to a different Router instance.
+ * @returns The run, not yet installed.
+ */
+function makeRecoveryRun(
+  runtime: EngineRuntime,
+  recovery: RouterWorkerRecovery,
+  memberships: Map<ConversationIdValue, VerifiedMembership>,
+  reanchoring: ReadonlySet<string>,
+): Effect.Effect<RecoveryRun> {
+  return Effect.gen(function* () {
+    const run: RecoveryRun = {
+      recovery,
+      reanchoring,
+      memberships,
+      outbound: yield* Queue.unbounded<RouterWorkerRecoverySend>(),
+      completion: yield* Deferred.make<undefined, RouterWorkerRecoveryError>(),
+      completedConversations: new Set(),
+      catchUp: makeCatchUpState(),
+      reanchor: startReanchorRun({
+        runtime,
+        reason: recovery.reason,
+        routerInstanceId: recovery.anchor.routerInstanceId,
+        reanchoring,
+        isActive: () => activeRuns.get(runtime) === run,
+        membership: (conversationId) =>
+          activeRuns.get(runtime) === run
+            ? memberships.get(conversationId)
+            : undefined,
+        isRecovered: (conversationId) =>
+          run.completedConversations.has(conversationId),
+        markRecovered: (conversationId) =>
+          markRecovered(runtime, run, conversationId),
+        queue: (membership, body) =>
+          queueRecoveryEnvelope(runtime, membership, body),
+        requestCatchUp: (conversationId) =>
+          requestCertifiedHistory(catchUpRun(runtime, run), conversationId),
+      }),
+      pendingOutbound: 0,
+    };
+    return run;
+  }).pipe(Effect.withSpan("makeRecoveryState"));
+}
+
+/**
+ * The run's catch-up port. A position that is ready goes to re-anchor after a
+ * Router restart and is recovered for any other reason.
+ * @param runtime Engine the run recovers.
+ * @param run Active recovery run.
+ * @returns The port catch-up runs against.
+ */
+function catchUpRun(runtime: EngineRuntime, run: RecoveryRun): CatchUpRun {
+  return {
+    ...catchUpResponder(runtime),
+    state: run.catchUp,
+    isActive: () => activeRuns.get(runtime) === run,
+    membership: (conversationId) => run.memberships.get(conversationId),
+    onPositionReady: (conversationId) =>
+      positionReady(runtime, run, conversationId).pipe(
+        Effect.withSpan("positionReady"),
+      ),
+  };
+}
+
+/**
+ * The catch-up responder. It answers from the active run's memberships, or
+ * from the engine's conversations when no run is active.
+ * @param runtime Engine that answers.
+ * @returns The responder port.
+ */
+function catchUpResponder(runtime: EngineRuntime): CatchUpResponder {
+  return {
+    runtime,
+    membership: (conversationId) =>
+      activeRuns.get(runtime)?.memberships.get(conversationId) ??
+      runtime.conversations.get(conversationId)?.membership,
+    queuePacket: (membership, packet) =>
+      queueRecoveryEnvelope(runtime, membership, { kind: "direct", packet }),
+  };
+}
+
+function positionReady(
+  runtime: EngineRuntime,
+  run: RecoveryRun,
+  conversationId: ConversationIdValue,
+): Effect.Effect<void, RouterWorkerPersistenceError> {
+  const membership = run.memberships.get(conversationId);
+  if (activeRuns.get(runtime) !== run || membership === undefined) {
+    return Effect.fail(persistenceFailure());
+  }
+  return run.recovery.reason === "router_restarted"
+    ? reanchorPositionReady(run.reanchor, membership)
+    : markRecovered(runtime, run, conversationId);
+}
+
+/**
+ * Mark one conversation reconciled and complete the run once it is idle.
+ * @param runtime Engine the run recovers.
+ * @param run Recovery run that reconciled the conversation.
+ * @param conversationId Conversation whose verified position is complete.
+ * @returns Completion after any newly idle run is released.
+ */
+function markRecovered(
+  runtime: EngineRuntime,
+  run: RecoveryRun,
+  conversationId: ConversationIdValue,
+): Effect.Effect<void> {
+  if (activeRuns.get(runtime) !== run) {
+    return Effect.void;
+  }
+  return Effect.sync(() => {
+    run.completedConversations.add(conversationId);
+  }).pipe(Effect.zipRight(completeRecoveryIfIdle(run)));
+}
+
+function completeRecoveryIfIdle(run: RecoveryRun): Effect.Effect<void> {
+  return Effect.suspend(() =>
+    run.completedConversations.size === run.memberships.size &&
+    run.pendingOutbound === 0
+      ? Deferred.succeed(run.completion, undefined).pipe(Effect.asVoid)
+      : Effect.void,
+  );
+}
+
+/**
+ * Sign one outer envelope through the outbox, then route it: to the active
+ * run's queue while a recovery runs, otherwise to the durable outbox.
+ * @param runtime Engine whose outbox signs the envelope.
+ * @param membership Verified fixed membership for the outer envelope.
+ * @param body Recovery packet or relayed evidence the envelope carries.
+ * @returns Completion after the envelope is routed.
+ */
+function queueRecoveryEnvelope(
+  runtime: EngineRuntime,
+  membership: VerifiedMembership,
+  body: DecodedOuterBody,
+): Effect.Effect<void, RouterWorkerPersistenceError> {
+  return runtime.outbox.sign(membership, body).pipe(
+    Effect.mapError(persistenceFailure),
+    Effect.flatMap((message) =>
+      enqueueOuter(runtime, membership.descriptor.conversationId, message),
+    ),
+  );
+}
+
+function enqueueOuter(
+  runtime: EngineRuntime,
+  conversationId: ConversationIdValue,
+  message: SignedMessage,
+): Effect.Effect<void, RouterWorkerPersistenceError> {
+  const run = activeRuns.get(runtime);
+  if (run !== undefined) {
+    return Effect.sync(() => {
+      run.pendingOutbound += 1;
+    }).pipe(
+      Effect.zipRight(Queue.offer(run.outbound, { conversationId, message })),
+      Effect.asVoid,
+    );
+  }
+  return runtime.outbox
+    .enqueueSigned(conversationId, message)
+    .pipe(Effect.mapError(persistenceFailure));
+}
+
+/**
+ * Validate every stored fixed membership against current engine state.
+ * @param runtime Engine whose recovered conversations are authoritative.
+ * @param recovery Store snapshot to validate.
+ * @returns One unique verified membership per recovered conversation.
+ */
+function recoverMemberships(
+  runtime: EngineRuntime,
+  recovery: EndpointRecovery,
+): Effect.Effect<
+  Map<ConversationIdValue, VerifiedMembership>,
+  RouterWorkerRecoveryError
+> {
+  return verifyStoredMemberships(
+    recovery.memberships,
+    runtime.input.registrySignerPublicKey,
+  ).pipe(
+    Effect.mapError(recoveryFailure),
+    Effect.filterOrFail(
+      (memberships) =>
+        memberships.size === recovery.memberships.length &&
+        [...memberships.values()].every((membership) =>
+          recoveredMembershipMatches(runtime, membership),
+        ),
+      recoveryFailure,
+    ),
+    Effect.withSpan("recoverMemberships"),
+  );
+}
+
+function recoveredMembershipMatches(
+  runtime: EngineRuntime,
+  membership: VerifiedMembership,
+): boolean {
+  const retained = runtime.conversations.get(
+    membership.descriptor.conversationId,
+  );
+  return (
+    memberCard(membership, runtime.input.localAgentCard.agentId) !==
+      undefined && retained?.membership.hash === membership.hash
+  );
+}
+
+function persistenceFailure(): RouterWorkerPersistenceError {
+  return new RouterWorkerPersistenceError();
 }
