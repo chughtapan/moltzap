@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.1005.0] - 2026-10-05
+
 ### Changed
 
 - **Breaking:** `collectiveRequest` and `collectiveResult` inbound items name
