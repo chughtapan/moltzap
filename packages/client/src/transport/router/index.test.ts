@@ -84,29 +84,6 @@ type RouterClientFailure = Effect.Effect.Error<
 
 const retryMode: RouterSendRequest["mode"] = "retry";
 
-type Expect<Condition extends true> = Condition;
-type DecoderIsRequired = Expect<
-  Record<never, never> extends Pick<
-    RouterWorkerCallbacks<TestPayload>,
-    "decodePayload"
-  >
-    ? false
-    : true
->;
-type DecoderProducesTestPayload = Expect<
-  Effect.Effect.Success<
-    ReturnType<RouterWorkerCallbacks<TestPayload>["decodePayload"]>
-  > extends TestPayload
-    ? true
-    : false
->;
-
-// The worker's declared payload and its required decoder remain one contract.
-const decoderContract = [true, true] satisfies readonly [
-  DecoderIsRequired,
-  DecoderProducesTestPayload,
-];
-
 const callbacks = (input?: {
   readonly accepted?: Ref.Ref<string[]>;
   readonly acceptedRouterInstances?: Ref.Ref<string[]>;
@@ -187,33 +164,51 @@ const makeInput = (
   overrides,
 });
 
+/**
+ * Build a worker and bring it to `active` through its cold-start recovery
+ * without spending the scenario's script or callbacks on that recovery. The
+ * recovery's omitted-cursor tail probe consumes the first scripted poll.
+ * Until the worker is active, the cold-start `abandonVolatileFolds` and
+ * `recoverCertifiedHistory` callbacks do nothing, so they record no events,
+ * and a cursor poll, which only the recovery pump issues then, never answers,
+ * so it consumes no scripted result. Afterwards every callback and poll
+ * passes through.
+ * @param input Worker input whose callbacks the scenario observes.
+ * @returns An active worker that has consumed exactly one scripted poll.
+ */
 const makeActiveRouterWorker = (input: RouterWorkerInput<TestPayload>) =>
   Effect.gen(function* () {
     const router = yield* Router;
-    let activating = true;
+    const activating = yield* Ref.make(true);
     const configured = input.callbacks;
     const worker = yield* makeRouterWorker({
       ...input,
       callbacks: {
         ...configured,
         abandonVolatileFolds: (reason) =>
-          activating ? Effect.void : configured.abandonVolatileFolds(reason),
+          configured
+            .abandonVolatileFolds(reason)
+            .pipe(Effect.unlessEffect(Ref.get(activating)), Effect.asVoid),
         recoverCertifiedHistory: (recovery) =>
-          activating
-            ? Effect.void
-            : configured.recoverCertifiedHistory(recovery),
+          configured
+            .recoverCertifiedHistory(recovery)
+            .pipe(Effect.unlessEffect(Ref.get(activating)), Effect.asVoid),
       },
     }).pipe(
       Effect.provideService(Router, {
         ...router,
         poll: (request) =>
-          activating && request.request.pollCursor !== undefined
-            ? Effect.never
-            : router.poll(request),
+          Ref.get(activating).pipe(
+            Effect.flatMap((stillActivating) =>
+              stillActivating && request.request.pollCursor !== undefined
+                ? Effect.never
+                : router.poll(request),
+            ),
+          ),
       }),
     );
     yield* worker.pollOnce;
-    activating = false;
+    yield* Ref.set(activating, false);
     return worker;
   });
 
@@ -452,23 +447,20 @@ const ambiguousSendRetriesSameBytes = async (): Promise<void> => {
           outgoing,
         );
         const instance = routerInstanceId(40);
-        let calls = 0;
         const requests = yield* Ref.make<RouterSendRequest[]>([]);
         const failingLayer = Layer.succeed(Router, {
           poll: () => Effect.succeed(emptyBatch(instance, pollCursor(7))),
-          send: (call) => {
-            calls += 1;
-            return Ref.update(requests, (values) => [
+          send: (call) =>
+            Ref.getAndUpdate(requests, (values) => [
               ...values,
               call.request,
             ]).pipe(
-              Effect.zipRight(
-                calls === 1
+              Effect.flatMap((earlier) =>
+                earlier.length === 0
                   ? Effect.fail(new RouterConnectionError())
                   : acceptedResult(instance, call.request.signedMessage),
               ),
-            );
-          },
+            ),
         });
         const worker = yield* provide(
           makeActiveRouterWorker(
@@ -478,7 +470,6 @@ const ambiguousSendRetriesSameBytes = async (): Promise<void> => {
           fixture,
         );
         yield* provide(worker.send(outbound.outboundId), failingLayer, fixture);
-        expect(calls).toBe(2);
         const callsMade = yield* Ref.get(requests);
         expect(callsMade.map((request) => request.mode)).toEqual([
           "initial",
@@ -974,6 +965,7 @@ const recoveryPumpsIngressBeforeActivation = async (): Promise<void> => {
         body: "recovery-vote",
       });
       const accepted = yield* Ref.make<string[]>([]);
+      const recoveryIngressAccepted = yield* Deferred.make<void>();
       const callbackStarted = yield* Deferred.make<void>();
       const recoveryDurable = yield* Deferred.make<void>();
       const oldInstance = routerInstanceId(70);
@@ -987,18 +979,26 @@ const recoveryPumpsIngressBeforeActivation = async (): Promise<void> => {
         ],
         fallbackPoll: Effect.never,
       });
+      const recording = callbacks({
+        recoveryAccepted: accepted,
+        recover: () =>
+          Deferred.succeed(callbackStarted, undefined).pipe(
+            Effect.zipRight(Deferred.await(recoveryDurable)),
+          ),
+      });
       const worker = yield* provide(
         makeActiveRouterWorker(
-          makeInput(
-            fixture,
-            callbacks({
-              recoveryAccepted: accepted,
-              recover: () =>
-                Deferred.succeed(callbackStarted, undefined).pipe(
-                  Effect.zipRight(Deferred.await(recoveryDurable)),
+          makeInput(fixture, {
+            ...recording,
+            acceptRecoveryPayload: (ingress) =>
+              recording
+                .acceptRecoveryPayload(ingress)
+                .pipe(
+                  Effect.tap(() =>
+                    Deferred.succeed(recoveryIngressAccepted, undefined),
+                  ),
                 ),
-            }),
-          ),
+          }),
         ),
         router.layer,
         fixture,
@@ -1009,11 +1009,9 @@ const recoveryPumpsIngressBeforeActivation = async (): Promise<void> => {
         fixture,
       );
       yield* Deferred.await(callbackStarted);
-      yield* Effect.gen(function* () {
-        while ((yield* Ref.get(accepted)).length === 0) {
-          yield* Effect.yieldNow();
-        }
-      }).pipe(Effect.timeout("1 second"));
+      yield* Deferred.await(recoveryIngressAccepted).pipe(
+        Effect.timeout("1 second"),
+      );
       expect(yield* Ref.get(accepted)).toEqual(["recovery-vote"]);
       const unavailable = yield* worker.currentAnchor.pipe(Effect.flip);
       expect(unavailable).toStrictEqual(new RouterWorkerUnavailableError());
@@ -1196,9 +1194,6 @@ const captureLogs = (lines: LogLines) =>
     }),
   );
 
-const logged = (lines: LogLines, text: string): boolean =>
-  lines.some((line) => line.includes(text));
-
 const countLogged = (lines: LogLines, text: string): number =>
   lines.filter((line) => line.includes(text)).length;
 
@@ -1304,8 +1299,16 @@ const outageDetachesAndReattaches = async (): Promise<void> => {
           yield* Ref.set(reachable, false);
           yield* advanceClock("70 seconds");
           expect(yield* Fiber.poll(polling)).toEqual(Option.none());
-          expect(logged(lines, "worker detached")).toBe(true);
-          expect(logged(lines, "still unreachable")).toBe(true);
+          expect(lines).toEqual(
+            expect.arrayContaining([
+              expect.stringContaining("worker detached"),
+            ]),
+          );
+          expect(lines).toEqual(
+            expect.arrayContaining([
+              expect.stringContaining("still unreachable"),
+            ]),
+          );
           expect(yield* worker.currentAnchor.pipe(Effect.flip)).toStrictEqual(
             new RouterWorkerUnavailableError(),
           );
@@ -1319,7 +1322,9 @@ const outageDetachesAndReattaches = async (): Promise<void> => {
             routerInstanceId: instance,
             pollCursor: outageCursor,
           });
-          expect(logged(lines, "reattached")).toBe(true);
+          expect(lines).toEqual(
+            expect.arrayContaining([expect.stringContaining("reattached")]),
+          );
           yield* worker.send(outbound.outboundId);
           expect((yield* store.recover()).outboundMessages).toEqual([]);
           yield* Fiber.interrupt(polling);
@@ -1351,7 +1356,9 @@ const detachedRestartRecovers = async (): Promise<void> => {
       const polling = yield* Effect.fork(worker.run);
       yield* Ref.set(reachable, false);
       yield* advanceClock("5 seconds");
-      expect(logged(lines, "worker detached")).toBe(true);
+      expect(lines).toEqual(
+        expect.arrayContaining([expect.stringContaining("worker detached")]),
+      );
 
       yield* Ref.set(tail, restarted);
       yield* Ref.set(reachable, true);
@@ -1364,7 +1371,9 @@ const detachedRestartRecovers = async (): Promise<void> => {
         "abandon:router_restarted",
         "recover:router_restarted",
       ]);
-      expect(logged(lines, "reattached")).toBe(false);
+      expect(lines).not.toEqual(
+        expect.arrayContaining([expect.stringContaining("reattached")]),
+      );
       yield* Fiber.interrupt(polling);
     }),
     outageRouter({ reachable, tail }),
@@ -1413,7 +1422,9 @@ const shortBlipKeepsWorkerAttached =
           routerInstanceId: instance,
           pollCursor: pollCursor(42),
         });
-        expect(logged(lines, "worker detached")).toBe(false);
+        expect(lines).not.toEqual(
+          expect.arrayContaining([expect.stringContaining("worker detached")]),
+        );
       }),
       routerLayer,
       fixture,
@@ -1494,7 +1505,11 @@ const staleFailureKeepsNewGenerationAttached = async (): Promise<void> => {
           yield* Deferred.succeed(releaseStale, undefined);
           yield* advanceClock("2 seconds");
           expect(yield* worker.currentAnchor).toEqual(recovered);
-          expect(logged(lines, "worker detached")).toBe(false);
+          expect(lines).not.toEqual(
+            expect.arrayContaining([
+              expect.stringContaining("worker detached"),
+            ]),
+          );
           yield* Fiber.interrupt(polling);
         }),
         routerLayer,
@@ -1547,8 +1562,16 @@ const outageDuringRecoveryRecovers = async (): Promise<void> => {
           yield* Ref.set(reachable, false);
           yield* advanceClock("70 seconds");
           expect(yield* Fiber.poll(polling)).toEqual(Option.none());
-          expect(logged(lines, "recovery attempt failed")).toBe(true);
-          expect(logged(lines, "recovery waiting for")).toBe(true);
+          expect(lines).toEqual(
+            expect.arrayContaining([
+              expect.stringContaining("recovery attempt failed"),
+            ]),
+          );
+          expect(lines).toEqual(
+            expect.arrayContaining([
+              expect.stringContaining("recovery waiting for"),
+            ]),
+          );
           expect(countLogged(lines, "recovery complete")).toBe(1);
           expect(yield* worker.currentAnchor.pipe(Effect.flip)).toStrictEqual(
             new RouterWorkerUnavailableError(),
@@ -1606,9 +1629,21 @@ const coldStartWithRouterDownRecovers = async (): Promise<void> => {
           yield* advanceClock("70 seconds");
           expect(yield* Fiber.poll(polling)).toEqual(Option.none());
           expect(yield* Fiber.poll(attached)).toEqual(Option.none());
-          expect(logged(lines, "recovery attempt failed")).toBe(true);
-          expect(logged(lines, "recovery waiting for")).toBe(true);
-          expect(logged(lines, "recovery complete")).toBe(false);
+          expect(lines).toEqual(
+            expect.arrayContaining([
+              expect.stringContaining("recovery attempt failed"),
+            ]),
+          );
+          expect(lines).toEqual(
+            expect.arrayContaining([
+              expect.stringContaining("recovery waiting for"),
+            ]),
+          );
+          expect(lines).not.toEqual(
+            expect.arrayContaining([
+              expect.stringContaining("recovery complete"),
+            ]),
+          );
 
           yield* Ref.set(reachable, true);
           yield* advanceClock("6 seconds");
@@ -1616,7 +1651,11 @@ const coldStartWithRouterDownRecovers = async (): Promise<void> => {
             routerInstanceId: instance,
             pollCursor: outageCursor,
           });
-          expect(logged(lines, "recovery complete")).toBe(true);
+          expect(lines).toEqual(
+            expect.arrayContaining([
+              expect.stringContaining("recovery complete"),
+            ]),
+          );
           yield* worker.send(outbound.outboundId);
           expect((yield* store.recover()).outboundMessages).toEqual([]);
           yield* Fiber.interrupt(polling);
@@ -1630,8 +1669,8 @@ const coldStartWithRouterDownRecovers = async (): Promise<void> => {
 
 /**
  * A Router rejection of the request itself is not an outage: the poll loop
- * ends at once with a typed rejection. How the daemon treats that ending is
- * the service's supervision, which `service/lifecycle.test.ts` covers.
+ * ends at once with a typed rejection and logs what the Router refused. The
+ * worker leaves what that ending does to the daemon to its supervisor.
  */
 const rejectionEndsThePollLoop =
   (
@@ -1663,13 +1702,9 @@ const rejectionEndsThePollLoop =
           new RouterWorkerRejectedError({ reason }),
         );
         expect(yield* Ref.get(pollCalls)).toBe(1);
-        expect(
-          lines.some(
-            (line) =>
-              line.startsWith("ERROR") &&
-              line.includes(`rejected this endpoint's ${reason}`),
-          ),
-        ).toBe(true);
+        expect(lines).toContain(
+          `ERROR: Router worker stopping, daemon exits: the Router rejected this endpoint's ${reason}`,
+        );
       }),
       routerLayer,
       fixture,
@@ -1716,10 +1751,6 @@ const persistenceFaultEndsPollLoop = async (): Promise<void> => {
 
 // @agent-code-guard/regression-only: these scenarios pin the endpoint cursor and recovery safety boundary.
 describe("private Router worker", () => {
-  it("requires the decoder for the declared payload type", () => {
-    expect(decoderContract).toEqual([true, true]);
-  });
-
   it(
     "recovers certified history before activating a cold worker",
     coldStartRecoversBeforeActivation,

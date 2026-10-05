@@ -12,7 +12,6 @@ import {
   type Context,
   Data,
   type Deferred,
-  type Duration,
   type Effect,
   type Queue,
   type SubscriptionRef,
@@ -85,7 +84,7 @@ export type EngineRegistryPort = Pick<
 >;
 
 /** RouterWorker operations consumed by the engine's outbound queue. */
-export interface EngineRouterPort {
+interface EngineRouterPort {
   readonly currentAnchor: Effect.Effect<
     RouterTailAnchor,
     RouterWorkerUnavailableError
@@ -135,8 +134,6 @@ export interface EndpointEngineInput {
   readonly store: EndpointStore;
   readonly routerWorker: EngineRouterPort;
   readonly actionPolicy: EngineActionPolicy;
-  /** Overrides `ROUTER_ATTACH_TIMEOUT`; tests bound the wait in milliseconds. */
-  readonly routerAttachTimeout?: Duration.Duration;
 }
 
 /** Stable private engine capability consumed by daemon composition. */

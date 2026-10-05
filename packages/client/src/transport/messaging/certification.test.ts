@@ -5,29 +5,22 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
   AgentCard,
-  AgentId,
-  AgentName,
-  AgentSigningAuthority,
-  type AgentSigningAuthority as AgentSigningAuthorityValue,
+  type AgentSigningAuthority,
   Ed25519PublicKey,
   MOLTZAP_VERSION,
-  PrincipalId,
   SignedMessage,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
-import { PollCursor, RouterInstanceId } from "@moltzap/router";
-import canonicalize from "canonicalize";
+import { RouterInstanceId } from "@moltzap/router";
 import {
   Cause,
   Deferred,
   Duration,
   Effect,
-  Either,
   Encoding,
   Fiber,
   Option,
   Queue,
-  Redacted,
   Ref,
   Schema,
   type Scope,
@@ -35,30 +28,23 @@ import {
   SubscriptionRef,
   TestContext,
 } from "effect";
-import {
-  createHash,
-  generateKeyPairSync,
-  type KeyObject,
-  sign as signBytes,
-} from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type {
-  EndpointEngineInput,
-  EngineActionFold,
-  EngineRegistryPort,
-  EngineRouterPort,
-  EngineSendInput,
-  EngineOutboundError,
-  EngineSentPost,
-} from "./runtime/index.js";
 import { advanceClock } from "../../__tests__/advance-clock.js";
+import {
+  identifier,
+  issueTestCard,
+  makeTestAuthority,
+  type RegistryKeyPair,
+} from "../../__tests__/agent-card-fixtures.js";
+import { forwardStoredOutbound } from "../../__tests__/forward-stored-outbound.js";
+import { pollCursor as fixturePollCursor } from "../../__tests__/router-worker-fixtures.js";
 import { type EndpointStore, openEndpointStore } from "../../store/index.js";
 import {
   type RouterIngressDisposition,
   type RouterTailAnchor,
   RouterWorkerDiscontinuityError,
   type RouterWorkerIngress,
-  RouterWorkerPersistenceError,
   type RouterWorkerSendError,
   RouterWorkerTransportError,
   RouterWorkerUnavailableError,
@@ -87,14 +73,27 @@ import {
 } from "../wire/index.js";
 import { MessageAddressInput } from "../wire/values.js";
 import { SendError } from "./errors.js";
-import { type EndpointEngine, makeEndpointEngine } from "./index.js";
-import { recoverFoldEvidence } from "./recovery/evidence.js";
+import {
+  type EndpointEngine,
+  type EndpointEngineInput,
+  EngineInitializationError,
+  type EngineOutboundError,
+  type EngineSendInput,
+  type EngineSentPost,
+  makeEndpointEngine,
+} from "./index.js";
 
 /* eslint-disable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- The full protocol traces share one four-endpoint harness and keep controlled Router phases beside durable assertions. */
 
+/** The Router-worker operations an engine consumes. */
+type EngineRouterPort = EndpointEngineInput["routerWorker"];
+
+/** The Registry lookup an engine consumes. */
+type EngineRegistryPort = EndpointEngineInput["registry"];
+
 interface ProtocolIdentity {
   readonly card: VerifiedAgentCard;
-  readonly authority: AgentSigningAuthorityValue;
+  readonly authority: AgentSigningAuthority;
 }
 
 interface ProtocolHarness {
@@ -116,10 +115,6 @@ interface ProtocolHarness {
 const MEMBER_COUNT = 4;
 const TEST_TIMEOUT_MS = 30_000;
 
-function identifier(prefix: string, byte: number): string {
-  return `${prefix}${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`;
-}
-
 function hashIdentifier(prefix: string, byte: number): string {
   return `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
 }
@@ -127,9 +122,7 @@ function hashIdentifier(prefix: string, byte: number): string {
 const routerInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
   identifier("rti_", 31),
 );
-const pollCursor = Schema.decodeUnknownSync(PollCursor)(
-  `plc_eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIiwidHlwIjoiYXBwbGljYXRpb24vdm5kLm1vbHR6YXAucG9sbC1jdXJzb3IrandlIn0..${Encoding.encodeBase64Url(new Uint8Array(12).fill(32))}.${Encoding.encodeBase64Url(new Uint8Array(120).fill(33))}.${Encoding.encodeBase64Url(new Uint8Array(16).fill(34))}`,
-);
+const pollCursor = fixturePollCursor(32);
 const unrelatedConversationId = Schema.decodeUnknownSync(ConversationId)(
   hashIdentifier("cnv_", 35),
 );
@@ -138,79 +131,18 @@ const unrelatedMembershipHash = Schema.decodeUnknownSync(MembershipHash)(
 );
 const endpointIndexes = Object.freeze([0, 1, 2, 3]);
 
-function makeAuthority() {
-  const { privateKey } = generateKeyPairSync("ed25519");
-  return AgentSigningAuthority.fromPkcs8(
-    Redacted.make(privateKey.export({ format: "pem", type: "pkcs8" })),
-  );
-}
-
-function issueCard(input: {
-  readonly byte: number;
-  readonly authority: AgentSigningAuthorityValue;
-  readonly registryPrivateKey: KeyObject;
-  readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
-}): Effect.Effect<VerifiedAgentCard> {
-  return Effect.gen(function* () {
-    const thumbprint = createHash("sha256")
-      .update(canonicalize(input.registrySignerPublicKey) ?? "")
-      .digest("base64url");
-    const protectedText = canonicalize({
-      alg: "Ed25519",
-      kid: `urn:ietf:params:oauth:jwk-thumbprint:sha-256:${thumbprint}`,
-      typ: "application/vnd.moltzap.agent-card+jws",
-    });
-    const payloadText = canonicalize({
-      agentId: Schema.decodeUnknownSync(AgentId)(
-        identifier("agt_", input.byte),
-      ),
-      agentName: Schema.decodeUnknownSync(AgentName)(
-        `protocol-member-${input.byte}`,
-      ),
-      issuedAt: `2026-08-27T12:00:${String(input.byte).padStart(2, "0")}Z`,
-      kind: "agentCard",
-      moltzapVersion: MOLTZAP_VERSION,
-      principalId: Schema.decodeUnknownSync(PrincipalId)(
-        identifier("prn_", input.byte),
-      ),
-      publicKey: AgentSigningAuthority.publicKey(input.authority),
-    });
-    if (protectedText === undefined || payloadText === undefined) {
-      return yield* Effect.dieMessage("canonical AgentCard fixture failed");
-    }
-    const protectedValue = Buffer.from(protectedText).toString("base64url");
-    const payload = Buffer.from(payloadText).toString("base64url");
-    const signature = signBytes(
-      null,
-      Buffer.from(`${protectedValue}.${payload}`),
-      input.registryPrivateKey,
-    ).toString("base64url");
-    const card = yield* Schema.decodeUnknown(AgentCard)({
-      payload,
-      signatures: [{ protected: protectedValue, signature }],
-    });
-    return yield* AgentCard.verify({
-      agentCard: card,
-      registrySignerPublicKey: input.registrySignerPublicKey,
-    });
-  }).pipe(Effect.orDie);
-}
-
-function makeIdentities(
-  registryPrivateKey: KeyObject,
-  registrySignerPublicKey: typeof Ed25519PublicKey.Type,
-) {
+function makeIdentities(registryKeys: RegistryKeyPair) {
   return Effect.forEach(
     endpointIndexes,
     (index) =>
       Effect.gen(function* () {
-        const authority = yield* makeAuthority();
+        const authority = yield* makeTestAuthority();
         return {
-          card: yield* issueCard({
+          card: yield* issueTestCard({
             byte: index + 1,
+            name: `protocol-member-${index + 1}`,
             authority,
-            registryPrivateKey,
-            registrySignerPublicKey,
+            registryKeys,
           }),
           authority,
         } satisfies ProtocolIdentity;
@@ -270,42 +202,6 @@ function lookupIdentity(
   return found === undefined
     ? { kind: "not_found" }
     : { kind: "found", agentCard: found.card };
-}
-
-function forwardStoredOutbound(
-  store: EndpointStore,
-  outbound: Queue.Queue<typeof SignedMessage.Type>,
-  outboundId: string,
-  transit?: Duration.DurationInput,
-): Effect.Effect<void> {
-  return store.beginOutbound(outboundId).pipe(
-    Effect.flatMap((attempt) => {
-      switch (attempt.kind) {
-        case "inactive":
-          return Effect.void;
-        case "pending":
-          return decodeCanonical(
-            SignedMessage,
-            attempt.outbound.canonicalSignedMessage,
-          ).pipe(
-            Effect.tap(() =>
-              transit === undefined ? Effect.void : Effect.sleep(transit),
-            ),
-            Effect.flatMap((message) =>
-              store
-                .completeOutbound(attempt.outbound)
-                .pipe(Effect.zipRight(Queue.offer(outbound, message))),
-            ),
-            Effect.asVoid,
-          );
-        default: {
-          const exhaustive: never = attempt;
-          return exhaustive;
-        }
-      }
-    }),
-    Effect.orDie,
-  );
 }
 
 function requireAt<Value>(
@@ -445,7 +341,6 @@ interface HarnessOptions {
   readonly actionPolicy?: EndpointEngineInput["actionPolicy"];
   /** Present when the author's Router worker has not attached yet. */
   readonly attachment?: WorkerAttachment;
-  readonly attachTimeout?: Duration.Duration;
   /** Replaces the author's worker transmit. */
   readonly authorSend?: WrapSend;
 }
@@ -459,10 +354,7 @@ function makeProtocolHarness(
     const registrySignerPublicKey = yield* Schema.decodeUnknown(
       Ed25519PublicKey,
     )(registryKeys.publicKey.export({ format: "jwk" }));
-    const identities = yield* makeIdentities(
-      registryKeys.privateKey,
-      registrySignerPublicKey,
-    );
+    const identities = yield* makeIdentities(registryKeys);
     const membership = yield* makeMembership(
       identities,
       registrySignerPublicKey,
@@ -502,9 +394,6 @@ function makeProtocolHarness(
                 index === 0 ? options.attachment : undefined,
                 index === 0 ? options.authorSend : undefined,
               ),
-              ...(options.attachTimeout === undefined
-                ? {}
-                : { routerAttachTimeout: options.attachTimeout }),
             }),
           ),
         ),
@@ -639,6 +528,14 @@ function decodeActionSignatureHash(
   );
 }
 
+/**
+ * Deliver a batch to every engine, drain each, and repeat with whatever the
+ * engines queued, until a round queues nothing. An exchange still producing
+ * traffic after 32 rounds is a defect in the scripted Router, so it dies.
+ * @param harness Engines and the scripted Router queue they send through.
+ * @param initial First batch to deliver.
+ * @returns Completion once the exchange is idle.
+ */
 function pump(
   harness: ProtocolHarness,
   initial: ReadonlyArray<typeof SignedMessage.Type>,
@@ -726,126 +623,95 @@ function hostileDurabilityMessage(input: {
   );
 }
 
-function rejectsPersistedDurabilityBinding(
-  mutatedBinding: "conversation" | "membership",
-) {
-  return Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const harness = yield* makeProtocolHarness();
-        yield* certifyGenesis(harness);
-        const author = yield* requireAt(harness.identities, 0, "identity");
-        const hostileSigner = yield* requireAt(
-          harness.identities,
-          3,
-          "hostile signer",
-        );
-        const authorEngine = yield* requireAt(
-          harness.engines,
-          0,
-          "endpoint engine",
-        );
-        const authorStore = yield* requireAt(
-          harness.stores,
-          0,
-          "endpoint store",
-        );
-        const sending = yield* Effect.fork(
-          authorEngine.send(yield* sendInput(harness, "stage successor")),
-        );
-        const proposalBatch = yield* takeReadyBatch(harness);
-        yield* harness.deliver(proposalBatch);
-        yield* harness.drain();
-        const actionSignatures = yield* messagesOfKind(
-          yield* takeQueued(harness),
-          "action_signature",
-        );
-        expect(actionSignatures).toHaveLength(MEMBER_COUNT);
-        yield* harness.deliver(actionSignatures.slice(0, 3));
-        yield* harness.drain();
-        const actionRecordMessages = yield* messagesOfKind(
-          yield* takeQueued(harness),
-          "action_certified_record",
-        );
-        const authorActionRecordMessage = actionRecordMessages.find(
-          (message) => message.senderAgentId === author.card.agentId,
-        );
-        if (authorActionRecordMessage === undefined) {
-          return yield* Effect.dieMessage(
-            "author did not assemble the staged action certificate",
-          );
-        }
-        const actionRecord = yield* decodeActionCertifiedRecord(
-          authorActionRecordMessage,
-        );
-        const invalidEvidence = yield* signEvidenceMessage({
-          statement: {
-            moltzapVersion: MOLTZAP_VERSION,
-            kind: "durability_vote",
-            signerAgentId: hostileSigner.card.agentId,
-            conversationId:
-              mutatedBinding === "conversation"
-                ? unrelatedConversationId
-                : harness.membership.descriptor.conversationId,
-            membershipHash:
-              mutatedBinding === "membership"
-                ? unrelatedMembershipHash
-                : harness.membership.hash,
-            recordHash: actionRecord.recordHash,
-          },
-          agentCard: hostileSigner.card,
-          signingAuthority: hostileSigner.authority,
-        });
-        yield* authorStore
-          .mergeEvidence({
-            conversationId: harness.membership.descriptor.conversationId,
-            kind: "durability",
-            subjectId: actionRecord.recordHash,
-            evidenceKey: hostileSigner.card.agentId,
-            canonicalEvidence: yield* encodeCanonical(
-              SignedMessage,
-              invalidEvidence,
-            ),
-          })
-          .pipe(Effect.orDie);
-        yield* Fiber.interrupt(sending);
+/** The conversation and membership a durability vote is signed over. */
+interface DurabilityBinding {
+  readonly conversationId: ConversationIdValue;
+  readonly membershipHash: MembershipHashValue;
+}
 
-        const fold: EngineActionFold = {
-          conversation: {
-            conversationId: harness.membership.descriptor.conversationId,
-            membership: harness.membership,
-            currentAnchor: actionRecord.routerAnchor,
-          },
-          action: actionRecord.recordCore.action,
-          actionHash: actionRecord.recordCore.actionHash,
-          routerAnchor: actionRecord.routerAnchor,
-          actionEvidence: new Map(),
-          durabilityEvidence: new Map(),
-          localActionEvidenceQueued: true,
-          actionCertifiedRecordQueued: true,
-          localDurabilityEvidenceQueued: true,
-          certifiedRecordQueued: false,
-          recordHash: actionRecord.recordHash,
-        };
-        const recovered = yield* recoverFoldEvidence(
-          yield* authorStore.recover().pipe(Effect.orDie),
-          new Map([[fold.actionHash, fold]]),
-          new Map([[actionRecord.recordHash, fold]]),
-        ).pipe(Effect.either);
+/**
+ * Stages the author's successor POST up to its action certificate, persists
+ * a durability vote from member 3 under `bind`'s binding in the author's
+ * store, and restarts the author's engine over that store.
+ * @param bind Chooses the vote's binding from the conversation's membership.
+ * @returns `"started"`, or the error the restart failed with.
+ */
+function restartOverPersistedDurabilityVote(
+  bind: (membership: VerifiedMembership) => DurabilityBinding,
+): Effect.Effect<"started" | EngineInitializationError, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    yield* certifyGenesis(harness);
+    const author = yield* requireAt(harness.identities, 0, "identity");
+    const voter = yield* requireAt(harness.identities, 3, "durability voter");
+    const authorEngine = yield* requireAt(
+      harness.engines,
+      0,
+      "endpoint engine",
+    );
+    const authorStore = yield* requireAt(harness.stores, 0, "endpoint store");
+    const sending = yield* Effect.fork(
+      authorEngine.send(yield* sendInput(harness, "stage successor")),
+    );
+    yield* harness.deliver(yield* takeReadyBatch(harness));
+    yield* harness.drain();
+    const actionSignatures = yield* messagesOfKind(
+      yield* takeQueued(harness),
+      "action_signature",
+    );
+    yield* harness.deliver(actionSignatures.slice(0, 3));
+    yield* harness.drain();
+    const authorActionRecordMessage = (yield* messagesOfKind(
+      yield* takeQueued(harness),
+      "action_certified_record",
+    )).find((message) => message.senderAgentId === author.card.agentId);
+    if (authorActionRecordMessage === undefined) {
+      return yield* Effect.dieMessage(
+        "author did not assemble the staged action certificate",
+      );
+    }
+    const actionRecord = yield* decodeActionCertifiedRecord(
+      authorActionRecordMessage,
+    );
+    const vote = yield* signEvidenceMessage({
+      statement: {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "durability_vote",
+        signerAgentId: voter.card.agentId,
+        ...bind(harness.membership),
+        recordHash: actionRecord.recordHash,
+      },
+      agentCard: voter.card,
+      signingAuthority: voter.authority,
+    }).pipe(Effect.orDie);
+    yield* authorStore
+      .mergeEvidence({
+        conversationId: harness.membership.descriptor.conversationId,
+        kind: "durability",
+        subjectId: actionRecord.recordHash,
+        evidenceKey: voter.card.agentId,
+        canonicalEvidence: yield* encodeCanonical(SignedMessage, vote).pipe(
+          Effect.orDie,
+        ),
+      })
+      .pipe(Effect.orDie);
+    yield* Fiber.interrupt(sending);
 
-        yield* Either.match(recovered, {
-          onLeft: (failure) =>
-            Effect.sync(() => {
-              expect(failure).toBeInstanceOf(RouterWorkerPersistenceError);
-            }),
-          onRight: () =>
-            Effect.dieMessage(
-              `recovery accepted a durability vote with a mutated ${mutatedBinding} binding`,
-            ),
-        });
+    return yield* makeEndpointEngine({
+      localAgentCard: author.card,
+      signingAuthority: author.authority,
+      registrySignerPublicKey: harness.registrySignerPublicKey,
+      registry: harness.registry,
+      store: authorStore,
+      actionPolicy: signEveryAction,
+      routerWorker: scriptedRouterWorker(authorStore, harness.outbound),
+    }).pipe(
+      Effect.match({
+        onFailure: (error) => error,
+        onSuccess: () => "started" as const,
       }),
-    ),
-  );
+    );
+  });
 }
 
 function certifiesOrdinaryN4Post() {
@@ -929,19 +795,19 @@ function certifiesOrdinaryN4Post() {
           ),
         ).toBe(true);
 
-        let recovery = yield* authorStore.recover().pipe(Effect.orDie);
+        const staged = yield* authorStore.recover().pipe(Effect.orDie);
         expect(
-          recovery.stagedRecords.some(
+          staged.stagedRecords.some(
             ({ recordHash }) => recordHash === actionRecord.recordHash,
           ),
         ).toBe(true);
         expect(
-          recovery.certifiedRecords.some(
+          staged.certifiedRecords.some(
             ({ recordHash }) => recordHash === actionRecord.recordHash,
           ),
         ).toBe(false);
         expect(
-          recovery.evidence.filter(
+          staged.evidence.filter(
             ({ kind, subjectId }) =>
               kind === "durability" && subjectId === actionRecord.recordHash,
           ),
@@ -973,14 +839,16 @@ function certifiesOrdinaryN4Post() {
           ),
         ).toEqual(["ignored", "ignored"]);
 
-        recovery = yield* authorStore.recover().pipe(Effect.orDie);
+        const afterHostileVotes = yield* authorStore
+          .recover()
+          .pipe(Effect.orDie);
         expect(
-          recovery.certifiedRecords.some(
+          afterHostileVotes.certifiedRecords.some(
             ({ recordHash }) => recordHash === actionRecord.recordHash,
           ),
         ).toBe(false);
         expect(
-          recovery.evidence.filter(
+          afterHostileVotes.evidence.filter(
             ({ kind, subjectId }) =>
               kind === "durability" && subjectId === actionRecord.recordHash,
           ),
@@ -1003,9 +871,11 @@ function certifiesOrdinaryN4Post() {
         expect(yield* harness.deliver([firstRemoteVote], [0])).toEqual([
           "accepted",
         ]);
-        recovery = yield* authorStore.recover().pipe(Effect.orDie);
+        const afterFirstRemoteVote = yield* authorStore
+          .recover()
+          .pipe(Effect.orDie);
         expect(
-          recovery.certifiedRecords.some(
+          afterFirstRemoteVote.certifiedRecords.some(
             ({ recordHash }) => recordHash === actionRecord.recordHash,
           ),
         ).toBe(false);
@@ -1014,8 +884,8 @@ function certifiesOrdinaryN4Post() {
           "accepted",
         ]);
         yield* Fiber.join(sending).pipe(Effect.orDie);
-        recovery = yield* authorStore.recover().pipe(Effect.orDie);
-        const storedPost = recovery.certifiedRecords.find(
+        const certified = yield* authorStore.recover().pipe(Effect.orDie);
+        const storedPost = certified.certifiedRecords.find(
           ({ recordHash }) => recordHash === actionRecord.recordHash,
         );
         if (storedPost === undefined) {
@@ -1276,14 +1146,46 @@ describe("fixed-post endpoint protocol", () => {
     certifiesOrdinaryN4Post,
     TEST_TIMEOUT_MS,
   );
-  it(
-    "rejects a persisted durability vote bound to another conversation",
-    () => rejectsPersistedDurabilityBinding("conversation"),
-    TEST_TIMEOUT_MS,
-  );
-  it(
-    "rejects a persisted durability vote bound to another membership",
-    () => rejectsPersistedDurabilityBinding("membership"),
+  it.each([
+    {
+      outcome: "fails to restart as persistence",
+      binding: "another conversation",
+      bind: (membership: VerifiedMembership): DurabilityBinding => ({
+        conversationId: unrelatedConversationId,
+        membershipHash: membership.hash,
+      }),
+      restart: new EngineInitializationError({ reason: "persistence" }),
+    },
+    {
+      outcome: "fails to restart as persistence",
+      binding: "another membership",
+      bind: (membership: VerifiedMembership): DurabilityBinding => ({
+        conversationId: membership.descriptor.conversationId,
+        membershipHash: unrelatedMembershipHash,
+      }),
+      restart: new EngineInitializationError({ reason: "persistence" }),
+    },
+    {
+      outcome: "restarts",
+      binding: "its own conversation and membership",
+      bind: (membership: VerifiedMembership): DurabilityBinding => ({
+        conversationId: membership.descriptor.conversationId,
+        membershipHash: membership.hash,
+      }),
+      restart: "started",
+    },
+  ])(
+    "$outcome over a persisted durability vote bound to $binding",
+    ({ bind, restart }) =>
+      Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const restarted = yield* restartOverPersistedDurabilityVote(bind);
+
+            expect(restarted).toStrictEqual(restart);
+          }),
+        ),
+      ),
     TEST_TIMEOUT_MS,
   );
   it(
@@ -1313,6 +1215,15 @@ describe("fixed-post endpoint protocol", () => {
 
 /* eslint-enable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- Restore repository defaults. */
 
+/**
+ * Virtual time short of the send's 45 s Router-attachment bound, so a send
+ * still waiting for the worker to attach is pending.
+ */
+const WITHIN_ATTACH_BOUND = Duration.seconds(30);
+
+/** The send's Router-attachment bound, after which it fails. */
+const ATTACH_BOUND = Duration.seconds(45);
+
 function sendHeldUntilAttached(): Effect.Effect<void, never, Scope.Scope> {
   return Effect.gen(function* () {
     const attached = yield* Deferred.make<RouterTailAnchor>();
@@ -1323,7 +1234,7 @@ function sendHeldUntilAttached(): Effect.Effect<void, never, Scope.Scope> {
     const sending = yield* Effect.fork(
       author.send(yield* sendInput(harness, "open group")),
     );
-    yield* Effect.sleep("50 millis");
+    yield* advanceClock(WITHIN_ATTACH_BOUND);
     expect(yield* Fiber.poll(sending)).toEqual(Option.none());
     expect(yield* Queue.size(harness.outbound)).toBe(0);
 
@@ -1334,17 +1245,17 @@ function sendHeldUntilAttached(): Effect.Effect<void, never, Scope.Scope> {
 
 function sendFailsAfterAttachBound(): Effect.Effect<void, never, Scope.Scope> {
   return Effect.gen(function* () {
-    const harness = yield* makeProtocolHarness({
-      attachment: neverAttaches,
-      attachTimeout: Duration.millis(50),
-    });
+    const harness = yield* makeProtocolHarness({ attachment: neverAttaches });
     const author = yield* requireAt(harness.engines, 0, "endpoint engine");
-    const failure = yield* author
-      .send(yield* sendInput(harness, "never attached"))
-      .pipe(Effect.flip, Effect.orDie);
-    expect(failure).toStrictEqual(
-      new SendError({ reason: "network-unavailable" }),
+    const sending = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "never attached")),
     );
+
+    yield* advanceClock(ATTACH_BOUND);
+
+    expect(
+      yield* Fiber.join(sending).pipe(Effect.flip, Effect.orDie),
+    ).toStrictEqual(new SendError({ reason: "network-unavailable" }));
   });
 }
 
@@ -1368,12 +1279,14 @@ function attachmentWaitLeavesTheEngineGateFree(): Effect.Effect<
     const sending = yield* Effect.fork(
       author.send(yield* sendInput(harness, "open group")),
     );
-    yield* Effect.sleep("50 millis");
+    yield* advanceClock(WITHIN_ATTACH_BOUND);
     expect(yield* Fiber.poll(sending)).toEqual(Option.none());
 
-    yield* author
+    const abandoning = yield* author
       .abandonVolatileFolds("router_restarted")
-      .pipe(Effect.timeout("2 seconds"), Effect.orDie);
+      .pipe(Effect.timeout("2 seconds"), Effect.fork);
+    yield* advanceClock(Duration.seconds(2));
+    yield* Fiber.join(abandoning).pipe(Effect.orDie);
     yield* Fiber.interrupt(sending);
   });
 }
@@ -1381,20 +1294,20 @@ function attachmentWaitLeavesTheEngineGateFree(): Effect.Effect<
 describe("engine sends and Router-worker attachment", () => {
   it(
     "holds a send issued before the worker attaches and completes it on attachment",
-    () => Effect.runPromise(Effect.scoped(sendHeldUntilAttached())),
+    () => Effect.runPromise(onTestClock(sendHeldUntilAttached())),
     TEST_TIMEOUT_MS,
   );
 
   it(
     "fails a send as network-unavailable once the attachment bound elapses",
-    () => Effect.runPromise(Effect.scoped(sendFailsAfterAttachBound())),
+    () => Effect.runPromise(onTestClock(sendFailsAfterAttachBound())),
     TEST_TIMEOUT_MS,
   );
 
   it(
     "waits for attachment without holding the engine gate recovery needs",
     () =>
-      Effect.runPromise(Effect.scoped(attachmentWaitLeavesTheEngineGateFree())),
+      Effect.runPromise(onTestClock(attachmentWaitLeavesTheEngineGateFree())),
     TEST_TIMEOUT_MS,
   );
 });
@@ -1475,7 +1388,8 @@ function proposalHashesByPost(
 
 /**
  * Asserts the background drain outlived every failed transmit, forwarded
- * each envelope once, and proposed each post under exactly one action hash.
+ * each envelope once, and proposed the scenario's one post under exactly one
+ * action hash.
  * @param harness Harness whose Router queue receives forwarded envelopes.
  * @param attempts Transmit count from `failsThenForwards`.
  * @param fatal The supervised outbound loop's failure signal.
@@ -1494,9 +1408,9 @@ function expectDrainedAlive(
       delivered.length,
     );
     const hashesByPost = yield* proposalHashesByPost(delivered);
-    for (const hashes of hashesByPost.values()) {
-      expect(hashes.size).toBe(1);
-    }
+    expect(Array.from(hashesByPost.values(), (hashes) => hashes.size)).toEqual([
+      1,
+    ]);
     expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
   });
 }
@@ -1530,9 +1444,10 @@ function transientTransmitFailureLeavesOutboundLoopAlive(
 
 /**
  * Engine cold start with a durable pending outbound row: the restarted
- * worker has not attached (as `makeRouterWorker` starts `recovering`) while
- * `makeRuntime` pre-signals the outbound queue. The loop waits, and once the
- * worker attaches it outlasts every failed transmit and delivers the row.
+ * worker has not attached yet, as a real worker starts out recovering, while
+ * the engine already holds the row for its outbound loop. The loop waits, and
+ * once the worker attaches it outlasts every failed transmit and delivers the
+ * row.
  * The restarted engine also re-proposes the unfinished post, so the one
  * proposal goes out twice in two envelopes with distinct message ids; peers
  * de-duplicate it by action hash, which the assertions pin as one per post.
@@ -1658,9 +1573,9 @@ interface ForwardTarget {
 
 /**
  * A transmit that spends 100 ms in transit between beginning and completing
- * its outbox row, serialized the way the real worker's `makeSend` holds its
- * `recoveryGate` across `transmitOutbound`. A transmit that waited on the gate
- * then finds the row inactive and forwards nothing.
+ * its outbox row, one transmit at a time as the real worker sends. A transmit
+ * that waited for the one before it then finds the row inactive and forwards
+ * nothing.
  * @param transmits Counts every transmit.
  * @param target Store and Router queue, once the harness exists.
  * @returns A transmit wrapper for the scripted worker.
