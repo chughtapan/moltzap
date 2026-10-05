@@ -12,7 +12,8 @@
  * its operation, or an operation failure. A send returns a
  * collecting operation's id and fails with a closed send reason or a
  * collective failure. Optional invocation identity preserves a retried send without
- * executing a new collective operation.
+ * executing a new collective operation. Adapters compile against this surface,
+ * so any change these canaries catch is a breaking release.
  */
 
 import type { DateTime, Effect, Either, Scope, Stream } from "effect";
@@ -43,7 +44,18 @@ import type {
   SendResult,
 } from "./index.js";
 
-type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
+/* eslint-disable @typescript-eslint/no-unnecessary-type-parameters -- `Probe` stays generic so TypeScript compares the two deferred conditional types by identity. */
+/**
+ * True only when the two types are identical, so an added optional property
+ * or a dropped `readonly` modifier fails the canary.
+ */
+type Equal<Left, Right> =
+  (<Probe>() => Probe extends Left ? 1 : 2) extends <
+    Probe,
+  >() => Probe extends Right ? 1 : 2
+    ? true
+    : false;
+/* eslint-enable @typescript-eslint/no-unnecessary-type-parameters -- Restore repository defaults after the identity helper. */
 type Expect<Value extends true> = Value;
 
 type CollectiveId = CollectiveError["id"];
@@ -102,6 +114,10 @@ type ExpectedMemberOutcome =
   | Readonly<{ kind: "declined" }>
   | Readonly<{ kind: "invalid"; reason: string }>
   | Readonly<{ kind: "no-answer" }>;
+type ExpectedOutcomeEntry = Readonly<{
+  member: AgentAddress;
+  outcome: ExpectedMemberOutcome;
+}>;
 type ExpectedInboundItem =
   | Readonly<{ kind: "multicast"; message: InboundMessage }>
   | Readonly<{
@@ -121,12 +137,7 @@ type ExpectedInboundItem =
       id: CollectiveId;
       to: MessageAddressInput;
       question: string;
-      outcomes: readonly [
-        Readonly<{ member: AgentAddress; outcome: ExpectedMemberOutcome }>,
-        ...Array<
-          Readonly<{ member: AgentAddress; outcome: ExpectedMemberOutcome }>
-        >,
-      ];
+      outcomes: readonly [ExpectedOutcomeEntry, ...ExpectedOutcomeEntry[]];
     }>
   | Readonly<{
       kind: "operationFailed";
@@ -160,9 +171,6 @@ type MessageTextParserIsExact = Expect<
   >
 >;
 type SendResultIsExact = Expect<Equal<SendResult, ExpectedSendResult>>;
-type SendResultKeysAreExact = Expect<
-  Equal<keyof SendResult, keyof ExpectedSendResult>
->;
 type InboundItemIsExact = Expect<Equal<InboundItem, ExpectedInboundItem>>;
 type DirectMessageIsExact = Expect<Equal<DirectMessage, ExpectedDirectMessage>>;
 type GroupMessageIsExact = Expect<Equal<GroupMessage, ExpectedGroupMessage>>;
@@ -170,12 +178,6 @@ type InboundMessageIsExact = Expect<
   Equal<InboundMessage, DirectMessage | GroupMessage>
 >;
 type DeliveryIsExact = Expect<Equal<InboundDelivery, ExpectedDelivery>>;
-type SendOptionsAreExact = Expect<
-  Equal<
-    NonNullable<Parameters<HarnessEndpoint["send"]>[1]>,
-    NonNullable<Parameters<ExpectedEndpoint["send"]>[1]>
-  >
->;
 type EndpointIsExact = Expect<Equal<HarnessEndpoint, ExpectedEndpoint>>;
 type ExpectedHistoryExportRecord =
   | Readonly<{ kind: "inbound"; item: InboundItem; at: DateTime.Utc }>
@@ -271,14 +273,12 @@ export type HarnessEndpointCanaries = [
   SendInputIsExact,
   MessageTextParserIsExact,
   SendResultIsExact,
-  SendResultKeysAreExact,
   InboundItemIsExact,
   DirectMessageIsExact,
   GroupMessageIsExact,
   InboundMessageIsExact,
   DeliveryIsExact,
   EndpointIsExact,
-  SendOptionsAreExact,
   ContentIsNonempty,
   AgentAddressIsInput,
   GroupAddressIsInput,

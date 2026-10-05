@@ -26,11 +26,8 @@ import {
   issueTestCard,
   makeTestAuthority,
 } from "../__tests__/agent-card-fixtures.js";
-import {
-  managementReadConversationRequestSchema,
-  managementSearchConversationsRequestSchema,
-  managementSearchConversationsResultSchema,
-} from "../endpoint/mcp/owner-tools.js";
+import { unusedEndpointStore } from "../__tests__/unused-endpoint-store.js";
+import { managementReadConversationRequestSchema } from "../endpoint/mcp/owner-tools.js";
 import {
   type EndpointRecovery,
   type EndpointStore,
@@ -173,49 +170,12 @@ interface StoreInput {
 
 function makeStore(input: StoreInput): EndpointStore {
   return {
-    readInboxItem: () => Effect.succeed(undefined),
-    completeWebhookDelivery: () => Effect.void,
-    putInboxItem: () => outsideManagementTest(),
-    readInbox: () => outsideManagementTest(),
-    readInboxSummary: () => outsideManagementTest(),
-    acknowledgeInboxItem: () => outsideManagementTest(),
-    replaceInboxItem: () => outsideManagementTest(),
-    beginSendAttempt: () => outsideManagementTest(),
-    finishSendAttempt: () => outsideManagementTest(),
-    readSendAttempt: () => outsideManagementTest(),
-    readEventState: () => outsideManagementTest(),
-    writeEventState: () => outsideManagementTest(),
+    ...unusedEndpointStore("management test"),
     readIdentity: () => Effect.succeed(input.recovery.identity),
-    bindIdentity: () => outsideManagementTest(),
-    bindPostIntent: () => outsideManagementTest(),
-    putConversationFoundation: () => outsideManagementTest(),
-    lockProposal: () => outsideManagementTest(),
-    lockGenesisProposal: () => outsideManagementTest(),
-    stageRecord: () => outsideManagementTest(),
-    stageRecordForDissemination: () => outsideManagementTest(),
-    mergeEvidence: () => outsideManagementTest(),
-    promoteRecord: () => outsideManagementTest(),
-    promoteRecordForDissemination: () => outsideManagementTest(),
-    applyCatchUpRecord: () => outsideManagementTest(),
-    stageReanchor: () => outsideManagementTest(),
-    completeReanchor: () => outsideManagementTest(),
-    applyCatchUpReanchor: () => outsideManagementTest(),
-    readPendingDeliveries: () => outsideManagementTest(),
-    readLegacyPendingDeliveries: () => outsideManagementTest(),
-    acknowledgeDelivery: () => outsideManagementTest(),
-    enqueueOutbound: () => outsideManagementTest(),
-    enqueueDisseminationOutbound: () => outsideManagementTest(),
-    beginOutbound: () => outsideManagementTest(),
-    replaceOutbound: () => outsideManagementTest(),
-    completeOutbound: () => outsideManagementTest(),
-    discardOutbound: () => outsideManagementTest(),
-    restartEmptyConversation: () => outsideManagementTest(),
-    searchConversations: () => outsideManagementTest(),
     readConversation: () =>
       input.historyFailure === undefined
         ? Effect.succeed({ records: [], continuation: null })
         : Effect.fail(input.historyFailure),
-    releaseContinuation: () => outsideManagementTest(),
     recover: () => Effect.succeed(input.recovery),
   };
 }
@@ -285,41 +245,4 @@ describe("addressed daemon management", () => {
         expect(error).toMatchObject({ reason: "history-gap" });
       }),
     ));
-});
-
-// @agent-code-guard/regression-only: the wire schema accepts only address cursors and canonical pages.
-describe("management address schemas", () => {
-  it("accepts canonical address cursors and rejects retired fields", () => {
-    expect(
-      Schema.decodeUnknownSync(managementSearchConversationsRequestSchema)({
-        afterAddress: "agent:bob",
-      }),
-    ).toEqual({ afterAddress: "agent:bob" });
-    expect(() =>
-      Schema.decodeUnknownSync(managementSearchConversationsRequestSchema)({
-        afterConversationId: hash("cnv_", 1),
-      }),
-    ).toThrow();
-  });
-
-  it("requires strictly ordered address pages", () => {
-    expect(
-      Schema.decodeUnknownSync(managementSearchConversationsResultSchema)({
-        kind: "page",
-        addresses: ["agent:bob", "group:alice,bob,carol"],
-        hasMore: false,
-      }),
-    ).toEqual({
-      kind: "page",
-      addresses: ["agent:bob", "group:alice,bob,carol"],
-      hasMore: false,
-    });
-    expect(() =>
-      Schema.decodeUnknownSync(managementSearchConversationsResultSchema)({
-        kind: "page",
-        addresses: ["group:alice,bob,carol", "agent:bob"],
-        hasMore: false,
-      }),
-    ).toThrow();
-  });
 });

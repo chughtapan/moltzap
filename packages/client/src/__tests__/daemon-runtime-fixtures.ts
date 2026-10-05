@@ -30,7 +30,7 @@ export interface Fixture {
 }
 
 /** Stable digest-shaped values separate fixture identities. */
-export const digest = (prefix: string, byte: number): string =>
+const digest = (prefix: string, byte: number): string =>
   `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
 
 const makePendingMessage = Effect.all({

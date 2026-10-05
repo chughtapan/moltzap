@@ -1,7 +1,9 @@
 /**
  * @file The signing authority exposes only key import and public-key projection.
  * Its Effect error remains exact, and no string-named member reveals private
- * key, JOSE, WebCrypto, or generic signing machinery.
+ * key, JOSE, WebCrypto, or generic signing machinery. Consumers hold the
+ * authority to sign, so any added member would expose key material or an
+ * unaudited signing path to them.
  */
 
 import type { Effect, Redacted } from "effect";
@@ -12,7 +14,18 @@ import type {
   InvalidAgentPrivateKeyError,
 } from "../index.js";
 
-type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
+/* eslint-disable @typescript-eslint/no-unnecessary-type-parameters -- `Probe` stays generic so TypeScript compares the two deferred conditional types by identity. */
+/**
+ * True only when the two types are identical, so an added optional property
+ * or a dropped `readonly` modifier fails the canary.
+ */
+type Equal<Left, Right> =
+  (<Probe>() => Probe extends Left ? 1 : 2) extends <
+    Probe,
+  >() => Probe extends Right ? 1 : 2
+    ? true
+    : false;
+/* eslint-enable @typescript-eslint/no-unnecessary-type-parameters -- Restore repository defaults after the identity helper. */
 type Expect<Value extends true> = Value;
 
 type FromPkcs8 = typeof AgentSigningAuthority.fromPkcs8;

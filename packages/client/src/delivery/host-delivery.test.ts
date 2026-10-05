@@ -1,6 +1,15 @@
 /** @file Host operations over one service's delivery: registration gating, the send export, and local-item reads and acknowledgment. */
 
-import { Effect, Encoding, Exit, Schema, Scope } from "effect";
+import {
+  Deferred,
+  Effect,
+  Encoding,
+  Exit,
+  Fiber,
+  Ref,
+  Schema,
+  Scope,
+} from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The store opens a real SQLite database in a temporary directory.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -318,3 +327,72 @@ describe("host delivery", () => {
 });
 
 /* eslint-enable agent-code-guard/no-hardcoded-assertion-literals -- Restore repository defaults after the host delivery tests. */
+
+/**
+ * A webhook receipt interrupted after the store commits it still finishes its
+ * caller's uninterruptible state update, so shutdown cannot drop the update
+ * that follows a durable receipt. The interruption is delivered before the
+ * commit is released.
+ */
+const finishesCallerStateAfterReceiptCommit = () =>
+  run(
+    Effect.gen(function* () {
+      const committed = yield* Deferred.make<undefined>();
+      const release = yield* Deferred.make<undefined>();
+      const { delivery } = yield* makeFixture((store) => ({
+        ...store,
+        completeWebhookDelivery: () =>
+          Deferred.succeed(committed, undefined).pipe(
+            Effect.zipRight(Deferred.await(release)),
+          ),
+      }));
+      const updated = yield* Ref.make(false);
+      const receipt = yield* delivery.eventStore
+        .completeWebhookDelivery(unboundToken, new Uint8Array([1]))
+        .pipe(
+          Effect.zipRight(Ref.set(updated, true)),
+          Effect.uninterruptible,
+          Effect.fork,
+        );
+      yield* Deferred.await(committed);
+
+      const interruption = yield* Effect.fork(Fiber.interrupt(receipt));
+      yield* Effect.yieldNow();
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(interruption);
+
+      expect(
+        yield* Ref.get(updated),
+        "caller state update after the committed receipt",
+      ).toBe(true);
+    }).pipe(Effect.timeout("1 second")),
+  );
+
+/**
+ * An item read through the webhook's inbox view lands in the history export,
+ * decoded from its stored bytes, as a native inbox read would export it.
+ */
+const exportsItemsReadThroughTheWebhookView = () =>
+  run(
+    Effect.gen(function* () {
+      const { delivery, records } = yield* deliveryFixture;
+      yield* delivery.queueLocalItem(failure);
+
+      yield* delivery.eventStore.readInbox({ limit: 1 });
+
+      expect(records).toEqual([
+        expect.objectContaining({ kind: "inbound", item: failure }),
+      ]);
+    }),
+  );
+
+describe("host delivery webhook view", () => {
+  it(
+    "finishes the caller's state update after a committed receipt",
+    finishesCallerStateAfterReceiptCommit,
+  );
+  it(
+    "exports an item read through the webhook inbox view",
+    exportsItemsReadThroughTheWebhookView,
+  );
+});
