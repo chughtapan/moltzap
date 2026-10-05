@@ -166,6 +166,19 @@ const historyFailureReasons = {
   Record<EndpointStoreError["reason"], ManagementFailure>
 >;
 
+/**
+ * The register tool's closed reason for an activation failure: a local
+ * storage fault is persistence-failed; an upstream or representation fault
+ * is dependency-unavailable.
+ */
+const activationFailureReasons = {
+  persistence: "persistence-failed",
+  upstream: "dependency-unavailable",
+  representation: "dependency-unavailable",
+} as const satisfies Readonly<
+  Record<DaemonActivationError["reason"], ManagementFailure>
+>;
+
 function encodeRegisterResult(
   result: RegistryRegisterResult,
 ): Effect.Effect<ManagementRegisterResult, DaemonManagementError> {
@@ -228,27 +241,6 @@ function readActiveCard(
       ? Effect.succeed(state.agentCard)
       : Effect.fail(managementFailure("not-registered"));
   });
-}
-
-/**
- * The register tool's closed reason for an activation failure: a local
- * storage fault is persistence-failed; an upstream or representation fault
- * is dependency-unavailable.
- */
-function registerFailureReason(
-  reason: DaemonActivationError["reason"],
-): "persistence-failed" | "dependency-unavailable" {
-  switch (reason) {
-    case "persistence":
-      return "persistence-failed";
-    case "upstream":
-    case "representation":
-      return "dependency-unavailable";
-    default: {
-      const exhaustive: never = reason;
-      return exhaustive;
-    }
-  }
 }
 
 function mapRegistrationFailure(
@@ -337,7 +329,10 @@ function renderMembershipAddress(
   }
   return renderGroupAddress(
     membership.members.map((member) => member.agentName),
-  ).pipe(Effect.mapError(persistenceFailure));
+  ).pipe(
+    Effect.map((group) => group.address),
+    Effect.mapError(persistenceFailure),
+  );
 }
 
 function decodeStoredMembership(
@@ -828,7 +823,7 @@ const registerOperation =
             : Effect.void,
         ),
         Effect.catchTag("DaemonActivationError", (error) =>
-          Effect.fail({ reason: registerFailureReason(error.reason) }),
+          Effect.fail({ reason: activationFailureReasons[error.reason] }),
         ),
         Effect.flatMap(encodeRegisterResult),
       ),

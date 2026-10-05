@@ -16,26 +16,28 @@ import {
   bindCard,
   DaemonRegistrationPersistenceError,
   DaemonRegistrationRepresentationError,
+  type DaemonRegistrationState,
   type DaemonRegistrationStore,
-  readBoundCard,
+  readDaemonRegistrationState,
+  representationFailure,
 } from "./binding.js";
 
-/** Durable identity row errors and the store authority registration needs. */
+/**
+ * The registration state read once at startup, its durable identity row
+ * errors and the store authority registration needs.
+ */
 export {
   DaemonRegistrationPersistenceError,
   DaemonRegistrationRepresentationError,
+  type DaemonRegistrationState,
   type DaemonRegistrationStore,
+  readDaemonRegistrationState,
 };
 
 /** Registry transport or service failure without upstream implementation detail. */
 export class DaemonRegistrationUpstreamError extends Data.TaggedError(
   "DaemonRegistrationUpstreamError",
 ) {}
-
-/** Complete registration state exposed by status and catalog selection. */
-export type DaemonRegistrationState =
-  | Readonly<{ kind: "unregistered" }>
-  | Readonly<{ kind: "active"; agentCard: VerifiedAgentCard }>;
 
 type RegistrationRequest = Parameters<HarnessMcpOperations["register"]>[0];
 
@@ -44,36 +46,8 @@ const exactOptions = {
   onExcessProperty: "error" as const,
 };
 
-const representationFailure = (): DaemonRegistrationRepresentationError =>
-  new DaemonRegistrationRepresentationError();
-
 const upstreamFailure = (): DaemonRegistrationUpstreamError =>
   new DaemonRegistrationUpstreamError();
-
-/**
- * Reads startup identity state and re-verifies any durable binding.
- *
- * @param input Startup identity dependencies.
- * @param input.store Minimal durable identity store.
- * @param input.bootstrap Configured Registry and agent key authority.
- * @returns Either the sole unregistered state or one verified active card.
- */
-export const readDaemonRegistrationState = (input: {
-  readonly store: Pick<DaemonRegistrationStore, "readIdentity">;
-  readonly bootstrap: DaemonBootstrap;
-}): Effect.Effect<
-  DaemonRegistrationState,
-  DaemonRegistrationPersistenceError | DaemonRegistrationRepresentationError
-> =>
-  readBoundCard(input).pipe(
-    Effect.map(
-      (agentCard): DaemonRegistrationState =>
-        agentCard === undefined
-          ? Object.freeze({ kind: "unregistered" })
-          : Object.freeze({ kind: "active", agentCard }),
-    ),
-    Effect.withSpan("readDaemonRegistrationState"),
-  );
 
 /**
  * Loads the admission credential only while the daemon is unregistered, so an

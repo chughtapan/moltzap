@@ -36,7 +36,7 @@ import {
   MembershipDescriptor,
   verifyMembershipDescriptor,
 } from "../../transport/wire/index.js";
-import { AgentAddress } from "../../transport/wire/values.js";
+import { AgentAddress, compareAscii } from "../../transport/wire/values.js";
 import {
   activationFailure,
   type DaemonActivationError,
@@ -148,16 +148,6 @@ const retainMembershipCards = (
     );
   });
 
-const compareAgentCards = (
-  left: VerifiedAgentCard,
-  right: VerifiedAgentCard,
-): number => {
-  if (left.agentId === right.agentId) {
-    return 0;
-  }
-  return left.agentId < right.agentId ? -1 : 1;
-};
-
 /**
  * The unique canonical sender cards pinned by durable memberships, plus the
  * local card, sorted for Router worker acquisition.
@@ -184,7 +174,9 @@ const recoverPinnedSenderCards = (
         ),
       { concurrency: 1, discard: true },
     );
-    return [...pinned.cards.values()].sort(compareAgentCards);
+    return [...pinned.cards.values()].sort((left, right) =>
+      compareAscii(left.agentId, right.agentId),
+    );
   }).pipe(Effect.withSpan("recoverPinnedSenderCards"));
 
 /**
@@ -218,8 +210,8 @@ const superviseBackground = (
     Effect.asVoid,
   );
 
-const signStructurallyValidAction = () =>
-  Effect.succeed<"sign" | "refuse">("sign");
+const signStructurallyValidAction: EndpointEngineInput["actionPolicy"] = () =>
+  Effect.succeed("sign");
 
 const mapWorkerInitializationError = (
   error: RouterWorkerTransportError | RouterWorkerProtocolError,
@@ -316,7 +308,7 @@ const acquireProtocolEngine = (
  */
 const makeProtocolCollectives = (
   environment: ProtocolEnvironment,
-  hooks: ProtocolHooks,
+  emit: ProtocolHooks["emit"],
   agentCard: VerifiedAgentCard,
   engine: EndpointEngine,
 ): CollectiveOperations =>
@@ -326,7 +318,7 @@ const makeProtocolCollectives = (
     ),
     lookupMember: (member) => engine.resolveAddress(member),
     sendPost: (input) => engine.send(input),
-    emit: (item) => hooks.emit(item),
+    emit,
     scope: environment.daemonScope,
   });
 
@@ -364,7 +356,7 @@ export const acquireProtocol = (
       engine,
       collectives: makeProtocolCollectives(
         environment,
-        hooks,
+        hooks.emit,
         agentCard,
         engine,
       ),
