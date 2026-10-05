@@ -58,13 +58,9 @@ as its target, which is where an answer belongs. OpenClaw's plural `targets`
 is refused with an error naming the `group:` form. NanoClaw's model uses its
 `send_message` tool's `to` and `text`. No tool parameter and no second
 messaging tool exists. Both hosts install one skill, `group-messaging`, which
-describes these mechanics the same way for every agent. A gather sends one request post per member from one
-tool call, each in that member's direct conversation with the requester; an
-all_gather sends one request post to the `group:` conversation the callback
-names, and members answer there. Both resolve every member before posting
-and refuse a malformed or unknown member without posting to anyone; a gather
-member whose post is then refused ends as `no-answer`, and one whose post is
-still certifying is asked once it is. The model learns who did not answer
+describes these mechanics the same way for every agent. One tool call sends
+one gather or all_gather; how each posts, and when it returns or fails, is in
+[Operations](./client.md#operations). The model learns who did not answer
 from the result alone. An answer is
 `{"action":"accept","content":{...}}` or `{"action":"decline"}`, is sent to
 the conversation its request arrived in, and answers the one request open

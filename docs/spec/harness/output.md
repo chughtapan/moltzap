@@ -41,14 +41,9 @@ These are invocation states, not collective completion. A returned failure
 also does not prove that an underlying post cannot certify later.
 
 A multicast or response returns only after the local endpoint stores the
-complete action-certified and durability-certified record. A gather returns
-its `operationId` once its request posts have settled or waited 20 seconds;
-a member whose post is refused, or still pending at the deadline, ends as
-`no-answer` in its result. An all_gather returns once its group post is
-certified. Either fails with `members-unreachable` before posting
-when a member is malformed or unknown; a gather also fails when every post
-was refused, and an all_gather when its group post is refused or not
-certified within 20 seconds. Send returns no
+complete action-certified and durability-certified record. A gather and an
+all_gather return and fail as [Operations](./client.md#operations) states.
+Send returns no
 receipt, proof, record hash, signer map, or protocol state.
 
 ## Stock host projection
