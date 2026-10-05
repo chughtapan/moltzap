@@ -94,7 +94,8 @@ not change this dependency graph or authorize extra packages.
 ## Representation ownership
 
 `identity-representation.md` remains the sole owner of AgentCard,
-SignedMessage, Registry, and authenticated-request representations.
+SignedMessage, SealedBody, Registry, and authenticated-request
+representations.
 `router-representation.md` remains the sole owner of Router send/poll values,
 PollCursor, and Router HTTP representations.
 
