@@ -5,48 +5,41 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
   AgentCard,
-  AgentId,
-  AgentName,
-  AgentSigningAuthority,
-  type AgentSigningAuthority as AgentSigningAuthorityValue,
+  type AgentSigningAuthority,
   Ed25519PublicKey,
   MOLTZAP_VERSION,
-  PrincipalId,
   SignedMessage,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
-import { PollCursor, RouterInstanceId } from "@moltzap/router";
-import canonicalize from "canonicalize";
+import { RouterInstanceId } from "@moltzap/router";
 import {
   Chunk,
   Deferred,
   Effect,
-  Encoding,
   Exit,
   Fiber,
   Option,
   Queue,
-  Redacted,
   Ref,
   Schema,
 } from "effect";
-import {
-  createHash,
-  generateKeyPairSync,
-  type KeyObject,
-  sign as signBytes,
-} from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type {
-  EndpointEngineInput,
-  EngineRegistryPort,
-  EngineRouterPort,
-} from "../runtime/index.js";
+import {
+  identifier,
+  issueTestCard,
+  makeTestAuthority,
+  type RegistryKeyPair,
+} from "../../../__tests__/agent-card-fixtures.js";
+import { forwardStoredOutbound } from "../../../__tests__/forward-stored-outbound.js";
+import { pollCursor as fixturePollCursor } from "../../../__tests__/router-worker-fixtures.js";
 import { type EndpointStore, openEndpointStore } from "../../../store/index.js";
 import {
   type RouterDiscontinuityReason,
+  type RouterIngressDisposition,
   RouterWorkerDiscontinuityError,
   type RouterWorkerIngress,
+  type RouterWorkerRecovery,
 } from "../../router/index.js";
 import {
   type ActionCertifiedRecord as ActionCertifiedRecordValue,
@@ -74,6 +67,7 @@ import {
   MembershipDescriptor,
   mintPostId,
   type PostIntent,
+  type ReanchorBody,
   type RecordCore,
   signEvidenceMessage,
   signOuterEvidence,
@@ -82,13 +76,24 @@ import {
   verifyMembershipDescriptor,
 } from "../../wire/index.js";
 import { MessageAddressInput } from "../../wire/values.js";
-import { type EndpointEngine, makeEndpointEngine } from "../index.js";
+import {
+  type EndpointEngine,
+  type EndpointEngineInput,
+  EngineOutboundError,
+  makeEndpointEngine,
+} from "../index.js";
 
 /* eslint-disable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- One exact cryptographic trace keeps protocol order and assertions together. */
 
+/** The Router-worker operations an engine consumes. */
+type EngineRouterPort = EndpointEngineInput["routerWorker"];
+
+/** The Registry lookup an engine consumes. */
+type EngineRegistryPort = EndpointEngineInput["registry"];
+
 interface IdentityFixture {
   readonly card: VerifiedAgentCard;
-  readonly authority: AgentSigningAuthorityValue;
+  readonly authority: AgentSigningAuthority;
 }
 
 interface RecoveryFixture {
@@ -97,7 +102,7 @@ interface RecoveryFixture {
   readonly store: EndpointStore;
   readonly local: IdentityFixture;
   readonly remote: IdentityFixture;
-  readonly registryPrivateKey: KeyObject;
+  readonly registryKeys: RegistryKeyPair;
   readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
   readonly membership: VerifiedMembership;
   readonly certifiedRecord: CertifiedRecord;
@@ -132,48 +137,15 @@ interface HeldRouterInput {
   readonly pendingOutboundIds: Queue.Queue<string>;
 }
 
-function forwardStoredOutbound(
-  store: EndpointStore,
-  outbound: Queue.Queue<SignedMessage>,
-  outboundId: string,
-): Effect.Effect<void> {
-  return store.beginOutbound(outboundId).pipe(
-    Effect.flatMap((attempt) => {
-      switch (attempt.kind) {
-        case "inactive":
-          return Effect.void;
-        case "pending":
-          return decodeCanonical(
-            SignedMessage,
-            attempt.outbound.canonicalSignedMessage,
-          ).pipe(
-            Effect.flatMap((message) =>
-              store
-                .completeOutbound(attempt.outbound)
-                .pipe(Effect.zipRight(Queue.offer(outbound, message))),
-            ),
-            Effect.asVoid,
-          );
-        default: {
-          const exhaustive: never = attempt;
-          return exhaustive;
-        }
-      }
-    }),
-    Effect.orDie,
-  );
-}
-
 type ReanchorVote = Extract<
   EvidenceStatementValue,
   { readonly kind: "reanchor_vote" }
 >;
 
 const actionSignatureKind: EvidenceStatementValue["kind"] = "action_signature";
+const acceptedDisposition: RouterIngressDisposition = "accepted";
+const ignoredDisposition: RouterIngressDisposition = "ignored";
 const durabilityVoteKind: EvidenceStatementValue["kind"] = "durability_vote";
-
-const identifier = (prefix: string, byte: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`;
 
 const oldRouterInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
   identifier("rti_", 8),
@@ -181,9 +153,7 @@ const oldRouterInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
 const newRouterInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
   identifier("rti_", 9),
 );
-const pollCursor = Schema.decodeUnknownSync(PollCursor)(
-  `plc_eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIiwidHlwIjoiYXBwbGljYXRpb24vdm5kLm1vbHR6YXAucG9sbC1jdXJzb3IrandlIn0..${Encoding.encodeBase64Url(new Uint8Array(12).fill(1))}.${Encoding.encodeBase64Url(new Uint8Array(120).fill(2))}.${Encoding.encodeBase64Url(new Uint8Array(16).fill(3))}`,
-);
+const pollCursor = fixturePollCursor(1);
 
 function makeHeldRouter(input: HeldRouterInput) {
   return (context: FixtureRouterContext): EngineRouterPort => ({
@@ -212,13 +182,6 @@ function makeHeldRouter(input: HeldRouterInput) {
   });
 }
 
-const makeAuthority = () => {
-  const { privateKey } = generateKeyPairSync("ed25519");
-  return AgentSigningAuthority.fromPkcs8(
-    Redacted.make(privateKey.export({ format: "pem", type: "pkcs8" })),
-  );
-};
-
 const encodedEvidence = (
   identity: IdentityFixture,
   statement: EvidenceStatementValue,
@@ -228,54 +191,6 @@ const encodedEvidence = (
     agentCard: identity.card,
     signingAuthority: identity.authority,
   }).pipe(Effect.flatMap((message) => Schema.encode(SignedMessage)(message)));
-
-const issueCard = (input: {
-  readonly byte: number;
-  readonly authority: AgentSigningAuthorityValue;
-  readonly registryPrivateKey: KeyObject;
-  readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
-}): Effect.Effect<VerifiedAgentCard> =>
-  Effect.gen(function* () {
-    const thumbprint = createHash("sha256")
-      .update(canonicalize(input.registrySignerPublicKey) ?? "")
-      .digest("base64url");
-    const protectedText = canonicalize({
-      alg: "Ed25519",
-      kid: `urn:ietf:params:oauth:jwk-thumbprint:sha-256:${thumbprint}`,
-      typ: "application/vnd.moltzap.agent-card+jws",
-    });
-    const payloadText = canonicalize({
-      agentId: Schema.decodeUnknownSync(AgentId)(
-        identifier("agt_", input.byte),
-      ),
-      agentName: Schema.decodeUnknownSync(AgentName)(`recovery-${input.byte}`),
-      issuedAt: "2026-08-27T12:00:00Z",
-      kind: "agentCard",
-      moltzapVersion: MOLTZAP_VERSION,
-      principalId: Schema.decodeUnknownSync(PrincipalId)(
-        identifier("prn_", input.byte),
-      ),
-      publicKey: AgentSigningAuthority.publicKey(input.authority),
-    });
-    if (protectedText === undefined || payloadText === undefined) {
-      return yield* Effect.dieMessage("canonical card fixture failed");
-    }
-    const protectedValue = Buffer.from(protectedText).toString("base64url");
-    const payload = Buffer.from(payloadText).toString("base64url");
-    const signature = signBytes(
-      null,
-      Buffer.from(`${protectedValue}.${payload}`),
-      input.registryPrivateKey,
-    ).toString("base64url");
-    const card = yield* Schema.decodeUnknown(AgentCard)({
-      payload,
-      signatures: [{ protected: protectedValue, signature }],
-    });
-    return yield* AgentCard.verify({
-      agentCard: card,
-      registrySignerPublicKey: input.registrySignerPublicKey,
-    });
-  }).pipe(Effect.orDie);
 
 const buildCertifiedGenesis = (
   local: IdentityFixture,
@@ -391,23 +306,23 @@ const makeFixtureWithRouter = (
     const registrySignerPublicKey = yield* Schema.decodeUnknown(
       Ed25519PublicKey,
     )(registryKeys.publicKey.export({ format: "jwk" }));
-    const localAuthority = yield* makeAuthority();
-    const remoteAuthority = yield* makeAuthority();
+    const localAuthority = yield* makeTestAuthority();
+    const remoteAuthority = yield* makeTestAuthority();
     const local: IdentityFixture = {
-      card: yield* issueCard({
+      card: yield* issueTestCard({
         byte: identityBytes.local,
+        name: `recovery-${identityBytes.local}`,
         authority: localAuthority,
-        registryPrivateKey: registryKeys.privateKey,
-        registrySignerPublicKey,
+        registryKeys,
       }),
       authority: localAuthority,
     };
     const remote: IdentityFixture = {
-      card: yield* issueCard({
+      card: yield* issueTestCard({
         byte: identityBytes.remote,
+        name: `recovery-${identityBytes.remote}`,
         authority: remoteAuthority,
-        registryPrivateKey: registryKeys.privateKey,
-        registrySignerPublicKey,
+        registryKeys,
       }),
       authority: remoteAuthority,
     };
@@ -486,7 +401,7 @@ const makeFixtureWithRouter = (
       store,
       local,
       remote,
-      registryPrivateKey: registryKeys.privateKey,
+      registryKeys,
       registrySignerPublicKey,
       membership,
       certifiedRecord,
@@ -521,23 +436,23 @@ const addN4Foundation = (
   genesisRouterInstanceId: typeof RouterInstanceId.Type = oldRouterInstanceId,
 ) =>
   Effect.gen(function* () {
-    const thirdAuthority = yield* makeAuthority();
-    const fourthAuthority = yield* makeAuthority();
+    const thirdAuthority = yield* makeTestAuthority();
+    const fourthAuthority = yield* makeTestAuthority();
     const third: IdentityFixture = {
-      card: yield* issueCard({
+      card: yield* issueTestCard({
         byte: 3,
+        name: "recovery-3",
         authority: thirdAuthority,
-        registryPrivateKey: fixture.registryPrivateKey,
-        registrySignerPublicKey: fixture.registrySignerPublicKey,
+        registryKeys: fixture.registryKeys,
       }),
       authority: thirdAuthority,
     };
     const fourth: IdentityFixture = {
-      card: yield* issueCard({
+      card: yield* issueTestCard({
         byte: 4,
+        name: "recovery-4",
         authority: fourthAuthority,
-        registryPrivateKey: fixture.registryPrivateKey,
-        registrySignerPublicKey: fixture.registrySignerPublicKey,
+        registryKeys: fixture.registryKeys,
       }),
       authority: fourthAuthority,
     };
@@ -877,6 +792,13 @@ const decodeActionProposal = (
     }),
   );
 
+/**
+ * Take the next action proposal from `outbound`, skipping the evidence
+ * envelopes queued ahead of it.
+ * @param outbound Router queue the engine forwards to.
+ * @returns The proposal envelope and its decoded packet; any other direct
+ *     packet, or one second without traffic, is a defect.
+ */
 function takeActionProposalAfterEvidence(
   outbound: Queue.Queue<SignedMessage>,
 ): Effect.Effect<QueuedActionProposal> {
@@ -994,7 +916,12 @@ const restartWithNonLexicalAgentOrder = () =>
 
         yield* retainCertifiedRecord(fixture);
         const restarted = yield* makeEndpointEngine(fixture.input);
-        expect(restarted).toBeDefined();
+
+        expect(
+          (yield* restarted.readPendingMessages()).map(
+            (message) => message.recordHash,
+          ),
+        ).toEqual([fixture.certifiedRecord.actionCertifiedRecord.recordHash]);
       }),
     ),
   );
@@ -1210,20 +1137,27 @@ const peerReanchorVoteIngress = (
     routerInstanceId: newRouterInstanceId,
   });
 
+/**
+ * Router ingress carrying a re-anchor vote whose outer envelope `responder`
+ * signs and addresses to `membership`. The vote's evidence is signed by
+ * `evidenceSigner` when given, otherwise by `responder`.
+ */
 function peerReanchorVoteIngressFrom(input: {
   readonly membership: VerifiedMembership;
   readonly responder: IdentityFixture;
   readonly proposal: ReanchorVote;
   readonly routerInstanceId: typeof RouterInstanceId.Type;
+  readonly evidenceSigner?: IdentityFixture;
 }): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> {
+  const signer = input.evidenceSigner ?? input.responder;
   return Effect.gen(function* () {
     const evidence = yield* signEvidenceMessage({
       statement: {
         ...input.proposal,
-        signerAgentId: input.responder.card.agentId,
+        signerAgentId: signer.card.agentId,
       },
-      agentCard: input.responder.card,
-      signingAuthority: input.responder.authority,
+      agentCard: signer.card,
+      signingAuthority: signer.authority,
     });
     const message = yield* signOuterEvidence({
       evidence,
@@ -1240,6 +1174,114 @@ function peerReanchorVoteIngressFrom(input: {
     return ingress;
   }).pipe(Effect.orDie);
 }
+
+/**
+ * A peer's correctly signed vote to re-anchor the fixture conversation at the
+ * new Router instance. Only a recovery run started by a Router restart takes
+ * such a vote.
+ */
+const peerReanchorVote = (fixture: RecoveryFixture) =>
+  Effect.gen(function* () {
+    const { recordCore, recordHash } =
+      fixture.certifiedRecord.actionCertifiedRecord;
+    const reanchor: ReanchorBody = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "reanchor_body",
+      conversationId: recordCore.action.conversationId,
+      membershipHash: fixture.membership.hash,
+      previousAnchorHash: recordCore.anchorHash,
+      selectedRecordHash: recordHash,
+      routerInstanceId: newRouterInstanceId,
+    };
+    const proposal: ReanchorVote = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "reanchor_vote",
+      signerAgentId: fixture.remote.card.agentId,
+      anchorHash: yield* hashAnchor(reanchor),
+      reanchor,
+    };
+    return yield* peerReanchorVoteIngress(fixture, proposal);
+  }).pipe(Effect.orDie);
+
+/**
+ * Runs one recovery of the fixture at its unchanged Router instance to
+ * completion, handing `during` the moment between the catch-up request and
+ * its incomplete answer.
+ * @param fixture Endpoint under recovery.
+ * @param reason Discontinuity that started the recovery.
+ * @param during Work run while the recovery is still active.
+ * @returns What `during` returned, once recovery has completed.
+ */
+const runSameInstanceRecovery = <A, E>(
+  fixture: RecoveryFixture,
+  reason: RouterDiscontinuityReason,
+  during: Effect.Effect<A, E>,
+) =>
+  Effect.gen(function* () {
+    const recoveryOutbound = yield* Queue.unbounded<SignedMessage>();
+    yield* fixture.engine.abandonVolatileFolds(reason);
+    const recovering = yield* Effect.fork(
+      fixture.engine.recoverCertifiedHistory({
+        reason,
+        anchor: { routerInstanceId: oldRouterInstanceId, pollCursor },
+        resume: (outboundId) =>
+          forwardStoredOutbound(
+            fixture.store,
+            fixture.normalOutbound,
+            outboundId,
+          ),
+        send: ({ message }) =>
+          Queue.offer(recoveryOutbound, message).pipe(Effect.asVoid),
+      }),
+    );
+    const request = yield* Queue.take(recoveryOutbound).pipe(
+      Effect.timeout("1 second"),
+      Effect.flatMap(decodeCatchUpRequest),
+    );
+    const result = yield* during;
+    yield* catchUpIncompleteIngress(fixture, request).pipe(
+      Effect.flatMap((ingress) =>
+        fixture.engine.acceptRecoveryIngress(ingress),
+      ),
+    );
+    yield* Fiber.join(recovering).pipe(Effect.timeout("1 second"));
+    return result;
+  });
+
+const ignoresReanchorVoteDuringFeedGapRecovery = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const disposition = yield* runSameInstanceRecovery(
+          fixture,
+          "feed_gap",
+          peerReanchorVote(fixture).pipe(
+            Effect.flatMap((ingress) =>
+              fixture.engine.acceptRecoveryIngress(ingress),
+            ),
+          ),
+        );
+        expect(disposition).toBe(ignoredDisposition);
+      }),
+    ),
+  );
+
+const ignoresReanchorVoteAfterRecovery = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* runSameInstanceRecovery(fixture, "feed_gap", Effect.void);
+        const disposition = yield* peerReanchorVote(fixture).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        expect(disposition).toBe(ignoredDisposition);
+      }),
+    ),
+  );
 
 const completeRestartRecovery = () =>
   Effect.runPromise(
@@ -1494,34 +1536,9 @@ const recoverSameRouterInstance = (reason: RouterDiscontinuityReason) =>
           Effect.timeout("1 second"),
         );
         const retained = yield* stageCatchUpOutbound(fixture);
-        const recoveryOutbound = yield* Queue.unbounded<SignedMessage>();
-        const resumedOutbound = fixture.normalOutbound;
-        yield* fixture.engine.abandonVolatileFolds(reason);
-        const recovering = yield* Effect.fork(
-          fixture.engine.recoverCertifiedHistory({
-            reason,
-            anchor: {
-              routerInstanceId: oldRouterInstanceId,
-              pollCursor,
-            },
-            resume: (outboundId) =>
-              forwardStoredOutbound(fixture.store, resumedOutbound, outboundId),
-            send: ({ message }) =>
-              Queue.offer(recoveryOutbound, message).pipe(Effect.asVoid),
-          }),
-        );
-        const request = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.timeout("1 second"),
-          Effect.flatMap(decodeCatchUpRequest),
-        );
-        yield* catchUpIncompleteIngress(fixture, request).pipe(
-          Effect.flatMap((ingress) =>
-            fixture.engine.acceptRecoveryIngress(ingress),
-          ),
-        );
-        yield* Fiber.join(recovering).pipe(Effect.timeout("1 second"));
+        yield* runSameInstanceRecovery(fixture, reason, Effect.void);
         yield* fixture.engine.drainOutbound;
-        const resumed = yield* Queue.take(resumedOutbound).pipe(
+        const resumed = yield* Queue.take(fixture.normalOutbound).pipe(
           Effect.timeout("1 second"),
         );
         expect(yield* encodeCanonical(SignedMessage, resumed)).toEqual(
@@ -2010,7 +2027,9 @@ const drainRecoversRouterRestartOnItsOwnFiber = () =>
           Effect.timeout("1 second"),
         );
 
-        expect(Exit.isFailure(drained)).toBe(true);
+        expect(drained).toStrictEqual(
+          Exit.fail(new EngineOutboundError({ reason: "network" })),
+        );
         expect(yield* Deferred.isDone(recovered)).toBe(true);
         const after = yield* fixture.store.recover();
         expect(after.outboundMessages).toEqual([]);
@@ -2214,6 +2233,390 @@ const restartEmptyConversation = () =>
     ),
   );
 
+/**
+ * Starts a restart recovery at the new Router instance and waits until it has
+ * sent its first catch-up request, so the run is active.
+ * @param fixture Endpoint under recovery.
+ * @param outbound Queue that receives the envelopes `send` forwards.
+ * @param send How the run sends; by default every envelope goes to `outbound`.
+ * @returns The running recovery and its first catch-up request.
+ */
+const startRestartRecovery = (
+  fixture: RecoveryFixture,
+  outbound: Queue.Queue<SignedMessage>,
+  send?: RouterWorkerRecovery["send"],
+) =>
+  Effect.gen(function* () {
+    yield* fixture.engine.abandonVolatileFolds("router_restarted");
+    const recovery = yield* Effect.fork(
+      fixture.engine.recoverCertifiedHistory({
+        reason: "router_restarted",
+        anchor: {
+          routerInstanceId: newRouterInstanceId,
+          pollCursor,
+        },
+        resume: () => Effect.void,
+        send:
+          send ??
+          (({ message }) => Queue.offer(outbound, message).pipe(Effect.asVoid)),
+      }),
+    );
+    const request = yield* Queue.take(outbound).pipe(
+      Effect.timeout("1 second"),
+      Effect.flatMap(decodeCatchUpRequest),
+    );
+    return { recovery, request };
+  });
+
+/**
+ * Runs a restart recovery that re-anchors the fixture conversation at the new
+ * Router instance with the peer's vote, and interrupts it while the endpoint
+ * is sending the completed re-anchor. The store has committed the new anchor
+ * by then, so a later restart recovery finds the conversation anchored.
+ * @param fixture Endpoint under recovery, holding a retained certified record.
+ * @returns The endpoint's re-anchor vote and the completed re-anchor it was sending.
+ */
+const reanchorUntilCompletionSend = (fixture: RecoveryFixture) =>
+  Effect.gen(function* () {
+    const outbound = yield* Queue.unbounded<SignedMessage>();
+    const completedSend = yield* Deferred.make<DirectPacket>();
+    const { recovery, request } = yield* startRestartRecovery(
+      fixture,
+      outbound,
+      ({ message }) =>
+        decodeOuterBody(message.body).pipe(
+          Effect.orDie,
+          Effect.flatMap((body) =>
+            body.kind === "direct" && body.packet.kind === "completed_reanchor"
+              ? Deferred.succeed(completedSend, body.packet).pipe(
+                  Effect.zipRight(Effect.never),
+                )
+              : Queue.offer(outbound, message).pipe(Effect.asVoid),
+          ),
+        ),
+    );
+    yield* catchUpIncompleteIngress(fixture, request).pipe(
+      Effect.flatMap((ingress) =>
+        fixture.engine.acceptRecoveryIngress(ingress),
+      ),
+    );
+    const proposal = yield* Queue.take(outbound).pipe(
+      Effect.timeout("1 second"),
+      Effect.flatMap(decodeReanchorVote),
+    );
+    yield* peerReanchorVoteIngress(fixture, proposal).pipe(
+      Effect.flatMap((ingress) =>
+        fixture.engine.acceptRecoveryIngress(ingress),
+      ),
+    );
+    const completed = yield* Deferred.await(completedSend).pipe(
+      Effect.timeout("1 second"),
+    );
+    yield* Fiber.interrupt(recovery);
+    return { proposal, completed };
+  });
+
+const ignoresRelayedCompletionForAnchoredConversation = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+        const { completed } = yield* reanchorUntilCompletionSend(fixture);
+        const { recovery } = yield* startRestartRecovery(
+          fixture,
+          yield* Queue.unbounded<SignedMessage>(),
+        );
+        const disposition = yield* directPacketIngressFrom({
+          membership: fixture.membership,
+          sender: fixture.remote,
+          packet: completed,
+          routerInstanceId: newRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        expect(disposition).toBe(ignoredDisposition);
+        yield* Fiber.interrupt(recovery);
+      }),
+    ),
+  );
+
+/**
+ * The stable evidence message an outer evidence envelope carries, encoded as
+ * a certificate holds it.
+ * @param message Outer envelope whose body is evidence.
+ * @returns The encoded inner evidence message.
+ */
+const carriedEvidence = (message: SignedMessage) =>
+  decodeOuterBody(message.body).pipe(
+    Effect.flatMap((body) =>
+      body.kind === "evidence"
+        ? Schema.encode(SignedMessage)(body.message)
+        : Effect.dieMessage("expected evidence"),
+    ),
+    Effect.orDie,
+  );
+
+/**
+ * Starts a restart recovery of the fixture's retained record and answers its
+ * catch-up request as incomplete, so the endpoint sends its own re-anchor vote
+ * and waits for the peer's.
+ * @param fixture Endpoint under recovery.
+ * @returns The running recovery, the endpoint's vote, and that vote encoded.
+ */
+const proposeAtRestart = (fixture: RecoveryFixture) =>
+  Effect.gen(function* () {
+    yield* retainCertifiedRecord(fixture);
+    const outbound = yield* Queue.unbounded<SignedMessage>();
+    const { recovery, request } = yield* startRestartRecovery(
+      fixture,
+      outbound,
+    );
+    yield* catchUpIncompleteIngress(fixture, request).pipe(
+      Effect.flatMap((ingress) =>
+        fixture.engine.acceptRecoveryIngress(ingress),
+      ),
+    );
+    const voteMessage = yield* Queue.take(outbound).pipe(
+      Effect.timeout("1 second"),
+    );
+    return {
+      recovery,
+      proposal: yield* decodeReanchorVote(voteMessage),
+      localVote: yield* carriedEvidence(voteMessage),
+    };
+  });
+
+/**
+ * A peer that reached the threshold first relays the completed re-anchor; the
+ * endpoint still re-anchoring takes its votes, reports it accepted, and adopts
+ * its anchor. Protects the receiving side of a relayed completion; fails when
+ * a completion whose votes the run takes is reported ignored, or its votes do
+ * not reach the run.
+ */
+const adoptsRelayedCompletionForReanchoringConversation = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const { recovery, proposal, localVote } =
+          yield* proposeAtRestart(fixture);
+        const peerVote = yield* encodedEvidence(fixture.remote, {
+          ...proposal,
+          signerAgentId: fixture.remote.card.agentId,
+        });
+        const completed: DirectPacket = {
+          moltzapVersion: MOLTZAP_VERSION,
+          kind: "completed_reanchor",
+          anchorHash: proposal.anchorHash,
+          reanchor: proposal.reanchor,
+          certificate: {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "reanchor_certificate",
+            anchorHash: proposal.anchorHash,
+            votes: [localVote, peerVote],
+          },
+        };
+
+        const disposition = yield* directPacketIngressFrom({
+          membership: fixture.membership,
+          sender: fixture.remote,
+          packet: completed,
+          routerInstanceId: newRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
+
+        expect(disposition).toBe(acceptedDisposition);
+        expect(
+          (yield* fixture.store.recover()).positions[0]?.currentAnchorHash,
+        ).toBe(proposal.anchorHash);
+      }),
+    ),
+  );
+
+/**
+ * A peer vote naming an anchor hash its re-anchor body does not hash to is
+ * reported ignored, and the peer's genuine vote still completes the
+ * re-anchor. Protects a vote's binding to the anchor it names; fails when
+ * that check is dropped, or a vote the run declines is reported accepted.
+ */
+const ignoresReanchorVoteWithMismatchedAnchorHash = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const { recovery, proposal } = yield* proposeAtRestart(fixture);
+        const otherAnchorHash = yield* hashAnchor({
+          ...proposal.reanchor,
+          routerInstanceId: oldRouterInstanceId,
+        });
+
+        const mismatched = yield* peerReanchorVoteIngress(fixture, {
+          ...proposal,
+          anchorHash: otherAnchorHash,
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        const genuine = yield* peerReanchorVoteIngress(fixture, proposal).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
+
+        expect(mismatched).toBe(ignoredDisposition);
+        expect(genuine).toBe(acceptedDisposition);
+        expect(
+          (yield* fixture.store.recover()).positions[0]?.currentAnchorHash,
+        ).toBe(proposal.anchorHash);
+      }),
+    ),
+  );
+
+/**
+ * A peer's vote that arrives before the endpoint's own catch-up completes is
+ * held and replayed once the position is ready, and the replay completes the
+ * re-anchor without the peer voting again. Fails when a held vote is not
+ * replayed, or when the endpoint still proposes its own re-anchor after the
+ * replay completed it: that candidate no longer matches the durable position,
+ * so the run reports a persistence failure.
+ */
+const replaysPeerVoteHeldBeforeCatchUpCompletes = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+        const outbound = yield* Queue.unbounded<SignedMessage>();
+        const { recovery, request } = yield* startRestartRecovery(
+          fixture,
+          outbound,
+        );
+
+        const early = yield* peerReanchorVote(fixture).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* catchUpIncompleteIngress(fixture, request).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
+        const proposal = yield* Queue.take(outbound).pipe(
+          Effect.timeout("1 second"),
+          Effect.flatMap(decodeReanchorVote),
+        );
+
+        expect(early).toBe(acceptedDisposition);
+        expect(
+          (yield* fixture.store.recover()).positions[0]?.currentAnchorHash,
+        ).toBe(proposal.anchorHash);
+      }),
+    ),
+  );
+
+/**
+ * A peer's re-anchor vote whose outer envelope is addressed beyond the
+ * conversation's members fails the envelope's membership check, so it is
+ * reported ignored and the run still takes the peer's genuine vote. Fails
+ * when that check surfaces as a persistence failure, which ends the Router
+ * worker's poll loop.
+ */
+const ignoresReanchorVoteAddressedBeyondItsMembers = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const { recovery, proposal } = yield* proposeAtRestart(fixture);
+        const outsiderAuthority = yield* makeTestAuthority();
+        const outsider = yield* issueTestCard({
+          byte: 3,
+          name: "recovery-outsider",
+          authority: outsiderAuthority,
+          registryKeys: fixture.registryKeys,
+        });
+
+        const misaddressed = yield* peerReanchorVoteIngressFrom({
+          membership: {
+            ...fixture.membership,
+            members: [...fixture.membership.members, outsider],
+          },
+          responder: fixture.remote,
+          proposal,
+          routerInstanceId: newRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        const genuine = yield* peerReanchorVoteIngress(fixture, proposal).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
+
+        expect(misaddressed).toBe(ignoredDisposition);
+        expect(genuine).toBe(acceptedDisposition);
+      }),
+    ),
+  );
+
+/**
+ * A member's envelope carrying re-anchor vote evidence signed by an agent
+ * outside the conversation passes the envelope check and fails the evidence
+ * membership check, so it is reported ignored and the run still takes the
+ * peer's genuine vote. Fails when the evidence check surfaces as a
+ * persistence failure, which ends the Router worker's poll loop.
+ */
+const ignoresReanchorVoteWhoseEvidenceSignerIsNotAMember = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const { recovery, proposal } = yield* proposeAtRestart(fixture);
+        const outsiderAuthority = yield* makeTestAuthority();
+        const outsider = yield* issueTestCard({
+          byte: 3,
+          name: "recovery-outsider",
+          authority: outsiderAuthority,
+          registryKeys: fixture.registryKeys,
+        });
+
+        const forged = yield* peerReanchorVoteIngressFrom({
+          membership: fixture.membership,
+          responder: fixture.remote,
+          proposal,
+          routerInstanceId: newRouterInstanceId,
+          evidenceSigner: { card: outsider, authority: outsiderAuthority },
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        const genuine = yield* peerReanchorVoteIngress(fixture, proposal).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
+
+        expect(forged).toBe(ignoredDisposition);
+        expect(genuine).toBe(acceptedDisposition);
+      }),
+    ),
+  );
+
 const rebroadcastsPersistedLocalVote = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -2276,23 +2679,8 @@ const rebroadcastsPersistedLocalVote = () =>
         yield* Fiber.interrupt(firstRecovery);
 
         const secondOutbound = yield* Queue.unbounded<SignedMessage>();
-        yield* fixture.engine.abandonVolatileFolds("router_restarted");
-        const secondRecovery = yield* Effect.fork(
-          fixture.engine.recoverCertifiedHistory({
-            reason: "router_restarted",
-            anchor: {
-              routerInstanceId: newRouterInstanceId,
-              pollCursor,
-            },
-            resume: () => Effect.void,
-            send: ({ message }) =>
-              Queue.offer(secondOutbound, message).pipe(Effect.asVoid),
-          }),
-        );
-        const secondRequest = yield* Queue.take(secondOutbound).pipe(
-          Effect.timeout("1 second"),
-          Effect.flatMap(decodeCatchUpRequest),
-        );
+        const { recovery: secondRecovery, request: secondRequest } =
+          yield* startRestartRecovery(fixture, secondOutbound);
         yield* catchUpIncompleteIngress(fixture, secondRequest).pipe(
           Effect.flatMap((ingress) =>
             fixture.engine.acceptRecoveryIngress(ingress),
@@ -2314,75 +2702,14 @@ const rebroadcastsPersistedCompletedReanchor = () =>
       Effect.gen(function* () {
         const fixture = yield* makeFixture;
         yield* retainCertifiedRecord(fixture);
-        const firstOutbound = yield* Queue.unbounded<SignedMessage>();
-        const completedSendStarted = yield* Deferred.make<undefined>();
-        yield* fixture.engine.abandonVolatileFolds("router_restarted");
-        const firstRecovery = yield* Effect.fork(
-          fixture.engine.recoverCertifiedHistory({
-            reason: "router_restarted",
-            anchor: {
-              routerInstanceId: newRouterInstanceId,
-              pollCursor,
-            },
-            resume: () => Effect.void,
-            send: ({ message }) =>
-              decodeOuterBody(message.body).pipe(
-                Effect.orDie,
-                Effect.flatMap((body) =>
-                  body.kind === "direct" &&
-                  body.packet.kind === "completed_reanchor"
-                    ? Deferred.succeed(completedSendStarted, undefined).pipe(
-                        Effect.zipRight(Effect.never),
-                      )
-                    : Queue.offer(firstOutbound, message).pipe(Effect.asVoid),
-                ),
-              ),
-          }),
-        );
-        const firstRequest = yield* Queue.take(firstOutbound).pipe(
-          Effect.timeout("1 second"),
-          Effect.flatMap(decodeCatchUpRequest),
-        );
-        yield* catchUpIncompleteIngress(fixture, firstRequest).pipe(
-          Effect.flatMap((ingress) =>
-            fixture.engine.acceptRecoveryIngress(ingress),
-          ),
-        );
-        const proposal = yield* Queue.take(firstOutbound).pipe(
-          Effect.timeout("1 second"),
-          Effect.flatMap(decodeReanchorVote),
-        );
-        yield* peerReanchorVoteIngress(fixture, proposal).pipe(
-          Effect.flatMap((ingress) =>
-            fixture.engine.acceptRecoveryIngress(ingress),
-          ),
-        );
-        yield* Deferred.await(completedSendStarted).pipe(
-          Effect.timeout("1 second"),
-        );
+        const { proposal } = yield* reanchorUntilCompletionSend(fixture);
         expect(
           (yield* fixture.store.recover()).positions[0]?.currentAnchorHash,
         ).toBe(proposal.anchorHash);
-        yield* Fiber.interrupt(firstRecovery);
 
         const secondOutbound = yield* Queue.unbounded<SignedMessage>();
-        yield* fixture.engine.abandonVolatileFolds("router_restarted");
-        const secondRecovery = yield* Effect.fork(
-          fixture.engine.recoverCertifiedHistory({
-            reason: "router_restarted",
-            anchor: {
-              routerInstanceId: newRouterInstanceId,
-              pollCursor,
-            },
-            resume: () => Effect.void,
-            send: ({ message }) =>
-              Queue.offer(secondOutbound, message).pipe(Effect.asVoid),
-          }),
-        );
-        const secondRequest = yield* Queue.take(secondOutbound).pipe(
-          Effect.timeout("1 second"),
-          Effect.flatMap(decodeCatchUpRequest),
-        );
+        const { recovery: secondRecovery, request: secondRequest } =
+          yield* startRestartRecovery(fixture, secondOutbound);
         yield* catchUpIncompleteIngress(fixture, secondRequest).pipe(
           Effect.flatMap((ingress) =>
             fixture.engine.acceptRecoveryIngress(ingress),
@@ -2817,6 +3144,38 @@ describe("endpoint restart recovery", () => {
   it(
     "rebuilds one discarded record dissemination without duplication",
     recoverDisseminationObligations,
+  );
+  it(
+    "ignores a re-anchor vote during a feed_gap recovery",
+    ignoresReanchorVoteDuringFeedGapRecovery,
+  );
+  it(
+    "ignores a re-anchor vote that arrives after recovery completes",
+    ignoresReanchorVoteAfterRecovery,
+  );
+  it(
+    "ignores a relayed completed re-anchor for a conversation already anchored at the new Router",
+    ignoresRelayedCompletionForAnchoredConversation,
+  );
+  it(
+    "adopts a relayed completed re-anchor for a conversation it is re-anchoring",
+    adoptsRelayedCompletionForReanchoringConversation,
+  );
+  it(
+    "ignores a re-anchor vote whose anchor hash its body does not hash to",
+    ignoresReanchorVoteWithMismatchedAnchorHash,
+  );
+  it(
+    "ignores a re-anchor vote whose envelope is addressed beyond its members",
+    ignoresReanchorVoteAddressedBeyondItsMembers,
+  );
+  it(
+    "ignores a re-anchor vote whose evidence an agent outside the conversation signed",
+    ignoresReanchorVoteWhoseEvidenceSignerIsNotAMember,
+  );
+  it(
+    "replays a peer's re-anchor vote held from before its catch-up completed",
+    replaysPeerVoteHeldBeforeCatchUpCompletes,
   );
 });
 

@@ -1,5 +1,6 @@
 /** @file A daemon runtime harness over fake engine, worker, store and Registry and Router services, for lifecycle tests. */
 
+import { NodeFileSystem } from "@effect/platform-node";
 import {
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
@@ -8,9 +9,9 @@ import {
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { type Context, Deferred, Effect } from "effect";
-import type { HistoryExportRecord } from "../delivery/history-export.js";
 import type { EventStore } from "../delivery/operations.js";
 import type { Fixture } from "./daemon-runtime-fixtures.js";
+import { makeHistoryExport } from "../delivery/history-export.js";
 import { INBOX_PENDING_EVENT } from "../endpoint/mcp/names.js";
 import {
   type HarnessMcpEventHandler,
@@ -40,9 +41,9 @@ import {
 } from "../transport/messaging/index.js";
 import {
   type RouterWorker,
-  type RouterWorkerInput,
   RouterWorkerPersistenceError,
 } from "../transport/router/index.js";
+import { unusedEndpointStore } from "./unused-endpoint-store.js";
 
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- The focused tests drive the official Promise-native MCP stream boundary. */
 
@@ -55,6 +56,15 @@ export function requireHandler(
     throw new Error("missing composed MCP handler");
   }
   return handler;
+}
+
+/** The event store the daemon gave its MCP handler; throws before installation. */
+export function requireEventStore(harness: RuntimeHarness): EventStore {
+  const eventStore = harness.getEventStore();
+  if (eventStore === undefined) {
+    throw new Error("missing composed event store");
+  }
+  return eventStore;
 }
 
 /** The MCP operations the daemon installed; throws before installation. */
@@ -78,6 +88,12 @@ export const EXPECTED_LISTENER_FAILURE = new DaemonRuntimeError({
   phase: "listener",
 });
 
+/**
+ * The fake engine's one pending delivery and what happened to it. The fake
+ * store's inbox acknowledgment also marks it acknowledged here, as production
+ * `retireItem` retires the item's pending delivery in the same transaction, so
+ * both fakes append to one `acknowledgedTokens`.
+ */
 interface DeliveryState {
   readonly pending: EnginePendingMessage;
   readonly acknowledgedTokens: Array<typeof DeliveryToken.Type>;
@@ -85,7 +101,6 @@ interface DeliveryState {
   acknowledged: boolean;
   readBarrier?: ReadBarrier;
   failReads?: boolean;
-  reads: number;
 }
 
 /** Holds the harness engine's next pending read until released. */
@@ -102,13 +117,10 @@ interface HarnessSignals {
 }
 
 interface HarnessObservations {
-  readonly events: string[];
   handler?: HarnessMcpEventHandler;
   eventStore?: EventStore;
-  readonly records: HistoryExportRecord[];
   operations?: HarnessMcpOperations;
   historyExportPath?: string;
-  workerOutbox?: RouterWorkerInput<unknown>["outbox"];
 }
 
 interface RuntimeDependenciesInput {
@@ -125,23 +137,15 @@ export interface RuntimeHarness {
   readonly delivery: DeliveryState;
   readonly engineEntered: Deferred.Deferred<undefined>;
   readonly engineRelease: Deferred.Deferred<undefined>;
-  readonly events: string[];
   readonly failure: Deferred.Deferred<undefined>;
   readonly listenerReady: Deferred.Deferred<undefined>;
-  readonly records: HistoryExportRecord[];
   readonly getEventStore: () => EventStore | undefined;
   readonly getHandler: () => HarnessMcpEventHandler | undefined;
   readonly getOperations: () => HarnessMcpOperations | undefined;
-  readonly getWorkerOutbox: () =>
-    | RouterWorkerInput<unknown>["outbox"]
-    | undefined;
   readonly getHistoryExportPath: () => string | undefined;
 }
 
 type BackgroundFailure = "none" | "outbound" | "worker";
-
-/** The history export path the harness configures. */
-export const EXPORT_PATH = "/var/run/moltzap/history.ndjson";
 
 const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
   left.length === right.length &&
@@ -162,50 +166,6 @@ const emptyRecovery = (identity?: IdentityBinding): EndpointRecovery => ({
   disseminationObligations: [],
   outboundMessages: [],
 });
-
-const inactiveStoreOperations: Omit<
-  EndpointStore,
-  "readIdentity" | "bindIdentity" | "recover"
-> = {
-  readInboxItem: () => Effect.succeed(undefined),
-  completeWebhookDelivery: () => Effect.void,
-  putInboxItem: () => outsideRuntimeTest(),
-  readInbox: () => outsideRuntimeTest(),
-  readInboxSummary: () => outsideRuntimeTest(),
-  acknowledgeInboxItem: () => outsideRuntimeTest(),
-  replaceInboxItem: () => outsideRuntimeTest(),
-  beginSendAttempt: () => outsideRuntimeTest(),
-  finishSendAttempt: () => outsideRuntimeTest(),
-  readSendAttempt: () => outsideRuntimeTest(),
-  readEventState: () => outsideRuntimeTest(),
-  writeEventState: () => outsideRuntimeTest(),
-  bindPostIntent: () => outsideRuntimeTest(),
-  putConversationFoundation: () => outsideRuntimeTest(),
-  lockProposal: () => outsideRuntimeTest(),
-  lockGenesisProposal: () => outsideRuntimeTest(),
-  stageRecord: () => outsideRuntimeTest(),
-  stageRecordForDissemination: () => outsideRuntimeTest(),
-  mergeEvidence: () => outsideRuntimeTest(),
-  promoteRecord: () => outsideRuntimeTest(),
-  promoteRecordForDissemination: () => outsideRuntimeTest(),
-  applyCatchUpRecord: () => outsideRuntimeTest(),
-  stageReanchor: () => outsideRuntimeTest(),
-  completeReanchor: () => outsideRuntimeTest(),
-  applyCatchUpReanchor: () => outsideRuntimeTest(),
-  readPendingDeliveries: () => outsideRuntimeTest(),
-  readLegacyPendingDeliveries: () => outsideRuntimeTest(),
-  acknowledgeDelivery: () => outsideRuntimeTest(),
-  enqueueOutbound: () => outsideRuntimeTest(),
-  enqueueDisseminationOutbound: () => outsideRuntimeTest(),
-  beginOutbound: () => outsideRuntimeTest(),
-  replaceOutbound: () => outsideRuntimeTest(),
-  completeOutbound: () => outsideRuntimeTest(),
-  discardOutbound: () => outsideRuntimeTest(),
-  restartEmptyConversation: () => outsideRuntimeTest(),
-  searchConversations: () => outsideRuntimeTest(),
-  readConversation: () => outsideRuntimeTest(),
-  releaseContinuation: () => outsideRuntimeTest(),
-};
 
 const makeInboxStore = (onAcknowledge: (token: DeliveryToken) => void) => {
   const inbox = new Map<DeliveryToken, Uint8Array>();
@@ -268,7 +228,9 @@ export function makeStore(
       }
     : undefined;
   return {
-    ...inactiveStoreOperations,
+    ...unusedEndpointStore("daemon runtime test"),
+    readInboxItem: () => Effect.succeed(undefined),
+    completeWebhookDelivery: () => Effect.void,
     ...makeInboxStore(onAcknowledge),
     readPendingDeliveries: () => Effect.succeed([]),
     readLegacyPendingDeliveries: () => Effect.succeed([]),
@@ -323,16 +285,21 @@ const closeHandler = (handler: HarnessMcpEventHandler) =>
     catch: () => new Error("failed to close test MCP handler"),
   }).pipe(Effect.ignore);
 
-const recordingExport = (observations: HarnessObservations, path: string) =>
+/**
+ * The production history export, opened at the configured path. The harness
+ * notes the path so a test can tell whether the daemon opened an export.
+ */
+const observedHistoryExport = (
+  observations: HarnessObservations,
+  path: string,
+) =>
   Effect.sync(() => {
     observations.historyExportPath = path;
-    return {
-      record: (record: HistoryExportRecord) =>
-        Effect.sync(() => {
-          observations.records.push(record);
-        }),
-    };
-  });
+  }).pipe(
+    Effect.zipRight(
+      makeHistoryExport(path).pipe(Effect.provide(NodeFileSystem.layer)),
+    ),
+  );
 
 function makeRuntimeDependencies(
   input: RuntimeDependenciesInput,
@@ -340,15 +307,9 @@ function makeRuntimeDependencies(
   const worker = makeWorker(input.background, input.signals);
   const engine = makeEngine(input.background, input.signals, input.delivery);
   return {
-    makeWorker: (workerInput) =>
-      Effect.sync(() => {
-        input.observations.events.push("worker");
-        input.observations.workerOutbox = workerInput.outbox;
-        return worker;
-      }),
+    makeWorker: () => Effect.succeed(worker),
     makeEngine: () =>
       Effect.gen(function* () {
-        input.observations.events.push("engine");
         yield* Deferred.succeed(input.signals.engineEntered, undefined);
         if (input.blockEngine) {
           yield* Deferred.await(input.signals.engineRelease);
@@ -357,14 +318,12 @@ function makeRuntimeDependencies(
       }),
     makeHandler: (options) =>
       Effect.sync(() => {
-        input.observations.events.push("handler");
         input.observations.operations = options.operations;
         input.observations.eventStore = options.eventStore;
       }).pipe(Effect.zipRight(makeHarnessMcpHttpHandler(options))),
     acquireListener: ({ handler }) =>
       Effect.acquireRelease(
         Effect.sync(() => {
-          input.observations.events.push("listener");
           input.observations.handler = handler;
         }).pipe(
           Effect.zipRight(
@@ -373,7 +332,8 @@ function makeRuntimeDependencies(
         ),
         () => closeHandler(handler),
       ).pipe(Effect.asVoid),
-    makeHistoryExport: (path) => recordingExport(input.observations, path),
+    makeHistoryExport: (path) =>
+      observedHistoryExport(input.observations, path),
   };
 }
 
@@ -405,7 +365,6 @@ const readPending = (delivery: DeliveryState) =>
         new ListenError({ reason: "transport-failed" }),
       );
     }
-    delivery.reads += 1;
     const messages = delivery.acknowledged ? [] : [delivery.pending];
     const barrier = delivery.readBarrier;
     delivery.readBarrier = undefined;
@@ -462,13 +421,12 @@ export const makeHarness = (
 ): Effect.Effect<RuntimeHarness> =>
   Effect.gen(function* () {
     const signals = yield* makeHarnessSignals;
-    const observations: HarnessObservations = { events: [], records: [] };
+    const observations: HarnessObservations = {};
     const delivery: DeliveryState = {
       pending: fixture.pending,
       acknowledged: false,
       acknowledgedTokens: [],
       events: [],
-      reads: 0,
     };
     const dependencies = makeRuntimeDependencies({
       background,
@@ -481,12 +439,9 @@ export const makeHarness = (
       dependencies,
       delivery,
       ...signals,
-      events: observations.events,
-      records: observations.records,
       getEventStore: () => observations.eventStore,
       getHandler: () => observations.handler,
       getOperations: () => observations.operations,
-      getWorkerOutbox: () => observations.workerOutbox,
       getHistoryExportPath: () => observations.historyExportPath,
     };
   }).pipe(Effect.withSpan("makeHarness"));

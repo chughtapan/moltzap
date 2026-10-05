@@ -2,16 +2,16 @@
 
 import { Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import type { InboundMessage } from "../../transport/messaging/message.js";
+import type { InboundMessage } from "../transport/messaging/message.js";
+import { DeliveryToken } from "../store/index.js";
+import { CollectiveId, SendInput } from "../transport/collectives/forms.js";
+import { Content, PostId } from "../transport/wire/index.js";
+import { AgentAddress, GroupAddress } from "../transport/wire/values.js";
 import {
   decodeHarnessAcknowledgeDeliveryRequest,
   decodeHarnessMessageReadyEvent,
   decodeHarnessSendErrorData,
-} from "../../delivery/operations.js";
-import { DeliveryToken } from "../../store/index.js";
-import { CollectiveId, SendInput } from "../../transport/collectives/forms.js";
-import { Content, PostId } from "../../transport/wire/index.js";
-import { AgentAddress, GroupAddress } from "../../transport/wire/values.js";
+} from "./operations.js";
 
 const exact = { exact: true, onExcessProperty: "error" } as const;
 const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
@@ -52,6 +52,7 @@ function decodesExactOperationRequests(): void {
         decodeHarnessAcknowledgeDeliveryRequest({ deliveryToken, content }),
       ),
     ),
+    "acknowledgment carrying content",
   ).toBe(true);
 }
 
@@ -79,21 +80,7 @@ function decodesCanonicalDirectDelivery(): void {
         }),
       ),
     ),
-  ).toBe(true);
-}
-
-function decodesUnreachableMembersBySendReason(): void {
-  for (const reason of ["unknown-agent", "network-unavailable"]) {
-    expect(
-      Effect.runSync(decodeHarnessSendErrorData(unreachableFailure(reason))),
-    ).toEqual(unreachableFailure(reason));
-  }
-  expect(
-    Exit.isFailure(
-      Effect.runSyncExit(
-        decodeHarnessSendErrorData(unreachableFailure("transport-failed")),
-      ),
-    ),
+    "delivery carrying a reply grant",
   ).toBe(true);
 }
 
@@ -123,6 +110,7 @@ function rejectsAnUntaggedMessage(): void {
         decodeHarnessMessageReadyEvent({ deliveryToken, message }),
       ),
     ),
+    "delivery carrying a bare message",
   ).toBe(true);
 }
 
@@ -142,16 +130,20 @@ function decodesCanonicalGroupDelivery(): void {
   ).toEqual({ deliveryToken, item });
 }
 
-function rejectsInconsistentDeliveryIdentity(): void {
-  const invalidMessages = [
-    {
+const inconsistentDeliveries = [
+  {
+    case: "a direct address that is not the sender",
+    message: {
       kind: "direct",
       postId,
       address: peerAddress,
       sender: senderAddress,
       content,
     },
-    {
+  },
+  {
+    case: "group members out of canonical order",
+    message: {
       kind: "group",
       postId,
       address: groupAddress,
@@ -159,7 +151,10 @@ function rejectsInconsistentDeliveryIdentity(): void {
       members: [peerAddress, senderAddress, thirdAddress],
       content,
     },
-    {
+  },
+  {
+    case: "a repeated group member",
+    message: {
       kind: "group",
       postId,
       address: groupAddress,
@@ -167,7 +162,10 @@ function rejectsInconsistentDeliveryIdentity(): void {
       members: [senderAddress, peerAddress, peerAddress],
       content,
     },
-    {
+  },
+  {
+    case: "a sender outside the group",
+    message: {
       kind: "group",
       postId,
       address: groupAddress,
@@ -175,21 +173,8 @@ function rejectsInconsistentDeliveryIdentity(): void {
       members: [senderAddress, peerAddress, thirdAddress],
       content,
     },
-  ];
-
-  for (const message of invalidMessages) {
-    expect(
-      Exit.isFailure(
-        Effect.runSyncExit(
-          decodeHarnessMessageReadyEvent({
-            deliveryToken,
-            item: { kind: "multicast", message },
-          }),
-        ),
-      ),
-    ).toBe(true);
-  }
-}
+  },
+];
 
 // @agent-code-guard/regression-only: these examples pin the exact public wire grammar and its relational identity checks.
 describe("Harness MCP operation representation", () => {
@@ -205,12 +190,38 @@ describe("Harness MCP operation representation", () => {
   it("decodes one canonical group multicast delivery", () => {
     decodesCanonicalGroupDelivery();
   });
-  it("rejects deliveries whose address, members, and sender disagree", () => {
-    rejectsInconsistentDeliveryIdentity();
-  });
+  it.each(inconsistentDeliveries)(
+    "rejects a delivery with $case",
+    ({ message }) => {
+      expect(
+        Exit.isFailure(
+          Effect.runSyncExit(
+            decodeHarnessMessageReadyEvent({
+              deliveryToken,
+              item: { kind: "multicast", message },
+            }),
+          ),
+        ),
+      ).toBe(true);
+    },
+  );
   // A refused collective names each unreachable member with a send failure
   // reason; a reason outside that vocabulary must not decode.
-  it("decodes unreachable members only with a send failure reason", () => {
-    decodesUnreachableMembersBySendReason();
+  it.each(["unknown-agent", "network-unavailable"])(
+    "decodes an unreachable member with send failure reason %s",
+    (reason) => {
+      expect(
+        Effect.runSync(decodeHarnessSendErrorData(unreachableFailure(reason))),
+      ).toEqual(unreachableFailure(reason));
+    },
+  );
+  it("rejects an unreachable member whose reason is not a send failure", () => {
+    expect(
+      Exit.isFailure(
+        Effect.runSyncExit(
+          decodeHarnessSendErrorData(unreachableFailure("transport-failed")),
+        ),
+      ),
+    ).toBe(true);
   });
 });

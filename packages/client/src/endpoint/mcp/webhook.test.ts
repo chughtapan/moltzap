@@ -15,11 +15,9 @@ import {
   TestContext,
 } from "effect";
 import { createHmac } from "node:crypto";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests reopen a real SQLite directory across scoped runtime instances.
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import { digest } from "../../__tests__/agent-card-fixtures.js";
+import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
 import { readRuntimeEvent } from "../../delivery/inbox.js";
 import { eventIdOf } from "../../delivery/operations.js";
 import {
@@ -94,25 +92,12 @@ const callbackResponse = (
     ),
   );
 
-const directories: string[] = [];
-const directory = () => {
-  const path = mkdtempSync(join(tmpdir(), "moltzap-webhook-"));
-  directories.push(path);
-  return path;
-};
-afterEach(() => {
-  for (const path of directories.splice(0)) {
-    rmSync(path, { recursive: true, force: true });
-  }
-});
 const token = (byte: number) =>
-  Schema.decodeUnknownSync(DeliveryToken)(
-    `dlv_${Buffer.alloc(32, byte).toString("base64url")}`,
-  );
+  Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", byte));
 const item = (text = "failed request") =>
   Schema.decodeUnknownSync(InboundItem)({
     kind: "operationFailed",
-    id: `col_${Buffer.alloc(32, 1).toString("base64url")}`,
+    id: digest("col_", 1),
     to: "agent:bob",
     error: text,
   });
@@ -167,7 +152,7 @@ const signsVerifiesAndRotates = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const store = yield* openEndpointStore(directory());
+        const store = yield* openEndpointStore(stateDirectory());
         const test = fixture(store);
         const events = yield* test.acquire;
         const grant = yield* events.subscribe(input, "runtime");
@@ -218,7 +203,7 @@ const retainsTerminalRejections = () =>
     Effect.scoped(
       Effect.gen(function* () {
         for (const status of [410, 413]) {
-          const store = yield* openEndpointStore(directory());
+          const store = yield* openEndpointStore(stateDirectory());
           const test = fixture(store);
           const events = yield* test.acquire;
           yield* enqueue(store, 1);
@@ -248,7 +233,7 @@ const verifiesRotatedSecret = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const store = yield* openEndpointStore(directory());
+        const store = yield* openEndpointStore(stateDirectory());
         const test = fixture(store);
         const events = yield* test.acquire;
         const grant = yield* events.subscribe(input, "runtime");
@@ -277,7 +262,7 @@ const permitsReadAndRevokeDuringDelivery = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const store = yield* openEndpointStore(directory());
+        const store = yield* openEndpointStore(stateDirectory());
         const test = fixture(store);
         const events = yield* test.acquire;
         yield* enqueue(store, 1);
@@ -309,7 +294,7 @@ const refreshPreservesTerminalReceipt = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const store = yield* openEndpointStore(directory());
+        const store = yield* openEndpointStore(stateDirectory());
         const test = fixture(store);
         const events = yield* test.acquire;
         yield* enqueue(store, 1);
@@ -336,7 +321,7 @@ const refreshPreservesTerminalReceipt = () =>
   );
 
 const retriesAcrossRestart = () => {
-  const path = directory();
+  const path = stateDirectory();
   let original: string | undefined;
   return Effect.runPromise(
     Effect.gen(function* () {
@@ -386,7 +371,7 @@ const resumesExhaustedCallbacks = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const store = yield* openEndpointStore(directory());
+        const store = yield* openEndpointStore(stateDirectory());
         const test = fixture(store);
         const events = yield* test.acquire;
         yield* enqueue(store, 1);
@@ -419,7 +404,7 @@ const boundsPayloadAndDrains = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const store = yield* openEndpointStore(directory());
+        const store = yield* openEndpointStore(stateDirectory());
         const test = fixture(store);
         const events = yield* test.acquire;
         const large = "世界".repeat(100_000);
@@ -454,7 +439,7 @@ const removesRetiredOccurrence = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const store = yield* openEndpointStore(directory());
+        const store = yield* openEndpointStore(stateDirectory());
         const test = fixture(store);
         const events = yield* test.acquire;
         yield* enqueue(store, 1);
@@ -520,7 +505,7 @@ const rejectsUnsafeCallbacks = () =>
         url: "https://localhost/private",
       }).pipe(Effect.provide(webhookHttpClientLayer), Effect.flip);
       expect(dnsBlocked.reason).toBe("connection_refused");
-      const test = fixture(yield* openEndpointStore(directory()));
+      const test = fixture(yield* openEndpointStore(stateDirectory()));
       test.status(302);
       const events = yield* test.acquire;
       expect(

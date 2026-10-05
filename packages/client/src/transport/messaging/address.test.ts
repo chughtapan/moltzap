@@ -1,26 +1,14 @@
 /** @file Address resolution against verified immutable Registry cards. */
 
+import type { VerifiedAgentCard } from "@moltzap/identity";
 import type { RegistryLookupResult } from "@moltzap/identity/registry";
-import {
-  AgentCard,
-  AgentId,
-  AgentName,
-  AgentSigningAuthority,
-  type AgentSigningAuthority as AgentSigningAuthorityValue,
-  Ed25519PublicKey,
-  MOLTZAP_VERSION,
-  PrincipalId,
-  type VerifiedAgentCard,
-} from "@moltzap/identity";
-import canonicalize from "canonicalize";
-import { Effect, Encoding, Redacted, Schema } from "effect";
-import {
-  createHash,
-  generateKeyPairSync,
-  type KeyObject,
-  sign as signBytes,
-} from "node:crypto";
+import { Effect, Schema } from "effect";
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import {
+  issueTestCard,
+  makeTestAuthority,
+} from "../../__tests__/agent-card-fixtures.js";
 import { maximumMembers, MessageAddressInput } from "../wire/values.js";
 import {
   type AddressRegistryPort,
@@ -37,91 +25,26 @@ interface AddressFixture {
   readonly registry: AddressRegistryPort;
 }
 
-const identifier = (prefix: string, byte: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`;
-
-const makeAuthority = () => {
-  const { privateKey } = generateKeyPairSync("ed25519");
-  return AgentSigningAuthority.fromPkcs8(
-    Redacted.make(privateKey.export({ format: "pem", type: "pkcs8" })),
-  );
-};
-
-const issueCard = (input: {
-  readonly byte: number;
-  readonly name: string;
-  readonly authority: AgentSigningAuthorityValue;
-  readonly registryPrivateKey: KeyObject;
-  readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
-}): Effect.Effect<VerifiedAgentCard> =>
-  Effect.gen(function* () {
-    const thumbprint = createHash("sha256")
-      .update(canonicalize(input.registrySignerPublicKey) ?? "")
-      .digest("base64url");
-    const protectedText = canonicalize({
-      alg: "Ed25519",
-      kid: `urn:ietf:params:oauth:jwk-thumbprint:sha-256:${thumbprint}`,
-      typ: "application/vnd.moltzap.agent-card+jws",
-    });
-    const payloadText = canonicalize({
-      agentId: Schema.decodeUnknownSync(AgentId)(
-        identifier("agt_", input.byte),
-      ),
-      agentName: Schema.decodeUnknownSync(AgentName)(input.name),
-      issuedAt: "2026-08-27T12:00:00Z",
-      kind: "agentCard",
-      moltzapVersion: MOLTZAP_VERSION,
-      principalId: Schema.decodeUnknownSync(PrincipalId)(
-        identifier("prn_", input.byte),
-      ),
-      publicKey: AgentSigningAuthority.publicKey(input.authority),
-    });
-    if (protectedText === undefined || payloadText === undefined) {
-      return yield* Effect.dieMessage("canonical card fixture failed");
-    }
-    const protectedValue = Buffer.from(protectedText).toString("base64url");
-    const payload = Buffer.from(payloadText).toString("base64url");
-    const signature = signBytes(
-      null,
-      Buffer.from(`${protectedValue}.${payload}`),
-      input.registryPrivateKey,
-    ).toString("base64url");
-    const card = yield* Schema.decodeUnknown(AgentCard)({
-      payload,
-      signatures: [{ protected: protectedValue, signature }],
-    });
-    return yield* AgentCard.verify({
-      agentCard: card,
-      registrySignerPublicKey: input.registrySignerPublicKey,
-    });
-  }).pipe(Effect.orDie);
-
 const makeFixture = Effect.gen(function* () {
   const registryKeys = generateKeyPairSync("ed25519");
-  const registrySignerPublicKey = yield* Schema.decodeUnknown(Ed25519PublicKey)(
-    registryKeys.publicKey.export({ format: "jwk" }),
-  );
-  const authority = yield* makeAuthority();
-  const local = yield* issueCard({
+  const authority = yield* makeTestAuthority();
+  const local = yield* issueTestCard({
     byte: 1,
     name: "agent-1",
     authority,
-    registryPrivateKey: registryKeys.privateKey,
-    registrySignerPublicKey,
+    registryKeys,
   });
-  const second = yield* issueCard({
+  const second = yield* issueTestCard({
     byte: 10,
     name: "agent-10",
     authority,
-    registryPrivateKey: registryKeys.privateKey,
-    registrySignerPublicKey,
+    registryKeys,
   });
-  const third = yield* issueCard({
+  const third = yield* issueTestCard({
     byte: 2,
     name: "agent-2",
     authority,
-    registryPrivateKey: registryKeys.privateKey,
-    registrySignerPublicKey,
+    registryKeys,
   });
   const cards = [local, second, third] as const;
   const lookup = (

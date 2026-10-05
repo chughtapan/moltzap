@@ -2,6 +2,7 @@
 
 import { Either, Encoding, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { digest } from "./__tests__/agent-card-fixtures.js";
 import {
   AgentAddress,
   Content,
@@ -53,43 +54,42 @@ describe("public address schemas", () => {
     );
   });
 
-  it("rejects noncanonical, 2-member, and 33-member group outputs", () => {
-    expect(
-      decodingFails(GroupAddress, "group:carol-agent,alice-agent,bob-agent"),
-    ).toBe(true);
-    expect(decodingFails(GroupAddress, "group:alice-agent,bob-agent")).toBe(
-      true,
-    );
-    expect(decodingFails(GroupAddress, canonicalGroup33)).toBe(true);
+  it.each([
+    {
+      case: "noncanonical member order",
+      address: "group:carol-agent,alice-agent,bob-agent",
+    },
+    { case: "2 members", address: "group:alice-agent,bob-agent" },
+    { case: "33 members", address: canonicalGroup33 },
+  ])("rejects a group output with $case", ({ address }) => {
+    expect(decodingFails(GroupAddress, address)).toBe(true);
   });
 });
+
+const postHash = (byteLength: number) =>
+  Encoding.encodeBase64Url(new Uint8Array(byteLength).fill(7));
 
 // @agent-code-guard/regression-only: Identifier schemas pin the closed durable send grammar.
 describe("public post identifiers", () => {
   it("accepts the exact post identifier grammar", () => {
-    const postId = `pst_${Encoding.encodeBase64Url(
-      new Uint8Array(32).fill(7),
-    )}`;
+    const postId = digest("pst_", 7);
 
     expect(Schema.decodeUnknownSync(PostId)(postId)).toBe(postId);
   });
 
   // A PostId is `pst_` plus the canonical base64url of exactly 32 bytes, so
   // each case breaks one of the prefix, the length, or the round trip.
-  it("rejects post identifiers that are not canonical 32-byte hashes", () => {
-    const hash = (byteLength: number) =>
-      Encoding.encodeBase64Url(new Uint8Array(byteLength).fill(7));
-    const canonical = hash(32);
-
-    for (const candidate of [
-      `cnv_${canonical}`,
-      `pst_${hash(31)}`,
-      `pst_${hash(33)}`,
-      `pst_${canonical.slice(0, -1)}d`,
-      `pst_${canonical}=`,
-    ]) {
-      expect(decodingFails(PostId, candidate)).toBe(true);
-    }
+  it.each([
+    { case: "another prefix", candidate: `cnv_${postHash(32)}` },
+    { case: "31 bytes", candidate: `pst_${postHash(31)}` },
+    { case: "33 bytes", candidate: `pst_${postHash(33)}` },
+    {
+      case: "a noncanonical final character",
+      candidate: `pst_${postHash(32).slice(0, -1)}d`,
+    },
+    { case: "padding", candidate: `pst_${postHash(32)}=` },
+  ])("rejects a post identifier with $case", ({ candidate }) => {
+    expect(decodingFails(PostId, candidate)).toBe(true);
   });
 });
 
@@ -111,20 +111,17 @@ describe("public content", () => {
     expect(Schema.decodeUnknownSync(Content)(content)).toEqual(content);
   });
 
-  it("rejects empty, non-JSON, ill-formed, oversized, and open content", () => {
-    expect(decodingFails(Content, [])).toBe(true);
-    expect(decodingFails(Content, [{ type: "data", value: Number.NaN }])).toBe(
-      true,
-    );
-    expect(decodingFails(Content, [{ type: "text", text: "\ud800" }])).toBe(
-      true,
-    );
-    expect(
-      decodingFails(Content, [{ type: "text", text: "a".repeat(32_742) }]),
-    ).toBe(true);
-    expect(
-      decodingFails(Content, [{ type: "text", text: "hello", extra: true }]),
-    ).toBe(true);
+  it.each([
+    { case: "empty", content: [] },
+    { case: "non-JSON", content: [{ type: "data", value: Number.NaN }] },
+    { case: "ill-formed", content: [{ type: "text", text: "\ud800" }] },
+    {
+      case: "oversized",
+      content: [{ type: "text", text: "a".repeat(32_742) }],
+    },
+    { case: "open", content: [{ type: "text", text: "hello", extra: true }] },
+  ])("rejects $case content", ({ content }) => {
+    expect(decodingFails(Content, content)).toBe(true);
   });
 });
 
@@ -162,23 +159,32 @@ describe("public send input", () => {
     ).toBe(true);
   });
 
-  it("rejects fields outside the operation shape", () => {
-    const input = { to: "agent:bob-agent", text: "Hello" };
-
-    expect(decodingFails(SendInput, { ...input, inherited: true })).toBe(true);
-    expect(
-      decodingFails(SendInput, { ...input, idempotencyKey: "outbox-43" }),
-    ).toBe(true);
-    expect(
-      decodingFails(SendInput, {
+  it.each([
+    {
+      case: "an inherited field",
+      input: { to: "agent:bob-agent", text: "Hello", inherited: true },
+    },
+    {
+      case: "an idempotency key",
+      input: {
+        to: "agent:bob-agent",
+        text: "Hello",
+        idempotencyKey: "outbox-43",
+      },
+    },
+    {
+      case: "content in place of text",
+      input: {
         to: "agent:bob-agent",
         content: [{ type: "text", text: "Hello" }],
-      }),
-    ).toBe(true);
+      },
+    },
+  ])("rejects an operation with $case", ({ input }) => {
+    expect(decodingFails(SendInput, input)).toBe(true);
   });
 });
 
-const collectiveId = `col_${Encoding.encodeBase64Url(new Uint8Array(32).fill(3))}`;
+const collectiveId = digest("col_", 3);
 const slotSchema = {
   type: "object",
   properties: { slot: { type: "string", enum: ["mon", "tue"] } },
@@ -211,16 +217,18 @@ describe("public gather input", () => {
     expect(Schema.decodeUnknownSync(SendInput)(input)).toEqual(input);
   });
 
-  it("rejects a gather deadline that is not a whole number of seconds up to 30 days", () => {
-    const gather = (deadline: number) => ({
-      to: "agent:bob-agent",
-      text: "Which day?",
-      collective: { op: "gather", deadline, requestedSchema: slotSchema },
-    });
-
-    expect(decodingFails(SendInput, gather(0))).toBe(true);
-    expect(decodingFails(SendInput, gather(1.5))).toBe(true);
-    expect(decodingFails(SendInput, gather(2_592_001))).toBe(true);
+  it.each([
+    { case: "zero", deadline: 0 },
+    { case: "fractional", deadline: 1.5 },
+    { case: "beyond 30 days", deadline: 2_592_001 },
+  ])("rejects a $case gather deadline", ({ deadline }) => {
+    expect(
+      decodingFails(SendInput, {
+        to: "agent:bob-agent",
+        text: "Which day?",
+        collective: { op: "gather", deadline, requestedSchema: slotSchema },
+      }),
+    ).toBe(true);
   });
 
   it("rejects a gather without a requested schema", () => {

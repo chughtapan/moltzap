@@ -4,24 +4,23 @@
  * services out of the package boundary.
  */
 
-import type { Layer } from "effect";
+import type { Layer, Types } from "effect";
 import type { MoltZapService } from "./index.js";
 
-type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 
 type NamespaceIsExact = Expect<
-  Equal<keyof typeof MoltZapService, "StartupError" | "layer">
+  Types.Equals<keyof typeof MoltZapService, "StartupError" | "layer">
 >;
 type StartupValue = InstanceType<typeof MoltZapService.StartupError>;
 type StartupTagIsExact = Expect<
-  Equal<StartupValue["_tag"], "MoltZapServiceStartupError">
+  Types.Equals<StartupValue["_tag"], "MoltZapServiceStartupError">
 >;
 type StartupPhaseIsExact = Expect<
-  Equal<StartupValue["phase"], "configuration" | "storage" | "listener">
+  Types.Equals<StartupValue["phase"], "configuration" | "storage" | "listener">
 >;
 type LayerIsExact = Expect<
-  Equal<
+  Types.Equals<
     typeof MoltZapService.layer,
     Layer.Layer<never, MoltZapService.StartupError>
   >

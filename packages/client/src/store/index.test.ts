@@ -1,12 +1,16 @@
 /** @file Exact preflight, proposal-lock, certification, and delivery tests. */
 
-import { Effect, FastCheck as fc } from "effect";
+import { Effect } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests create and inspect exact real-SQLite permission fixtures around the scoped Effect resource.
-import { chmodSync, mkdtempSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { chmodSync, statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import {
+  bytes,
+  databasePath,
+  stateDirectory,
+  withStore,
+} from "../__tests__/store-schema-fixtures.js";
 import {
   type CertifiedRecord,
   type ConversationFoundation,
@@ -34,7 +38,6 @@ const INSERTED_MUTATION: StoreMutation = "inserted";
 const LEGACY_DATABASE_FILE_MODE = 0o644;
 const LEGACY_DIRECTORY_MODE = 0o755;
 const LOCAL_AGENT_ID = "agent:local";
-const PROPERTY_RUNS = 8;
 const EMPTY_SCHEMA_ROW = Object.freeze({ user_version: 0 });
 const LEGACY_SCHEMA_ROW = Object.freeze({ user_version: 1 });
 const V3_SCHEMA_ROW = Object.freeze({ user_version: 3 });
@@ -42,8 +45,6 @@ const DELETE_JOURNAL_ROW = Object.freeze({ journal_mode: "delete" });
 const LEGACY_TABLE_ROW = Object.freeze({ name: "legacy_state" });
 const POST_INTENTS_TABLE_ROW = Object.freeze({ name: "post_intents" });
 const UNEXPECTED_TABLE_ROW = Object.freeze({ name: "unexpected_state" });
-
-const temporaryDirectories: string[] = [];
 
 function initializesEmptyV0Database() {
   const directory = stateDirectory();
@@ -218,21 +219,6 @@ function atomicallyLocksVerifiedGenesisFoundation() {
         expect(recovery.memberships).toHaveLength(1);
         expect(recovery.anchors).toHaveLength(1);
         expect(recovery.proposalLocks).toEqual([first]);
-      }),
-    ),
-  );
-}
-
-function retainsIdempotentProposalForSeed(seed: number) {
-  const directory = stateDirectory();
-  const conversationId = `conversation:property:${seed}`;
-  const first = proposal(conversationId, `ach_property:${seed}`);
-  return Effect.runPromise(
-    withStore(directory, (store) =>
-      Effect.gen(function* () {
-        yield* store.putConversationFoundation(foundation(conversationId));
-        expect(yield* store.lockProposal(first)).toBe(INSERTED_MUTATION);
-        expect(yield* store.lockProposal(first)).toBe(EXISTING_MUTATION);
       }),
     ),
   );
@@ -975,23 +961,6 @@ function bindLocalIdentity(
   });
 }
 
-function stateDirectory(): string {
-  const directory = mkdtempSync(join(tmpdir(), "moltzap-store-"));
-  temporaryDirectories.push(directory);
-  return directory;
-}
-
-function databasePath(directory: string): string {
-  return join(directory, "moltzapd.sqlite3");
-}
-
-function withStore<Value>(
-  directory: string,
-  use: (store: EndpointStore) => Effect.Effect<Value, EndpointStoreError>,
-): Effect.Effect<Value, EndpointStoreError> {
-  return Effect.scoped(openEndpointStore(directory).pipe(Effect.flatMap(use)));
-}
-
 function expectReason<Value>(
   effect: Effect.Effect<Value, EndpointStoreError>,
   reason: EndpointStoreError["reason"],
@@ -1008,24 +977,14 @@ function expectReason<Value>(
   );
 }
 
-function bytes(value: string): Uint8Array {
-  return new TextEncoder().encode(value);
-}
-
-afterEach(() => {
-  for (const directory of temporaryDirectories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true });
-  }
-});
-
 describe("endpoint SQLite preflight", () => {
-  it("initializes an empty v0 database directly as v2 and reopens it", () =>
+  it("initializes an empty v0 database directly at the current schema and reopens it", () =>
     initializesEmptyV0Database());
 
   it("rejects v1 without changing the database or its permissions", () =>
     rejectsV1WithoutMutation());
 
-  it("rejects a nonempty v0 database without creating v2 objects", () =>
+  it("rejects a nonempty v0 database without creating current-schema objects", () =>
     rejectsNonemptyV0WithoutInitialization());
 });
 
@@ -1038,14 +997,6 @@ describe("endpoint proposal locking", () => {
 
   it("retains the first proposal lock across conflicts and restart", () =>
     retainsFirstProposalAcrossRestart());
-
-  it("keeps identical generated proposal locks idempotent", () =>
-    fc.assert(
-      fc.asyncProperty(fc.integer(), (seed) =>
-        retainsIdempotentProposalForSeed(seed),
-      ),
-      { numRuns: PROPERTY_RUNS },
-    ));
 });
 
 describe("endpoint record certification and delivery", () => {

@@ -10,6 +10,7 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   Deferred,
+  Duration,
   Effect,
   Fiber,
   Stream,
@@ -17,7 +18,7 @@ import {
   TestContext,
 } from "effect";
 import { describe, expect, it } from "vitest";
-import { acquireHarnessMcpHttpServer } from "../mcp/http.js";
+import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
 import { INBOX_PENDING_EVENT } from "../mcp/names.js";
 import { inboxWakeups } from "./events.js";
 import { acquireHarnessEndpoint } from "./index.js";
@@ -49,7 +50,12 @@ const frames: ReadonlyArray<
   ],
 ];
 
+/**
+ * A server whose `events/stream` handler records each request's params in
+ * `requests`, for the test to assert, and then runs `operation`.
+ */
 const streamServer = (
+  requests: unknown[],
   operation: (context: ServerContext) => Effect.Effect<never, unknown>,
 ) =>
   createMcpHandler(
@@ -63,7 +69,7 @@ const streamServer = (
         "events/stream",
         { params: fromJsonSchema({ type: "object" }) },
         (input, context) => {
-          expect(input).toMatchObject({ name: INBOX_PENDING_EVENT });
+          requests.push(input);
           return Effect.runPromise(operation(context), {
             signal: context.mcpReq.signal,
           });
@@ -74,70 +80,71 @@ const streamServer = (
     { legacy: "reject", responseMode: "auto" },
   );
 
-const endpointFor = (handler: ReturnType<typeof createMcpHandler>) =>
-  acquireHarnessMcpHttpServer({ port: 0, handler }).pipe(
-    Effect.flatMap((server) => {
-      const address = server.address();
-      return address === null || typeof address === "string"
-        ? Effect.dieMessage("Expected TCP listener")
-        : Effect.succeed(new URL(`http://127.0.0.1:${address.port}/mcp`));
-    }),
-  );
+/**
+ * How long a wakeup stream waits for its initial headers before it fails,
+ * mirroring the inline 60-second bound in `events.ts → open`.
+ */
+const INITIAL_HEADERS_BOUND = Duration.seconds(60);
 
 const boundsInitialHeaders = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         const entered = yield* Deferred.make<undefined>();
-        const handler = streamServer(() =>
+        const requests: unknown[] = [];
+        const handler = streamServer(requests, () =>
           Deferred.succeed(entered, undefined).pipe(
             Effect.zipRight(Effect.never),
           ),
         );
-        const endpoint = yield* endpointFor(handler);
+        const endpoint = yield* loopbackMcpEndpoint(handler);
         const reader = yield* inboxWakeups(endpoint).pipe(
           Stream.runDrain,
           Effect.flip,
           Effect.forkScoped,
         );
         yield* Deferred.await(entered);
-        yield* TestClock.adjust("61 seconds");
+        yield* TestClock.adjust(
+          Duration.sum(INITIAL_HEADERS_BOUND, Duration.seconds(1)),
+        );
         expect((yield* Fiber.join(reader)).reason).toBe("transport-failed");
+        expect(requests).toEqual([
+          expect.objectContaining({ name: INBOX_PENDING_EVENT }),
+        ]);
       }),
     ).pipe(Effect.provide(TestContext.TestContext)),
   );
 
-const classifiesCatalogFailures = () =>
+/** A server whose `events/list` handler fails with the protocol error `code`. */
+const failingCatalogServer = (code: number) =>
+  createMcpHandler(
+    () => {
+      const capabilities = { events: {}, logging: {} };
+      const server = new McpServer(
+        { name: "catalog-failure", version: "1" },
+        { capabilities },
+      );
+      server.server.setRequestHandler(
+        "events/list",
+        { params: fromJsonSchema({ type: "object" }) },
+        () => {
+          throw new ProtocolError(code, "Catalog unavailable");
+        },
+      );
+      return server;
+    },
+    { legacy: "reject", responseMode: "auto" },
+  );
+
+const classifiesCatalogFailure = (code: number, reason: string) =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        for (const code of [-32601, -32603]) {
-          const handler = createMcpHandler(
-            () => {
-              const capabilities = { events: {}, logging: {} };
-              const server = new McpServer(
-                { name: "catalog-failure", version: "1" },
-                { capabilities },
-              );
-              server.server.setRequestHandler(
-                "events/list",
-                { params: fromJsonSchema({ type: "object" }) },
-                () => {
-                  throw new ProtocolError(code, "Catalog unavailable");
-                },
-              );
-              return server;
-            },
-            { legacy: "reject", responseMode: "auto" },
-          );
-          const endpoint = yield* endpointFor(handler);
-          const error = yield* acquireHarnessEndpoint(endpoint).pipe(
-            Effect.flip,
-          );
-          expect(error.reason).toBe(
-            code === -32601 ? "incompatible-daemon" : "transport-failed",
-          );
-        }
+        const endpoint = yield* loopbackMcpEndpoint(failingCatalogServer(code));
+
+        const error = yield* acquireHarnessEndpoint(endpoint).pipe(Effect.flip);
+
+        expect(error.reason).toBe(reason);
       }),
     ),
   );
@@ -182,10 +189,11 @@ const continuesAfterRecoverableErrors = () =>
           yield* Deferred.make<undefined>(),
         ];
         let received = 0;
-        const handler = streamServer((context) =>
+        const requests: unknown[] = [];
+        const handler = streamServer(requests, (context) =>
           sendFrames(context, receipts),
         );
-        const endpoint = yield* endpointFor(handler);
+        const endpoint = yield* loopbackMcpEndpoint(handler);
         const failure = yield* inboxWakeups(endpoint).pipe(
           Stream.tap(() => {
             const receipt = receipts[received++];
@@ -198,15 +206,20 @@ const continuesAfterRecoverableErrors = () =>
         );
         expect(failure.reason).toBe("transport-failed");
         expect(received).toBe(2);
+        expect(requests).toEqual([
+          expect.objectContaining({ name: INBOX_PENDING_EVENT }),
+        ]);
       }),
     ),
   );
 
 // @agent-code-guard/regression-only: these real HTTP transcripts pin external framing and bounded startup, without mocking transport methods.
 describe("native MCP Events reception", () => {
-  it(
-    "distinguishes an unsupported catalog from a transient catalog failure",
-    classifiesCatalogFailures,
+  it.each([
+    { failure: "an unsupported", code: -32601, reason: "incompatible-daemon" },
+    { failure: "a transient", code: -32603, reason: "transport-failed" },
+  ])("classifies $failure catalog failure as $reason", ({ code, reason }) =>
+    classifiesCatalogFailure(code, reason),
   );
   it(
     "bounds a connection whose server withholds HTTP headers",

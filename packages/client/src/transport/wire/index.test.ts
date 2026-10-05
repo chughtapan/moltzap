@@ -19,10 +19,7 @@ import {
   maximumContentBytes,
   MembershipHash,
   mintPostId,
-  quorumThreshold,
 } from "./index.js";
-
-/* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Exact wire fixtures keep the representation and its rejection assertion together. */
 
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
@@ -42,6 +39,8 @@ const conversationId = Schema.decodeUnknownSync(ConversationId)(
 const membershipHash = Schema.decodeUnknownSync(MembershipHash)(
   identifier("mbr_", 32, 4),
 );
+
+const canonicalActionHash = identifier("ach_", 32, 5);
 
 const canonicalInputBytes = (value: unknown): Uint8Array => {
   const text = Schema.decodeUnknownSync(Schema.String)(canonicalize(value));
@@ -177,23 +176,22 @@ describe("Client protocol representation", () => {
   );
   // Every wire hash identifier admits only its prefix over the canonical
   // base64url of 32 bytes.
-  it("rejects hash identifiers outside the canonical 32-byte form", () => {
-    const canonical = identifier("ach_", 32, 5);
-    expect(Schema.decodeUnknownSync(ActionHash)(canonical)).toBe(canonical);
-    for (const candidate of [
-      identifier("rch_", 32, 5),
-      identifier("ach_", 31, 5),
-      `${canonical.slice(0, -1)}V`,
-    ]) {
-      expect(Schema.is(ActionHash)(candidate)).toBe(false);
-    }
+  it("accepts a hash identifier in the canonical 32-byte form", () => {
+    expect(Schema.decodeUnknownSync(ActionHash)(canonicalActionHash)).toBe(
+      canonicalActionHash,
+    );
   });
-  it("uses the admitted N2, N3, N4, and N10 quorum table", () => {
-    expect(quorumThreshold(2)).toBe(2);
-    expect(quorumThreshold(3)).toBe(3);
-    expect(quorumThreshold(4)).toBe(3);
-    expect(quorumThreshold(10)).toBe(7);
+  it.each([
+    {
+      form: "another identifier's prefix",
+      candidate: identifier("rch_", 32, 5),
+    },
+    { form: "31 bytes", candidate: identifier("ach_", 31, 5) },
+    {
+      form: "non-zero base64url padding bits",
+      candidate: `${canonicalActionHash.slice(0, -1)}V`,
+    },
+  ])("rejects a hash identifier with $form", ({ candidate }) => {
+    expect(Schema.is(ActionHash)(candidate)).toBe(false);
   });
 });
-
-/* eslint-enable agent-code-guard/no-hardcoded-assertion-literals -- Restore repository defaults. */

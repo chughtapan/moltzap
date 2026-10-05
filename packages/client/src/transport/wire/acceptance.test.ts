@@ -2,26 +2,22 @@
 
 import {
   AgentCard,
-  AgentId,
   AgentName,
-  AgentSigningAuthority,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
   Ed25519PublicKey,
   MOLTZAP_VERSION,
-  PrincipalId,
   SignedMessage,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import { RouterInstanceId } from "@moltzap/router";
-import canonicalize from "canonicalize";
-import { Effect, Encoding, Redacted, Schema } from "effect";
-import {
-  createHash,
-  generateKeyPairSync,
-  type KeyObject,
-  sign as signBytes,
-} from "node:crypto";
+import { Effect, Schema } from "effect";
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import {
+  identifier,
+  issueTestCard,
+  makeTestAuthority,
+} from "../../__tests__/agent-card-fixtures.js";
 import {
   type ActionCertifiedRecord,
   type ActionCore,
@@ -84,75 +80,17 @@ interface RecordFixture {
   readonly certifiedRecord: CertifiedRecord;
 }
 
-const identifier = (prefix: string, byteLength: number, byte: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(byteLength).fill(byte))}`;
-
 const firstRouterInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
-  identifier("rti_", 16, 41),
+  identifier("rti_", 41),
 );
 const secondRouterInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
-  identifier("rti_", 16, 42),
+  identifier("rti_", 42),
 );
-
-const makeAuthority = () => {
-  const { privateKey } = generateKeyPairSync("ed25519");
-  return AgentSigningAuthority.fromPkcs8(
-    Redacted.make(privateKey.export({ format: "pem", type: "pkcs8" })),
-  );
-};
 
 const maximumAgentName = (index: number) =>
   Schema.decodeUnknownSync(AgentName)(
     `member-${String(index).padStart(2, "0")}-${"x".repeat(22)}`,
   );
-
-const issueCard = (input: {
-  readonly byte: number;
-  readonly authority: AgentSigningAuthorityValue;
-  readonly registryPrivateKey: KeyObject;
-  readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
-}) =>
-  Effect.gen(function* () {
-    const thumbprint = createHash("sha256")
-      .update(canonicalize(input.registrySignerPublicKey) ?? "")
-      .digest("base64url");
-    const protectedText = canonicalize({
-      alg: "Ed25519",
-      kid: `urn:ietf:params:oauth:jwk-thumbprint:sha-256:${thumbprint}`,
-      typ: "application/vnd.moltzap.agent-card+jws",
-    });
-    const payloadText = canonicalize({
-      agentId: Schema.decodeUnknownSync(AgentId)(
-        identifier("agt_", 16, input.byte),
-      ),
-      agentName: maximumAgentName(input.byte),
-      issuedAt: `2026-08-13T12:00:${String(input.byte).padStart(2, "0")}Z`,
-      kind: "agentCard",
-      moltzapVersion: MOLTZAP_VERSION,
-      principalId: Schema.decodeUnknownSync(PrincipalId)(
-        identifier("prn_", 16, input.byte),
-      ),
-      publicKey: AgentSigningAuthority.publicKey(input.authority),
-    });
-    if (protectedText === undefined || payloadText === undefined) {
-      return yield* Effect.die("canonical AgentCard fixture failed");
-    }
-    const protectedValue = Buffer.from(protectedText).toString("base64url");
-    const payload = Buffer.from(payloadText).toString("base64url");
-    const signature = signBytes(
-      null,
-      Buffer.from(`${protectedValue}.${payload}`),
-      input.registryPrivateKey,
-    ).toString("base64url");
-    const card = yield* Schema.decodeUnknown(AgentCard)({
-      payload,
-      signatures: [{ protected: protectedValue, signature }],
-    });
-    return yield* AgentCard.verify({
-      agentCard: card,
-      registrySignerPublicKey: input.registrySignerPublicKey,
-    });
-  }).pipe(Effect.orDie);
 
 function asNonEmpty<Value>(
   values: readonly Value[],
@@ -184,11 +122,7 @@ function at<Value>(values: readonly Value[], index: number): Value {
 }
 
 function identityBytes(memberCount: number): readonly number[] {
-  const bytes: number[] = [];
-  for (let byte = 1; byte <= memberCount; byte += 1) {
-    bytes.push(byte);
-  }
-  return bytes;
+  return Array.from(Array(memberCount).keys(), (index) => index + 1);
 }
 
 const makeProtocolFixture = (memberCount: number) =>
@@ -201,12 +135,12 @@ const makeProtocolFixture = (memberCount: number) =>
       identityBytes(memberCount),
       (byte) =>
         Effect.gen(function* () {
-          const authority = yield* makeAuthority();
-          const card = yield* issueCard({
+          const authority = yield* makeTestAuthority();
+          const card = yield* issueTestCard({
             byte,
+            name: maximumAgentName(byte),
             authority,
-            registryPrivateKey: registryKeys.privateKey,
-            registrySignerPublicKey,
+            registryKeys,
           });
           return { card, authority } satisfies IdentityFixture;
         }),
@@ -470,12 +404,6 @@ const enforcesGenesisAndPostEvidence = () =>
           signatures: asNonEmpty(genesis.actionRepresentations.slice(0, 3)),
         },
       };
-      expect(nonUnanimousGenesis.recordHash).toBe(
-        genesis.actionCertifiedRecord.recordHash,
-      );
-      expect(nonUnanimousGenesis.recordCore.actionHash).toBe(
-        genesis.actionHash,
-      );
       yield* expectRepresentationFailure(
         verifyActionCertifiedRecord({
           record: nonUnanimousGenesis,

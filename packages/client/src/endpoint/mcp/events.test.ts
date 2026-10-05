@@ -10,29 +10,26 @@ import {
   McpServer,
   PROTOCOL_VERSION_META_KEY,
 } from "@modelcontextprotocol/server";
-import {
-  Chunk,
-  Deferred,
-  Effect,
-  Encoding,
-  Fiber,
-  Schema,
-  Stream,
-} from "effect";
+import { AgentCard } from "@moltzap/identity";
+import { Chunk, Deferred, Effect, Fiber, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import type { HarnessMessageReadyEvent } from "../../delivery/operations.js";
+import { digest } from "../../__tests__/agent-card-fixtures.js";
+import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
+import { makeFixture } from "../../__tests__/router-worker-fixtures.js";
 import { DeliveryToken } from "../../store/index.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
 import { acquireHarnessEndpoint } from "../harness-endpoint/index.js";
 import { type HarnessEvents, makeHarnessEvents } from "./events.js";
-import { acquireHarnessMcpHttpServer } from "./http.js";
 import { INBOX_PENDING_EVENT } from "./names.js";
+import {
+  type HarnessMcpOperations,
+  makeHarnessMcpHttpHandler,
+} from "./tools.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- External MCP error codes and consumer ownership reasons are conformance expectations. */
 
 const implementation = { name: "events-conformance", version: "1" };
-const digest = (prefix: string, byte: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
 const delivery = (byte: number): HarnessMessageReadyEvent => ({
   deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", byte)),
   item: Schema.decodeUnknownSync(InboundItem)({
@@ -85,7 +82,11 @@ const registerInboxTools = (
   );
 };
 
-/** Schedule an arrival after ownership reservation and before activation completes. */
+/**
+ * Wrap `gate` so the first gated step that finds a subscription reserved
+ * signals one arrival and yields, placing that arrival after the reservation
+ * and before the subscription is active.
+ */
 const yieldAfterReservation = (
   gate: Effect.Semaphore,
   current: () => HarnessEvents,
@@ -111,12 +112,87 @@ const yieldAfterReservation = (
   };
 };
 
+const unreachable = () =>
+  Effect.dieMessage("events scenario reached an unrelated operation");
+
+/** An in-memory inbox: unread items in order and the newest sequence. */
+interface MemoryInbox {
+  readonly unread: HarnessMessageReadyEvent[];
+  sequence: number;
+}
+
+/**
+ * Registered daemon operations over `inbox`; operations outside the events
+ * scenarios die.
+ */
+const inboxOperations = (
+  inbox: MemoryInbox,
+  agentCard: typeof AgentCard.Encoded,
+): HarnessMcpOperations => ({
+  readStatus: () => Effect.succeed({ kind: "active", agentCard }),
+  register: unreachable,
+  searchAgents: unreachable,
+  searchConversations: unreachable,
+  readConversation: unreachable,
+  send: unreachable,
+  readSend: unreachable,
+  readEvent: unreachable,
+  readInbox: () => Effect.sync(() => ({ items: [...inbox.unread] })),
+  readInboxSummary: () =>
+    Effect.sync(() => ({
+      pendingCount: inbox.unread.length,
+      newestSequence: inbox.sequence,
+    })),
+  acknowledgeDelivery: (deliveryToken) =>
+    Effect.sync(() => {
+      const index = inbox.unread.findIndex(
+        (entry) => entry.deliveryToken === deliveryToken,
+      );
+      if (index >= 0) {
+        inbox.unread.splice(index, 1);
+      }
+    }),
+});
+
+/**
+ * The production MCP handler for a registered daemon over an in-memory inbox,
+ * served on loopback HTTP.
+ */
 const acquireEventsServer = Effect.gen(function* () {
+  const inbox: MemoryInbox = { unread: [], sequence: 0 };
+  const attached = yield* Deferred.make<undefined>();
+  const detached = yield* Deferred.make<undefined>();
+  const fixture = yield* makeFixture;
+  const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
+  const handler = yield* makeHarnessMcpHttpHandler({
+    implementation,
+    operations: inboxOperations(inbox, agentCard),
+    onSubscriptionActiveChange: (active) => {
+      Effect.runFork(Deferred.succeed(active ? attached : detached, undefined));
+    },
+  });
+  const endpoint = yield* loopbackMcpEndpoint(handler);
+  return {
+    endpoint,
+    attached,
+    detached,
+    add: (item: HarnessMessageReadyEvent) => {
+      inbox.unread.push(item);
+      inbox.sequence += 1;
+      handler.notifyPending();
+    },
+  };
+});
+
+/**
+ * A hand-built server over the production events runtime whose gate places
+ * one arrival inside subscription activation. The production handler owns
+ * its gate, so this race needs its own server and inbox tools.
+ */
+const acquireRacingEventsServer = Effect.gen(function* () {
   const unread: HarnessMessageReadyEvent[] = [];
   const acknowledged: string[] = [];
   let sequence = 0;
-  const attached = yield* Deferred.make<undefined>();
-  const detached = yield* Deferred.make<undefined>();
   const gate = yield* Effect.makeSemaphore(1);
   const events: HarnessEvents = yield* makeHarnessEvents({
     gate: yieldAfterReservation(gate, () => events),
@@ -126,9 +202,6 @@ const acquireEventsServer = Effect.gen(function* () {
         pendingCount: unread.length,
         newestSequence: sequence,
       })),
-    onActiveChange: (active) => {
-      Effect.runFork(Deferred.succeed(active ? attached : detached, undefined));
-    },
   });
   const handler = createMcpHandler(
     () => {
@@ -141,17 +214,10 @@ const acquireEventsServer = Effect.gen(function* () {
     { legacy: "reject", responseMode: "auto" },
   );
   yield* Effect.addFinalizer(() => events.close);
-  const server = yield* acquireHarnessMcpHttpServer({ port: 0, handler });
-  const address = server.address();
-  if (address === null || typeof address === "string") {
-    return yield* Effect.dieMessage("Expected a TCP listener");
-  }
-  const endpoint = new URL(`http://127.0.0.1:${address.port}/mcp`);
+  const endpoint = yield* loopbackMcpEndpoint(handler);
   return {
     endpoint,
     events,
-    attached,
-    detached,
     acknowledged,
     add: (item: HarnessMessageReadyEvent) => {
       unread.push(item);
@@ -254,7 +320,7 @@ const catchesUpAndDrainsNewArrivals = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const harness = yield* acquireEventsServer;
+        const harness = yield* acquireRacingEventsServer;
         harness.add(delivery(1));
         const endpoint = yield* acquireHarnessEndpoint(harness.endpoint);
         const firstAccepted = yield* Deferred.make<undefined>();
@@ -327,7 +393,7 @@ describe("MCP Events draft interoperability", () => {
     discoversDraftEvents,
   );
   it(
-    "catches up unread items and coalesces later wakeups without implicit acknowledgment",
+    "catches up an item whose wakeup arrives during activation and coalesces later wakeups without implicit acknowledgment",
     catchesUpAndDrainsNewArrivals,
   );
   it(
