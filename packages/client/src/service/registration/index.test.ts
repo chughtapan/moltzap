@@ -58,6 +58,30 @@ interface MemoryStore {
   readonly failWrites: Ref.Ref<boolean>;
 }
 
+/**
+ * Bind `candidate` as the production store's identity write does: insert when
+ * unbound, report an identical binding as existing, and refuse a different
+ * one as a conflict.
+ */
+const bindMemoryIdentity = (
+  binding: Ref.Ref<IdentityBinding | undefined>,
+  candidate: IdentityBinding,
+) =>
+  Ref.get(binding).pipe(
+    Effect.flatMap((existing) => {
+      if (existing === undefined) {
+        return Ref.set(binding, candidate).pipe(Effect.as("inserted" as const));
+      }
+      return existing.agentId === candidate.agentId &&
+        Buffer.compare(
+          existing.canonicalAgentCard,
+          candidate.canonicalAgentCard,
+        ) === 0
+        ? Effect.succeed("existing" as const)
+        : Effect.fail(new EndpointStoreError({ reason: "conflict" }));
+    }),
+  );
+
 const makeMemoryStore = Effect.gen(function* () {
   const binding = yield* Ref.make<IdentityBinding | undefined>(undefined);
   const failWrites = yield* Ref.make(false);
@@ -68,14 +92,7 @@ const makeMemoryStore = Effect.gen(function* () {
         Effect.flatMap((shouldFail) =>
           shouldFail
             ? Effect.fail(new EndpointStoreError({ reason: "persistence" }))
-            : Ref.modify(
-                binding,
-                (existing) =>
-                  [
-                    existing === undefined ? "inserted" : "existing",
-                    existing ?? candidate,
-                  ] as const,
-              ),
+            : bindMemoryIdentity(binding, candidate),
         ),
       ),
   };

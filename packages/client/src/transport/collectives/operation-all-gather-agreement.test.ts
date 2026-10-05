@@ -19,18 +19,28 @@ import {
   Duration,
   Effect,
   Array as EffectArray,
-  Encoding,
+  Fiber,
   Option,
   Schema,
   type Scope,
+  Supervisor,
   TestClock,
   TestContext,
 } from "effect";
 import { describe, expect, it } from "vitest";
 import type { EngineSentPost } from "../messaging/index.js";
 import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
+import {
+  alice,
+  collectiveKey,
+  operationIdOf,
+  postId,
+  questionText,
+  recordHashOf,
+  slotSchema,
+} from "../../__tests__/collective-operation-fixtures.js";
 import { InboundMessage } from "../messaging/message.js";
-import { Content, PostId, RecordHash } from "../wire/index.js";
+import { Content, type RecordHash } from "../wire/index.js";
 import { AgentAddress } from "../wire/values.js";
 import { SendInput } from "./forms.js";
 import {
@@ -39,30 +49,15 @@ import {
 } from "./operation.js";
 import { type CollectiveValue, readCollectiveValue } from "./part/index.js";
 
-const collectiveKey = "xyz.moltzap/collective";
 const group = "group:alice,bob,carol,dave";
 const groupMembers = ["agent:alice", "agent:bob", "agent:carol", "agent:dave"];
 const address = Schema.decodeUnknownSync(AgentAddress);
-const alice = address("agent:alice");
 const bob = address("agent:bob");
 const carol = address("agent:carol");
 const dave = address("agent:dave");
-const questionText = "Which day works?";
-const slotSchema = {
-  type: "object",
-  properties: { slot: { type: "string", enum: ["mon", "tue"] } },
-  required: ["slot"],
-};
 
 /** How many schedules one run draws; each seed is one reproducible schedule. */
 const SCHEDULES = 120;
-
-const bytes = (byte: number) =>
-  Encoding.encodeBase64Url(new Uint8Array(32).fill(byte));
-const postId = (byte: number) =>
-  Schema.decodeUnknownSync(PostId)(`pst_${bytes(byte)}`);
-const recordHash = (byte: number) =>
-  Schema.decodeUnknownSync(RecordHash)(`rch_${bytes(byte)}`);
 
 /** A seeded mulberry32 generator, so a failing seed replays its schedule. */
 function seededRandom(seed: number): () => number {
@@ -100,9 +95,14 @@ interface Endpoint {
   readonly self: AgentAddress;
   readonly layer: CollectiveOperations;
   readonly emitted: InboundItem[];
+  /** Resolved when the endpoint first emits an item. */
+  readonly published: Deferred.Deferred<undefined>;
+  /** Resolved when the endpoint's own answer reaches its send port. */
+  readonly answerQueued: Deferred.Deferred<undefined>;
   next: number;
   lastClassified?: ChainRecord;
-  answerStarted: boolean;
+  /** The endpoint's own answer send, once its host has answered. */
+  answering?: Fiber.Fiber<unknown>;
 }
 
 /** Interleavings a schedule reached; the run fails if one never occurs. */
@@ -150,21 +150,23 @@ const append = (harness: Harness, sender: AgentAddress, content: Content) =>
 
 const certified = (record: ChainRecord): EngineSentPost => ({
   postId: postId(record.byte),
-  recordHash: recordHash(record.byte),
+  recordHash: recordHashOf(record.byte),
 });
 
-/** Let forked fibers, such as the requester's close, run to their next wait. */
-const settle = Effect.yieldNow().pipe(Effect.repeatN(5));
-
-/** A member's send: held until the schedule certifies it and then returns it. */
+/**
+ * A member's send: queued, with `queued` resolved, then held until the
+ * schedule certifies it and returns it.
+ */
 const queueAnswer = (
   harness: Harness,
   member: AgentAddress,
   content: Content,
+  queued: Deferred.Deferred<undefined>,
 ) =>
   Effect.gen(function* () {
     const returned = yield* Deferred.make<EngineSentPost>();
     harness.pending.push({ member, content, returned });
+    yield* Deferred.succeed(queued, undefined);
     return yield* Deferred.await(returned);
   });
 
@@ -172,22 +174,44 @@ const makeEndpoint = (harness: Harness, self: AgentAddress) =>
   Effect.gen(function* () {
     const scope = yield* Effect.scope;
     const emitted: InboundItem[] = [];
+    const published = yield* Deferred.make<undefined>();
+    const answerQueued = yield* Deferred.make<undefined>();
     const layer = makeCollectiveOperations({
       self,
       lookupMember: () => Effect.void,
       sendPost: (input) =>
         self === alice
           ? append(harness, self, input.content).pipe(Effect.map(certified))
-          : queueAnswer(harness, self, input.content),
+          : queueAnswer(harness, self, input.content, answerQueued),
       emit: (item) =>
         Effect.sync(() => {
           emitted.push(item);
-        }),
+        }).pipe(
+          Effect.zipRight(Deferred.succeed(published, undefined)),
+          Effect.asVoid,
+        ),
       scope,
-      requestSendWait: Duration.seconds(1),
     });
-    return { self, layer, emitted, next: 0, answerStarted: false };
+    return { self, layer, emitted, published, answerQueued, next: 0 };
   });
+
+/**
+ * Run `step` and wait for every fiber it forks, such as the requester's
+ * close, so the next draw sees the posts they make.
+ */
+const withForkedWork = <A, E>(step: Effect.Effect<A, E>) =>
+  Effect.gen(function* () {
+    const supervisor = yield* Supervisor.track;
+    const value = yield* Effect.supervised(step, supervisor);
+    yield* Fiber.awaitAll(yield* supervisor.value);
+    return value;
+  });
+
+/** Alice's endpoint, the requester's. */
+const requesterOf = (endpoints: readonly Endpoint[]) =>
+  Effect.fromNullable(
+    endpoints.find((endpoint) => endpoint.self === alice),
+  ).pipe(Effect.orDie);
 
 /** The next record `endpoint` would classify: the first unread one it did not author. */
 const nextRecord = (harness: Harness, endpoint: Endpoint) =>
@@ -199,8 +223,8 @@ const nextRecord = (harness: Harness, endpoint: Endpoint) =>
     );
 
 const classifyRecord = (endpoint: Endpoint, record: ChainRecord) =>
-  endpoint.layer
-    .classify({
+  withForkedWork(
+    endpoint.layer.classify({
       message: Schema.decodeUnknownSync(InboundMessage)({
         kind: "group",
         postId: postId(record.byte),
@@ -209,9 +233,9 @@ const classifyRecord = (endpoint: Endpoint, record: ChainRecord) =>
         members: groupMembers,
         content: record.content,
       }),
-      recordHash: recordHash(record.byte),
-    })
-    .pipe(Effect.zipRight(settle));
+      recordHash: recordHashOf(record.byte),
+    }),
+  ).pipe(Effect.asVoid);
 
 const isClose = (record: ChainRecord) =>
   Option.exists(record.value, (value) => value.kind === "close");
@@ -283,7 +307,9 @@ const drawResponse = (member: AgentAddress, random: () => number) =>
 
 /**
  * Each member that has seen the request and not answered answers in the
- * group's conversation, where its endpoint finds the one open request.
+ * group's conversation, where its endpoint finds the one open request. The
+ * step ends once the answer is queued at the send port or the send has
+ * already been refused.
  */
 function answerSteps(
   harness: Harness,
@@ -293,15 +319,16 @@ function answerSteps(
   return harness.endpoints
     .filter(
       (endpoint) =>
-        endpoint.self !== alice && !endpoint.answerStarted && endpoint.next > 0,
+        endpoint.self !== alice &&
+        endpoint.answering === undefined &&
+        endpoint.next > 0,
     )
     .map((endpoint): Step => {
       const response = drawResponse(endpoint.self, random);
       return [
         `${endpoint.self} answers`,
-        Effect.suspend(() => {
-          endpoint.answerStarted = true;
-          return endpoint.layer
+        Effect.gen(function* () {
+          const answering = yield* endpoint.layer
             .send(
               Schema.decodeUnknownSync(SendInput)({
                 to: group,
@@ -309,14 +336,25 @@ function answerSteps(
               }),
               "result",
             )
-            .pipe(Effect.either, Effect.forkIn(scope), Effect.zipRight(settle));
+            .pipe(Effect.either, Effect.forkIn(scope));
+          yield* Effect.sync(() => {
+            endpoint.answering = answering;
+          });
+          yield* Effect.raceFirst(
+            Deferred.await(endpoint.answerQueued),
+            Effect.asVoid(Fiber.await(answering)),
+          );
         }),
       ];
     });
 }
 
 /** Count a return that follows the member's delivery of the first close. */
-function recordReturnCoverage(harness: Harness, answer: PendingAnswer): void {
+function recordReturnCoverage(
+  harness: Harness,
+  answer: PendingAnswer,
+  certifiedAt: number,
+): void {
   const firstClose = firstCloseIndex(harness);
   const member = harness.endpoints.find(
     (endpoint) => endpoint.self === answer.member,
@@ -324,7 +362,7 @@ function recordReturnCoverage(harness: Harness, answer: PendingAnswer): void {
   if (firstClose === -1 || member === undefined || member.next <= firstClose) {
     return;
   }
-  if ((answer.certifiedAt ?? 0) - 1 < firstClose) {
+  if (certifiedAt - 1 < firstClose) {
     harness.coverage.heldClose += 1;
   } else {
     harness.coverage.ownAnswerAfterClose += 1;
@@ -340,15 +378,24 @@ const certifyAnswer = (harness: Harness, answer: PendingAnswer) =>
     ),
   );
 
-const returnAnswer = (harness: Harness, answer: PendingAnswer) =>
+/** Return a certified answer to its member and wait for the member's send to finish. */
+const returnAnswer = (
+  harness: Harness,
+  answer: PendingAnswer,
+  certifiedAt: number,
+) =>
   Effect.gen(function* () {
     harness.pending.splice(harness.pending.indexOf(answer), 1);
-    recordReturnCoverage(harness, answer);
+    recordReturnCoverage(harness, answer, certifiedAt);
     yield* Deferred.succeed(answer.returned, {
-      postId: postId(answer.certifiedAt ?? 0),
-      recordHash: recordHash(answer.certifiedAt ?? 0),
+      postId: postId(certifiedAt),
+      recordHash: recordHashOf(certifiedAt),
     });
-    yield* settle;
+    const answering = yield* Effect.fromNullable(
+      harness.endpoints.find((endpoint) => endpoint.self === answer.member)
+        ?.answering,
+    ).pipe(Effect.orDie);
+    yield* Fiber.await(answering);
   });
 
 function pendingSteps(harness: Harness): Step[] {
@@ -356,7 +403,10 @@ function pendingSteps(harness: Harness): Step[] {
     (answer): Step =>
       answer.certifiedAt === undefined
         ? [`certify ${answer.member}'s answer`, certifyAnswer(harness, answer)]
-        : [`return ${answer.member}'s answer`, returnAnswer(harness, answer)],
+        : [
+            `return ${answer.member}'s answer`,
+            returnAnswer(harness, answer, answer.certifiedAt),
+          ],
   );
 }
 
@@ -433,11 +483,11 @@ function deadlineSteps(harness: Harness): Step[] {
   return [
     [
       "deadline",
-      Effect.suspend(() => {
+      Effect.gen(function* () {
         harness.deadlinePassed = true;
-        return TestClock.adjust(Duration.seconds(60)).pipe(
-          Effect.zipRight(settle),
-        );
+        yield* TestClock.adjust(Duration.seconds(60));
+        const requester = yield* requesterOf(harness.endpoints);
+        yield* Deferred.await(requester.published);
       }),
     ],
   ];
@@ -467,7 +517,7 @@ const resultOfFirstClose = (harness: Harness, id: string) => {
     Option.getOrElse((): readonly RecordHash[] => []),
   );
   const listed = harness.chain.filter((record) =>
-    included.includes(recordHash(record.byte)),
+    included.includes(recordHashOf(record.byte)),
   );
   return {
     kind: "collectiveResult",
@@ -511,10 +561,7 @@ const pickStep = (steps: readonly Step[], draw: number) => {
 
 /** Send through alice's endpoint, the requester's. */
 const send = (endpoints: readonly Endpoint[], input: unknown) =>
-  Effect.fromNullable(
-    endpoints.find((endpoint) => endpoint.self === alice),
-  ).pipe(
-    Effect.orDie,
+  requesterOf(endpoints).pipe(
     Effect.flatMap((requester) =>
       requester.layer.send(
         Schema.decodeUnknownSync(SendInput)(input),
@@ -550,7 +597,8 @@ const startSchedule = (coverage: Coverage) =>
         requestedSchema: slotSchema,
       },
     });
-    return { harness, id: outcome.operationId ?? "" };
+    const id = yield* operationIdOf(outcome);
+    return { harness, id };
   });
 
 /** Run one seeded schedule until no step is left, and return the harness. */

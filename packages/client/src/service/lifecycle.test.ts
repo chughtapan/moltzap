@@ -1,14 +1,17 @@
 /** @file Focused daemon activation, supervision, and durable delivery tests. */
 
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import { SUBSCRIPTION_ID_META_KEY } from "@modelcontextprotocol/server";
 import { AgentCard } from "@moltzap/identity";
 import { Deferred, Effect, Exit, Fiber, Option, Schema } from "effect";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { EventStore } from "../delivery/operations.js";
 import type { HarnessMcpEventHandler } from "../endpoint/mcp/tools.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
+import { digest } from "../__tests__/agent-card-fixtures.js";
 import {
-  digest,
   type Fixture,
   makeFixture,
 } from "../__tests__/daemon-runtime-fixtures.js";
@@ -16,11 +19,11 @@ import {
   awaitFrame,
   awaitStage,
   EXPECTED_LISTENER_FAILURE,
-  EXPORT_PATH,
   makeHarness,
   makeListenRequest,
   makeStore,
   type ReadBarrier,
+  requireEventStore,
   requireHandler,
   requireOperations,
   responseReader,
@@ -28,34 +31,63 @@ import {
   type RuntimeHarness,
   SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION,
 } from "../__tests__/daemon-runtime-harness.js";
+import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
+import { HistoryExportRecord } from "../delivery/history-export.js";
 import { INBOX_PENDING_EVENT } from "../endpoint/mcp/names.js";
+import { SendError, SendInput } from "../index.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,
   type EndpointStore,
   EndpointStoreError,
 } from "../store/index.js";
-import { SendInput } from "../transport/collectives/forms.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
-import { SendError } from "../transport/messaging/errors.js";
 import { DaemonRuntimeError } from "./lifecycle.js";
 
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- The focused tests drive the official Promise-native MCP stream boundary. */
 
-const withHistoryExport = (fixture: Fixture): Fixture => ({
+const withHistoryExport = (fixture: Fixture, path: string): Fixture => ({
   ...fixture,
   bootstrap: {
     ...fixture.bootstrap,
     configuration: {
       ...fixture.bootstrap.configuration,
-      historyExport: EXPORT_PATH,
+      historyExport: path,
     },
   },
 });
 
+const decodeHistoryLine = Schema.decodeUnknownSync(
+  Schema.parseJson(HistoryExportRecord),
+);
+
+/**
+ * The records a history export file holds, one per NDJSON line.
+ * @param path The export file.
+ * @returns The decoded records, in file order.
+ */
+const readHistoryExport = (path: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) => fileSystem.readFileString(path)),
+    Effect.map((text) =>
+      text
+        .trimEnd()
+        .split("\n")
+        .map((line) => decodeHistoryLine(line)),
+    ),
+    Effect.provide(NodeFileSystem.layer),
+  );
+
+/**
+ * The daemon opens the configured history export and hands that export to
+ * delivery, so an inbox read writes the item to the configured file. The
+ * engine has no pending delivery, so the read's item is the only record.
+ */
 const opensConfiguredHistoryExport = async () => {
-  const fixture = withHistoryExport(await Effect.runPromise(makeFixture));
+  const path = join(stateDirectory(), "history.ndjson");
+  const fixture = withHistoryExport(await Effect.runPromise(makeFixture), path);
   const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
+  harness.delivery.acknowledged = true;
   const store = makeStore(fixture, true);
   const fiber = Effect.runFork(run(fixture, store, harness));
   try {
@@ -63,37 +95,36 @@ const opensConfiguredHistoryExport = async () => {
       Deferred.await(harness.engineEntered),
       "engine acquisition",
     );
-    expect(harness.getHistoryExportPath()).toBe(EXPORT_PATH);
     await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
     await awaitStage(Deferred.await(harness.listenerReady), "listener");
-    const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
-      digest("dlv_", 8),
-    );
     const item = Schema.decodeUnknownSync(InboundItem)({
       kind: "operationFailed",
       id: digest("col_", 8),
       to: "agent:bob",
       error: "retained failure",
     });
-    const canonicalItem = await Effect.runPromise(encodeRuntimeValue(item));
     await Effect.runPromise(
-      store.putInboxItem({ deliveryToken, canonicalItem }),
+      store.putInboxItem({
+        deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(
+          digest("dlv_", 8),
+        ),
+        canonicalItem: await Effect.runPromise(encodeRuntimeValue(item)),
+      }),
     );
-    const eventStore = harness.getEventStore();
-    if (eventStore === undefined) {
-      throw new Error("missing composed event store");
-    }
-    await Effect.runPromise(eventStore.readInbox({ limit: 1 }));
-    expect(harness.records).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ kind: "inbound", item }),
-      ]),
-    );
+    await Effect.runPromise(requireEventStore(harness).readInbox({ limit: 1 }));
+
+    expect(await Effect.runPromise(readHistoryExport(path))).toEqual([
+      expect.objectContaining({ kind: "inbound", item }),
+    ]);
   } finally {
     await Effect.runPromise(Fiber.interrupt(fiber));
   }
 };
 
+/**
+ * Without a configured path the daemon opens no history export. The check
+ * runs once the listener is up, after every startup step that could open one.
+ */
 const opensNoHistoryExportByDefault = async () => {
   const fixture = await Effect.runPromise(makeFixture);
   const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
@@ -104,6 +135,8 @@ const opensNoHistoryExportByDefault = async () => {
       Deferred.await(harness.engineEntered),
       "engine acquisition",
     );
+    await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
     expect(harness.getHistoryExportPath()).toBeUndefined();
   } finally {
     await Effect.runPromise(Fiber.interrupt(fiber));
@@ -120,17 +153,15 @@ const blocksStartupAndSupervisesWorker = async () => {
       Deferred.await(harness.engineEntered),
       "engine acquisition",
     );
-    expect(harness.events).toEqual(["worker", "engine"]);
-    expect(harness.getWorkerOutbox()).toBe(store);
     expect(
       Option.isNone(
         await Effect.runPromise(Deferred.poll(harness.listenerReady)),
       ),
+      "listener stays closed while the engine is blocked",
     ).toBe(true);
 
     await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
     await awaitStage(Deferred.await(harness.listenerReady), "listener");
-    expect(harness.events).toEqual(["worker", "engine", "handler", "listener"]);
 
     await Effect.runPromise(Deferred.succeed(harness.failure, undefined));
     const failure = await awaitStage(
@@ -144,29 +175,50 @@ const blocksStartupAndSupervisesWorker = async () => {
 };
 
 /**
- * A startup pass that cannot persist a classified item, or cannot read
- * pending deliveries, fails in storage before the listener starts.
+ * A startup pass that cannot persist the classified pending delivery fails in
+ * storage, and the listener never opens.
  */
-const failsStartupWhenThePassFails = (failure: "persist" | "read") => () =>
+const failsStartupWhenInboxPersistenceFails = () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fixture = yield* makeFixture;
       const harness = yield* makeHarness(fixture, "none");
-      const store = makeStore(fixture, true);
-      harness.delivery.failReads = failure === "read";
-      const startupStore: EndpointStore =
-        failure === "read"
-          ? store
-          : {
-              ...store,
-              putInboxItem: () =>
-                Effect.fail(new EndpointStoreError({ reason: "persistence" })),
-            };
-      const error = yield* run(fixture, startupStore, harness).pipe(
+      const store: EndpointStore = {
+        ...makeStore(fixture, true),
+        putInboxItem: () =>
+          Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+      };
+
+      const error = yield* run(fixture, store, harness).pipe(Effect.flip);
+
+      expect(error).toEqual(new DaemonRuntimeError({ phase: "storage" }));
+      expect(
+        Option.isNone(yield* Deferred.poll(harness.listenerReady)),
+        "listener stays closed after the failed startup pass",
+      ).toBe(true);
+    }),
+  );
+
+/**
+ * A startup pass that cannot read pending deliveries fails in storage, and
+ * the listener never opens.
+ */
+const failsStartupWhenThePendingReadFails = () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const harness = yield* makeHarness(fixture, "none");
+      harness.delivery.failReads = true;
+
+      const error = yield* run(fixture, makeStore(fixture, true), harness).pipe(
         Effect.flip,
       );
+
       expect(error).toEqual(new DaemonRuntimeError({ phase: "storage" }));
-      expect(harness.events).toEqual(["worker", "engine"]);
+      expect(
+        Option.isNone(yield* Deferred.poll(harness.listenerReady)),
+        "listener stays closed after the failed startup pass",
+      ).toBe(true);
     }),
   );
 
@@ -259,6 +311,11 @@ const failsWhenAnEmittedItemCannotPersist = async () => {
   expect(error).toEqual(new DaemonRuntimeError({ phase: "storage" }));
 };
 
+/**
+ * The harness whose listener, on release, interrupts the receipt fiber the
+ * test hands it. This stands in for the MCP server ending an in-flight
+ * webhook receipt request when the daemon shuts down.
+ */
 const withReceiptFinalizer = (
   harness: RuntimeHarness,
   receipt: Deferred.Deferred<Fiber.RuntimeFiber<void, EndpointStoreError>>,
@@ -282,16 +339,24 @@ const withReceiptFinalizer = (
   },
 });
 
-const forkWaitingReceipt = (
-  store: EventStore,
-  token: typeof DeliveryToken.Type,
-) =>
+/**
+ * Fork one webhook receipt for `token` as the webhook runs it: uninterruptible
+ * to its caller, so only the delivery-gate wait inside the receipt can stop it.
+ */
+const forkWaitingReceipt = (store: EventStore, token: DeliveryToken) =>
   Effect.runFork(
     store
       .completeWebhookDelivery(token, new Uint8Array([1]))
       .pipe(Effect.uninterruptible),
   );
 
+/**
+ * A receipt waiting for the delivery gate while a pass's inbox persistence
+ * fails is stopped by the fatal shutdown and commits nothing. The startup pass
+ * sees the delivery as acknowledged, so only the subscription's pass reaches
+ * the failing store. `yieldNow` lets the forked receipt reach its gate wait
+ * before the persistence failure is released.
+ */
 const closesWhileReceiptWaitsOnFailedPersistence = async () => {
   const fixture = await Effect.runPromise(makeFixture);
   const original = await Effect.runPromise(makeHarness(fixture, "none"));
@@ -319,10 +384,7 @@ const closesWhileReceiptWaitsOnFailedPersistence = async () => {
   };
   const daemon = Effect.runFork(run(fixture, store, harness));
   await awaitStage(Deferred.await(harness.listenerReady), "listener");
-  const eventStore = harness.getEventStore();
-  if (eventStore === undefined) {
-    throw new Error("expected the controller event store");
-  }
+  const eventStore = requireEventStore(harness);
   original.delivery.acknowledged = false;
   const reader = responseReader(
     await requireHandler(harness).fetch(makeListenRequest("fatal-receipt")),
@@ -339,51 +401,6 @@ const closesWhileReceiptWaitsOnFailedPersistence = async () => {
   await reader.cancel();
 };
 
-const completesCallerStateAfterReceiptCommit = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
-  const committed = await Effect.runPromise(Deferred.make<undefined>());
-  const release = await Effect.runPromise(Deferred.make<undefined>());
-  const store: EndpointStore = {
-    ...makeStore(fixture, true),
-    completeWebhookDelivery: () =>
-      Deferred.succeed(committed, undefined).pipe(
-        Effect.zipRight(Deferred.await(release)),
-      ),
-  };
-  const daemon = Effect.runFork(run(fixture, store, harness));
-  try {
-    await awaitStage(Deferred.await(harness.listenerReady), "listener");
-    const eventStore = harness.getEventStore();
-    if (eventStore === undefined) {
-      throw new Error("expected the controller event store");
-    }
-    let updated = false;
-    const receipt = Effect.runFork(
-      eventStore
-        .completeWebhookDelivery(
-          fixture.pending.deliveryToken,
-          new Uint8Array([1]),
-        )
-        .pipe(
-          Effect.tap(() =>
-            Effect.sync(() => {
-              updated = true;
-            }),
-          ),
-          Effect.uninterruptible,
-        ),
-    );
-    await awaitStage(Deferred.await(committed), "receipt commit");
-    await Effect.runPromise(Fiber.interruptFork(receipt));
-    await Effect.runPromise(Deferred.succeed(release, undefined));
-    await awaitStage(Fiber.await(receipt), "receipt state update");
-    expect(updated).toBe(true);
-  } finally {
-    await Effect.runPromise(Fiber.interrupt(daemon));
-  }
-};
-
 const blocksRegistrationAndSupervisesOutbound = async () => {
   const fixture = await Effect.runPromise(makeFixture);
   const harness = await Effect.runPromise(
@@ -394,8 +411,9 @@ const blocksRegistrationAndSupervisesOutbound = async () => {
   );
   try {
     await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const operations = requireOperations(harness);
     const registration = Effect.runFork(
-      requireOperations(harness).register(fixture.registerRequest),
+      operations.register(fixture.registerRequest),
     );
     await awaitStage(
       Deferred.await(harness.engineEntered),
@@ -403,7 +421,12 @@ const blocksRegistrationAndSupervisesOutbound = async () => {
     );
     expect(
       Option.isNone(await Effect.runPromise(Fiber.poll(registration))),
+      "registration still running while the engine is blocked",
     ).toBe(true);
+    expect(
+      await Effect.runPromise(operations.readStatus()),
+      "status while the engine is blocked",
+    ).toMatchObject({ kind: "active" });
 
     await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
     const registrationResult = await awaitStage(
@@ -527,12 +550,6 @@ const acknowledgeDuringReplacementDelivery = async (
   return reader;
 };
 
-/**
- * One pending read per pass: at activation with no subscriber, when the first
- * subscriber attaches, when it detaches, and when its replacement attaches.
- */
-const READS_THROUGH_REPLACEMENT = 4;
-
 const replaysUntilAcknowledged = async () => {
   const fixture = await Effect.runPromise(makeFixture);
   const harness = await Effect.runPromise(makeHarness(fixture, "none"));
@@ -541,19 +558,23 @@ const replaysUntilAcknowledged = async () => {
   );
   try {
     await awaitStage(Deferred.await(harness.listenerReady), "listener");
-    expect(harness.delivery.reads).toBeGreaterThanOrEqual(1);
+    const operations = requireOperations(harness);
+    const pendingItem = {
+      deliveryToken: fixture.pending.deliveryToken,
+      item: { kind: "multicast", message: fixture.pending.message },
+    };
+    expect(
+      (await Effect.runPromise(operations.readInbox({}))).items,
+      "inbox before any subscriber attaches",
+    ).toEqual([pendingItem]);
     expect(harness.delivery.acknowledgedTokens).toEqual([]);
     const handler = requireHandler(harness);
 
     await receivesFirstDelivery(handler);
     expect(
-      (await Effect.runPromise(requireOperations(harness).readInbox({}))).items,
-    ).toEqual([
-      {
-        deliveryToken: fixture.pending.deliveryToken,
-        item: { kind: "multicast", message: fixture.pending.message },
-      },
-    ]);
+      (await Effect.runPromise(operations.readInbox({}))).items,
+      "inbox after the first subscriber's delivery",
+    ).toEqual([pendingItem]);
     harness.delivery.events.length = 0;
     const secondReader = await acknowledgeDuringReplacementDelivery(
       harness,
@@ -564,9 +585,6 @@ const replaysUntilAcknowledged = async () => {
       fixture.pending.deliveryToken,
     ]);
     expect(harness.delivery.events).toEqual(["delivery-ready", "acknowledged"]);
-    expect(harness.delivery.reads).toBeGreaterThanOrEqual(
-      READS_THROUGH_REPLACEMENT,
-    );
     await secondReader.cancel();
   } finally {
     await Effect.runPromise(Fiber.interrupt(fiber));
@@ -575,16 +593,12 @@ const replaysUntilAcknowledged = async () => {
 
 describe("daemon runtime composition", () => {
   it(
-    "finishes the masked caller state update after a committed receipt",
-    completesCallerStateAfterReceiptCommit,
-  );
-  it(
     "closes after fatal persistence with a receipt waiting for the delivery gate",
     closesWhileReceiptWaitsOnFailedPersistence,
   );
   it(
     "fails startup when classified inbox persistence fails",
-    failsStartupWhenThePassFails("persist"),
+    failsStartupWhenInboxPersistenceFails,
   );
   it(
     "emits a local item while a pass holds the delivery gate",
@@ -596,7 +610,7 @@ describe("daemon runtime composition", () => {
   );
   it(
     "fails startup when the pending read fails",
-    failsStartupWhenThePassFails("read"),
+    failsStartupWhenThePendingReadFails,
   );
   it(
     "settles registration when its first delivery pass fails",

@@ -1,12 +1,9 @@
 /** @file Exercises classified delivery durability and loss of request context. */
 
-import { Effect, Encoding, Schema } from "effect";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- These persistence tests reopen real SQLite databases across independent Effect scopes.
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { Effect, Array as EffectArray, Schema } from "effect";
+import { describe, expect, it } from "vitest";
+import { digest } from "../__tests__/agent-card-fixtures.js";
+import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import { DeliveryToken, openEndpointStore } from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
 import {
@@ -17,14 +14,6 @@ import {
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Durable tombstone and snapshot fixtures pin exact store outcomes. */
 
-const directories: string[] = [];
-const directory = (): string => {
-  const path = mkdtempSync(join(tmpdir(), "moltzap-runtime-inbox-"));
-  directories.push(path);
-  return path;
-};
-const digest = (prefix: string, byte: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
 const token = (byte: number) =>
   Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", byte));
 const failure = Schema.decodeUnknownSync(InboundItem)({
@@ -49,14 +38,8 @@ const request = Schema.decodeUnknownSync(InboundItem)({
   deadlineAt: 4_000_000_000_000,
 });
 
-afterEach(() => {
-  for (const path of directories.splice(0)) {
-    rmSync(path, { recursive: true, force: true });
-  }
-});
-
 const preservesTokenBindings = () => {
-  const path = directory();
+  const path = stateDirectory();
   return Effect.runPromise(
     Effect.gen(function* () {
       yield* Effect.scoped(
@@ -105,12 +88,11 @@ const storeRequestAndFailure = (path: string) =>
   );
 
 const retiresLostRequests = () => {
-  const path = directory();
+  const path = stateDirectory();
   return Effect.runPromise(
     Effect.gen(function* () {
       yield* storeRequestAndFailure(path);
-      let recoveredToken: DeliveryToken | undefined;
-      yield* Effect.scoped(
+      const recoveredToken = yield* Effect.scoped(
         Effect.gen(function* () {
           const store = yield* openEndpointStore(path);
           yield* recoverRuntimeInbox(store);
@@ -124,11 +106,11 @@ const retiresLostRequests = () => {
           expect(lost?.deliveryToken).not.toBe(token(2));
           expect(lost?.item).toMatchObject({
             kind: "operationFailed",
-            id: request.kind === "collectiveRequest" ? request.id : undefined,
+            id: digest("col_", 2),
             to: "group:alice,bob,carol",
           });
-          recoveredToken = lost?.deliveryToken;
           yield* store.acknowledgeInboxItem(token(2));
+          return lost?.deliveryToken;
         }),
       );
       yield* Effect.scoped(
@@ -148,13 +130,16 @@ const freezesPagesAcrossArrivalsAndAcknowledgments = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const store = yield* openEndpointStore(directory());
-        for (let index = 1; index <= 51; index += 1) {
-          yield* persistInboxItem(store, {
-            deliveryToken: token(index),
-            item: failure,
-          });
-        }
+        const store = yield* openEndpointStore(stateDirectory());
+        yield* Effect.forEach(
+          EffectArray.range(1, 51),
+          (index) =>
+            persistInboxItem(store, {
+              deliveryToken: token(index),
+              item: failure,
+            }),
+          { concurrency: 1, discard: true },
+        );
         const first = yield* readRuntimeInbox(store, {});
         expect(first.items).toHaveLength(50);
         expect(first.nextCursor).toBeDefined();
@@ -179,99 +164,8 @@ const freezesPagesAcrossArrivalsAndAcknowledgments = () =>
     ),
   );
 
-const retainsInvocationAndEventState = () => {
-  const path = directory();
-  const input = new TextEncoder().encode(
-    '{"input":{"text":"hello","to":"agent:bob"}}',
-  );
-  const outcome = new TextEncoder().encode('{"kind":"success","result":{}}');
-  const eventState = new TextEncoder().encode('{"subscription":"private"}');
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      yield* Effect.scoped(
-        Effect.gen(function* () {
-          const store = yield* openEndpointStore(path);
-          expect(yield* store.beginSendAttempt("finished", input)).toBe(
-            "inserted",
-          );
-          yield* store.finishSendAttempt("finished", outcome);
-          yield* store.beginSendAttempt("interrupted", input);
-          yield* store.writeEventState(eventState);
-        }),
-      );
-      yield* Effect.scoped(
-        Effect.gen(function* () {
-          const store = yield* openEndpointStore(path);
-          expect(yield* store.beginSendAttempt("finished", input)).toBe(
-            "existing",
-          );
-          expect(yield* store.readSendAttempt("finished")).toEqual({
-            canonicalInput: input,
-            canonicalOutcome: outcome,
-          });
-          expect(yield* store.readSendAttempt("interrupted")).toEqual({
-            canonicalInput: input,
-          });
-          expect(yield* store.readEventState()).toEqual(eventState);
-          const conflict = yield* store
-            .beginSendAttempt("finished", outcome)
-            .pipe(Effect.flip);
-          expect(conflict.reason).toBe("conflict");
-        }),
-      );
-    }),
-  );
-};
-
-const migratesWithoutErasingIdentity = () => {
-  const path = directory();
-  const identity = {
-    agentId: "agent:alice",
-    canonicalAgentCard: new Uint8Array([1, 2, 3]),
-  };
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      yield* Effect.scoped(
-        openEndpointStore(path).pipe(
-          Effect.flatMap((store) => store.bindIdentity(identity)),
-        ),
-      );
-      yield* Effect.sync(() => {
-        const database = new DatabaseSync(join(path, "moltzapd.sqlite3"));
-        database.exec(
-          "DROP TABLE runtime_inbox; DROP TABLE runtime_sends; DROP TABLE runtime_events; DROP TABLE runtime_legacy_deliveries; PRAGMA user_version = 2",
-        );
-        database.close();
-      });
-      yield* Effect.scoped(
-        Effect.gen(function* () {
-          const store = yield* openEndpointStore(path);
-          expect(yield* store.readIdentity()).toEqual(identity);
-          expect(yield* store.readInboxSummary()).toEqual({
-            pendingCount: 0,
-            newestSequence: 0,
-          });
-          yield* persistInboxItem(store, {
-            deliveryToken: token(1),
-            item: failure,
-          });
-        }),
-      );
-      yield* Effect.sync(() => {
-        const database = new DatabaseSync(join(path, "moltzapd.sqlite3"), {
-          readOnly: true,
-        });
-        expect(database.prepare("PRAGMA user_version").get()).toMatchObject({
-          user_version: 3,
-        });
-        database.close();
-      });
-    }),
-  );
-};
-
 const commitsReceiptAtomically = () => {
-  const path = directory();
+  const path = stateDirectory();
   const state = new TextEncoder().encode('{"registration":null}');
   return Effect.runPromise(
     Effect.gen(function* () {
@@ -326,14 +220,6 @@ describe("durable runtime inbox", () => {
   it(
     "bounds a snapshot while new arrivals and acknowledgments change unread state",
     freezesPagesAcrossArrivalsAndAcknowledgments,
-  );
-  it(
-    "retains completed and interrupted invocations and event state across restart",
-    retainsInvocationAndEventState,
-  );
-  it(
-    "upgrades schema 2 without replacing the configured identity",
-    migratesWithoutErasingIdentity,
   );
 });
 

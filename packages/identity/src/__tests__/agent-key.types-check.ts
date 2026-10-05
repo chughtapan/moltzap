@@ -1,10 +1,12 @@
 /**
  * @file The signing authority exposes only key import and public-key projection.
  * Its Effect error remains exact, and no string-named member reveals private
- * key, JOSE, WebCrypto, or generic signing machinery.
+ * key, JOSE, WebCrypto, or generic signing machinery. Consumers hold the
+ * authority to sign, so any added member would expose key material or an
+ * unaudited signing path to them.
  */
 
-import type { Effect, Redacted } from "effect";
+import type { Effect, Redacted, Types } from "effect";
 import type {
   AgentSigningAuthority,
   AgentSigningAuthority as AgentSigningAuthorityValue,
@@ -12,31 +14,39 @@ import type {
   InvalidAgentPrivateKeyError,
 } from "../index.js";
 
-type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 
 type FromPkcs8 = typeof AgentSigningAuthority.fromPkcs8;
 type FromPkcs8Result = ReturnType<FromPkcs8>;
 type InputIsRedacted = Expect<
-  Equal<Parameters<FromPkcs8>[0], Redacted.Redacted>
+  Types.Equals<Parameters<FromPkcs8>[0], Redacted.Redacted>
 >;
 type ImportSuccessIsAuthority = Expect<
-  Equal<Effect.Effect.Success<FromPkcs8Result>, AgentSigningAuthorityValue>
+  Types.Equals<
+    Effect.Effect.Success<FromPkcs8Result>,
+    AgentSigningAuthorityValue
+  >
 >;
 type ImportFailureIsExact = Expect<
-  Equal<Effect.Effect.Error<FromPkcs8Result>, InvalidAgentPrivateKeyError>
+  Types.Equals<
+    Effect.Effect.Error<FromPkcs8Result>,
+    InvalidAgentPrivateKeyError
+  >
 >;
 type ImportNeedsNoContext = Expect<
-  Equal<Effect.Effect.Context<FromPkcs8Result>, never>
+  Types.Equals<Effect.Effect.Context<FromPkcs8Result>, never>
 >;
 type PublicKeyIsTotal = Expect<
-  Equal<ReturnType<typeof AgentSigningAuthority.publicKey>, Ed25519PublicKey>
+  Types.Equals<
+    ReturnType<typeof AgentSigningAuthority.publicKey>,
+    Ed25519PublicKey
+  >
 >;
 type PublicCapabilityIsExact = Expect<
-  Equal<keyof typeof AgentSigningAuthority, "fromPkcs8" | "publicKey">
+  Types.Equals<keyof typeof AgentSigningAuthority, "fromPkcs8" | "publicKey">
 >;
 type AuthorityHasNoStringMembers = Expect<
-  Equal<Extract<keyof AgentSigningAuthorityValue, string>, never>
+  Types.Equals<Extract<keyof AgentSigningAuthorityValue, string>, never>
 >;
 
 /** Compile-time evidence for the signing authority's public contract. */

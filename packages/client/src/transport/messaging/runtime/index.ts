@@ -12,7 +12,6 @@ import {
   type Context,
   Data,
   type Deferred,
-  type Duration,
   type Effect,
   type Queue,
   type SubscriptionRef,
@@ -79,13 +78,10 @@ export interface EnginePendingMessage {
 }
 
 /** Minimal Registry capability used to resolve immutable peer cards. */
-export type EngineRegistryPort = Pick<
-  Context.Tag.Service<typeof Registry>,
-  "lookup"
->;
+type EngineRegistryPort = Pick<Context.Tag.Service<typeof Registry>, "lookup">;
 
 /** RouterWorker operations consumed by the engine's outbound queue. */
-export interface EngineRouterPort {
+interface EngineRouterPort {
   readonly currentAnchor: Effect.Effect<
     RouterTailAnchor,
     RouterWorkerUnavailableError
@@ -135,8 +131,6 @@ export interface EndpointEngineInput {
   readonly store: EndpointStore;
   readonly routerWorker: EngineRouterPort;
   readonly actionPolicy: EngineActionPolicy;
-  /** Overrides `ROUTER_ATTACH_TIMEOUT`; tests bound the wait in milliseconds. */
-  readonly routerAttachTimeout?: Duration.Duration;
 }
 
 /** Stable private engine capability consumed by daemon composition. */

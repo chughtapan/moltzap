@@ -22,11 +22,10 @@ import type {
   UnsupportedMediaTypeError,
   VersionMismatchError,
 } from "@moltzap/identity";
-import type { Duration, Effect, Layer } from "effect";
+import type { Duration, Effect, Layer, Types } from "effect";
 import type * as RouterPackage from "../../index.js";
 import type * as RouterServerPackage from "../../server.js";
 
-type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 
 type RouterFailure =
@@ -62,31 +61,37 @@ type RouterLayer = ReturnType<typeof RouterPackage.Router.layer>;
 type RouterServerLayer = typeof RouterServerPackage.RouterServer.layer;
 
 type SendInputIsExact = Expect<
-  Equal<Parameters<typeof RouterPackage.Router.send>[0], SendCall>
+  Types.Equals<Parameters<typeof RouterPackage.Router.send>[0], SendCall>
 >;
 type SendSuccessIsExact = Expect<
-  Equal<Effect.Effect.Success<SendEffect>, RouterPackage.RouterSendResult>
+  Types.Equals<
+    Effect.Effect.Success<SendEffect>,
+    RouterPackage.RouterSendResult
+  >
 >;
 type SendFailureIsExact = Expect<
-  Equal<Effect.Effect.Error<SendEffect>, RouterFailure>
+  Types.Equals<Effect.Effect.Error<SendEffect>, RouterFailure>
 >;
 type SendRequiresOnlyRouter = Expect<
-  Equal<Effect.Effect.Context<SendEffect>, RouterPackage.Router>
+  Types.Equals<Effect.Effect.Context<SendEffect>, RouterPackage.Router>
 >;
 type PollInputIsExact = Expect<
-  Equal<Parameters<typeof RouterPackage.Router.poll>[0], PollCall>
+  Types.Equals<Parameters<typeof RouterPackage.Router.poll>[0], PollCall>
 >;
 type PollSuccessIsExact = Expect<
-  Equal<Effect.Effect.Success<PollEffect>, RouterPackage.RouterPollResult>
+  Types.Equals<
+    Effect.Effect.Success<PollEffect>,
+    RouterPackage.RouterPollResult
+  >
 >;
 type PollFailureIsExact = Expect<
-  Equal<Effect.Effect.Error<PollEffect>, RouterFailure>
+  Types.Equals<Effect.Effect.Error<PollEffect>, RouterFailure>
 >;
 type PollRequiresOnlyRouter = Expect<
-  Equal<Effect.Effect.Context<PollEffect>, RouterPackage.Router>
+  Types.Equals<Effect.Effect.Context<PollEffect>, RouterPackage.Router>
 >;
 type LayerInputIsExact = Expect<
-  Equal<
+  Types.Equals<
     Parameters<typeof RouterPackage.Router.layer>[0],
     Readonly<{
       origin: URL;
@@ -96,26 +101,28 @@ type LayerInputIsExact = Expect<
   >
 >;
 type LayerProvidesOnlyRouter = Expect<
-  Equal<Layer.Layer.Success<RouterLayer>, RouterPackage.Router>
+  Types.Equals<Layer.Layer.Success<RouterLayer>, RouterPackage.Router>
 >;
-type LayerCannotFail = Expect<Equal<Layer.Layer.Error<RouterLayer>, never>>;
+type LayerCannotFail = Expect<
+  Types.Equals<Layer.Layer.Error<RouterLayer>, never>
+>;
 type LayerRequiresOnlyHttpClient = Expect<
-  Equal<Layer.Layer.Context<RouterLayer>, HttpClient.HttpClient>
+  Types.Equals<Layer.Layer.Context<RouterLayer>, HttpClient.HttpClient>
 >;
 type ServerLayerProvidesNothing = Expect<
-  Equal<Layer.Layer.Success<RouterServerLayer>, never>
+  Types.Equals<Layer.Layer.Success<RouterServerLayer>, never>
 >;
 type ServerLayerFailsOnlyAtStartup = Expect<
-  Equal<
+  Types.Equals<
     Layer.Layer.Error<RouterServerLayer>,
     RouterServerPackage.RouterServer.StartupError
   >
 >;
 type ServerLayerIsSelfContained = Expect<
-  Equal<Layer.Layer.Context<RouterServerLayer>, never>
+  Types.Equals<Layer.Layer.Context<RouterServerLayer>, never>
 >;
 type RootExportsAreExact = Expect<
-  Equal<
+  Types.Equals<
     keyof typeof RouterPackage,
     | "PollCursor"
     | "Router"
@@ -131,10 +138,13 @@ type RootExportsAreExact = Expect<
   >
 >;
 type ServerExportsAreExact = Expect<
-  Equal<keyof typeof RouterServerPackage, "RouterServer">
+  Types.Equals<keyof typeof RouterServerPackage, "RouterServer">
 >;
 type ServerNamespaceIsExact = Expect<
-  Equal<keyof typeof RouterServerPackage.RouterServer, "StartupError" | "layer">
+  Types.Equals<
+    keyof typeof RouterServerPackage.RouterServer,
+    "StartupError" | "layer"
+  >
 >;
 
 /** Compile-time evidence for the complete public Router capability channels. */

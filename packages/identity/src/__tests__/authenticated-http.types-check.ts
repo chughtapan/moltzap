@@ -5,7 +5,7 @@
  */
 
 import type { HttpClientRequest, HttpServerRequest } from "@effect/platform";
-import type { Effect, Layer } from "effect";
+import type { Effect, Layer, Types } from "effect";
 import type {
   AgentId,
   AgentSigningAuthority,
@@ -20,7 +20,6 @@ import type {
 } from "../index.js";
 import type { Registry } from "../registry.js";
 
-type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 
 type AuthenticationFailure =
@@ -46,19 +45,25 @@ type VerifyEffect = ReturnType<typeof AuthenticatedHttp.verifyAgentRequest>;
 type AuthenticationLayer = ReturnType<typeof AuthenticatedHttp.layer>;
 
 type SignInputIsExact = Expect<
-  Equal<Parameters<typeof AuthenticatedHttp.signAgentRequest>[0], SignCall>
+  Types.Equals<
+    Parameters<typeof AuthenticatedHttp.signAgentRequest>[0],
+    SignCall
+  >
 >;
 type SignChannelsAreExact = Expect<
-  Equal<
+  Types.Equals<
     SignEffect,
     Effect.Effect<HttpClientRequest.HttpClientRequest, AgentSigningError>
   >
 >;
 type VerifyInputIsExact = Expect<
-  Equal<Parameters<typeof AuthenticatedHttp.verifyAgentRequest>[0], VerifyCall>
+  Types.Equals<
+    Parameters<typeof AuthenticatedHttp.verifyAgentRequest>[0],
+    VerifyCall
+  >
 >;
 type VerifyChannelsAreExact = Expect<
-  Equal<
+  Types.Equals<
     VerifyEffect,
     Effect.Effect<
       VerifiedAgentRequest,
@@ -68,7 +73,7 @@ type VerifyChannelsAreExact = Expect<
   >
 >;
 type AuthenticationLayerInputIsExact = Expect<
-  Equal<
+  Types.Equals<
     Parameters<typeof AuthenticatedHttp.layer>[0],
     Readonly<{
       liveNonceCapacity: number;
@@ -78,7 +83,10 @@ type AuthenticationLayerInputIsExact = Expect<
   >
 >;
 type AuthenticationLayerIsExact = Expect<
-  Equal<AuthenticationLayer, Layer.Layer<AuthenticatedHttp, never, Registry>>
+  Types.Equals<
+    AuthenticationLayer,
+    Layer.Layer<AuthenticatedHttp, never, Registry>
+  >
 >;
 
 /** Compile-time evidence for the public AuthenticatedHttp capability. */

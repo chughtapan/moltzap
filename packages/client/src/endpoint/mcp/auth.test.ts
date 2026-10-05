@@ -9,6 +9,7 @@ import { AgentCard } from "@moltzap/identity";
 import { Effect, Redacted, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { EventStore } from "../../delivery/operations.js";
+import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { makeFixture } from "../../__tests__/router-worker-fixtures.js";
 import { HARNESS_SEND_META_KEY } from "./names.js";
 import {
@@ -101,6 +102,8 @@ const request = (
   Effect.tryPromise(() =>
     handler.fetch(makeRequest(method, params, Redacted.value(credential))),
   ).pipe(Effect.flatMap(responseBody));
+const decodeJson = Schema.decodeUnknown(Schema.parseJson(Schema.Unknown));
+const noCredential = Redacted.make("");
 const deniedTools = [
   "read_inbox",
   "read_send",
@@ -113,263 +116,327 @@ const deniedTools = [
   "revoke_event_subscription",
   "resume_event_subscription",
 ];
+const rejectedBearers = [
+  { bearer: "no", credential: "" },
+  { bearer: "a wrong", credential: "wrong" },
+];
+const invalidIdempotencyKeys = [
+  { key: "an empty", idempotencyKey: "" },
+  { key: "a control-character", idempotencyKey: "x\u0000y" },
+  { key: "an oversized", idempotencyKey: "é".repeat(65) },
+];
+const unknownEvent = {
+  name: "read_event",
+  arguments: { eventId: digest("evt_", 1) },
+};
 
-const checksRestrictedTools = (handler: Handler) =>
+/** The tools each credential role sees, sorted, before and after registration. */
+const registrationStates = [
+  {
+    state: "unregistered",
+    registered: false,
+    runtimeTools: [],
+    ownerTools: [
+      "event_subscription_status",
+      "register",
+      "resume_event_subscription",
+      "revoke_event_subscription",
+      "status",
+    ],
+    localTools: ["register", "status"],
+  },
+  {
+    state: "registered",
+    registered: true,
+    runtimeTools: ["read_event", "search_agents", "send_message"],
+    ownerTools: [
+      "acknowledge_delivery",
+      "event_subscription_status",
+      "read_conversation",
+      "read_event",
+      "read_inbox",
+      "read_send",
+      "resume_event_subscription",
+      "revoke_event_subscription",
+      "search_agents",
+      "search_conversations",
+      "send_message",
+      "status",
+    ],
+    localTools: [
+      "acknowledge_delivery",
+      "read_conversation",
+      "read_event",
+      "read_inbox",
+      "read_send",
+      "search_agents",
+      "search_conversations",
+      "send_message",
+      "status",
+    ],
+  },
+];
+
+/**
+ * A handler for a daemon in the given registration state. With `credentials`
+ * it authenticates runtime and owner bearers and serves webhook events;
+ * without them every request is local.
+ */
+const acquireHandler = (
+  registered: boolean,
+  access: Pick<
+    Parameters<typeof makeHarnessMcpHttpHandler>[0],
+    "credentials" | "eventStore"
+  >,
+) =>
   Effect.gen(function* () {
-    for (const name of deniedTools) {
-      const body = yield* request(
-        handler,
-        "tools/call",
-        { name, arguments: {} },
-        credentials.runtime,
-      ).pipe(
-        Effect.flatMap(Schema.decodeUnknown(Schema.parseJson(Schema.Unknown))),
-      );
-      expect(body, name).toMatchObject({ error: { code: -32602 } });
-    }
-    const owner = yield* request(
-      handler,
-      "tools/call",
-      { name: "event_subscription_status", arguments: {} },
-      credentials.owner,
-    ).pipe(
-      Effect.flatMap(Schema.decodeUnknown(Schema.parseJson(Schema.Unknown))),
-    );
-    expect(owner).toMatchObject({
-      result: { structuredContent: { mode: "none" } },
-    });
-  });
-
-const invalidInvocationCall = (name: string, idempotencyKey: string) =>
-  name === "read_send"
-    ? { name, arguments: { idempotencyKey } }
-    : {
-        name,
-        arguments: { input: { to: "agent:bob", text: "probe" } },
-        _meta: { [HARNESS_SEND_META_KEY]: { idempotencyKey } },
-      };
-
-const checksInvocationValidation = (handler: Handler) =>
-  Effect.gen(function* () {
-    for (const idempotencyKey of ["", "x\u0000y", "é".repeat(65)]) {
-      for (const name of ["send_message", "read_send"]) {
-        const body = yield* request(
-          handler,
-          "tools/call",
-          invalidInvocationCall(name, idempotencyKey),
-          name === "read_send" ? credentials.owner : credentials.runtime,
-        ).pipe(
-          Effect.flatMap(
-            Schema.decodeUnknown(Schema.parseJson(Schema.Unknown)),
+    const fixture = yield* makeFixture;
+    const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
+    const handler = yield* makeHarnessMcpHttpHandler({
+      implementation: info,
+      ...access,
+      operations: {
+        ...operations,
+        readStatus: () =>
+          Effect.succeed(
+            registered
+              ? { kind: "active", agentCard }
+              : { kind: "unregistered" },
           ),
-        );
-        expect(body).toMatchObject({ error: { code: -32602 } });
-      }
-    }
-  });
-
-const checksEventAuthorization = (handler: Handler) =>
-  Effect.gen(function* () {
-    const params = {
-      name: "read_event",
-      arguments: {
-        eventId: `evt_${Buffer.alloc(32, 1).toString("base64url")}`,
-      },
-    };
-    for (const credential of ["", "wrong"]) {
-      const response = yield* Effect.tryPromise(() =>
-        handler.fetch(makeRequest("tools/call", params, credential)),
-      );
-      expect(response.status).toBe(401);
-    }
-    const body = yield* request(
-      handler,
-      "tools/call",
-      params,
-      credentials.runtime,
-    ).pipe(
-      Effect.flatMap(Schema.decodeUnknown(Schema.parseJson(Schema.Unknown))),
-    );
-    expect(body).toMatchObject({
-      error: { data: { reason: "unknown-event" } },
-    });
-  });
-
-const checksRuntimeEventCatalog = (handler: Handler) =>
-  Effect.gen(function* () {
-    const catalog = yield* request(
-      handler,
-      "events/list",
-      {},
-      credentials.runtime,
-    ).pipe(
-      Effect.flatMap(Schema.decodeUnknown(Schema.parseJson(Schema.Unknown))),
-    );
-    expect(catalog).toMatchObject({
-      result: {
-        events: [{ name: "moltzap.inbox.item", delivery: ["webhook"] }],
       },
     });
-    const refused = yield* request(
-      handler,
-      "events/stream",
-      { name: "moltzap.inbox.pending", arguments: {} },
-      credentials.runtime,
-    ).pipe(
-      Effect.flatMap(Schema.decodeUnknown(Schema.parseJson(Schema.Unknown))),
+    yield* Effect.addFinalizer(() =>
+      Effect.tryPromise(() => handler.close()).pipe(Effect.ignore),
     );
-    expect(refused).toMatchObject({
-      error: { code: -32014, data: { feature: "stream" } },
-    });
+    return handler;
   });
 
-const checksCatalog = (handler: Handler, registered: boolean) =>
-  Effect.gen(function* () {
-    for (const credential of ["", "wrong"]) {
-      const response = yield* Effect.tryPromise(() =>
-        handler.fetch(makeRequest("server/discover", {}, credential)),
-      );
-      expect(response.status).toBe(401);
-    }
-    const catalog = yield* request(
-      handler,
-      "tools/list",
-      {},
-      credentials.runtime,
-    ).pipe(Effect.flatMap(Schema.decodeUnknown(toolNames)));
-    const names = catalog.result.tools.map((tool) => tool.name);
-    for (const denied of deniedTools) {
-      expect(names).not.toContain(denied);
-    }
-    yield* checksRestrictedTools(handler);
-    yield* checksRuntimeEventCatalog(handler);
-    if (registered) {
-      expect(
-        [...names].sort((left, right) => left.localeCompare(right)),
-      ).toEqual(["read_event", "search_agents", "send_message"]);
-      yield* checksInvocationValidation(handler);
-      yield* checksEventAuthorization(handler);
-    } else {
-      expect(names).toHaveLength(0);
-    }
-  });
-const checksOwnerCatalog = (handler: Handler, registered: boolean) =>
-  request(handler, "tools/list", {}, credentials.owner).pipe(
-    Effect.flatMap(Schema.decodeUnknown(toolNames)),
-    Effect.tap((catalog) =>
-      Effect.sync(() => {
-        expect(
-          catalog.result.tools
-            .map((tool) => tool.name)
-            .sort((left, right) => left.localeCompare(right)),
-        ).toEqual(
-          (registered
-            ? [
-                "acknowledge_delivery",
-                "event_subscription_status",
-                "read_conversation",
-                "read_event",
-                "read_inbox",
-                "read_send",
-                "resume_event_subscription",
-                "revoke_event_subscription",
-                "search_agents",
-                "search_conversations",
-                "send_message",
-                "status",
-              ]
-            : [
-                "event_subscription_status",
-                "register",
-                "resume_event_subscription",
-                "revoke_event_subscription",
-                "status",
-              ]
-          ).sort((left, right) => left.localeCompare(right)),
-        );
-      }),
-    ),
-  );
-const checksLocalCatalog = (handler: Handler, registered: boolean) =>
-  request(handler, "tools/list", {}, credentials.owner).pipe(
-    Effect.flatMap(Schema.decodeUnknown(toolNames)),
-    Effect.tap((catalog) =>
-      Effect.sync(() => {
-        expect(
-          catalog.result.tools
-            .map((tool) => tool.name)
-            .sort((left, right) => left.localeCompare(right)),
-        ).toEqual(
-          registered
-            ? [
-                "acknowledge_delivery",
-                "read_conversation",
-                "read_event",
-                "read_inbox",
-                "read_send",
-                "search_agents",
-                "search_conversations",
-                "send_message",
-                "status",
-              ]
-            : ["register", "status"],
-        );
-      }),
-    ),
-  );
-const restrictsEveryDispatch = () =>
+const credentialedHandler = (registered: boolean) =>
+  acquireHandler(registered, { credentials, eventStore });
+
+/**
+ * Given a handler from `given`, run `when` against it and check its result
+ * with `then`.
+ */
+const verify = <A, E>(
+  given: ReturnType<typeof credentialedHandler>,
+  when: (handler: Handler) => Effect.Effect<A, E>,
+  then: (result: A) => void,
+) =>
   Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
-        for (const registered of [false, true]) {
-          const handler = yield* makeHarnessMcpHttpHandler({
-            implementation: info,
-            credentials,
-            eventStore,
-            operations: {
-              ...operations,
-              readStatus: () =>
-                Effect.succeed(
-                  registered
-                    ? { kind: "active", agentCard }
-                    : { kind: "unregistered" },
-                ),
-            },
-          });
-          yield* Effect.addFinalizer(() =>
-            Effect.tryPromise(() => handler.close()).pipe(Effect.ignore),
-          );
-          yield* checksCatalog(handler, registered);
-          yield* checksOwnerCatalog(handler, registered);
-          const localHandler = yield* makeHarnessMcpHttpHandler({
-            implementation: info,
-            operations: {
-              ...operations,
-              readStatus: () =>
-                Effect.succeed(
-                  registered
-                    ? { kind: "active", agentCard }
-                    : { kind: "unregistered" },
-                ),
-            },
-          });
-          yield* Effect.addFinalizer(() =>
-            Effect.tryPromise(() => localHandler.close()).pipe(Effect.ignore),
-          );
-          yield* checksLocalCatalog(localHandler, registered);
-        }
-      }),
+    Effect.scoped(given.pipe(Effect.flatMap(when), Effect.map(then))),
+  );
+
+const callTool = (
+  handler: Handler,
+  params: RequestParams,
+  credential: Redacted.Redacted,
+) =>
+  request(handler, "tools/call", params, credential).pipe(
+    Effect.flatMap(decodeJson),
+  );
+
+const listTools = (handler: Handler, credential: Redacted.Redacted) =>
+  request(handler, "tools/list", {}, credential).pipe(
+    Effect.flatMap(Schema.decodeUnknown(toolNames)),
+    Effect.map((catalog) =>
+      catalog.result.tools
+        .map((tool) => tool.name)
+        .sort((left, right) => left.localeCompare(right)),
     ),
   );
+
+const responseStatus = (
+  handler: Handler,
+  method: string,
+  params: RequestParams,
+  credential: string,
+) =>
+  Effect.tryPromise(() =>
+    handler.fetch(makeRequest(method, params, credential)),
+  ).pipe(Effect.map((response) => response.status));
 
 // @agent-code-guard/regression-only: direct calls and discovery must enforce the same authority before and after registration.
-describe("tunneled MCP authority", () => {
-  it(
-    "authenticates every request and keeps raw history and administration owner-only",
-    restrictsEveryDispatch,
+describe.each(registrationStates)(
+  "runtime tool authority for a daemon that is $state",
+  ({ registered, runtimeTools }) => {
+    it.each(rejectedBearers)(
+      "refuses discovery with $bearer bearer",
+      ({ credential }) =>
+        verify(
+          credentialedHandler(registered),
+          (handler) =>
+            responseStatus(handler, "server/discover", {}, credential),
+          (status) => {
+            expect(status).toBe(401);
+          },
+        ),
+    );
+
+    it("lists exactly the runtime tools to the runtime credential", () =>
+      verify(
+        credentialedHandler(registered),
+        (handler) => listTools(handler, credentials.runtime),
+        (names) => {
+          expect(names).toEqual(runtimeTools);
+        },
+      ));
+
+    it.each(deniedTools)(
+      "refuses the runtime credential a call to %s",
+      (name) =>
+        verify(
+          credentialedHandler(registered),
+          (handler) =>
+            callTool(handler, { name, arguments: {} }, credentials.runtime),
+          (body) => {
+            expect(body).toMatchObject({
+              error: { code: -32602, message: `Tool ${name} not found` },
+            });
+          },
+        ),
+    );
+  },
+);
+
+describe.each(registrationStates)(
+  "runtime event authority for a daemon that is $state",
+  ({ registered }) => {
+    it("lists only the webhook item event to the runtime credential", () =>
+      verify(
+        credentialedHandler(registered),
+        (handler) =>
+          request(handler, "events/list", {}, credentials.runtime).pipe(
+            Effect.flatMap(decodeJson),
+          ),
+        (catalog) => {
+          expect(catalog).toMatchObject({
+            result: {
+              events: [{ name: "moltzap.inbox.item", delivery: ["webhook"] }],
+            },
+          });
+        },
+      ));
+
+    it("refuses the runtime credential a native inbox stream", () =>
+      verify(
+        credentialedHandler(registered),
+        (handler) =>
+          request(
+            handler,
+            "events/stream",
+            { name: "moltzap.inbox.pending", arguments: {} },
+            credentials.runtime,
+          ).pipe(Effect.flatMap(decodeJson)),
+        (refused) => {
+          expect(refused).toMatchObject({
+            error: { code: -32014, data: { feature: "stream" } },
+          });
+        },
+      ));
+  },
+);
+
+describe.each(registrationStates)(
+  "owner and local authority for a daemon that is $state",
+  ({ registered, ownerTools, localTools }) => {
+    it("lets the owner credential read the event subscription status", () =>
+      verify(
+        credentialedHandler(registered),
+        (handler) =>
+          callTool(
+            handler,
+            { name: "event_subscription_status", arguments: {} },
+            credentials.owner,
+          ),
+        (body) => {
+          expect(body).toMatchObject({
+            result: { structuredContent: { mode: "none" } },
+          });
+        },
+      ));
+
+    it("lists exactly the owner tools to the owner credential", () =>
+      verify(
+        credentialedHandler(registered),
+        (handler) => listTools(handler, credentials.owner),
+        (names) => {
+          expect(names).toEqual(ownerTools);
+        },
+      ));
+
+    it("lists exactly the local tools to an unauthenticated local handler", () =>
+      verify(
+        acquireHandler(registered, {}),
+        (handler) => listTools(handler, noCredential),
+        (names) => {
+          expect(names).toEqual(localTools);
+        },
+      ));
+  },
+);
+
+describe.each(invalidIdempotencyKeys)(
+  "tunneled MCP invocation identity with $key key",
+  ({ idempotencyKey }) => {
+    it("refuses the runtime credential's send_message", () =>
+      verify(
+        credentialedHandler(true),
+        (handler) =>
+          callTool(
+            handler,
+            {
+              name: "send_message",
+              arguments: { input: { to: "agent:bob", text: "probe" } },
+              _meta: { [HARNESS_SEND_META_KEY]: { idempotencyKey } },
+            },
+            credentials.runtime,
+          ),
+        (body) => {
+          expect(body).toMatchObject({ error: { code: -32602 } });
+        },
+      ));
+
+    it("refuses the owner credential's read_send", () =>
+      verify(
+        credentialedHandler(true),
+        (handler) =>
+          callTool(
+            handler,
+            { name: "read_send", arguments: { idempotencyKey } },
+            credentials.owner,
+          ),
+        (body) => {
+          expect(body).toMatchObject({ error: { code: -32602 } });
+        },
+      ));
+  },
+);
+
+describe("tunneled MCP event reads for a registered daemon", () => {
+  it.each(rejectedBearers)(
+    "refuses read_event with $bearer bearer",
+    ({ credential }) =>
+      verify(
+        credentialedHandler(true),
+        (handler) =>
+          responseStatus(handler, "tools/call", unknownEvent, credential),
+        (status) => {
+          expect(status).toBe(401);
+        },
+      ),
   );
+
+  it("reports an unknown event to the runtime credential", () =>
+    verify(
+      credentialedHandler(true),
+      (handler) => callTool(handler, unknownEvent, credentials.runtime),
+      (body) => {
+        expect(body).toMatchObject({
+          error: { data: { reason: "unknown-event" } },
+        });
+      },
+    ));
 });
 
 /* eslint-enable agent-code-guard/no-hardcoded-assertion-literals -- Restore repository defaults. */

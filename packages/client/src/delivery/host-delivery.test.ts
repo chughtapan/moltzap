@@ -1,13 +1,24 @@
-/** @file Host operations over one service's delivery: registration gating, the send export, and local-item reads and acknowledgment. */
+/**
+ * @file Host operations over one service's delivery: registration gating, the
+ * send export, local-item reads and acknowledgment, the webhook view's receipt
+ * and inbox reads, and the pending-delivery passes that publish to a
+ * subscriber.
+ */
 
-import { Effect, Encoding, Exit, Schema, Scope } from "effect";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The store opens a real SQLite database in a temporary directory.
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { Deferred, Effect, Exit, Fiber, Ref, Schema, Scope } from "effect";
+import { describe, expect, it } from "vitest";
 import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type { HistoryExportRecord } from "./history-export.js";
+import type { HarnessMessageReadyEvent } from "./operations.js";
+import { digest } from "../__tests__/agent-card-fixtures.js";
+import {
+  consumeOnly,
+  pendingMessage,
+  publishEveryPost,
+  recordAcknowledgments,
+  takeEvery,
+} from "../__tests__/pending-delivery-fixtures.js";
+import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import {
   DeliveryToken,
   type EndpointStore,
@@ -21,42 +32,26 @@ import {
 } from "../transport/collectives/forms.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
 import { SendError } from "../transport/messaging/errors.js";
-import { InboundMessage } from "../transport/messaging/message.js";
-import { PostId, RecordHash } from "../transport/wire/index.js";
+import { PostId } from "../transport/wire/index.js";
 import { makeHostDelivery } from "./host-delivery.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Closed error reasons and export record kinds are the contract under test. */
 
 type Collectives = Pick<CollectiveOperations, "send">;
 
-const directories: string[] = [];
-
-afterEach(() => {
-  for (const path of directories.splice(0)) {
-    rmSync(path, { recursive: true, force: true });
-  }
-});
-
-const identifier = (prefix: string, fill: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(fill))}`;
-
 const input = Schema.decodeUnknownSync(SendInput)({
   to: "agent:bob",
   text: "one operation",
 });
-const operationId = Schema.decodeUnknownSync(CollectiveId)(
-  identifier("col_", 3),
-);
-const postId = Schema.decodeUnknownSync(PostId)(identifier("pst_", 4));
+const operationId = Schema.decodeUnknownSync(CollectiveId)(digest("col_", 3));
+const postId = Schema.decodeUnknownSync(PostId)(digest("pst_", 4));
 const failure = Schema.decodeUnknownSync(InboundItem)({
   kind: "operationFailed",
-  id: identifier("col_", 1),
+  id: digest("col_", 1),
   to: "agent:bob",
   error: "request unavailable",
 });
-const unboundToken = Schema.decodeUnknownSync(DeliveryToken)(
-  identifier("dlv_", 9),
-);
+const unboundToken = Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", 9));
 
 /**
  * Build one delivery over a fresh store, optionally adjusted, whose active
@@ -64,9 +59,7 @@ const unboundToken = Schema.decodeUnknownSync(DeliveryToken)(
  */
 const makeFixture = (adjust: (store: EndpointStore) => EndpointStore) =>
   Effect.gen(function* () {
-    const path = mkdtempSync(join(tmpdir(), "moltzap-host-delivery-"));
-    directories.push(path);
-    const store = adjust(yield* openEndpointStore(path));
+    const store = adjust(yield* openEndpointStore(stateDirectory()));
     const records: HistoryExportRecord[] = [];
     const slot: { collectives?: Collectives } = {};
     const delivery = yield* makeHostDelivery({
@@ -266,17 +259,7 @@ const releasesTheGateWhenAPassFails = () =>
     Effect.gen(function* () {
       const { delivery, slot } = yield* deliveryFixture;
       slot.collectives = { send: () => Effect.dieMessage("unexpected send") };
-      const pending = {
-        deliveryToken: unboundToken,
-        recordHash: Schema.decodeUnknownSync(RecordHash)(identifier("rch_", 5)),
-        message: Schema.decodeUnknownSync(InboundMessage)({
-          kind: "direct",
-          postId: identifier("pst_", 5),
-          address: "agent:bob",
-          sender: "agent:bob",
-          content: [{ type: "text", text: "pending" }],
-        }),
-      };
+      const pending = pendingMessage(5);
       const failure = yield* Effect.flip(
         delivery.runPass(() => ({
           readPending: Effect.succeed([pending]),
@@ -318,3 +301,204 @@ describe("host delivery", () => {
 });
 
 /* eslint-enable agent-code-guard/no-hardcoded-assertion-literals -- Restore repository defaults after the host delivery tests. */
+
+/**
+ * A webhook receipt interrupted after the store commits it still finishes its
+ * caller's uninterruptible state update, so shutdown cannot drop the update
+ * that follows a durable receipt. The interruption is delivered before the
+ * commit is released.
+ */
+const finishesCallerStateAfterReceiptCommit = () =>
+  run(
+    Effect.gen(function* () {
+      const committed = yield* Deferred.make<undefined>();
+      const release = yield* Deferred.make<undefined>();
+      const { delivery } = yield* makeFixture((store) => ({
+        ...store,
+        completeWebhookDelivery: () =>
+          Deferred.succeed(committed, undefined).pipe(
+            Effect.zipRight(Deferred.await(release)),
+          ),
+      }));
+      const updated = yield* Ref.make(false);
+      const receipt = yield* delivery.eventStore
+        .completeWebhookDelivery(unboundToken, new Uint8Array([1]))
+        .pipe(
+          Effect.zipRight(Ref.set(updated, true)),
+          Effect.uninterruptible,
+          Effect.fork,
+        );
+      yield* Deferred.await(committed);
+
+      const interruption = yield* Effect.fork(Fiber.interrupt(receipt));
+      yield* Effect.yieldNow();
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(interruption);
+
+      expect(
+        yield* Ref.get(updated),
+        "caller state update after the committed receipt",
+      ).toBe(true);
+    }).pipe(Effect.timeout("1 second")),
+  );
+
+/**
+ * An item read through the webhook's inbox view lands in the history export,
+ * decoded from its stored bytes, as a native inbox read would export it.
+ */
+const exportsItemsReadThroughTheWebhookView = () =>
+  run(
+    Effect.gen(function* () {
+      const { delivery, records } = yield* deliveryFixture;
+      yield* delivery.queueLocalItem(failure);
+
+      yield* delivery.eventStore.readInbox({ limit: 1 });
+
+      expect(records).toEqual([
+        expect.objectContaining({ kind: "inbound", item: failure }),
+      ]);
+    }),
+  );
+
+describe("host delivery webhook view", () => {
+  it(
+    "finishes the caller's state update after a committed receipt",
+    finishesCallerStateAfterReceiptCommit,
+  );
+  it(
+    "exports an item read through the webhook inbox view",
+    exportsItemsReadThroughTheWebhookView,
+  );
+});
+
+const firstFromBob = pendingMessage(21);
+const secondFromBob = pendingMessage(22);
+const thirdFromBob = pendingMessage(23);
+const emittedFailure = Schema.decodeUnknownSync(InboundItem)({
+  kind: "operationFailed",
+  id: digest("col_", 24),
+  to: "agent:bob",
+  error: "collective failed",
+});
+
+/**
+ * A refusal stops the pass's publication: a subscriber that refuses the first
+ * item and would take later ones is offered nothing after it, so no later item
+ * is published ahead of the refused one. A later delivery the collective layer
+ * consumes is still acknowledged, and the next pass offers the unpublished
+ * items again in order.
+ */
+const stopsPublishingAtARefusalButStillConsumesLaterDeliveries = () =>
+  run(
+    Effect.gen(function* () {
+      const { delivery } = yield* deliveryFixture;
+      const acknowledged: string[] = [];
+      const offered: HarnessMessageReadyEvent[] = [];
+      const taken: HarnessMessageReadyEvent[] = [];
+      yield* delivery.runPass(() => ({
+        readPending: Effect.succeed([
+          firstFromBob,
+          secondFromBob,
+          thirdFromBob,
+        ]),
+        engine: recordAcknowledgments(acknowledged),
+        classify: consumeOnly(secondFromBob),
+        handler: {
+          publish: (event) => {
+            offered.push(event);
+            return event.deliveryToken !== firstFromBob.deliveryToken;
+          },
+        },
+      }));
+
+      yield* delivery.runPass(() => ({
+        readPending: Effect.succeed([firstFromBob, thirdFromBob]),
+        engine: recordAcknowledgments(acknowledged),
+        classify: consumeOnly(secondFromBob),
+        handler: takeEvery(taken),
+      }));
+
+      expect(offered.map((event) => event.deliveryToken)).toEqual([
+        firstFromBob.deliveryToken,
+      ]);
+      expect(acknowledged).toEqual([secondFromBob.deliveryToken]);
+      expect(taken.map((event) => event.deliveryToken)).toEqual([
+        firstFromBob.deliveryToken,
+        thirdFromBob.deliveryToken,
+      ]);
+    }),
+  );
+
+/**
+ * An item the collective layer emitted is made durable when queued and is
+ * published after the durable deliveries of the next pass.
+ */
+const publishesTheCollectiveLayerSOwnItemsAfterDurableDeliveries = () =>
+  run(
+    Effect.gen(function* () {
+      const { delivery } = yield* deliveryFixture;
+      const taken: HarnessMessageReadyEvent[] = [];
+      yield* delivery.queueLocalItem(emittedFailure);
+
+      yield* delivery.runPass(() => ({
+        readPending: Effect.succeed([firstFromBob]),
+        engine: recordAcknowledgments([]),
+        classify: publishEveryPost,
+        handler: takeEvery(taken),
+      }));
+
+      expect(taken.map((event) => event.item)).toEqual([
+        { kind: "multicast", message: firstFromBob.message },
+        emittedFailure,
+      ]);
+      expect(taken[0]?.deliveryToken).toBe(firstFromBob.deliveryToken);
+    }),
+  );
+
+/**
+ * After the subscriber detaches, the next pass offers a delivery it took
+ * again, and the history export still holds the item once.
+ */
+const recordsEachPublishedItemInTheHistoryExportOnce = () =>
+  run(
+    Effect.gen(function* () {
+      const { delivery, records } = yield* deliveryFixture;
+      const taken: HarnessMessageReadyEvent[] = [];
+      const pass = () => ({
+        readPending: Effect.succeed([firstFromBob]),
+        engine: recordAcknowledgments([]),
+        classify: publishEveryPost,
+        handler: takeEvery(taken),
+      });
+      yield* delivery.runPass(pass);
+      yield* delivery.detach;
+
+      yield* delivery.runPass(pass);
+
+      expect(taken.map((event) => event.deliveryToken)).toEqual([
+        firstFromBob.deliveryToken,
+        firstFromBob.deliveryToken,
+      ]);
+      expect(records).toMatchObject([
+        {
+          kind: "inbound",
+          item: { kind: "multicast", message: firstFromBob.message },
+        },
+      ]);
+    }),
+  );
+
+describe("host delivery passes", () => {
+  it(
+    "stops publishing at a refusal but still consumes later deliveries",
+    stopsPublishingAtARefusalButStillConsumesLaterDeliveries,
+  );
+  it(
+    "publishes the collective layer's own items after durable deliveries",
+    publishesTheCollectiveLayerSOwnItemsAfterDurableDeliveries,
+  );
+  it(
+    "records each published item in the history export once",
+    recordsEachPublishedItemInTheHistoryExportOnce,
+  );
+});

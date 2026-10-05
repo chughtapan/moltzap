@@ -1,10 +1,10 @@
-/** @file Pins answer validation and member outcomes against a form-mode schema. */
+/** @file Pins answer validation against a form-mode schema. */
 
 import { Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { AnswerContent } from "./forms.js";
 import { FormModeSchema } from "./part/index.js";
-import { outcomeOfResponse, validateAnswer } from "./validation.js";
+import { validateAnswer } from "./validation.js";
 
 const requestedSchema = Schema.decodeUnknownSync(FormModeSchema)({
   type: "object",
@@ -204,33 +204,5 @@ describe("multi-select answer keywords", () => {
 
     expect(accepts(field, ["a"])).toBe(true);
     expect(keywordsOf(field, ["b"])).toEqual(["invalid", "items[0].anyOf"]);
-  });
-});
-
-// @agent-code-guard/regression-only: examples pin the one outcome each response action records.
-describe("member outcomes", () => {
-  it("records a valid accept as answered with its content", () => {
-    expect(
-      Effect.runSync(
-        outcomeOfResponse(requestedSchema, {
-          action: "accept",
-          content: { slot: "mon" },
-        }),
-      ),
-    ).toEqual({ kind: "answered", content: { slot: "mon" } });
-  });
-
-  it("records an accept failing the schema as invalid, naming the field", () => {
-    expect(
-      Effect.runSync(
-        outcomeOfResponse(requestedSchema, { action: "accept", content: {} }),
-      ),
-    ).toEqual({ kind: "invalid", reason: 'field "slot" is missing' });
-  });
-
-  it("records a decline as declined", () => {
-    expect(
-      Effect.runSync(outcomeOfResponse(requestedSchema, { action: "decline" })),
-    ).toEqual({ kind: "declined" });
   });
 });

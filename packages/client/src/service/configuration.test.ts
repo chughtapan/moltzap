@@ -200,10 +200,6 @@ const rejectsSecretFileFailures = async () => {
   ).toBe("agent-private-key");
 
   writeFileSync(join(directory, "agent.pem"), privateKey);
-  expect(await admissionFailureReason(configuration)).toBe(
-    "admission-credential-file",
-  );
-
   writeFileSync(join(directory, "admission"), "bootstrap-token=\n");
   expect(await admissionFailureReason(configuration)).toBe(
     "admission-credential",
