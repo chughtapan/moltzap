@@ -47,8 +47,7 @@ import {
   observedAnchorIsResolved,
   observedHeadIsResolved,
   type PendingReanchorVote,
-  queueRecoveryEvidence,
-  queueRecoveryPacket,
+  queueRecoveryEnvelope,
   requestCertifiedHistory,
 } from "../recovery-session/index.js";
 import { restartEmptyPosition } from "./empty.js";
@@ -231,7 +230,10 @@ function finishAnchoredPosition(
   const anchor = currentAnchorForRecovery(runtime, state, conversationId);
   const relay =
     anchor?.kind === "completed_reanchor"
-      ? queueRecoveryPacket(runtime, membership, anchor)
+      ? queueRecoveryEnvelope(runtime, membership, {
+          kind: "direct",
+          packet: anchor,
+        })
       : Effect.void;
   return relay.pipe(
     Effect.zipRight(markConversationRecovered(runtime, conversationId)),
@@ -861,9 +863,10 @@ function ensureLocalReanchorVote(
       const vote: PendingReanchorVote = { message, statement };
       return reanchorVoteIsRemembered(state, vote)
         ? Effect.void
-        : queueRecoveryEvidence(runtime, membership, message).pipe(
-            Effect.zipRight(rememberReanchorVote(state, vote)),
-          );
+        : queueRecoveryEnvelope(runtime, membership, {
+            kind: "evidence",
+            message,
+          }).pipe(Effect.zipRight(rememberReanchorVote(state, vote)));
     }),
   );
 }
@@ -909,7 +912,12 @@ function createLocalReanchorVote(
     Effect.flatMap((message) => {
       const vote: PendingReanchorVote = { message, statement };
       return persistReanchorVote(runtime, vote).pipe(
-        Effect.zipRight(queueRecoveryEvidence(runtime, membership, message)),
+        Effect.zipRight(
+          queueRecoveryEnvelope(runtime, membership, {
+            kind: "evidence",
+            message,
+          }),
+        ),
         Effect.zipRight(rememberReanchorVote(state, vote)),
       );
     }),
@@ -984,7 +992,12 @@ function finalizeCompletedReanchor(
   return verifyCompletedReanchor({ completed, membership }).pipe(
     Effect.mapError(persistenceFailure),
     Effect.zipRight(persistCompletedReanchor(runtime, completed)),
-    Effect.zipRight(queueRecoveryPacket(runtime, membership, completed)),
+    Effect.zipRight(
+      queueRecoveryEnvelope(runtime, membership, {
+        kind: "direct",
+        packet: completed,
+      }),
+    ),
     Effect.zipRight(
       markConversationRecovered(runtime, completed.reanchor.conversationId),
     ),

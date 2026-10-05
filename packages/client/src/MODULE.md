@@ -701,6 +701,7 @@ Complete production process composition for `moltzapd`.
 - `transport/messaging/errors.ts`
 - `transport/messaging/index.ts`
 - `transport/messaging/message.ts`
+- `transport/messaging/outbox.ts`
 - `transport/messaging/README.md`
 - `transport/messaging/reanchor/empty.ts`
 - `transport/messaging/reanchor/index.ts`

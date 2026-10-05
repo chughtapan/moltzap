@@ -50,8 +50,8 @@ function attachObligation(
     const { fold, recordHash } = yield* obligationFold(runtime, obligation);
     const packet = yield* packetForObligation(fold, obligation, recordHash);
     yield* Effect.uninterruptible(
-      runtime.phases
-        .queueCertifiedPacket(runtime, fold.conversation, packet)
+      runtime.outbox
+        .queueCertifiedPacket(fold.conversation, packet)
         .pipe(Effect.mapError(persistenceFailure)),
     );
   });

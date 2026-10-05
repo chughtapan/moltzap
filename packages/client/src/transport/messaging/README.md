@@ -21,3 +21,5 @@ and the dissemination resume), `recovery/` (catch-up), `reanchor/`
 shares with its re-anchor). A phase starts work in another phase only through
 `EngineRuntime.phases`, which `index.ts` supplies, so phases never import each
 other.
+
+`outbox.ts` builds the `EngineOutbox` port; only `index.ts` imports it.

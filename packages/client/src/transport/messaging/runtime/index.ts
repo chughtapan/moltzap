@@ -11,21 +11,27 @@ import type {
   SignedMessage,
   VerifiedAgentCard,
 } from "@moltzap/identity";
-import type { Deferred, Effect, Queue } from "effect";
-import type { EndpointStore } from "../../../store/index.js";
+import type { Deferred, Effect } from "effect";
+import type {
+  EndpointStore,
+  EndpointStoreError,
+} from "../../../store/index.js";
 import type {
   RouterIngressDisposition,
   RouterWorker,
   RouterWorkerIngress,
   RouterWorkerPersistenceError,
+  RouterWorkerSendError,
 } from "../../router/index.js";
 import type {
   ActionCertifiedRecord,
   ActionCore,
   ActionHash,
   CertifiedRecord,
+  ClientRepresentationError,
   ConversationId,
   DecodedOuterBody,
+  DirectPacket,
   PostIntent,
   RecordHash,
   RouterAnchor,
@@ -137,11 +143,63 @@ export interface EngineRuntime {
   readonly completedPosts: Map<string, RecordHash>;
   readonly actionFolds: Map<ActionHash, EngineActionFold>;
   readonly recordFolds: Map<RecordHash, EngineActionFold>;
-  readonly outbound: string[];
-  readonly outboundSignal: Queue.Queue<undefined>;
   readonly gate: Effect.Semaphore;
-  readonly outboundGate: Effect.Semaphore;
+  readonly outbox: EngineOutbox;
   readonly phases: EnginePhases;
+}
+
+/**
+ * Why the outbox could not stage an envelope: signing or canonical encoding
+ * failed, or the store refused the row. Each phase maps it to its own error.
+ */
+export type EngineOutboxError = ClientRepresentationError | EndpointStoreError;
+
+/**
+ * The engine's outbox: the only caller of the outer-envelope signers, so the
+ * engine builds and signs every outer body here; the Router worker's retry
+ * re-signs a staged body unchanged. Its queue operations always stage the
+ * signed envelope durably and queue its outbox identity for the Router
+ * worker; `sign` serves a caller that routes the envelope itself. Phases
+ * reach it only through `EngineRuntime.outbox`.
+ */
+export interface EngineOutbox {
+  /** Sign an envelope for a caller that routes it, as recovery does. */
+  readonly sign: (
+    membership: VerifiedMembership,
+    body: DecodedOuterBody,
+  ) => Effect.Effect<SignedMessage, ClientRepresentationError>;
+  readonly queuePacket: (
+    conversation: EngineConversation,
+    packet: DirectPacket,
+  ) => Effect.Effect<void, EngineOutboxError>;
+  /** Relay stable inner evidence; its signer attribution is unchanged. */
+  readonly queueEvidence: (
+    conversation: EngineConversation,
+    evidence: SignedMessage,
+  ) => Effect.Effect<void, EngineOutboxError>;
+  /** Attach the signed packet to its durable dissemination obligation. */
+  readonly queueCertifiedPacket: (
+    conversation: EngineConversation,
+    packet: ActionCertifiedRecord | CertifiedRecord,
+  ) => Effect.Effect<void, EngineOutboxError>;
+  /**
+   * Stage an envelope that `sign` returned; any other `SignedMessage` would
+   * skip the outbox's signing.
+   */
+  readonly enqueueSigned: (
+    conversationId: ConversationId,
+    message: SignedMessage,
+  ) => Effect.Effect<void, EngineOutboxError>;
+  readonly resume: (outboundIds: readonly string[]) => Effect.Effect<void>;
+  /** Forget every queued identity; the store keeps the envelopes. */
+  readonly clear: () => void;
+  /** Run `effect` while no drain reads or removes the queue head. */
+  readonly serialized: <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E, R>;
+  readonly drain: Effect.Effect<void, RouterWorkerSendError>;
+  /** Drain on every wake; ends only with a fatal worker failure. */
+  readonly run: Effect.Effect<never, RouterWorkerSendError>;
 }
 
 /**
@@ -154,16 +212,6 @@ export interface EnginePhases {
     runtime: EngineRuntime,
     intent: EnginePostIntent,
   ) => Effect.Effect<ActionHash, SendError>;
-  readonly queueCertifiedPacket: (
-    runtime: EngineRuntime,
-    conversation: EngineConversation,
-    packet: ActionCertifiedRecord | CertifiedRecord,
-  ) => Effect.Effect<void, SendError>;
-  readonly queueEvidence: (
-    runtime: EngineRuntime,
-    conversation: EngineConversation,
-    evidence: SignedMessage,
-  ) => Effect.Effect<void, SendError>;
   readonly acceptIngress: (
     runtime: EngineRuntime,
     ingress: RouterWorkerIngress<DecodedOuterBody>,

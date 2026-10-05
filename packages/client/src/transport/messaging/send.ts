@@ -1,11 +1,10 @@
 /** @file Address resolution, immutable intent binding, and proposal creation. */
 
-import { AgentCard, MOLTZAP_VERSION, SignedMessage } from "@moltzap/identity";
+import { AgentCard, MOLTZAP_VERSION } from "@moltzap/identity";
 import { Deferred, Duration, Effect, Schema } from "effect";
 import type {
   ConversationFoundation,
   EndpointStoreError,
-  OutboundMessageInput,
   PostIntent as StoredPostIntent,
 } from "../../store/index.js";
 import type { RouterWorkerUnavailableError } from "../router/index.js";
@@ -16,13 +15,10 @@ import type {
   EngineRuntime,
 } from "./runtime/index.js";
 import {
-  type ActionCertifiedRecord,
   type ActionCore,
   type ActionHash,
-  type CertifiedRecord,
   type Content,
   deriveConversationId,
-  type DirectPacket,
   encodeCanonical,
   GenesisAnchorBody,
   hashAction,
@@ -34,8 +30,6 @@ import {
   type PostIntent,
   PostIntent as PostIntentSchema,
   type RecordHash,
-  signOuterEvidence,
-  signOuterPacket,
   type VerifiedMembership,
   verifyMembershipDescriptor,
 } from "../wire/index.js";
@@ -159,165 +153,6 @@ const resolveMembership = (runtime: EngineRuntime, input: EngineSendInput) =>
     Effect.flatMap((resolved) => buildMembership(runtime, resolved)),
   );
 
-function enqueueOuterMessage(
-  runtime: EngineRuntime,
-  conversationId: EngineConversation["conversationId"],
-  message: typeof SignedMessage.Type,
-): Effect.Effect<void, SendError> {
-  return outboundInput(conversationId, message).pipe(
-    Effect.flatMap((input) =>
-      runtime.input.store
-        .enqueueOutbound(input)
-        .pipe(Effect.mapError(storeFailure)),
-    ),
-    Effect.flatMap((outbound) => signalOutbound(runtime, outbound.outboundId)),
-  );
-}
-
-function outboundInput(
-  conversationId: EngineConversation["conversationId"],
-  message: typeof SignedMessage.Type,
-): Effect.Effect<OutboundMessageInput, SendError> {
-  return encodeCanonical(SignedMessage, message).pipe(
-    Effect.mapError(representationFailure),
-    Effect.map((canonicalSignedMessage) => ({
-      conversationId,
-      messageId: message.messageId,
-      canonicalSignedMessage,
-    })),
-  );
-}
-
-function signalOutbound(
-  runtime: EngineRuntime,
-  outboundId: string,
-): Effect.Effect<void> {
-  return Effect.sync(() => {
-    if (!runtime.outbound.includes(outboundId)) {
-      runtime.outbound.push(outboundId);
-    }
-  }).pipe(
-    Effect.zipRight(runtime.outboundSignal.offer(undefined)),
-    Effect.asVoid,
-  );
-}
-
-function recordHash(
-  packet: ActionCertifiedRecord | CertifiedRecord,
-): ActionCertifiedRecord["recordHash"] {
-  switch (packet.kind) {
-    case "action_certified_record":
-      return packet.recordHash;
-    case "certified_record":
-      return packet.actionCertifiedRecord.recordHash;
-    default: {
-      const exhaustive: never = packet;
-      return exhaustive;
-    }
-  }
-}
-
-function disseminationKind(
-  packet: ActionCertifiedRecord | CertifiedRecord,
-): "action-certified-record" | "certified-record" {
-  switch (packet.kind) {
-    case "action_certified_record":
-      return "action-certified-record";
-    case "certified_record":
-      return "certified-record";
-    default: {
-      const exhaustive: never = packet;
-      return exhaustive;
-    }
-  }
-}
-
-/**
- * Queue one direct protocol packet for all fixed members.
- * @param runtime Engine state and local signing authority.
- * @param conversation Verified conversation and fixed-member recipients.
- * @param packet Closed protocol packet to disseminate.
- * @returns Completion after the complete outer message is durably staged.
- */
-const queuePacket = (
-  runtime: EngineRuntime,
-  conversation: EngineConversation,
-  packet: DirectPacket,
-): Effect.Effect<void, SendError> =>
-  signOuterPacket({
-    packet,
-    membership: conversation.membership,
-    agentCard: runtime.input.localAgentCard,
-    signingAuthority: runtime.input.signingAuthority,
-  }).pipe(
-    Effect.mapError(representationFailure),
-    Effect.flatMap((message) =>
-      enqueueOuterMessage(runtime, conversation.conversationId, message),
-    ),
-  );
-
-/**
- * Attach a certified record packet to its durable dissemination obligation.
- * @param runtime Engine state and local signing authority.
- * @param conversation Verified conversation and fixed-member recipients.
- * @param packet Record packet whose state transition retained the obligation.
- * @returns Completion after the exact outer envelope is durably attached.
- */
-export const queueCertifiedPacket = (
-  runtime: EngineRuntime,
-  conversation: EngineConversation,
-  packet: ActionCertifiedRecord | CertifiedRecord,
-): Effect.Effect<void, SendError> =>
-  signOuterPacket({
-    packet,
-    membership: conversation.membership,
-    agentCard: runtime.input.localAgentCard,
-    signingAuthority: runtime.input.signingAuthority,
-  }).pipe(
-    Effect.mapError(representationFailure),
-    Effect.flatMap((message) =>
-      outboundInput(conversation.conversationId, message).pipe(
-        Effect.flatMap((input) =>
-          runtime.input.store
-            .enqueueDisseminationOutbound(
-              {
-                conversationId: conversation.conversationId,
-                recordHash: recordHash(packet),
-                kind: disseminationKind(packet),
-              },
-              input,
-            )
-            .pipe(Effect.mapError(storeFailure)),
-        ),
-      ),
-    ),
-    Effect.flatMap((outbound) => signalOutbound(runtime, outbound.outboundId)),
-  );
-
-/**
- * Queue stable inner evidence without changing its signer attribution.
- * @param runtime Engine state and local signing authority.
- * @param conversation Verified conversation and fixed-member recipients.
- * @param evidence Stable self-addressed evidence message.
- * @returns Completion after the complete outer message is durably staged.
- */
-export const queueEvidence = (
-  runtime: EngineRuntime,
-  conversation: EngineConversation,
-  evidence: SignedMessage,
-): Effect.Effect<void, SendError> =>
-  signOuterEvidence({
-    evidence,
-    membership: conversation.membership,
-    agentCard: runtime.input.localAgentCard,
-    signingAuthority: runtime.input.signingAuthority,
-  }).pipe(
-    Effect.mapError(representationFailure),
-    Effect.flatMap((message) =>
-      enqueueOuterMessage(runtime, conversation.conversationId, message),
-    ),
-  );
-
 const proposalAction = (
   conversation: EngineConversation,
   intent: PostIntent,
@@ -413,17 +248,24 @@ function queueAuthorizedProposal(
   return Effect.gen(function* () {
     yield* authorizeAction(runtime, proposal);
     yield* Effect.uninterruptible(
-      queuePacket(runtime, proposal.conversation, {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "action_proposal",
-        action: proposal.action,
-      }).pipe(
-        Effect.zipRight(
-          Effect.sync(() => {
-            proposal.localIntent.proposedActionHash = proposal.actionHash;
+      runtime.outbox
+        .queuePacket(proposal.conversation, {
+          moltzapVersion: MOLTZAP_VERSION,
+          kind: "action_proposal",
+          action: proposal.action,
+        })
+        .pipe(
+          Effect.catchTags({
+            EndpointStoreError: (error) => Effect.fail(storeFailure(error)),
+            ClientRepresentationError: () =>
+              Effect.fail(representationFailure()),
           }),
+          Effect.zipRight(
+            Effect.sync(() => {
+              proposal.localIntent.proposedActionHash = proposal.actionHash;
+            }),
+          ),
         ),
-      ),
     );
   });
 }
