@@ -33,18 +33,18 @@ import type {
 import type { SendError } from "../transport/messaging/errors.js";
 import type { DaemonBootstrap, DaemonConfigurationError } from "./bootstrap.js";
 import { resolveMessageAddress } from "../transport/messaging/address.js";
+import { verifyStoredMembership } from "../transport/messaging/index.js";
 import {
   type CertifiedRecord,
   compareAgentIds,
   decodeCanonical,
   deriveConversationId,
-  MembershipDescriptor as MembershipDescriptorSchema,
   type RecordCore,
   RecordCore as RecordCoreSchema,
   type RouterAnchor,
   RouterAnchor as RouterAnchorSchema,
   verifyCertifiedRecord,
-  verifyMembershipDescriptor,
+  type verifyMembershipDescriptor,
   verifyRecordCore,
   verifyStableEvidence,
 } from "../transport/wire/index.js";
@@ -340,23 +340,15 @@ function decodeStoredMembership(
     readonly localAgentCard: VerifiedAgentCard;
   },
 ): Effect.Effect<MessageAddress, DaemonManagementError> {
-  return Effect.gen(function* () {
-    const descriptor = yield* decodeCanonical(
-      MembershipDescriptorSchema,
-      stored.canonicalMembership,
-    ).pipe(Effect.mapError(persistenceFailure));
-    const membership = yield* verifyMembershipDescriptor(
-      descriptor,
-      input.bootstrap.configuration.registrySignerPublicKey,
-    ).pipe(Effect.mapError(persistenceFailure));
-    if (
-      membership.descriptor.conversationId !== stored.conversationId ||
-      membership.hash !== stored.membershipHash
-    ) {
-      return yield* Effect.fail(persistenceFailure());
-    }
-    return yield* renderMembershipAddress(membership, input.localAgentCard);
-  });
+  return verifyStoredMembership(
+    stored,
+    input.bootstrap.configuration.registrySignerPublicKey,
+  ).pipe(
+    Effect.mapError(persistenceFailure),
+    Effect.flatMap((membership) =>
+      renderMembershipAddress(membership, input.localAgentCard),
+    ),
+  );
 }
 
 function searchConversationAddresses(

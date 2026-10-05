@@ -31,6 +31,7 @@ import {
   hashAnchor,
   MembershipDescriptor,
   quorumThreshold,
+  sameBytes,
   signEvidenceMessage,
   type VerifiedEvidence,
   type VerifiedMembership,
@@ -49,7 +50,7 @@ import {
   recordAnchorHash,
   stagedRecord,
   storedCertifiedRecord,
-} from "../records/index.js";
+} from "../history/index.js";
 import {
   type EngineActionFold,
   type EngineConversation,
@@ -64,6 +65,8 @@ import {
   verifiedEvidenceForRoute,
 } from "./evidence.js";
 
+/** Whether verified evidence names a fold, shared with engine startup. */
+export { evidenceMatchesFold, type EvidenceRoute } from "./evidence.js";
 /** Dissemination resume, bound as the `resumeDissemination` engine phase. */
 export { resumeDisseminationObligations } from "./dissemination.js";
 
@@ -74,10 +77,6 @@ const isSemanticStoreRejection = (error: EndpointStoreError): boolean =>
 
 const localRepresentationFailure = (): RouterWorkerPersistenceError =>
   persistenceFailure();
-
-const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
-  left.byteLength === right.byteLength &&
-  left.every((byte, index) => byte === right[index]);
 
 const sameCanonical = <Value, Encoded, Requirements>(
   schema: Schema.Schema<Value, Encoded, Requirements>,

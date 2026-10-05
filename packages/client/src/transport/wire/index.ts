@@ -18,6 +18,7 @@ export {
   hashRecord,
   mintPostId,
   type OuterMembership,
+  sameBytes,
   signEvidenceMessage,
   signOuterEvidence,
   signOuterPacket,

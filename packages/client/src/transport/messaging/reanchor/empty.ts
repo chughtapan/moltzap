@@ -15,6 +15,7 @@ import {
   GenesisAnchorBody,
   type GenesisAnchorBody as GenesisAnchorBodyValue,
   hashAnchor,
+  sameBytes,
   type VerifiedMembership,
 } from "../../wire/index.js";
 import {
@@ -260,13 +261,6 @@ function clearIntentProposals(
       pending.proposedActionHash = undefined;
     }
   }
-}
-
-function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
-  return (
-    left.byteLength === right.byteLength &&
-    left.every((byte, index) => byte === right[index])
-  );
 }
 
 function persistenceFailure(): RouterWorkerPersistenceError {

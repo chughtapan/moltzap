@@ -15,11 +15,6 @@ import type {
 } from "../../endpoint/mcp/index.js";
 import type { EndpointStore, StoredMembership } from "../../store/index.js";
 import type {
-  EndpointEngine,
-  EndpointEngineInput,
-  EngineInitializationError,
-} from "../../transport/messaging/index.js";
-import type {
   RouterWorker,
   RouterWorkerInput,
   RouterWorkerProtocolError,
@@ -27,11 +22,15 @@ import type {
 } from "../../transport/router/index.js";
 import type { DaemonBootstrap } from "../bootstrap.js";
 import {
-  decodeCanonical,
+  type EndpointEngine,
+  type EndpointEngineInput,
+  type EngineInitializationError,
+  verifyStoredMembership,
+} from "../../transport/messaging/index.js";
+import {
   type DecodedOuterBody,
   encodeCanonical,
-  MembershipDescriptor,
-  verifyMembershipDescriptor,
+  sameBytes,
 } from "../../transport/wire/index.js";
 import {
   type DaemonManagementOperations,
@@ -93,10 +92,6 @@ export type RegistrationResult = Effect.Effect.Success<
   ReturnType<DaemonManagementOperations["register"]>
 >;
 
-const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
-  left.length === right.length &&
-  left.every((byte, index) => byte === right[index]);
-
 const activationFailure = (
   reason: DaemonActivationError["reason"],
 ): DaemonActivationError => new DaemonActivationError({ reason });
@@ -144,20 +139,10 @@ const retainMembershipCards = (
   stored: StoredMembership,
 ): Effect.Effect<void, DaemonActivationError> =>
   Effect.gen(function* () {
-    const membership = yield* decodeCanonical(
-      MembershipDescriptor,
-      stored.canonicalMembership,
-    ).pipe(Effect.mapError(() => activationFailure("representation")));
-    const verified = yield* verifyMembershipDescriptor(
-      membership,
+    const verified = yield* verifyStoredMembership(
+      stored,
       input.bootstrap.configuration.registrySignerPublicKey,
     ).pipe(Effect.mapError(() => activationFailure("representation")));
-    if (
-      membership.conversationId !== stored.conversationId ||
-      verified.hash !== stored.membershipHash
-    ) {
-      return yield* Effect.fail(activationFailure("representation"));
-    }
     yield* Effect.forEach(
       verified.members,
       (card) => retainPinnedCard(input.pinned, card),

@@ -43,7 +43,6 @@ import {
   acceptEngineIngressWithRecovery,
   acceptEngineRecoveryIngressWithRecovery,
   recoverCertifiedHistory,
-  recoverEngineState,
 } from "./recovery/index.js";
 import {
   type EngineSendInput,
@@ -52,11 +51,14 @@ import {
   proposeIntent,
   resolveAddress,
 } from "./send.js";
+import { recoverEngineState } from "./startup.js";
 
 /** Private engine dependencies retained behind the daemon boundary. */
 export type { EndpointEngineInput } from "./runtime/index.js";
 /** The send input and result the collective layer exchanges with the engine. */
 export type { EngineSendInput, EngineSentPost } from "./send.js";
+/** The one verifier of a stored membership row, shared with the daemon. */
+export { verifyStoredMembership } from "./history/index.js";
 
 /** Engine acquisition could not establish one coherent durable endpoint. */
 export class EngineInitializationError extends Data.TaggedError(

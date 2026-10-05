@@ -41,6 +41,13 @@ import {
   verifyOuterMessage,
 } from "../../wire/index.js";
 import {
+  decodeStoredAnchor,
+  durableRouterInstanceId,
+  recordFromStore,
+  verifyRecoveredHistory,
+  verifyStoredOutbounds,
+} from "../history/index.js";
+import {
   acceptCompletedReanchor,
   acceptReanchorVote,
   positionReady,
@@ -58,16 +65,6 @@ import {
   requestCertifiedHistory,
 } from "../recovery-session/index.js";
 import { completeRecoveryBarrier, currentRecoveryBarrier } from "./barrier.js";
-import {
-  decodeStoredAnchor,
-  durableRouterInstanceId,
-  recordFromStore,
-  verifyRecoveredHistory,
-  verifyStoredOutbounds,
-} from "./persistence.js";
-
-/** Reconstruct the complete private engine state from durable storage. */
-export { recoverEngineState } from "./persistence.js";
 
 interface CatchUpSuccessor {
   readonly item: CertifiedRecord | CompletedReanchorValue;

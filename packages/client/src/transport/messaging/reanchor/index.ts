@@ -38,14 +38,17 @@ import {
   verifyOuterMessage,
   verifyStableEvidence,
 } from "../../wire/index.js";
-import { protocolEvidence } from "../records/index.js";
+import {
+  anchorRouterInstanceId,
+  durablePosition,
+  observedAnchorIsResolved,
+  observedHeadIsResolved,
+  protocolEvidence,
+} from "../history/index.js";
 import {
   type ActiveRecoveryState,
   currentRecoveryState,
-  durablePosition,
   markConversationRecovered,
-  observedAnchorIsResolved,
-  observedHeadIsResolved,
   type PendingReanchorVote,
   queueRecoveryEnvelope,
   requestCertifiedHistory,
@@ -260,11 +263,8 @@ function currentAnchorForRecovery(
   if (anchor === undefined) {
     return undefined;
   }
-  const routerInstanceId =
-    anchor.kind === "genesis_anchor_body"
-      ? anchor.routerInstanceId
-      : anchor.reanchor.routerInstanceId;
-  return routerInstanceId === state.recovery.anchor.routerInstanceId
+  return anchorRouterInstanceId(anchor) ===
+    state.recovery.anchor.routerInstanceId
     ? anchor
     : undefined;
 }
