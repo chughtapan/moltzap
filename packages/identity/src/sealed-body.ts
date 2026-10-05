@@ -1,4 +1,7 @@
-/** @file Sealed SignedMessage bodies: multi-recipient JWE bound to the sender AgentId. */
+/**
+ * @file Sealed SignedMessage bodies: multi-recipient JWE bound to the sender
+ * AgentId and committed to one plaintext.
+ */
 
 import { Data, Effect, Either, Encoding, Option, Schema } from "effect";
 import { generalDecrypt, GeneralEncrypt } from "jose";
@@ -6,6 +9,7 @@ import type { VerifiedAgentCard } from "./agent-card.js";
 import {
   agentOpeningPrivateKey,
   type AgentSigningAuthority,
+  SEALED_BODY_KEY_MANAGEMENT_ALGORITHM,
   x25519PublicJwk,
 } from "./agent-key.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
@@ -21,28 +25,35 @@ import {
   type VerifiedSignedMessage,
 } from "./signed-message.js";
 
-const KEY_MANAGEMENT_ALGORITHM = "ECDH-ES+A256KW";
 const CONTENT_ENCRYPTION_ALGORITHM = "A256GCM";
+const COMMITMENT_HEADER = "xyz.moltzap/commitment";
 const SENDER_HEADER = "xyz.moltzap/sender";
+const COMMITMENT_BYTES = 32;
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
 const WRAPPED_KEY_BYTES = 40;
 const X25519_PUBLIC_KEY_BYTES = 32;
 
 /**
+ * A random salt precedes the plaintext inside the ciphertext, so the
+ * commitment in the protected header reveals nothing about the plaintext.
+ */
+const SALT_BYTES = 32;
+
+/**
  * Every sealed-body member except the ciphertext has a fixed length: the
- * sender AgentId, ephemeral keys, wrapped keys, IV, and tag. The JCS encoding
- * is therefore the base64url ciphertext plus these fixed byte counts. A single
- * recipient carries its `epk` in the protected header, and two or more each
- * carry one in their own entry.
+ * commitment, sender AgentId, ephemeral keys, wrapped keys, IV, and tag. The
+ * JCS encoding is therefore the base64url of the salted plaintext plus these
+ * fixed byte counts. A single recipient carries its `epk` in the protected
+ * header, and two or more each carry one in their own entry.
  *
  * The outer members with IV and tag take 103 bytes. A single recipient adds a
- * 234-byte protected header and a 74-byte entry: 411. Two or more add a
- * 120-byte protected header and 171 bytes per entry including its separating
- * comma, less one byte because the last entry has none: 222 + 171R.
+ * 328-byte protected header and a 74-byte entry: 505. Two or more add a
+ * 215-byte protected header and 171 bytes per entry including its separating
+ * comma, less one byte because the last entry has none: 317 + 171R.
  */
-const SINGLE_RECIPIENT_FIXED_BYTES = 411;
-const MULTIPLE_RECIPIENT_FIXED_BYTES = 222;
+const SINGLE_RECIPIENT_FIXED_BYTES = 505;
+const MULTIPLE_RECIPIENT_FIXED_BYTES = 317;
 const RECIPIENT_ENTRY_BYTES = 171;
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
@@ -71,6 +82,8 @@ const encodedBytes = (byteLength: number) =>
     Schema.filter((value) => hasCanonicalBase64UrlLength(value, byteLength)),
   );
 
+const encodedCommitment = encodedBytes(COMMITMENT_BYTES);
+
 const ephemeralPublicKey = exactStruct({
   crv: Schema.Literal("X25519"),
   kty: Schema.Literal("OKP"),
@@ -93,15 +106,54 @@ const sealedBodyRepresentation = exactStruct({
 type SealedBodyRepresentation = typeof sealedBodyRepresentation.Type;
 
 const protectedHeader = exactStruct({
-  alg: Schema.Literal(KEY_MANAGEMENT_ALGORITHM),
+  alg: Schema.Literal(SEALED_BODY_KEY_MANAGEMENT_ALGORITHM),
   enc: Schema.Literal(CONTENT_ENCRYPTION_ALGORITHM),
   epk: Schema.optional(ephemeralPublicKey),
+  [COMMITMENT_HEADER]: encodedCommitment,
   [SENDER_HEADER]: AgentId,
 });
 
 type ProtectedHeader = typeof protectedHeader.Type;
 
 const protectedHeaderJson = Schema.parseJson(protectedHeader);
+
+/**
+ * Builds the protected-header members in their one accepted order. The sealer
+ * hands jose this object, and the opener rebuilds it to require that exact
+ * spelling.
+ *
+ * @param commitment Base64url SHA-256 of the salted plaintext.
+ * @param senderAgentId Sender bound by the header.
+ * @returns The members in serialization order.
+ */
+const protectedHeaderMembers = (
+  commitment: string,
+  senderAgentId: AgentIdValue,
+) => ({
+  alg: SEALED_BODY_KEY_MANAGEMENT_ALGORITHM,
+  enc: CONTENT_ENCRYPTION_ALGORITHM,
+  [COMMITMENT_HEADER]: commitment,
+  [SENDER_HEADER]: senderAgentId,
+});
+
+/**
+ * Commits to the salted plaintext. A256GCM does not bind the content key to
+ * the ciphertext, so a sender could wrap a different key for each recipient
+ * over one ciphertext and tag that authenticate under both. The commitment in
+ * the authenticated header lets at most one plaintext open.
+ *
+ * @param saltedPlaintext Salt followed by the plaintext.
+ * @param failure Error for a digest failure.
+ * @returns The base64url SHA-256 digest.
+ */
+const commitmentOf = <E>(saltedPlaintext: Uint8Array, failure: () => E) =>
+  Effect.tryPromise({
+    try: () =>
+      crypto.subtle.digest("SHA-256", Uint8Array.from(saltedPlaintext)),
+    catch: failure,
+  }).pipe(
+    Effect.map((digest) => Encoding.encodeBase64Url(new Uint8Array(digest))),
+  );
 
 /** A body cannot be sealed from the supplied sender to the supplied recipients. */
 export class SealedBodySealingError extends Data.TaggedError(
@@ -151,8 +203,9 @@ const snapshotRecipients = (
   });
 
 /**
- * Encrypts one plaintext to every recipient's AgentCard key and binds the
- * sender AgentId in the protected header.
+ * Encrypts one plaintext to every recipient's AgentCard key, binds the sender
+ * AgentId in the protected header, and commits the header to the salted
+ * plaintext.
  *
  * Recipient entries follow the canonical SignedMessage recipient order, so the
  * caller signs the returned bytes as a SignedMessage body from the same sender
@@ -168,18 +221,22 @@ const seal = (
 ): Effect.Effect<Uint8Array, SealedBodySealingError> =>
   Effect.gen(function* () {
     const recipients = yield* snapshotRecipients(input.recipientAgentCards);
-    const plaintext = yield* Effect.try({
-      try: () => Uint8Array.from(input.plaintext),
+    const saltedPlaintext = yield* Effect.try({
+      try: () => {
+        const bytes = new Uint8Array(SALT_BYTES + input.plaintext.byteLength);
+        bytes.set(crypto.getRandomValues(new Uint8Array(SALT_BYTES)));
+        bytes.set(input.plaintext, SALT_BYTES);
+        return bytes;
+      },
       catch: sealingFailure,
     });
+    const commitment = yield* commitmentOf(saltedPlaintext, sealingFailure);
     const recipientKeys = yield* Either.all(
       recipients.map((card) => x25519PublicJwk(card.publicKey)),
     ).pipe(Either.mapLeft(sealingFailure));
-    const encryption = new GeneralEncrypt(plaintext).setProtectedHeader({
-      alg: KEY_MANAGEMENT_ALGORITHM,
-      enc: CONTENT_ENCRYPTION_ALGORITHM,
-      [SENDER_HEADER]: input.senderAgentId,
-    });
+    const encryption = new GeneralEncrypt(saltedPlaintext).setProtectedHeader(
+      protectedHeaderMembers(commitment, input.senderAgentId),
+    );
     for (const recipientKey of recipientKeys) {
       encryption.addRecipient(recipientKey);
     }
@@ -193,15 +250,40 @@ const seal = (
   });
 
 /**
- * Decodes the exact protected header without the JCS byte check that every
- * other Identity JSON value passes.
+ * Rebuilds the one spelling jose produces for a header: `JSON.stringify` of
+ * the members in `protectedHeaderMembers` order, followed for a single
+ * recipient by the `epk` that jose appends with members `x`, `crv`, `kty`.
  *
- * The jose library serializes this header itself, and for a single recipient
- * it appends `epk` after the sender member, so the sealer cannot produce JCS
- * here.
- * A256GCM authenticates the exact header bytes, so no alternate spelling opens.
+ * @param header Decoded protected header.
+ * @returns The exact header text a sealer produces.
+ */
+const expectedHeaderText = (header: ProtectedHeader): string => {
+  const members = protectedHeaderMembers(
+    header[COMMITMENT_HEADER],
+    header[SENDER_HEADER],
+  );
+  return JSON.stringify(
+    header.epk === undefined
+      ? members
+      : {
+          ...members,
+          epk: { x: header.epk.x, crv: header.epk.crv, kty: header.epk.kty },
+        },
+  );
+};
+
+/**
+ * Decodes the protected header and requires the exact bytes a sealer writes.
  *
- * @param encodedHeader The `protected` member of the General JWE.
+ * The header is not JCS for a single recipient, because jose appends `epk`
+ * after the other members. A256GCM authenticates whatever bytes the sender
+ * chose, so the byte comparison is what stops a sender from respelling the
+ * header with reordered, repeated, escaped, or spaced members. It compares
+ * the encoded bytes rather than the decoded text, because the UTF-8 decoder
+ * strips a leading byte-order mark.
+ *
+ * @param encodedHeader The canonical base64url `protected` member of the
+ * General JWE.
  * @returns The decoded header.
  */
 const decodeProtectedHeader = (
@@ -215,10 +297,16 @@ const decodeProtectedHeader = (
         ),
       catch: openingFailure,
     });
-    return yield* Schema.decodeUnknown(protectedHeaderJson)(headerText, {
-      exact: true,
-      onExcessProperty: "error",
-    }).pipe(Effect.mapError(openingFailure));
+    const header = yield* Schema.decodeUnknown(protectedHeaderJson)(
+      headerText,
+      { exact: true, onExcessProperty: "error" },
+    ).pipe(Effect.mapError(openingFailure));
+    if (
+      Encoding.encodeBase64Url(expectedHeaderText(header)) !== encodedHeader
+    ) {
+      return yield* new SealedBodyOpeningError();
+    }
+    return header;
   });
 
 /**
@@ -273,10 +361,12 @@ interface OpenInput {
  * It refuses a body that is not an exact sealed body, a protected-header
  * sender that differs from the verified SignedMessage sender, an entry count
  * that differs from the SignedMessage recipient count, an agent the
- * SignedMessage does not name, and any authentication failure. An AgentCard
- * that does not belong to the authority selects an entry the authority cannot
- * unwrap. The SignedMessage MessageId is not bound, so a retry under a new
- * MessageId opens.
+ * SignedMessage does not name, any authentication failure, and a decryption
+ * that does not match the header commitment. Every recipient that opens a
+ * given body therefore obtains the same plaintext, but a sender can still make
+ * a body open for some recipients and not others. An AgentCard that does not
+ * belong to the authority selects an entry the authority cannot unwrap. The
+ * SignedMessage MessageId is not bound, so a retry under a new MessageId opens.
  *
  * @param input The local agent's AgentCard and authority, and the verified
  * SignedMessage.
@@ -308,13 +398,20 @@ const open = (
           { ...representation, recipients: [entry] },
           agentOpeningPrivateKey(input.signingAuthority),
           {
-            keyManagementAlgorithms: [KEY_MANAGEMENT_ALGORITHM],
+            keyManagementAlgorithms: [SEALED_BODY_KEY_MANAGEMENT_ALGORITHM],
             contentEncryptionAlgorithms: [CONTENT_ENCRYPTION_ALGORITHM],
           },
         ),
       catch: openingFailure,
     });
-    return decrypted.plaintext;
+    const commitment = yield* commitmentOf(decrypted.plaintext, openingFailure);
+    if (
+      decrypted.plaintext.byteLength < SALT_BYTES ||
+      commitment !== header[COMMITMENT_HEADER]
+    ) {
+      return yield* new SealedBodyOpeningError();
+    }
+    return decrypted.plaintext.slice(SALT_BYTES);
   });
 
 const fixedByteLength = (recipientCount: number): number =>
@@ -345,8 +442,8 @@ interface SealedByteLengthInput {
  *
  * @param input Plaintext length and recipient count.
  * @returns The sealed length, or none when the recipient count is not an
- * integer from 1 to 128 or the plaintext length is not a non-negative safe
- * integer.
+ * integer from 1 to 128, the plaintext length is not a non-negative safe
+ * integer, or the sealed length would exceed `Number.MAX_SAFE_INTEGER`.
  */
 const sealedByteLength = (
   input: SealedByteLengthInput,
@@ -359,7 +456,7 @@ const sealedByteLength = (
     return Option.none();
   }
   const byteLength =
-    base64UrlLength(input.plaintextByteLength) +
+    base64UrlLength(input.plaintextByteLength + SALT_BYTES) +
     fixedByteLength(input.recipientCount);
   return Number.isSafeInteger(byteLength)
     ? Option.some(byteLength)
@@ -380,7 +477,7 @@ const maximumPlaintextByteLength = (
     return Option.none();
   }
   const ciphertextBudget = MAXIMUM_BODY_BYTES - fixedByteLength(recipientCount);
-  return Option.some(Math.floor((3 * ciphertextBudget) / 4));
+  return Option.some(Math.floor((3 * ciphertextBudget) / 4) - SALT_BYTES);
 };
 
 /**

@@ -95,10 +95,6 @@ const protectedHeader = exactStruct({
 /**
  * Orders AgentIds by their decoded bytes, unsigned and bytewise. This is the
  * one canonical order of a SignedMessage recipient list.
- *
- * @param left First AgentId.
- * @param right Second AgentId.
- * @returns A negative, zero, or positive comparison result.
  */
 export const compareAgentIds = (
   left: AgentIdValue,

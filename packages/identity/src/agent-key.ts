@@ -274,8 +274,8 @@ export const ed25519PublicKeyThumbprintUri = (
     catch: () => new Ed25519PublicKeyOperationError(),
   });
 
-/** JWE key management that consumes the opening key in sealed bodies. */
-const OPENING_KEY_ALGORITHM = "ECDH-ES+A256KW";
+/** JWE key management of sealed bodies; the opening key is imported for it. */
+export const SEALED_BODY_KEY_MANAGEMENT_ALGORITHM = "ECDH-ES+A256KW";
 
 /** X25519 public JWK of one agent: the key a sealed body is encrypted to. */
 export interface X25519PublicJwk {
@@ -321,7 +321,11 @@ export interface AgentSigningAuthority {
   readonly [agentSigningAuthorityBrand]: "AgentSigningAuthority";
 }
 
-/** The supplied private-key material cannot act as an Ed25519 signer. */
+/**
+ * The supplied private-key material cannot act as an Ed25519 signer or yield
+ * its X25519 opening key. The public contract represents every such cause with
+ * this one empty error.
+ */
 export class InvalidAgentPrivateKeyError extends Data.TaggedError(
   "InvalidAgentPrivateKeyError",
 ) {}
@@ -346,6 +350,30 @@ const invalidPrivateKey = (): InvalidAgentPrivateKeyError =>
   new InvalidAgentPrivateKeyError();
 
 /**
+ * Overwrites the whole buffer behind `bytes` once `effect` settles.
+ *
+ * The decoded seed and the SHA-512 expansion behind the X25519 secret each own
+ * their buffer, so zeroing it also erases the expansion's RFC 8032 nonce
+ * prefix. The base64url strings that JOSE requires cannot be zeroed and remain
+ * until garbage collection.
+ *
+ * @param bytes Key bytes to erase.
+ * @param effect Work that reads them.
+ * @returns `effect`, with the erasure attached.
+ */
+const zeroAfter = <A, E>(
+  bytes: Uint8Array,
+  effect: Effect.Effect<A, E>,
+): Effect.Effect<A, E> =>
+  effect.pipe(
+    Effect.ensuring(
+      Effect.sync(() => {
+        new Uint8Array(bytes.buffer).fill(0);
+      }),
+    ),
+  );
+
+/**
  * Derives the non-extractable X25519 opening key from the Ed25519 seed.
  *
  * The secret is the clamped first half of SHA-512 over the seed, which is the
@@ -353,9 +381,45 @@ const invalidPrivateKey = (): InvalidAgentPrivateKeyError =>
  * Ed25519 public key, and the import refuses a pair whose halves disagree, so
  * the opener and every sealer use the same key.
  *
- * @param exportedKey Private JWK exported from the PKCS#8 key.
+ * @param seed Ed25519 seed decoded from the exported private JWK.
  * @param publicKey Ed25519 public key of the same seed.
  * @returns The opening key, usable only for X25519 `deriveBits`.
+ */
+const importFromSeed = (
+  seed: Uint8Array,
+  publicKey: Ed25519PublicKey,
+): Effect.Effect<CryptoKey, InvalidAgentPrivateKeyError> =>
+  Effect.gen(function* () {
+    const agreementPublicKey = yield* Either.mapLeft(
+      x25519PublicJwk(publicKey),
+      invalidPrivateKey,
+    );
+    const secret = yield* Effect.try({
+      try: () => ed25519.utils.toMontgomerySecret(seed),
+      catch: invalidPrivateKey,
+    });
+    const openingKey = yield* zeroAfter(
+      secret,
+      Effect.tryPromise({
+        try: () =>
+          importJWK(
+            { ...agreementPublicKey, d: Encoding.encodeBase64Url(secret) },
+            SEALED_BODY_KEY_MANAGEMENT_ALGORITHM,
+            { extractable: false },
+          ),
+        catch: invalidPrivateKey,
+      }),
+    );
+    if (openingKey instanceof Uint8Array) {
+      return yield* new InvalidAgentPrivateKeyError();
+    }
+    return openingKey;
+  });
+
+/**
+ * Decodes the seed from the private JWK exported from the PKCS#8 key, derives
+ * the opening key against the Ed25519 public key of the same seed, and erases
+ * the decoded seed.
  */
 const importOpeningKey = (
   exportedKey: JWK,
@@ -369,27 +433,7 @@ const importOpeningKey = (
       Encoding.decodeBase64Url(exportedKey.d),
       invalidPrivateKey,
     );
-    const agreementPublicKey = yield* Either.mapLeft(
-      x25519PublicJwk(publicKey),
-      invalidPrivateKey,
-    );
-    const secret = yield* Effect.try({
-      try: () => ed25519.utils.toMontgomerySecret(seed),
-      catch: invalidPrivateKey,
-    });
-    const openingKey = yield* Effect.tryPromise({
-      try: () =>
-        importJWK(
-          { ...agreementPublicKey, d: Encoding.encodeBase64Url(secret) },
-          OPENING_KEY_ALGORITHM,
-          { extractable: false },
-        ),
-      catch: invalidPrivateKey,
-    });
-    if (openingKey instanceof Uint8Array) {
-      return yield* new InvalidAgentPrivateKeyError();
-    }
-    return openingKey;
+    return yield* zeroAfter(seed, importFromSeed(seed, publicKey));
   });
 
 /**

@@ -143,7 +143,7 @@ export interface AgentSigningAuthority {
 Opaque authority over one imported Ed25519 private key and the X25519
 opening key derived from it.
 
-### [`AgentSigningAuthority (value)`](./agent-key.ts#L475)
+### [`AgentSigningAuthority (value)`](./agent-key.ts#L519)
 
 _Variable_
 
@@ -273,7 +273,7 @@ export class InternalServerError extends Schema.TaggedError<InternalServerError>
 
 An unexpected implementation failure prevented a closed result.
 
-### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L325)
+### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L329)
 
 _Class_
 
@@ -283,7 +283,9 @@ export class InvalidAgentPrivateKeyError extends Data.TaggedError(
 ) {}
 ```
 
-The supplied private-key material cannot act as an Ed25519 signer.
+The supplied private-key material cannot act as an Ed25519 signer or yield
+its X25519 opening key. The public contract represents every such cause with
+this one empty error.
 
 ### [`MalformedRequestError`](./http-errors.ts#L6)
 
@@ -404,7 +406,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](./sealed-body.ts#L392)
+### [`SealedBody`](./sealed-body.ts#L489)
 
 _Variable_
 
@@ -421,7 +423,7 @@ Seals a SignedMessage body to its recipients, opens a verified sealed body,
 and reports sealed sizes. `SignedMessage.sign` never seals; the caller
 chooses which bodies to seal and signs the sealed bytes.
 
-### [`SealedBodyOpeningError`](./sealed-body.ts#L112)
+### [`SealedBodyOpeningError`](./sealed-body.ts#L164)
 
 _Class_
 
@@ -433,7 +435,7 @@ export class SealedBodyOpeningError extends Data.TaggedError(
 
 A verified SignedMessage body does not open as a sealed body for this agent.
 
-### [`SealedBodySealingError`](./sealed-body.ts#L107)
+### [`SealedBodySealingError`](./sealed-body.ts#L159)
 
 _Class_
 
@@ -445,7 +447,7 @@ export class SealedBodySealingError extends Data.TaggedError(
 
 A body cannot be sealed from the supplied sender to the supplied recipients.
 
-### [`SignedMessage (type)`](./signed-message.ts#L167)
+### [`SignedMessage (type)`](./signed-message.ts#L163)
 
 _Interface_
 
@@ -461,7 +463,7 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](./signed-message.ts#L482)
+### [`SignedMessage (value)`](./signed-message.ts#L478)
 
 _Variable_
 
@@ -482,7 +484,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
 
 Opaque attributed message operations and exact representation Schema.
 
-### [`SignedMessageSigningError`](./signed-message.ts#L311)
+### [`SignedMessageSigningError`](./signed-message.ts#L307)
 
 _Class_
 
@@ -494,7 +496,7 @@ export class SignedMessageSigningError extends Data.TaggedError(
 
 A message cannot be signed under the supplied immutable identity.
 
-### [`SignedMessageVerificationError`](./signed-message.ts#L316)
+### [`SignedMessageVerificationError`](./signed-message.ts#L312)
 
 _Class_
 
@@ -557,7 +559,7 @@ export type VerifiedAgentRequest = Readonly<{
 
 Request body and caller identity established by AuthenticatedHttp.
 
-### [`VerifiedSignedMessage`](./signed-message.ts#L305)
+### [`VerifiedSignedMessage`](./signed-message.ts#L301)
 
 _TypeAlias_
 

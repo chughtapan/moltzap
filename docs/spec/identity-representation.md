@@ -241,7 +241,9 @@ different order instead of sorting it.
 
 The canonical base64url body decodes to 0 through 262,144 opaque bytes.
 Identity and Router decode only that representation boundary; they
-never interpret or transform its contents.
+never interpret or transform its contents, except that an endpoint may
+ask Identity to seal a body before signing it or to open a verified
+[SealedBody](#sealedbody).
 
 ### General JWS
 
@@ -318,9 +320,20 @@ and its decoded protected header is exactly:
 {
   "alg": "ECDH-ES+A256KW",
   "enc": "A256GCM",
+  "xyz.moltzap/commitment": "<base64url of 32 bytes>",
   "xyz.moltzap/sender": "agt_<22-character-base64url>"
 }
 ```
+
+The JWE plaintext is a fresh 32-byte random salt followed by the
+plaintext. `xyz.moltzap/commitment` is the SHA-256 digest of those
+salted bytes. An opener recomputes the digest from the decrypted bytes,
+refuses a mismatch or decrypted bytes shorter than the salt, and returns
+the bytes after the salt. A256GCM is not key-committing, so without the
+commitment a sender could wrap a different content-encryption key in
+each entry over one ciphertext and tag that authenticate under every
+key, and recipients would open different plaintexts. The salt keeps the
+digest from confirming a guessed plaintext.
 
 Each recipient entry carries its own ephemeral key. With one recipient,
 the entry is exactly `{"encrypted_key": "<base64url of 40 bytes>"}` and
@@ -336,11 +349,14 @@ decrypts only the entry at its own position and refuses a body whose
 entry count differs from the SignedMessage recipient count.
 
 The protected header is the one L1 JSON value that is not JCS. `jose`
-serializes it, and for a single recipient it writes `epk` after the
-sender member with `epk` members in `x`, `crv`, `kty` order. A decoder
-parses it with Effect Schema and checks its exact members. A256GCM
-authenticates its exact bytes as additional authenticated data, so no
-other spelling opens.
+serializes it as `JSON.stringify` of the members in the order shown,
+and for a single recipient it writes `epk` after the sender member with
+`epk` members in `x`, `crv`, `kty` order. A decoder parses it with
+Effect Schema, checks its exact members, rebuilds that spelling from
+the decoded values, and refuses unless the rebuilt UTF-8 bytes equal
+the decoded `protected` bytes. A256GCM authenticates whatever header
+bytes the sender encrypted under, so this comparison is what refuses
+reordered, spaced, escaped, or repeated members and a byte-order mark.
 
 A decoder rejects, before any key agreement: outer bytes that are not
 JCS; unknown or missing members, including `aad` and `unprotected`; any
@@ -354,13 +370,15 @@ exactly:
 
 | Recipients | Sealed bytes |
 |---|---|
-| R = 1 | `ceil(4N / 3) + 411` |
-| R ≥ 2 | `ceil(4N / 3) + 222 + 171R` |
+| R = 1 | `ceil(4(N + 32) / 3) + 505` |
+| R ≥ 2 | `ceil(4(N + 32) / 3) + 317 + 171R` |
 
-Each further recipient adds 171 bytes. At 32 recipients the fixed part is 5,694
-bytes, so the largest plaintext whose sealed body fits the 262,144-byte
-SignedMessage body cap is 192,337 bytes, which seals to exactly
-262,144 bytes.
+The second recipient adds 154 bytes, because a single recipient's
+ephemeral key moves from the protected header into its entry. Each
+recipient after that adds 171 bytes. At 32 recipients the fixed part is
+5,789 bytes, so the largest plaintext whose sealed body fits the
+262,144-byte SignedMessage body cap is 192,234 bytes, which seals to
+exactly 262,144 bytes.
 
 Identity owns this calculation through `SealedBody.sealedByteLength`
 and `SealedBody.maximumPlaintextByteLength`; consumers do not reproduce

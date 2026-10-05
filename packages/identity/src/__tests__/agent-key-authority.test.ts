@@ -1,7 +1,6 @@
 /** @file Private Ed25519 authority import, opacity, derivation, and failure tests. */
 
-import { ed25519 } from "@noble/curves/ed25519.js";
-import { Effect, Either, Encoding, Redacted } from "effect";
+import { Effect, Either, Encoding, Redacted, Schema } from "effect";
 import * as fc from "fast-check";
 import { importJWK } from "jose";
 import { createPrivateKey, createPublicKey, type KeyObject } from "node:crypto";
@@ -11,7 +10,9 @@ import {
   AgentSigningAuthority,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
   agentSigningPrivateKey,
+  Ed25519PublicKey,
   InvalidAgentPrivateKeyError,
+  x25519PublicJwk,
 } from "../agent-key.js";
 
 const RFC_PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
@@ -176,12 +177,33 @@ MCowBQYDK2VwAyEA${PRIVATE_SENTINEL}
     }),
   ));
 
-it("maps the RFC 7748 edwards25519 base point to the curve25519 base point", () => {
-  const edwardsBasePoint = Buffer.from(`58${"66".repeat(31)}`, "hex");
+/**
+ * Reads the X25519 image that `x25519PublicJwk` gives an Ed25519 public key.
+ *
+ * @param publicKey Validated Ed25519 public key.
+ * @returns The X25519 public key as lowercase hex.
+ */
+const cardImageHex = (publicKey: Ed25519PublicKey) =>
+  Buffer.from(
+    Encoding.decodeBase64Url(
+      Either.getOrThrow(x25519PublicJwk(publicKey)).x,
+    ).pipe(Either.getOrThrow),
+  ).toString("hex");
 
-  expect(
-    Buffer.from(ed25519.utils.toMontgomery(edwardsBasePoint)).toString("hex"),
-  ).toBe(X25519_BASE_POINT.toString("hex"));
+it("maps the RFC 7748 edwards25519 base point to the curve25519 base point", () => {
+  const edwardsBasePoint = Schema.decodeUnknownSync(Ed25519PublicKey)({
+    crv: "Ed25519",
+    kty: "OKP",
+    x: Encoding.encodeBase64Url(Buffer.from(`58${"66".repeat(31)}`, "hex")),
+  });
+
+  expect(x25519PublicJwk(edwardsBasePoint)).toStrictEqual(
+    Either.right({
+      crv: "X25519",
+      kty: "OKP",
+      x: Encoding.encodeBase64Url(X25519_BASE_POINT),
+    }),
+  );
 });
 
 it.each([
@@ -205,16 +227,10 @@ it.each([
         const authority = yield* AgentSigningAuthority.fromPkcs8(
           Redacted.make(pemFromSeed(Buffer.from(seed, "hex"))),
         );
-        const cardPublicKey = Encoding.decodeBase64Url(
-          AgentSigningAuthority.publicKey(authority).x,
-        ).pipe(Either.getOrThrow);
-
         expect(yield* openingPublicKeyHex(authority)).toBe(x25519PublicKey);
-        expect(
-          Buffer.from(ed25519.utils.toMontgomery(cardPublicKey)).toString(
-            "hex",
-          ),
-        ).toBe(x25519PublicKey);
+        expect(cardImageHex(AgentSigningAuthority.publicKey(authority))).toBe(
+          x25519PublicKey,
+        );
       }),
     ),
 );
@@ -227,14 +243,8 @@ it("derives a non-extractable opening key that matches the AgentCard key's X2551
           const authority = yield* AgentSigningAuthority.fromPkcs8(
             Redacted.make(pemFromSeed(seed)),
           );
-          const cardPublicKey = Encoding.decodeBase64Url(
-            AgentSigningAuthority.publicKey(authority).x,
-          ).pipe(Either.getOrThrow);
-
           expect(yield* openingPublicKeyHex(authority)).toBe(
-            Buffer.from(ed25519.utils.toMontgomery(cardPublicKey)).toString(
-              "hex",
-            ),
+            cardImageHex(AgentSigningAuthority.publicKey(authority)),
           );
           expect(agentOpeningPrivateKey(authority)).toMatchObject({
             algorithm: { name: "X25519" },
