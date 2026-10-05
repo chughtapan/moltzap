@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.1005.1] - 2026-10-05
+
 ### Added
 
 - The OpenClaw channel writes one gateway log line for every outbound send,
