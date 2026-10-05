@@ -181,6 +181,15 @@ interface RestartedPositionInput {
   readonly head: RecordHashValue;
 }
 
+/**
+ * Move a restart-recovered position toward the new Router instance: finish it
+ * when it is already anchored there, wait behind a staged successor, or
+ * replay the peer votes held while catch-up ran and then propose this
+ * endpoint's own re-anchor. The replay can complete the re-anchor, so whether
+ * to propose is decided only after it has run.
+ * @param input Recovery run, membership, durable position and its head.
+ * @returns Completion once the position is finished, waiting, or proposed.
+ */
 function advanceRestartedPosition(
   input: RestartedPositionInput,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
@@ -194,9 +203,11 @@ function advanceRestartedPosition(
   }
   return replayReanchorVotes(runtime, membership, conversationId, head).pipe(
     Effect.zipRight(
-      state.completedConversations.has(conversationId)
-        ? Effect.void
-        : proposeReanchor(runtime, membership, position),
+      Effect.suspend(() =>
+        state.completedConversations.has(conversationId)
+          ? Effect.void
+          : proposeReanchor(runtime, membership, position),
+      ),
     ),
   );
 }
@@ -292,6 +303,17 @@ function acceptReanchorVoteEffect(
   );
 }
 
+/**
+ * Verify a re-anchor vote's outer envelope and evidence against the
+ * conversation's membership, then offer the vote to the active recovery run.
+ * A vote that fails verification is ignored like any other unusable input,
+ * so only a store failure ends the run.
+ * @param runtime Engine whose active recovery run receives the vote.
+ * @param ingress Router delivery whose outer envelope carries the vote.
+ * @param message The vote's evidence message from that envelope.
+ * @param membership Recovered membership of the vote's conversation.
+ * @returns Whether the vote was accepted or ignored.
+ */
 function verifyInboundVote(
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
@@ -316,6 +338,9 @@ function verifyInboundVote(
         ),
       );
     }),
+    Effect.catchTag("ClientRepresentationError", () =>
+      Effect.succeed(ignoredDisposition),
+    ),
     Effect.mapError(persistenceFailure),
   );
 }
@@ -357,7 +382,7 @@ function completionTargetsRecovery(
 }
 
 /**
- * Offers each vote of a verified completed re-anchor to the active recovery
+ * Offer each vote of a verified completed re-anchor to the active recovery
  * run. A completion relayed for a conversation the run is not re-anchoring
  * has every vote declined, so the caller reports it as ignored.
  * @param runtime Engine whose active recovery run receives the votes.
@@ -390,7 +415,7 @@ function processCompletedVotes(
 }
 
 /**
- * Takes a vote into the active recovery run when it targets that run's Router
+ * Take a vote into the active recovery run when it targets that run's Router
  * restart and names the anchor its body hashes to. A vote outside a restart,
  * or after the run has ended, changes nothing, so the caller reports it as
  * ignored.

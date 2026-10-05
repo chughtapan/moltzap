@@ -142,6 +142,7 @@ type ReanchorVote = Extract<
 >;
 
 const actionSignatureKind: EvidenceStatementValue["kind"] = "action_signature";
+const acceptedDisposition: RouterIngressDisposition = "accepted";
 const ignoredDisposition: RouterIngressDisposition = "ignored";
 const durabilityVoteKind: EvidenceStatementValue["kind"] = "durability_vote";
 
@@ -2343,6 +2344,235 @@ const ignoresRelayedCompletionForAnchoredConversation = () =>
     ),
   );
 
+/**
+ * The stable evidence message an outer evidence envelope carries, encoded as
+ * a certificate holds it.
+ * @param message Outer envelope whose body is evidence.
+ * @returns The encoded inner evidence message.
+ */
+const carriedEvidence = (message: SignedMessage) =>
+  decodeOuterBody(message.body).pipe(
+    Effect.flatMap((body) =>
+      body.kind === "evidence"
+        ? Schema.encode(SignedMessage)(body.message)
+        : Effect.dieMessage("expected evidence"),
+    ),
+    Effect.orDie,
+  );
+
+/**
+ * Starts a restart recovery of the fixture's retained record and answers its
+ * catch-up request as incomplete, so the endpoint sends its own re-anchor vote
+ * and waits for the peer's.
+ * @param fixture Endpoint under recovery.
+ * @returns The running recovery, the endpoint's vote, and that vote encoded.
+ */
+const proposeAtRestart = (fixture: RecoveryFixture) =>
+  Effect.gen(function* () {
+    yield* retainCertifiedRecord(fixture);
+    const outbound = yield* Queue.unbounded<SignedMessage>();
+    const { recovery, request } = yield* startRestartRecovery(
+      fixture,
+      outbound,
+    );
+    yield* catchUpIncompleteIngress(fixture, request).pipe(
+      Effect.flatMap((ingress) =>
+        fixture.engine.acceptRecoveryIngress(ingress),
+      ),
+    );
+    const voteMessage = yield* Queue.take(outbound).pipe(
+      Effect.timeout("1 second"),
+    );
+    return {
+      recovery,
+      proposal: yield* decodeReanchorVote(voteMessage),
+      localVote: yield* carriedEvidence(voteMessage),
+    };
+  });
+
+/**
+ * A peer that reached the threshold first relays the completed re-anchor; the
+ * endpoint still re-anchoring takes its votes, reports it accepted, and adopts
+ * its anchor. Protects the receiving side of a relayed completion; fails when
+ * a completion whose votes the run takes is reported ignored, or its votes do
+ * not reach the run.
+ */
+const adoptsRelayedCompletionForReanchoringConversation = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const { recovery, proposal, localVote } =
+          yield* proposeAtRestart(fixture);
+        const peerVote = yield* encodedEvidence(fixture.remote, {
+          ...proposal,
+          signerAgentId: fixture.remote.card.agentId,
+        });
+        const completed: DirectPacket = {
+          moltzapVersion: MOLTZAP_VERSION,
+          kind: "completed_reanchor",
+          anchorHash: proposal.anchorHash,
+          reanchor: proposal.reanchor,
+          certificate: {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "reanchor_certificate",
+            anchorHash: proposal.anchorHash,
+            votes: [localVote, peerVote],
+          },
+        };
+
+        const disposition = yield* directPacketIngressFrom({
+          membership: fixture.membership,
+          sender: fixture.remote,
+          packet: completed,
+          routerInstanceId: newRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
+
+        expect(disposition).toBe(acceptedDisposition);
+        expect(
+          (yield* fixture.store.recover()).positions[0]?.currentAnchorHash,
+        ).toBe(proposal.anchorHash);
+      }),
+    ),
+  );
+
+/**
+ * A peer vote naming an anchor hash its re-anchor body does not hash to is
+ * reported ignored, and the peer's genuine vote still completes the
+ * re-anchor. Protects a vote's binding to the anchor it names; fails when
+ * that check is dropped, or a vote the run declines is reported accepted.
+ */
+const ignoresReanchorVoteWithMismatchedAnchorHash = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const { recovery, proposal } = yield* proposeAtRestart(fixture);
+        const otherAnchorHash = yield* hashAnchor({
+          ...proposal.reanchor,
+          routerInstanceId: oldRouterInstanceId,
+        });
+
+        const mismatched = yield* peerReanchorVoteIngress(fixture, {
+          ...proposal,
+          anchorHash: otherAnchorHash,
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        const genuine = yield* peerReanchorVoteIngress(fixture, proposal).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
+
+        expect(mismatched).toBe(ignoredDisposition);
+        expect(genuine).toBe(acceptedDisposition);
+        expect(
+          (yield* fixture.store.recover()).positions[0]?.currentAnchorHash,
+        ).toBe(proposal.anchorHash);
+      }),
+    ),
+  );
+
+/**
+ * A peer's vote that arrives before the endpoint's own catch-up completes is
+ * held and replayed once the position is ready, and the replay completes the
+ * re-anchor without the peer voting again. Fails when a held vote is not
+ * replayed, or when the endpoint still proposes its own re-anchor after the
+ * replay completed it, which the store refuses and the run reports as a
+ * persistence failure.
+ */
+const replaysPeerVoteHeldBeforeCatchUpCompletes = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+        const outbound = yield* Queue.unbounded<SignedMessage>();
+        const { recovery, request } = yield* startRestartRecovery(
+          fixture,
+          outbound,
+        );
+
+        const early = yield* peerReanchorVote(fixture).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* catchUpIncompleteIngress(fixture, request).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
+        const proposal = yield* Queue.take(outbound).pipe(
+          Effect.timeout("1 second"),
+          Effect.flatMap(decodeReanchorVote),
+        );
+
+        expect(early).toBe(acceptedDisposition);
+        expect(
+          (yield* fixture.store.recover()).positions[0]?.currentAnchorHash,
+        ).toBe(proposal.anchorHash);
+      }),
+    ),
+  );
+
+/**
+ * A peer's re-anchor vote whose outer envelope is addressed beyond the
+ * conversation's members fails the envelope's membership check, so it is
+ * reported ignored and the run still takes the peer's genuine vote. Fails
+ * when that check surfaces as a persistence failure, which ends the Router
+ * worker's poll loop.
+ */
+const ignoresReanchorVoteAddressedBeyondItsMembers = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const { recovery, proposal } = yield* proposeAtRestart(fixture);
+        const outsiderAuthority = yield* makeTestAuthority();
+        const outsider = yield* issueTestCard({
+          byte: 3,
+          name: "recovery-outsider",
+          authority: outsiderAuthority,
+          registryKeys: fixture.registryKeys,
+        });
+
+        const misaddressed = yield* peerReanchorVoteIngressFrom({
+          membership: {
+            ...fixture.membership,
+            members: [...fixture.membership.members, outsider],
+          },
+          responder: fixture.remote,
+          proposal,
+          routerInstanceId: newRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        const genuine = yield* peerReanchorVoteIngress(fixture, proposal).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
+
+        expect(misaddressed).toBe(ignoredDisposition);
+        expect(genuine).toBe(acceptedDisposition);
+      }),
+    ),
+  );
+
 const rebroadcastsPersistedLocalVote = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -2882,6 +3112,22 @@ describe("endpoint restart recovery", () => {
   it(
     "ignores a relayed completed re-anchor for a conversation already anchored at the new Router",
     ignoresRelayedCompletionForAnchoredConversation,
+  );
+  it(
+    "adopts a relayed completed re-anchor for a conversation it is re-anchoring",
+    adoptsRelayedCompletionForReanchoringConversation,
+  );
+  it(
+    "ignores a re-anchor vote whose anchor hash its body does not hash to",
+    ignoresReanchorVoteWithMismatchedAnchorHash,
+  );
+  it(
+    "ignores a re-anchor vote whose envelope is addressed beyond its members",
+    ignoresReanchorVoteAddressedBeyondItsMembers,
+  );
+  it(
+    "replays a peer's re-anchor vote held from before its catch-up completed",
+    replaysPeerVoteHeldBeforeCatchUpCompletes,
   );
 });
 
