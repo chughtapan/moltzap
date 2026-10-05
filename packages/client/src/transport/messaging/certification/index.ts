@@ -610,18 +610,15 @@ const stageActionCertificate = (
       fold.recordHash = record.recordHash;
       runtime.recordFolds.set(record.recordHash, fold);
     });
-    if (source === "assembled") {
-      yield* Effect.uninterruptible(
-        runtime.phases
-          .queueCertifiedPacket(runtime, fold.conversation, record)
-          .pipe(
-            Effect.mapError(() => persistenceFailure()),
-            Effect.zipRight(updateFold),
-          ),
-      );
-    } else {
-      yield* updateFold;
-    }
+    const queueStaged =
+      source === "assembled"
+        ? runtime.phases
+            .queueCertifiedPacket(runtime, fold.conversation, record)
+            .pipe(Effect.mapError(() => persistenceFailure()))
+        : Effect.void;
+    yield* Effect.uninterruptible(
+      queueStaged.pipe(Effect.zipRight(updateFold)),
+    );
     yield* localDurabilityEvidence(runtime, fold);
     yield* maybePromote(runtime, fold, record);
   });

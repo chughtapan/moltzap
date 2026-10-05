@@ -15,11 +15,9 @@ import type { Deferred, Effect, Queue } from "effect";
 import type { EndpointStore } from "../../../store/index.js";
 import type {
   RouterIngressDisposition,
-  RouterTailAnchor,
+  RouterWorker,
   RouterWorkerIngress,
   RouterWorkerPersistenceError,
-  RouterWorkerSendError,
-  RouterWorkerUnavailableError,
 } from "../../router/index.js";
 import type {
   ActionCertifiedRecord,
@@ -37,16 +35,10 @@ import type { AddressRegistryPort } from "../address.js";
 import type { SendError } from "../errors.js";
 
 /** RouterWorker operations consumed by the engine's outbound queue. */
-interface EngineRouterPort {
-  readonly currentAnchor: Effect.Effect<
-    RouterTailAnchor,
-    RouterWorkerUnavailableError
-  >;
-  readonly awaitAnchor: Effect.Effect<RouterTailAnchor>;
-  readonly send: (
-    outboundId: string,
-  ) => Effect.Effect<void, RouterWorkerSendError>;
-}
+type EngineRouterPort = Pick<
+  RouterWorker,
+  "currentAnchor" | "awaitAnchor" | "send"
+>;
 
 /** Closed result of the endpoint's local action-signing policy. */
 export type EngineActionPolicyDecision = "sign" | "refuse";
