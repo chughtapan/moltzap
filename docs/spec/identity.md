@@ -411,14 +411,6 @@ the RFC 7748 birational image of the Ed25519 key in its verified
 AgentCard. `seal` fails when the list is empty, longer than 128, or
 repeats an AgentId, and when a card key is not an Ed25519 curve point.
 
-`seal` generates one ephemeral X25519 key per body and wraps the
-content-encryption key to every recipient under it, so the body carries
-one ephemeral public key in its protected header and one wrapped key per
-recipient. Reusing one ephemeral key across the recipients of a single
-message is a known-secure construction for Diffie-Hellman key
-encapsulation (Kurosawa, PKC 2002; Bellare, Boldyreva and Staddon, PKC
-2003).
-
 `AgentSigningAuthority.fromPkcs8` derives an X25519 opening key from the
 same Ed25519 seed and keeps it, non-extractable, beside the signing key.
 Its X25519 public key is the image of the authority's Ed25519 public
@@ -960,11 +952,9 @@ claimed nonce.
 - A sealed body whose two entries wrap different content keys over one
   ciphertext and tag that authenticate under both opens to two different
   plaintexts with `jose` alone and is refused for both recipients. A
-  body whose decrypted bytes do not match the header commitment, a
+  body whose decrypted bytes do not match the header commitment, and a
   protected header with reordered, spaced, escaped, or repeated members
-  or a byte-order mark, and a body whose ephemeral keys sit in its entry
-  headers are refused although `jose` opens them. `jose` opens every
-  entry of every body `seal` produces.
+  or a byte-order mark, are refused although `jose` opens them.
 - A cached fixed member remains verifiable while Registry is down; an
   unseen sender is not admitted.
 - The public export inventory and every Effect success, error, and

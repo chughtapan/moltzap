@@ -4,13 +4,7 @@
  */
 
 import { Data, Effect, Either, Encoding, Option, Schema } from "effect";
-import {
-  type CryptoKey,
-  exportJWK,
-  generalDecrypt,
-  GeneralEncrypt,
-  generateKeyPair,
-} from "jose";
+import { generalDecrypt, GeneralEncrypt } from "jose";
 import type { VerifiedAgentCard } from "./agent-card.js";
 import {
   agentOpeningPrivateKey,
@@ -48,17 +42,19 @@ const SALT_BYTES = 32;
 
 /**
  * Every sealed-body member except the ciphertext has a fixed length: the
- * commitment, sender AgentId, shared ephemeral key, wrapped keys, IV, and tag.
- * The JCS encoding is therefore the base64url of the salted plaintext plus
- * these fixed byte counts.
+ * commitment, sender AgentId, ephemeral keys, wrapped keys, IV, and tag. The
+ * JCS encoding is therefore the base64url of the salted plaintext plus these
+ * fixed byte counts. A single recipient carries its `epk` in the protected
+ * header, and two or more each carry one in their own entry.
  *
- * The outer member names, punctuation, IV, and tag take 103 bytes, and the
- * base64url protected header, which carries the one ephemeral key, takes 328.
- * Each entry takes 74 bytes and a separating comma, less one byte because the
- * last entry has none: 103 + 328 - 1 + 75R = 430 + 75R.
+ * The outer members with IV and tag take 103 bytes. A single recipient adds a
+ * 328-byte protected header and a 74-byte entry: 505. Two or more add a
+ * 215-byte protected header and 171 bytes per entry including its separating
+ * comma, less one byte because the last entry has none: 317 + 171R.
  */
-const FIXED_BYTES = 430;
-const RECIPIENT_ENTRY_BYTES = 75;
+const SINGLE_RECIPIENT_FIXED_BYTES = 505;
+const MULTIPLE_RECIPIENT_FIXED_BYTES = 317;
+const RECIPIENT_ENTRY_BYTES = 171;
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -94,18 +90,15 @@ const ephemeralPublicKey = exactStruct({
   x: encodedBytes(X25519_PUBLIC_KEY_BYTES),
 });
 
-type EphemeralPublicKey = typeof ephemeralPublicKey.Type;
-
-/**
- * Recipient entries carry only a wrapped key: the one ephemeral key sits in
- * the protected header, so an entry `header` is refused.
- */
 const sealedBodyRepresentation = exactStruct({
   ciphertext: canonicalBase64Url,
   iv: encodedBytes(IV_BYTES),
   protected: canonicalBase64Url,
   recipients: Schema.Array(
-    exactStruct({ encrypted_key: encodedBytes(WRAPPED_KEY_BYTES) }),
+    exactStruct({
+      encrypted_key: encodedBytes(WRAPPED_KEY_BYTES),
+      header: Schema.optional(exactStruct({ epk: ephemeralPublicKey })),
+    }),
   ).pipe(Schema.minItems(1), Schema.maxItems(MAXIMUM_RECIPIENTS)),
   tag: encodedBytes(TAG_BYTES),
 });
@@ -115,7 +108,7 @@ type SealedBodyRepresentation = typeof sealedBodyRepresentation.Type;
 const protectedHeader = exactStruct({
   alg: Schema.Literal(SEALED_BODY_KEY_MANAGEMENT_ALGORITHM),
   enc: Schema.Literal(CONTENT_ENCRYPTION_ALGORITHM),
-  epk: ephemeralPublicKey,
+  epk: Schema.optional(ephemeralPublicKey),
   [COMMITMENT_HEADER]: encodedCommitment,
   [SENDER_HEADER]: AgentId,
 });
@@ -129,25 +122,18 @@ const protectedHeaderJson = Schema.parseJson(protectedHeader);
  * hands jose this object, and the opener rebuilds it to require that exact
  * spelling.
  *
- * `epk` comes last with its members in `x`, `crv`, `kty` order. That is the
- * spelling jose writes when it rewrites `epk` in place for a single
- * recipient, so every recipient count produces the same header.
- *
  * @param commitment Base64url SHA-256 of the salted plaintext.
  * @param senderAgentId Sender bound by the header.
- * @param epk Public half of the body's one ephemeral key.
  * @returns The members in serialization order.
  */
 const protectedHeaderMembers = (
   commitment: string,
   senderAgentId: AgentIdValue,
-  epk: EphemeralPublicKey,
 ) => ({
   alg: SEALED_BODY_KEY_MANAGEMENT_ALGORITHM,
   enc: CONTENT_ENCRYPTION_ALGORITHM,
   [COMMITMENT_HEADER]: commitment,
   [SENDER_HEADER]: senderAgentId,
-  epk: { x: epk.x, crv: epk.crv, kty: epk.kty },
 });
 
 /**
@@ -217,50 +203,15 @@ const snapshotRecipients = (
   });
 
 /**
- * Generates the one ephemeral X25519 key of a sealed body. The private key is
- * extractable because jose exports the public half from it when the runtime
- * lacks `SubtleCrypto.getPublicKey`, as on Node 22; jose generates its own
- * ephemeral keys extractable for the same reason.
- *
- * @returns The private key and its public JWK.
- */
-const generateEphemeralKey = (): Effect.Effect<
-  { readonly privateKey: CryptoKey; readonly publicKey: EphemeralPublicKey },
-  SealedBodySealingError
-> =>
-  Effect.gen(function* () {
-    const keyPair = yield* Effect.tryPromise({
-      try: () =>
-        generateKeyPair(SEALED_BODY_KEY_MANAGEMENT_ALGORITHM, {
-          crv: "X25519",
-          extractable: true,
-        }),
-      catch: sealingFailure,
-    });
-    const publicJwk = yield* Effect.tryPromise({
-      try: () => exportJWK(keyPair.publicKey),
-      catch: sealingFailure,
-    });
-    const publicKey = yield* Schema.decodeUnknown(ephemeralPublicKey)({
-      crv: publicJwk.crv,
-      kty: publicJwk.kty,
-      x: publicJwk.x,
-    }).pipe(Effect.mapError(sealingFailure));
-    return { privateKey: keyPair.privateKey, publicKey };
-  });
-
-/**
  * Encrypts one plaintext to every recipient's AgentCard key, binds the sender
  * AgentId in the protected header, and commits the header to the salted
  * plaintext.
  *
- * One ephemeral X25519 key serves every recipient: its public half sits once
- * in the protected header, and each entry carries only that recipient's
- * wrapped content key. Reusing one ephemeral key across the recipients of a
- * single message is a known-secure construction for Diffie-Hellman key
- * encapsulation (Kurosawa, PKC 2002; Bellare, Boldyreva and Staddon, PKC
- * 2003), and it saves an ephemeral key per recipient. The jose library also
- * writes the shared key into each entry header; seal drops those copies.
+ * The jose library generates a fresh ephemeral key for every recipient entry.
+ * One key shared across the entries would be smaller, but jose accepts a
+ * caller-chosen ephemeral key only through its `epk` key-management
+ * parameter, which it documents as intended only for testing and vector
+ * validation, so seal stays on the supported per-recipient path.
  *
  * Recipient entries follow the canonical SignedMessage recipient order, so the
  * caller signs the returned bytes as a SignedMessage body from the same sender
@@ -289,52 +240,49 @@ const seal = (
     const recipientKeys = yield* Either.all(
       recipients.map((card) => x25519PublicJwk(card.publicKey)),
     ).pipe(Either.mapLeft(sealingFailure));
-    const ephemeralKey = yield* generateEphemeralKey();
     const encryption = new GeneralEncrypt(saltedPlaintext).setProtectedHeader(
-      protectedHeaderMembers(
-        commitment,
-        input.senderAgentId,
-        ephemeralKey.publicKey,
-      ),
+      protectedHeaderMembers(commitment, input.senderAgentId),
     );
     for (const recipientKey of recipientKeys) {
-      encryption
-        .addRecipient(recipientKey)
-        .setKeyManagementParameters({ epk: ephemeralKey.privateKey });
+      encryption.addRecipient(recipientKey);
     }
     const representation = yield* Effect.tryPromise({
       try: () => encryption.encrypt(),
       catch: sealingFailure,
     });
-    return yield* encodeCanonicalJson({
-      ...representation,
-      recipients: representation.recipients.map((recipient) => ({
-        encrypted_key: recipient.encrypted_key,
-      })),
-    }).pipe(Effect.mapError(sealingFailure));
+    return yield* encodeCanonicalJson(representation).pipe(
+      Effect.mapError(sealingFailure),
+    );
   });
 
 /**
- * Rebuilds the one spelling a sealer produces for a header: `JSON.stringify`
- * of the members in `protectedHeaderMembers` order.
+ * Rebuilds the one spelling jose produces for a header: `JSON.stringify` of
+ * the members in `protectedHeaderMembers` order, followed for a single
+ * recipient by the `epk` that jose appends with members `x`, `crv`, `kty`.
  *
  * @param header Decoded protected header.
  * @returns The exact header text a sealer produces.
  */
-const expectedHeaderText = (header: ProtectedHeader): string =>
-  JSON.stringify(
-    protectedHeaderMembers(
-      header[COMMITMENT_HEADER],
-      header[SENDER_HEADER],
-      header.epk,
-    ),
+const expectedHeaderText = (header: ProtectedHeader): string => {
+  const members = protectedHeaderMembers(
+    header[COMMITMENT_HEADER],
+    header[SENDER_HEADER],
   );
+  return JSON.stringify(
+    header.epk === undefined
+      ? members
+      : {
+          ...members,
+          epk: { x: header.epk.x, crv: header.epk.crv, kty: header.epk.kty },
+        },
+  );
+};
 
 /**
  * Decodes the protected header and requires the exact bytes a sealer writes.
  *
- * The header is not JCS: `epk` follows the other members, with its own
- * members in jose's order. A256GCM authenticates whatever bytes the sender
+ * The header is not JCS for a single recipient, because jose appends `epk`
+ * after the other members. A256GCM authenticates whatever bytes the sender
  * chose, so the byte comparison is what stops a sender from respelling the
  * header with reordered, repeated, escaped, or spaced members. It compares
  * the encoded bytes rather than the decoded text, because the UTF-8 decoder
@@ -366,6 +314,25 @@ const decodeProtectedHeader = (
     }
     return header;
   });
+
+/**
+ * Checks the one ephemeral-key placement the sealer produces: the protected
+ * header carries it for a single recipient, and each recipient header carries
+ * its own otherwise.
+ */
+const hasExactEphemeralKeyPlacement = (
+  representation: SealedBodyRepresentation,
+  header: ProtectedHeader,
+): boolean =>
+  representation.recipients.length === 1
+    ? header.epk !== undefined &&
+      representation.recipients.every(
+        (recipient) => recipient.header === undefined,
+      )
+    : header.epk === undefined &&
+      representation.recipients.every(
+        (recipient) => recipient.header !== undefined,
+      );
 
 type RecipientEntry = SealedBodyRepresentation["recipients"][number];
 
@@ -401,9 +368,7 @@ interface OpenInput {
  * A successful unwrap cannot prove that pairing: a sender may wrap any entry
  * to any key, and an Ed25519 key and its negation share one X25519 key.
  *
- * It then refuses a body that is not an exact sealed body, including one whose
- * ephemeral key is missing from the protected header or repeated in an entry
- * header, a protected-header
+ * It then refuses a body that is not an exact sealed body, a protected-header
  * sender that differs from the verified SignedMessage sender, an entry count
  * that differs from the SignedMessage recipient count, an agent the
  * SignedMessage does not name, any authentication failure, and a decryption
@@ -431,6 +396,9 @@ const open = (
       input.signedMessage.body,
     ).pipe(Effect.mapError(openingFailure));
     const header = yield* decodeProtectedHeader(representation.protected);
+    if (!hasExactEphemeralKeyPlacement(representation, header)) {
+      return yield* new SealedBodyOpeningError();
+    }
     if (header[SENDER_HEADER] !== input.signedMessage.senderAgentId) {
       return yield* new SealedBodyOpeningError();
     }
@@ -462,7 +430,9 @@ const open = (
   });
 
 const fixedByteLength = (recipientCount: number): number =>
-  FIXED_BYTES + RECIPIENT_ENTRY_BYTES * recipientCount;
+  recipientCount === 1
+    ? SINGLE_RECIPIENT_FIXED_BYTES
+    : MULTIPLE_RECIPIENT_FIXED_BYTES + RECIPIENT_ENTRY_BYTES * recipientCount;
 
 /**
  * Computes `ceil(4n / 3)`, the unpadded base64url length of `n` bytes, without

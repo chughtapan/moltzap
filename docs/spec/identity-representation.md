@@ -291,7 +291,7 @@ do not reproduce its General JWS size formula.
 
 A sealed body is the JCS UTF-8 encoding of one RFC 7516 General JWE
 whose key management is `ECDH-ES+A256KW` over X25519 and whose content
-encryption is `A256GCM`. For any number of recipients it is exactly:
+encryption is `A256GCM`. With two or more recipients it is exactly:
 
 ```json
 {
@@ -299,7 +299,16 @@ encryption is `A256GCM`. For any number of recipients it is exactly:
   "iv": "<base64url of 12 bytes>",
   "protected": "<canonical unpadded base64url>",
   "recipients": [
-    { "encrypted_key": "<base64url of 40 bytes>" }
+    {
+      "encrypted_key": "<base64url of 40 bytes>",
+      "header": {
+        "epk": {
+          "crv": "X25519",
+          "kty": "OKP",
+          "x": "<base64url of 32 bytes>"
+        }
+      }
+    }
   ],
   "tag": "<base64url of 16 bytes>"
 }
@@ -312,12 +321,7 @@ and its decoded protected header is exactly:
   "alg": "ECDH-ES+A256KW",
   "enc": "A256GCM",
   "xyz.moltzap/commitment": "<base64url of 32 bytes>",
-  "xyz.moltzap/sender": "agt_<22-character-base64url>",
-  "epk": {
-    "x": "<base64url of 32 bytes>",
-    "crv": "X25519",
-    "kty": "OKP"
-  }
+  "xyz.moltzap/sender": "agt_<22-character-base64url>"
 }
 ```
 
@@ -331,15 +335,16 @@ each entry over one ciphertext and tag that authenticate under every
 key, and recipients would open different plaintexts. The salt keeps the
 digest from confirming a guessed plaintext.
 
-One ephemeral X25519 key serves every recipient. Its public key is the
-protected header's `epk`, and each entry carries only that recipient's
-wrapped content-encryption key, with no entry `header`. Reusing one
-ephemeral key across the recipients of a single message is a
-known-secure construction for Diffie-Hellman key encapsulation
-(Kurosawa, PKC 2002; Bellare, Boldyreva and Staddon, PKC 2003). A
-decoder rejects a protected header without `epk` and an entry with a
-`header`, including the per-recipient layout that `jose` writes by
-default; `jose` opens the shared-key layout unchanged.
+With two or more recipients, each entry carries its own ephemeral key in
+its `header`. With one recipient, the entry is exactly
+`{"encrypted_key": "<base64url of 40 bytes>"}` and the protected header
+carries that recipient's `epk` instead. These are the placements `jose`
+produces, and a decoder rejects any other placement. An ephemeral key per
+recipient is what `jose`'s supported API produces. Sharing one ephemeral
+key across the entries would save bytes, but `jose` accepts a
+caller-chosen ephemeral key only through its `epk` key-management
+parameter, which it documents as intended only for testing and vector
+validation.
 
 Recipient entries carry no key ID. They follow the canonical
 SignedMessage recipient order: unique and strictly increasing by
@@ -349,10 +354,10 @@ belongs to recipient `i` of the verified SignedMessage. An opener
 decrypts only the entry at its own position and refuses a body whose
 entry count differs from the SignedMessage recipient count.
 
-The protected header is the one L1 JSON value that is not JCS. It is
-`JSON.stringify` of the members in the order shown, with `epk` last and
-its members in `x`, `crv`, `kty` order, the order in which `jose`
-rewrites `epk` for a single recipient. A decoder parses it with
+The protected header is the one L1 JSON value that is not JCS. `jose`
+serializes it as `JSON.stringify` of the members in the order shown,
+and for a single recipient it writes `epk` after the sender member with
+`epk` members in `x`, `crv`, `kty` order. A decoder parses it with
 Effect Schema, checks its exact members, rebuilds that spelling from
 the decoded values, and refuses unless the rebuilt UTF-8 bytes equal
 the decoded `protected` bytes. A256GCM authenticates whatever header
@@ -369,14 +374,17 @@ base64url; and an empty list or more than 128 recipient entries.
 For an N-byte plaintext sealed to R recipients, the sealed body is
 exactly:
 
-```text
-ceil(4(N + 32) / 3) + 430 + 75R
-```
+| Recipients | Sealed bytes |
+|---|---|
+| R = 1 | `ceil(4(N + 32) / 3) + 505` |
+| R ≥ 2 | `ceil(4(N + 32) / 3) + 317 + 171R` |
 
-The 32 is the salt. Each recipient adds a 75-byte entry. At 32
-recipients the fixed part is 2,830 bytes, so the largest plaintext whose
-sealed body fits the 262,144-byte SignedMessage body cap is 194,453
-bytes, which seals to exactly 262,144 bytes.
+The second recipient adds 154 bytes, because a single recipient's
+ephemeral key moves from the protected header into its entry. Each
+recipient after that adds 171 bytes. At 32 recipients the fixed part is
+5,789 bytes, so the largest plaintext whose sealed body fits the
+262,144-byte SignedMessage body cap is 192,234 bytes, which seals to
+exactly 262,144 bytes.
 
 Identity owns this calculation through `SealedBody.sealedByteLength`
 and `SealedBody.maximumPlaintextByteLength`; consumers do not reproduce

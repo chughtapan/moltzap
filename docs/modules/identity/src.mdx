@@ -413,7 +413,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/sealed-body.ts#L534)
+### [`SealedBody`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/sealed-body.ts#L504)
 
 _Variable_
 
@@ -430,7 +430,7 @@ Seals a SignedMessage body to its recipients, opens a verified sealed body,
 and reports sealed sizes. `SignedMessage.sign` never seals; the caller
 chooses which bodies to seal and signs the sealed bytes.
 
-### [`SealedBodyOpeningError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/sealed-body.ts#L178)
+### [`SealedBodyOpeningError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/sealed-body.ts#L164)
 
 _Class_
 
@@ -442,7 +442,7 @@ export class SealedBodyOpeningError extends Data.TaggedError(
 
 A verified SignedMessage body does not open as a sealed body for this agent.
 
-### [`SealedBodySealingError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/sealed-body.ts#L173)
+### [`SealedBodySealingError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/sealed-body.ts#L159)
 
 _Class_
 
