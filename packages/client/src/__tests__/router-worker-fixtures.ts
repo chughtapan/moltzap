@@ -1,16 +1,9 @@
 /** @file Deterministic Identity and Router fixtures for Router worker tests. */
 
 import {
-  AgentCard,
-  AgentId,
   type AgentId as AgentIdValue,
-  AgentName,
-  AgentSigningAuthority,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
-  Ed25519PublicKey,
   MessageId,
-  MOLTZAP_VERSION,
-  PrincipalId,
   SignedMessage,
   type SignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
@@ -27,22 +20,14 @@ import {
   type RouterSendRequest,
   type RouterSendResult,
 } from "@moltzap/router";
-import canonicalize from "canonicalize";
-import {
-  type Context,
-  Effect,
-  Encoding,
-  Layer,
-  Redacted,
-  Ref,
-  Schema,
-} from "effect";
-import {
-  createHash,
-  generateKeyPairSync,
-  sign as signBytes,
-} from "node:crypto";
+import { type Context, Effect, Encoding, Layer, Ref, Schema } from "effect";
+import { generateKeyPairSync } from "node:crypto";
 import type { RouterWorkerInput } from "../transport/router/index.js";
+import {
+  identifier,
+  issueTestCard,
+  makeTestAuthority,
+} from "./agent-card-fixtures.js";
 
 /** Payload decoded by the scripted worker callback. */
 export interface TestPayload {
@@ -63,13 +48,6 @@ interface ScriptedRouter {
   readonly pollCalls: Ref.Ref<PollCall[]>;
   readonly sendCalls: Ref.Ref<SendCall[]>;
   readonly fallbackPoll?: Effect.Effect<RouterPollResult>;
-}
-
-interface CanonicalCardTextsInput {
-  readonly byte: number;
-  readonly name: string;
-  readonly localAuthority: AgentSigningAuthorityValue;
-  readonly registryThumbprint: string;
 }
 
 interface SignMessageInput {
@@ -100,12 +78,6 @@ export const unreachableOutbox: RouterWorkerInput<TestPayload>["outbox"] =
     replaceOutbound: () => Effect.die("outbox must not be used"),
     completeOutbound: () => Effect.die("outbox must not be used"),
   });
-
-const identifier = (prefix: string, byte: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`;
-
-const agentId = (byte: number): AgentIdValue =>
-  Schema.decodeUnknownSync(AgentId)(identifier("agt_", byte));
 
 /**
  * Construct a deterministic test MessageId.
@@ -141,41 +113,12 @@ export const pollCursor = (byte: number) =>
  */
 export const makeIdentityFixture = (byte: number, name: string) =>
   Effect.gen(function* () {
-    const localKeys = generateKeyPairSync("ed25519");
-    const registryKeys = generateKeyPairSync("ed25519");
-    const localPrivateKey = localKeys.privateKey.export({
-      format: "pem",
-      type: "pkcs8",
-    });
-    const localAuthority = yield* AgentSigningAuthority.fromPkcs8(
-      Redacted.make(localPrivateKey),
-    ).pipe(Effect.orDie);
-    const registrySignerPublicKey = yield* Schema.decodeUnknown(
-      Ed25519PublicKey,
-    )(registryKeys.publicKey.export({ format: "jwk" }));
-    const registryThumbprint = createHash("sha256")
-      .update(canonicalize(registrySignerPublicKey) ?? "")
-      .digest("base64url");
-    const { payloadText, protectedText } = yield* canonicalCardTexts({
+    const localAuthority = yield* makeTestAuthority();
+    const localCard = yield* issueTestCard({
       byte,
       name,
-      localAuthority,
-      registryThumbprint,
-    });
-    const protectedValue = Buffer.from(protectedText).toString("base64url");
-    const payload = Buffer.from(payloadText).toString("base64url");
-    const signature = signBytes(
-      null,
-      Buffer.from(`${protectedValue}.${payload}`),
-      registryKeys.privateKey,
-    ).toString("base64url");
-    const parsedLocal = yield* Schema.decodeUnknown(AgentCard)({
-      payload,
-      signatures: [{ protected: protectedValue, signature }],
-    });
-    const localCard = yield* AgentCard.verify({
-      agentCard: parsedLocal,
-      registrySignerPublicKey,
+      authority: localAuthority,
+      registryKeys: generateKeyPairSync("ed25519"),
     });
     return {
       localCard,
@@ -286,32 +229,6 @@ export const batch = (
   signedMessages,
   pollCursor: cursor,
 });
-
-function canonicalCardTexts(input: CanonicalCardTextsInput): Effect.Effect<{
-  readonly payloadText: string;
-  readonly protectedText: string;
-}> {
-  const { byte, localAuthority, name, registryThumbprint } = input;
-  const protectedText = canonicalize({
-    alg: "Ed25519",
-    kid: `urn:ietf:params:oauth:jwk-thumbprint:sha-256:${registryThumbprint}`,
-    typ: "application/vnd.moltzap.agent-card+jws",
-  });
-  const payloadText = canonicalize({
-    agentId: agentId(byte),
-    agentName: Schema.decodeUnknownSync(AgentName)(name),
-    issuedAt: "2026-08-13T12:00:00Z",
-    kind: "agentCard",
-    moltzapVersion: MOLTZAP_VERSION,
-    principalId: Schema.decodeUnknownSync(PrincipalId)(
-      identifier("prn_", byte),
-    ),
-    publicKey: AgentSigningAuthority.publicKey(localAuthority),
-  });
-  return protectedText === undefined || payloadText === undefined
-    ? Effect.die("canonical test card encoding failed")
-    : Effect.succeed({ payloadText, protectedText });
-}
 
 function scriptedRouterService(
   scripted: ScriptedRouter,

@@ -26,7 +26,18 @@ import type { Duration, Effect, Layer } from "effect";
 import type * as RouterPackage from "../../index.js";
 import type * as RouterServerPackage from "../../server.js";
 
-type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
+/* eslint-disable @typescript-eslint/no-unnecessary-type-parameters -- `Probe` stays generic so TypeScript compares the two deferred conditional types by identity. */
+/**
+ * True only when the two types are identical, so an added optional property
+ * or a dropped `readonly` modifier fails the canary.
+ */
+type Equal<Left, Right> =
+  (<Probe>() => Probe extends Left ? 1 : 2) extends <
+    Probe,
+  >() => Probe extends Right ? 1 : 2
+    ? true
+    : false;
+/* eslint-enable @typescript-eslint/no-unnecessary-type-parameters -- Restore repository defaults after the identity helper. */
 type Expect<Value extends true> = Value;
 
 type RouterFailure =

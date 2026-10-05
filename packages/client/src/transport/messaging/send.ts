@@ -89,7 +89,7 @@ const representationFailure = (): SendError =>
  * SDK's `DEFAULT_REQUEST_TIMEOUT_MSEC`, the deadline a host client applies to
  * the tool call, so the host receives this closed failure rather than a
  * transport timeout it cannot classify, and the remaining margin covers the
- * send itself. `EndpointEngineInput.routerAttachTimeout` overrides it.
+ * send itself.
  */
 const ROUTER_ATTACH_TIMEOUT = Duration.seconds(45);
 
@@ -523,7 +523,7 @@ const awaitRouterAttachment = (
     Effect.catchTag("RouterWorkerUnavailableError", () =>
       runtime.input.routerWorker.awaitAnchor.pipe(
         Effect.timeoutFail({
-          duration: runtime.input.routerAttachTimeout ?? ROUTER_ATTACH_TIMEOUT,
+          duration: ROUTER_ATTACH_TIMEOUT,
           onTimeout: () => new SendError({ reason: "network-unavailable" }),
         }),
       ),

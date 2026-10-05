@@ -5,43 +5,35 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
   AgentCard,
-  AgentId,
-  AgentName,
-  AgentSigningAuthority,
-  type AgentSigningAuthority as AgentSigningAuthorityValue,
+  type AgentSigningAuthority,
   Ed25519PublicKey,
   MOLTZAP_VERSION,
-  PrincipalId,
   SignedMessage,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
-import { PollCursor, RouterInstanceId } from "@moltzap/router";
-import canonicalize from "canonicalize";
+import { RouterInstanceId } from "@moltzap/router";
 import {
   Chunk,
   Deferred,
   Effect,
-  Encoding,
   Exit,
   Fiber,
   Option,
   Queue,
-  Redacted,
   Ref,
   Schema,
 } from "effect";
-import {
-  createHash,
-  generateKeyPairSync,
-  type KeyObject,
-  sign as signBytes,
-} from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { AddressRegistryPort } from "../address.js";
-import type {
-  EndpointEngineInput,
-  EngineRouterPort,
-} from "../runtime/index.js";
+import {
+  identifier,
+  issueTestCard,
+  makeTestAuthority,
+  type RegistryKeyPair,
+} from "../../../__tests__/agent-card-fixtures.js";
+import { forwardStoredOutbound } from "../../../__tests__/forward-stored-outbound.js";
+import { pollCursor as fixturePollCursor } from "../../../__tests__/router-worker-fixtures.js";
 import { type EndpointStore, openEndpointStore } from "../../../store/index.js";
 import {
   type RouterDiscontinuityReason,
@@ -84,13 +76,21 @@ import {
   verifyMembershipDescriptor,
 } from "../../wire/index.js";
 import { MessageAddressInput } from "../../wire/values.js";
-import { type EndpointEngine, makeEndpointEngine } from "../index.js";
+import {
+  type EndpointEngine,
+  type EndpointEngineInput,
+  EngineOutboundError,
+  makeEndpointEngine,
+} from "../index.js";
 
 /* eslint-disable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- One exact cryptographic trace keeps protocol order and assertions together. */
 
+/** The Router-worker operations an engine consumes. */
+type EngineRouterPort = EndpointEngineInput["routerWorker"];
+
 interface IdentityFixture {
   readonly card: VerifiedAgentCard;
-  readonly authority: AgentSigningAuthorityValue;
+  readonly authority: AgentSigningAuthority;
 }
 
 interface RecoveryFixture {
@@ -99,7 +99,7 @@ interface RecoveryFixture {
   readonly store: EndpointStore;
   readonly local: IdentityFixture;
   readonly remote: IdentityFixture;
-  readonly registryPrivateKey: KeyObject;
+  readonly registryKeys: RegistryKeyPair;
   readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
   readonly membership: VerifiedMembership;
   readonly certifiedRecord: CertifiedRecord;
@@ -134,38 +134,6 @@ interface HeldRouterInput {
   readonly pendingOutboundIds: Queue.Queue<string>;
 }
 
-function forwardStoredOutbound(
-  store: EndpointStore,
-  outbound: Queue.Queue<SignedMessage>,
-  outboundId: string,
-): Effect.Effect<void> {
-  return store.beginOutbound(outboundId).pipe(
-    Effect.flatMap((attempt) => {
-      switch (attempt.kind) {
-        case "inactive":
-          return Effect.void;
-        case "pending":
-          return decodeCanonical(
-            SignedMessage,
-            attempt.outbound.canonicalSignedMessage,
-          ).pipe(
-            Effect.flatMap((message) =>
-              store
-                .completeOutbound(attempt.outbound)
-                .pipe(Effect.zipRight(Queue.offer(outbound, message))),
-            ),
-            Effect.asVoid,
-          );
-        default: {
-          const exhaustive: never = attempt;
-          return exhaustive;
-        }
-      }
-    }),
-    Effect.orDie,
-  );
-}
-
 type ReanchorVote = Extract<
   EvidenceStatementValue,
   { readonly kind: "reanchor_vote" }
@@ -175,18 +143,13 @@ const actionSignatureKind: EvidenceStatementValue["kind"] = "action_signature";
 const ignoredDisposition: RouterIngressDisposition = "ignored";
 const durabilityVoteKind: EvidenceStatementValue["kind"] = "durability_vote";
 
-const identifier = (prefix: string, byte: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`;
-
 const oldRouterInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
   identifier("rti_", 8),
 );
 const newRouterInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
   identifier("rti_", 9),
 );
-const pollCursor = Schema.decodeUnknownSync(PollCursor)(
-  `plc_eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIiwidHlwIjoiYXBwbGljYXRpb24vdm5kLm1vbHR6YXAucG9sbC1jdXJzb3IrandlIn0..${Encoding.encodeBase64Url(new Uint8Array(12).fill(1))}.${Encoding.encodeBase64Url(new Uint8Array(120).fill(2))}.${Encoding.encodeBase64Url(new Uint8Array(16).fill(3))}`,
-);
+const pollCursor = fixturePollCursor(1);
 
 function makeHeldRouter(input: HeldRouterInput) {
   return (context: FixtureRouterContext): EngineRouterPort => ({
@@ -215,13 +178,6 @@ function makeHeldRouter(input: HeldRouterInput) {
   });
 }
 
-const makeAuthority = () => {
-  const { privateKey } = generateKeyPairSync("ed25519");
-  return AgentSigningAuthority.fromPkcs8(
-    Redacted.make(privateKey.export({ format: "pem", type: "pkcs8" })),
-  );
-};
-
 const encodedEvidence = (
   identity: IdentityFixture,
   statement: EvidenceStatementValue,
@@ -231,54 +187,6 @@ const encodedEvidence = (
     agentCard: identity.card,
     signingAuthority: identity.authority,
   }).pipe(Effect.flatMap((message) => Schema.encode(SignedMessage)(message)));
-
-const issueCard = (input: {
-  readonly byte: number;
-  readonly authority: AgentSigningAuthorityValue;
-  readonly registryPrivateKey: KeyObject;
-  readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
-}): Effect.Effect<VerifiedAgentCard> =>
-  Effect.gen(function* () {
-    const thumbprint = createHash("sha256")
-      .update(canonicalize(input.registrySignerPublicKey) ?? "")
-      .digest("base64url");
-    const protectedText = canonicalize({
-      alg: "Ed25519",
-      kid: `urn:ietf:params:oauth:jwk-thumbprint:sha-256:${thumbprint}`,
-      typ: "application/vnd.moltzap.agent-card+jws",
-    });
-    const payloadText = canonicalize({
-      agentId: Schema.decodeUnknownSync(AgentId)(
-        identifier("agt_", input.byte),
-      ),
-      agentName: Schema.decodeUnknownSync(AgentName)(`recovery-${input.byte}`),
-      issuedAt: "2026-08-27T12:00:00Z",
-      kind: "agentCard",
-      moltzapVersion: MOLTZAP_VERSION,
-      principalId: Schema.decodeUnknownSync(PrincipalId)(
-        identifier("prn_", input.byte),
-      ),
-      publicKey: AgentSigningAuthority.publicKey(input.authority),
-    });
-    if (protectedText === undefined || payloadText === undefined) {
-      return yield* Effect.dieMessage("canonical card fixture failed");
-    }
-    const protectedValue = Buffer.from(protectedText).toString("base64url");
-    const payload = Buffer.from(payloadText).toString("base64url");
-    const signature = signBytes(
-      null,
-      Buffer.from(`${protectedValue}.${payload}`),
-      input.registryPrivateKey,
-    ).toString("base64url");
-    const card = yield* Schema.decodeUnknown(AgentCard)({
-      payload,
-      signatures: [{ protected: protectedValue, signature }],
-    });
-    return yield* AgentCard.verify({
-      agentCard: card,
-      registrySignerPublicKey: input.registrySignerPublicKey,
-    });
-  }).pipe(Effect.orDie);
 
 const buildCertifiedGenesis = (
   local: IdentityFixture,
@@ -394,23 +302,23 @@ const makeFixtureWithRouter = (
     const registrySignerPublicKey = yield* Schema.decodeUnknown(
       Ed25519PublicKey,
     )(registryKeys.publicKey.export({ format: "jwk" }));
-    const localAuthority = yield* makeAuthority();
-    const remoteAuthority = yield* makeAuthority();
+    const localAuthority = yield* makeTestAuthority();
+    const remoteAuthority = yield* makeTestAuthority();
     const local: IdentityFixture = {
-      card: yield* issueCard({
+      card: yield* issueTestCard({
         byte: identityBytes.local,
+        name: `recovery-${identityBytes.local}`,
         authority: localAuthority,
-        registryPrivateKey: registryKeys.privateKey,
-        registrySignerPublicKey,
+        registryKeys,
       }),
       authority: localAuthority,
     };
     const remote: IdentityFixture = {
-      card: yield* issueCard({
+      card: yield* issueTestCard({
         byte: identityBytes.remote,
+        name: `recovery-${identityBytes.remote}`,
         authority: remoteAuthority,
-        registryPrivateKey: registryKeys.privateKey,
-        registrySignerPublicKey,
+        registryKeys,
       }),
       authority: remoteAuthority,
     };
@@ -489,7 +397,7 @@ const makeFixtureWithRouter = (
       store,
       local,
       remote,
-      registryPrivateKey: registryKeys.privateKey,
+      registryKeys,
       registrySignerPublicKey,
       membership,
       certifiedRecord,
@@ -524,23 +432,23 @@ const addN4Foundation = (
   genesisRouterInstanceId: typeof RouterInstanceId.Type = oldRouterInstanceId,
 ) =>
   Effect.gen(function* () {
-    const thirdAuthority = yield* makeAuthority();
-    const fourthAuthority = yield* makeAuthority();
+    const thirdAuthority = yield* makeTestAuthority();
+    const fourthAuthority = yield* makeTestAuthority();
     const third: IdentityFixture = {
-      card: yield* issueCard({
+      card: yield* issueTestCard({
         byte: 3,
+        name: "recovery-3",
         authority: thirdAuthority,
-        registryPrivateKey: fixture.registryPrivateKey,
-        registrySignerPublicKey: fixture.registrySignerPublicKey,
+        registryKeys: fixture.registryKeys,
       }),
       authority: thirdAuthority,
     };
     const fourth: IdentityFixture = {
-      card: yield* issueCard({
+      card: yield* issueTestCard({
         byte: 4,
+        name: "recovery-4",
         authority: fourthAuthority,
-        registryPrivateKey: fixture.registryPrivateKey,
-        registrySignerPublicKey: fixture.registrySignerPublicKey,
+        registryKeys: fixture.registryKeys,
       }),
       authority: fourthAuthority,
     };
@@ -880,6 +788,13 @@ const decodeActionProposal = (
     }),
   );
 
+/**
+ * Take the next action proposal from `outbound`, skipping the evidence
+ * envelopes queued ahead of it.
+ * @param outbound Router queue the engine forwards to.
+ * @returns The proposal envelope and its decoded packet; any other direct
+ *     packet, or one second without traffic, is a defect.
+ */
 function takeActionProposalAfterEvidence(
   outbound: Queue.Queue<SignedMessage>,
 ): Effect.Effect<QueuedActionProposal> {
@@ -997,7 +912,12 @@ const restartWithNonLexicalAgentOrder = () =>
 
         yield* retainCertifiedRecord(fixture);
         const restarted = yield* makeEndpointEngine(fixture.input);
-        expect(restarted).toBeDefined();
+
+        expect(
+          (yield* restarted.readPendingMessages()).map(
+            (message) => message.recordHash,
+          ),
+        ).toEqual([fixture.certifiedRecord.actionCertifiedRecord.recordHash]);
       }),
     ),
   );
@@ -2096,7 +2016,9 @@ const drainRecoversRouterRestartOnItsOwnFiber = () =>
           Effect.timeout("1 second"),
         );
 
-        expect(Exit.isFailure(drained)).toBe(true);
+        expect(drained).toStrictEqual(
+          Exit.fail(new EngineOutboundError({ reason: "network" })),
+        );
         expect(yield* Deferred.isDone(recovered)).toBe(true);
         const after = yield* fixture.store.recover();
         expect(after.outboundMessages).toEqual([]);

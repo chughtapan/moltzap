@@ -11,7 +11,7 @@ import type {
   SignedMessage,
   VerifiedAgentCard,
 } from "@moltzap/identity";
-import type { Deferred, Duration, Effect, Queue } from "effect";
+import type { Deferred, Effect, Queue } from "effect";
 import type { EndpointStore } from "../../../store/index.js";
 import type {
   RouterIngressDisposition,
@@ -37,7 +37,7 @@ import type { AddressRegistryPort } from "../address.js";
 import type { SendError } from "../errors.js";
 
 /** RouterWorker operations consumed by the engine's outbound queue. */
-export interface EngineRouterPort {
+interface EngineRouterPort {
   readonly currentAnchor: Effect.Effect<
     RouterTailAnchor,
     RouterWorkerUnavailableError
@@ -71,8 +71,6 @@ export interface EndpointEngineInput {
   readonly store: EndpointStore;
   readonly routerWorker: EngineRouterPort;
   readonly actionPolicy: EngineActionPolicy;
-  /** Overrides `ROUTER_ATTACH_TIMEOUT`; tests bound the wait in milliseconds. */
-  readonly routerAttachTimeout?: Duration.Duration;
 }
 
 /** One locally authored immutable post intent awaiting certification. */
