@@ -2224,6 +2224,125 @@ const restartEmptyConversation = () =>
     ),
   );
 
+/**
+ * Runs a restart recovery that re-anchors the fixture conversation at the new
+ * Router instance with the peer's vote, and interrupts it while the endpoint
+ * is sending the completed re-anchor. The store has committed the new anchor
+ * by then, so a later restart recovery finds the conversation anchored.
+ * @param fixture Endpoint under recovery, holding a retained certified record.
+ * @returns The endpoint's re-anchor vote and the completed re-anchor it was sending.
+ */
+const reanchorUntilCompletionSend = (fixture: RecoveryFixture) =>
+  Effect.gen(function* () {
+    const outbound = yield* Queue.unbounded<SignedMessage>();
+    const completedSend = yield* Deferred.make<DirectPacket>();
+    yield* fixture.engine.abandonVolatileFolds("router_restarted");
+    const recovery = yield* Effect.fork(
+      fixture.engine.recoverCertifiedHistory({
+        reason: "router_restarted",
+        anchor: {
+          routerInstanceId: newRouterInstanceId,
+          pollCursor,
+        },
+        resume: () => Effect.void,
+        send: ({ message }) =>
+          decodeOuterBody(message.body).pipe(
+            Effect.orDie,
+            Effect.flatMap((body) =>
+              body.kind === "direct" &&
+              body.packet.kind === "completed_reanchor"
+                ? Deferred.succeed(completedSend, body.packet).pipe(
+                    Effect.zipRight(Effect.never),
+                  )
+                : Queue.offer(outbound, message).pipe(Effect.asVoid),
+            ),
+          ),
+      }),
+    );
+    const request = yield* Queue.take(outbound).pipe(
+      Effect.timeout("1 second"),
+      Effect.flatMap(decodeCatchUpRequest),
+    );
+    yield* catchUpIncompleteIngress(fixture, request).pipe(
+      Effect.flatMap((ingress) =>
+        fixture.engine.acceptRecoveryIngress(ingress),
+      ),
+    );
+    const proposal = yield* Queue.take(outbound).pipe(
+      Effect.timeout("1 second"),
+      Effect.flatMap(decodeReanchorVote),
+    );
+    yield* peerReanchorVoteIngress(fixture, proposal).pipe(
+      Effect.flatMap((ingress) =>
+        fixture.engine.acceptRecoveryIngress(ingress),
+      ),
+    );
+    const completed = yield* Deferred.await(completedSend).pipe(
+      Effect.timeout("1 second"),
+    );
+    yield* Fiber.interrupt(recovery);
+    return { proposal, completed };
+  });
+
+/**
+ * Starts a restart recovery at the new Router instance and waits until it has
+ * sent its first catch-up request, so the run is active.
+ * @param fixture Endpoint under recovery.
+ * @param outbound Queue that receives every envelope the run sends.
+ * @returns The running recovery.
+ */
+const startRestartRecovery = (
+  fixture: RecoveryFixture,
+  outbound: Queue.Queue<SignedMessage>,
+) =>
+  Effect.gen(function* () {
+    yield* fixture.engine.abandonVolatileFolds("router_restarted");
+    const recovery = yield* Effect.fork(
+      fixture.engine.recoverCertifiedHistory({
+        reason: "router_restarted",
+        anchor: {
+          routerInstanceId: newRouterInstanceId,
+          pollCursor,
+        },
+        resume: () => Effect.void,
+        send: ({ message }) =>
+          Queue.offer(outbound, message).pipe(Effect.asVoid),
+      }),
+    );
+    const request = yield* Queue.take(outbound).pipe(
+      Effect.timeout("1 second"),
+      Effect.flatMap(decodeCatchUpRequest),
+    );
+    return { recovery, request };
+  });
+
+const ignoresRelayedCompletionForAnchoredConversation = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+        const { completed } = yield* reanchorUntilCompletionSend(fixture);
+        const { recovery } = yield* startRestartRecovery(
+          fixture,
+          yield* Queue.unbounded<SignedMessage>(),
+        );
+        const disposition = yield* directPacketIngressFrom({
+          membership: fixture.membership,
+          sender: fixture.remote,
+          packet: completed,
+          routerInstanceId: newRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
+        );
+        expect(disposition).toBe(ignoredDisposition);
+        yield* Fiber.interrupt(recovery);
+      }),
+    ),
+  );
+
 const rebroadcastsPersistedLocalVote = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -2286,23 +2405,8 @@ const rebroadcastsPersistedLocalVote = () =>
         yield* Fiber.interrupt(firstRecovery);
 
         const secondOutbound = yield* Queue.unbounded<SignedMessage>();
-        yield* fixture.engine.abandonVolatileFolds("router_restarted");
-        const secondRecovery = yield* Effect.fork(
-          fixture.engine.recoverCertifiedHistory({
-            reason: "router_restarted",
-            anchor: {
-              routerInstanceId: newRouterInstanceId,
-              pollCursor,
-            },
-            resume: () => Effect.void,
-            send: ({ message }) =>
-              Queue.offer(secondOutbound, message).pipe(Effect.asVoid),
-          }),
-        );
-        const secondRequest = yield* Queue.take(secondOutbound).pipe(
-          Effect.timeout("1 second"),
-          Effect.flatMap(decodeCatchUpRequest),
-        );
+        const { recovery: secondRecovery, request: secondRequest } =
+          yield* startRestartRecovery(fixture, secondOutbound);
         yield* catchUpIncompleteIngress(fixture, secondRequest).pipe(
           Effect.flatMap((ingress) =>
             fixture.engine.acceptRecoveryIngress(ingress),
@@ -2324,75 +2428,14 @@ const rebroadcastsPersistedCompletedReanchor = () =>
       Effect.gen(function* () {
         const fixture = yield* makeFixture;
         yield* retainCertifiedRecord(fixture);
-        const firstOutbound = yield* Queue.unbounded<SignedMessage>();
-        const completedSendStarted = yield* Deferred.make<undefined>();
-        yield* fixture.engine.abandonVolatileFolds("router_restarted");
-        const firstRecovery = yield* Effect.fork(
-          fixture.engine.recoverCertifiedHistory({
-            reason: "router_restarted",
-            anchor: {
-              routerInstanceId: newRouterInstanceId,
-              pollCursor,
-            },
-            resume: () => Effect.void,
-            send: ({ message }) =>
-              decodeOuterBody(message.body).pipe(
-                Effect.orDie,
-                Effect.flatMap((body) =>
-                  body.kind === "direct" &&
-                  body.packet.kind === "completed_reanchor"
-                    ? Deferred.succeed(completedSendStarted, undefined).pipe(
-                        Effect.zipRight(Effect.never),
-                      )
-                    : Queue.offer(firstOutbound, message).pipe(Effect.asVoid),
-                ),
-              ),
-          }),
-        );
-        const firstRequest = yield* Queue.take(firstOutbound).pipe(
-          Effect.timeout("1 second"),
-          Effect.flatMap(decodeCatchUpRequest),
-        );
-        yield* catchUpIncompleteIngress(fixture, firstRequest).pipe(
-          Effect.flatMap((ingress) =>
-            fixture.engine.acceptRecoveryIngress(ingress),
-          ),
-        );
-        const proposal = yield* Queue.take(firstOutbound).pipe(
-          Effect.timeout("1 second"),
-          Effect.flatMap(decodeReanchorVote),
-        );
-        yield* peerReanchorVoteIngress(fixture, proposal).pipe(
-          Effect.flatMap((ingress) =>
-            fixture.engine.acceptRecoveryIngress(ingress),
-          ),
-        );
-        yield* Deferred.await(completedSendStarted).pipe(
-          Effect.timeout("1 second"),
-        );
+        const { proposal } = yield* reanchorUntilCompletionSend(fixture);
         expect(
           (yield* fixture.store.recover()).positions[0]?.currentAnchorHash,
         ).toBe(proposal.anchorHash);
-        yield* Fiber.interrupt(firstRecovery);
 
         const secondOutbound = yield* Queue.unbounded<SignedMessage>();
-        yield* fixture.engine.abandonVolatileFolds("router_restarted");
-        const secondRecovery = yield* Effect.fork(
-          fixture.engine.recoverCertifiedHistory({
-            reason: "router_restarted",
-            anchor: {
-              routerInstanceId: newRouterInstanceId,
-              pollCursor,
-            },
-            resume: () => Effect.void,
-            send: ({ message }) =>
-              Queue.offer(secondOutbound, message).pipe(Effect.asVoid),
-          }),
-        );
-        const secondRequest = yield* Queue.take(secondOutbound).pipe(
-          Effect.timeout("1 second"),
-          Effect.flatMap(decodeCatchUpRequest),
-        );
+        const { recovery: secondRecovery, request: secondRequest } =
+          yield* startRestartRecovery(fixture, secondOutbound);
         yield* catchUpIncompleteIngress(fixture, secondRequest).pipe(
           Effect.flatMap((ingress) =>
             fixture.engine.acceptRecoveryIngress(ingress),
@@ -2835,6 +2878,10 @@ describe("endpoint restart recovery", () => {
   it(
     "ignores a re-anchor vote that arrives after recovery completes",
     ignoresReanchorVoteAfterRecovery,
+  );
+  it(
+    "ignores a relayed completed re-anchor for a conversation already anchored at the new Router",
+    ignoresRelayedCompletionForAnchoredConversation,
   );
 });
 

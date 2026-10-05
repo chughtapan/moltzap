@@ -337,7 +337,7 @@ function acceptCompletedReanchorEffect(
   return verifyOuterMessage({ message: ingress.message, membership }).pipe(
     Effect.zipRight(verifyCompletedReanchor({ completed, membership })),
     Effect.zipRight(processCompletedVotes(runtime, membership, completed)),
-    Effect.as(acceptedDisposition),
+    Effect.map((taken) => (taken ? acceptedDisposition : ignoredDisposition)),
     Effect.catchTag("ClientRepresentationError", () =>
       Effect.succeed(ignoredDisposition),
     ),
@@ -356,11 +356,20 @@ function completionTargetsRecovery(
   );
 }
 
+/**
+ * Offers each vote of a verified completed re-anchor to the active recovery
+ * run. A completion relayed for a conversation the run is not re-anchoring
+ * has every vote declined, so the caller reports it as ignored.
+ * @param runtime Engine whose active recovery run receives the votes.
+ * @param membership Verified membership of the completion's conversation.
+ * @param completed Completed re-anchor whose certificate carries the votes.
+ * @returns Whether the run took any of the votes.
+ */
 function processCompletedVotes(
   runtime: EngineRuntime,
   membership: VerifiedMembership,
   completed: CompletedReanchorValue,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
+): Effect.Effect<boolean, RouterWorkerPersistenceError> {
   return Effect.forEach(
     completed.certificate.votes,
     (representation) =>
@@ -372,12 +381,12 @@ function processCompletedVotes(
           return processReanchorVote(runtime, membership, {
             message: verified.message,
             statement: verified.statement,
-          }).pipe(Effect.asVoid);
+          });
         }),
         Effect.mapError(persistenceFailure),
       ),
-    { concurrency: 1, discard: true },
-  );
+    { concurrency: 1 },
+  ).pipe(Effect.map((taken) => taken.includes(true)));
 }
 
 /**
