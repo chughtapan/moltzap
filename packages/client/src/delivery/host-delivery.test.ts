@@ -1,11 +1,7 @@
 /** @file Host operations over one service's delivery: registration gating, the send export, and local-item reads and acknowledgment. */
 
 import { Deferred, Effect, Exit, Fiber, Ref, Schema, Scope } from "effect";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The store opens a real SQLite database in a temporary directory.
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type { HistoryExportRecord } from "./history-export.js";
 import type { HarnessMessageReadyEvent } from "./operations.js";
@@ -17,6 +13,7 @@ import {
   recordAcknowledgments,
   takeEvery,
 } from "../__tests__/pending-delivery-fixtures.js";
+import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import {
   DeliveryToken,
   type EndpointStore,
@@ -30,21 +27,12 @@ import {
 } from "../transport/collectives/forms.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
 import { SendError } from "../transport/messaging/errors.js";
-import { InboundMessage } from "../transport/messaging/message.js";
-import { PostId, RecordHash } from "../transport/wire/index.js";
+import { PostId } from "../transport/wire/index.js";
 import { makeHostDelivery } from "./host-delivery.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Closed error reasons and export record kinds are the contract under test. */
 
 type Collectives = Pick<CollectiveOperations, "send">;
-
-const directories: string[] = [];
-
-afterEach(() => {
-  for (const path of directories.splice(0)) {
-    rmSync(path, { recursive: true, force: true });
-  }
-});
 
 const input = Schema.decodeUnknownSync(SendInput)({
   to: "agent:bob",
@@ -66,9 +54,7 @@ const unboundToken = Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", 9));
  */
 const makeFixture = (adjust: (store: EndpointStore) => EndpointStore) =>
   Effect.gen(function* () {
-    const path = mkdtempSync(join(tmpdir(), "moltzap-host-delivery-"));
-    directories.push(path);
-    const store = adjust(yield* openEndpointStore(path));
+    const store = adjust(yield* openEndpointStore(stateDirectory()));
     const records: HistoryExportRecord[] = [];
     const slot: { collectives?: Collectives } = {};
     const delivery = yield* makeHostDelivery({
@@ -268,17 +254,7 @@ const releasesTheGateWhenAPassFails = () =>
     Effect.gen(function* () {
       const { delivery, slot } = yield* deliveryFixture;
       slot.collectives = { send: () => Effect.dieMessage("unexpected send") };
-      const pending = {
-        deliveryToken: unboundToken,
-        recordHash: Schema.decodeUnknownSync(RecordHash)(digest("rch_", 5)),
-        message: Schema.decodeUnknownSync(InboundMessage)({
-          kind: "direct",
-          postId: digest("pst_", 5),
-          address: "agent:bob",
-          sender: "agent:bob",
-          content: [{ type: "text", text: "pending" }],
-        }),
-      };
+      const pending = pendingMessage(5);
       const failure = yield* Effect.flip(
         delivery.runPass(() => ({
           readPending: Effect.succeed([pending]),

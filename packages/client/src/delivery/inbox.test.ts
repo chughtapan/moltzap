@@ -1,12 +1,9 @@
 /** @file Exercises classified delivery durability and loss of request context. */
 
 import { Effect, Array as EffectArray, Schema } from "effect";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- These persistence tests reopen real SQLite databases across independent Effect scopes.
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
+import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import { DeliveryToken, openEndpointStore } from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
 import {
@@ -17,12 +14,6 @@ import {
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Durable tombstone and snapshot fixtures pin exact store outcomes. */
 
-const directories: string[] = [];
-const directory = (): string => {
-  const path = mkdtempSync(join(tmpdir(), "moltzap-runtime-inbox-"));
-  directories.push(path);
-  return path;
-};
 const token = (byte: number) =>
   Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", byte));
 const failure = Schema.decodeUnknownSync(InboundItem)({
@@ -47,14 +38,8 @@ const request = Schema.decodeUnknownSync(InboundItem)({
   deadlineAt: 4_000_000_000_000,
 });
 
-afterEach(() => {
-  for (const path of directories.splice(0)) {
-    rmSync(path, { recursive: true, force: true });
-  }
-});
-
 const preservesTokenBindings = () => {
-  const path = directory();
+  const path = stateDirectory();
   return Effect.runPromise(
     Effect.gen(function* () {
       yield* Effect.scoped(
@@ -103,7 +88,7 @@ const storeRequestAndFailure = (path: string) =>
   );
 
 const retiresLostRequests = () => {
-  const path = directory();
+  const path = stateDirectory();
   return Effect.runPromise(
     Effect.gen(function* () {
       yield* storeRequestAndFailure(path);
@@ -145,7 +130,7 @@ const freezesPagesAcrossArrivalsAndAcknowledgments = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const store = yield* openEndpointStore(directory());
+        const store = yield* openEndpointStore(stateDirectory());
         yield* Effect.forEach(
           EffectArray.range(1, 51),
           (index) =>
@@ -180,7 +165,7 @@ const freezesPagesAcrossArrivalsAndAcknowledgments = () =>
   );
 
 const commitsReceiptAtomically = () => {
-  const path = directory();
+  const path = stateDirectory();
   const state = new TextEncoder().encode('{"registration":null}');
   return Effect.runPromise(
     Effect.gen(function* () {

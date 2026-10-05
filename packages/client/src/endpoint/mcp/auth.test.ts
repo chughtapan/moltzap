@@ -290,7 +290,9 @@ describe.each(registrationStates)(
           (handler) =>
             callTool(handler, { name, arguments: {} }, credentials.runtime),
           (body) => {
-            expect(body).toMatchObject({ error: { code: -32602 } });
+            expect(body).toMatchObject({
+              error: { code: -32602, message: `Tool ${name} not found` },
+            });
           },
         ),
     );

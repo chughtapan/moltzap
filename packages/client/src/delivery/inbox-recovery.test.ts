@@ -1,13 +1,13 @@
 /** @file Schema upgrade preserves protocol state without reopening answered requests. */
 
 import { Effect, Encoding, Option, Schema, Scope } from "effect";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- This regression constructs a real legacy SQLite database between independent daemon scopes.
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { expect, it } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
-import { downgradeToSchemaV2 } from "../__tests__/store-schema-fixtures.js";
+import {
+  bytes,
+  downgradeToSchemaV2,
+  stateDirectory,
+} from "../__tests__/store-schema-fixtures.js";
 import {
   type CertifiedRecord,
   decodeRuntimeValue,
@@ -24,7 +24,6 @@ import { PostId, RecordHash } from "../transport/wire/index.js";
 import { AgentAddress } from "../transport/wire/values.js";
 import { readRuntimeInbox, recoverRuntimeInbox } from "./inbox.js";
 
-const bytes = (value: string) => new TextEncoder().encode(value);
 const self = Schema.decodeUnknownSync(AgentAddress)("agent:alice");
 const sender = Schema.decodeUnknownSync(AgentAddress)("agent:bob");
 const nonce = Encoding.encodeBase64Url(new Uint8Array(32).fill(8));
@@ -194,7 +193,7 @@ const checkRecoveredRequest = (
     }),
   );
 const preservesProtocolStateAndRetiresLegacyRequest = () => {
-  const path = mkdtempSync(join(tmpdir(), "moltzap-legacy-request-"));
+  const path = stateDirectory();
   const counter = { count: 0 };
   return Effect.runPromise(
     Effect.gen(function* () {
@@ -202,13 +201,7 @@ const preservesProtocolStateAndRetiresLegacyRequest = () => {
       yield* downgradeToSchemaV2(path);
       yield* Effect.scoped(openEndpointStore(path));
       yield* checkRecoveredRequest(path, counter, before);
-    }).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          rmSync(path, { recursive: true, force: true });
-        }),
-      ),
-    ),
+    }),
   );
 };
 
@@ -219,7 +212,7 @@ it(
 );
 
 const preservesUnprojectedRequest = () => {
-  const path = mkdtempSync(join(tmpdir(), "moltzap-unprojected-request-"));
+  const path = stateDirectory();
   const counter = { count: 0 };
   return Effect.runPromise(
     Effect.gen(function* () {
@@ -254,13 +247,7 @@ const preservesUnprojectedRequest = () => {
           expect(counter.count).toBe(1);
         }),
       );
-    }).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          rmSync(path, { recursive: true, force: true });
-        }),
-      ),
-    ),
+    }),
   );
 };
 
