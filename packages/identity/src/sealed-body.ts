@@ -8,7 +8,7 @@ import { generalDecrypt, GeneralEncrypt } from "jose";
 import type { VerifiedAgentCard } from "./agent-card.js";
 import {
   agentOpeningPrivateKey,
-  type AgentSigningAuthority,
+  AgentSigningAuthority,
   SEALED_BODY_KEY_MANAGEMENT_ALGORITHM,
   x25519PublicJwk,
 } from "./agent-key.js";
@@ -358,15 +358,18 @@ interface OpenInput {
 /**
  * Decrypts a verified SignedMessage body sealed to the local agent.
  *
- * It refuses a body that is not an exact sealed body, a protected-header
+ * It first refuses an AgentCard whose key is not the authority's Ed25519 key.
+ * A successful unwrap cannot prove that pairing: a sender may wrap any entry
+ * to any key, and an Ed25519 key and its negation share one X25519 key.
+ *
+ * It then refuses a body that is not an exact sealed body, a protected-header
  * sender that differs from the verified SignedMessage sender, an entry count
  * that differs from the SignedMessage recipient count, an agent the
  * SignedMessage does not name, any authentication failure, and a decryption
  * that does not match the header commitment. Every recipient that opens a
  * given body therefore obtains the same plaintext, but a sender can still make
- * a body open for some recipients and not others. An AgentCard that does not
- * belong to the authority selects an entry the authority cannot unwrap. The
- * SignedMessage MessageId is not bound, so a retry under a new MessageId opens.
+ * a body open for some recipients and not others. The SignedMessage MessageId
+ * is not bound, so a retry under a new MessageId opens.
  *
  * @param input The local agent's AgentCard and authority, and the verified
  * SignedMessage.
@@ -376,6 +379,12 @@ const open = (
   input: OpenInput,
 ): Effect.Effect<Uint8Array, SealedBodyOpeningError> =>
   Effect.gen(function* () {
+    if (
+      AgentSigningAuthority.publicKey(input.signingAuthority).x !==
+      input.agentCard.publicKey.x
+    ) {
+      return yield* new SealedBodyOpeningError();
+    }
     const representation = yield* decodeCanonicalJson(
       sealedBodyRepresentation,
       input.signedMessage.body,

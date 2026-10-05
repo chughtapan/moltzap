@@ -335,10 +335,11 @@ each entry over one ciphertext and tag that authenticate under every
 key, and recipients would open different plaintexts. The salt keeps the
 digest from confirming a guessed plaintext.
 
-Each recipient entry carries its own ephemeral key. With one recipient,
-the entry is exactly `{"encrypted_key": "<base64url of 40 bytes>"}` and
-the protected header also carries that recipient's `epk`. These are the
-placements `jose` produces, and a decoder rejects any other placement.
+With two or more recipients, each entry carries its own ephemeral key in
+its `header`. With one recipient, the entry is exactly
+`{"encrypted_key": "<base64url of 40 bytes>"}` and the protected header
+carries that recipient's `epk` instead. These are the placements `jose`
+produces, and a decoder rejects any other placement.
 
 Recipient entries carry no key ID. They follow the canonical
 SignedMessage recipient order: unique and strictly increasing by

@@ -144,7 +144,7 @@ export interface AgentSigningAuthority {
 Opaque authority over one imported Ed25519 private key and the X25519
 opening key derived from it.
 
-### [`AgentSigningAuthority (value)`](./agent-key.ts#L519)
+### [`AgentSigningAuthority (value)`](./agent-key.ts#L537)
 
 _Variable_
 
@@ -407,7 +407,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](./sealed-body.ts#L489)
+### [`SealedBody`](./sealed-body.ts#L498)
 
 _Variable_
 

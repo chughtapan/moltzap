@@ -422,12 +422,15 @@ plaintext, and nothing else. `seal` prepends a fresh 32-byte random salt
 to the plaintext, encrypts the salted plaintext, and commits to its
 SHA-256 digest. The header does not bind the SignedMessage MessageId, so
 a retry that re-wraps the same sealed bytes under a new MessageId still
-opens. `open` takes a `VerifiedSignedMessage`, so the sender and
+opens. A retry names the same recipients the body was sealed to; after a
+membership change the sender seals again. `open` takes a `VerifiedSignedMessage`, so the sender and
 recipient list it relies on have passed signature verification. It
 decrypts only the entry at the local agent's position in that recipient
 list, checks the decrypted bytes against the commitment, and strips the
 salt. It refuses:
 
+- an `agentCard` whose key is not the Ed25519 key of
+  `signingAuthority`, before it reads the body;
 - a body that is not an exact sealed body, including a plaintext body
   and a protected header in any spelling other than the one `seal`
   writes;
@@ -441,8 +444,10 @@ salt. It refuses:
 - decrypted bytes that do not match the commitment or are shorter than
   the salt.
 
-`agentCard` names the local agent. A card that does not belong to
-`signingAuthority` selects an entry the authority cannot unwrap.
+`agentCard` names the local agent. A successful unwrap would not prove
+that the card belongs to the authority: a sender may wrap any entry to
+any key, and an Ed25519 key and its negation share one X25519 key. The
+key comparison is therefore what refuses a mismatched card.
 
 Each refusal is `SealedBodyOpeningError`. There is no plaintext
 fallback.

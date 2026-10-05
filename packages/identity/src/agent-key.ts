@@ -349,13 +349,31 @@ const getAuthorityState = (
 const invalidPrivateKey = (): InvalidAgentPrivateKeyError =>
   new InvalidAgentPrivateKeyError();
 
+/** Length of the SHA-512 expansion whose first half is the X25519 secret. */
+const EXPANDED_SECRET_BYTES = 64;
+
 /**
- * Overwrites the whole buffer behind `bytes` once `effect` settles.
+ * Selects the bytes to erase for `bytes`: its whole buffer when the view
+ * starts that buffer and the buffer is no larger than the SHA-512 expansion,
+ * and only the view otherwise.
  *
- * The decoded seed and the SHA-512 expansion behind the X25519 secret each own
- * their buffer, so zeroing it also erases the expansion's RFC 8032 nonce
- * prefix. The base64url strings that JOSE requires cannot be zeroed and remain
- * until garbage collection.
+ * The decoded seed and the expansion behind the X25519 secret each sit alone
+ * in such a buffer, so erasing it also removes the expansion's RFC 8032 nonce
+ * prefix. A view into a larger shared buffer, such as Node's pooled Buffer
+ * slab, is erased alone so that unrelated data survives.
+ *
+ * @param bytes Key bytes.
+ * @returns The bytes to overwrite.
+ */
+const erasableBytes = (bytes: Uint8Array): Uint8Array =>
+  bytes.byteOffset === 0 && bytes.buffer.byteLength <= EXPANDED_SECRET_BYTES
+    ? new Uint8Array(bytes.buffer)
+    : bytes;
+
+/**
+ * Overwrites the key bytes behind `bytes` once `effect` settles. The
+ * base64url strings that JOSE requires cannot be zeroed and remain until
+ * garbage collection.
  *
  * @param bytes Key bytes to erase.
  * @param effect Work that reads them.
@@ -368,7 +386,7 @@ const zeroAfter = <A, E>(
   effect.pipe(
     Effect.ensuring(
       Effect.sync(() => {
-        new Uint8Array(bytes.buffer).fill(0);
+        erasableBytes(bytes).fill(0);
       }),
     ),
   );

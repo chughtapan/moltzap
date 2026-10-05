@@ -690,6 +690,44 @@ it("refuses to open with an AgentCard that does not belong to the authority", ()
     }),
   ));
 
+/**
+ * Value: protects=open refuses an AgentCard that is not the authority's key
+ * even when the entry at that card's position unwraps under the authority;
+ * fails_when=open relies on unwrap failure instead of comparing keys;
+ * why_new=the other foreign-card test uses an honest body, whose entry the
+ * foreign authority cannot unwrap anyway; seam=none.
+ */
+it("refuses a foreign AgentCard whose entry the sender wrapped to the opening authority", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const group = yield* makeGroup(2);
+      const { saltedPlaintext, commitment } = yield* commitTo(
+        freshSalt(),
+        plaintext,
+      );
+      const sealed = yield* sealManually({
+        protectedHeaderText: honestHeaderText(commitment, group.sender),
+        saltedPlaintext,
+        recipients: [group.sender.agentCard, group.sender.agentCard],
+      });
+      const signedMessage = yield* signBody(
+        group.sender,
+        group.recipients,
+        sealed,
+      );
+
+      const outcome = yield* SealedBody.open({
+        agentCard: group.peer.agentCard,
+        signingAuthority: group.sender.authority,
+        signedMessage,
+      }).pipe(Effect.either);
+      const joseOpened = yield* joseOpen(sealed, group.sender);
+
+      expect(outcome).toStrictEqual(Either.left(new SealedBodyOpeningError()));
+      expect(joseOpened).toEqual(saltedPlaintext);
+    }),
+  ));
+
 it.each([
   {
     body: "a plaintext body",
