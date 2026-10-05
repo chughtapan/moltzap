@@ -1,11 +1,12 @@
 /**
  * @file Sealed bodies built by hand, as a dishonest sender could build them.
  * Each helper follows RFC 7516 and RFC 7518 directly with WebCrypto, so a test
- * controls the exact protected-header bytes and every content key.
+ * controls the exact protected-header bytes and every content key. Like
+ * `SealedBody.seal`, each body uses one ephemeral key for every recipient.
  */
 
-import { Effect, Encoding } from "effect";
-import { exportJWK, generateKeyPair } from "jose";
+import { Effect, Encoding, Schema } from "effect";
+import { type CryptoKey, exportJWK, generateKeyPair } from "jose";
 import type { VerifiedAgentCard } from "../agent-card.js";
 import { x25519PublicJwk } from "../agent-key.js";
 import { encodeCanonicalJson } from "../canonical-json.js";
@@ -101,14 +102,58 @@ const concatKdf = (sharedSecret: ArrayBuffer) => {
   });
 };
 
+const ephemeralPublicJwk = Schema.Struct({
+  x: Schema.String,
+  crv: Schema.String,
+  kty: Schema.String,
+});
+
+/** Public half of a body's one ephemeral key, as a JWK. */
+export interface EphemeralPublicJwk {
+  readonly x: string;
+  readonly crv: string;
+  readonly kty: string;
+}
+
+/**
+ * Generates the one ephemeral X25519 key that every entry of a hand-built
+ * body is wrapped under.
+ *
+ * @returns The private key and its public JWK.
+ */
+export const generateEphemeralKey = () =>
+  Effect.gen(function* () {
+    const ephemeral = yield* Effect.tryPromise({
+      try: () =>
+        generateKeyPair(KEY_MANAGEMENT_ALGORITHM, {
+          crv: "X25519",
+          extractable: true,
+        }),
+      catch: failure("ephemeral key generation"),
+    });
+    const ephemeralJwk = yield* Effect.tryPromise({
+      try: () => exportJWK(ephemeral.publicKey),
+      catch: failure("ephemeral key export"),
+    });
+    const { x, crv, kty } =
+      yield* Schema.decodeUnknown(ephemeralPublicJwk)(ephemeralJwk);
+    const epk: EphemeralPublicJwk = { x, crv, kty };
+    return { privateKey: ephemeral.privateKey, epk };
+  }).pipe(Effect.withSpan("generateEphemeralKey"));
+
 /**
  * Derives the ECDH-ES+A256KW key-encryption key for one recipient: X25519
- * agreement with a fresh ephemeral key, then the Concat KDF.
+ * agreement with the body's ephemeral key, then the Concat KDF.
  *
  * @param recipient Recipient AgentCard.
- * @returns The key-encryption key and the ephemeral public JWK.
+ * @param ephemeralKey X25519 private key that every entry of the body is
+ * wrapped under.
+ * @returns The 32-byte AES key-wrap key for this recipient's entry.
  */
-const deriveKeyEncryptionKey = (recipient: VerifiedAgentCard) =>
+const deriveKeyEncryptionKey = (
+  recipient: VerifiedAgentCard,
+  ephemeralKey: CryptoKey,
+) =>
   Effect.gen(function* () {
     const recipientJwk = yield* x25519PublicJwk(recipient.publicKey);
     const recipientKey = yield* Effect.tryPromise({
@@ -122,32 +167,16 @@ const deriveKeyEncryptionKey = (recipient: VerifiedAgentCard) =>
         ),
       catch: failure("recipient key import"),
     });
-    const ephemeral = yield* Effect.tryPromise({
-      try: () =>
-        generateKeyPair(KEY_MANAGEMENT_ALGORITHM, {
-          crv: "X25519",
-          extractable: true,
-        }),
-      catch: failure("ephemeral key generation"),
-    });
     const sharedSecret = yield* Effect.tryPromise({
       try: () =>
         subtle.deriveBits(
           { name: "X25519", public: recipientKey },
-          ephemeral.privateKey,
+          ephemeralKey,
           256,
         ),
       catch: failure("key agreement"),
     });
-    const keyEncryptionKey = yield* concatKdf(sharedSecret);
-    const ephemeralJwk = yield* Effect.tryPromise({
-      try: () => exportJWK(ephemeral.publicKey),
-      catch: failure("ephemeral key export"),
-    });
-    return {
-      keyEncryptionKey: new Uint8Array(keyEncryptionKey),
-      epk: { crv: ephemeralJwk.crv, kty: ephemeralJwk.kty, x: ephemeralJwk.x },
-    };
+    return new Uint8Array(yield* concatKdf(sharedSecret));
   });
 
 /**
@@ -156,11 +185,20 @@ const deriveKeyEncryptionKey = (recipient: VerifiedAgentCard) =>
  *
  * @param recipient Recipient AgentCard.
  * @param contentKey 32-byte content-encryption key.
- * @returns The recipient entry with its ephemeral public key.
+ * @param ephemeralKey X25519 private key that every entry of the body is
+ * wrapped under.
+ * @returns The recipient entry.
  */
-const wrapContentKey = (recipient: VerifiedAgentCard, contentKey: Bytes) =>
+const wrapContentKey = (
+  recipient: VerifiedAgentCard,
+  contentKey: Bytes,
+  ephemeralKey: CryptoKey,
+) =>
   Effect.gen(function* () {
-    const { keyEncryptionKey, epk } = yield* deriveKeyEncryptionKey(recipient);
+    const keyEncryptionKey = yield* deriveKeyEncryptionKey(
+      recipient,
+      ephemeralKey,
+    );
     const content = yield* importKey(contentKey, "AES-GCM", "encrypt");
     const wrapping = yield* importKey(keyEncryptionKey, "AES-KW", "wrapKey");
     const wrappedKey = yield* Effect.tryPromise({
@@ -169,12 +207,11 @@ const wrapContentKey = (recipient: VerifiedAgentCard, contentKey: Bytes) =>
     });
     return {
       encrypted_key: Encoding.encodeBase64Url(new Uint8Array(wrappedKey)),
-      header: { epk },
     };
   });
 
 interface ManualSealInput {
-  readonly protectedHeaderText: string;
+  readonly protectedHeaderText: (epk: EphemeralPublicJwk) => string;
   readonly saltedPlaintext: Uint8Array;
   readonly recipients: readonly VerifiedAgentCard[];
 }
@@ -183,8 +220,8 @@ interface ManualSealInput {
  * Seals one content key to every recipient under exactly the protected-header
  * text given, which may be any spelling a sender chooses.
  *
- * @param input Header text, salted plaintext, and two or more recipients in
- * canonical order.
+ * @param input Header text built from the body's ephemeral public key, the
+ * salted plaintext, and the recipients in canonical order.
  * @returns Canonical bytes of the General JWE.
  */
 export const sealManually = (input: ManualSealInput) =>
@@ -193,7 +230,10 @@ export const sealManually = (input: ManualSealInput) =>
       new Uint8Array(CONTENT_KEY_BYTES),
     );
     const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
-    const protectedHeader = Encoding.encodeBase64Url(input.protectedHeaderText);
+    const ephemeralKey = yield* generateEphemeralKey();
+    const protectedHeader = Encoding.encodeBase64Url(
+      input.protectedHeaderText(ephemeralKey.epk),
+    );
     const key = yield* importKey(contentKey, "AES-GCM", "encrypt");
     const sealed = yield* Effect.tryPromise({
       try: () =>
@@ -210,7 +250,8 @@ export const sealManually = (input: ManualSealInput) =>
     });
     const recipients = yield* Effect.forEach(
       input.recipients,
-      (recipient) => wrapContentKey(recipient, contentKey),
+      (recipient) =>
+        wrapContentKey(recipient, contentKey, ephemeralKey.privateKey),
       { concurrency: 1 },
     );
     const ciphertextAndTag = new Uint8Array(sealed);
@@ -357,7 +398,7 @@ const collideTag = (input: CollisionInput) =>
   });
 
 interface TwoKeyInput {
-  readonly protectedHeaderText: string;
+  readonly protectedHeaderText: (epk: EphemeralPublicJwk) => string;
   readonly recipients: readonly [VerifiedAgentCard, VerifiedAgentCard];
   readonly ciphertextBytes: number;
 }
@@ -367,8 +408,9 @@ interface TwoKeyInput {
  * ciphertext and tag that authenticate under both, so jose opens it to a
  * different plaintext for each recipient.
  *
- * @param input Header text, two recipients in canonical order, and the
- * ciphertext length (at least one block).
+ * @param input Header text built from the body's ephemeral public key, two
+ * recipients in canonical order, and the ciphertext length (at least one
+ * block).
  * @returns Canonical bytes of the General JWE.
  */
 export const sealTwoKeyCollision = (input: TwoKeyInput) =>
@@ -376,7 +418,10 @@ export const sealTwoKeyCollision = (input: TwoKeyInput) =>
     const firstKey = crypto.getRandomValues(new Uint8Array(CONTENT_KEY_BYTES));
     const secondKey = crypto.getRandomValues(new Uint8Array(CONTENT_KEY_BYTES));
     const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
-    const protectedHeader = Encoding.encodeBase64Url(input.protectedHeaderText);
+    const ephemeralKey = yield* generateEphemeralKey();
+    const protectedHeader = Encoding.encodeBase64Url(
+      input.protectedHeaderText(ephemeralKey.epk),
+    );
     const { ciphertext, tag } = yield* collideTag({
       firstKey,
       secondKey,
@@ -385,8 +430,16 @@ export const sealTwoKeyCollision = (input: TwoKeyInput) =>
       ciphertext: crypto.getRandomValues(new Uint8Array(input.ciphertextBytes)),
     });
     const recipients = [
-      yield* wrapContentKey(input.recipients[0], firstKey),
-      yield* wrapContentKey(input.recipients[1], secondKey),
+      yield* wrapContentKey(
+        input.recipients[0],
+        firstKey,
+        ephemeralKey.privateKey,
+      ),
+      yield* wrapContentKey(
+        input.recipients[1],
+        secondKey,
+        ephemeralKey.privateKey,
+      ),
     ];
     return yield* encodeCanonicalJson({
       ciphertext: Encoding.encodeBase64Url(ciphertext),

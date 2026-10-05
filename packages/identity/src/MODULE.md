@@ -407,7 +407,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](./sealed-body.ts#L498)
+### [`SealedBody`](./sealed-body.ts#L534)
 
 _Variable_
 
@@ -424,7 +424,7 @@ Seals a SignedMessage body to its recipients, opens a verified sealed body,
 and reports sealed sizes. `SignedMessage.sign` never seals; the caller
 chooses which bodies to seal and signs the sealed bytes.
 
-### [`SealedBodyOpeningError`](./sealed-body.ts#L164)
+### [`SealedBodyOpeningError`](./sealed-body.ts#L178)
 
 _Class_
 
@@ -436,7 +436,7 @@ export class SealedBodyOpeningError extends Data.TaggedError(
 
 A verified SignedMessage body does not open as a sealed body for this agent.
 
-### [`SealedBodySealingError`](./sealed-body.ts#L159)
+### [`SealedBodySealingError`](./sealed-body.ts#L173)
 
 _Class_
 

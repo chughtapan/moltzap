@@ -21,7 +21,7 @@ heading below in its release commit.
   misbehavior. Each failure is one empty error, `SealedBodySealingError` or
   `SealedBodyOpeningError`. `SealedBody.sealedByteLength` and
   `SealedBody.maximumPlaintextByteLength` report the exact sealed size; at 32
-  recipients the largest plaintext is 192,234 bytes.
+  recipients the largest plaintext is 194,453 bytes.
 - `AgentSigningAuthority.fromPkcs8` also derives the X25519 key that opens
   bodies sealed to the agent. Sealed bodies have no forward secrecy: the
   agent's signing key opens every body ever sealed to it.

@@ -5,12 +5,7 @@
 
 import { Effect, Either, Encoding, Schema } from "effect";
 import * as fc from "fast-check";
-import {
-  exportJWK,
-  generalDecrypt,
-  GeneralEncrypt,
-  generateKeyPair,
-} from "jose";
+import { generalDecrypt, GeneralEncrypt } from "jose";
 import { expect, it } from "vitest";
 import type { VerifiedAgentCard } from "../agent-card.js";
 import {
@@ -30,6 +25,8 @@ import {
 } from "../signed-message.js";
 import {
   commitTo,
+  type EphemeralPublicJwk,
+  generateEphemeralKey,
   sealManually,
   sealTwoKeyCollision,
 } from "./forged-sealed-bodies.js";
@@ -54,6 +51,12 @@ const SALT_BYTES = 32;
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 
+const rawEphemeralKey = Schema.Struct({
+  crv: Schema.String,
+  kty: Schema.String,
+  x: Schema.String,
+});
+
 const rawSealedBody = Schema.Struct({
   ciphertext: Schema.String,
   iv: Schema.String,
@@ -61,15 +64,7 @@ const rawSealedBody = Schema.Struct({
   recipients: Schema.Array(
     Schema.Struct({
       encrypted_key: Schema.String,
-      header: Schema.optional(
-        Schema.Struct({
-          epk: Schema.Struct({
-            crv: Schema.String,
-            kty: Schema.String,
-            x: Schema.String,
-          }),
-        }),
-      ),
+      header: Schema.optional(Schema.Struct({ epk: rawEphemeralKey })),
     }),
   ),
   tag: Schema.String,
@@ -125,39 +120,31 @@ const respellFinalCharacter = (value: string): string =>
 const freshSalt = () => crypto.getRandomValues(new Uint8Array(SALT_BYTES));
 
 /**
- * Spells a protected header exactly as `SealedBody.seal` does for two or more
- * recipients, from the base64url SHA-256 of the salted plaintext and the
- * sender.
+ * Spells a protected header exactly as `SealedBody.seal` does, from the
+ * base64url SHA-256 of the salted plaintext, the sender, and the body's one
+ * ephemeral public key.
  */
-const honestHeaderText = (commitment: string, sender: Member) =>
-  JSON.stringify({
-    alg: "ECDH-ES+A256KW",
-    enc: "A256GCM",
-    [COMMITMENT_HEADER]: commitment,
-    [SENDER_HEADER]: sender.agentCard.agentId,
-  });
+const honestHeaderText =
+  (commitment: string, sender: Member) => (epk: EphemeralPublicJwk) =>
+    JSON.stringify({
+      alg: "ECDH-ES+A256KW",
+      enc: "A256GCM",
+      [COMMITMENT_HEADER]: commitment,
+      [SENDER_HEADER]: sender.agentCard.agentId,
+      epk: { x: epk.x, crv: epk.crv, kty: epk.kty },
+    });
 
 /**
- * Seals `plaintext` to the sender and peer with one ephemeral key named in
- * the protected header, spelled as seal spells a single-recipient header, then
- * drops the per-recipient copies jose adds.
+ * Seals `plaintext` to the sender and peer with stock jose, which gives each
+ * entry its own ephemeral key in its `header` and leaves `epk` out of the
+ * protected header.
  *
  * @param sender Sender and first recipient.
  * @param peer Second recipient.
  * @returns Canonical bytes of a JWE that jose opens but SealedBody refuses.
  */
-const sealWithSharedEphemeralKey = (sender: Member, peer: Member) =>
+const sealWithPerRecipientEphemeralKeys = (sender: Member, peer: Member) =>
   Effect.gen(function* () {
-    const ephemeral = yield* Effect.tryPromise({
-      try: () =>
-        generateKeyPair("ECDH-ES+A256KW", { crv: "X25519", extractable: true }),
-      catch: () => new Error("ephemeral key generation failed"),
-    });
-    const ephemeralPublicKey = yield* Effect.tryPromise({
-      try: () => exportJWK(ephemeral.publicKey),
-      catch: () => new Error("ephemeral key export failed"),
-    });
-    const sharedEphemeralKey = { epk: ephemeral.privateKey };
     const { saltedPlaintext, commitment } = yield* commitTo(
       freshSalt(),
       plaintext,
@@ -170,29 +157,17 @@ const sealWithSharedEphemeralKey = (sender: Member, peer: Member) =>
             enc: "A256GCM",
             [COMMITMENT_HEADER]: commitment,
             [SENDER_HEADER]: sender.agentCard.agentId,
-            epk: {
-              x: ephemeralPublicKey.x,
-              crv: ephemeralPublicKey.crv,
-              kty: ephemeralPublicKey.kty,
-            },
           })
           .addRecipient(
             Either.getOrThrow(x25519PublicJwk(sender.agentCard.publicKey)),
           )
-          .setKeyManagementParameters(sharedEphemeralKey)
           .addRecipient(
             Either.getOrThrow(x25519PublicJwk(peer.agentCard.publicKey)),
           )
-          .setKeyManagementParameters(sharedEphemeralKey)
           .encrypt(),
-      catch: () => new Error("shared-key sealing failed"),
+      catch: () => new Error("per-recipient sealing failed"),
     });
-    return yield* encodeCanonicalJson({
-      ...representation,
-      recipients: representation.recipients.map((recipient) => ({
-        encrypted_key: recipient.encrypted_key,
-      })),
-    });
+    return yield* encodeCanonicalJson(representation);
   });
 
 /**
@@ -234,8 +209,16 @@ const joseOpen = (sealed: Uint8Array, member: Member) =>
     catch: () => new Error("jose refused the body"),
   }).pipe(Effect.map((decrypted) => decrypted.plaintext));
 
+/**
+ * Value: protects=every body seal produces is a standard General JWE with one
+ * ephemeral key in the protected header and entries that carry only a
+ * wrapped key, which stock jose opens for every recipient; fails_when=seal
+ * keeps jose's per-entry key copies or wraps an entry under another key;
+ * why_new=SealedBody.open selects one entry by position, so only jose tries
+ * every entry against the shared key; seam=none.
+ */
 it.each([1, 3, 32])(
-  "opens a body sealed to %i recipients for every recipient, the sender included",
+  "opens a body sealed to %i recipients for every recipient, the sender included, as stock jose does",
   (recipientCount) =>
     Effect.runPromise(
       Effect.gen(function* () {
@@ -257,9 +240,21 @@ it.each([1, 3, 32])(
           { concurrency: FIXTURE_CONCURRENCY },
         );
 
+        const joseOpened = yield* Effect.forEach(
+          group.recipients,
+          (member) => joseOpen(sealed, member),
+          { concurrency: FIXTURE_CONCURRENCY },
+        );
+
         expect(group.recipients).toHaveLength(recipientCount);
         expect(group.recipients).toContain(group.sender);
         expect(opened).toEqual(group.recipients.map(() => plaintext));
+        expect(joseOpened.map((salted) => salted.subarray(SALT_BYTES))).toEqual(
+          group.recipients.map(() => plaintext),
+        );
+        expect(
+          readSealedBody(sealed).recipients.map((entry) => Object.keys(entry)),
+        ).toStrictEqual(group.recipients.map(() => ["encrypted_key"]));
         expect(
           Buffer.from(
             Encoding.decodeBase64Url(readSealedBody(sealed).ciphertext).pipe(
@@ -485,42 +480,27 @@ it.each([
     }),
   },
   /**
-   * Value: protects=open refuses a noncanonical spelling of the opener's
-   * ephemeral key; fails_when=the epk.x member checks only its decoded length;
-   * why_new=the entry header is outside the authenticated data, so jose opens
-   * the respelled body; seam=none.
+   * Value: protects=open refuses a body that repeats the ephemeral key in any
+   * entry header, not only the opener's; fails_when=the entry Schema admits a
+   * header, as stock jose writes one; why_new=the per-recipient layout test
+   * also leaves epk out of the protected header, which the header Schema
+   * refuses first; seam=none.
    */
   {
-    part: "ephemeral-key spelling of the opening recipient",
+    part: "copy of the ephemeral key in another recipient's entry",
     tamper: (body: RawSealedBody): RawSealedBody => ({
       ...body,
       recipients: body.recipients.map((recipient, index) =>
-        index === 1 && recipient.header !== undefined
+        index === 0
           ? {
               ...recipient,
               header: {
-                epk: {
-                  ...recipient.header.epk,
-                  x: respellFinalCharacter(recipient.header.epk.x),
-                },
+                epk: Schema.decodeUnknownSync(rawEphemeralKey)(
+                  readProtectedHeader(body).epk,
+                ),
               },
             }
           : recipient,
-      ),
-    }),
-  },
-  /**
-   * Value: protects=a multi-recipient body opens only when every entry
-   * carries its own ephemeral key; fails_when=the placement check inspects
-   * only the opener's entry, which jose then opens; why_new=the existing
-   * placement tests move every ephemeral key at once; seam=none.
-   */
-  {
-    part: "ephemeral-key placement of another recipient's entry",
-    tamper: (body: RawSealedBody): RawSealedBody => ({
-      ...body,
-      recipients: body.recipients.map((recipient, index) =>
-        index === 0 ? { encrypted_key: recipient.encrypted_key } : recipient,
       ),
     }),
   },
@@ -773,58 +753,47 @@ it.each([
   ),
 );
 
-it("refuses a single-recipient body whose ephemeral key sits in the recipient header", () =>
+/**
+ * Value: protects=open accepts only the shared-key layout, refusing a body
+ * whose ephemeral keys sit in the entry headers, which stock jose opens;
+ * fails_when=the protected header stops requiring epk or the entry Schema
+ * admits a header; why_new=every body seal produces carries the shared key,
+ * so only a hand-built body has the per-recipient layout; seam=none.
+ */
+it("refuses a body whose ephemeral keys sit in the recipient headers, which jose opens", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const group = yield* makeGroup(2);
-      const sealed = yield* sealFrom(group.sender, group.recipients, plaintext);
-      const body = readSealedBody(sealed);
-      const firstRecipientOnly = yield* encodeCanonicalJson({
-        ...body,
-        recipients: body.recipients.slice(0, 1),
-      });
-      const signedMessage = yield* signBody(
-        group.sender,
-        [group.sender],
-        firstRecipientOnly,
-      );
-
-      const outcome = yield* openAs(group.sender, signedMessage).pipe(
-        Effect.either,
-      );
-
-      expect(outcome).toStrictEqual(Either.left(new SealedBodyOpeningError()));
-    }),
-  ));
-
-it("refuses a multi-recipient body that shares one ephemeral key through the protected header", () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const group = yield* makeGroup(2);
-      const sharedEpk = yield* sealWithSharedEphemeralKey(
+      const perRecipient = yield* sealWithPerRecipientEphemeralKeys(
         group.sender,
         group.peer,
       );
       const signedMessage = yield* signBody(
         group.sender,
         group.recipients,
-        sharedEpk,
+        perRecipient,
       );
 
       const outcome = yield* openAs(group.peer, signedMessage).pipe(
         Effect.either,
       );
-      const joseOpened = yield* joseOpen(sharedEpk, group.peer);
+      const joseOpened = yield* joseOpen(perRecipient, group.peer);
 
       expect(outcome).toStrictEqual(Either.left(new SealedBodyOpeningError()));
       expect(joseOpened.subarray(SALT_BYTES)).toEqual(plaintext);
+      expect(
+        readSealedBody(perRecipient).recipients.map(
+          (entry) => entry.header !== undefined,
+        ),
+      ).toStrictEqual([true, true]);
     }),
   ));
 
 /**
  * Seals `plaintext` to the sender and peer with jose as `SealedBody.seal`
- * does, with `addedMembers` spread over the protected header: a new name is
- * appended and an existing name keeps its position with the new value.
+ * does, one ephemeral key in the protected header and no entry headers, with
+ * `addedMembers` spread over the protected header: a new name is appended and
+ * an existing name keeps its position with the new value.
  *
  * @param sender Sender and first recipient.
  * @param peer Second recipient.
@@ -837,6 +806,8 @@ const sealWithProtectedMembers = (
   addedMembers: Readonly<Record<string, string>>,
 ) =>
   Effect.gen(function* () {
+    const ephemeral = yield* generateEphemeralKey();
+    const sharedEphemeralKey = { epk: ephemeral.privateKey };
     const { saltedPlaintext, commitment } = yield* commitTo(
       freshSalt(),
       plaintext,
@@ -849,18 +820,26 @@ const sealWithProtectedMembers = (
             enc: "A256GCM",
             [COMMITMENT_HEADER]: commitment,
             [SENDER_HEADER]: sender.agentCard.agentId,
+            epk: ephemeral.epk,
             ...addedMembers,
           })
           .addRecipient(
             Either.getOrThrow(x25519PublicJwk(sender.agentCard.publicKey)),
           )
+          .setKeyManagementParameters(sharedEphemeralKey)
           .addRecipient(
             Either.getOrThrow(x25519PublicJwk(peer.agentCard.publicKey)),
           )
+          .setKeyManagementParameters(sharedEphemeralKey)
           .encrypt(),
       catch: () => new Error("hand sealing failed"),
     });
-    return yield* encodeCanonicalJson(representation);
+    return yield* encodeCanonicalJson({
+      ...representation,
+      recipients: representation.recipients.map((recipient) => ({
+        encrypted_key: recipient.encrypted_key,
+      })),
+    });
   });
 
 interface ProtectedMembersCase {
@@ -872,7 +851,7 @@ interface ProtectedMembersCase {
 
 /**
  * Value: protects=open refuses a protected header with a member beyond alg,
- * enc, commitment, and sender, or a weaker key-wrap algorithm, which jose
+ * enc, commitment, sender, and epk, or a weaker key-wrap algorithm, which jose
  * itself opens; fails_when=the protected-header Schema stops refusing excess
  * members or other algorithms; why_new=the aad row of the body table adds an
  * outer member, and rewriting a sealed header fails content authentication
@@ -927,14 +906,18 @@ it.each<ProtectedMembersCase>([
 
 interface HeaderSpellingCase {
   readonly spelling: string;
-  readonly headerText: (commitment: string, group: Group) => string;
+  readonly headerText: (
+    commitment: string,
+    group: Group,
+  ) => (epk: EphemeralPublicJwk) => string;
   readonly expected: Either.Either<Uint8Array, SealedBodyOpeningError>;
 }
 
 /**
  * Value: protects=open accepts only the one header spelling seal produces,
- * which jose opens in every spelling; fails_when=open compares header members
- * or decoded text instead of header bytes; why_new=jose serializes members in
+ * ephemeral key included, which jose opens in every spelling;
+ * fails_when=open compares header members or decoded text instead of header
+ * bytes, or accepts a noncanonical epk.x; why_new=jose serializes members in
  * object order, so only a hand-built header can carry reordered, spaced,
  * escaped, or repeated members or a byte-order mark, and A256GCM authenticates
  * whatever bytes the sender chose; seam=none.
@@ -948,20 +931,46 @@ it.each<HeaderSpellingCase>([
   },
   {
     spelling: "reordered members",
-    headerText: (commitment, group) =>
+    headerText: (commitment, group) => (epk) =>
       JSON.stringify({
         enc: "A256GCM",
         alg: "ECDH-ES+A256KW",
         [COMMITMENT_HEADER]: commitment,
         [SENDER_HEADER]: group.sender.agentCard.agentId,
+        epk: { x: epk.x, crv: epk.crv, kty: epk.kty },
       }),
     expected: Either.left(new SealedBodyOpeningError()),
   },
   {
+    spelling: "ephemeral-key members in sorted order",
+    headerText: (commitment, group) => (epk) =>
+      JSON.stringify({
+        alg: "ECDH-ES+A256KW",
+        enc: "A256GCM",
+        [COMMITMENT_HEADER]: commitment,
+        [SENDER_HEADER]: group.sender.agentCard.agentId,
+        epk: { crv: epk.crv, kty: epk.kty, x: epk.x },
+      }),
+    expected: Either.left(new SealedBodyOpeningError()),
+  },
+  /**
+   * Node decodes the respelled `x` to the same key, so only the canonical
+   * base64url check on `epk.x` refuses it.
+   */
+  {
+    spelling: "a noncanonical ephemeral-key spelling",
+    headerText: (commitment, group) => (epk) =>
+      honestHeaderText(
+        commitment,
+        group.sender,
+      )({ ...epk, x: respellFinalCharacter(epk.x) }),
+    expected: Either.left(new SealedBodyOpeningError()),
+  },
+  {
     spelling: "whitespace between members",
-    headerText: (commitment, group) =>
+    headerText: (commitment, group) => (epk) =>
       JSON.stringify(
-        JSON.parse(honestHeaderText(commitment, group.sender)),
+        JSON.parse(honestHeaderText(commitment, group.sender)(epk)),
         null,
         1,
       ),
@@ -969,17 +978,17 @@ it.each<HeaderSpellingCase>([
   },
   {
     spelling: "a repeated sender member",
-    headerText: (commitment, group) =>
-      `${honestHeaderText(commitment, group.peer).slice(0, -1)},${JSON.stringify(SENDER_HEADER)}:${JSON.stringify(group.sender.agentCard.agentId)}}`,
+    headerText: (commitment, group) => (epk) =>
+      `${honestHeaderText(commitment, group.peer)(epk).slice(0, -1)},${JSON.stringify(SENDER_HEADER)}:${JSON.stringify(group.sender.agentCard.agentId)}}`,
     expected: Either.left(new SealedBodyOpeningError()),
   },
   {
     spelling: "an escaped member name",
-    headerText: (commitment, group) =>
-      honestHeaderText(commitment, group.sender).replace(
-        '"alg"',
-        '"\\u0061lg"',
-      ),
+    headerText: (commitment, group) => (epk) =>
+      honestHeaderText(
+        commitment,
+        group.sender,
+      )(epk).replace('"alg"', '"\\u0061lg"'),
     expected: Either.left(new SealedBodyOpeningError()),
   },
   /**
@@ -988,8 +997,8 @@ it.each<HeaderSpellingCase>([
    */
   {
     spelling: "a leading byte-order mark",
-    headerText: (commitment, group) =>
-      `\uFEFF${honestHeaderText(commitment, group.sender)}`,
+    headerText: (commitment, group) => (epk) =>
+      `\uFEFF${honestHeaderText(commitment, group.sender)(epk)}`,
     expected: Either.left(new SealedBodyOpeningError()),
   },
 ])(
