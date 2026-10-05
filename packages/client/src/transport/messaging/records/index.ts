@@ -25,7 +25,8 @@ import {
   type RecordCore,
   RecordCore as RecordCoreSchema,
 } from "../../wire/index.js";
-import { AgentAddress, compareAscii, GroupAddress } from "../../wire/values.js";
+import { AgentAddress } from "../../wire/values.js";
+import { renderGroupAddress } from "../address.js";
 import {
   InboundMessage,
   type InboundMessage as InboundMessageValue,
@@ -245,13 +246,10 @@ const projectGroupMessage = (
   sender: Effect.Effect.Success<ReturnType<typeof addressFor>>,
 ): Effect.Effect<InboundMessageValue, ClientRepresentationError> =>
   Effect.gen(function* () {
-    const names = conversation.membership.members
-      .map((member) => member.agentName)
-      .sort(compareAscii);
-    const address = yield* Schema.decodeUnknown(GroupAddress)(
-      `group:${names.join(",")}`,
+    const group = yield* renderGroupAddress(
+      conversation.membership.members.map((member) => member.agentName),
     ).pipe(Effect.mapError(representationFailure));
-    const members = yield* Effect.forEach(names, addressFor, {
+    const members = yield* Effect.forEach(group.names, addressFor, {
       concurrency: 1,
     });
     const first = members[0];
@@ -263,7 +261,7 @@ const projectGroupMessage = (
     return {
       kind: "group",
       postId: intent.postId,
-      address,
+      address: group.address,
       sender,
       members: [first, second, third, ...members.slice(3)],
       content: intent.content,
