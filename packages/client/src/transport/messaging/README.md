@@ -7,9 +7,9 @@ GENESIS/POST certification, durable dissemination, and recovery.
 The service uses `index.ts`, which declares the engine contract
 (`EndpointEngine`, its errors, and the pending-message value) and composes the
 endpoint engine. Other domains read the entrypoints `address.ts` (Registry
-resolution of an address), `errors.ts` (closed send, listen, and
-acknowledgment errors) and `message.ts` (inbound messages) directly, so they
-never load the engine.
+resolution of an address and the canonical group address of a fixed
+membership), `errors.ts` (closed send, listen, and acknowledgment errors) and
+`message.ts` (inbound messages) directly, so they never load the engine.
 
 Inside the engine, `runtime/index.ts` is the kernel: the dependencies an
 engine is built from and the state every phase reads. It is deliberately a
@@ -25,7 +25,4 @@ port the called phase defines and the caller builds: recovery builds the
 `ReanchorRunPort` its re-anchor runs against. Phases never import each
 other's internals.
 
-`outbox.ts` is the engine's outbox and the only signer of outer envelopes: it
-signs, stages each envelope in the durable outbox, and keeps the ordered queue
-the Router worker transmits. Only `index.ts` imports it; phases reach it
-through `EngineRuntime.outbox`.
+`outbox.ts` builds the `EngineOutbox` port; only `index.ts` imports it.

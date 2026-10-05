@@ -93,7 +93,6 @@ type InitializeProtocol = (
 
 interface DaemonAssembly {
   readonly environment: DaemonEnvironment;
-  readonly startup: DaemonRegistrationState;
   readonly changes: Queue.Queue<boolean>;
   readonly reconciler: Effect.Effect<void, DaemonRuntimeError>;
   readonly initialize: InitializeProtocol;
@@ -269,18 +268,20 @@ const activateRegistered = (
   );
 
 const activateAtStart = (
+  environment: DaemonEnvironment,
   initialize: InitializeProtocol,
-  startup: DaemonRegistrationState,
 ): Effect.Effect<void, DaemonRuntimeError> =>
-  startup.kind === "unregistered"
-    ? Effect.void
-    : initialize(startup.agentCard).pipe(
-        Effect.mapError(activationRuntimeFailure),
-      );
+  Effect.suspend(() => {
+    const { registration } = environment.state;
+    return registration.kind === "unregistered"
+      ? Effect.void
+      : initialize(registration.agentCard).pipe(
+          Effect.mapError(activationRuntimeFailure),
+        );
+  });
 
 const assembleDaemon = ({
   environment,
-  startup,
   changes,
   reconciler,
   initialize,
@@ -300,7 +301,7 @@ const assembleDaemon = ({
     }),
   runSubscriptions: runSubscriptionChanges(environment, changes, reconciler),
   awaitFailure: Deferred.await(environment.fatal),
-  activateAtStart: activateAtStart(initialize, startup),
+  activateAtStart: activateAtStart(environment, initialize),
 });
 
 /**
@@ -341,7 +342,6 @@ export const makeDaemon = (
     const reconciler = publishPendingMessages(environment);
     return assembleDaemon({
       environment,
-      startup: input.registration,
       changes,
       reconciler,
       initialize: (agentCard) =>
