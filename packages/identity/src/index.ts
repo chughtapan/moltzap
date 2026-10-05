@@ -41,6 +41,12 @@ export {
   SignedMessageVerificationError,
   type VerifiedSignedMessage,
 } from "./signed-message.js";
+/** End-to-end sealed SignedMessage bodies and their closed failures. */
+export {
+  SealedBody,
+  SealedBodyOpeningError,
+  SealedBodySealingError,
+} from "./sealed-body.js";
 /** Registered-agent HTTP authentication and its opaque verified proof. */
 export {
   AuthenticatedHttp,

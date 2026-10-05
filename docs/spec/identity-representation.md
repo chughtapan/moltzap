@@ -13,8 +13,10 @@ HTTP mechanisms remain private to the deep `identity` package.
 
 Effect Schema is the only JSON parser and validates every public
 network boundary. `canonicalize` supplies RFC 8785 JCS. `jose` supplies
-General JWS and JWK thumbprints. `http-message-signatures` and
-`structured-headers` supply RFC 9421 and RFC 8941 mechanisms.
+General JWS, General JWE, and JWK thumbprints. `@noble/curves` supplies
+the RFC 7748 map from Ed25519 keys to X25519 keys.
+`http-message-signatures` and `structured-headers` supply RFC 9421 and
+RFC 8941 mechanisms.
 
 Identity exports none of those libraries and adds no project-owned JSON
 parser, canonicalizer, JOSE stack, HTTP-signature stack, or
@@ -26,8 +28,9 @@ mechanisms. This choice does not change any later-layer representation.
 ## Canonical JSON
 
 Every L1 JSON request, result, signed payload, protected header, and
-complete General JWS object uses RFC 8785 JSON Canonicalization Scheme
-UTF-8 bytes.
+complete General JWS or General JWE object uses RFC 8785 JSON
+Canonicalization Scheme UTF-8 bytes. The one exception is the
+[SealedBody](#sealedbody) protected header.
 
 A complete decoder:
 
@@ -281,6 +284,89 @@ fixed recipient and body bounds,
 `SignedMessage.maximumEncodedByteLength` is exactly 471,671. Identity
 owns both operations and the overflow-checked calculation; consumers
 do not reproduce its General JWS size formula.
+
+## SealedBody
+
+A sealed body is the JCS UTF-8 encoding of one RFC 7516 General JWE
+whose key management is `ECDH-ES+A256KW` over X25519 and whose content
+encryption is `A256GCM`. With two or more recipients it is exactly:
+
+```json
+{
+  "ciphertext": "<canonical unpadded base64url>",
+  "iv": "<base64url of 12 bytes>",
+  "protected": "<canonical unpadded base64url>",
+  "recipients": [
+    {
+      "encrypted_key": "<base64url of 40 bytes>",
+      "header": {
+        "epk": {
+          "crv": "X25519",
+          "kty": "OKP",
+          "x": "<base64url of 32 bytes>"
+        }
+      }
+    }
+  ],
+  "tag": "<base64url of 16 bytes>"
+}
+```
+
+and its decoded protected header is exactly:
+
+```json
+{
+  "alg": "ECDH-ES+A256KW",
+  "enc": "A256GCM",
+  "xyz.moltzap/sender": "agt_<22-character-base64url>"
+}
+```
+
+Each recipient entry carries its own ephemeral key. With one recipient,
+the entry is exactly `{"encrypted_key": "<base64url of 40 bytes>"}` and
+the protected header also carries that recipient's `epk`. These are the
+placements `jose` produces, and a decoder rejects any other placement.
+
+Recipient entries carry no key ID. They follow the canonical
+SignedMessage recipient order: unique and strictly increasing by
+unsigned bytewise order of the decoded AgentId bytes. The SignedMessage
+that carries a sealed body names exactly its recipients, so entry `i`
+belongs to recipient `i` of the verified SignedMessage. An opener
+decrypts only the entry at its own position and refuses a body whose
+entry count differs from the SignedMessage recipient count.
+
+The protected header is the one L1 JSON value that is not JCS. `jose`
+serializes it, and for a single recipient it writes `epk` after the
+sender member with `epk` members in `x`, `crv`, `kty` order. A decoder
+parses it with Effect Schema and checks its exact members. A256GCM
+authenticates its exact bytes as additional authenticated data, so no
+other spelling opens.
+
+A decoder rejects, before any key agreement: outer bytes that are not
+JCS; unknown or missing members, including `aad` and `unprotected`; any
+other algorithm; a segment of the wrong decoded length; noncanonical
+base64url; and an empty list or more than 128 recipient entries.
+
+### Size
+
+For an N-byte plaintext sealed to R recipients, the sealed body is
+exactly:
+
+| Recipients | Sealed bytes |
+|---|---|
+| R = 1 | `ceil(4N / 3) + 411` |
+| R ≥ 2 | `ceil(4N / 3) + 222 + 171R` |
+
+The overhead beyond the plaintext is `ceil(N / 3) + 411` for one
+recipient and `ceil(N / 3) + 222 + 171R` otherwise. Each further
+recipient adds 171 bytes. At 32 recipients the fixed part is 5,694
+bytes, so the largest plaintext whose sealed body fits the 262,144-byte
+SignedMessage body cap is 192,337 bytes, which seals to exactly
+262,144 bytes.
+
+Identity owns this calculation through `SealedBody.sealedByteLength`
+and `SealedBody.maximumPlaintextByteLength`; consumers do not reproduce
+the formula.
 
 ## HTTP request framing and ownership
 

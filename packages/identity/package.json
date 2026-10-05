@@ -119,6 +119,7 @@
     "@effect/rpc": "^0.76.0",
     "@effect/sql": "^0.52.0",
     "@effect/sql-pg": "^0.53.0",
+    "@noble/curves": "2.4.0",
     "canonicalize": "3.0.0",
     "effect": "^3.22.0",
     "http-message-signatures": "1.0.6",

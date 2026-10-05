@@ -1,12 +1,15 @@
 /** @file Private Ed25519 authority import, opacity, derivation, and failure tests. */
 
-import { Effect, Redacted } from "effect";
+import { ed25519 } from "@noble/curves/ed25519.js";
+import { Effect, Either, Encoding, Redacted } from "effect";
 import * as fc from "fast-check";
 import { importJWK } from "jose";
 import { createPrivateKey, createPublicKey, type KeyObject } from "node:crypto";
 import { expect, it } from "vitest";
 import {
+  agentOpeningPrivateKey,
   AgentSigningAuthority,
+  type AgentSigningAuthority as AgentSigningAuthorityValue,
   agentSigningPrivateKey,
   InvalidAgentPrivateKeyError,
 } from "../agent-key.js";
@@ -29,6 +32,9 @@ const PKCS8_ED25519_PREFIX = Buffer.from(
   "302e020100300506032b657004220420",
   "hex",
 );
+
+/** The RFC 7748 curve25519 base point, u = 9. */
+const X25519_BASE_POINT = Buffer.from(`09${"00".repeat(31)}`, "hex");
 
 const pemFromDer = (der: Uint8Array): string => {
   const base64 = Buffer.from(der).toString("base64");
@@ -55,6 +61,43 @@ const compareGeneratedSeedWithNode = (seed: Uint8Array) => {
     expect(AgentSigningAuthority.publicKey(authority).x).toBe(expected.x);
   });
 };
+
+const pemFromSeed = (seedHex: string): string =>
+  pemFromDer(
+    Buffer.concat([PKCS8_ED25519_PREFIX, Buffer.from(seedHex, "hex")]),
+  );
+
+/**
+ * Reads the opening key's X25519 public key as its scalar multiple of the
+ * base point, which is the only way to observe a non-extractable key.
+ *
+ * @param authority Authority whose opening key is read.
+ * @returns The X25519 public key as lowercase hex.
+ */
+const openingPublicKeyHex = (authority: AgentSigningAuthorityValue) =>
+  Effect.gen(function* () {
+    const basePoint = yield* Effect.tryPromise({
+      try: () =>
+        crypto.subtle.importKey(
+          "raw",
+          X25519_BASE_POINT,
+          { name: "X25519" },
+          true,
+          [],
+        ),
+      catch: () => new Error("base-point import failed"),
+    });
+    const publicKey = yield* Effect.tryPromise({
+      try: () =>
+        crypto.subtle.deriveBits(
+          { name: "X25519", public: basePoint },
+          agentOpeningPrivateKey(authority),
+          256,
+        ),
+      catch: () => new Error("opening-key derivation failed"),
+    });
+    return Buffer.from(publicKey).toString("hex");
+  });
 
 it("imports an Ed25519 PKCS#8 key as an opaque AgentSigningAuthority", () =>
   Effect.runPromise(
@@ -133,4 +176,76 @@ MCowBQYDK2VwAyEA${PRIVATE_SENTINEL}
         expect(String(error)).not.toContain(PRIVATE_SENTINEL);
       }
     }),
+  ));
+
+it("maps the RFC 7748 edwards25519 base point to the curve25519 base point", () => {
+  const edwardsBasePoint = Buffer.from(`58${"66".repeat(31)}`, "hex");
+
+  expect(
+    Buffer.from(ed25519.utils.toMontgomery(edwardsBasePoint)).toString("hex"),
+  ).toBe(X25519_BASE_POINT.toString("hex"));
+});
+
+it.each([
+  {
+    vector: "RFC 8032 TEST 1",
+    seed: "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    x25519PublicKey:
+      "d85e07ec22b0ad881537c2f44d662d1a143cf830c57aca4305d85c7a90f6b62e",
+  },
+  {
+    vector: "libsodium ed25519_convert",
+    seed: "421151a459faeade3d247115f94aedae42318124095afabe4d1451a559faedee",
+    x25519PublicKey:
+      "f1814f0e8ff1043d8a44d25babff3cedcae6c22c3edaa48f857ae70de2baae50",
+  },
+])(
+  "derives the $vector X25519 opening key and its AgentCard image",
+  ({ seed, x25519PublicKey }) =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const authority = yield* AgentSigningAuthority.fromPkcs8(
+          Redacted.make(pemFromSeed(seed)),
+        );
+        const cardPublicKey = Encoding.decodeBase64Url(
+          AgentSigningAuthority.publicKey(authority).x,
+        ).pipe(Either.getOrThrow);
+
+        expect(yield* openingPublicKeyHex(authority)).toBe(x25519PublicKey);
+        expect(
+          Buffer.from(ed25519.utils.toMontgomery(cardPublicKey)).toString(
+            "hex",
+          ),
+        ).toBe(x25519PublicKey);
+      }),
+    ),
+);
+
+it("derives a non-extractable opening key that matches the AgentCard key's X25519 image", () =>
+  fc.assert(
+    fc.asyncProperty(fc.uint8Array({ minLength: 32, maxLength: 32 }), (seed) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const authority = yield* AgentSigningAuthority.fromPkcs8(
+            Redacted.make(pemFromSeed(Buffer.from(seed).toString("hex"))),
+          );
+          const cardPublicKey = Encoding.decodeBase64Url(
+            AgentSigningAuthority.publicKey(authority).x,
+          ).pipe(Either.getOrThrow);
+
+          expect(yield* openingPublicKeyHex(authority)).toBe(
+            Buffer.from(ed25519.utils.toMontgomery(cardPublicKey)).toString(
+              "hex",
+            ),
+          );
+          expect(agentOpeningPrivateKey(authority)).toMatchObject({
+            algorithm: { name: "X25519" },
+            extractable: false,
+            type: "private",
+            usages: ["deriveBits"],
+          });
+        }),
+      ),
+    ),
+    { numRuns: 32 },
   ));
