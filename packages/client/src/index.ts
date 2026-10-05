@@ -22,6 +22,13 @@ export {
 } from "./transport/collectives/forms.js";
 /** The items an endpoint delivers to its host. */
 export { InboundItem } from "./transport/collectives/inbound.js";
+/** The text a host's model reads for each delivered message, question and result. */
+export {
+  groupMembers,
+  renderCollectiveRequest,
+  renderCollectiveResult,
+  renderContent,
+} from "./transport/collectives/render.js";
 /** The operation a native host's message text states. */
 export {
   MessageTextError,

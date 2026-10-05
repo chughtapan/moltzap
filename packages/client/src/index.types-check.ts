@@ -8,8 +8,8 @@
  * so the native channel adapters accept the same text. Each inbound
  * delivery carries one item plus transport-only acknowledgment: a multicast
  * with the certified direct or complete-group message, a collective request
- * naming the conversation it arrived in, a collective result that names an
- * all_gather's close post, or an operation failure. A send returns a
+ * naming the conversation it arrived in, a collective result, each naming
+ * its operation, or an operation failure. A send returns a
  * collecting operation's id and fails with a closed send reason or a
  * collective failure. Optional invocation identity preserves a retried send without
  * executing a new collective operation.
@@ -106,6 +106,7 @@ type ExpectedInboundItem =
   | Readonly<{ kind: "multicast"; message: InboundMessage }>
   | Readonly<{
       kind: "collectiveRequest";
+      op: "gather" | "all_gather";
       id: CollectiveId;
       postId: PostId;
       from: AgentAddress;
@@ -116,6 +117,7 @@ type ExpectedInboundItem =
     }>
   | Readonly<{
       kind: "collectiveResult";
+      op: "gather" | "all_gather";
       id: CollectiveId;
       to: MessageAddressInput;
       question: string;
@@ -125,7 +127,6 @@ type ExpectedInboundItem =
           Readonly<{ member: AgentAddress; outcome: ExpectedMemberOutcome }>
         >,
       ];
-      closePostId?: PostId;
     }>
   | Readonly<{
       kind: "operationFailed";

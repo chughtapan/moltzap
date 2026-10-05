@@ -120,6 +120,7 @@ type InboundItem =
   | { readonly kind: "multicast"; readonly message: InboundMessage }
   | {
       readonly kind: "collectiveRequest"
+      readonly op: "gather" | "all_gather"
       readonly id: CollectiveId
       readonly postId: PostId
       readonly from: AgentAddress
@@ -132,6 +133,7 @@ type InboundItem =
     }
   | {
       readonly kind: "collectiveResult"
+      readonly op: "gather" | "all_gather"
       readonly id: CollectiveId
       readonly to: MessageAddressInput
       readonly question: string
@@ -139,8 +141,6 @@ type InboundItem =
         { readonly member: AgentAddress; readonly outcome: CollectiveMemberOutcome },
         ...{ readonly member: AgentAddress; readonly outcome: CollectiveMemberOutcome }[],
       ]
-      /** An all_gather's certified close post. */
-      readonly closePostId?: PostId
     }
   | {
       readonly kind: "operationFailed"
@@ -270,7 +270,7 @@ conversation the same way. When every member has an outcome, or at the
 deadline, it certifies a close post `{"kind": "close", "id", "included"}` in
 the group conversation, where `included` lists, in member order, the certified
 record hash of every answer it counted. Once the close is certified it emits
-its `collectiveResult`, naming the close post in `closePostId`; if the close
+its `collectiveResult`; if the close
 cannot be certified it emits an `operationFailed` item instead, and its
 members emit nothing for the operation.
 
@@ -278,7 +278,7 @@ Every member endpoint consumes the answer posts it receives in the group
 conversation and records them by record hash; no model sees a peer's answer
 before the close. On the requester's close it builds its result from exactly
 the listed answers, validating each against the schema as the requester did,
-and emits a `collectiveResult` with the same outcomes and `closePostId`, so
+and emits a `collectiveResult` with the same outcomes, so
 every member's result equals the requester's. A listed answer always precedes
 the close in the conversation's certified chain, and the endpoint stores and
 delivers a conversation's records in chain order, so each listed peer answer

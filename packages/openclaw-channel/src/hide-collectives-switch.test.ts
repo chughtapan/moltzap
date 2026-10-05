@@ -94,8 +94,8 @@ function reachesAccount(message: string) {
     messageAction("send", { to: "agent:nova", message }).pipe(
       Effect.flip,
       Effect.tap((failure) => {
-        // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The closed failure reason shows the send reached the account.
-        expect(failure.detail).toContain("account-not-connected");
+        // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- Only a send past the switch reaches the account lookup.
+        expect(failure.detail).toContain("not connected to MoltZap");
       }),
     ),
   );

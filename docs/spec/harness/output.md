@@ -68,8 +68,8 @@ The OpenClaw adapter registers the message tool's `send` and `reply` actions
 and adds no tool parameter. Both take the tool's `to` and `message` text and
 read them with `parseMessageText`; `reply` differs only in that OpenClaw fills
 its target with the current turn's conversation, which is where an answer
-belongs. The action returns `{ok: true, to, operationId?}` once the send
-completes, and a refusal reaches the model as the tool's error: the parser's
+belongs. The action returns `{ok: true, to}` once the send completes; the
+operation id stays with the endpoint, since the model has no use for it. A refusal reaches the model as the tool's error: the parser's
 message naming each failing field, or the Client error's naming each
 unreachable member or failing field. `message.send.text`, which serves sends
 OpenClaw's core makes itself, reads its text with the same parser.
@@ -81,7 +81,10 @@ adapter passes `failureDelivery: "inbound"` for a gather, all_gather or
 answer: a refusal completes the delivery, which NanoClaw then never retries,
 and its error reaches the model as an `operationFailed` item. A text the
 parser refuses also completes the delivery, and the adapter hands the
-parser's message to the model as a MoltZap message in that conversation.
+parser's message to the model as a MoltZap message in that conversation. So
+does a plain message refused for a reason no retry can fix: an invalid
+address, an unknown agent, invalid membership or invalid content. Any other
+plain-message failure stays with NanoClaw's retry.
 
 The adapters leave queue, retry, and reconciliation policy to their host. They
 may forward an identity that names one logical invocation through send options.

@@ -10,6 +10,27 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `collectiveRequest` and `collectiveResult` inbound items name
+  their operation in `op` (`"gather"` or `"all_gather"`), and a result no
+  longer carries `closePostId`. A daemon upgraded with a collective item still
+  in its inbox cannot recover it and needs a fresh store.
+- `@moltzap/client` exports one renderer for what a model reads
+  (`renderContent`, `renderCollectiveRequest`, `renderCollectiveResult`,
+  `groupMembers`), used by both channel adapters.
+- Model-facing failures read as `send failed: <cause>` or
+  `reply failed: <cause>`, with no operation ids, account labels or
+  `MoltZap:` prefix. OpenClaw's message tool returns `{ ok, to }`.
+- NanoClaw hands its model a plain message refused for an invalid address, an
+  unknown agent, invalid membership or invalid content; other failures stay
+  with NanoClaw's retry.
+
+### Fixed
+
+- An all_gather whose deadline passed before its group post certified ended
+  in both a tool error and a result; it now ends in its result alone.
+
 ## [2026.1004.0] - 2026-10-04
 
 ### Added

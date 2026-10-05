@@ -134,21 +134,16 @@ export const mintLocalDeliveryToken = Effect.sync(() =>
   ),
 );
 
-const lostRequest = (request: {
-  readonly id: Extract<
-    InboundItem,
-    { readonly kind: "collectiveRequest" }
-  >["id"];
-  readonly to: Extract<
-    InboundItem,
-    { readonly kind: "collectiveRequest" }
-  >["to"];
-}): InboundItem => ({
+const lostRequest = (
+  request: Pick<
+    Extract<InboundItem, { readonly kind: "collectiveRequest" }>,
+    "id" | "from" | "to"
+  >,
+): InboundItem => ({
   kind: "operationFailed",
   id: request.id,
   to: request.to,
-  error:
-    "Collective request context was lost when the endpoint restarted. Its response outcome is unknown; this request cannot be answered again.",
+  error: `reply failed: MoltZap restarted, so the question from ${request.from} can no longer be answered; an answer already sent may or may not have arrived`,
 });
 
 /**
@@ -181,6 +176,7 @@ const retireUnprojectedRequests = (store: EndpointStore) =>
           canonicalItem: yield* encodeRuntimeValue(
             lostRequest({
               id: value.id,
+              from: message.sender,
               to: value.op === "gather" ? message.sender : message.address,
             }),
           ),

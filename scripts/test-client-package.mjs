@@ -98,6 +98,7 @@ const hostModules = new Set([
   "dist/transport/collectives/forms.js",
   "dist/transport/collectives/inbound.js",
   "dist/transport/collectives/message-text.js",
+  "dist/transport/collectives/render.js",
   "dist/transport/messaging/errors.js",
   "dist/transport/messaging/message.js",
   "dist/transport/wire/values.js",

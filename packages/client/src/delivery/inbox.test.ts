@@ -35,6 +35,7 @@ const failure = Schema.decodeUnknownSync(InboundItem)({
 });
 const request = Schema.decodeUnknownSync(InboundItem)({
   kind: "collectiveRequest",
+  op: "all_gather",
   id: digest("col_", 2),
   postId: digest("pst_", 2),
   from: "agent:bob",

@@ -991,7 +991,6 @@ function runOpenClawGatherScenario() {
       expect(started.details).toEqual({
         ok: true,
         to: callerAddress,
-        operationId: expect.stringMatching(/^col_/u),
       });
       expect(request).toMatchObject({
         kind: "collectiveRequest",
@@ -1126,7 +1125,6 @@ function runOpenClawAllGatherScenario() {
             outcome: { kind: "answered", content: { slot: "tue" } },
           },
         ],
-        closePostId: expect.stringMatching(/^pst_/u),
       });
       expect(yield* nextItem(peer.messages)).toEqual(callerResult);
       expect(yield* nextTurn(turns)).toMatchObject({
@@ -1142,7 +1140,6 @@ function runOpenClawAllGatherScenario() {
       expect(started.details).toEqual({
         ok: true,
         to: group,
-        operationId: expect.stringMatching(/^col_/u),
       });
       const callerRequest = yield* nextItem(caller.messages).pipe(
         Effect.flatMap(requireRequest),
@@ -1172,7 +1169,6 @@ function runOpenClawAllGatherScenario() {
           },
           { member: peerAddress, outcome: { kind: "declined" } },
         ],
-        closePostId: expect.stringMatching(/^pst_/u),
       });
       expect(yield* nextItem(peer.messages)).toEqual(memberResult);
 

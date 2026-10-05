@@ -146,6 +146,7 @@ const allAnsweredBehavior = Effect.gen(function* () {
   const secondRequest = yield* nextItem(second);
   expect(firstRequest).toEqual({
     kind: "collectiveRequest",
+    op: "gather",
     id: started.operationId,
     postId: expect.any(String),
     from: requester.address,
@@ -174,6 +175,7 @@ const allAnsweredBehavior = Effect.gen(function* () {
 
   expect(yield* nextItem(requester)).toEqual({
     kind: "collectiveResult",
+    op: "gather",
     id: started.operationId,
     to: "group:gather-member-a,gather-member-b,gather-requester",
     question,
@@ -206,6 +208,7 @@ const silentMemberBehavior = Effect.gen(function* () {
 
   expect(yield* nextItem(requester)).toMatchObject({
     kind: "collectiveResult",
+    op: "gather",
     id: started.operationId,
     outcomes: [
       {

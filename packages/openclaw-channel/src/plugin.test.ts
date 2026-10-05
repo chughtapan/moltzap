@@ -152,8 +152,8 @@ describe("OpenClaw message tool send and reply actions", () => {
     messageToolSendsPlainText,
   );
   it(
-    "sends gather text as a gather and returns its operation id",
-    messageToolSendReturnsGatherId,
+    "sends gather text as a gather and returns only its address",
+    messageToolSendReturnsOnlyItsAddress,
   );
   it(
     "sends answer text from reply to the target conversation",
@@ -504,7 +504,7 @@ function messageToolSendsPlainText() {
   );
 }
 
-function messageToolSendReturnsGatherId() {
+function messageToolSendReturnsOnlyItsAddress() {
   return withConnectedSend(
     (plugin) =>
       handleSendAction(plugin, {
@@ -530,7 +530,6 @@ function messageToolSendReturnsGatherId() {
       expect(result.details).toEqual({
         ok: true,
         to: "group:alice,bob,carol",
-        operationId: COLLECTIVE_ID,
       });
     },
     Effect.succeed({ operationId: collectiveId() }),
@@ -593,8 +592,8 @@ function messageToolSendRejectsTargets() {
   }).pipe(
     Effect.flip,
     Effect.tap((failure) => {
-      // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The model repairs the send from this instruction in the tool error.
-      expect(failure.detail).toContain("one target group:<id>,<id>,...");
+      // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The tool error names the refused parameter.
+      expect(failure.detail).toContain("targets is not supported");
     }),
   );
 }
@@ -606,8 +605,8 @@ function messageToolSendRejectsInvalidAddress() {
         Effect.flip,
       ),
     (sends, failure) => {
-      // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The closed failure reason is what the model reads back from the tool.
-      expect(failure.detail).toContain("invalid-address");
+      // eslint-disable-next-line agent-code-guard/no-hardcoded-assertion-literals -- The tool error says what is wrong with the send.
+      expect(failure.detail).toContain("not a valid agent: or group:");
       expect(sends).toEqual([]);
     },
     SEND_SUCCEEDS,
@@ -677,6 +676,7 @@ function withConnectedSend<A, E>(
 function rendersCollectiveRequest() {
   const item = Schema.decodeUnknownSync(InboundItem)({
     kind: "collectiveRequest",
+    op: "gather",
     id: COLLECTIVE_ID,
     postId: postId(4),
     from: "agent:alice",
@@ -708,6 +708,7 @@ function rendersAllGatherRequest() {
   const [from, group] = ["agent:alice", "group:alice,bob,carol"];
   const item = Schema.decodeUnknownSync(InboundItem)({
     kind: "collectiveRequest",
+    op: "all_gather",
     id: COLLECTIVE_ID,
     postId: postId(4),
     from,
@@ -729,6 +730,7 @@ function rendersAllGatherRequest() {
 function rendersCollectiveResult() {
   const item = Schema.decodeUnknownSync(InboundItem)({
     kind: "collectiveResult",
+    op: "gather",
     id: COLLECTIVE_ID,
     to: "group:alice,bob,carol",
     question: "Which day?",
@@ -770,7 +772,7 @@ function rendersOperationFailure() {
     const call = yield* runItemTurn(item);
 
     expect(call.ctx).toMatchObject({
-      Body: "MoltZap: reply failed: the question's deadline has passed",
+      Body: "reply failed: the question's deadline has passed",
       ChatId: "agent:alice",
       SenderName: "MoltZap",
       MessageSid: `${COLLECTIVE_ID}:failed`,

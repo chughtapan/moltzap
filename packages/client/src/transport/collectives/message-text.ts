@@ -45,7 +45,8 @@ export class MessageTextError extends Data.TaggedError("MessageTextError")<{
   readonly detail: string;
 }> {
   override get message(): string {
-    return `${this.operation} not sent: ${this.detail}`;
+    const action = this.operation === "answer" ? "reply" : "send";
+    return `${action} failed: invalid ${this.operation}: ${this.detail}`;
   }
 }
 

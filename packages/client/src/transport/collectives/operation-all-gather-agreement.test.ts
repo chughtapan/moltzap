@@ -471,6 +471,7 @@ const resultOfFirstClose = (harness: Harness, id: string) => {
   );
   return {
     kind: "collectiveResult",
+    op: "all_gather",
     id,
     to: group,
     question: questionText,
@@ -482,7 +483,6 @@ const resultOfFirstClose = (harness: Harness, id: string) => {
         ).pipe(Option.flatMap((record) => record.value)),
       ),
     })),
-    closePostId: close === undefined ? undefined : postId(close.byte),
   };
 };
 
