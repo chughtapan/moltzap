@@ -37,9 +37,9 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import type { AddressRegistryPort } from "../address.js";
 import type {
   EndpointEngineInput,
-  EngineRegistryPort,
   EngineRouterPort,
 } from "../runtime/index.js";
 import { type EndpointStore, openEndpointStore } from "../../../store/index.js";
@@ -458,7 +458,7 @@ const makeFixtureWithRouter = (
       local.card,
       remote.card,
     ];
-    const registry: EngineRegistryPort = {
+    const registry: AddressRegistryPort = {
       lookup: (request) => {
         const card = cards.find((candidate) =>
           "agentId" in request
@@ -587,7 +587,7 @@ const addN4Foundation = (
       third.card,
       fourth.card,
     ];
-    const registry: EngineRegistryPort = {
+    const registry: AddressRegistryPort = {
       lookup: (request) => {
         const card = cards.find((candidate) =>
           "agentId" in request

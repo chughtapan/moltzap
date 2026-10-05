@@ -1,7 +1,11 @@
-/** @file Private addressed-message engine acquisition and daemon seams. */
+/**
+ * @file Private addressed-message engine: its contract with daemon
+ * composition, and the assembly that binds the phases into one engine.
+ */
 
 import { AgentCard, AgentSigningAuthority } from "@moltzap/identity";
 import {
+  Data,
   Deferred,
   Duration,
   Effect,
@@ -9,29 +13,40 @@ import {
   Schedule,
   Schema,
   type Scope,
-  SubscriptionRef,
 } from "effect";
 import type { DeliveryToken, EndpointStoreError } from "../../store/index.js";
+import type {
+  EndpointEngineInput,
+  EnginePhases,
+  EngineRuntime,
+} from "./runtime/index.js";
 import {
   describeRouterWorkerFailure,
   isTransientRouterWorkerError,
   type RouterDiscontinuityReason,
+  type RouterIngressDisposition,
+  type RouterWorkerIngress,
+  type RouterWorkerPersistenceError,
   routerWorkerReconnectSchedule,
+  type RouterWorkerRecovery,
+  type RouterWorkerRecoveryError,
   type RouterWorkerSendError,
 } from "../router/index.js";
 import {
   type ClientRepresentationError,
   decodeCanonical,
+  type DecodedOuterBody,
   encodeCanonical,
+  type MessageAddressInput,
   PostIntent,
   RecordHash,
 } from "../wire/index.js";
 import {
   acceptEngineIngress,
   acceptEngineRecoveryIngress,
+  resumeDisseminationObligations,
   resumeEngineFolds,
-} from "./certification.js";
-import { resumeDisseminationObligations } from "./dissemination.js";
+} from "./certification/index.js";
 import { DeliveryAcknowledgeError, ListenError, SendError } from "./errors.js";
 import { InboundMessage } from "./message.js";
 import { installRecoveryBarrier } from "./recovery/barrier.js";
@@ -42,17 +57,8 @@ import {
   recoverEngineState,
 } from "./recovery/index.js";
 import {
-  type EndpointEngine,
-  type EndpointEngineInput,
-  EngineInitializationError,
-  EngineOutboundError,
-  type EnginePendingMessage,
-  type EnginePhases,
-  type EngineRuntime,
   type EngineSendInput,
   type EngineSentPost,
-} from "./runtime/index.js";
-import {
   prepareSend,
   proposeIntent,
   queueCertifiedPacket,
@@ -60,23 +66,78 @@ import {
   resolveAddress,
 } from "./send.js";
 
+/** Private engine dependencies retained behind the daemon boundary. */
+export type { EndpointEngineInput } from "./runtime/index.js";
+/** The send input and result the collective layer exchanges with the engine. */
+export type { EngineSendInput, EngineSentPost } from "./send.js";
+
+/** Engine acquisition could not establish one coherent durable endpoint. */
+export class EngineInitializationError extends Data.TaggedError(
+  "EngineInitializationError",
+)<{
+  readonly reason: "identity" | "persistence" | "representation";
+}> {}
+
+/** Sending queued protocol traffic could not complete safely. */
+export class EngineOutboundError extends Data.TaggedError(
+  "EngineOutboundError",
+)<{
+  readonly reason: "network" | "persistence" | "representation" | "version";
+}> {}
+
+/**
+ * One durable delivery decoded for the daemon's sole subscriber. `message` is
+ * the certified post with its complete content, collective part included; the
+ * daemon's classifier turns it into the item the subscriber receives.
+ * `recordHash` names the certified record the delivery derives from; it stays
+ * inside the daemon and never reaches the MCP event.
+ */
+export interface EnginePendingMessage {
+  readonly deliveryToken: DeliveryToken;
+  readonly recordHash: RecordHash;
+  readonly message: InboundMessage;
+}
+
+/** Stable private engine capability consumed by daemon composition. */
+export interface EndpointEngine {
+  /** Completes once the minted post's certified record is stored locally. */
+  readonly send: (
+    input: EngineSendInput,
+  ) => Effect.Effect<EngineSentPost, SendError>;
+  /**
+   * Resolve an address through the Registry as a send would, without
+   * sending; the collective layer uses it to name the unreachable members of
+   * a refused group post.
+   */
+  readonly resolveAddress: (
+    to: MessageAddressInput,
+  ) => Effect.Effect<void, SendError>;
+  readonly readPendingMessages: () => Effect.Effect<
+    readonly EnginePendingMessage[],
+    ListenError
+  >;
+  readonly acknowledgeMessage: (
+    deliveryToken: DeliveryToken,
+  ) => Effect.Effect<void, DeliveryAcknowledgeError>;
+  readonly acceptRouterIngress: (
+    ingress: RouterWorkerIngress<DecodedOuterBody>,
+  ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
+  readonly acceptRecoveryIngress: (
+    ingress: RouterWorkerIngress<DecodedOuterBody>,
+  ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
+  readonly recoverCertifiedHistory: (
+    recovery: RouterWorkerRecovery,
+  ) => Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError>;
+  readonly drainOutbound: Effect.Effect<void, EngineOutboundError>;
+  readonly runOutbound: Effect.Effect<never, EngineOutboundError>;
+  readonly abandonVolatileFolds: (
+    reason: RouterDiscontinuityReason,
+  ) => Effect.Effect<void>;
+}
+
 type RecoveredStateError = Effect.Effect.Error<
   ReturnType<typeof recoverEngineState>
 >;
-
-/** Closed engine errors used by daemon composition. */
-export {
-  EngineInitializationError,
-  EngineOutboundError,
-} from "./runtime/index.js";
-/** Private engine contracts retained behind the daemon boundary. */
-export type {
-  EndpointEngine,
-  EndpointEngineInput,
-  EnginePendingMessage,
-  EngineSendInput,
-  EngineSentPost,
-} from "./runtime/index.js";
 
 const initializationReasonByStoreReason = {
   closed: "persistence",
@@ -452,7 +513,6 @@ const makeRuntime = (
       outboundSignal,
       gate: yield* Effect.makeSemaphore(1),
       outboundGate: yield* Effect.makeSemaphore(1),
-      revision: yield* SubscriptionRef.make(0),
       phases: enginePhases,
     };
   });
@@ -538,9 +598,7 @@ const abandonVolatileFolds = (
           }
           for (const fold of runtime.actionFolds.values()) {
             fold.localActionEvidenceQueued = false;
-            fold.actionCertifiedRecordQueued = false;
             fold.localDurabilityEvidenceQueued = false;
-            fold.certifiedRecordQueued = false;
           }
         });
       }),

@@ -42,17 +42,14 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import type { AddressRegistryPort } from "../address.js";
 import type {
   EndpointEngineInput,
   EngineActionFold,
-  EngineRegistryPort,
   EngineRouterPort,
-  EngineSendInput,
-  EngineOutboundError,
-  EngineSentPost,
-} from "./runtime/index.js";
-import { advanceClock } from "../../__tests__/advance-clock.js";
-import { type EndpointStore, openEndpointStore } from "../../store/index.js";
+} from "../runtime/index.js";
+import { advanceClock } from "../../../__tests__/advance-clock.js";
+import { type EndpointStore, openEndpointStore } from "../../../store/index.js";
 import {
   type RouterIngressDisposition,
   type RouterTailAnchor,
@@ -62,7 +59,7 @@ import {
   type RouterWorkerSendError,
   RouterWorkerTransportError,
   RouterWorkerUnavailableError,
-} from "../router/index.js";
+} from "../../router/index.js";
 import {
   type ActionCertifiedRecord as ActionCertifiedRecordValue,
   type ActionProposal,
@@ -84,11 +81,17 @@ import {
   signOuterEvidence,
   type VerifiedMembership,
   verifyMembershipDescriptor,
-} from "../wire/index.js";
-import { MessageAddressInput } from "../wire/values.js";
-import { SendError } from "./errors.js";
-import { type EndpointEngine, makeEndpointEngine } from "./index.js";
-import { recoverFoldEvidence } from "./recovery/evidence.js";
+} from "../../wire/index.js";
+import { MessageAddressInput } from "../../wire/values.js";
+import { SendError } from "../errors.js";
+import {
+  type EndpointEngine,
+  type EngineOutboundError,
+  type EngineSendInput,
+  type EngineSentPost,
+  makeEndpointEngine,
+} from "../index.js";
+import { recoverFoldEvidence } from "../recovery/evidence.js";
 
 /* eslint-disable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- The full protocol traces share one four-endpoint harness and keep controlled Router phases beside durable assertions. */
 
@@ -109,7 +112,7 @@ interface ProtocolHarness {
     endpointIndexes?: readonly number[],
   ) => Effect.Effect<readonly RouterIngressDisposition[]>;
   readonly drain: (endpointIndexes?: readonly number[]) => Effect.Effect<void>;
-  readonly registry: EngineRegistryPort;
+  readonly registry: AddressRegistryPort;
   readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
 }
 
@@ -260,7 +263,7 @@ function makeMembership(
 
 function lookupIdentity(
   identities: readonly ProtocolIdentity[],
-  request: Parameters<EngineRegistryPort["lookup"]>[0],
+  request: Parameters<AddressRegistryPort["lookup"]>[0],
 ): RegistryLookupResult {
   const found = identities.find(({ card }) =>
     "agentName" in request
@@ -478,7 +481,7 @@ function makeProtocolHarness(
       { concurrency: 1 },
     );
     const outbound = yield* Queue.unbounded<typeof SignedMessage.Type>();
-    const registry: EngineRegistryPort = {
+    const registry: AddressRegistryPort = {
       lookup: (request) => Effect.succeed(lookupIdentity(identities, request)),
     };
     const engines = yield* Effect.forEach(
@@ -822,9 +825,7 @@ function rejectsPersistedDurabilityBinding(
           actionEvidence: new Map(),
           durabilityEvidence: new Map(),
           localActionEvidenceQueued: true,
-          actionCertifiedRecordQueued: true,
           localDurabilityEvidenceQueued: true,
-          certifiedRecordQueued: false,
           recordHash: actionRecord.recordHash,
         };
         const recovered = yield* recoverFoldEvidence(

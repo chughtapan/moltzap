@@ -1,7 +1,6 @@
 /** @file Verified reconstruction of endpoint history from one store snapshot. */
 
 import {
-  type AgentId,
   SignedMessage,
   type SignedMessage as SignedMessageValue,
 } from "@moltzap/identity";
@@ -11,13 +10,6 @@ import type {
   ProtocolEvidence,
   StoredOutboundMessage,
 } from "../../../store/index.js";
-import type {
-  EndpointEngineInput,
-  EngineActionFold,
-  EngineCertifiedHead,
-  EngineConversation,
-  EngineRuntime,
-} from "../runtime/index.js";
 import {
   RouterWorkerPersistenceError,
   RouterWorkerRecoveryError,
@@ -55,6 +47,14 @@ import {
   verifyOuterMessage,
   verifyRecordCore,
 } from "../../wire/index.js";
+import {
+  type EndpointEngineInput,
+  type EngineActionFold,
+  type EngineCertifiedHead,
+  type EngineConversation,
+  type EngineRuntime,
+  makeActionFold,
+} from "../runtime/index.js";
 import { recoverFoldEvidence } from "./evidence.js";
 
 type RecoveryStoreError =
@@ -764,7 +764,7 @@ function recoverActionFolds(
         );
         const entry: readonly [ActionHash, EngineActionFold] = [
           actionHash,
-          makeFold(conversation, action, actionHash, routerAnchor),
+          makeActionFold(conversation, action, actionHash, routerAnchor),
         ];
         return entry;
       }),
@@ -901,7 +901,7 @@ function recoverCertifiedFold(
     yield* Effect.sync(() => {
       const fold =
         input.actionFolds.get(actionHash) ??
-        makeFold(
+        makeActionFold(
           context.conversation,
           record.actionCertifiedRecord.recordCore.action,
           record.actionCertifiedRecord.recordCore.actionHash,
@@ -948,34 +948,12 @@ function completeRecoveredFold(
   }
   fold.recordHash = record.actionCertifiedRecord.recordHash;
   fold.certifiedRecord = record;
-  fold.actionCertifiedRecordQueued = true;
-  fold.certifiedRecordQueued = true;
 }
 
 function certifiedHead(record: CertifiedRecord): EngineCertifiedHead {
   return {
     recordHash: record.actionCertifiedRecord.recordHash,
     record,
-  };
-}
-
-function makeFold(
-  conversation: EngineConversation,
-  action: RecordCore["action"],
-  actionHash: RecordCore["actionHash"],
-  routerAnchor: RouterAnchor,
-): EngineActionFold {
-  return {
-    conversation,
-    action,
-    actionHash,
-    routerAnchor,
-    actionEvidence: new Map<AgentId, SignedMessageValue>(),
-    durabilityEvidence: new Map<AgentId, SignedMessageValue>(),
-    localActionEvidenceQueued: false,
-    actionCertifiedRecordQueued: false,
-    localDurabilityEvidenceQueued: false,
-    certifiedRecordQueued: false,
   };
 }
 
