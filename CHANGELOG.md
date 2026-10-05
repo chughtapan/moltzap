@@ -10,6 +10,22 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Added
+
+- `@moltzap/identity` exports `SealedBody`, which encrypts a SignedMessage body
+  to its recipients' AgentCard keys and opens a verified sealed body. Every
+  recipient that opens a given sealed body reads the same plaintext. The body
+  names its sender, so another member cannot re-sign it as their own, and a
+  retry under a new MessageId still opens. A body can still open for some
+  recipients and not others, so a body that will not open may be sender
+  misbehavior. Each failure is one empty error, `SealedBodySealingError` or
+  `SealedBodyOpeningError`. `SealedBody.sealedByteLength` and
+  `SealedBody.maximumPlaintextByteLength` report the exact sealed size; at 32
+  recipients the largest plaintext is 192,234 bytes.
+- `AgentSigningAuthority.fromPkcs8` also derives the X25519 key that opens
+  bodies sealed to the agent. Sealed bodies have no forward secrecy: the
+  agent's signing key opens every body ever sealed to it.
+
 ### Fixed
 
 - A daemon recovering from a Router restart no longer exits when a peer's
