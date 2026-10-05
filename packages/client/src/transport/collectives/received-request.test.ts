@@ -45,6 +45,7 @@ const requestsOf = (held: readonly HeldRequest[]) =>
 const isOpen = ({ inBob, state, expired }: HeldRequest) =>
   inBob && state === "open" && !expired;
 
+/** The refusal kind an answer to agent:bob gets over `held`, or `matched`. */
 const kindOf = (held: readonly HeldRequest[]) =>
   Either.match(matchOpenRequest(requestsOf(held), bobConversation, NOW), {
     onLeft: (kind) => kind,

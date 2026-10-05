@@ -27,6 +27,12 @@ const collectiveId = `col_${"A".repeat(43)}`;
 const nonce = "B".repeat(43);
 const recordHash = `rch_${Encoding.encodeBase64Url(new Uint8Array(32).fill(2))}`;
 const deadlineAt = 1_790_000_000_000;
+/**
+ * `col_` and the base64url SHA-256 of `xyz.moltzap/collective-id`, NUL,
+ * `agent:bob`, NUL and `nonce`: the id `docs/spec/harness/client.md` derives
+ * for Bob, computed from that text independently of the code.
+ */
+const SPECIFIED_BOB_ID = "col_lzf1jt4p6tix4QwqJ6s-zq_1lrrvyktETXTkgqpCUvs";
 const flatSchema = {
   type: "object",
   properties: {
@@ -309,8 +315,8 @@ describe("collective id derivation", () => {
   const bob = Schema.decodeUnknownSync(AgentAddress)("agent:bob");
   const mallory = Schema.decodeUnknownSync(AgentAddress)("agent:mallory");
 
-  it("derives the same id from the same requester and nonce", () => {
-    expect(collectiveIdOf(bob, nonce)).toBe(collectiveIdOf(bob, nonce));
+  it("derives the id the specification states from the requester and nonce", () => {
+    expect(collectiveIdOf(bob, nonce)).toBe(SPECIFIED_BOB_ID);
   });
 
   it("rejects a gather request without the nonce its id derives from", () => {

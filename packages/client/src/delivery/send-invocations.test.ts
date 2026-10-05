@@ -9,8 +9,6 @@ import { CollectiveId, SendInput } from "../transport/collectives/forms.js";
 import { SendError } from "../transport/messaging/errors.js";
 import { makeSendInvocations } from "./send-invocations.js";
 
-/* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Invocation execution counts are independent replay regression expectations. */
-
 const input = Schema.decodeUnknownSync(SendInput)({
   to: "agent:bob",
   text: "one operation",
@@ -66,49 +64,117 @@ const invocationFixture = (
     return { invocations, started, complete, calls: () => calls };
   });
 
-const joinsAndRetainsIdentity = () =>
+/** The request every keyed test sends, under idempotency key `once`. */
+const onceRequest = { input, idempotencyKey: "once" };
+
+const runWithFileSystem = <A, E>(
+  effect: Effect.Effect<A, E, Scope.Scope | FileSystem.FileSystem>,
+) =>
   Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const store = yield* temporaryDirectory.pipe(
-          Effect.flatMap(openEndpointStore),
-        );
-        const scope = yield* Scope.Scope;
-        const test = yield* invocationFixture(store, scope);
-        const { invocations, started, complete } = test;
-        expect(yield* invocations.readSend({ idempotencyKey: "once" })).toEqual(
-          { state: "absent" },
-        );
-        const request = { input, idempotencyKey: "once" };
-        const disconnected = yield* invocations
-          .send(request)
-          .pipe(Effect.forkScoped);
-        yield* Deferred.await(started);
-        yield* Fiber.interrupt(disconnected);
-        expect(yield* invocations.readSend({ idempotencyKey: "once" })).toEqual(
-          { state: "pending", input },
-        );
-        const retry = yield* invocations.send(request).pipe(Effect.forkScoped);
-        const conflict = yield* invocations
-          .send({
-            ...request,
-            input: Schema.decodeUnknownSync(SendInput)({
-              to: "agent:bob",
-              text: "different",
-            }),
-          })
-          .pipe(Effect.flip);
-        expect(conflict).toMatchObject({ reason: "idempotency-conflict" });
-        yield* Deferred.succeed(complete, undefined);
-        expect(yield* Fiber.join(retry)).toEqual({ operationId });
-        expect(yield* invocations.send(request)).toEqual({ operationId });
-        expect(test.calls()).toBe(1);
-        yield* checksRetainedOutcome(store, scope, request);
-        yield* invocations.send({ input });
-        yield* invocations.send({ input });
-        expect(test.calls()).toBe(3);
-      }),
-    ).pipe(Effect.provide(NodeFileSystem.layer)),
+    Effect.scoped(effect).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
+
+/** Invocations over a fresh store whose send blocks until `complete` resolves. */
+const freshInvocations = Effect.gen(function* () {
+  const store = yield* temporaryDirectory.pipe(
+    Effect.flatMap(openEndpointStore),
+  );
+  const scope = yield* Scope.Scope;
+  return { store, scope, ...(yield* invocationFixture(store, scope)) };
+});
+
+const reportsAnUnseenKeyAsAbsent = () =>
+  runWithFileSystem(
+    Effect.gen(function* () {
+      const { invocations } = yield* freshInvocations;
+
+      expect(yield* invocations.readSend({ idempotencyKey: "once" })).toEqual({
+        state: "absent",
+      });
+    }),
+  );
+
+const keepsADisconnectedSendPendingAndJoinsItsRetry = () =>
+  runWithFileSystem(
+    Effect.gen(function* () {
+      const test = yield* freshInvocations;
+      const disconnected = yield* test.invocations
+        .send(onceRequest)
+        .pipe(Effect.forkScoped);
+      yield* Deferred.await(test.started);
+      yield* Fiber.interrupt(disconnected);
+      const pending = yield* test.invocations.readSend({
+        idempotencyKey: "once",
+      });
+
+      const retry = yield* test.invocations
+        .send(onceRequest)
+        .pipe(Effect.forkScoped);
+      yield* Deferred.succeed(test.complete, undefined);
+
+      expect(pending).toEqual({ state: "pending", input });
+      expect(yield* Fiber.join(retry)).toEqual({ operationId });
+      expect(test.calls()).toBe(1);
+    }),
+  );
+
+const refusesADifferentInputUnderAKeyInFlight = () =>
+  runWithFileSystem(
+    Effect.gen(function* () {
+      const test = yield* freshInvocations;
+      yield* test.invocations.send(onceRequest).pipe(Effect.forkScoped);
+      yield* Deferred.await(test.started);
+
+      const conflict = yield* test.invocations
+        .send({
+          ...onceRequest,
+          input: Schema.decodeUnknownSync(SendInput)({
+            to: "agent:bob",
+            text: "different",
+          }),
+        })
+        .pipe(Effect.flip);
+
+      expect(conflict).toMatchObject({ reason: "idempotency-conflict" });
+    }),
+  );
+
+const replaysAReturnedOutcomeWithoutSendingAgain = () =>
+  runWithFileSystem(
+    Effect.gen(function* () {
+      const test = yield* freshInvocations;
+      yield* Deferred.succeed(test.complete, undefined);
+      yield* test.invocations.send(onceRequest);
+
+      const replayed = yield* test.invocations.send(onceRequest);
+
+      expect(replayed).toEqual({ operationId });
+      expect(test.calls()).toBe(1);
+    }),
+  );
+
+const replaysAReturnedOutcomeAfterRestart = () =>
+  runWithFileSystem(
+    Effect.gen(function* () {
+      const test = yield* freshInvocations;
+      yield* Deferred.succeed(test.complete, undefined);
+      yield* test.invocations.send(onceRequest);
+
+      yield* checksRetainedOutcome(test.store, test.scope, onceRequest);
+    }),
+  );
+
+const executesEverySendWithoutAKey = () =>
+  runWithFileSystem(
+    Effect.gen(function* () {
+      const test = yield* freshInvocations;
+      yield* Deferred.succeed(test.complete, undefined);
+
+      yield* test.invocations.send({ input });
+      yield* test.invocations.send({ input });
+
+      expect(test.calls()).toBe(2);
+    }),
   );
 
 const interruptsDaemon = (path: string) =>
@@ -131,6 +197,38 @@ const interruptsDaemon = (path: string) =>
       yield* Deferred.await(started);
     }),
   );
+/**
+ * A keyed send whose execution failed replays that failure to a retry
+ * without executing again, and reads back as returned with it.
+ */
+const checksReplayedFailure = (
+  invocations: Effect.Effect.Success<ReturnType<typeof makeSendInvocations>>,
+  calls: () => number,
+) =>
+  Effect.gen(function* () {
+    const firstFailure = yield* invocations
+      .send({ input, idempotencyKey: "failure" })
+      .pipe(Effect.flip);
+    const replayedFailure = yield* invocations
+      .send({ input, idempotencyKey: "failure" })
+      .pipe(Effect.flip);
+    expect(firstFailure).toMatchObject({
+      reason: "certification-unavailable",
+    });
+    expect(replayedFailure).toMatchObject({
+      reason: "certification-unavailable",
+    });
+    expect(calls()).toBe(1);
+    expect(yield* invocations.readSend({ idempotencyKey: "failure" })).toEqual({
+      state: "returned",
+      input,
+      outcome: {
+        kind: "failure",
+        error: { reason: "certification-unavailable" },
+      },
+    });
+  });
+
 const checksRestart = (path: string) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -160,24 +258,7 @@ const checksRestart = (path: string) =>
           .pipe(Effect.flip),
       ).toMatchObject({ reason: "outcome-unknown" });
       expect(calls).toBe(0);
-      for (let count = 0; count < 2; count += 1) {
-        expect(
-          yield* invocations
-            .send({ input, idempotencyKey: "failure" })
-            .pipe(Effect.flip),
-        ).toMatchObject({ reason: "certification-unavailable" });
-      }
-      expect(calls).toBe(1);
-      expect(
-        yield* invocations.readSend({ idempotencyKey: "failure" }),
-      ).toEqual({
-        state: "returned",
-        input,
-        outcome: {
-          kind: "failure",
-          error: { reason: "certification-unavailable" },
-        },
-      });
+      yield* checksReplayedFailure(invocations, () => calls);
     }),
   );
 const preservesUncertaintyAndFailure = () =>
@@ -223,8 +304,28 @@ const replaysARefusalWithItsDetail = () =>
 // @agent-code-guard/regression-only: these crash and concurrency transcripts pin the invocation contract without asserting collective completion.
 describe("durable send invocations", () => {
   it(
-    "joins concurrent retries, survives caller cancellation and retains the collective id",
-    joinsAndRetainsIdentity,
+    "reports an idempotency key it has not seen as absent",
+    reportsAnUnseenKeyAsAbsent,
+  );
+  it(
+    "keeps a send pending when its caller disconnects, and a retry joins it",
+    keepsADisconnectedSendPendingAndJoinsItsRetry,
+  );
+  it(
+    "refuses a different input under a key still in flight",
+    refusesADifferentInputUnderAKeyInFlight,
+  );
+  it(
+    "replays a returned outcome without executing the send again",
+    replaysAReturnedOutcomeWithoutSendingAgain,
+  );
+  it(
+    "replays a returned outcome with its collective id after restart",
+    replaysAReturnedOutcomeAfterRestart,
+  );
+  it(
+    "executes every send that names no idempotency key",
+    executesEverySendWithoutAKey,
   );
   it(
     "leaves interrupted sends indeterminate and replays observed failures",
@@ -232,5 +333,3 @@ describe("durable send invocations", () => {
   );
   it("replays a refusal with its detail", replaysARefusalWithItsDetail);
 });
-
-/* eslint-enable agent-code-guard/no-hardcoded-assertion-literals -- Restore repository defaults. */

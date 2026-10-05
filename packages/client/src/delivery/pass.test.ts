@@ -6,7 +6,6 @@ import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type { HistoryExportRecord } from "./history-export.js";
 import type { HarnessMessageReadyEvent } from "./operations.js";
 import { DeliveryToken } from "../store/index.js";
-import { InboundItem } from "../transport/collectives/inbound.js";
 import { DeliveryAcknowledgeError } from "../transport/messaging/errors.js";
 import { InboundMessage } from "../transport/messaging/message.js";
 import { RecordHash } from "../transport/wire/index.js";
@@ -39,13 +38,6 @@ const pendingMessage = (byte: number) => ({
 
 const first = pendingMessage(1);
 const second = pendingMessage(2);
-const localToken = Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", 9));
-const localItem = Schema.decodeUnknownSync(InboundItem)({
-  kind: "operationFailed",
-  id: digest("col_", 9),
-  to: "agent:bob",
-  error: "collective failed",
-});
 const newObserved = (): Observed => ({
   published: [],
   acknowledged: [],
@@ -80,7 +72,14 @@ const offerTo = (
   classify,
   persist: () => Effect.void,
   ...(subscriber === "attached"
-    ? { handler: { publish: (event) => observed.published.push(event) > 0 } }
+    ? {
+        handler: {
+          publish: (event) => {
+            observed.published.push(event);
+            return true;
+          },
+        },
+      }
     : {}),
   historyExport: {
     record: (record) =>
@@ -172,20 +171,6 @@ function goesOnToLaterDeliveriesWhenAcknowledgingAConsumedOneFails() {
   expect(observed.acknowledged).toEqual([second.deliveryToken]);
 }
 
-function stopsPublishingAtARefusalButStillConsumesLaterDeliveries() {
-  const observed = newObserved();
-  const third = pendingMessage(3);
-  const offer: PendingOffer = {
-    ...offerTo(observed, consumeSecond),
-    handler: { publish: () => false },
-  };
-
-  Effect.runSync(offerPendingMessages(offer, [first, second, third]));
-
-  expect(observed.acknowledged).toEqual([second.deliveryToken]);
-  expect(offer.state.publishedDeliveries.size).toBe(0);
-}
-
 function publishesThePostsAroundAConsumedOneAndAcknowledgesOnlyIt() {
   const observed = newObserved();
   const third = pendingMessage(3);
@@ -203,35 +188,6 @@ function publishesThePostsAroundAConsumedOneAndAcknowledgesOnlyIt() {
     third.deliveryToken,
   ]);
   expect(observed.acknowledged).toEqual([second.deliveryToken]);
-}
-
-function publishesTheCollectiveLayerSOwnItemsAfterDurableDeliveries() {
-  const observed = newObserved();
-  const offer = offerTo(observed, publishEveryPost);
-  offer.state.localItems.set(localToken, localItem);
-
-  Effect.runSync(offerPendingMessages(offer, [first]));
-
-  expect(observed.published.map((event) => event.deliveryToken)).toEqual([
-    first.deliveryToken,
-    localToken,
-  ]);
-}
-
-function recordsEachPublishedItemInTheHistoryExportOnce() {
-  const observed = newObserved();
-  const offer = offerTo(observed, publishEveryPost);
-
-  Effect.runSync(offerPendingMessages(offer, [first]));
-  offer.state.publishedDeliveries.clear();
-  Effect.runSync(offerPendingMessages(offer, [first]));
-
-  expect(observed.exported).toMatchObject([
-    {
-      kind: "inbound",
-      item: { kind: "multicast", message: first.message },
-    },
-  ]);
 }
 
 function classifiesEachDeliveryOnce() {
@@ -285,22 +241,7 @@ describe("pending delivery pass", () => {
   );
 
   it(
-    "stops publishing at a refusal but still consumes later deliveries",
-    stopsPublishingAtARefusalButStillConsumesLaterDeliveries,
-  );
-
-  it(
     "publishes the posts around a consumed one and acknowledges only it",
     publishesThePostsAroundAConsumedOneAndAcknowledgesOnlyIt,
-  );
-
-  it(
-    "publishes the collective layer's own items after durable deliveries",
-    publishesTheCollectiveLayerSOwnItemsAfterDurableDeliveries,
-  );
-
-  it(
-    "records each published item in the history export once",
-    recordsEachPublishedItemInTheHistoryExportOnce,
   );
 });

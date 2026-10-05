@@ -396,3 +396,171 @@ describe("host delivery webhook view", () => {
     exportsItemsReadThroughTheWebhookView,
   );
 });
+
+/** One event a subscriber took. */
+interface TakenEvent {
+  readonly deliveryToken: string;
+  readonly item: InboundItem;
+}
+
+/** A pending durable delivery of a direct post from Bob, its identifiers filled with `byte`. */
+const pendingFromBob = (byte: number) => ({
+  deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(
+    identifier("dlv_", byte),
+  ),
+  recordHash: Schema.decodeUnknownSync(RecordHash)(identifier("rch_", byte)),
+  message: Schema.decodeUnknownSync(InboundMessage)({
+    kind: "direct",
+    postId: identifier("pst_", byte),
+    address: "agent:bob",
+    sender: "agent:bob",
+    content: [{ type: "text", text: `delivery ${String(byte)}` }],
+  }),
+});
+
+const firstFromBob = pendingFromBob(21);
+const secondFromBob = pendingFromBob(22);
+const thirdFromBob = pendingFromBob(23);
+const emittedFailure = Schema.decodeUnknownSync(InboundItem)({
+  kind: "operationFailed",
+  id: identifier("col_", 24),
+  to: "agent:bob",
+  error: "collective failed",
+});
+
+/** Publishes every post as a multicast. */
+const publishAsMulticast: CollectiveOperations["classify"] = ({ message }) =>
+  Effect.succeedSome<InboundItem>({ kind: "multicast", message });
+
+/** Consumes Bob's second post, as the collective layer does an answer, and publishes the rest. */
+const consumeSecondFromBob: CollectiveOperations["classify"] = ({ message }) =>
+  message.postId === secondFromBob.message.postId
+    ? Effect.succeedNone
+    : Effect.succeedSome<InboundItem>({ kind: "multicast", message });
+
+/** An engine that acknowledges every delivery and records its token. */
+const recordAcknowledgments = (acknowledged: string[]) => ({
+  acknowledgeMessage: (deliveryToken: string) =>
+    Effect.sync(() => {
+      acknowledged.push(deliveryToken);
+    }),
+});
+
+/** A subscriber that takes every event it is offered and records it. */
+const takeEvery = (taken: TakenEvent[]) => ({
+  publish: (event: TakenEvent) => {
+    taken.push(event);
+    return true;
+  },
+});
+
+/**
+ * A refusal stops the pass's publication without marking the refused item
+ * taken, and a later delivery the collective layer consumes is still
+ * acknowledged; the next pass offers the refused items again.
+ */
+const stopsPublishingAtARefusalButStillConsumesLaterDeliveries = () =>
+  run(
+    Effect.gen(function* () {
+      const { delivery } = yield* deliveryFixture;
+      const acknowledged: string[] = [];
+      const taken: TakenEvent[] = [];
+      yield* delivery.runPass(() => ({
+        readPending: Effect.succeed([
+          firstFromBob,
+          secondFromBob,
+          thirdFromBob,
+        ]),
+        engine: recordAcknowledgments(acknowledged),
+        classify: consumeSecondFromBob,
+        handler: { publish: () => false },
+      }));
+
+      yield* delivery.runPass(() => ({
+        readPending: Effect.succeed([firstFromBob, thirdFromBob]),
+        engine: recordAcknowledgments(acknowledged),
+        classify: consumeSecondFromBob,
+        handler: takeEvery(taken),
+      }));
+
+      expect(acknowledged).toEqual([secondFromBob.deliveryToken]);
+      expect(taken.map((event) => event.deliveryToken)).toEqual([
+        firstFromBob.deliveryToken,
+        thirdFromBob.deliveryToken,
+      ]);
+    }),
+  );
+
+/**
+ * An item the collective layer emitted is made durable when queued and is
+ * published after the durable deliveries of the next pass.
+ */
+const publishesTheCollectiveLayerSOwnItemsAfterDurableDeliveries = () =>
+  run(
+    Effect.gen(function* () {
+      const { delivery } = yield* deliveryFixture;
+      const taken: TakenEvent[] = [];
+      yield* delivery.queueLocalItem(emittedFailure);
+
+      yield* delivery.runPass(() => ({
+        readPending: Effect.succeed([firstFromBob]),
+        engine: recordAcknowledgments([]),
+        classify: publishAsMulticast,
+        handler: takeEvery(taken),
+      }));
+
+      expect(taken.map((event) => event.item)).toEqual([
+        { kind: "multicast", message: firstFromBob.message },
+        emittedFailure,
+      ]);
+      expect(taken[0]?.deliveryToken).toBe(firstFromBob.deliveryToken);
+    }),
+  );
+
+/**
+ * After the subscriber detaches, the next pass offers a delivery it took
+ * again, and the history export still holds the item once.
+ */
+const recordsEachPublishedItemInTheHistoryExportOnce = () =>
+  run(
+    Effect.gen(function* () {
+      const { delivery, records } = yield* deliveryFixture;
+      const taken: TakenEvent[] = [];
+      const pass = () => ({
+        readPending: Effect.succeed([firstFromBob]),
+        engine: recordAcknowledgments([]),
+        classify: publishAsMulticast,
+        handler: takeEvery(taken),
+      });
+      yield* delivery.runPass(pass);
+      yield* delivery.detach;
+
+      yield* delivery.runPass(pass);
+
+      expect(taken.map((event) => event.deliveryToken)).toEqual([
+        firstFromBob.deliveryToken,
+        firstFromBob.deliveryToken,
+      ]);
+      expect(records).toMatchObject([
+        {
+          kind: "inbound",
+          item: { kind: "multicast", message: firstFromBob.message },
+        },
+      ]);
+    }),
+  );
+
+describe("host delivery passes", () => {
+  it(
+    "stops publishing at a refusal but still consumes later deliveries",
+    stopsPublishingAtARefusalButStillConsumesLaterDeliveries,
+  );
+  it(
+    "publishes the collective layer's own items after durable deliveries",
+    publishesTheCollectiveLayerSOwnItemsAfterDurableDeliveries,
+  );
+  it(
+    "records each published item in the history export once",
+    recordsEachPublishedItemInTheHistoryExportOnce,
+  );
+});

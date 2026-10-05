@@ -5,12 +5,13 @@ import { Effect, Encoding, Option, Schema, Scope } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
+import { downgradeToSchemaV2 } from "../__tests__/store-schema-fixtures.js";
 import {
   type CertifiedRecord,
   decodeRuntimeValue,
   type EndpointRecovery,
+  type EndpointStore,
   openEndpointStore,
 } from "../store/index.js";
 import {
@@ -112,39 +113,53 @@ const makeCollectives = (counter: { count: number }, scope: Scope.Scope) =>
     emit: () => Effect.void,
     scope,
   });
-const storeRequest = (
-  path: string,
-  counter: { count: number },
-  answered: boolean,
-) =>
+/**
+ * Give the store alice's identity, a lock, an outbox entry and Bob's gather
+ * request as a certified record whose delivery is still pending.
+ */
+const seedRequest = (store: EndpointStore, request: InboundMessage) =>
+  Effect.gen(function* () {
+    yield* store.bindIdentity({
+      agentId: "agent:alice",
+      canonicalAgentCard: bytes("identity"),
+    });
+    yield* store.putConversationFoundation(foundation);
+    yield* store.lockProposal({
+      conversationId: foundation.conversationId,
+      actionHash: record.actionHash,
+      canonicalActionCore: bytes("action-core"),
+    });
+    yield* store.applyCatchUpRecord(record, {
+      recipientAgentId: "agent:alice",
+      canonicalMessage: bytes(JSON.stringify(request)),
+    });
+    yield* store.enqueueOutbound({
+      conversationId: foundation.conversationId,
+      messageId: "msg_legacy",
+      canonicalSignedMessage: bytes("outbound"),
+    });
+  });
+
+/** Store Bob's request, still unanswered, and return what the store recovers. */
+const storeRequest = (path: string) =>
   Effect.scoped(
     Effect.gen(function* () {
       const store = yield* openEndpointStore(path);
-      yield* store.bindIdentity({
-        agentId: "agent:alice",
-        canonicalAgentCard: bytes("identity"),
-      });
-      yield* store.putConversationFoundation(foundation);
-      yield* store.lockProposal({
-        conversationId: foundation.conversationId,
-        actionHash: record.actionHash,
-        canonicalActionCore: bytes("action-core"),
-      });
+      yield* seedRequest(store, message());
+      return yield* store.recover();
+    }),
+  );
+
+/** Store Bob's request, answer it through a collective layer, and return what the store recovers. */
+const storeAnsweredRequest = (path: string, counter: { count: number }) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const store = yield* openEndpointStore(path);
       const request = message();
-      yield* store.applyCatchUpRecord(record, {
-        recipientAgentId: "agent:alice",
-        canonicalMessage: bytes(JSON.stringify(request)),
-      });
-      yield* store.enqueueOutbound({
-        conversationId: foundation.conversationId,
-        messageId: "msg_legacy",
-        canonicalSignedMessage: bytes("outbound"),
-      });
-      if (answered) {
-        const original = makeCollectives(counter, yield* Scope.Scope);
-        yield* original.classify({ message: request, recordHash });
-        yield* original.send(response, "result");
-      }
+      yield* seedRequest(store, request);
+      const original = makeCollectives(counter, yield* Scope.Scope);
+      yield* original.classify({ message: request, recordHash });
+      yield* original.send(response, "result");
       return yield* store.recover();
     }),
   );
@@ -184,14 +199,8 @@ const preservesProtocolStateAndRetiresLegacyRequest = () => {
   const counter = { count: 0 };
   return Effect.runPromise(
     Effect.gen(function* () {
-      const before = yield* storeRequest(path, counter, true);
-      yield* Effect.sync(() => {
-        const database = new DatabaseSync(join(path, "moltzapd.sqlite3"));
-        database.exec(
-          "DROP TABLE runtime_inbox; DROP TABLE runtime_sends; DROP TABLE runtime_events; DROP TABLE runtime_legacy_deliveries; PRAGMA user_version = 2",
-        );
-        database.close();
-      });
+      const before = yield* storeAnsweredRequest(path, counter);
+      yield* downgradeToSchemaV2(path);
       yield* Effect.scoped(openEndpointStore(path));
       yield* checkRecoveredRequest(path, counter, before);
     }).pipe(
@@ -215,7 +224,7 @@ const preservesUnprojectedRequest = () => {
   const counter = { count: 0 };
   return Effect.runPromise(
     Effect.gen(function* () {
-      const before = yield* storeRequest(path, counter, false);
+      const before = yield* storeRequest(path);
       yield* Effect.scoped(
         Effect.gen(function* () {
           const store = yield* openEndpointStore(path);
@@ -223,12 +232,13 @@ const preservesUnprojectedRequest = () => {
           const pending = yield* store.readPendingDeliveries();
           expect(pending).toEqual(before.pendingDeliveries);
           expect((yield* readRuntimeInbox(store, {})).items).toEqual([]);
-          const entry = pending[0];
-          if (entry === undefined) {
-            throw new Error(
-              "expected the unprojected request to remain pending",
-            );
-          }
+          const entry = yield* Effect.fromNullable(pending[0]).pipe(
+            Effect.orElse(() =>
+              Effect.dieMessage(
+                "expected the unprojected request to remain pending",
+              ),
+            ),
+          );
           const restarted = makeCollectives(counter, yield* Scope.Scope);
           const item = yield* restarted.classify({
             message: yield* decodeRuntimeValue(
