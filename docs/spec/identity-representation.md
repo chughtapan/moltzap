@@ -6,8 +6,8 @@ Status: **Gate 1 normative**
 
 Semantic contract: [`identity.md`](./identity.md)
 
-This chapter owns the exact L1 representation. Its JCS, JWK, JWS, and
-HTTP mechanisms remain private to the deep `identity` package.
+This chapter owns the exact L1 representation. Its JCS, JWK, JWS, JWE,
+and HTTP mechanisms remain private to the deep `identity` package.
 
 ## Standards substrate
 
@@ -69,8 +69,8 @@ JCS key order.
 
 ## Base64url
 
-JWS, identifiers, digests, nonces, JWK coordinates, and opaque bodies
-use RFC 4648 base64url without `=` padding. Decoders reject:
+JWS, JWE, identifiers, digests, nonces, JWK coordinates, and opaque
+bodies use RFC 4648 base64url without `=` padding. Decoders reject:
 
 - the standard base64 `+` and `/` alphabet;
 - padding;
