@@ -19,6 +19,7 @@ import {
   Predicate,
   Schema,
 } from "effect";
+import { describeIssues } from "../forms.js";
 
 /* eslint-disable @typescript-eslint/naming-convention -- Effect Schemas take the names of the MCP specification shapes they mirror. */
 
@@ -249,9 +250,6 @@ const intendedShapes: readonly FormFieldShape[] = [
   },
 ];
 
-const issueAt = (path: readonly PropertyKey[], message: string): string =>
-  path.length === 0 ? message : `${path.map(String).join(".")}: ${message}`;
-
 const FormFieldValue = Schema.declare(
   (value): value is FormField =>
     Either.match(admitFormField(value), {
@@ -309,14 +307,10 @@ function formFieldViolation(property: unknown): string {
   if (shape === undefined) {
     return '"type" must be "string", "number", "integer", "boolean" or "array"';
   }
-  const issues = Either.match(shape.decode(property), {
-    onLeft: (error) => ParseResult.ArrayFormatter.formatErrorSync(error),
-    onRight: () => [],
+  return Either.match(shape.decode(property), {
+    onLeft: (error) => `${describeIssues(error)}; ${shape.expected}`,
+    onRight: () => shape.expected,
   });
-  return [
-    ...issues.map(({ path, message }) => issueAt(path, message)),
-    shape.expected,
-  ].join("; ");
 }
 
 /**
@@ -325,7 +319,7 @@ function formFieldViolation(property: unknown): string {
  */
 function offersOptions(field: FormField): Either.Either<FormField, string> {
   const noOptions = (path: readonly string[]) =>
-    Either.left(issueAt(path, expectedText("at least one option")));
+    Either.left(`${path.join(".")}: ${expectedText("at least one option")}`);
   if ("enum" in field && field.enum.length === 0) {
     return noOptions(["enum"]);
   }

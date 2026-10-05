@@ -234,7 +234,7 @@ function refusesAnAllGatherToAnAgentAddress() {
   );
 }
 
-function namesTheMemberWhoseLookupFailsWhenTheGroupPostIsRefused() {
+function namesEveryMemberWithThePostReasonWhenTheGroupPostIsRefused() {
   const observed = newObserved();
 
   return run(
@@ -242,16 +242,15 @@ function namesTheMemberWhoseLookupFailsWhenTheGroupPostIsRefused() {
       const layer = yield* makeLayer(observed, "agent:alice", {
         sendPost: () =>
           Effect.fail(new SendError({ reason: "network-unavailable" })),
-        lookupMember: (member) =>
-          member === "agent:carol"
-            ? Effect.fail(new SendError({ reason: "network-unavailable" }))
-            : Effect.void,
       });
       const failure = yield* failureOf(send(layer, allGatherInput()));
 
       expect(failure).toEqual({
         kind: "members-unreachable",
-        members: [{ member: "agent:carol", reason: "network-unavailable" }],
+        members: [
+          { member: "agent:bob", reason: "network-unavailable" },
+          { member: "agent:carol", reason: "network-unavailable" },
+        ],
       });
     }),
   );
@@ -337,32 +336,6 @@ function endsInItsResultAloneWhenTheDeadlinePassesBeforeTheGroupPostCertifies() 
         { kind: "collectiveResult", to: group },
       ]);
     }).pipe(Effect.scoped),
-  );
-}
-
-function doesNotCloseWhenTheDeadlinePassesDuringTheLookups() {
-  const observed = newObserved();
-
-  return run(
-    Effect.gen(function* () {
-      const posts = { refused: 0 };
-      const layer = yield* makeLayer(observed, "agent:alice", {
-        sendPost: (input) =>
-          posts.refused++ === 0
-            ? Effect.fail(new SendError({ reason: "unknown-agent" }))
-            : certify(observed, input),
-        lookupMember: () => Effect.sleep(Duration.seconds(120)),
-      });
-      const sending = yield* Effect.fork(
-        failureOf(send(layer, allGatherInput())),
-      );
-      yield* TestClock.adjust(Duration.seconds(240));
-      yield* Fiber.join(sending);
-      yield* settle;
-
-      expect(observed.sent).toEqual([]);
-      expect(observed.emitted).toEqual([]);
-    }),
   );
 }
 
@@ -929,8 +902,8 @@ describe("all_gather at the requester", () => {
     refusesAnAllGatherToAnAgentAddress,
   );
   it(
-    "names the member whose lookup fails when the group post is refused",
-    namesTheMemberWhoseLookupFailsWhenTheGroupPostIsRefused,
+    "names every member with the post's reason when the group post is refused",
+    namesEveryMemberWithThePostReasonWhenTheGroupPostIsRefused,
   );
   it(
     "names every member when the group post is not certified in time",
@@ -943,10 +916,6 @@ describe("all_gather at the requester", () => {
   it(
     "refuses an all_gather with an unknown member before posting",
     refusesAnAllGatherWithAnUnknownMemberBeforePosting,
-  );
-  it(
-    "does not close when the deadline passes during the member lookups",
-    doesNotCloseWhenTheDeadlinePassesDuringTheLookups,
   );
   it(
     "closes with the record hash of each counted answer",

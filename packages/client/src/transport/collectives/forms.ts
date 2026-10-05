@@ -1,6 +1,6 @@
 /** @file Collective operations, answers and the closed errors of a refused collective send. */
 
-import { Data, Schema } from "effect";
+import { Data, ParseResult, Schema } from "effect";
 import {
   type SendFailure,
   sendFailureReasons,
@@ -110,21 +110,24 @@ const CollectiveOperation = Schema.Union(
 /** A validated collective operation. */
 export type CollectiveOperation = typeof CollectiveOperation.Type;
 
+/** An `accept` answer, the only one that carries content. */
+export const AcceptResponse = exactStruct({
+  action: Schema.Literal("accept"),
+  content: AnswerContent,
+});
+
+/** A `decline` answer. */
+export const DeclineResponse = exactStruct({
+  action: Schema.Literal("decline"),
+});
+
 /**
  * A member's answer to the one request open in the conversation it is sent
  * to: the requester's direct conversation for a gather, the group for an
  * all_gather. It is MCP's `ElicitResult`; only `accept` carries content,
  * valid against the request's schema.
  */
-const CollectiveResponse = Schema.Union(
-  exactStruct({
-    action: Schema.Literal("accept"),
-    content: AnswerContent,
-  }),
-  exactStruct({
-    action: Schema.Literal("decline"),
-  }),
-);
+const CollectiveResponse = Schema.Union(AcceptResponse, DeclineResponse);
 /** A validated collective response. */
 export type CollectiveResponse = typeof CollectiveResponse.Type;
 
@@ -218,12 +221,49 @@ export function closeFailureText(reason: SendFailure): string {
   return `all_gather failed: the result could not be shared with the group: ${sendFailureText[reason]}`;
 }
 
-/** What each answer-field problem means in a reply failure. */
+/**
+ * One line per issue of a decode failure, each led by its path, such as
+ * `requestedSchema.type: Expected "object", actual "obj"`, joined by `; `.
+ * A model repairs its input from this text alone.
+ * @param error The failed decode.
+ * @returns The issues as text.
+ */
+export const describeIssues = (error: ParseResult.ParseError): string =>
+  ParseResult.ArrayFormatter.formatErrorSync(error)
+    .map(({ path, message }) =>
+      path.length === 0 ? message : `${path.map(String).join(".")}: ${message}`,
+    )
+    .join("; ");
+
+/** What each answer-field problem means. */
 const answerFieldText = {
   missing: "is missing",
   unexpected: "is not in the form",
   invalid: "is invalid",
 } as const;
+
+/** Every field of an answer that fails its request's schema. */
+export type AnswerFieldFailures = Extract<
+  CollectiveFailure,
+  { readonly kind: "answer-invalid" }
+>["fields"];
+
+/**
+ * Name each failing answer field, such as `field "slot" is invalid (enum)`.
+ * A refused reply and a member's `invalid` outcome read the same.
+ * @param fields The failing fields, in validation order.
+ * @returns One clause per field, joined by `; `.
+ */
+export function answerFieldsText(fields: AnswerFieldFailures): string {
+  return fields
+    .map(({ field, reason, detail }) => {
+      const problem = answerFieldText[reason];
+      return detail === undefined
+        ? `field "${field}" ${problem}`
+        : `field "${field}" ${problem} (${detail})`;
+    })
+    .join("; ");
+}
 
 function describeCollectiveFailure(failure: CollectiveFailure): string {
   switch (failure.kind) {
@@ -238,14 +278,7 @@ function describeCollectiveFailure(failure: CollectiveFailure): string {
     case "schema-invalid":
       return `send failed: the form is invalid (${failure.detail})`;
     case "answer-invalid":
-      return `reply failed: ${failure.fields
-        .map(({ field, reason, detail }) => {
-          const problem = answerFieldText[reason];
-          return detail === undefined
-            ? `field "${field}" ${problem}`
-            : `field "${field}" ${problem} (${detail})`;
-        })
-        .join("; ")}`;
+      return `reply failed: ${answerFieldsText(failure.fields)}`;
     case "request-none":
       return "reply failed: no question is open in this conversation";
     case "request-ambiguous":

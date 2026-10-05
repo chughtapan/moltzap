@@ -234,10 +234,9 @@ collective operation is one member.
   that post is certified. The group's GENESIS needs every member, so a cold
   group with an unreachable member cannot start: if the post is refused, or is
   not certified within 20 seconds (never past the deadline), the send fails
-  with a `CollectiveError` whose `members-unreachable` failure names each
-  member whose Registry lookup fails, with that reason, or every member with
-  the post's reason (`certification-unavailable` when it timed out) when each
-  lookup succeeds.
+  with a `CollectiveError` whose `members-unreachable` failure names every
+  member with the post's reason (`certification-unavailable` when it timed
+  out).
 
 A member answers a request with a `collectiveResponse` sent to the
 conversation the request arrived in: the requester's `agent:` address for a

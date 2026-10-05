@@ -8,7 +8,7 @@ The collective operations the daemon service composes.
 
 ## Public surface
 
-### [`CollectiveError`](./forms.ts#L279)
+### [`CollectiveError`](./forms.ts#L312)
 
 _Class_
 
@@ -72,7 +72,7 @@ or duplicated, and multicasts that carry nothing besides that part; every
 other certified post becomes one item, and the endpoint itself emits
 results and failures.
 
-### [`MessageTextError`](./message-text.ts#L43)
+### [`MessageTextError`](./message-text.ts#L50)
 
 _Class_
 
@@ -92,7 +92,7 @@ A message text states an operation it does not validly carry, or is plain
 text that is not well-formed Unicode. The message names each failing field
 so a host can hand it to its model as the tool error.
 
-### [`parseMessageText`](./message-text.ts#L96)
+### [`parseMessageText`](./message-text.ts#L93)
 
 _Function_
 
@@ -150,7 +150,7 @@ each data part as JSON, one part per line.
 
 **Returns:** The text a host puts in the model's turn.
 
-### [`SendInput`](./forms.ts#L149)
+### [`SendInput`](./forms.ts#L152)
 
 _TypeAlias_
 
@@ -160,7 +160,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput`](./forms.ts#L137)
+### [`SendInput`](./forms.ts#L140)
 
 _Variable_
 
@@ -183,7 +183,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./forms.ts#L167)
+### [`SendResult`](./forms.ts#L170)
 
 _Interface_
 

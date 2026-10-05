@@ -13,7 +13,7 @@ The collective operations the daemon service composes.
 
 ## Public surface
 
-### [`CollectiveError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/collectives/forms.ts#L279)
+### [`CollectiveError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/collectives/forms.ts#L312)
 
 _Class_
 
@@ -77,7 +77,7 @@ or duplicated, and multicasts that carry nothing besides that part; every
 other certified post becomes one item, and the endpoint itself emits
 results and failures.
 
-### [`MessageTextError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/collectives/message-text.ts#L43)
+### [`MessageTextError`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/collectives/message-text.ts#L50)
 
 _Class_
 
@@ -97,7 +97,7 @@ A message text states an operation it does not validly carry, or is plain
 text that is not well-formed Unicode. The message names each failing field
 so a host can hand it to its model as the tool error.
 
-### [`parseMessageText`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/collectives/message-text.ts#L96)
+### [`parseMessageText`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/collectives/message-text.ts#L93)
 
 _Function_
 
@@ -155,7 +155,7 @@ each data part as JSON, one part per line.
 
 **Returns:** The text a host puts in the model's turn.
 
-### [`SendInput`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/collectives/forms.ts#L149)
+### [`SendInput`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/collectives/forms.ts#L152)
 
 _TypeAlias_
 
@@ -165,7 +165,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/collectives/forms.ts#L137)
+### [`SendInput`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/collectives/forms.ts#L140)
 
 _Variable_
 
@@ -188,7 +188,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/collectives/forms.ts#L167)
+### [`SendResult`](https://github.com/chughtapan/moltzap/blob/main/packages/client/src/transport/collectives/forms.ts#L170)
 
 _Interface_
 
