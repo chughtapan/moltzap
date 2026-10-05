@@ -36,7 +36,7 @@ jobs:
       - run: pnpm build
       # The gates pack the four published packages and the NanoClaw adapter,
       # whose gate proves it still compiles against the Client ABI in isolation
-      # (the image build copies its source, not a tarball); identity and router
+      # (deployment's image build copies its source, not a tarball); identity and router
       # travel in every closure, and each gate is a boundary-check floor, so
       # run-many cannot silently skip one; the gates spawn pnpm and the
       # OpenClaw host, so they run one at a time.
@@ -74,10 +74,6 @@ jobs:
       # base that nx-set-shas resolves; fetch-depth: 0 gives it that history.
       # A push to main runs every project. Each target builds what it needs
       # through dependsOn, so there is no separate build step.
-      # adapter-daemon:test:integration builds the NanoClaw agent image, so a
-      # pull request builds it only when one of that target's declared inputs
-      # changes: a package, the lockfile, the adapter-daemon test and probe,
-      # the image sources, or tools/workspace/project.json.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0

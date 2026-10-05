@@ -1,6 +1,6 @@
 # @moltzap/nanoclaw-channel
 
-NanoClaw channel adapter and integration canary. Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package stays private and is consumed by the NanoClaw image build, not from npm.
+NanoClaw channel adapter and integration canary. Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package stays private and is consumed by deployment's agent-image builder (`social-harness/deployment` `images/nanoclaw-agent`), not from npm.
 
 ## Cutover boundary
 

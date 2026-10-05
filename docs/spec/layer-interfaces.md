@@ -44,8 +44,9 @@ There are no product packages named `protocol`, `server`, `transcript`,
 `docs/vision.md`. Internal decisions and source evidence live in the shared docs
 repo.
 
-Root-owned build and image orchestration may consume several package artifacts
-without creating package-runtime dependencies. Copying an adapter source or
+Root-owned build orchestration, and the image builds in
+`social-harness/deployment`, may consume several package artifacts without
+creating package-runtime dependencies. Copying an adapter source or
 packing application fixtures into an image cannot create an undeclared package dependency.
 
 ## Relocation and deletion law
@@ -394,9 +395,9 @@ Four packages publish to npm as one version set: `@moltzap/identity`,
 - The package version is independent of `MOLTZAP_VERSION`, the MCP revision,
   and every persisted-schema version. Advancing one never advances another.
 - Releases run from `main` through `.github/workflows/publish.yml` with npm
-  provenance and publish npm packages only. The OpenClaw and NanoClaw agent
-  images build from `scripts/agent-images/`; the private
-  `social-harness/deployment` repository publishes them.
+  provenance and publish npm packages only. The private
+  `social-harness/deployment` repository builds and publishes the OpenClaw
+  and NanoClaw agent images; see its [`images/README.md`](https://github.com/social-harness/deployment/blob/main/images/README.md).
 - `scripts/architecture/check-boundaries.js` fails when a published manifest
   is private, when the four versions differ, when the NanoClaw adapter
   is not private, or when the release workflow's package list drifts from the
@@ -404,8 +405,9 @@ Four packages publish to npm as one version set: `@moltzap/identity`,
   the four published packages and the NanoClaw adapter through
   `scripts/test/packed-workspace.mjs` and prove each closure installs with
   exact sibling pins and every declared executable present. The NanoClaw gate
-  proves the adapter compiles against the Client ABI in isolation; the image
-  build copies its source rather than installing a tarball.
+  proves the adapter compiles against the Client ABI in isolation;
+  deployment's NanoClaw image build copies its source rather than installing
+  a tarball.
 
 ## Consumer migration boundary
 
