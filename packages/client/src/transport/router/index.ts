@@ -7,7 +7,6 @@ import {
   SignedMessage,
   type SignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
-  type VerifiedSignedMessage,
 } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import {
@@ -172,19 +171,6 @@ const recipientsEqual = (
   left.length === right.length &&
   left.every((agentId, index) => agentId === right[index]);
 
-const rewrapOuterDefault = <Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-  signedMessage: SignedMessageValue,
-  messageId: MessageId,
-): Effect.Effect<SignedMessageValue, RouterWorkerProtocolError> =>
-  SignedMessage.sign({
-    agentCard: runtime.input.callerAgentCard,
-    signingAuthority: runtime.input.signingAuthority,
-    recipientAgentIds: new Set(signedMessage.recipientAgentIds),
-    messageId,
-    body: signedMessage.body,
-  }).pipe(Effect.mapError(mapProtocolError));
-
 const validateRewrapped = (
   previous: SignedMessageValue,
   next: SignedMessageValue,
@@ -204,17 +190,18 @@ const rewrapOuter = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
   signedMessage: SignedMessageValue,
 ): Effect.Effect<SignedMessageValue, RouterWorkerProtocolError> =>
-  Effect.gen(function* () {
-    const makeMessageId = runtime.input.overrides?.makeMessageId;
-    const messageId = yield* makeMessageId === undefined
-      ? makeRandomMessageId()
-      : makeMessageId();
-    const rewrapOverride = runtime.input.overrides?.rewrapOuter;
-    const candidate = yield* rewrapOverride === undefined
-      ? rewrapOuterDefault(runtime, signedMessage, messageId)
-      : rewrapOverride({ signedMessage, messageId });
-    return yield* validateRewrapped(signedMessage, candidate);
-  });
+  makeRandomMessageId().pipe(
+    Effect.flatMap((messageId) =>
+      SignedMessage.sign({
+        agentCard: runtime.input.callerAgentCard,
+        signingAuthority: runtime.input.signingAuthority,
+        recipientAgentIds: new Set(signedMessage.recipientAgentIds),
+        messageId,
+        body: signedMessage.body,
+      }).pipe(Effect.mapError(mapProtocolError)),
+    ),
+    Effect.flatMap((rewrapped) => validateRewrapped(signedMessage, rewrapped)),
+  );
 
 interface TransmitInput {
   readonly outbound: StoredOutboundMessage;
@@ -333,7 +320,7 @@ const interpretSendResult = <Payload>(
 
 /**
  * Send one envelope with same-byte retry and one fresh-envelope recovery path.
- * @param runtime Worker capabilities, endpoint identity, and test seams.
+ * @param runtime Worker capabilities and endpoint identity.
  * @param input Exact envelope, Router fence, mode, and remaining attempts.
  * @returns Whether Router accepted the envelope or reported a restart.
  */
@@ -706,12 +693,6 @@ const seedPinnedCards = <Payload>(
     return cards;
   });
 
-const verifyOuterDefault = (input: {
-  readonly signedMessage: SignedMessageValue;
-  readonly agentCard: VerifiedAgentCard;
-}): Effect.Effect<VerifiedSignedMessage, RouterWorkerAuthenticationError> =>
-  SignedMessage.verify(input).pipe(Effect.mapError(mapAuthenticationError));
-
 const resolveSenderCard = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
   agentId: AgentId,
@@ -748,8 +729,10 @@ const verifyOuter = <Payload>(
       runtime,
       signedMessage.senderAgentId,
     );
-    const verify = runtime.input.overrides?.verifyOuter ?? verifyOuterDefault;
-    const message = yield* verify({ signedMessage, agentCard: senderCard });
+    const message = yield* SignedMessage.verify({
+      signedMessage,
+      agentCard: senderCard,
+    }).pipe(Effect.mapError(mapAuthenticationError));
     return { message, senderCard };
   });
 

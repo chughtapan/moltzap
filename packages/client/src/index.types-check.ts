@@ -16,7 +16,7 @@
  * so any change these canaries catch is a breaking release.
  */
 
-import type { DateTime, Effect, Either, Scope, Stream } from "effect";
+import type { DateTime, Effect, Either, Scope, Stream, Types } from "effect";
 import type {
   acquireHarnessEndpoint,
   AgentAddress,
@@ -44,18 +44,6 @@ import type {
   SendResult,
 } from "./index.js";
 
-/* eslint-disable @typescript-eslint/no-unnecessary-type-parameters -- `Probe` stays generic so TypeScript compares the two deferred conditional types by identity. */
-/**
- * True only when the two types are identical, so an added optional property
- * or a dropped `readonly` modifier fails the canary.
- */
-type Equal<Left, Right> =
-  (<Probe>() => Probe extends Left ? 1 : 2) extends <
-    Probe,
-  >() => Probe extends Right ? 1 : 2
-    ? true
-    : false;
-/* eslint-enable @typescript-eslint/no-unnecessary-type-parameters -- Restore repository defaults after the identity helper. */
 type Expect<Value extends true> = Value;
 
 type CollectiveId = CollectiveError["id"];
@@ -160,9 +148,9 @@ type ExpectedEndpoint = Readonly<{
   messages: Stream.Stream<InboundDelivery, ListenError>;
 }>;
 
-type SendInputIsExact = Expect<Equal<SendInput, ExpectedSendInput>>;
+type SendInputIsExact = Expect<Types.Equals<SendInput, ExpectedSendInput>>;
 type MessageTextParserIsExact = Expect<
-  Equal<
+  Types.Equals<
     typeof parseMessageText,
     (
       to: MessageAddressInput,
@@ -170,15 +158,21 @@ type MessageTextParserIsExact = Expect<
     ) => Either.Either<SendInput, MessageTextError>
   >
 >;
-type SendResultIsExact = Expect<Equal<SendResult, ExpectedSendResult>>;
-type InboundItemIsExact = Expect<Equal<InboundItem, ExpectedInboundItem>>;
-type DirectMessageIsExact = Expect<Equal<DirectMessage, ExpectedDirectMessage>>;
-type GroupMessageIsExact = Expect<Equal<GroupMessage, ExpectedGroupMessage>>;
-type InboundMessageIsExact = Expect<
-  Equal<InboundMessage, DirectMessage | GroupMessage>
+type SendResultIsExact = Expect<Types.Equals<SendResult, ExpectedSendResult>>;
+type InboundItemIsExact = Expect<
+  Types.Equals<InboundItem, ExpectedInboundItem>
 >;
-type DeliveryIsExact = Expect<Equal<InboundDelivery, ExpectedDelivery>>;
-type EndpointIsExact = Expect<Equal<HarnessEndpoint, ExpectedEndpoint>>;
+type DirectMessageIsExact = Expect<
+  Types.Equals<DirectMessage, ExpectedDirectMessage>
+>;
+type GroupMessageIsExact = Expect<
+  Types.Equals<GroupMessage, ExpectedGroupMessage>
+>;
+type InboundMessageIsExact = Expect<
+  Types.Equals<InboundMessage, DirectMessage | GroupMessage>
+>;
+type DeliveryIsExact = Expect<Types.Equals<InboundDelivery, ExpectedDelivery>>;
+type EndpointIsExact = Expect<Types.Equals<HarnessEndpoint, ExpectedEndpoint>>;
 type ExpectedHistoryExportRecord =
   | Readonly<{ kind: "inbound"; item: InboundItem; at: DateTime.Utc }>
   | Readonly<{
@@ -195,7 +189,7 @@ type ExpectedHistoryExportRecord =
     }>
   | Readonly<{ kind: "export-failed"; reason: string; at: DateTime.Utc }>;
 type HistoryExportRecordIsExact = Expect<
-  Equal<HistoryExportRecord, ExpectedHistoryExportRecord>
+  Types.Equals<HistoryExportRecord, ExpectedHistoryExportRecord>
 >;
 type ContentIsNonempty = Expect<
   Content extends readonly [ContentPart, ...ContentPart[]] ? true : false
@@ -207,7 +201,7 @@ type GroupAddressIsInput = Expect<
   GroupAddress extends MessageAddressInput ? true : false
 >;
 type SendReasonsAreExact = Expect<
-  Equal<
+  Types.Equals<
     SendError["reason"],
     | "invalid-address"
     | "unknown-agent"
@@ -223,7 +217,7 @@ type SendReasonsAreExact = Expect<
   >
 >;
 type CollectiveFailureKindsAreExact = Expect<
-  Equal<
+  Types.Equals<
     CollectiveError["failure"]["kind"],
     | "members-unreachable"
     | "schema-invalid"
@@ -235,7 +229,7 @@ type CollectiveFailureKindsAreExact = Expect<
   >
 >;
 type ListenReasonsAreExact = Expect<
-  Equal<
+  Types.Equals<
     ListenError["reason"],
     | "already-listening"
     | "incompatible-daemon"
@@ -244,7 +238,7 @@ type ListenReasonsAreExact = Expect<
   >
 >;
 type AcknowledgeReasonsAreExact = Expect<
-  Equal<
+  Types.Equals<
     DeliveryAcknowledgeError["reason"],
     | "unknown-delivery"
     | "delivery-conflict"
@@ -253,16 +247,16 @@ type AcknowledgeReasonsAreExact = Expect<
   >
 >;
 type ConnectReasonsAreExact = Expect<
-  Equal<
+  Types.Equals<
     ConnectError["reason"],
     "transport-failed" | "decode-failed" | "incompatible-daemon"
   >
 >;
 type AcquisitionIsScoped = Expect<
-  Equal<Parameters<typeof acquireHarnessEndpoint>, [endpoint: URL]>
+  Types.Equals<Parameters<typeof acquireHarnessEndpoint>, [endpoint: URL]>
 >;
 type AcquisitionResultIsExact = Expect<
-  Equal<
+  Types.Equals<
     ReturnType<typeof acquireHarnessEndpoint>,
     Effect.Effect<HarnessEndpoint, ConnectError, Scope.Scope>
   >

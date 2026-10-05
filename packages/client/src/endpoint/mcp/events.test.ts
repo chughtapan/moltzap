@@ -11,23 +11,16 @@ import {
   PROTOCOL_VERSION_META_KEY,
 } from "@modelcontextprotocol/server";
 import { AgentCard } from "@moltzap/identity";
-import {
-  Chunk,
-  Deferred,
-  Effect,
-  Encoding,
-  Fiber,
-  Schema,
-  Stream,
-} from "effect";
+import { Chunk, Deferred, Effect, Fiber, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import type { HarnessMessageReadyEvent } from "../../delivery/operations.js";
+import { digest } from "../../__tests__/agent-card-fixtures.js";
+import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
 import { makeFixture } from "../../__tests__/router-worker-fixtures.js";
 import { DeliveryToken } from "../../store/index.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
 import { acquireHarnessEndpoint } from "../harness-endpoint/index.js";
 import { type HarnessEvents, makeHarnessEvents } from "./events.js";
-import { acquireHarnessMcpHttpServer } from "./http.js";
 import { INBOX_PENDING_EVENT } from "./names.js";
 import {
   type HarnessMcpOperations,
@@ -37,8 +30,6 @@ import {
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- External MCP error codes and consumer ownership reasons are conformance expectations. */
 
 const implementation = { name: "events-conformance", version: "1" };
-const digest = (prefix: string, byte: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
 const delivery = (byte: number): HarnessMessageReadyEvent => ({
   deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", byte)),
   item: Schema.decodeUnknownSync(InboundItem)({
@@ -121,16 +112,6 @@ const yieldAfterReservation = (
   };
 };
 
-const listen = (handler: ReturnType<typeof createMcpHandler>) =>
-  acquireHarnessMcpHttpServer({ port: 0, handler }).pipe(
-    Effect.flatMap((server) => {
-      const address = server.address();
-      return address === null || typeof address === "string"
-        ? Effect.dieMessage("Expected a TCP listener")
-        : Effect.succeed(new URL(`http://127.0.0.1:${address.port}/mcp`));
-    }),
-  );
-
 const unreachable = () =>
   Effect.dieMessage("events scenario reached an unrelated operation");
 
@@ -190,10 +171,7 @@ const acquireEventsServer = Effect.gen(function* () {
       Effect.runFork(Deferred.succeed(active ? attached : detached, undefined));
     },
   });
-  yield* Effect.addFinalizer(() =>
-    Effect.tryPromise(() => handler.close()).pipe(Effect.ignore),
-  );
-  const endpoint = yield* listen(handler);
+  const endpoint = yield* loopbackMcpEndpoint(handler);
   return {
     endpoint,
     attached,
@@ -236,7 +214,7 @@ const acquireRacingEventsServer = Effect.gen(function* () {
     { legacy: "reject", responseMode: "auto" },
   );
   yield* Effect.addFinalizer(() => events.close);
-  const endpoint = yield* listen(handler);
+  const endpoint = yield* loopbackMcpEndpoint(handler);
   return {
     endpoint,
     events,

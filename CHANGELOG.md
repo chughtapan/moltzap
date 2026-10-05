@@ -10,6 +10,17 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Fixed
+
+- A daemon recovering from a Router restart no longer exits when a peer's
+  re-anchor vote fails verification, such as a vote addressed beyond the
+  conversation's members or one whose evidence an agent outside the
+  conversation signed. Any agent that could address the endpoint could stop
+  the daemon this way. The vote is now ignored.
+- A daemon recovering from a Router restart no longer exits when a peer's
+  re-anchor vote, held while its own catch-up ran, completes the re-anchor
+  before the daemon proposes its own.
+
 ## [2026.1005.0] - 2026-10-05
 
 ### Changed
