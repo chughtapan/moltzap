@@ -18,6 +18,7 @@ import {
 import { PollCursor, RouterInstanceId } from "@moltzap/router";
 import canonicalize from "canonicalize";
 import {
+  Cause,
   Deferred,
   Duration,
   Effect,
@@ -41,17 +42,16 @@ import {
   sign as signBytes,
 } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type { DaemonRuntimeError } from "../../service/activation/index.js";
 import type {
   EndpointEngineInput,
   EngineActionFold,
   EngineRegistryPort,
   EngineRouterPort,
   EngineSendInput,
+  EngineOutboundError,
   EngineSentPost,
 } from "./runtime/index.js";
 import { advanceClock } from "../../__tests__/advance-clock.js";
-import { failFromBackgroundCause } from "../../service/supervision.js";
 import { type EndpointStore, openEndpointStore } from "../../store/index.js";
 import {
   type RouterIngressDisposition,
@@ -1400,16 +1400,20 @@ describe("engine sends and Router-worker attachment", () => {
 });
 
 /**
- * The daemon forks `runOutbound` under `superviseBackground`, whose
- * `catchAllCause` completes the process-wide `fatal` deferred through
- * `failFromBackgroundCause`. This mirrors that supervision exactly.
+ * Forks `runOutbound` the way a host supervises it: any cause other than
+ * interruption completes `fatal`, so a case that expects the loop to
+ * survive asserts `fatal` stays empty.
  */
 function superviseOutbound(
   engine: EndpointEngine,
-  fatal: Deferred.Deferred<never, DaemonRuntimeError>,
+  fatal: Deferred.Deferred<never, EngineOutboundError>,
 ) {
   return engine.runOutbound.pipe(
-    Effect.catchAllCause((cause) => failFromBackgroundCause(fatal, cause)),
+    Effect.catchAllCause((cause) =>
+      Cause.isInterruptedOnly(cause)
+        ? Effect.failCause(cause)
+        : Deferred.failCause(fatal, cause).pipe(Effect.zipRight(Effect.never)),
+    ),
     Effect.interruptible,
     Effect.forkScoped,
   );
@@ -1474,13 +1478,13 @@ function proposalHashesByPost(
  * each envelope once, and proposed each post under exactly one action hash.
  * @param harness Harness whose Router queue receives forwarded envelopes.
  * @param attempts Transmit count from `failsThenForwards`.
- * @param fatal The supervised daemon's failure signal.
+ * @param fatal The supervised outbound loop's failure signal.
  * @returns Completion after the assertions.
  */
 function expectDrainedAlive(
   harness: ProtocolHarness,
   attempts: Ref.Ref<number>,
-  fatal: Deferred.Deferred<never, DaemonRuntimeError>,
+  fatal: Deferred.Deferred<never, EngineOutboundError>,
 ): Effect.Effect<void> {
   return Effect.gen(function* () {
     expect(yield* Ref.get(attempts)).toBeGreaterThan(FAILED_TRANSMITS);
@@ -1502,7 +1506,7 @@ function expectDrainedAlive(
  * probe, then its transmits observe a transient worker state for longer than
  * any bounded retry would allow before the background drain delivers.
  */
-function transientTransmitFailureLeavesDaemonAlive(
+function transientTransmitFailureLeavesOutboundLoopAlive(
   failure: RouterWorkerSendError,
 ): Effect.Effect<void, never, Scope.Scope> {
   return Effect.gen(function* () {
@@ -1511,7 +1515,7 @@ function transientTransmitFailureLeavesDaemonAlive(
       authorSend: failsThenForwards(failure, attempts),
     });
     const author = yield* requireAt(harness.engines, 0, "endpoint engine");
-    const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
+    const fatal = yield* Deferred.make<never, EngineOutboundError>();
     yield* superviseOutbound(author, fatal);
     const sendResult = yield* author
       .send(yield* sendInput(harness, "router restarts mid-drain"))
@@ -1525,7 +1529,7 @@ function transientTransmitFailureLeavesDaemonAlive(
 }
 
 /**
- * Daemon cold start with a durable pending outbound row: the restarted
+ * Engine cold start with a durable pending outbound row: the restarted
  * worker has not attached (as `makeRouterWorker` starts `recovering`) while
  * `makeRuntime` pre-signals the outbound queue. The loop waits, and once the
  * worker attaches it outlasts every failed transmit and delivers the row.
@@ -1533,7 +1537,7 @@ function transientTransmitFailureLeavesDaemonAlive(
  * proposal goes out twice in two envelopes with distinct message ids; peers
  * de-duplicate it by action hash, which the assertions pin as one per post.
  */
-function coldStartWithPendingOutboundLeavesDaemonAlive(): Effect.Effect<
+function coldStartWithPendingOutboundLeavesOutboundLoopAlive(): Effect.Effect<
   void,
   never,
   Scope.Scope
@@ -1564,7 +1568,7 @@ function coldStartWithPendingOutboundLeavesDaemonAlive(): Effect.Effect<
         failsThenForwards(new RouterWorkerUnavailableError(), attempts),
       ),
     }).pipe(Effect.orDie);
-    const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
+    const fatal = yield* Deferred.make<never, EngineOutboundError>();
     yield* superviseOutbound(restarted, fatal);
     yield* advanceClock(OUTAGE_SPAN);
     expect(yield* Ref.get(attempts)).toBe(0);
@@ -1624,7 +1628,7 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
     const store = yield* requireAt(harness.stores, 0, "endpoint store");
     yield* Deferred.succeed(authorStore, store);
     const author = yield* requireAt(harness.engines, 0, "endpoint engine");
-    const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
+    const fatal = yield* Deferred.make<never, EngineOutboundError>();
     const sending = yield* Effect.fork(
       author.send(yield* sendInput(harness, "black-holed transmit")),
     );
@@ -1702,7 +1706,7 @@ function concurrentDrainsSendEachOutboxOnce(): Effect.Effect<
     const author = yield* requireAt(harness.engines, 0, "endpoint engine");
     const store = yield* requireAt(harness.stores, 0, "endpoint store");
     yield* Deferred.succeed(target, { store, outbound: harness.outbound });
-    const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
+    const fatal = yield* Deferred.make<never, EngineOutboundError>();
     yield* superviseOutbound(author, fatal);
     const sending = yield* Effect.fork(
       author.send(yield* sendInput(harness, "drained twice at once")),
@@ -1778,7 +1782,7 @@ function detachesOnFirstTransmit(
 
 /**
  * What a host sees when the Router drops during its send: the send returns
- * `network-unavailable` promptly, the daemon stays up, and the durably queued
+ * `network-unavailable` promptly, the outbound loop stays up, and the durably queued
  * envelope goes out and certifies once the worker re-anchors.
  */
 function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
@@ -1787,7 +1791,7 @@ function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
     const worker = yield* detachesOnFirstTransmit(attached);
     const harness = yield* makeProtocolHarness(worker);
     const author = yield* requireAt(harness.engines, 0, "endpoint engine");
-    const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
+    const fatal = yield* Deferred.make<never, EngineOutboundError>();
     yield* superviseOutbound(author, fatal);
 
     const failure = yield* author
@@ -1827,7 +1831,7 @@ function onTestClock(
   return Effect.scoped(scenario).pipe(Effect.provide(TestContext.TestContext));
 }
 
-describe("issue 1003: a local send during a Router outage", () => {
+describe("a local send during a Router outage", () => {
   it(
     "returns network-unavailable at once and delivers the post after re-attachment",
     () => Effect.runPromise(onTestClock(localSendDuringOutage())),
@@ -1845,13 +1849,13 @@ describe("issue 1003: a local send during a Router outage", () => {
   );
 });
 
-describe("issue 1003: outbound loop under a transient Router worker state", () => {
+describe("outbound loop under a transient Router worker state", () => {
   it(
-    "keeps the daemon alive when the worker reports unavailable mid-drain",
+    "keeps the outbound loop alive when the worker reports unavailable mid-drain",
     () =>
       Effect.runPromise(
         onTestClock(
-          transientTransmitFailureLeavesDaemonAlive(
+          transientTransmitFailureLeavesOutboundLoopAlive(
             new RouterWorkerUnavailableError(),
           ),
         ),
@@ -1859,11 +1863,11 @@ describe("issue 1003: outbound loop under a transient Router worker state", () =
     TEST_TIMEOUT_MS,
   );
   it(
-    "keeps the daemon alive when a transmit observes a Router restart",
+    "keeps the outbound loop alive when a transmit observes a Router restart",
     () =>
       Effect.runPromise(
         onTestClock(
-          transientTransmitFailureLeavesDaemonAlive(
+          transientTransmitFailureLeavesOutboundLoopAlive(
             new RouterWorkerDiscontinuityError(),
           ),
         ),
@@ -1871,11 +1875,11 @@ describe("issue 1003: outbound loop under a transient Router worker state", () =
     TEST_TIMEOUT_MS,
   );
   it(
-    "keeps the daemon alive when the Router transport drops mid-drain",
+    "keeps the outbound loop alive when the Router transport drops mid-drain",
     () =>
       Effect.runPromise(
         onTestClock(
-          transientTransmitFailureLeavesDaemonAlive(
+          transientTransmitFailureLeavesOutboundLoopAlive(
             new RouterWorkerTransportError(),
           ),
         ),
@@ -1883,10 +1887,10 @@ describe("issue 1003: outbound loop under a transient Router worker state", () =
     TEST_TIMEOUT_MS,
   );
   it(
-    "keeps a cold-started daemon alive with a pending outbound row",
+    "keeps a cold-started outbound loop alive with a pending outbound row",
     () =>
       Effect.runPromise(
-        onTestClock(coldStartWithPendingOutboundLeavesDaemonAlive()),
+        onTestClock(coldStartWithPendingOutboundLeavesOutboundLoopAlive()),
       ),
     TEST_TIMEOUT_MS,
   );

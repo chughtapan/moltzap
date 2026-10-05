@@ -52,8 +52,6 @@ import {
   unavailableRegistryLayer,
   unreachableOutbox,
 } from "../../__tests__/router-worker-fixtures.js";
-import { DaemonRuntimeError } from "../../service/activation/index.js";
-import { failFromBackgroundCause } from "../../service/supervision.js";
 import {
   type ConversationFoundation,
   type EndpointStore,
@@ -1632,9 +1630,10 @@ const coldStartWithRouterDownRecovers = async (): Promise<void> => {
 
 /**
  * A Router rejection of the request itself is not an outage: the poll loop
- * ends at once and the daemon's background supervision fails the daemon.
+ * ends at once with a typed rejection. How the daemon treats that ending is
+ * the service's supervision, which `service/lifecycle.test.ts` covers.
  */
-const rejectionEndsTheDaemon =
+const rejectionEndsThePollLoop =
   (
     rejection: RouterClientFailure,
     reason: RouterWorkerRejectedError["reason"],
@@ -1671,17 +1670,6 @@ const rejectionEndsTheDaemon =
               line.includes(`rejected this endpoint's ${reason}`),
           ),
         ).toBe(true);
-
-        const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
-        yield* worker.run.pipe(
-          Effect.catchAllCause((cause) =>
-            failFromBackgroundCause(fatal, cause),
-          ),
-          Effect.fork,
-        );
-        expect(yield* Deferred.await(fatal).pipe(Effect.flip)).toStrictEqual(
-          new DaemonRuntimeError({ phase: "listener" }),
-        );
       }),
       routerLayer,
       fixture,
@@ -1840,12 +1828,12 @@ describe("private Router worker", () => {
     30_000,
   );
   it(
-    "logs why and ends the daemon when the Router rejects the endpoint's authentication",
-    rejectionEndsTheDaemon(new AuthenticationFailedError(), "authentication"),
+    "logs why and ends the poll loop when the Router rejects the endpoint's authentication",
+    rejectionEndsThePollLoop(new AuthenticationFailedError(), "authentication"),
   );
   it(
-    "logs why and ends the daemon when the Router rejects the endpoint's version",
-    rejectionEndsTheDaemon(new VersionMismatchError(), "version"),
+    "logs why and ends the poll loop when the Router rejects the endpoint's version",
+    rejectionEndsThePollLoop(new VersionMismatchError(), "version"),
   );
   it(
     "ends the poll loop on a persistence fault without retrying",
