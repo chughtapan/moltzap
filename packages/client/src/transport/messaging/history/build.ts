@@ -28,7 +28,8 @@ import {
   type RecordCore,
   RecordCore as RecordCoreSchema,
 } from "../../wire/index.js";
-import { AgentAddress, compareAscii, GroupAddress } from "../../wire/values.js";
+import { AgentAddress, compareAscii } from "../../wire/values.js";
+import { renderGroupAddress } from "../address.js";
 import {
   InboundMessage,
   type InboundMessage as InboundMessageValue,
@@ -214,9 +215,9 @@ const projectGroupMessage = (
     const names = conversation.membership.members
       .map((member) => member.agentName)
       .sort(compareAscii);
-    const address = yield* Schema.decodeUnknown(GroupAddress)(
-      `group:${names.join(",")}`,
-    ).pipe(Effect.mapError(representationFailure));
+    const address = yield* renderGroupAddress(names).pipe(
+      Effect.mapError(representationFailure),
+    );
     const members = yield* Effect.forEach(names, addressFor, {
       concurrency: 1,
     });

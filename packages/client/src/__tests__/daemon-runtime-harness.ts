@@ -21,6 +21,7 @@ import {
   DaemonRuntimeError,
   runDaemonRuntime,
 } from "../service/lifecycle.js";
+import { readDaemonRegistrationState } from "../service/registration/index.js";
 import {
   type DeliveryToken,
   type EndpointRecovery,
@@ -425,17 +426,27 @@ export const makeHarness = (
     };
   }).pipe(Effect.withSpan("makeHarness"));
 
-/** Run the daemon over the harness and the fixture's Registry and Router. */
+/**
+ * Run the daemon over the harness and the fixture's Registry and Router,
+ * from the registration state the store holds, read once as startup does.
+ */
 export const run = (
   fixture: Fixture,
   store: EndpointStore,
   harness: RuntimeHarness,
 ) => {
   const services = makeServices(fixture);
-  return runDaemonRuntime(
-    { store, bootstrap: fixture.bootstrap },
-    harness.dependencies,
-  ).pipe(
+  return readDaemonRegistrationState({
+    store,
+    bootstrap: fixture.bootstrap,
+  }).pipe(
+    Effect.orDie,
+    Effect.flatMap((registration) =>
+      runDaemonRuntime(
+        { store, bootstrap: fixture.bootstrap, registration },
+        harness.dependencies,
+      ),
+    ),
     Effect.provideService(Registry, services.registry),
     Effect.provideService(Router, services.router),
     Effect.scoped,

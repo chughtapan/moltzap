@@ -580,11 +580,11 @@ What a completed send returns: a collecting operation names its id.
 
 ### `@moltzap/client/service`
 
-#### [`MoltZapService`](./service/index.ts#L24)
+#### [`MoltZapService`](./service/index.ts#L23)
 
 _Namespace_
 
-#### [`MoltZapService.StartupError`](./service/index.ts#L26)
+#### [`MoltZapService.StartupError`](./service/index.ts#L25)
 
 _Class_
 
@@ -606,7 +606,7 @@ _Class_
 
 Closed daemon startup phase without configuration or platform detail.
 
-#### [`MoltZapService.layer`](./service/index.ts#L75)
+#### [`MoltZapService.layer`](./service/index.ts#L78)
 
 _Variable_
 
@@ -647,16 +647,19 @@ Complete production process composition for `moltzapd`.
 - `identity/index.ts`
 - `index.ts`
 - `README.md`
-- `service/activation/index.ts`
 - `service/bootstrap.ts`
 - `service/configuration.ts`
-- `service/controller.ts`
+- `service/daemon/index.ts`
+- `service/daemon/protocol.ts`
+- `service/daemon/README.md`
+- `service/errors.ts`
 - `service/index.ts`
 - `service/lifecycle.ts`
 - `service/management.ts`
 - `service/README.md`
+- `service/registration/binding.ts`
 - `service/registration/index.ts`
-- `service/supervision.ts`
+- `service/registration/README.md`
 - `store/anchors.ts`
 - `store/database/index.ts`
 - `store/database/schema.ts`
