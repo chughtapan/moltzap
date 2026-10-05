@@ -50,7 +50,9 @@ const expectExactRoundTrip = (group: Group, bytes: Uint8Array) =>
   });
 
 /**
- * Runs `expectExactRoundTrip` over generated plaintexts of 0 to 2,048 bytes.
+ * Runs `expectExactRoundTrip` over generated plaintexts of 0 to 2,048 bytes,
+ * always including the empty plaintext, whose salted form is exactly the salt
+ * and so sits on the boundary of the short-plaintext refusal.
  *
  * @param group Sender, peer, and recipients.
  * @returns The fast-check run, rejecting with the shrunk counterexample.
@@ -60,7 +62,7 @@ const generatedPlaintextsRoundTrip = (group: Group) =>
     fc.asyncProperty(fc.uint8Array({ maxLength: 2048 }), (bytes) =>
       Effect.runPromise(expectExactRoundTrip(group, bytes)),
     ),
-    { numRuns: 16 },
+    { numRuns: 16, examples: [[new Uint8Array()]] },
   );
 
 it(

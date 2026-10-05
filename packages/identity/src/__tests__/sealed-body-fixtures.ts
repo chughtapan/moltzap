@@ -34,11 +34,8 @@ export const KEY_AGREEMENT_HEAVY_TIMEOUT_MS = 60_000;
 /** How many members `makeGroup` builds, and tests open as, at once. */
 export const FIXTURE_CONCURRENCY = 8;
 
-/** Text of the default plaintext, which no sealed body may contain. */
-export const PLAINTEXT_TEXT = "sealed outer body";
-
-/** UTF-8 bytes of `PLAINTEXT_TEXT`. */
-export const plaintext = new TextEncoder().encode(PLAINTEXT_TEXT);
+/** A short text plaintext that the tests seal unless they need other bytes. */
+export const plaintext = new TextEncoder().encode("sealed outer body");
 
 /** A registered agent: its verified AgentCard and its signing authority. */
 export interface Member {

@@ -5,8 +5,9 @@ _`packages/identity/src`_
 ## Purpose
 
 Public Identity contracts: immutable agent cards, identifiers,
-signing, and request authentication. Identity sits at the root of the
-product dependency graph and imports no other workspace package.
+signing, sealed message bodies, and request authentication. Identity sits
+at the root of the product dependency graph and imports no other workspace
+package.
 
 ## Public surface
 

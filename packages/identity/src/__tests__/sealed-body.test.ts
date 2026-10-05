@@ -43,7 +43,6 @@ import {
   type Member,
   openAs,
   plaintext,
-  PLAINTEXT_TEXT,
   sealFrom,
   signBody,
 } from "./sealed-body-fixtures.js";
@@ -261,7 +260,13 @@ it.each([1, 3, 32])(
         expect(group.recipients).toHaveLength(recipientCount);
         expect(group.recipients).toContain(group.sender);
         expect(opened).toEqual(group.recipients.map(() => plaintext));
-        expect(utf8Decoder.decode(sealed)).not.toContain(PLAINTEXT_TEXT);
+        expect(
+          Buffer.from(
+            Encoding.decodeBase64Url(readSealedBody(sealed).ciphertext).pipe(
+              Either.getOrThrow,
+            ),
+          ).includes(Buffer.from(plaintext)),
+        ).toBe(false);
       }),
     ),
   KEY_AGREEMENT_HEAVY_TIMEOUT_MS,
@@ -354,6 +359,30 @@ it(
     ),
   KEY_AGREEMENT_HEAVY_TIMEOUT_MS,
 );
+
+/**
+ * Value: protects=seal draws a fresh salt per call, so equal plaintexts
+ * carry unequal commitments and the digest confirms no guessed plaintext;
+ * fails_when=the salt becomes constant or zero; why_new=every round trip and
+ * commitment row passes with a constant salt; seam=none.
+ */
+it("commits two seals of the same plaintext under different salts", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const group = yield* makeGroup(2);
+
+      const sealed = yield* Effect.forEach(
+        [1, 2],
+        () => sealFrom(group.sender, group.recipients, plaintext),
+        { concurrency: 1 },
+      );
+
+      const [first, second] = sealed.map(
+        (body) => readProtectedHeader(readSealedBody(body))[COMMITMENT_HEADER],
+      );
+      expect(first).not.toEqual(second);
+    }),
+  ));
 
 it("refuses to open for an agent that is not a recipient", () =>
   Effect.runPromise(

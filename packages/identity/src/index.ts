@@ -1,7 +1,8 @@
 /**
  * @file Public Identity contracts: immutable agent cards, identifiers,
- * signing, and request authentication. Identity sits at the root of the
- * product dependency graph and imports no other workspace package.
+ * signing, sealed message bodies, and request authentication. Identity sits
+ * at the root of the product dependency graph and imports no other workspace
+ * package.
  */
 // safer-arch-ignore no-folder-cycle: This facade re-exports cohesive identity modules that depend on sibling identity contracts; those modules never import the facade.
 
