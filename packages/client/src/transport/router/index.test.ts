@@ -30,10 +30,6 @@ import {
   TestContext,
 } from "effect";
 import { createHash } from "node:crypto";
-// eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests own isolated real-SQLite directories around scoped store acquisition.
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { advanceClock } from "../../__tests__/advance-clock.js";
 import {
@@ -52,6 +48,7 @@ import {
   unavailableRegistryLayer,
   unreachableOutbox,
 } from "../../__tests__/router-worker-fixtures.js";
+import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
 import {
   type ConversationFoundation,
   type EndpointStore,
@@ -259,13 +256,9 @@ const withOutbox = <Value, Failure, Requirements>(
   use: (store: EndpointStore) => Effect.Effect<Value, Failure, Requirements>,
 ) =>
   Effect.scoped(
-    Effect.acquireRelease(
-      Effect.sync(() => mkdtempSync(join(tmpdir(), "moltzap-router-worker-"))),
-      (directory) =>
-        Effect.sync(() => {
-          rmSync(directory, { recursive: true, force: true });
-        }),
-    ).pipe(Effect.flatMap(openEndpointStore), Effect.flatMap(use)),
+    Effect.suspend(() => openEndpointStore(stateDirectory())).pipe(
+      Effect.flatMap(use),
+    ),
   );
 
 function prepareOutbound(

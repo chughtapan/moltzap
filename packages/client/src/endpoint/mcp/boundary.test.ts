@@ -24,6 +24,7 @@ import {
 import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { describe, expect, it } from "vitest";
 import type { HarnessEndpoint } from "../harness-endpoint/capability.js";
+import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { makeFixture } from "../../__tests__/router-worker-fixtures.js";
 import { readRuntimeEvent } from "../../delivery/inbox.js";
 import {
@@ -692,11 +693,11 @@ function readsRetainedEventThroughSdk() {
         const fixture = yield* makeFixture;
         const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
         const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
-          `dlv_${Buffer.alloc(32, 7).toString("base64url")}`,
+          digest("dlv_", 7),
         );
         const item = Schema.decodeUnknownSync(InboundItem)({
           kind: "operationFailed",
-          id: `col_${Buffer.alloc(32, 7).toString("base64url")}`,
+          id: digest("col_", 7),
           to: "agent:bob",
           error: "retained result",
         });
