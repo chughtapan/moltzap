@@ -110,14 +110,24 @@ export const certifyNext = (observed: Observed, input: EngineSendInput) =>
     return { postId: postId(byte), recordHash: recordHashOf(byte) };
   });
 
+/**
+ * The send's wait for its request posts, mirroring the private
+ * `operation.ts → REQUEST_SEND_WAIT`. Tests advance the test clock by it to
+ * end that wait, so a change to the production bound is made here too.
+ */
+export const requestSendWait = Duration.seconds(20);
+
+/** How long after the send's wait ends a `late` post certifies. */
+export const latePostDelay = Duration.seconds(5);
+
 /** What a test layer varies from ports that resolve, certify and keep everything. */
 interface LayerOptions {
   /** The agent the layer runs as, `alice` by default. */
   readonly self?: string;
   /**
    * Addresses whose post is not passed to `sendPost` at once: refused with the
-   * reason given, held forever for `slow`, or passed on 25 seconds after it is
-   * sent for `late`, past the send's 20-second wait for its request posts.
+   * reason given, held forever for `slow`, or passed on `latePostDelay` after
+   * the send's `requestSendWait` ends for `late`.
    */
   readonly refused?: Readonly<
     Record<string, SendError["reason"] | "slow" | "late">
@@ -132,8 +142,8 @@ interface LayerOptions {
 
 /**
  * A collective layer over recording ports in the caller's scope. Its send
- * waits the layer's own 20 seconds for request posts, so a test that needs
- * that wait to end advances the test clock past it.
+ * waits `requestSendWait` for request posts, so a test that needs that wait
+ * to end advances the test clock by it.
  * @param observed Where the default ports record certified posts and emitted items.
  * @param options The agent the layer runs as, and the ports that differ from the recording defaults.
  * @param options.self The agent the layer runs as, `alice` by default.
@@ -172,9 +182,9 @@ export const makeLayer = (
           return Effect.never;
         }
         if (reason === "late") {
-          return Effect.sleep(Duration.seconds(25)).pipe(
-            Effect.zipRight(sendPost(input)),
-          );
+          return Effect.sleep(
+            Duration.sum(requestSendWait, latePostDelay),
+          ).pipe(Effect.zipRight(sendPost(input)));
         }
         return Effect.fail(new SendError({ reason }));
       },

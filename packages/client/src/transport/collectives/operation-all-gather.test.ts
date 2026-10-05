@@ -28,6 +28,7 @@ import {
   questionText,
   recordHashOf,
   requestNonce,
+  requestSendWait,
   run,
   send,
   slotSchema,
@@ -247,7 +248,7 @@ function namesEveryMemberWhenTheGroupPostIsNotCertifiedInTime() {
       const sending = yield* Effect.fork(
         collectiveFailureOf(send(layer, allGatherInput())),
       );
-      yield* TestClock.adjust(Duration.seconds(20));
+      yield* TestClock.adjust(requestSendWait);
 
       expect(yield* Fiber.join(sending)).toEqual({
         kind: "members-unreachable",
@@ -256,6 +257,37 @@ function namesEveryMemberWhenTheGroupPostIsNotCertifiedInTime() {
           { member: "agent:carol", reason: "certification-unavailable" },
         ],
       });
+    }),
+  );
+}
+
+/**
+ * A group post that certifies one second before the send's `requestSendWait`
+ * ends starts the all_gather. Protects the lower side of that wait, which a
+ * cold group's GENESIS needs; fails when the wait is shortened by a second or
+ * more.
+ */
+function startsWhenTheGroupPostCertifiesWithinTheWait() {
+  const observed = newObserved();
+  const justWithinTheWait = Duration.subtract(
+    requestSendWait,
+    Duration.seconds(1),
+  );
+
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(observed, {
+        sendPost: (input) =>
+          Effect.sleep(justWithinTheWait).pipe(
+            Effect.zipRight(certifyNext(observed, input)),
+          ),
+      });
+      const sending = yield* Effect.fork(send(layer, allGatherInput()));
+      yield* TestClock.adjust(justWithinTheWait);
+      const outcome = yield* Fiber.join(sending);
+      const { id } = yield* firstRequestOf(observed);
+
+      expect(outcome).toEqual({ postIds: [postId(101)], operationId: id });
     }),
   );
 }
@@ -887,6 +919,10 @@ describe("all_gather at the requester", () => {
   it(
     "names every member when the group post is not certified in time",
     namesEveryMemberWhenTheGroupPostIsNotCertifiedInTime,
+  );
+  it(
+    "starts when its group post certifies within the send's wait",
+    startsWhenTheGroupPostCertifiesWithinTheWait,
   );
   it(
     "ends in its result alone when the deadline passes before the group post certifies",

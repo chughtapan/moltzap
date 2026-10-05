@@ -1212,12 +1212,15 @@ describe("fixed-post endpoint protocol", () => {
 /* eslint-enable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- Restore repository defaults. */
 
 /**
- * Virtual time short of the send's 45 s Router-attachment bound, so a send
- * still waiting for the worker to attach is pending.
+ * Virtual time short of `ATTACH_BOUND`, so a send still waiting for the
+ * worker to attach is pending.
  */
 const WITHIN_ATTACH_BOUND = Duration.seconds(30);
 
-/** The send's Router-attachment bound, after which it fails. */
+/**
+ * The send's Router-attachment bound, after which it fails, mirroring the
+ * private `send.ts → ROUTER_ATTACH_TIMEOUT`.
+ */
 const ATTACH_BOUND = Duration.seconds(45);
 
 function sendHeldUntilAttached(): Effect.Effect<void, never, Scope.Scope> {
