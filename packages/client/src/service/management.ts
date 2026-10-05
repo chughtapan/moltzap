@@ -800,8 +800,10 @@ const readStatusOperation =
 
 /**
  * Registration and the activation it starts run as one uninterruptible step,
- * so the Registry call, the binding commit, the daemon's switch to active and
- * the protocol activation all finish even when the MCP request is cancelled.
+ * so a cancelled MCP request still lets the Registry call, the binding commit,
+ * the daemon's switch to active and the protocol activation finish. The
+ * Registry call still ends at its own deadline, because
+ * `registerDaemonIdentity` runs it in a detached interruptible fiber.
  */
 const registerOperation =
   (

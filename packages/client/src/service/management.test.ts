@@ -1,5 +1,6 @@
-/** @file Canonical addressed management projection and closed failures. */
+/** @file Canonical addressed management projection, closed failures, and the register tool's cancellation and Registry deadline. */
 
+import { HttpClient } from "@effect/platform";
 import {
   AgentCard,
   AgentSigningAuthority,
@@ -11,7 +12,17 @@ import {
   Registry,
   type RegistryLookupResult,
 } from "@moltzap/identity/registry";
-import { type Context, Effect, Layer, Redacted, Schema } from "effect";
+import {
+  type Context,
+  Deferred,
+  Duration,
+  Effect,
+  Fiber,
+  Layer,
+  Redacted,
+  Ref,
+  Schema,
+} from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { DaemonBootstrap } from "./bootstrap.js";
@@ -21,11 +32,15 @@ import {
   makeTestAuthority,
 } from "../__tests__/agent-card-fixtures.js";
 import { unusedEndpointStore } from "../__tests__/unused-endpoint-store.js";
-import { managementReadConversationRequestSchema } from "../endpoint/mcp/owner-tools.js";
+import {
+  managementReadConversationRequestSchema,
+  managementRegisterRequestSchema,
+} from "../endpoint/mcp/owner-tools.js";
 import {
   type EndpointRecovery,
   type EndpointStore,
   EndpointStoreError,
+  type IdentityBinding,
 } from "../store/index.js";
 import {
   compareAgentIds,
@@ -246,4 +261,164 @@ describe("addressed daemon management", () => {
         expect(error).toMatchObject({ reason: "history-gap" });
       }),
     ));
+});
+
+/** What a register call left behind: the bound identity rows and activations. */
+interface RegistrationEffects {
+  readonly bound: Ref.Ref<readonly IdentityBinding[]>;
+  readonly activated: Ref.Ref<readonly VerifiedAgentCard[]>;
+}
+
+const makeRegistrationEffects: Effect.Effect<RegistrationEffects> = Effect.all({
+  bound: Ref.make<readonly IdentityBinding[]>([]),
+  activated: Ref.make<readonly VerifiedAgentCard[]>([]),
+});
+
+/**
+ * Management for an unregistered daemon whose store records each identity
+ * bind and whose registration port records each activation.
+ */
+function makeRegisteringOperations(
+  fixture: IdentityFixture,
+  effects: RegistrationEffects,
+) {
+  return makeDaemonManagementOperations({
+    store: {
+      ...unusedEndpointStore("management registration test"),
+      bindIdentity: (binding) =>
+        Ref.update(effects.bound, (rows) => [...rows, binding]).pipe(
+          Effect.as("inserted" as const),
+        ),
+    },
+    bootstrap: fixture.bootstrap,
+    registration: {
+      readRegistration: () => ({ kind: "unregistered" }) as const,
+      activateRegistered: (card) =>
+        Ref.update(effects.activated, (cards) => [...cards, card]),
+    },
+  });
+}
+
+/** The register tool request for the fixture's local card. */
+function localRegisterRequest(fixture: IdentityFixture) {
+  return Schema.decodeUnknownSync(managementRegisterRequestSchema)({
+    operationId: "opn_AAAAAAAAAAAAAAAAAAAAAA",
+    principalId: fixture.cards[0].principalId,
+    agentName: fixture.cards[0].agentName,
+  });
+}
+
+/**
+ * The production Registry client with a 50 ms request deadline over an HTTP
+ * client that never answers, as a stalled Registry connection behaves.
+ */
+function silentRegistryLayer(fixture: IdentityFixture) {
+  return Registry.layer({
+    origin: fixture.bootstrap.configuration.registryOrigin,
+    registrySignerPublicKey:
+      fixture.bootstrap.configuration.registrySignerPublicKey,
+    requestTimeout: Duration.millis(50),
+  }).pipe(
+    Layer.provide(
+      Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make(() => Effect.never),
+      ),
+    ),
+  );
+}
+
+/**
+ * The register tool runs uninterruptibly so a cancelled request still binds.
+ * That region must not also hold the Registry client's deadline off: a
+ * Registry that never answers ends the call at the deadline, not never. The
+ * register runs detached so a masked call that never ends fails this test at
+ * its own bound instead of holding the test fiber open.
+ */
+const failsAtTheRegistryDeadline = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeIdentityFixture;
+    const effects = yield* makeRegistrationEffects;
+    const operations = yield* makeRegisteringOperations(fixture, effects).pipe(
+      Effect.provide(silentRegistryLayer(fixture)),
+    );
+    const registration = yield* Effect.forkDaemon(
+      operations.register(localRegisterRequest(fixture)),
+    );
+
+    const error = yield* Fiber.join(registration).pipe(
+      Effect.flip,
+      Effect.timeoutFail({
+        duration: Duration.seconds(2),
+        onTimeout: () => "register outlived the Registry deadline",
+      }),
+    );
+
+    expect(error).toMatchObject({ reason: "dependency-unavailable" });
+    expect(yield* Ref.get(effects.bound)).toEqual([]);
+    expect(yield* Ref.get(effects.activated)).toEqual([]);
+  }).pipe(Effect.runPromise);
+
+/** A Registry whose register waits for `release` after signalling `entered`. */
+function heldRegistry(
+  fixture: IdentityFixture,
+  entered: Deferred.Deferred<undefined>,
+  release: Deferred.Deferred<undefined>,
+) {
+  const service: Context.Tag.Service<typeof Registry> = {
+    register: () =>
+      Deferred.succeed(entered, undefined).pipe(
+        Effect.zipRight(Deferred.await(release)),
+        Effect.as({ kind: "registered", agentCard: fixture.cards[0] } as const),
+      ),
+    lookup: () => outsideManagementTest(),
+    list: () => outsideManagementTest(),
+  };
+  return Layer.succeed(Registry, service);
+}
+
+/**
+ * Cancelling the MCP request interrupts the tool's operation. One that
+ * arrives while the Registry call is in flight must still let the call
+ * finish, bind the card and activate it, or the Registry would hold a
+ * registration this daemon never recorded.
+ */
+const bindsWhenCancelledDuringTheRegistryCall = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeIdentityFixture;
+    const effects = yield* makeRegistrationEffects;
+    const entered = yield* Deferred.make<undefined>();
+    const release = yield* Deferred.make<undefined>();
+    const operations = yield* makeRegisteringOperations(fixture, effects).pipe(
+      Effect.provide(heldRegistry(fixture, entered, release)),
+    );
+    const registration = yield* Effect.fork(
+      operations.register(localRegisterRequest(fixture)),
+    );
+    yield* Deferred.await(entered);
+    const interruption = yield* Effect.fork(Fiber.interrupt(registration));
+    yield* Effect.yieldNow();
+    yield* Deferred.succeed(release, undefined);
+    yield* Fiber.join(interruption);
+
+    const canonicalAgentCard = yield* encodeCanonical(
+      AgentCard,
+      fixture.cards[0],
+    );
+    expect(yield* Ref.get(effects.bound)).toEqual([
+      { agentId: fixture.cards[0].agentId, canonicalAgentCard },
+    ]);
+    expect(yield* Ref.get(effects.activated)).toEqual([fixture.cards[0]]);
+  }).pipe(Effect.runPromise);
+
+// @agent-code-guard/regression-only: these cases pin the register tool's cancellation and Registry deadline contract.
+describe("daemon registration through the register tool", () => {
+  it(
+    "fails a register at the Registry deadline when the Registry never answers",
+    failsAtTheRegistryDeadline,
+  );
+  it(
+    "binds and activates a register cancelled during the Registry call",
+    bindsWhenCancelledDuringTheRegistryCall,
+  );
 });

@@ -6,7 +6,7 @@ import {
   RegistryRegisterRequest,
   type RegistryRegisterResult,
 } from "@moltzap/identity/registry";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Fiber, Schema } from "effect";
 import type { HarnessMcpOperations } from "../../endpoint/mcp/index.js";
 import type {
   DaemonBootstrap,
@@ -91,9 +91,31 @@ const registrationMatches = (
   agentCard.publicKey.x === bootstrap.agentPublicKey.x;
 
 /**
+ * The Registry call, run in a detached fiber that stays interruptible. The
+ * register tool runs registration uninterruptibly so that a cancelled MCP
+ * request still finishes the call and the binding, and inside that region the
+ * Registry client's own deadline could not interrupt the request: a slow reply
+ * would be waited out and then discarded as a timeout, and a stalled one would
+ * never end. The detached fiber keeps the deadline in force while the caller
+ * still waits for its result. A child fiber would not do, because interrupting
+ * the caller interrupts its children even inside an uninterruptible region.
+ *
+ * @param call The signed registration request and its admission credential.
+ * @returns The Registry's result, or its failure, once the detached call ends.
+ */
+const registerWithRegistry = (
+  call: Parameters<typeof Registry.register>[0],
+): ReturnType<typeof Registry.register> =>
+  Effect.forkDaemon(Effect.interruptible(Registry.register(call))).pipe(
+    Effect.flatMap(Fiber.join),
+  );
+
+/**
  * Registers through Identity and commits a successful binding before return.
  * Only a `registered` result carries the verified card; the Registry's refusals
- * pass through unchanged and bind nothing.
+ * pass through unchanged and bind nothing. The Registry call ends at its own
+ * deadline even when the caller is uninterruptible, and a caller's cancellation
+ * does not stop it.
  *
  * @param input Complete registration dependencies.
  * @param input.request Closed caller-supplied registration fields.
@@ -117,7 +139,7 @@ export const registerDaemonIdentity = (input: {
   Effect.gen(function* () {
     const request = yield* makeRegistryRequest(input);
     const admissionCredential = yield* input.bootstrap.admissionCredential;
-    const result = yield* Registry.register({
+    const result = yield* registerWithRegistry({
       request,
       admissionCredential,
       signingAuthority: input.bootstrap.signingAuthority,
