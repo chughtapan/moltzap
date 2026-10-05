@@ -185,7 +185,8 @@ export function readStoredRecord(
 
 /**
  * Read a page of stored certified history for the owner tools, with the same
- * row checks startup and recovery apply.
+ * row checks startup and recovery apply. Each membership the page names is
+ * verified once, however many of its records the page holds.
  * @param registrySignerPublicKey Registry key the member cards verify under.
  * @param recovery Store snapshot holding the memberships and anchors the
  *   records name.
@@ -197,27 +198,34 @@ export function readStoredHistory(
   recovery: EndpointRecovery,
   records: readonly StoredCertifiedRecord[],
 ): Effect.Effect<readonly CertifiedRecord[], StoredRowError> {
+  const named = new Set(records.map((stored) => stored.conversationId));
   return Effect.forEach(
-    records,
-    (stored) => {
-      const membership = recovery.memberships.find(
-        (candidate) => candidate.conversationId === stored.conversationId,
-      );
-      return membership === undefined
-        ? Effect.fail(persistenceFailure())
-        : verifyStoredMembership(membership, registrySignerPublicKey).pipe(
-            Effect.flatMap((verified) =>
-              readStoredRecord(
+    recovery.memberships.filter((row) => named.has(row.conversationId)),
+    (row) => verifyStoredMembership(row, registrySignerPublicKey),
+    { concurrency: 1 },
+  ).pipe(
+    Effect.flatMap((memberships) =>
+      Effect.forEach(
+        records,
+        (stored) => {
+          const membership = memberships.find(
+            (candidate) =>
+              candidate.descriptor.conversationId === stored.conversationId,
+          );
+          return membership === undefined
+            ? Effect.fail(persistenceFailure())
+            : readStoredRecord(
                 registrySignerPublicKey,
-                verified,
+                membership,
                 recovery,
                 stored,
-              ),
-            ),
-          );
-    },
-    { concurrency: 1 },
-  ).pipe(Effect.withSpan("readStoredHistory"));
+              );
+        },
+        { concurrency: 1 },
+      ),
+    ),
+    Effect.withSpan("readStoredHistory"),
+  );
 }
 
 /**

@@ -13,14 +13,12 @@ import {
   Registry,
   type RegistryLookupResult,
 } from "@moltzap/identity/registry";
-import { RouterInstanceId } from "@moltzap/router";
 import { type Context, Effect, Exit, Layer, Redacted, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { DaemonBootstrap } from "./bootstrap.js";
 import {
   digest,
-  identifier,
   issueTestCard,
   makeTestAuthority,
 } from "../__tests__/agent-card-fixtures.js";
@@ -30,6 +28,7 @@ import {
   withGenesisAnchorSelecting,
   withMisattributedActionEvidence,
 } from "../__tests__/certified-history-fixtures.js";
+import { routerInstanceId } from "../__tests__/router-worker-fixtures.js";
 import { unusedEndpointStore } from "../__tests__/unused-endpoint-store.js";
 import { managementReadConversationRequestSchema } from "../endpoint/mcp/owner-tools.js";
 import {
@@ -237,7 +236,7 @@ const makeCertifiedHistory = Effect.gen(function* () {
     { card: fixture.cards[0], authority: fixture.bootstrap.signingAuthority },
     { card: fixture.cards[1], authority: fixture.remoteAuthority },
     membership,
-    Schema.decodeUnknownSync(RouterInstanceId)(identifier("rti_", 8)),
+    routerInstanceId(8),
   );
   const fileSystem = yield* FileSystem.FileSystem;
   const store = yield* openEndpointStore(

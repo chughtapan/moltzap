@@ -5,7 +5,6 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
   AgentCard,
-  type AgentSigningAuthority,
   Ed25519PublicKey,
   MOLTZAP_VERSION,
   SignedMessage,
@@ -34,6 +33,8 @@ import {
 } from "../../../__tests__/agent-card-fixtures.js";
 import {
   buildCertifiedGenesis,
+  signEvidence,
+  type SigningIdentity,
   withGenesisAnchorSelecting,
   withMisattributedActionEvidence,
 } from "../../../__tests__/certified-history-fixtures.js";
@@ -95,17 +96,12 @@ import {
 /** The Router-worker operations an engine consumes. */
 type EngineRouterPort = EndpointEngineInput["routerWorker"];
 
-interface IdentityFixture {
-  readonly card: VerifiedAgentCard;
-  readonly authority: AgentSigningAuthority;
-}
-
 interface RecoveryFixture {
   readonly engine: EndpointEngine;
   readonly input: EndpointEngineInput;
   readonly store: EndpointStore;
-  readonly local: IdentityFixture;
-  readonly remote: IdentityFixture;
+  readonly local: SigningIdentity;
+  readonly remote: SigningIdentity;
   readonly registryKeys: RegistryKeyPair;
   readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
   readonly membership: VerifiedMembership;
@@ -116,8 +112,8 @@ interface RecoveryFixture {
 interface N4Foundation {
   readonly engine: EndpointEngine;
   readonly membership: VerifiedMembership;
-  readonly third: IdentityFixture;
-  readonly fourth: IdentityFixture;
+  readonly third: SigningIdentity;
+  readonly fourth: SigningIdentity;
 }
 
 interface N4PartialHistory {
@@ -186,16 +182,6 @@ function makeHeldRouter(input: HeldRouterInput) {
   });
 }
 
-const encodedEvidence = (
-  identity: IdentityFixture,
-  statement: EvidenceStatementValue,
-) =>
-  signEvidenceMessage({
-    statement,
-    agentCard: identity.card,
-    signingAuthority: identity.authority,
-  }).pipe(Effect.flatMap((message) => Schema.encode(SignedMessage)(message)));
-
 const makeFixtureWithRouter = (
   makeRouter: (context: FixtureRouterContext) => EngineRouterPort,
   identityBytes: { readonly local: number; readonly remote: number } = {
@@ -211,7 +197,7 @@ const makeFixtureWithRouter = (
     )(registryKeys.publicKey.export({ format: "jwk" }));
     const localAuthority = yield* makeTestAuthority();
     const remoteAuthority = yield* makeTestAuthority();
-    const local: IdentityFixture = {
+    const local: SigningIdentity = {
       card: yield* issueTestCard({
         byte: identityBytes.local,
         name: `recovery-${identityBytes.local}`,
@@ -220,7 +206,7 @@ const makeFixtureWithRouter = (
       }),
       authority: localAuthority,
     };
-    const remote: IdentityFixture = {
+    const remote: SigningIdentity = {
       card: yield* issueTestCard({
         byte: identityBytes.remote,
         name: `recovery-${identityBytes.remote}`,
@@ -342,7 +328,7 @@ const addN4Foundation = (
   Effect.gen(function* () {
     const thirdAuthority = yield* makeTestAuthority();
     const fourthAuthority = yield* makeTestAuthority();
-    const third: IdentityFixture = {
+    const third: SigningIdentity = {
       card: yield* issueTestCard({
         byte: 3,
         name: "recovery-3",
@@ -351,7 +337,7 @@ const addN4Foundation = (
       }),
       authority: thirdAuthority,
     };
-    const fourth: IdentityFixture = {
+    const fourth: SigningIdentity = {
       card: yield* issueTestCard({
         byte: 4,
         name: "recovery-4",
@@ -476,25 +462,25 @@ const buildN4PartialHistory = (
       postIntentHash: yield* hashPostIntent(headIntent),
     };
     const headActionHash = yield* hashAction(headAction);
-    const headLocalAction = yield* encodedEvidence(fixture.local, {
+    const headLocalAction = yield* signEvidence(fixture.local, {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "action_signature",
       signerAgentId: fixture.local.card.agentId,
       actionHash: headActionHash,
     });
-    const headRemoteAction = yield* encodedEvidence(fixture.remote, {
+    const headRemoteAction = yield* signEvidence(fixture.remote, {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "action_signature",
       signerAgentId: fixture.remote.card.agentId,
       actionHash: headActionHash,
     });
-    const headThirdAction = yield* encodedEvidence(n4.third, {
+    const headThirdAction = yield* signEvidence(n4.third, {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "action_signature",
       signerAgentId: n4.third.card.agentId,
       actionHash: headActionHash,
     });
-    const headFourthAction = yield* encodedEvidence(n4.fourth, {
+    const headFourthAction = yield* signEvidence(n4.fourth, {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "action_signature",
       signerAgentId: n4.fourth.card.agentId,
@@ -510,7 +496,7 @@ const buildN4PartialHistory = (
       actionHash: headActionHash,
     };
     const headRecordHash = yield* hashRecord(headCore);
-    const headLocalDurability = yield* encodedEvidence(fixture.local, {
+    const headLocalDurability = yield* signEvidence(fixture.local, {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "durability_vote",
       signerAgentId: fixture.local.card.agentId,
@@ -518,7 +504,7 @@ const buildN4PartialHistory = (
       membershipHash: n4.membership.hash,
       recordHash: headRecordHash,
     });
-    const headRemoteDurability = yield* encodedEvidence(fixture.remote, {
+    const headRemoteDurability = yield* signEvidence(fixture.remote, {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "durability_vote",
       signerAgentId: fixture.remote.card.agentId,
@@ -526,7 +512,7 @@ const buildN4PartialHistory = (
       membershipHash: n4.membership.hash,
       recordHash: headRecordHash,
     });
-    const headFourthDurability = yield* encodedEvidence(n4.fourth, {
+    const headFourthDurability = yield* signEvidence(n4.fourth, {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "durability_vote",
       signerAgentId: n4.fourth.card.agentId,
@@ -587,19 +573,19 @@ const buildN4PartialHistory = (
       postIntentHash: yield* hashPostIntent(successorIntent),
     };
     const successorActionHash = yield* hashAction(successorAction);
-    const successorRemoteAction = yield* encodedEvidence(fixture.remote, {
+    const successorRemoteAction = yield* signEvidence(fixture.remote, {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "action_signature",
       signerAgentId: fixture.remote.card.agentId,
       actionHash: successorActionHash,
     });
-    const successorThirdAction = yield* encodedEvidence(n4.third, {
+    const successorThirdAction = yield* signEvidence(n4.third, {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "action_signature",
       signerAgentId: n4.third.card.agentId,
       actionHash: successorActionHash,
     });
-    const successorFourthAction = yield* encodedEvidence(n4.fourth, {
+    const successorFourthAction = yield* signEvidence(n4.fourth, {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "action_signature",
       signerAgentId: n4.fourth.card.agentId,
@@ -631,7 +617,7 @@ const buildN4PartialHistory = (
         ],
       },
     };
-    const successorLocalDurability = yield* encodedEvidence(fixture.local, {
+    const successorLocalDurability = yield* signEvidence(fixture.local, {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "durability_vote",
       signerAgentId: fixture.local.card.agentId,
@@ -639,7 +625,7 @@ const buildN4PartialHistory = (
       membershipHash: n4.membership.hash,
       recordHash: successorRecordHash,
     });
-    const successorRemoteDurability = yield* encodedEvidence(fixture.remote, {
+    const successorRemoteDurability = yield* signEvidence(fixture.remote, {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "durability_vote",
       signerAgentId: fixture.remote.card.agentId,
@@ -647,7 +633,7 @@ const buildN4PartialHistory = (
       membershipHash: n4.membership.hash,
       recordHash: successorRecordHash,
     });
-    const successorFourthDurability = yield* encodedEvidence(n4.fourth, {
+    const successorFourthDurability = yield* signEvidence(n4.fourth, {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "durability_vote",
       signerAgentId: n4.fourth.card.agentId,
@@ -756,7 +742,7 @@ const stageCatchUpOutbound = (fixture: RecoveryFixture) =>
 
 const directPacketIngressFrom = (input: {
   readonly membership: VerifiedMembership;
-  readonly sender: IdentityFixture;
+  readonly sender: SigningIdentity;
   readonly packet: DirectPacket;
   readonly routerInstanceId: typeof RouterInstanceId.Type;
 }): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> =>
@@ -978,7 +964,7 @@ const catchUpPageIngress = (
 
 const catchUpRecordIngressFrom = (input: {
   readonly membership: VerifiedMembership;
-  readonly responder: IdentityFixture;
+  readonly responder: SigningIdentity;
   readonly request: CatchUpRequest;
   readonly record: CertifiedRecord;
   readonly routerInstanceId: typeof RouterInstanceId.Type;
@@ -1016,7 +1002,7 @@ const catchUpRecordIngressFrom = (input: {
 
 const catchUpIncompleteIngressFrom = (input: {
   readonly membership: VerifiedMembership;
-  readonly responder: IdentityFixture;
+  readonly responder: SigningIdentity;
   readonly request: CatchUpRequest;
   readonly routerInstanceId: typeof RouterInstanceId.Type;
 }): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> =>
@@ -1114,10 +1100,10 @@ const peerReanchorVoteIngress = (
  */
 function peerReanchorVoteIngressFrom(input: {
   readonly membership: VerifiedMembership;
-  readonly responder: IdentityFixture;
+  readonly responder: SigningIdentity;
   readonly proposal: ReanchorVote;
   readonly routerInstanceId: typeof RouterInstanceId.Type;
-  readonly evidenceSigner?: IdentityFixture;
+  readonly evidenceSigner?: SigningIdentity;
 }): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> {
   const signer = input.evidenceSigner ?? input.responder;
   return Effect.gen(function* () {
@@ -2373,7 +2359,7 @@ const adoptsRelayedCompletionForReanchoringConversation = () =>
         const fixture = yield* makeFixture;
         const { recovery, proposal, localVote } =
           yield* proposeAtRestart(fixture);
-        const peerVote = yield* encodedEvidence(fixture.remote, {
+        const peerVote = yield* signEvidence(fixture.remote, {
           ...proposal,
           signerAgentId: fixture.remote.card.agentId,
         });

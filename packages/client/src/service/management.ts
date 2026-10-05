@@ -400,13 +400,6 @@ function mapHistoryStoreFailure(
   return managementFailure(historyFailureReasons[error.reason]);
 }
 
-function nonEmpty<Value>(
-  values: readonly Value[],
-): readonly [Value, ...Value[]] | undefined {
-  const first = values[0];
-  return first === undefined ? undefined : [first, ...values.slice(1)];
-}
-
 /**
  * Project one verified record to the MCP history record: its core, anchor,
  * and each certificate's signers with their signatures, in certificate order.
@@ -448,15 +441,7 @@ function projectSigners(
         })),
       ),
     { concurrency: 1 },
-  ).pipe(
-    Effect.mapError(persistenceFailure),
-    Effect.flatMap((signers) => {
-      const ordered = nonEmpty(signers);
-      return ordered === undefined
-        ? Effect.fail(persistenceFailure())
-        : Effect.succeed(ordered);
-    }),
-  );
+  ).pipe(Effect.mapError(persistenceFailure));
 }
 
 function readHistoryPage(input: {

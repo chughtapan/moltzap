@@ -17,7 +17,11 @@ import type {
   StoredAnchor,
   CertifiedRecord as StoredCertifiedRecord,
 } from "../store/index.js";
-import { InboundMessage } from "../transport/messaging/message.js";
+import {
+  inboundDelivery,
+  protocolEvidence,
+  stagedRecord,
+} from "../transport/messaging/history/index.js";
 import {
   ActionCore,
   type ActionHash,
@@ -35,7 +39,6 @@ import {
   mintPostId,
   type PostIntent,
   type RecordCore,
-  RecordCore as RecordCoreSchema,
   type RecordHash,
   signEvidenceMessage,
   type VerifiedMembership,
@@ -123,11 +126,8 @@ export const storeCertifiedGenesis = (
     });
     yield* lockGenesis(store, membership, record);
     yield* store.applyCatchUpRecord(
-      yield* storedRecordRow(membership, record),
-      {
-        recipientAgentId: local.agentId,
-        canonicalMessage: yield* remotePost(local, membership, record),
-      },
+      yield* storedRecordRow(record),
+      yield* remotePost(local, membership, record),
     );
   }).pipe(Effect.orDie, Effect.withSpan("storeCertifiedGenesis"));
 
@@ -201,6 +201,24 @@ export function withGenesisAnchorSelecting(
   };
 }
 
+/**
+ * Sign one evidence statement as `identity` and encode it as the JWS
+ * representation a certificate carries.
+ * @param identity The member who signs.
+ * @param statement The evidence statement it signs.
+ * @returns The encoded signer message.
+ */
+export function signEvidence(
+  identity: SigningIdentity,
+  statement: EvidenceStatement,
+) {
+  return signEvidenceMessage({
+    statement,
+    agentCard: identity.card,
+    signingAuthority: identity.authority,
+  }).pipe(Effect.flatMap((message) => Schema.encode(SignedMessage)(message)));
+}
+
 function genesisAction(
   author: SigningIdentity,
   membership: VerifiedMembership,
@@ -258,14 +276,6 @@ function voteDurable(
     membershipHash: membership.hash,
     recordHash,
   });
-}
-
-function signEvidence(identity: SigningIdentity, statement: EvidenceStatement) {
-  return signEvidenceMessage({
-    statement,
-    agentCard: identity.card,
-    signingAuthority: identity.authority,
-  }).pipe(Effect.flatMap((message) => Schema.encode(SignedMessage)(message)));
 }
 
 function certifiedGenesis(parts: CertifiedGenesisParts): CertifiedRecord {
@@ -331,33 +341,22 @@ function lockGenesis(
   });
 }
 
-function storedRecordRow(
-  membership: VerifiedMembership,
-  record: CertifiedRecord,
-) {
+function storedRecordRow(record: CertifiedRecord) {
   return Effect.gen(function* () {
     const certified = record.actionCertifiedRecord;
-    const core = certified.recordCore;
-    const conversationId = membership.descriptor.conversationId;
+    const staged = yield* stagedRecord(certified);
     const row: StoredCertifiedRecord = {
-      conversationId,
-      recordHash: certified.recordHash,
-      membershipHash: membership.hash,
-      anchorHash: core.anchorHash,
-      actionHash: core.actionHash,
-      authorAgentId: core.action.postIntent.authorAgentId,
-      postId: core.action.postIntent.postId,
-      canonicalRecordCore: yield* encodeCanonical(RecordCoreSchema, core),
+      ...staged,
       actionEvidence: yield* evidenceRows(
-        conversationId,
+        staged.conversationId,
         "action",
-        core.actionHash,
+        staged.actionHash,
         certified.actionCertificate.signatures,
       ),
       durabilityEvidence: yield* evidenceRows(
-        conversationId,
+        staged.conversationId,
         "durability",
-        certified.recordHash,
+        staged.recordHash,
         record.durabilityCertificate.votes,
       ),
     };
@@ -376,17 +375,7 @@ function evidenceRows(
     (representation) =>
       Schema.decodeUnknown(SignedMessage)(representation).pipe(
         Effect.flatMap((message) =>
-          encodeCanonical(SignedMessage, message).pipe(
-            Effect.map(
-              (canonicalEvidence): ProtocolEvidence => ({
-                conversationId,
-                kind,
-                subjectId,
-                evidenceKey: message.senderAgentId,
-                canonicalEvidence,
-              }),
-            ),
-          ),
+          protocolEvidence(conversationId, kind, subjectId, message),
         ),
       ),
     { concurrency: 1 },
@@ -398,23 +387,19 @@ function remotePost(
   membership: VerifiedMembership,
   record: CertifiedRecord,
 ) {
-  return Effect.gen(function* () {
-    const intent = record.actionCertifiedRecord.recordCore.action.postIntent;
-    const author = membership.members.find(
-      (member) => member.agentId === intent.authorAgentId,
-    );
-    if (author === undefined || author.agentId === local.agentId) {
-      return yield* Effect.dieMessage("expected a remote-authored record");
-    }
-    const message = yield* Schema.decodeUnknown(InboundMessage)({
-      kind: "direct",
-      postId: intent.postId,
-      address: `agent:${author.agentName}`,
-      sender: `agent:${author.agentName}`,
-      content: intent.content,
-    });
-    return yield* encodeCanonical(InboundMessage, message);
-  });
+  const certified = record.actionCertifiedRecord;
+  if (certified.recordCore.action.postIntent.authorAgentId === local.agentId) {
+    return Effect.dieMessage("expected a remote-authored record");
+  }
+  return inboundDelivery(
+    {
+      conversationId: membership.descriptor.conversationId,
+      membership,
+      currentAnchor: certified.routerAnchor,
+    },
+    record,
+    local.agentId,
+  );
 }
 
 function misattributeEvidence(
