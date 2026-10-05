@@ -165,7 +165,7 @@ function readsAnswers() {
 function refusesIllFormedText() {
   const error = refusal("broken \ud800 text");
 
-  expect(error.message).toContain(`invalid ${error.operation}: `);
+  expect(error.message).toMatch(/^send failed: invalid message: /u);
 }
 
 function parsed(text: string) {

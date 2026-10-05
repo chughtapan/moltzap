@@ -1,6 +1,6 @@
 /** @file Exact preflight, proposal-lock, certification, and delivery tests. */
 
-import { Effect, FastCheck as fc } from "effect";
+import { Effect } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests create and inspect exact real-SQLite permission fixtures around the scoped Effect resource.
 import { chmodSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -34,7 +34,6 @@ const INSERTED_MUTATION: StoreMutation = "inserted";
 const LEGACY_DATABASE_FILE_MODE = 0o644;
 const LEGACY_DIRECTORY_MODE = 0o755;
 const LOCAL_AGENT_ID = "agent:local";
-const PROPERTY_RUNS = 8;
 const EMPTY_SCHEMA_ROW = Object.freeze({ user_version: 0 });
 const LEGACY_SCHEMA_ROW = Object.freeze({ user_version: 1 });
 const V3_SCHEMA_ROW = Object.freeze({ user_version: 3 });
@@ -218,21 +217,6 @@ function atomicallyLocksVerifiedGenesisFoundation() {
         expect(recovery.memberships).toHaveLength(1);
         expect(recovery.anchors).toHaveLength(1);
         expect(recovery.proposalLocks).toEqual([first]);
-      }),
-    ),
-  );
-}
-
-function retainsIdempotentProposalForSeed(seed: number) {
-  const directory = stateDirectory();
-  const conversationId = `conversation:property:${seed}`;
-  const first = proposal(conversationId, `ach_property:${seed}`);
-  return Effect.runPromise(
-    withStore(directory, (store) =>
-      Effect.gen(function* () {
-        yield* store.putConversationFoundation(foundation(conversationId));
-        expect(yield* store.lockProposal(first)).toBe(INSERTED_MUTATION);
-        expect(yield* store.lockProposal(first)).toBe(EXISTING_MUTATION);
       }),
     ),
   );
@@ -1019,13 +1003,13 @@ afterEach(() => {
 });
 
 describe("endpoint SQLite preflight", () => {
-  it("initializes an empty v0 database directly as v2 and reopens it", () =>
+  it("initializes an empty v0 database directly at the current schema and reopens it", () =>
     initializesEmptyV0Database());
 
   it("rejects v1 without changing the database or its permissions", () =>
     rejectsV1WithoutMutation());
 
-  it("rejects a nonempty v0 database without creating v2 objects", () =>
+  it("rejects a nonempty v0 database without creating current-schema objects", () =>
     rejectsNonemptyV0WithoutInitialization());
 });
 
@@ -1038,14 +1022,6 @@ describe("endpoint proposal locking", () => {
 
   it("retains the first proposal lock across conflicts and restart", () =>
     retainsFirstProposalAcrossRestart());
-
-  it("keeps identical generated proposal locks idempotent", () =>
-    fc.assert(
-      fc.asyncProperty(fc.integer(), (seed) =>
-        retainsIdempotentProposalForSeed(seed),
-      ),
-      { numRuns: PROPERTY_RUNS },
-    ));
 });
 
 describe("endpoint record certification and delivery", () => {

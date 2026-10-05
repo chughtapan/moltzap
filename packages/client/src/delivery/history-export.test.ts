@@ -120,11 +120,10 @@ const stopsAfterOneFailureLine = async () => {
   );
 
   const lines = decodeFile(writes.join(""));
-  expect(lines).toHaveLength(1);
-  expect(lines[0]).toMatchObject({ kind: "export-failed" });
-  expect(lines[0]?.kind === "export-failed" ? lines[0].reason : "").toContain(
-    NO_SPACE,
-  );
+  const namesTheWriteFailure: unknown = expect.stringContaining(NO_SPACE);
+  expect(lines).toMatchObject([
+    { kind: "export-failed", reason: namesTheWriteFailure },
+  ]);
 };
 
 describe("history export", () => {

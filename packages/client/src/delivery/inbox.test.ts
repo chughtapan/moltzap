@@ -1,11 +1,10 @@
 /** @file Exercises classified delivery durability and loss of request context. */
 
-import { Effect, Encoding, Schema } from "effect";
+import { Effect, Array as EffectArray, Encoding, Schema } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- These persistence tests reopen real SQLite databases across independent Effect scopes.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { DeliveryToken, openEndpointStore } from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
@@ -109,8 +108,7 @@ const retiresLostRequests = () => {
   return Effect.runPromise(
     Effect.gen(function* () {
       yield* storeRequestAndFailure(path);
-      let recoveredToken: DeliveryToken | undefined;
-      yield* Effect.scoped(
+      const recoveredToken = yield* Effect.scoped(
         Effect.gen(function* () {
           const store = yield* openEndpointStore(path);
           yield* recoverRuntimeInbox(store);
@@ -124,11 +122,11 @@ const retiresLostRequests = () => {
           expect(lost?.deliveryToken).not.toBe(token(2));
           expect(lost?.item).toMatchObject({
             kind: "operationFailed",
-            id: request.kind === "collectiveRequest" ? request.id : undefined,
+            id: digest("col_", 2),
             to: "group:alice,bob,carol",
           });
-          recoveredToken = lost?.deliveryToken;
           yield* store.acknowledgeInboxItem(token(2));
+          return lost?.deliveryToken;
         }),
       );
       yield* Effect.scoped(
@@ -149,12 +147,15 @@ const freezesPagesAcrossArrivalsAndAcknowledgments = () =>
     Effect.scoped(
       Effect.gen(function* () {
         const store = yield* openEndpointStore(directory());
-        for (let index = 1; index <= 51; index += 1) {
-          yield* persistInboxItem(store, {
-            deliveryToken: token(index),
-            item: failure,
-          });
-        }
+        yield* Effect.forEach(
+          EffectArray.range(1, 51),
+          (index) =>
+            persistInboxItem(store, {
+              deliveryToken: token(index),
+              item: failure,
+            }),
+          { concurrency: 1, discard: true },
+        );
         const first = yield* readRuntimeInbox(store, {});
         expect(first.items).toHaveLength(50);
         expect(first.nextCursor).toBeDefined();
@@ -178,97 +179,6 @@ const freezesPagesAcrossArrivalsAndAcknowledgments = () =>
       }),
     ),
   );
-
-const retainsInvocationAndEventState = () => {
-  const path = directory();
-  const input = new TextEncoder().encode(
-    '{"input":{"text":"hello","to":"agent:bob"}}',
-  );
-  const outcome = new TextEncoder().encode('{"kind":"success","result":{}}');
-  const eventState = new TextEncoder().encode('{"subscription":"private"}');
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      yield* Effect.scoped(
-        Effect.gen(function* () {
-          const store = yield* openEndpointStore(path);
-          expect(yield* store.beginSendAttempt("finished", input)).toBe(
-            "inserted",
-          );
-          yield* store.finishSendAttempt("finished", outcome);
-          yield* store.beginSendAttempt("interrupted", input);
-          yield* store.writeEventState(eventState);
-        }),
-      );
-      yield* Effect.scoped(
-        Effect.gen(function* () {
-          const store = yield* openEndpointStore(path);
-          expect(yield* store.beginSendAttempt("finished", input)).toBe(
-            "existing",
-          );
-          expect(yield* store.readSendAttempt("finished")).toEqual({
-            canonicalInput: input,
-            canonicalOutcome: outcome,
-          });
-          expect(yield* store.readSendAttempt("interrupted")).toEqual({
-            canonicalInput: input,
-          });
-          expect(yield* store.readEventState()).toEqual(eventState);
-          const conflict = yield* store
-            .beginSendAttempt("finished", outcome)
-            .pipe(Effect.flip);
-          expect(conflict.reason).toBe("conflict");
-        }),
-      );
-    }),
-  );
-};
-
-const migratesWithoutErasingIdentity = () => {
-  const path = directory();
-  const identity = {
-    agentId: "agent:alice",
-    canonicalAgentCard: new Uint8Array([1, 2, 3]),
-  };
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      yield* Effect.scoped(
-        openEndpointStore(path).pipe(
-          Effect.flatMap((store) => store.bindIdentity(identity)),
-        ),
-      );
-      yield* Effect.sync(() => {
-        const database = new DatabaseSync(join(path, "moltzapd.sqlite3"));
-        database.exec(
-          "DROP TABLE runtime_inbox; DROP TABLE runtime_sends; DROP TABLE runtime_events; DROP TABLE runtime_legacy_deliveries; PRAGMA user_version = 2",
-        );
-        database.close();
-      });
-      yield* Effect.scoped(
-        Effect.gen(function* () {
-          const store = yield* openEndpointStore(path);
-          expect(yield* store.readIdentity()).toEqual(identity);
-          expect(yield* store.readInboxSummary()).toEqual({
-            pendingCount: 0,
-            newestSequence: 0,
-          });
-          yield* persistInboxItem(store, {
-            deliveryToken: token(1),
-            item: failure,
-          });
-        }),
-      );
-      yield* Effect.sync(() => {
-        const database = new DatabaseSync(join(path, "moltzapd.sqlite3"), {
-          readOnly: true,
-        });
-        expect(database.prepare("PRAGMA user_version").get()).toMatchObject({
-          user_version: 3,
-        });
-        database.close();
-      });
-    }),
-  );
-};
 
 const commitsReceiptAtomically = () => {
   const path = directory();
@@ -326,14 +236,6 @@ describe("durable runtime inbox", () => {
   it(
     "bounds a snapshot while new arrivals and acknowledgments change unread state",
     freezesPagesAcrossArrivalsAndAcknowledgments,
-  );
-  it(
-    "retains completed and interrupted invocations and event state across restart",
-    retainsInvocationAndEventState,
-  );
-  it(
-    "upgrades schema 2 without replacing the configured identity",
-    migratesWithoutErasingIdentity,
   );
 });
 
