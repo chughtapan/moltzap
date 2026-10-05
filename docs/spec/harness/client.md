@@ -200,20 +200,18 @@ collective operation is one member.
   `CollectiveId` from a fresh 32-byte nonce, converts the relative `deadline`
   (at most 30 days) to an absolute `deadlineAt` (endpoints assume zero clock
   skew), and certifies one request post per member, each in that member's
-  direct conversation with the requester. The `to` address follows the
-  [addressed send](#addressed-send) rule: the members of an `agent:` address
-  are that agent; a `group:` address naming one other agent is that agent's
-  `agent:` address; any other `group:` address is put in canonical form,
-  refusing duplicate names and more than 32 members with
-  `membership-invalid`, and its members are its agents other than the
+  direct conversation with the requester. The `to` address resolves as
+  [addressed send](#addressed-send) states; its members are the agent of an
+  `agent:` address, or the agents of a `group:` address other than the
   requester. No group conversation is created.
 
-  Address errors are checked before anything is sent: the endpoint resolves
+  Address errors are checked before anything is sent. An address that cannot
+  be put in canonical form fails the send with a `SendError`
+  (`invalid-address` or `membership-invalid`). The endpoint then resolves
   every member through the engine's address resolution, and if any member is
-  malformed, unknown or makes the membership invalid (`invalid-address`,
-  `unknown-agent`, `membership-invalid`), the send fails with a
-  `CollectiveError` whose `members-unreachable` failure names each such member
-  and its reason, and no post is made. Delivery failures for members that
+  malformed or unknown, the send fails with a `CollectiveError` whose
+  `members-unreachable` failure names each such member and its reason. Either
+  way no post is made. Delivery failures for members that
   resolved do not abort the gather. The send waits for the request posts for
   at most 20 seconds (never past the deadline) and returns the id; a post
   still certifying then keeps going, and the wait never counts as a failure.

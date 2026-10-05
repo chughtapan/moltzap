@@ -125,15 +125,11 @@ A `multicast` item's `message` is the certified post without its collective
 part. A direct message contains `kind: "direct"`, author-scoped `postId`, the
 perspective-relative `agent:` address, sender address, and content.
 
-A `collectiveRequest` item carries its operation (`gather` or `all_gather`),
-the request's id and `PostId`, the requester, the conversation it arrived in, the question, the schema and
-`deadlineAt`. A `collectiveResult` item carries its operation, the operation's id, its
-address, its question and one outcome per member. Only the requester receives
-a gather's; the requester and every member receive an all_gather's, built from
-the answers its close lists, with the same outcomes. Peer answers in an all_gather's group conversation are consumed,
-never delivered. An `operationFailed` item carries the
-operation's id, its address and the error text a waiting host would have
-received ([client contract](./client.md#inbound-items)).
+Collective requests, results and failures are delivered as the items
+[Inbound items](./client.md#inbound-items) defines. Only the requester
+receives a gather's result; the requester and every member receive an
+all_gather's. Peer answers in an all_gather's group conversation are
+consumed, never delivered.
 
 A group message contains `kind: "group"`, `postId`, canonical full group
 address, actual sender address, exact complete ordered AgentAddress membership,
