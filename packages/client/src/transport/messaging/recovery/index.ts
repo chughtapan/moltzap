@@ -47,7 +47,6 @@ import {
   acceptCatchUpRequest,
   type CatchUpResponder,
   type CatchUpRun,
-  type CatchUpState,
   makeCatchUpState,
   requestCertifiedHistory,
 } from "./catch-up.js";
@@ -67,7 +66,7 @@ interface RecoveryRun {
   readonly outbound: Queue.Queue<RouterWorkerRecoverySend>;
   readonly completion: Deferred.Deferred<undefined, RouterWorkerRecoveryError>;
   readonly completedConversations: Set<ConversationIdValue>;
-  readonly catchUp: CatchUpState;
+  readonly catchUp: CatchUpRun;
   readonly reanchor: ReanchorRun;
   pendingOutbound: number;
 }
@@ -321,9 +320,9 @@ function acceptRunPacket(
   }
   switch (packet.kind) {
     case "catch_up_page":
-      return acceptCatchUpPage(catchUpRun(runtime, run), ingress, packet);
+      return acceptCatchUpPage(run.catchUp, ingress, packet);
     case "catch_up_incomplete":
-      return acceptCatchUpIncomplete(catchUpRun(runtime, run), ingress, packet);
+      return acceptCatchUpIncomplete(run.catchUp, ingress, packet);
     case "completed_reanchor":
       return acceptCompletedReanchor(run.reanchor, ingress, packet);
     default: {
@@ -364,7 +363,7 @@ function acceptRecoveryRecord(
       return run === undefined
         ? Effect.void
         : requestCertifiedHistory(
-            catchUpRun(runtime, run),
+            run.catchUp,
             ingress.payload.packet.actionCertifiedRecord.recordCore.action
               .conversationId,
           );
@@ -383,9 +382,7 @@ function runRecovery(
 > {
   return Effect.gen(function* () {
     const sender = yield* sendRecoveryOutbound(run).pipe(Effect.forkScoped);
-    yield* recoverPositions(runtime, run).pipe(
-      Effect.mapError(recoveryFailure),
-    );
+    yield* recoverPositions(run).pipe(Effect.mapError(recoveryFailure));
     yield* completeRecoveryIfIdle(run);
     yield* Effect.raceFirst(Deferred.await(run.completion), Fiber.join(sender));
     yield* resumeRecoveryOutbox(runtime, retainedOutbounds);
@@ -414,13 +411,11 @@ function sendRecoveryOutbound(
 }
 
 function recoverPositions(
-  runtime: EngineRuntime,
   run: RecoveryRun,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return Effect.forEach(
     run.memberships.keys(),
-    (conversationId) =>
-      requestCertifiedHistory(catchUpRun(runtime, run), conversationId),
+    (conversationId) => requestCertifiedHistory(run.catchUp, conversationId),
     { concurrency: 1, discard: true },
   );
 }
@@ -474,7 +469,8 @@ function resumeUncompletedIntents(
 }
 
 /**
- * Allocate one run's queue, accounting, catch-up state, and re-anchor.
+ * Allocate one run's queue and accounting, and build the catch-up and
+ * re-anchor ports its phases run against.
  * @param runtime Engine the run recovers.
  * @param recovery RouterWorker callbacks and discontinuity anchor.
  * @param memberships Verified memberships that must be reconciled.
@@ -495,17 +491,23 @@ function makeRecoveryRun(
       outbound: yield* Queue.unbounded<RouterWorkerRecoverySend>(),
       completion: yield* Deferred.make<undefined, RouterWorkerRecoveryError>(),
       completedConversations: new Set(),
-      catchUp: makeCatchUpState(),
+      catchUp: {
+        ...catchUpResponder(runtime),
+        state: makeCatchUpState(),
+        isActive: () => activeRuns.get(runtime) === run,
+        membership: (conversationId) => memberships.get(conversationId),
+        onPositionReady: (conversationId) =>
+          positionReady(runtime, run, conversationId).pipe(
+            Effect.withSpan("positionReady"),
+          ),
+      },
       reanchor: startReanchorRun({
         runtime,
         reason: recovery.reason,
         routerInstanceId: recovery.anchor.routerInstanceId,
         reanchoring,
         isActive: () => activeRuns.get(runtime) === run,
-        membership: (conversationId) =>
-          activeRuns.get(runtime) === run
-            ? memberships.get(conversationId)
-            : undefined,
+        membership: (conversationId) => memberships.get(conversationId),
         isRecovered: (conversationId) =>
           run.completedConversations.has(conversationId),
         markRecovered: (conversationId) =>
@@ -513,32 +515,12 @@ function makeRecoveryRun(
         queue: (membership, body) =>
           queueRecoveryEnvelope(runtime, membership, body),
         requestCatchUp: (conversationId) =>
-          requestCertifiedHistory(catchUpRun(runtime, run), conversationId),
+          requestCertifiedHistory(run.catchUp, conversationId),
       }),
       pendingOutbound: 0,
     };
     return run;
   }).pipe(Effect.withSpan("makeRecoveryState"));
-}
-
-/**
- * The run's catch-up port. A position that is ready goes to re-anchor after a
- * Router restart and is recovered for any other reason.
- * @param runtime Engine the run recovers.
- * @param run Active recovery run.
- * @returns The port catch-up runs against.
- */
-function catchUpRun(runtime: EngineRuntime, run: RecoveryRun): CatchUpRun {
-  return {
-    ...catchUpResponder(runtime),
-    state: run.catchUp,
-    isActive: () => activeRuns.get(runtime) === run,
-    membership: (conversationId) => run.memberships.get(conversationId),
-    onPositionReady: (conversationId) =>
-      positionReady(runtime, run, conversationId).pipe(
-        Effect.withSpan("positionReady"),
-      ),
-  };
 }
 
 /**
@@ -558,6 +540,14 @@ function catchUpResponder(runtime: EngineRuntime): CatchUpResponder {
   };
 }
 
+/**
+ * Route a conversation whose catch-up position is ready: to re-anchor after a
+ * Router restart, and straight to recovered for any other reason.
+ * @param runtime Engine the run recovers.
+ * @param run Active recovery run.
+ * @param conversationId Conversation whose position is ready.
+ * @returns Completion once re-anchor has taken the position or it is recovered.
+ */
 function positionReady(
   runtime: EngineRuntime,
   run: RecoveryRun,

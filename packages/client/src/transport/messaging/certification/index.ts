@@ -5,13 +5,13 @@
 
 import { MOLTZAP_VERSION, type SignedMessage } from "@moltzap/identity";
 import { Deferred, Effect, type Schema } from "effect";
-import type {
-  ConversationFoundation,
-  EndpointStoreError,
-  ProposalLock,
-} from "../../../store/index.js";
 import type { SendError } from "../errors.js";
-import { isSemanticStoreRejection } from "../../../store/types.js";
+import {
+  type ConversationFoundation,
+  type EndpointStoreError,
+  isSemanticStoreRejection,
+  type ProposalLock,
+} from "../../../store/index.js";
 import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,

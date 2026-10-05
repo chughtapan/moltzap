@@ -76,7 +76,7 @@ export interface ReanchorRunPort {
   readonly reanchoring: ReadonlySet<string>;
   /** Whether the run is still the engine's active recovery. */
   readonly isActive: () => boolean;
-  /** The active run's verified membership of a conversation. */
+  /** The run's verified membership of a conversation. */
   readonly membership: (
     conversationId: ConversationIdValue,
   ) => VerifiedMembership | undefined;
@@ -319,7 +319,7 @@ function verifyInboundVote(
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   message: SignedMessageValue,
   membership: VerifiedMembership,
-): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
+) {
   return verifyOuterMessage({ message: ingress.message, membership }).pipe(
     Effect.zipRight(Schema.encode(SignedMessage)(message)),
     Effect.flatMap((representation) =>
@@ -338,10 +338,6 @@ function verifyInboundVote(
         ),
       );
     }),
-    Effect.catchTag("ClientRepresentationError", () =>
-      Effect.succeed(ignoredDisposition),
-    ),
-    Effect.mapError(persistenceFailure),
   );
 }
 

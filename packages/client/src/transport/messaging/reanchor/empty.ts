@@ -18,6 +18,7 @@ import {
   sameBytes,
   type VerifiedMembership,
 } from "../../wire/index.js";
+
 interface EmptyPositionRestartInput {
   readonly runtime: EngineRuntime;
   /** The Router instance the replacement GENESIS anchor binds. */

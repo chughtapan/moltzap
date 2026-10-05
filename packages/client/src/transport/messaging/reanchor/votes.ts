@@ -11,13 +11,14 @@ import {
   type SignedMessage as SignedMessageValue,
 } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
-import type { EndpointRecovery } from "../../../store/index.js";
 import type { EngineRuntime } from "../runtime/index.js";
-import { isSemanticStoreRejection } from "../../../store/types.js";
+import {
+  type EndpointRecovery,
+  isSemanticStoreRejection,
+} from "../../../store/index.js";
 import { RouterWorkerPersistenceError } from "../../router/index.js";
 import {
   type AnchorHash as AnchorHashValue,
-  compareAgentIds,
   CompletedReanchor,
   type CompletedReanchor as CompletedReanchorValue,
   type ConversationId as ConversationIdValue,
@@ -30,7 +31,7 @@ import {
   type VerifiedMembership,
   verifyStableEvidence,
 } from "../../wire/index.js";
-import { protocolEvidence } from "../history/index.js";
+import { orderedSignatures, protocolEvidence } from "../history/index.js";
 
 /** One verified re-anchor vote retained until its ancestry is resolved. */
 export interface PendingReanchorVote {
@@ -190,16 +191,10 @@ export function assembleCompletedReanchor(
   anchorHash: AnchorHashValue,
   votes: readonly SignedMessageValue[],
 ): Effect.Effect<CompletedReanchorValue, RouterWorkerPersistenceError> {
-  const ordered = [...votes].sort((left, right) =>
-    compareAgentIds(left.senderAgentId, right.senderAgentId),
-  );
-  return Effect.forEach(ordered, (vote) => Schema.encode(SignedMessage)(vote), {
-    concurrency: 1,
-  }).pipe(
+  return orderedSignatures(votes).pipe(
     Effect.mapError(persistenceFailure),
-    Effect.flatMap((encoded) => {
-      const first = encoded[0];
-      if (first === undefined) {
+    Effect.flatMap((ordered) => {
+      if (ordered === undefined) {
         return Effect.fail(persistenceFailure());
       }
       const completed: CompletedReanchorValue = {
@@ -211,7 +206,7 @@ export function assembleCompletedReanchor(
           moltzapVersion: MOLTZAP_VERSION,
           kind: "reanchor_certificate",
           anchorHash,
-          votes: [first, ...encoded.slice(1)],
+          votes: ordered,
         },
       };
       return Effect.succeed(completed);

@@ -30,3 +30,5 @@ export {
   verifyStoredMemberships,
   verifyStoredOutbounds,
 } from "./stored.js";
+/** Certificate signer order, shared with the re-anchor certificate. */
+export { orderedSignatures } from "./certificate.js";
