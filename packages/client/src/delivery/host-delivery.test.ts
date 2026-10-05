@@ -1,4 +1,9 @@
-/** @file Host operations over one service's delivery: registration gating, the send export, and local-item reads and acknowledgment. */
+/**
+ * @file Host operations over one service's delivery: registration gating, the
+ * send export, local-item reads and acknowledgment, the webhook view's receipt
+ * and inbox reads, and the pending-delivery passes that publish to a
+ * subscriber.
+ */
 
 import { Deferred, Effect, Exit, Fiber, Ref, Schema, Scope } from "effect";
 import { describe, expect, it } from "vitest";
@@ -377,15 +382,18 @@ const emittedFailure = Schema.decodeUnknownSync(InboundItem)({
 });
 
 /**
- * A refusal stops the pass's publication without marking the refused item
- * taken, and a later delivery the collective layer consumes is still
- * acknowledged; the next pass offers the refused items again.
+ * A refusal stops the pass's publication: a subscriber that refuses the first
+ * item and would take later ones is offered nothing after it, so no later item
+ * is published ahead of the refused one. A later delivery the collective layer
+ * consumes is still acknowledged, and the next pass offers the unpublished
+ * items again in order.
  */
 const stopsPublishingAtARefusalButStillConsumesLaterDeliveries = () =>
   run(
     Effect.gen(function* () {
       const { delivery } = yield* deliveryFixture;
       const acknowledged: string[] = [];
+      const offered: HarnessMessageReadyEvent[] = [];
       const taken: HarnessMessageReadyEvent[] = [];
       yield* delivery.runPass(() => ({
         readPending: Effect.succeed([
@@ -395,7 +403,12 @@ const stopsPublishingAtARefusalButStillConsumesLaterDeliveries = () =>
         ]),
         engine: recordAcknowledgments(acknowledged),
         classify: consumeOnly(secondFromBob),
-        handler: { publish: () => false },
+        handler: {
+          publish: (event) => {
+            offered.push(event);
+            return event.deliveryToken !== firstFromBob.deliveryToken;
+          },
+        },
       }));
 
       yield* delivery.runPass(() => ({
@@ -405,6 +418,9 @@ const stopsPublishingAtARefusalButStillConsumesLaterDeliveries = () =>
         handler: takeEvery(taken),
       }));
 
+      expect(offered.map((event) => event.deliveryToken)).toEqual([
+        firstFromBob.deliveryToken,
+      ]);
       expect(acknowledged).toEqual([secondFromBob.deliveryToken]);
       expect(taken.map((event) => event.deliveryToken)).toEqual([
         firstFromBob.deliveryToken,

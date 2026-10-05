@@ -207,31 +207,25 @@ export const run = <A, E>(effect: Effect.Effect<A, E, Scope.Scope>) =>
  * A post in the direct conversation with `sender`.
  * @param sender The agent that authored the post.
  * @param content The post's parts.
- * @param byte The byte its PostId repeats.
  * @returns The decoded inbound message.
  */
-export const directPost = (sender: string, content: unknown, byte = 9) =>
+export const directPost = (sender: string, content: unknown) =>
   Schema.decodeUnknownSync(InboundMessage)({
     kind: "direct",
-    postId: postId(byte),
+    postId: postId(9),
     address: sender,
     sender,
     content,
   });
 
 /**
- * A gather request post asking `questionText` with `slotSchema` under
- * `requestNonce`.
+ * A gather request post naming Bob's `requestId` and asking `questionText`
+ * with `slotSchema` under `requestNonce`.
  * @param sender The agent that authored the request.
  * @param deadlineAt The absolute deadline it states, in epoch milliseconds.
- * @param id The id it names, Bob's by default.
  * @returns The decoded inbound message.
  */
-export const requestPost = (
-  sender: string,
-  deadlineAt: number,
-  id = requestId,
-) =>
+export const requestPost = (sender: string, deadlineAt: number) =>
   directPost(sender, [
     { type: "text", text: questionText },
     {
@@ -240,7 +234,7 @@ export const requestPost = (
         [collectiveKey]: {
           kind: "operation",
           op: "gather",
-          id,
+          id: requestId,
           nonce: requestNonce,
           deadlineAt,
           requestedSchema: slotSchema,

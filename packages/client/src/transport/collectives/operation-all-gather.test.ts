@@ -262,28 +262,32 @@ function namesEveryMemberWhenTheGroupPostIsNotCertifiedInTime() {
 }
 
 /**
- * A group post that certifies one second before the send's `requestSendWait`
- * ends starts the all_gather. Protects the lower side of that wait, which a
- * cold group's GENESIS needs; fails when the wait is shortened by a second or
+ * One second short of the all_gather request wait. It intentionally
+ * duplicates the private `operation.ts → REQUEST_SEND_WAIT` instead of
+ * deriving from the `requestSendWait` mirror, so shortening the production
+ * wait fails the test below even when the mirror is shortened with it.
+ */
+const JUST_WITHIN_REQUEST_SEND_WAIT = Duration.seconds(19);
+
+/**
+ * A group post that certifies `JUST_WITHIN_REQUEST_SEND_WAIT` after the send
+ * starts the all_gather. Protects the lower side of the request wait, which a
+ * cold group's GENESIS needs; fails when that wait is shortened by a second or
  * more.
  */
 function startsWhenTheGroupPostCertifiesWithinTheWait() {
   const observed = newObserved();
-  const justWithinTheWait = Duration.subtract(
-    requestSendWait,
-    Duration.seconds(1),
-  );
 
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(observed, {
         sendPost: (input) =>
-          Effect.sleep(justWithinTheWait).pipe(
+          Effect.sleep(JUST_WITHIN_REQUEST_SEND_WAIT).pipe(
             Effect.zipRight(certifyNext(observed, input)),
           ),
       });
       const sending = yield* Effect.fork(send(layer, allGatherInput()));
-      yield* TestClock.adjust(justWithinTheWait);
+      yield* TestClock.adjust(JUST_WITHIN_REQUEST_SEND_WAIT);
       const outcome = yield* Fiber.join(sending);
       const { id } = yield* firstRequestOf(observed);
 
