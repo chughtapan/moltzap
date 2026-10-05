@@ -177,6 +177,12 @@ describe("collective response grammar", () => {
       decodes({ kind: "response", id: collectiveId, action: "accept" }),
     ).toBe(false);
   });
+
+  it("rejects a cancel, which is not an answer", () => {
+    expect(
+      decodes({ kind: "response", id: collectiveId, action: "cancel" }),
+    ).toBe(false);
+  });
 });
 
 // @agent-code-guard/regression-only: examples pin the MCP form-mode grammar the SDK accepts.

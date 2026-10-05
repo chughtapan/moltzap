@@ -16,7 +16,12 @@ import {
   exactStruct,
   RecordHash,
 } from "../../wire/index.js";
-import { AnswerContent, CollectiveId } from "../forms.js";
+import {
+  AcceptResponse,
+  CollectiveId,
+  DeclineResponse,
+  RequestedSchema,
+} from "../forms.js";
 import { FormFieldSchema } from "./grammar.js";
 
 /** One admitted form field, the shape answer checks read. */
@@ -35,13 +40,8 @@ export const COLLECTIVE_DATA_KEY = "xyz.moltzap/collective";
  * no other field.
  */
 export const FormModeSchema = exactStruct({
-  $schema: Schema.optional(Schema.String),
-  type: Schema.Literal("object"),
-  properties: Schema.Record({
-    key: Schema.String,
-    value: FormFieldSchema,
-  }),
-  required: Schema.optional(Schema.Array(Schema.String)),
+  ...RequestedSchema.fields,
+  properties: Schema.Record({ key: Schema.String, value: FormFieldSchema }),
 }).pipe(
   Schema.filter(
     (schema) => {
@@ -122,22 +122,14 @@ const CollectingOperation = exactStruct({
   requestedSchema: FormModeSchema,
 });
 
+/** The request a member's reply answers. */
+const responseHead = { kind: Schema.Literal("response"), id: CollectiveId };
+
 /** A member's reply to one request; only `accept` carries content. */
 const CollectiveResponse = Schema.Union(
-  exactStruct({
-    kind: Schema.Literal("response"),
-    id: CollectiveId,
-    action: Schema.Literal("accept"),
-    content: AnswerContent,
-  }),
-  exactStruct({
-    kind: Schema.Literal("response"),
-    id: CollectiveId,
-    action: Schema.Literal("decline"),
-  }),
+  exactStruct({ ...responseHead, ...AcceptResponse.fields }),
+  exactStruct({ ...responseHead, ...DeclineResponse.fields }),
 );
-/** A validated collective response. */
-export type CollectiveResponse = typeof CollectiveResponse.Type;
 
 /** The requester's all_gather close: the included answers by certified record hash. */
 const CollectiveClose = exactStruct({
@@ -203,14 +195,6 @@ export const withoutCollectivePart = (
  * @returns The validated value.
  */
 export const decodeCollectiveValue = Schema.decodeUnknown(CollectiveValue);
-
-/**
- * Decode one untrusted collective response.
- * @param value A member's response as it arrives.
- * @returns The validated response.
- */
-export const decodeCollectiveResponse =
-  Schema.decodeUnknown(CollectiveResponse);
 
 /**
  * Find and decode the collective value in one post's content.

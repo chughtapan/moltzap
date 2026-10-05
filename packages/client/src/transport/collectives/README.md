@@ -13,9 +13,9 @@ entrypoints `forms.ts` (send forms and the errors sends return), `inbound.ts`
 (inbound items) and `message-text.ts` (the text parser) directly, so they never
 load the operation layer. The other modules are private: `part/` encodes and
 decodes the collective part, and `part/grammar.ts` admits a form's properties
-under the MCP form-mode grammar; `validation.ts` checks answers against a form through
-`answer-check.ts`, which applies each keyword, and the string formats in
-`answer-formats.ts`, `request-sends.ts` resolves members
+under the MCP form-mode grammar; `validation.ts` checks answers against a form
+keyword by keyword, with the string formats in `answer-formats.ts`,
+`request-sends.ts` resolves members
 and settles a gather's request posts, `received-request.ts` matches an answer
 to the one request open in its conversation, and `shared-answers.ts` builds an
 all_gather's agreed result.

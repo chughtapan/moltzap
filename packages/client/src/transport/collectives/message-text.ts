@@ -20,20 +20,27 @@
  * the operation and the error names the field to fix.
  */
 
-import { Data, Either, Option, ParseResult, Predicate, Schema } from "effect";
+import { Data, Either, Option, Predicate, Schema } from "effect";
 import { exactStruct, type MessageAddressInput } from "../wire/values.js";
 import {
-  AnswerContent,
+  AcceptResponse,
   type CollectiveResponse,
   DeadlineSeconds,
+  DeclineResponse,
+  describeIssues,
   RequestedSchema,
   SendInput,
 } from "./forms.js";
 
 /* eslint-disable @typescript-eslint/naming-convention -- Effect Schemas are named for the text shapes they decode. */
 
+/** The operations that ask a question, in the order their keys are read. */
+const COLLECTING_OPERATIONS = ["gather", "all_gather"] as const;
+
+type CollectingOperation = (typeof COLLECTING_OPERATIONS)[number];
+
 /** Which operation a refused text stated. */
-type StatedOperation = "message" | "gather" | "all_gather" | "answer";
+type StatedOperation = "message" | CollectingOperation | "answer";
 
 /**
  * A message text states an operation it does not validly carry, or is plain
@@ -50,26 +57,16 @@ export class MessageTextError extends Data.TaggedError("MessageTextError")<{
   }
 }
 
-const GatherText = exactStruct({
-  gather: Schema.String,
-  deadline: DeadlineSeconds,
-  requestedSchema: RequestedSchema,
-});
-
-const AllGatherText = exactStruct({
-  all_gather: Schema.String,
-  deadline: DeadlineSeconds,
-  requestedSchema: RequestedSchema,
-});
-
-const AcceptText = exactStruct({
-  action: Schema.Literal("accept"),
-  content: AnswerContent,
-});
-
-const DeclineText = exactStruct({
-  action: Schema.Literal("decline"),
-});
+/**
+ * A gather or all_gather, its question under the operation's own key, read
+ * as `question` so both share one decode.
+ */
+const collectingText = (op: CollectingOperation) =>
+  exactStruct({
+    question: Schema.propertySignature(Schema.String).pipe(Schema.fromKey(op)),
+    deadline: DeadlineSeconds,
+    requestedSchema: RequestedSchema,
+  });
 
 /** The `action` key alone, so an unknown action is named as that field. */
 const AnswerAction = Schema.Struct({
@@ -111,35 +108,19 @@ function statedOperation(
   to: MessageAddressInput,
   value: Readonly<Record<string, unknown>>,
 ): Either.Either<SendInput, MessageTextError> | undefined {
-  if (Object.hasOwn(value, "gather")) {
-    return decodeText("gather", GatherText, value).pipe(
-      Either.flatMap((stated) =>
-        sendInput("gather", {
+  const op = COLLECTING_OPERATIONS.find((key) => Object.hasOwn(value, key));
+  if (op !== undefined) {
+    return decodeText(op, collectingText(op), value).pipe(
+      Either.flatMap(({ question, ...collective }) =>
+        sendInput(op, {
           to,
-          text: stated.gather,
-          collective: { ...collecting(stated), op: "gather" },
-        }),
-      ),
-    );
-  }
-  if (Object.hasOwn(value, "all_gather")) {
-    return decodeText("all_gather", AllGatherText, value).pipe(
-      Either.flatMap((stated) =>
-        sendInput("all_gather", {
-          to,
-          text: stated.all_gather,
-          collective: { ...collecting(stated), op: "all_gather" },
+          text: question,
+          collective: { ...collective, op },
         }),
       ),
     );
   }
   return Object.hasOwn(value, "action") ? answer(to, value) : undefined;
-}
-
-function collecting(
-  stated: typeof GatherText.Type | typeof AllGatherText.Type,
-) {
-  return { deadline: stated.deadline, requestedSchema: stated.requestedSchema };
 }
 
 /** An answer: `action` decides which shape the rest must have. */
@@ -151,8 +132,8 @@ function answer(
     Either.flatMap(
       ({ action }): Either.Either<CollectiveResponse, MessageTextError> =>
         action === "accept"
-          ? decodeText("answer", AcceptText, value)
-          : decodeText("answer", DeclineText, value),
+          ? decodeText("answer", AcceptResponse, value)
+          : decodeText("answer", DeclineResponse, value),
     ),
     Either.flatMap((collectiveResponse) =>
       sendInput("answer", { to, collectiveResponse }),
@@ -178,18 +159,6 @@ function decodeText<A, I>(
         new MessageTextError({ operation, detail: describeIssues(error) }),
     ),
   );
-}
-
-/**
- * One line per issue, each led by its field path, such as
- * `requestedSchema.type: Expected "object", actual "obj"`.
- */
-function describeIssues(error: ParseResult.ParseError): string {
-  return ParseResult.ArrayFormatter.formatErrorSync(error)
-    .map(({ path, message }) =>
-      path.length === 0 ? message : `${path.map(String).join(".")}: ${message}`,
-    )
-    .join("; ");
 }
 
 /* eslint-enable @typescript-eslint/naming-convention -- Restore the package naming rules after the text Schemas. */

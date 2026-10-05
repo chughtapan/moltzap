@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./transport/collectives/forms.ts#L279)
+### [`CollectiveError`](./transport/collectives/forms.ts#L312)
 
 _Class_
 
@@ -407,7 +407,7 @@ export const MessageAddressInput = addressInput
 
 Either accepted destination input, including noncanonical group order.
 
-### [`MessageTextError`](./transport/collectives/message-text.ts#L43)
+### [`MessageTextError`](./transport/collectives/message-text.ts#L50)
 
 _Class_
 
@@ -427,7 +427,7 @@ A message text states an operation it does not validly carry, or is plain
 text that is not well-formed Unicode. The message names each failing field
 so a host can hand it to its model as the tool error.
 
-### [`parseMessageText`](./transport/collectives/message-text.ts#L96)
+### [`parseMessageText`](./transport/collectives/message-text.ts#L93)
 
 _Function_
 
@@ -531,7 +531,7 @@ An addressed send failed before local certification completed. `detail`
 names the specific cause when the failing step knows it, such as which
 agent is unknown; the message is what a host hands its model.
 
-### [`SendInput (type)`](./transport/collectives/forms.ts#L149)
+### [`SendInput (type)`](./transport/collectives/forms.ts#L152)
 
 _TypeAlias_
 
@@ -541,7 +541,7 @@ export type SendInput = typeof SendInput.Type;
 
 Validated input for one send.
 
-### [`SendInput (value)`](./transport/collectives/forms.ts#L137)
+### [`SendInput (value)`](./transport/collectives/forms.ts#L140)
 
 _Variable_
 
@@ -564,7 +564,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./transport/collectives/forms.ts#L167)
+### [`SendResult`](./transport/collectives/forms.ts#L170)
 
 _Interface_
 
@@ -675,7 +675,6 @@ Complete production process composition for `moltzapd`.
 - `store/runtime-codec.ts`
 - `store/store.ts`
 - `store/types.ts`
-- `transport/collectives/answer-check.ts`
 - `transport/collectives/answer-formats.ts`
 - `transport/collectives/failures.ts`
 - `transport/collectives/forms.ts`

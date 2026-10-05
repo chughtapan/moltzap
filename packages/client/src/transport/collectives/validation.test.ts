@@ -3,7 +3,7 @@
 import { Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { AnswerContent } from "./forms.js";
-import { decodeCollectiveResponse, FormModeSchema } from "./part/index.js";
+import { FormModeSchema } from "./part/index.js";
 import { outcomeOfResponse, validateAnswer } from "./validation.js";
 
 const requestedSchema = Schema.decodeUnknownSync(FormModeSchema)({
@@ -14,15 +14,11 @@ const requestedSchema = Schema.decodeUnknownSync(FormModeSchema)({
   },
   required: ["slot"],
 });
-const collectiveId = `col_${"A".repeat(43)}`;
-
-const response = (value: unknown) =>
-  Effect.runSync(decodeCollectiveResponse(value));
 
 const failingFields = (content: AnswerContent) =>
-  Effect.runSync(
-    Effect.flip(validateAnswer(requestedSchema, content)),
-  ).failures.map(({ field, reason }) => ({ field, reason }));
+  Effect.runSync(Effect.flip(validateAnswer(requestedSchema, content))).map(
+    ({ field, reason }) => ({ field, reason }),
+  );
 
 // @agent-code-guard/regression-only: examples pin which answer fields fail and how each failure is named.
 describe("answer validation", () => {
@@ -66,9 +62,9 @@ describe("answer validation", () => {
     });
 
     expect(
-      Effect.runSync(
-        Effect.flip(validateAnswer(toStringSchema, {})),
-      ).failures.map(({ field, reason }) => ({ field, reason })),
+      Effect.runSync(Effect.flip(validateAnswer(toStringSchema, {}))).map(
+        ({ field, reason }) => ({ field, reason }),
+      ),
     ).toEqual([{ field: "toString", reason: "missing" }]);
   });
 
@@ -90,7 +86,7 @@ const fieldSchema = (field: object) =>
 const keywordsOf = (field: object, value: AnswerContent[string]) =>
   Effect.runSync(
     Effect.flip(validateAnswer(fieldSchema(field), { field: value })),
-  ).failures.flatMap(({ reason, detail }) => [
+  ).flatMap(({ reason, detail }) => [
     reason,
     ...(detail ?? "").split(", ").map((issue) => issue.split(":")[0]),
   ]);
@@ -214,52 +210,27 @@ describe("multi-select answer keywords", () => {
 // @agent-code-guard/regression-only: examples pin the one outcome each response action records.
 describe("member outcomes", () => {
   it("records a valid accept as answered with its content", () => {
-    const accepted = response({
-      kind: "response",
-      id: collectiveId,
-      action: "accept",
-      content: { slot: "mon" },
-    });
-
     expect(
-      Effect.runSync(outcomeOfResponse(requestedSchema, accepted)),
+      Effect.runSync(
+        outcomeOfResponse(requestedSchema, {
+          action: "accept",
+          content: { slot: "mon" },
+        }),
+      ),
     ).toEqual({ kind: "answered", content: { slot: "mon" } });
   });
 
-  it("records an accept failing the schema as invalid", () => {
-    const accepted = response({
-      kind: "response",
-      id: collectiveId,
-      action: "accept",
-      content: { slot: "wed" },
-    });
-
+  it("records an accept failing the schema as invalid, naming the field", () => {
     expect(
-      Effect.runSync(outcomeOfResponse(requestedSchema, accepted)),
-    ).toMatchObject({ kind: "invalid" });
+      Effect.runSync(
+        outcomeOfResponse(requestedSchema, { action: "accept", content: {} }),
+      ),
+    ).toEqual({ kind: "invalid", reason: 'field "slot" is missing' });
   });
 
   it("records a decline as declined", () => {
-    const declined = response({
-      kind: "response",
-      id: collectiveId,
-      action: "decline",
-    });
-
     expect(
-      Effect.runSync(outcomeOfResponse(requestedSchema, declined)),
+      Effect.runSync(outcomeOfResponse(requestedSchema, { action: "decline" })),
     ).toEqual({ kind: "declined" });
-  });
-
-  it("refuses a cancel, which is no longer an answer", () => {
-    const decoded = Effect.runSyncExit(
-      decodeCollectiveResponse({
-        kind: "response",
-        id: collectiveId,
-        action: "cancel",
-      }),
-    );
-
-    expect(Exit.isFailure(decoded)).toBe(true);
   });
 });

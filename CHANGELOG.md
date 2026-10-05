@@ -25,6 +25,10 @@ heading below in its release commit.
 - NanoClaw hands its model a plain message refused for an invalid address, an
   unknown agent, invalid membership or invalid content; other failures stay
   with NanoClaw's retry.
+- A member's `invalid` outcome names each failing field as a refused reply
+  does, such as `field "slot" is missing`.
+- An all_gather whose group post is refused names every member with the
+  post's reason; members with address errors are refused before the post.
 
 ### Fixed
 

@@ -19,13 +19,14 @@
  *   participant ME as Member endpoint
  *   participant MM as Member host
  *   RM->>RE: send gather to, question, deadline, schema
- *   RE->>RE: validate schema, mint id&lt;br>deadline = now + duration
- *   RE->>ME: one request post per member
- *   alt no request post is accepted
- *     RE-->>RM: error naming each unreachable member
- *   else some request post accepted
+ *   RE->>RE: validate schema, resolve every member&lt;br>refuse an address error before any post
+ *   RE->>RE: mint id&lt;br>deadline = now + duration
+ *   RE->>ME: one request post in each member's direct conversation
+ *   alt every request post is refused
+ *     RE-->>RM: error naming each member and its reason
+ *   else otherwise, after at most 20 s
  *     RE-->>RM: operation id
- *     RE->>RE: record each refused or uncertified member as no-answer
+ *     RE->>RE: a refused member is no-answer&lt;br>a pending one settles later, no-answer at the deadline
  *   end
  *   ME->>MM: collectiveRequest item
  *   MM->>ME: send collectiveResponse to the requester, action, content
@@ -48,9 +49,10 @@
  *   participant ME as Member endpoints
  *   participant MM as Member hosts
  *   RM->>RE: send all_gather to group, question, deadline, schema
- *   RE->>ME: one request post to the group
+ *   RE->>RE: validate schema, resolve every member&lt;br>refuse an address error before any post
+ *   RE->>ME: one request post in the group conversation
  *   alt the group post is refused or not certified in time
- *     RE-->>RM: error naming each unreachable member
+ *     RE-->>RM: error naming every member with the post's reason
  *   else request post certified
  *     RE-->>RM: operation id
  *   end
@@ -61,9 +63,13 @@
  *   ME->>ME: peer response posts, consumed and recorded by record hash
  *   Note over RE: complete when every member has an outcome&lt;br>or at the deadline
  *   RE->>ME: close post listing the counted answers' record hashes
- *   RE->>RM: collectiveResult item once the close is certified
- *   ME->>ME: build the result from exactly the listed answers
- *   ME->>MM: collectiveResult item, the same outcomes
+ *   alt the close is not certified
+ *     RE->>RM: operationFailed item, and members get no result
+ *   else close certified
+ *     RE->>RM: collectiveResult item
+ *     ME->>ME: build the result from exactly the listed answers
+ *     ME->>MM: collectiveResult item, the same outcomes
+ *   end
  * ```
  */
 
@@ -74,7 +80,6 @@ import {
   Array as EffectArray,
   Fiber,
   Option,
-  ParseResult,
   Schema,
   type Scope,
 } from "effect";
@@ -104,9 +109,9 @@ import {
   type CollectiveId,
   type CollectiveOperation,
   type CollectiveResponse,
+  describeIssues,
   type FailureDelivery,
   MAXIMUM_DEADLINE_SECONDS,
-  RequestedSchema,
   type SendInput,
 } from "./forms.js";
 import {
@@ -203,8 +208,8 @@ export interface CollectivePorts {
   /** The local agent: a group gather or all_gather asks every member but this one. */
   readonly self: AgentAddress;
   /**
-   * Resolve one member's Registry card without sending. A refused all_gather
-   * group post names only the members that fail this lookup.
+   * Resolve one member's Registry card without sending, so a collecting
+   * operation refuses an address error before any post.
    */
   readonly lookupMember: (
     member: AgentAddress,
@@ -310,7 +315,6 @@ interface CollectiveState {
 }
 
 const decodeAgentAddress = Schema.decodeUnknownOption(AgentAddress);
-const decodeRequestedSchema = Schema.decodeUnknownOption(RequestedSchema);
 
 const contentInvalid = () => new SendError({ reason: "content-invalid" });
 
@@ -451,13 +455,7 @@ function formModeSchema(
     Effect.mapError((error) =>
       collectiveFailure(id, {
         kind: "schema-invalid",
-        detail: ParseResult.ArrayFormatter.formatErrorSync(error)
-          .map(({ path, message }) =>
-            path.length === 0
-              ? message
-              : `${path.map(String).join(".")}: ${message}`,
-          )
-          .join("; "),
+        detail: describeIssues(error),
       }),
     ),
   );
@@ -700,9 +698,9 @@ function updateGather(
  * ends, abandons the all_gather: the group's GENESIS needs every member. The
  * deadline timer is forked just before the wait starts, so it can complete
  * the all_gather first; its result then stands and the send succeeds, so an
- * operation ends in exactly one refusal or one result. The operation is
- * dropped before its unreachable members are looked up, so a deadline that
- * passes during the lookups cannot close it.
+ * operation ends in exactly one refusal or one result. A group post succeeds
+ * or fails as a whole, so the refusal names every member with its reason;
+ * members whose address resolution fails were refused before the post.
  */
 function sendGroupRequest(
   state: CollectiveState,
@@ -721,17 +719,13 @@ function sendGroupRequest(
           state.gathers.has(prepared.id)
             ? forgetGather(state, prepared.id).pipe(
                 Effect.zipRight(
-                  unreachableMembers(
-                    state,
-                    prepared.open.members,
-                    error.reason,
-                  ),
-                ),
-                Effect.flatMap((members) =>
                   Effect.fail(
                     collectiveFailure(prepared.id, {
                       kind: "members-unreachable",
-                      members,
+                      members: EffectArray.map(
+                        prepared.open.members,
+                        (member) => ({ member, reason: error.reason }),
+                      ),
                     }),
                   ),
                 ),
@@ -740,29 +734,6 @@ function sendGroupRequest(
         ),
       ),
     );
-}
-
-/**
- * The members to name for a refused group post. A group post succeeds or
- * fails as a whole, so each member is looked up on its own: the members whose
- * lookup fails are named with their own reason, and when every lookup
- * succeeds each member is named with the group post's reason.
- */
-function unreachableMembers(
-  state: CollectiveState,
-  members: Members,
-  groupReason: SendError["reason"],
-): Effect.Effect<readonly [RequestRefusal, ...RequestRefusal[]]> {
-  return lookupRefusals(members, state.ports.lookupMember).pipe(
-    Effect.map(([first, ...rest]) =>
-      first === undefined
-        ? EffectArray.map(members, (member) => ({
-            member,
-            reason: groupReason,
-          }))
-        : [first, ...rest],
-    ),
-  );
 }
 
 /** How long a send waits for request posts: the bound, never past the deadline. */
@@ -944,11 +915,8 @@ function responseContent(
   const validated =
     response.action === "accept"
       ? validateAnswer(request.requestedSchema, response.content).pipe(
-          Effect.mapError((error) =>
-            collectiveFailure(response.id, {
-              kind: "answer-invalid",
-              fields: error.failures,
-            }),
+          Effect.mapError((fields) =>
+            collectiveFailure(response.id, { kind: "answer-invalid", fields }),
           ),
         )
       : Effect.void;
@@ -1180,10 +1148,8 @@ function requestItem(
         forgetExpiredRequests(state, now);
         state.requests.set(value.id, received.value);
       }
-      return decodeRequestedSchema(value.requestedSchema).pipe(
-        Option.filter(() => now < value.deadlineAt),
-        Option.map(
-          (requestedSchema): InboundItem => ({
+      return now < value.deadlineAt
+        ? Option.some<InboundItem>({
             kind: "collectiveRequest",
             op: value.op,
             id: value.id,
@@ -1191,11 +1157,10 @@ function requestItem(
             from: message.sender,
             to: received.value.to,
             question: questionText(message.content),
-            requestedSchema,
+            requestedSchema: value.requestedSchema,
             deadlineAt: value.deadlineAt,
-          }),
-        ),
-      );
+          })
+        : Option.none();
     }),
   );
 }
