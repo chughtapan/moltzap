@@ -19,13 +19,14 @@
  *   participant ME as Member endpoint
  *   participant MM as Member host
  *   RM->>RE: send gather to, question, deadline, schema
- *   RE->>RE: validate schema, mint id&lt;br>deadline = now + duration
- *   RE->>ME: one request post per member
- *   alt no request post is accepted
- *     RE-->>RM: error naming each unreachable member
- *   else some request post accepted
+ *   RE->>RE: validate schema, resolve every member&lt;br>refuse an address error before any post
+ *   RE->>RE: mint id&lt;br>deadline = now + duration
+ *   RE->>ME: one request post in each member's direct conversation
+ *   alt every request post is refused
+ *     RE-->>RM: error naming each member and its reason
+ *   else otherwise, after at most 20 s
  *     RE-->>RM: operation id
- *     RE->>RE: record each refused or uncertified member as no-answer
+ *     RE->>RE: a refused member is no-answer&lt;br>a pending one settles later, no-answer at the deadline
  *   end
  *   ME->>MM: collectiveRequest item
  *   MM->>ME: send collectiveResponse to the requester, action, content
@@ -48,9 +49,10 @@
  *   participant ME as Member endpoints
  *   participant MM as Member hosts
  *   RM->>RE: send all_gather to group, question, deadline, schema
- *   RE->>ME: one request post to the group
+ *   RE->>RE: validate schema, resolve every member&lt;br>refuse an address error before any post
+ *   RE->>ME: one request post in the group conversation
  *   alt the group post is refused or not certified in time
- *     RE-->>RM: error naming each unreachable member
+ *     RE-->>RM: error naming every member with the post's reason
  *   else request post certified
  *     RE-->>RM: operation id
  *   end
@@ -61,9 +63,13 @@
  *   ME->>ME: peer response posts, consumed and recorded by record hash
  *   Note over RE: complete when every member has an outcome&lt;br>or at the deadline
  *   RE->>ME: close post listing the counted answers' record hashes
- *   RE->>RM: collectiveResult item once the close is certified
- *   ME->>ME: build the result from exactly the listed answers
- *   ME->>MM: collectiveResult item, the same outcomes
+ *   alt the close is not certified
+ *     RE->>RM: operationFailed item, and members get no result
+ *   else close certified
+ *     RE->>RM: collectiveResult item
+ *     ME->>ME: build the result from exactly the listed answers
+ *     ME->>MM: collectiveResult item, the same outcomes
+ *   end
  * ```
  */
 
