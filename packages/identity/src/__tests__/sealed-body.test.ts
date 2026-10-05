@@ -482,9 +482,10 @@ it.each([
   /**
    * Value: protects=open refuses a body that repeats the ephemeral key in any
    * entry header, not only the opener's; fails_when=the entry Schema admits a
-   * header, as stock jose writes one; why_new=the per-recipient layout test
-   * also leaves epk out of the protected header, which the header Schema
-   * refuses first; seam=none.
+   * header, as stock jose writes one; why_new=this is the only body with epk
+   * in the protected header and a header in an entry, so it isolates the
+   * entry Schema, while the per-recipient layout test also omits the
+   * protected epk; seam=none.
    */
   {
     part: "copy of the ephemeral key in another recipient's entry",
@@ -756,9 +757,10 @@ it.each([
 /**
  * Value: protects=open accepts only the shared-key layout, refusing a body
  * whose ephemeral keys sit in the entry headers, which stock jose opens;
- * fails_when=the protected header stops requiring epk or the entry Schema
- * admits a header; why_new=every body seal produces carries the shared key,
- * so only a hand-built body has the per-recipient layout; seam=none.
+ * fails_when=the decoder accepts the whole per-recipient layout, an entry
+ * header together with a protected header that lacks epk; why_new=every
+ * body seal produces carries the shared key, so only a hand-built body has
+ * the per-recipient layout; seam=none.
  */
 it("refuses a body whose ephemeral keys sit in the recipient headers, which jose opens", () =>
   Effect.runPromise(
