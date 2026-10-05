@@ -1,0 +1,253 @@
+/**
+ * @file The engine's outbox: the only signer of outer envelopes, their
+ * durable staging, and the ordered queue of outbox identities the Router
+ * worker transmits.
+ */
+
+import { SignedMessage } from "@moltzap/identity";
+import { Effect, Queue, Schedule } from "effect";
+import type { DisseminationObligation } from "../../store/index.js";
+import type {
+  EndpointEngineInput,
+  EngineConversation,
+  EngineOutbox,
+} from "./runtime/index.js";
+import {
+  describeRouterWorkerFailure,
+  isTransientRouterWorkerError,
+  routerWorkerReconnectSchedule,
+  type RouterWorkerSendError,
+} from "../router/index.js";
+import {
+  type ActionCertifiedRecord,
+  type CertifiedRecord,
+  type ClientRepresentationError,
+  type ConversationId,
+  type DecodedOuterBody,
+  encodeCanonical,
+  signOuterEvidence,
+  signOuterPacket,
+  type VerifiedMembership,
+} from "../wire/index.js";
+import { SendError } from "./errors.js";
+
+/**
+ * The outbox's mutable state. `queued` holds outbox identities in durable
+ * order, `signal` wakes the outbound loop, and `gate` covers every read and
+ * removal of the queue head.
+ */
+interface OutboxState {
+  readonly input: EndpointEngineInput;
+  readonly queued: string[];
+  readonly signal: Queue.Queue<undefined>;
+  readonly gate: Effect.Semaphore;
+}
+
+/**
+ * Build the outbox of one engine.
+ * @param input Signing identity, durable store, and Router worker.
+ * @param retained Outbox identities the store retains at startup, in durable
+ *   order; when there are any, the outbound loop wakes to send them.
+ * @returns The engine's outbox port.
+ */
+export const makeOutbox = (
+  input: EndpointEngineInput,
+  retained: readonly string[],
+): Effect.Effect<EngineOutbox> =>
+  Effect.gen(function* () {
+    const state: OutboxState = {
+      input,
+      queued: [...retained],
+      signal: yield* Queue.unbounded<undefined>(),
+      gate: yield* Effect.makeSemaphore(1),
+    };
+    if (state.queued.length > 0) {
+      yield* Queue.offer(state.signal, undefined);
+    }
+    return bindOutbox(state);
+  }).pipe(Effect.withSpan("makeOutbox"));
+
+function bindOutbox(state: OutboxState): EngineOutbox {
+  return {
+    sign: (membership, body) => sign(state, membership, body),
+    queuePacket: (conversation, packet) =>
+      queueBody(state, conversation, { kind: "direct", packet }),
+    queueEvidence: (conversation, evidence) =>
+      queueBody(state, conversation, { kind: "evidence", message: evidence }),
+    queueCertifiedPacket: (conversation, packet) =>
+      queueBody(
+        state,
+        conversation,
+        { kind: "direct", packet },
+        disseminationObligation(conversation.conversationId, packet),
+      ),
+    enqueueSigned: (conversationId, message) =>
+      enqueueSigned(state, conversationId, message),
+    resume: (outboundIds) => push(state, outboundIds),
+    clear: () => {
+      state.queued.length = 0;
+    },
+    serialized: (effect) => state.gate.withPermits(1)(effect),
+    drain: drain(state),
+    run: run(state),
+  };
+}
+
+function queueBody(
+  state: OutboxState,
+  conversation: EngineConversation,
+  body: DecodedOuterBody,
+  obligation?: DisseminationObligation,
+): Effect.Effect<void, SendError> {
+  return sign(state, conversation.membership, body).pipe(
+    Effect.mapError(certificationUnavailable),
+    Effect.flatMap((message) =>
+      enqueueSigned(state, conversation.conversationId, message, obligation),
+    ),
+  );
+}
+
+function disseminationObligation(
+  conversationId: ConversationId,
+  packet: ActionCertifiedRecord | CertifiedRecord,
+): DisseminationObligation {
+  return packet.kind === "action_certified_record"
+    ? {
+        conversationId,
+        recordHash: packet.recordHash,
+        kind: "action-certified-record",
+      }
+    : {
+        conversationId,
+        recordHash: packet.actionCertifiedRecord.recordHash,
+        kind: "certified-record",
+      };
+}
+
+function sign(
+  state: OutboxState,
+  membership: VerifiedMembership,
+  body: DecodedOuterBody,
+): Effect.Effect<SignedMessage, ClientRepresentationError> {
+  const signer = {
+    membership,
+    agentCard: state.input.localAgentCard,
+    signingAuthority: state.input.signingAuthority,
+  };
+  return body.kind === "direct"
+    ? signOuterPacket({ ...signer, packet: body.packet })
+    : signOuterEvidence({ ...signer, evidence: body.message });
+}
+
+function enqueueSigned(
+  state: OutboxState,
+  conversationId: ConversationId,
+  message: SignedMessage,
+  obligation?: DisseminationObligation,
+): Effect.Effect<void, SendError> {
+  return encodeCanonical(SignedMessage, message).pipe(
+    Effect.mapError(certificationUnavailable),
+    Effect.flatMap((canonicalSignedMessage) => {
+      const input = {
+        conversationId,
+        messageId: message.messageId,
+        canonicalSignedMessage,
+      };
+      const staged =
+        obligation === undefined
+          ? state.input.store.enqueueOutbound(input)
+          : state.input.store.enqueueDisseminationOutbound(obligation, input);
+      return staged.pipe(Effect.mapError(persistenceFailed));
+    }),
+    Effect.flatMap((outbound) => push(state, [outbound.outboundId])),
+  );
+}
+
+function push(
+  state: OutboxState,
+  outboundIds: Iterable<string>,
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    for (const outboundId of outboundIds) {
+      if (!state.queued.includes(outboundId)) {
+        state.queued.push(outboundId);
+      }
+    }
+  }).pipe(Effect.zipRight(Queue.offer(state.signal, undefined)), Effect.asVoid);
+}
+
+/**
+ * Wake on each signal and drain once the worker is attached. After a
+ * transient worker failure, back off, wait for the worker to re-anchor, and
+ * drain again; recovery may have reset the queue meanwhile, so each attempt
+ * re-reads its head. A fatal failure is logged with its reason before it ends
+ * the daemon.
+ * @param state Outbox whose queued identities the worker sends.
+ * @returns An effect that drains until a fatal worker failure.
+ */
+function run(state: OutboxState): Effect.Effect<never, RouterWorkerSendError> {
+  const drainWhenAttached = state.input.routerWorker.awaitAnchor.pipe(
+    Effect.zipRight(drain(state)),
+    Effect.retry(
+      routerWorkerReconnectSchedule.pipe(
+        Schedule.whileInput(isTransientRouterWorkerError),
+      ),
+    ),
+    Effect.tapError((error) =>
+      Effect.logError(
+        `Outbound drain stopping, daemon exits: ${describeRouterWorkerFailure(error)}`,
+      ),
+    ),
+  );
+  return Queue.take(state.signal).pipe(
+    Effect.zipRight(drainWhenAttached),
+    Effect.forever,
+  );
+}
+
+/**
+ * Send queued outbox identities in order until the queue is empty.
+ *
+ * The gate covers only reading and removing the queue head, never the worker
+ * send. A worker send queues behind a running recovery on the worker's
+ * recovery gate, and may run that recovery on its own fiber after it observes
+ * a Router restart; recovery resumes intents through `serialized`, so holding
+ * the gate across the send would deadlock either way. The worker serializes
+ * transmissions and a sent outbox identity is inactive, so concurrent drains
+ * stay ordered; a drain removes the head only when it is still the identity
+ * that drain sent.
+ * @param state Outbox whose queued identities are sent.
+ * @returns Completion once no queued identity remains.
+ */
+function drain(state: OutboxState): Effect.Effect<void, RouterWorkerSendError> {
+  return Effect.gen(function* () {
+    let outboundId = yield* peek(state);
+    while (outboundId !== undefined) {
+      yield* state.input.routerWorker.send(outboundId);
+      yield* shift(state, outboundId);
+      outboundId = yield* peek(state);
+    }
+  });
+}
+
+function peek(state: OutboxState): Effect.Effect<string | undefined> {
+  return state.gate.withPermits(1)(Effect.sync(() => state.queued[0]));
+}
+
+function shift(state: OutboxState, outboundId: string): Effect.Effect<void> {
+  return state.gate.withPermits(1)(
+    Effect.sync(() => {
+      if (state.queued[0] === outboundId) {
+        state.queued.shift();
+      }
+    }),
+  );
+}
+
+function certificationUnavailable(): SendError {
+  return new SendError({ reason: "certification-unavailable" });
+}
+
+function persistenceFailed(): SendError {
+  return new SendError({ reason: "persistence-failed" });
+}

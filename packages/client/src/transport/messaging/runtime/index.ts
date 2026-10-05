@@ -11,7 +11,7 @@ import type {
   SignedMessage,
   VerifiedAgentCard,
 } from "@moltzap/identity";
-import type { Deferred, Effect, Queue } from "effect";
+import type { Deferred, Effect } from "effect";
 import type { EndpointStore } from "../../../store/index.js";
 import type {
   RouterIngressDisposition,
@@ -26,8 +26,10 @@ import type {
   ActionCore,
   ActionHash,
   CertifiedRecord,
+  ClientRepresentationError,
   ConversationId,
   DecodedOuterBody,
+  DirectPacket,
   PostIntent,
   RecordHash,
   RouterAnchor,
@@ -145,11 +147,51 @@ export interface EngineRuntime {
   readonly completedPosts: Map<string, RecordHash>;
   readonly actionFolds: Map<ActionHash, EngineActionFold>;
   readonly recordFolds: Map<RecordHash, EngineActionFold>;
-  readonly outbound: string[];
-  readonly outboundSignal: Queue.Queue<undefined>;
   readonly gate: Effect.Semaphore;
-  readonly outboundGate: Effect.Semaphore;
+  readonly outbox: EngineOutbox;
   readonly phases: EnginePhases;
+}
+
+/**
+ * The engine's outbox: the only signer of outer envelopes, their durable
+ * staging, and the ordered queue of outbox identities the Router worker
+ * transmits. Engine assembly builds it, and phases reach it only through
+ * `EngineRuntime.outbox`.
+ */
+export interface EngineOutbox {
+  /** Sign an envelope for a caller that routes it, as recovery does. */
+  readonly sign: (
+    membership: VerifiedMembership,
+    body: DecodedOuterBody,
+  ) => Effect.Effect<SignedMessage, ClientRepresentationError>;
+  readonly queuePacket: (
+    conversation: EngineConversation,
+    packet: DirectPacket,
+  ) => Effect.Effect<void, SendError>;
+  /** Relay stable inner evidence; its signer attribution is unchanged. */
+  readonly queueEvidence: (
+    conversation: EngineConversation,
+    evidence: SignedMessage,
+  ) => Effect.Effect<void, SendError>;
+  /** Attach the signed packet to its durable dissemination obligation. */
+  readonly queueCertifiedPacket: (
+    conversation: EngineConversation,
+    packet: ActionCertifiedRecord | CertifiedRecord,
+  ) => Effect.Effect<void, SendError>;
+  readonly enqueueSigned: (
+    conversationId: ConversationId,
+    message: SignedMessage,
+  ) => Effect.Effect<void, SendError>;
+  readonly resume: (outboundIds: readonly string[]) => Effect.Effect<void>;
+  /** Forget every queued identity; the store keeps the envelopes. */
+  readonly clear: () => void;
+  /** Run `effect` while no drain reads or removes the queue head. */
+  readonly serialized: <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E, R>;
+  readonly drain: Effect.Effect<void, RouterWorkerSendError>;
+  /** Drain on every wake; ends only with a fatal worker failure. */
+  readonly run: Effect.Effect<never, RouterWorkerSendError>;
 }
 
 /**
@@ -162,16 +204,6 @@ export interface EnginePhases {
     runtime: EngineRuntime,
     intent: EnginePostIntent,
   ) => Effect.Effect<ActionHash, SendError>;
-  readonly queueCertifiedPacket: (
-    runtime: EngineRuntime,
-    conversation: EngineConversation,
-    packet: ActionCertifiedRecord | CertifiedRecord,
-  ) => Effect.Effect<void, SendError>;
-  readonly queueEvidence: (
-    runtime: EngineRuntime,
-    conversation: EngineConversation,
-    evidence: SignedMessage,
-  ) => Effect.Effect<void, SendError>;
   readonly acceptIngress: (
     runtime: EngineRuntime,
     ingress: RouterWorkerIngress<DecodedOuterBody>,

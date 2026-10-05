@@ -21,3 +21,8 @@ and the dissemination resume), `recovery/` (catch-up), `reanchor/`
 shares with its re-anchor). A phase starts work in another phase only through
 `EngineRuntime.phases`, which `index.ts` supplies, so phases never import each
 other.
+
+`outbox.ts` is the engine's outbox and the only signer of outer envelopes: it
+signs, stages each envelope in the durable outbox, and keeps the ordered queue
+the Router worker transmits. Only `index.ts` imports it; phases reach it
+through `EngineRuntime.outbox`.

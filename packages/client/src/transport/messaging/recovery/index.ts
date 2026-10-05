@@ -53,7 +53,7 @@ import {
   installRecoveryState,
   makeRecoveryState,
   outboundCommitted,
-  queueRecoveryPacket,
+  queueRecoveryEnvelope,
   recoverMemberships,
   requestCertifiedHistory,
 } from "../recovery-session/index.js";
@@ -259,17 +259,9 @@ function resumeRecoveryOutbox(
   runtime: EngineRuntime,
   outbounds: readonly StoredOutboundMessage[],
 ): Effect.Effect<void> {
-  return Effect.sync(() => {
-    for (const outbound of outbounds) {
-      if (!runtime.outbound.includes(outbound.outboundId)) {
-        runtime.outbound.push(outbound.outboundId);
-      }
-    }
-  }).pipe(
-    Effect.zipRight(Queue.offer(runtime.outboundSignal, undefined)),
-    Effect.asVoid,
-    Effect.withSpan("resumeRecoveryOutbox"),
-  );
+  return runtime.outbox
+    .resume(outbounds.map((outbound) => outbound.outboundId))
+    .pipe(Effect.withSpan("resumeRecoveryOutbox"));
 }
 
 /**
@@ -507,11 +499,14 @@ function sendCatchUpIncomplete(
       hash: null,
       hasMore: false,
     });
-    yield* queueRecoveryPacket(runtime, membership, {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "catch_up_incomplete",
-      request,
-      attestation,
+    yield* queueRecoveryEnvelope(runtime, membership, {
+      kind: "direct",
+      packet: {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "catch_up_incomplete",
+        request,
+        attestation,
+      },
     });
   });
 }
@@ -532,13 +527,16 @@ function sendCatchUpPage(
       hash,
       hasMore: successor.hasMore,
     });
-    yield* queueRecoveryPacket(runtime, membership, {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "catch_up_page",
-      request,
-      item: successor.item,
-      hasMore: successor.hasMore,
-      attestation,
+    yield* queueRecoveryEnvelope(runtime, membership, {
+      kind: "direct",
+      packet: {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "catch_up_page",
+        request,
+        item: successor.item,
+        hasMore: successor.hasMore,
+        attestation,
+      },
     });
   });
 }
@@ -874,7 +872,7 @@ function resumePendingIntents(
   runtime: EngineRuntime,
   state: ActiveRecoveryState,
 ): Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError> {
-  return runtime.outboundGate.withPermits(1)(
+  return runtime.outbox.serialized(
     resetReanchoredIntents(runtime, state.reanchoring).pipe(
       Effect.zipRight(resumeUncompletedIntents(runtime)),
     ),

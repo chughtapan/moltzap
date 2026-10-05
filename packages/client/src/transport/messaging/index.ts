@@ -4,34 +4,22 @@
  */
 
 import { AgentCard, AgentSigningAuthority } from "@moltzap/identity";
-import {
-  Data,
-  Deferred,
-  Duration,
-  Effect,
-  Queue,
-  Schedule,
-  Schema,
-  type Scope,
-} from "effect";
+import { Data, Deferred, Duration, Effect, Schema, type Scope } from "effect";
 import type { DeliveryToken, EndpointStoreError } from "../../store/index.js";
+import type {
+  RouterDiscontinuityReason,
+  RouterIngressDisposition,
+  RouterWorkerIngress,
+  RouterWorkerPersistenceError,
+  RouterWorkerRecovery,
+  RouterWorkerRecoveryError,
+  RouterWorkerSendError,
+} from "../router/index.js";
 import type {
   EndpointEngineInput,
   EnginePhases,
   EngineRuntime,
 } from "./runtime/index.js";
-import {
-  describeRouterWorkerFailure,
-  isTransientRouterWorkerError,
-  type RouterDiscontinuityReason,
-  type RouterIngressDisposition,
-  type RouterWorkerIngress,
-  type RouterWorkerPersistenceError,
-  routerWorkerReconnectSchedule,
-  type RouterWorkerRecovery,
-  type RouterWorkerRecoveryError,
-  type RouterWorkerSendError,
-} from "../router/index.js";
 import {
   type ClientRepresentationError,
   decodeCanonical,
@@ -49,6 +37,7 @@ import {
 } from "./certification/index.js";
 import { DeliveryAcknowledgeError, ListenError, SendError } from "./errors.js";
 import { InboundMessage } from "./message.js";
+import { makeOutbox } from "./outbox.js";
 import { installRecoveryBarrier } from "./recovery/barrier.js";
 import {
   acceptEngineIngressWithRecovery,
@@ -61,8 +50,6 @@ import {
   type EngineSentPost,
   prepareSend,
   proposeIntent,
-  queueCertifiedPacket,
-  queueEvidence,
   resolveAddress,
 } from "./send.js";
 
@@ -331,56 +318,13 @@ function resumeFoldFailure(): EngineInitializationError {
  */
 const LOCAL_DRAIN_TIMEOUT = Duration.seconds(10);
 
-const peekOutbound = (
-  runtime: EngineRuntime,
-): Effect.Effect<string | undefined> =>
-  runtime.outboundGate.withPermits(1)(Effect.sync(() => runtime.outbound[0]));
-
-const shiftOutbound = (
-  runtime: EngineRuntime,
-  outboundId: string,
-): Effect.Effect<void> =>
-  runtime.outboundGate.withPermits(1)(
-    Effect.sync(() => {
-      if (runtime.outbound[0] === outboundId) {
-        runtime.outbound.shift();
-      }
-    }),
-  );
-
-/**
- * Send queued outbox identities in order until the queue is empty.
- *
- * The outbound gate covers only reading and removing the queue head, never the
- * worker send. A worker send queues behind a running recovery on the worker's
- * recovery gate, and may run that recovery on its own fiber after it observes
- * a Router restart; recovery takes the outbound gate to resume intents, so
- * holding the gate across the send would deadlock either way. The worker
- * serializes transmissions and a sent outbox identity is inactive, so
- * concurrent drains stay ordered; a drain removes the head only when it is
- * still the identity that drain sent.
- * @param runtime Engine whose queued outbox identities are sent.
- * @returns Completion once no queued identity remains.
- */
-const drainOutbound = (
-  runtime: EngineRuntime,
-): Effect.Effect<void, RouterWorkerSendError> =>
-  Effect.gen(function* () {
-    let outboundId = yield* peekOutbound(runtime);
-    while (outboundId !== undefined) {
-      yield* runtime.input.routerWorker.send(outboundId);
-      yield* shiftOutbound(runtime, outboundId);
-      outboundId = yield* peekOutbound(runtime);
-    }
-  });
-
 const send = (
   runtime: EngineRuntime,
   input: EngineSendInput,
 ): Effect.Effect<EngineSentPost, SendError> =>
   Effect.gen(function* () {
     const prepared = yield* prepareSend(runtime, input);
-    yield* drainOutbound(runtime).pipe(
+    yield* runtime.outbox.drain.pipe(
       Effect.mapError((error) => outboundSendFailure(outboundFailure(error))),
       Effect.timeoutFail({
         duration: LOCAL_DRAIN_TIMEOUT,
@@ -390,40 +334,6 @@ const send = (
     const recordHash = yield* Deferred.await(prepared.completion);
     return { postId: prepared.postId, recordHash };
   }).pipe(Effect.withSpan("EndpointEngine.send"));
-
-/**
- * Drain once the worker is attached, and after a transient worker failure
- * back off, wait for the worker to re-anchor, and drain again. Recovery may
- * have reset the queue meanwhile, so each attempt re-reads its head. A fatal
- * failure is logged with its reason before it ends the daemon.
- * @param runtime The engine whose outbound queue the worker drains.
- * @returns An effect that drains until a fatal worker failure.
- */
-const drainWhenAttached = (
-  runtime: EngineRuntime,
-): Effect.Effect<void, EngineOutboundError> =>
-  runtime.input.routerWorker.awaitAnchor.pipe(
-    Effect.zipRight(drainOutbound(runtime)),
-    Effect.retry(
-      routerWorkerReconnectSchedule.pipe(
-        Schedule.whileInput(isTransientRouterWorkerError),
-      ),
-    ),
-    Effect.tapError((error) =>
-      Effect.logError(
-        `Outbound drain stopping, daemon exits: ${describeRouterWorkerFailure(error)}`,
-      ),
-    ),
-    Effect.mapError(outboundFailure),
-  );
-
-const runOutbound = (
-  runtime: EngineRuntime,
-): Effect.Effect<never, EngineOutboundError> =>
-  Queue.take(runtime.outboundSignal).pipe(
-    Effect.zipRight(drainWhenAttached(runtime)),
-    Effect.forever,
-  );
 
 const readPendingMessages = (
   runtime: EngineRuntime,
@@ -482,8 +392,6 @@ const bindLocalIdentity = (
 /** Each engine phase that another phase starts, bound once for every runtime. */
 const enginePhases: EnginePhases = {
   proposeIntent,
-  queueCertifiedPacket,
-  queueEvidence,
   acceptIngress: acceptEngineIngress,
   acceptRecoveryIngress: acceptEngineRecoveryIngress,
   resumeFolds: resumeEngineFolds,
@@ -495,13 +403,6 @@ const makeRuntime = (
   recovered: Effect.Effect.Success<ReturnType<typeof recoverEngineState>>,
 ): Effect.Effect<EngineRuntime> =>
   Effect.gen(function* () {
-    const outbound = recovered.outboundMessages.map(
-      (message) => message.outboundId,
-    );
-    const outboundSignal = yield* Queue.unbounded<undefined>();
-    if (outbound.length > 0) {
-      yield* Queue.offer(outboundSignal, undefined);
-    }
     return {
       input,
       conversations: recovered.conversations,
@@ -509,10 +410,11 @@ const makeRuntime = (
       completedPosts: recovered.completedPosts,
       actionFolds: recovered.actionFolds,
       recordFolds: recovered.recordFolds,
-      outbound,
-      outboundSignal,
       gate: yield* Effect.makeSemaphore(1),
-      outboundGate: yield* Effect.makeSemaphore(1),
+      outbox: yield* makeOutbox(
+        input,
+        recovered.outboundMessages.map((message) => message.outboundId),
+      ),
       phases: enginePhases,
     };
   });
@@ -592,7 +494,7 @@ const abandonVolatileFolds = (
       Effect.gen(function* () {
         yield* installRecoveryBarrier(runtime);
         yield* Effect.sync(() => {
-          runtime.outbound.length = 0;
+          runtime.outbox.clear();
           if (reason !== "router_restarted") {
             return;
           }
@@ -624,10 +526,8 @@ const endpointEngine = (runtime: EngineRuntime): EndpointEngine =>
     recoverCertifiedHistory: (
       recovery: Parameters<EndpointEngine["recoverCertifiedHistory"]>[0],
     ) => recoverCertifiedHistory(runtime, recovery),
-    drainOutbound: drainOutbound(runtime).pipe(
-      Effect.mapError(outboundFailure),
-    ),
-    runOutbound: runOutbound(runtime),
+    drainOutbound: runtime.outbox.drain.pipe(Effect.mapError(outboundFailure)),
+    runOutbound: runtime.outbox.run.pipe(Effect.mapError(outboundFailure)),
     abandonVolatileFolds: (
       reason: Parameters<EndpointEngine["abandonVolatileFolds"]>[0],
     ) => abandonVolatileFolds(runtime, reason),

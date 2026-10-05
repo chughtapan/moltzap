@@ -3,7 +3,6 @@
 import {
   type AgentId,
   MOLTZAP_VERSION,
-  SignedMessage,
   type SignedMessage as SignedMessageValue,
 } from "@moltzap/identity";
 import { Deferred, Effect, Queue, Schema } from "effect";
@@ -22,15 +21,12 @@ import {
   type CatchUpRequest as CatchUpRequestValue,
   type ConversationId as ConversationIdValue,
   decodeCanonical,
-  type DirectPacket,
-  encodeCanonical,
+  type DecodedOuterBody,
   memberCard,
   MembershipDescriptor,
   type ReanchorVoteStatement as ReanchorVoteStatementValue,
   RecordHash,
   type RecordHash as RecordHashValue,
-  signOuterEvidence,
-  signOuterPacket,
   type VerifiedMembership,
   verifyMembershipDescriptor,
 } from "../../wire/index.js";
@@ -119,52 +115,26 @@ export const requestCertifiedHistory = (
       state.pendingRequests.set(conversationId, request);
       state.incompleteResponders.set(conversationId, new Set<AgentId>());
     });
-    yield* queueRecoveryPacket(runtime, membership, request);
+    yield* queueRecoveryEnvelope(runtime, membership, {
+      kind: "direct",
+      packet: request,
+    });
   }).pipe(Effect.withSpan("requestCertifiedHistory"));
 
 /**
- * Queue one signed recovery packet for all fixed members.
- * @param runtime Engine whose recovery queue owns the packet.
+ * Sign one outer envelope through the outbox, then route it: to the active
+ * run's queue while a recovery runs, otherwise to the durable outbox.
+ * @param runtime Engine whose outbox signs the envelope.
  * @param membership Verified fixed membership for the outer envelope.
- * @param packet Closed recovery packet to route.
- * @returns Completion after the outer envelope enters the durable queue.
+ * @param body Recovery packet or relayed evidence the envelope carries.
+ * @returns Completion after the envelope is routed.
  */
-export function queueRecoveryPacket(
+export function queueRecoveryEnvelope(
   runtime: EngineRuntime,
   membership: VerifiedMembership,
-  packet: DirectPacket,
+  body: DecodedOuterBody,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
-  return signOuterPacket({
-    packet,
-    membership,
-    agentCard: runtime.input.localAgentCard,
-    signingAuthority: runtime.input.signingAuthority,
-  }).pipe(
-    Effect.mapError(persistenceFailure),
-    Effect.flatMap((message) =>
-      enqueueOuter(runtime, membership.descriptor.conversationId, message),
-    ),
-  );
-}
-
-/**
- * Queue one stable inner evidence message for all fixed members.
- * @param runtime Engine whose recovery queue owns the evidence.
- * @param membership Verified fixed membership for the outer envelope.
- * @param evidence Stable self-addressed evidence to relay.
- * @returns Completion after the outer envelope enters the durable queue.
- */
-export function queueRecoveryEvidence(
-  runtime: EngineRuntime,
-  membership: VerifiedMembership,
-  evidence: SignedMessageValue,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
-  return signOuterEvidence({
-    evidence,
-    membership,
-    agentCard: runtime.input.localAgentCard,
-    signingAuthority: runtime.input.signingAuthority,
-  }).pipe(
+  return runtime.outbox.sign(membership, body).pipe(
     Effect.mapError(persistenceFailure),
     Effect.flatMap((message) =>
       enqueueOuter(runtime, membership.descriptor.conversationId, message),
@@ -381,26 +351,9 @@ function enqueueOuter(
       Effect.asVoid,
     );
   }
-  return encodeCanonical(SignedMessage, message).pipe(
-    Effect.mapError(persistenceFailure),
-    Effect.flatMap((canonicalSignedMessage) =>
-      runtime.input.store.enqueueOutbound({
-        conversationId,
-        messageId: message.messageId,
-        canonicalSignedMessage,
-      }),
-    ),
-    Effect.mapError(persistenceFailure),
-    Effect.flatMap((outbound) =>
-      Effect.sync(() => {
-        if (!runtime.outbound.includes(outbound.outboundId)) {
-          runtime.outbound.push(outbound.outboundId);
-        }
-      }),
-    ),
-    Effect.zipRight(runtime.outboundSignal.offer(undefined)),
-    Effect.asVoid,
-  );
+  return runtime.outbox
+    .enqueueSigned(conversationId, message)
+    .pipe(Effect.mapError(persistenceFailure));
 }
 
 function makeCatchUpRequest(
