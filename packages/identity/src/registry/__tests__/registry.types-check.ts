@@ -5,7 +5,7 @@
  */
 
 import type { HttpClient } from "@effect/platform";
-import type { Duration, Effect, Layer, Redacted } from "effect";
+import type { Duration, Effect, Layer, Redacted, Types } from "effect";
 import type {
   AgentSigningAuthority,
   AgentSigningError,
@@ -35,18 +35,6 @@ import type {
 } from "../../registry.js";
 import type * as RegistryServer from "../server.js";
 
-/* eslint-disable @typescript-eslint/no-unnecessary-type-parameters -- `Probe` stays generic so TypeScript compares the two deferred conditional types by identity. */
-/**
- * True only when the two types are identical, so an added optional property
- * or a dropped `readonly` modifier fails the canary.
- */
-type Equal<Left, Right> =
-  (<Probe>() => Probe extends Left ? 1 : 2) extends <
-    Probe,
-  >() => Probe extends Right ? 1 : 2
-    ? true
-    : false;
-/* eslint-enable @typescript-eslint/no-unnecessary-type-parameters -- Restore repository defaults after the identity helper. */
 type Expect<Value extends true> = Value;
 
 type RegistryClientFailure =
@@ -79,34 +67,34 @@ type RegistryLayer = ReturnType<typeof Registry.layer>;
 type ServerLayer = typeof RegistryServer.layer;
 
 type RegisterInputIsExact = Expect<
-  Equal<Parameters<typeof Registry.register>[0], RegisterCall>
+  Types.Equals<Parameters<typeof Registry.register>[0], RegisterCall>
 >;
 type RegisterChannelsAreExact = Expect<
-  Equal<
+  Types.Equals<
     RegisterEffect,
     Effect.Effect<RegistryRegisterResult, RegisterFailure, Registry>
   >
 >;
 type LookupChannelsAreExact = Expect<
-  Equal<
+  Types.Equals<
     LookupEffect,
     Effect.Effect<RegistryLookupResult, RegistryClientFailure, Registry>
   >
 >;
 type LookupInputIsExact = Expect<
-  Equal<Parameters<typeof Registry.lookup>[0], RegistryLookupRequest>
+  Types.Equals<Parameters<typeof Registry.lookup>[0], RegistryLookupRequest>
 >;
 type ListChannelsAreExact = Expect<
-  Equal<
+  Types.Equals<
     ListEffect,
     Effect.Effect<RegistryListResult, RegistryClientFailure, Registry>
   >
 >;
 type ListInputIsExact = Expect<
-  Equal<Parameters<typeof Registry.list>[0], RegistryListRequest>
+  Types.Equals<Parameters<typeof Registry.list>[0], RegistryListRequest>
 >;
 type RegistryLayerInputIsExact = Expect<
-  Equal<
+  Types.Equals<
     Parameters<typeof Registry.layer>[0],
     Readonly<{
       origin: URL;
@@ -116,10 +104,13 @@ type RegistryLayerInputIsExact = Expect<
   >
 >;
 type RegistryLayerIsExact = Expect<
-  Equal<RegistryLayer, Layer.Layer<Registry, never, HttpClient.HttpClient>>
+  Types.Equals<
+    RegistryLayer,
+    Layer.Layer<Registry, never, HttpClient.HttpClient>
+  >
 >;
 type ServerLayerIsExact = Expect<
-  Equal<ServerLayer, Layer.Layer<never, RegistryServer.StartupError>>
+  Types.Equals<ServerLayer, Layer.Layer<never, RegistryServer.StartupError>>
 >;
 
 /** Compile-time evidence for the public Registry capability. */

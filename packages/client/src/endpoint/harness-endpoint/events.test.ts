@@ -10,6 +10,7 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   Deferred,
+  Duration,
   Effect,
   Fiber,
   Stream,
@@ -17,7 +18,7 @@ import {
   TestContext,
 } from "effect";
 import { describe, expect, it } from "vitest";
-import { acquireHarnessMcpHttpServer } from "../mcp/http.js";
+import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
 import { INBOX_PENDING_EVENT } from "../mcp/names.js";
 import { inboxWakeups } from "./events.js";
 import { acquireHarnessEndpoint } from "./index.js";
@@ -79,15 +80,11 @@ const streamServer = (
     { legacy: "reject", responseMode: "auto" },
   );
 
-const endpointFor = (handler: ReturnType<typeof createMcpHandler>) =>
-  acquireHarnessMcpHttpServer({ port: 0, handler }).pipe(
-    Effect.flatMap((server) => {
-      const address = server.address();
-      return address === null || typeof address === "string"
-        ? Effect.dieMessage("Expected TCP listener")
-        : Effect.succeed(new URL(`http://127.0.0.1:${address.port}/mcp`));
-    }),
-  );
+/**
+ * How long a wakeup stream waits for its initial headers before it fails,
+ * mirroring the inline 60-second bound in `events.ts → open`.
+ */
+const INITIAL_HEADERS_BOUND = Duration.seconds(60);
 
 const boundsInitialHeaders = () =>
   Effect.runPromise(
@@ -100,14 +97,16 @@ const boundsInitialHeaders = () =>
             Effect.zipRight(Effect.never),
           ),
         );
-        const endpoint = yield* endpointFor(handler);
+        const endpoint = yield* loopbackMcpEndpoint(handler);
         const reader = yield* inboxWakeups(endpoint).pipe(
           Stream.runDrain,
           Effect.flip,
           Effect.forkScoped,
         );
         yield* Deferred.await(entered);
-        yield* TestClock.adjust("61 seconds");
+        yield* TestClock.adjust(
+          Duration.sum(INITIAL_HEADERS_BOUND, Duration.seconds(1)),
+        );
         expect((yield* Fiber.join(reader)).reason).toBe("transport-failed");
         expect(requests).toEqual([
           expect.objectContaining({ name: INBOX_PENDING_EVENT }),
@@ -141,7 +140,7 @@ const classifiesCatalogFailure = (code: number, reason: string) =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const endpoint = yield* endpointFor(failingCatalogServer(code));
+        const endpoint = yield* loopbackMcpEndpoint(failingCatalogServer(code));
 
         const error = yield* acquireHarnessEndpoint(endpoint).pipe(Effect.flip);
 
@@ -194,7 +193,7 @@ const continuesAfterRecoverableErrors = () =>
         const handler = streamServer(requests, (context) =>
           sendFrames(context, receipts),
         );
-        const endpoint = yield* endpointFor(handler);
+        const endpoint = yield* loopbackMcpEndpoint(handler);
         const failure = yield* inboxWakeups(endpoint).pipe(
           Stream.tap(() => {
             const receipt = receipts[received++];

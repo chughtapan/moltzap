@@ -1,5 +1,6 @@
 /** @file A daemon runtime harness over fake engine, worker, store and Registry and Router services, for lifecycle tests. */
 
+import { NodeFileSystem } from "@effect/platform-node";
 import {
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
@@ -10,6 +11,7 @@ import { Router } from "@moltzap/router";
 import { type Context, Deferred, Effect } from "effect";
 import type { EventStore } from "../delivery/operations.js";
 import type { Fixture } from "./daemon-runtime-fixtures.js";
+import { makeHistoryExport } from "../delivery/history-export.js";
 import { INBOX_PENDING_EVENT } from "../endpoint/mcp/names.js";
 import {
   type HarnessMcpEventHandler,
@@ -54,6 +56,15 @@ export function requireHandler(
     throw new Error("missing composed MCP handler");
   }
   return handler;
+}
+
+/** The event store the daemon gave its MCP handler; throws before installation. */
+export function requireEventStore(harness: RuntimeHarness): EventStore {
+  const eventStore = harness.getEventStore();
+  if (eventStore === undefined) {
+    throw new Error("missing composed event store");
+  }
+  return eventStore;
 }
 
 /** The MCP operations the daemon installed; throws before installation. */
@@ -135,9 +146,6 @@ export interface RuntimeHarness {
 }
 
 type BackgroundFailure = "none" | "outbound" | "worker";
-
-/** The history export path the harness configures. */
-export const EXPORT_PATH = "/var/run/moltzap/history.ndjson";
 
 const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
   left.length === right.length &&
@@ -277,12 +285,21 @@ const closeHandler = (handler: HarnessMcpEventHandler) =>
     catch: () => new Error("failed to close test MCP handler"),
   }).pipe(Effect.ignore);
 
-/** A history export that keeps only the path it was opened at. */
-const pathOnlyExport = (observations: HarnessObservations, path: string) =>
+/**
+ * The production history export, opened at the configured path. The harness
+ * notes the path so a test can tell whether the daemon opened an export.
+ */
+const observedHistoryExport = (
+  observations: HarnessObservations,
+  path: string,
+) =>
   Effect.sync(() => {
     observations.historyExportPath = path;
-    return { record: () => Effect.void };
-  });
+  }).pipe(
+    Effect.zipRight(
+      makeHistoryExport(path).pipe(Effect.provide(NodeFileSystem.layer)),
+    ),
+  );
 
 function makeRuntimeDependencies(
   input: RuntimeDependenciesInput,
@@ -315,7 +332,8 @@ function makeRuntimeDependencies(
         ),
         () => closeHandler(handler),
       ).pipe(Effect.asVoid),
-    makeHistoryExport: (path) => pathOnlyExport(input.observations, path),
+    makeHistoryExport: (path) =>
+      observedHistoryExport(input.observations, path),
   };
 }
 

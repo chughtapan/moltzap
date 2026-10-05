@@ -2,6 +2,7 @@
 
 import { Either, Encoding, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { digest } from "./__tests__/agent-card-fixtures.js";
 import {
   AgentAddress,
   Content,
@@ -71,9 +72,7 @@ const postHash = (byteLength: number) =>
 // @agent-code-guard/regression-only: Identifier schemas pin the closed durable send grammar.
 describe("public post identifiers", () => {
   it("accepts the exact post identifier grammar", () => {
-    const postId = `pst_${Encoding.encodeBase64Url(
-      new Uint8Array(32).fill(7),
-    )}`;
+    const postId = digest("pst_", 7);
 
     expect(Schema.decodeUnknownSync(PostId)(postId)).toBe(postId);
   });
@@ -185,7 +184,7 @@ describe("public send input", () => {
   });
 });
 
-const collectiveId = `col_${Encoding.encodeBase64Url(new Uint8Array(32).fill(3))}`;
+const collectiveId = digest("col_", 3);
 const slotSchema = {
   type: "object",
   properties: { slot: { type: "string", enum: ["mon", "tue"] } },

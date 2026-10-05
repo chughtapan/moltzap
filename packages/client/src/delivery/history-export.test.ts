@@ -2,9 +2,10 @@
 
 import { FileSystem, Error as PlatformError } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { DateTime, Effect, Encoding, Schema } from "effect";
+import { DateTime, Effect, Schema } from "effect";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { digest } from "../__tests__/agent-card-fixtures.js";
 import { SendInput } from "../transport/collectives/forms.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
 import { PostId } from "../transport/wire/index.js";
@@ -15,9 +16,7 @@ import { HistoryExportRecord, makeHistoryExport } from "./history-export.js";
 const decodeLine = Schema.decodeUnknownSync(
   Schema.parseJson(HistoryExportRecord),
 );
-const POST_ID = Schema.decodeUnknownSync(PostId)(
-  `pst_${Encoding.encodeBase64Url(new Uint8Array(32).fill(5))}`,
-);
+const POST_ID = Schema.decodeUnknownSync(PostId)(digest("pst_", 5));
 const AT = DateTime.unsafeMake("2026-09-01T12:00:00.000Z");
 const NO_SPACE = "ENOSPC: no space left on device";
 
