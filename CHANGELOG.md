@@ -15,8 +15,10 @@ heading below in its release commit.
 - `@moltzap/identity` exports `SealedBody`, which encrypts a SignedMessage body
   to its recipients' AgentCard keys and opens a verified sealed body. Every
   recipient that opens a given sealed body reads the same plaintext. The body
-  names its sender, so another member cannot re-sign it as their own, and a
-  retry under a new MessageId still opens. A body can still open for some
+  names its sender, so a member cannot present another member's sealed bytes
+  under its own signature, and a retry under a new MessageId still opens. A
+  recipient that reads a body can still seal the same plaintext again as its
+  own. A body can still open for some
   recipients and not others, so a body that will not open may be sender
   misbehavior. Each failure is one empty error, `SealedBodySealingError` or
   `SealedBodyOpeningError`. `SealedBody.sealedByteLength` and
