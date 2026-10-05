@@ -105,18 +105,23 @@ export function canonicalMessageAddress(
 
 /**
  * Render a fixed membership's group address: every member's Registry name,
- * the local agent's included, in unsigned ASCII order.
+ * the local agent's included, in unsigned ASCII order. This is the one place
+ * that orders a group's names, so the names it returns list the members in
+ * the address's order.
  * @param names The members' names, in any order.
- * @returns The canonical group address, or the parse error when the names
- *   cannot form one.
+ * @returns The canonical group address and the names in its order, or the
+ *   parse error when the names cannot form one.
  */
-export function renderGroupAddress(
-  names: readonly string[],
-): Effect.Effect<GroupAddress, ParseResult.ParseError> {
+export function renderGroupAddress<Name extends string>(
+  names: readonly Name[],
+): Effect.Effect<
+  { readonly address: GroupAddress; readonly names: readonly Name[] },
+  ParseResult.ParseError
+> {
   const ordered = [...names].sort(compareAscii);
   return Schema.decodeUnknown(GroupAddress)(
     `${GROUP_ADDRESS_PREFIX}${ordered.join(",")}`,
-  );
+  ).pipe(Effect.map((address) => ({ address, names: ordered })));
 }
 
 function invalidAddress(): SendError {
@@ -227,11 +232,10 @@ function canonicalGroup(
         `a group has at most ${String(maximumMembers)} members`,
       );
     }
-    memberNames.sort(compareAscii);
-    const address = yield* renderGroupAddress(memberNames).pipe(
+    const group = yield* renderGroupAddress(memberNames).pipe(
       Effect.mapError(invalidAddress),
     );
-    return { kind: "group", address, memberNames };
+    return { kind: "group", address: group.address, memberNames: group.names };
   });
 }
 

@@ -1,8 +1,4 @@
-/**
- * @file The engine's outbox: the only signer of outer envelopes, their
- * durable staging, and the ordered queue of outbox identities the Router
- * worker transmits.
- */
+/** @file Builds the engine's `EngineOutbox`, the port the kernel declares. */
 
 import { SignedMessage } from "@moltzap/identity";
 import { Effect, Queue, Schedule } from "effect";
@@ -11,6 +7,7 @@ import type {
   EndpointEngineInput,
   EngineConversation,
   EngineOutbox,
+  EngineOutboxError,
 } from "./runtime/index.js";
 import {
   describeRouterWorkerFailure,
@@ -29,12 +26,12 @@ import {
   signOuterPacket,
   type VerifiedMembership,
 } from "../wire/index.js";
-import { SendError } from "./errors.js";
 
 /**
  * The outbox's mutable state. `queued` holds outbox identities in durable
- * order, `signal` wakes the outbound loop, and `gate` covers every read and
- * removal of the queue head.
+ * order and `signal` wakes the outbound loop. `gate` orders a drain's reads
+ * and removals of the queue head against `serialized` callers; `push` and
+ * `clear` change the queue in one synchronous step without it.
  */
 interface OutboxState {
   readonly input: EndpointEngineInput;
@@ -87,7 +84,7 @@ function bindOutbox(state: OutboxState): EngineOutbox {
     clear: () => {
       state.queued.length = 0;
     },
-    serialized: (effect) => state.gate.withPermits(1)(effect),
+    serialized: state.gate.withPermits(1),
     drain: drain(state),
     run: run(state),
   };
@@ -98,9 +95,8 @@ function queueBody(
   conversation: EngineConversation,
   body: DecodedOuterBody,
   obligation?: DisseminationObligation,
-): Effect.Effect<void, SendError> {
+): Effect.Effect<void, EngineOutboxError> {
   return sign(state, conversation.membership, body).pipe(
-    Effect.mapError(certificationUnavailable),
     Effect.flatMap((message) =>
       enqueueSigned(state, conversation.conversationId, message, obligation),
     ),
@@ -144,20 +140,17 @@ function enqueueSigned(
   conversationId: ConversationId,
   message: SignedMessage,
   obligation?: DisseminationObligation,
-): Effect.Effect<void, SendError> {
+): Effect.Effect<void, EngineOutboxError> {
   return encodeCanonical(SignedMessage, message).pipe(
-    Effect.mapError(certificationUnavailable),
     Effect.flatMap((canonicalSignedMessage) => {
       const input = {
         conversationId,
         messageId: message.messageId,
         canonicalSignedMessage,
       };
-      const staged =
-        obligation === undefined
-          ? state.input.store.enqueueOutbound(input)
-          : state.input.store.enqueueDisseminationOutbound(obligation, input);
-      return staged.pipe(Effect.mapError(persistenceFailed));
+      return obligation === undefined
+        ? state.input.store.enqueueOutbound(input)
+        : state.input.store.enqueueDisseminationOutbound(obligation, input);
     }),
     Effect.flatMap((outbound) => push(state, [outbound.outboundId])),
   );
@@ -242,12 +235,4 @@ function shift(state: OutboxState, outboundId: string): Effect.Effect<void> {
       }
     }),
   );
-}
-
-function certificationUnavailable(): SendError {
-  return new SendError({ reason: "certification-unavailable" });
-}
-
-function persistenceFailed(): SendError {
-  return new SendError({ reason: "persistence-failed" });
 }
