@@ -1,4 +1,8 @@
-/** @file Private addressed-message engine contracts for daemon composition. */
+/**
+ * @file The engine kernel: the dependencies one endpoint engine is built
+ * from and the state every phase reads. It holds no phase logic, so every
+ * phase can depend on it without depending on another phase.
+ */
 
 import type {
   AgentId,
@@ -7,90 +11,40 @@ import type {
   SignedMessage,
   VerifiedAgentCard,
 } from "@moltzap/identity";
-import type { Registry } from "@moltzap/identity/registry";
-import {
-  type Context,
-  Data,
-  type Deferred,
-  type Effect,
-  type Queue,
-  type SubscriptionRef,
-} from "effect";
-import type { DeliveryToken, EndpointStore } from "../../../store/index.js";
+import type { Deferred, Effect } from "effect";
 import type {
-  RouterDiscontinuityReason,
+  EndpointStore,
+  EndpointStoreError,
+} from "../../../store/index.js";
+import type {
   RouterIngressDisposition,
-  RouterTailAnchor,
+  RouterWorker,
   RouterWorkerIngress,
   RouterWorkerPersistenceError,
-  RouterWorkerRecovery,
-  RouterWorkerRecoveryError,
   RouterWorkerSendError,
-  RouterWorkerUnavailableError,
 } from "../../router/index.js";
 import type {
   ActionCertifiedRecord,
   ActionCore,
   ActionHash,
   CertifiedRecord,
-  Content,
+  ClientRepresentationError,
   ConversationId,
   DecodedOuterBody,
-  PostId,
+  DirectPacket,
   PostIntent,
   RecordHash,
   RouterAnchor,
   VerifiedMembership,
 } from "../../wire/index.js";
-import type { MessageAddressInput } from "../../wire/values.js";
-import type {
-  DeliveryAcknowledgeError,
-  ListenError,
-  SendError,
-} from "../errors.js";
-import type { InboundMessage } from "../message.js";
-
-/** Engine acquisition could not establish one coherent durable endpoint. */
-export class EngineInitializationError extends Data.TaggedError(
-  "EngineInitializationError",
-)<{
-  readonly reason: "identity" | "persistence" | "representation";
-}> {}
-
-/** Sending queued protocol traffic could not complete safely. */
-export class EngineOutboundError extends Data.TaggedError(
-  "EngineOutboundError",
-)<{
-  readonly reason: "network" | "persistence" | "representation" | "version";
-}> {}
-
-/**
- * One durable delivery decoded for the daemon's sole subscriber. `message` is
- * the certified post with its complete content, collective part included; the
- * daemon's classifier turns it into the item the subscriber receives.
- * `recordHash` names the certified record the delivery derives from; it stays
- * inside the daemon and never reaches the MCP event.
- */
-export interface EnginePendingMessage {
-  readonly deliveryToken: DeliveryToken;
-  readonly recordHash: RecordHash;
-  readonly message: InboundMessage;
-}
-
-/** Minimal Registry capability used to resolve immutable peer cards. */
-type EngineRegistryPort = Pick<Context.Tag.Service<typeof Registry>, "lookup">;
+import type { AddressRegistryPort } from "../address.js";
+import type { SendError } from "../errors.js";
 
 /** RouterWorker operations consumed by the engine's outbound queue. */
-interface EngineRouterPort {
-  readonly currentAnchor: Effect.Effect<
-    RouterTailAnchor,
-    RouterWorkerUnavailableError
-  >;
-  readonly awaitAnchor: Effect.Effect<RouterTailAnchor>;
-  readonly send: (
-    outboundId: string,
-  ) => Effect.Effect<void, RouterWorkerSendError>;
-}
+type EngineRouterPort = Pick<
+  RouterWorker,
+  "currentAnchor" | "awaitAnchor" | "send"
+>;
 
 /** Closed result of the endpoint's local action-signing policy. */
 export type EngineActionPolicyDecision = "sign" | "refuse";
@@ -106,68 +60,15 @@ export type EngineActionPolicy = (
   input: EngineActionPolicyInput,
 ) => Effect.Effect<EngineActionPolicyDecision>;
 
-/**
- * One post the engine certifies: its address and its complete content. The
- * collective layer above the engine builds the content, so the engine never
- * reads the collective part.
- */
-export interface EngineSendInput {
-  readonly to: MessageAddressInput;
-  readonly content: Content;
-}
-
-/** A locally certified post: its minted identity and its stored record's hash. */
-export interface EngineSentPost {
-  readonly postId: PostId;
-  readonly recordHash: RecordHash;
-}
-
 /** Stable private dependencies for one endpoint protocol engine. */
 export interface EndpointEngineInput {
   readonly localAgentCard: VerifiedAgentCard;
   readonly signingAuthority: AgentSigningAuthority;
   readonly registrySignerPublicKey: Ed25519PublicKey;
-  readonly registry: EngineRegistryPort;
+  readonly registry: AddressRegistryPort;
   readonly store: EndpointStore;
   readonly routerWorker: EngineRouterPort;
   readonly actionPolicy: EngineActionPolicy;
-}
-
-/** Stable private engine capability consumed by daemon composition. */
-export interface EndpointEngine {
-  /** Completes once the minted post's certified record is stored locally. */
-  readonly send: (
-    input: EngineSendInput,
-  ) => Effect.Effect<EngineSentPost, SendError>;
-  /**
-   * Resolve an address through the Registry as a send would, without
-   * sending; the collective layer uses it to name the unreachable members of
-   * a refused group post.
-   */
-  readonly resolveAddress: (
-    to: MessageAddressInput,
-  ) => Effect.Effect<void, SendError>;
-  readonly readPendingMessages: () => Effect.Effect<
-    readonly EnginePendingMessage[],
-    ListenError
-  >;
-  readonly acknowledgeMessage: (
-    deliveryToken: DeliveryToken,
-  ) => Effect.Effect<void, DeliveryAcknowledgeError>;
-  readonly acceptRouterIngress: (
-    ingress: RouterWorkerIngress<DecodedOuterBody>,
-  ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
-  readonly acceptRecoveryIngress: (
-    ingress: RouterWorkerIngress<DecodedOuterBody>,
-  ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
-  readonly recoverCertifiedHistory: (
-    recovery: RouterWorkerRecovery,
-  ) => Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError>;
-  readonly drainOutbound: Effect.Effect<void, EngineOutboundError>;
-  readonly runOutbound: Effect.Effect<never, EngineOutboundError>;
-  readonly abandonVolatileFolds: (
-    reason: RouterDiscontinuityReason,
-  ) => Effect.Effect<void>;
 }
 
 /** One locally authored immutable post intent awaiting certification. */
@@ -201,11 +102,36 @@ export interface EngineActionFold {
   readonly actionEvidence: Map<AgentId, SignedMessage>;
   readonly durabilityEvidence: Map<AgentId, SignedMessage>;
   localActionEvidenceQueued: boolean;
-  actionCertifiedRecordQueued: boolean;
   localDurabilityEvidenceQueued: boolean;
-  certifiedRecordQueued: boolean;
   recordHash?: RecordHash;
   certifiedRecord?: CertifiedRecord;
+}
+
+/**
+ * Open an empty fold for one action: no evidence, and no local signature
+ * queued yet, so certification decides what to sign and send.
+ * @param conversation Conversation whose next position the action proposes.
+ * @param action Selected action the fold collects evidence for.
+ * @param actionHash Hash that action and durability evidence name.
+ * @param routerAnchor Anchor the action's record certifies against.
+ * @returns A fold the caller registers in `EngineRuntime.actionFolds`.
+ */
+export function makeActionFold(
+  conversation: EngineConversation,
+  action: ActionCore,
+  actionHash: ActionHash,
+  routerAnchor: RouterAnchor,
+): EngineActionFold {
+  return {
+    conversation,
+    action,
+    actionHash,
+    routerAnchor,
+    actionEvidence: new Map(),
+    durabilityEvidence: new Map(),
+    localActionEvidenceQueued: false,
+    localDurabilityEvidenceQueued: false,
+  };
 }
 
 /** Shared acquired state used by addressed send and protocol ingress. */
@@ -217,12 +143,63 @@ export interface EngineRuntime {
   readonly completedPosts: Map<string, RecordHash>;
   readonly actionFolds: Map<ActionHash, EngineActionFold>;
   readonly recordFolds: Map<RecordHash, EngineActionFold>;
-  readonly outbound: string[];
-  readonly outboundSignal: Queue.Queue<undefined>;
   readonly gate: Effect.Semaphore;
-  readonly outboundGate: Effect.Semaphore;
-  readonly revision: SubscriptionRef.SubscriptionRef<number>;
+  readonly outbox: EngineOutbox;
   readonly phases: EnginePhases;
+}
+
+/**
+ * Why the outbox could not stage an envelope: signing or canonical encoding
+ * failed, or the store refused the row. Each phase maps it to its own error.
+ */
+export type EngineOutboxError = ClientRepresentationError | EndpointStoreError;
+
+/**
+ * The engine's outbox: the only caller of the outer-envelope signers, so the
+ * engine builds and signs every outer body here; the Router worker's retry
+ * re-signs a staged body unchanged. Its queue operations always stage the
+ * signed envelope durably and queue its outbox identity for the Router
+ * worker; `sign` serves a caller that routes the envelope itself. Phases
+ * reach it only through `EngineRuntime.outbox`.
+ */
+export interface EngineOutbox {
+  /** Sign an envelope for a caller that routes it, as recovery does. */
+  readonly sign: (
+    membership: VerifiedMembership,
+    body: DecodedOuterBody,
+  ) => Effect.Effect<SignedMessage, ClientRepresentationError>;
+  readonly queuePacket: (
+    conversation: EngineConversation,
+    packet: DirectPacket,
+  ) => Effect.Effect<void, EngineOutboxError>;
+  /** Relay stable inner evidence; its signer attribution is unchanged. */
+  readonly queueEvidence: (
+    conversation: EngineConversation,
+    evidence: SignedMessage,
+  ) => Effect.Effect<void, EngineOutboxError>;
+  /** Attach the signed packet to its durable dissemination obligation. */
+  readonly queueCertifiedPacket: (
+    conversation: EngineConversation,
+    packet: ActionCertifiedRecord | CertifiedRecord,
+  ) => Effect.Effect<void, EngineOutboxError>;
+  /**
+   * Stage an envelope that `sign` returned; any other `SignedMessage` would
+   * skip the outbox's signing.
+   */
+  readonly enqueueSigned: (
+    conversationId: ConversationId,
+    message: SignedMessage,
+  ) => Effect.Effect<void, EngineOutboxError>;
+  readonly resume: (outboundIds: readonly string[]) => Effect.Effect<void>;
+  /** Forget every queued identity; the store keeps the envelopes. */
+  readonly clear: () => void;
+  /** Run `effect` while no drain reads or removes the queue head. */
+  readonly serialized: <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ) => Effect.Effect<A, E, R>;
+  readonly drain: Effect.Effect<void, RouterWorkerSendError>;
+  /** Drain on every wake; ends only with a fatal worker failure. */
+  readonly run: Effect.Effect<never, RouterWorkerSendError>;
 }
 
 /**
@@ -235,16 +212,6 @@ export interface EnginePhases {
     runtime: EngineRuntime,
     intent: EnginePostIntent,
   ) => Effect.Effect<ActionHash, SendError>;
-  readonly queueCertifiedPacket: (
-    runtime: EngineRuntime,
-    conversation: EngineConversation,
-    packet: ActionCertifiedRecord | CertifiedRecord,
-  ) => Effect.Effect<void, SendError>;
-  readonly queueEvidence: (
-    runtime: EngineRuntime,
-    conversation: EngineConversation,
-    evidence: SignedMessage,
-  ) => Effect.Effect<void, SendError>;
   readonly acceptIngress: (
     runtime: EngineRuntime,
     ingress: RouterWorkerIngress<DecodedOuterBody>,

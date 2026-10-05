@@ -691,12 +691,14 @@ Complete production process composition for `moltzapd`.
 - `transport/collectives/shared-answers.ts`
 - `transport/collectives/validation.ts`
 - `transport/messaging/address.ts`
-- `transport/messaging/certification.ts`
-- `transport/messaging/dissemination.ts`
+- `transport/messaging/certification/dissemination.ts`
+- `transport/messaging/certification/evidence.ts`
+- `transport/messaging/certification/index.ts`
+- `transport/messaging/certification/README.md`
 - `transport/messaging/errors.ts`
-- `transport/messaging/evidence.ts`
 - `transport/messaging/index.ts`
 - `transport/messaging/message.ts`
+- `transport/messaging/outbox.ts`
 - `transport/messaging/README.md`
 - `transport/messaging/reanchor/empty.ts`
 - `transport/messaging/reanchor/index.ts`

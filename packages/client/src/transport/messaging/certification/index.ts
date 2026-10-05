@@ -1,24 +1,21 @@
-/** @file Router-ordered proposal selection and addressed record certification. */
+/**
+ * @file Router-ordered proposal selection, addressed record certification,
+ * and the resume of durable dissemination obligations.
+ */
 
 import { MOLTZAP_VERSION, type SignedMessage } from "@moltzap/identity";
-import { Deferred, Effect, type Schema, SubscriptionRef } from "effect";
+import { Deferred, Effect, type Schema } from "effect";
 import type {
   ConversationFoundation,
   EndpointStoreError,
   ProposalLock,
-} from "../../store/index.js";
-import type { SendError } from "./errors.js";
-import type {
-  EngineActionFold,
-  EngineConversation,
-  EnginePostIntent,
-  EngineRuntime,
-} from "./runtime/index.js";
+} from "../../../store/index.js";
+import type { SendError } from "../errors.js";
 import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,
   RouterWorkerPersistenceError,
-} from "../router/index.js";
+} from "../../router/index.js";
 import {
   type ActionCertifiedRecord,
   type ActionCore,
@@ -43,13 +40,7 @@ import {
   verifyMembershipDescriptor,
   verifyOuterMessage,
   verifyStableEvidence,
-} from "../wire/index.js";
-import {
-  evidenceMatchesFold,
-  evidenceRoute,
-  type EvidenceRoute,
-  verifiedEvidenceForRoute,
-} from "./evidence.js";
+} from "../../wire/index.js";
 import {
   inboundDelivery,
   makeActionCertifiedRecord,
@@ -58,7 +49,23 @@ import {
   recordAnchorHash,
   stagedRecord,
   storedCertifiedRecord,
-} from "./records/index.js";
+} from "../records/index.js";
+import {
+  type EngineActionFold,
+  type EngineConversation,
+  type EnginePostIntent,
+  type EngineRuntime,
+  makeActionFold,
+} from "../runtime/index.js";
+import {
+  evidenceMatchesFold,
+  evidenceRoute,
+  type EvidenceRoute,
+  verifiedEvidenceForRoute,
+} from "./evidence.js";
+
+/** Dissemination resume, bound as the `resumeDissemination` engine phase. */
+export { resumeDisseminationObligations } from "./dissemination.js";
 
 const persistenceFailure = () => new RouterWorkerPersistenceError();
 
@@ -213,19 +220,12 @@ const foldFor = (
   if (retained !== undefined) {
     return retained;
   }
-  const fold: EngineActionFold = {
+  const fold = makeActionFold(
     conversation,
     action,
     actionHash,
-    routerAnchor:
-      action.kind === "GENESIS" ? action.anchor : conversation.currentAnchor,
-    actionEvidence: new Map(),
-    durabilityEvidence: new Map(),
-    localActionEvidenceQueued: false,
-    actionCertifiedRecordQueued: false,
-    localDurabilityEvidenceQueued: false,
-    certifiedRecordQueued: false,
-  };
+    action.kind === "GENESIS" ? action.anchor : conversation.currentAnchor,
+  );
   runtime.actionFolds.set(actionHash, fold);
   return fold;
 };
@@ -273,7 +273,7 @@ const localActionEvidence = (
       yield* mergeEvidence(runtime, fold, "action", evidence);
     }
     yield* Effect.uninterruptible(
-      runtime.phases.queueEvidence(runtime, fold.conversation, evidence).pipe(
+      runtime.outbox.queueEvidence(fold.conversation, evidence).pipe(
         Effect.mapError(() => persistenceFailure()),
         Effect.zipRight(
           Effect.sync(() => {
@@ -382,7 +382,7 @@ const localDurabilityEvidence = (
       yield* mergeEvidence(runtime, fold, "durability", evidence);
     }
     yield* Effect.uninterruptible(
-      runtime.phases.queueEvidence(runtime, fold.conversation, evidence).pipe(
+      runtime.outbox.queueEvidence(fold.conversation, evidence).pipe(
         Effect.mapError(() => persistenceFailure()),
         Effect.zipRight(
           Effect.sync(() => {
@@ -520,14 +520,6 @@ function persistPromotionWithDelivery(
   }
 }
 
-function markCertifiedPacketQueued(
-  fold: EngineActionFold,
-): Effect.Effect<void> {
-  return Effect.sync(() => {
-    fold.certifiedRecordQueued = true;
-  });
-}
-
 const promote = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
@@ -553,22 +545,15 @@ const promote = (
       : persistPromotionWithDelivery(runtime, stored, source, delivery);
     const queuePromotion =
       source === "assembled"
-        ? runtime.phases
-            .queueCertifiedPacket(runtime, fold.conversation, record)
-            .pipe(
-              Effect.mapError(() => persistenceFailure()),
-              Effect.zipRight(markCertifiedPacketQueued(fold)),
-            )
-        : Effect.sync(() => {
-            fold.actionCertifiedRecordQueued = true;
-            fold.certifiedRecordQueued = true;
-          });
+        ? runtime.outbox
+            .queueCertifiedPacket(fold.conversation, record)
+            .pipe(Effect.mapError(() => persistenceFailure()))
+        : Effect.void;
     yield* Effect.uninterruptible(
       queuePromotion.pipe(
         Effect.zipRight(completePromotion(runtime, fold, record)),
       ),
     );
-    yield* SubscriptionRef.update(runtime.revision, (revision) => revision + 1);
     yield* rebasePendingIntents(runtime, fold.conversation.conversationId);
   });
 
@@ -625,25 +610,15 @@ const stageActionCertificate = (
       fold.recordHash = record.recordHash;
       runtime.recordFolds.set(record.recordHash, fold);
     });
-    if (source === "assembled") {
-      yield* Effect.uninterruptible(
-        runtime.phases
-          .queueCertifiedPacket(runtime, fold.conversation, record)
-          .pipe(
-            Effect.mapError(() => persistenceFailure()),
-            Effect.zipRight(
-              Effect.sync(() => {
-                fold.actionCertifiedRecordQueued = true;
-              }),
-            ),
-            Effect.zipRight(updateFold),
-          ),
-      );
-    } else {
-      yield* Effect.sync(() => {
-        fold.actionCertifiedRecordQueued = true;
-      }).pipe(Effect.zipRight(updateFold));
-    }
+    const queueStaged =
+      source === "assembled"
+        ? runtime.outbox
+            .queueCertifiedPacket(fold.conversation, record)
+            .pipe(Effect.mapError(() => persistenceFailure()))
+        : Effect.void;
+    yield* Effect.uninterruptible(
+      queueStaged.pipe(Effect.zipRight(updateFold)),
+    );
     yield* localDurabilityEvidence(runtime, fold);
     yield* maybePromote(runtime, fold, record);
   });

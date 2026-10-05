@@ -1,19 +1,19 @@
 /** @file Recovery of durable certified-record dissemination obligations. */
 
 import { Effect, Schema } from "effect";
-import type { DisseminationObligation } from "../../store/index.js";
-import type { EngineActionFold, EngineRuntime } from "./runtime/index.js";
-import { RouterWorkerPersistenceError } from "../router/index.js";
+import type { DisseminationObligation } from "../../../store/index.js";
+import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
+import { RouterWorkerPersistenceError } from "../../router/index.js";
 import {
   type ActionCertifiedRecord,
   type CertifiedRecord,
   ConversationId,
   RecordHash,
-} from "../wire/index.js";
+} from "../../wire/index.js";
 import {
   makeActionCertifiedRecord,
   recordAnchorHash,
-} from "./records/index.js";
+} from "../records/index.js";
 
 interface VerifiedDisseminationObligation {
   readonly fold: EngineActionFold;
@@ -50,12 +50,9 @@ function attachObligation(
     const { fold, recordHash } = yield* obligationFold(runtime, obligation);
     const packet = yield* packetForObligation(fold, obligation, recordHash);
     yield* Effect.uninterruptible(
-      runtime.phases
-        .queueCertifiedPacket(runtime, fold.conversation, packet)
-        .pipe(
-          Effect.mapError(persistenceFailure),
-          Effect.zipRight(markQueued(fold, obligation.kind)),
-        ),
+      runtime.outbox
+        .queueCertifiedPacket(fold.conversation, packet)
+        .pipe(Effect.mapError(persistenceFailure)),
     );
   });
 }
@@ -120,26 +117,6 @@ function packetForObligation(
       return exhaustive;
     }
   }
-}
-
-function markQueued(
-  fold: EngineActionFold,
-  kind: DisseminationObligation["kind"],
-): Effect.Effect<void> {
-  return Effect.sync(() => {
-    switch (kind) {
-      case "action-certified-record":
-        fold.actionCertifiedRecordQueued = true;
-        return;
-      case "certified-record":
-        fold.certifiedRecordQueued = true;
-        return;
-      default: {
-        const exhaustive: never = kind;
-        return exhaustive;
-      }
-    }
-  });
 }
 
 function persistenceFailure(): RouterWorkerPersistenceError {
