@@ -25,6 +25,7 @@ import {
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import type { AddressRegistryPort } from "../address.js";
 import {
   identifier,
   issueTestCard,
@@ -87,9 +88,6 @@ import {
 
 /** The Router-worker operations an engine consumes. */
 type EngineRouterPort = EndpointEngineInput["routerWorker"];
-
-/** The Registry lookup an engine consumes. */
-type EngineRegistryPort = EndpointEngineInput["registry"];
 
 interface IdentityFixture {
   readonly card: VerifiedAgentCard;
@@ -370,7 +368,7 @@ const makeFixtureWithRouter = (
       local.card,
       remote.card,
     ];
-    const registry: EngineRegistryPort = {
+    const registry: AddressRegistryPort = {
       lookup: (request) => {
         const card = cards.find((candidate) =>
           "agentId" in request
@@ -499,7 +497,7 @@ const addN4Foundation = (
       third.card,
       fourth.card,
     ];
-    const registry: EngineRegistryPort = {
+    const registry: AddressRegistryPort = {
       lookup: (request) => {
         const card = cards.find((candidate) =>
           "agentId" in request

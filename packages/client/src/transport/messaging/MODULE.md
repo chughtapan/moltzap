@@ -4,7 +4,8 @@ _`packages/client/src/transport/messaging`_
 
 ## Purpose
 
-Private addressed-message engine acquisition and daemon seams.
+Private addressed-message engine: its contract with daemon
+composition, and the assembly that binds the phases into one engine.
 
 ## Public surface
 

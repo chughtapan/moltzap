@@ -29,17 +29,18 @@ import {
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { advanceClock } from "../../__tests__/advance-clock.js";
+import type { AddressRegistryPort } from "../address.js";
+import { advanceClock } from "../../../__tests__/advance-clock.js";
 import {
   digest,
   identifier,
   issueTestCard,
   makeTestAuthority,
   type RegistryKeyPair,
-} from "../../__tests__/agent-card-fixtures.js";
-import { forwardStoredOutbound } from "../../__tests__/forward-stored-outbound.js";
-import { pollCursor as fixturePollCursor } from "../../__tests__/router-worker-fixtures.js";
-import { type EndpointStore, openEndpointStore } from "../../store/index.js";
+} from "../../../__tests__/agent-card-fixtures.js";
+import { forwardStoredOutbound } from "../../../__tests__/forward-stored-outbound.js";
+import { pollCursor as fixturePollCursor } from "../../../__tests__/router-worker-fixtures.js";
+import { type EndpointStore, openEndpointStore } from "../../../store/index.js";
 import {
   type RouterIngressDisposition,
   type RouterTailAnchor,
@@ -48,7 +49,7 @@ import {
   type RouterWorkerSendError,
   RouterWorkerTransportError,
   RouterWorkerUnavailableError,
-} from "../router/index.js";
+} from "../../router/index.js";
 import {
   type ActionCertifiedRecord as ActionCertifiedRecordValue,
   type ActionProposal,
@@ -70,9 +71,9 @@ import {
   signOuterEvidence,
   type VerifiedMembership,
   verifyMembershipDescriptor,
-} from "../wire/index.js";
-import { MessageAddressInput } from "../wire/values.js";
-import { SendError } from "./errors.js";
+} from "../../wire/index.js";
+import { MessageAddressInput } from "../../wire/values.js";
+import { SendError } from "../errors.js";
 import {
   type EndpointEngine,
   type EndpointEngineInput,
@@ -81,15 +82,12 @@ import {
   type EngineSendInput,
   type EngineSentPost,
   makeEndpointEngine,
-} from "./index.js";
+} from "../index.js";
 
 /* eslint-disable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- The full protocol traces share one four-endpoint harness and keep controlled Router phases beside durable assertions. */
 
 /** The Router-worker operations an engine consumes. */
 type EngineRouterPort = EndpointEngineInput["routerWorker"];
-
-/** The Registry lookup an engine consumes. */
-type EngineRegistryPort = EndpointEngineInput["registry"];
 
 interface ProtocolIdentity {
   readonly card: VerifiedAgentCard;
@@ -108,7 +106,7 @@ interface ProtocolHarness {
     endpointIndexes?: readonly number[],
   ) => Effect.Effect<readonly RouterIngressDisposition[]>;
   readonly drain: (endpointIndexes?: readonly number[]) => Effect.Effect<void>;
-  readonly registry: EngineRegistryPort;
+  readonly registry: AddressRegistryPort;
   readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
 }
 
@@ -188,7 +186,7 @@ function makeMembership(
 
 function lookupIdentity(
   identities: readonly ProtocolIdentity[],
-  request: Parameters<EngineRegistryPort["lookup"]>[0],
+  request: Parameters<AddressRegistryPort["lookup"]>[0],
 ): RegistryLookupResult {
   const found = identities.find(({ card }) =>
     "agentName" in request
@@ -366,7 +364,7 @@ function makeProtocolHarness(
       { concurrency: 1 },
     );
     const outbound = yield* Queue.unbounded<typeof SignedMessage.Type>();
-    const registry: EngineRegistryPort = {
+    const registry: AddressRegistryPort = {
       lookup: (request) => Effect.succeed(lookupIdentity(identities, request)),
     };
     const engines = yield* Effect.forEach(

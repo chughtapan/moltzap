@@ -14,13 +14,13 @@ import type {
   EngineConversation,
   EnginePostIntent,
   EngineRuntime,
-  EngineSendInput,
 } from "./runtime/index.js";
 import {
   type ActionCertifiedRecord,
   type ActionCore,
   type ActionHash,
   type CertifiedRecord,
+  type Content,
   deriveConversationId,
   type DirectPacket,
   encodeCanonical,
@@ -42,6 +42,22 @@ import {
 import { resolveMessageAddress } from "./address.js";
 import { SendError } from "./errors.js";
 import { currentRecoveryBarrier } from "./recovery/barrier.js";
+
+/**
+ * One post the engine certifies: its address and its complete content. The
+ * collective layer above the engine builds the content, so the engine never
+ * reads the collective part.
+ */
+export interface EngineSendInput {
+  readonly to: MessageAddressInput;
+  readonly content: Content;
+}
+
+/** A locally certified post: its minted identity and its stored record's hash. */
+export interface EngineSentPost {
+  readonly postId: PostId;
+  readonly recordHash: RecordHash;
+}
 
 const sendReasonByStoreReason = {
   closed: "persistence-failed",
