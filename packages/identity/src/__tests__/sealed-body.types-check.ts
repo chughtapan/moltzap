@@ -6,7 +6,7 @@
  * size functions are total and return Option.
  */
 
-import type { Effect, Option } from "effect";
+import type { Effect, Option, Types } from "effect";
 import type {
   AgentId,
   AgentSigningAuthority,
@@ -18,7 +18,6 @@ import type {
   VerifiedSignedMessage,
 } from "../index.js";
 
-type Equal<Left, Right> = [Left, Right] extends [Right, Left] ? true : false;
 type Expect<Value extends true> = Value;
 
 type Seal = typeof SealedBody.seal;
@@ -27,7 +26,7 @@ type Open = typeof SealedBody.open;
 type OpenResult = ReturnType<Open>;
 
 type SealInputIsExact = Expect<
-  Equal<
+  Types.Equals<
     Parameters<Seal>[0],
     {
       readonly senderAgentId: AgentId;
@@ -37,16 +36,16 @@ type SealInputIsExact = Expect<
   >
 >;
 type SealSuccessIsBytes = Expect<
-  Equal<Effect.Effect.Success<SealResult>, Uint8Array>
+  Types.Equals<Effect.Effect.Success<SealResult>, Uint8Array>
 >;
 type SealFailureIsExact = Expect<
-  Equal<Effect.Effect.Error<SealResult>, SealedBodySealingError>
+  Types.Equals<Effect.Effect.Error<SealResult>, SealedBodySealingError>
 >;
 type SealNeedsNoContext = Expect<
-  Equal<Effect.Effect.Context<SealResult>, never>
+  Types.Equals<Effect.Effect.Context<SealResult>, never>
 >;
 type OpenInputIsExact = Expect<
-  Equal<
+  Types.Equals<
     Parameters<Open>[0],
     {
       readonly agentCard: VerifiedAgentCard;
@@ -56,22 +55,22 @@ type OpenInputIsExact = Expect<
   >
 >;
 type OpenRefusesUnverifiedMessages = Expect<
-  Equal<
+  Types.Equals<
     SignedMessage extends Parameters<Open>[0]["signedMessage"] ? true : false,
     false
   >
 >;
 type OpenSuccessIsBytes = Expect<
-  Equal<Effect.Effect.Success<OpenResult>, Uint8Array>
+  Types.Equals<Effect.Effect.Success<OpenResult>, Uint8Array>
 >;
 type OpenFailureIsExact = Expect<
-  Equal<Effect.Effect.Error<OpenResult>, SealedBodyOpeningError>
+  Types.Equals<Effect.Effect.Error<OpenResult>, SealedBodyOpeningError>
 >;
 type OpenNeedsNoContext = Expect<
-  Equal<Effect.Effect.Context<OpenResult>, never>
+  Types.Equals<Effect.Effect.Context<OpenResult>, never>
 >;
 type SealedByteLengthIsExact = Expect<
-  Equal<
+  Types.Equals<
     typeof SealedBody.sealedByteLength,
     (input: {
       readonly plaintextByteLength: number;
@@ -80,13 +79,13 @@ type SealedByteLengthIsExact = Expect<
   >
 >;
 type MaximumPlaintextByteLengthIsExact = Expect<
-  Equal<
+  Types.Equals<
     typeof SealedBody.maximumPlaintextByteLength,
     (recipientCount: number) => Option.Option<number>
   >
 >;
 type CapabilityIsExact = Expect<
-  Equal<
+  Types.Equals<
     keyof typeof SealedBody,
     "maximumPlaintextByteLength" | "open" | "seal" | "sealedByteLength"
   >
