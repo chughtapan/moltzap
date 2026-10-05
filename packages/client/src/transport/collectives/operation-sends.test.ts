@@ -126,11 +126,11 @@ function continuesAGatherPastMembersItCouldNotReach() {
       const sending = yield* Effect.fork(
         send(layer, { ...gatherInput(), to: "group:alice,bob,carol,dave" }),
       );
-      yield* TestClock.adjust(Duration.seconds(1));
+      yield* TestClock.adjust(Duration.seconds(20));
       const outcome = yield* Fiber.join(sending);
       const { id } = yield* firstRequestOf(observed);
 
-      expect(outcome).toEqual({ postIds: [postId(1)], operationId: id });
+      expect(outcome).toEqual({ postIds: [postId(101)], operationId: id });
       expect(observed.sent.map((post) => post.to)).toEqual(["agent:bob"]);
 
       yield* classifyPost(
@@ -170,7 +170,7 @@ function countsAnAnswerToAPostCertifiedAfterTheWait() {
         refused: { "agent:carol": "late" },
       });
       const sending = yield* Effect.fork(send(layer, gatherInput()));
-      yield* TestClock.adjust(Duration.seconds(1));
+      yield* TestClock.adjust(Duration.seconds(20));
       const outcome = yield* Fiber.join(sending);
       yield* TestClock.adjust(Duration.seconds(5));
       const id = yield* operationIdOf(outcome);

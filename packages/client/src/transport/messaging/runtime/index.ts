@@ -78,10 +78,7 @@ export interface EnginePendingMessage {
 }
 
 /** Minimal Registry capability used to resolve immutable peer cards. */
-export type EngineRegistryPort = Pick<
-  Context.Tag.Service<typeof Registry>,
-  "lookup"
->;
+type EngineRegistryPort = Pick<Context.Tag.Service<typeof Registry>, "lookup">;
 
 /** RouterWorker operations consumed by the engine's outbound queue. */
 interface EngineRouterPort {

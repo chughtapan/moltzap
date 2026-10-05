@@ -152,7 +152,6 @@ const callbacks = (input?: {
 const makeInput = (
   fixture: Fixture,
   workerCallbacks: RouterWorkerCallbacks<TestPayload>,
-  overrides?: RouterWorkerInput<TestPayload>["overrides"],
   outbox: RouterWorkerInput<TestPayload>["outbox"] = unreachableOutbox,
 ): RouterWorkerInput<TestPayload> => ({
   callerAgentId: fixture.localCard.agentId,
@@ -161,8 +160,42 @@ const makeInput = (
   signingAuthority: fixture.localAuthority,
   outbox,
   callbacks: workerCallbacks,
-  overrides,
 });
+
+/** The General JWS fields of an encoded SignedMessage. */
+const envelopeRepresentation = Schema.Struct({
+  payload: Schema.String,
+  signatures: Schema.Tuple(
+    Schema.Struct({ protected: Schema.String, signature: Schema.String }),
+  ),
+});
+
+/**
+ * Flip one bit of an envelope's Ed25519 signature. Its sender, card digest,
+ * and key id still match the sender's card, so only the cryptographic check
+ * rejects the result.
+ * @param message A validly signed envelope.
+ * @returns The same envelope under a signature its sender never made.
+ */
+const corruptSignature = (
+  message: SignedMessageValue,
+): Effect.Effect<SignedMessageValue> =>
+  Effect.gen(function* () {
+    const representation = yield* Schema.encode(SignedMessage)(message).pipe(
+      Effect.flatMap(Schema.decodeUnknown(envelopeRepresentation)),
+    );
+    const [signature] = representation.signatures;
+    const bytes = yield* Encoding.decodeBase64Url(signature.signature);
+    const corrupted = bytes.map((value, index) =>
+      index === 0 ? value ^ 1 : value,
+    );
+    return yield* Schema.decodeUnknown(SignedMessage)({
+      ...representation,
+      signatures: [
+        { ...signature, signature: Encoding.encodeBase64Url(corrupted) },
+      ],
+    });
+  }).pipe(Effect.orDie);
 
 /**
  * Build a worker and bring it to `active` through its cold-start recovery
@@ -306,7 +339,7 @@ const batchVerificationIsAtomic = async (): Promise<void> => {
         recipient: fixture.localCard.agentId,
         id: 11,
         body: "invalid-signature",
-      });
+      }).pipe(Effect.flatMap(corruptSignature));
       const accepted = yield* Ref.make<string[]>([]);
       const firstInstance = routerInstanceId(10);
       const router = yield* makeScriptedRouter({
@@ -316,18 +349,7 @@ const batchVerificationIsAtomic = async (): Promise<void> => {
         ],
       });
       const worker = yield* provide(
-        makeActiveRouterWorker(
-          makeInput(fixture, callbacks({ accepted }), {
-            verifyOuter: ({ signedMessage, agentCard }) =>
-              signedMessage.messageId === messageId(11)
-                ? Effect.fail(new RouterWorkerAuthenticationError())
-                : SignedMessage.verify({ signedMessage, agentCard }).pipe(
-                    Effect.catchTag("SignedMessageVerificationError", () =>
-                      Effect.fail(new RouterWorkerAuthenticationError()),
-                    ),
-                  ),
-          }),
-        ),
+        makeActiveRouterWorker(makeInput(fixture, callbacks({ accepted }))),
         router.layer,
         fixture,
       );
@@ -463,9 +485,7 @@ const ambiguousSendRetriesSameBytes = async (): Promise<void> => {
             ),
         });
         const worker = yield* provide(
-          makeActiveRouterWorker(
-            makeInput(fixture, callbacks(), undefined, store),
-          ),
+          makeActiveRouterWorker(makeInput(fixture, callbacks(), store)),
           failingLayer,
           fixture,
         );
@@ -526,7 +546,7 @@ const retryUnknownRewrapsBody = async (): Promise<void> => {
                     Effect.tap((recovery) => {
                       expect(recovery.outboundMessages).toHaveLength(1);
                       expect(recovery.outboundMessages[0]?.messageId).toBe(
-                        messageId(51),
+                        call.request.signedMessage.messageId,
                       );
                       return Effect.void;
                     }),
@@ -539,14 +559,7 @@ const retryUnknownRewrapsBody = async (): Promise<void> => {
             ),
         });
         const worker = yield* provide(
-          makeActiveRouterWorker(
-            makeInput(
-              fixture,
-              callbacks(),
-              { makeMessageId: () => Effect.succeed(messageId(51)) },
-              store,
-            ),
-          ),
+          makeActiveRouterWorker(makeInput(fixture, callbacks(), store)),
           layer,
           fixture,
         );
@@ -558,7 +571,7 @@ const retryUnknownRewrapsBody = async (): Promise<void> => {
           "initial",
         ]);
         expect(calls[0]?.signedMessage.messageId).toBe(messageId(50));
-        expect(calls[2]?.signedMessage.messageId).toBe(messageId(51));
+        expect(calls[2]?.signedMessage.messageId).not.toBe(messageId(50));
         expect(calls[2]?.signedMessage.body).toEqual(
           calls[0]?.signedMessage.body,
         );
@@ -599,9 +612,7 @@ const mismatchedAcceptedDigestRetainsOutbound = async (): Promise<void> => {
             }),
         });
         const worker = yield* provide(
-          makeActiveRouterWorker(
-            makeInput(fixture, callbacks(), undefined, store),
-          ),
+          makeActiveRouterWorker(makeInput(fixture, callbacks(), store)),
           layer,
           fixture,
         );
@@ -646,7 +657,7 @@ const restartedSendRecoversBeforeReturning = async (): Promise<void> => {
         });
         const worker = yield* provide(
           makeActiveRouterWorker(
-            makeInput(fixture, callbacks({ events }), undefined, store),
+            makeInput(fixture, callbacks({ events }), store),
           ),
           router.layer,
           fixture,
@@ -865,7 +876,6 @@ const recoveryResumesRetainedOutbound = async (): Promise<void> => {
               callbacks({
                 recover: (recovery) => recovery.resume(outbound.outboundId),
               }),
-              undefined,
               store,
             ),
           ),
@@ -923,7 +933,6 @@ const normalSendWaitsForRecovery = async (): Promise<void> => {
                     Effect.zipRight(Deferred.await(releaseRecovery)),
                   ),
               }),
-              undefined,
               store,
             ),
           ),
@@ -1292,7 +1301,7 @@ const outageDetachesAndReattaches = async (): Promise<void> => {
             outgoing,
           );
           const worker = yield* makeActiveRouterWorker(
-            makeInput(fixture, callbacks(), undefined, store),
+            makeInput(fixture, callbacks(), store),
           );
           const polling = yield* Effect.fork(worker.run);
 
@@ -1489,7 +1498,7 @@ const staleFailureKeepsNewGenerationAttached = async (): Promise<void> => {
             outgoing,
           );
           const worker = yield* makeActiveRouterWorker(
-            makeInput(fixture, callbacks(), undefined, store),
+            makeInput(fixture, callbacks(), store),
           );
           const polling = yield* Effect.fork(worker.run);
           yield* Deferred.await(staleIssued);
@@ -1552,7 +1561,7 @@ const outageDuringRecoveryRecovers = async (): Promise<void> => {
             }),
           );
           const worker = yield* makeActiveRouterWorker(
-            makeInput(fixture, callbacks({ recover }), undefined, store),
+            makeInput(fixture, callbacks({ recover }), store),
           );
           const polling = yield* Effect.fork(worker.run);
           yield* Ref.set(tail, restarted);
@@ -1622,7 +1631,7 @@ const coldStartWithRouterDownRecovers = async (): Promise<void> => {
             }),
           );
           const worker = yield* makeRouterWorker(
-            makeInput(fixture, callbacks(), undefined, store),
+            makeInput(fixture, callbacks(), store),
           );
           const polling = yield* Effect.fork(worker.run);
           const attached = yield* Effect.fork(worker.awaitAnchor);

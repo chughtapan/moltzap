@@ -227,8 +227,6 @@ export interface CollectivePorts {
   ) => Effect.Effect<void, CollectiveEmitError>;
   /** Owns deadline timers and request sends that outlive their send call. */
   readonly scope: Scope.Scope;
-  /** Overrides `REQUEST_SEND_WAIT`; tests bound the wait. */
-  readonly requestSendWait?: Duration.Duration;
 }
 
 /** One certified remote post with the hash of its certified record. */
@@ -626,7 +624,7 @@ function sendRequests(
       { concurrency: 1 },
     );
     yield* Fiber.awaitAll(sends).pipe(
-      Effect.timeoutOption(requestWait(state, prepared)),
+      Effect.timeoutOption(requestWait(prepared)),
     );
     const { posts, refused } = yield* requestsSoFar(open.members, sends);
     const [refusal, ...refusals] = refused;
@@ -710,7 +708,7 @@ function sendGroupRequest(
     .sendPost({ to: prepared.open.to, content: prepared.content })
     .pipe(
       Effect.timeoutFail({
-        duration: requestWait(state, prepared),
+        duration: requestWait(prepared),
         onTimeout: () => new SendError({ reason: "certification-unavailable" }),
       }),
       Effect.map((post) => [post.postId]),
@@ -737,12 +735,9 @@ function sendGroupRequest(
 }
 
 /** How long a send waits for request posts: the bound, never past the deadline. */
-function requestWait(
-  state: CollectiveState,
-  prepared: PreparedGather,
-): Duration.Duration {
+function requestWait(prepared: PreparedGather): Duration.Duration {
   return Duration.min(
-    state.ports.requestSendWait ?? REQUEST_SEND_WAIT,
+    REQUEST_SEND_WAIT,
     Duration.millis(prepared.untilDeadline),
   );
 }

@@ -17,7 +17,7 @@ import {
   TestContext,
 } from "effect";
 import { describe, expect, it } from "vitest";
-import { acquireHarnessMcpHttpServer } from "../mcp/http.js";
+import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
 import { INBOX_PENDING_EVENT } from "../mcp/names.js";
 import { inboxWakeups } from "./events.js";
 import { acquireHarnessEndpoint } from "./index.js";
@@ -79,16 +79,6 @@ const streamServer = (
     { legacy: "reject", responseMode: "auto" },
   );
 
-const endpointFor = (handler: ReturnType<typeof createMcpHandler>) =>
-  acquireHarnessMcpHttpServer({ port: 0, handler }).pipe(
-    Effect.flatMap((server) => {
-      const address = server.address();
-      return address === null || typeof address === "string"
-        ? Effect.dieMessage("Expected TCP listener")
-        : Effect.succeed(new URL(`http://127.0.0.1:${address.port}/mcp`));
-    }),
-  );
-
 const boundsInitialHeaders = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -100,7 +90,7 @@ const boundsInitialHeaders = () =>
             Effect.zipRight(Effect.never),
           ),
         );
-        const endpoint = yield* endpointFor(handler);
+        const endpoint = yield* loopbackMcpEndpoint(handler);
         const reader = yield* inboxWakeups(endpoint).pipe(
           Stream.runDrain,
           Effect.flip,
@@ -141,7 +131,7 @@ const classifiesCatalogFailure = (code: number, reason: string) =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const endpoint = yield* endpointFor(failingCatalogServer(code));
+        const endpoint = yield* loopbackMcpEndpoint(failingCatalogServer(code));
 
         const error = yield* acquireHarnessEndpoint(endpoint).pipe(Effect.flip);
 
@@ -194,7 +184,7 @@ const continuesAfterRecoverableErrors = () =>
         const handler = streamServer(requests, (context) =>
           sendFrames(context, receipts),
         );
-        const endpoint = yield* endpointFor(handler);
+        const endpoint = yield* loopbackMcpEndpoint(handler);
         const failure = yield* inboxWakeups(endpoint).pipe(
           Stream.tap(() => {
             const receipt = receipts[received++];

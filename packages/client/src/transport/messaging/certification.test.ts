@@ -17,7 +17,6 @@ import {
   Deferred,
   Duration,
   Effect,
-  Encoding,
   Fiber,
   Option,
   Queue,
@@ -32,6 +31,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { advanceClock } from "../../__tests__/advance-clock.js";
 import {
+  digest,
   identifier,
   issueTestCard,
   makeTestAuthority,
@@ -115,19 +115,15 @@ interface ProtocolHarness {
 const MEMBER_COUNT = 4;
 const TEST_TIMEOUT_MS = 30_000;
 
-function hashIdentifier(prefix: string, byte: number): string {
-  return `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
-}
-
 const routerInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
   identifier("rti_", 31),
 );
 const pollCursor = fixturePollCursor(32);
 const unrelatedConversationId = Schema.decodeUnknownSync(ConversationId)(
-  hashIdentifier("cnv_", 35),
+  digest("cnv_", 35),
 );
 const unrelatedMembershipHash = Schema.decodeUnknownSync(MembershipHash)(
-  hashIdentifier("mbr_", 36),
+  digest("mbr_", 36),
 );
 const endpointIndexes = Object.freeze([0, 1, 2, 3]);
 

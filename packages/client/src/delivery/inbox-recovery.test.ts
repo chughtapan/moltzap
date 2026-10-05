@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { digest } from "../__tests__/agent-card-fixtures.js";
 import { downgradeToSchemaV2 } from "../__tests__/store-schema-fixtures.js";
 import {
   type CertifiedRecord,
@@ -24,8 +25,6 @@ import { AgentAddress } from "../transport/wire/values.js";
 import { readRuntimeInbox, recoverRuntimeInbox } from "./inbox.js";
 
 const bytes = (value: string) => new TextEncoder().encode(value);
-const digest = (prefix: string, byte: number) =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
 const self = Schema.decodeUnknownSync(AgentAddress)("agent:alice");
 const sender = Schema.decodeUnknownSync(AgentAddress)("agent:bob");
 const nonce = Encoding.encodeBase64Url(new Uint8Array(32).fill(8));

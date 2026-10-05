@@ -1,11 +1,12 @@
 /** @file Exercises classified delivery durability and loss of request context. */
 
-import { Effect, Array as EffectArray, Encoding, Schema } from "effect";
+import { Effect, Array as EffectArray, Schema } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- These persistence tests reopen real SQLite databases across independent Effect scopes.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { digest } from "../__tests__/agent-card-fixtures.js";
 import { DeliveryToken, openEndpointStore } from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
 import {
@@ -22,8 +23,6 @@ const directory = (): string => {
   directories.push(path);
   return path;
 };
-const digest = (prefix: string, byte: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
 const token = (byte: number) =>
   Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", byte));
 const failure = Schema.decodeUnknownSync(InboundItem)({

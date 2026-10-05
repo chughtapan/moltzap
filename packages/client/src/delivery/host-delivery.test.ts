@@ -1,15 +1,6 @@
 /** @file Host operations over one service's delivery: registration gating, the send export, and local-item reads and acknowledgment. */
 
-import {
-  Deferred,
-  Effect,
-  Encoding,
-  Exit,
-  Fiber,
-  Ref,
-  Schema,
-  Scope,
-} from "effect";
+import { Deferred, Effect, Exit, Fiber, Ref, Schema, Scope } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- The store opens a real SQLite database in a temporary directory.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,6 +8,15 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type { HistoryExportRecord } from "./history-export.js";
+import type { HarnessMessageReadyEvent } from "./operations.js";
+import { digest } from "../__tests__/agent-card-fixtures.js";
+import {
+  consumeOnly,
+  pendingMessage,
+  publishEveryPost,
+  recordAcknowledgments,
+  takeEvery,
+} from "../__tests__/pending-delivery-fixtures.js";
 import {
   DeliveryToken,
   type EndpointStore,
@@ -46,26 +46,19 @@ afterEach(() => {
   }
 });
 
-const identifier = (prefix: string, fill: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(fill))}`;
-
 const input = Schema.decodeUnknownSync(SendInput)({
   to: "agent:bob",
   text: "one operation",
 });
-const operationId = Schema.decodeUnknownSync(CollectiveId)(
-  identifier("col_", 3),
-);
-const postId = Schema.decodeUnknownSync(PostId)(identifier("pst_", 4));
+const operationId = Schema.decodeUnknownSync(CollectiveId)(digest("col_", 3));
+const postId = Schema.decodeUnknownSync(PostId)(digest("pst_", 4));
 const failure = Schema.decodeUnknownSync(InboundItem)({
   kind: "operationFailed",
-  id: identifier("col_", 1),
+  id: digest("col_", 1),
   to: "agent:bob",
   error: "request unavailable",
 });
-const unboundToken = Schema.decodeUnknownSync(DeliveryToken)(
-  identifier("dlv_", 9),
-);
+const unboundToken = Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", 9));
 
 /**
  * Build one delivery over a fresh store, optionally adjusted, whose active
@@ -277,10 +270,10 @@ const releasesTheGateWhenAPassFails = () =>
       slot.collectives = { send: () => Effect.dieMessage("unexpected send") };
       const pending = {
         deliveryToken: unboundToken,
-        recordHash: Schema.decodeUnknownSync(RecordHash)(identifier("rch_", 5)),
+        recordHash: Schema.decodeUnknownSync(RecordHash)(digest("rch_", 5)),
         message: Schema.decodeUnknownSync(InboundMessage)({
           kind: "direct",
-          postId: identifier("pst_", 5),
+          postId: digest("pst_", 5),
           address: "agent:bob",
           sender: "agent:bob",
           content: [{ type: "text", text: "pending" }],
@@ -397,61 +390,14 @@ describe("host delivery webhook view", () => {
   );
 });
 
-/** One event a subscriber took. */
-interface TakenEvent {
-  readonly deliveryToken: string;
-  readonly item: InboundItem;
-}
-
-/** A pending durable delivery of a direct post from Bob, its identifiers filled with `byte`. */
-const pendingFromBob = (byte: number) => ({
-  deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(
-    identifier("dlv_", byte),
-  ),
-  recordHash: Schema.decodeUnknownSync(RecordHash)(identifier("rch_", byte)),
-  message: Schema.decodeUnknownSync(InboundMessage)({
-    kind: "direct",
-    postId: identifier("pst_", byte),
-    address: "agent:bob",
-    sender: "agent:bob",
-    content: [{ type: "text", text: `delivery ${String(byte)}` }],
-  }),
-});
-
-const firstFromBob = pendingFromBob(21);
-const secondFromBob = pendingFromBob(22);
-const thirdFromBob = pendingFromBob(23);
+const firstFromBob = pendingMessage(21);
+const secondFromBob = pendingMessage(22);
+const thirdFromBob = pendingMessage(23);
 const emittedFailure = Schema.decodeUnknownSync(InboundItem)({
   kind: "operationFailed",
-  id: identifier("col_", 24),
+  id: digest("col_", 24),
   to: "agent:bob",
   error: "collective failed",
-});
-
-/** Publishes every post as a multicast. */
-const publishAsMulticast: CollectiveOperations["classify"] = ({ message }) =>
-  Effect.succeedSome<InboundItem>({ kind: "multicast", message });
-
-/** Consumes Bob's second post, as the collective layer does an answer, and publishes the rest. */
-const consumeSecondFromBob: CollectiveOperations["classify"] = ({ message }) =>
-  message.postId === secondFromBob.message.postId
-    ? Effect.succeedNone
-    : Effect.succeedSome<InboundItem>({ kind: "multicast", message });
-
-/** An engine that acknowledges every delivery and records its token. */
-const recordAcknowledgments = (acknowledged: string[]) => ({
-  acknowledgeMessage: (deliveryToken: string) =>
-    Effect.sync(() => {
-      acknowledged.push(deliveryToken);
-    }),
-});
-
-/** A subscriber that takes every event it is offered and records it. */
-const takeEvery = (taken: TakenEvent[]) => ({
-  publish: (event: TakenEvent) => {
-    taken.push(event);
-    return true;
-  },
 });
 
 /**
@@ -464,7 +410,7 @@ const stopsPublishingAtARefusalButStillConsumesLaterDeliveries = () =>
     Effect.gen(function* () {
       const { delivery } = yield* deliveryFixture;
       const acknowledged: string[] = [];
-      const taken: TakenEvent[] = [];
+      const taken: HarnessMessageReadyEvent[] = [];
       yield* delivery.runPass(() => ({
         readPending: Effect.succeed([
           firstFromBob,
@@ -472,14 +418,14 @@ const stopsPublishingAtARefusalButStillConsumesLaterDeliveries = () =>
           thirdFromBob,
         ]),
         engine: recordAcknowledgments(acknowledged),
-        classify: consumeSecondFromBob,
+        classify: consumeOnly(secondFromBob),
         handler: { publish: () => false },
       }));
 
       yield* delivery.runPass(() => ({
         readPending: Effect.succeed([firstFromBob, thirdFromBob]),
         engine: recordAcknowledgments(acknowledged),
-        classify: consumeSecondFromBob,
+        classify: consumeOnly(secondFromBob),
         handler: takeEvery(taken),
       }));
 
@@ -499,13 +445,13 @@ const publishesTheCollectiveLayerSOwnItemsAfterDurableDeliveries = () =>
   run(
     Effect.gen(function* () {
       const { delivery } = yield* deliveryFixture;
-      const taken: TakenEvent[] = [];
+      const taken: HarnessMessageReadyEvent[] = [];
       yield* delivery.queueLocalItem(emittedFailure);
 
       yield* delivery.runPass(() => ({
         readPending: Effect.succeed([firstFromBob]),
         engine: recordAcknowledgments([]),
-        classify: publishAsMulticast,
+        classify: publishEveryPost,
         handler: takeEvery(taken),
       }));
 
@@ -525,11 +471,11 @@ const recordsEachPublishedItemInTheHistoryExportOnce = () =>
   run(
     Effect.gen(function* () {
       const { delivery, records } = yield* deliveryFixture;
-      const taken: TakenEvent[] = [];
+      const taken: HarnessMessageReadyEvent[] = [];
       const pass = () => ({
         readPending: Effect.succeed([firstFromBob]),
         engine: recordAcknowledgments([]),
-        classify: publishAsMulticast,
+        classify: publishEveryPost,
         handler: takeEvery(taken),
       });
       yield* delivery.runPass(pass);
