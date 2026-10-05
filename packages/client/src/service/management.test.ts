@@ -17,6 +17,7 @@ import {
   Deferred,
   Duration,
   Effect,
+  Exit,
   Fiber,
   Layer,
   Redacted,
@@ -310,9 +311,13 @@ function localRegisterRequest(fixture: IdentityFixture) {
 
 /**
  * The production Registry client with a 50 ms request deadline over an HTTP
- * client that never answers, as a stalled Registry connection behaves.
+ * client that records each request in `requested` and never answers, as a
+ * stalled Registry connection behaves.
  */
-function silentRegistryLayer(fixture: IdentityFixture) {
+function silentRegistryLayer(
+  fixture: IdentityFixture,
+  requested: Deferred.Deferred<undefined>,
+) {
   return Registry.layer({
     origin: fixture.bootstrap.configuration.registryOrigin,
     registrySignerPublicKey:
@@ -322,7 +327,11 @@ function silentRegistryLayer(fixture: IdentityFixture) {
     Layer.provide(
       Layer.succeed(
         HttpClient.HttpClient,
-        HttpClient.make(() => Effect.never),
+        HttpClient.make(() =>
+          Deferred.succeed(requested, undefined).pipe(
+            Effect.zipRight(Effect.never),
+          ),
+        ),
       ),
     ),
   );
@@ -339,8 +348,9 @@ const failsAtTheRegistryDeadline = () =>
   Effect.gen(function* () {
     const fixture = yield* makeIdentityFixture;
     const effects = yield* makeRegistrationEffects;
+    const requested = yield* Deferred.make<undefined>();
     const operations = yield* makeRegisteringOperations(fixture, effects).pipe(
-      Effect.provide(silentRegistryLayer(fixture)),
+      Effect.provide(silentRegistryLayer(fixture, requested)),
     );
     const registration = yield* Effect.forkDaemon(
       operations.register(localRegisterRequest(fixture)),
@@ -354,6 +364,7 @@ const failsAtTheRegistryDeadline = () =>
       }),
     );
 
+    expect(yield* Deferred.isDone(requested)).toBe(true);
     expect(error).toMatchObject({ reason: "dependency-unavailable" });
     expect(yield* Ref.get(effects.bound)).toEqual([]);
     expect(yield* Ref.get(effects.activated)).toEqual([]);
@@ -381,7 +392,8 @@ function heldRegistry(
  * Cancelling the MCP request interrupts the tool's operation. One that
  * arrives while the Registry call is in flight must still let the call
  * finish, bind the card and activate it, or the Registry would hold a
- * registration this daemon never recorded.
+ * registration this daemon never recorded. The zero-length sleep lets the
+ * interrupt reach the register fiber before the Registry call is released.
  */
 const bindsWhenCancelledDuringTheRegistryCall = () =>
   Effect.gen(function* () {
@@ -397,9 +409,10 @@ const bindsWhenCancelledDuringTheRegistryCall = () =>
     );
     yield* Deferred.await(entered);
     const interruption = yield* Effect.fork(Fiber.interrupt(registration));
-    yield* Effect.yieldNow();
+    yield* Effect.sleep(Duration.zero);
     yield* Deferred.succeed(release, undefined);
-    yield* Fiber.join(interruption);
+
+    expect(Exit.isInterrupted(yield* Fiber.join(interruption))).toBe(true);
 
     const canonicalAgentCard = yield* encodeCanonical(
       AgentCard,

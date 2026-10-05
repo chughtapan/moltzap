@@ -91,16 +91,14 @@ const registrationMatches = (
   agentCard.publicKey.x === bootstrap.agentPublicKey.x;
 
 /**
- * The Registry call, run in a detached fiber that stays interruptible. The
- * register tool runs registration uninterruptibly so that a cancelled MCP
- * request still finishes the call and the binding, and inside that region the
- * Registry client's own deadline could not interrupt the request: a slow reply
- * would be waited out and then discarded as a timeout, and a stalled one would
- * never end. The detached fiber keeps the deadline in force while the caller
- * still waits for its result. A child fiber would not do, because interrupting
- * the caller interrupts its children even inside an uninterruptible region.
+ * The Registry call, run detached and interruptible. Detached, it is not a
+ * child of its caller, so an interrupt sent to the caller does not reach it:
+ * Effect interrupts a fiber's children even inside an uninterruptible region.
+ * Interruptible, it ends at the Registry client's own deadline while an
+ * uninterruptible caller waits on the join.
  *
- * @param call The signed registration request and its admission credential.
+ * @param call The registration request, its admission credential and the
+ *   agent signing authority that signs it.
  * @returns The Registry's result, or its failure, once the detached call ends.
  */
 const registerWithRegistry = (
@@ -115,7 +113,8 @@ const registerWithRegistry = (
  * Only a `registered` result carries the verified card; the Registry's refusals
  * pass through unchanged and bind nothing. The Registry call ends at its own
  * deadline even when the caller is uninterruptible, and a caller's cancellation
- * does not stop it.
+ * does not stop it. The binding follows a cancelled call only when the caller
+ * runs this uninterruptibly, as the register tool does.
  *
  * @param input Complete registration dependencies.
  * @param input.request Closed caller-supplied registration fields.
