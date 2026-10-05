@@ -1,12 +1,16 @@
 /** @file Focused daemon activation, supervision, and durable delivery tests. */
 
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import { SUBSCRIPTION_ID_META_KEY } from "@modelcontextprotocol/server";
 import { AgentCard } from "@moltzap/identity";
 import { Deferred, Effect, Exit, Fiber, Option, Schema } from "effect";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { EventStore } from "../delivery/operations.js";
 import type { HarnessMcpEventHandler } from "../endpoint/mcp/tools.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
+import { digest } from "../__tests__/agent-card-fixtures.js";
 import {
   type Fixture,
   makeFixture,
@@ -15,11 +19,11 @@ import {
   awaitFrame,
   awaitStage,
   EXPECTED_LISTENER_FAILURE,
-  EXPORT_PATH,
   makeHarness,
   makeListenRequest,
   makeStore,
   type ReadBarrier,
+  requireEventStore,
   requireHandler,
   requireOperations,
   responseReader,
@@ -27,43 +31,100 @@ import {
   type RuntimeHarness,
   SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION,
 } from "../__tests__/daemon-runtime-harness.js";
+import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
+import { HistoryExportRecord } from "../delivery/history-export.js";
 import { INBOX_PENDING_EVENT } from "../endpoint/mcp/names.js";
 import { SendError, SendInput } from "../index.js";
 import {
-  type DeliveryToken,
+  DeliveryToken,
+  encodeRuntimeValue,
   type EndpointStore,
   EndpointStoreError,
 } from "../store/index.js";
+import { InboundItem } from "../transport/collectives/inbound.js";
 import { DaemonRuntimeError } from "./lifecycle.js";
 
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- The focused tests drive the official Promise-native MCP stream boundary. */
 
-const withHistoryExport = (fixture: Fixture): Fixture => ({
+const withHistoryExport = (fixture: Fixture, path: string): Fixture => ({
   ...fixture,
   bootstrap: {
     ...fixture.bootstrap,
     configuration: {
       ...fixture.bootstrap.configuration,
-      historyExport: EXPORT_PATH,
+      historyExport: path,
     },
   },
 });
 
+const decodeHistoryLine = Schema.decodeUnknownSync(
+  Schema.parseJson(HistoryExportRecord),
+);
+
+/**
+ * The records a history export file holds, one per NDJSON line.
+ * @param path The export file.
+ * @returns The decoded records, in file order.
+ */
+const readHistoryExport = (path: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) => fileSystem.readFileString(path)),
+    Effect.map((text) =>
+      text
+        .trimEnd()
+        .split("\n")
+        .map((line) => decodeHistoryLine(line)),
+    ),
+    Effect.provide(NodeFileSystem.layer),
+  );
+
+/**
+ * The daemon opens the configured history export and hands that export to
+ * delivery, so an inbox read writes the item to the configured file. The
+ * engine has no pending delivery, so the read's item is the only record.
+ */
 const opensConfiguredHistoryExport = async () => {
-  const fixture = withHistoryExport(await Effect.runPromise(makeFixture));
+  const path = join(stateDirectory(), "history.ndjson");
+  const fixture = withHistoryExport(await Effect.runPromise(makeFixture), path);
   const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
-  const fiber = Effect.runFork(run(fixture, makeStore(fixture, true), harness));
+  harness.delivery.acknowledged = true;
+  const store = makeStore(fixture, true);
+  const fiber = Effect.runFork(run(fixture, store, harness));
   try {
     await awaitStage(
       Deferred.await(harness.engineEntered),
       "engine acquisition",
     );
-    expect(harness.getHistoryExportPath()).toBe(EXPORT_PATH);
+    await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const item = Schema.decodeUnknownSync(InboundItem)({
+      kind: "operationFailed",
+      id: digest("col_", 8),
+      to: "agent:bob",
+      error: "retained failure",
+    });
+    await Effect.runPromise(
+      store.putInboxItem({
+        deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(
+          digest("dlv_", 8),
+        ),
+        canonicalItem: await Effect.runPromise(encodeRuntimeValue(item)),
+      }),
+    );
+    await Effect.runPromise(requireEventStore(harness).readInbox({ limit: 1 }));
+
+    expect(await Effect.runPromise(readHistoryExport(path))).toEqual([
+      expect.objectContaining({ kind: "inbound", item }),
+    ]);
   } finally {
     await Effect.runPromise(Fiber.interrupt(fiber));
   }
 };
 
+/**
+ * Without a configured path the daemon opens no history export. The check
+ * runs once the listener is up, after every startup step that could open one.
+ */
 const opensNoHistoryExportByDefault = async () => {
   const fixture = await Effect.runPromise(makeFixture);
   const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
@@ -74,6 +135,8 @@ const opensNoHistoryExportByDefault = async () => {
       Deferred.await(harness.engineEntered),
       "engine acquisition",
     );
+    await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
     expect(harness.getHistoryExportPath()).toBeUndefined();
   } finally {
     await Effect.runPromise(Fiber.interrupt(fiber));
@@ -321,10 +384,7 @@ const closesWhileReceiptWaitsOnFailedPersistence = async () => {
   };
   const daemon = Effect.runFork(run(fixture, store, harness));
   await awaitStage(Deferred.await(harness.listenerReady), "listener");
-  const eventStore = harness.getEventStore();
-  if (eventStore === undefined) {
-    throw new Error("expected the controller event store");
-  }
+  const eventStore = requireEventStore(harness);
   original.delivery.acknowledged = false;
   const reader = responseReader(
     await requireHandler(harness).fetch(makeListenRequest("fatal-receipt")),

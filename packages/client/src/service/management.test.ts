@@ -11,18 +11,12 @@ import {
   Registry,
   type RegistryLookupResult,
 } from "@moltzap/identity/registry";
-import {
-  type Context,
-  Effect,
-  Encoding,
-  Layer,
-  Redacted,
-  Schema,
-} from "effect";
+import { type Context, Effect, Layer, Redacted, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { DaemonBootstrap } from "./bootstrap.js";
 import {
+  digest,
   issueTestCard,
   makeTestAuthority,
 } from "../__tests__/agent-card-fixtures.js";
@@ -46,9 +40,6 @@ interface IdentityFixture {
   readonly bootstrap: DaemonBootstrap;
   readonly cards: readonly [VerifiedAgentCard, VerifiedAgentCard];
 }
-
-const hash = (prefix: string, byte: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
 
 const makeIdentityFixture = Effect.gen(function* () {
   const registryKeys = generateKeyPairSync("ed25519");
@@ -143,8 +134,8 @@ const makeRecovery = (fixture: IdentityFixture) =>
         {
           conversationId: membership.conversationId,
           membershipHash: membership.membershipHash,
-          currentAnchorHash: hash("anc_", 3),
-          headRecordHash: hash("rch_", 4),
+          currentAnchorHash: digest("anc_", 3),
+          headRecordHash: digest("rch_", 4),
         },
       ],
       proposalLocks: [],

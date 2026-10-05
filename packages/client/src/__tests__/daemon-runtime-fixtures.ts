@@ -6,7 +6,7 @@ import {
   Ed25519PublicKey,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
-import { Effect, Encoding, Redacted, Schema } from "effect";
+import { Effect, Redacted, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import type { DaemonBootstrap } from "../service/bootstrap.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
@@ -15,6 +15,7 @@ import { DeliveryToken } from "../store/index.js";
 import { InboundMessage } from "../transport/messaging/message.js";
 import { encodeCanonical, RecordHash } from "../transport/wire/index.js";
 import {
+  digest,
   identifier,
   issueTestCard,
   makeTestAuthority,
@@ -28,10 +29,6 @@ export interface Fixture {
   readonly registerRequest: typeof managementRegisterRequestSchema.Type;
   readonly pending: EnginePendingMessage;
 }
-
-/** Stable digest-shaped values separate fixture identities. */
-const digest = (prefix: string, byte: number): string =>
-  `${prefix}${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`;
 
 const makePendingMessage = Effect.all({
   deliveryToken: Schema.decodeUnknown(DeliveryToken)(digest("dlv_", 4)),
