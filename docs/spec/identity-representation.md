@@ -357,9 +357,7 @@ exactly:
 | R = 1 | `ceil(4N / 3) + 411` |
 | R ≥ 2 | `ceil(4N / 3) + 222 + 171R` |
 
-The overhead beyond the plaintext is `ceil(N / 3) + 411` for one
-recipient and `ceil(N / 3) + 222 + 171R` otherwise. Each further
-recipient adds 171 bytes. At 32 recipients the fixed part is 5,694
+Each further recipient adds 171 bytes. At 32 recipients the fixed part is 5,694
 bytes, so the largest plaintext whose sealed body fits the 262,144-byte
 SignedMessage body cap is 192,337 bytes, which seals to exactly
 262,144 bytes.

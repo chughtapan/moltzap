@@ -130,7 +130,7 @@ export const AgentName = Schema.String.pipe(
 
 Immutable Registry-wide human-facing agent handle.
 
-### [`AgentSigningAuthority (type)`](./agent-key.ts#L283)
+### [`AgentSigningAuthority (type)`](./agent-key.ts#L320)
 
 _Interface_
 
@@ -143,7 +143,7 @@ export interface AgentSigningAuthority {
 Opaque authority over one imported Ed25519 private key and the X25519
 opening key derived from it.
 
-### [`AgentSigningAuthority (value)`](./agent-key.ts#L432)
+### [`AgentSigningAuthority (value)`](./agent-key.ts#L475)
 
 _Variable_
 
@@ -273,7 +273,7 @@ export class InternalServerError extends Schema.TaggedError<InternalServerError>
 
 An unexpected implementation failure prevented a closed result.
 
-### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L288)
+### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L325)
 
 _Class_
 
@@ -404,7 +404,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](./sealed-body.ts#L420)
+### [`SealedBody`](./sealed-body.ts#L392)
 
 _Variable_
 
@@ -421,7 +421,7 @@ Seals a SignedMessage body to its recipients, opens a verified sealed body,
 and reports sealed sizes. `SignedMessage.sign` never seals; the caller
 chooses which bodies to seal and signs the sealed bytes.
 
-### [`SealedBodyOpeningError`](./sealed-body.ts#L103)
+### [`SealedBodyOpeningError`](./sealed-body.ts#L112)
 
 _Class_
 
@@ -433,7 +433,7 @@ export class SealedBodyOpeningError extends Data.TaggedError(
 
 A verified SignedMessage body does not open as a sealed body for this agent.
 
-### [`SealedBodySealingError`](./sealed-body.ts#L98)
+### [`SealedBodySealingError`](./sealed-body.ts#L107)
 
 _Class_
 

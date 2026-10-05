@@ -1,6 +1,5 @@
 /** @file SealedBody round trips, sender binding, refusals, retry, and size. */
 
-import { ed25519 } from "@noble/curves/ed25519.js";
 import { Effect, Either, Encoding, Option, Redacted, Schema } from "effect";
 import * as fc from "fast-check";
 import { exportJWK, GeneralEncrypt, generateKeyPair } from "jose";
@@ -15,6 +14,7 @@ import {
   AgentSigningAuthority,
   type AgentSigningAuthority as AgentSigningAuthorityValue,
   Ed25519PublicKey,
+  x25519PublicJwk,
 } from "../agent-key.js";
 import { encodeCanonicalJson } from "../canonical-json.js";
 import { AgentId, AgentName, PrincipalId } from "../identifiers.js";
@@ -31,14 +31,11 @@ import {
 } from "../signed-message.js";
 
 const SENDER_HEADER = "xyz.moltzap/sender";
-const PKCS8_ED25519_PREFIX = Buffer.from(
-  "302e020100300506032b657004220420",
-  "hex",
-);
 /**
- * Opening tries each recipient entry in turn, so a 32-recipient round trip
- * runs about 500 X25519 agreements; loaded CI hosts need more than the
- * default five seconds.
+ * Building fixtures dominates these tests: every group member costs an
+ * Ed25519 key, two PKCS#8 imports, and an issued AgentCard, and the largest
+ * groups have 129 members and seal about 256 KB to 128 recipients. Loaded CI
+ * hosts need more than the default five seconds.
  */
 const KEY_AGREEMENT_HEAVY_TIMEOUT_MS = 60_000;
 const SIGNED_MESSAGE_BODY_CAP = 262_144;
@@ -80,15 +77,14 @@ const rawProtectedHeader = Schema.Record({
 const identifier = (prefix: string, byte: number): string =>
   `${prefix}${Encoding.encodeBase64Url(new Uint8Array(16).fill(byte))}`;
 
-const makeAuthorityFromPem = (pem: string) =>
-  AgentSigningAuthority.fromPkcs8(Redacted.make(pem));
-
 const makeAuthority = () =>
-  makeAuthorityFromPem(
-    generateKeyPairSync("ed25519").privateKey.export({
-      format: "pem",
-      type: "pkcs8",
-    }),
+  AgentSigningAuthority.fromPkcs8(
+    Redacted.make(
+      generateKeyPairSync("ed25519").privateKey.export({
+        format: "pem",
+        type: "pkcs8",
+      }),
+    ),
   );
 
 const issueCard = (
@@ -147,6 +143,8 @@ const makeGroup = (recipientCount: number) =>
     return { sender, peer, outsider, recipients, registrySigningAuthority };
   });
 
+type Group = Effect.Effect.Success<ReturnType<typeof makeGroup>>;
+
 const sealFrom = (
   sender: Member,
   recipients: readonly Member[],
@@ -183,34 +181,6 @@ const openAs = (member: Member, signedMessage: VerifiedSignedMessage) =>
     signedMessage,
   });
 
-/**
- * Reduces an effect to its failure, or to `"succeeded"` when it unexpectedly
- * succeeds. A refusal test then reports a regression as a short diff instead
- * of failing with the opened bytes as its error value.
- *
- * @param effect Operation expected to fail.
- * @returns The failure, or `"succeeded"`.
- */
-const refusal = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  effect.pipe(
-    Effect.match({
-      onFailure: (error): E | "succeeded" => error,
-      onSuccess: (): E | "succeeded" => "succeeded",
-    }),
-  );
-
-const x25519PublicJwk = (member: Member) => ({
-  crv: "X25519",
-  kty: "OKP",
-  x: Encoding.encodeBase64Url(
-    ed25519.utils.toMontgomery(
-      Encoding.decodeBase64Url(member.agentCard.publicKey.x).pipe(
-        Either.getOrThrow,
-      ),
-    ),
-  ),
-});
-
 const readSealedBody = (sealed: Uint8Array): RawSealedBody =>
   Schema.decodeUnknownSync(Schema.parseJson(rawSealedBody))(
     utf8Decoder.decode(sealed),
@@ -239,49 +209,43 @@ const flipFirstByte = (value: string): string =>
 const plaintext = utf8Encoder.encode(PLAINTEXT_TEXT);
 
 /**
- * Seals to one agent whose Ed25519 key comes from `seed` and checks that the
- * same agent opens the plaintext.
+ * Seals `bytes` from the sender to the group, then checks that the peer opens
+ * exactly `bytes` and that `sealedByteLength` reports the sealed length.
  *
- * @param registrySigningAuthority Registry key that issues the agent's card.
- * @param seed 32-byte Ed25519 seed.
- * @returns Completion once the opened plaintext matched.
+ * @param group Sender, peer, and recipients.
+ * @param bytes Plaintext to seal.
+ * @returns Completion once both checks pass.
  */
-const expectSealedToSeedOpens = (
-  registrySigningAuthority: AgentSigningAuthorityValue,
-  seed: Uint8Array,
-) =>
+const expectExactRoundTrip = (group: Group, bytes: Uint8Array) =>
   Effect.gen(function* () {
-    const der = Buffer.concat([PKCS8_ED25519_PREFIX, Buffer.from(seed)]);
-    const authority = yield* makeAuthorityFromPem(
-      `-----BEGIN PRIVATE KEY-----\n${der.toString("base64")}\n-----END PRIVATE KEY-----`,
+    const sealed = yield* sealFrom(group.sender, group.recipients, bytes);
+    const signedMessage = yield* signBody(
+      group.sender,
+      group.recipients,
+      sealed,
     );
-    const agentCard = yield* issueCard(
-      registrySigningAuthority,
-      7,
-      AgentSigningAuthority.publicKey(authority),
-    );
-    const member: Member = { agentCard, authority };
-    const sealed = yield* sealFrom(member, [member], plaintext);
-    const signedMessage = yield* signBody(member, [member], sealed);
-    expect(yield* openAs(member, signedMessage)).toEqual(plaintext);
+
+    expect(yield* openAs(group.peer, signedMessage)).toEqual(bytes);
+    expect(
+      SealedBody.sealedByteLength({
+        plaintextByteLength: bytes.byteLength,
+        recipientCount: group.recipients.length,
+      }),
+    ).toStrictEqual(Option.some(sealed.byteLength));
   });
 
 /**
- * Checks eight generated Ed25519 seeds with one Registry signer.
+ * Runs `expectExactRoundTrip` over generated plaintexts of 0 to 2,048 bytes.
  *
- * @param registrySigningAuthority Registry key that issues each card.
- * @returns The fast-check run, rejecting with the first counterexample.
+ * @param group Sender, peer, and recipients.
+ * @returns The fast-check run, rejecting with the shrunk counterexample.
  */
-const generatedSeedsOpen = (
-  registrySigningAuthority: AgentSigningAuthorityValue,
-) =>
+const generatedPlaintextsRoundTrip = (group: Group) =>
   fc.assert(
-    fc.asyncProperty(fc.uint8Array({ minLength: 32, maxLength: 32 }), (seed) =>
-      Effect.runPromise(
-        expectSealedToSeedOpens(registrySigningAuthority, seed),
-      ),
+    fc.asyncProperty(fc.uint8Array({ maxLength: 2048 }), (bytes) =>
+      Effect.runPromise(expectExactRoundTrip(group, bytes)),
     ),
-    { numRuns: 8 },
+    { numRuns: 16 },
   );
 
 /**
@@ -317,9 +281,13 @@ const sealWithSharedEphemeralKey = (sender: Member, peer: Member) =>
             },
             [SENDER_HEADER]: sender.agentCard.agentId,
           })
-          .addRecipient(x25519PublicJwk(sender))
+          .addRecipient(
+            Either.getOrThrow(x25519PublicJwk(sender.agentCard.publicKey)),
+          )
           .setKeyManagementParameters(sharedEphemeralKey)
-          .addRecipient(x25519PublicJwk(peer))
+          .addRecipient(
+            Either.getOrThrow(x25519PublicJwk(peer.agentCard.publicKey)),
+          )
           .setKeyManagementParameters(sharedEphemeralKey)
           .encrypt(),
       catch: () => new Error("shared-key sealing failed"),
@@ -384,13 +352,13 @@ it.each([1, 3, 32])(
 );
 
 it(
-  "opens what a generated Ed25519 pair's AgentCard key sealed with the key derived from its seed",
+  "opens every generated plaintext exactly and seals it to the reported length",
   () =>
     Effect.runPromise(
       Effect.gen(function* () {
-        const registrySigningAuthority = yield* makeAuthority();
+        const group = yield* makeGroup(3);
         yield* Effect.tryPromise({
-          try: () => generatedSeedsOpen(registrySigningAuthority),
+          try: () => generatedPlaintextsRoundTrip(group),
           catch: (counterexample) => counterexample,
         });
       }),
@@ -409,9 +377,11 @@ it("refuses to open for an agent that is not a recipient", () =>
         sealed,
       );
 
-      const error = yield* refusal(openAs(group.outsider, signedMessage));
+      const outcome = yield* openAs(group.outsider, signedMessage).pipe(
+        Effect.either,
+      );
 
-      expect(error).toStrictEqual(new SealedBodyOpeningError());
+      expect(outcome).toStrictEqual(Either.left(new SealedBodyOpeningError()));
     }),
   ));
 
@@ -465,9 +435,11 @@ it.each([
         tampered,
       );
 
-      const error = yield* refusal(openAs(group.peer, signedMessage));
+      const outcome = yield* openAs(group.peer, signedMessage).pipe(
+        Effect.either,
+      );
 
-      expect(error).toStrictEqual(new SealedBodyOpeningError());
+      expect(outcome).toStrictEqual(Either.left(new SealedBodyOpeningError()));
     }),
   ),
 );
@@ -491,9 +463,11 @@ it("refuses a body whose protected-header sender was rewritten to the re-signing
         forged,
       );
 
-      const error = yield* refusal(openAs(group.sender, signedMessage));
+      const outcome = yield* openAs(group.sender, signedMessage).pipe(
+        Effect.either,
+      );
 
-      expect(error).toStrictEqual(new SealedBodyOpeningError());
+      expect(outcome).toStrictEqual(Either.left(new SealedBodyOpeningError()));
     }),
   ));
 
@@ -508,9 +482,11 @@ it("refuses an unchanged sealed body re-signed by another member", () =>
         sealed,
       );
 
-      const error = yield* refusal(openAs(group.sender, signedMessage));
+      const outcome = yield* openAs(group.sender, signedMessage).pipe(
+        Effect.either,
+      );
 
-      expect(error).toStrictEqual(new SealedBodyOpeningError());
+      expect(outcome).toStrictEqual(Either.left(new SealedBodyOpeningError()));
     }),
   ));
 
@@ -536,14 +512,14 @@ it("refuses the recipients whose entries the sender moved out of canonical order
 
       const outcomes = yield* Effect.forEach(
         group.recipients,
-        (member) => refusal(openAs(member, signedMessage)),
+        (member) => openAs(member, signedMessage).pipe(Effect.either),
         { concurrency: 1 },
       );
 
       expect(outcomes).toStrictEqual([
-        new SealedBodyOpeningError(),
-        new SealedBodyOpeningError(),
-        "succeeded",
+        Either.left(new SealedBodyOpeningError()),
+        Either.left(new SealedBodyOpeningError()),
+        Either.right(plaintext),
       ]);
     }),
   ));
@@ -559,9 +535,11 @@ it("refuses a body whose entry count differs from the SignedMessage recipient co
         sealed,
       );
 
-      const error = yield* refusal(openAs(group.sender, signedMessage));
+      const outcome = yield* openAs(group.sender, signedMessage).pipe(
+        Effect.either,
+      );
 
-      expect(error).toStrictEqual(new SealedBodyOpeningError());
+      expect(outcome).toStrictEqual(Either.left(new SealedBodyOpeningError()));
     }),
   ));
 
@@ -601,9 +579,11 @@ it.each([
         yield* make(sealed),
       );
 
-      const error = yield* refusal(openAs(group.peer, signedMessage));
+      const outcome = yield* openAs(group.peer, signedMessage).pipe(
+        Effect.either,
+      );
 
-      expect(error).toStrictEqual(new SealedBodyOpeningError());
+      expect(outcome).toStrictEqual(Either.left(new SealedBodyOpeningError()));
     }),
   ),
 );
@@ -624,9 +604,11 @@ it("refuses a single-recipient body whose ephemeral key sits in the recipient he
         firstRecipientOnly,
       );
 
-      const error = yield* refusal(openAs(group.sender, signedMessage));
+      const outcome = yield* openAs(group.sender, signedMessage).pipe(
+        Effect.either,
+      );
 
-      expect(error).toStrictEqual(new SealedBodyOpeningError());
+      expect(outcome).toStrictEqual(Either.left(new SealedBodyOpeningError()));
     }),
   ));
 
@@ -644,9 +626,11 @@ it("refuses a multi-recipient body that shares one ephemeral key through the pro
         sharedEpk,
       );
 
-      const error = yield* refusal(openAs(group.peer, signedMessage));
+      const outcome = yield* openAs(group.peer, signedMessage).pipe(
+        Effect.either,
+      );
 
-      expect(error).toStrictEqual(new SealedBodyOpeningError());
+      expect(outcome).toStrictEqual(Either.left(new SealedBodyOpeningError()));
     }),
   ));
 
@@ -736,8 +720,10 @@ it(
             .byteLength,
         ).toBe(SIGNED_MESSAGE_BODY_CAP);
         expect(
-          yield* refusal(signBody(group.sender, group.recipients, oneMore)),
-        ).toStrictEqual(new SignedMessageSigningError());
+          yield* signBody(group.sender, group.recipients, oneMore).pipe(
+            Effect.either,
+          ),
+        ).toStrictEqual(Either.left(new SignedMessageSigningError()));
       }),
     ),
   KEY_AGREEMENT_HEAVY_TIMEOUT_MS,
@@ -807,25 +793,18 @@ it(
       Effect.gen(function* () {
         const group = yield* makeGroup(129);
 
-        const errors = yield* Effect.forEach(
+        const outcomes = yield* Effect.forEach(
           [[], [group.sender, group.sender], group.recipients],
           (recipients) =>
-            refusal(sealFrom(group.sender, recipients, plaintext)),
+            sealFrom(group.sender, recipients, plaintext).pipe(Effect.either),
           { concurrency: 1 },
         );
 
-        expect(errors).toStrictEqual([
-          new SealedBodySealingError(),
-          new SealedBodySealingError(),
-          new SealedBodySealingError(),
+        expect(outcomes).toStrictEqual([
+          Either.left(new SealedBodySealingError()),
+          Either.left(new SealedBodySealingError()),
+          Either.left(new SealedBodySealingError()),
         ]);
-        expect(
-          yield* sealFrom(
-            group.sender,
-            group.recipients.slice(0, 128),
-            plaintext,
-          ),
-        ).toBeInstanceOf(Uint8Array);
       }),
     ),
   KEY_AGREEMENT_HEAVY_TIMEOUT_MS,
@@ -845,14 +824,12 @@ it("refuses to seal to an AgentCard key that is not an Ed25519 curve point", () 
         }),
       );
 
-      const error = yield* refusal(
-        SealedBody.seal({
-          senderAgentId: group.sender.agentCard.agentId,
-          recipientAgentCards: [group.sender.agentCard, offCurveCard],
-          plaintext,
-        }),
-      );
+      const outcome = yield* SealedBody.seal({
+        senderAgentId: group.sender.agentCard.agentId,
+        recipientAgentCards: [group.sender.agentCard, offCurveCard],
+        plaintext,
+      }).pipe(Effect.either);
 
-      expect(error).toStrictEqual(new SealedBodySealingError());
+      expect(outcome).toStrictEqual(Either.left(new SealedBodySealingError()));
     }),
   ));

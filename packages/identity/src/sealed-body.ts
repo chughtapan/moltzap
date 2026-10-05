@@ -1,15 +1,19 @@
 /** @file Sealed SignedMessage bodies: multi-recipient JWE bound to the sender AgentId. */
 
-import { ed25519 } from "@noble/curves/ed25519.js";
 import { Data, Effect, Either, Encoding, Option, Schema } from "effect";
-import { generalDecrypt, GeneralEncrypt, type JWK } from "jose";
+import { generalDecrypt, GeneralEncrypt } from "jose";
 import type { VerifiedAgentCard } from "./agent-card.js";
 import {
   agentOpeningPrivateKey,
   type AgentSigningAuthority,
+  x25519PublicJwk,
 } from "./agent-key.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
-import { AgentId, type AgentId as AgentIdValue } from "./identifiers.js";
+import {
+  AgentId,
+  type AgentId as AgentIdValue,
+  hasCanonicalBase64UrlLength,
+} from "./identifiers.js";
 import {
   compareAgentIds,
   MAXIMUM_BODY_BYTES,
@@ -31,6 +35,11 @@ const X25519_PUBLIC_KEY_BYTES = 32;
  * is therefore the base64url ciphertext plus these fixed byte counts. A single
  * recipient carries its `epk` in the protected header, and two or more each
  * carry one in their own entry.
+ *
+ * The outer members with IV and tag take 103 bytes. A single recipient adds a
+ * 234-byte protected header and a 74-byte entry: 411. Two or more add a
+ * 120-byte protected header and 171 bytes per entry including its separating
+ * comma, less one byte because the last entry has none: 222 + 171R.
  */
 const SINGLE_RECIPIENT_FIXED_BYTES = 411;
 const MULTIPLE_RECIPIENT_FIXED_BYTES = 222;
@@ -59,9 +68,7 @@ const canonicalBase64Url = Schema.String.pipe(
 
 const encodedBytes = (byteLength: number) =>
   Schema.String.pipe(
-    Schema.filter(
-      (value) => decodeCanonicalBase64Url(value)?.byteLength === byteLength,
-    ),
+    Schema.filter((value) => hasCanonicalBase64UrlLength(value, byteLength)),
   );
 
 const ephemeralPublicKey = exactStruct({
@@ -94,6 +101,8 @@ const protectedHeader = exactStruct({
 
 type ProtectedHeader = typeof protectedHeader.Type;
 
+const protectedHeaderJson = Schema.parseJson(protectedHeader);
+
 /** A body cannot be sealed from the supplied sender to the supplied recipients. */
 export class SealedBodySealingError extends Data.TaggedError(
   "SealedBodySealingError",
@@ -116,6 +125,11 @@ interface SealInput {
   readonly plaintext: Uint8Array;
 }
 
+const isRecipientCount = (recipientCount: number): boolean =>
+  Number.isInteger(recipientCount) &&
+  recipientCount >= 1 &&
+  recipientCount <= MAXIMUM_RECIPIENTS;
+
 const snapshotRecipients = (
   recipientAgentCards: readonly VerifiedAgentCard[],
 ): Effect.Effect<readonly VerifiedAgentCard[], SealedBodySealingError> =>
@@ -126,8 +140,7 @@ const snapshotRecipients = (
     });
     const distinctAgentIds = new Set(recipients.map((card) => card.agentId));
     if (
-      recipients.length === 0 ||
-      recipients.length > MAXIMUM_RECIPIENTS ||
+      !isRecipientCount(recipients.length) ||
       distinctAgentIds.size !== recipients.length
     ) {
       return yield* new SealedBodySealingError();
@@ -136,26 +149,6 @@ const snapshotRecipients = (
       compareAgentIds(left.agentId, right.agentId),
     );
   });
-
-/**
- * Maps a recipient's Ed25519 AgentCard key to its X25519 key through the RFC
- * 7748 birational map `u = (1 + y) / (1 - y)`.
- *
- * The Ed25519 public-key Schema admits canonical encodings that are not curve
- * points, and the map throws for those.
- *
- * @param card Verified recipient AgentCard.
- * @returns The recipient's X25519 public JWK.
- */
-const recipientPublicKey = (card: VerifiedAgentCard): JWK => ({
-  crv: "X25519",
-  kty: "OKP",
-  x: Encoding.encodeBase64Url(
-    ed25519.utils.toMontgomery(
-      Encoding.decodeBase64Url(card.publicKey.x).pipe(Either.getOrThrow),
-    ),
-  ),
-});
 
 /**
  * Encrypts one plaintext to every recipient's AgentCard key and binds the
@@ -179,10 +172,9 @@ const seal = (
       try: () => Uint8Array.from(input.plaintext),
       catch: sealingFailure,
     });
-    const recipientKeys = yield* Effect.try({
-      try: () => recipients.map(recipientPublicKey),
-      catch: sealingFailure,
-    });
+    const recipientKeys = yield* Either.all(
+      recipients.map((card) => x25519PublicJwk(card.publicKey)),
+    ).pipe(Either.mapLeft(sealingFailure));
     const encryption = new GeneralEncrypt(plaintext).setProtectedHeader({
       alg: KEY_MANAGEMENT_ALGORITHM,
       enc: CONTENT_ENCRYPTION_ALGORITHM,
@@ -223,20 +215,16 @@ const decodeProtectedHeader = (
         ),
       catch: openingFailure,
     });
-    return yield* Schema.decodeUnknown(Schema.parseJson(protectedHeader))(
-      headerText,
-      { exact: true, onExcessProperty: "error" },
-    ).pipe(Effect.mapError(openingFailure));
+    return yield* Schema.decodeUnknown(protectedHeaderJson)(headerText, {
+      exact: true,
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError(openingFailure));
   });
 
 /**
  * Checks the one ephemeral-key placement the sealer produces: the protected
  * header carries it for a single recipient, and each recipient header carries
  * its own otherwise.
- *
- * @param representation Decoded General JWE.
- * @param header Decoded protected header.
- * @returns Whether the ephemeral keys sit where the sealer places them.
  */
 const hasExactEphemeralKeyPlacement = (
   representation: SealedBodyRepresentation,
@@ -258,11 +246,6 @@ type RecipientEntry = SealedBodyRepresentation["recipients"][number];
  * Selects the one entry sealed to `agentId`. Entries follow the canonical
  * order of the SignedMessage recipient list, so the agent's position in that
  * list is its entry, and no other entry is tried.
- *
- * @param representation Decoded General JWE.
- * @param recipientAgentIds Verified SignedMessage recipients.
- * @param agentId The opening agent.
- * @returns The entry at the agent's position.
  */
 const recipientEntry = (
   representation: SealedBodyRepresentation,
@@ -322,13 +305,7 @@ const open = (
     const decrypted = yield* Effect.tryPromise({
       try: () =>
         generalDecrypt(
-          {
-            ciphertext: representation.ciphertext,
-            iv: representation.iv,
-            protected: representation.protected,
-            recipients: [{ ...entry }],
-            tag: representation.tag,
-          },
+          { ...representation, recipients: [entry] },
           agentOpeningPrivateKey(input.signingAuthority),
           {
             keyManagementAlgorithms: [KEY_MANAGEMENT_ALGORITHM],
@@ -339,11 +316,6 @@ const open = (
     });
     return decrypted.plaintext;
   });
-
-const isRecipientCount = (recipientCount: number): boolean =>
-  Number.isInteger(recipientCount) &&
-  recipientCount >= 1 &&
-  recipientCount <= MAXIMUM_RECIPIENTS;
 
 const fixedByteLength = (recipientCount: number): number =>
   recipientCount === 1

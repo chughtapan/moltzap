@@ -62,10 +62,8 @@ const compareGeneratedSeedWithNode = (seed: Uint8Array) => {
   });
 };
 
-const pemFromSeed = (seedHex: string): string =>
-  pemFromDer(
-    Buffer.concat([PKCS8_ED25519_PREFIX, Buffer.from(seedHex, "hex")]),
-  );
+const pemFromSeed = (seed: Uint8Array): string =>
+  pemFromDer(Buffer.concat([PKCS8_ED25519_PREFIX, seed]));
 
 /**
  * Reads the opening key's X25519 public key as its scalar multiple of the
@@ -205,7 +203,7 @@ it.each([
     Effect.runPromise(
       Effect.gen(function* () {
         const authority = yield* AgentSigningAuthority.fromPkcs8(
-          Redacted.make(pemFromSeed(seed)),
+          Redacted.make(pemFromSeed(Buffer.from(seed, "hex"))),
         );
         const cardPublicKey = Encoding.decodeBase64Url(
           AgentSigningAuthority.publicKey(authority).x,
@@ -227,7 +225,7 @@ it("derives a non-extractable opening key that matches the AgentCard key's X2551
       Effect.runPromise(
         Effect.gen(function* () {
           const authority = yield* AgentSigningAuthority.fromPkcs8(
-            Redacted.make(pemFromSeed(Buffer.from(seed).toString("hex"))),
+            Redacted.make(pemFromSeed(seed)),
           );
           const cardPublicKey = Encoding.decodeBase64Url(
             AgentSigningAuthority.publicKey(authority).x,
