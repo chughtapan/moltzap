@@ -9,6 +9,7 @@ import { AgentCard } from "@moltzap/identity";
 import { Effect, Redacted, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { EventStore } from "../../delivery/operations.js";
+import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { makeFixture } from "../../__tests__/router-worker-fixtures.js";
 import { HARNESS_SEND_META_KEY } from "./names.js";
 import {
@@ -126,7 +127,7 @@ const invalidIdempotencyKeys = [
 ];
 const unknownEvent = {
   name: "read_event",
-  arguments: { eventId: `evt_${Buffer.alloc(32, 1).toString("base64url")}` },
+  arguments: { eventId: digest("evt_", 1) },
 };
 
 /** The tools each credential role sees, sorted, before and after registration. */
@@ -247,16 +248,12 @@ const listTools = (handler: Handler, credential: Redacted.Redacted) =>
 
 const responseStatus = (
   handler: Handler,
+  method: string,
   params: RequestParams,
   credential: string,
 ) =>
   Effect.tryPromise(() =>
-    handler.fetch(makeRequest("tools/call", params, credential)),
-  ).pipe(Effect.map((response) => response.status));
-
-const discoveryStatus = (handler: Handler, credential: string) =>
-  Effect.tryPromise(() =>
-    handler.fetch(makeRequest("server/discover", {}, credential)),
+    handler.fetch(makeRequest(method, params, credential)),
   ).pipe(Effect.map((response) => response.status));
 
 // @agent-code-guard/regression-only: direct calls and discovery must enforce the same authority before and after registration.
@@ -268,7 +265,8 @@ describe.each(registrationStates)(
       ({ credential }) =>
         verify(
           credentialedHandler(registered),
-          (handler) => discoveryStatus(handler, credential),
+          (handler) =>
+            responseStatus(handler, "server/discover", {}, credential),
           (status) => {
             expect(status).toBe(401);
           },
@@ -292,7 +290,9 @@ describe.each(registrationStates)(
           (handler) =>
             callTool(handler, { name, arguments: {} }, credentials.runtime),
           (body) => {
-            expect(body).toMatchObject({ error: { code: -32602 } });
+            expect(body).toMatchObject({
+              error: { code: -32602, message: `Tool ${name} not found` },
+            });
           },
         ),
     );
@@ -419,7 +419,8 @@ describe("tunneled MCP event reads for a registered daemon", () => {
     ({ credential }) =>
       verify(
         credentialedHandler(true),
-        (handler) => responseStatus(handler, unknownEvent, credential),
+        (handler) =>
+          responseStatus(handler, "tools/call", unknownEvent, credential),
         (status) => {
           expect(status).toBe(401);
         },

@@ -208,6 +208,15 @@ interface RestartedPositionInput {
   readonly head: RecordHashValue;
 }
 
+/**
+ * Move a restart-recovered position toward the new Router instance: finish it
+ * when it is already anchored there, wait behind a staged successor, or
+ * replay the peer votes held while catch-up ran and then propose this
+ * endpoint's own re-anchor. The replay can complete the re-anchor, so whether
+ * to propose is decided only after it has run.
+ * @param input Recovery run, membership, durable position and its head.
+ * @returns Completion once the position is finished, waiting, or proposed.
+ */
 function advanceRestartedPosition(
   input: RestartedPositionInput,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
@@ -221,9 +230,11 @@ function advanceRestartedPosition(
   }
   return replayReanchorVotes(run, membership, conversationId, head).pipe(
     Effect.zipRight(
-      run.isRecovered(conversationId)
-        ? Effect.void
-        : proposeReanchor(run, membership, position),
+      Effect.suspend(() =>
+        run.isRecovered(conversationId)
+          ? Effect.void
+          : proposeReanchor(run, membership, position),
+      ),
     ),
   );
 }
@@ -292,6 +303,17 @@ function acceptReanchorVoteEffect(
   );
 }
 
+/**
+ * Verify a re-anchor vote's outer envelope and evidence against the
+ * conversation's membership, then offer the vote to the active recovery run.
+ * A vote that fails either check is reported ignored like any other unusable
+ * input, as is a verified vote the run does not take.
+ * @param run Recovery run that receives the vote.
+ * @param ingress Router delivery whose outer envelope carries the vote.
+ * @param message The vote's evidence message from that envelope.
+ * @param membership Recovered membership of the vote's conversation.
+ * @returns Whether the vote was accepted or ignored.
+ */
 function verifyInboundVote(
   run: ReanchorRun,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
@@ -316,6 +338,9 @@ function verifyInboundVote(
         ),
       );
     }),
+    Effect.catchTag("ClientRepresentationError", () =>
+      Effect.succeed(ignoredDisposition),
+    ),
     Effect.mapError(persistenceFailure),
   );
 }

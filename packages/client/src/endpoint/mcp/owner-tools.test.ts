@@ -1,13 +1,14 @@
 /** @file Exact wire grammar of the owner management address schemas. */
 
-import { Encoding, Schema } from "effect";
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { digest } from "../../__tests__/agent-card-fixtures.js";
 import {
   managementSearchConversationsRequestSchema,
   managementSearchConversationsResultSchema,
 } from "./owner-tools.js";
 
-const conversationId = `cnv_${Encoding.encodeBase64Url(new Uint8Array(32).fill(1))}`;
+const conversationId = digest("cnv_", 1);
 
 // @agent-code-guard/regression-only: the wire schema accepts only address cursors and canonical pages.
 describe("management address schemas", () => {

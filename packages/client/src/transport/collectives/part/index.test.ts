@@ -1,15 +1,8 @@
 /** @file Pins the collective values carried in a post's data part. */
 
-import {
-  Effect,
-  Either,
-  Encoding,
-  Exit,
-  Option,
-  ParseResult,
-  Schema,
-} from "effect";
+import { Effect, Either, Exit, Option, ParseResult, Schema } from "effect";
 import { describe, expect, it } from "vitest";
+import { digest } from "../../../__tests__/agent-card-fixtures.js";
 import { Content } from "../../wire/index.js";
 import { AgentAddress } from "../../wire/values.js";
 import {
@@ -25,7 +18,7 @@ import {
 
 const collectiveId = `col_${"A".repeat(43)}`;
 const nonce = "B".repeat(43);
-const recordHash = `rch_${Encoding.encodeBase64Url(new Uint8Array(32).fill(2))}`;
+const recordHash = digest("rch_", 2);
 const deadlineAt = 1_790_000_000_000;
 /**
  * `col_` and the base64url SHA-256 of `xyz.moltzap/collective-id`, NUL,

@@ -1,13 +1,6 @@
 /** @file Recording ports, post builders and send helpers shared by the collective operation tests. */
 
-import {
-  Duration,
-  Effect,
-  Encoding,
-  Schema,
-  type Scope,
-  TestContext,
-} from "effect";
+import { Duration, Effect, Schema, type Scope, TestContext } from "effect";
 import type { InboundItem } from "../transport/collectives/inbound.js";
 import type { EngineSendInput } from "../transport/messaging/index.js";
 import {
@@ -19,6 +12,7 @@ import {
 } from "../transport/collectives/forms.js";
 import {
   type CollectiveOperations,
+  type CollectivePorts,
   makeCollectiveOperations,
 } from "../transport/collectives/operation.js";
 import {
@@ -29,8 +23,9 @@ import { SendError } from "../transport/messaging/errors.js";
 import { InboundMessage } from "../transport/messaging/message.js";
 import { PostId, RecordHash } from "../transport/wire/index.js";
 import { AgentAddress } from "../transport/wire/values.js";
+import { digest } from "./agent-card-fixtures.js";
 
-/** The requester every layer `makeLayer` builds runs as. */
+/** The agent a layer `makeLayer` builds runs as unless told otherwise. */
 export const alice = Schema.decodeUnknownSync(AgentAddress)("agent:alice");
 
 const bob = Schema.decodeUnknownSync(AgentAddress)("agent:bob");
@@ -69,11 +64,9 @@ export const gatherTo = "group:alice,bob,carol";
  * @returns The decoded RecordHash.
  */
 export const recordHashOf = (byte: number) =>
-  Schema.decodeUnknownSync(RecordHash)(
-    `rch_${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`,
-  );
+  Schema.decodeUnknownSync(RecordHash)(digest("rch_", byte));
 
-/** The record hash every post a gather test classifies or certifies carries. */
+/** The record hash every post `classifyPost` classifies carries. */
 const recordHash = recordHashOf(0);
 
 /** What a layer's ports saw: the posts it certified and the items it emitted, in order. */
@@ -88,9 +81,7 @@ export interface Observed {
  * @returns The decoded PostId.
  */
 export const postId = (byte: number) =>
-  Schema.decodeUnknownSync(PostId)(
-    `pst_${Encoding.encodeBase64Url(new Uint8Array(32).fill(byte))}`,
-  );
+  Schema.decodeUnknownSync(PostId)(digest("pst_", byte));
 
 /**
  * A recorder that has seen nothing yet.
@@ -105,75 +96,100 @@ export const newObserved = (): Observed => ({ sent: [], emitted: [] });
 export const unkeptEmit = () => Effect.fail(new CollectiveEmitError());
 
 /**
- * Record a post and certify it under the next PostId: the nth post recorded
- * gets `postId(n)`.
+ * Record a post and certify it as the engine does, under its own PostId and
+ * record hash: the nth post recorded gets byte `100 + n` for both, so neither
+ * collides with the bytes below 100 a test gives the posts it classifies.
  * @param observed Where the post is recorded.
  * @param input The post being certified.
- * @returns The certified post's PostId and the shared record hash.
+ * @returns The certified post's PostId and record hash.
  */
 export const certifyNext = (observed: Observed, input: EngineSendInput) =>
   Effect.sync(() => {
     observed.sent.push(input);
-    return { postId: postId(observed.sent.length), recordHash };
+    const byte = 100 + observed.sent.length;
+    return { postId: postId(byte), recordHash: recordHashOf(byte) };
   });
+
+/**
+ * The send's wait for its request posts, mirroring the private
+ * `operation.ts → REQUEST_SEND_WAIT`. Tests advance the test clock by it to
+ * end that wait, so a change to the production bound is made here too.
+ */
+export const requestSendWait = Duration.seconds(20);
+
+/** How long after the send's wait ends a `late` post certifies. */
+export const latePostDelay = Duration.seconds(5);
 
 /** What a test layer varies from ports that resolve, certify and keep everything. */
 interface LayerOptions {
+  /** The agent the layer runs as, `alice` by default. */
+  readonly self?: string;
   /**
-   * Members whose request post does not certify at once: refused with the
-   * reason given, never certified for `slow`, or certified five seconds late
-   * for `late`.
+   * Addresses whose post is not passed to `sendPost` at once: refused with the
+   * reason given, held forever for `slow`, or passed on `latePostDelay` after
+   * the send's `requestSendWait` ends for `late`.
    */
   readonly refused?: Readonly<
     Record<string, SendError["reason"] | "slow" | "late">
   >;
   /** Members whose lookup fails as an unknown agent. */
   readonly unknown?: readonly string[];
-  /** Whether the service keeps no item the layer emits. */
-  readonly emitFails?: boolean;
+  /** Certifies each post `refused` lets through; `certifyNext` by default. */
+  readonly sendPost?: CollectivePorts["sendPost"];
+  /** Keeps each item the layer emits; by default it records the item. */
+  readonly emit?: CollectivePorts["emit"];
 }
 
 /**
- * A collective layer for alice over recording ports, with a one-second send
- * wait, in the caller's scope.
- * @param observed Where the ports record certified posts and emitted items.
- * @param options Which members' posts or lookups fail, and whether emitted items are kept.
- * @param options.refused Members whose request post does not certify at once, and how it fares.
+ * A collective layer over recording ports in the caller's scope. Its send
+ * waits `requestSendWait` for request posts, so a test that needs that wait
+ * to end advances the test clock by it.
+ * @param observed Where the default ports record certified posts and emitted items.
+ * @param options The agent the layer runs as, and the ports that differ from the recording defaults.
+ * @param options.self The agent the layer runs as, `alice` by default.
+ * @param options.refused Addresses whose post does not certify at once, and how it fares.
  * @param options.unknown Members whose lookup fails as an unknown agent.
- * @param options.emitFails Whether the service keeps no item the layer emits.
+ * @param options.sendPost Certifies each post `refused` lets through.
+ * @param options.emit Keeps each item the layer emits.
  * @returns The layer, scoped to the caller.
  */
 export const makeLayer = (
   observed: Observed,
-  { refused = {}, unknown = [], emitFails = false }: LayerOptions = {},
+  {
+    self = alice,
+    refused = {},
+    unknown = [],
+    sendPost = (input) => certifyNext(observed, input),
+    emit = (item) =>
+      Effect.sync(() => {
+        observed.emitted.push(item);
+      }),
+  }: LayerOptions = {},
 ): Effect.Effect<CollectiveOperations, never, Scope.Scope> =>
   Effect.map(Effect.scope, (scope) =>
     makeCollectiveOperations({
-      self: alice,
+      self: Schema.decodeUnknownSync(AgentAddress)(self),
       lookupMember: (member) =>
         unknown.includes(member)
           ? Effect.fail(new SendError({ reason: "unknown-agent" }))
           : Effect.void,
       sendPost: (input) => {
         const reason = refused[input.to];
+        if (reason === undefined) {
+          return sendPost(input);
+        }
         if (reason === "slow") {
           return Effect.never;
         }
-        if (reason !== undefined && reason !== "late") {
-          return Effect.fail(new SendError({ reason }));
+        if (reason === "late") {
+          return Effect.sleep(
+            Duration.sum(requestSendWait, latePostDelay),
+          ).pipe(Effect.zipRight(sendPost(input)));
         }
-        return Effect.sleep(
-          reason === "late" ? Duration.seconds(5) : Duration.zero,
-        ).pipe(Effect.zipRight(certifyNext(observed, input)));
+        return Effect.fail(new SendError({ reason }));
       },
-      emit: emitFails
-        ? unkeptEmit
-        : (item) =>
-            Effect.sync(() => {
-              observed.emitted.push(item);
-            }),
+      emit,
       scope,
-      requestSendWait: Duration.seconds(1),
     }),
   );
 
@@ -191,31 +207,25 @@ export const run = <A, E>(effect: Effect.Effect<A, E, Scope.Scope>) =>
  * A post in the direct conversation with `sender`.
  * @param sender The agent that authored the post.
  * @param content The post's parts.
- * @param byte The byte its PostId repeats.
  * @returns The decoded inbound message.
  */
-export const directPost = (sender: string, content: unknown, byte = 9) =>
+export const directPost = (sender: string, content: unknown) =>
   Schema.decodeUnknownSync(InboundMessage)({
     kind: "direct",
-    postId: postId(byte),
+    postId: postId(9),
     address: sender,
     sender,
     content,
   });
 
 /**
- * A gather request post asking `questionText` with `slotSchema` under
- * `requestNonce`.
+ * A gather request post naming Bob's `requestId` and asking `questionText`
+ * with `slotSchema` under `requestNonce`.
  * @param sender The agent that authored the request.
  * @param deadlineAt The absolute deadline it states, in epoch milliseconds.
- * @param id The id it names, Bob's by default.
  * @returns The decoded inbound message.
  */
-export const requestPost = (
-  sender: string,
-  deadlineAt: number,
-  id = requestId,
-) =>
+export const requestPost = (sender: string, deadlineAt: number) =>
   directPost(sender, [
     { type: "text", text: questionText },
     {
@@ -224,7 +234,7 @@ export const requestPost = (
         [collectiveKey]: {
           kind: "operation",
           op: "gather",
-          id,
+          id: requestId,
           nonce: requestNonce,
           deadlineAt,
           requestedSchema: slotSchema,
