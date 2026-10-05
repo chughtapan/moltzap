@@ -10,6 +10,7 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   Deferred,
+  Duration,
   Effect,
   Fiber,
   Stream,
@@ -79,6 +80,12 @@ const streamServer = (
     { legacy: "reject", responseMode: "auto" },
   );
 
+/**
+ * How long a wakeup stream waits for its initial headers before it fails,
+ * mirroring the inline 60-second bound in `events.ts → open`.
+ */
+const INITIAL_HEADERS_BOUND = Duration.seconds(60);
+
 const boundsInitialHeaders = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -97,7 +104,9 @@ const boundsInitialHeaders = () =>
           Effect.forkScoped,
         );
         yield* Deferred.await(entered);
-        yield* TestClock.adjust("61 seconds");
+        yield* TestClock.adjust(
+          Duration.sum(INITIAL_HEADERS_BOUND, Duration.seconds(1)),
+        );
         expect((yield* Fiber.join(reader)).reason).toBe("transport-failed");
         expect(requests).toEqual([
           expect.objectContaining({ name: INBOX_PENDING_EVENT }),

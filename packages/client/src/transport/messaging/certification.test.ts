@@ -1523,10 +1523,17 @@ function blackHolesFirstTransmit(
 }
 
 /**
- * A black-holed transmit holds the local send's drain: the send answers
- * `network-unavailable` at `LOCAL_DRAIN_TIMEOUT`, and the background drain
- * then delivers the envelope the interrupted transmit left begun, exactly
- * once however often the queue drains afterwards.
+ * The local send's drain bound, after which it answers `network-unavailable`,
+ * mirroring the private `index.ts → LOCAL_DRAIN_TIMEOUT`.
+ */
+const DRAIN_BOUND = Duration.seconds(10);
+
+/**
+ * A black-holed transmit holds the local send's drain: the send is still
+ * pending one second short of `DRAIN_BOUND` and answers `network-unavailable`
+ * one second past it. The background drain then delivers the envelope the
+ * interrupted transmit left begun, exactly once however often the queue
+ * drains afterwards.
  */
 function blackHoledTransmitBoundsTheSend(): Effect.Effect<
   void,
@@ -1546,7 +1553,7 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
     const sending = yield* Effect.fork(
       author.send(yield* sendInput(harness, "black-holed transmit")),
     );
-    yield* advanceClock(Duration.seconds(9));
+    yield* advanceClock(Duration.subtract(DRAIN_BOUND, Duration.seconds(1)));
     expect(yield* Fiber.poll(sending)).toEqual(Option.none());
     yield* advanceClock(Duration.seconds(2));
     expect(

@@ -121,6 +121,10 @@ const opensConfiguredHistoryExport = async () => {
   }
 };
 
+/**
+ * Without a configured path the daemon opens no history export. The check
+ * runs once the listener is up, after every startup step that could open one.
+ */
 const opensNoHistoryExportByDefault = async () => {
   const fixture = await Effect.runPromise(makeFixture);
   const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
@@ -131,6 +135,8 @@ const opensNoHistoryExportByDefault = async () => {
       Deferred.await(harness.engineEntered),
       "engine acquisition",
     );
+    await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
     expect(harness.getHistoryExportPath()).toBeUndefined();
   } finally {
     await Effect.runPromise(Fiber.interrupt(fiber));
