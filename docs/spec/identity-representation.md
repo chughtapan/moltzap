@@ -339,12 +339,11 @@ With two or more recipients, each entry carries its own ephemeral key in
 its `header`. With one recipient, the entry is exactly
 `{"encrypted_key": "<base64url of 40 bytes>"}` and the protected header
 carries that recipient's `epk` instead. These are the placements `jose`
-produces, and a decoder rejects any other placement. An ephemeral key per
-recipient is what `jose`'s supported API produces. Sharing one ephemeral
-key across the entries would save bytes, but `jose` accepts a
-caller-chosen ephemeral key only through its `epk` key-management
-parameter, which it documents as intended only for testing and vector
-validation.
+produces, and a decoder rejects any other placement. The representation
+uses only `jose`'s supported multi-recipient API, which gives each
+recipient its own ephemeral key: `jose` accepts a caller-chosen ephemeral
+key only through its `epk` key-management parameter, which it documents
+as intended only for testing and vector validation.
 
 Recipient entries carry no key ID. They follow the canonical
 SignedMessage recipient order: unique and strictly increasing by

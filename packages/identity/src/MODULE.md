@@ -407,7 +407,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](./sealed-body.ts#L504)
+### [`SealedBody`](./sealed-body.ts#L501)
 
 _Variable_
 

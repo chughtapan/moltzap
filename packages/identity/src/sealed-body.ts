@@ -207,11 +207,8 @@ const snapshotRecipients = (
  * AgentId in the protected header, and commits the header to the salted
  * plaintext.
  *
- * The jose library generates a fresh ephemeral key for every recipient entry.
- * One key shared across the entries would be smaller, but jose accepts a
- * caller-chosen ephemeral key only through its `epk` key-management
- * parameter, which it documents as intended only for testing and vector
- * validation, so seal stays on the supported per-recipient path.
+ * Each recipient entry carries its own ephemeral key, which is the layout
+ * jose's supported multi-recipient ECDH-ES+A256KW API produces.
  *
  * Recipient entries follow the canonical SignedMessage recipient order, so the
  * caller signs the returned bytes as a SignedMessage body from the same sender
