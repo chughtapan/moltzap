@@ -817,9 +817,8 @@ const restartWithNonLexicalAgentOrder = () =>
   );
 
 /**
- * Startup reads certified history with the same row checks as the owner
- * tools. A store whose action evidence row is filed under a member other than
- * its signer is corrupt, so the engine refuses to start over it, while the
+ * A store whose action evidence row is filed under a member other than its
+ * signer is corrupt, so the engine refuses to start over it, while the
  * unaltered store restarts.
  */
 const refusesMisattributedEvidenceAtStartup = () =>
@@ -1774,6 +1773,47 @@ const queuePeerCatchUpResponse = (fixture: RecoveryFixture) =>
     }
     return row;
   }).pipe(Effect.orDie);
+
+/** The catch-up page `message` carries; any other body is a defect. */
+const decodeCatchUpPage = (message: SignedMessage) =>
+  decodeOuterBody(message.body).pipe(
+    Effect.flatMap((body) =>
+      body.kind === "direct" && body.packet.kind === "catch_up_page"
+        ? Effect.succeed(body.packet)
+        : Effect.dieMessage("expected catch-up page"),
+    ),
+  );
+
+/**
+ * A peer that asks from genesis is answered with a page holding the
+ * certified record the endpoint retains, read back from its stored rows.
+ */
+const answersGenesisCatchUpWithRetainedRecord = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+
+        const answer = yield* queuePeerCatchUpResponse(fixture).pipe(
+          Effect.flatMap((row) =>
+            decodeCanonical(SignedMessage, row.canonicalSignedMessage),
+          ),
+          Effect.flatMap(decodeCatchUpPage),
+          Effect.exit,
+        );
+
+        expect(answer, "answer to a catch-up request from genesis").toEqual(
+          Exit.succeed(
+            expect.objectContaining({
+              hasMore: false,
+              item: fixture.certifiedRecord,
+            }),
+          ),
+        );
+      }),
+    ),
+  );
 
 const recoverWhileDrainAwaitsWorker = () =>
   Effect.runPromise(
@@ -3060,6 +3100,10 @@ describe("endpoint restart recovery", () => {
   it(
     "refuses to start when the genesis anchor row selects a record",
     refusesGenesisAnchorSelectingRecordAtStartup,
+  );
+  it(
+    "answers a peer's catch-up request from genesis with its retained record",
+    answersGenesisCatchUpWithRetainedRecord,
   );
   it(
     "waits for the complete N4 successor before re-anchoring its latest head",

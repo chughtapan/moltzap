@@ -248,8 +248,8 @@ const makeCertifiedHistory = Effect.gen(function* () {
   return { fixture, store, record };
 }).pipe(Effect.provide(NodeFileSystem.layer));
 
-/** The record hashes of alice's read of her conversation with bob over `store`. */
-const readBobRecordHashes = (fixture: IdentityFixture, store: EndpointStore) =>
+/** Alice's first history page of her conversation with bob over `store`. */
+const readBobHistory = (fixture: IdentityFixture, store: EndpointStore) =>
   makeDaemonManagementOperations({
     store,
     bootstrap: fixture.bootstrap,
@@ -263,8 +263,123 @@ const readBobRecordHashes = (fixture: IdentityFixture, store: EndpointStore) =>
         }),
       ),
     ),
+  );
+
+/** The record hashes of alice's read of her conversation with bob over `store`. */
+const readBobRecordHashes = (fixture: IdentityFixture, store: EndpointStore) =>
+  readBobHistory(fixture, store).pipe(
     Effect.map((page) => page.records.map((record) => record.recordHash)),
     Effect.exit,
+  );
+
+/** A signer message's JWS representation, read as far as its one signature. */
+const jwsSignature = Schema.Struct({
+  signatures: Schema.Tuple(Schema.Struct({ signature: Schema.String })),
+});
+
+/**
+ * The audit entry the owner tools return for one certificate signature:
+ * `signer`'s AgentId and the signature its JWS `representation` carries.
+ */
+const signerEvidence = (
+  signer: VerifiedAgentCard,
+  representation: unknown,
+) => ({
+  signerAgentId: signer.agentId,
+  signature:
+    Schema.decodeUnknownSync(jwsSignature)(representation).signatures[0]
+      .signature,
+});
+
+/**
+ * `store` as it reads once its membership rows name `membershipHash`, so the
+ * rows' columns no longer match the descriptors they hold.
+ */
+function withMembershipRowsNaming(
+  store: EndpointStore,
+  membershipHash: string,
+): EndpointStore {
+  return {
+    ...store,
+    recover: () =>
+      store.recover().pipe(
+        Effect.map((recovery) => ({
+          ...recovery,
+          memberships: recovery.memberships.map((row) => ({
+            ...row,
+            membershipHash,
+          })),
+        })),
+      ),
+  };
+}
+
+/**
+ * The owner read returns the record with the anchor it commits to and, for
+ * each certificate, every signer's AgentId with the signature its JWS
+ * representation carries, in AgentId order.
+ */
+const returnsCertificateSignersForAudit = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { fixture, store, record } = yield* makeCertifiedHistory;
+        const [alice, bob] = fixture.cards;
+        const certified = record.actionCertifiedRecord;
+        const signatures = certified.actionCertificate.signatures;
+        const votes = record.durabilityCertificate.votes;
+
+        const page = yield* readBobHistory(fixture, store);
+
+        expect(
+          compareAgentIds(alice.agentId, bob.agentId),
+          "alice precedes bob in AgentId order",
+        ).toBeLessThan(0);
+        expect(page.records, "alice's history with bob").toEqual([
+          {
+            recordHash: certified.recordHash,
+            recordCore: certified.recordCore,
+            routerAnchor: certified.routerAnchor,
+            actionSignatures: [
+              signerEvidence(alice, signatures[0]),
+              signerEvidence(bob, signatures[1]),
+            ],
+            durabilityVotes: [
+              signerEvidence(alice, votes[0]),
+              signerEvidence(bob, votes[1]),
+            ],
+          },
+        ]);
+      }),
+    ),
+  );
+
+/**
+ * A store whose membership row names a membership hash other than the one
+ * its descriptor hashes to is corrupt, so the read reports
+ * persistence-failed, while the unaltered store reads the record.
+ */
+const failsReadOverMembershipRowNamingAnotherHash = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { fixture, store, record } = yield* makeCertifiedHistory;
+        const inconsistent = withMembershipRowsNaming(store, digest("mbr_", 9));
+
+        const unaltered = yield* readBobRecordHashes(fixture, store);
+        const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
+
+        expect(unaltered, "history read over the unaltered store").toEqual(
+          Exit.succeed([record.actionCertifiedRecord.recordHash]),
+        );
+        expect(
+          corrupt,
+          "history read over the inconsistent membership row",
+        ).toEqual(
+          Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
+        );
+      }),
+    ),
   );
 
 /**
@@ -371,7 +486,13 @@ describe("addressed daemon management", () => {
         expect(error).toMatchObject({ reason: "history-gap" });
       }),
     ));
+});
 
+describe("owner history read over stored rows", () => {
+  it(
+    "returns each certificate's signers and signatures with the record's anchor",
+    returnsCertificateSignersForAudit,
+  );
   it(
     "fails a history read whose action evidence is filed under another signer",
     failsReadOverMisattributedEvidence,
@@ -379,5 +500,9 @@ describe("addressed daemon management", () => {
   it(
     "fails a history read whose genesis anchor row selects a record",
     failsReadOverGenesisAnchorSelectingRecord,
+  );
+  it(
+    "fails a history read whose membership row names another membership hash",
+    failsReadOverMembershipRowNamingAnotherHash,
   );
 });
