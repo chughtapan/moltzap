@@ -337,6 +337,16 @@ function recoveryFailure(): RouterWorkerRecoveryError {
   return new RouterWorkerRecoveryError();
 }
 
+/**
+ * Apply a certified record delivered as recovery traffic, then ask the active
+ * run's members for the history after it. The Router worker polls recovery
+ * traffic while the run is still starting and until it has finished, so a
+ * record can arrive with no run active; it is applied, and a run that starts
+ * later catches up from the durable position.
+ * @param runtime Engine whose store takes the record.
+ * @param ingress Verified Router delivery carrying the record.
+ * @returns Whether the record was applied or ignored.
+ */
 function acceptRecoveryRecord(
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
@@ -352,7 +362,7 @@ function acceptRecoveryRecord(
       }
       const run = activeRuns.get(runtime);
       return run === undefined
-        ? Effect.fail(persistenceFailure())
+        ? Effect.void
         : requestCertifiedHistory(
             catchUpRun(runtime, run),
             ingress.payload.packet.actionCertifiedRecord.recordCore.action

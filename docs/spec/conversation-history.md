@@ -466,7 +466,11 @@ ancestry, select the unique latest certified head, and use the existing
 re-anchor statement and `q(n)` threshold. An honest member stages and signs at
 most one candidate for one conversation, preceding anchor, and Router
 instance. New actions bind the durable new anchor. Catch-up and re-anchor do
-not create runtime messages by themselves.
+not create runtime messages by themselves. Verified catch-up or re-anchor
+input from a member that the endpoint cannot apply, such as input naming an
+anchor, record, or position it cannot resolve, does not count: it may leave
+that conversation unrecovered, but it never stops the endpoint or its other
+conversations.
 
 ## Direct packets and Router envelopes
 

@@ -176,7 +176,10 @@ export function acceptCatchUpRequest(
 
 /**
  * Apply the certified history item a member answered the run's pending
- * request with, then ask for the next one.
+ * request with, then ask for the next one. A page whose item does not extend
+ * the conversation, or whose successor differs from the one already applied
+ * for that request, does not count: it is ignored, and at most that
+ * conversation's catch-up waits on the other members.
  * @param run Recovery run that sent the request.
  * @param ingress Verified Router delivery carrying the page.
  * @param page Catch-up page from a fixed member.
@@ -207,19 +210,20 @@ export function acceptCatchUpPage(
       registrySignerPublicKey: run.runtime.input.registrySignerPublicKey,
     });
     const key = requestKey(page.request);
-    const successorHash = pageSuccessorHash(page);
+    const successor = pageSuccessorHash(page);
     const retained = run.state.acceptedSuccessors.get(key);
     if (retained !== undefined) {
-      return retained === successorHash
-        ? acceptedDisposition
-        : yield* Effect.fail(persistenceFailure());
+      return retained === successor ? acceptedDisposition : ignoredDisposition;
     }
     if (!sameRequest(context.pending, page.request)) {
       return ignoredDisposition;
     }
-    yield* applyCatchUpPage(run.runtime, ingress, page);
+    const applied = yield* applyCatchUpPage(run.runtime, ingress, page);
+    if (applied === ignoredDisposition) {
+      return ignoredDisposition;
+    }
     yield* Effect.sync(() => {
-      run.state.acceptedSuccessors.set(key, successorHash);
+      run.state.acceptedSuccessors.set(key, successor);
     });
     yield* requestCertifiedHistory(run, page.request.conversationId);
     return acceptedDisposition;
@@ -495,27 +499,30 @@ function pageSuccessorHash(
     : page.item.anchorHash;
 }
 
+/**
+ * Apply a verified page's item. A record item goes through certification's
+ * recovery path, which ignores a record that does not extend the
+ * conversation.
+ * @param runtime Engine whose store and conversations take the item.
+ * @param ingress Verified Router delivery carrying the page.
+ * @param page Verified catch-up page for the pending request.
+ * @returns Whether the item was applied or ignored.
+ */
 function applyCatchUpPage(
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   page: CatchUpPage,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
+): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
   if (page.item.kind === "completed_reanchor") {
-    return applyCaughtUpReanchor(runtime, page.item);
+    return applyCaughtUpReanchor(runtime, page.item).pipe(
+      Effect.as(acceptedDisposition),
+    );
   }
   const recordIngress: RouterWorkerIngress<DecodedOuterBody> = {
     ...ingress,
     payload: { kind: "direct", packet: page.item },
   };
-  return runtime.phases
-    .acceptRecoveryIngress(runtime, recordIngress)
-    .pipe(
-      Effect.flatMap((disposition) =>
-        disposition === "accepted"
-          ? Effect.void
-          : Effect.fail(persistenceFailure()),
-      ),
-    );
+  return runtime.phases.acceptRecoveryIngress(runtime, recordIngress);
 }
 
 function persistenceFailure(): RouterWorkerPersistenceError {

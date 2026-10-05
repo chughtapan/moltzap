@@ -13,6 +13,7 @@ import {
 import { Effect, Schema } from "effect";
 import type { EndpointRecovery } from "../../../store/index.js";
 import type { EngineRuntime } from "../runtime/index.js";
+import { isSemanticStoreRejection } from "../../../store/types.js";
 import { RouterWorkerPersistenceError } from "../../router/index.js";
 import {
   type AnchorHash as AnchorHashValue,
@@ -26,7 +27,6 @@ import {
   ReanchorBody,
   type ReanchorBody as ReanchorBodyValue,
   type ReanchorVoteStatement as ReanchorVoteStatementValue,
-  type RecordHash as RecordHashValue,
   type VerifiedMembership,
   verifyStableEvidence,
 } from "../../wire/index.js";
@@ -40,15 +40,14 @@ export interface PendingReanchorVote {
 
 /**
  * One recovery run's re-anchor memory: the votes it holds per conversation and
- * candidate anchor, the heads those votes select, and the conversations whose
- * position is ready to take votes.
+ * candidate anchor, and the conversations whose position is ready to take
+ * votes.
  */
 export interface ReanchorVotes {
   readonly pendingVotes: Map<
     ConversationIdValue,
     Map<AnchorHashValue, Map<AgentId, PendingReanchorVote>>
   >;
-  readonly observedHeads: Map<ConversationIdValue, Set<RecordHashValue>>;
   readonly positionsReady: Set<ConversationIdValue>;
 }
 
@@ -59,13 +58,12 @@ export interface ReanchorVotes {
 export function makeReanchorVotes(): ReanchorVotes {
   return {
     pendingVotes: new Map(),
-    observedHeads: new Map(),
     positionsReady: new Set(),
   };
 }
 
 /**
- * Hold a verified vote, and the head it selects, for the rest of the run.
+ * Hold a verified vote for the rest of the run.
  * @param votes The run's vote memory.
  * @param vote Verified vote the run took.
  * @returns Completion once the vote is held.
@@ -94,10 +92,6 @@ export function rememberReanchorVote(
       >();
     candidates.set(vote.statement.anchorHash, signers);
     signers.set(vote.statement.signerAgentId, vote);
-    const heads =
-      votes.observedHeads.get(conversationId) ?? new Set<RecordHashValue>();
-    votes.observedHeads.set(conversationId, heads);
-    heads.add(vote.statement.reanchor.selectedRecordHash);
   });
 }
 
@@ -121,14 +115,17 @@ export function reanchorVoteIsRemembered(
 
 /**
  * Merge one vote into the store's re-anchor evidence for its candidate anchor.
+ * One statement has more than one valid signature, so a member can send a
+ * second, differently signed copy of a vote the store already holds. The
+ * store refuses that copy, and it does not count.
  * @param runtime Engine whose store keeps the evidence.
  * @param vote Verified vote to persist.
- * @returns Completion once the vote is durable.
+ * @returns Whether the vote is durable; false when the store refused it.
  */
 export function persistReanchorVote(
   runtime: EngineRuntime,
   vote: PendingReanchorVote,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
+): Effect.Effect<boolean, RouterWorkerPersistenceError> {
   return protocolEvidence(
     vote.statement.reanchor.conversationId,
     "reanchor",
@@ -136,8 +133,13 @@ export function persistReanchorVote(
     vote.message,
   ).pipe(
     Effect.flatMap((evidence) => runtime.input.store.mergeEvidence(evidence)),
+    Effect.as(true),
+    Effect.catchTag("EndpointStoreError", (error) =>
+      isSemanticStoreRejection(error)
+        ? Effect.succeed(false)
+        : Effect.fail(persistenceFailure()),
+    ),
     Effect.mapError(persistenceFailure),
-    Effect.asVoid,
   );
 }
 
