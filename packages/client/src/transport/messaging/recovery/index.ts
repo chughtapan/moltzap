@@ -43,7 +43,7 @@ import {
 import {
   decodeStoredAnchor,
   durableRouterInstanceId,
-  recordFromStore,
+  readStoredRecord,
   verifyRecoveredHistory,
   verifyStoredOutbounds,
 } from "../history/index.js";
@@ -395,34 +395,18 @@ function decodeSuccessorRow(
   row: CatchUpSuccessorRow,
 ) {
   if (row.kind === "record") {
-    return decodeStoredRecordSuccessor(runtime, membership, recovery, row);
+    return readStoredRecord(
+      runtime.input.registrySignerPublicKey,
+      membership,
+      recovery,
+      row.value,
+    );
   }
   return decodeStoredAnchor(membership, row.value).pipe(
     Effect.flatMap((anchor) =>
       anchor.kind === "completed_reanchor"
         ? Effect.succeed(anchor)
         : Effect.fail(persistenceFailure()),
-    ),
-  );
-}
-
-function decodeStoredRecordSuccessor(
-  runtime: EngineRuntime,
-  membership: VerifiedMembership,
-  recovery: EndpointRecovery,
-  row: Extract<CatchUpSuccessorRow, { readonly kind: "record" }>,
-) {
-  const anchor = recovery.anchors.find(
-    (candidate) =>
-      candidate.conversationId === row.value.conversationId &&
-      candidate.anchorHash === row.value.anchorHash,
-  );
-  if (anchor === undefined) {
-    return Effect.fail(persistenceFailure());
-  }
-  return decodeStoredAnchor(membership, anchor).pipe(
-    Effect.flatMap((decodedAnchor) =>
-      recordFromStore(runtime.input, row.value, decodedAnchor),
     ),
   );
 }

@@ -630,18 +630,28 @@ interface DurabilityBinding {
 /**
  * Stages the author's successor POST up to its action certificate, persists
  * a durability vote from member 3 under `bind`'s binding in the author's
- * store, and restarts the author's engine over that store.
+ * store, and restarts the author's engine over that store. The vote belongs
+ * to no certified record, so only the staged fold's evidence recovery reads
+ * it.
  * @param bind Chooses the vote's binding from the conversation's membership.
+ * @param filedUnder The member whose AgentId keys the vote's row: the voter,
+ *   member 3, unless a test files it under another member.
  * @returns `"started"`, or the error the restart failed with.
  */
 function restartOverPersistedDurabilityVote(
   bind: (membership: VerifiedMembership) => DurabilityBinding,
+  filedUnder = 3,
 ): Effect.Effect<"started" | EngineInitializationError, never, Scope.Scope> {
   return Effect.gen(function* () {
     const harness = yield* makeProtocolHarness();
     yield* certifyGenesis(harness);
     const author = yield* requireAt(harness.identities, 0, "identity");
     const voter = yield* requireAt(harness.identities, 3, "durability voter");
+    const keyMember = yield* requireAt(
+      harness.identities,
+      filedUnder,
+      "evidence key member",
+    );
     const authorEngine = yield* requireAt(
       harness.engines,
       0,
@@ -687,7 +697,7 @@ function restartOverPersistedDurabilityVote(
         conversationId: harness.membership.descriptor.conversationId,
         kind: "durability",
         subjectId: actionRecord.recordHash,
-        evidenceKey: voter.card.agentId,
+        evidenceKey: keyMember.card.agentId,
         canonicalEvidence: yield* encodeCanonical(SignedMessage, vote).pipe(
           Effect.orDie,
         ),
@@ -1181,6 +1191,28 @@ describe("fixed-post endpoint protocol", () => {
             const restarted = yield* restartOverPersistedDurabilityVote(bind);
 
             expect(restarted).toStrictEqual(restart);
+          }),
+        ),
+      ),
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "fails to restart as persistence over a persisted durability vote filed under another member",
+    () =>
+      Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const restarted = yield* restartOverPersistedDurabilityVote(
+              (membership) => ({
+                conversationId: membership.descriptor.conversationId,
+                membershipHash: membership.hash,
+              }),
+              2,
+            );
+
+            expect(restarted).toStrictEqual(
+              new EngineInitializationError({ reason: "persistence" }),
+            );
           }),
         ),
       ),

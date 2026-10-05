@@ -32,6 +32,11 @@ import {
   makeTestAuthority,
   type RegistryKeyPair,
 } from "../../../__tests__/agent-card-fixtures.js";
+import {
+  buildCertifiedGenesis,
+  withGenesisAnchorSelecting,
+  withMisattributedActionEvidence,
+} from "../../../__tests__/certified-history-fixtures.js";
 import { forwardStoredOutbound } from "../../../__tests__/forward-stored-outbound.js";
 import { pollCursor as fixturePollCursor } from "../../../__tests__/router-worker-fixtures.js";
 import { type EndpointStore, openEndpointStore } from "../../../store/index.js";
@@ -79,6 +84,7 @@ import { MessageAddressInput } from "../../wire/values.js";
 import {
   type EndpointEngine,
   type EndpointEngineInput,
+  EngineInitializationError,
   EngineOutboundError,
   makeEndpointEngine,
 } from "../index.js";
@@ -188,107 +194,6 @@ const encodedEvidence = (
     signingAuthority: identity.authority,
   }).pipe(Effect.flatMap((message) => Schema.encode(SignedMessage)(message)));
 
-const buildCertifiedGenesis = (
-  local: IdentityFixture,
-  remote: IdentityFixture,
-  membership: VerifiedMembership,
-): Effect.Effect<CertifiedRecord> =>
-  Effect.gen(function* () {
-    const postIntent: PostIntent = {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "post_intent",
-      conversationId: membership.descriptor.conversationId,
-      membershipHash: membership.hash,
-      authorAgentId: remote.card.agentId,
-      postId: yield* mintPostId(),
-      content: [{ type: "text", text: "certified before restart" }],
-    };
-    const anchor: GenesisAnchorBody = {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "genesis_anchor_body",
-      conversationId: membership.descriptor.conversationId,
-      membershipHash: membership.hash,
-      routerInstanceId: oldRouterInstanceId,
-    };
-    const action: ActionCore = {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "GENESIS",
-      conversationId: membership.descriptor.conversationId,
-      membership: membership.descriptor,
-      anchor,
-      previousRecordHash: null,
-      postIntent,
-      postIntentHash: yield* hashPostIntent(postIntent),
-    };
-    const actionHash = yield* hashAction(action);
-    const signAction = (identity: IdentityFixture) =>
-      signEvidenceMessage({
-        statement: {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "action_signature",
-          signerAgentId: identity.card.agentId,
-          actionHash,
-        },
-        agentCard: identity.card,
-        signingAuthority: identity.authority,
-      }).pipe(
-        Effect.flatMap((message) => Schema.encode(SignedMessage)(message)),
-      );
-    const localActionEvidence = yield* signAction(local);
-    const remoteActionEvidence = yield* signAction(remote);
-    const anchorHash = yield* hashAnchor(anchor);
-    const recordCore: RecordCore = {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "record_core",
-      membership: membership.descriptor,
-      anchorHash,
-      action,
-      actionHash,
-    };
-    const recordHash = yield* hashRecord(recordCore);
-    const signDurability = (identity: IdentityFixture) =>
-      signEvidenceMessage({
-        statement: {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "durability_vote",
-          signerAgentId: identity.card.agentId,
-          conversationId: membership.descriptor.conversationId,
-          membershipHash: membership.hash,
-          recordHash,
-        },
-        agentCard: identity.card,
-        signingAuthority: identity.authority,
-      }).pipe(
-        Effect.flatMap((message) => Schema.encode(SignedMessage)(message)),
-      );
-    const localDurabilityEvidence = yield* signDurability(local);
-    const remoteDurabilityEvidence = yield* signDurability(remote);
-    const certifiedRecord: CertifiedRecord = {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "certified_record",
-      actionCertifiedRecord: {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "action_certified_record",
-        recordHash,
-        recordCore,
-        routerAnchor: anchor,
-        actionCertificate: {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "action_certificate",
-          actionHash,
-          signatures: [localActionEvidence, remoteActionEvidence],
-        },
-      },
-      durabilityCertificate: {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "durability_certificate",
-        recordHash,
-        votes: [localDurabilityEvidence, remoteDurabilityEvidence],
-      },
-    };
-    return certifiedRecord;
-  }).pipe(Effect.orDie);
-
 const makeFixtureWithRouter = (
   makeRouter: (context: FixtureRouterContext) => EngineRouterPort,
   identityBytes: { readonly local: number; readonly remote: number } = {
@@ -342,6 +247,7 @@ const makeFixtureWithRouter = (
       local,
       remote,
       membership,
+      oldRouterInstanceId,
     );
     const anchor = certifiedRecord.actionCertifiedRecord.routerAnchor;
     if (anchor.kind !== "genesis_anchor_body") {
@@ -918,6 +824,72 @@ const restartWithNonLexicalAgentOrder = () =>
             (message) => message.recordHash,
           ),
         ).toEqual([fixture.certifiedRecord.actionCertifiedRecord.recordHash]);
+      }),
+    ),
+  );
+
+/**
+ * Startup reads certified history with the same row checks as the owner
+ * tools. A store whose action evidence row is filed under a member other than
+ * its signer is corrupt, so the engine refuses to start over it, while the
+ * unaltered store restarts.
+ */
+const refusesMisattributedEvidenceAtStartup = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+        const misattributed = withMisattributedActionEvidence(
+          fixture.store,
+          fixture.local.card.agentId,
+          fixture.remote.card.agentId,
+        );
+
+        const unaltered = yield* Effect.exit(makeEndpointEngine(fixture.input));
+        const corrupt = yield* Effect.exit(
+          makeEndpointEngine({ ...fixture.input, store: misattributed }),
+        );
+
+        expect(
+          Exit.isSuccess(unaltered),
+          "restart over the unaltered store",
+        ).toBe(true);
+        expect(corrupt, "restart over the misattributed evidence").toEqual(
+          Exit.fail(new EngineInitializationError({ reason: "persistence" })),
+        );
+      }),
+    ),
+  );
+
+/**
+ * A store whose genesis anchor row claims to select a record, which only a
+ * completed re-anchor does, is corrupt, so the engine refuses to start over
+ * it, while the unaltered store restarts.
+ */
+const refusesGenesisAnchorSelectingRecordAtStartup = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+        const inconsistent = withGenesisAnchorSelecting(
+          fixture.store,
+          fixture.certifiedRecord.actionCertifiedRecord.recordHash,
+        );
+
+        const unaltered = yield* Effect.exit(makeEndpointEngine(fixture.input));
+        const corrupt = yield* Effect.exit(
+          makeEndpointEngine({ ...fixture.input, store: inconsistent }),
+        );
+
+        expect(
+          Exit.isSuccess(unaltered),
+          "restart over the unaltered store",
+        ).toBe(true);
+        expect(corrupt, "restart over the inconsistent anchor row").toEqual(
+          Exit.fail(new EngineInitializationError({ reason: "persistence" })),
+        );
       }),
     ),
   );
@@ -2777,6 +2749,14 @@ describe("endpoint restart recovery", () => {
   it(
     "recovers certificates when encoded and canonical AgentId orders differ",
     restartWithNonLexicalAgentOrder,
+  );
+  it(
+    "refuses to start when an action evidence row is filed under another signer",
+    refusesMisattributedEvidenceAtStartup,
+  );
+  it(
+    "refuses to start when the genesis anchor row selects a record",
+    refusesGenesisAnchorSelectingRecordAtStartup,
   );
   it(
     "waits for the complete N4 successor before re-anchoring its latest head",

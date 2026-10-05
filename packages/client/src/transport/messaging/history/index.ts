@@ -17,11 +17,12 @@ export {
 export {
   anchorRouterInstanceId,
   decodeStoredAnchor,
-  decodeStoredEvidence,
   durablePosition,
   durableRouterInstanceId,
   observedAnchorIsResolved,
   observedHeadIsResolved,
+  readStoredHistory,
+  readStoredRecord,
   recordFromStore,
   type StoredRowError,
   storedRowMatchesCore,

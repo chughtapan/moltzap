@@ -628,6 +628,15 @@ verified action-signature and durability-vote signer maps. They expose the
 retained signer AgentIds and signature bytes for audit without making those
 maps part of `ActionHash` or `RecordHash`.
 
+Endpoint startup, recovery, and owner history reads verify stored certified
+history the same way. Each evidence row must name its record's conversation
+and the action or durability statement its certificate covers, and its key
+must be the AgentId that signed it. Each anchor row's columns must match the
+genesis body or completed re-anchor it holds. The record is then verified as
+a whole, which verifies every retained signature. A store that fails any of
+these checks is corrupt: the endpoint refuses to start over it, and an owner
+history read that reaches it fails.
+
 Physical compression is permitted only when reads reconstruct identical
 logical record cores, hashes, signature preimages, and retained evidence.
 Compression cannot change canonical history identity.
