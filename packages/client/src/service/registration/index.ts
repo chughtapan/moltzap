@@ -6,7 +6,7 @@ import {
   RegistryRegisterRequest,
   type RegistryRegisterResult,
 } from "@moltzap/identity/registry";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Fiber, Schema } from "effect";
 import type { HarnessMcpOperations } from "../../endpoint/mcp/index.js";
 import type {
   DaemonBootstrap,
@@ -16,26 +16,28 @@ import {
   bindCard,
   DaemonRegistrationPersistenceError,
   DaemonRegistrationRepresentationError,
+  type DaemonRegistrationState,
   type DaemonRegistrationStore,
-  readBoundCard,
+  readDaemonRegistrationState,
+  representationFailure,
 } from "./binding.js";
 
-/** Durable identity row errors and the store authority registration needs. */
+/**
+ * The registration state read once at startup, its durable identity row
+ * errors and the store authority registration needs.
+ */
 export {
   DaemonRegistrationPersistenceError,
   DaemonRegistrationRepresentationError,
+  type DaemonRegistrationState,
   type DaemonRegistrationStore,
+  readDaemonRegistrationState,
 };
 
 /** Registry transport or service failure without upstream implementation detail. */
 export class DaemonRegistrationUpstreamError extends Data.TaggedError(
   "DaemonRegistrationUpstreamError",
 ) {}
-
-/** Complete registration state exposed by status and catalog selection. */
-export type DaemonRegistrationState =
-  | Readonly<{ kind: "unregistered" }>
-  | Readonly<{ kind: "active"; agentCard: VerifiedAgentCard }>;
 
 type RegistrationRequest = Parameters<HarnessMcpOperations["register"]>[0];
 
@@ -44,36 +46,8 @@ const exactOptions = {
   onExcessProperty: "error" as const,
 };
 
-const representationFailure = (): DaemonRegistrationRepresentationError =>
-  new DaemonRegistrationRepresentationError();
-
 const upstreamFailure = (): DaemonRegistrationUpstreamError =>
   new DaemonRegistrationUpstreamError();
-
-/**
- * Reads startup identity state and re-verifies any durable binding.
- *
- * @param input Startup identity dependencies.
- * @param input.store Minimal durable identity store.
- * @param input.bootstrap Configured Registry and agent key authority.
- * @returns Either the sole unregistered state or one verified active card.
- */
-export const readDaemonRegistrationState = (input: {
-  readonly store: Pick<DaemonRegistrationStore, "readIdentity">;
-  readonly bootstrap: DaemonBootstrap;
-}): Effect.Effect<
-  DaemonRegistrationState,
-  DaemonRegistrationPersistenceError | DaemonRegistrationRepresentationError
-> =>
-  readBoundCard(input).pipe(
-    Effect.map(
-      (agentCard): DaemonRegistrationState =>
-        agentCard === undefined
-          ? Object.freeze({ kind: "unregistered" })
-          : Object.freeze({ kind: "active", agentCard }),
-    ),
-    Effect.withSpan("readDaemonRegistrationState"),
-  );
 
 /**
  * Loads the admission credential only while the daemon is unregistered, so an
@@ -117,9 +91,30 @@ const registrationMatches = (
   agentCard.publicKey.x === bootstrap.agentPublicKey.x;
 
 /**
+ * The Registry call, run detached and interruptible. Detached, it is not a
+ * child of its caller, so an interrupt sent to the caller does not reach it:
+ * Effect interrupts a fiber's children even inside an uninterruptible region.
+ * Interruptible, it ends at the Registry client's own deadline while an
+ * uninterruptible caller waits on the join.
+ *
+ * @param call The registration request, its admission credential and the
+ *   agent signing authority that signs it.
+ * @returns The Registry's result, or its failure, once the detached call ends.
+ */
+const registerWithRegistry = (
+  call: Parameters<typeof Registry.register>[0],
+): ReturnType<typeof Registry.register> =>
+  Effect.forkDaemon(Effect.interruptible(Registry.register(call))).pipe(
+    Effect.flatMap(Fiber.join),
+  );
+
+/**
  * Registers through Identity and commits a successful binding before return.
  * Only a `registered` result carries the verified card; the Registry's refusals
- * pass through unchanged and bind nothing.
+ * pass through unchanged and bind nothing. The Registry call ends at its own
+ * deadline even when the caller is uninterruptible, and a caller's cancellation
+ * does not stop it. The binding follows a cancelled call only when the caller
+ * runs this uninterruptibly, as the register tool does.
  *
  * @param input Complete registration dependencies.
  * @param input.request Closed caller-supplied registration fields.
@@ -143,7 +138,7 @@ export const registerDaemonIdentity = (input: {
   Effect.gen(function* () {
     const request = yield* makeRegistryRequest(input);
     const admissionCredential = yield* input.bootstrap.admissionCredential;
-    const result = yield* Registry.register({
+    const result = yield* registerWithRegistry({
       request,
       admissionCredential,
       signingAuthority: input.bootstrap.signingAuthority,

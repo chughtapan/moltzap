@@ -12,14 +12,16 @@ import type {
   VerifiedAgentCard,
 } from "@moltzap/identity";
 import type { Deferred, Effect } from "effect";
-import type { EndpointStore } from "../../../store/index.js";
+import type {
+  EndpointStore,
+  EndpointStoreError,
+} from "../../../store/index.js";
 import type {
   RouterIngressDisposition,
-  RouterTailAnchor,
+  RouterWorker,
   RouterWorkerIngress,
   RouterWorkerPersistenceError,
   RouterWorkerSendError,
-  RouterWorkerUnavailableError,
 } from "../../router/index.js";
 import type {
   ActionCertifiedRecord,
@@ -39,16 +41,10 @@ import type { AddressRegistryPort } from "../address.js";
 import type { SendError } from "../errors.js";
 
 /** RouterWorker operations consumed by the engine's outbound queue. */
-interface EngineRouterPort {
-  readonly currentAnchor: Effect.Effect<
-    RouterTailAnchor,
-    RouterWorkerUnavailableError
-  >;
-  readonly awaitAnchor: Effect.Effect<RouterTailAnchor>;
-  readonly send: (
-    outboundId: string,
-  ) => Effect.Effect<void, RouterWorkerSendError>;
-}
+type EngineRouterPort = Pick<
+  RouterWorker,
+  "currentAnchor" | "awaitAnchor" | "send"
+>;
 
 /** Closed result of the endpoint's local action-signing policy. */
 export type EngineActionPolicyDecision = "sign" | "refuse";
@@ -153,10 +149,18 @@ export interface EngineRuntime {
 }
 
 /**
- * The engine's outbox: the only signer of outer envelopes, their durable
- * staging, and the ordered queue of outbox identities the Router worker
- * transmits. Engine assembly builds it, and phases reach it only through
- * `EngineRuntime.outbox`.
+ * Why the outbox could not stage an envelope: signing or canonical encoding
+ * failed, or the store refused the row. Each phase maps it to its own error.
+ */
+export type EngineOutboxError = ClientRepresentationError | EndpointStoreError;
+
+/**
+ * The engine's outbox: the only caller of the outer-envelope signers, so the
+ * engine builds and signs every outer body here; the Router worker's retry
+ * re-signs a staged body unchanged. Its queue operations always stage the
+ * signed envelope durably and queue its outbox identity for the Router
+ * worker; `sign` serves a caller that routes the envelope itself. Phases
+ * reach it only through `EngineRuntime.outbox`.
  */
 export interface EngineOutbox {
   /** Sign an envelope for a caller that routes it, as recovery does. */
@@ -167,21 +171,25 @@ export interface EngineOutbox {
   readonly queuePacket: (
     conversation: EngineConversation,
     packet: DirectPacket,
-  ) => Effect.Effect<void, SendError>;
+  ) => Effect.Effect<void, EngineOutboxError>;
   /** Relay stable inner evidence; its signer attribution is unchanged. */
   readonly queueEvidence: (
     conversation: EngineConversation,
     evidence: SignedMessage,
-  ) => Effect.Effect<void, SendError>;
+  ) => Effect.Effect<void, EngineOutboxError>;
   /** Attach the signed packet to its durable dissemination obligation. */
   readonly queueCertifiedPacket: (
     conversation: EngineConversation,
     packet: ActionCertifiedRecord | CertifiedRecord,
-  ) => Effect.Effect<void, SendError>;
+  ) => Effect.Effect<void, EngineOutboxError>;
+  /**
+   * Stage an envelope that `sign` returned; any other `SignedMessage` would
+   * skip the outbox's signing.
+   */
   readonly enqueueSigned: (
     conversationId: ConversationId,
     message: SignedMessage,
-  ) => Effect.Effect<void, SendError>;
+  ) => Effect.Effect<void, EngineOutboxError>;
   readonly resume: (outboundIds: readonly string[]) => Effect.Effect<void>;
   /** Forget every queued identity; the store keeps the envelopes. */
   readonly clear: () => void;

@@ -255,6 +255,11 @@ function queueAuthorizedProposal(
           action: proposal.action,
         })
         .pipe(
+          Effect.catchTags({
+            EndpointStoreError: (error) => Effect.fail(storeFailure(error)),
+            ClientRepresentationError: () =>
+              Effect.fail(representationFailure()),
+          }),
           Effect.zipRight(
             Effect.sync(() => {
               proposal.localIntent.proposedActionHash = proposal.actionHash;
