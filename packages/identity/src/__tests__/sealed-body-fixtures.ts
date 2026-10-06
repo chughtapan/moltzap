@@ -130,21 +130,32 @@ export const makeGroup = (recipientCount: number) =>
 export type Group = Effect.Effect.Success<ReturnType<typeof makeGroup>>;
 
 /**
+ * The MessageId whose 16 bytes all repeat `byte`. `sealFrom` and `signBody`
+ * both default to byte 1, so a test that names no MessageId seals and signs
+ * under the same one.
+ */
+export const messageIdOf = (byte: number) =>
+  Schema.decodeUnknownSync(MessageId)(identifier("msg_", byte));
+
+/**
  * Seals `bytes` from `sender` to the recipients' AgentCards.
  *
  * @param sender Sender whose AgentId the header binds.
  * @param recipients Recipients in the order the sender lists their cards.
  * @param bytes Plaintext to seal.
+ * @param messageIdByte Byte repeated through the MessageId the header binds.
  * @returns The sealed body.
  */
 export const sealFrom = (
   sender: Member,
   recipients: readonly Member[],
   bytes: Uint8Array,
+  messageIdByte = 1,
 ) =>
   SealedBody.seal({
     senderAgentId: sender.agentCard.agentId,
     recipientAgentCards: recipients.map((member) => member.agentCard),
+    messageId: messageIdOf(messageIdByte),
     plaintext: bytes,
   });
 
@@ -169,9 +180,7 @@ export const signBody = (
     recipientAgentIds: new Set(
       recipients.map((member) => member.agentCard.agentId),
     ),
-    messageId: Schema.decodeUnknownSync(MessageId)(
-      identifier("msg_", messageIdByte),
-    ),
+    messageId: messageIdOf(messageIdByte),
     body,
   });
 

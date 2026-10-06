@@ -17,11 +17,11 @@ import {
 const SIGNED_MESSAGE_BODY_CAP = 262_144;
 
 /**
- * At 32 recipients a sealed body is `ceil(4(N + 32) / 3) + 5,789` bytes, so
+ * At 32 recipients a sealed body is `ceil(4(N + 32) / 3) + 5,861` bytes, so
  * this is the largest plaintext whose sealed body fits the SignedMessage body
  * cap.
  */
-const LARGEST_32_RECIPIENT_PLAINTEXT_BYTES = 192_234;
+const LARGEST_32_RECIPIENT_PLAINTEXT_BYTES = 192_180;
 
 /**
  * Seals `bytes` from the sender to the group, then checks that the peer opens
@@ -81,11 +81,11 @@ it(
 );
 
 it.each([
-  { recipientCount: 1, plaintextBytes: 0, sealedBytes: 548 },
-  { recipientCount: 1, plaintextBytes: 1000, sealedBytes: 1881 },
-  { recipientCount: 2, plaintextBytes: 1, sealedBytes: 703 },
-  { recipientCount: 3, plaintextBytes: 1000, sealedBytes: 2206 },
-  { recipientCount: 32, plaintextBytes: 1000, sealedBytes: 7165 },
+  { recipientCount: 1, plaintextBytes: 0, sealedBytes: 620 },
+  { recipientCount: 1, plaintextBytes: 1000, sealedBytes: 1953 },
+  { recipientCount: 2, plaintextBytes: 1, sealedBytes: 775 },
+  { recipientCount: 3, plaintextBytes: 1000, sealedBytes: 2278 },
+  { recipientCount: 32, plaintextBytes: 1000, sealedBytes: 7237 },
 ])(
   "seals $plaintextBytes plaintext bytes to $recipientCount recipients in $sealedBytes bytes",
   ({ recipientCount, plaintextBytes, sealedBytes }) =>

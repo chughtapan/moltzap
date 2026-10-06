@@ -1,6 +1,6 @@
 /**
  * @file Sealed SignedMessage bodies: multi-recipient JWE bound to the sender
- * AgentId and committed to one plaintext.
+ * AgentId and outer MessageId and committed to one plaintext.
  */
 
 import { Data, Effect, Either, Encoding, Option, Schema } from "effect";
@@ -22,11 +22,13 @@ import {
   compareAgentIds,
   MAXIMUM_BODY_BYTES,
   MAXIMUM_RECIPIENTS,
+  MessageId,
   type VerifiedSignedMessage,
 } from "./signed-message.js";
 
 const CONTENT_ENCRYPTION_ALGORITHM = "A256GCM";
 const COMMITMENT_HEADER = "xyz.moltzap/commitment";
+const MESSAGE_ID_HEADER = "xyz.moltzap/message-id";
 const SENDER_HEADER = "xyz.moltzap/sender";
 const COMMITMENT_BYTES = 32;
 const IV_BYTES = 12;
@@ -42,18 +44,18 @@ const SALT_BYTES = 32;
 
 /**
  * Every sealed-body member except the ciphertext has a fixed length: the
- * commitment, sender AgentId, ephemeral keys, wrapped keys, IV, and tag. The
- * JCS encoding is therefore the base64url of the salted plaintext plus these
- * fixed byte counts. A single recipient carries its `epk` in the protected
- * header, and two or more each carry one in their own entry.
+ * commitment, MessageId, sender AgentId, ephemeral keys, wrapped keys, IV, and
+ * tag. The JCS encoding is therefore the base64url of the salted plaintext
+ * plus these fixed byte counts. A single recipient carries its `epk` in the
+ * protected header, and two or more each carry one in their own entry.
  *
  * The outer members with IV and tag take 103 bytes. A single recipient adds a
- * 328-byte protected header and a 74-byte entry: 505. Two or more add a
- * 215-byte protected header and 171 bytes per entry including its separating
- * comma, less one byte because the last entry has none: 317 + 171R.
+ * 400-byte protected header and a 74-byte entry: 577. Two or more add a
+ * 287-byte protected header and 171 bytes per entry including its separating
+ * comma, less one byte because the last entry has none: 389 + 171R.
  */
-const SINGLE_RECIPIENT_FIXED_BYTES = 505;
-const MULTIPLE_RECIPIENT_FIXED_BYTES = 317;
+const SINGLE_RECIPIENT_FIXED_BYTES = 577;
+const MULTIPLE_RECIPIENT_FIXED_BYTES = 389;
 const RECIPIENT_ENTRY_BYTES = 171;
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
@@ -110,6 +112,7 @@ const protectedHeader = exactStruct({
   enc: Schema.Literal(CONTENT_ENCRYPTION_ALGORITHM),
   epk: Schema.optional(ephemeralPublicKey),
   [COMMITMENT_HEADER]: encodedCommitment,
+  [MESSAGE_ID_HEADER]: MessageId,
   [SENDER_HEADER]: AgentId,
 });
 
@@ -123,16 +126,19 @@ const protectedHeaderJson = Schema.parseJson(protectedHeader);
  * spelling.
  *
  * @param commitment Base64url SHA-256 of the salted plaintext.
+ * @param messageId Outer SignedMessage MessageId bound by the header.
  * @param senderAgentId Sender bound by the header.
  * @returns The members in serialization order.
  */
 const protectedHeaderMembers = (
   commitment: string,
+  messageId: MessageId,
   senderAgentId: AgentIdValue,
 ) => ({
   alg: SEALED_BODY_KEY_MANAGEMENT_ALGORITHM,
   enc: CONTENT_ENCRYPTION_ALGORITHM,
   [COMMITMENT_HEADER]: commitment,
+  [MESSAGE_ID_HEADER]: messageId,
   [SENDER_HEADER]: senderAgentId,
 });
 
@@ -174,6 +180,7 @@ const openingFailure = (): SealedBodyOpeningError =>
 interface SealInput {
   readonly senderAgentId: AgentIdValue;
   readonly recipientAgentCards: readonly VerifiedAgentCard[];
+  readonly messageId: MessageId;
   readonly plaintext: Uint8Array;
 }
 
@@ -204,19 +211,20 @@ const snapshotRecipients = (
 
 /**
  * Encrypts one plaintext to every recipient's AgentCard key, binds the sender
- * AgentId in the protected header, and commits the header to the salted
- * plaintext.
+ * AgentId and the outer MessageId in the protected header, and commits the
+ * header to the salted plaintext.
  *
  * Each recipient entry carries its own ephemeral key, which is the layout
  * jose's supported multi-recipient ECDH-ES+A256KW API produces.
  *
  * Recipient entries follow the canonical SignedMessage recipient order, so the
  * caller signs the returned bytes as a SignedMessage body from the same sender
- * to exactly these recipients. A sender that must read its own body includes
- * its card among the recipients.
+ * under the same MessageId to exactly these recipients. A sender that must
+ * read its own body includes its card among the recipients.
  *
  * @param input Sender AgentId, 1 to 128 distinct verified recipient cards,
- * and the plaintext to seal.
+ * the MessageId the caller passes to `SignedMessage.sign`, and the plaintext
+ * to seal.
  * @returns The canonical JSON bytes of the General JWE.
  */
 const seal = (
@@ -238,7 +246,7 @@ const seal = (
       recipients.map((card) => x25519PublicJwk(card.publicKey)),
     ).pipe(Either.mapLeft(sealingFailure));
     const encryption = new GeneralEncrypt(saltedPlaintext).setProtectedHeader(
-      protectedHeaderMembers(commitment, input.senderAgentId),
+      protectedHeaderMembers(commitment, input.messageId, input.senderAgentId),
     );
     for (const recipientKey of recipientKeys) {
       encryption.addRecipient(recipientKey);
@@ -263,6 +271,7 @@ const seal = (
 const expectedHeaderText = (header: ProtectedHeader): string => {
   const members = protectedHeaderMembers(
     header[COMMITMENT_HEADER],
+    header[MESSAGE_ID_HEADER],
     header[SENDER_HEADER],
   );
   return JSON.stringify(
@@ -366,13 +375,14 @@ interface OpenInput {
  * to any key, and an Ed25519 key and its negation share one X25519 key.
  *
  * It then refuses a body that is not an exact sealed body, a protected-header
- * sender that differs from the verified SignedMessage sender, an entry count
- * that differs from the SignedMessage recipient count, an agent the
- * SignedMessage does not name, any authentication failure, and a decryption
- * that does not match the header commitment. Every recipient that opens a
- * given body therefore obtains the same plaintext, but a sender can still make
- * a body open for some recipients and not others. The SignedMessage MessageId
- * is not bound, so a retry under a new MessageId opens.
+ * sender or MessageId that differs from the verified SignedMessage sender or
+ * MessageId, an entry count that differs from the SignedMessage recipient
+ * count, an agent the SignedMessage does not name, any authentication failure,
+ * and a decryption that does not match the header commitment. Every recipient
+ * that opens a given body therefore obtains the same plaintext, but a sender
+ * can still make a body open for some recipients and not others. The sealed
+ * bytes open only inside a SignedMessage from the sender and MessageId they
+ * were sealed for.
  *
  * @param input The local agent's AgentCard and authority, and the verified
  * SignedMessage.
@@ -396,7 +406,10 @@ const open = (
     if (!hasExactEphemeralKeyPlacement(representation, header)) {
       return yield* new SealedBodyOpeningError();
     }
-    if (header[SENDER_HEADER] !== input.signedMessage.senderAgentId) {
+    if (
+      header[SENDER_HEADER] !== input.signedMessage.senderAgentId ||
+      header[MESSAGE_ID_HEADER] !== input.signedMessage.messageId
+    ) {
       return yield* new SealedBodyOpeningError();
     }
     const entry = yield* recipientEntry(

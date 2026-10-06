@@ -384,6 +384,7 @@ which bodies to seal.
 SealedBody.seal(input: {
   readonly senderAgentId: AgentId
   readonly recipientAgentCards: readonly VerifiedAgentCard[]
+  readonly messageId: MessageId
   readonly plaintext: Uint8Array
 }): Effect.Effect<Uint8Array, SealedBodySealingError>
 
@@ -405,11 +406,12 @@ SealedBody.maximumPlaintextByteLength(
 
 `seal` encrypts to 1 to 128 recipient cards with distinct AgentIds and
 orders their entries as a SignedMessage orders its recipients. The
-sender then signs the sealed bytes to exactly those recipients. A sender
-that reads its own body lists its own card. A recipient's X25519 key is
-the RFC 7748 birational image of the Ed25519 key in its verified
-AgentCard. `seal` fails when the list is empty, longer than 128, or
-repeats an AgentId, and when a card key is not an Ed25519 curve point.
+sender then signs the sealed bytes to exactly those recipients under the
+`messageId` it passed to `seal`. A sender that reads its own body lists
+its own card. A recipient's X25519 key is the RFC 7748 birational image
+of the Ed25519 key in its verified AgentCard. `seal` fails when the list
+is empty, longer than 128, or repeats an AgentId, and when a card key is
+not an Ed25519 curve point.
 
 `AgentSigningAuthority.fromPkcs8` derives an X25519 opening key from the
 same Ed25519 seed and keeps it, non-extractable, beside the signing key.
@@ -417,17 +419,18 @@ Its X25519 public key is the image of the authority's Ed25519 public
 key, so a body sealed to an AgentCard opens with that agent's authority.
 Only `open` uses the opening key.
 
-The protected header binds the sender AgentId and a commitment to the
-plaintext, and nothing else. `seal` prepends a fresh 32-byte random salt
-to the plaintext, encrypts the salted plaintext, and commits to its
-SHA-256 digest. The header does not bind the SignedMessage MessageId, so
-a retry that re-wraps the same sealed bytes under a new MessageId still
-opens. A retry names the same recipients the body was sealed to; after a
-membership change the sender seals again. `open` takes a `VerifiedSignedMessage`, so the sender and
-recipient list it relies on have passed signature verification. It
-decrypts only the entry at the local agent's position in that recipient
-list, checks the decrypted bytes against the commitment, and strips the
-salt. It refuses:
+The protected header binds the sender AgentId, the outer SignedMessage
+MessageId, and a commitment to the plaintext, and nothing else. `seal`
+prepends a fresh 32-byte random salt to the plaintext, encrypts the
+salted plaintext, and commits to its SHA-256 digest. The sealed bytes
+open only inside a SignedMessage from that sender with that MessageId.
+A retry resends the stored SignedMessage unchanged, so it opens; a
+sender that sends the plaintext under another MessageId or to other
+recipients seals it again. `open` takes a `VerifiedSignedMessage`, so
+the sender, MessageId, and recipient list it relies on have passed
+signature verification. It decrypts only the entry at the local agent's
+position in that recipient list, checks the decrypted bytes against the
+commitment, and strips the salt. It refuses:
 
 - an `agentCard` whose key is not the Ed25519 key of
   `signingAuthority`, before it reads the body;
@@ -436,6 +439,9 @@ salt. It refuses:
   writes;
 - a protected-header sender that differs from the SignedMessage sender,
   including an unchanged sealed body re-signed by another member;
+- a protected-header MessageId that differs from the SignedMessage
+  MessageId, including the sender's own sealed bytes signed under
+  another MessageId;
 - a local agent the SignedMessage does not name, and an entry count that
   differs from the SignedMessage recipient count;
 - any key-unwrap or content-authentication failure, including a changed
@@ -468,7 +474,8 @@ cannot open as possible sender misbehavior, not as a transport fault.
 Every recipient that opens a body learns its content-encryption key, so
 a recipient can seal the same plaintext again as its own body. The
 header binding prevents a member from presenting another member's sealed
-bytes under its own signature, and the SignedMessage signature prevents
+bytes under its own signature, and a sender from presenting its own
+sealed bytes as another message. The SignedMessage signature prevents
 naming a sender the signer is not.
 
 Sealed bodies have no forward secrecy. The opening key is derived from
@@ -945,8 +952,9 @@ claimed nonce.
   ciphertext, IV, tag, or encrypted key, an outer sender that differs
   from the header sender, entries moved out of recipient order, an entry
   count that differs from the recipient count, and a body that is not an
-  exact sealed body are refused. The same sealed bytes open under a new
-  MessageId. `SealedBody.sealedByteLength` equals every sealed length,
+  exact sealed body are refused. Sealed bytes open under the MessageId
+  they were sealed for and are refused under any other MessageId from the
+  same sender. `SealedBody.sealedByteLength` equals every sealed length,
   and a plaintext one byte over `SealedBody.maximumPlaintextByteLength`
   exceeds the body bound.
 - A sealed body whose two entries wrap different content keys over one

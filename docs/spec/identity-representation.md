@@ -321,9 +321,15 @@ and its decoded protected header is exactly:
   "alg": "ECDH-ES+A256KW",
   "enc": "A256GCM",
   "xyz.moltzap/commitment": "<base64url of 32 bytes>",
+  "xyz.moltzap/message-id": "msg_<22-character-base64url>",
   "xyz.moltzap/sender": "agt_<22-character-base64url>"
 }
 ```
+
+`xyz.moltzap/sender` and `xyz.moltzap/message-id` are the `senderAgentId`
+and `messageId` of the SignedMessage that carries the body. An opener
+refuses a body whose header sender or MessageId differs from those of
+the verified SignedMessage.
 
 The JWE plaintext is a fresh 32-byte random salt followed by the
 plaintext. `xyz.moltzap/commitment` is the SHA-256 digest of those
@@ -375,14 +381,14 @@ exactly:
 
 | Recipients | Sealed bytes |
 |---|---|
-| R = 1 | `ceil(4(N + 32) / 3) + 505` |
-| R ≥ 2 | `ceil(4(N + 32) / 3) + 317 + 171R` |
+| R = 1 | `ceil(4(N + 32) / 3) + 577` |
+| R ≥ 2 | `ceil(4(N + 32) / 3) + 389 + 171R` |
 
 The second recipient adds 154 bytes, because a single recipient's
 ephemeral key moves from the protected header into its entry. Each
 recipient after that adds 171 bytes. At 32 recipients the fixed part is
-5,789 bytes, so the largest plaintext whose sealed body fits the
-262,144-byte SignedMessage body cap is 192,234 bytes, which seals to
+5,861 bytes, so the largest plaintext whose sealed body fits the
+262,144-byte SignedMessage body cap is 192,180 bytes, which seals to
 exactly 262,144 bytes.
 
 Identity owns this calculation through `SealedBody.sealedByteLength`

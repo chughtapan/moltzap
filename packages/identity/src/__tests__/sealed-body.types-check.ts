@@ -10,6 +10,7 @@ import type { Effect, Option, Types } from "effect";
 import type {
   AgentId,
   AgentSigningAuthority,
+  MessageId,
   SealedBody,
   SealedBodyOpeningError,
   SealedBodySealingError,
@@ -31,6 +32,7 @@ type SealInputIsExact = Expect<
     {
       readonly senderAgentId: AgentId;
       readonly recipientAgentCards: readonly VerifiedAgentCard[];
+      readonly messageId: MessageId;
       readonly plaintext: Uint8Array;
     }
   >

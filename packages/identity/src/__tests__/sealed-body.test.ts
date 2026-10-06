@@ -1,6 +1,6 @@
 /**
- * @file SealedBody round trips, sender binding, commitment, header exactness,
- * refusals, and retry.
+ * @file SealedBody round trips, sender and MessageId binding, commitment,
+ * header exactness, and refusals.
  */
 
 import { Effect, Either, Encoding, Schema } from "effect";
@@ -41,6 +41,7 @@ import {
   makeGroup,
   makeMember,
   type Member,
+  messageIdOf,
   openAs,
   plaintext,
   sealFrom,
@@ -48,6 +49,7 @@ import {
 } from "./sealed-body-fixtures.js";
 
 const SENDER_HEADER = "xyz.moltzap/sender";
+const MESSAGE_ID_HEADER = "xyz.moltzap/message-id";
 const COMMITMENT_HEADER = "xyz.moltzap/commitment";
 const SALT_BYTES = 32;
 
@@ -126,14 +128,15 @@ const freshSalt = () => crypto.getRandomValues(new Uint8Array(SALT_BYTES));
 
 /**
  * Spells a protected header exactly as `SealedBody.seal` does for two or more
- * recipients, from the base64url SHA-256 of the salted plaintext and the
- * sender.
+ * recipients, from the base64url SHA-256 of the salted plaintext, the
+ * MessageId `signBody` uses by default, and the sender.
  */
 const honestHeaderText = (commitment: string, sender: Member) =>
   JSON.stringify({
     alg: "ECDH-ES+A256KW",
     enc: "A256GCM",
     [COMMITMENT_HEADER]: commitment,
+    [MESSAGE_ID_HEADER]: messageIdOf(1),
     [SENDER_HEADER]: sender.agentCard.agentId,
   });
 
@@ -169,6 +172,7 @@ const sealWithSharedEphemeralKey = (sender: Member, peer: Member) =>
             alg: "ECDH-ES+A256KW",
             enc: "A256GCM",
             [COMMITMENT_HEADER]: commitment,
+            [MESSAGE_ID_HEADER]: messageIdOf(1),
             [SENDER_HEADER]: sender.agentCard.agentId,
             epk: {
               x: ephemeralPublicKey.x,
@@ -848,6 +852,7 @@ const sealWithProtectedMembers = (
             alg: "ECDH-ES+A256KW",
             enc: "A256GCM",
             [COMMITMENT_HEADER]: commitment,
+            [MESSAGE_ID_HEADER]: messageIdOf(1),
             [SENDER_HEADER]: sender.agentCard.agentId,
             ...addedMembers,
           })
@@ -872,11 +877,11 @@ interface ProtectedMembersCase {
 
 /**
  * Value: protects=open refuses a protected header with a member beyond alg,
- * enc, commitment, and sender, or a weaker key-wrap algorithm, which jose
- * itself opens; fails_when=the protected-header Schema stops refusing excess
- * members or other algorithms; why_new=the aad row of the body table adds an
- * outer member, and rewriting a sealed header fails content authentication
- * before header exactness is reached; seam=none.
+ * enc, commitment, MessageId, and sender, or a weaker key-wrap algorithm,
+ * which jose itself opens; fails_when=the protected-header Schema stops
+ * refusing excess members or other algorithms; why_new=the aad row of the
+ * body table adds an outer member, and rewriting a sealed header fails
+ * content authentication before header exactness is reached; seam=none.
  */
 it.each<ProtectedMembersCase>([
   {
@@ -953,6 +958,7 @@ it.each<HeaderSpellingCase>([
         enc: "A256GCM",
         alg: "ECDH-ES+A256KW",
         [COMMITMENT_HEADER]: commitment,
+        [MESSAGE_ID_HEADER]: messageIdOf(1),
         [SENDER_HEADER]: group.sender.agentCard.agentId,
       }),
     expected: Either.left(new SealedBodyOpeningError()),
@@ -1154,33 +1160,60 @@ it("refuses a two-key body whose entries wrap different content keys over one co
     }),
   ));
 
-it("opens the same sealed bytes re-wrapped under a new MessageId", () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const group = yield* makeGroup(3);
-      const sealed = yield* sealFrom(group.sender, group.recipients, plaintext);
-      const first = yield* signBody(group.sender, group.recipients, sealed, 1);
-      const retry = yield* signBody(group.sender, group.recipients, sealed, 2);
-      const received = yield* Effect.forEach(
-        [first, retry],
-        (signedMessage) => receive(signedMessage, group.sender.agentCard),
-        { concurrency: 1 },
-      );
+interface OuterMessageIdCase {
+  readonly outer: string;
+  readonly outerMessageIdByte: number;
+  readonly result: string;
+  readonly expected: Either.Either<Uint8Array, SealedBodyOpeningError>;
+}
 
-      expect(received.map((message) => message.messageId)).toEqual([
-        first.messageId,
-        retry.messageId,
-      ]);
-      expect(first.messageId).not.toBe(retry.messageId);
-      expect(
-        yield* Effect.forEach(
-          received,
-          (signedMessage) => openAs(group.peer, signedMessage),
-          { concurrency: 1 },
-        ),
-      ).toEqual([plaintext, plaintext]);
-    }),
-  ));
+/**
+ * Value: protects=sealed bytes open only inside a SignedMessage that carries
+ * the MessageId they were sealed for, so their sender cannot send them again
+ * as another message; fails_when=open stops comparing the protected-header
+ * MessageId with the verified SignedMessage MessageId; why_new=every other
+ * test seals and signs under one MessageId; seam=none.
+ */
+it.each<OuterMessageIdCase>([
+  {
+    outer: "the MessageId they were sealed for",
+    outerMessageIdByte: 2,
+    result: "the plaintext",
+    expected: Either.right(plaintext),
+  },
+  {
+    outer: "a different MessageId",
+    outerMessageIdByte: 3,
+    result: "SealedBodyOpeningError",
+    expected: Either.left(new SealedBodyOpeningError()),
+  },
+])(
+  "returns $result for sealed bytes their sender signs under $outer",
+  ({ outerMessageIdByte, expected }) =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const group = yield* makeGroup(3);
+        const sealed = yield* sealFrom(
+          group.sender,
+          group.recipients,
+          plaintext,
+          2,
+        );
+        const signedMessage = yield* signBody(
+          group.sender,
+          group.recipients,
+          sealed,
+          outerMessageIdByte,
+        );
+        const received = yield* receive(signedMessage, group.sender.agentCard);
+
+        const outcome = yield* openAs(group.peer, received).pipe(Effect.either);
+
+        expect(received.messageId).toBe(messageIdOf(outerMessageIdByte));
+        expect(outcome).toStrictEqual(expected);
+      }),
+    ),
+);
 
 it(
   "refuses to seal to no recipients, a repeated card or AgentId, or more than 128 recipients",
@@ -1233,6 +1266,7 @@ it("refuses to seal to an AgentCard key that is not an Ed25519 curve point", () 
       const outcome = yield* SealedBody.seal({
         senderAgentId: group.sender.agentCard.agentId,
         recipientAgentCards: [group.sender.agentCard, offCurveCard],
+        messageId: messageIdOf(1),
         plaintext,
       }).pipe(Effect.either);
 
