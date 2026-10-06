@@ -7976,6 +7976,93 @@ const answersIncompleteWithItsEarlierInstanceVote = () =>
     ),
   );
 
+/**
+ * After a second Router restart, a member's `incomplete` answer carries its
+ * vote to re-anchor the N4 conversation at the head for the first restarted
+ * instance, and the fourth member stays silent. The remote and third
+ * members' answers do not settle the position while the catch-up retries
+ * last; once they run out, those answers settle it and the local endpoint
+ * votes to re-anchor at the head for the later instance. Fails when a
+ * position waiting behind an earlier-instance vote never settles.
+ * @returns The trace, run to completion.
+ */
+const settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const n4 = yield* addN4Foundation(fixture);
+        const history = yield* buildN4PartialHistory(fixture, n4);
+        const { recordCore, recordHash } =
+          history.certifiedHead.actionCertifiedRecord;
+        const earlierBody: ReanchorBody = {
+          moltzapVersion: MOLTZAP_VERSION,
+          kind: "reanchor_body",
+          conversationId: n4.membership.descriptor.conversationId,
+          membershipHash: n4.membership.hash,
+          previousAnchorHash: recordCore.anchorHash,
+          selectedRecordHash: recordHash,
+          routerInstanceId: newRouterInstanceId,
+        };
+        yield* directPacketIngressFrom({
+          membership: n4.membership,
+          sender: fixture.remote,
+          packet: history.certifiedHead,
+          routerInstanceId: oldRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
+        );
+        const { outbound } = yield* forkRecovery(
+          { engine: n4.engine, recoveryOutbound: fixture.recoveryOutbound },
+          "router_restarted",
+          laterRouterInstanceId,
+          { clock: "caller" },
+        );
+        const { group: request } = yield* takeN4Requests(fixture, n4, outbound);
+        yield* deliverRecovery(
+          n4.engine,
+          peerEvidenceIngressFrom({
+            membership: n4.membership,
+            responder: n4.third,
+            statement: {
+              moltzapVersion: MOLTZAP_VERSION,
+              kind: "reanchor_vote",
+              signerAgentId: n4.third.card.agentId,
+              anchorHash: yield* hashAnchor(earlierBody),
+              reanchor: earlierBody,
+            },
+            routerInstanceId: laterRouterInstanceId,
+          }),
+        );
+        yield* Effect.forEach(
+          [n4.third, fixture.remote],
+          (responder) =>
+            deliverRecovery(
+              n4.engine,
+              catchUpIncompleteIngressFrom({
+                membership: n4.membership,
+                responder,
+                request,
+                routerInstanceId: laterRouterInstanceId,
+              }),
+            ),
+          { concurrency: 1, discard: true },
+        );
+        const whileRetrying = (yield* groupState(fixture, n4, recordHash))
+          .candidates;
+        yield* Effect.replicateEffect(
+          takeRetriedCatchUpRequest(outbound),
+          2 * catchUpRetryAttempts,
+        );
+        yield* settle;
+        const settled = (yield* groupState(fixture, n4, recordHash)).candidates;
+
+        expect(whileRetrying).toEqual([]);
+        expect(settled).toEqual([recordHash]);
+      }),
+    ).pipe(Effect.provide(TestContext.TestContext)),
+  );
+
 describe("staged successors in recovery", () => {
   it(
     "certifies a post one direct member staged before the restart, and re-anchors at it",
@@ -8056,6 +8143,11 @@ describe("staged successors in recovery", () => {
     "answers incomplete with its earlier-instance re-anchor vote",
     answersIncompleteWithItsEarlierInstanceVote,
     10_000,
+  );
+  it(
+    "settles behind an earlier-instance re-anchor vote once its retries run out",
+    settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut,
+    20_000,
   );
 });
 
