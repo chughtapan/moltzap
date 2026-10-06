@@ -26,15 +26,12 @@ import {
   transaction,
 } from "./database/index.js";
 import {
-  findProposalLock,
   findStagedReanchor,
+  lockProposalInTransaction,
   readStoredIdentity,
   readStoredPosition,
-  requireSameProposalLock,
   requireSameReanchor,
 } from "./rows/index.js";
-
-const GENESIS_PREDECESSOR = "";
 
 /** Singleton identity binding operations. */
 export const bindIdentity = Object.freeze({
@@ -229,39 +226,6 @@ export function applyCatchUpReanchor(
       ? "inserted"
       : "existing";
   });
-}
-
-function lockProposalInTransaction(
-  database: DatabaseSync,
-  proposal: ProposalLock,
-): StoreMutation {
-  const predecessorKey = proposal.previousRecordHash ?? GENESIS_PREDECESSOR;
-  const existing = findProposalLock(
-    database,
-    proposal.conversationId,
-    predecessorKey,
-  );
-  if (existing !== undefined) {
-    requireSameProposalLock(existing, proposal);
-    return "existing";
-  }
-  const position = readStoredPosition(database, proposal.conversationId);
-  requireEqual(position.headRecordHash, proposal.previousRecordHash);
-  database
-    .prepare(
-      `INSERT INTO proposal_locks
-        (conversation_id, predecessor_key, previous_record_hash,
-         action_hash, canonical_action_core)
-       VALUES (?, ?, ?, ?, ?)`,
-    )
-    .run(
-      proposal.conversationId,
-      predecessorKey,
-      proposal.previousRecordHash ?? null,
-      proposal.actionHash,
-      copyBytes(proposal.canonicalActionCore),
-    );
-  return "inserted";
 }
 
 function validateProposalLock(proposal: ProposalLock): void {

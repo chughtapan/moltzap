@@ -5,6 +5,7 @@ import type {
   CertifiedRecord,
   DisseminationObligation,
   InboundDeliveryInput,
+  ProposalLock,
   ProtocolEvidence,
   StagedRecord,
   StoreMutation,
@@ -29,6 +30,7 @@ import {
   findProposalLock,
   findStagedReanchor,
   findStagedRecord,
+  lockProposalInTransaction,
   readStoredIdentity,
   readStoredPosition,
   requireSameRecord,
@@ -161,6 +163,113 @@ export function applyCatchUpRecord(
       ? "inserted"
       : "existing";
   });
+}
+
+/**
+ * Atomically adopts one verified certified record at a predecessor where this
+ * endpoint locked another action: it releases that lock, locks the record's
+ * action, then stages and promotes the record with its remote delivery.
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param record One verified complete certified record.
+ * @param lock The lock on the record's own action.
+ * @param delivery Canonical remote host message, absent for the local author.
+ * @returns Always `inserted`: the record was not certified here before.
+ */
+export function adoptCertifiedRecord(
+  database: DatabaseSync,
+  record: CertifiedRecord,
+  lock: ProposalLock,
+  delivery?: InboundDeliveryInput,
+): StoreMutation {
+  validateCertifiedRecord(record);
+  requireEqual(lock.conversationId, record.conversationId);
+  requireEqual(lock.previousRecordHash, record.previousRecordHash);
+  requireEqual(lock.actionHash, record.actionHash);
+  return transaction(database, () => {
+    releaseConflictingProposal(database, record);
+    lockProposalInTransaction(database, lock);
+    stageRecordInTransaction(database, record);
+    promoteRecordInTransaction(database, record, delivery);
+    return "inserted";
+  });
+}
+
+/**
+ * Releases a lock this endpoint holds on another action at the predecessor a
+ * verified certified record extends: the lock, the action signatures merged
+ * for its action, and any record staged for that action with its durability
+ * votes and dissemination obligation.
+ *
+ * The record's durability certificate meets q(n), so the other action can
+ * never be certified: any two q(n) quorums share an honest member, and that
+ * member votes for one successor of a head per anchor. Kept, the lock would
+ * refuse the certified record forever; its signatures or staged record, kept
+ * without the lock, would name an action no durable lock selects, which
+ * startup refuses.
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param record Verified complete certified record.
+ */
+function releaseConflictingProposal(
+  database: DatabaseSync,
+  record: CertifiedRecord,
+): void {
+  const { conversationId } = record;
+  const predecessorKey = record.previousRecordHash ?? GENESIS_PREDECESSOR;
+  const lock = findProposalLock(database, conversationId, predecessorKey);
+  if (lock === undefined || lock.actionHash === record.actionHash) {
+    return;
+  }
+  const stagedRecordHashes = database
+    .prepare(
+      `SELECT record_hash FROM staged_records
+       WHERE conversation_id = ? AND action_hash = ?`,
+    )
+    .all(conversationId, lock.actionHash)
+    .map((row) => readText(row, "record_hash"));
+  for (const recordHash of stagedRecordHashes) {
+    releaseStagedRecord(database, conversationId, recordHash);
+  }
+  database
+    .prepare(
+      `DELETE FROM protocol_evidence
+       WHERE conversation_id = ? AND evidence_kind = 'action'
+         AND subject_id = ?`,
+    )
+    .run(conversationId, lock.actionHash);
+  database
+    .prepare(
+      `DELETE FROM proposal_locks
+       WHERE conversation_id = ? AND predecessor_key = ?`,
+    )
+    .run(conversationId, predecessorKey);
+}
+
+function releaseStagedRecord(
+  database: DatabaseSync,
+  conversationId: string,
+  recordHash: string,
+): void {
+  database
+    .prepare(
+      `DELETE FROM dissemination_obligations
+       WHERE conversation_id = ? AND record_hash = ?`,
+    )
+    .run(conversationId, recordHash);
+  database
+    .prepare(
+      `DELETE FROM protocol_evidence
+       WHERE conversation_id = ? AND evidence_kind = 'durability'
+         AND subject_id = ?`,
+    )
+    .run(conversationId, recordHash);
+  database
+    .prepare(
+      `DELETE FROM staged_records
+       WHERE conversation_id = ? AND record_hash = ?`,
+    )
+    .run(conversationId, recordHash);
 }
 
 function stageRecordInTransaction(

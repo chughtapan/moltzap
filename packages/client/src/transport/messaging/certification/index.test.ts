@@ -718,6 +718,102 @@ function restartOverPersistedDurabilityVote(
   });
 }
 
+/**
+ * Member 2 misses member 1's proposal at the genesis head and locks its own
+ * there, while members 1, 3 and 4 lock and certify member 1's. When member 1's
+ * certified record reaches member 2, member 2 adopts it over its own lock, so
+ * its own post is proposed again from the new head and certifies. Restarted
+ * over its store, member 2 sends no signature for the record it adopted.
+ * @returns Completion once member 2 holds both posts and restarts cleanly.
+ */
+function adoptsACertifiedRecordOverItsOwnLock() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const winnerAuthor = yield* requireAt(
+          harness.engines,
+          0,
+          "endpoint engine",
+        );
+        const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
+        const laggingIdentity = yield* requireAt(
+          harness.identities,
+          1,
+          "identity",
+        );
+        const laggingStore = yield* requireAt(
+          harness.stores,
+          1,
+          "endpoint store",
+        );
+        const winning = yield* Effect.fork(
+          winnerAuthor.send(yield* sendInput(harness, "winner")),
+        );
+        const winnerBatch = yield* takeReadyBatch(harness);
+        const winnerActionHash = yield* requireAt(
+          winnerBatch,
+          0,
+          "winning proposal",
+        ).pipe(
+          Effect.flatMap(decodeActionProposal),
+          Effect.flatMap((proposal) =>
+            hashAction(proposal.action).pipe(Effect.orDie),
+          ),
+        );
+        const losing = yield* Effect.fork(
+          lagging.send(yield* sendInput(harness, "member 2 post")),
+        );
+        const loserBatch = yield* takeReadyBatch(harness);
+
+        yield* harness.deliver(winnerBatch, [0, 2, 3]);
+        yield* harness.deliver(loserBatch);
+        yield* harness.drain();
+        yield* pump(harness, yield* takeQueued(harness));
+        yield* Fiber.join(winning).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+        yield* Fiber.join(losing).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
+        expect(pending.map(({ message }) => message.content)).toEqual([
+          [{ type: "text", text: "open group" }],
+          [{ type: "text", text: "winner" }],
+        ]);
+        const recovered = yield* laggingStore.recover().pipe(Effect.orDie);
+        expect(recovered.certifiedRecords).toHaveLength(3);
+
+        yield* takeQueued(harness);
+        const restarted = yield* makeEndpointEngine({
+          localAgentCard: laggingIdentity.card,
+          signingAuthority: laggingIdentity.authority,
+          registrySignerPublicKey: harness.registrySignerPublicKey,
+          registry: harness.registry,
+          store: laggingStore,
+          actionPolicy: signEveryAction,
+          routerWorker: scriptedRouterWorker(laggingStore, harness.outbound),
+        }).pipe(Effect.orDie);
+        yield* restarted.drainOutbound.pipe(Effect.orDie);
+        const resent = yield* messagesOfKind(
+          yield* takeQueued(harness),
+          "action_signature",
+        );
+        const resentHashes = yield* Effect.forEach(
+          resent,
+          decodeActionSignatureHash,
+          { concurrency: 1 },
+        );
+        expect(resentHashes).not.toContain(winnerActionHash);
+      }),
+    ),
+  );
+}
+
 function certifiesOrdinaryN4Post() {
   return Effect.runPromise(
     Effect.scoped(
@@ -1130,6 +1226,11 @@ function pendingDeliveryCarriesTheCertifiedRecordHash() {
 }
 
 describe("fixed-post endpoint protocol", () => {
+  it(
+    "adopts a certified record over its own lock at the same head",
+    adoptsACertifiedRecordOverItsOwnLock,
+    TEST_TIMEOUT_MS,
+  );
   it(
     "returns the hash of the send's locally stored certified record",
     sendReturnsTheStoredCertifiedRecordHash,

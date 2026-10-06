@@ -362,6 +362,11 @@ export interface EndpointStore {
     record: CertifiedRecord,
     delivery?: InboundDeliveryInput,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
+  readonly adoptCertifiedRecord: (
+    record: CertifiedRecord,
+    lock: ProposalLock,
+    delivery?: InboundDeliveryInput,
+  ) => Effect.Effect<StoreMutation, EndpointStoreError>;
   readonly stageReanchor: (
     reanchor: StagedReanchor,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;

@@ -38,6 +38,7 @@ export function unusedEndpointStore(label: string): EndpointStore {
     promoteRecord: unused,
     promoteRecordForDissemination: unused,
     applyCatchUpRecord: unused,
+    adoptCertifiedRecord: unused,
     stageReanchor: unused,
     completeReanchor: unused,
     applyCatchUpReanchor: unused,

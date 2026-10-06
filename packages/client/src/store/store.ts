@@ -53,6 +53,7 @@ import {
   searchStoredConversations,
 } from "./reads.js";
 import {
+  adoptCertifiedRecord,
   applyCatchUpRecord,
   mergeEvidence,
   promoteRecord,
@@ -158,6 +159,8 @@ function makeHistoryOperations(state: StoreState, run: StoreRunner) {
       ),
     applyCatchUpRecord: (record, delivery) =>
       run(() => applyCatchUpRecord(state.database, record, delivery)),
+    adoptCertifiedRecord: (record, lock, delivery) =>
+      run(() => adoptCertifiedRecord(state.database, record, lock, delivery)),
     stageReanchor: (reanchor) =>
       run(() => stageReanchor(state.database, reanchor)),
     completeReanchor: (reanchor) =>

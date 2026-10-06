@@ -240,16 +240,28 @@ const mergeEvidence = (
     });
   });
 
+/**
+ * Queue this endpoint's action signature for a fold, signing it first when
+ * none is held. A certified fold only resends a signature already held: this
+ * endpoint never signs an action it adopted from a certified record, which
+ * can conflict with an action it locked at that predecessor.
+ * @param runtime Engine that signs and queues the evidence.
+ * @param fold Fold the signature names.
+ * @returns Completion once the signature is queued or none is due.
+ */
 const localActionEvidence = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
 ): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
   Effect.gen(function* () {
     const localAgentId = runtime.input.localAgentCard.agentId;
-    if (fold.localActionEvidenceQueued) {
+    const retained = fold.actionEvidence.has(localAgentId);
+    if (
+      fold.localActionEvidenceQueued ||
+      (fold.certifiedRecord !== undefined && !retained)
+    ) {
       return;
     }
-    const retained = fold.actionEvidence.has(localAgentId);
     const evidence = yield* selectLocalActionEvidence(runtime, fold);
     if (evidence === undefined) {
       return;
@@ -338,6 +350,14 @@ const actionAnchorHash = (
 ): Effect.Effect<AnchorHash, RouterWorkerPersistenceError> =>
   recordAnchorHash(fold).pipe(Effect.mapError(localRepresentationFailure));
 
+/**
+ * Queue this endpoint's durability vote for a staged fold, signing it first
+ * when none is held. A certified fold only resends a vote already held, since
+ * this endpoint never staged a record it adopted from a certified record.
+ * @param runtime Engine that signs and queues the evidence.
+ * @param fold Fold whose staged record the vote names.
+ * @returns Completion once the vote is queued or none is due.
+ */
 const localDurabilityEvidence = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
@@ -345,10 +365,14 @@ const localDurabilityEvidence = (
   Effect.gen(function* () {
     const recordHash = fold.recordHash;
     const localAgentId = runtime.input.localAgentCard.agentId;
-    if (recordHash === undefined || fold.localDurabilityEvidenceQueued) {
+    const retained = fold.durabilityEvidence.get(localAgentId);
+    if (
+      recordHash === undefined ||
+      fold.localDurabilityEvidenceQueued ||
+      (fold.certifiedRecord !== undefined && retained === undefined)
+    ) {
       return;
     }
-    const retained = fold.durabilityEvidence.get(localAgentId);
     const evidence =
       retained ??
       (yield* signEvidenceMessage({
@@ -461,12 +485,17 @@ const rebasePendingIntents = (
     { concurrency: 1, discard: true },
   );
 
-type RecordSource = "assembled" | "catch-up" | "received";
+/**
+ * How a certified record reached this endpoint: assembled here, received
+ * whole, from catch-up, or adopted over a lock this endpoint holds on another
+ * action at the same predecessor.
+ */
+type RecordSource = "adopted" | "assembled" | "catch-up" | "received";
 
 function persistPromotionWithoutDelivery(
   runtime: EngineRuntime,
   record: Effect.Effect.Success<ReturnType<typeof storedCertifiedRecord>>,
-  source: RecordSource,
+  source: Exclude<RecordSource, "adopted">,
 ) {
   switch (source) {
     case "assembled":
@@ -485,7 +514,7 @@ function persistPromotionWithoutDelivery(
 function persistPromotionWithDelivery(
   runtime: EngineRuntime,
   record: Effect.Effect.Success<ReturnType<typeof storedCertifiedRecord>>,
-  source: RecordSource,
+  source: Exclude<RecordSource, "adopted">,
   delivery: Effect.Effect.Success<ReturnType<typeof inboundDelivery>>,
 ) {
   switch (source) {
@@ -525,9 +554,18 @@ const promote = (
           runtime.input.localAgentCard.agentId,
         ).pipe(Effect.mapError(localRepresentationFailure))
       : undefined;
-    yield* delivery === undefined
-      ? persistPromotionWithoutDelivery(runtime, stored, source)
-      : persistPromotionWithDelivery(runtime, stored, source, delivery);
+    if (source === "adopted") {
+      const lock = yield* proposalLock(
+        fold.conversation,
+        fold.action,
+        fold.actionHash,
+      );
+      yield* runtime.input.store.adoptCertifiedRecord(stored, lock, delivery);
+    } else {
+      yield* delivery === undefined
+        ? persistPromotionWithoutDelivery(runtime, stored, source)
+        : persistPromotionWithDelivery(runtime, stored, source, delivery);
+    }
     const queuePromotion =
       source === "assembled"
         ? runtime.outbox
@@ -776,12 +814,11 @@ const certificateEvidenceMatches = (
     evidence.statement,
   );
 
-const mergeCertificateEvidence = (
-  runtime: EngineRuntime,
+const certificateMessages = (
   fold: EngineActionFold,
   kind: "action" | "durability",
   representations: readonly unknown[],
-): Effect.Effect<void, ProtocolAcceptanceError> =>
+): Effect.Effect<readonly SignedMessage[], ClientRepresentationError> =>
   Effect.forEach(
     representations,
     (representation) =>
@@ -793,20 +830,80 @@ const mergeCertificateEvidence = (
           (evidence) => certificateEvidenceMatches(fold, kind, evidence),
           () => new ClientRepresentationError(),
         ),
-        Effect.flatMap((evidence) =>
-          mergeEvidence(runtime, fold, kind, evidence.message),
-        ),
+        Effect.map((evidence) => evidence.message),
       ),
-    { concurrency: 1, discard: true },
+    { concurrency: 1 },
   );
 
+const mergeCertificateEvidence = (
+  runtime: EngineRuntime,
+  fold: EngineActionFold,
+  kind: "action" | "durability",
+  representations: readonly unknown[],
+): Effect.Effect<void, ProtocolAcceptanceError> =>
+  certificateMessages(fold, kind, representations).pipe(
+    Effect.flatMap((messages) =>
+      Effect.forEach(
+        messages,
+        (message) => mergeEvidence(runtime, fold, kind, message),
+        { concurrency: 1, discard: true },
+      ),
+    ),
+  );
+
+/**
+ * Record a certificate's evidence in an adopted fold's memory only: the
+ * promotion that adopts the record writes the certificate itself.
+ * @param fold Fold the record is adopted into.
+ * @param kind Which certificate the evidence belongs to.
+ * @param representations The certificate's encoded evidence messages.
+ * @returns Completion once every message is verified and recorded.
+ */
+const adoptCertificateEvidence = (
+  fold: EngineActionFold,
+  kind: "action" | "durability",
+  representations: readonly unknown[],
+): Effect.Effect<void, ClientRepresentationError> =>
+  certificateMessages(fold, kind, representations).pipe(
+    Effect.flatMap((messages) =>
+      Effect.sync(() => {
+        const evidence =
+          kind === "action" ? fold.actionEvidence : fold.durabilityEvidence;
+        for (const message of messages) {
+          evidence.set(message.senderAgentId, message);
+        }
+      }),
+    ),
+  );
+
+/**
+ * Lock the action a verified record certifies and open its fold. For a
+ * certified record, a lock this endpoint holds on another action at the same
+ * predecessor does not refuse the record: the record's `q(n)` durability
+ * certificate means that other action can never be certified, because any
+ * two `q(n)` quorums share an honest member, who votes for one successor of a
+ * head per anchor. The fold is then adopted without a lock, and promotion
+ * releases the other lock.
+ * @param runtime Engine whose store and folds take the record.
+ * @param ingress Router delivery carrying the record.
+ * @param membership The record's verified membership.
+ * @param certifying The action-certified record, or the certified record
+ *     that carries it.
+ * @returns The fold, and whether this endpoint locked it, or nothing when the
+ *     record does not extend the conversation.
+ */
 const prepareRecordFold = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   membership: VerifiedMembership,
-  record: ActionCertifiedRecord,
-): Effect.Effect<EngineActionFold | undefined, ProtocolAcceptanceError> =>
+  certifying: ActionCertifiedRecord | CertifiedRecord,
+): Effect.Effect<
+  Readonly<{ fold: EngineActionFold; locked: boolean }> | undefined,
+  ProtocolAcceptanceError
+> =>
   Effect.gen(function* () {
+    const certified = certifying.kind === "certified_record";
+    const record = certified ? certifying.actionCertifiedRecord : certifying;
     yield* verifyOuterMessage({
       message: ingress.message,
       membership,
@@ -816,11 +913,18 @@ const prepareRecordFold = (
     if (conversation === undefined || !(yield* gapFree(conversation, action))) {
       return undefined;
     }
-    yield* lockAction(
+    const locked = yield* lockAction(
       runtime,
       conversation,
       action,
       record.recordCore.actionHash,
+    ).pipe(
+      Effect.as(true),
+      Effect.catchTag("EndpointStoreError", (error) =>
+        certified && action.kind === "POST" && error.reason === "conflict"
+          ? Effect.succeed(false)
+          : Effect.fail(error),
+      ),
     );
     const fold = foldFor(
       runtime,
@@ -828,13 +932,11 @@ const prepareRecordFold = (
       action,
       record.recordCore.actionHash,
     );
-    yield* mergeCertificateEvidence(
-      runtime,
-      fold,
-      "action",
-      record.actionCertificate.signatures,
-    );
-    return fold;
+    const signatures = record.actionCertificate.signatures;
+    yield* locked
+      ? mergeCertificateEvidence(runtime, fold, "action", signatures)
+      : adoptCertificateEvidence(fold, "action", signatures);
+    return { fold, locked };
   });
 
 const acceptActionCertifiedRecord = (
@@ -844,11 +946,16 @@ const acceptActionCertifiedRecord = (
 ): Effect.Effect<RouterIngressDisposition, ProtocolAcceptanceError> =>
   Effect.gen(function* () {
     const membership = yield* membershipForRecord(runtime, record);
-    const fold = yield* prepareRecordFold(runtime, ingress, membership, record);
-    if (fold === undefined) {
+    const prepared = yield* prepareRecordFold(
+      runtime,
+      ingress,
+      membership,
+      record,
+    );
+    if (prepared === undefined) {
       return "ignored";
     }
-    yield* stageActionCertificate(runtime, fold, record, "received");
+    yield* stageActionCertificate(runtime, prepared.fold, record, "received");
     return "accepted";
   });
 
@@ -864,34 +971,62 @@ const acceptCertifiedRecord = (
       registrySignerPublicKey: runtime.input.registrySignerPublicKey,
     });
     const actionRecord = record.actionCertifiedRecord;
-    const fold = yield* prepareRecordFold(
+    const prepared = yield* prepareRecordFold(
       runtime,
       ingress,
       membership,
-      actionRecord,
+      record,
     );
-    if (fold === undefined) {
+    if (prepared === undefined) {
       return "ignored";
     }
-    yield* runtime.input.store.stageRecord(yield* stagedRecord(actionRecord));
+    const { fold, locked } = prepared;
+    const votes = record.durabilityCertificate.votes;
+    if (locked) {
+      yield* runtime.input.store.stageRecord(yield* stagedRecord(actionRecord));
+    }
     yield* Effect.sync(() => {
       fold.recordHash = actionRecord.recordHash;
       runtime.recordFolds.set(actionRecord.recordHash, fold);
     });
-    yield* mergeCertificateEvidence(
-      runtime,
-      fold,
-      "durability",
-      record.durabilityCertificate.votes,
-    );
-    yield* promote(
-      runtime,
-      fold,
-      record,
-      applyCatchUp ? "catch-up" : "received",
-    );
+    yield* locked
+      ? mergeCertificateEvidence(runtime, fold, "durability", votes)
+      : adoptCertificateEvidence(fold, "durability", votes);
+    const lockedSource = applyCatchUp ? "catch-up" : "received";
+    yield* promote(runtime, fold, record, locked ? lockedSource : "adopted");
+    if (!locked) {
+      yield* Effect.sync(() => {
+        dropSupersededFolds(runtime, fold);
+      });
+    }
     return "accepted";
   });
+
+/**
+ * Forget the folds of actions this endpoint locked at the predecessor an
+ * adopted certified record extends. Promotion released their locks, so no
+ * durable lock selects them, and this endpoint must never send a signature
+ * for them again.
+ * @param runtime Engine whose folds are dropped.
+ * @param adopted Fold of the adopted certified record.
+ */
+function dropSupersededFolds(
+  runtime: EngineRuntime,
+  adopted: EngineActionFold,
+): void {
+  for (const [actionHash, fold] of runtime.actionFolds) {
+    if (
+      fold !== adopted &&
+      fold.conversation === adopted.conversation &&
+      fold.action.previousRecordHash === adopted.action.previousRecordHash
+    ) {
+      runtime.actionFolds.delete(actionHash);
+      if (fold.recordHash !== undefined) {
+        runtime.recordFolds.delete(fold.recordHash);
+      }
+    }
+  }
+}
 
 const acceptDirectPacket = (
   runtime: EngineRuntime,

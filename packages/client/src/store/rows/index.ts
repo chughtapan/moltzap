@@ -3,6 +3,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { Either, Schema } from "effect";
 import {
+  copyBytes,
   readBytes,
   readInteger,
   readOptionalBytes,
@@ -23,11 +24,52 @@ import {
   type RecoveredReanchor,
   type StagedReanchor,
   type StagedRecord,
+  type StoreMutation,
 } from "../types.js";
 
 /** Durable position plus the local indexing aid that carries no authority. */
 export interface InternalPosition extends ConversationPosition {
   readonly headOrdinal: number;
+}
+
+/**
+ * Inserts one first-candidate lock inside a caller-owned transaction, or
+ * confirms the same lock is already durable.
+ * @param database Exclusively owned endpoint database.
+ * @param proposal Verified gap-free action selected at its predecessor.
+ * @returns Whether the lock was inserted or already durable.
+ */
+export function lockProposalInTransaction(
+  database: DatabaseSync,
+  proposal: ProposalLock,
+): StoreMutation {
+  const predecessorKey = proposal.previousRecordHash ?? "";
+  const existing = findProposalLock(
+    database,
+    proposal.conversationId,
+    predecessorKey,
+  );
+  if (existing !== undefined) {
+    requireSameProposalLock(existing, proposal);
+    return "existing";
+  }
+  const position = readStoredPosition(database, proposal.conversationId);
+  requireEqual(position.headRecordHash, proposal.previousRecordHash);
+  database
+    .prepare(
+      `INSERT INTO proposal_locks
+        (conversation_id, predecessor_key, previous_record_hash,
+         action_hash, canonical_action_core)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+    .run(
+      proposal.conversationId,
+      predecessorKey,
+      proposal.previousRecordHash ?? null,
+      proposal.actionHash,
+      copyBytes(proposal.canonicalActionCore),
+    );
+  return "inserted";
 }
 
 /**
