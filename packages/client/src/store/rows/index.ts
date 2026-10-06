@@ -1,4 +1,7 @@
-/** @file Typed projections and exact-binding checks for endpoint-store rows. */
+/**
+ * @file Typed projections, exact-binding checks and proposal-lock writes for
+ * endpoint-store rows.
+ */
 
 import type { DatabaseSync } from "node:sqlite";
 import { Either, Schema } from "effect";
@@ -70,6 +73,56 @@ export function lockProposalInTransaction(
       copyBytes(proposal.canonicalActionCore),
     );
   return "inserted";
+}
+
+/**
+ * Deletes one proposal lock inside a caller-owned transaction, with the
+ * action signatures held for its action and every record staged for that
+ * action, including the record's durability votes and dissemination
+ * obligation. The caller shows the action can never be certified; kept
+ * without the lock, any of these rows would name an action no durable lock
+ * selects, which startup refuses.
+ * @param database Exclusively owned endpoint database.
+ * @param lock The durable lock to release.
+ */
+export function releaseProposalLock(
+  database: DatabaseSync,
+  lock: ProposalLock,
+): void {
+  const { conversationId, actionHash } = lock;
+  const stagedRecordHashes = database
+    .prepare(
+      `SELECT record_hash FROM staged_records
+       WHERE conversation_id = ? AND action_hash = ?`,
+    )
+    .all(conversationId, actionHash)
+    .map((row) => readText(row, "record_hash"));
+  for (const recordHash of stagedRecordHashes) {
+    for (const statement of [
+      `DELETE FROM dissemination_obligations
+       WHERE conversation_id = ? AND record_hash = ?`,
+      `DELETE FROM protocol_evidence
+       WHERE conversation_id = ? AND evidence_kind = 'durability'
+         AND subject_id = ?`,
+      `DELETE FROM staged_records
+       WHERE conversation_id = ? AND record_hash = ?`,
+    ]) {
+      database.prepare(statement).run(conversationId, recordHash);
+    }
+  }
+  database
+    .prepare(
+      `DELETE FROM protocol_evidence
+       WHERE conversation_id = ? AND evidence_kind = 'action'
+         AND subject_id = ?`,
+    )
+    .run(conversationId, actionHash);
+  database
+    .prepare(
+      `DELETE FROM proposal_locks
+       WHERE conversation_id = ? AND predecessor_key = ?`,
+    )
+    .run(conversationId, lock.previousRecordHash ?? "");
 }
 
 /**

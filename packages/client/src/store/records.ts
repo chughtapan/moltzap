@@ -33,6 +33,7 @@ import {
   lockProposalInTransaction,
   readStoredIdentity,
   readStoredPosition,
+  releaseProposalLock,
   requireSameRecord,
 } from "./rows/index.js";
 
@@ -197,16 +198,12 @@ export function adoptCertifiedRecord(
 
 /**
  * Releases a lock this endpoint holds on another action at the predecessor a
- * verified certified record extends: the lock, the action signatures merged
- * for its action, and any record staged for that action with its durability
- * votes and dissemination obligation.
+ * verified certified record extends, with everything held for that action.
  *
  * The record's durability certificate meets q(n), so the other action can
  * never be certified: any two q(n) quorums share an honest member, and that
  * member votes for one successor of a head per anchor. Kept, the lock would
- * refuse the certified record forever; its signatures or staged record, kept
- * without the lock, would name an action no durable lock selects, which
- * startup refuses.
+ * refuse the certified record forever.
  *
  * @param database Exclusively owned endpoint database.
  * @param record Verified complete certified record.
@@ -221,55 +218,7 @@ function releaseConflictingProposal(
   if (lock === undefined || lock.actionHash === record.actionHash) {
     return;
   }
-  const stagedRecordHashes = database
-    .prepare(
-      `SELECT record_hash FROM staged_records
-       WHERE conversation_id = ? AND action_hash = ?`,
-    )
-    .all(conversationId, lock.actionHash)
-    .map((row) => readText(row, "record_hash"));
-  for (const recordHash of stagedRecordHashes) {
-    releaseStagedRecord(database, conversationId, recordHash);
-  }
-  database
-    .prepare(
-      `DELETE FROM protocol_evidence
-       WHERE conversation_id = ? AND evidence_kind = 'action'
-         AND subject_id = ?`,
-    )
-    .run(conversationId, lock.actionHash);
-  database
-    .prepare(
-      `DELETE FROM proposal_locks
-       WHERE conversation_id = ? AND predecessor_key = ?`,
-    )
-    .run(conversationId, predecessorKey);
-}
-
-function releaseStagedRecord(
-  database: DatabaseSync,
-  conversationId: string,
-  recordHash: string,
-): void {
-  database
-    .prepare(
-      `DELETE FROM dissemination_obligations
-       WHERE conversation_id = ? AND record_hash = ?`,
-    )
-    .run(conversationId, recordHash);
-  database
-    .prepare(
-      `DELETE FROM protocol_evidence
-       WHERE conversation_id = ? AND evidence_kind = 'durability'
-         AND subject_id = ?`,
-    )
-    .run(conversationId, recordHash);
-  database
-    .prepare(
-      `DELETE FROM staged_records
-       WHERE conversation_id = ? AND record_hash = ?`,
-    )
-    .run(conversationId, recordHash);
+  releaseProposalLock(database, lock);
 }
 
 function stageRecordInTransaction(
