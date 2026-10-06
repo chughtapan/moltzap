@@ -40,7 +40,11 @@ import {
 } from "../../../__tests__/agent-card-fixtures.js";
 import { forwardStoredOutbound } from "../../../__tests__/forward-stored-outbound.js";
 import { pollCursor as fixturePollCursor } from "../../../__tests__/router-worker-fixtures.js";
-import { type EndpointStore, openEndpointStore } from "../../../store/index.js";
+import {
+  type EndpointStore,
+  EndpointStoreError,
+  openEndpointStore,
+} from "../../../store/index.js";
 import {
   type RouterIngressDisposition,
   type RouterTailAnchor,
@@ -337,6 +341,12 @@ interface HarnessOptions {
   readonly attachment?: WorkerAttachment;
   /** Replaces the author's worker transmit. */
   readonly authorSend?: WrapSend;
+  /** Replaces the store an endpoint's engine writes through. */
+  readonly wrapStore?: (
+    store: EndpointStore,
+    identity: ProtocolIdentity,
+    index: number,
+  ) => EndpointStore;
 }
 
 function makeProtocolHarness(
@@ -377,7 +387,7 @@ function makeProtocolHarness(
               signingAuthority: identity.authority,
               registrySignerPublicKey,
               registry,
-              store,
+              store: options.wrapStore?.(store, identity, index) ?? store,
               actionPolicy:
                 index === 0
                   ? (options.actionPolicy ?? signEveryAction)
@@ -929,6 +939,130 @@ function adoptsACertifiedRecordOverItsOwnLock() {
   );
 }
 
+/**
+ * Member 2 locks its own post at the genesis head while members 1, 3 and 4
+ * lock and sign member 1's. Member 2's store then starts refusing every other
+ * member's action signature, so its acceptance of member 1's action-certified
+ * record stops right after the lock is superseded, as an interruption there
+ * would leave it. When member 1's proposal then reaches member 2, member 2 sends no
+ * signature for the action it adopted.
+ * @returns Completion once member 2's traffic is checked.
+ */
+function signsNothingForAnAdoptedActionWhenAcceptanceStops() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const refusing = yield* Ref.make(false);
+        const harness = yield* makeProtocolHarness({
+          wrapStore: (store, identity, index) =>
+            index === 1
+              ? refusingPeerActionEvidence(
+                  store,
+                  identity.card.agentId,
+                  refusing,
+                )
+              : store,
+        });
+        yield* certifyGenesis(harness);
+        const winnerAuthor = yield* requireAt(
+          harness.engines,
+          0,
+          "endpoint engine",
+        );
+        const winnerAuthorIdentity = yield* requireAt(
+          harness.identities,
+          0,
+          "identity",
+        );
+        const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
+        const laggingIdentity = yield* requireAt(
+          harness.identities,
+          1,
+          "identity",
+        );
+        const winning = yield* Effect.fork(
+          winnerAuthor.send(yield* sendInput(harness, "winner")),
+        );
+        const winnerBatch = yield* takeReadyBatch(harness);
+        const winnerActionHash = yield* requireAt(
+          winnerBatch,
+          0,
+          "winning proposal",
+        ).pipe(
+          Effect.flatMap(decodeActionProposal),
+          Effect.flatMap((proposal) =>
+            hashAction(proposal.action).pipe(Effect.orDie),
+          ),
+        );
+        yield* Effect.forkScoped(
+          lagging.send(yield* sendInput(harness, "member 2 post")),
+        );
+        const loserBatch = yield* takeReadyBatch(harness);
+
+        yield* harness.deliver(winnerBatch, [0, 2, 3]);
+        yield* harness.deliver(loserBatch);
+        yield* harness.drain();
+        yield* harness.deliver(yield* takeQueued(harness));
+        yield* harness.drain();
+        const winnerCertificate = (yield* messagesOfKind(
+          yield* takeQueued(harness),
+          "action_certified_record",
+        )).filter(
+          (message) =>
+            message.senderAgentId === winnerAuthorIdentity.card.agentId,
+        );
+        yield* Ref.set(refusing, true);
+        const stopped = yield* harness.deliver(winnerCertificate, [1]);
+        yield* harness.deliver(winnerBatch, [1]);
+        yield* harness.drain([1]);
+        const sent = (yield* messagesOfKind(
+          yield* takeQueued(harness),
+          "action_signature",
+        )).filter(
+          (message) => message.senderAgentId === laggingIdentity.card.agentId,
+        );
+        const signedHashes = yield* Effect.forEach(
+          sent,
+          decodeActionSignatureHash,
+          { concurrency: 1 },
+        );
+
+        expect(stopped).toEqual(["ignored"]);
+        expect(signedHashes).not.toContain(winnerActionHash);
+        yield* Fiber.interrupt(winning);
+      }),
+    ),
+  );
+}
+
+/**
+ * Wraps a store so that, while `refusing` holds, it refuses as a conflict
+ * every action signature another member made.
+ * @param store The store to wrap.
+ * @param localAgentId The member whose own signatures the store still takes.
+ * @param refusing Whether the store refuses those signatures now.
+ * @returns The wrapping store.
+ */
+function refusingPeerActionEvidence(
+  store: EndpointStore,
+  localAgentId: string,
+  refusing: Ref.Ref<boolean>,
+): EndpointStore {
+  return {
+    ...store,
+    mergeEvidence: (evidence) =>
+      Ref.get(refusing).pipe(
+        Effect.flatMap((refuse) =>
+          refuse &&
+          evidence.kind === "action" &&
+          evidence.evidenceKey !== localAgentId
+            ? Effect.fail(new EndpointStoreError({ reason: "conflict" }))
+            : store.mergeEvidence(evidence),
+        ),
+      ),
+  };
+}
+
 function certifiesOrdinaryN4Post() {
   return Effect.runPromise(
     Effect.scoped(
@@ -1399,6 +1533,11 @@ describe("fixed-post endpoint protocol", () => {
   it(
     "adopts a certified record over its own lock at the same head",
     adoptsACertifiedRecordOverItsOwnLock,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "signs nothing for an adopted action when its record's acceptance stops",
+    signsNothingForAnAdoptedActionWhenAcceptanceStops,
     TEST_TIMEOUT_MS,
   );
   it(
