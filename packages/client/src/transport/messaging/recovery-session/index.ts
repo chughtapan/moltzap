@@ -20,16 +20,14 @@ import {
   CatchUpRequest,
   type CatchUpRequest as CatchUpRequestValue,
   type ConversationId as ConversationIdValue,
-  decodeCanonical,
   type DecodedOuterBody,
   memberCard,
-  MembershipDescriptor,
   type ReanchorVoteStatement as ReanchorVoteStatementValue,
   RecordHash,
   type RecordHash as RecordHashValue,
   type VerifiedMembership,
-  verifyMembershipDescriptor,
 } from "../../wire/index.js";
+import { durablePosition, verifyStoredMemberships } from "../history/index.js";
 
 /** Mutable state scoped to one authenticated catch-up and re-anchor run. */
 export interface ActiveRecoveryState {
@@ -62,26 +60,6 @@ export interface PendingReanchorVote {
 }
 
 const activeRecoveries = new WeakMap<EngineRuntime, ActiveRecoveryState>();
-
-/**
- * Resolve the latest durable position for one fixed conversation.
- * @param runtime Engine whose endpoint store owns the conversation.
- * @param conversationId Private conversation identity to locate.
- * @returns The complete recovery snapshot and its matching position row.
- */
-export const durablePosition = (
-  runtime: EngineRuntime,
-  conversationId: ConversationIdValue,
-) =>
-  runtime.input.store.recover().pipe(
-    Effect.mapError(persistenceFailure),
-    Effect.map((recovery) => ({
-      recovery,
-      position: recovery.positions.find(
-        (candidate) => candidate.conversationId === conversationId,
-      ),
-    })),
-  );
 
 /**
  * Queue a signed catch-up request at the engine's current durable position.
@@ -174,62 +152,21 @@ export function recoverMemberships(
   Map<ConversationIdValue, VerifiedMembership>,
   RouterWorkerRecoveryError
 > {
-  return Effect.forEach(
+  return verifyStoredMemberships(
     recovery.memberships,
-    (stored) => recoverMembership(runtime, stored),
-    { concurrency: 1 },
+    runtime.input.registrySignerPublicKey,
   ).pipe(
-    Effect.flatMap((entries) => uniqueMembershipMap(entries)),
+    Effect.mapError(recoveryFailure),
+    Effect.filterOrFail(
+      (memberships) =>
+        memberships.size === recovery.memberships.length &&
+        [...memberships.values()].every((membership) =>
+          recoveredMembershipMatches(runtime, membership),
+        ),
+      recoveryFailure,
+    ),
     Effect.withSpan("recoverMemberships"),
   );
-}
-
-/**
- * Determine whether one observed record belongs to the retained head ancestry.
- * @param recovery Complete verified recovery snapshot.
- * @param conversationId Conversation whose record chain is examined.
- * @param observed Record hash reported by a fixed member.
- * @param head Locally retained certified head.
- * @returns Whether the observed record is the head or one of its ancestors.
- */
-export function observedHeadIsResolved(
-  recovery: EndpointRecovery,
-  conversationId: ConversationIdValue,
-  observed: RecordHashValue,
-  head: RecordHashValue,
-): boolean {
-  let cursor: string | undefined = head;
-  while (cursor !== undefined) {
-    if (cursor === observed) {
-      return true;
-    }
-    cursor = previousRecordHash(recovery, conversationId, cursor);
-  }
-  return false;
-}
-
-/**
- * Determine whether one observed anchor belongs to the retained anchor chain.
- * @param recovery Complete verified recovery snapshot.
- * @param conversationId Conversation whose anchor chain is examined.
- * @param observed Anchor hash reported by a fixed member.
- * @param current Locally retained current anchor.
- * @returns Whether the observed anchor is current or one of its ancestors.
- */
-export function observedAnchorIsResolved(
-  recovery: EndpointRecovery,
-  conversationId: ConversationIdValue,
-  observed: AnchorHashValue,
-  current: AnchorHashValue,
-): boolean {
-  let cursor: string | undefined = current;
-  while (cursor !== undefined) {
-    if (cursor === observed) {
-      return true;
-    }
-    cursor = previousAnchorHash(recovery, conversationId, cursor);
-  }
-  return false;
 }
 
 /**
@@ -395,91 +332,17 @@ function decodeKnownAnchorHash(
   );
 }
 
-function recoverMembership(
-  runtime: EngineRuntime,
-  stored: EndpointRecovery["memberships"][number],
-): Effect.Effect<
-  readonly [ConversationIdValue, VerifiedMembership],
-  RouterWorkerRecoveryError
-> {
-  return decodeCanonical(MembershipDescriptor, stored.canonicalMembership).pipe(
-    Effect.flatMap((descriptor) =>
-      verifyMembershipDescriptor(
-        descriptor,
-        runtime.input.registrySignerPublicKey,
-      ),
-    ),
-    Effect.flatMap((membership) => {
-      if (!recoveredMembershipMatches(runtime, stored, membership)) {
-        return Effect.fail(recoveryFailure());
-      }
-      const entry: readonly [ConversationIdValue, VerifiedMembership] = [
-        membership.descriptor.conversationId,
-        membership,
-      ];
-      return Effect.succeed(entry);
-    }),
-    Effect.mapError(recoveryFailure),
-  );
-}
-
 function recoveredMembershipMatches(
   runtime: EngineRuntime,
-  stored: EndpointRecovery["memberships"][number],
   membership: VerifiedMembership,
 ): boolean {
-  const conversationId = membership.descriptor.conversationId;
-  const retained = runtime.conversations.get(conversationId);
-  return [
-    conversationId === stored.conversationId,
-    membership.hash === stored.membershipHash,
-    memberCard(membership, runtime.input.localAgentCard.agentId) !== undefined,
-    retained?.membership.hash === membership.hash,
-  ].every((matches) => matches);
-}
-
-function uniqueMembershipMap(
-  entries: ReadonlyArray<readonly [ConversationIdValue, VerifiedMembership]>,
-): Effect.Effect<
-  Map<ConversationIdValue, VerifiedMembership>,
-  RouterWorkerRecoveryError
-> {
-  const memberships = new Map<ConversationIdValue, VerifiedMembership>(entries);
-  return memberships.size === entries.length
-    ? Effect.succeed(memberships)
-    : Effect.fail(recoveryFailure());
-}
-
-function previousRecordHash(
-  recovery: EndpointRecovery,
-  conversationId: ConversationIdValue,
-  recordHash: string,
-): string | undefined {
-  for (const candidate of recovery.certifiedRecords) {
-    if (
-      candidate.conversationId === conversationId &&
-      candidate.recordHash === recordHash
-    ) {
-      return candidate.previousRecordHash;
-    }
-  }
-  return undefined;
-}
-
-function previousAnchorHash(
-  recovery: EndpointRecovery,
-  conversationId: ConversationIdValue,
-  anchorHash: string,
-): string | undefined {
-  for (const candidate of recovery.anchors) {
-    if (
-      candidate.conversationId === conversationId &&
-      candidate.anchorHash === anchorHash
-    ) {
-      return candidate.previousAnchorHash;
-    }
-  }
-  return undefined;
+  const retained = runtime.conversations.get(
+    membership.descriptor.conversationId,
+  );
+  return (
+    memberCard(membership, runtime.input.localAgentCard.agentId) !==
+      undefined && retained?.membership.hash === membership.hash
+  );
 }
 
 function persistenceFailure(): RouterWorkerPersistenceError {

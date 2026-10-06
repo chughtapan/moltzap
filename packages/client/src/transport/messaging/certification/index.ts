@@ -4,7 +4,7 @@
  */
 
 import { MOLTZAP_VERSION, type SignedMessage } from "@moltzap/identity";
-import { Deferred, Effect, type Schema } from "effect";
+import { Deferred, Effect } from "effect";
 import type {
   ConversationFoundation,
   EndpointStoreError,
@@ -27,6 +27,7 @@ import {
   ClientRepresentationError,
   type DecodedOuterBody,
   encodeCanonical,
+  equalCanonical,
   GenesisAnchorBody,
   hashAnchor,
   MembershipDescriptor,
@@ -49,7 +50,7 @@ import {
   recordAnchorHash,
   stagedRecord,
   storedCertifiedRecord,
-} from "../records/index.js";
+} from "../history/index.js";
 import {
   type EngineActionFold,
   type EngineConversation,
@@ -64,6 +65,8 @@ import {
   verifiedEvidenceForRoute,
 } from "./evidence.js";
 
+/** Whether verified evidence names a fold, shared with engine startup. */
+export { evidenceMatchesFold, type EvidenceRoute } from "./evidence.js";
 /** Dissemination resume, bound as the `resumeDissemination` engine phase. */
 export { resumeDisseminationObligations } from "./dissemination.js";
 
@@ -74,22 +77,6 @@ const isSemanticStoreRejection = (error: EndpointStoreError): boolean =>
 
 const localRepresentationFailure = (): RouterWorkerPersistenceError =>
   persistenceFailure();
-
-const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
-  left.byteLength === right.byteLength &&
-  left.every((byte, index) => byte === right[index]);
-
-const sameCanonical = <Value, Encoded, Requirements>(
-  schema: Schema.Schema<Value, Encoded, Requirements>,
-  left: Value,
-  right: Value,
-) =>
-  Effect.all([
-    encodeCanonical(schema, left),
-    encodeCanonical(schema, right),
-  ]).pipe(
-    Effect.map(([leftBytes, rightBytes]) => sameBytes(leftBytes, rightBytes)),
-  );
 
 const currentAnchorHash = (
   conversation: EngineConversation,
@@ -109,7 +96,7 @@ const gapFree = (
       return (
         conversation.head === undefined &&
         conversation.currentAnchor.kind === "genesis_anchor_body" &&
-        (yield* sameCanonical(
+        (yield* equalCanonical(
           GenesisAnchorBody,
           conversation.currentAnchor,
           action.anchor,

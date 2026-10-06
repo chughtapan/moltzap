@@ -44,6 +44,7 @@ import {
   type RouterWorker,
   RouterWorkerPersistenceError,
 } from "../transport/router/index.js";
+import { sameBytes } from "../transport/wire/index.js";
 import { unusedEndpointStore } from "./unused-endpoint-store.js";
 
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- The focused tests drive the official Promise-native MCP stream boundary. */
@@ -147,10 +148,6 @@ export interface RuntimeHarness {
 }
 
 type BackgroundFailure = "none" | "outbound" | "worker";
-
-const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
-  left.length === right.length &&
-  left.every((byte, index) => byte === right[index]);
 
 const emptyRecovery = (identity?: IdentityBinding): EndpointRecovery => ({
   identity,

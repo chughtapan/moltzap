@@ -5,8 +5,9 @@ addresses, binding a send's intent, Router-ordered proposal selection,
 GENESIS/POST certification, durable dissemination, and recovery.
 
 The service uses `index.ts`, which declares the engine contract
-(`EndpointEngine`, its errors, and the pending-message value) and composes the
-endpoint engine. Other domains read the entrypoints `address.ts` (Registry
+(`EndpointEngine`, its errors, and the pending-message value), composes the
+endpoint engine, and re-exports `verifyStoredMembership`, the one verifier of a
+stored membership row. Other domains read the entrypoints `address.ts` (Registry
 resolution of an address and the canonical group address of a fixed
 membership), `errors.ts` (closed send, listen, and acknowledgment errors) and
 `message.ts` (inbound messages) directly, so they never load the engine.
@@ -14,7 +15,9 @@ membership), `errors.ts` (closed send, listen, and acknowledgment errors) and
 Inside the engine, `runtime/index.ts` is the kernel: the dependencies an
 engine is built from and the state every phase reads. It is deliberately a
 single-file folder entrypoint, because every phase depends on it and it
-depends on no phase. `records/` builds the durable records a fold certifies.
+depends on no phase. `history/` builds the durable records a fold certifies
+and reads stored history back, and `startup.ts` rebuilds the engine's state
+from the store when the engine starts.
 The phases are `send.ts`, `certification/` (certification, evidence routing,
 and the dissemination resume), `recovery/` (catch-up), `reanchor/`
 (Router-restart re-anchor) and `recovery-session/` (the state one recovery run

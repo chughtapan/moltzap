@@ -13,7 +13,7 @@ import {
 import {
   makeActionCertifiedRecord,
   recordAnchorHash,
-} from "../records/index.js";
+} from "../history/index.js";
 
 interface VerifiedDisseminationObligation {
   readonly fold: EngineActionFold;

@@ -6,6 +6,7 @@ export {
   ClientRepresentationError,
   decodeCanonical,
   encodeCanonical,
+  equalCanonical,
   representationFailure,
   sameBytes,
 } from "./canonical.js";

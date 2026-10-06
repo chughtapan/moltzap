@@ -9,11 +9,6 @@ import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Cause, type Context, Deferred, Effect, Schema, Scope } from "effect";
 import type { EndpointStore, StoredMembership } from "../../store/index.js";
-import type {
-  EndpointEngine,
-  EndpointEngineInput,
-  EngineInitializationError,
-} from "../../transport/messaging/index.js";
 import type { DaemonBootstrap } from "../bootstrap.js";
 import {
   type CollectiveEmitError,
@@ -22,6 +17,12 @@ import {
   makeCollectiveOperations,
 } from "../../transport/collectives/index.js";
 import {
+  type EndpointEngine,
+  type EndpointEngineInput,
+  type EngineInitializationError,
+  verifyStoredMembership,
+} from "../../transport/messaging/index.js";
+import {
   type RouterWorker,
   type RouterWorkerInput,
   RouterWorkerPayloadInvalidError,
@@ -29,12 +30,10 @@ import {
   type RouterWorkerTransportError,
 } from "../../transport/router/index.js";
 import {
-  decodeCanonical,
   type DecodedOuterBody,
   decodeOuterBody,
   encodeCanonical,
-  MembershipDescriptor,
-  verifyMembershipDescriptor,
+  sameBytes,
 } from "../../transport/wire/index.js";
 import { AgentAddress, compareAscii } from "../../transport/wire/values.js";
 import {
@@ -94,10 +93,6 @@ interface PinnedCards {
   readonly representations: Map<AgentId, Uint8Array>;
 }
 
-const sameBytes = (left: Uint8Array, right: Uint8Array): boolean =>
-  left.length === right.length &&
-  left.every((byte, index) => byte === right[index]);
-
 const encodeCard = (
   card: VerifiedAgentCard,
 ): Effect.Effect<Uint8Array, DaemonActivationError> =>
@@ -127,20 +122,10 @@ const retainMembershipCards = (
   stored: StoredMembership,
 ): Effect.Effect<void, DaemonActivationError> =>
   Effect.gen(function* () {
-    const membership = yield* decodeCanonical(
-      MembershipDescriptor,
-      stored.canonicalMembership,
-    ).pipe(Effect.mapError(() => activationFailure("representation")));
-    const verified = yield* verifyMembershipDescriptor(
-      membership,
+    const verified = yield* verifyStoredMembership(
+      stored,
       input.bootstrap.configuration.registrySignerPublicKey,
     ).pipe(Effect.mapError(() => activationFailure("representation")));
-    if (
-      membership.conversationId !== stored.conversationId ||
-      verified.hash !== stored.membershipHash
-    ) {
-      return yield* Effect.fail(activationFailure("representation"));
-    }
     yield* Effect.forEach(
       verified.members,
       (card) => retainPinnedCard(input.pinned, card),

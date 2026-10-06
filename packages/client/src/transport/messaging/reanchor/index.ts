@@ -16,7 +16,6 @@ import {
 import {
   AnchorHash,
   type AnchorHash as AnchorHashValue,
-  compareAgentIds,
   CompletedReanchor,
   type CompletedReanchor as CompletedReanchorValue,
   type ConversationId as ConversationIdValue,
@@ -38,14 +37,18 @@ import {
   verifyOuterMessage,
   verifyStableEvidence,
 } from "../../wire/index.js";
-import { protocolEvidence } from "../records/index.js";
+import {
+  anchorRouterInstanceId,
+  durablePosition,
+  observedAnchorIsResolved,
+  observedHeadIsResolved,
+  orderedSignatures,
+  protocolEvidence,
+} from "../history/index.js";
 import {
   type ActiveRecoveryState,
   currentRecoveryState,
-  durablePosition,
   markConversationRecovered,
-  observedAnchorIsResolved,
-  observedHeadIsResolved,
   type PendingReanchorVote,
   queueRecoveryEnvelope,
   requestCertifiedHistory,
@@ -271,11 +274,8 @@ function currentAnchorForRecovery(
   if (anchor === undefined) {
     return undefined;
   }
-  const routerInstanceId =
-    anchor.kind === "genesis_anchor_body"
-      ? anchor.routerInstanceId
-      : anchor.reanchor.routerInstanceId;
-  return routerInstanceId === state.recovery.anchor.routerInstanceId
+  return anchorRouterInstanceId(anchor) ===
+    state.recovery.anchor.routerInstanceId
     ? anchor
     : undefined;
 }
@@ -935,11 +935,6 @@ function completeReanchorAtThreshold(
     return Effect.void;
   }
   return decodeReanchorVotes(runtime, membership, body, anchorHash).pipe(
-    Effect.map((votes) =>
-      [...votes].sort((left, right) =>
-        compareAgentIds(left.senderAgentId, right.senderAgentId),
-      ),
-    ),
     Effect.flatMap((votes) =>
       votes.length < quorumThreshold(membership.members.length)
         ? Effect.succeed(undefined)
@@ -958,13 +953,10 @@ function assembleCompletedReanchor(
   anchorHash: AnchorHashValue,
   votes: readonly SignedMessageValue[],
 ): Effect.Effect<CompletedReanchorValue, RouterWorkerPersistenceError> {
-  return Effect.forEach(votes, (vote) => Schema.encode(SignedMessage)(vote), {
-    concurrency: 1,
-  }).pipe(
+  return orderedSignatures(votes).pipe(
     Effect.mapError(persistenceFailure),
-    Effect.flatMap((encoded) => {
-      const first = encoded[0];
-      if (first === undefined) {
+    Effect.flatMap((signatures) => {
+      if (signatures === undefined) {
         return Effect.fail(persistenceFailure());
       }
       const completed: CompletedReanchorValue = {
@@ -976,7 +968,7 @@ function assembleCompletedReanchor(
           moltzapVersion: MOLTZAP_VERSION,
           kind: "reanchor_certificate",
           anchorHash,
-          votes: [first, ...encoded.slice(1)],
+          votes: signatures,
         },
       };
       return Effect.succeed(completed);

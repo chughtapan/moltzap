@@ -32,7 +32,7 @@ import type {
   OutboundMessageInput,
   StoredOutboundMessage,
 } from "../../store/index.js";
-import { decodeCanonical, encodeCanonical } from "../wire/index.js";
+import { decodeCanonical, encodeCanonical, sameBytes } from "../wire/index.js";
 import {
   detach,
   isTransportFailure,
@@ -164,13 +164,6 @@ const makeRandomMessageId = (): Effect.Effect<
     ),
   );
 
-const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean => {
-  if (left.byteLength !== right.byteLength) {
-    return false;
-  }
-  return left.every((value, index) => value === right[index]);
-};
-
 const recipientsEqual = (
   left: readonly string[],
   right: readonly string[],
@@ -187,7 +180,7 @@ const validateRewrapped = (
     previous.messageId !== next.messageId;
   const sameOpaqueAttempt =
     recipientsEqual(previous.recipientAgentIds, next.recipientAgentIds) &&
-    bytesEqual(previous.body, next.body);
+    sameBytes(previous.body, next.body);
   return sameEnvelopeBinding && sameOpaqueAttempt
     ? Effect.succeed(next)
     : Effect.fail(new RouterWorkerProtocolError());
@@ -251,7 +244,7 @@ const retryUnknown = <Payload>(
       attempt.kind !== "pending" ||
       attempt.mode !== "initial" ||
       attempt.outbound.messageId !== outbound.messageId ||
-      !bytesEqual(
+      !sameBytes(
         attempt.outbound.canonicalSignedMessage,
         outbound.canonicalSignedMessage,
       )

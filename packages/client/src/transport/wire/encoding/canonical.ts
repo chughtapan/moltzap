@@ -77,4 +77,17 @@ export const decodeCanonical = <A, I, R>(
     return decoded;
   }).pipe(Effect.withSpan("decodeCanonical"));
 
+/** Whether two values of one schema have the same canonical bytes. */
+export const equalCanonical = <A, I, R>(
+  schema: Schema.Schema<A, I, R>,
+  left: A,
+  right: A,
+): Effect.Effect<boolean, ClientRepresentationError, R> =>
+  Effect.all([
+    encodeCanonical(schema, left),
+    encodeCanonical(schema, right),
+  ]).pipe(
+    Effect.map(([leftBytes, rightBytes]) => sameBytes(leftBytes, rightBytes)),
+  );
+
 /* eslint-enable jsdoc/require-jsdoc -- Restore package documentation rules. */
