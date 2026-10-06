@@ -35,7 +35,9 @@ export class RouterWorkerPayloadInvalidError extends Data.TaggedError(
 
 /**
  * The Router could not be reached, timed out, or answered overloaded,
- * unavailable, or internal error through a bounded run of quick retries.
+ * unavailable, or internal error through a bounded run of quick retries, or a
+ * send spent its attempts while Router kept losing its retry identity. Either
+ * way the work waits for the next attempt rather than failing closed.
  */
 export class RouterWorkerTransportError extends Data.TaggedError(
   "RouterWorkerTransportError",
@@ -131,7 +133,7 @@ export interface RouterWorkerRecovery {
 /** Durable operations required by the Router transport and no other worker path. */
 type RouterWorkerOutbox = Pick<
   EndpointStore,
-  "enqueueOutbound" | "beginOutbound" | "replaceOutbound" | "completeOutbound"
+  "enqueueOutbound" | "beginOutbound" | "completeOutbound"
 >;
 
 /** Private endpoint callbacks around the Router worker's ordering boundary. */
@@ -262,7 +264,7 @@ export type RouterWorkerSendOutcome =
   | Readonly<{ kind: "accepted" }>
   | Readonly<{ kind: "restarted" }>;
 
-/** Complete number of attempts for one ambiguous transport operation. */
+/** Attempts one send spends on transport retries and identity-loss resends. */
 export const routerWorkerRetryAttempts = 3;
 /** Fixed interruptible spacing between bounded attempts. */
 export const routerWorkerRetryDelay = "25 millis";

@@ -6115,11 +6115,12 @@ const forkSend = (engine: EndpointEngine, to: string, text: string) =>
 /**
  * After a Router discontinuity the endpoint holds two conversations. The
  * direct one's only other member is silent, and the N4 conversation's members
- * answer its catch-up. One answer is short of a quorum, so the N4 post still
- * waits; with the second, the N4 conversation recovers, its post reaches the
- * Router, and its Router-ordered proposal and a member's signature are
- * accepted. Meanwhile the direct conversation stays fenced and the Router
- * receives nothing of its post. Once the direct member
+ * answer its catch-up. One answer is short of a quorum even when it arrives
+ * twice, as an outer message Router appended again after eviction would, so
+ * the N4 post still waits; with a second member's answer, the N4 conversation
+ * recovers, its post reaches the Router, and its Router-ordered proposal and a
+ * member's signature are accepted. Meanwhile the direct conversation stays
+ * fenced and the Router receives nothing of its post. Once the direct member
  * answers, that conversation recovers and its held post reaches the Router.
  * Fails when the silent member's conversation holds the N4 conversation's
  * post, as an engine-wide fence does, or when a fenced conversation's post
@@ -6164,6 +6165,7 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
               routerInstanceId: oldRouterInstanceId,
             }),
           );
+        yield* n4Incomplete(fixture.remote);
         yield* n4Incomplete(fixture.remote);
         const directSend = yield* forkSend(
           n4.engine,

@@ -21,7 +21,6 @@ export {
   enqueueOutbound,
   enqueueOutboundInTransaction,
   readPendingOutbound,
-  replaceOutbound,
 } from "./outbound.js";
 
 /* eslint-enable jsdoc/require-jsdoc -- Restore package documentation rules. */

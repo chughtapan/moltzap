@@ -61,8 +61,8 @@ public-boundary retention, relocation law, and deletion gates.
 
 | Document | Normative ownership |
 |---|---|
-| `identity.md` | L1 identities, immutable AgentCards, Registry bootstrap, AuthenticatedHttp, deep Effect capabilities, configuration, lookup, and list |
-| `identity-representation.md` | Exact L1 refined values, signatures, Registry JSON, authentication profiles, bounds, and HTTP envelopes |
+| `identity.md` | L1 identities, immutable AgentCards, sealed bodies, Registry bootstrap, AuthenticatedHttp, deep Effect capabilities, configuration, lookup, and list |
+| `identity-representation.md` | Exact L1 refined values, signatures, sealed bodies, Registry JSON, authentication profiles, bounds, and HTTP envelopes |
 | `router.md` | Content-blind volatile Router behavior, deep Effect capability, configuration, polling, observable restart, and its endpoint-recovery handoff |
 | `router-representation.md` | Exact L2 values, request/result JSON, PollCursor, representation limits, and HTTP envelopes |
 | `conversation-history.md` | Endpoint-owned certified histories, action/durability separation, thresholds, local success, any-member completion, catch-up, and Router re-anchor |
@@ -100,8 +100,9 @@ identity remain outside the public Client.
 
 Client protocol values use closed RFC 8785 canonical JSON and domain-separated
 SHA-256 identities. Stable self-addressed inner `SignedMessage` evidence is
-carried in replaceable outer member-addressed messages. Gate 1 fixes at most 32
-total members, at most 32,768 canonical content bytes per action, and no
+carried in outer member-addressed messages, and every resend of an outer
+message carries its stored bytes unchanged. Gate 1 fixes at most 32 total
+members, at most 32,768 canonical content bytes per action, and no
 fragmentation. Every retained signature/vote remains auditable with signer
 AgentId and signature bytes while logical hashes exclude evidence maps.
 
