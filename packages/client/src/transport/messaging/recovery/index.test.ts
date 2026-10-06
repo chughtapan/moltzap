@@ -6130,6 +6130,97 @@ const rearmsCatchUpAfterRetriesRunOut = () =>
   );
 
 /**
+ * The endpoint's post in the N4 conversation is proposed at the certified
+ * head and sent, but the Router never orders it before a feed gap. Catch-up
+ * then brings a member's certified successor of that head. The endpoint
+ * proposes nothing while the conversation is still fenced, because it would
+ * ignore the Router's echo of its own proposal; once the conversation
+ * recovers it proposes the post at the new head. Fails when catching up a
+ * record re-proposes a pending post while its conversation is fenced, so
+ * members sign a proposal its author never signs.
+ */
+const proposesPendingPostsOnlyOnceItsConversationRecovers = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const n4 = yield* addN4Foundation(fixture);
+        const history = yield* buildN4PartialHistory(fixture, n4);
+        yield* directPacketIngressFrom({
+          membership: n4.membership,
+          sender: fixture.remote,
+          packet: history.certifiedHead,
+          routerInstanceId: oldRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
+        );
+        yield* forkSend(
+          n4.engine,
+          `group:${[fixture.remote, n4.third, n4.fourth]
+            .map((member) => member.card.agentName)
+            .join(",")}`,
+          "proposed before the feed gap",
+        );
+        yield* n4.engine.drainOutbound.pipe(Effect.orDie);
+        yield* takeActionProposalAfterEvidence(fixture.normalOutbound);
+        const { outbound } = yield* forkRecovery(
+          { engine: n4.engine, recoveryOutbound: fixture.recoveryOutbound },
+          "feed_gap",
+          oldRouterInstanceId,
+        );
+        const requests = yield* Effect.replicateEffect(
+          takeCatchUpRequest(outbound),
+          2,
+        );
+        const n4Request = requests.find(
+          (request) =>
+            request.conversationId === n4.membership.descriptor.conversationId,
+        );
+        if (n4Request === undefined) {
+          return yield* Effect.dieMessage(
+            "recovery did not ask the N4 members",
+          );
+        }
+        yield* deliverRecovery(
+          n4.engine,
+          catchUpPageIngressFrom({
+            membership: n4.membership,
+            responder: n4.fourth,
+            request: n4Request,
+            item: history.certifiedSuccessor,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        );
+        const next = yield* takeCatchUpRequest(outbound);
+        yield* settle;
+        const sentWhileFenced = yield* Queue.size(fixture.normalOutbound);
+        yield* Effect.forEach(
+          [fixture.remote, n4.third],
+          (responder) =>
+            deliverRecovery(
+              n4.engine,
+              catchUpIncompleteIngressFrom({
+                membership: n4.membership,
+                responder,
+                request: next,
+                routerInstanceId: oldRouterInstanceId,
+              }),
+            ),
+          { concurrency: 1, discard: true },
+        );
+        const proposal = yield* takeActionProposalAfterEvidence(
+          fixture.normalOutbound,
+        );
+
+        expect(sentWhileFenced).toBe(0);
+        expect(proposal.proposal.action.previousRecordHash).toBe(
+          history.certifiedSuccessor.actionCertifiedRecord.recordHash,
+        );
+      }),
+    ),
+  );
+
+/**
  * A member's answer completes a conversation's catch-up, and the delivery
  * that carries it is interrupted while the conversation's held work resumes,
  * as the Router worker interrupts its recovery poll once recovery returns.
@@ -6430,6 +6521,10 @@ describe("catch-up and re-anchor inside a recovery run", () => {
     "arms catch-up again for every paused conversation when the Router worker reattaches",
     rearmsEveryPausedConversationOnReattach,
     10_000,
+  );
+  it(
+    "proposes a pending post only once its conversation recovers, at the head it settles on",
+    proposesPendingPostsOnlyOnceItsConversationRecovers,
   );
   it(
     "finishes recovering a conversation whose completing delivery is interrupted",

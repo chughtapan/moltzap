@@ -41,6 +41,7 @@ import { makeOutbox } from "./outbox.js";
 import {
   acceptEngineIngressWithRecovery,
   installRecoveryBarrier,
+  isRecovering,
   rearmPausedCatchUp,
   recoverCertifiedHistory,
 } from "./recovery/index.js";
@@ -407,6 +408,7 @@ const enginePhases: EnginePhases = {
   resumeFolds: resumeEngineFolds,
   resumeDissemination: resumeDisseminationObligations,
   rearmCatchUp: rearmPausedCatchUp,
+  isRecovering,
 };
 
 const makeRuntime = (

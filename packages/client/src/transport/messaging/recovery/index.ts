@@ -328,7 +328,7 @@ function acceptHistoryPacket(
     }
   >,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  if (!isFenced(runtime, packetConversation(packet))) {
+  if (!isRecovering(runtime, packetConversation(packet))) {
     return runtime.phases.acceptIngress(runtime, ingress);
   }
   return packet.kind === "certified_record"
@@ -359,7 +359,7 @@ function acceptEvidence(
         message,
         reanchorVote: statement.kind === "reanchor_vote",
         fenced:
-          conversationId !== undefined && isFenced(runtime, conversationId),
+          conversationId !== undefined && isRecovering(runtime, conversationId),
       }).pipe(
         Effect.tap(() =>
           conversationId === undefined
@@ -938,7 +938,14 @@ function queueRecoveryEnvelope(
   );
 }
 
-function isFenced(
+/**
+ * Whether a conversation is still fenced: by the engine fence before a run
+ * has fenced each conversation, or by its own fence until it recovers.
+ * @param runtime Engine whose recovery fences are read.
+ * @param conversationId Conversation to check.
+ * @returns True while the conversation's traffic waits for its recovery.
+ */
+export function isRecovering(
   runtime: EngineRuntime,
   conversationId: ConversationIdValue,
 ): boolean {

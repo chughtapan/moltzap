@@ -448,19 +448,31 @@ const reproposePendingIntent = (
     ),
   );
 
+/**
+ * Propose a conversation's uncertified posts again at its new head. A
+ * conversation still recovering proposes nothing here: its endpoint ignores
+ * the Router's echo of a proposal while fenced, so the proposal would be
+ * signed by members but never by its author, and its recovery proposes the
+ * posts at the head it settles on.
+ * @param runtime Engine whose pending posts are rebased.
+ * @param conversationId Conversation whose head moved.
+ * @returns Completion once each pending post is proposed again.
+ */
 const rebasePendingIntents = (
   runtime: EngineRuntime,
   conversationId: EngineConversation["conversationId"],
 ): Effect.Effect<void, RouterWorkerPersistenceError> =>
-  Effect.forEach(
-    runtime.intents.values(),
-    (pending) =>
-      pending.intent.conversationId === conversationId &&
-      !runtime.completedPosts.has(pending.intent.postId)
-        ? reproposePendingIntent(runtime, pending)
-        : Effect.void,
-    { concurrency: 1, discard: true },
-  );
+  runtime.phases.isRecovering(runtime, conversationId)
+    ? Effect.void
+    : Effect.forEach(
+        runtime.intents.values(),
+        (pending) =>
+          pending.intent.conversationId === conversationId &&
+          !runtime.completedPosts.has(pending.intent.postId)
+            ? reproposePendingIntent(runtime, pending)
+            : Effect.void,
+        { concurrency: 1, discard: true },
+      );
 
 type RecordSource = "assembled" | "catch-up" | "received";
 
