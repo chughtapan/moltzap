@@ -10,6 +10,8 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.1006.0] - 2026-10-06
+
 ### Fixed
 
 - A daemon recovering from a Router restart no longer exits when one member's
