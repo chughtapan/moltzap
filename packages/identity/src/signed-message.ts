@@ -40,8 +40,10 @@ export const MessageId = canonicalIdentifier("MessageId", "msg_", 16);
 export type MessageId = typeof MessageId.Type;
 
 const SIGNED_MESSAGE_TYPE = "application/vnd.moltzap.signed-message+jws";
-const MAXIMUM_BODY_BYTES = 262_144;
-const MAXIMUM_RECIPIENTS = 128;
+/** Largest opaque body, in bytes, that one SignedMessage carries. */
+export const MAXIMUM_BODY_BYTES = 262_144;
+/** Largest recipient set that one SignedMessage names. */
+export const MAXIMUM_RECIPIENTS = 128;
 const MAXIMUM_ENCODED_BYTES = 471_671;
 const ED25519_SIGNATURE_BYTES = 64;
 
@@ -90,7 +92,14 @@ const protectedHeader = exactStruct({
   typ: Schema.Literal(SIGNED_MESSAGE_TYPE),
 });
 
-const compareAgentIds = (left: AgentIdValue, right: AgentIdValue): number => {
+/**
+ * Orders AgentIds by their decoded bytes, unsigned and bytewise. This is the
+ * one canonical order of a SignedMessage recipient list.
+ */
+export const compareAgentIds = (
+  left: AgentIdValue,
+  right: AgentIdValue,
+): number => {
   const leftBytes = decodeCanonicalBase64Url(left.slice(4));
   const rightBytes = decodeCanonicalBase64Url(right.slice(4));
   if (leftBytes === undefined || rightBytes === undefined) {

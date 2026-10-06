@@ -39,7 +39,8 @@ malicious peers.
 `@moltzap/nanoclaw-channel` stays private, per
 `docs/spec/layer-interfaces.md` → Publication and versions.
 Releases run from `main` through `.github/workflows/publish.yml` on manual
-dispatch.
+dispatch. A user-visible change adds a fragment under `changelog.d/` (see
+`towncrier.toml`).
 
 **The constitution is `docs/vision.md` → The constitution.** It is canonical
 there and paraphrased nowhere, this file included: two copies at the top of the
@@ -172,7 +173,7 @@ A test that times out on a loaded machine is rerun once on its own; the
 suite is not rerun, and CI decides. A brief that hands work to another agent
 asks for these same affected checks, not a full local run.
 
-A mechanical merge conflict (CHANGELOG entries, lockfiles, generated
+A mechanical merge conflict (lockfiles, generated
 snapshots or docs) goes to Copilot: comment `@copilot Resolve the merge
 conflicts with main.` on the PR. When its commit lands, merge only after CI
 passes on the new head (`gh pr checks <n> --watch`, then `gh pr merge`); main
