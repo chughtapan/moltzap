@@ -581,10 +581,10 @@ function certifyGenesis(harness: ProtocolHarness): Effect.Effect<RecordHash> {
 }
 
 /**
- * The hash of the one POST record a store has staged, read from the store
- * because no member sends the record it assembles.
+ * Tests read a staged POST's hash from the store because no member sends the
+ * record it assembles.
  * @param store Endpoint store holding a staged GENESIS and one staged POST.
- * @returns The staged POST's record hash.
+ * @returns The hash that durability votes for that POST name.
  */
 function stagedPostRecordHash(store: EndpointStore): Effect.Effect<RecordHash> {
   return store.recover().pipe(
@@ -927,7 +927,9 @@ function sendsOnePlusTwoNMessagesPerPost() {
         const kinds = yield* Effect.forEach(delivered, protocolMessageKind, {
           concurrency: 1,
         });
-        expect([...kinds].sort()).toEqual([
+        expect(
+          [...kinds].sort((left, right) => left.localeCompare(right)),
+        ).toEqual([
           "action_proposal",
           "action_signature",
           "action_signature",
@@ -950,10 +952,9 @@ function sendsOnePlusTwoNMessagesPerPost() {
  * @returns Completion once the post is certified at members 1, 3 and 4.
  */
 function missesEveryMessage(harness: ProtocolHarness): Effect.Effect<void> {
-  return takeReadyBatch(harness).pipe(
-    Effect.flatMap((batch) => pump(harness, batch, [0, 2, 3])),
-    Effect.asVoid,
-  );
+  return Effect.gen(function* () {
+    yield* pump(harness, yield* takeReadyBatch(harness), [0, 2, 3]);
+  });
 }
 
 /**

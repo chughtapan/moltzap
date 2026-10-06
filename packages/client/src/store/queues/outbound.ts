@@ -44,51 +44,37 @@ export function enqueueOutbound(
   message: OutboundMessageInput,
 ): StoredOutboundMessage {
   validateMessageInput(message);
-  return transaction(database, () =>
-    enqueueOutboundInTransaction(database, message),
-  );
-}
-
-/**
- * Retains one validated envelope inside a caller-owned SQLite transaction.
- * @param database Exclusively owned endpoint database.
- * @param message Canonical complete initial outer message.
- * @returns The retained current envelope under its stable initial identity.
- */
-function enqueueOutboundInTransaction(
-  database: DatabaseSync,
-  message: OutboundMessageInput,
-): StoredOutboundMessage {
-  validateMessageInput(message);
-  requireConversation(database, message.conversationId);
-  const existing = findOutbound(database, message.messageId);
-  if (existing !== undefined) {
-    requireEqual(existing.outbound.conversationId, message.conversationId);
-    requireSameBytes(
-      existing.initialCanonicalSignedMessage,
-      message.canonicalSignedMessage,
-    );
-    return copyOutbound(existing.outbound);
-  }
-  requireMessageIdAvailable(database, message.messageId);
-  database
-    .prepare(
-      `INSERT INTO outbound_messages
-        (outbound_id, conversation_id, current_message_id,
-         canonical_initial_signed_message,
-         canonical_current_signed_message, attempted, disposition)
-       VALUES (?, ?, ?, ?, ?, 0, 'pending')`,
-    )
-    .run(
-      message.messageId,
-      message.conversationId,
-      message.messageId,
-      copyBytes(message.canonicalSignedMessage),
-      copyBytes(message.canonicalSignedMessage),
-    );
-  return copyOutbound({
-    outboundId: message.messageId,
-    ...message,
+  return transaction(database, () => {
+    requireConversation(database, message.conversationId);
+    const existing = findOutbound(database, message.messageId);
+    if (existing !== undefined) {
+      requireEqual(existing.outbound.conversationId, message.conversationId);
+      requireSameBytes(
+        existing.initialCanonicalSignedMessage,
+        message.canonicalSignedMessage,
+      );
+      return copyOutbound(existing.outbound);
+    }
+    requireMessageIdAvailable(database, message.messageId);
+    database
+      .prepare(
+        `INSERT INTO outbound_messages
+          (outbound_id, conversation_id, current_message_id,
+           canonical_initial_signed_message,
+           canonical_current_signed_message, attempted, disposition)
+         VALUES (?, ?, ?, ?, ?, 0, 'pending')`,
+      )
+      .run(
+        message.messageId,
+        message.conversationId,
+        message.messageId,
+        copyBytes(message.canonicalSignedMessage),
+        copyBytes(message.canonicalSignedMessage),
+      );
+    return copyOutbound({
+      outboundId: message.messageId,
+      ...message,
+    });
   });
 }
 

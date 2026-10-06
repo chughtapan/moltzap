@@ -39,8 +39,8 @@ import {
   EvidenceStatement,
   GenesisAnchorBody,
   hashAnchor,
-  MembershipDescriptor,
   memberCard,
+  MembershipDescriptor,
   type PostActionCore,
   quorumThreshold,
   signEvidenceMessage,
@@ -623,7 +623,6 @@ const prepareProposalFold = (
     if (!(yield* gapFree(conversation, proposal.action))) {
       yield* awaitPredecessor(
         runtime,
-        conversation,
         ingress,
         proposal.action,
         verified.actionHash,
@@ -925,18 +924,6 @@ const waitingProposals = new WeakMap<
   Map<ConversationId, WaitingProposal>
 >();
 
-function waitingFor(
-  runtime: EngineRuntime,
-): Map<ConversationId, WaitingProposal> {
-  const retained = waitingProposals.get(runtime);
-  if (retained !== undefined) {
-    return retained;
-  }
-  const created = new Map<ConversationId, WaitingProposal>();
-  waitingProposals.set(runtime, created);
-  return created;
-}
-
 /**
  * Hold a verified POST proposal whose predecessor or anchor this endpoint does
  * not hold, and ask the members for the history after its durable position.
@@ -947,7 +934,6 @@ function waitingFor(
  * ignored: the second is a proposal its author sent before it saw the head
  * certified, and the author proposes again from the head.
  * @param runtime Engine whose conversation lacks the named position.
- * @param conversation Retained conversation the proposal extends.
  * @param ingress Verified Router delivery carrying the proposal.
  * @param action The proposal's action.
  * @param actionHash Hash of `action`, which its signatures name.
@@ -955,13 +941,14 @@ function waitingFor(
  */
 function awaitPredecessor(
   runtime: EngineRuntime,
-  conversation: EngineConversation,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   action: ActionCore,
   actionHash: ActionHash,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
+  const conversation = runtime.conversations.get(action.conversationId);
   if (
     action.kind !== "POST" ||
+    conversation === undefined ||
     namesPassedRecord(runtime, conversation, action)
   ) {
     return Effect.void;
@@ -1087,14 +1074,26 @@ function acceptHeldIngress(
   );
 }
 
+function waitingFor(
+  runtime: EngineRuntime,
+): Map<ConversationId, WaitingProposal> {
+  const retained = waitingProposals.get(runtime);
+  if (retained !== undefined) {
+    return retained;
+  }
+  const created = new Map<ConversationId, WaitingProposal>();
+  waitingProposals.set(runtime, created);
+  return created;
+}
+
 /**
  * Forget every waiting proposal and its held evidence, as a Router
  * discontinuity does: the recovery run that follows ignores action traffic.
  * @param runtime Engine whose waiting proposals are dropped.
  */
-export function forgetWaitingProposals(runtime: EngineRuntime): void {
+export const forgetWaitingProposals = (runtime: EngineRuntime): void => {
   waitingProposals.delete(runtime);
-}
+};
 
 /**
  * Apply one semantically verified Router-ordered protocol value.

@@ -23,6 +23,8 @@ import {
   type RouterWorkerSendError,
 } from "../../router/index.js";
 import {
+  type CatchUpIncomplete,
+  type CatchUpPage,
   type ConversationId as ConversationIdValue,
   type DecodedOuterBody,
   type DirectPacket,
@@ -107,35 +109,22 @@ export function acceptEngineIngressWithRecovery(
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  if (ingress.payload.kind !== "direct") {
-    return runtime.phases.acceptIngress(runtime, ingress);
+  const body = ingress.payload;
+  if (body.kind === "direct" && body.packet.kind === "catch_up_request") {
+    return acceptCatchUpRequest(
+      catchUpResponder(runtime),
+      ingress,
+      body.packet,
+    );
   }
-  const packet = ingress.payload.packet;
-  switch (packet.kind) {
-    case "catch_up_request":
-      return acceptCatchUpRequest(catchUpResponder(runtime), ingress, packet);
-    case "catch_up_page": {
-      const run = gapCatchUp(runtime, packet.request.conversationId);
-      return run === undefined
-        ? Effect.succeed(ignoredDisposition)
-        : acceptCatchUpPage(run, ingress, packet);
-    }
-    case "catch_up_incomplete": {
-      const run = gapCatchUp(runtime, packet.request.conversationId);
-      return run === undefined
-        ? Effect.succeed(ignoredDisposition)
-        : acceptCatchUpIncomplete(run, ingress, packet);
-    }
-    case "action_proposal":
-    case "action_certified_record":
-    case "certified_record":
-    case "completed_reanchor":
-      return runtime.phases.acceptIngress(runtime, ingress);
-    default: {
-      const exhaustive: never = packet;
-      return exhaustive;
-    }
+  if (
+    body.kind === "direct" &&
+    (body.packet.kind === "catch_up_page" ||
+      body.packet.kind === "catch_up_incomplete")
+  ) {
+    return acceptGapCatchUpAnswer(runtime, ingress, body.packet);
   }
+  return runtime.phases.acceptIngress(runtime, ingress);
 }
 
 /**
@@ -176,25 +165,6 @@ export function requestGapCatchUp(
   }).pipe(Effect.withSpan("requestGapCatchUp"));
 }
 
-function gapCatchUpsOf(
-  runtime: EngineRuntime,
-): Map<ConversationIdValue, CatchUpRun> {
-  const retained = gapCatchUps.get(runtime);
-  if (retained !== undefined) {
-    return retained;
-  }
-  const created = new Map<ConversationIdValue, CatchUpRun>();
-  gapCatchUps.set(runtime, created);
-  return created;
-}
-
-function gapCatchUp(
-  runtime: EngineRuntime,
-  conversationId: ConversationIdValue,
-): CatchUpRun | undefined {
-  return gapCatchUps.get(runtime)?.get(conversationId);
-}
-
 /**
  * Dispatch only certified-history and re-anchor traffic during recovery.
  * @param runtime Engine participating in the active recovery session.
@@ -212,6 +182,41 @@ export function acceptEngineRecoveryIngressWithRecovery(
       : acceptReanchorVote(run.reanchor, ingress, ingress.payload.message);
   }
   return acceptRecoveryPacket(runtime, ingress, ingress.payload.packet);
+}
+
+/**
+ * Take a member's answer to a catch-up this endpoint started outside a
+ * recovery run. An answer for a conversation with no such catch-up is
+ * ignored.
+ * @param runtime Engine whose gap catch-ups may own the answer.
+ * @param ingress Verified Router delivery carrying the answer.
+ * @param answer Catch-up page or incomplete attestation from a member.
+ * @returns Whether the answer was taken or safely ignored.
+ */
+function acceptGapCatchUpAnswer(
+  runtime: EngineRuntime,
+  ingress: RouterWorkerIngress<DecodedOuterBody>,
+  answer: CatchUpIncomplete | CatchUpPage,
+): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
+  const run = gapCatchUps.get(runtime)?.get(answer.request.conversationId);
+  if (run === undefined) {
+    return Effect.succeed(ignoredDisposition);
+  }
+  return answer.kind === "catch_up_page"
+    ? acceptCatchUpPage(run, ingress, answer)
+    : acceptCatchUpIncomplete(run, ingress, answer);
+}
+
+function gapCatchUpsOf(
+  runtime: EngineRuntime,
+): Map<ConversationIdValue, CatchUpRun> {
+  const retained = gapCatchUps.get(runtime);
+  if (retained !== undefined) {
+    return retained;
+  }
+  const created = new Map<ConversationIdValue, CatchUpRun>();
+  gapCatchUps.set(runtime, created);
+  return created;
 }
 
 /**
@@ -237,9 +242,7 @@ export const recoverCertifiedHistory = (
     if (activeRuns.has(runtime)) {
       return yield* Effect.fail(recoveryFailure());
     }
-    yield* Effect.sync(() => {
-      gapCatchUps.get(runtime)?.clear();
-    });
+    yield* Effect.sync(() => gapCatchUps.delete(runtime));
     const recovered = yield* runtime.input.store
       .recover()
       .pipe(Effect.mapError(recoveryFailure));
