@@ -34,8 +34,9 @@ const soleOuterSigner = {
 
 /**
  * Keeps `transport/wire/encoding/codec.ts` the one module that calls
- * Identity's `SignedMessage.sign`. It seals every outer body before signing,
- * so no other module can put a plaintext body on the Router.
+ * Identity's `SignedMessage.sign`, which it does for an outer envelope only
+ * after sealing its body. The guard covers who signs, not what the outbox
+ * enqueues: its port accepts any `SignedMessage`.
  */
 const sealingSigner = {
   files: ["src/**/*.ts"],

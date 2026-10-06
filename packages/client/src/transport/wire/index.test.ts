@@ -4,6 +4,7 @@ import {
   AgentId,
   MessageId,
   MOLTZAP_VERSION,
+  SealedBody,
   SignedMessage,
 } from "@moltzap/identity";
 import canonicalize from "canonicalize";
@@ -220,6 +221,39 @@ const refusesPlaintextOuterBody = () =>
     }),
   );
 
+const refusesSealedBodyHoldingNoClientValue = () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const registryKeys = generateKeyPairSync("ed25519");
+      const sender = yield* makeMember(1, registryKeys);
+      const receiver = yield* makeMember(2, registryKeys);
+      const messageId = Schema.decodeUnknownSync(MessageId)(
+        identifier("msg_", 16, 7),
+      );
+      const sealed = yield* SealedBody.seal({
+        senderAgentId: sender.agentCard.agentId,
+        recipientAgentCards: [sender.agentCard, receiver.agentCard],
+        messageId,
+        plaintext: utf8Encoder.encode("{}"),
+      });
+
+      const message = yield* SignedMessage.sign({
+        agentCard: sender.agentCard,
+        signingAuthority: sender.signingAuthority,
+        recipientAgentIds: new Set([
+          sender.agentCard.agentId,
+          receiver.agentCard.agentId,
+        ]),
+        messageId,
+        body: sealed,
+      });
+
+      yield* expectRepresentationFailure(
+        decodeOuterBody({ ...receiver, message }),
+      );
+    }),
+  );
+
 // @agent-code-guard/regression-only: these examples pin the accepted private Client wire boundary and hostile-input closure.
 describe("Client protocol representation", () => {
   it(
@@ -240,6 +274,10 @@ describe("Client protocol representation", () => {
     opensSealedBodiesOnlyForMembers,
   );
   it("refuses a plaintext outer body", refusesPlaintextOuterBody);
+  it(
+    "refuses a sealed outer body that holds no Client value",
+    refusesSealedBodyHoldingNoClientValue,
+  );
   // Every wire hash identifier admits only its prefix over the canonical
   // base64url of 32 bytes.
   it("accepts a hash identifier in the canonical 32-byte form", () => {

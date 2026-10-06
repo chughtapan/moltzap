@@ -149,7 +149,9 @@ function initializeStoreState(stateDirectory: string): StoreState {
     chmodSync(stateDirectory, 0o700);
     chmodSync(databasePath, 0o600);
     configureDatabase(database);
-    applySchema(database, disposition);
+    if (disposition === "create") {
+      createStore(database);
+    }
     return { database, snapshots: new Map(), closed: false };
   } catch (failure) {
     try {
@@ -159,15 +161,6 @@ function initializeStoreState(stateDirectory: string): StoreState {
       // Initialization reports only the original closed failure category.
     }
     throw failure;
-  }
-}
-
-function applySchema(
-  database: DatabaseSync,
-  disposition: PreflightDisposition,
-): void {
-  if (disposition === "create") {
-    createStore(database);
   }
 }
 

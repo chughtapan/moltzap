@@ -70,8 +70,8 @@ const inboxItem = bytes('{"kind":"operationFailed"}');
 /**
  * Give the store Alice's identity, one certified conversation with a pending
  * delivery, a proposal lock, a post intent and a queued envelope, plus the
- * host's inbox, invocation and event state.
- * @returns The queued envelope's outbox identity.
+ * host's inbox, invocation and event state, and return the queued envelope's
+ * outbox identity.
  */
 const seedPreCutoverState = (store: EndpointStore) =>
   Effect.gen(function* () {

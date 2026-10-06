@@ -6133,6 +6133,27 @@ const backsOffCatchUpRetriesAndStops = () =>
   );
 
 /**
+ * Takes envelopes from `outbound` until one carries a catch-up request. It
+ * waits on the queue rather than on a clock, because sealing the request
+ * settles on real promises.
+ * @param outbound Queue the recovery sends to.
+ * @returns The request; the envelopes taken before it are dropped.
+ */
+function takeNextCatchUpRequest(
+  outbound: Queue.Queue<SignedMessage>,
+): Effect.Effect<CatchUpRequest> {
+  return Queue.take(outbound).pipe(
+    Effect.flatMap((message) => openForwarded(message)),
+    Effect.flatMap((body) =>
+      body.kind === "direct" && body.packet.kind === "catch_up_request"
+        ? Effect.succeed(body.packet)
+        : takeNextCatchUpRequest(outbound),
+    ),
+    Effect.orDie,
+  );
+}
+
+/**
  * A conversation's catch-up retries run out while its member is silent. The
  * member then sends traffic for it, which arms catch-up again with a fresh
  * request; the member's answer recovers the conversation, no further retry
@@ -6167,21 +6188,19 @@ const rearmsCatchUpAfterRetriesRunOut = () =>
             routerInstanceId: oldRouterInstanceId,
           }),
         );
+        const fresh = yield* takeNextCatchUpRequest(outbound);
         yield* settle;
-        const rearmed = yield* Effect.forEach(
+        const laterRequests = yield* Effect.filter(
           yield* Queue.takeAll(outbound),
-          (message) => openForwarded(message),
-          { concurrency: 1 },
+          (message) =>
+            openForwarded(message).pipe(
+              Effect.map(
+                (body) =>
+                  body.kind === "direct" &&
+                  body.packet.kind === "catch_up_request",
+              ),
+            ),
         );
-        const request = rearmed.flatMap((body) =>
-          body.kind === "direct" && body.packet.kind === "catch_up_request"
-            ? [body.packet]
-            : [],
-        );
-        const [fresh] = request;
-        if (fresh === undefined) {
-          return yield* Effect.dieMessage("the member's traffic armed nothing");
-        }
         yield* fixture.engine.acceptRouterIngress(
           yield* catchUpIncompleteIngressFrom({
             membership: fixture.membership,
@@ -6204,7 +6223,7 @@ const rearmsCatchUpAfterRetriesRunOut = () =>
 
         expect(exhausted).toHaveLength(catchUpRetryAttempts);
         expect(quiet).toBe(0);
-        expect(request).toHaveLength(1);
+        expect(laterRequests).toEqual([]);
         expect(afterRecovery).toBe(0);
         expect(proposal.proposal.action.conversationId).toBe(
           fixture.membership.descriptor.conversationId,

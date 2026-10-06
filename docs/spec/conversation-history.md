@@ -362,7 +362,10 @@ A sender persists its immutable post intent before protocol traffic. If a
 different candidate commits first, it retries the same `PostId` and intent
 against the new head, producing a new `ActionHash`. If its selected candidate
 cannot reach `q(n)`, that conversation head stalls. Gate 1 has no timeout
-replacement, view change, or alternative-candidate election.
+replacement, view change, or alternative-candidate election. A sealed body
+can open for some members and not others, so a Byzantine author can make one
+proposal a candidate only for some honest members, split their locks for a
+predecessor, and stall that head this way.
 
 Daemon recovery resumes a persisted unfinished intent under its existing
 `PostId`. A later `HarnessEndpoint.send` invocation always mints a new

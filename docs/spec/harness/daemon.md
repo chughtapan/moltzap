@@ -75,7 +75,10 @@ objects do not make the database nonempty. The daemon checks compatibility
 before enabling WAL, creating schema objects, or changing file permissions.
 Versions 2 and 3 were written under the prior `V2_PROTOCOL_VERSION`; the
 daemon replaces either, in one transaction, with an empty version 4 store, so
-it starts unregistered and the agent registers again. Before normal
+it starts unregistered and the agent registers again. Starting unregistered
+requires `MOLTZAPD_ADMISSION_CREDENTIAL_FILE` to name a credential the new
+Registry admits; without it the daemon fails closed with a configuration
+error. Before normal
 classification, startup retires raw pending collective requests whose
 response state was lost. Each becomes a failure with a fresh token. Exact
 version 4 reopens. Nonempty version 0, version 1, and every other version

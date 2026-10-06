@@ -454,7 +454,7 @@ export class SealedBodySealingError extends Data.TaggedError(
 
 A body cannot be sealed from the supplied sender to the supplied recipients.
 
-### [`SignedMessage (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L163)
+### [`SignedMessage (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L169)
 
 _Interface_
 
@@ -470,7 +470,7 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L478)
+### [`SignedMessage (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L484)
 
 _Variable_
 
@@ -491,7 +491,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
 
 Opaque attributed message operations and exact representation Schema.
 
-### [`SignedMessageSigningError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L307)
+### [`SignedMessageSigningError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L313)
 
 _Class_
 
@@ -503,7 +503,7 @@ export class SignedMessageSigningError extends Data.TaggedError(
 
 A message cannot be signed under the supplied immutable identity.
 
-### [`SignedMessageVerificationError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L312)
+### [`SignedMessageVerificationError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L318)
 
 _Class_
 
@@ -566,7 +566,7 @@ export type VerifiedAgentRequest = Readonly<{
 
 Request body and caller identity established by AuthenticatedHttp.
 
-### [`VerifiedSignedMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L301)
+### [`VerifiedSignedMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L307)
 
 _TypeAlias_
 

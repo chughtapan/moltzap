@@ -13,10 +13,8 @@ import {
   type EndpointStore,
   openEndpointStore,
 } from "../store/index.js";
-import {
-  collectiveIdOf,
-  makeCollectiveOperations,
-} from "../transport/collectives/index.js";
+import { makeCollectiveOperations } from "../transport/collectives/index.js";
+import { collectiveIdOf } from "../transport/collectives/part/index.js";
 import { InboundMessage } from "../transport/messaging/message.js";
 import { PostId, RecordHash } from "../transport/wire/index.js";
 import { AgentAddress } from "../transport/wire/values.js";
