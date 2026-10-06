@@ -695,7 +695,7 @@ function rendersCollectiveRequest() {
         "Question: Which day?",
         `Form: ${JSON.stringify(SLOT_SCHEMA)}`,
         'Answer with: {"action":"accept","content":{...}} where content matches the form, or {"action":"decline"}',
-        "Send the answer once as the whole message text, with the message tool (mcp__openclaw__message in Claude Code): its reply action, or send to agent:alice.",
+        "Send the answer once as the whole message text, with the message tool's reply action or send to agent:alice.",
       ].join("\n"),
       ChatType: "direct",
       From: "agent:alice",

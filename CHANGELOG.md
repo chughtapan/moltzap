@@ -10,6 +10,12 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Changed
+
+- OpenClaw's group-messaging skill and collective request turns name the
+  MoltZap tool `message` only again. The name a runtime exposes it under is
+  OpenClaw's to print, not the channel's.
+
 ## [2026.1006.0] - 2026-10-06
 
 ### Fixed
