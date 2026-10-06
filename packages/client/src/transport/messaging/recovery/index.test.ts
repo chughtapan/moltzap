@@ -111,6 +111,7 @@ import {
   EngineOutboundError,
   makeEndpointEngine,
 } from "../index.js";
+import { makeCatchUpState, waitBehindEarlierReanchor } from "./catch-up.js";
 import { catchUpRetryAttempts } from "./index.js";
 
 /* eslint-disable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- One exact cryptographic trace keeps protocol order and assertions together. */
@@ -8338,6 +8339,105 @@ const settlesPastAnEarlierInstanceVoteForAnotherAnchor = () =>
     ),
   );
 
+/**
+ * A member's vote for an earlier Router instance's re-anchor at the pending
+ * position is still verifying when a catch-up retry replaces the pending
+ * request with an equal one. Once the vote verifies, the position's
+ * readiness is decided: it waits for every member. Fails when the wait
+ * checks the request it started with by identity, so an identical retry
+ * drops it.
+ * @returns The trace, run to completion.
+ */
+const keepsAnEarlierInstanceWaitAcrossAnIdenticalRetry = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const { recordCore, recordHash } =
+          fixture.certifiedRecord.actionCertifiedRecord;
+        const request = peerCatchUpRequest(fixture, {
+          knownRecordHash: recordHash,
+          knownAnchorHash: recordCore.anchorHash,
+        });
+        const { conversationId } = request;
+        const state = makeCatchUpState();
+        state.pendingRequests.set(conversationId, request);
+        const verifying = yield* Deferred.make<undefined>();
+        const waiting = yield* Effect.fork(
+          waitBehindEarlierReanchor(
+            { state },
+            {
+              conversationId,
+              previousAnchorHash: recordCore.anchorHash,
+              selectedRecordHash: recordHash,
+            },
+            Deferred.await(verifying),
+          ),
+        );
+
+        state.pendingRequests.set(conversationId, { ...request });
+        yield* Deferred.succeed(verifying, undefined);
+        yield* Fiber.join(waiting);
+
+        expect(state.readiness.has(conversationId)).toBe(true);
+      }),
+    ),
+  );
+
+/**
+ * After a Router restart the local endpoint votes to re-anchor the N4
+ * conversation at its head for the new Router instance. A member's catch-up
+ * request at the head, delivered by that same instance, gets `incomplete`
+ * alone: the endpoint's vote for the delivering instance is that instance's
+ * re-anchor traffic, not partial evidence of the answer. Fails when an
+ * `incomplete` answer carries a vote for the Router instance that delivers
+ * the request.
+ * @returns The trace, run to completion.
+ */
+const answersIncompleteWithoutItsVoteForTheDeliveringInstance = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const n4 = yield* addN4Foundation(fixture);
+        const history = yield* buildN4PartialHistory(fixture, n4);
+        const head = history.certifiedHead.actionCertifiedRecord;
+        const { outbound, request } = yield* recoverGroup(
+          fixture,
+          n4,
+          history.certifiedHead,
+        );
+        yield* answerN4Incomplete(fixture, n4, request, {
+          responders: [fixture.remote, n4.third],
+        });
+        yield* settle;
+        yield* Queue.takeAll(outbound);
+
+        yield* deliverRecovery(
+          n4.engine,
+          directPacketIngressFrom({
+            membership: n4.membership,
+            sender: fixture.remote,
+            packet: peerCatchUpRequest(
+              fixture,
+              {
+                knownRecordHash: head.recordHash,
+                knownAnchorHash: head.recordCore.anchorHash,
+              },
+              n4.membership,
+            ),
+            routerInstanceId: newRouterInstanceId,
+          }),
+        );
+        const answered = yield* takeSentBodies(outbound);
+
+        expect(answered).toMatchObject([
+          { kind: "direct", packet: { kind: "catch_up_incomplete" } },
+        ]);
+      }),
+    ),
+  );
+
 describe("staged successors in recovery", () => {
   it(
     "certifies a post one direct member staged before the restart, and re-anchors at it",
@@ -8423,6 +8523,15 @@ describe("staged successors in recovery", () => {
     "answers incomplete with its earlier-instance re-anchor vote",
     answersIncompleteWithItsEarlierInstanceVote,
     10_000,
+  );
+  it(
+    "answers incomplete without its vote for the Router instance that delivers the request",
+    answersIncompleteWithoutItsVoteForTheDeliveringInstance,
+    10_000,
+  );
+  it(
+    "keeps an earlier-instance wait across an identical catch-up retry",
+    keepsAnEarlierInstanceWaitAcrossAnIdenticalRetry,
   );
   it(
     "settles behind an earlier-instance re-anchor vote once its retries run out",

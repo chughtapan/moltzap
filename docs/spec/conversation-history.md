@@ -466,9 +466,11 @@ the requested position sends no incomplete response; it sends that
 successor's `ActionCertifiedRecord` and its own durability vote.
 
 Catch-up pages carry complete `CertifiedRecord` or `CompletedReanchor` values,
-including their retained certificates. There is no partial-evidence cursor; a
-staged successor is the only partial evidence a catch-up answer carries. All
-received material is verified before mutation.
+including their retained certificates. There is no partial-evidence cursor. A
+catch-up answer carries no partial evidence except a staged successor with the
+responder's durability vote, or, with an incomplete answer, the responder's
+re-anchor vote for an earlier Router instance. All received material is
+verified before mutation.
 
 A new RouterInstanceId does not rewrite history. Members compare verified
 ancestry, select the unique latest certified head, and use the existing

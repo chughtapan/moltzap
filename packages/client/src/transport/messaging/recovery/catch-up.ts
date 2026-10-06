@@ -195,7 +195,7 @@ export function settleOnQuorum(
  * @returns Completion once the vote is checked.
  */
 export function waitBehindEarlierReanchor<E>(
-  run: CatchUpRun,
+  run: Pick<CatchUpRun, "state">,
   vote: Pick<
     ReanchorBody,
     "conversationId" | "previousAnchorHash" | "selectedRecordHash"
@@ -290,7 +290,12 @@ export function acceptCatchUpRequest(
     message: ingress.message,
     membership,
   }).pipe(
-    Effect.flatMap(() => respondToCatchUp(responder, membership, request)),
+    Effect.flatMap(() =>
+      respondToCatchUp(responder, membership, {
+        request,
+        routerInstanceId: ingress.routerInstanceId,
+      }),
+    ),
     Effect.as(acceptedDisposition),
     Effect.catchTag("ClientRepresentationError", () =>
       Effect.succeed(ignoredDisposition),
@@ -504,19 +509,27 @@ function queueCatchUpRequest(
  * uncertified successor there sends that successor and its durability vote
  * instead of `incomplete`: an `incomplete` answer from a holder would let a
  * requester settle at the head the successor extends. An `incomplete` answer
- * follows this endpoint's votes for uncompleted re-anchors at the position,
- * so a requester at a later Router instance waits for the member that may
- * have completed one.
+ * follows this endpoint's votes for uncompleted re-anchors at the position
+ * for Router instances earlier than the one delivering the request, so a
+ * requester at that later instance waits for the member that may have
+ * completed one.
  * @param responder The endpoint answering.
  * @param membership Verified membership of the request's conversation.
- * @param request The member's verified catch-up request.
+ * @param delivered The member's verified catch-up request and the Router
+ *     instance that delivered it.
+ * @param delivered.request The member's verified catch-up request.
+ * @param delivered.routerInstanceId The Router instance that delivered it.
  * @returns Completion once the answer is queued.
  */
 function respondToCatchUp(
   responder: CatchUpResponder,
   membership: VerifiedMembership,
-  request: CatchUpRequestValue,
+  delivered: Readonly<{
+    request: CatchUpRequestValue;
+    routerInstanceId: RouterWorkerIngress<DecodedOuterBody>["routerInstanceId"];
+  }>,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
+  const { request } = delivered;
   return Effect.gen(function* () {
     const recovery = yield* responder.runtime.input.store
       .recover()
@@ -545,7 +558,7 @@ function respondToCatchUp(
     const votes = yield* heldReanchorVotes(
       responder.runtime,
       recovery,
-      request,
+      delivered,
     );
     return yield* sendCatchUpIncomplete(responder, membership, request, votes);
   });
@@ -578,23 +591,32 @@ function restartAttestations(
 
 /**
  * This endpoint's own votes for its uncompleted re-anchor candidates at a
- * request's position. An `incomplete` answer carries them, so a requester
- * learns that a re-anchor from that position may already have completed for
- * an earlier Router instance.
+ * request's position for Router instances other than the one delivering the
+ * request. An `incomplete` answer carries them, so a requester learns that a
+ * re-anchor from that position may already have completed for an earlier
+ * Router instance. A vote for the delivering instance is re-anchor traffic
+ * of that instance's own, not partial evidence of an answer.
  * @param runtime Engine whose identity signed the votes.
  * @param recovery Complete verified recovery snapshot.
- * @param request The catch-up request being answered.
+ * @param delivered The catch-up request being answered and the Router
+ *     instance that delivered it.
+ * @param delivered.request The catch-up request being answered.
+ * @param delivered.routerInstanceId The Router instance that delivered it.
  * @returns The votes, in stored order.
  */
 function heldReanchorVotes(
   runtime: EngineRuntime,
   recovery: EndpointRecovery,
-  request: CatchUpRequestValue,
+  delivered: Readonly<{
+    request: CatchUpRequestValue;
+    routerInstanceId: RouterWorkerIngress<DecodedOuterBody>["routerInstanceId"];
+  }>,
 ): Effect.Effect<readonly SignedMessage[], RouterWorkerPersistenceError> {
+  const { request, routerInstanceId } = delivered;
   const candidates = new Set(
-    heldReanchorCandidates(recovery, request).map(
-      (candidate) => candidate.anchorHash,
-    ),
+    heldReanchorCandidates(recovery, request)
+      .filter((candidate) => candidate.routerInstanceId !== routerInstanceId)
+      .map((candidate) => candidate.anchorHash),
   );
   const localAgentId = runtime.input.localAgentCard.agentId;
   return Effect.forEach(
