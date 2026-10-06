@@ -1018,6 +1018,49 @@ function laggingMemberCatchesUpAndCertifiesTheNextPost(
 }
 
 /**
+ * Member 4 is offline whenever member 2 asks for history, so member 2's
+ * catch-up never completes. Member 2 misses one post, catches it up for the
+ * next, then misses a third post. The fourth proposal names that post, and
+ * member 2 asks for it although its earlier request is still unanswered, so
+ * the fourth post certifies with its signature.
+ * @returns Completion once member 2 holds and delivers all four posts.
+ */
+function asksForALaterGapWhileAMemberNeverAnswers() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
+        const posts = [
+          { text: "first missed by member 2", online: [0, 2, 3] },
+          { text: "needs member 2", online: [0, 1, 2] },
+          { text: "second missed by member 2", online: [0, 2, 3] },
+          { text: "needs member 2 again", online: [0, 1, 2] },
+        ];
+        for (const { text, online } of posts) {
+          const sending = yield* Effect.fork(
+            author.send(yield* sendInput(harness, text)),
+          );
+          yield* pump(harness, yield* takeReadyBatch(harness), online);
+          yield* Fiber.join(sending).pipe(
+            Effect.timeout("1 second"),
+            Effect.orDie,
+          );
+        }
+
+        const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
+        expect(pending.map(({ message }) => message.content)).toEqual([
+          [{ type: "text", text: "open group" }],
+          ...posts.map(({ text }) => [{ type: "text", text }]),
+        ]);
+      }),
+    ),
+  );
+}
+
+/**
  * Members 1 and 2 propose at the same head. Member 1's post certifies, and
  * member 2 proposes again from the new head, before the Router delivers
  * member 2's first proposal. That proposal names a record every member
@@ -1553,6 +1596,11 @@ describe("fixed-post endpoint protocol", () => {
   it(
     "asks again once the members answer a request that predates the named record",
     asksAgainAfterAnswersThatPredateTheNamedRecord,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "asks for a later gap while a member never answers the earlier request",
+    asksForALaterGapWhileAMemberNeverAnswers,
     TEST_TIMEOUT_MS,
   );
   it(

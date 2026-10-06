@@ -918,6 +918,7 @@ function awaitPredecessor(
           actionHash,
           proposal: ingress,
           signatures: new Map(),
+          askedAgain: false,
         });
       }),
     ),

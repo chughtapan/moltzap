@@ -146,6 +146,8 @@ export interface EngineWaitingProposal {
   readonly actionHash: ActionHash;
   readonly proposal: RouterWorkerIngress<DecodedOuterBody>;
   readonly signatures: Map<AgentId, RouterWorkerIngress<DecodedOuterBody>>;
+  /** Whether catch-up has already asked once more for this proposal. */
+  askedAgain: boolean;
 }
 
 /** Shared acquired state used by addressed send and protocol ingress. */

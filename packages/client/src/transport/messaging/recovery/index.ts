@@ -85,19 +85,11 @@ interface RecoveryRun {
 const activeRuns = new WeakMap<EngineRuntime, RecoveryRun>();
 
 /**
- * The catch-up an engine runs outside its recovery runs, and the
- * conversations that asked again while their request was still being
- * answered. A request is sent again only once every member has answered the
- * one before it: both name the same durable position, so answers to the
- * earlier one, which can predate the record a newer proposal names, would
- * otherwise count toward the later one.
+ * The catch-up an engine runs outside its recovery runs. A Router
+ * discontinuity drops it, since the recovery run that follows catches up every
+ * conversation.
  */
-interface GapCatchUp {
-  readonly run: CatchUpRun;
-  readonly askAgain: Set<ConversationIdValue>;
-}
-
-const gapCatchUps = new WeakMap<EngineRuntime, GapCatchUp>();
+const gapCatchUps = new WeakMap<EngineRuntime, CatchUpRun>();
 
 const ignoredDisposition: RouterIngressDisposition = "ignored";
 
@@ -138,21 +130,15 @@ export function acceptEngineIngressWithRecovery(
  * waiting once its predecessor is certified here.
  * @param runtime Engine whose conversation lacks a position a proposal named.
  * @param conversationId Retained conversation to catch up.
- * @returns Completion once the request is in the durable outbox, or noted
- *     to be sent once the request in flight is answered.
+ * @returns Completion once the request is in the durable outbox.
  */
 export function requestGapCatchUp(
   runtime: EngineRuntime,
   conversationId: ConversationIdValue,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
-  return Effect.suspend(() => {
-    const gap = gapCatchUpOf(runtime);
-    if (gap.run.state.pendingRequests.has(conversationId)) {
-      gap.askAgain.add(conversationId);
-      return Effect.void;
-    }
-    return requestCertifiedHistory(gap.run, conversationId);
-  }).pipe(Effect.withSpan("requestGapCatchUp"));
+  return Effect.suspend(() =>
+    requestCertifiedHistory(gapCatchUpOf(runtime), conversationId),
+  ).pipe(Effect.withSpan("requestGapCatchUp"));
 }
 
 /**
@@ -197,7 +183,7 @@ function acceptGapCatchUpAnswer(
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   answer: CatchUpIncomplete | CatchUpPage,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  const run = gapCatchUps.get(runtime)?.run;
+  const run = gapCatchUps.get(runtime);
   if (run === undefined) {
     return Effect.succeed(ignoredDisposition);
   }
@@ -206,28 +192,40 @@ function acceptGapCatchUpAnswer(
     : acceptCatchUpIncomplete(run, ingress, answer);
 }
 
-function gapCatchUpOf(runtime: EngineRuntime): GapCatchUp {
+/**
+ * Build the engine's catch-up outside recovery runs. When every other member
+ * has answered a conversation's request and its proposal is still held, it
+ * asks once more for that proposal: answers to an earlier request from the
+ * same position, which can predate the record the proposal names, may have
+ * completed the newer request before its own answers arrived. The catch-up
+ * ends once no request is pending.
+ * @param runtime Engine whose catch-up is built or returned.
+ * @returns The engine's current catch-up run.
+ */
+function gapCatchUpOf(runtime: EngineRuntime): CatchUpRun {
   const retained = gapCatchUps.get(runtime);
   if (retained !== undefined) {
     return retained;
   }
-  const askAgain = new Set<ConversationIdValue>();
   const run: CatchUpRun = {
     ...catchUpResponder(runtime),
     state: makeCatchUpState(),
-    isActive: () => gapCatchUps.get(runtime)?.run === run,
-    onPositionReady: (conversationId) =>
-      askAgain.delete(conversationId)
-        ? requestCertifiedHistory(run, conversationId)
-        : Effect.sync(() => {
-            if (run.state.pendingRequests.size === 0) {
-              gapCatchUps.delete(runtime);
-            }
-          }),
+    isActive: () => gapCatchUps.get(runtime) === run,
+    onPositionReady: (conversationId) => {
+      const waiting = runtime.waitingProposals.get(conversationId);
+      if (waiting !== undefined && !waiting.askedAgain) {
+        waiting.askedAgain = true;
+        return requestCertifiedHistory(run, conversationId);
+      }
+      return Effect.sync(() => {
+        if (run.state.pendingRequests.size === 0) {
+          gapCatchUps.delete(runtime);
+        }
+      });
+    },
   };
-  const created: GapCatchUp = { run, askAgain };
-  gapCatchUps.set(runtime, created);
-  return created;
+  gapCatchUps.set(runtime, run);
+  return run;
 }
 
 /**
