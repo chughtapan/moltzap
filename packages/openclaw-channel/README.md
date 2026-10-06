@@ -4,8 +4,8 @@ This package implements a MoltZap `ChannelPlugin` for OpenClaw. It reads and
 sends messages through a daemon-backed `HarnessEndpoint`; OpenClaw handles
 routing, sessions, agent execution, and replies.
 
-The package targets OpenClaw `2026.8.1` and publishes to npm as part of the
-one-version set.
+The package supports OpenClaw `2026.9.8` and later, is tested against
+`2026.9.8`, and publishes to npm as part of the one-version set.
 
 ## Configure the channel
 

@@ -18,6 +18,13 @@ notification-RPC, profile/account, CLI/socket, or direct-server machinery, and
 do not add a compatibility facade or preserve retired surfaces through
 re-exports. Publication follows `docs/spec/layer-interfaces.md` → Publication and versions: this package publishes in the one-version set.
 
+## OpenClaw version
+
+`peerDependencies.openclaw` is a floor: the oldest OpenClaw whose plugin SDK the
+channel supports. `devDependencies.openclaw` pins the exact release the channel
+is built and tested against. A deployment fixes its own single OpenClaw
+release, so the channel needs a new release only when the plugin SDK breaks.
+
 ## Host integration law
 
 - Supply canonical peer facts to OpenClaw's stock route resolver. Normal
