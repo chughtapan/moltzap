@@ -15,6 +15,7 @@ import {
 import {
   PollCursor,
   Router,
+  type RouterConnectionError,
   RouterInstanceId,
   type RouterPollResult,
   type RouterSendRequest,
@@ -42,9 +43,16 @@ interface SendCall {
   readonly request: RouterSendRequest;
 }
 
+/** A scripted send answer computed from the request it receives. */
+export type ScriptedSendAnswer = (
+  request: RouterSendRequest,
+) => Effect.Effect<RouterSendResult, RouterConnectionError>;
+
+type ScriptedSend = RouterSendResult | ScriptedSendAnswer;
+
 interface ScriptedRouter {
   readonly polls: Ref.Ref<RouterPollResult[]>;
-  readonly sends: Ref.Ref<RouterSendResult[]>;
+  readonly sends: Ref.Ref<ScriptedSend[]>;
   readonly pollCalls: Ref.Ref<PollCall[]>;
   readonly sendCalls: Ref.Ref<SendCall[]>;
   readonly fallbackPoll?: Effect.Effect<RouterPollResult>;
@@ -60,7 +68,7 @@ interface SignMessageInput {
 
 interface ScriptedRouterInput {
   readonly polls: readonly RouterPollResult[];
-  readonly sends?: readonly RouterSendResult[];
+  readonly sends?: readonly ScriptedSend[];
   readonly fallbackPoll?: Effect.Effect<RouterPollResult>;
 }
 
@@ -75,7 +83,6 @@ export const unreachableOutbox: RouterWorkerInput<TestPayload>["outbox"] =
   Object.freeze({
     enqueueOutbound: () => Effect.die("outbox must not be used"),
     beginOutbound: () => Effect.die("outbox must not be used"),
-    replaceOutbound: () => Effect.die("outbox must not be used"),
     completeOutbound: () => Effect.die("outbox must not be used"),
   });
 
@@ -84,7 +91,7 @@ export const unreachableOutbox: RouterWorkerInput<TestPayload>["outbox"] =
  * @param byte Repeated identifier byte.
  * @returns Decoded MessageId.
  */
-export const messageId = (byte: number) =>
+const messageId = (byte: number) =>
   Schema.decodeUnknownSync(MessageId)(identifier("msg_", byte));
 
 /**
@@ -305,10 +312,15 @@ function scriptedSend(
         ...calls,
         { request: call.request },
       ]);
-      const result = yield* Ref.modify(scripted.sends, (results) => {
-        const [head, ...tail] = results;
+      const step = yield* Ref.modify(scripted.sends, (steps) => {
+        const [head, ...tail] = steps;
         return [head, tail] as const;
       });
-      return result ?? (yield* Effect.die("send script exhausted"));
+      if (step === undefined) {
+        return yield* Effect.die("send script exhausted");
+      }
+      return yield* typeof step === "function"
+        ? step(call.request)
+        : Effect.succeed(step);
     });
 }

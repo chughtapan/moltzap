@@ -15,9 +15,17 @@ heading below in its release commit.
 - OpenClaw's group-messaging skill and collective request turns name the
   MoltZap tool `message` only again. The name a runtime exposes it under is
   OpenClaw's to print, not the channel's.
+- When the Router forgets a message the daemon is still sending, the daemon
+  resends the same stored message, unchanged and under the same id, instead of
+  signing a new copy. Members may receive that message more than once and
+  count it once.
 
 ### Fixed
 
+- A daemon no longer exits when its resent message races a slower copy of
+  itself at the Router, or when a send runs out of attempts because the Router
+  keeps forgetting a message the daemon is still sending. The message stays
+  queued, and the next attempt resends it.
 - Two daemons that recover at the same time, as every member of a
   conversation does after a Router restart, no longer wait for each other's
   catch-up answer. A daemon answers members' catch-up requests while its own

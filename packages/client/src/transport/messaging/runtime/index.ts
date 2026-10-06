@@ -162,8 +162,8 @@ export type EngineOutboxError = ClientRepresentationError | EndpointStoreError;
 
 /**
  * The engine's outbox: the only caller of the outer-envelope signers, so the
- * engine builds and signs every outer body here; the Router worker's retry
- * re-signs a staged body unchanged. Its queue operations always stage the
+ * engine builds and signs every outer body here; the Router worker sends and
+ * resends staged bytes without signing. Its queue operations always stage the
  * signed envelope durably and queue its outbox identity for the Router
  * worker; `sign` serves a caller that routes the envelope itself. Phases
  * reach it only through `EngineRuntime.outbox`.

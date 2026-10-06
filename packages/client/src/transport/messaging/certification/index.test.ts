@@ -523,24 +523,46 @@ function decodeActionSignatureHash(
 }
 
 /**
+ * Count each member store's certified records, in member order.
+ * @param harness Engines and the stores they persist to.
+ * @returns One certified-record count per member.
+ */
+function certifiedRecordCounts(
+  harness: ProtocolHarness,
+): Effect.Effect<readonly number[]> {
+  return Effect.forEach(
+    harness.stores,
+    (store) =>
+      store.recover().pipe(
+        Effect.orDie,
+        Effect.map(({ certifiedRecords }) => certifiedRecords.length),
+      ),
+    { concurrency: 1 },
+  );
+}
+
+/**
  * Deliver a batch to every engine, drain each, and repeat with whatever the
  * engines queued, until a round queues nothing. An exchange still producing
  * traffic after 32 rounds is a defect in the scripted Router, so it dies.
  * @param harness Engines and the scripted Router queue they send through.
  * @param initial First batch to deliver.
- * @returns Completion once the exchange is idle.
+ * @returns Every delivered message in delivery order, once the exchange is
+ *   idle.
  */
 function pump(
   harness: ProtocolHarness,
   initial: ReadonlyArray<typeof SignedMessage.Type>,
-): Effect.Effect<void> {
+): Effect.Effect<ReadonlyArray<typeof SignedMessage.Type>> {
   return Effect.gen(function* () {
+    const delivered: Array<typeof SignedMessage.Type> = [];
     let batch = initial;
     for (let round = 0; round < 32; round += 1) {
       if (batch.length === 0) {
-        return;
+        return delivered;
       }
       yield* harness.deliver(batch);
+      delivered.push(...batch);
       yield* harness.drain();
       batch = yield* takeQueued(harness);
     }
@@ -560,14 +582,7 @@ function certifyGenesisOf(
       return yield* Effect.dieMessage("first addressed send was not GENESIS");
     }
     yield* pump(harness, initial);
-    const recoveries = yield* Effect.forEach(
-      harness.stores,
-      (store) => store.recover().pipe(Effect.orDie),
-      { concurrency: 1 },
-    );
-    expect(
-      recoveries.map(({ certifiedRecords }) => certifiedRecords.length),
-    ).toEqual([1, 1, 1, 1]);
+    expect(yield* certifiedRecordCounts(harness)).toEqual([1, 1, 1, 1]);
     const sent = yield* Fiber.join(sending).pipe(
       Effect.timeout("1 second"),
       Effect.orDie,
@@ -1225,6 +1240,56 @@ function pendingDeliveryCarriesTheCertifiedRecordHash() {
   );
 }
 
+/**
+ * A sender whose retry finds its first copy evicted resends the same outer
+ * message under the same MessageId, and Router appends it again. Here every
+ * member receives the proposal a second time mid-exchange and the whole
+ * exchange a second time after certification, and still holds one post.
+ */
+function reappendedOuterMessagesYieldOnePost() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        const genesisHash = yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const sending = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "appended twice")),
+        );
+        const proposalBatch = yield* takeReadyBatch(harness);
+        yield* harness.deliver(proposalBatch);
+        yield* harness.drain();
+        const transcript = yield* pump(harness, [
+          ...proposalBatch,
+          ...(yield* takeQueued(harness)),
+        ]);
+        const sent = yield* Fiber.join(sending).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        yield* pump(harness, transcript);
+
+        expect(yield* certifiedRecordCounts(harness)).toEqual([2, 2, 2, 2]);
+        const pending = yield* Effect.forEach(
+          harness.engines.slice(1),
+          (engine) => engine.readPendingMessages().pipe(Effect.orDie),
+          { concurrency: 1 },
+        );
+        expect(
+          pending.map((messages) =>
+            messages.map((message) => message.recordHash),
+          ),
+        ).toEqual([
+          [genesisHash, sent.recordHash],
+          [genesisHash, sent.recordHash],
+          [genesisHash, sent.recordHash],
+        ]);
+      }),
+    ),
+  );
+}
+
 describe("fixed-post endpoint protocol", () => {
   it(
     "adopts a certified record over its own lock at the same head",
@@ -1331,6 +1396,11 @@ describe("fixed-post endpoint protocol", () => {
   it(
     "retains a durably bound send when its caller is interrupted",
     retainsInterruptedDurableSend,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "holds one post when Router appends its outer messages twice",
+    reappendedOuterMessagesYieldOnePost,
     TEST_TIMEOUT_MS,
   );
 });
@@ -1854,14 +1924,7 @@ function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
     yield* SubscriptionRef.set(attached, true);
     yield* advanceClock(Duration.seconds(10));
     yield* pump(harness, yield* takeReadyBatch(harness));
-    const recoveries = yield* Effect.forEach(
-      harness.stores,
-      (store) => store.recover().pipe(Effect.orDie),
-      { concurrency: 1 },
-    );
-    expect(
-      recoveries.map(({ certifiedRecords }) => certifiedRecords.length),
-    ).toEqual([1, 1, 1, 1]);
+    expect(yield* certifiedRecordCounts(harness)).toEqual([1, 1, 1, 1]);
     expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
   });
 }

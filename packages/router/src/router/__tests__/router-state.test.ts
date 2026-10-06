@@ -391,6 +391,39 @@ describe("global feed behavior", () => {
     }),
   );
 
+  effectIt.effect("appends an initial under an evicted identity again", () =>
+    Effect.gen(function* () {
+      const feed = yield* makeRouterFeed({
+        routerInstanceId: makeRouterInstanceId(1),
+        retainedMessageCapacity: 1,
+        retainedMessageByteCapacity: 2_000_000,
+      });
+      const resent = makeSignedMessage({
+        senderAgentId: sender,
+        recipientAgentIds: [firstRecipient],
+        messageId: makeMessageId(1),
+        body: "resent",
+      });
+      const evictor = makeSignedMessage({
+        senderAgentId: sender,
+        recipientAgentIds: [firstRecipient],
+        messageId: makeMessageId(2),
+        body: "evictor",
+      });
+      yield* acceptMessage(feed, resent);
+      yield* acceptMessage(feed, evictor);
+
+      expect(yield* acceptMessage(feed, resent)).toMatchObject({
+        kind: "result",
+        result: { kind: "accepted" },
+      });
+      const snapshot = yield* feed.snapshot;
+      expect(
+        snapshot.entries.map((entry) => [entry.order, entry.messageId]),
+      ).toEqual([[3n, resent.messageId]]);
+    }),
+  );
+
   effectIt.effect("rejects changed bytes for a retained retry identity", () =>
     Effect.gen(function* () {
       const feed = yield* makeRouterFeed({

@@ -233,21 +233,24 @@ Router never resolves recipients and never attaches AgentCards.
 
 The retry identity is sender AgentId plus MessageId.
 
-`initial` asserts a fresh retained retry identity. Any existing retained
-entry conflicts, including one with identical bytes.
+`initial` asserts that no retained entry has this identity. Any retained
+entry conflicts, including one with identical bytes. Eviction removes the
+identity with its entry, so after eviction a sender may send the same
+identity again, and Router appends it as a new entry.
 
 `retry` never appends:
 
 - byte-identical retained SignedMessage returns its original
   `accepted` result;
 - changed SignedMessage bytes return `idempotency_conflict`; and
-- an absent or evicted identity returns `retry_identity_unknown`.
+- an absent or evicted identity returns `retry_identity_unknown`. An
+  identity whose `initial` Router has not yet appended is absent.
 
-After `retry_identity_unknown`, a live communication attempt may wrap the same
-signed action or durability evidence in a fresh SignedMessage with a fresh
-MessageId and
-send it as `initial`. This does not mint a new grant, protocol
-signature, or action. The endpoint deduplicates the inner evidence.
+Because eviction frees an identity, one SignedMessage may occupy more than one
+private order and reach a recipient more than once. An `initial` also
+conflicts when a slower `initial` with the same identity appended first.
+Client's resend rule and duplicate handling are in
+[`conversation-history.md`](./conversation-history.md).
 
 The accepted SignedMessageDigest is an immediate equality receipt for
 the retained live entry. It proves no position, delivery, durability,
@@ -581,7 +584,8 @@ RouterInstanceId and order.
 - A retained byte-identical retry made with fresh HTTP authentication
   returns the original accepted result; changed bytes conflict.
 - An absent or evicted retry returns `retry_identity_unknown` without
-  append.
+  append, and an `initial` under that evicted identity appends a new
+  entry.
 - Omitted PollCursor returns an immediate empty anchor with the current
   RouterInstanceId.
 - Continuation poll returns on addressed data or at 25 seconds and
