@@ -166,6 +166,13 @@ jobs:
 
       # The runner's pnpm install wired the husky hooks; the release commit
       # is made of generated output CI already gated, so the hooks stay out.
+      # towncrier writes the version's CHANGELOG.md section from the fragments
+      # in changelog.d/ and deletes them; with no fragments it writes nothing.
+      # A rerun whose section is already written skips it. Without its marker
+      # line towncrier would write above the file's title, so a missing marker
+      # fails the release. This job can push to main and mint the npm OIDC
+      # token, so towncrier and its dependencies install only from hash-pinned
+      # requirements.
       - name: Regenerate docs and commit the release
         if: steps.plan.outputs.mode == 'bump'
         env:
@@ -174,13 +181,19 @@ jobs:
           HUSKY: "0"
         run: |
           pnpm docs:generate
-          grep -qx '## \[Unreleased\]' CHANGELOG.md || { echo "CHANGELOG.md has no [Unreleased] section"; exit 1; }
-          grep -q "^## \[$VERSION\]" CHANGELOG.md \
-            || sed -i "s/^## \[Unreleased\]$/&\n\n## [$VERSION] - $(date -u +%F)/" CHANGELOG.md
+          if ! grep -q "^## \[$VERSION\]" CHANGELOG.md; then
+            grep -qxF '<!-- towncrier release notes start -->' CHANGELOG.md \
+              || { echo "CHANGELOG.md lost its towncrier marker"; exit 1; }
+            python3 -m venv "$RUNNER_TEMP/towncrier"
+            "$RUNNER_TEMP/towncrier/bin/pip" install --quiet --require-hashes --no-deps \
+              -r scripts/release/towncrier-requirements.txt
+            "$RUNNER_TEMP/towncrier/bin/towncrier" build \
+              --version "$VERSION" --date "$(date -u +%F)" --yes
+          fi
 
           git config user.name "moltzap-release[bot]"
           git config user.email "moltzap-release[bot]@users.noreply.github.com"
-          git add packages/*/package.json pnpm-lock.yaml CHANGELOG.md \
+          git add packages/*/package.json pnpm-lock.yaml CHANGELOG.md changelog.d/ \
             docs/ 'packages/**/MODULE.md' README.md
           git commit -m "chore(release): moltzap@$VERSION"
           git tag "v$VERSION"
