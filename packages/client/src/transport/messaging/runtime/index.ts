@@ -11,7 +11,7 @@ import type {
   SignedMessage,
   VerifiedAgentCard,
 } from "@moltzap/identity";
-import type { Deferred, Effect } from "effect";
+import type { Deferred, Effect, Scope } from "effect";
 import type {
   EndpointStore,
   EndpointStoreError,
@@ -146,6 +146,12 @@ export interface EngineRuntime {
   readonly gate: Effect.Semaphore;
   readonly outbox: EngineOutbox;
   readonly phases: EnginePhases;
+  /**
+   * The engine's lifetime. Recovery work that outlives one Router callback,
+   * such as a conversation's catch-up retries, runs in a child of it, so it
+   * ends with the engine.
+   */
+  readonly scope: Scope.Scope;
 }
 
 /**
@@ -220,10 +226,24 @@ export interface EnginePhases {
     runtime: EngineRuntime,
     ingress: RouterWorkerIngress<DecodedOuterBody>,
   ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
+  /** Resume the evidence work of one recovered conversation's folds. */
   readonly resumeFolds: (
     runtime: EngineRuntime,
+    conversationId: ConversationId,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
+  /** Re-attach one recovered conversation's dissemination obligations. */
   readonly resumeDissemination: (
     runtime: EngineRuntime,
+    conversationId: ConversationId,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
+  /** Arm catch-up again for a conversation whose retries ran out. */
+  readonly rearmCatchUp: (
+    runtime: EngineRuntime,
+    conversationId: ConversationId,
+  ) => Effect.Effect<void>;
+  /** Whether a conversation is still fenced while it recovers. */
+  readonly isRecovering: (
+    runtime: EngineRuntime,
+    conversationId: ConversationId,
+  ) => boolean;
 }

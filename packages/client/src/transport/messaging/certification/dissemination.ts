@@ -23,17 +23,24 @@ interface VerifiedDisseminationObligation {
 /**
  * Attach every durable certification obligation that lacks an outer envelope.
  * @param runtime Recovered engine state and durable protocol dependencies.
+ * @param conversationId The one conversation to resume; every conversation
+ *     when omitted.
  * @returns Completion after every obligation has one exact retained outbox row.
  */
 export function resumeDisseminationObligations(
   runtime: EngineRuntime,
+  conversationId?: ConversationId,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return runtime.gate.withPermits(1)(
     runtime.input.store.recover().pipe(
       Effect.mapError(persistenceFailure),
       Effect.flatMap((recovery) =>
         Effect.forEach(
-          recovery.disseminationObligations,
+          recovery.disseminationObligations.filter(
+            (obligation) =>
+              conversationId === undefined ||
+              obligation.conversationId === conversationId,
+          ),
           (obligation) => attachObligation(runtime, obligation),
           { concurrency: 1, discard: true },
         ),
