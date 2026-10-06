@@ -27,6 +27,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { AddressRegistryPort } from "../address.js";
 import {
+  digest,
   identifier,
   issueTestCard,
   makeTestAuthority,
@@ -34,7 +35,11 @@ import {
 } from "../../../__tests__/agent-card-fixtures.js";
 import { forwardStoredOutbound } from "../../../__tests__/forward-stored-outbound.js";
 import { pollCursor as fixturePollCursor } from "../../../__tests__/router-worker-fixtures.js";
-import { type EndpointStore, openEndpointStore } from "../../../store/index.js";
+import {
+  type EndpointRecovery,
+  type EndpointStore,
+  openEndpointStore,
+} from "../../../store/index.js";
 import {
   type RouterDiscontinuityReason,
   type RouterIngressDisposition,
@@ -74,12 +79,14 @@ import {
   signOuterEvidence,
   signOuterPacket,
   type VerifiedMembership,
+  verifyCompletedReanchor,
   verifyMembershipDescriptor,
 } from "../../wire/index.js";
 import { MessageAddressInput } from "../../wire/values.js";
 import {
   type EndpointEngine,
   type EndpointEngineInput,
+  EngineInitializationError,
   EngineOutboundError,
   makeEndpointEngine,
 } from "../index.js";
@@ -923,6 +930,75 @@ const restartWithNonLexicalAgentOrder = () =>
       }),
     ),
   );
+
+/** A change to the store snapshot a restarting engine reads. */
+type SnapshotTamper = (
+  recovery: EndpointRecovery,
+) => Effect.Effect<EndpointRecovery>;
+
+/**
+ * Apply `change` to every stored membership row of a snapshot.
+ * @param change Rewrites one membership row.
+ * @returns The snapshot tamper.
+ */
+const tamperMemberships =
+  (
+    change: (
+      row: EndpointRecovery["memberships"][number],
+    ) => EndpointRecovery["memberships"][number],
+  ): SnapshotTamper =>
+  (recovery) =>
+    Effect.succeed({
+      ...recovery,
+      memberships: recovery.memberships.map(change),
+    });
+
+/**
+ * Apply `change` to every certified record row of a snapshot.
+ * @param change Rewrites one certified record row.
+ * @returns The snapshot tamper.
+ */
+const tamperCertifiedRecords =
+  (
+    change: (
+      row: EndpointRecovery["certifiedRecords"][number],
+    ) => Effect.Effect<EndpointRecovery["certifiedRecords"][number]>,
+  ): SnapshotTamper =>
+  (recovery) =>
+    Effect.forEach(recovery.certifiedRecords, change, { concurrency: 1 }).pipe(
+      Effect.map((certifiedRecords) => ({ ...recovery, certifiedRecords })),
+    );
+
+/**
+ * Value card. Protects: engine startup refuses a store snapshot whose rows
+ * disagree with what they hold, and names the failure by its cause, so a
+ * row's columns that disagree with its own bytes are persistence and bytes
+ * that do not decode are representation. Fails when: startup accepts a
+ * membership row whose hash names another descriptor, a certified row whose
+ * PostId is not its core's, or a certified row with no action evidence; or
+ * reports one of them under the other reason. Why new: the other restart
+ * traces start only from snapshots the endpoint wrote itself. Seam: none; the
+ * snapshot is changed through the `EndpointStore` port the engine already
+ * takes, over a real store.
+ * @param tamper Changes the snapshot the restarted engine reads.
+ * @returns `"started"`, or the error the restart failed with.
+ */
+const restartOverTamperedSnapshot = (tamper: SnapshotTamper) =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    yield* retainCertifiedRecord(fixture);
+    const store: EndpointStore = {
+      ...fixture.store,
+      recover: () => fixture.store.recover().pipe(Effect.flatMap(tamper)),
+    };
+
+    return yield* makeEndpointEngine({ ...fixture.input, store }).pipe(
+      Effect.match({
+        onFailure: (error) => error,
+        onSuccess: () => "started" as const,
+      }),
+    );
+  });
 
 const stageAttachedDissemination = (fixture: RecoveryFixture) =>
   Effect.gen(function* () {
@@ -2314,6 +2390,41 @@ const reanchorUntilCompletionSend = (fixture: RecoveryFixture) =>
     return { proposal, completed };
   });
 
+/**
+ * Value card. Protects: the signer order of the re-anchor certificate this
+ * endpoint completes. The store returns re-anchor votes in encoded AgentId
+ * order, and here that differs from the decoded-byte order a certificate
+ * requires. Fails when: the completed re-anchor carries the votes in the
+ * store's order, which its own verification rejects, so the endpoint never
+ * sends it. Why new: the other re-anchor traces use identities whose encoded
+ * and decoded orders agree. Seam: none; the engine runs over a real store.
+ */
+const reanchorsWithNonLexicalAgentOrder = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeNonLexicalAgentOrderFixture;
+        yield* retainCertifiedRecord(fixture);
+
+        const { proposal, completed } =
+          yield* reanchorUntilCompletionSend(fixture);
+
+        if (completed.kind !== "completed_reanchor") {
+          return yield* Effect.dieMessage("expected a completed re-anchor");
+        }
+        expect(
+          yield* verifyCompletedReanchor({
+            completed,
+            membership: fixture.membership,
+          }),
+        ).toBe(proposal.anchorHash);
+        expect(
+          (yield* fixture.store.recover()).positions[0]?.currentAnchorHash,
+        ).toBe(proposal.anchorHash);
+      }),
+    ),
+  );
+
 const ignoresRelayedCompletionForAnchoredConversation = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -3094,6 +3205,65 @@ describe("endpoint restart recovery", () => {
   it(
     "recovers certificates when encoded and canonical AgentId orders differ",
     restartWithNonLexicalAgentOrder,
+  );
+  it(
+    "re-anchors with a certificate in canonical order when encoded and canonical AgentId orders differ",
+    reanchorsWithNonLexicalAgentOrder,
+  );
+  it.each([
+    {
+      outcome: "restarts",
+      rows: "only the rows the endpoint wrote",
+      tamper: (recovery: EndpointRecovery) => Effect.succeed(recovery),
+      restart: "started",
+    },
+    {
+      outcome: "fails to restart as persistence",
+      rows: "a membership row whose hash names another descriptor",
+      tamper: tamperMemberships((row) => ({
+        ...row,
+        membershipHash: digest("mbr_", 36),
+      })),
+      restart: new EngineInitializationError({ reason: "persistence" }),
+    },
+    {
+      outcome: "fails to restart as representation",
+      rows: "a membership row whose descriptor bytes are not canonical",
+      tamper: tamperMemberships((row) => ({
+        ...row,
+        canonicalMembership: Uint8Array.of(0x20, ...row.canonicalMembership),
+      })),
+      restart: new EngineInitializationError({ reason: "representation" }),
+    },
+    {
+      outcome: "fails to restart as persistence",
+      rows: "a certified record row whose PostId is not its core's",
+      tamper: tamperCertifiedRecords((row) =>
+        mintPostId().pipe(
+          Effect.orDie,
+          Effect.map((postId) => ({ ...row, postId })),
+        ),
+      ),
+      restart: new EngineInitializationError({ reason: "persistence" }),
+    },
+    {
+      outcome: "fails to restart as persistence",
+      rows: "a certified record row without action evidence",
+      tamper: tamperCertifiedRecords((row) =>
+        Effect.succeed({ ...row, actionEvidence: [] }),
+      ),
+      restart: new EngineInitializationError({ reason: "persistence" }),
+    },
+  ])("$outcome over a snapshot holding $rows", ({ tamper, restart }) =>
+    Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const restarted = yield* restartOverTamperedSnapshot(tamper);
+
+          expect(restarted).toStrictEqual(restart);
+        }),
+      ),
+    ),
   );
   it(
     "waits for the complete N4 successor before re-anchoring its latest head",
