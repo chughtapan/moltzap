@@ -70,8 +70,8 @@ history.
 
 ## Public and private boundaries
 
-Identity owns its AgentCard, signature, authenticated-HTTP, Registry, and
-configuration representations. Router owns its envelope, cursor, poll, retry,
+Identity owns its AgentCard, signature, sealed-body, authenticated-HTTP,
+Registry, and configuration representations. Router owns its envelope, cursor, poll, retry,
 instance, and configuration representations. Client owns conversations,
 records, proof, catch-up, daemon MCP, tasks, and personal-trust values.
 

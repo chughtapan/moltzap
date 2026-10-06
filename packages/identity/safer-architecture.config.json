@@ -31,6 +31,10 @@
       "reason": "Immutable Registry attestation boundary for issuance, verification, encoding, and digest operations"
     },
     {
+      "file": "agent-key.ts",
+      "reason": "Domain entrypoint for the root-exported Ed25519 public key and signing authority; identity's artifact modules take the authority's signing and opening keys only from here"
+    },
+    {
       "file": "http-signature.ts",
       "reason": "Standards adapter boundary for the closed MoltZap HTTP signature profiles"
     },
@@ -61,6 +65,10 @@
     {
       "file": "registry/migrations/0001_registry.ts",
       "reason": "Ordered PostgreSQL schema migration seam owned by Registry storage"
+    },
+    {
+      "file": "signed-message.ts",
+      "reason": "Domain entrypoint for the root-exported SignedMessage: signing, verification, the verified trust state, and the recipient order and bounds a sealed body inherits"
     }
   ]
 }

@@ -1,11 +1,14 @@
 /** @file Exact Ed25519 public keys and opaque private signing authority. */
 
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { Data, Effect, Either, Encoding, Redacted, Schema } from "effect";
 import {
   calculateJwkThumbprintUri,
   type CryptoKey,
   exportJWK,
+  importJWK,
   importPKCS8,
+  type JWK,
 } from "jose";
 
 const PUBLIC_KEY_BYTE_LENGTH = 32;
@@ -239,7 +242,10 @@ export const Ed25519PublicKey = Schema.transform(
 // eslint-disable-next-line @typescript-eslint/no-redeclare -- Effect's same-named Schema and inferred type form one public boundary model.
 export type Ed25519PublicKey = typeof Ed25519PublicKey.Type;
 
-/** Reports failure to derive the standard thumbprint URI for a validated key. */
+/**
+ * Reports failure to derive the standard thumbprint URI or the X25519 key for
+ * a validated key.
+ */
 export class Ed25519PublicKeyOperationError extends Data.TaggedError(
   "Ed25519PublicKeyOperationError",
 ) {}
@@ -268,20 +274,65 @@ export const ed25519PublicKeyThumbprintUri = (
     catch: () => new Ed25519PublicKeyOperationError(),
   });
 
+/** JWE key management of sealed bodies; the opening key is imported for it. */
+export const SEALED_BODY_KEY_MANAGEMENT_ALGORITHM = "ECDH-ES+A256KW";
+
+/** X25519 public JWK of one agent: the key a sealed body is encrypted to. */
+export interface X25519PublicJwk {
+  readonly crv: "X25519";
+  readonly kty: "OKP";
+  readonly x: string;
+}
+
+/**
+ * Maps a validated Ed25519 public key to the same agent's X25519 public key
+ * through the RFC 7748 birational map `u = (1 + y) / (1 - y)`. The opening key
+ * that `fromPkcs8` derives is the private half of this key.
+ *
+ * The Ed25519 public-key Schema admits canonical encodings that are not curve
+ * points, and the map fails for those.
+ *
+ * @param publicKey Validated Ed25519 public key, such as an AgentCard key.
+ * @returns The X25519 public JWK.
+ */
+export const x25519PublicJwk = (
+  publicKey: Ed25519PublicKey,
+): Either.Either<X25519PublicJwk, Ed25519PublicKeyOperationError> =>
+  Either.try({
+    try: (): X25519PublicJwk => ({
+      crv: "X25519",
+      kty: "OKP",
+      x: Encoding.encodeBase64Url(
+        ed25519.utils.toMontgomery(
+          Encoding.decodeBase64Url(publicKey.x).pipe(Either.getOrThrow),
+        ),
+      ),
+    }),
+    catch: () => new Ed25519PublicKeyOperationError(),
+  });
+
 declare const agentSigningAuthorityBrand: unique symbol;
 
-/** Opaque authority over one imported Ed25519 private key. */
+/**
+ * Opaque authority over one imported Ed25519 private key and the X25519
+ * opening key derived from it.
+ */
 export interface AgentSigningAuthority {
   readonly [agentSigningAuthorityBrand]: "AgentSigningAuthority";
 }
 
-/** The supplied private-key material cannot act as an Ed25519 signer. */
+/**
+ * The supplied private-key material cannot act as an Ed25519 signer or yield
+ * its X25519 opening key. The public contract represents every such cause with
+ * this one empty error.
+ */
 export class InvalidAgentPrivateKeyError extends Data.TaggedError(
   "InvalidAgentPrivateKeyError",
 ) {}
 
 type AuthorityState = Readonly<{
   privateKey: CryptoKey;
+  openingKey: CryptoKey;
   publicKey: Ed25519PublicKey;
 }>;
 
@@ -295,22 +346,138 @@ const getAuthorityState = (
   return state!;
 };
 
+const invalidPrivateKey = (): InvalidAgentPrivateKeyError =>
+  new InvalidAgentPrivateKeyError();
+
+/** Length of the SHA-512 expansion whose first half is the X25519 secret. */
+const EXPANDED_SECRET_BYTES = 64;
+
+/**
+ * Selects the bytes to erase for `bytes`: its whole buffer when the view
+ * starts that buffer and the buffer is no larger than the SHA-512 expansion,
+ * and only the view otherwise.
+ *
+ * The decoded seed and the expansion behind the X25519 secret each sit alone
+ * in such a buffer, so erasing it also removes the expansion's RFC 8032 nonce
+ * prefix. A view into a larger shared buffer, such as Node's pooled Buffer
+ * slab, is erased alone so that unrelated data survives.
+ *
+ * @param bytes Key bytes.
+ * @returns The bytes to overwrite.
+ */
+const erasableBytes = (bytes: Uint8Array): Uint8Array =>
+  bytes.byteOffset === 0 && bytes.buffer.byteLength <= EXPANDED_SECRET_BYTES
+    ? new Uint8Array(bytes.buffer)
+    : bytes;
+
+/**
+ * Overwrites the key bytes behind `bytes` once `effect` settles. The
+ * base64url strings that JOSE requires cannot be zeroed and remain until
+ * garbage collection.
+ *
+ * @param bytes Key bytes to erase.
+ * @param effect Work that reads them.
+ * @returns `effect`, with the erasure attached.
+ */
+const zeroAfter = <A, E>(
+  bytes: Uint8Array,
+  effect: Effect.Effect<A, E>,
+): Effect.Effect<A, E> =>
+  effect.pipe(
+    Effect.ensuring(
+      Effect.sync(() => {
+        erasableBytes(bytes).fill(0);
+      }),
+    ),
+  );
+
+/**
+ * Derives the non-extractable X25519 opening key from the Ed25519 seed.
+ *
+ * The secret is the clamped first half of SHA-512 over the seed, which is the
+ * RFC 8032 signing scalar. The JWK pairs it with `x25519PublicJwk` of the
+ * Ed25519 public key, and the import refuses a pair whose halves disagree, so
+ * the opener and every sealer use the same key.
+ *
+ * @param seed Ed25519 seed decoded from the exported private JWK.
+ * @param publicKey Ed25519 public key of the same seed.
+ * @returns The opening key, usable only for X25519 `deriveBits`.
+ */
+const importFromSeed = (
+  seed: Uint8Array,
+  publicKey: Ed25519PublicKey,
+): Effect.Effect<CryptoKey, InvalidAgentPrivateKeyError> =>
+  Effect.gen(function* () {
+    const agreementPublicKey = yield* Either.mapLeft(
+      x25519PublicJwk(publicKey),
+      invalidPrivateKey,
+    );
+    const secret = yield* Effect.try({
+      try: () => ed25519.utils.toMontgomerySecret(seed),
+      catch: invalidPrivateKey,
+    });
+    const openingKey = yield* zeroAfter(
+      secret,
+      Effect.tryPromise({
+        try: () =>
+          importJWK(
+            { ...agreementPublicKey, d: Encoding.encodeBase64Url(secret) },
+            SEALED_BODY_KEY_MANAGEMENT_ALGORITHM,
+            { extractable: false },
+          ),
+        catch: invalidPrivateKey,
+      }),
+    );
+    if (openingKey instanceof Uint8Array) {
+      return yield* new InvalidAgentPrivateKeyError();
+    }
+    return openingKey;
+  });
+
+/**
+ * Decodes the seed from the private JWK exported from the PKCS#8 key, derives
+ * the opening key against the Ed25519 public key of the same seed, and erases
+ * the decoded seed.
+ */
+const importOpeningKey = (
+  exportedKey: JWK,
+  publicKey: Ed25519PublicKey,
+): Effect.Effect<CryptoKey, InvalidAgentPrivateKeyError> =>
+  Effect.gen(function* () {
+    if (exportedKey.d === undefined) {
+      return yield* new InvalidAgentPrivateKeyError();
+    }
+    const seed = yield* Either.mapLeft(
+      Encoding.decodeBase64Url(exportedKey.d),
+      invalidPrivateKey,
+    );
+    return yield* zeroAfter(seed, importFromSeed(seed, publicKey));
+  });
+
+/**
+ * Imports one Ed25519 PKCS#8 key as an opaque authority.
+ *
+ * JOSE needs an extractable import to derive the public JWK and the seed of
+ * the opening key, while the authority retains a separate non-extractable
+ * import for signing.
+ *
+ * @param pkcs8 Redacted unencrypted Ed25519 PKCS#8 text.
+ * @returns The authority.
+ */
 const fromPkcs8 = (
   pkcs8: Redacted.Redacted,
 ): Effect.Effect<AgentSigningAuthority, InvalidAgentPrivateKeyError> =>
   Effect.gen(function* () {
-    // JOSE needs an extractable import to derive the public JWK, while the
-    // authority retains a separate non-extractable import.
     const extractableKey = yield* Effect.tryPromise({
       try: () =>
         importPKCS8(Redacted.value(pkcs8), "Ed25519", {
           extractable: true,
         }),
-      catch: () => new InvalidAgentPrivateKeyError(),
+      catch: invalidPrivateKey,
     });
     const exportedKey = yield* Effect.tryPromise({
       try: () => exportJWK(extractableKey),
-      catch: () => new InvalidAgentPrivateKeyError(),
+      catch: invalidPrivateKey,
     });
     const publicKey = yield* Schema.decodeUnknown(Ed25519PublicKey)(
       {
@@ -322,21 +489,19 @@ const fromPkcs8 = (
         exact: true,
         onExcessProperty: "error",
       },
-    ).pipe(
-      // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- The public contract intentionally represents every unusable private key with one empty error.
-      Effect.mapError(() => new InvalidAgentPrivateKeyError()),
-    );
+    ).pipe(Effect.mapError(invalidPrivateKey));
+    const openingKey = yield* importOpeningKey(exportedKey, publicKey);
 
     const privateKey = yield* Effect.tryPromise({
       try: () =>
         importPKCS8(Redacted.value(pkcs8), "Ed25519", {
           extractable: false,
         }),
-      catch: () => new InvalidAgentPrivateKeyError(),
+      catch: invalidPrivateKey,
     });
     // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- This assertion is safe because this module alone constructs values after inserting their WeakMap state.
     const authority = Object.freeze({}) as AgentSigningAuthority;
-    authorityState.set(authority, { privateKey, publicKey });
+    authorityState.set(authority, { privateKey, openingKey, publicKey });
     return authority;
   });
 
@@ -354,8 +519,19 @@ export const agentSigningPrivateKey = (
 ): CryptoKey => getAuthorityState(authority).privateKey;
 
 /**
+ * Returns the non-extractable X25519 key to the identity-owned sealed-body
+ * module.
+ *
+ * @param authority Authority whose opening key is needed.
+ * @returns The authority's non-extractable X25519 opening key.
+ */
+export const agentOpeningPrivateKey = (
+  authority: AgentSigningAuthority,
+): CryptoKey => getAuthorityState(authority).openingKey;
+
+/**
  * Loads and identifies one Ed25519 signing authority without exposing its
- * private key or a generic signing operation.
+ * private keys or a generic signing or decryption operation.
  */
 // eslint-disable-next-line @typescript-eslint/naming-convention, @typescript-eslint/no-redeclare -- The approved Effect-style API uses one name for its opaque type and capability value.
 export const AgentSigningAuthority = Object.freeze({
