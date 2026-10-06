@@ -8,12 +8,16 @@
 
 import { type AgentId, SignedMessage } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
-import type { EngineConversation, EngineRuntime } from "../runtime/index.js";
 import type {
   RouterIngressDisposition,
   RouterWorkerIngress,
   RouterWorkerPersistenceError,
 } from "../../router/index.js";
+import type {
+  EngineActionFold,
+  EngineConversation,
+  EngineRuntime,
+} from "../runtime/index.js";
 import {
   type ActionCertifiedRecord,
   type AnchorHash as AnchorHashValue,
@@ -61,7 +65,7 @@ export interface SuccessorRun {
    */
   readonly certified: (
     conversationId: ConversationIdValue,
-    previousHead: RecordHashValue | undefined,
+    previousHead?: RecordHashValue,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
 }
 
@@ -118,6 +122,7 @@ export function acceptSuccessorRecord(
     Effect.catchTag("ClientRepresentationError", () =>
       Effect.succeed(ignoredDisposition),
     ),
+    Effect.withSpan("acceptSuccessorRecord"),
   );
 }
 
@@ -144,9 +149,7 @@ export function acceptSuccessorVote(
   }
   const fold = run.runtime.recordFolds.get(recordHash);
   if (fold !== undefined) {
-    return fold.certifiedRecord === undefined &&
-      fold.action.kind === "POST" &&
-      fold.action.previousRecordHash === conversation.head?.recordHash
+    return stagedSuccessorOf(conversation, fold)
       ? certifyThroughPhases(run, conversationId, [ingress])
       : Effect.succeed(ignoredDisposition);
   }
@@ -251,7 +254,7 @@ function maybeConvert(
 function certifyThroughPhases(
   run: SuccessorRun,
   conversationId: ConversationIdValue,
-  deliveries: readonly RouterWorkerIngress<DecodedOuterBody>[],
+  deliveries: ReadonlyArray<RouterWorkerIngress<DecodedOuterBody>>,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
   const { runtime } = run;
   const previousHead =
@@ -263,6 +266,17 @@ function certifyThroughPhases(
   ).pipe(
     Effect.tap(() => run.certified(conversationId, previousHead)),
     Effect.map((dispositions) => dispositions[0] ?? ignoredDisposition),
+  );
+}
+
+function stagedSuccessorOf(
+  conversation: EngineConversation,
+  fold: EngineActionFold,
+): boolean {
+  return (
+    fold.certifiedRecord === undefined &&
+    fold.action.kind === "POST" &&
+    fold.action.previousRecordHash === conversation.head?.recordHash
   );
 }
 
@@ -294,7 +308,9 @@ function encodeEvidence(
   message: SignedMessage,
 ): Effect.Effect<unknown, ClientRepresentationError> {
   return Schema.encode(SignedMessage)(message).pipe(
-    Effect.mapError(() => new ClientRepresentationError()),
+    Effect.catchTag("ParseError", () =>
+      Effect.fail(new ClientRepresentationError()),
+    ),
   );
 }
 

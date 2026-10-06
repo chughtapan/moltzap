@@ -496,24 +496,6 @@ const deliverRecovery = (
 ) =>
   ingress.pipe(Effect.flatMap((value) => engine.acceptRecoveryIngress(value)));
 
-const addN4Foundation = (
-  fixture: RecoveryFixture,
-  genesisRouterInstanceId: typeof RouterInstanceId.Type = oldRouterInstanceId,
-) =>
-  addGroupFoundation(fixture, 4, genesisRouterInstanceId).pipe(
-    Effect.flatMap(({ engine, membership, others }) => {
-      const [, third, fourth] = others;
-      return third === undefined || fourth === undefined
-        ? Effect.dieMessage("the N4 conversation lacks a member")
-        : Effect.succeed({
-            engine,
-            membership,
-            third,
-            fourth,
-          } satisfies N4Foundation);
-    }),
-  );
-
 /**
  * Opens a group conversation of `size` fixed members on the fixture's store:
  * the local endpoint, the remote member, and further test members. The
@@ -531,7 +513,7 @@ const addGroupFoundation = (
 ) =>
   Effect.gen(function* () {
     const further = yield* Effect.forEach(
-      Array.from({ length: size - 2 }, (_, index) => index + 3),
+      [...Array.from({ length: size - 2 }).keys()].map((index) => index + 3),
       (byte) =>
         Effect.gen(function* () {
           const authority = yield* makeTestAuthority();
@@ -625,6 +607,24 @@ const addGroupFoundation = (
       others: [fixture.remote, ...further],
     } satisfies GroupFoundation;
   }).pipe(Effect.orDie);
+
+const addN4Foundation = (
+  fixture: RecoveryFixture,
+  genesisRouterInstanceId: typeof RouterInstanceId.Type = oldRouterInstanceId,
+) =>
+  addGroupFoundation(fixture, 4, genesisRouterInstanceId).pipe(
+    Effect.flatMap(({ engine, membership, others }) => {
+      const [, third, fourth] = others;
+      return third === undefined || fourth === undefined
+        ? Effect.dieMessage("the N4 conversation lacks a member")
+        : Effect.succeed({
+            engine,
+            membership,
+            third,
+            fourth,
+          } satisfies N4Foundation);
+    }),
+  );
 
 /**
  * The items of a list a certificate needs at least one of.

@@ -27,7 +27,6 @@ import {
   type CompletedReanchor as CompletedReanchorValue,
   type ConversationId as ConversationIdValue,
   type DecodedOuterBody,
-  type DirectPacket,
   memberCard,
   quorumThreshold,
   RecordHash,
@@ -201,6 +200,43 @@ export function sentByOtherMember(
     senderAgentId !== runtime.input.localAgentCard.agentId &&
     memberCard(membership, senderAgentId) !== undefined
   );
+}
+
+/**
+ * The bodies that hand a staged, uncertified successor to the members: its
+ * action-certified record and this endpoint's durability vote for it, both
+ * taken from the record's fold. A record with no fold yields nothing.
+ * @param runtime Engine whose fold holds the record.
+ * @param recordHash Hash of the successor this endpoint staged.
+ * @returns The record body, then the vote body when this endpoint voted.
+ */
+export function stagedSuccessorBodies(
+  runtime: EngineRuntime,
+  recordHash: RecordHashValue,
+): Effect.Effect<readonly DecodedOuterBody[], RouterWorkerPersistenceError> {
+  return Effect.suspend(() => {
+    const fold = runtime.recordFolds.get(recordHash);
+    if (fold === undefined) {
+      return Effect.succeed([]);
+    }
+    return recordAnchorHash(fold).pipe(
+      Effect.flatMap((anchorHash) =>
+        makeActionCertifiedRecord(fold, anchorHash),
+      ),
+      Effect.mapError(persistenceFailure),
+      Effect.map((record): readonly DecodedOuterBody[] => {
+        const vote = fold.durabilityEvidence.get(
+          runtime.input.localAgentCard.agentId,
+        );
+        return [
+          { kind: "direct", packet: record },
+          ...(vote === undefined
+            ? []
+            : [{ kind: "evidence" as const, message: vote }]),
+        ];
+      }),
+    );
+  });
 }
 
 /**
@@ -428,43 +464,6 @@ function respondToCatchUp(
       staged.recordHash,
     ).pipe(Effect.mapError(persistenceFailure));
     return yield* queueStagedSuccessor(responder, membership, recordHash);
-  });
-}
-
-/**
- * The bodies that hand a staged, uncertified successor to the members: its
- * action-certified record and this endpoint's durability vote for it, both
- * taken from the record's fold. A record with no fold yields nothing.
- * @param runtime Engine whose fold holds the record.
- * @param recordHash The staged record.
- * @returns The record body, then the vote body when this endpoint voted.
- */
-export function stagedSuccessorBodies(
-  runtime: EngineRuntime,
-  recordHash: RecordHashValue,
-): Effect.Effect<readonly DecodedOuterBody[], RouterWorkerPersistenceError> {
-  return Effect.suspend(() => {
-    const fold = runtime.recordFolds.get(recordHash);
-    if (fold === undefined) {
-      return Effect.succeed([]);
-    }
-    return recordAnchorHash(fold).pipe(
-      Effect.flatMap((anchorHash) =>
-        makeActionCertifiedRecord(fold, anchorHash),
-      ),
-      Effect.mapError(persistenceFailure),
-      Effect.map((record): readonly DecodedOuterBody[] => {
-        const vote = fold.durabilityEvidence.get(
-          runtime.input.localAgentCard.agentId,
-        );
-        return [
-          { kind: "direct", packet: record },
-          ...(vote === undefined
-            ? []
-            : [{ kind: "evidence" as const, message: vote }]),
-        ];
-      }),
-    );
   });
 }
 

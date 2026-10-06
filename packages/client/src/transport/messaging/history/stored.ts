@@ -397,12 +397,8 @@ export function stagedSuccessor(
     (record) =>
       record.conversationId === conversationId &&
       record.previousRecordHash === head &&
-      (anchorHash === undefined || record.anchorHash === anchorHash) &&
-      !recovery.certifiedRecords.some(
-        (certified) =>
-          certified.conversationId === conversationId &&
-          certified.recordHash === record.recordHash,
-      ),
+      bindsAnchor(record, anchorHash) &&
+      !isCertified(recovery, record),
   );
 }
 
@@ -847,4 +843,22 @@ function persistenceFailure(): RouterWorkerPersistenceError {
 
 function recoveryFailure(): RouterWorkerRecoveryError {
   return new RouterWorkerRecoveryError();
+}
+
+function bindsAnchor(
+  record: EndpointRecovery["stagedRecords"][number],
+  anchorHash?: AnchorHashValue,
+): boolean {
+  return anchorHash === undefined || record.anchorHash === anchorHash;
+}
+
+function isCertified(
+  recovery: EndpointRecovery,
+  record: EndpointRecovery["stagedRecords"][number],
+): boolean {
+  return recovery.certifiedRecords.some(
+    (certified) =>
+      certified.conversationId === record.conversationId &&
+      certified.recordHash === record.recordHash,
+  );
 }
