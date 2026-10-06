@@ -5,8 +5,9 @@ addresses, binding a send's intent, Router-ordered proposal selection,
 GENESIS/POST certification, durable dissemination, and recovery.
 
 The service uses `index.ts`, which declares the engine contract
-(`EndpointEngine`, its errors, and the pending-message value) and composes the
-endpoint engine. Other domains read the entrypoints `address.ts` (Registry
+(`EndpointEngine`, its errors, and the pending-message value), composes the
+endpoint engine, and re-exports `verifyStoredMembership`, the one verifier of a
+stored membership row. Other domains read the entrypoints `address.ts` (Registry
 resolution of an address and the canonical group address of a fixed
 membership), `errors.ts` (closed send, listen, and acknowledgment errors) and
 `message.ts` (inbound messages) directly, so they never load the engine.
