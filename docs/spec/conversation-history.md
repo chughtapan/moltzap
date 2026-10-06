@@ -461,10 +461,9 @@ byte-identical request, item kind, item hash, and `hasMore`. For
 `CatchUpIncomplete`, those last three values are respectively `incomplete`,
 null, and false. Its signer and the response's outer sender are the same fixed
 member. An incomplete response says only that this responder cannot supply a
-verified next item. A responder that is re-anchoring the conversation after a
-Router restart and holds a staged, uncertified successor of the requested
-position sends no incomplete response; it sends that successor's
-`ActionCertifiedRecord` and its own durability vote.
+verified next item. A responder that holds a staged, uncertified successor of
+the requested position sends no incomplete response; it sends that
+successor's `ActionCertifiedRecord` and its own durability vote.
 
 Catch-up pages carry complete `CertifiedRecord` or `CompletedReanchor` values,
 including their retained certificates. There is no partial-evidence cursor; a
@@ -503,7 +502,11 @@ during a re-anchor, durability votes for it from more than `n − q(n)` members;
 a conversation that has recovered carries traffic while others still recover.
 A conversation's catch-up position is ready once `q(n) − 1` other members
 have answered that they cannot supply a next item, so that with the endpoint
-`q(n)` members agree and one silent member cannot hold it. Readiness is a liveness signal only: safety rests on
+`q(n)` members agree and one silent member cannot hold it. A member holding a
+staged re-anchor candidate at that position for an earlier Router instance
+sends its vote with that answer; a requester that holds or receives one waits
+for every other member while its retries last, then settles on `q(n) − 1`.
+Readiness is a liveness signal only: safety rests on
 the `q(n)` re-anchor and durability thresholds. After a Router restart the
 conversation recovers when the endpoint assembles a `q(n)` re-anchor
 certificate, or adopts a verified completed re-anchor and then catches up

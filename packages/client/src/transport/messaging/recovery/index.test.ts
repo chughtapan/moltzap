@@ -6100,6 +6100,18 @@ const takeRetriedCatchUpRequest = (outbound: Queue.Queue<SignedMessage>) =>
   );
 
 /**
+ * Runs every catch-up retry a recovery under the caller's test clock has
+ * left, letting each one send before the clock moves again. It reads
+ * nothing from the recovery's queue, since a position that settles once the
+ * retries run out sends its re-anchor vote among the last requests.
+ */
+const exhaustCatchUpRetries = Effect.replicateEffect(
+  TestClock.adjust("100000 seconds").pipe(Effect.zipRight(settle)),
+  catchUpRetryAttempts + 1,
+  { discard: true },
+);
+
+/**
  * A send to a conversation, as the host makes one.
  * @param engine Endpoint that sends.
  * @param to The address the send names.
@@ -7617,6 +7629,11 @@ const waitsBehindASuccessorAHolderAnswersWith = () =>
           n4.engine,
           n4.fourth,
         );
+        yield* relayRecoveryTraffic(
+          holder.recoveryOutbound,
+          n4.engine,
+          n4.fourth,
+        );
 
         yield* deliverRequestTo(fixture, n4, holder.engine, request);
         yield* answerN4Incomplete(fixture, n4, request, {
@@ -7730,10 +7747,7 @@ const neverSettlesBehindASuccessorAfterAFeedGap = () =>
             .join(",")}`,
           "held while the certified holder is silent",
         );
-        yield* Effect.replicateEffect(
-          takeRetriedCatchUpRequest(outbound),
-          2 * catchUpRetryAttempts,
-        );
+        yield* exhaustCatchUpRetries;
         const settledAtTheHead = yield* TestServices.provideLive(
           takeActionProposalAfterEvidence(fixture.normalOutbound).pipe(
             Effect.timeoutOption("300 millis"),
@@ -8050,11 +8064,7 @@ const settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut = () =>
         );
         const whileRetrying = (yield* groupState(fixture, n4, recordHash))
           .candidates;
-        yield* Effect.replicateEffect(
-          takeRetriedCatchUpRequest(outbound),
-          2 * catchUpRetryAttempts,
-        );
-        yield* settle;
+        yield* exhaustCatchUpRetries;
         const settled = (yield* groupState(fixture, n4, recordHash)).candidates;
 
         expect(whileRetrying).toEqual([]);
