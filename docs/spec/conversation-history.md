@@ -498,20 +498,20 @@ A conversation's catch-up position is ready once every other member has
 answered that it cannot supply a next item. A member that has staged a
 successor without its certificate answers that way too, so waiting for every
 member lets the one holding the certified successor be heard first. Once the
-conversation's capped retries have run out, `q(n) − 1` such answers suffice,
-so that with the endpoint `q(n)` members agree and one silent member cannot
-hold the conversation. Readiness is a liveness signal only: safety rests on
-the `q(n)` re-anchor and durability thresholds. After a Router restart the
-conversation recovers when the endpoint assembles a `q(n)` re-anchor
-certificate, or adopts a verified completed re-anchor and then catches up
-from it. A completed re-anchor it adopts supersedes a different candidate it
-staged for the same conversation, preceding anchor, and Router instance,
-because two certificates in one scope would need an honest member to vote
-twice. Unanswered catch-up requests are retried with jittered exponential
-backoff a bounded number of times. A conversation whose retries ran out
-starts a fresh schedule on verified traffic from a member for that
-conversation, on the next recovery run, on a local post into that
-conversation, or when the Router worker reattaches after an outage.
+conversation's capped retries have run out, `q(n) − 1` such answers suffice, so
+that with the endpoint `q(n)` members agree and, for `n >= 4`, one silent
+member cannot hold the conversation. Readiness is a liveness signal only:
+safety rests on the `q(n)` re-anchor and durability thresholds. After a Router
+restart the conversation recovers when the endpoint assembles a `q(n)`
+re-anchor certificate, or adopts a verified completed re-anchor and then
+catches up from it. A completed re-anchor it adopts supersedes a different
+candidate it staged for the same conversation, preceding anchor, and Router
+instance, because two certificates in one scope would need an honest member to
+vote twice. Unanswered catch-up requests are retried with jittered exponential
+backoff a bounded number of times. A conversation whose retries ran out starts
+a fresh schedule on verified traffic from a member for that conversation, on
+the next recovery run, on a local post into that conversation, or when the
+Router worker reattaches after an outage.
 
 ## Direct packets and Router envelopes
 
