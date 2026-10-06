@@ -2818,9 +2818,10 @@ const adoptsRelayedCompletionForReanchoringConversation = () =>
         );
         const followUp = yield* takeCatchUpRequest(outbound);
         const beforeAnswer = yield* Fiber.poll(recovery);
-        yield* deliverRecovery(
-          fixture.engine,
-          catchUpIncompleteIngress(fixture, followUp),
+        yield* catchUpIncompleteIngress(fixture, followUp).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRecoveryIngress(ingress),
+          ),
         );
         yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
 

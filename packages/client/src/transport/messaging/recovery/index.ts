@@ -189,27 +189,32 @@ export const recoverCertifiedHistory = (
   }).pipe(Effect.withSpan("recoverCertifiedHistory"));
 
 /**
- * Install a recovery attempt whose queue opens with the envelopes the
- * previous attempt left unsent.
+ * Install a recovery attempt whose queue opens with the answers the previous
+ * attempt left unsent. The carried answers move into the queue and the
+ * attempt is installed in one synchronous step, so an answer carried
+ * meanwhile cannot be left behind.
  * @param runtime Engine starting a recovery attempt.
  * @returns The installed attempt.
  */
 function installAttempt(runtime: EngineRuntime): Effect.Effect<ActiveRecovery> {
-  return Effect.gen(function* () {
-    const carried = unsentEnvelopes.get(runtime) ?? [];
-    const queue = yield* Queue.unbounded<RecoveryEnvelope>();
-    yield* Queue.offerAll(queue, carried);
-    const attempt: ActiveRecovery = {
-      queue,
-      pending: carried.length,
-      completed: false,
-    };
-    yield* Effect.sync(() => {
-      unsentEnvelopes.delete(runtime);
-      activeRecoveries.set(runtime, attempt);
-    });
-    return attempt;
-  });
+  return Queue.unbounded<RecoveryEnvelope>().pipe(
+    Effect.flatMap((queue) =>
+      Effect.sync(() => {
+        const carried = unsentEnvelopes.get(runtime) ?? [];
+        for (const envelope of carried) {
+          Queue.unsafeOffer(queue, envelope);
+        }
+        const attempt: ActiveRecovery = {
+          queue,
+          pending: carried.length,
+          completed: false,
+        };
+        unsentEnvelopes.delete(runtime);
+        activeRecoveries.set(runtime, attempt);
+        return attempt;
+      }),
+    ),
+  );
 }
 
 /**
