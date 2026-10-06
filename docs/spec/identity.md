@@ -313,7 +313,7 @@ nominal trust brand. Only `SignedMessage.sign` and
 `SignedMessage.verify` construct it; there is no public constructor or
 standalone decoder.
 
-The complete General JWS has a fixed maximum of 471,671 UTF-8 JCS
+The complete General JWS has a fixed maximum of 471,673 UTF-8 JCS
 bytes under the recipient and body bounds. Identity owns that
 calculation and exposes only
 `SignedMessage.maximumEncodedByteLength` and the total
@@ -370,7 +370,7 @@ key must equal the verified AgentCard key.
 
 `encodedByteLength` is total for a parsed exact SignedMessage and
 returns the UTF-8 JCS byte length of its complete General JWS.
-`maximumEncodedByteLength` is exactly 471,671.
+`maximumEncodedByteLength` is exactly 471,673.
 
 ## Sealed bodies
 

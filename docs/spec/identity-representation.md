@@ -283,7 +283,7 @@ Schema, constructor, or standalone decoder is public.
 `SignedMessage.encodedByteLength` returns the UTF-8 JCS byte length of
 the complete retained General JWS and has no failure channel. Under the
 fixed recipient and body bounds,
-`SignedMessage.maximumEncodedByteLength` is exactly 471,671. Identity
+`SignedMessage.maximumEncodedByteLength` is exactly 471,673. Identity
 owns both operations and the overflow-checked calculation; consumers
 do not reproduce its General JWS size formula.
 

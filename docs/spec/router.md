@@ -497,10 +497,10 @@ count and byte retention, accepted-nonce and positive-card cache
 capacities, and request, held-poll, and Registry-lookup concurrency.
 Identity fixes the opaque body at 262,144 decoded bytes maximum and the
 recipient set at 128 AgentIds maximum. Identity derives the complete
-SignedMessage maximum as 471,671 UTF-8 JCS bytes. Router derives the
-send and poll received-body caps as 471,819 and 422 octets,
+SignedMessage maximum as 471,673 UTF-8 JCS bytes. Router derives the
+send and poll received-body caps as 471,821 and 422 octets,
 respectively. A PollCursor is at most 348 ASCII characters, and a
-complete one-message batch is at most 472,119 UTF-8 JCS bytes.
+complete one-message batch is at most 472,121 UTF-8 JCS bytes.
 
 The representation depth, these fixed and derived bounds, and the
 25-second poll hold are not deployment configuration.

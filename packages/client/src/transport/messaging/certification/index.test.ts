@@ -17,6 +17,7 @@ import {
   Deferred,
   Duration,
   Effect,
+  Either,
   Fiber,
   Option,
   Queue,
@@ -26,6 +27,7 @@ import {
   Stream,
   SubscriptionRef,
   TestContext,
+  TestServices,
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -60,6 +62,7 @@ import {
   type DecodedOuterBody,
   decodeCanonical,
   deriveConversationId,
+  DirectPacket,
   encodeCanonical,
   EvidenceStatement,
   hashAction,
@@ -124,9 +127,10 @@ const unrelatedConversationId = Schema.decodeUnknownSync(ConversationId)(
 const unrelatedMembershipHash = Schema.decodeUnknownSync(MembershipHash)(
   digest("mbr_", 36),
 );
-const endpointIndexes = Object.freeze([0, 1, 2, 3]);
-
-function makeIdentities(registryKeys: RegistryKeyPair) {
+function makeIdentities(
+  registryKeys: RegistryKeyPair,
+  endpointIndexes: readonly number[],
+) {
   return Effect.forEach(
     endpointIndexes,
     (index) =>
@@ -353,6 +357,8 @@ function drainEngines(
 }
 
 interface HarnessOptions {
+  /** Members of the conversation; four when omitted. */
+  readonly memberCount?: number;
   readonly actionPolicy?: EndpointEngineInput["actionPolicy"];
   /** Present when the author's Router worker has not attached yet. */
   readonly attachment?: WorkerAttachment;
@@ -369,7 +375,10 @@ function makeProtocolHarness(
     const registrySignerPublicKey = yield* Schema.decodeUnknown(
       Ed25519PublicKey,
     )(registryKeys.publicKey.export({ format: "jwk" }));
-    const identities = yield* makeIdentities(registryKeys);
+    const endpointIndexes = Array.from(
+      Array(options.memberCount ?? MEMBER_COUNT).keys(),
+    );
+    const identities = yield* makeIdentities(registryKeys, endpointIndexes);
     const membership = yield* makeMembership(
       identities,
       registrySignerPublicKey,
@@ -1152,6 +1161,56 @@ function retainsInterruptedDurableSend() {
 }
 
 // @agent-code-guard/regression-only: These stateful traces exercise durable quorum and interruption boundaries across real endpoint engines.
+/** Whether an outer body decodes as a Client value without opening it. */
+function readsAsPlaintext(
+  message: typeof SignedMessage.Type,
+): Effect.Effect<boolean> {
+  return Effect.all([
+    Effect.either(decodeCanonical(DirectPacket, message.body)),
+    Effect.either(decodeCanonical(SignedMessage, message.body)),
+  ]).pipe(
+    Effect.map(
+      ([packet, evidence]) =>
+        Either.isRight(packet) || Either.isRight(evidence),
+    ),
+  );
+}
+
+/**
+ * A first post among `memberCount` members certifies at every member while
+ * each member opens every outer body with its own key, and no body on the
+ * wire reads as plaintext.
+ */
+function sealsEveryOuterBodyOfAPost(memberCount: number) {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness({ memberCount });
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const sending = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "sealed post")),
+        );
+
+        const delivered = yield* pump(harness, yield* takeReadyBatch(harness));
+        yield* Fiber.join(sending).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        expect(yield* certifiedRecordCounts(harness)).toEqual(
+          harness.identities.map(() => 1),
+        );
+        expect(delivered.length).toBeGreaterThan(memberCount);
+        expect(
+          yield* Effect.forEach(delivered, readsAsPlaintext, {
+            concurrency: 1,
+          }),
+        ).toEqual(delivered.map(() => false));
+      }),
+    ),
+  );
+}
+
 function sendReturnsTheStoredCertifiedRecordHash() {
   return Effect.runPromise(
     Effect.scoped(
@@ -1239,6 +1298,11 @@ function reappendedOuterMessagesYieldOnePost() {
 }
 
 describe("fixed-post endpoint protocol", () => {
+  it.each([2, 4])(
+    "seals every outer body of a %i-member post to its members, each of which opens it",
+    sealsEveryOuterBodyOfAPost,
+    TEST_TIMEOUT_MS,
+  );
   it(
     "returns the hash of the send's locally stored certified record",
     sendReturnsTheStoredCertifiedRecordHash,
@@ -1663,6 +1727,24 @@ function blackHolesFirstTransmit(
 }
 
 /**
+ * Waits in live time until `ready` holds. Sealing and signing an outer
+ * envelope settle on real promises, which a TestClock step does not wait for.
+ * @param ready Condition the engine reaches once its envelope is queued.
+ * @returns Completion once `ready` reads true.
+ */
+function untilLive(ready: Effect.Effect<boolean>): Effect.Effect<void> {
+  return ready.pipe(
+    Effect.flatMap((met) =>
+      met
+        ? Effect.void
+        : TestServices.provideLive(Effect.sleep("5 millis")).pipe(
+            Effect.zipRight(Effect.suspend(() => untilLive(ready))),
+          ),
+    ),
+  );
+}
+
+/**
  * The local send's drain bound, after which it answers `network-unavailable`,
  * mirroring the private `index.ts → LOCAL_DRAIN_TIMEOUT`.
  */
@@ -1693,6 +1775,7 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
     const sending = yield* Effect.fork(
       author.send(yield* sendInput(harness, "black-holed transmit")),
     );
+    yield* untilLive(Ref.get(transmits).pipe(Effect.map((count) => count > 0)));
     yield* advanceClock(Duration.subtract(DRAIN_BOUND, Duration.seconds(1)));
     expect(yield* Fiber.poll(sending)).toEqual(Option.none());
     yield* advanceClock(Duration.seconds(2));
@@ -1772,6 +1855,7 @@ function concurrentDrainsSendEachOutboxOnce(): Effect.Effect<
     const sending = yield* Effect.fork(
       author.send(yield* sendInput(harness, "drained twice at once")),
     );
+    yield* untilLive(Ref.get(transmits).pipe(Effect.map((count) => count > 0)));
     yield* advanceClock(Duration.seconds(1));
     expect(yield* Ref.get(transmits)).toBe(2);
     expect(yield* Queue.size(harness.outbound)).toBe(1);

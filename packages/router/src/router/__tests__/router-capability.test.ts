@@ -586,7 +586,7 @@ describe("configuration behavior", () => {
         retainedMessageCapacity: 2,
         retainedMessageByteCapacity: 500_000,
         pollMessageLimit: 1,
-        pollResponseByteLimit: 472_119,
+        pollResponseByteLimit: 472_121,
         requestConcurrencyLimit: 4,
         heldPollCapacity: 3,
         liveNonceCapacity: 5,
@@ -600,9 +600,9 @@ describe("configuration behavior", () => {
           .host,
       ).toBe("::");
       expect(routerRepresentationLimits).toEqual({
-        sendRequestBodyBytes: 471_819,
+        sendRequestBodyBytes: 471_821,
         pollRequestBodyBytes: 422,
-        oneMessageBatchBytes: 472_119,
+        oneMessageBatchBytes: 472_121,
       });
       expect(
         yield* effectFails(

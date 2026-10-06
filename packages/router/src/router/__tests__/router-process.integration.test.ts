@@ -25,7 +25,7 @@ const POLL_INTERVAL_MS = 25;
 const RAW_REQUEST_TIMEOUT = Duration.seconds(5);
 const JSON_CONTENT_TYPE = "application/json";
 const MAXIMUM_POLL_BODY_LENGTH = 422;
-const MAXIMUM_SEND_BODY_LENGTH = 471_819;
+const MAXIMUM_SEND_BODY_LENGTH = 471_821;
 const OVERSIZED_POLL_BODY_LENGTH = MAXIMUM_POLL_BODY_LENGTH + 1;
 const envelopes = Object.freeze({
   malformed: {

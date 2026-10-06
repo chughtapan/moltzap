@@ -44,7 +44,7 @@ const SIGNED_MESSAGE_TYPE = "application/vnd.moltzap.signed-message+jws";
 export const MAXIMUM_BODY_BYTES = 262_144;
 /** Largest recipient set that one SignedMessage names. */
 export const MAXIMUM_RECIPIENTS = 128;
-const MAXIMUM_ENCODED_BYTES = 471_671;
+const MAXIMUM_ENCODED_BYTES = 471_673;
 const ED25519_SIGNATURE_BYTES = 64;
 
 const decodeCanonicalBase64Url = (value: string): Uint8Array | undefined =>

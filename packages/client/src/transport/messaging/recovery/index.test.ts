@@ -958,8 +958,9 @@ const decodeCatchUpRequest = (message: SignedMessage) =>
 const decodeActionProposal = (
   message: SignedMessage,
   expected = "action proposal",
+  open: typeof openForwarded = openForwarded,
 ) =>
-  openForwarded(message).pipe(
+  open(message).pipe(
     Effect.flatMap((body) => {
       if (body.kind === "direct" && body.packet.kind === "action_proposal") {
         return Effect.succeed(body.packet);
@@ -1800,7 +1801,11 @@ const reproposesPendingPostAfterRestart = () =>
           staleOutbound.canonicalSignedMessage,
         ).pipe(
           Effect.flatMap((message) =>
-            decodeActionProposal(message, "old-instance action proposal"),
+            decodeActionProposal(
+              message,
+              "old-instance action proposal",
+              (stored) => openOuterBody(stored, fixture.local),
+            ),
           ),
         );
         if (staleProposal.action.kind !== "POST") {
@@ -2168,15 +2173,16 @@ const queuePeerCatchUpResponse = (
     return row;
   }).pipe(Effect.orDie);
 
-/** The catch-up page `message` carries; any other body is a defect. */
-const decodeCatchUpPage = (message: SignedMessage) =>
-  openForwarded(message).pipe(
-    Effect.flatMap((body) =>
-      body.kind === "direct" && body.packet.kind === "catch_up_page"
-        ? Effect.succeed(body.packet)
-        : Effect.dieMessage("expected catch-up page"),
-    ),
-  );
+/** The catch-up page `message` from `sender` carries; any other body is a defect. */
+const decodeCatchUpPage =
+  (sender: SigningIdentity) => (message: SignedMessage) =>
+    openOuterBody(message, sender).pipe(
+      Effect.flatMap((body) =>
+        body.kind === "direct" && body.packet.kind === "catch_up_page"
+          ? Effect.succeed(body.packet)
+          : Effect.dieMessage("expected catch-up page"),
+      ),
+    );
 
 /**
  * A peer that asks from genesis is answered with a page holding the
@@ -2193,7 +2199,7 @@ const answersGenesisCatchUpWithRetainedRecord = () =>
           Effect.flatMap((row) =>
             decodeCanonical(SignedMessage, row.canonicalSignedMessage),
           ),
-          Effect.flatMap(decodeCatchUpPage),
+          Effect.flatMap(decodeCatchUpPage(fixture.local)),
           Effect.exit,
         );
 
@@ -5052,21 +5058,26 @@ describe("peer input during recovery", () => {
 
 /**
  * Decodes the catch-up page an outbox row carries.
- * @param row Outbox row holding one signed outer envelope.
- * @returns The page; any other body is a defect naming what the row carries.
+ * @param local Endpoint whose outbox holds the row.
+ * @returns For an outbox row holding one signed outer envelope, the page; any
+ *     other body is a defect naming what the row carries.
  */
-const decodeQueuedCatchUpPage = (row: StoredOutboundMessage) =>
-  decodeCanonical(SignedMessage, row.canonicalSignedMessage).pipe(
-    Effect.flatMap((message) => openForwarded(message)),
-    Effect.flatMap((body) => {
-      if (body.kind === "direct" && body.packet.kind === "catch_up_page") {
-        return Effect.succeed(body.packet);
-      }
-      const received = body.kind === "evidence" ? body.kind : body.packet.kind;
-      return Effect.dieMessage(`expected catch-up page, received ${received}`);
-    }),
-    Effect.orDie,
-  );
+const decodeQueuedCatchUpPage =
+  (local: SigningIdentity) => (row: StoredOutboundMessage) =>
+    decodeCanonical(SignedMessage, row.canonicalSignedMessage).pipe(
+      Effect.flatMap((message) => openOuterBody(message, local)),
+      Effect.flatMap((body) => {
+        if (body.kind === "direct" && body.packet.kind === "catch_up_page") {
+          return Effect.succeed(body.packet);
+        }
+        const received =
+          body.kind === "evidence" ? body.kind : body.packet.kind;
+        return Effect.dieMessage(
+          `expected catch-up page, received ${received}`,
+        );
+      }),
+      Effect.orDie,
+    );
 
 /**
  * A member's catch-up request for a conversation this endpoint holds history
@@ -5083,7 +5094,7 @@ const answersCatchUpRequestWithItsFirstCertifiedRecord = () =>
         yield* retainCertifiedRecord(fixture);
 
         const page = yield* queuePeerCatchUpResponse(fixture).pipe(
-          Effect.flatMap(decodeQueuedCatchUpPage),
+          Effect.flatMap(decodeQueuedCatchUpPage(fixture.local)),
         );
         const verified = yield* Effect.exit(
           verifyCatchUpPage({
@@ -5486,12 +5497,12 @@ const answersCatchUpThroughAStoredCompletedReanchor = () =>
           fixture.certifiedRecord.actionCertifiedRecord;
 
         const first = yield* queuePeerCatchUpResponse(fixture).pipe(
-          Effect.flatMap(decodeQueuedCatchUpPage),
+          Effect.flatMap(decodeQueuedCatchUpPage(fixture.local)),
         );
         const next = yield* queuePeerCatchUpResponse(fixture, {
           knownRecordHash: recordHash,
           knownAnchorHash: recordCore.anchorHash,
-        }).pipe(Effect.flatMap(decodeQueuedCatchUpPage));
+        }).pipe(Effect.flatMap(decodeQueuedCatchUpPage(fixture.local)));
         const verified = yield* Effect.forEach(
           [first, next],
           (page) =>
@@ -6109,9 +6120,16 @@ const backsOffCatchUpRetriesAndStops = () =>
         const beforeThirdRetry = yield* pendingAt("5590 millis");
         yield* TestClock.setTime(8400);
         const thirdRetry = yield* retries(1);
-        yield* TestClock.setTime(Duration.toMillis("1000 seconds"));
-        const laterRetries = yield* retries(catchUpRetryAttempts - 3);
-        const afterLastRetry = yield* pendingAt("100000 seconds");
+        const laterRetries = yield* Effect.replicateEffect(
+          takeRetriedCatchUpRequest(outbound),
+          catchUpRetryAttempts - 3,
+        ).pipe(Effect.map((taken) => taken.length));
+        const afterLastRetry = yield* TestClock.adjust("100000 seconds").pipe(
+          Effect.zipRight(settle),
+          Effect.zipRight(TestClock.adjust("100000 seconds")),
+          Effect.zipRight(settle),
+          Effect.zipRight(Queue.size(outbound)),
+        );
 
         expect(first.conversationId).toBe(
           fixture.membership.descriptor.conversationId,
