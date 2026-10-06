@@ -35,20 +35,24 @@ const DATABASE_NAME = "moltzapd.sqlite3";
  */
 const SCHEMA_VERSION = 4;
 
-type PreflightDisposition = "create" | "reopen";
+/**
+ * How a state directory's store opens: `create` replaces an absent, empty, or
+ * pre-cutover database with an empty current one, and `reopen` keeps the
+ * current one.
+ */
+export type StoreOpening = "create" | "reopen";
 
 /**
  * How each openable `user_version` opens. An empty store and a pre-cutover
  * store get a new empty schema through `createStore`; the current version
  * reopens. Every other version is refused.
  */
-const DISPOSITION_BY_VERSION: ReadonlyMap<number, PreflightDisposition> =
-  new Map([
-    [0, "create"],
-    [2, "create"],
-    [3, "create"],
-    [SCHEMA_VERSION, "reopen"],
-  ]);
+const DISPOSITION_BY_VERSION: ReadonlyMap<number, StoreOpening> = new Map([
+  [0, "create"],
+  [2, "create"],
+  [3, "create"],
+  [SCHEMA_VERSION, "reopen"],
+]);
 
 /**
  * Acquires and exclusively locks one exact-version endpoint database.
@@ -60,6 +64,26 @@ export const openStoreState = (
 ): Effect.Effect<StoreState, EndpointStoreError> =>
   Effect.try({
     try: () => initializeStoreState(stateDirectory),
+    catch: (failure) => mapStoreFailure(failure, "persistence"),
+  });
+
+/**
+ * Reads, without writing, how the store in `stateDirectory` would open. An
+ * incompatible or corrupt database fails as `openStoreState` would.
+ * @param stateDirectory Exclusive persistent state directory.
+ * @returns How `openStoreState` will open the store.
+ */
+export const inspectStoreState = (
+  stateDirectory: string,
+): Effect.Effect<StoreOpening, EndpointStoreError> =>
+  Effect.try({
+    try: () => {
+      requireText(stateDirectory);
+      const databasePath = resolve(stateDirectory, DATABASE_NAME);
+      return existsSync(databasePath)
+        ? inspectExistingDatabase(databasePath)
+        : "create";
+    },
     catch: (failure) => mapStoreFailure(failure, "persistence"),
   });
 
@@ -164,7 +188,7 @@ function initializeStoreState(stateDirectory: string): StoreState {
   }
 }
 
-function inspectExistingDatabase(databasePath: string): PreflightDisposition {
+function inspectExistingDatabase(databasePath: string): StoreOpening {
   const database = new DatabaseSync(databasePath, {
     readOnly: true,
     enableForeignKeyConstraints: false,
@@ -188,7 +212,7 @@ function openWritableDatabase(databasePath: string): DatabaseSync {
   });
 }
 
-function preflightDatabase(database: DatabaseSync): PreflightDisposition {
+function preflightDatabase(database: DatabaseSync): StoreOpening {
   const versionRow = database.prepare("PRAGMA user_version").get();
   if (versionRow === undefined) {
     throw new StoreSignal("corrupt");

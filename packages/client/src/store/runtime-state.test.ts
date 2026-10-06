@@ -12,7 +12,11 @@ import {
   storedConversation,
   withStore,
 } from "../__tests__/store-schema-fixtures.js";
-import { DeliveryToken, type EndpointStore } from "./index.js";
+import {
+  DeliveryToken,
+  type EndpointStore,
+  inspectEndpointStore,
+} from "./index.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Store mutation outcomes and the schema version are the contract under test. */
 
@@ -152,10 +156,34 @@ const opensEmptyAfterTheCutover = (version: 2 | 3) => {
   );
 };
 
+function inspectsWithoutWriting() {
+  const path = stateDirectory();
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const absent = yield* inspectEndpointStore(path);
+      yield* withStore(path, seedPreCutoverState);
+      const current = yield* inspectEndpointStore(path);
+      yield* rewindToPreCutoverSchema(path, 3);
+      const preCutover = yield* inspectEndpointStore(path);
+
+      expect([absent, current, preCutover]).toEqual([
+        "create",
+        "reopen",
+        "create",
+      ]);
+      expect(readSchemaVersion(path)).toMatchObject({ user_version: 3 });
+    }),
+  );
+}
+
 describe("endpoint runtime state", () => {
   it(
     "retains completed and interrupted invocations and event state across restart",
     retainsInvocationAndEventState,
+  );
+  it(
+    "inspects how a store opens without creating or cutting it over",
+    inspectsWithoutWriting,
   );
   it.each([3, 2] as const)(
     "opens a schema version %i store empty, unregistered and without its queued envelope",

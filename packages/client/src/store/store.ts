@@ -16,8 +16,10 @@ import {
 import {
   closeStoreState,
   EndpointStoreError,
+  inspectStoreState,
   openStoreState,
   runStoreOperation,
+  type StoreOpening,
   type StoreState,
 } from "./database/index.js";
 import {
@@ -61,6 +63,22 @@ import {
 
 /** Closed endpoint-store failures without SQLite implementation details. */
 export { EndpointStoreError };
+
+/**
+ * Reads, without writing, whether opening the store in a state directory
+ * creates an empty store, which leaves the daemon unregistered, or reopens the
+ * current one.
+ *
+ * @param stateDirectory Exclusive persistent state directory.
+ * @returns How `openEndpointStore` will open the store.
+ * @failure EndpointStoreError when the database is incompatible or corrupt.
+ */
+export const inspectEndpointStore = (
+  stateDirectory: string,
+): Effect.Effect<StoreOpening, EndpointStoreError> =>
+  inspectStoreState(stateDirectory).pipe(
+    Effect.withSpan("inspectEndpointStore"),
+  );
 
 /**
  * Opens the one SQLite store owned by a daemon state directory.

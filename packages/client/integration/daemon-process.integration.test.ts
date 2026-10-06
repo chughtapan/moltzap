@@ -3,7 +3,12 @@
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
 import { AgentCard, type AgentName } from "@moltzap/identity";
 import { Duration, Effect, Fiber, Option, Schema, Stream } from "effect";
+import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
+import {
+  databasePath,
+  rewindToPreCutoverSchema,
+} from "../src/__tests__/store-schema-fixtures.js";
 import {
   acquireHarnessEndpoint,
   AgentAddress,
@@ -395,6 +400,20 @@ const readActiveStatus = (fixture: DaemonProcessFixture) =>
     }),
   );
 
+/** The store's schema version and whether it still binds an identity. */
+const readStoredIdentity = (fixture: DaemonProcessFixture) =>
+  Effect.sync(() => {
+    const database = new DatabaseSync(databasePath(fixture.stateDirectory), {
+      readOnly: true,
+    });
+    const version = database.prepare("PRAGMA user_version").get();
+    const identity = database
+      .prepare("SELECT agent_id FROM identity_binding WHERE singleton = 1")
+      .get();
+    database.close();
+    return { version, bound: identity !== undefined };
+  });
+
 const admissionLifetimeBehavior = Effect.gen(function* () {
   const infrastructure = yield* acquireProcessInfrastructure;
   const [registeredFixture, unregisteredFixture] = yield* Effect.all(
@@ -435,6 +454,15 @@ const admissionLifetimeBehavior = Effect.gen(function* () {
   );
   expect((yield* readActiveStatus(registeredFixture)).kind).toBe("active");
   yield* stopProcess(invalidRun);
+
+  yield* rewindToPreCutoverSchema(registeredFixture.stateDirectory, 3);
+  yield* expectConfigurationFailure(
+    withMissingAdmissionCredential(registeredFixture),
+  );
+  expect(yield* readStoredIdentity(registeredFixture)).toEqual({
+    version: { user_version: 3 },
+    bound: true,
+  });
 
   yield* expectConfigurationFailure(
     withoutAdmissionCredential(unregisteredFixture),

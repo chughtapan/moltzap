@@ -4,7 +4,7 @@ import { NodeHttpClient } from "@effect/platform-node";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
 import { Data, Duration, Effect, Layer } from "effect";
-import { openEndpointStore } from "../store/index.js";
+import { inspectEndpointStore, openEndpointStore } from "../store/index.js";
 import {
   loadDaemonBootstrap,
   loadDaemonProcessConfiguration,
@@ -13,6 +13,7 @@ import { runDaemonRuntime } from "./lifecycle.js";
 import {
   readDaemonRegistrationState,
   requireAdmission,
+  requireAdmissionToCreate,
 } from "./registration/index.js";
 
 const REGISTRY_REQUEST_TIMEOUT = Duration.seconds(30);
@@ -41,6 +42,12 @@ export namespace MoltZapService {
       Effect.mapError(configurationFailure),
     );
     const bootstrap = yield* loadDaemonBootstrap(configuration).pipe(
+      Effect.mapError(configurationFailure),
+    );
+    const opening = yield* inspectEndpointStore(
+      configuration.stateDirectory,
+    ).pipe(Effect.mapError(storageFailure));
+    yield* requireAdmissionToCreate(opening, bootstrap).pipe(
       Effect.mapError(configurationFailure),
     );
     const store = yield* openEndpointStore(configuration.stateDirectory).pipe(
