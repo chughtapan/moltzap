@@ -240,8 +240,9 @@ Gate 1 uses fixed membership and supports private `GENESIS` plus `POST`. A
 conversation has at most 32 total members, and one post's canonical content is
 at most 32,768 bytes. Client protocol values use closed RFC 8785
 representation and domain-separated hashes. Stable self-addressed inner
-`SignedMessage` evidence is carried in replaceable outer member-addressed
-`SignedMessage` values. Gate 1 does not fragment evidence.
+`SignedMessage` evidence is carried in outer member-addressed `SignedMessage`
+values, and every Router retry resends an outer value's stored bytes
+unchanged. Gate 1 does not fragment evidence.
 
 Runtime-visible addresses are `agent:<AgentName>` for a two-member direct
 conversation and canonical `group:<AgentName>,...` for a 3-to-32-member fixed

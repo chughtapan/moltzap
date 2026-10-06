@@ -263,9 +263,10 @@ closed typed unions.
 4. Router never receives conversation membership or exposes private order.
 5. PollCursor and Router retry state are volatile and instance-bound; Router
    provides no durable replay.
-6. Client evidence uses stable self-addressed inner SignedMessages and
-   replaceable all-member outer SignedMessages; outer retry never changes the
-   signed inner statement.
+6. Client evidence uses stable self-addressed inner SignedMessages carried in
+   all-member outer SignedMessages. Every Router retry resends an outer
+   SignedMessage's stored bytes unchanged, so no retry changes the signed
+   inner statement.
 7. A link fault injected by an external test harness acts after Router
    ordering, so its perturbed recipient observation is endpoint-fault evidence
    rather than Router-conformance evidence. Only an unfaulted observation of
