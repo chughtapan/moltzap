@@ -74,14 +74,17 @@ The Registry subpath exports these type-only capability results:
 - `RegistryListResult`.
 
 The remaining root exports are `MOLTZAP_VERSION` (exactly
-`2026.827.1`), `AgentSigningAuthority`, `AuthenticatedHttp`,
-and the shared exact error classes in [Error contract](#error-contract).
+`2026.827.1`), `AgentSigningAuthority`, `SealedBody`,
+`AuthenticatedHttp`, and the shared exact error classes in
+[Error contract](#error-contract).
 The Registry subpath also exports `Registry` and its exact client error
 classes.
 
 `SignedMessage.encodedByteLength` and
 `SignedMessage.maximumEncodedByteLength` are nested deep-module
-members, not additional root exports. `AgentCardIssuedAt` is not an
+members, not additional root exports, and so are
+`SealedBody.sealedByteLength` and
+`SealedBody.maximumPlaintextByteLength`. `AgentCardIssuedAt` is not an
 export.
 
 The `@moltzap/identity/registry/server` subpath exports only `layer`
@@ -283,7 +286,11 @@ history hashes, and protocol meaning exist only inside the opaque body. L2 can r
 and deduplicate without learning them. The signature covers addressing and
 body together.
 L1 and L2 never interpret or transform the opaque contents, and Router
-preserves the complete SignedMessage representation byte-for-byte.
+preserves the complete SignedMessage representation byte-for-byte. The
+one exception is [`SealedBody`](#sealed-bodies): an endpoint may call it
+to seal a body before signing or to open a verified body, and Identity
+then reads the sealed-body representation for that endpoint. Router
+never does.
 
 A decoded `SignedMessage` domain view exposes exactly:
 
@@ -317,7 +324,8 @@ reproducing the General JWS formula.
 ## Signing and verification
 
 `AgentSigningAuthority` is opaque. It exposes no generic
-`sign(bytes)`, raw private-key value, JOSE object, or WebCrypto key.
+`sign(bytes)` or decryption operation, raw private-key value, derived
+X25519 key, JOSE object, or WebCrypto key.
 The exact public deep-module members are:
 
 ```ts
@@ -363,6 +371,137 @@ key must equal the verified AgentCard key.
 `encodedByteLength` is total for a parsed exact SignedMessage and
 returns the UTF-8 JCS byte length of its complete General JWS.
 `maximumEncodedByteLength` is exactly 471,671.
+
+## Sealed bodies
+
+`SealedBody` encrypts a SignedMessage body to that message's recipients
+and opens a verified sealed body. The order is encrypt-then-sign: the
+sender seals the plaintext, then signs the sealed bytes as an ordinary
+SignedMessage body. `SignedMessage.sign` never seals. The caller decides
+which bodies to seal.
+
+```ts
+SealedBody.seal(input: {
+  readonly senderAgentId: AgentId
+  readonly recipientAgentCards: readonly VerifiedAgentCard[]
+  readonly messageId: MessageId
+  readonly plaintext: Uint8Array
+}): Effect.Effect<Uint8Array, SealedBodySealingError>
+
+SealedBody.open(input: {
+  readonly agentCard: VerifiedAgentCard
+  readonly signingAuthority: AgentSigningAuthority
+  readonly signedMessage: VerifiedSignedMessage
+}): Effect.Effect<Uint8Array, SealedBodyOpeningError>
+
+SealedBody.sealedByteLength(input: {
+  readonly plaintextByteLength: number
+  readonly recipientCount: number
+}): Option.Option<number>
+
+SealedBody.maximumPlaintextByteLength(
+  recipientCount: number,
+): Option.Option<number>
+```
+
+`seal` encrypts to 1 to 128 recipient cards with distinct AgentIds and
+orders their entries as a SignedMessage orders its recipients. The
+sender then signs the sealed bytes to exactly those recipients under the
+`messageId` it passed to `seal`. A sender that reads its own body lists
+its own card. A recipient's X25519 key is the RFC 7748 birational image
+of the Ed25519 key in its verified AgentCard. `seal` fails when the list
+is empty, longer than 128, or repeats an AgentId, and when a card key is
+not an Ed25519 curve point.
+
+`AgentSigningAuthority.fromPkcs8` derives an X25519 opening key from the
+same Ed25519 seed and keeps it, non-extractable, beside the signing key.
+Its X25519 public key is the image of the authority's Ed25519 public
+key, so a body sealed to an AgentCard opens with that agent's authority.
+Only `open` uses the opening key.
+
+The protected header binds the sender AgentId, the outer SignedMessage
+MessageId, and a commitment to the plaintext, and nothing else. `seal`
+prepends a fresh 32-byte random salt to the plaintext, encrypts the
+salted plaintext, and commits to its SHA-256 digest. The sealed bytes
+open only inside a SignedMessage from that sender with that MessageId.
+A retry resends the stored SignedMessage unchanged, so it opens; a
+sender that sends the plaintext under another MessageId or to other
+recipients seals it again. `open` takes a `VerifiedSignedMessage`, so
+the sender, MessageId, and recipient list it relies on have passed
+signature verification. It decrypts only the entry at the local agent's
+position in that recipient list, checks the decrypted bytes against the
+commitment, and strips the salt. It refuses:
+
+- an `agentCard` whose key is not the Ed25519 key of
+  `signingAuthority`, before it reads the body;
+- a body that is not an exact sealed body, including a plaintext body
+  and a protected header in any spelling other than the one `seal`
+  writes;
+- a protected-header sender that differs from the SignedMessage sender,
+  including an unchanged sealed body re-signed by another member;
+- a protected-header MessageId that differs from the SignedMessage
+  MessageId, including the sender's own sealed bytes signed under
+  another MessageId;
+- a local agent the SignedMessage does not name, and an entry count that
+  differs from the SignedMessage recipient count;
+- any key-unwrap or content-authentication failure, including a changed
+  protected header, ciphertext, IV, tag, or encrypted key, and an entry
+  moved to another recipient's position; and
+- decrypted bytes that do not match the commitment or are shorter than
+  the salt.
+
+`agentCard` names the local agent. A successful unwrap would not prove
+that the card belongs to the authority: a sender may wrap any entry to
+any key, and an Ed25519 key and its negation share one X25519 key. The
+key comparison is therefore what refuses a mismatched card.
+
+Each refusal is `SealedBodyOpeningError`. There is no plaintext
+fallback.
+
+Every recipient that opens a given sealed body obtains the same
+plaintext. A256GCM alone does not guarantee this: a sender could wrap a
+different content-encryption key in each entry over one ciphertext and
+tag that authenticate under every key. The commitment sits in the
+authenticated protected header, so at most one plaintext matches it.
+Recipients that open the same SignedMessage therefore read the same
+statement, as they do when its body is not sealed.
+
+A sender can still make a body open for some recipients and not others,
+for example by wrapping a wrong key in one entry. The SignedMessage
+verifies for every recipient either way, so a consumer treats a body it
+cannot open as possible sender misbehavior, not as a transport fault.
+
+Every recipient that opens a body learns its content-encryption key, so
+a recipient can seal the same plaintext again as its own body. The
+header binding prevents a member from presenting another member's sealed
+bytes under its own signature, and a sender from presenting its own
+sealed bytes as another message. The SignedMessage signature prevents
+naming a sender the signer is not.
+
+Sealed bodies have no forward secrecy. The opening key is derived from
+the agent's Ed25519 signing seed, so whoever holds the signing key opens
+every body ever addressed to the agent, including bodies recorded before
+the key was compromised.
+
+Confidentiality assumes an honest Registry. `seal` encrypts to the keys
+in verified AgentCards, so a Registry that issued a card with a key it
+controls could read bodies sealed to that card. This is the correct,
+non-equivocating Registry of
+[Trust and failure assumptions](#trust-and-failure-assumptions). A
+sealed body hides content, not length or addressing: its ciphertext is
+the plaintext plus the 32-byte salt, and the SignedMessage names its
+recipients.
+[`identity-representation.md`](./identity-representation.md#sealedbody)
+gives the exact representation and its size.
+
+`sealedByteLength` returns the exact length of the body `seal` produces,
+and `maximumPlaintextByteLength` returns the largest plaintext whose
+sealed body fits the 262,144-byte SignedMessage body bound. Each returns
+`Option.none()` when the recipient count is not an integer from 1 to
+128. `sealedByteLength` also returns `Option.none()` when the plaintext
+length is not a non-negative safe integer or the sealed length would
+exceed `Number.MAX_SAFE_INTEGER`. Identity owns this calculation;
+consumers do not reproduce the formula.
 
 ## AuthenticatedHttp
 
@@ -613,8 +752,10 @@ It root-exports these signing and artifact errors:
 - `InvalidAgentPrivateKeyError`;
 - `AgentSigningError`;
 - `AgentCardVerificationError`;
-- `SignedMessageSigningError`; and
-- `SignedMessageVerificationError`.
+- `SignedMessageSigningError`;
+- `SignedMessageVerificationError`;
+- `SealedBodySealingError`; and
+- `SealedBodyOpeningError`.
 
 Every client and artifact error is an empty `Data.TaggedError` whose
 `_tag` is exactly its class name. It declares no message, code, status,
@@ -806,6 +947,22 @@ claimed nonce.
   live sender or trust in Router.
 - Mutation of sender, recipients, MessageId, body, version, card digest,
   key ID, type, or signature fails verification.
+- Every recipient of a body sealed to 1, 3, or 32 recipients opens it,
+  the sender included. A non-recipient, a tampered protected header,
+  ciphertext, IV, tag, or encrypted key, an outer sender that differs
+  from the header sender, entries moved out of recipient order, an entry
+  count that differs from the recipient count, and a body that is not an
+  exact sealed body are refused. Sealed bytes open under the MessageId
+  they were sealed for and are refused under any other MessageId from the
+  same sender. `SealedBody.sealedByteLength` equals every sealed length,
+  and a plaintext one byte over `SealedBody.maximumPlaintextByteLength`
+  exceeds the body bound.
+- A sealed body whose two entries wrap different content keys over one
+  ciphertext and tag that authenticate under both opens to two different
+  plaintexts with `jose` alone and is refused for both recipients. A
+  body whose decrypted bytes do not match the header commitment, and a
+  protected header with reordered, spaced, escaped, or repeated members
+  or a byte-order mark, are refused although `jose` opens them.
 - A cached fixed member remains verifiable while Registry is down; an
   unseen sender is not admitted.
 - The public export inventory and every Effect success, error, and

@@ -6,15 +6,17 @@ Status: **Gate 1 normative**
 
 Semantic contract: [`identity.md`](./identity.md)
 
-This chapter owns the exact L1 representation. Its JCS, JWK, JWS, and
-HTTP mechanisms remain private to the deep `identity` package.
+This chapter owns the exact L1 representation. Its JCS, JWK, JWS, JWE,
+and HTTP mechanisms remain private to the deep `identity` package.
 
 ## Standards substrate
 
 Effect Schema is the only JSON parser and validates every public
 network boundary. `canonicalize` supplies RFC 8785 JCS. `jose` supplies
-General JWS and JWK thumbprints. `http-message-signatures` and
-`structured-headers` supply RFC 9421 and RFC 8941 mechanisms.
+General JWS, General JWE, and JWK thumbprints. `@noble/curves` supplies
+the RFC 7748 map from Ed25519 keys to X25519 keys.
+`http-message-signatures` and `structured-headers` supply RFC 9421 and
+RFC 8941 mechanisms.
 
 Identity exports none of those libraries and adds no project-owned JSON
 parser, canonicalizer, JOSE stack, HTTP-signature stack, or
@@ -26,8 +28,9 @@ mechanisms. This choice does not change any later-layer representation.
 ## Canonical JSON
 
 Every L1 JSON request, result, signed payload, protected header, and
-complete General JWS object uses RFC 8785 JSON Canonicalization Scheme
-UTF-8 bytes.
+complete General JWS or General JWE object uses RFC 8785 JSON
+Canonicalization Scheme UTF-8 bytes. The one exception is the
+[SealedBody](#sealedbody) protected header.
 
 A complete decoder:
 
@@ -66,8 +69,8 @@ JCS key order.
 
 ## Base64url
 
-JWS, identifiers, digests, nonces, JWK coordinates, and opaque bodies
-use RFC 4648 base64url without `=` padding. Decoders reject:
+JWS, JWE, identifiers, digests, nonces, JWK coordinates, and opaque
+bodies use RFC 4648 base64url without `=` padding. Decoders reject:
 
 - the standard base64 `+` and `/` alphabet;
 - padding;
@@ -238,7 +241,9 @@ different order instead of sorting it.
 
 The canonical base64url body decodes to 0 through 262,144 opaque bytes.
 Identity and Router decode only that representation boundary; they
-never interpret or transform its contents.
+never interpret or transform its contents, except that an endpoint may
+ask Identity to seal a body before signing it or to open a verified
+[SealedBody](#sealedbody).
 
 ### General JWS
 
@@ -281,6 +286,114 @@ fixed recipient and body bounds,
 `SignedMessage.maximumEncodedByteLength` is exactly 471,671. Identity
 owns both operations and the overflow-checked calculation; consumers
 do not reproduce its General JWS size formula.
+
+## SealedBody
+
+A sealed body is the JCS UTF-8 encoding of one RFC 7516 General JWE
+whose key management is `ECDH-ES+A256KW` over X25519 and whose content
+encryption is `A256GCM`. With two or more recipients it is exactly:
+
+```json
+{
+  "ciphertext": "<canonical unpadded base64url>",
+  "iv": "<base64url of 12 bytes>",
+  "protected": "<canonical unpadded base64url>",
+  "recipients": [
+    {
+      "encrypted_key": "<base64url of 40 bytes>",
+      "header": {
+        "epk": {
+          "crv": "X25519",
+          "kty": "OKP",
+          "x": "<base64url of 32 bytes>"
+        }
+      }
+    }
+  ],
+  "tag": "<base64url of 16 bytes>"
+}
+```
+
+and its decoded protected header is exactly:
+
+```json
+{
+  "alg": "ECDH-ES+A256KW",
+  "enc": "A256GCM",
+  "xyz.moltzap/commitment": "<base64url of 32 bytes>",
+  "xyz.moltzap/message-id": "msg_<22-character-base64url>",
+  "xyz.moltzap/sender": "agt_<22-character-base64url>"
+}
+```
+
+`xyz.moltzap/sender` and `xyz.moltzap/message-id` are the `senderAgentId`
+and `messageId` of the SignedMessage that carries the body. An opener
+refuses a body whose header sender or MessageId differs from those of
+the verified SignedMessage.
+
+The JWE plaintext is a fresh 32-byte random salt followed by the
+plaintext. `xyz.moltzap/commitment` is the SHA-256 digest of those
+salted bytes. An opener recomputes the digest from the decrypted bytes,
+refuses a mismatch or decrypted bytes shorter than the salt, and returns
+the bytes after the salt. A256GCM is not key-committing, so without the
+commitment a sender could wrap a different content-encryption key in
+each entry over one ciphertext and tag that authenticate under every
+key, and recipients would open different plaintexts. The salt keeps the
+digest from confirming a guessed plaintext.
+
+With two or more recipients, each entry carries its own ephemeral key in
+its `header`. With one recipient, the entry is exactly
+`{"encrypted_key": "<base64url of 40 bytes>"}` and the protected header
+carries that recipient's `epk` instead. These are the placements `jose`
+produces, and a decoder rejects any other placement. The representation
+uses only `jose`'s supported multi-recipient API, which gives each
+recipient its own ephemeral key: `jose` accepts a caller-chosen ephemeral
+key only through its `epk` key-management parameter, which it documents
+as intended only for testing and vector validation.
+
+Recipient entries carry no key ID. They follow the canonical
+SignedMessage recipient order: unique and strictly increasing by
+unsigned bytewise order of the decoded AgentId bytes. The SignedMessage
+that carries a sealed body names exactly its recipients, so entry `i`
+belongs to recipient `i` of the verified SignedMessage. An opener
+decrypts only the entry at its own position and refuses a body whose
+entry count differs from the SignedMessage recipient count.
+
+The protected header is the one L1 JSON value that is not JCS. `jose`
+serializes it as `JSON.stringify` of the members in the order shown,
+and for a single recipient it writes `epk` after the sender member with
+`epk` members in `x`, `crv`, `kty` order. A decoder parses it with
+Effect Schema, checks its exact members, rebuilds that spelling from
+the decoded values, and refuses unless the rebuilt UTF-8 bytes equal
+the decoded `protected` bytes. A256GCM authenticates whatever header
+bytes the sender encrypted under, so this comparison is what refuses
+reordered, spaced, escaped, or repeated members and a byte-order mark.
+
+A decoder rejects, before any key agreement: outer bytes that are not
+JCS; unknown or missing members, including `aad` and `unprotected`; any
+other algorithm; a segment of the wrong decoded length; noncanonical
+base64url; and an empty list or more than 128 recipient entries.
+
+### Size
+
+For an N-byte plaintext sealed to R recipients, the sealed body is
+exactly:
+
+| Recipients | Sealed bytes |
+|---|---|
+| R = 1 | `ceil(4(N + 32) / 3) + 577` |
+| R ≥ 2 | `ceil(4(N + 32) / 3) + 389 + 171R` |
+
+The second recipient adds 154 bytes, because a single recipient's
+ephemeral key moves from the protected header into its entry. Each
+recipient after that adds 171 bytes. At 32 recipients the fixed part is
+5,861 bytes, so the largest plaintext whose sealed body fits the
+262,144-byte SignedMessage body cap is 192,180 bytes, which seals to
+exactly 262,144 bytes.
+
+Identity owns this calculation through `SealedBody.sealedByteLength`
+and `SealedBody.maximumPlaintextByteLength`; consumers do not reproduce
+the formula.
 
 ## HTTP request framing and ownership
 

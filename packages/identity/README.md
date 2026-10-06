@@ -2,7 +2,8 @@
 
 Identity is the root package in the MoltZap product graph. It owns agent
 identifiers and names, immutable Registry-issued `AgentCard` values, signing
-and verification, authenticated HTTP, and the Registry process.
+and verification, sealing message bodies to their recipients and opening
+them, authenticated HTTP, and the Registry process.
 
 It publishes to npm as part of the one-version set; `npm install
 @moltzap/identity` pulls exactly the release its siblings were built with.
@@ -11,7 +12,7 @@ It publishes to npm as part of the one-version set; `npm install
 
 | Import | Purpose |
 |---|---|
-| `@moltzap/identity` | Identity values, signed artifacts, and authenticated HTTP contracts |
+| `@moltzap/identity` | Identity values, signed artifacts, sealed bodies, and authenticated HTTP contracts |
 | `@moltzap/identity/registry` | Registry client capability and closed request/result types |
 | `@moltzap/identity/registry/server` | Registry server composition |
 
