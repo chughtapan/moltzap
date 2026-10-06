@@ -150,29 +150,24 @@ export const resendCertifiedHistoryRequest = (
 
 /**
  * Let a quorum of answers settle a conversation's position once its request
- * has used up its retries, and settle it now if a quorum has already answered.
+ * has used up its retries. The caller runs this on the retry fiber itself, as
+ * the retries end, so the switch applies to the request those retries sent
+ * and not to one a re-arm starts afterwards.
  * @param run Recovery run that owns the request.
  * @param conversationId Conversation whose retries ran out.
- * @returns Completion once the position is settled or left waiting.
+ * @returns Whether a quorum has already answered, so the position is ready.
  */
-export const settleOnQuorum = (
+export function settleOnQuorum(
   run: CatchUpRun,
   conversationId: ConversationIdValue,
-): Effect.Effect<void, RouterWorkerPersistenceError> =>
-  Effect.suspend(() => {
-    const membership = run.membership(conversationId);
-    if (
-      !run.isActive() ||
-      membership === undefined ||
-      !run.state.pendingRequests.has(conversationId)
-    ) {
-      return Effect.void;
-    }
-    run.state.settlingOnQuorum.add(conversationId);
-    return claimReadyPosition(run.state, membership, conversationId)
-      ? run.onPositionReady(conversationId)
-      : Effect.void;
-  }).pipe(Effect.withSpan("settleOnQuorum"));
+): boolean {
+  const membership = run.membership(conversationId);
+  if (!run.isActive() || membership === undefined) {
+    return false;
+  }
+  run.state.settlingOnQuorum.add(conversationId);
+  return claimReadyPosition(run.state, membership, conversationId);
+}
 
 /**
  * Answer an authenticated catch-up request with the requester's next certified
@@ -289,9 +284,9 @@ export function acceptCatchUpPage(
 }
 
 /**
- * Record a member's attestation that it holds no later history; once a
- * quorum of members, counting this endpoint, has attested, the
- * conversation's position is ready.
+ * Record a member's attestation that it holds no later history; once every
+ * other member has attested, or a quorum counting this endpoint once the
+ * retries have run out, the conversation's position is ready.
  * @param run Recovery run that sent the request.
  * @param ingress Verified Router delivery carrying the attestation.
  * @param incomplete Catch-up incomplete attestation from a fixed member.

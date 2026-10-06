@@ -563,12 +563,12 @@ function armCatchUp(
 
 /**
  * Resend a conversation's request on {@link catchUpRetrySchedule}, then let a
- * quorum of answers settle its position. The settling runs on its own fiber
- * in the run's scope: recovering the conversation removes this retry fiber,
- * which it could not do from inside it.
+ * quorum of answers settle its position. A position a quorum already settles
+ * is recovered on its own fiber in the run's scope: recovering the
+ * conversation removes this retry fiber, which it could not do from inside it.
  * @param run Recovery run that holds the conversation.
  * @param conversationId Conversation to catch up.
- * @returns The retries, ending once the settling has started.
+ * @returns The retries, ending once any settled position's recovery started.
  */
 function retryCatchUp(
   run: RecoveryRun,
@@ -579,14 +579,19 @@ function retryCatchUp(
     catchUpRetrySchedule,
   ).pipe(
     Effect.zipRight(
-      settleOnQuorum(run.catchUp, conversationId).pipe(
-        Effect.catchAll(() =>
-          Effect.logWarning(
-            "Catch-up did not settle on a quorum: the endpoint store failed",
-          ),
-        ),
-        Effect.forkIn(run.scope),
-      ),
+      Effect.sync(() => settleOnQuorum(run.catchUp, conversationId)),
+    ),
+    Effect.flatMap((settled) =>
+      settled
+        ? run.catchUp.onPositionReady(conversationId).pipe(
+            Effect.catchAll(() =>
+              Effect.logWarning(
+                "Catch-up did not settle on a quorum: the endpoint store failed",
+              ),
+            ),
+            Effect.forkIn(run.scope),
+          )
+        : Effect.void,
     ),
     Effect.asVoid,
     Effect.catchAll(() =>

@@ -4052,20 +4052,29 @@ const takeN4Requests = (
   });
 
 /**
- * Every other N4 member answers `request` that it holds no later history,
- * which makes the N4 position ready.
+ * N4 members answer `request` that they hold no later history. By default
+ * every other member answers at the new Router instance, which makes the N4
+ * position ready.
  * @param fixture Endpoint whose remote member is one of the three.
  * @param n4 Engine under recovery and the other two members.
  * @param request The N4 catch-up request being answered.
+ * @param answering Which members answer, and the Router instance they answer
+ *     at.
+ * @param answering.responders The members that answer, in order.
+ * @param answering.routerInstanceId The Router instance of the deliveries.
  * @returns Each answer's disposition, in the order the members answered.
  */
 const answerN4Incomplete = (
   fixture: RecoveryFixture,
   n4: N4Foundation,
   request: CatchUpRequest,
+  answering: {
+    readonly responders?: readonly SigningIdentity[];
+    readonly routerInstanceId?: typeof RouterInstanceId.Type;
+  } = {},
 ) =>
   Effect.forEach(
-    [fixture.remote, n4.third, n4.fourth],
+    answering.responders ?? [fixture.remote, n4.third, n4.fourth],
     (responder) =>
       deliverRecovery(
         n4.engine,
@@ -4073,7 +4082,7 @@ const answerN4Incomplete = (
           membership: n4.membership,
           responder,
           request,
-          routerInstanceId: newRouterInstanceId,
+          routerInstanceId: answering.routerInstanceId ?? newRouterInstanceId,
         }),
       ),
     { concurrency: 1 },
@@ -5930,36 +5939,16 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
           "feed_gap",
           oldRouterInstanceId,
         );
-        const requests = [
-          yield* takeCatchUpRequest(outbound),
-          yield* takeCatchUpRequest(outbound),
-        ];
-        const n4Request = requests.find(
-          (request) =>
-            request.conversationId === n4.membership.descriptor.conversationId,
-        );
-        const directRequest = requests.find(
-          (request) =>
-            request.conversationId ===
-            fixture.membership.descriptor.conversationId,
-        );
-        if (n4Request === undefined || directRequest === undefined) {
-          return yield* Effect.dieMessage(
-            "recovery did not ask both conversations' members",
-          );
-        }
-        const n4Incomplete = (responder: SigningIdentity) =>
-          deliverRecovery(
-            n4.engine,
-            catchUpIncompleteIngressFrom({
-              membership: n4.membership,
-              responder,
-              request: n4Request,
-              routerInstanceId: oldRouterInstanceId,
-            }),
-          );
-        yield* n4Incomplete(fixture.remote);
-        yield* n4Incomplete(n4.third);
+        const { direct: directRequest, group: n4Request } =
+          yield* takeN4Requests(fixture, n4, outbound);
+        const answerAtOldInstance = (
+          ...responders: readonly SigningIdentity[]
+        ) =>
+          answerN4Incomplete(fixture, n4, n4Request, {
+            responders,
+            routerInstanceId: oldRouterInstanceId,
+          });
+        yield* answerAtOldInstance(fixture.remote, n4.third);
         const directSend = yield* forkSend(
           n4.engine,
           `agent:${fixture.remote.card.agentName}`,
@@ -5975,7 +5964,7 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
         const sentBeforeEveryMember = yield* takeActionProposalAfterEvidence(
           fixture.normalOutbound,
         ).pipe(Effect.timeoutOption("300 millis"));
-        yield* n4Incomplete(n4.fourth);
+        yield* answerAtOldInstance(n4.fourth);
         const proposal = yield* takeActionProposalAfterEvidence(
           fixture.normalOutbound,
         );
@@ -6205,19 +6194,11 @@ const proposesPendingPostsOnlyOnceItsConversationRecovers = () =>
           "feed_gap",
           oldRouterInstanceId,
         );
-        const requests = yield* Effect.replicateEffect(
-          takeCatchUpRequest(outbound),
-          2,
+        const { group: n4Request } = yield* takeN4Requests(
+          fixture,
+          n4,
+          outbound,
         );
-        const n4Request = requests.find(
-          (request) =>
-            request.conversationId === n4.membership.descriptor.conversationId,
-        );
-        if (n4Request === undefined) {
-          return yield* Effect.dieMessage(
-            "recovery did not ask the N4 members",
-          );
-        }
         yield* deliverRecovery(
           n4.engine,
           catchUpPageIngressFrom({
@@ -6231,20 +6212,9 @@ const proposesPendingPostsOnlyOnceItsConversationRecovers = () =>
         const next = yield* takeCatchUpRequest(outbound);
         yield* settle;
         const sentWhileFenced = yield* Queue.size(fixture.normalOutbound);
-        yield* Effect.forEach(
-          [fixture.remote, n4.third, n4.fourth],
-          (responder) =>
-            deliverRecovery(
-              n4.engine,
-              catchUpIncompleteIngressFrom({
-                membership: n4.membership,
-                responder,
-                request: next,
-                routerInstanceId: oldRouterInstanceId,
-              }),
-            ),
-          { concurrency: 1, discard: true },
-        );
+        yield* answerN4Incomplete(fixture, n4, next, {
+          routerInstanceId: oldRouterInstanceId,
+        });
         const proposal = yield* takeActionProposalAfterEvidence(
           fixture.normalOutbound,
         );
@@ -6286,38 +6256,15 @@ const waitsForTheMemberHoldingTheCertifiedSuccessor = () =>
           "feed_gap",
           oldRouterInstanceId,
         );
-        const requests = yield* Effect.replicateEffect(
-          takeCatchUpRequest(outbound),
-          2,
+        const { group: n4Request } = yield* takeN4Requests(
+          fixture,
+          n4,
+          outbound,
         );
-        const n4Request = requests.find(
-          (request) =>
-            request.conversationId === n4.membership.descriptor.conversationId,
-        );
-        if (n4Request === undefined) {
-          return yield* Effect.dieMessage(
-            "recovery did not ask the N4 members",
-          );
-        }
-        const answerIncomplete = (
-          request: CatchUpRequest,
-          responders: readonly SigningIdentity[],
-        ) =>
-          Effect.forEach(
-            responders,
-            (responder) =>
-              deliverRecovery(
-                n4.engine,
-                catchUpIncompleteIngressFrom({
-                  membership: n4.membership,
-                  responder,
-                  request,
-                  routerInstanceId: oldRouterInstanceId,
-                }),
-              ),
-            { concurrency: 1, discard: true },
-          );
-        yield* answerIncomplete(n4Request, [fixture.remote, n4.third]);
+        yield* answerN4Incomplete(fixture, n4, n4Request, {
+          responders: [fixture.remote, n4.third],
+          routerInstanceId: oldRouterInstanceId,
+        });
         yield* forkSend(
           n4.engine,
           `group:${[fixture.remote, n4.third, n4.fourth]
@@ -6336,7 +6283,9 @@ const waitsForTheMemberHoldingTheCertifiedSuccessor = () =>
           }),
         );
         const next = yield* takeCatchUpRequest(outbound);
-        yield* answerIncomplete(next, [fixture.remote, n4.third, n4.fourth]);
+        yield* answerN4Incomplete(fixture, n4, next, {
+          routerInstanceId: oldRouterInstanceId,
+        });
         const proposal = yield* takeActionProposalAfterEvidence(
           fixture.normalOutbound,
         );
@@ -6368,30 +6317,17 @@ const settlesOnAQuorumOnceTheRetriesRunOut = () =>
           oldRouterInstanceId,
           { clock: "caller" },
         );
-        const requests = yield* Effect.replicateEffect(
-          takeCatchUpRequest(outbound),
-          2,
+        const { group: n4Request } = yield* takeN4Requests(
+          fixture,
+          n4,
+          outbound,
         );
-        const n4Request = requests.find(
-          (request) =>
-            request.conversationId === n4.membership.descriptor.conversationId,
-        );
-        if (n4Request === undefined) {
-          return yield* Effect.dieMessage(
-            "recovery did not ask the N4 members",
-          );
-        }
-        const n4Incomplete = (responder: SigningIdentity) =>
-          deliverRecovery(
-            n4.engine,
-            catchUpIncompleteIngressFrom({
-              membership: n4.membership,
-              responder,
-              request: n4Request,
-              routerInstanceId: oldRouterInstanceId,
-            }),
-          );
-        yield* n4Incomplete(fixture.remote);
+        const answerAtOldInstance = (responder: SigningIdentity) =>
+          answerN4Incomplete(fixture, n4, n4Request, {
+            responders: [responder],
+            routerInstanceId: oldRouterInstanceId,
+          });
+        yield* answerAtOldInstance(fixture.remote);
         yield* forkSend(
           n4.engine,
           `group:${[fixture.remote, n4.third, n4.fourth]
@@ -6408,7 +6344,7 @@ const settlesOnAQuorumOnceTheRetriesRunOut = () =>
             Effect.timeoutOption("300 millis"),
           ),
         );
-        yield* n4Incomplete(n4.third);
+        yield* answerAtOldInstance(n4.third);
         const proposal = yield* takeActionProposalAfterEvidence(
           fixture.normalOutbound,
         );
