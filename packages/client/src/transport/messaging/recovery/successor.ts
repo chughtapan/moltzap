@@ -1,18 +1,17 @@
 /**
  * @file Staged successors in recovery: a record some members staged and voted
  * durable before a Router discontinuity, extending the head a recovering
- * conversation holds. A holder hands it to members instead of saying nothing
- * follows its head; recovery certifies it at `q(n)` durability votes; and a
- * member that did not stage it converts to it, staging the record and voting
- * for it once enough members vouch for it.
+ * conversation holds. Holders send it in their catch-up answers. Recovery
+ * certifies it at `q(n)` durability votes, and a member that did not stage it
+ * converts to it, staging the record and voting for it once enough members
+ * vouch for it.
  */
 
 import type { AgentId, SignedMessage } from "@moltzap/identity";
-import { Effect, Schema } from "effect";
-import type { StagedRecord } from "../../../store/index.js";
-import {
-  type RouterIngressDisposition,
-  type RouterWorkerIngress,
+import { Effect } from "effect";
+import type {
+  RouterIngressDisposition,
+  RouterWorkerIngress,
   RouterWorkerPersistenceError,
 } from "../../router/index.js";
 import type {
@@ -22,22 +21,17 @@ import type {
 } from "../runtime/index.js";
 import {
   type ActionCertifiedRecord,
-  type ClientRepresentationError,
+  type ActionCore,
   type ConversationId as ConversationIdValue,
   type DecodedOuterBody,
   type EvidenceStatement,
   quorumThreshold,
-  RecordHash,
   type RecordHash as RecordHashValue,
   type VerifiedMembership,
   verifyActionCertifiedRecord,
   verifyDeliveredEvidence,
   verifyOuterMessage,
 } from "../../wire/index.js";
-import {
-  makeActionCertifiedRecord,
-  recordAnchorHash,
-} from "../history/index.js";
 
 /** A held delivery and the record it carries or votes for. */
 interface HeldDelivery {
@@ -59,13 +53,11 @@ interface PendingSuccessor {
   settled: boolean;
 }
 
-/** A recovery run's pending successors, one per conversation. */
-export type PendingSuccessors = Map<ConversationIdValue, PendingSuccessor>;
-
 /** What staged-successor handling needs from the recovery run it belongs to. */
 export interface SuccessorRun {
   readonly runtime: EngineRuntime;
-  readonly pending: PendingSuccessors;
+  /** The successor each re-anchoring conversation holds toward converting. */
+  readonly pending: Map<ConversationIdValue, PendingSuccessor>;
   /** The run's verified membership of a conversation. */
   readonly membership: (
     conversationId: ConversationIdValue,
@@ -78,47 +70,8 @@ export interface SuccessorRun {
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
 }
 
+const acceptedDisposition: RouterIngressDisposition = "accepted";
 const ignoredDisposition: RouterIngressDisposition = "ignored";
-
-/**
- * Send members the staged, uncertified successor this endpoint holds and its
- * durability vote for it, both taken from the record's fold. A holder sends
- * them in place of an `incomplete` catch-up answer at the successor's
- * predecessor, and again when its own position is ready, since it votes for
- * no re-anchor there.
- * @param runtime Engine whose fold holds the record.
- * @param queue How the caller signs and sends a body to the members.
- * @param membership Verified membership of the record's conversation.
- * @param staged The staged record row.
- * @returns Completion once the record and the vote are queued.
- */
-export function queueStagedSuccessor(
-  runtime: EngineRuntime,
-  queue: (
-    membership: VerifiedMembership,
-    body: DecodedOuterBody,
-  ) => Effect.Effect<void, RouterWorkerPersistenceError>,
-  membership: VerifiedMembership,
-  staged: StagedRecord,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
-  return Schema.decodeUnknown(RecordHash)(staged.recordHash).pipe(
-    Effect.mapError(persistenceFailure),
-    Effect.flatMap((recordHash) => {
-      const fold = runtime.recordFolds.get(recordHash);
-      return fold === undefined
-        ? Effect.succeed([])
-        : successorBodies(runtime, fold).pipe(
-            Effect.mapError(persistenceFailure),
-          );
-    }),
-    Effect.flatMap((bodies) =>
-      Effect.forEach(bodies, (body) => queue(membership, body), {
-        concurrency: 1,
-        discard: true,
-      }),
-    ),
-  );
-}
 
 /**
  * Take a member's action-certified record for a recovering conversation when
@@ -136,14 +89,12 @@ export function acceptSuccessorRecord(
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   record: ActionCertifiedRecord,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  const conversationId = record.recordCore.action.conversationId;
-  const conversation = run.runtime.conversations.get(conversationId);
-  const membership = run.membership(conversationId);
+  const { action } = record.recordCore;
+  const { conversationId } = action;
+  const membership = membershipExtendedBy(run, action);
   if (
-    conversation === undefined ||
     membership === undefined ||
-    run.runtime.recordFolds.has(record.recordHash) ||
-    !extendsHead(conversation, record)
+    run.runtime.recordFolds.has(record.recordHash)
   ) {
     return Effect.succeed(ignoredDisposition);
   }
@@ -154,18 +105,14 @@ export function acceptSuccessorRecord(
   if (pending.settled || pending.record?.recordHash === record.recordHash) {
     return Effect.succeed(ignoredDisposition);
   }
-  return verifyHeldRecord(run, membership, ingress, record).pipe(
-    Effect.flatMap((verified) => {
-      if (!verified) {
-        return Effect.succeed(ignoredDisposition);
-      }
+  return holdTowardConversion(
+    run,
+    membership,
+    verifyHeldRecord(run, membership, ingress, record),
+    () => {
       pending.record = { recordHash: record.recordHash, ingress };
-      return maybeConvert(run, membership).pipe(
-        Effect.as<RouterIngressDisposition>("accepted"),
-      );
-    }),
-    Effect.withSpan("acceptSuccessorRecord"),
-  );
+    },
+  ).pipe(Effect.withSpan("acceptSuccessorRecord"));
 }
 
 /**
@@ -196,24 +143,82 @@ export function acceptSuccessorVote(
   }
   const fold = run.runtime.recordFolds.get(recordHash);
   if (fold !== undefined) {
-    return stagedSuccessorOf(conversation, fold) &&
-      !fold.durabilityEvidence.has(signerAgentId)
-      ? certifyThroughPhases(run, conversationId, [ingress])
-      : Effect.succeed(ignoredDisposition);
+    return acceptStagedSuccessorVote(
+      run,
+      { conversation, fold },
+      ingress,
+      vote.statement,
+    );
   }
-  const pending = pendingFor(run.pending, conversationId);
-  if (!run.reanchoring(conversationId) || pending.votes.has(signerAgentId)) {
+  if (!run.reanchoring(conversationId)) {
     return Effect.succeed(ignoredDisposition);
   }
-  return verifyHeldVote(run, membership, ingress, vote.message).pipe(
-    Effect.flatMap((verified) => {
-      if (!verified) {
+  const pending = pendingFor(run.pending, conversationId);
+  if (pending.settled || pending.votes.has(signerAgentId)) {
+    return Effect.succeed(ignoredDisposition);
+  }
+  return holdTowardConversion(
+    run,
+    membership,
+    verifyHeldVote(run, membership, ingress, vote.message),
+    () => {
+      pending.votes.set(signerAgentId, { recordHash, ingress });
+    },
+  ).pipe(Effect.withSpan("acceptSuccessorVote"));
+}
+
+/**
+ * Hand a member's vote for a successor this endpoint has staged to the
+ * protocol phases, which certify it at `q(n)` votes.
+ * @param run Recovery run that holds the conversation.
+ * @param target The conversation the vote names and the voted record's fold.
+ * @param target.conversation The conversation whose head the record extends.
+ * @param target.fold The fold of the record the member voted for.
+ * @param ingress Verified Router delivery carrying the vote.
+ * @param statement The member's durability vote.
+ * @returns Whether the vote was taken or ignored.
+ */
+function acceptStagedSuccessorVote(
+  run: SuccessorRun,
+  target: Readonly<{
+    conversation: EngineConversation;
+    fold: EngineActionFold;
+  }>,
+  ingress: RouterWorkerIngress<DecodedOuterBody>,
+  statement: Extract<EvidenceStatement, { readonly kind: "durability_vote" }>,
+): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
+  const { conversation, fold } = target;
+  const staged =
+    fold.certifiedRecord === undefined &&
+    extendsHead(conversation, fold.action);
+  const { conversationId, signerAgentId } = statement;
+  return staged && !fold.durabilityEvidence.has(signerAgentId)
+    ? certifyThroughPhases(run, conversationId, [ingress])
+    : Effect.succeed(ignoredDisposition);
+}
+
+/**
+ * Hold a member's verified record or vote toward converting, then convert if
+ * the hold is now complete.
+ * @param run Recovery run that holds the conversation.
+ * @param membership Verified membership of the successor's conversation.
+ * @param verified Whether the delivery verified for this conversation.
+ * @param hold Records the delivery in the conversation's pending successor.
+ * @returns Accepted once held, ignored when the delivery did not verify.
+ */
+function holdTowardConversion(
+  run: SuccessorRun,
+  membership: VerifiedMembership,
+  verified: Effect.Effect<boolean>,
+  hold: () => void,
+): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
+  return verified.pipe(
+    Effect.flatMap((held) => {
+      if (!held) {
         return Effect.succeed(ignoredDisposition);
       }
-      pending.votes.set(signerAgentId, { recordHash, ingress });
-      return maybeConvert(run, membership).pipe(
-        Effect.as<RouterIngressDisposition>("accepted"),
-      );
+      hold();
+      return maybeConvert(run, membership).pipe(Effect.as(acceptedDisposition));
     }),
   );
 }
@@ -330,42 +335,27 @@ function certifyThroughPhases(
   );
 }
 
-function successorBodies(
-  runtime: EngineRuntime,
-  fold: EngineActionFold,
-): Effect.Effect<readonly DecodedOuterBody[], ClientRepresentationError> {
-  return recordAnchorHash(fold).pipe(
-    Effect.flatMap((anchorHash) => makeActionCertifiedRecord(fold, anchorHash)),
-    Effect.map((record): readonly DecodedOuterBody[] => {
-      const vote = fold.durabilityEvidence.get(
-        runtime.input.localAgentCard.agentId,
-      );
-      return [
-        { kind: "direct", packet: record },
-        ...(vote === undefined
-          ? []
-          : [{ kind: "evidence" as const, message: vote }]),
-      ];
-    }),
-  );
-}
-
-function stagedSuccessorOf(
-  conversation: EngineConversation,
-  fold: EngineActionFold,
-): boolean {
-  return (
-    fold.certifiedRecord === undefined &&
-    fold.action.kind === "POST" &&
-    fold.action.previousRecordHash === conversation.head?.recordHash
-  );
+/**
+ * The run's membership of the conversation an action belongs to, when the
+ * action extends that conversation's head.
+ * @param run Recovery run that holds the conversation.
+ * @param action The action a member's record carries.
+ * @returns The membership, or nothing when the action extends no held head.
+ */
+function membershipExtendedBy(
+  run: SuccessorRun,
+  action: ActionCore,
+): VerifiedMembership | undefined {
+  const conversation = run.runtime.conversations.get(action.conversationId);
+  return conversation !== undefined && extendsHead(conversation, action)
+    ? run.membership(action.conversationId)
+    : undefined;
 }
 
 function extendsHead(
   conversation: EngineConversation,
-  record: ActionCertifiedRecord,
+  action: ActionCore,
 ): boolean {
-  const action = record.recordCore.action;
   return (
     action.kind === "POST" &&
     action.previousRecordHash === conversation.head?.recordHash
@@ -373,7 +363,7 @@ function extendsHead(
 }
 
 function pendingFor(
-  pending: PendingSuccessors,
+  pending: SuccessorRun["pending"],
   conversationId: ConversationIdValue,
 ): PendingSuccessor {
   const retained = pending.get(conversationId);
@@ -383,8 +373,4 @@ function pendingFor(
   const created: PendingSuccessor = { votes: new Map(), settled: false };
   pending.set(conversationId, created);
   return created;
-}
-
-function persistenceFailure(): RouterWorkerPersistenceError {
-  return new RouterWorkerPersistenceError();
 }

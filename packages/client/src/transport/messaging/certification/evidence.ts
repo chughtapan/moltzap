@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import type { RouterWorkerIngress } from "../../router/index.js";
 import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
 import {
-  ClientRepresentationError,
+  type ClientRepresentationError,
   decodeCanonical,
   type DecodedOuterBody,
   EvidenceStatement,

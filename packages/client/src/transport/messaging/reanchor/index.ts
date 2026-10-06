@@ -6,12 +6,15 @@
 
 import {
   MOLTZAP_VERSION,
-  SignedMessage,
   type SignedMessage as SignedMessageValue,
 } from "@moltzap/identity";
-import { Effect, type ParseResult, Schema } from "effect";
-import type { EndpointRecovery, StagedRecord } from "../../../store/index.js";
+import { Effect, Schema } from "effect";
 import type { EngineRuntime } from "../runtime/index.js";
+import {
+  type EndpointRecovery,
+  isSemanticStoreRejection,
+  type StagedRecord,
+} from "../../../store/index.js";
 import {
   type RouterDiscontinuityReason,
   type RouterIngressDisposition,
@@ -39,8 +42,8 @@ import {
   signEvidenceMessage,
   type VerifiedMembership,
   verifyCompletedReanchor,
+  verifyDeliveredEvidence,
   verifyOuterMessage,
-  verifyStableEvidence,
 } from "../../wire/index.js";
 import {
   anchorRouterInstanceId,
@@ -324,15 +327,13 @@ function verifyInboundVote(
   membership: VerifiedMembership,
 ): Effect.Effect<
   RouterIngressDisposition,
-  | ClientRepresentationError
-  | ParseResult.ParseError
-  | RouterWorkerPersistenceError
+  ClientRepresentationError | RouterWorkerPersistenceError
 > {
-  return verifyOuterMessage({ message: ingress.message, membership }).pipe(
-    Effect.zipRight(Schema.encode(SignedMessage)(message)),
-    Effect.flatMap((representation) =>
-      verifyStableEvidence({ representation, membership }),
-    ),
+  return verifyDeliveredEvidence({
+    outer: ingress.message,
+    evidence: message,
+    membership,
+  }).pipe(
     Effect.flatMap((verified) => {
       if (verified.statement.kind !== "reanchor_vote") {
         return Effect.succeed(ignoredDisposition);
@@ -898,8 +899,13 @@ function persistReanchorCandidate(
         canonicalBody,
       }),
     ),
-    Effect.mapError(persistenceFailure),
     Effect.as(true),
+    Effect.catchTag("EndpointStoreError", (error) =>
+      isSemanticStoreRejection(error)
+        ? Effect.succeed(false)
+        : Effect.fail(persistenceFailure()),
+    ),
+    Effect.mapError(persistenceFailure),
   );
 }
 

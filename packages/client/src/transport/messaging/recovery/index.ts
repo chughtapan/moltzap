@@ -34,6 +34,7 @@ import {
   EvidenceStatement,
   type EvidenceStatement as EvidenceStatementValue,
   memberCard,
+  type ReanchorBody,
   type VerifiedMembership,
   verifyDeliveredEvidence,
 } from "../../wire/index.js";
@@ -64,6 +65,7 @@ import {
   type CatchUpResponder,
   type CatchUpRun,
   makeCatchUpState,
+  queueStagedSuccessor,
   requestCertifiedHistory,
   resendCertifiedHistoryRequest,
   sentByOtherMember,
@@ -73,7 +75,6 @@ import {
 import {
   acceptSuccessorRecord,
   acceptSuccessorVote,
-  queueStagedSuccessor,
   type SuccessorRun,
 } from "./successor.js";
 
@@ -425,9 +426,11 @@ function routeEvidence(
   const { message, statement } = evidence;
   const run = activeRuns.get(runtime);
   if (statement.kind === "reanchor_vote") {
-    return noteEarlierReanchor(run, ingress, message, statement).pipe(
-      Effect.zipRight(acceptRunVote(runtime, ingress, message)),
-    );
+    return run !== undefined &&
+      statement.reanchor.routerInstanceId !==
+        run.recovery.anchor.routerInstanceId
+      ? noteEarlierReanchor(run, ingress, message, statement.reanchor)
+      : acceptRunVote(runtime, ingress, message);
   }
   if (!evidence.fenced) {
     return runtime.phases.acceptIngress(runtime, ingress);
@@ -438,45 +441,37 @@ function routeEvidence(
 }
 
 /**
- * Make a pending position wait for every member when a member's verified
- * re-anchor vote selects it for a Router instance other than the run's: that
- * re-anchor may have completed at a member that has not answered yet.
- * @param run The active recovery run, if any.
- * @param ingress Verified Router delivery carrying the vote.
+ * Take a member's re-anchor vote for a Router instance other than the run's.
+ * The run's re-anchor cannot use it, but a pending position it selects waits
+ * for every member: that re-anchor may have completed at a member that has
+ * not answered yet.
+ * @param run The active recovery run.
+ * @param ingress Router delivery carrying the vote.
  * @param message The vote's evidence message.
- * @param statement The vote's decoded statement.
- * @returns Completion once the vote is checked.
+ * @param body The re-anchor the vote is for.
+ * @returns Ignored, since the vote counts toward no re-anchor of this run.
  */
 function noteEarlierReanchor(
-  run: RecoveryRun | undefined,
+  run: RecoveryRun,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   message: SignedMessage,
-  statement: Extract<
-    EvidenceStatementValue,
-    { readonly kind: "reanchor_vote" }
-  >,
-): Effect.Effect<void> {
-  const body = statement.reanchor;
-  const membership = run?.memberships.get(body.conversationId);
-  if (
-    run === undefined ||
-    membership === undefined ||
-    body.routerInstanceId === run.recovery.anchor.routerInstanceId
-  ) {
-    return Effect.void;
+  body: ReanchorBody,
+): Effect.Effect<RouterIngressDisposition> {
+  const membership = run.memberships.get(body.conversationId);
+  if (membership === undefined) {
+    return Effect.succeed(ignoredDisposition);
   }
-  return verifyDeliveredEvidence({
-    outer: ingress.message,
-    evidence: message,
-    membership,
-  }).pipe(
-    Effect.tap(() =>
-      Effect.sync(() => {
-        waitBehindEarlierReanchor(run.catchUp, body);
-      }),
-    ),
-    Effect.asVoid,
+  return waitBehindEarlierReanchor(
+    run.catchUp,
+    body,
+    verifyDeliveredEvidence({
+      outer: ingress.message,
+      evidence: message,
+      membership,
+    }),
+  ).pipe(
     Effect.catchTag("ClientRepresentationError", () => Effect.void),
+    Effect.as(ignoredDisposition),
   );
 }
 
@@ -868,6 +863,7 @@ function reanchorPort(
   isActive: () => boolean,
   currentRun: () => RecoveryRun,
 ): ReanchorRun {
+  const sender = catchUpResponder(runtime);
   return startReanchorRun({
     runtime,
     reason: context.recovery.reason,
@@ -879,17 +875,11 @@ function reanchorPort(
       currentRun().completedConversations.has(conversationId),
     markRecovered: (conversationId) =>
       markRecovered(currentRun(), conversationId),
-    queue: (membership, body) =>
-      queueRecoveryEnvelope(runtime, membership, body),
+    queue: sender.queue,
     requestCatchUp: (conversationId) =>
       requestCertifiedHistory(currentRun().catchUp, conversationId),
     resendStagedSuccessor: (membership, staged) =>
-      queueStagedSuccessor(
-        runtime,
-        (target, body) => queueRecoveryEnvelope(runtime, target, body),
-        membership,
-        staged,
-      ),
+      queueStagedSuccessor(sender, membership, staged),
   });
 }
 

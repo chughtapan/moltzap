@@ -194,8 +194,10 @@ export const verifyStableEvidence = (input: {
  * Verify stable evidence a member delivered inside an outer envelope: the
  * envelope verifies as that member's, addressed to the whole membership, and
  * the evidence it carries verifies against the same membership.
- * @param input The outer envelope, the evidence it carries, and the
- *     membership both must verify against.
+ * @param input The delivery to verify.
+ * @param input.outer The member's outer envelope.
+ * @param input.evidence The evidence message the envelope carries.
+ * @param input.membership Membership both must verify against.
  * @returns The verified evidence message and its statement.
  */
 export const verifyDeliveredEvidence = (input: {

@@ -93,10 +93,10 @@ export {
   verifyCatchUpPage,
   verifyCertifiedRecord,
   verifyCompletedReanchor,
+  verifyDeliveredEvidence,
   verifyMembershipDescriptor,
   verifyOuterMessage,
   verifyRecordCore,
-  verifyDeliveredEvidence,
   verifyStableEvidence,
 } from "./verification.js";
 

@@ -2286,6 +2286,8 @@ const releaseHeldSend = (held: HeldSend) =>
  * The catch-up request the fixture's remote member sends for its position.
  * @param fixture Endpoint the request is addressed to.
  * @param known The requester's position; GENESIS when omitted.
+ * @param membership The conversation asked about, by default the fixture's
+ *     direct conversation.
  * @returns The remote member's catch-up request.
  */
 const peerCatchUpRequest = (
@@ -2294,14 +2296,18 @@ const peerCatchUpRequest = (
     knownRecordHash: null,
     knownAnchorHash: null,
   },
-): CatchUpRequest => ({
-  moltzapVersion: MOLTZAP_VERSION,
-  kind: "catch_up_request",
-  conversationId: fixture.membership.descriptor.conversationId,
-  membershipHash: fixture.membership.hash,
-  requesterAgentId: fixture.remote.card.agentId,
-  ...known,
-});
+  membership?: VerifiedMembership,
+): CatchUpRequest => {
+  const asked = membership ?? fixture.membership;
+  return {
+    moltzapVersion: MOLTZAP_VERSION,
+    kind: "catch_up_request",
+    conversationId: asked.descriptor.conversationId,
+    membershipHash: asked.hash,
+    requesterAgentId: fixture.remote.card.agentId,
+    ...known,
+  };
+};
 
 /**
  * Queue one normal outbound envelope by answering a peer catch-up request.
@@ -4225,15 +4231,15 @@ describe("endpoint outbound drain", () => {
 });
 
 /**
- * Takes the two catch-up requests a recovery of the N4 engine sends first.
+ * Takes the two catch-up requests a recovery of a group's engine sends first.
  * @param fixture Endpoint whose direct conversation is one of the two.
- * @param n4 Engine whose N4 conversation is the other.
+ * @param n4 The group conversation, the other one.
  * @param outbound Queue the recovery sends to.
  * @returns The request for each conversation.
  */
 const takeN4Requests = (
   fixture: RecoveryFixture,
-  n4: N4Foundation,
+  n4: Pick<N4Foundation, "membership">,
   outbound: Queue.Queue<SignedMessage>,
 ) =>
   Effect.gen(function* () {
@@ -4262,15 +4268,20 @@ const takeN4Requests = (
  * @param fixture Endpoint whose remote member is one of the three.
  * @param n4 Engine under recovery and the other two members.
  * @param request The N4 catch-up request being answered.
- * @param answering Which members answer.
+ * @param answering Which members answer, and through which Router instance.
  * @param answering.responders The members that answer, in order.
+ * @param answering.routerInstanceId The Router instance the answers come
+ *     through, by default the new one.
  * @returns Each answer's disposition, in the order the members answered.
  */
 const answerN4Incomplete = (
   fixture: RecoveryFixture,
   n4: N4Foundation,
   request: CatchUpRequest,
-  answering: { readonly responders?: readonly SigningIdentity[] } = {},
+  answering: {
+    readonly responders?: readonly SigningIdentity[];
+    readonly routerInstanceId?: typeof RouterInstanceId.Type;
+  } = {},
 ) =>
   Effect.forEach(
     answering.responders ?? [fixture.remote, n4.third, n4.fourth],
@@ -4281,7 +4292,7 @@ const answerN4Incomplete = (
           membership: n4.membership,
           responder,
           request,
-          routerInstanceId: newRouterInstanceId,
+          routerInstanceId: answering.routerInstanceId ?? newRouterInstanceId,
         }),
       ),
     { concurrency: 1 },
@@ -5848,12 +5859,14 @@ const openPeerEngine = (fixture: RecoveryFixture) =>
  * @param sent Queue the sending endpoint's recovery sends to.
  * @param engine Endpoint that receives the traffic.
  * @param sender Member whose recovery sends it.
+ * @param routerInstanceId The Router instance the traffic comes through.
  * @returns The receiving endpoint's dispositions, in delivery order.
  */
 const relayRecoveryTraffic = (
   sent: Queue.Queue<SignedMessage>,
   engine: EndpointEngine,
   sender: SigningIdentity,
+  routerInstanceId: typeof RouterInstanceId.Type = newRouterInstanceId,
 ) =>
   Effect.gen(function* () {
     const dispositions = yield* Queue.unbounded<RouterIngressDisposition>();
@@ -5865,7 +5878,7 @@ const relayRecoveryTraffic = (
         decodeOuterBody(message.body).pipe(
           Effect.flatMap((payload) =>
             engine.acceptRecoveryIngress({
-              routerInstanceId: newRouterInstanceId,
+              routerInstanceId,
               message,
               senderCard: sender.card,
               payload,
@@ -6973,18 +6986,13 @@ const certifiesAStagedSuccessorOnAVoteAMemberSendsAgain = () =>
         const recoveryAnswers = yield* takeSentBodies(outbound);
         const certified = yield* deliverRecovery(
           fixture.engine,
-          peerEvidenceIngressFrom({
-            membership: fixture.membership,
-            responder: fixture.remote,
-            statement: {
-              moltzapVersion: MOLTZAP_VERSION,
-              kind: "durability_vote",
-              signerAgentId: fixture.remote.card.agentId,
-              conversationId: fixture.membership.descriptor.conversationId,
-              membershipHash: fixture.membership.hash,
-              recordHash,
-            },
-            routerInstanceId: newRouterInstanceId,
+          peerEvidenceIngress(fixture, {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "durability_vote",
+            signerAgentId: fixture.remote.card.agentId,
+            conversationId: fixture.membership.descriptor.conversationId,
+            membershipHash: fixture.membership.hash,
+            recordHash,
           }),
         );
         const next = yield* takeCatchUpRequest(outbound);
@@ -7122,16 +7130,26 @@ const certifiesAPostOneDirectMemberStagedBeforeTheRestart = () =>
  * @param fixture Endpoint holding both conversations.
  * @param group The group conversation.
  * @param head The group's certified head.
- * @param reason The discontinuity the recovery follows.
+ * @param recovery The recovery to start.
+ * @param recovery.reason The discontinuity the recovery follows.
+ * @param recovery.routerInstanceId The Router instance it recovers at, by
+ *     default the new one after a Router restart and the old one otherwise.
+ * @param recovery.clock How the recovery's clock runs, as in
+ *     {@link forkRecovery}.
  * @returns The run's queue and the group's catch-up request.
  */
 const recoverGroup = (
   fixture: RecoveryFixture,
   group: Pick<GroupFoundation, "engine" | "membership">,
   head: CertifiedRecord,
-  reason: RouterDiscontinuityReason = "router_restarted",
+  recovery: {
+    readonly reason?: RouterDiscontinuityReason;
+    readonly routerInstanceId?: typeof RouterInstanceId.Type;
+    readonly clock?: "held" | "caller";
+  } = {},
 ) =>
   Effect.gen(function* () {
+    const reason = recovery.reason ?? "router_restarted";
     yield* directPacketIngressFrom({
       membership: group.membership,
       sender: fixture.remote,
@@ -7143,19 +7161,13 @@ const recoverGroup = (
     const { outbound } = yield* forkRecovery(
       { engine: group.engine, recoveryOutbound: fixture.recoveryOutbound },
       reason,
-      reason === "router_restarted" ? newRouterInstanceId : oldRouterInstanceId,
+      recovery.routerInstanceId ??
+        (reason === "router_restarted"
+          ? newRouterInstanceId
+          : oldRouterInstanceId),
+      { clock: recovery.clock ?? "held" },
     );
-    const requests = yield* Effect.replicateEffect(
-      takeCatchUpRequest(outbound),
-      2,
-    );
-    const request = requests.find(
-      (candidate) =>
-        candidate.conversationId === group.membership.descriptor.conversationId,
-    );
-    if (request === undefined) {
-      return yield* Effect.dieMessage("recovery did not ask the group");
-    }
+    const { group: request } = yield* takeN4Requests(fixture, group, outbound);
     return { outbound, request };
   });
 
@@ -7435,7 +7447,9 @@ const stagesASuccessorOnItsRecordAloneAfterAFeedGap = () =>
         const n4 = yield* addN4Foundation(fixture);
         const history = yield* buildN4PartialHistory(fixture, n4);
         const { recordHash } = history.stagedSuccessor;
-        yield* recoverGroup(fixture, n4, history.certifiedHead, "feed_gap");
+        yield* recoverGroup(fixture, n4, history.certifiedHead, {
+          reason: "feed_gap",
+        });
 
         yield* groupSuccessorTraffic(n4, oldRouterInstanceId).record(
           n4.fourth,
@@ -7497,15 +7511,14 @@ const answersWithTheSuccessorItStagedInsteadOfIncomplete = () =>
           directPacketIngressFrom({
             membership: n4.membership,
             sender: fixture.remote,
-            packet: {
-              moltzapVersion: MOLTZAP_VERSION,
-              kind: "catch_up_request",
-              conversationId: n4.membership.descriptor.conversationId,
-              membershipHash: n4.membership.hash,
-              requesterAgentId: fixture.remote.card.agentId,
-              knownRecordHash: head.recordHash,
-              knownAnchorHash: head.recordCore.anchorHash,
-            },
+            packet: peerCatchUpRequest(
+              fixture,
+              {
+                knownRecordHash: head.recordHash,
+                knownAnchorHash: head.recordCore.anchorHash,
+              },
+              n4.membership,
+            ),
             routerInstanceId: newRouterInstanceId,
           }),
         );
@@ -7581,22 +7594,27 @@ const openN4Holder = (
  * engine, as the Router does.
  * @param fixture Endpoint whose request it is.
  * @param n4 The N4 conversation.
- * @param engine The member's engine.
- * @param request The request.
+ * @param request The local endpoint's catch-up request.
+ * @param to The member's engine, and the Router instance that delivers it.
+ * @param to.engine The member's engine.
+ * @param to.routerInstanceId The Router instance that delivers it.
  * @returns How the member's engine disposed of it.
  */
 const deliverRequestTo = (
   fixture: RecoveryFixture,
   n4: N4Foundation,
-  engine: EndpointEngine,
   request: CatchUpRequest,
+  to: {
+    readonly engine: EndpointEngine;
+    readonly routerInstanceId: typeof RouterInstanceId.Type;
+  },
 ) =>
   directPacketIngressFrom({
     membership: n4.membership,
     sender: fixture.local,
     packet: request,
-    routerInstanceId: newRouterInstanceId,
-  }).pipe(Effect.flatMap((ingress) => engine.acceptRouterIngress(ingress)));
+    routerInstanceId: to.routerInstanceId,
+  }).pipe(Effect.flatMap((ingress) => to.engine.acceptRouterIngress(ingress)));
 
 /**
  * The #1205 trace after a Router restart. The fourth N4 member holds the
@@ -7635,7 +7653,10 @@ const waitsBehindASuccessorAHolderAnswersWith = () =>
           n4.fourth,
         );
 
-        yield* deliverRequestTo(fixture, n4, holder.engine, request);
+        yield* deliverRequestTo(fixture, n4, request, {
+          engine: holder.engine,
+          routerInstanceId: newRouterInstanceId,
+        });
         yield* answerN4Incomplete(fixture, n4, request, {
           responders: [n4.third],
         });
@@ -7680,66 +7701,29 @@ const neverSettlesBehindASuccessorAfterAFeedGap = () =>
         const history = yield* buildN4PartialHistory(fixture, n4);
         const { recordHash } = history.stagedSuccessor;
         const holder = yield* openN4Holder(fixture, n4, history);
-        yield* directPacketIngressFrom({
-          membership: n4.membership,
-          sender: fixture.remote,
-          packet: history.certifiedHead,
-          routerInstanceId: oldRouterInstanceId,
-        }).pipe(
-          Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
+        const { request } = yield* recoverGroup(
+          fixture,
+          n4,
+          history.certifiedHead,
+          { reason: "feed_gap", clock: "caller" },
         );
-        const { outbound } = yield* forkRecovery(
-          { engine: n4.engine, recoveryOutbound: fixture.recoveryOutbound },
-          "feed_gap",
-          oldRouterInstanceId,
-          { clock: "caller" },
-        );
-        const { group: request } = yield* takeN4Requests(fixture, n4, outbound);
-
-        yield* directPacketIngressFrom({
-          membership: n4.membership,
-          sender: fixture.local,
-          packet: request,
-          routerInstanceId: oldRouterInstanceId,
-        }).pipe(
-          Effect.flatMap((ingress) =>
-            holder.engine.acceptRouterIngress(ingress),
-          ),
-        );
-        yield* holder.engine.drainOutbound.pipe(Effect.orDie);
-        const answered = yield* Queue.takeAll(holder.normalOutbound);
-        yield* Effect.forEach(
-          answered,
-          (signedMessage) =>
-            SignedMessage.verify({
-              signedMessage,
-              agentCard: n4.fourth.card,
-            }).pipe(
-              Effect.flatMap((message) =>
-                decodeOuterBody(message.body).pipe(
-                  Effect.flatMap((payload) =>
-                    n4.engine.acceptRecoveryIngress({
-                      routerInstanceId: oldRouterInstanceId,
-                      message,
-                      senderCard: n4.fourth.card,
-                      payload,
-                    }),
-                  ),
-                ),
-              ),
-              Effect.orDie,
-            ),
-          { concurrency: 1, discard: true },
-        );
-        yield* deliverRecovery(
+        yield* relayRecoveryTraffic(
+          holder.normalOutbound,
           n4.engine,
-          catchUpIncompleteIngressFrom({
-            membership: n4.membership,
-            responder: n4.third,
-            request,
-            routerInstanceId: oldRouterInstanceId,
-          }),
+          n4.fourth,
+          oldRouterInstanceId,
         );
+
+        yield* deliverRequestTo(fixture, n4, request, {
+          engine: holder.engine,
+          routerInstanceId: oldRouterInstanceId,
+        });
+        yield* holder.engine.drainOutbound.pipe(Effect.orDie);
+        yield* settle;
+        yield* answerN4Incomplete(fixture, n4, request, {
+          responders: [n4.third],
+          routerInstanceId: oldRouterInstanceId,
+        });
         const sending = yield* forkSend(
           n4.engine,
           `group:${[fixture.remote, n4.third, n4.fourth]
@@ -7858,16 +7842,6 @@ const waitsBehindAnEarlierInstanceReanchor = (earlierVote: "own" | "member") =>
           laterRouterInstanceId,
         );
         const { group: request } = yield* takeN4Requests(fixture, n4, outbound);
-        const answerAtTheLaterInstance = (responder: SigningIdentity) =>
-          deliverRecovery(
-            n4.engine,
-            catchUpIncompleteIngressFrom({
-              membership: n4.membership,
-              responder,
-              request,
-              routerInstanceId: laterRouterInstanceId,
-            }),
-          );
         if (earlierVote === "member") {
           yield* deliverRecovery(
             n4.engine,
@@ -7885,8 +7859,10 @@ const waitsBehindAnEarlierInstanceReanchor = (earlierVote: "own" | "member") =>
             }),
           );
         }
-        yield* answerAtTheLaterInstance(n4.third);
-        yield* answerAtTheLaterInstance(fixture.remote);
+        yield* answerN4Incomplete(fixture, n4, request, {
+          responders: [n4.third, fixture.remote],
+          routerInstanceId: laterRouterInstanceId,
+        });
         const laterCandidates = (yield* groupState(fixture, n4, recordHash))
           .candidates;
         const completed = yield* completedReanchorBy(earlierBody, [
@@ -7954,15 +7930,14 @@ const answersIncompleteWithItsEarlierInstanceVote = () =>
           directPacketIngressFrom({
             membership: n4.membership,
             sender: fixture.remote,
-            packet: {
-              moltzapVersion: MOLTZAP_VERSION,
-              kind: "catch_up_request",
-              conversationId: n4.membership.descriptor.conversationId,
-              membershipHash: n4.membership.hash,
-              requesterAgentId: fixture.remote.card.agentId,
-              knownRecordHash: head.recordHash,
-              knownAnchorHash: head.recordCore.anchorHash,
-            },
+            packet: peerCatchUpRequest(
+              fixture,
+              {
+                knownRecordHash: head.recordHash,
+                knownAnchorHash: head.recordCore.anchorHash,
+              },
+              n4.membership,
+            ),
             routerInstanceId: laterRouterInstanceId,
           }),
         );
@@ -7970,6 +7945,7 @@ const answersIncompleteWithItsEarlierInstanceVote = () =>
         const statements = yield* Effect.forEach(
           answered.filter((body) => body.kind === "evidence"),
           (body) => decodeCanonical(EvidenceStatement, body.message.body),
+          { concurrency: 1 },
         ).pipe(Effect.orDie);
 
         expect(answered).toMatchObject([
@@ -8018,21 +7994,12 @@ const settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut = () =>
           selectedRecordHash: recordHash,
           routerInstanceId: newRouterInstanceId,
         };
-        yield* directPacketIngressFrom({
-          membership: n4.membership,
-          sender: fixture.remote,
-          packet: history.certifiedHead,
-          routerInstanceId: oldRouterInstanceId,
-        }).pipe(
-          Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
+        const { request } = yield* recoverGroup(
+          fixture,
+          n4,
+          history.certifiedHead,
+          { routerInstanceId: laterRouterInstanceId, clock: "caller" },
         );
-        const { outbound } = yield* forkRecovery(
-          { engine: n4.engine, recoveryOutbound: fixture.recoveryOutbound },
-          "router_restarted",
-          laterRouterInstanceId,
-          { clock: "caller" },
-        );
-        const { group: request } = yield* takeN4Requests(fixture, n4, outbound);
         yield* deliverRecovery(
           n4.engine,
           peerEvidenceIngressFrom({
@@ -8048,20 +8015,10 @@ const settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut = () =>
             routerInstanceId: laterRouterInstanceId,
           }),
         );
-        yield* Effect.forEach(
-          [n4.third, fixture.remote],
-          (responder) =>
-            deliverRecovery(
-              n4.engine,
-              catchUpIncompleteIngressFrom({
-                membership: n4.membership,
-                responder,
-                request,
-                routerInstanceId: laterRouterInstanceId,
-              }),
-            ),
-          { concurrency: 1, discard: true },
-        );
+        yield* answerN4Incomplete(fixture, n4, request, {
+          responders: [n4.third, fixture.remote],
+          routerInstanceId: laterRouterInstanceId,
+        });
         const whileRetrying = (yield* groupState(fixture, n4, recordHash))
           .candidates;
         yield* exhaustCatchUpRetries;
