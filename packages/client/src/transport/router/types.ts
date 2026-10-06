@@ -3,7 +3,6 @@
 import type {
   AgentId,
   AgentSigningAuthority,
-  SignedMessage,
   VerifiedAgentCard,
   VerifiedSignedMessage,
 } from "@moltzap/identity";
@@ -127,18 +126,6 @@ export interface RouterWorkerIngress<Payload> {
 export interface RouterWorkerRecovery {
   readonly reason: RouterDiscontinuityReason;
   readonly anchor: RouterTailAnchor;
-  readonly resume: (
-    outboundId: string,
-  ) => Effect.Effect<void, RouterWorkerSendError>;
-  readonly send: (
-    input: RouterWorkerRecoverySend,
-  ) => Effect.Effect<void, RouterWorkerSendError>;
-}
-
-/** One recovery-only message before its complete outer envelope is retained. */
-export interface RouterWorkerRecoverySend {
-  readonly conversationId: string;
-  readonly message: SignedMessage;
 }
 
 /** Durable operations required by the Router transport and no other worker path. */

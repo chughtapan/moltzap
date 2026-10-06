@@ -41,7 +41,6 @@ import { makeOutbox } from "./outbox.js";
 import { installRecoveryBarrier } from "./recovery/barrier.js";
 import {
   acceptEngineIngressWithRecovery,
-  acceptEngineRecoveryIngressWithRecovery,
   recoverCertifiedHistory,
 } from "./recovery/index.js";
 import {
@@ -406,6 +405,7 @@ const enginePhases: EnginePhases = {
 const makeRuntime = (
   input: EndpointEngineInput,
   recovered: Effect.Effect.Success<ReturnType<typeof recoverEngineState>>,
+  scope: Scope.Scope,
 ): Effect.Effect<EngineRuntime> =>
   Effect.gen(function* () {
     return {
@@ -421,6 +421,7 @@ const makeRuntime = (
         recovered.outboundMessages.map((message) => message.outboundId),
       ),
       phases: enginePhases,
+      scope,
     };
   });
 
@@ -456,7 +457,7 @@ const hydratePostIntents = (
 
 const initializeRuntime = (
   input: EndpointEngineInput,
-): Effect.Effect<EngineRuntime, EngineInitializationError> =>
+): Effect.Effect<EngineRuntime, EngineInitializationError, Scope.Scope> =>
   Effect.gen(function* () {
     yield* validateLocalIdentity(input);
     yield* bindLocalIdentity(input);
@@ -466,7 +467,7 @@ const initializeRuntime = (
     const recovered = yield* recoverEngineState(input, recovery).pipe(
       Effect.mapError(recoveryInitializationFailure),
     );
-    const runtime = yield* makeRuntime(input, recovered);
+    const runtime = yield* makeRuntime(input, recovered, yield* Effect.scope);
     yield* hydratePostIntents(runtime, recovered.postIntents);
     return runtime;
   });
@@ -527,7 +528,7 @@ const endpointEngine = (runtime: EngineRuntime): EndpointEngine =>
     ) => acceptEngineIngressWithRecovery(runtime, ingress),
     acceptRecoveryIngress: (
       ingress: Parameters<EndpointEngine["acceptRecoveryIngress"]>[0],
-    ) => acceptEngineRecoveryIngressWithRecovery(runtime, ingress),
+    ) => acceptEngineIngressWithRecovery(runtime, ingress),
     recoverCertifiedHistory: (
       recovery: Parameters<EndpointEngine["recoverCertifiedHistory"]>[0],
     ) => recoverCertifiedHistory(runtime, recovery),

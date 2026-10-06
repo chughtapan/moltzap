@@ -80,8 +80,6 @@ type RouterClientFailure = Effect.Effect.Error<
 
 /* eslint-disable max-lines, max-lines-per-function, sonarjs/max-lines-per-function, sonarjs/no-nested-functions, agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The scripted scenarios keep each Router trace and its exact ordering assertions together and use Vitest's Promise-native contract. */
 
-const retryMode: RouterSendRequest["mode"] = "retry";
-
 const callbacks = (input?: {
   readonly accepted?: Ref.Ref<string[]>;
   readonly acceptedRouterInstances?: Ref.Ref<string[]>;
@@ -796,59 +794,6 @@ const recoveryRetryPromotesChangedTailToRestart = async (): Promise<void> => {
         pollCursor: pollCursor(29),
       });
     }),
-  );
-};
-
-const recoveryResumesRetainedOutbound = async (): Promise<void> => {
-  await Effect.runPromise(
-    withOutbox((store) =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const outgoing = yield* signMessage({
-          card: fixture.localCard,
-          authority: fixture.localAuthority,
-          recipient: fixture.localCard.agentId,
-          id: 62,
-          body: "retained-recovery-envelope",
-        });
-        const outbound = yield* prepareOutbound(
-          store,
-          "conversation:recovery-resume",
-          outgoing,
-        );
-        yield* store.beginOutbound(outbound.outboundId).pipe(Effect.orDie);
-        const instance = routerInstanceId(62);
-        const accepted = yield* acceptedResult(instance, outgoing);
-        const router = yield* makeScriptedRouter({
-          polls: [
-            emptyBatch(instance, pollCursor(21)),
-            { kind: "cursor_invalid" },
-            emptyBatch(instance, pollCursor(22)),
-            emptyBatch(instance, pollCursor(23)),
-          ],
-          sends: [accepted],
-        });
-        const worker = yield* provide(
-          makeActiveRouterWorker(
-            makeInput(
-              fixture,
-              callbacks({
-                recover: (recovery) => recovery.resume(outbound.outboundId),
-              }),
-              store,
-            ),
-          ),
-          router.layer,
-          fixture,
-        );
-        yield* provide(worker.pollOnce, router.layer, fixture);
-        const sendCalls = yield* Ref.get(router.scripted.sendCalls);
-        expect(sendCalls).toHaveLength(1);
-        expect(sendCalls[0]?.request.mode).toBe(retryMode);
-        expect(sendCalls[0]?.request.signedMessage).toEqual(outgoing);
-        expect((yield* store.recover()).outboundMessages).toEqual([]);
-      }),
-    ),
   );
 };
 
@@ -1758,10 +1703,6 @@ describe("private Router worker", () => {
   it(
     "promotes a retry-time omitted-tail instance change before recovery",
     recoveryRetryPromotesChangedTailToRestart,
-  );
-  it(
-    "resumes an already-retained envelope during same-instance recovery",
-    recoveryResumesRetainedOutbound,
   );
   it(
     "holds normal sends until recovery activates its Router generation",

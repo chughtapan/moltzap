@@ -235,6 +235,57 @@ export function persistCompletedReanchor(
 }
 
 /**
+ * Make a member's verified completed re-anchor durable and the
+ * conversation's current anchor. It supersedes a different candidate this
+ * endpoint staged for the same anchor and Router instance: its quorum
+ * certificate shows that candidate can never be certified, because two
+ * certificates for one scope would need an honest member to vote twice. The
+ * store refuses a completion that does not extend this endpoint's durable
+ * position; that refusal comes from the member's input, not a failed store,
+ * so the completion does not count.
+ * @param runtime Engine whose store and conversation take the anchor.
+ * @param completed Verified completed re-anchor from a member.
+ * @returns Whether the anchor was applied; false when the store refused it.
+ */
+export function applyCompletedReanchor(
+  runtime: EngineRuntime,
+  completed: CompletedReanchorValue,
+): Effect.Effect<boolean, RouterWorkerPersistenceError> {
+  return Effect.gen(function* () {
+    const applied = yield* runtime.input.store
+      .applyCatchUpReanchor({
+        conversationId: completed.reanchor.conversationId,
+        anchorHash: completed.anchorHash,
+        previousAnchorHash: completed.reanchor.previousAnchorHash,
+        routerInstanceId: completed.reanchor.routerInstanceId,
+        selectedRecordHash: completed.reanchor.selectedRecordHash,
+        canonicalBody: yield* encodeCanonical(
+          ReanchorBody,
+          completed.reanchor,
+        ).pipe(Effect.mapError(persistenceFailure)),
+        canonicalCompletedReanchor: yield* encodeCanonical(
+          CompletedReanchor,
+          completed,
+        ).pipe(Effect.mapError(persistenceFailure)),
+      })
+      .pipe(
+        Effect.as(true),
+        Effect.catchTag("EndpointStoreError", (error) =>
+          isSemanticStoreRejection(error)
+            ? Effect.succeed(false)
+            : Effect.fail(persistenceFailure()),
+        ),
+      );
+    if (applied) {
+      yield* Effect.sync(() => {
+        adoptCompletedReanchor(runtime, completed);
+      });
+    }
+    return applied;
+  }).pipe(Effect.withSpan("applyCompletedReanchor"));
+}
+
+/**
  * Make a durable completed re-anchor the conversation's current anchor in
  * memory, and drop the fold of the unstaged proposal it supersedes at the
  * selected head. That proposal binds the previous anchor, so it is no longer

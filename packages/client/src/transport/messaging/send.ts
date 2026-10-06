@@ -35,7 +35,7 @@ import {
 } from "../wire/index.js";
 import { resolveMessageAddress } from "./address.js";
 import { SendError } from "./errors.js";
-import { currentRecoveryBarrier } from "./recovery/barrier.js";
+import { pendingRecoveryFence } from "./recovery/barrier.js";
 
 /**
  * One post the engine certifies: its address and its complete content. The
@@ -525,7 +525,7 @@ function activateIntentOnce(
 ): Effect.Effect<IntentActivation, SendError> {
   const { canonicalIntent, intent } = prepared;
   return Effect.gen(function* () {
-    const barrier = currentRecoveryBarrier(runtime);
+    const barrier = pendingRecoveryFence(runtime, intent.conversationId);
     if (barrier !== undefined) {
       return { kind: "waiting", barrier } satisfies IntentActivation;
     }

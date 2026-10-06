@@ -26,6 +26,7 @@ import {
   type AnchorHash,
   type CertifiedRecord,
   ClientRepresentationError,
+  type ConversationId,
   type DecodedOuterBody,
   encodeCanonical,
   equalCanonical,
@@ -985,15 +986,22 @@ export const acceptEngineRecoveryIngress = (
 /**
  * Resume only the evidence obligations already selected in durable state.
  * @param runtime Recovered engine state and durable protocol dependencies.
+ * @param conversationId The one conversation to resume; every conversation
+ *     when omitted.
  * @returns Completion after all resumable evidence work has been queued.
  */
 export const resumeEngineFolds = (
   runtime: EngineRuntime,
+  conversationId?: ConversationId,
 ): Effect.Effect<void, RouterWorkerPersistenceError> =>
   runtime.gate
     .withPermits(1)(
       Effect.forEach(
-        runtime.actionFolds.values(),
+        [...runtime.actionFolds.values()].filter(
+          (fold) =>
+            conversationId === undefined ||
+            fold.conversation.conversationId === conversationId,
+        ),
         (fold) =>
           Effect.gen(function* () {
             yield* localActionEvidence(runtime, fold);
