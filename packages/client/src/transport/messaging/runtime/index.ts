@@ -146,8 +146,11 @@ export interface EngineWaitingProposal {
   readonly actionHash: ActionHash;
   readonly proposal: RouterWorkerIngress<DecodedOuterBody>;
   readonly signatures: Map<AgentId, RouterWorkerIngress<DecodedOuterBody>>;
-  /** Whether enough members signed it for this endpoint to ask for history. */
-  catchUpRequested: boolean;
+  /**
+   * Whether `f + 1` members signed it, so at least one honest member locked
+   * it: only then does this endpoint ask for history or lock the proposal.
+   */
+  vouched: boolean;
 }
 
 /** Shared acquired state used by addressed send and protocol ingress. */
@@ -249,6 +252,14 @@ export interface EnginePhases {
    * proposal names a predecessor this endpoint does not hold.
    */
   readonly requestCatchUp: (
+    runtime: EngineRuntime,
+    conversationId: ConversationId,
+  ) => Effect.Effect<void, RouterWorkerPersistenceError>;
+  /**
+   * Accept a conversation's waiting proposal that now fits, as catch-up does
+   * after applying a completed re-anchor.
+   */
+  readonly acceptWaitingProposals: (
     runtime: EngineRuntime,
     conversationId: ConversationId,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;

@@ -31,6 +31,7 @@ import {
   type AnchorHash,
   type CertifiedRecord,
   ClientRepresentationError,
+  type ConversationId,
   decodeCanonical,
   type DecodedOuterBody,
   encodeCanonical,
@@ -459,7 +460,7 @@ const rebasePendingIntents = (
   conversationId: EngineConversation["conversationId"],
 ): Effect.Effect<void, RouterWorkerPersistenceError> =>
   Effect.forEach(
-    runtime.intents.values(),
+    knowsLaterPosition(runtime, conversationId) ? [] : runtime.intents.values(),
     (pending) =>
       pending.intent.conversationId === conversationId &&
       !runtime.completedPosts.has(pending.intent.postId)
@@ -503,7 +504,7 @@ const promote = (
     yield* persist(stored, delivery);
     yield* Effect.uninterruptible(completePromotion(runtime, fold, record));
     yield* rebasePendingIntents(runtime, fold.conversation.conversationId);
-    yield* acceptWaitingProposal(runtime, fold.conversation);
+    yield* acceptWaitingProposal(runtime, fold.conversation, source);
   });
 
 const maybePromote = (
@@ -597,6 +598,9 @@ const prepareProposalFold = (
     }
     if (!(yield* gapFree(conversation, proposal.action))) {
       yield* awaitPredecessor(runtime, conversation, ingress, proposal);
+      return undefined;
+    }
+    if (knowsLaterPosition(runtime, conversation.conversationId)) {
       return undefined;
     }
     const verified = yield* verifyProposal(conversation, ingress, proposal);
@@ -928,7 +932,7 @@ function awaitPredecessor(
             actionHash,
             proposal: ingress,
             signatures: new Map(),
-            catchUpRequested: false,
+            vouched: false,
           },
         );
       }),
@@ -952,15 +956,18 @@ function namesPassedRecord(
  * Hold an action signature that names no fold when it signs a waiting
  * proposal and its outer message verifies against that conversation. Once
  * `f + 1` members (one when `n < 4`) signed the proposal, at least one honest
- * member locked it, so its predecessor exists: only then does this endpoint
- * ask the members for the history after its durable position. A proposal no
- * honest member signs, such as one naming an invented predecessor, costs no
- * catch-up traffic.
+ * member locked it, so its predecessor exists and it is the proposal the
+ * members selected: only then does this endpoint ask the members for the
+ * history after its durable position, or accept the proposal if it already
+ * fits. A proposal no honest member signs, such as one naming an invented
+ * predecessor or one a faulty member sends after another proposal won its
+ * position, costs no catch-up traffic and is never locked here.
  * @param runtime Engine whose waiting proposals may take the signature.
  * @param ingress Router delivery carrying the evidence.
  * @param actionHash The action the signature names.
- * @returns Completion once the signature is held, and catch-up requested when
- *     it completes `f + 1` signers, or once it signs nothing waiting.
+ * @returns Completion once the signature is held, and the proposal accepted
+ *     or catch-up requested when it completes `f + 1` signers, or once it
+ *     signs nothing waiting.
  */
 function holdWaitingSignature(
   runtime: EngineRuntime,
@@ -975,36 +982,44 @@ function holdWaitingSignature(
   }
   const membership = waiting.conversation.membership;
   return verifyOuterMessage({ message: ingress.message, membership }).pipe(
-    Effect.flatMap(() => {
-      waiting.signatures.set(ingress.message.senderAgentId, ingress);
-      const signersNeeded =
-        membership.members.length -
-        quorumThreshold(membership.members.length) +
-        1;
-      if (waiting.catchUpRequested || waiting.signatures.size < signersNeeded) {
-        return Effect.void;
-      }
-      waiting.catchUpRequested = true;
-      return runtime.phases.requestCatchUp(
-        runtime,
-        waiting.conversation.conversationId,
-      );
-    }),
+    Effect.flatMap(() =>
+      Effect.gen(function* () {
+        waiting.signatures.set(ingress.message.senderAgentId, ingress);
+        if (
+          waiting.vouched ||
+          waiting.signatures.size < vouchingSigners(waiting)
+        ) {
+          return;
+        }
+        waiting.vouched = true;
+        const conversation = waiting.conversation;
+        yield* (yield* gapFree(conversation, waiting.action))
+          ? acceptWaitingProposal(runtime, conversation, "catch-up")
+          : runtime.phases.requestCatchUp(runtime, conversation.conversationId);
+      }),
+    ),
   );
 }
 
 /**
- * Accept the waiting proposal whose position a conversation now holds, then
- * its held signatures, and drop the conversation's waiting proposals that name
- * a record it has passed. Held input that fails verification or that the
- * store refuses is ignored, as it would have been on arrival.
+ * Accept the waiting proposal whose position a conversation now holds and
+ * that `f + 1` members signed, then its held signatures, and drop the
+ * conversation's waiting proposals that name a record it has passed. Held input that fails verification or that the
+ * store refuses is ignored, as it would have been on arrival. When this
+ * endpoint certified a record itself and a proposal it asked history for
+ * still waits, it asks again from the new position: answers to the request in
+ * flight now supply records it holds, and are ignored.
  * @param runtime Engine whose conversation just advanced.
  * @param conversation Conversation whose waiting proposals may now fit.
- * @returns Completion once a fitting proposal is accepted or none fits.
+ * @param source How the record that advanced the conversation arrived; a
+ *     catch-up page already asks for the next item.
+ * @returns Completion once a fitting proposal is accepted, catch-up asked
+ *     again, or nothing waits.
  */
 function acceptWaitingProposal(
   runtime: EngineRuntime,
   conversation: EngineConversation,
+  source: RecordSource,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return Effect.gen(function* () {
     const held = runtime.waitingProposals.get(conversation.conversationId);
@@ -1016,11 +1031,21 @@ function acceptWaitingProposal(
         held.delete(author);
       }
     }
-    const fitting = yield* Effect.filter(held.values(), (waiting) =>
-      gapFree(conversation, waiting.action),
+    const fitting = yield* Effect.filter(
+      [...held.values()].filter((waiting) => waiting.vouched),
+      (waiting) => gapFree(conversation, waiting.action),
     );
     const next = fitting[0];
     if (next === undefined) {
+      if (
+        source === "ordered" &&
+        [...held.values()].some((waiting) => waiting.vouched)
+      ) {
+        yield* runtime.phases.requestCatchUp(
+          runtime,
+          conversation.conversationId,
+        );
+      }
       return;
     }
     held.delete(next.action.postIntent.authorAgentId);
@@ -1030,6 +1055,31 @@ function acceptWaitingProposal(
       { concurrency: 1, discard: true },
     );
   });
+}
+
+/**
+ * Whether `f + 1` members signed a proposal this endpoint holds in a
+ * conversation, so the members' position is past this endpoint's head. Until
+ * catch-up brings it there, this endpoint neither locks a proposal at its
+ * head nor proposes its own posts again: the members already certified a
+ * record at that position, and a lock on another action would refuse that
+ * record when catch-up brings it.
+ * @param runtime Engine whose waiting proposals are checked.
+ * @param conversationId Conversation to check.
+ * @returns Whether a waiting proposal there has `f + 1` signers.
+ */
+function knowsLaterPosition(
+  runtime: EngineRuntime,
+  conversationId: ConversationId,
+): boolean {
+  return [
+    ...(runtime.waitingProposals.get(conversationId)?.values() ?? []),
+  ].some((waiting) => waiting.vouched);
+}
+
+function vouchingSigners(waiting: EngineWaitingProposal): number {
+  const memberCount = waiting.conversation.membership.members.length;
+  return memberCount - quorumThreshold(memberCount) + 1;
 }
 
 function heldProposals(
@@ -1099,6 +1149,27 @@ export const acceptEngineRecoveryIngress = (
         : Effect.succeed(ignoredDisposition),
     ),
   ).pipe(Effect.withSpan("acceptEngineRecoveryIngress"));
+
+/**
+ * Accept a conversation's waiting proposal once it fits, under the engine
+ * gate, for a position change that promotes no record, such as a caught-up
+ * completed re-anchor.
+ * @param runtime Current engine state and durable protocol dependencies.
+ * @param conversationId Conversation whose position just changed.
+ * @returns Completion once a fitting proposal is accepted or none fits.
+ */
+export const acceptWaitingProposals = (
+  runtime: EngineRuntime,
+  conversationId: ConversationId,
+): Effect.Effect<void, RouterWorkerPersistenceError> =>
+  runtime.gate.withPermits(1)(
+    Effect.suspend(() => {
+      const conversation = runtime.conversations.get(conversationId);
+      return conversation === undefined
+        ? Effect.void
+        : acceptWaitingProposal(runtime, conversation, "catch-up");
+    }),
+  );
 
 /**
  * Resume only the evidence obligations already selected in durable state.

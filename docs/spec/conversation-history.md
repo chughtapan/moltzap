@@ -495,22 +495,41 @@ held the predecessor locked.
 
 Once it holds signatures for a proposal from `f + 1` members, or from one
 member when `n < 4`, at least one honest member locked that proposal, so its
-predecessor exists. The member then sends one `CatchUpRequest` for that
-conversation from its durable position, outside any recovery run. A proposal
-that no `f + 1` members sign, such as one naming an invented predecessor,
-starts no catch-up. The member applies a `CatchUpPage` that answers its latest
-request in that conversation, then requests the next item from its new
-position. It ignores `CatchUpIncomplete` outside a recovery run: an
-incomplete answer can predate the record a held proposal names. When
-certifying a record locally makes a held proposal's position its current
+predecessor exists and it is the proposal the members selected there. The
+member then sends one `CatchUpRequest` for that conversation from its durable
+position, outside any recovery run, or accepts the proposal if it already
+fits. It never locks a held proposal with fewer signers. While it holds such a
+proposal, the members' position is past its head: it locks no proposal at its
+head and does not propose its own posts again there, because the members
+already certified a record at that position, and a lock on another action
+would refuse that record when catch-up brings it.
+
+A proposal that no `f + 1` members sign, such as one naming an invented
+predecessor, starts no catch-up. The member applies a `CatchUpPage` that
+answers its latest request in that conversation, then requests the next item
+from its new position. It ignores `CatchUpIncomplete` outside a recovery run:
+an incomplete answer can predate the record a held proposal names.
+
+When certifying a record locally, or applying a caught-up completed re-anchor,
+makes the position of a held proposal with `f + 1` signers its current
 position, the member accepts that proposal and its held signatures as if they
-had just arrived. Such input never stops the endpoint.
+had just arrived. When it certifies a record from ordinary evidence while a
+held proposal still waits for history, it requests again from its new
+position, because the answers in flight now supply a record it holds. Such
+input never stops the endpoint.
+
+A member that answers a `CatchUpRequest` and is not recovering itself also
+sends again its own action signature and durability vote for each action it
+selected at the requested position that is not yet certified. No member sends
+an `ActionCertifiedRecord`, so a requester that missed that evidence, while it
+was recovering or before it held the proposal, needs it to stage the action
+and reach the durability threshold.
 
 A Router discontinuity drops held proposals, because the recovery run that
 follows catches up every conversation and ignores action traffic. When that
-run ends, the member requests catch-up for each conversation that still has a
-post in flight: an unfinished local post, or a selected action that is not yet
-certified. The members may have certified it during recovery.
+run ends, the member requests catch-up in every conversation it recovered:
+the members may have certified records during recovery, including its own
+unfinished post.
 
 A POST proposal whose `previousRecordHash` names a record the member
 certified before its current head is stale: its author proposed before it saw
@@ -566,7 +585,9 @@ outer messages in a conversation of `n` members: the author's proposal, one
 action signature from each member that signs, and one durability vote from
 each member that stages the record. Each is addressed to all `n` members.
 Catch-up adds messages only when a member holds a proposal naming a position
-it does not hold, and after a recovery run.
+it does not hold, and after a recovery run; a catch-up answer can add the
+responder's own evidence for an uncertified action at the requested
+position.
 
 After ordered delivery, every conforming member, including the author, durably
 locks its first valid gap-free candidate for the predecessor before emitting a

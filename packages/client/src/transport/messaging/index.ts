@@ -32,6 +32,7 @@ import {
 import {
   acceptEngineIngress,
   acceptEngineRecoveryIngress,
+  acceptWaitingProposals,
   resumeEngineFolds,
 } from "./certification/index.js";
 import { DeliveryAcknowledgeError, ListenError, SendError } from "./errors.js";
@@ -402,6 +403,7 @@ const enginePhases: EnginePhases = {
   acceptRecoveryIngress: acceptEngineRecoveryIngress,
   resumeFolds: resumeEngineFolds,
   requestCatchUp: requestGapCatchUp,
+  acceptWaitingProposals,
 };
 
 const makeRuntime = (

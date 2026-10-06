@@ -24,6 +24,7 @@ import {
 } from "../../router/index.js";
 import {
   type CatchUpPage,
+  type CatchUpRequest,
   type ConversationId as ConversationIdValue,
   type DecodedOuterBody,
   type DirectPacket,
@@ -109,11 +110,7 @@ export function acceptEngineIngressWithRecovery(
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
   const body = ingress.payload;
   if (body.kind === "direct" && body.packet.kind === "catch_up_request") {
-    return acceptCatchUpRequest(
-      catchUpResponder(runtime),
-      ingress,
-      body.packet,
-    );
+    return answerCatchUpRequest(runtime, ingress, body.packet);
   }
   if (body.kind === "direct" && body.packet.kind === "catch_up_page") {
     return acceptGapCatchUpPage(runtime, ingress, body.packet);
@@ -173,7 +170,9 @@ export function acceptEngineRecoveryIngressWithRecovery(
  * conversation outside a recovery run. Once a page is applied, catch-up has
  * asked for the next item, and the successor it kept for the answered request
  * only serves duplicate copies of that page, which the next request's key
- * already refuses, so it is dropped.
+ * already refuses, so it is dropped. A caught-up completed re-anchor promotes
+ * no record, so certification is asked directly whether a waiting proposal
+ * now fits.
  * @param runtime Engine whose catch-up may own the page.
  * @param ingress Verified Router delivery carrying the page.
  * @param page Catch-up page from a member.
@@ -189,10 +188,19 @@ function acceptGapCatchUpPage(
     return Effect.succeed(ignoredDisposition);
   }
   return acceptCatchUpPage(run, ingress, page).pipe(
-    Effect.tap(() =>
+    Effect.tap((disposition) =>
       Effect.sync(() => {
         run.state.acceptedSuccessors.clear();
-      }),
+      }).pipe(
+        Effect.zipRight(
+          disposition === "accepted" && page.item.kind === "completed_reanchor"
+            ? runtime.phases.acceptWaitingProposals(
+                runtime,
+                page.request.conversationId,
+              )
+            : Effect.void,
+        ),
+      ),
     ),
   );
 }
@@ -213,30 +221,21 @@ function gapCatchUpOf(runtime: EngineRuntime): CatchUpRun {
 }
 
 /**
- * Once a recovery run ends, ask for the history after each conversation with
- * a post still in flight here: an unfinished local post or a selected action
- * not yet certified. The members may have certified it while this endpoint
- * ignored their action traffic, and no member sends a certified record
- * unasked.
+ * Once a recovery run ends, ask for the history after its position in every
+ * conversation the run recovered. The members may have certified records,
+ * including this endpoint's own unfinished post, while it ignored their action
+ * traffic, and no member sends a certified record unasked; an answer also
+ * sends again a member's evidence for an action still in flight.
  * @param runtime Engine whose recovery run just ended.
+ * @param run The run that ended.
  * @returns Completion once each request is in the durable outbox.
  */
-function requestInFlightCatchUps(
+function requestRecoveredCatchUps(
   runtime: EngineRuntime,
+  run: RecoveryRun,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
-  const conversations = new Set<ConversationIdValue>();
-  for (const pending of runtime.intents.values()) {
-    if (!runtime.completedPosts.has(pending.intent.postId)) {
-      conversations.add(pending.intent.conversationId);
-    }
-  }
-  for (const fold of runtime.actionFolds.values()) {
-    if (fold.certifiedRecord === undefined) {
-      conversations.add(fold.conversation.conversationId);
-    }
-  }
   return Effect.forEach(
-    conversations,
+    run.memberships.keys(),
     (conversationId) => requestGapCatchUp(runtime, conversationId),
     { concurrency: 1, discard: true },
   );
@@ -412,7 +411,7 @@ function acceptRecoveryPacket(
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
   switch (packet.kind) {
     case "catch_up_request":
-      return acceptCatchUpRequest(catchUpResponder(runtime), ingress, packet);
+      return answerCatchUpRequest(runtime, ingress, packet);
     case "catch_up_page":
     case "catch_up_incomplete":
     case "completed_reanchor":
@@ -427,6 +426,63 @@ function acceptRecoveryPacket(
       return exhaustive;
     }
   }
+}
+
+/**
+ * Answer a member's catch-up request, then send again this endpoint's own
+ * action signature and durability vote for each action it selected at the
+ * requested position that is not yet certified. No member sends an
+ * action-certified record, so a requester that missed that evidence, while
+ * recovering or before it held the proposal, could otherwise never stage the
+ * action or reach its durability threshold; an incomplete answer alone does
+ * not bring it. A responder still in its own recovery run sends only catch-up
+ * and re-anchor traffic, so it sends no evidence.
+ * @param runtime Engine that answers.
+ * @param ingress Verified Router delivery carrying the request.
+ * @param request Catch-up request from a fixed member.
+ * @returns Whether the request was answered or safely ignored.
+ */
+function answerCatchUpRequest(
+  runtime: EngineRuntime,
+  ingress: RouterWorkerIngress<DecodedOuterBody>,
+  request: CatchUpRequest,
+): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
+  const responder = catchUpResponder(runtime);
+  return acceptCatchUpRequest(responder, ingress, request).pipe(
+    Effect.tap((disposition) => {
+      const membership = responder.membership(request.conversationId);
+      const run = activeRuns.get(runtime);
+      if (
+        disposition !== "accepted" ||
+        membership === undefined ||
+        (run !== undefined && !run.completed)
+      ) {
+        return Effect.void;
+      }
+      const localAgentId = runtime.input.localAgentCard.agentId;
+      const evidence = [...runtime.actionFolds.values()]
+        .filter(
+          (fold) =>
+            fold.certifiedRecord === undefined &&
+            fold.conversation.conversationId === request.conversationId &&
+            fold.action.previousRecordHash === request.knownRecordHash,
+        )
+        .flatMap((fold) => [
+          fold.actionEvidence.get(localAgentId),
+          fold.durabilityEvidence.get(localAgentId),
+        ])
+        .filter((message) => message !== undefined);
+      return Effect.forEach(
+        evidence,
+        (message) =>
+          queueRecoveryEnvelope(runtime, membership, {
+            kind: "evidence",
+            message,
+          }),
+        { concurrency: 1, discard: true },
+      );
+    }),
+  );
 }
 
 function acceptRunPacket(
@@ -520,7 +576,7 @@ function runRecovery(
       .resumeFolds(runtime)
       .pipe(Effect.mapError(recoveryFailure));
     yield* resumePendingIntents(runtime, run);
-    yield* requestInFlightCatchUps(runtime).pipe(
+    yield* requestRecoveredCatchUps(runtime, run).pipe(
       Effect.mapError(recoveryFailure),
     );
   });

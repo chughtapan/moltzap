@@ -1058,6 +1058,195 @@ function catchesUpTwoMissedPostsBeforeTheNextProposal() {
 }
 
 /**
+ * Member 2 stages the first post but misses its durability votes, then misses
+ * the second post. With member 4 offline it holds the third proposal and asks
+ * for history from before the first post. The first post's votes then reach
+ * member 2 late, so it certifies that post itself before the answers arrive,
+ * and those answers supply a record it already holds. Member 2 asks again
+ * from its new position, catches up the second post and signs the third.
+ * @returns Completion once member 2 holds and delivers every post.
+ */
+function asksAgainAfterCertifyingARecordWhileItsRequestIsAnswered() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
+        const first = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "votes missed by member 2")),
+        );
+        yield* harness.deliver(yield* takeReadyBatch(harness));
+        yield* harness.drain();
+        yield* harness.deliver(yield* takeQueued(harness));
+        yield* harness.drain();
+        const lateVotes = yield* takeQueued(harness);
+        yield* pump(harness, lateVotes, [0, 2, 3]);
+        yield* Fiber.join(first).pipe(Effect.timeout("1 second"), Effect.orDie);
+        const second = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "missed by member 2")),
+        );
+        yield* missesEveryMessage(harness);
+        yield* Fiber.join(second).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        const third = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "needs member 2")),
+        );
+        yield* harness.deliver(yield* takeReadyBatch(harness), [0, 1, 2]);
+        yield* harness.drain([0, 1, 2]);
+        yield* harness.deliver(yield* takeQueued(harness), [0, 1, 2]);
+        yield* harness.drain([0, 1, 2]);
+        yield* harness.deliver(yield* takeQueued(harness), [0, 2]);
+        yield* harness.drain([0, 2]);
+        const staleAnswers = yield* takeQueued(harness);
+        yield* harness.deliver(lateVotes, [1]);
+        yield* harness.drain([1]);
+        yield* pump(
+          harness,
+          [...staleAnswers, ...(yield* takeQueued(harness))],
+          [0, 1, 2],
+        );
+        yield* Fiber.join(third).pipe(Effect.timeout("1 second"), Effect.orDie);
+
+        const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
+        expect(pending.map(({ message }) => message.content)).toEqual([
+          [{ type: "text", text: "open group" }],
+          [{ type: "text", text: "votes missed by member 2" }],
+          [{ type: "text", text: "missed by member 2" }],
+          [{ type: "text", text: "needs member 2" }],
+        ]);
+      }),
+    ),
+  );
+}
+
+/**
+ * Member 2 misses three posts. Member 4 made a proposal naming the first of
+ * them before the second post won that position, and it reaches the members
+ * only after member 1's next proposal. Every other member ignores it as
+ * stale; member 2 still lacks that position, so it holds it, but no other
+ * member signed it. When catch-up brings member 2 to that position, it does
+ * not lock that proposal, so it catches up the second post and every later
+ * one, and signs member 1's proposal.
+ * @returns Completion once every member holds the same certified history.
+ */
+function locksNoHeldProposalThatTooFewMembersSigned() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const faulty = yield* requireAt(harness.engines, 3, "endpoint engine");
+        const first = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "first missed by member 2")),
+        );
+        yield* missesEveryMessage(harness);
+        yield* Fiber.join(first).pipe(Effect.timeout("1 second"), Effect.orDie);
+        const faultySending = yield* Effect.fork(
+          faulty.send(yield* sendInput(harness, "member 4 post")),
+        );
+        const stale = yield* takeReadyBatch(harness);
+        const second = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "second missed by member 2")),
+        );
+        yield* pump(harness, yield* takeReadyBatch(harness), [0, 2, 3]);
+        yield* Fiber.join(second).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+        yield* Fiber.join(faultySending).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        const third = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "needs member 2")),
+        );
+        const thirdBatch = yield* takeReadyBatch(harness);
+        yield* pump(harness, [...thirdBatch, ...stale]);
+        yield* Fiber.join(third).pipe(Effect.timeout("1 second"), Effect.orDie);
+
+        const histories = yield* Effect.forEach(
+          harness.stores,
+          (store) =>
+            store
+              .recover()
+              .pipe(
+                Effect.map(({ certifiedRecords }) => certifiedRecords.length),
+              ),
+          { concurrency: 1 },
+        ).pipe(Effect.orDie);
+        expect(histories).toEqual([5, 5, 5, 5]);
+      }),
+    ),
+  );
+}
+
+/**
+ * Member 2's own post loses its position to member 1's first post, and member
+ * 2 then misses that post's evidence and all of the second post. With member
+ * 4 offline, member 2 holds the third proposal and catches up. It does not
+ * propose its own post again at the positions it passes through, which the
+ * members already filled, so no lock of its own refuses the records catch-up
+ * brings. It signs the third post, then its own post certifies after it.
+ * @returns Completion once member 2 holds the posts and its own send ends.
+ */
+function proposesNothingAtPositionsItCatchesUpThrough() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
+        const first = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "first missed by member 2")),
+        );
+        const firstBatch = yield* takeReadyBatch(harness);
+        const own = yield* Effect.fork(
+          lagging.send(yield* sendInput(harness, "member 2 post")),
+        );
+        yield* harness.deliver([
+          ...firstBatch,
+          ...(yield* takeReadyBatch(harness)),
+        ]);
+        yield* harness.drain();
+        yield* pump(harness, yield* takeQueued(harness), [0, 2, 3]);
+        yield* Fiber.join(first).pipe(Effect.timeout("1 second"), Effect.orDie);
+        const second = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "second missed by member 2")),
+        );
+        yield* missesEveryMessage(harness);
+        yield* Fiber.join(second).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        const third = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "needs member 2")),
+        );
+        yield* pump(harness, yield* takeReadyBatch(harness), [0, 1, 2]);
+        yield* Fiber.join(third).pipe(Effect.timeout("1 second"), Effect.orDie);
+        yield* Fiber.join(own).pipe(Effect.timeout("1 second"), Effect.orDie);
+
+        const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
+        expect(pending.map(({ message }) => message.content)).toEqual([
+          [{ type: "text", text: "open group" }],
+          [{ type: "text", text: "first missed by member 2" }],
+          [{ type: "text", text: "second missed by member 2" }],
+          [{ type: "text", text: "needs member 2" }],
+        ]);
+      }),
+    ),
+  );
+}
+
+/**
  * Member 2 misses one post and holds the next proposal, which members 1 and 3
  * sign with member 4 offline. Member 4 then sends member 2 a proposal naming
  * an invented predecessor. It takes only member 4's slot, so member 2 still
@@ -1713,6 +1902,21 @@ describe("fixed-post endpoint protocol", () => {
   it(
     "catches up two missed posts before signing the proposal that names the second",
     catchesUpTwoMissedPostsBeforeTheNextProposal,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "asks again after certifying a record while its request is being answered",
+    asksAgainAfterCertifyingARecordWhileItsRequestIsAnswered,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "locks no held proposal that fewer than f + 1 members signed",
+    locksNoHeldProposalThatTooFewMembersSigned,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "proposes nothing at the positions a member catches up through",
+    proposesNothingAtPositionsItCatchesUpThrough,
     TEST_TIMEOUT_MS,
   );
   it(

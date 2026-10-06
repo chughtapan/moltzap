@@ -1428,6 +1428,13 @@ const completeRestartRecovery = () =>
         ).pipe(Effect.timeout("1 second"), Effect.flatMap(decodeEvidenceKind));
         expect(resumedActionEvidence).toBe(actionSignatureKind);
         expect(resumedDurabilityEvidence).toBe(durabilityVoteKind);
+        const askedAfterRecovery = yield* Queue.take(
+          fixture.normalOutbound,
+        ).pipe(
+          Effect.timeout("1 second"),
+          Effect.flatMap(decodeCatchUpRequest),
+        );
+        expect(askedAfterRecovery.knownAnchorHash).toBe(proposal.anchorHash);
 
         const sending = yield* Effect.fork(
           fixture.engine.send(
@@ -1656,6 +1663,90 @@ const asksForHistoryAfterRecoveryWithAPostInFlight = () =>
             },
           },
         ]);
+        yield* Fiber.interrupt(sending);
+      }),
+    ),
+  );
+
+/**
+ * The endpoint has signed its own in-flight post when a member asks for the
+ * history after the post's predecessor. Nothing later is certified, so it
+ * answers that it holds nothing later, and it sends its action signature
+ * again: the member may have missed it, and no member sends an
+ * action-certified record that would carry it.
+ */
+const resendsOwnEvidenceWhenAnsweringCatchUp = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+        yield* fixture.engine.drainOutbound;
+        yield* Queue.takeAll(fixture.normalOutbound);
+        const sending = yield* Effect.fork(
+          fixture.engine.send(
+            yield* Effect.all({
+              to: Schema.decodeUnknown(MessageAddressInput)(
+                `agent:${fixture.remote.card.agentName}`,
+              ),
+              content: Schema.decodeUnknown(Content)([
+                { type: "text", text: "signed before the request" },
+              ]),
+            }),
+          ),
+        );
+        const proposal = yield* Queue.take(fixture.normalOutbound).pipe(
+          Effect.timeout("1 second"),
+          Effect.flatMap((message) => decodeActionProposal(message)),
+        );
+        yield* directPacketIngressFrom({
+          membership: fixture.membership,
+          sender: fixture.local,
+          packet: proposal,
+          routerInstanceId: oldRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRouterIngress(ingress),
+          ),
+        );
+        yield* fixture.engine.drainOutbound;
+        const signature = yield* Queue.take(fixture.normalOutbound).pipe(
+          Effect.timeout("1 second"),
+        );
+        expect(yield* decodeEvidenceKind(signature)).toBe(actionSignatureKind);
+
+        const record = fixture.certifiedRecord.actionCertifiedRecord;
+        yield* directPacketIngressFrom({
+          membership: fixture.membership,
+          sender: fixture.remote,
+          packet: {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "catch_up_request",
+            conversationId: fixture.membership.descriptor.conversationId,
+            membershipHash: fixture.membership.hash,
+            requesterAgentId: fixture.remote.card.agentId,
+            knownRecordHash: record.recordHash,
+            knownAnchorHash: record.recordCore.anchorHash,
+          },
+          routerInstanceId: oldRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRouterIngress(ingress),
+          ),
+        );
+        yield* fixture.engine.drainOutbound;
+        const answers = yield* Queue.takeAll(fixture.normalOutbound);
+        const bodies = yield* Effect.forEach(
+          answers,
+          (message) => decodeOuterBody(message.body),
+          { concurrency: 1 },
+        );
+
+        expect(bodies).toMatchObject([
+          { kind: "direct", packet: { kind: "catch_up_incomplete" } },
+          yield* decodeOuterBody(signature.body),
+        ]);
+        expect(bodies).toHaveLength(2);
         yield* Fiber.interrupt(sending);
       }),
     ),
@@ -2020,10 +2111,23 @@ const recoverWhileDrainAwaitsWorker = () =>
         yield* Fiber.join(recovering).pipe(Effect.timeout("1 second"));
 
         yield* releaseHeldSend(held);
+        const askedAfterRecovery = yield* takeHeldSend(sends);
+        yield* releaseHeldSend(askedAfterRecovery);
         yield* Fiber.join(draining).pipe(Effect.timeout("1 second"));
-        expect(yield* takeAllMessageIds(fixture.normalOutbound)).toEqual([
-          queued.messageId,
+        const sent = yield* Queue.takeAll(fixture.normalOutbound);
+        expect(
+          yield* Effect.forEach(
+            sent,
+            (message) => decodeOuterBody(message.body),
+            { concurrency: 1 },
+          ),
+        ).toMatchObject([
+          { kind: "direct", packet: { kind: "catch_up_incomplete" } },
+          { kind: "direct", packet: { kind: "catch_up_request" } },
         ]);
+        expect(Chunk.toReadonlyArray(sent)[0]?.messageId).toBe(
+          queued.messageId,
+        );
         expect(yield* takeAllMessageIds(resumedOutbound)).toEqual([]);
         expect((yield* fixture.store.recover()).outboundMessages).toEqual([]);
       }),
@@ -2192,7 +2296,18 @@ const drainRecoversRouterRestartOnItsOwnFiber = () =>
         );
         expect(yield* Deferred.isDone(recovered)).toBe(true);
         const after = yield* fixture.store.recover();
-        expect(after.outboundMessages).toEqual([]);
+        expect(
+          yield* Effect.forEach(
+            after.outboundMessages,
+            (row) =>
+              decodeCanonical(SignedMessage, row.canonicalSignedMessage).pipe(
+                Effect.flatMap((message) => decodeOuterBody(message.body)),
+              ),
+            { concurrency: 1 },
+          ),
+        ).toMatchObject([
+          { kind: "direct", packet: { kind: "catch_up_request" } },
+        ]);
         const storedAnchor = after.anchors[0];
         if (storedAnchor === undefined) {
           return yield* Effect.dieMessage("restarted anchor was not stored");
@@ -3365,6 +3480,10 @@ describe("endpoint restart recovery", () => {
   it(
     "asks for history after recovery in a conversation with a post in flight",
     asksForHistoryAfterRecoveryWithAPostInFlight,
+  );
+  it(
+    "sends its own evidence again when it answers catch-up for an uncertified action",
+    resendsOwnEvidenceWhenAnsweringCatchUp,
   );
   it("preserves retained envelope bytes when startup finds the same Router", () =>
     recoverSameRouterInstance("router_restarted"));
