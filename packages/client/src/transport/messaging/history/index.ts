@@ -26,6 +26,7 @@ export {
   readStoredHistory,
   readStoredRecord,
   recordFromStore,
+  stagedSuccessor,
   type StoredRowError,
   storedRowMatchesCore,
   verifyRecoveredHistory,

@@ -41,7 +41,10 @@ import {
 import {
   decodeStoredAnchor,
   durablePosition,
+  makeActionCertifiedRecord,
   readStoredRecord,
+  recordAnchorHash,
+  stagedSuccessor,
 } from "../history/index.js";
 import { applyCompletedReanchor } from "../reanchor/index.js";
 
@@ -66,11 +69,19 @@ export interface CatchUpRun {
   readonly membership: (
     conversationId: ConversationIdValue,
   ) => VerifiedMembership | undefined;
-  /** Sign a packet and queue it for every member of `membership`. */
-  readonly queuePacket: (
+  /** Sign a body and queue it for every member of `membership`. */
+  readonly queue: (
     membership: VerifiedMembership,
-    packet: DirectPacket,
+    body: DecodedOuterBody,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
+  /**
+   * Whether this endpoint is re-anchoring the conversation after a Router
+   * restart, so it answers a request over a staged, uncertified successor of
+   * the requested position with that successor instead of `incomplete`.
+   */
+  readonly withholdsIncomplete: (
+    conversationId: ConversationIdValue,
+  ) => boolean;
   /**
    * A quorum of members, counting this endpoint, has attested that it holds
    * no later history.
@@ -86,7 +97,7 @@ export interface CatchUpRun {
  */
 export type CatchUpResponder = Pick<
   CatchUpRun,
-  "runtime" | "membership" | "queuePacket"
+  "runtime" | "membership" | "queue" | "withholdsIncomplete"
 >;
 
 const acceptedDisposition: RouterIngressDisposition = "accepted";
@@ -366,24 +377,108 @@ function queueCatchUpRequest(
         run.state.incompleteResponders.set(conversationId, new Set<AgentId>());
       }
     });
-    yield* run.queuePacket(membership, request);
+    yield* run.queue(membership, { kind: "direct", packet: request });
   });
 }
 
+/**
+ * Answer a member's request with the certified successor of its position, or
+ * say none is held. A responder still re-anchoring after a Router restart
+ * that holds a staged, uncertified successor there sends that successor and
+ * its durability vote instead of `incomplete`: an `incomplete` answer from a
+ * holder would let a requester settle at the head the successor extends.
+ * @param responder The endpoint answering.
+ * @param membership Verified membership of the request's conversation.
+ * @param request The member's verified catch-up request.
+ * @returns Completion once the answer is queued.
+ */
 function respondToCatchUp(
   responder: CatchUpResponder,
   membership: VerifiedMembership,
   request: CatchUpRequestValue,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
-  return responder.runtime.input.store.recover().pipe(
-    Effect.mapError(persistenceFailure),
-    Effect.flatMap((recovery) =>
-      decodeCatchUpSuccessor(responder.runtime, membership, recovery, request),
-    ),
-    Effect.flatMap((successor) =>
-      successor === undefined
-        ? sendCatchUpIncomplete(responder, membership, request)
-        : sendCatchUpPage(responder, membership, request, successor),
+  return Effect.gen(function* () {
+    const recovery = yield* responder.runtime.input.store
+      .recover()
+      .pipe(Effect.mapError(persistenceFailure));
+    const successor = yield* decodeCatchUpSuccessor(
+      responder.runtime,
+      membership,
+      recovery,
+      request,
+    );
+    if (successor !== undefined) {
+      return yield* sendCatchUpPage(responder, membership, request, successor);
+    }
+    const staged =
+      request.knownRecordHash !== null &&
+      request.knownAnchorHash !== null &&
+      responder.withholdsIncomplete(request.conversationId)
+        ? stagedSuccessor(
+            recovery,
+            request.conversationId,
+            request.knownRecordHash,
+            request.knownAnchorHash,
+          )
+        : undefined;
+    if (staged === undefined) {
+      return yield* sendCatchUpIncomplete(responder, membership, request);
+    }
+    const recordHash = yield* Schema.decodeUnknown(RecordHash)(
+      staged.recordHash,
+    ).pipe(Effect.mapError(persistenceFailure));
+    return yield* queueStagedSuccessor(responder, membership, recordHash);
+  });
+}
+
+/**
+ * The bodies that hand a staged, uncertified successor to the members: its
+ * action-certified record and this endpoint's durability vote for it, both
+ * taken from the record's fold. A record with no fold yields nothing.
+ * @param runtime Engine whose fold holds the record.
+ * @param recordHash The staged record.
+ * @returns The record body, then the vote body when this endpoint voted.
+ */
+export function stagedSuccessorBodies(
+  runtime: EngineRuntime,
+  recordHash: RecordHashValue,
+): Effect.Effect<readonly DecodedOuterBody[], RouterWorkerPersistenceError> {
+  return Effect.suspend(() => {
+    const fold = runtime.recordFolds.get(recordHash);
+    if (fold === undefined) {
+      return Effect.succeed([]);
+    }
+    return recordAnchorHash(fold).pipe(
+      Effect.flatMap((anchorHash) =>
+        makeActionCertifiedRecord(fold, anchorHash),
+      ),
+      Effect.mapError(persistenceFailure),
+      Effect.map((record): readonly DecodedOuterBody[] => {
+        const vote = fold.durabilityEvidence.get(
+          runtime.input.localAgentCard.agentId,
+        );
+        return [
+          { kind: "direct", packet: record },
+          ...(vote === undefined
+            ? []
+            : [{ kind: "evidence" as const, message: vote }]),
+        ];
+      }),
+    );
+  });
+}
+
+function queueStagedSuccessor(
+  responder: CatchUpResponder,
+  membership: VerifiedMembership,
+  recordHash: RecordHashValue,
+): Effect.Effect<void, RouterWorkerPersistenceError> {
+  return stagedSuccessorBodies(responder.runtime, recordHash).pipe(
+    Effect.flatMap((bodies) =>
+      Effect.forEach(bodies, (body) => responder.queue(membership, body), {
+        concurrency: 1,
+        discard: true,
+      }),
     ),
   );
 }
@@ -492,11 +587,14 @@ function sendCatchUpIncomplete(
       request,
       { kind: "incomplete", hash: null, hasMore: false },
     );
-    yield* responder.queuePacket(membership, {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "catch_up_incomplete",
-      request,
-      attestation,
+    yield* responder.queue(membership, {
+      kind: "direct",
+      packet: {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "catch_up_incomplete",
+        request,
+        attestation,
+      },
     });
   });
 }
@@ -517,13 +615,16 @@ function sendCatchUpPage(
       request,
       { kind: successor.item.kind, hash, hasMore: successor.hasMore },
     );
-    yield* responder.queuePacket(membership, {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "catch_up_page",
-      request,
-      item: successor.item,
-      hasMore: successor.hasMore,
-      attestation,
+    yield* responder.queue(membership, {
+      kind: "direct",
+      packet: {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "catch_up_page",
+        request,
+        item: successor.item,
+        hasMore: successor.hasMore,
+        attestation,
+      },
     });
   });
 }

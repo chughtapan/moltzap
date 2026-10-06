@@ -47,6 +47,7 @@ import {
   durablePosition,
   observedAnchorIsResolved,
   observedHeadIsResolved,
+  stagedSuccessor,
 } from "../history/index.js";
 import { restartEmptyPosition } from "./empty.js";
 import {
@@ -97,6 +98,14 @@ export interface ReanchorRunPort {
   /** Ask members again for the history after the conversation's position. */
   readonly requestCatchUp: (
     conversationId: ConversationIdValue,
+  ) => Effect.Effect<void, RouterWorkerPersistenceError>;
+  /**
+   * Send members again the staged, uncertified successor this endpoint
+   * holds and its durability vote for it, so the successor can certify.
+   */
+  readonly resendStagedSuccessor: (
+    membership: VerifiedMembership,
+    recordHash: RecordHashValue,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
 }
 
@@ -220,10 +229,12 @@ interface RestartedPositionInput {
 
 /**
  * Move a restart-recovered position toward the new Router instance: finish it
- * when it is already anchored there, wait behind a staged successor, or
+ * when it is already anchored there, hold behind a staged successor, or
  * replay the peer votes held while catch-up ran and then propose this
- * endpoint's own re-anchor. The replay can complete the re-anchor, so whether
- * to propose is decided only after it has run.
+ * endpoint's own re-anchor. A holder of a staged successor votes for no
+ * re-anchor at its head; it sends the successor and its durability vote
+ * again, so members can certify it. The replay can complete the re-anchor, so
+ * whether to propose is decided only after it has run.
  * @param input Recovery run, membership, durable position and its head.
  * @returns Completion once the position is finished, waiting, or proposed.
  */
@@ -235,8 +246,14 @@ function advanceRestartedPosition(
   if (currentAnchorForRecovery(run, conversationId) !== undefined) {
     return finishAnchoredPosition(run, membership);
   }
-  if (hasStagedSuccessor(recovery, conversationId, head)) {
-    return Effect.void;
+  const staged = stagedSuccessor(recovery, conversationId, head);
+  if (staged !== undefined) {
+    return Schema.decodeUnknown(RecordHash)(staged.recordHash).pipe(
+      Effect.mapError(persistenceFailure),
+      Effect.flatMap((recordHash) =>
+        run.resendStagedSuccessor(membership, recordHash),
+      ),
+    );
   }
   return replayReanchorVotes(run, membership, conversationId, head).pipe(
     Effect.zipRight(
@@ -603,9 +620,9 @@ function selectedHeadAction(
   const { body, head, recovery, run } = input;
   if (body.selectedRecordHash === head) {
     return Effect.succeed(
-      hasStagedSuccessor(recovery, body.conversationId, head)
-        ? holdVote
-        : certifyVote,
+      stagedSuccessor(recovery, body.conversationId, head) === undefined
+        ? certifyVote
+        : holdVote,
     );
   }
   if (
@@ -818,11 +835,11 @@ function stageReanchorCandidate(
         return Effect.succeed(false);
       }
       if (
-        hasStagedSuccessor(
+        stagedSuccessor(
           recovery,
           body.conversationId,
           body.selectedRecordHash,
-        )
+        ) !== undefined
       ) {
         return Effect.succeed(false);
       }
@@ -866,23 +883,6 @@ function stagedCandidate(
       candidate.conversationId === body.conversationId &&
       candidate.previousAnchorHash === body.previousAnchorHash &&
       candidate.routerInstanceId === body.routerInstanceId,
-  );
-}
-
-function hasStagedSuccessor(
-  recovery: EndpointRecovery,
-  conversationId: ConversationIdValue,
-  head: RecordHashValue,
-): boolean {
-  return recovery.stagedRecords.some(
-    (record) =>
-      record.conversationId === conversationId &&
-      record.previousRecordHash === head &&
-      !recovery.certifiedRecords.some(
-        (certified) =>
-          certified.conversationId === conversationId &&
-          certified.recordHash === record.recordHash,
-      ),
   );
 }
 

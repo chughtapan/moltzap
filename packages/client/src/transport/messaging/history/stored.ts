@@ -378,6 +378,35 @@ export const durablePosition = (
   );
 
 /**
+ * The staged record that extends a position but holds no durability
+ * certificate yet. At most one exists: its action certificate and this
+ * endpoint's proposal lock select one successor per predecessor and anchor.
+ * @param recovery Complete verified recovery snapshot.
+ * @param conversationId Conversation whose position is examined.
+ * @param head Record the successor extends.
+ * @param anchorHash Anchor the successor binds; any anchor when omitted.
+ * @returns The staged, uncertified successor, when this endpoint holds one.
+ */
+export function stagedSuccessor(
+  recovery: EndpointRecovery,
+  conversationId: ConversationIdValue,
+  head: RecordHashValue,
+  anchorHash?: AnchorHashValue,
+): EndpointRecovery["stagedRecords"][number] | undefined {
+  return recovery.stagedRecords.find(
+    (record) =>
+      record.conversationId === conversationId &&
+      record.previousRecordHash === head &&
+      (anchorHash === undefined || record.anchorHash === anchorHash) &&
+      !recovery.certifiedRecords.some(
+        (certified) =>
+          certified.conversationId === conversationId &&
+          certified.recordHash === record.recordHash,
+      ),
+  );
+}
+
+/**
  * Determine whether one observed record belongs to the retained head ancestry.
  * @param recovery Complete verified recovery snapshot.
  * @param conversationId Conversation whose record chain is examined.
