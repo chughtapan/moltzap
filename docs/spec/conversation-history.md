@@ -352,10 +352,11 @@ An honest endpoint durably records one proposal lock for each
 anchor. It signs only the first structurally valid, gap-free candidate it
 observes in Router order and never signs a conflicting candidate for that
 predecessor under that anchor. Completing a re-anchor releases the lock at the
-record it selects, with the signatures and any staged record held for its
-candidate: `ActionHash` binds the anchor, so no candidate under the previous
-anchor is gap-free afterward, and the re-anchor's `q(n)` certificate shows a
-staged candidate there can never collect a durability certificate.
+record it selects, with the action signatures held for its candidate and any
+record staged for it with that record's durability votes: `ActionHash` binds
+the anchor, so no candidate under the previous anchor is gap-free afterward,
+and the re-anchor's `q(n)` certificate shows a staged candidate there can never
+collect a durability certificate, because of the re-anchor rules below.
 
 A sender persists its immutable post intent before protocol traffic. If a
 different candidate commits first, it retries the same `PostId` and intent
@@ -470,7 +471,14 @@ A new RouterInstanceId does not rewrite history. Members compare verified
 ancestry, select the unique latest certified head, and use the existing
 re-anchor statement and `q(n)` threshold. An honest member stages and signs at
 most one candidate for one conversation, preceding anchor, and Router
-instance. New actions bind the durable new anchor. Catch-up and re-anchor do
+instance. It votes for no re-anchor at a head while it holds a staged,
+uncertified successor of that head, and after voting to re-anchor away from an
+anchor it stages no record and casts no durability vote under that anchor. A
+`q(n)` re-anchor certificate at a head therefore leaves fewer than `q(n)`
+members able to attest a staged successor's durability. A member that holds
+such a successor adopts a verified completed re-anchor at its head, by relay
+or catch-up, even though it cast no vote for it. New actions bind the durable
+new anchor. Catch-up and re-anchor do
 not create runtime messages by themselves. Verified catch-up or re-anchor
 input from a member that the endpoint cannot apply, such as input naming an
 anchor, record, or position it cannot resolve, does not count and never stops

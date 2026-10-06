@@ -3577,11 +3577,18 @@ const reanchorByCatchUp: ReanchorRoute = (fixture, run) =>
  * after the re-anchor conflicts with it and the conversation never
  * certifies another record, when the old proposal's signatures outlive its
  * lock and startup refuses the store, or when the old proposal's fold
- * resends its signature after the re-anchor.
+ * resends its signature after the re-anchor. With `stale` set to `staged`,
+ * the peer's signature arrives before the restart, so the endpoint assembles
+ * the old proposal's action certificate and stages its record with a
+ * dissemination obligation, which the re-anchor retires as well.
  * @param reanchorAt How the conversation re-anchors at R.
+ * @param stale Whether the old proposal is only locked or also staged.
  * @returns The trace, run to completion.
  */
-const certifiesAtALockedHeadAfterReanchoring = (reanchorAt: ReanchorRoute) =>
+const certifiesAtALockedHeadAfterReanchoring = (
+  reanchorAt: ReanchorRoute,
+  stale: "locked" | "staged" = "locked",
+) =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
@@ -3604,19 +3611,37 @@ const certifiesAtALockedHeadAfterReanchoring = (reanchorAt: ReanchorRoute) =>
             }),
           ),
         );
-        const stale = yield* takeActionProposalAfterEvidence(
+        const staleProposal = yield* takeActionProposalAfterEvidence(
           fixture.normalOutbound,
         );
         const staleOrdered = yield* fixture.engine.acceptRouterIngress(
           yield* directPacketIngressFrom({
             membership: fixture.membership,
             sender: fixture.local,
-            packet: stale.proposal,
+            packet: staleProposal.proposal,
             routerInstanceId: oldRouterInstanceId,
           }),
         );
-        const locksBeforeRestart = (yield* fixture.store.recover())
-          .proposalLocks;
+        const staleActionHash = yield* hashAction(
+          staleProposal.proposal.action,
+        );
+        if (stale === "staged") {
+          yield* fixture.engine.acceptRouterIngress(
+            yield* peerEvidenceIngressFrom({
+              membership: fixture.membership,
+              responder: fixture.remote,
+              statement: {
+                moltzapVersion: MOLTZAP_VERSION,
+                kind: "action_signature",
+                signerAgentId: fixture.remote.card.agentId,
+                actionHash: staleActionHash,
+              },
+              routerInstanceId: oldRouterInstanceId,
+            }),
+          );
+        }
+        const beforeRestart = yield* fixture.store.recover();
+        const locksBeforeRestart = beforeRestart.proposalLocks;
 
         const { recovery, outbound, request } =
           yield* startRestartRecovery(fixture);
@@ -3691,16 +3716,24 @@ const certifiesAtALockedHeadAfterReanchoring = (reanchorAt: ReanchorRoute) =>
         );
         const restarted = yield* Effect.exit(makeEndpointEngine(fixture.input));
 
+        const afterRestart = yield* fixture.store.recover();
+
         expect(staleOrdered).toBe(acceptedDisposition);
         expect(resumedEvidence).not.toContainEqual(
-          expect.objectContaining({
-            actionHash: yield* hashAction(stale.proposal.action),
-          }),
+          expect.objectContaining({ actionHash: staleActionHash }),
         );
         expect(locksBeforeRestart).toMatchObject([
           {},
           { previousRecordHash: head },
         ]);
+        expect(
+          beforeRestart.stagedRecords.some(
+            (record) => record.actionHash === staleActionHash,
+          ),
+        ).toBe(stale === "staged");
+        expect(afterRestart.stagedRecords).not.toContainEqual(
+          expect.objectContaining({ actionHash: staleActionHash }),
+        );
         expect(reproposal.action).toMatchObject({
           previousRecordHash: head,
           anchorHash,
@@ -3713,22 +3746,35 @@ const certifiesAtALockedHeadAfterReanchoring = (reanchorAt: ReanchorRoute) =>
   );
 
 /**
+ * How a quorum's completed re-anchor reaches this endpoint: in a member's
+ * catch-up page answering its pending request, or relayed on its own after
+ * every member has answered its request as incomplete.
+ */
+type CompletionArrival = "catch-up" | "relay";
+
+/**
  * Members re-anchored the N4 conversation at its certified head while this
- * endpoint held a staged successor of that head under the old anchor, and a
- * member's catch-up page carries the completed re-anchor. The endpoint adopts
- * it, retires the staged successor that can no longer certify, takes the
- * members' next record at that head under the new anchor, recovers, and
- * starts again over the same store. Fails when the staged successor keeps its
- * lock, so the record under the new anchor conflicts with it and the
- * conversation never recovers, or when its retired rows leave startup a
+ * endpoint held a staged successor of that head under the old anchor, and
+ * the completion reaches it by `arrival`. The endpoint adopts it, retires the
+ * staged successor that can no longer certify, takes the members' next
+ * record at that head under the new anchor, recovers, ignores a late
+ * durability vote for the retired successor, and starts again over the same
+ * store. Fails when the staged successor keeps its lock, so the record under
+ * the new anchor conflicts with it and the conversation never recovers; when
+ * a relayed completion is held behind the staged successor; when the retired
+ * successor's fold still takes evidence; or when retired rows leave startup a
  * record no lock selects.
  * Value: protects=a conversation re-anchored behind a staged successor can
  * extend its head under the new anchor; fails_when=the staged successor's
- * lock, signatures or record survive the re-anchor; why_new=the locked-head
- * trace has no staged successor, and a re-anchor by vote waits behind one,
- * so only catch-up reaches it; seam=none.
+ * lock, signatures, record or fold survive the re-anchor; why_new=the
+ * locked-head trace has no staged successor, and this endpoint never votes
+ * behind one; seam=none.
+ * @param arrival How the completed re-anchor reaches the endpoint.
+ * @returns The trace, run to completion.
  */
-const retiresAStagedSuccessorWhenACaughtUpReanchorSelectsItsHead = () =>
+const retiresAStagedSuccessorWhenAReanchorSelectsItsHead = (
+  arrival: CompletionArrival,
+) =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
@@ -3767,6 +3813,10 @@ const retiresAStagedSuccessorWhenACaughtUpReanchorSelectsItsHead = () =>
           },
           [fixture.remote, n4.third, n4.fourth],
         );
+        const extension = yield* certifiedN4PostAt(fixture, n4, {
+          routerAnchor: completed,
+          previousRecordHash: recordHash,
+        });
         const { recovery, outbound } = yield* forkRecovery(
           n4.engine,
           "router_restarted",
@@ -3794,52 +3844,81 @@ const retiresAStagedSuccessorWhenACaughtUpReanchorSelectsItsHead = () =>
           n4.engine,
           catchUpIncompleteIngress(fixture, directRequest),
         );
-        const page = yield* deliverRecovery(
-          n4.engine,
-          catchUpPageIngressFrom({
-            membership: n4.membership,
-            responder: n4.fourth,
-            request: n4Request,
-            item: completed,
-            routerInstanceId: newRouterInstanceId,
-          }),
-        );
-        const next = yield* takeCatchUpRequest(outbound);
-        const extension = yield* certifiedN4PostAt(fixture, n4, {
-          routerAnchor: completed,
-          previousRecordHash: recordHash,
-        });
-        const extended = yield* deliverRecovery(
-          n4.engine,
-          catchUpPageIngressFrom({
-            membership: n4.membership,
-            responder: n4.third,
-            request: next,
-            item: extension,
-            routerInstanceId: newRouterInstanceId,
-          }),
-        );
-        const last = yield* takeCatchUpRequest(outbound);
-        yield* Effect.forEach(
-          [fixture.remote, n4.third, n4.fourth],
-          (responder) =>
-            deliverRecovery(
-              n4.engine,
-              catchUpIncompleteIngressFrom({
-                membership: n4.membership,
-                responder,
-                request: last,
-                routerInstanceId: newRouterInstanceId,
-              }),
-            ),
-          { concurrency: 1, discard: true },
-        );
+        const incompleteFromEveryMember = (request: CatchUpRequest) =>
+          Effect.forEach(
+            [fixture.remote, n4.third, n4.fourth],
+            (responder) =>
+              deliverRecovery(
+                n4.engine,
+                catchUpIncompleteIngressFrom({
+                  membership: n4.membership,
+                  responder,
+                  request,
+                  routerInstanceId: newRouterInstanceId,
+                }),
+              ),
+            { concurrency: 1, discard: true },
+          );
+        const adopted =
+          arrival === "catch-up"
+            ? yield* deliverRecovery(
+                n4.engine,
+                catchUpPageIngressFrom({
+                  membership: n4.membership,
+                  responder: n4.fourth,
+                  request: n4Request,
+                  item: completed,
+                  routerInstanceId: newRouterInstanceId,
+                }),
+              )
+            : yield* incompleteFromEveryMember(n4Request).pipe(
+                Effect.zipRight(
+                  deliverRecovery(
+                    n4.engine,
+                    directPacketIngressFrom({
+                      membership: n4.membership,
+                      sender: n4.third,
+                      packet: completed,
+                      routerInstanceId: newRouterInstanceId,
+                    }),
+                  ),
+                ),
+              );
+        if (arrival === "catch-up") {
+          yield* incompleteFromEveryMember(yield* takeCatchUpRequest(outbound));
+        }
         yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
+        const extended = yield* directPacketIngressFrom({
+          membership: n4.membership,
+          sender: n4.third,
+          packet: extension,
+          routerInstanceId: newRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
+        );
+        const lateVote = yield* peerEvidenceIngressFrom({
+          membership: n4.membership,
+          responder: n4.third,
+          statement: {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "durability_vote",
+            signerAgentId: n4.third.card.agentId,
+            conversationId: n4.membership.descriptor.conversationId,
+            membershipHash: n4.membership.hash,
+            recordHash: history.stagedSuccessor.recordHash,
+          },
+          routerInstanceId: newRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            Effect.exit(n4.engine.acceptRouterIngress(ingress)),
+          ),
+        );
         const recovered = yield* fixture.store.recover();
         const restarted = yield* Effect.exit(makeEndpointEngine(fixture.input));
 
-        expect(page).toBe(acceptedDisposition);
+        expect(adopted).toBe(acceptedDisposition);
         expect(extended).toBe(acceptedDisposition);
+        expect(lateVote).toStrictEqual(Exit.succeed(ignoredDisposition));
         expect(
           recovered.positions.find(
             ({ conversationId }) =>
@@ -3964,7 +4043,12 @@ describe("endpoint restart recovery", () => {
   );
   it(
     "retires a staged N4 successor when a caught-up re-anchor selects its head",
-    retiresAStagedSuccessorWhenACaughtUpReanchorSelectsItsHead,
+    () => retiresAStagedSuccessorWhenAReanchorSelectsItsHead("catch-up"),
+    10_000,
+  );
+  it(
+    "retires a staged N4 successor when a relayed re-anchor selects its head",
+    () => retiresAStagedSuccessorWhenAReanchorSelectsItsHead("relay"),
     10_000,
   );
   it(
@@ -3991,6 +4075,11 @@ describe("endpoint restart recovery", () => {
   it(
     "certifies a post at a head a proposal locked before a caught-up re-anchor there",
     () => certifiesAtALockedHeadAfterReanchoring(reanchorByCatchUp),
+    10_000,
+  );
+  it(
+    "certifies a post at a head where it staged a record before a caught-up re-anchor there",
+    () => certifiesAtALockedHeadAfterReanchoring(reanchorByCatchUp, "staged"),
     10_000,
   );
   it(
@@ -5657,17 +5746,18 @@ const answersCatchUpRequestBeforeItsRunStarts = () =>
   );
 
 /**
- * A recovery is interrupted while it still reads the durable history it
- * recovers, before its run starts, as the Router worker interrupts it when
- * recovery polling fails, and the worker starts the recovery again. The retry
- * asks for the history, takes the member's answer, and completes.
- * Value: protects=retry of a recovery interrupted before its run is
- * installed; fails_when=the interrupted recovery stays installed, so the
- * engine refuses the retry as a second concurrent recovery and the Router
- * worker stops on that failure; why_new=no test ends a recovery before its
- * run starts and then recovers again; seam=none.
+ * A member's catch-up request arrives while this endpoint's recovery still
+ * reads its durable history, and the recovery is then interrupted before its
+ * run starts, as the Router worker interrupts it when recovery polling fails.
+ * The worker starts the recovery again: the retry sends the answer the
+ * interrupted attempt queued, then its own request, and completes.
+ * Value: protects=an answer accepted by an interrupted recovery attempt still
+ * reaches the member; fails_when=the interrupted attempt's queue is dropped,
+ * so a member recovering at the same time waits for an answer nobody sends;
+ * why_new=no test ends a recovery attempt with an answer still queued;
+ * seam=none.
  */
-const retriesARecoveryInterruptedBeforeItsRunStarts = () =>
+const sendsAnAnswerQueuedByAnInterruptedRecovery = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
@@ -5677,6 +5767,7 @@ const retriesARecoveryInterruptedBeforeItsRunStarts = () =>
           ...fixture.input,
           store: start.store,
         }).pipe(Effect.orDie);
+        const peerRequest = peerCatchUpRequest(fixture);
 
         yield* start.arm;
         const interrupted = yield* forkRecovery(
@@ -5685,14 +5776,27 @@ const retriesARecoveryInterruptedBeforeItsRunStarts = () =>
           oldRouterInstanceId,
         );
         yield* start.held;
+        const answered = yield* deliverRecovery(
+          engine,
+          directPacketIngressFrom({
+            membership: fixture.membership,
+            sender: fixture.remote,
+            packet: peerRequest,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        );
         yield* Fiber.interrupt(interrupted.recovery);
         const { recovery, outbound } = yield* forkRecovery(
           engine,
           "feed_gap",
           oldRouterInstanceId,
         );
+        const carried = yield* Queue.take(outbound).pipe(
+          Effect.timeout("1 second"),
+          Effect.flatMap((message) => decodeOuterBody(message.body)),
+        );
         const request = yield* takeCatchUpRequest(outbound);
-        const answered = yield* deliverRecovery(
+        yield* deliverRecovery(
           engine,
           catchUpIncompleteIngressFrom({
             membership: fixture.membership,
@@ -5706,6 +5810,10 @@ const retriesARecoveryInterruptedBeforeItsRunStarts = () =>
         );
 
         expect(answered).toBe(acceptedDisposition);
+        expect(carried).toMatchObject({
+          kind: "direct",
+          packet: { kind: "catch_up_incomplete", request: peerRequest },
+        });
         expect(retried).toStrictEqual(Exit.void);
       }),
     ),
@@ -6054,8 +6162,8 @@ describe("catch-up and re-anchor inside a recovery run", () => {
     answersCatchUpRequestBeforeItsRunStarts,
   );
   it(
-    "recovers again after a recovery interrupted before its run starts",
-    retriesARecoveryInterruptedBeforeItsRunStarts,
+    "sends an answer an interrupted recovery queued before its run started",
+    sendsAnAnswerQueuedByAnInterruptedRecovery,
   );
   it(
     "completes when both members of a direct conversation recover from a Router restart at once",

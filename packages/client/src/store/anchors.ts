@@ -504,7 +504,8 @@ function completeReanchorInTransaction(
 
 /**
  * Retires the proposal locked at the head a completed re-anchor selects: its
- * lock, the signatures held for it, and a record this endpoint staged for it.
+ * lock, the action signatures held for it, and a record this endpoint staged
+ * for it with that record's durability votes and dissemination obligation.
  *
  * An action binds its anchor, so once the new anchor is current no action
  * under the previous one is gap-free, and the old proposal can never be

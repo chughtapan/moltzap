@@ -50,6 +50,7 @@ import {
 } from "../history/index.js";
 import { restartEmptyPosition } from "./empty.js";
 import {
+  applyCompletedReanchor,
   assembleCompletedReanchor,
   decodeReanchorVotes,
   type PendingReanchorVote,
@@ -60,8 +61,8 @@ import {
   rememberReanchorVote,
 } from "./votes.js";
 
-/** In-memory adoption of a durable completed re-anchor, shared with catch-up. */
-export { adoptCompletedReanchor } from "./votes.js";
+/** Adoption of a member's verified completed re-anchor, shared with catch-up. */
+export { applyCompletedReanchor } from "./votes.js";
 
 const acceptedDisposition: RouterIngressDisposition = "accepted";
 const ignoredDisposition: RouterIngressDisposition = "ignored";
@@ -340,14 +341,25 @@ function acceptCompletedReanchorEffect(
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   completed: CompletedReanchorValue,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  const membership = run.membership(completed.reanchor.conversationId);
-  if (membership === undefined || !completionTargetsRecovery(run, completed)) {
+  const conversationId = completed.reanchor.conversationId;
+  const membership = run.membership(conversationId);
+  if (
+    !run.isActive() ||
+    membership === undefined ||
+    !completionTargetsRecovery(run, membership, completed)
+  ) {
     return Effect.succeed(ignoredDisposition);
   }
   return verifyOuterMessage({ message: ingress.message, membership }).pipe(
     Effect.zipRight(verifyCompletedReanchor({ completed, membership })),
-    Effect.zipRight(processCompletedVotes(run, membership, completed)),
-    Effect.map((taken) => (taken ? acceptedDisposition : ignoredDisposition)),
+    Effect.zipRight(applyCompletedReanchor(run.runtime, completed)),
+    Effect.flatMap((applied) =>
+      applied
+        ? run.markRecovered(conversationId).pipe(Effect.as(acceptedDisposition))
+        : run
+            .requestCatchUp(conversationId)
+            .pipe(Effect.as(ignoredDisposition)),
+    ),
     Effect.catchTag("ClientRepresentationError", () =>
       Effect.succeed(ignoredDisposition),
     ),
@@ -355,48 +367,38 @@ function acceptCompletedReanchorEffect(
   );
 }
 
-function completionTargetsRecovery(
-  run: ReanchorRun,
-  completed: CompletedReanchorValue,
-): boolean {
-  return (
-    run.reason === "router_restarted" &&
-    completed.reanchor.routerInstanceId === run.routerInstanceId
-  );
-}
-
 /**
- * Offer each vote of a verified completed re-anchor to the active recovery
- * run. A completion whose votes the run declines, such as one relayed for a
- * conversation the run is not re-anchoring, changes nothing, so the caller
- * reports it as ignored.
- * @param run Recovery run that receives the votes.
+ * Whether a relayed completion targets this run's re-anchor: a conversation
+ * the run re-anchors after a Router restart, not yet anchored to the run's
+ * Router instance, under the conversation's membership. The run applies a
+ * verified completion directly: its quorum certificate settles the position,
+ * even behind a staged successor this endpoint holds, which the certificate
+ * shows can never be certified. A completion this endpoint cannot apply,
+ * because its position lacks the selected record, sends the conversation
+ * back to catch-up, where the completion arrives again with the history it
+ * extends.
+ * @param run Recovery run the completion arrived in.
  * @param membership Verified membership of the completion's conversation.
- * @param completed Completed re-anchor whose certificate carries the votes.
- * @returns Whether the run took any of the votes.
+ * @param completed The relayed completed re-anchor.
+ * @returns Whether the run applies the completion.
  */
-function processCompletedVotes(
+function completionTargetsRecovery(
   run: ReanchorRun,
   membership: VerifiedMembership,
   completed: CompletedReanchorValue,
-): Effect.Effect<boolean, RouterWorkerPersistenceError> {
-  return Effect.forEach(
-    completed.certificate.votes,
-    (representation) =>
-      verifyStableEvidence({ representation, membership }).pipe(
-        Effect.flatMap((verified) => {
-          if (verified.statement.kind !== "reanchor_vote") {
-            return Effect.fail(persistenceFailure());
-          }
-          return processReanchorVote(run, membership, {
-            message: verified.message,
-            statement: verified.statement,
-          });
-        }),
-        Effect.mapError(persistenceFailure),
-      ),
-    { concurrency: 1 },
-  ).pipe(Effect.map((taken) => taken.includes(true)));
+): boolean {
+  const body = completed.reanchor;
+  if (
+    run.reason !== "router_restarted" ||
+    !run.reanchoring.has(body.conversationId) ||
+    currentAnchorForRecovery(run, body.conversationId) !== undefined
+  ) {
+    return false;
+  }
+  return (
+    body.membershipHash === membership.hash &&
+    body.routerInstanceId === run.routerInstanceId
+  );
 }
 
 /**

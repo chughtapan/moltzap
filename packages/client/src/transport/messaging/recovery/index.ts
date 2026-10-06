@@ -59,7 +59,8 @@ import {
  * from only after recovery ends. That includes an answer to a member's
  * catch-up request that arrives before the run starts: a member recovering at
  * the same time may need the answer before it can vote, and this recovery may
- * need its vote to end.
+ * need its vote to end. Envelopes an attempt leaves unsent when it ends early
+ * open the next attempt's queue, so the retry sends them first.
  */
 interface ActiveRecovery {
   readonly queue: Queue.Queue<RouterWorkerRecoverySend>;
@@ -94,6 +95,10 @@ interface RecoveryRun {
 }
 
 const activeRecoveries = new WeakMap<EngineRuntime, ActiveRecovery>();
+const unsentEnvelopes = new WeakMap<
+  EngineRuntime,
+  readonly RouterWorkerRecoverySend[]
+>();
 
 const ignoredDisposition: RouterIngressDisposition = "ignored";
 
@@ -159,23 +164,65 @@ export const recoverCertifiedHistory = (
     if (activeRecoveries.has(runtime)) {
       return yield* Effect.fail(recoveryFailure());
     }
-    const queue = yield* Queue.unbounded<RouterWorkerRecoverySend>();
     yield* Effect.acquireUseRelease(
-      Effect.sync(() => {
-        const attempt: ActiveRecovery = { queue, pending: 0, completed: false };
-        activeRecoveries.set(runtime, attempt);
-        return attempt;
-      }),
+      installAttempt(runtime),
       (attempt) => runRecoveryAttempt(runtime, recoveryInput, attempt),
-      (attempt) =>
-        Effect.sync(() => {
-          if (activeRecoveries.get(runtime) === attempt) {
-            activeRecoveries.delete(runtime);
-          }
-        }),
+      (attempt) => removeAttempt(runtime, attempt),
     );
     yield* completeRecoveryBarrier(runtime, barrier);
   }).pipe(Effect.withSpan("recoverCertifiedHistory"));
+
+/**
+ * Install a recovery attempt whose queue opens with the envelopes the
+ * previous attempt left unsent.
+ * @param runtime Engine starting a recovery attempt.
+ * @returns The installed attempt.
+ */
+function installAttempt(runtime: EngineRuntime): Effect.Effect<ActiveRecovery> {
+  return Effect.gen(function* () {
+    const carried = unsentEnvelopes.get(runtime) ?? [];
+    const queue = yield* Queue.unbounded<RouterWorkerRecoverySend>();
+    yield* Queue.offerAll(queue, carried);
+    const attempt: ActiveRecovery = {
+      queue,
+      pending: carried.length,
+      completed: false,
+    };
+    yield* Effect.sync(() => {
+      unsentEnvelopes.delete(runtime);
+      activeRecoveries.set(runtime, attempt);
+    });
+    return attempt;
+  });
+}
+
+/**
+ * Remove an ended recovery attempt and keep the envelopes it left unsent for
+ * the next one.
+ * @param runtime Engine whose attempt ended.
+ * @param attempt The attempt that ended, completed or not.
+ * @returns Completion once the attempt is removed.
+ */
+function removeAttempt(
+  runtime: EngineRuntime,
+  attempt: ActiveRecovery,
+): Effect.Effect<void> {
+  return Queue.takeAll(attempt.queue).pipe(
+    Effect.flatMap((unsent) =>
+      Effect.sync(() => {
+        if (activeRecoveries.get(runtime) === attempt) {
+          activeRecoveries.delete(runtime);
+        }
+        if (unsent.length > 0) {
+          unsentEnvelopes.set(runtime, [
+            ...(unsentEnvelopes.get(runtime) ?? []),
+            ...unsent,
+          ]);
+        }
+      }),
+    ),
+  );
+}
 
 /**
  * Verify the durable history a recovery reconciles, then install its run in

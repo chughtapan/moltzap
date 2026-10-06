@@ -24,14 +24,16 @@ heading below in its release commit.
 - A daemon no longer drops its answer to a member's catch-up request that
   arrives just as its own recovery finishes.
 - Two daemons that recover at the same time, as every member of a
-  conversation does after a Router restart, no longer wait for each other
-  forever. A catch-up answer given before the daemon's own recovery run starts
-  now goes out with that recovery instead of after it (#1187).
+  conversation does after a Router restart, no longer wait for each other's
+  catch-up answer. An answer given before the daemon's own recovery run starts
+  now goes out with that recovery instead of after it, and an answer queued by
+  a recovery attempt that ends early goes out with the next attempt (#1187).
 - A conversation whose post was ordered but not certified when the Router
   restarted can certify posts again after it re-anchors. The re-anchor
   releases the old proposal's lock, signatures and any record staged for it,
-  and the daemon still starts afterwards. A conversation that re-anchored this
-  way under an earlier version recovers at its next re-anchor (#1188).
+  and the daemon still starts afterwards. A daemon holding such a staged record
+  now adopts the members' completed re-anchor whether it arrives relayed or by
+  catch-up (#1188).
 
 ## [2026.1005.1] - 2026-10-05
 
