@@ -43,6 +43,15 @@ jobs:
             echo "::error file=CHANGELOG.md::This pull request edits CHANGELOG.md; add a fragment under changelog.d/ instead (see towncrier.toml)"
             exit 1
           fi
+      # The release's own draft build rejects a misnamed fragment or a broken
+      # template here, before the next release would.
+      - name: Render the changelog fragments
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/towncrier"
+          "$RUNNER_TEMP/towncrier/bin/pip" install --quiet --require-hashes --no-deps \
+            -r scripts/release/towncrier-requirements.txt
+          "$RUNNER_TEMP/towncrier/bin/towncrier" build --draft --version 0.0.0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:

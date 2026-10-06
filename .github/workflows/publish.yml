@@ -168,9 +168,11 @@ jobs:
       # is made of generated output CI already gated, so the hooks stay out.
       # towncrier writes the version's CHANGELOG.md section from the fragments
       # in changelog.d/ and deletes them; with no fragments it writes nothing.
-      # A rerun whose section is already written skips it. This job can push
-      # to main and mint the npm OIDC token, so towncrier and its
-      # dependencies install only from hash-pinned requirements.
+      # A rerun whose section is already written skips it. Without its marker
+      # line towncrier would write above the file's title, so a missing marker
+      # fails the release. This job can push to main and mint the npm OIDC
+      # token, so towncrier and its dependencies install only from hash-pinned
+      # requirements.
       - name: Regenerate docs and commit the release
         if: steps.plan.outputs.mode == 'bump'
         env:
@@ -180,6 +182,8 @@ jobs:
         run: |
           pnpm docs:generate
           if ! grep -q "^## \[$VERSION\]" CHANGELOG.md; then
+            grep -qxF '<!-- towncrier release notes start -->' CHANGELOG.md \
+              || { echo "CHANGELOG.md lost its towncrier marker"; exit 1; }
             python3 -m venv "$RUNNER_TEMP/towncrier"
             "$RUNNER_TEMP/towncrier/bin/pip" install --quiet --require-hashes --no-deps \
               -r scripts/release/towncrier-requirements.txt
