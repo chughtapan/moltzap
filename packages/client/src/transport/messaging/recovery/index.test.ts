@@ -5075,10 +5075,11 @@ const answersCatchUpRequestWithItsFirstCertifiedRecord = () =>
 
 /**
  * A member's catch-up request that arrives while this endpoint is itself
- * recovering is answered through the recovery run's send, and nothing waits
- * in the durable outbox, which the Router worker sends from only after
- * recovery ends. Fails when the answer goes to the durable outbox during a
- * run, so two endpoints recovering together each wait for the other's answer.
+ * recovering is answered at once: the answer goes out through the durable
+ * outbox, which the Router worker sends from while the run still recovers,
+ * and no row is left once it is sent. Fails when the answer waits for this
+ * endpoint's own recovery to finish, so two endpoints recovering together
+ * each wait for the other's answer.
  */
 const answersCatchUpRequestDuringItsOwnRecovery = () =>
   Effect.runPromise(
@@ -5522,12 +5523,12 @@ const holdNextStoreRead = (store: EndpointStore) =>
 /**
  * A member's catch-up request arrives while this endpoint's recovery still
  * reads the durable history it recovers, before its run starts. The answer
- * goes out through the recovery send, ahead of the run's own request, and
- * nothing waits in the durable outbox, which the Router worker sends from
- * only after recovery ends. The test holds the recovery's first store read
- * until the request is answered. Fails when the answer waits in the durable
- * outbox, so two endpoints recovering together each wait for the other's
- * answer.
+ * goes out ahead of the run's own request: it waits in the durable outbox
+ * only until the run starts and the Router worker sends again, and no row is
+ * left once it is sent. The test holds the recovery's first store read until
+ * the request is answered. Fails when the answer waits for this endpoint's
+ * own recovery to finish, so two endpoints recovering together each wait for
+ * the other's answer.
  */
 const answersCatchUpRequestBeforeItsRunStarts = () =>
   Effect.runPromise(
@@ -6444,11 +6445,11 @@ describe("catch-up and re-anchor inside a recovery run", () => {
     answersCatchUpRequestWithItsFirstCertifiedRecord,
   );
   it(
-    "answers a catch-up request through the recovery send during its own recovery",
+    "answers a catch-up request during its own recovery",
     answersCatchUpRequestDuringItsOwnRecovery,
   );
   it(
-    "answers a catch-up request through the recovery send before its run starts",
+    "answers a catch-up request that arrives before its run starts",
     answersCatchUpRequestBeforeItsRunStarts,
   );
   it(

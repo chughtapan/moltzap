@@ -582,8 +582,9 @@ An outer send follows the Router representation contract exactly:
    signature, durably stores that replacement, and sends the byte-identical
    body with `mode: "initial"`.
 5. `router_restarted` stops sending, obtains the new omitted-cursor anchor,
-   and completes catch-up and re-anchor before reevaluating queued packets.
-   It never rewrites a stable inner evidence message.
+   and completes a conversation's catch-up and re-anchor before reevaluating
+   that conversation's queued packets. It never rewrites a stable inner
+   evidence message.
 
 Duplicate outer delivery is harmless because direct values use their hashes
 and requests, while evidence uses its deterministic inner MessageId. A Router

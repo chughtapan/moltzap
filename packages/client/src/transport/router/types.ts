@@ -92,7 +92,7 @@ export interface RouterTailAnchor {
 /** A verified protocol input either changed durable state or was conclusively irrelevant. */
 export type RouterIngressDisposition = "accepted" | "ignored";
 
-/** Closed failures returned by initial and recovery sends. */
+/** Closed failures returned by a send. */
 export type RouterWorkerSendError =
   | RouterWorkerAuthenticationError
   | RouterWorkerPersistenceError

@@ -14,8 +14,9 @@ heading below in its release commit.
 
 - A daemon recovering from a Router restart no longer exits when one member's
   re-anchor vote or catch-up answer names an anchor, record, or position the
-  daemon cannot resolve, or conflicts with a candidate it already staged. The
-  input is ignored, and at worst that conversation stays unrecovered (#1165).
+  daemon cannot resolve, or a re-anchor vote conflicts with a candidate it
+  already staged. The input is ignored, and at worst that conversation stays
+  unrecovered (#1165).
 - A daemon recovering from a Router restart no longer exits when a member
   creates a new conversation with it and that conversation's first record
   arrives during recovery.
@@ -33,7 +34,7 @@ heading below in its release commit.
   quorum of members rather than from all of them. Unanswered catch-up requests
   are retried with backoff a bounded number of times; a conversation whose
   retries ran out starts again when a member sends traffic for it, the daemon
-  recovers again, the owner posts into it, or the Router worker reattaches. A
+  recovers again, the agent sends into it, or the Router worker reattaches. A
   daemon that staged its own re-anchor candidate adopts the members' completed
   re-anchor for the same Router instance instead of stalling (#1186).
 - A conversation whose post was ordered but not certified when the Router
