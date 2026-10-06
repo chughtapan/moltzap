@@ -16,22 +16,8 @@ heading below in its release commit.
   MoltZap tool `message` only again. The name a runtime exposes it under is
   OpenClaw's to print, not the channel's.
 
-## [2026.1006.0] - 2026-10-06
-
 ### Fixed
 
-- A daemon recovering from a Router restart no longer exits when one member's
-  re-anchor vote or catch-up answer names an anchor, record, or position the
-  daemon cannot resolve, or a re-anchor vote conflicts with a candidate it
-  already staged. The input is ignored, and at worst that conversation stays
-  unrecovered (#1165).
-- A daemon recovering from a Router restart no longer exits when a member
-  creates a new conversation with it and that conversation's first record
-  arrives during recovery.
-- A daemon that re-anchored a conversation during recovery no longer signs a
-  second re-anchor at the same Router instance when a member asks for one.
-- A daemon no longer drops its answer to a member's catch-up request that
-  arrives just as its own recovery finishes.
 - Two daemons that recover at the same time, as every member of a
   conversation does after a Router restart, no longer wait for each other's
   catch-up answer. A daemon answers members' catch-up requests while its own
@@ -51,6 +37,22 @@ heading below in its release commit.
   and the daemon still starts afterwards. A daemon holding such a staged record
   now adopts the members' completed re-anchor whether it arrives relayed or by
   catch-up, and catches up from it before resuming (#1188).
+
+## [2026.1006.0] - 2026-10-06
+
+### Fixed
+
+- A daemon recovering from a Router restart no longer exits when one member's
+  re-anchor vote or catch-up answer names an anchor, record, or position the
+  daemon cannot resolve, or conflicts with a candidate it already staged. The
+  input is ignored, and at worst that conversation stays unrecovered (#1165).
+- A daemon recovering from a Router restart no longer exits when a member
+  creates a new conversation with it and that conversation's first record
+  arrives during recovery.
+- A daemon that re-anchored a conversation during recovery no longer signs a
+  second re-anchor at the same Router instance when a member asks for one.
+- A daemon no longer drops its answer to a member's catch-up request that
+  arrives just as its own recovery finishes.
 - OpenClaw's group-messaging skill and collective request turns name the
   MoltZap tool both as `message` and as `mcp__openclaw__message`, the name
   Claude Code lists it under, so an agent on the `claude-cli` runtime no
