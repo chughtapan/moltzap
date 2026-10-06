@@ -945,14 +945,46 @@ function sendsOnePlusTwoNMessagesPerPost() {
 }
 
 /**
- * Member 2 misses every message of one post. Member 4 is then offline, so
- * the next post needs member 2's signature and durability vote. The next
- * proposal names the record member 2 missed: member 2 catches it up from the
- * members, accepts the proposal with the signatures that arrived meanwhile,
- * and the post certifies at every online member.
+ * Certifies the author's queued post while member 2 hears none of it.
+ * @param harness Engines with one POST proposal queued.
+ * @returns Completion once the post is certified at members 1, 3 and 4.
+ */
+function missesEveryMessage(harness: ProtocolHarness): Effect.Effect<void> {
+  return takeReadyBatch(harness).pipe(
+    Effect.flatMap((batch) => pump(harness, batch, [0, 2, 3])),
+    Effect.asVoid,
+  );
+}
+
+/**
+ * Certifies the author's queued post while member 2 is offline for its
+ * durability votes. Member 2 hears the proposal and the action signatures, so
+ * it stages the record and sends its own vote, but never certifies it.
+ * @param harness Engines with one POST proposal queued.
+ * @returns Completion once the post is certified at members 1, 3 and 4.
+ */
+function missesDurabilityVotes(harness: ProtocolHarness): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    yield* harness.deliver(yield* takeReadyBatch(harness));
+    yield* harness.drain();
+    yield* harness.deliver(yield* takeQueued(harness));
+    yield* harness.drain();
+    yield* pump(harness, yield* takeQueued(harness), [0, 2, 3]);
+  });
+}
+
+/**
+ * Member 2 misses one post as `certifyWithoutMember2` scripts. Member 4 is
+ * then offline, so the next post needs member 2's signature and durability
+ * vote. The next proposal names the record member 2 lacks: member 2 catches
+ * it up from the members, accepts the proposal with the signatures that
+ * arrived meanwhile, and the post certifies at every online member.
+ * @param certifyWithoutMember2 Certifies one queued post without member 2.
  * @returns Completion once member 2 holds and delivers both posts.
  */
-function laggingMemberCatchesUpAndCertifiesTheNextPost() {
+function laggingMemberCatchesUpAndCertifiesTheNextPost(
+  certifyWithoutMember2: (harness: ProtocolHarness) => Effect.Effect<void>,
+) {
   return Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
@@ -969,7 +1001,7 @@ function laggingMemberCatchesUpAndCertifiesTheNextPost() {
         const missed = yield* Effect.fork(
           author.send(yield* sendInput(harness, "missed by member 2")),
         );
-        yield* pump(harness, yield* takeReadyBatch(harness), [0, 2, 3]);
+        yield* certifyWithoutMember2(harness);
         yield* Fiber.join(missed).pipe(
           Effect.timeout("1 second"),
           Effect.orDie,
@@ -988,6 +1020,61 @@ function laggingMemberCatchesUpAndCertifiesTheNextPost() {
           [{ type: "text", text: "missed by member 2" }],
           [{ type: "text", text: "needs member 2" }],
         ]);
+      }),
+    ),
+  );
+}
+
+/**
+ * Members 1 and 2 propose at the same head. Member 1's post certifies, and
+ * member 2 proposes again from the new head, before the Router delivers
+ * member 2's first proposal. That proposal names a record every member
+ * certified before its head, so every member ignores it and asks for no
+ * catch-up.
+ * @returns Completion once the stale proposal has been ignored everywhere.
+ */
+function ignoresAProposalNamingAPassedRecord() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const firstAuthor = yield* requireAt(
+          harness.engines,
+          0,
+          "endpoint engine",
+        );
+        const secondAuthor = yield* requireAt(
+          harness.engines,
+          1,
+          "endpoint engine",
+        );
+        const firstSending = yield* Effect.fork(
+          firstAuthor.send(yield* sendInput(harness, "first candidate")),
+        );
+        const firstBatch = yield* takeReadyBatch(harness);
+        const secondSending = yield* Effect.fork(
+          secondAuthor.send(yield* sendInput(harness, "second candidate")),
+        );
+        const staleBatch = yield* takeReadyBatch(harness);
+        yield* pump(harness, firstBatch);
+        yield* Fiber.join(firstSending).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+        yield* Fiber.join(secondSending).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        expect(yield* harness.deliver(staleBatch)).toEqual([
+          "ignored",
+          "ignored",
+          "ignored",
+          "ignored",
+        ]);
+        yield* harness.drain();
+        expect(yield* takeQueued(harness)).toEqual([]);
       }),
     ),
   );
@@ -1390,9 +1477,24 @@ describe("fixed-post endpoint protocol", () => {
     sendsOnePlusTwoNMessagesPerPost,
     TEST_TIMEOUT_MS,
   );
+  it.each([
+    {
+      missed: "every message of a post",
+      certifyWithoutMember2: missesEveryMessage,
+    },
+    {
+      missed: "the durability votes of a post",
+      certifyWithoutMember2: missesDurabilityVotes,
+    },
+  ])(
+    "catches up a member that missed $missed when the next proposal names it",
+    ({ certifyWithoutMember2 }) =>
+      laggingMemberCatchesUpAndCertifiesTheNextPost(certifyWithoutMember2),
+    TEST_TIMEOUT_MS,
+  );
   it(
-    "catches a lagging member up when the next proposal names a record it missed",
-    laggingMemberCatchesUpAndCertifiesTheNextPost,
+    "asks for no catch-up when a proposal names a record certified before the head",
+    ignoresAProposalNamingAPassedRecord,
     TEST_TIMEOUT_MS,
   );
   it(

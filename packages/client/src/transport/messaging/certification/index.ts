@@ -942,8 +942,10 @@ function waitingFor(
  * not hold, and ask the members for the history after its durable position.
  * The first proposal naming a position is kept: every member that held the
  * predecessor saw the same Router order and locked that one. A proposal naming
- * another position replaces it and asks again; a GENESIS that does not fit is
- * only ignored.
+ * another position replaces it and asks again. A GENESIS that does not fit,
+ * and a POST naming a record certified here before the current head, are only
+ * ignored: the second is a proposal its author sent before it saw the head
+ * certified, and the author proposes again from the head.
  * @param runtime Engine whose conversation lacks the named position.
  * @param conversation Retained conversation the proposal extends.
  * @param ingress Verified Router delivery carrying the proposal.
@@ -958,7 +960,10 @@ function awaitPredecessor(
   action: ActionCore,
   actionHash: ActionHash,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
-  if (action.kind !== "POST") {
+  if (
+    action.kind !== "POST" ||
+    namesPassedRecord(runtime, conversation, action)
+  ) {
     return Effect.void;
   }
   const waiting = waitingFor(runtime);
@@ -981,6 +986,18 @@ function awaitPredecessor(
     Effect.zipRight(
       runtime.phases.requestCatchUp(runtime, conversation.conversationId),
     ),
+  );
+}
+
+function namesPassedRecord(
+  runtime: EngineRuntime,
+  conversation: EngineConversation,
+  action: PostActionCore,
+): boolean {
+  return (
+    action.previousRecordHash !== conversation.head?.recordHash &&
+    runtime.recordFolds.get(action.previousRecordHash)?.certifiedRecord !==
+      undefined
   );
 }
 
