@@ -6,10 +6,12 @@ the delivery that `delivery/` builds.
 
 `index.ts` is the `./service` entry point. It loads the configuration, opens
 the store, reads the registration state once, checks admission, builds the
-Registry and Router layers, and runs `lifecycle.ts`. `lifecycle.ts` holds the
-startup order and the production process edges. It joins the owner tools in
-`management.ts` with the daemon's delivery operations into the MCP operations
-the loopback listener serves. `registration/` owns the durable identity and
-Registry registration, `daemon/` owns the running daemon and its protocol, and
-`errors.ts` holds the closed failures they share. None of these modules
-crosses the public Client boundary.
+Registry and Router layers, and runs `lifecycle.ts`. `configuration.ts` loads
+the process configuration and bootstrap material from the environment into the
+types `bootstrap.ts` declares. `lifecycle.ts` holds the startup order and the
+production process edges. It joins the owner tools in `management.ts` with the
+daemon's delivery operations into the MCP operations the loopback listener
+serves. `registration/` owns the durable identity and Registry registration,
+`daemon/` owns the running daemon and its protocol, and `errors.ts` holds the
+closed failures they share. None of these modules crosses the public Client
+boundary.

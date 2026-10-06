@@ -168,12 +168,12 @@ async function advertisesEventsBeforeRegistration() {
 }
 
 async function distinguishesProtocolAndDomainFailures() {
-  let storageUnavailable = false;
+  let statusFails = false;
   const failingOperations: HarnessMcpOperations = {
     ...operations,
     readStatus: () =>
-      storageUnavailable
-        ? Effect.fail({ reason: "persistence-failed" as const })
+      statusFails
+        ? Effect.fail({ reason: "incompatible-daemon" as const })
         : Effect.succeed({ kind: "unregistered" as const }),
   };
   const [malformedCause, domainCause] = await Effect.runPromise(
@@ -183,7 +183,7 @@ async function distinguishesProtocolAndDomainFailures() {
         port,
         "harness-boundary-client",
       );
-      storageUnavailable = true;
+      statusFails = true;
       return yield* Effect.all(
         [
           capturesProtocolError(client, { unexpected: true }),
@@ -208,16 +208,50 @@ async function distinguishesProtocolAndDomainFailures() {
   expect(malformedCause.data).toBeUndefined();
   expect(domainCause).toMatchObject({
     code: ProtocolErrorCode.InternalError,
-    data: { reason: "persistence-failed" },
+    data: { reason: "incompatible-daemon" },
+  });
+}
+
+/**
+ * A status failure outside the status vocabulary, such as
+ * `persistence-failed`, which other owner tools admit, reaches the owner as
+ * `incompatible-daemon`. A failure the vocabulary admits cannot show this,
+ * because the fallback reason equals the one admitted reason. Status starts
+ * failing only once the handler is built, since building it reads status.
+ */
+async function reportsOutsideVocabularyStatusFailure() {
+  let statusFails = false;
+  const failingOperations: HarnessMcpOperations = {
+    ...operations,
+    readStatus: () =>
+      statusFails
+        ? Effect.fail({ reason: "persistence-failed" })
+        : Effect.succeed({ kind: "unregistered" as const }),
+  };
+  const cause = await Effect.runPromise(
+    Effect.gen(function* () {
+      const { port } = yield* acquireBoundaryServer(failingOperations);
+      const client = yield* acquireProtocolClient(
+        port,
+        "harness-status-vocabulary-client",
+      );
+      statusFails = true;
+      return yield* capturesProtocolError(client, {});
+    }).pipe(Effect.scoped),
+  );
+
+  expect(cause).toMatchObject({
+    code: ProtocolErrorCode.InternalError,
+    data: { reason: "incompatible-daemon" },
   });
 }
 
 async function sanitizesUnexpectedOperationDefects() {
-  let storageDefective = false;
+  let statusDefective = false;
   const defectiveOperations: HarnessMcpOperations = {
     ...operations,
     readStatus: () =>
-      storageDefective
+      statusDefective
         ? Effect.dieMessage(PRIVATE_STATUS_DEFECT)
         : Effect.succeed({ kind: "unregistered" as const }),
   };
@@ -228,7 +262,7 @@ async function sanitizesUnexpectedOperationDefects() {
         port,
         "harness-defect-client",
       );
-      storageDefective = true;
+      statusDefective = true;
       return yield* capturesProtocolError(client, {});
     }).pipe(Effect.scoped),
   );
@@ -239,7 +273,7 @@ async function sanitizesUnexpectedOperationDefects() {
   }
   expect(cause).toMatchObject({
     code: ProtocolErrorCode.InternalError,
-    data: { reason: "persistence-failed" },
+    data: { reason: "incompatible-daemon" },
   });
   expect(String(cause)).not.toContain(PRIVATE_STATUS_DEFECT);
 }
@@ -752,6 +786,8 @@ describe("Harness MCP HTTP boundary", () => {
     advertisesEventsBeforeRegistration());
   it("keeps malformed input separate from closed domain failures", () =>
     distinguishesProtocolAndDomainFailures());
+  it("reports a status failure outside its vocabulary as incompatible-daemon", () =>
+    reportsOutsideVocabularyStatusFailure());
   it("sanitizes unexpected operation defects", () =>
     sanitizesUnexpectedOperationDefects());
   it("keeps an idle subscription alive past the fetch body timeout", () =>
