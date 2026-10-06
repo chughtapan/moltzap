@@ -354,11 +354,9 @@ function acceptCompletedReanchorEffect(
     Effect.zipRight(verifyCompletedReanchor({ completed, membership })),
     Effect.zipRight(applyCompletedReanchor(run.runtime, completed)),
     Effect.flatMap((applied) =>
-      applied
-        ? run.markRecovered(conversationId).pipe(Effect.as(acceptedDisposition))
-        : run
-            .requestCatchUp(conversationId)
-            .pipe(Effect.as(ignoredDisposition)),
+      run
+        .requestCatchUp(conversationId)
+        .pipe(Effect.as(applied ? acceptedDisposition : ignoredDisposition)),
     ),
     Effect.catchTag("ClientRepresentationError", () =>
       Effect.succeed(ignoredDisposition),
@@ -373,10 +371,11 @@ function acceptCompletedReanchorEffect(
  * Router instance, under the conversation's membership. The run applies a
  * verified completion directly: its quorum certificate settles the position,
  * even behind a staged successor this endpoint holds, which the certificate
- * shows can never be certified. A completion this endpoint cannot apply,
- * because its position lacks the selected record, sends the conversation
- * back to catch-up, where the completion arrives again with the history it
- * extends.
+ * shows can never be certified. Either way the conversation goes back to
+ * catch-up: after an applied completion, to fetch what members certified
+ * under the new anchor before it recovers; after one this endpoint cannot
+ * apply, because its position lacks the selected record, to fetch the
+ * history the completion extends, with which it arrives again.
  * @param run Recovery run the completion arrived in.
  * @param membership Verified membership of the completion's conversation.
  * @param completed The relayed completed re-anchor.

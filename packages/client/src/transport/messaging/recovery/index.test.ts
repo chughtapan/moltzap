@@ -2775,17 +2775,19 @@ const proposeAtRestart = (fixture: RecoveryFixture, send?: RecoverySend) =>
 
 /**
  * A peer that reached the threshold first relays the completed re-anchor; the
- * endpoint still re-anchoring takes its votes, reports it accepted, and adopts
- * its anchor. Protects the receiving side of a relayed completion; fails when
- * a completion whose votes the run takes is reported ignored, or its votes do
- * not reach the run.
+ * endpoint still re-anchoring reports it accepted, adopts its anchor, and
+ * then catches up from that anchor before it recovers, since members may
+ * already have certified posts under it. Protects the receiving side of a
+ * relayed completion; fails when a completion the run adopts is reported
+ * ignored, or the run recovers on the relay alone and never fetches what
+ * follows the new anchor.
  */
 const adoptsRelayedCompletionForReanchoringConversation = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         const fixture = yield* makeFixture;
-        const { recovery, proposal, localVote } =
+        const { recovery, outbound, proposal, localVote } =
           yield* proposeAtRestart(fixture);
         const peerVote = yield* signEvidence(fixture.remote, {
           ...proposal,
@@ -2814,9 +2816,17 @@ const adoptsRelayedCompletionForReanchoringConversation = () =>
             fixture.engine.acceptRecoveryIngress(ingress),
           ),
         );
+        const followUp = yield* takeCatchUpRequest(outbound);
+        const beforeAnswer = yield* Fiber.poll(recovery);
+        yield* deliverRecovery(
+          fixture.engine,
+          catchUpIncompleteIngress(fixture, followUp),
+        );
         yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
 
         expect(disposition).toBe(acceptedDisposition);
+        expect(followUp.knownAnchorHash).toBe(proposal.anchorHash);
+        expect(beforeAnswer).toStrictEqual(Option.none());
         expect(
           (yield* fixture.store.recover()).positions[0]?.currentAnchorHash,
         ).toBe(proposal.anchorHash);
@@ -3884,9 +3894,7 @@ const retiresAStagedSuccessorWhenAReanchorSelectsItsHead = (
                   ),
                 ),
               );
-        if (arrival === "catch-up") {
-          yield* incompleteFromEveryMember(yield* takeCatchUpRequest(outbound));
-        }
+        yield* incompleteFromEveryMember(yield* takeCatchUpRequest(outbound));
         yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
         const extended = yield* directPacketIngressFrom({
           membership: n4.membership,
@@ -5554,6 +5562,12 @@ const answersCatchUpThroughAStoredCompletedReanchor = () =>
         const fixture = yield* makeFixture;
         yield* retainCertifiedRecord(fixture);
         const { proposal } = yield* reanchorUntilCompletionSend(fixture);
+        const { recovery, request } = yield* startRestartRecovery(fixture);
+        yield* deliverRecovery(
+          fixture.engine,
+          catchUpIncompleteIngress(fixture, request),
+        );
+        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
         const { recordCore, recordHash } =
           fixture.certifiedRecord.actionCertifiedRecord;
 
@@ -5815,6 +5829,136 @@ const sendsAnAnswerQueuedByAnInterruptedRecovery = () =>
           packet: { kind: "catch_up_incomplete", request: peerRequest },
         });
         expect(retried).toStrictEqual(Exit.void);
+      }),
+    ),
+  );
+
+/**
+ * A member's catch-up request arrives while this endpoint's recovery still
+ * reads its durable history; the run then starts and its sender takes the
+ * answer, but the Router never accepts that send before the recovery is
+ * interrupted. The retry sends the answer first, under a new message id: the
+ * Router worker retains each recovery send as a durable outbox row, which the
+ * retry discards for a re-anchoring conversation and otherwise holds until
+ * recovery ends, so the old id would not reach the member in time. Fails when
+ * only answers still queued are carried, so a member recovering at the same
+ * time waits for an answer nobody sends.
+ */
+const resendsTheAnswerAnInterruptedRecoveryWasSending = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const start = yield* holdNextStoreRead(fixture.store);
+        const engine = yield* makeEndpointEngine({
+          ...fixture.input,
+          store: start.store,
+        }).pipe(Effect.orDie);
+        const peerRequest = peerCatchUpRequest(fixture);
+        const neverAccepted: RecoverySend = (outbound, message) =>
+          Queue.offer(outbound, message).pipe(Effect.zipRight(Effect.never));
+
+        yield* start.arm;
+        const interrupted = yield* forkRecovery(
+          engine,
+          "feed_gap",
+          oldRouterInstanceId,
+          neverAccepted,
+        );
+        yield* start.held;
+        yield* deliverRecovery(
+          engine,
+          directPacketIngressFrom({
+            membership: fixture.membership,
+            sender: fixture.remote,
+            packet: peerRequest,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        );
+        yield* start.release;
+        const attempted = yield* Queue.take(interrupted.outbound).pipe(
+          Effect.timeout("1 second"),
+        );
+        yield* Fiber.interrupt(interrupted.recovery);
+        const { recovery, outbound } = yield* forkRecovery(
+          engine,
+          "feed_gap",
+          oldRouterInstanceId,
+        );
+        const resent = yield* Queue.take(outbound).pipe(
+          Effect.timeout("1 second"),
+        );
+        const request = yield* takeCatchUpRequest(outbound);
+        yield* deliverRecovery(
+          engine,
+          catchUpIncompleteIngressFrom({
+            membership: fixture.membership,
+            responder: fixture.remote,
+            request,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        );
+        const retried = yield* Fiber.await(recovery).pipe(
+          Effect.timeout("1 second"),
+        );
+
+        expect(yield* decodeOuterBody(attempted.body)).toMatchObject({
+          kind: "direct",
+          packet: { kind: "catch_up_incomplete", request: peerRequest },
+        });
+        expect(yield* decodeOuterBody(resent.body)).toMatchObject({
+          kind: "direct",
+          packet: { kind: "catch_up_incomplete", request: peerRequest },
+        });
+        expect(resent.messageId).not.toBe(attempted.messageId);
+        expect(retried).toStrictEqual(Exit.void);
+      }),
+    ),
+  );
+
+/**
+ * A restart recovery is interrupted, and a member's catch-up request is
+ * accepted before the Router worker starts it again, as recovery polling can
+ * deliver one more batch before the worker stops it. The retry sends the
+ * answer first. Fails when an answer accepted between attempts takes the
+ * durable outbox, whose row the retry discards for a re-anchoring
+ * conversation.
+ */
+const sendsAnAnswerAcceptedBetweenRecoveryAttempts = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+        const peerRequest = peerCatchUpRequest(fixture);
+        const interrupted = yield* startRestartRecovery(fixture);
+        yield* Fiber.interrupt(interrupted.recovery);
+
+        const answered = yield* deliverRecovery(
+          fixture.engine,
+          directPacketIngressFrom({
+            membership: fixture.membership,
+            sender: fixture.remote,
+            packet: peerRequest,
+            routerInstanceId: newRouterInstanceId,
+          }),
+        );
+        const { recovery, outbound } = yield* forkRecovery(
+          fixture.engine,
+          "router_restarted",
+          newRouterInstanceId,
+        );
+        const first = yield* Queue.take(outbound).pipe(
+          Effect.timeout("1 second"),
+          Effect.flatMap((message) => decodeOuterBody(message.body)),
+        );
+
+        expect(answered).toBe(acceptedDisposition);
+        expect(first).toMatchObject({
+          kind: "direct",
+          packet: { kind: "catch_up_page", request: peerRequest },
+        });
+        yield* Fiber.interrupt(recovery);
       }),
     ),
   );
@@ -6164,6 +6308,14 @@ describe("catch-up and re-anchor inside a recovery run", () => {
   it(
     "sends an answer an interrupted recovery queued before its run started",
     sendsAnAnswerQueuedByAnInterruptedRecovery,
+  );
+  it(
+    "resends the answer an interrupted recovery was sending",
+    resendsTheAnswerAnInterruptedRecoveryWasSending,
+  );
+  it(
+    "sends an answer accepted between recovery attempts through the retry",
+    sendsAnAnswerAcceptedBetweenRecoveryAttempts,
   );
   it(
     "completes when both members of a direct conversation recover from a Router restart at once",

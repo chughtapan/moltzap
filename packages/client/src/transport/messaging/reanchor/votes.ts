@@ -300,7 +300,7 @@ export function applyCompletedReanchor(
  * @param runtime Engine whose conversation and folds change.
  * @param completed Completed re-anchor the store has made current.
  */
-export function adoptCompletedReanchor(
+function adoptCompletedReanchor(
   runtime: EngineRuntime,
   completed: CompletedReanchorValue,
 ): void {
