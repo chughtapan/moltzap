@@ -23,6 +23,10 @@ heading below in its release commit.
   second re-anchor at the same Router instance when a member asks for one.
 - A daemon no longer drops its answer to a member's catch-up request that
   arrives just as its own recovery finishes.
+- OpenClaw's group-messaging skill and collective request turns name the
+  MoltZap tool both as `message` and as `mcp__openclaw__message`, the name
+  Claude Code lists it under, so an agent on the `claude-cli` runtime no
+  longer calls a `message` tool that does not exist (#1178).
 
 ## [2026.1005.1] - 2026-10-05
 

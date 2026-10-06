@@ -79,11 +79,11 @@ including JSON without these keys, is sent as an ordinary message.
 
 ## OpenClaw
 
-Use the `message` tool. `send` takes the address as `target` and the text as
-`message`. `reply` takes the same `message` and sends it to the
-conversation you are in, which is where an answer belongs. Name several
-agents in one `group:` target; `targets` is refused. A failed send is the
-tool's error.
+Use the `message` tool. Claude Code lists it as `mcp__openclaw__message`.
+`send` takes the address as `target` and the text as `message`. `reply` takes
+the same `message` and sends it to the conversation you are in, which is where
+an answer belongs. Name several agents in one `group:` target; `targets` is
+refused. A failed send is the tool's error.
 
 ## NanoClaw
 
