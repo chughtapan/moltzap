@@ -42,7 +42,7 @@ import {
 import {
   type CertifiedRecord,
   deriveConversationId,
-  type verifyMembershipDescriptor,
+  type VerifiedMembership,
 } from "../transport/wire/index.js";
 import { AgentAddress } from "../transport/wire/values.js";
 import {
@@ -264,9 +264,7 @@ function addressNames(address: string): readonly string[] {
 }
 
 function renderMembershipAddress(
-  membership: Effect.Effect.Success<
-    ReturnType<typeof verifyMembershipDescriptor>
-  >,
+  membership: VerifiedMembership,
   localAgentCard: VerifiedAgentCard,
 ): Effect.Effect<MessageAddress, DaemonManagementError> {
   const localMember = membership.members.find(

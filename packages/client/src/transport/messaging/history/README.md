@@ -13,4 +13,5 @@ Start with `index.ts`, the curated API every consumer imports.
   owner tools with the same row checks, and answers the snapshot queries
   recovery asks.
 - `certificate.ts` holds what both sides share: the signer order a
-  certificate requires, and the certified-record envelopes.
+  certificate requires, which re-anchor also uses, and the certified-record
+  envelopes.

@@ -361,9 +361,7 @@ function recoverCertifiedFold(
       stored,
       context.routerAnchor,
     );
-    const actionHash = yield* Schema.decodeUnknown(ActionHashSchema)(
-      stored.actionHash,
-    );
+    const actionHash = record.actionCertifiedRecord.recordCore.actionHash;
     const actionEvidence = yield* certificateMessages(
       record.actionCertifiedRecord.actionCertificate.signatures,
     );
@@ -376,7 +374,7 @@ function recoverCertifiedFold(
         makeActionFold(
           context.conversation,
           record.actionCertifiedRecord.recordCore.action,
-          record.actionCertifiedRecord.recordCore.actionHash,
+          actionHash,
           context.routerAnchor,
         );
       input.actionFolds.set(actionHash, fold);

@@ -4,7 +4,7 @@
  */
 
 import { MOLTZAP_VERSION, type SignedMessage } from "@moltzap/identity";
-import { Deferred, Effect, type Schema } from "effect";
+import { Deferred, Effect } from "effect";
 import type {
   ConversationFoundation,
   EndpointStoreError,
@@ -27,11 +27,11 @@ import {
   ClientRepresentationError,
   type DecodedOuterBody,
   encodeCanonical,
+  equalCanonical,
   GenesisAnchorBody,
   hashAnchor,
   MembershipDescriptor,
   quorumThreshold,
-  sameBytes,
   signEvidenceMessage,
   type VerifiedEvidence,
   type VerifiedMembership,
@@ -78,18 +78,6 @@ const isSemanticStoreRejection = (error: EndpointStoreError): boolean =>
 const localRepresentationFailure = (): RouterWorkerPersistenceError =>
   persistenceFailure();
 
-const sameCanonical = <Value, Encoded, Requirements>(
-  schema: Schema.Schema<Value, Encoded, Requirements>,
-  left: Value,
-  right: Value,
-) =>
-  Effect.all([
-    encodeCanonical(schema, left),
-    encodeCanonical(schema, right),
-  ]).pipe(
-    Effect.map(([leftBytes, rightBytes]) => sameBytes(leftBytes, rightBytes)),
-  );
-
 const currentAnchorHash = (
   conversation: EngineConversation,
 ): Effect.Effect<AnchorHash, RouterWorkerPersistenceError> =>
@@ -108,7 +96,7 @@ const gapFree = (
       return (
         conversation.head === undefined &&
         conversation.currentAnchor.kind === "genesis_anchor_body" &&
-        (yield* sameCanonical(
+        (yield* equalCanonical(
           GenesisAnchorBody,
           conversation.currentAnchor,
           action.anchor,

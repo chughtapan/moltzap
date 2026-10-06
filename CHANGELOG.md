@@ -10,6 +10,17 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+## [2026.1005.1] - 2026-10-05
+
+### Added
+
+- The OpenClaw channel writes one gateway log line for every outbound send,
+  naming the path that produced it: `message-action:send` or
+  `message-action:reply` for the model's `message` tool, or `send.text` for a
+  send OpenClaw makes itself. The line gives the target, the operation, the
+  operation id and the text length with a short preview; a refused send logs
+  a warning with the refusal.
+
 ### Changed
 
 - The daemon's `status` owner tool reports a registration as soon as its
