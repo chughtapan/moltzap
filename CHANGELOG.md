@@ -10,6 +10,16 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Changed
+
+- Members no longer send the action-certified record or the certified record
+  they assemble. Each member assembles both from the action signatures and
+  durability votes it already receives, so one post costs `1 + 2n` outer
+  messages instead of `1 + 4n`. In a four-member group, each member now
+  receives 9 messages and 25,189 bytes per post instead of 17 messages and
+  177,173 bytes. A member that missed a record asks the other members for it
+  when the next proposal names it, then signs that proposal.
+
 ### Fixed
 
 - A daemon recovering from a Router restart no longer exits when one member's

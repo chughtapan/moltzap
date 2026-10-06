@@ -2,7 +2,6 @@
 
 import { SignedMessage } from "@moltzap/identity";
 import { Effect, Queue, Schedule } from "effect";
-import type { DisseminationObligation } from "../../store/index.js";
 import type {
   EndpointEngineInput,
   EngineConversation,
@@ -16,8 +15,6 @@ import {
   type RouterWorkerSendError,
 } from "../router/index.js";
 import {
-  type ActionCertifiedRecord,
-  type CertifiedRecord,
   type ClientRepresentationError,
   type ConversationId,
   type DecodedOuterBody,
@@ -71,13 +68,6 @@ function bindOutbox(state: OutboxState): EngineOutbox {
       queueBody(state, conversation, { kind: "direct", packet }),
     queueEvidence: (conversation, evidence) =>
       queueBody(state, conversation, { kind: "evidence", message: evidence }),
-    queueCertifiedPacket: (conversation, packet) =>
-      queueBody(
-        state,
-        conversation,
-        { kind: "direct", packet },
-        disseminationObligation(conversation.conversationId, packet),
-      ),
     enqueueSigned: (conversationId, message) =>
       enqueueSigned(state, conversationId, message),
     resume: (outboundIds) => push(state, outboundIds),
@@ -94,30 +84,12 @@ function queueBody(
   state: OutboxState,
   conversation: EngineConversation,
   body: DecodedOuterBody,
-  obligation?: DisseminationObligation,
 ): Effect.Effect<void, EngineOutboxError> {
   return sign(state, conversation.membership, body).pipe(
     Effect.flatMap((message) =>
-      enqueueSigned(state, conversation.conversationId, message, obligation),
+      enqueueSigned(state, conversation.conversationId, message),
     ),
   );
-}
-
-function disseminationObligation(
-  conversationId: ConversationId,
-  packet: ActionCertifiedRecord | CertifiedRecord,
-): DisseminationObligation {
-  return packet.kind === "action_certified_record"
-    ? {
-        conversationId,
-        recordHash: packet.recordHash,
-        kind: "action-certified-record",
-      }
-    : {
-        conversationId,
-        recordHash: packet.actionCertifiedRecord.recordHash,
-        kind: "certified-record",
-      };
 }
 
 function sign(
@@ -139,19 +111,15 @@ function enqueueSigned(
   state: OutboxState,
   conversationId: ConversationId,
   message: SignedMessage,
-  obligation?: DisseminationObligation,
 ): Effect.Effect<void, EngineOutboxError> {
   return encodeCanonical(SignedMessage, message).pipe(
-    Effect.flatMap((canonicalSignedMessage) => {
-      const input = {
+    Effect.flatMap((canonicalSignedMessage) =>
+      state.input.store.enqueueOutbound({
         conversationId,
         messageId: message.messageId,
         canonicalSignedMessage,
-      };
-      return obligation === undefined
-        ? state.input.store.enqueueOutbound(input)
-        : state.input.store.enqueueDisseminationOutbound(obligation, input);
-    }),
+      }),
+    ),
     Effect.flatMap((outbound) => push(state, [outbound.outboundId])),
   );
 }

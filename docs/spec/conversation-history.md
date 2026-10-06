@@ -382,7 +382,13 @@ anchor, predecessor, and record hash, durably stages the record core, and then
 signs a durability statement. It does not vote for conflicting successors of
 one certified head. Votes are a mergeable signer map ordered by decoded
 AgentId, and every entry retains the signer AgentId and exact signature bytes.
-Any member may assemble and disseminate sufficient evidence.
+
+Every member receives every action signature and durability vote, so each
+member assembles the `ActionCertifiedRecord` once its action threshold is met
+and the `CertifiedRecord` once its durability threshold is met, from the
+evidence it holds. No member sends either record after assembling it. A
+member that lacks a record gets it through
+[catch-up](#catch-up-for-a-missing-predecessor).
 
 A record becomes locally certified only after the store atomically promotes
 its staged core and valid `q(n)` durability votes. Semantic send succeeds only
@@ -475,6 +481,27 @@ catch-up and re-anchor traffic: its own posts, pending intents and retained
 outbound envelopes wait for every conversation, and the action traffic members
 send meanwhile is ignored.
 
+### Catch-up for a missing predecessor
+
+A member can miss a record, for example while it was offline or recovering.
+When a member receives a POST proposal whose `previousRecordHash` or
+`anchorHash` it does not hold as its current position, it sends one
+`CatchUpRequest` for that conversation from its durable position, outside any
+recovery run, and applies the pages it receives as they arrive. It holds that
+proposal, and the action signatures members send for it in the meantime. When
+certifying a record locally makes the named position its current position, it
+accepts the proposal and those signatures as if they had just arrived. Its
+catch-up continues until every other member answers `CatchUpIncomplete`.
+
+It holds the first proposal naming a position, which is the one every member
+that held the predecessor locked. Another proposal naming the same position
+sends nothing. A proposal naming a different position replaces the held one
+and sends a new request. A proposal whose position no member holds stays
+ignored: every other member answers `CatchUpIncomplete`, and only a proposal
+naming another position asks again. Such input never stops the endpoint. A
+Router discontinuity drops held proposals, because the recovery run that
+follows catches up every conversation and ignores action traffic.
+
 ## Direct packets and Router envelopes
 
 The exact direct packet union is:
@@ -512,10 +539,18 @@ The two closed representations are disjoint. Client first decodes
 `SignedMessage`; if both fail, it rejects the body. An action proposal's outer
 sender equals the post author. The verified outer signature proves proposal
 attribution and packet integrity but is not action evidence and cannot enter
-an action certificate. Any fixed member may assemble and send the other direct
-packets. Every outer message's recipients are the complete fixed-member
-AgentIds sorted by decoded bytes, including its sender. The Router sees only
-that outer Identity value.
+an action certificate. Any fixed member may send the catch-up and completed
+re-anchor packets. An endpoint accepts an `ActionCertifiedRecord` or
+`CertifiedRecord` direct packet from a fixed member but never sends one; it
+sends a certified record only inside a `CatchUpPage`. Every outer message's
+recipients are the complete fixed-member AgentIds sorted by decoded bytes,
+including its sender. The Router sees only that outer Identity value.
+
+One certified post costs at most `1 + 2n` outer messages in a conversation of
+`n` members: the author's proposal, one action signature from each member that
+signs, and one durability vote from each member that stages the record. Each
+is addressed to all `n` members. Catch-up adds messages only for a member that
+missed a record.
 
 After ordered delivery, every conforming member, including the author, durably
 locks its first valid gap-free candidate for the predecessor before emitting a
@@ -665,8 +700,9 @@ Acceptance covers address permutation, membership bounds, deterministic
 conversation identity, N2/N3/N4/N10 thresholds, GENESIS unanimity, missing
 author, evidence-independent hashes, proposal locking, stalled quorum,
 recovery rebase, conflicting intent, distinct host invocations, durability
-separation, catch-up, re-anchor, stable delivery replay, callback ordering, and
-exact store/wire rejection.
+separation, catch-up, catch-up for a missing predecessor, the per-post outer
+message count, re-anchor, stable delivery replay, callback ordering, and exact
+store/wire rejection.
 
 ## Explicitly deferred
 

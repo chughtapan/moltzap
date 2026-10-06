@@ -24,7 +24,6 @@ import type {
   RouterWorkerSendError,
 } from "../../router/index.js";
 import type {
-  ActionCertifiedRecord,
   ActionCore,
   ActionHash,
   CertifiedRecord,
@@ -177,11 +176,6 @@ export interface EngineOutbox {
     conversation: EngineConversation,
     evidence: SignedMessage,
   ) => Effect.Effect<void, EngineOutboxError>;
-  /** Attach the signed packet to its durable dissemination obligation. */
-  readonly queueCertifiedPacket: (
-    conversation: EngineConversation,
-    packet: ActionCertifiedRecord | CertifiedRecord,
-  ) => Effect.Effect<void, EngineOutboxError>;
   /**
    * Stage an envelope that `sign` returned; any other `SignedMessage` would
    * skip the outbox's signing.
@@ -204,8 +198,8 @@ export interface EngineOutbox {
 
 /**
  * The operations one engine phase starts in another. The engine assembly
- * supplies them, so send, certification, dissemination and recovery depend
- * on this contract instead of on each other.
+ * supplies them, so send, certification and recovery depend on this contract
+ * instead of on each other.
  */
 export interface EnginePhases {
   readonly proposeIntent: (
@@ -223,7 +217,13 @@ export interface EnginePhases {
   readonly resumeFolds: (
     runtime: EngineRuntime,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
-  readonly resumeDissemination: (
+  /**
+   * Ask every other member for the certified history after this endpoint's
+   * durable position in one conversation, as certification does when a
+   * proposal names a predecessor this endpoint does not hold.
+   */
+  readonly requestCatchUp: (
     runtime: EngineRuntime,
+    conversationId: ConversationId,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
 }

@@ -32,7 +32,7 @@ import {
 import {
   acceptEngineIngress,
   acceptEngineRecoveryIngress,
-  resumeDisseminationObligations,
+  forgetWaitingProposals,
   resumeEngineFolds,
 } from "./certification/index.js";
 import { DeliveryAcknowledgeError, ListenError, SendError } from "./errors.js";
@@ -43,6 +43,7 @@ import {
   acceptEngineIngressWithRecovery,
   acceptEngineRecoveryIngressWithRecovery,
   recoverCertifiedHistory,
+  requestGapCatchUp,
 } from "./recovery/index.js";
 import {
   type EngineSendInput,
@@ -400,7 +401,7 @@ const enginePhases: EnginePhases = {
   acceptIngress: acceptEngineIngress,
   acceptRecoveryIngress: acceptEngineRecoveryIngress,
   resumeFolds: resumeEngineFolds,
-  resumeDissemination: resumeDisseminationObligations,
+  requestCatchUp: requestGapCatchUp,
 };
 
 const makeRuntime = (
@@ -473,9 +474,6 @@ const initializeRuntime = (
 
 const resumeRuntime = (runtime: EngineRuntime) =>
   Effect.gen(function* () {
-    yield* resumeDisseminationObligations(runtime).pipe(
-      Effect.mapError(resumeFoldFailure),
-    );
     yield* resumeEngineFolds(runtime).pipe(Effect.mapError(resumeFoldFailure));
     yield* Effect.forEach(
       runtime.intents.values(),
@@ -500,6 +498,7 @@ const abandonVolatileFolds = (
         yield* installRecoveryBarrier(runtime);
         yield* Effect.sync(() => {
           runtime.outbox.clear();
+          forgetWaitingProposals(runtime);
           if (reason !== "router_restarted") {
             return;
           }

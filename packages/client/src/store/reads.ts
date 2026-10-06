@@ -21,11 +21,7 @@ import {
   type StoreState,
   validateContinuation,
 } from "./database/index.js";
-import {
-  readPendingDissemination,
-  readPendingOutbound,
-  readRetainedDeliveries,
-} from "./queues/index.js";
+import { readPendingOutbound, readRetainedDeliveries } from "./queues/index.js";
 import {
   readCertifiedRecord,
   readConversationPosition,
@@ -153,7 +149,6 @@ export function recoverStoredState(database: DatabaseSync): EndpointRecovery {
     certifiedRecords: readAllCertifiedRecords(database),
     stagedReanchors: readReanchors(database),
     pendingDeliveries: readRetainedDeliveries(database),
-    disseminationObligations: readPendingDissemination(database),
     outboundMessages: readPendingOutbound(database),
   });
 }

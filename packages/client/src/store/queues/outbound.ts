@@ -55,7 +55,7 @@ export function enqueueOutbound(
  * @param message Canonical complete initial outer message.
  * @returns The retained current envelope under its stable initial identity.
  */
-export function enqueueOutboundInTransaction(
+function enqueueOutboundInTransaction(
   database: DatabaseSync,
   message: OutboundMessageInput,
 ): StoredOutboundMessage {
@@ -238,12 +238,6 @@ export function discardOutbound(
     );
     for (const outbound of retained) {
       if (outbound.disposition === "pending") {
-        database
-          .prepare(
-            `UPDATE dissemination_obligations SET outbound_id = NULL
-             WHERE outbound_id = ?`,
-          )
-          .run(outbound.outbound.outboundId);
         database
           .prepare(
             `UPDATE outbound_messages SET disposition = 'discarded'

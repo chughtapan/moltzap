@@ -14,7 +14,6 @@ import {
 import {
   type CertifiedRecord,
   type ConversationFoundation,
-  type DisseminationObligation,
   type EmptyConversationRestart,
   type EndpointRecovery,
   type EndpointStore,
@@ -416,104 +415,6 @@ function recoverOnlyOutbound(
   );
 }
 
-interface DisseminationLifecycleFixture {
-  readonly directory: string;
-  readonly conversationId: string;
-  readonly record: CertifiedRecord;
-  readonly actionObligation: DisseminationObligation;
-  readonly certifiedObligation: DisseminationObligation;
-  readonly actionEnvelope: OutboundMessageInput;
-}
-
-function retainsRecordDisseminationAcrossCrashWindows() {
-  const directory = stateDirectory();
-  const conversationId = "conversation:dissemination";
-  const record = certifiedRecord(conversationId, LOCAL_AGENT_ID);
-  const fixture: DisseminationLifecycleFixture = {
-    directory,
-    conversationId,
-    record,
-    actionObligation: disseminationObligation(
-      "action-certified-record",
-      record,
-    ),
-    certifiedObligation: disseminationObligation("certified-record", record),
-    actionEnvelope: outboundMessage(
-      conversationId,
-      "msg_action_certified",
-      "outer:action-certified",
-    ),
-  };
-  return Effect.runPromise(
-    stageDisseminationObligation(fixture).pipe(
-      Effect.zipRight(reconcileDisseminationCrashWindows(fixture)),
-    ),
-  );
-}
-
-function stageDisseminationObligation(fixture: DisseminationLifecycleFixture) {
-  return withStore(fixture.directory, (store) =>
-    Effect.gen(function* () {
-      yield* bindLocalIdentity(store);
-      yield* store.bindPostIntent({
-        kind: "new-conversation",
-        foundation: foundation(fixture.conversationId),
-        intent: {
-          conversationId: fixture.conversationId,
-          membershipHash: fixture.record.membershipHash,
-          authorAgentId: fixture.record.authorAgentId,
-          postId: fixture.record.postId,
-          canonicalIntent: bytes("intent:dissemination"),
-        },
-      });
-      yield* store.lockProposal(
-        proposal(fixture.conversationId, fixture.record.actionHash),
-      );
-      yield* expectReason(
-        store.enqueueDisseminationOutbound(
-          fixture.actionObligation,
-          fixture.actionEnvelope,
-        ),
-        "not-found",
-      );
-      expect((yield* store.recover()).outboundMessages).toEqual([]);
-      expect(
-        yield* store.stageRecordForDissemination(stagedRecord(fixture.record)),
-      ).toBe(INSERTED_MUTATION);
-      expect((yield* store.recover()).disseminationObligations).toEqual([
-        fixture.actionObligation,
-      ]);
-    }),
-  );
-}
-
-function reconcileDisseminationCrashWindows(
-  fixture: DisseminationLifecycleFixture,
-) {
-  return withStore(fixture.directory, (store) =>
-    Effect.gen(function* () {
-      const outbound = yield* store.enqueueDisseminationOutbound(
-        fixture.actionObligation,
-        fixture.actionEnvelope,
-      );
-      const attached = yield* store.recover();
-      expect(attached.disseminationObligations).toEqual([]);
-      expect(attached.outboundMessages).toEqual([outbound]);
-      expect(yield* store.promoteRecordForDissemination(fixture.record)).toBe(
-        INSERTED_MUTATION,
-      );
-      expect((yield* store.recover()).disseminationObligations).toEqual([
-        fixture.certifiedObligation,
-      ]);
-      expect(yield* store.discardOutbound([outbound])).toBe(INSERTED_MUTATION);
-      expect((yield* store.recover()).disseminationObligations).toEqual([
-        fixture.actionObligation,
-        fixture.certifiedObligation,
-      ]);
-    }),
-  );
-}
-
 interface EmptyRestartFixture {
   readonly directory: string;
   readonly conversationId: string;
@@ -581,7 +482,7 @@ function prepareEmptyRestartState(
       intent: fixture.intent,
     });
     yield* store.lockProposal(fixture.lock);
-    yield* store.stageRecordForDissemination(fixture.staged);
+    yield* store.stageRecord(fixture.staged);
     yield* store.mergeEvidence({
       conversationId: fixture.conversationId,
       kind: "action",
@@ -634,7 +535,6 @@ function assertEmptyRestartRecovery(
   expect(recovery.proposalLocks).toEqual([]);
   expect(recovery.stagedRecords).toEqual([]);
   expect(recovery.evidence).toEqual([]);
-  expect(recovery.disseminationObligations).toEqual([]);
   expect(recovery.outboundMessages).toEqual([]);
 }
 
@@ -928,17 +828,6 @@ function outboundMessage(
   };
 }
 
-function disseminationObligation(
-  kind: DisseminationObligation["kind"],
-  record: StagedRecord,
-): DisseminationObligation {
-  return {
-    conversationId: record.conversationId,
-    recordHash: record.recordHash,
-    kind,
-  };
-}
-
 function localActionEvidence(
   conversationId: string,
   actionHash: string,
@@ -1016,9 +905,6 @@ describe("endpoint durable Router outbox", () => {
 
   it("invalidates only an exact current envelope set atomically", () =>
     discardsOnlyAnExactCurrentOutboundSet());
-
-  it("recovers record dissemination before and after outbox attachment", () =>
-    retainsRecordDisseminationAcrossCrashWindows());
 });
 
 describe("endpoint empty-history Router restart", () => {

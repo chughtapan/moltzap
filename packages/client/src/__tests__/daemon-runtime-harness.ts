@@ -161,7 +161,6 @@ const emptyRecovery = (identity?: IdentityBinding): EndpointRecovery => ({
   certifiedRecords: [],
   stagedReanchors: [],
   pendingDeliveries: [],
-  disseminationObligations: [],
   outboundMessages: [],
 });
 

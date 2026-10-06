@@ -39,9 +39,7 @@ import {
   beginOutbound,
   completeOutbound,
   discardOutbound,
-  enqueueDisseminationOutbound,
   enqueueOutbound,
-  enqueueOutboundInTransaction,
   readLegacyPendingDeliveries,
   readPendingDeliveries,
   replaceOutbound,
@@ -56,9 +54,7 @@ import {
   applyCatchUpRecord,
   mergeEvidence,
   promoteRecord,
-  promoteRecordForDissemination,
   stageRecord,
-  stageRecordForDissemination,
 } from "./records.js";
 
 /** Closed endpoint-store failures without SQLite implementation details. */
@@ -146,16 +142,10 @@ function makeHistoryOperations(state: StoreState, run: StoreRunner) {
     lockGenesisProposal: (foundation, proposal) =>
       run(() => lockGenesisProposal(state.database, foundation, proposal)),
     stageRecord: (record) => run(() => stageRecord(state.database, record)),
-    stageRecordForDissemination: (record) =>
-      run(() => stageRecordForDissemination(state.database, record)),
     mergeEvidence: (evidence) =>
       run(() => mergeEvidence(state.database, evidence)),
     promoteRecord: (record, delivery) =>
       run(() => promoteRecord(state.database, record, delivery)),
-    promoteRecordForDissemination: (record, delivery) =>
-      run(() =>
-        promoteRecordForDissemination(state.database, record, delivery),
-      ),
     applyCatchUpRecord: (record, delivery) =>
       run(() => applyCatchUpRecord(state.database, record, delivery)),
     stageReanchor: (reanchor) =>
@@ -177,15 +167,6 @@ function makeTransportOperations(state: StoreState, run: StoreRunner) {
       run(() => acknowledgeDelivery(state.database, deliveryToken)),
     enqueueOutbound: (message) =>
       run(() => enqueueOutbound(state.database, message)),
-    enqueueDisseminationOutbound: (obligation, message) =>
-      run(() =>
-        enqueueDisseminationOutbound(
-          state.database,
-          obligation,
-          message,
-          enqueueOutboundInTransaction,
-        ),
-      ),
     beginOutbound: (outboundId) =>
       run(() => beginOutbound(state.database, outboundId)),
     replaceOutbound: (current, replacement) =>

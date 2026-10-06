@@ -31,7 +31,8 @@ independent proofs:
    `RecordHash`.
 3. Any member merges votes until the durability threshold is met.
 4. The endpoint atomically promotes the staged value and evidence into its
-   certified local history, then disseminates it for member catch-up.
+   certified local history. Each member assembles the certified record from
+   the votes it receives; a member that missed it catches up from the others.
 
 For `n < 4`, every fixed member supplies a durability vote. For `n >= 4`, with
 `f = floor((n - 1) / 3)`, `n - f` votes complete the durability evidence.
@@ -129,7 +130,7 @@ rules.
 | Registry unavailable | pinned cards and embedded certified evidence remain verifiable | registration and uncached resolution stop |
 | Router unavailable | certified local histories do not change | new protocol delivery stops |
 | Router restarts | old certified history remains valid | conversation waits for head reconciliation and a threshold re-anchor |
-| action author fails | existing evidence remains valid | another member can assemble and disseminate enough mergeable durability votes |
+| action author fails | existing evidence remains valid | every member assembles the certificate from the mergeable durability votes it receives |
 | member sends invalid or conflicting evidence | honest endpoints reject before mutation | progress may wait for enough valid members/evidence |
 | durability quorum unavailable | no endpoint guesses successful durability | finalization waits |
 | non-member requests private history | no privileged read path exists | disclosure depends on an accepted task and local trust policy |

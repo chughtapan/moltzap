@@ -635,6 +635,14 @@ function validateFoundation(foundation: ConversationFoundation): void {
   requireBytes(foundation.canonicalAnchor);
 }
 
+/**
+ * Delete one conversation's uncertified protocol state and discard its pending
+ * envelopes. The endpoint never writes `dissemination_obligations`, but a
+ * version-3 store may hold rows there that reference staged records, so those
+ * rows are deleted first.
+ * @param database Exclusively owned endpoint database.
+ * @param expected Foundation of the conversation being cleared.
+ */
 function clearIncompleteConversationState(
   database: DatabaseSync,
   expected: ConversationFoundation,

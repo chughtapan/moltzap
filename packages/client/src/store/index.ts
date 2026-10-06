@@ -11,8 +11,6 @@ export type {
   ConversationFoundation,
   ConversationPage,
   ConversationPosition,
-  DisseminationKind,
-  DisseminationObligation,
   EmptyConversationRestart,
   EndpointRecovery,
   EndpointStore,

@@ -180,16 +180,6 @@ export interface StoredOutboundMessage extends OutboundMessageInput {
   readonly outboundId: string;
 }
 
-/** Closed packet family whose durable state requires later dissemination. */
-export type DisseminationKind = "action-certified-record" | "certified-record";
-
-/** Durable logical packet that has not yet been attached to an outbox row. */
-export interface DisseminationObligation {
-  readonly conversationId: string;
-  readonly recordHash: string;
-  readonly kind: DisseminationKind;
-}
-
 /** Durable disposition chosen immediately before one Router attempt. */
 export type OutboundAttempt =
   | Readonly<{ kind: "inactive" }>
@@ -252,7 +242,6 @@ export interface EndpointRecovery {
   readonly certifiedRecords: readonly CertifiedRecord[];
   readonly stagedReanchors: readonly RecoveredReanchor[];
   readonly pendingDeliveries: readonly PendingDelivery[];
-  readonly disseminationObligations: readonly DisseminationObligation[];
   readonly outboundMessages: readonly StoredOutboundMessage[];
 }
 
@@ -344,17 +333,10 @@ export interface EndpointStore {
   readonly stageRecord: (
     record: StagedRecord,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
-  readonly stageRecordForDissemination: (
-    record: StagedRecord,
-  ) => Effect.Effect<StoreMutation, EndpointStoreError>;
   readonly mergeEvidence: (
     evidence: ProtocolEvidence,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
   readonly promoteRecord: (
-    record: CertifiedRecord,
-    delivery?: InboundDeliveryInput,
-  ) => Effect.Effect<StoreMutation, EndpointStoreError>;
-  readonly promoteRecordForDissemination: (
     record: CertifiedRecord,
     delivery?: InboundDeliveryInput,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
@@ -379,10 +361,6 @@ export interface EndpointStore {
     deliveryToken: DeliveryToken,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
   readonly enqueueOutbound: (
-    message: OutboundMessageInput,
-  ) => Effect.Effect<StoredOutboundMessage, EndpointStoreError>;
-  readonly enqueueDisseminationOutbound: (
-    obligation: DisseminationObligation,
     message: OutboundMessageInput,
   ) => Effect.Effect<StoredOutboundMessage, EndpointStoreError>;
   readonly beginOutbound: (

@@ -51,7 +51,6 @@ import {
   RouterWorkerUnavailableError,
 } from "../../router/index.js";
 import {
-  type ActionCertifiedRecord as ActionCertifiedRecordValue,
   type ActionProposal,
   Content,
   ConversationId,
@@ -66,9 +65,10 @@ import {
   MembershipHash,
   type MembershipHash as MembershipHashValue,
   RecordCore,
-  type RecordHash,
+  RecordHash,
   signEvidenceMessage,
   signOuterEvidence,
+  signOuterPacket,
   type VerifiedMembership,
   verifyMembershipDescriptor,
 } from "../../wire/index.js";
@@ -122,6 +122,9 @@ const unrelatedConversationId = Schema.decodeUnknownSync(ConversationId)(
 );
 const unrelatedMembershipHash = Schema.decodeUnknownSync(MembershipHash)(
   digest("mbr_", 36),
+);
+const unknownRecordHash = Schema.decodeUnknownSync(RecordHash)(
+  digest("rch_", 37),
 );
 const endpointIndexes = Object.freeze([0, 1, 2, 3]);
 
@@ -491,19 +494,6 @@ function decodeActionProposal(
   );
 }
 
-function decodeActionCertifiedRecord(
-  message: typeof SignedMessage.Type,
-): Effect.Effect<ActionCertifiedRecordValue> {
-  return decodeOuterBody(message.body).pipe(
-    Effect.flatMap((body) =>
-      body.kind === "direct" && body.packet.kind === "action_certified_record"
-        ? Effect.succeed(body.packet)
-        : Effect.dieMessage("expected action-certified record"),
-    ),
-    Effect.orDie,
-  );
-}
-
 function decodeActionSignatureHash(
   message: typeof SignedMessage.Type,
 ): Effect.Effect<Effect.Effect.Success<ReturnType<typeof hashAction>>> {
@@ -523,25 +513,29 @@ function decodeActionSignatureHash(
 }
 
 /**
- * Deliver a batch to every engine, drain each, and repeat with whatever the
- * engines queued, until a round queues nothing. An exchange still producing
+ * Deliver a batch to the online engines, drain each, and repeat with whatever
+ * they queued, until a round queues nothing. An exchange still producing
  * traffic after 32 rounds is a defect in the scripted Router, so it dies.
  * @param harness Engines and the scripted Router queue they send through.
  * @param initial First batch to deliver.
- * @returns Completion once the exchange is idle.
+ * @param online Engines that receive and send; every engine when omitted.
+ * @returns Every message delivered, in Router order, once the exchange is idle.
  */
 function pump(
   harness: ProtocolHarness,
   initial: ReadonlyArray<typeof SignedMessage.Type>,
-): Effect.Effect<void> {
+  online?: readonly number[],
+): Effect.Effect<ReadonlyArray<typeof SignedMessage.Type>> {
   return Effect.gen(function* () {
+    const delivered: Array<typeof SignedMessage.Type> = [];
     let batch = initial;
     for (let round = 0; round < 32; round += 1) {
       if (batch.length === 0) {
-        return;
+        return delivered;
       }
-      yield* harness.deliver(batch);
-      yield* harness.drain();
+      yield* harness.deliver(batch, online);
+      yield* harness.drain(online);
+      delivered.push(...batch);
       batch = yield* takeQueued(harness);
     }
     return yield* Effect.dieMessage("scripted Router did not become idle");
@@ -584,6 +578,28 @@ function certifyGenesis(harness: ProtocolHarness): Effect.Effect<RecordHash> {
     );
     return yield* certifyGenesisOf(harness, sending);
   });
+}
+
+/**
+ * The hash of the one POST record a store has staged, read from the store
+ * because no member sends the record it assembles.
+ * @param store Endpoint store holding a staged GENESIS and one staged POST.
+ * @returns The staged POST's record hash.
+ */
+function stagedPostRecordHash(store: EndpointStore): Effect.Effect<RecordHash> {
+  return store.recover().pipe(
+    Effect.map(({ stagedRecords }) =>
+      stagedRecords.find(
+        ({ previousRecordHash }) => previousRecordHash !== undefined,
+      ),
+    ),
+    Effect.flatMap((staged) =>
+      staged === undefined
+        ? Effect.dieMessage("no POST record was staged")
+        : Schema.decodeUnknown(RecordHash)(staged.recordHash),
+    ),
+    Effect.orDie,
+  );
 }
 
 function hostileDurabilityMessage(input: {
@@ -665,25 +681,15 @@ function restartOverPersistedDurabilityVote(
     );
     yield* harness.deliver(actionSignatures.slice(0, 3));
     yield* harness.drain();
-    const authorActionRecordMessage = (yield* messagesOfKind(
-      yield* takeQueued(harness),
-      "action_certified_record",
-    )).find((message) => message.senderAgentId === author.card.agentId);
-    if (authorActionRecordMessage === undefined) {
-      return yield* Effect.dieMessage(
-        "author did not assemble the staged action certificate",
-      );
-    }
-    const actionRecord = yield* decodeActionCertifiedRecord(
-      authorActionRecordMessage,
-    );
+    yield* takeQueued(harness);
+    const recordHash = yield* stagedPostRecordHash(authorStore);
     const vote = yield* signEvidenceMessage({
       statement: {
         moltzapVersion: MOLTZAP_VERSION,
         kind: "durability_vote",
         signerAgentId: voter.card.agentId,
         ...bind(harness.membership),
-        recordHash: actionRecord.recordHash,
+        recordHash,
       },
       agentCard: voter.card,
       signingAuthority: voter.authority,
@@ -692,7 +698,7 @@ function restartOverPersistedDurabilityVote(
       .mergeEvidence({
         conversationId: harness.membership.descriptor.conversationId,
         kind: "durability",
-        subjectId: actionRecord.recordHash,
+        subjectId: recordHash,
         evidenceKey: keyMember.card.agentId,
         canonicalEvidence: yield* encodeCanonical(SignedMessage, vote).pipe(
           Effect.orDie,
@@ -763,57 +769,43 @@ function certifiesOrdinaryN4Post() {
         yield* harness.deliver(actionSignatures.slice(0, 3));
         yield* harness.drain();
         const certificationBatch = yield* takeQueued(harness);
-        const actionRecordMessages = yield* messagesOfKind(
-          certificationBatch,
-          "action_certified_record",
-        );
         const durabilityMessages = yield* messagesOfKind(
           certificationBatch,
           "durability_vote",
         );
-        expect(actionRecordMessages).toHaveLength(MEMBER_COUNT);
         expect(durabilityMessages).toHaveLength(MEMBER_COUNT);
+        expect(certificationBatch).toHaveLength(MEMBER_COUNT);
 
-        const authorActionRecordMessage = actionRecordMessages.find(
-          (message) => message.senderAgentId === author.card.agentId,
+        const actionHash = yield* hashAction(proposal.action).pipe(
+          Effect.orDie,
         );
-        if (authorActionRecordMessage === undefined) {
-          return yield* Effect.dieMessage(
-            "author did not assemble the POST action certificate",
-          );
-        }
-        const actionRecord = yield* decodeActionCertifiedRecord(
-          authorActionRecordMessage,
-        );
-        expect(actionRecord.recordCore.action.kind).toBe(proposal.action.kind);
-        expect(actionRecord.actionCertificate.signatures).toHaveLength(3);
-        const actionSigners = yield* Effect.forEach(
-          actionRecord.actionCertificate.signatures,
-          (representation) =>
-            Schema.decodeUnknown(SignedMessage)(representation),
-          { concurrency: 1 },
-        ).pipe(Effect.orDie);
-        expect(
-          actionSigners.some(
-            (signature) => signature.senderAgentId === author.card.agentId,
-          ),
-        ).toBe(true);
-
+        const recordHash = yield* stagedPostRecordHash(authorStore);
         const staged = yield* authorStore.recover().pipe(Effect.orDie);
         expect(
-          staged.stagedRecords.some(
-            ({ recordHash }) => recordHash === actionRecord.recordHash,
+          staged.evidence
+            .filter(
+              ({ kind, subjectId }) =>
+                kind === "action" && subjectId === actionHash,
+            )
+            .map(({ evidenceKey }) => evidenceKey),
+        ).toHaveLength(3);
+        expect(
+          staged.evidence.some(
+            ({ kind, subjectId, evidenceKey }) =>
+              kind === "action" &&
+              subjectId === actionHash &&
+              evidenceKey === author.card.agentId,
           ),
         ).toBe(true);
         expect(
           staged.certifiedRecords.some(
-            ({ recordHash }) => recordHash === actionRecord.recordHash,
+            (record) => record.recordHash === recordHash,
           ),
         ).toBe(false);
         expect(
           staged.evidence.filter(
             ({ kind, subjectId }) =>
-              kind === "durability" && subjectId === actionRecord.recordHash,
+              kind === "durability" && subjectId === recordHash,
           ),
         ).toHaveLength(1);
 
@@ -825,14 +817,14 @@ function certifiesOrdinaryN4Post() {
         const wrongConversationVote = yield* hostileDurabilityMessage({
           harness,
           signer: hostileSigner,
-          recordHash: actionRecord.recordHash,
+          recordHash,
           conversationId: unrelatedConversationId,
           membershipHash: harness.membership.hash,
         });
         const wrongMembershipVote = yield* hostileDurabilityMessage({
           harness,
           signer: hostileSigner,
-          recordHash: actionRecord.recordHash,
+          recordHash,
           conversationId: harness.membership.descriptor.conversationId,
           membershipHash: unrelatedMembershipHash,
         });
@@ -848,13 +840,13 @@ function certifiesOrdinaryN4Post() {
           .pipe(Effect.orDie);
         expect(
           afterHostileVotes.certifiedRecords.some(
-            ({ recordHash }) => recordHash === actionRecord.recordHash,
+            (record) => record.recordHash === recordHash,
           ),
         ).toBe(false);
         expect(
           afterHostileVotes.evidence.filter(
             ({ kind, subjectId }) =>
-              kind === "durability" && subjectId === actionRecord.recordHash,
+              kind === "durability" && subjectId === recordHash,
           ),
         ).toHaveLength(1);
 
@@ -880,7 +872,7 @@ function certifiesOrdinaryN4Post() {
           .pipe(Effect.orDie);
         expect(
           afterFirstRemoteVote.certifiedRecords.some(
-            ({ recordHash }) => recordHash === actionRecord.recordHash,
+            (record) => record.recordHash === recordHash,
           ),
         ).toBe(false);
 
@@ -890,7 +882,7 @@ function certifiesOrdinaryN4Post() {
         yield* Fiber.join(sending).pipe(Effect.orDie);
         const certified = yield* authorStore.recover().pipe(Effect.orDie);
         const storedPost = certified.certifiedRecords.find(
-          ({ recordHash }) => recordHash === actionRecord.recordHash,
+          (record) => record.recordHash === recordHash,
         );
         if (storedPost === undefined) {
           return yield* Effect.dieMessage("POST did not complete durably");
@@ -901,10 +893,171 @@ function certifiesOrdinaryN4Post() {
           RecordCore,
           storedPost.canonicalRecordCore,
         ).pipe(Effect.orDie);
-        expect(storedCore.action.kind).toBe(
-          actionRecord.recordCore.action.kind,
+        expect(storedCore.action.kind).toBe(proposal.action.kind);
+        expect(storedCore.actionHash).toBe(actionHash);
+      }),
+    ),
+  );
+}
+
+/**
+ * One N4 post, from proposal to every member's certified record, takes
+ * 1 + 2n outer messages: the proposal, one action signature and one
+ * durability vote from each member. Each member assembles both certified
+ * records itself, so none is sent.
+ * @returns Completion once the counted post is certified everywhere.
+ */
+function sendsOnePlusTwoNMessagesPerPost() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const sending = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "counted post")),
         );
-        expect(storedCore.actionHash).toBe(actionRecord.recordCore.actionHash);
+
+        const delivered = yield* pump(harness, yield* takeReadyBatch(harness));
+        yield* Fiber.join(sending).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        const kinds = yield* Effect.forEach(delivered, protocolMessageKind, {
+          concurrency: 1,
+        });
+        expect([...kinds].sort()).toEqual([
+          "action_proposal",
+          "action_signature",
+          "action_signature",
+          "action_signature",
+          "action_signature",
+          "durability_vote",
+          "durability_vote",
+          "durability_vote",
+          "durability_vote",
+        ]);
+        expect(delivered).toHaveLength(1 + 2 * MEMBER_COUNT);
+      }),
+    ),
+  );
+}
+
+/**
+ * Member 2 misses every message of one post. Member 4 is then offline, so
+ * the next post needs member 2's signature and durability vote. The next
+ * proposal names the record member 2 missed: member 2 catches it up from the
+ * members, accepts the proposal with the signatures that arrived meanwhile,
+ * and the post certifies at every online member.
+ * @returns Completion once member 2 holds and delivers both posts.
+ */
+function laggingMemberCatchesUpAndCertifiesTheNextPost() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
+        const laggingStore = yield* requireAt(
+          harness.stores,
+          1,
+          "endpoint store",
+        );
+
+        const missed = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "missed by member 2")),
+        );
+        yield* pump(harness, yield* takeReadyBatch(harness), [0, 2, 3]);
+        yield* Fiber.join(missed).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+        const next = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "needs member 2")),
+        );
+        yield* pump(harness, yield* takeReadyBatch(harness), [0, 1, 2]);
+        yield* Fiber.join(next).pipe(Effect.timeout("1 second"), Effect.orDie);
+
+        const recovered = yield* laggingStore.recover().pipe(Effect.orDie);
+        expect(recovered.certifiedRecords).toHaveLength(3);
+        const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
+        expect(pending.map(({ message }) => message.content)).toEqual([
+          [{ type: "text", text: "open group" }],
+          [{ type: "text", text: "missed by member 2" }],
+          [{ type: "text", text: "needs member 2" }],
+        ]);
+      }),
+    ),
+  );
+}
+
+/**
+ * A member's proposal naming a predecessor no member holds is ignored without
+ * failing the endpoint. The endpoint asks the members for later history, every
+ * member answers that it has none, and the conversation's next real post
+ * certifies at every member.
+ * @returns Completion once the real post is certified everywhere.
+ */
+function unresolvablePredecessorLeavesTheConversationLive() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.identities, 0, "identity");
+        const authorEngine = yield* requireAt(
+          harness.engines,
+          0,
+          "endpoint engine",
+        );
+        const sending = yield* Effect.fork(
+          authorEngine.send(yield* sendInput(harness, "real successor")),
+        );
+        const proposalBatch = yield* takeReadyBatch(harness);
+        const proposal = yield* decodeActionProposal(
+          yield* requireAt(proposalBatch, 0, "POST proposal"),
+        );
+        if (proposal.action.kind !== "POST") {
+          return yield* Effect.dieMessage("ordinary send did not propose POST");
+        }
+        const forged = yield* signOuterPacket({
+          packet: {
+            ...proposal,
+            action: {
+              ...proposal.action,
+              previousRecordHash: unknownRecordHash,
+            },
+          },
+          membership: harness.membership,
+          agentCard: author.card,
+          signingAuthority: author.authority,
+        }).pipe(Effect.orDie);
+
+        expect(yield* harness.deliver([forged], [1])).toEqual(["ignored"]);
+        yield* harness.drain([1]);
+        const requests = yield* takeQueued(harness);
+        expect(
+          yield* messagesOfKind(requests, "catch_up_request"),
+        ).toHaveLength(1);
+        yield* pump(harness, [...requests, ...proposalBatch]);
+        yield* Fiber.join(sending).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        const histories = yield* Effect.forEach(
+          harness.stores,
+          (store) =>
+            store
+              .recover()
+              .pipe(
+                Effect.map(({ certifiedRecords }) => certifiedRecords.length),
+              ),
+          { concurrency: 1 },
+        ).pipe(Effect.orDie);
+        expect(histories).toEqual([2, 2, 2, 2]);
       }),
     ),
   );
@@ -1230,6 +1383,21 @@ describe("fixed-post endpoint protocol", () => {
   it(
     "retains a durably bound send when its caller is interrupted",
     retainsInterruptedDurableSend,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "sends 1 + 2n outer messages for one N4 post",
+    sendsOnePlusTwoNMessagesPerPost,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "catches a lagging member up when the next proposal names a record it missed",
+    laggingMemberCatchesUpAndCertifiesTheNextPost,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "keeps the conversation live after a proposal names a predecessor no member holds",
+    unresolvablePredecessorLeavesTheConversationLive,
     TEST_TIMEOUT_MS,
   );
 });

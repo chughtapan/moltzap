@@ -175,7 +175,6 @@ const makeRecovery = (fixture: IdentityFixture) =>
       certifiedRecords: [],
       stagedReanchors: [],
       pendingDeliveries: [],
-      disseminationObligations: [],
       outboundMessages: [],
     };
     return recovery;

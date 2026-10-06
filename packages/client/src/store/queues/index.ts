@@ -1,4 +1,4 @@
-/** @file The store's three durable queues: pending deliveries, dissemination obligations, and the Router outbox. */
+/** @file The store's two durable queues: pending deliveries and the Router outbox. */
 
 /* eslint-disable jsdoc/require-jsdoc -- Re-exported private symbols retain their owning-module documentation. */
 
@@ -10,16 +10,10 @@ export {
   retainDeliveryInTransaction,
 } from "./deliveries.js";
 export {
-  enqueueDisseminationOutbound,
-  readPendingDissemination,
-  retainDisseminationInTransaction,
-} from "./dissemination.js";
-export {
   beginOutbound,
   completeOutbound,
   discardOutbound,
   enqueueOutbound,
-  enqueueOutboundInTransaction,
   readPendingOutbound,
   replaceOutbound,
 } from "./outbound.js";

@@ -287,6 +287,11 @@ const runtimeSchemaSql = `
   ) STRICT;
 `;
 
+/**
+ * The version-3 protocol schema. It keeps `dissemination_obligations`, which
+ * the endpoint never writes, so a new store has the same tables as every other
+ * version-3 store.
+ */
 const schemaSql = `
   CREATE TABLE identity_binding (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),

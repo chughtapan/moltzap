@@ -2,7 +2,7 @@
 
 This folder owns addressed messaging: resolving `agent:` and `group:`
 addresses, binding a send's intent, Router-ordered proposal selection,
-GENESIS/POST certification, durable dissemination, and recovery.
+GENESIS/POST certification, catch-up, and recovery.
 
 The service uses `index.ts`, which declares the engine contract
 (`EndpointEngine`, its errors, and the pending-message value), composes the
@@ -19,11 +19,11 @@ depends on no phase. `history/` builds the durable records a fold certifies
 and reads stored history back, and `startup.ts` rebuilds the engine's state
 from the store when the engine starts.
 The phases are `send.ts`, `certification/` (certification, evidence routing,
-and the dissemination resume), `recovery/` (recovery runs and catch-up) and
-`reanchor/` (Router-restart re-anchor). A phase starts work in another phase
-only through `EngineRuntime.phases`, which `index.ts` supplies, or through a
-port the called phase defines and the caller builds: recovery builds the
-`ReanchorRunPort` its re-anchor runs against. Phases never import each
-other's internals.
+and proposals waiting for a missing predecessor), `recovery/` (recovery runs
+and catch-up) and `reanchor/` (Router-restart re-anchor). A phase starts work
+in another phase only through `EngineRuntime.phases`, which `index.ts`
+supplies, or through a port the called phase defines and the caller builds:
+recovery builds the `ReanchorRunPort` its re-anchor runs against. Phases never
+import each other's internals.
 
 `outbox.ts` builds the `EngineOutbox` port; only `index.ts` imports it.
