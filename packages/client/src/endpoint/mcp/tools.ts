@@ -381,28 +381,16 @@ const runValidatedVoidOperation = async (
     toolName,
   );
 
-const registerStatusTool = (
-  server: McpServer,
-  operations: HarnessMcpOperations,
-): void => {
+/**
+ * Lists the status tool. `installToolCallHandler` replaces the SDK's
+ * tools/call dispatch, so `handleStatusToolCall` serves every status call and
+ * this callback never runs.
+ */
+const registerStatusTool = (server: McpServer): void => {
   server.registerTool(
     STATUS_TOOL,
     { inputSchema: emptyInput, outputSchema: statusOutput },
-    (input, context) => {
-      if (Object.keys(input).length !== 0) {
-        throw new ProtocolError(
-          ProtocolErrorCode.InvalidParams,
-          "Status accepts no arguments",
-        );
-      }
-      return runOperation({
-        operation: operations.readStatus(),
-        label: "Status",
-        allowedReasons: STATUS_REASONS,
-        fallbackReason: "incompatible-daemon",
-        signal: context.mcpReq.signal,
-      });
-    },
+    () => toolResult({}),
   );
 };
 
@@ -965,7 +953,7 @@ const makeServer = (
   const capabilities = { tools: {}, events: {} };
   const server = new McpServer(options.implementation, { capabilities });
   if (role !== "runtime") {
-    registerStatusTool(server, options.operations);
+    registerStatusTool(server);
   }
   if (role === "owner") {
     registerOwnerEvents(server);

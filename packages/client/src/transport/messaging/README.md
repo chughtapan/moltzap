@@ -23,11 +23,12 @@ from the store when the engine starts.
 The phases are `send.ts`, `certification/` (certification, evidence routing,
 and the dissemination resume), `recovery/` (recovery runs and catch-up) and
 `reanchor/` (Router-restart re-anchor). A phase starts work in another phase
-through `EngineRuntime.phases`, which `index.ts` supplies, or through a port
-the called phase defines and the caller builds: recovery builds the
-`ReanchorRunPort` its re-anchor runs against. Two calls reach another phase's
-entrypoint directly: `send.ts` reads the recovery fence a send waits behind
-(`pendingRecoveryFence`), and catch-up adopts a member's completed re-anchor
-(`applyCompletedReanchor`). Phases never import each other's internals.
+through `EngineRuntime.phases`, which `index.ts` supplies, or through the
+called phase's entrypoint. Recovery starts each re-anchor run with the
+`ReanchorRunPort` it builds, then passes the run its votes, completed
+re-anchors and ready positions; catch-up adopts a member's completed re-anchor
+(`applyCompletedReanchor`); and `send.ts` reads the recovery fence a send
+waits behind (`pendingRecoveryFence`). Phases never import each other's
+internals.
 
 `outbox.ts` builds the `EngineOutbox` port; only `index.ts` imports it.

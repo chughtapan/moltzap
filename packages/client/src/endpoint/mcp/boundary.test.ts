@@ -167,59 +167,83 @@ async function advertisesEventsBeforeRegistration() {
   );
 }
 
-/**
- * Malformed status arguments fail as invalid params before the operation
- * runs, and every expected status failure reaches the owner as
- * `incompatible-daemon`: the one reason the status vocabulary admits, and
- * `persistence-failed`, which other owner tools admit and status does not.
- * The second row pins the vocabulary, because the fallback reason equals the
- * admitted one.
- */
 async function distinguishesProtocolAndDomainFailures() {
-  let statusFailure: string | undefined;
+  let statusFails = false;
   const failingOperations: HarnessMcpOperations = {
     ...operations,
     readStatus: () =>
-      statusFailure === undefined
-        ? Effect.succeed({ kind: "unregistered" as const })
-        : Effect.fail({ reason: statusFailure }),
+      statusFails
+        ? Effect.fail({ reason: "incompatible-daemon" as const })
+        : Effect.succeed({ kind: "unregistered" as const }),
   };
-  const { malformedCause, domainCauses } = await Effect.runPromise(
+  const [malformedCause, domainCause] = await Effect.runPromise(
     Effect.gen(function* () {
       const { port } = yield* acquireBoundaryServer(failingOperations);
       const client = yield* acquireProtocolClient(
         port,
         "harness-boundary-client",
       );
-      statusFailure = "incompatible-daemon";
-      const malformed = yield* capturesProtocolError(client, {
-        unexpected: true,
-      });
-      const admitted = yield* capturesProtocolError(client, {});
-      statusFailure = "persistence-failed";
-      const outsideVocabulary = yield* capturesProtocolError(client, {});
-      return {
-        malformedCause: malformed,
-        domainCauses: [admitted, outsideVocabulary],
-      };
+      statusFails = true;
+      return yield* Effect.all(
+        [
+          capturesProtocolError(client, { unexpected: true }),
+          capturesProtocolError(client, {}),
+        ],
+        { concurrency: 1 },
+      );
     }).pipe(Effect.scoped),
   );
 
   expect(ProtocolError.isInstance(malformedCause)).toBe(true);
-  if (!ProtocolError.isInstance(malformedCause)) {
-    throw new Error("expected a protocol error for malformed arguments");
+  expect(ProtocolError.isInstance(domainCause)).toBe(true);
+  if (
+    !ProtocolError.isInstance(malformedCause) ||
+    !ProtocolError.isInstance(domainCause)
+  ) {
+    throw new Error("expected protocol errors from both calls");
   }
   expect(malformedCause).toMatchObject({
     code: ProtocolErrorCode.InvalidParams,
   });
   expect(malformedCause.data).toBeUndefined();
-  for (const domainCause of domainCauses) {
-    expect(ProtocolError.isInstance(domainCause)).toBe(true);
-    expect(domainCause).toMatchObject({
-      code: ProtocolErrorCode.InternalError,
-      data: { reason: "incompatible-daemon" },
-    });
-  }
+  expect(domainCause).toMatchObject({
+    code: ProtocolErrorCode.InternalError,
+    data: { reason: "incompatible-daemon" },
+  });
+}
+
+/**
+ * A status failure outside the status vocabulary, such as
+ * `persistence-failed`, which other owner tools admit, reaches the owner as
+ * `incompatible-daemon`. A failure the vocabulary admits cannot show this,
+ * because the fallback reason equals the one admitted reason. Status starts
+ * failing only once the handler is built, since building it reads status.
+ */
+async function reportsOutsideVocabularyStatusFailure() {
+  let statusFails = false;
+  const failingOperations: HarnessMcpOperations = {
+    ...operations,
+    readStatus: () =>
+      statusFails
+        ? Effect.fail({ reason: "persistence-failed" })
+        : Effect.succeed({ kind: "unregistered" as const }),
+  };
+  const cause = await Effect.runPromise(
+    Effect.gen(function* () {
+      const { port } = yield* acquireBoundaryServer(failingOperations);
+      const client = yield* acquireProtocolClient(
+        port,
+        "harness-status-vocabulary-client",
+      );
+      statusFails = true;
+      return yield* capturesProtocolError(client, {});
+    }).pipe(Effect.scoped),
+  );
+
+  expect(cause).toMatchObject({
+    code: ProtocolErrorCode.InternalError,
+    data: { reason: "incompatible-daemon" },
+  });
 }
 
 async function sanitizesUnexpectedOperationDefects() {
@@ -762,6 +786,8 @@ describe("Harness MCP HTTP boundary", () => {
     advertisesEventsBeforeRegistration());
   it("keeps malformed input separate from closed domain failures", () =>
     distinguishesProtocolAndDomainFailures());
+  it("reports a status failure outside its vocabulary as incompatible-daemon", () =>
+    reportsOutsideVocabularyStatusFailure());
   it("sanitizes unexpected operation defects", () =>
     sanitizesUnexpectedOperationDefects());
   it("keeps an idle subscription alive past the fetch body timeout", () =>
