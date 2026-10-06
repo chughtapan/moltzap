@@ -159,6 +159,42 @@ export function acceptEngineIngressWithRecovery(
 }
 
 /**
+ * Start catch-up again for paused conversations: those the recovery run
+ * still holds whose capped retries ran out. A local send to such a
+ * conversation arms its catch-up, and a Router worker that reattaches after
+ * an outage arms every one, so a paused conversation always has a way back to
+ * recovery. A store failure while asking ends the new retries the same way.
+ * @param runtime Engine whose recovery run holds the conversations.
+ * @param conversationId The one conversation to arm; every paused
+ *     conversation when omitted.
+ * @returns Completion once each paused conversation's catch-up is armed.
+ */
+export function rearmPausedCatchUp(
+  runtime: EngineRuntime,
+  conversationId?: ConversationIdValue,
+): Effect.Effect<void> {
+  return Effect.suspend(() => {
+    const run = activeRuns.get(runtime);
+    const conversations =
+      conversationId === undefined
+        ? [...(run?.memberships.keys() ?? [])]
+        : [conversationId];
+    return Effect.forEach(
+      conversations,
+      (paused) => rearmIfPaused(runtime, paused),
+      { concurrency: 1, discard: true },
+    );
+  }).pipe(
+    Effect.catchAll(() =>
+      Effect.logWarning(
+        "Catch-up was not armed again: the endpoint store could not be read",
+      ),
+    ),
+    Effect.withSpan("rearmPausedCatchUp"),
+  );
+}
+
+/**
  * Reconcile every certified chain and threshold-anchor a restarted Router.
  * It verifies durable history, fences each conversation, asks its members
  * for catch-up, and returns: the Router worker resumes normal ingress while
@@ -432,12 +468,29 @@ function rearmCatchUp(
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   conversationId: ConversationIdValue,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
+  const membership = activeRuns.get(runtime)?.memberships.get(conversationId);
+  return membership !== undefined &&
+    sentByOtherMember(runtime, membership, ingress.message.senderAgentId)
+    ? rearmIfPaused(runtime, conversationId)
+    : Effect.void;
+}
+
+/**
+ * Arm catch-up again for a conversation the active run still holds whose
+ * retries ran out. A conversation the run has recovered, or one whose retries
+ * are still running, needs nothing.
+ * @param runtime Engine whose run holds the conversation.
+ * @param conversationId Conversation to arm.
+ * @returns Completion once the conversation's catch-up is armed again.
+ */
+function rearmIfPaused(
+  runtime: EngineRuntime,
+  conversationId: ConversationIdValue,
+): Effect.Effect<void, RouterWorkerPersistenceError> {
   const run = activeRuns.get(runtime);
-  const membership = run?.memberships.get(conversationId);
   if (
     run === undefined ||
-    membership === undefined ||
-    !sentByOtherMember(runtime, membership, ingress.message.senderAgentId) ||
+    !run.memberships.has(conversationId) ||
     run.completedConversations.has(conversationId)
   ) {
     return Effect.void;

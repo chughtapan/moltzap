@@ -143,6 +143,10 @@ const callbacks = (input?: {
       ),
     );
   },
+  reattached: () =>
+    input?.events === undefined
+      ? Effect.void
+      : Ref.update(input.events, (events) => [...events, "reattached"]),
 });
 
 const makeInput = (
@@ -1179,10 +1183,12 @@ const outageRouter = (input: {
 /**
  * A Router outage far longer than any bounded retry detaches the worker and
  * keeps its poll loop running, warns again while it lasts, and the first
- * answered probe reattaches at the retained anchor so a held send goes out.
+ * answered probe reattaches at the retained anchor so a held send goes out
+ * and the endpoint hears of the reattach.
  */
 const outageDetachesAndReattaches = async (): Promise<void> => {
   const lines: LogLines = [];
+  const events = Effect.runSync(Ref.make<string[]>([]));
   const fixture = await Effect.runPromise(makeFixture);
   const instance = routerInstanceId(110);
   const reachable = Effect.runSync(Ref.make(true));
@@ -1205,7 +1211,7 @@ const outageDetachesAndReattaches = async (): Promise<void> => {
             outgoing,
           );
           const worker = yield* makeActiveRouterWorker(
-            makeInput(fixture, callbacks(), store),
+            makeInput(fixture, callbacks({ events }), store),
           );
           const polling = yield* Effect.fork(worker.run);
 
@@ -1238,6 +1244,7 @@ const outageDetachesAndReattaches = async (): Promise<void> => {
           expect(lines).toEqual(
             expect.arrayContaining([expect.stringContaining("reattached")]),
           );
+          expect(yield* Ref.get(events)).toContain("reattached");
           yield* worker.send(outbound.outboundId);
           expect((yield* store.recover()).outboundMessages).toEqual([]);
           yield* Fiber.interrupt(polling);

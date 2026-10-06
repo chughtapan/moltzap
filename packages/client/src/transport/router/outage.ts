@@ -339,17 +339,23 @@ export const reattach = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
   snapshot: RouterWorkerDetachedState,
 ): Effect.Effect<void> =>
-  runtime.stateGate.withPermits(1)(
-    Ref.get(runtime.state).pipe(
-      Effect.flatMap((current) =>
-        current.kind === "detached" &&
-        current.generation === snapshot.generation
-          ? Ref.set(runtime.state, {
-              kind: "active",
-              generation: current.generation,
-              anchor: current.anchor,
-            }).pipe(Effect.zipRight(logReattached(current)))
-          : Effect.void,
+  runtime.stateGate
+    .withPermits(1)(
+      Ref.get(runtime.state).pipe(
+        Effect.flatMap((current) =>
+          current.kind === "detached" &&
+          current.generation === snapshot.generation
+            ? Ref.set(runtime.state, {
+                kind: "active",
+                generation: current.generation,
+                anchor: current.anchor,
+              }).pipe(Effect.zipRight(logReattached(current)), Effect.as(true))
+            : Effect.succeed(false),
+        ),
       ),
-    ),
-  );
+    )
+    .pipe(
+      Effect.flatMap((reattached) =>
+        reattached ? runtime.input.callbacks.reattached() : Effect.void,
+      ),
+    );

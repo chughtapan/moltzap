@@ -41,6 +41,7 @@ import { makeOutbox } from "./outbox.js";
 import { installRecoveryBarrier } from "./recovery/barrier.js";
 import {
   acceptEngineIngressWithRecovery,
+  rearmPausedCatchUp,
   recoverCertifiedHistory,
 } from "./recovery/index.js";
 import {
@@ -124,6 +125,11 @@ export interface EndpointEngine {
   readonly abandonVolatileFolds: (
     reason: RouterDiscontinuityReason,
   ) => Effect.Effect<void>;
+  /**
+   * Start catch-up again for every conversation recovery still holds whose
+   * retries ran out; the Router worker calls it when it reattaches.
+   */
+  readonly rearmCatchUp: Effect.Effect<void>;
 }
 
 type RecoveredStateError = Effect.Effect.Error<
@@ -400,6 +406,7 @@ const enginePhases: EnginePhases = {
   acceptRecoveryIngress: acceptEngineRecoveryIngress,
   resumeFolds: resumeEngineFolds,
   resumeDissemination: resumeDisseminationObligations,
+  rearmCatchUp: rearmPausedCatchUp,
 };
 
 const makeRuntime = (
@@ -537,6 +544,7 @@ const endpointEngine = (runtime: EngineRuntime): EndpointEngine =>
     abandonVolatileFolds: (
       reason: Parameters<EndpointEngine["abandonVolatileFolds"]>[0],
     ) => abandonVolatileFolds(runtime, reason),
+    rearmCatchUp: rearmPausedCatchUp(runtime),
   });
 
 /**

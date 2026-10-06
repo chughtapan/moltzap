@@ -507,9 +507,12 @@ function activateIntent(
           case "ready":
             return Effect.succeed(activation.completion);
           case "waiting":
-            return Deferred.await(activation.barrier).pipe(
-              Effect.zipRight(activateIntent(runtime, prepared)),
-            );
+            return runtime.phases
+              .rearmCatchUp(runtime, prepared.intent.conversationId)
+              .pipe(
+                Effect.zipRight(Deferred.await(activation.barrier)),
+                Effect.zipRight(activateIntent(runtime, prepared)),
+              );
           default: {
             const exhaustive: never = activation;
             return exhaustive;

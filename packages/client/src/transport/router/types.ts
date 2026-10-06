@@ -154,6 +154,8 @@ export interface RouterWorkerCallbacks<Payload> {
   readonly recoverCertifiedHistory: (
     input: RouterWorkerRecovery,
   ) => Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError>;
+  /** The worker reattached to the same Router instance after an outage. */
+  readonly reattached: () => Effect.Effect<void>;
 }
 
 /** Complete private construction input for one registered endpoint. */

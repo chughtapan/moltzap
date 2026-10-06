@@ -236,4 +236,9 @@ export interface EnginePhases {
     runtime: EngineRuntime,
     conversationId: ConversationId,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
+  /** Arm a paused conversation's catch-up again, as a local send does. */
+  readonly rearmCatchUp: (
+    runtime: EngineRuntime,
+    conversationId: ConversationId,
+  ) => Effect.Effect<void>;
 }
