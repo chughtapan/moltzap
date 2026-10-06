@@ -731,7 +731,7 @@ function inboundItemTurn(item: InboundItem): HostTurn {
         agentSender(item.from),
         renderCollectiveRequest(
           item,
-          `Send the answer once as the whole message text, with the message tool's reply action or send to ${item.to}.`,
+          `Send the answer once as the whole message text, with the message tool (mcp__openclaw__message in Claude Code): its reply action, or send to ${item.to}.`,
         ),
       );
     case "collectiveResult":
