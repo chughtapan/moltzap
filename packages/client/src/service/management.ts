@@ -27,8 +27,6 @@ import type {
   EndpointStore,
   EndpointStoreError,
   HistoryPage,
-  ProtocolEvidence,
-  CertifiedRecord as StoredCertifiedRecord,
 } from "../store/index.js";
 import type { SendError } from "../transport/messaging/errors.js";
 import type { DaemonBootstrap, DaemonConfigurationError } from "./bootstrap.js";
@@ -38,19 +36,13 @@ import {
   resolveMessageAddress,
 } from "../transport/messaging/address.js";
 import {
+  readStoredHistory,
+  verifyStoredMembership,
+} from "../transport/messaging/index.js";
+import {
   type CertifiedRecord,
-  compareAgentIds,
-  decodeCanonical,
   deriveConversationId,
-  MembershipDescriptor as MembershipDescriptorSchema,
-  type RecordCore,
-  RecordCore as RecordCoreSchema,
-  type RouterAnchor,
-  RouterAnchor as RouterAnchorSchema,
-  verifyCertifiedRecord,
-  verifyMembershipDescriptor,
-  verifyRecordCore,
-  verifyStableEvidence,
+  type VerifiedMembership,
 } from "../transport/wire/index.js";
 import { AgentAddress } from "../transport/wire/values.js";
 import {
@@ -82,15 +74,6 @@ type RegistryService = Context.Tag.Service<typeof Registry>;
 type MessageAddress = ManagementSearchConversationsResult["addresses"][number];
 type HistoryRecord = ManagementReadConversationResult["records"][number];
 type SignerEvidence = HistoryRecord["actionSignatures"][number];
-type VerifiedMembership = Effect.Effect.Success<
-  ReturnType<typeof verifyMembershipDescriptor>
->;
-type VerifiedRecordCore = Effect.Effect.Success<
-  ReturnType<typeof verifyRecordCore>
->;
-type VerifiedEvidence = Effect.Effect.Success<
-  ReturnType<typeof verifyStableEvidence>
->;
 
 /** The daemon's registration state and the activation a registration starts. */
 interface RegistrationPort {
@@ -106,30 +89,11 @@ interface ManagementInput {
   readonly registration: RegistrationPort;
 }
 
-interface VerifiedStoredEvidence {
-  readonly representation: unknown;
-  readonly signer: SignerEvidence;
-}
-
 interface SearchConversationAddressesInput {
   readonly recovery: EndpointRecovery;
   readonly request: ManagementSearchConversationsRequest;
   readonly bootstrap: DaemonBootstrap;
   readonly localAgentCard: VerifiedAgentCard;
-}
-
-interface DecodeStoredEvidenceInput {
-  readonly rows: readonly ProtocolEvidence[];
-  readonly expectedKind: "action" | "durability";
-  readonly expectedSubject: string;
-  readonly recordCore: RecordCore;
-  readonly membership: VerifiedMembership;
-}
-
-interface DecodeStoredRecordInput {
-  readonly stored: StoredCertifiedRecord;
-  readonly recovery: EndpointRecovery;
-  readonly bootstrap: DaemonBootstrap;
 }
 
 class DaemonManagementError extends Data.TaggedError("DaemonManagementError")<{
@@ -142,17 +106,11 @@ export type DaemonManagementOperations = Pick<
   ManagementOperation
 >;
 
-const exactOptions = {
-  exact: true,
-  onExcessProperty: "error" as const,
-};
 const utf8Encoder = new TextEncoder();
-const signedMessageRepresentation = Schema.Struct({
-  payload: Schema.String,
-  signatures: Schema.Tuple(
-    Schema.Struct({ protected: Schema.String, signature: Schema.String }),
-  ),
-}).annotations({ parseOptions: exactOptions });
+/** The one signature a verified signer message's JWS representation carries. */
+const representationSignature = Schema.Struct({
+  signatures: Schema.Tuple(Schema.Struct({ signature: Schema.String })),
+});
 const historyFailureReasons = {
   "invalid-continuation": "invalid-continuation",
   "invalid-input": "history-gap",
@@ -306,9 +264,7 @@ function addressNames(address: string): readonly string[] {
 }
 
 function renderMembershipAddress(
-  membership: Effect.Effect.Success<
-    ReturnType<typeof verifyMembershipDescriptor>
-  >,
+  membership: VerifiedMembership,
   localAgentCard: VerifiedAgentCard,
 ): Effect.Effect<MessageAddress, DaemonManagementError> {
   const localMember = membership.members.find(
@@ -342,23 +298,15 @@ function decodeStoredMembership(
     readonly localAgentCard: VerifiedAgentCard;
   },
 ): Effect.Effect<MessageAddress, DaemonManagementError> {
-  return Effect.gen(function* () {
-    const descriptor = yield* decodeCanonical(
-      MembershipDescriptorSchema,
-      stored.canonicalMembership,
-    ).pipe(Effect.mapError(persistenceFailure));
-    const membership = yield* verifyMembershipDescriptor(
-      descriptor,
-      input.bootstrap.configuration.registrySignerPublicKey,
-    ).pipe(Effect.mapError(persistenceFailure));
-    if (
-      membership.descriptor.conversationId !== stored.conversationId ||
-      membership.hash !== stored.membershipHash
-    ) {
-      return yield* Effect.fail(persistenceFailure());
-    }
-    return yield* renderMembershipAddress(membership, input.localAgentCard);
-  });
+  return verifyStoredMembership(
+    stored,
+    input.bootstrap.configuration.registrySignerPublicKey,
+  ).pipe(
+    Effect.mapError(persistenceFailure),
+    Effect.flatMap((membership) =>
+      renderMembershipAddress(membership, input.localAgentCard),
+    ),
+  );
 }
 
 function searchConversationAddresses(
@@ -445,336 +393,70 @@ function mapHistoryStoreFailure(
   return managementFailure(historyFailureReasons[error.reason]);
 }
 
-function nonEmpty<Value>(
-  values: readonly Value[],
-): readonly [Value, ...Value[]] | undefined {
-  const first = values[0];
-  return first === undefined ? undefined : [first, ...values.slice(1)];
-}
-
-function decodeStoredEvidence(
-  input: DecodeStoredEvidenceInput,
-): Effect.Effect<
-  readonly [VerifiedStoredEvidence, ...VerifiedStoredEvidence[]],
-  DaemonManagementError
-> {
-  return Effect.gen(function* () {
-    const decoded = yield* Effect.forEach(
-      input.rows,
-      (row) => decodeStoredEvidenceRow(row, input),
-      { concurrency: 1 },
-    );
-    decoded.sort((left, right) =>
-      compareAgentIds(left.signer.signerAgentId, right.signer.signerAgentId),
-    );
-    const result = nonEmpty(decoded);
-    if (result === undefined) {
-      return yield* Effect.fail(persistenceFailure());
-    }
-    return result;
-  });
-}
-
-function decodeStoredEvidenceRow(
-  row: ProtocolEvidence,
-  input: DecodeStoredEvidenceInput,
-): Effect.Effect<VerifiedStoredEvidence, DaemonManagementError> {
-  return Effect.gen(function* () {
-    if (!storedEvidenceRowMatches(row, input)) {
-      return yield* Effect.fail(persistenceFailure());
-    }
-    const message = yield* decodeCanonical(
-      SignedMessage,
-      row.canonicalEvidence,
-    ).pipe(Effect.mapError(persistenceFailure));
-    const representation = yield* Schema.encode(SignedMessage)(message).pipe(
-      Effect.mapError(persistenceFailure),
-    );
-    const verified = yield* verifyStableEvidence({
-      representation,
-      membership: input.membership,
-    }).pipe(Effect.mapError(persistenceFailure));
-    if (
-      !evidenceStatementMatches(verified, input) ||
-      row.evidenceKey !== verified.statement.signerAgentId
-    ) {
-      return yield* Effect.fail(persistenceFailure());
-    }
-    const encoded = yield* Schema.decodeUnknown(signedMessageRepresentation)(
-      representation,
-      exactOptions,
-    ).pipe(Effect.mapError(persistenceFailure));
-    return {
-      representation,
-      signer: {
-        signerAgentId: verified.statement.signerAgentId,
-        signature: encoded.signatures[0].signature,
-      },
-    };
-  });
-}
-
-function storedEvidenceRowMatches(
-  row: ProtocolEvidence,
-  input: DecodeStoredEvidenceInput,
-): boolean {
-  return (
-    row.kind === input.expectedKind &&
-    row.subjectId === input.expectedSubject &&
-    row.conversationId === input.recordCore.membership.conversationId
-  );
-}
-
-function evidenceStatementMatches(
-  verified: VerifiedEvidence,
-  input: DecodeStoredEvidenceInput,
-): boolean {
-  switch (input.expectedKind) {
-    case "action":
-      return actionStatementMatches(verified, input.expectedSubject);
-    case "durability":
-      return durabilityStatementMatches(verified, input);
-    default: {
-      const exhaustive: never = input.expectedKind;
-      return exhaustive;
-    }
-  }
-}
-
-function actionStatementMatches(
-  verified: VerifiedEvidence,
-  expectedSubject: string,
-): boolean {
-  return (
-    verified.statement.kind === "action_signature" &&
-    verified.statement.actionHash === expectedSubject
-  );
-}
-
-function durabilityStatementMatches(
-  verified: VerifiedEvidence,
-  input: DecodeStoredEvidenceInput,
-): boolean {
-  if (verified.statement.kind !== "durability_vote") {
-    return false;
-  }
-  return (
-    verified.statement.recordHash === input.expectedSubject &&
-    verified.statement.conversationId ===
-      input.recordCore.membership.conversationId &&
-    verified.statement.membershipHash ===
-      expectedMembershipHash(input.recordCore)
-  );
-}
-
-function expectedMembershipHash(recordCore: RecordCore): string {
-  return recordCore.action.kind === "GENESIS"
-    ? recordCore.action.postIntent.membershipHash
-    : recordCore.action.membershipHash;
-}
-
-function decodeStoredAnchor(
-  recovery: EndpointRecovery,
-  recordCore: RecordCore,
-): Effect.Effect<RouterAnchor, DaemonManagementError> {
-  const stored = recovery.anchors.find(
-    (anchor) =>
-      anchor.conversationId === recordCore.membership.conversationId &&
-      anchor.anchorHash === recordCore.anchorHash,
-  );
-  return stored === undefined
-    ? Effect.fail(persistenceFailure())
-    : decodeCanonical(RouterAnchorSchema, stored.canonicalAnchor).pipe(
-        Effect.mapError(persistenceFailure),
-      );
-}
-
-function decodeStoredRecord(
-  input: DecodeStoredRecordInput,
+/**
+ * Project one verified record to the MCP history record: its core, anchor,
+ * and each certificate's signers with their signatures, in certificate order.
+ */
+function projectHistoryRecord(
+  record: CertifiedRecord,
 ): Effect.Effect<HistoryRecord, DaemonManagementError> {
-  return Effect.gen(function* () {
-    const { recordCore, verifiedCore } = yield* decodeStoredCore(input);
-    const routerAnchor = yield* decodeStoredAnchor(input.recovery, recordCore);
-    const { action, durability } = yield* decodeRecordEvidence({
-      stored: input.stored,
-      recordCore,
-      membership: verifiedCore.membership,
-      recordHash: verifiedCore.recordHash,
-    });
-    const complete = assembleCertifiedRecord({
-      recordCore,
-      recordHash: verifiedCore.recordHash,
-      routerAnchor,
-      actionRepresentations: mapNonEmpty(action, (item) => item.representation),
-      durabilityRepresentations: mapNonEmpty(
-        durability,
-        (item) => item.representation,
-      ),
-    });
-    yield* verifyCertifiedRecord({
-      record: complete,
-      registrySignerPublicKey:
-        input.bootstrap.configuration.registrySignerPublicKey,
-    }).pipe(Effect.mapError(persistenceFailure));
-    return {
-      recordHash: verifiedCore.recordHash,
-      recordCore,
-      routerAnchor,
-      actionSignatures: mapNonEmpty(action, (item) => item.signer),
-      durabilityVotes: mapNonEmpty(durability, (item) => item.signer),
-    };
-  });
+  const certified = record.actionCertifiedRecord;
+  return Effect.all({
+    actionSignatures: projectSigners(certified.actionCertificate.signatures),
+    durabilityVotes: projectSigners(record.durabilityCertificate.votes),
+  }).pipe(
+    Effect.map(({ actionSignatures, durabilityVotes }) => ({
+      recordHash: certified.recordHash,
+      recordCore: certified.recordCore,
+      routerAnchor: certified.routerAnchor,
+      actionSignatures,
+      durabilityVotes,
+    })),
+  );
 }
 
-function decodeStoredCore(input: DecodeStoredRecordInput): Effect.Effect<
-  Readonly<{
-    recordCore: RecordCore;
-    verifiedCore: VerifiedRecordCore;
-  }>,
+function projectSigners(
+  representations: CertifiedRecord["durabilityCertificate"]["votes"],
+): Effect.Effect<
+  readonly [SignerEvidence, ...SignerEvidence[]],
   DaemonManagementError
 > {
-  return Effect.gen(function* () {
-    const recordCore = yield* decodeCanonical(
-      RecordCoreSchema,
-      input.stored.canonicalRecordCore,
-    ).pipe(Effect.mapError(persistenceFailure));
-    const verifiedCore = yield* verifyRecordCore({
-      recordCore,
-      registrySignerPublicKey:
-        input.bootstrap.configuration.registrySignerPublicKey,
-    }).pipe(Effect.mapError(persistenceFailure));
-    if (!storedRecordMatches(input.stored, recordCore, verifiedCore)) {
-      return yield* Effect.fail(persistenceFailure());
-    }
-    return { recordCore, verifiedCore };
-  });
+  return Effect.forEach(
+    representations,
+    (representation) =>
+      Effect.all({
+        message: Schema.decodeUnknown(SignedMessage)(representation),
+        jws: Schema.decodeUnknown(representationSignature)(representation),
+      }).pipe(
+        Effect.map(({ message, jws }) => ({
+          signerAgentId: message.senderAgentId,
+          signature: jws.signatures[0].signature,
+        })),
+      ),
+    { concurrency: 1 },
+  ).pipe(Effect.mapError(persistenceFailure));
 }
 
-function storedRecordMatches(
-  stored: StoredCertifiedRecord,
-  recordCore: RecordCore,
-  verifiedCore: VerifiedRecordCore,
-): boolean {
-  return (
-    storedRecordEnvelopeMatches(stored, recordCore, verifiedCore) &&
-    storedRecordActionMatches(stored, recordCore) &&
-    storedRecordChainMatches(stored, recordCore)
-  );
-}
-
-function storedRecordEnvelopeMatches(
-  stored: StoredCertifiedRecord,
-  recordCore: RecordCore,
-  verifiedCore: VerifiedRecordCore,
-): boolean {
-  return (
-    verifiedCore.recordHash === stored.recordHash &&
-    recordCore.membership.conversationId === stored.conversationId &&
-    verifiedCore.membership.hash === stored.membershipHash
-  );
-}
-
-function storedRecordActionMatches(
-  stored: StoredCertifiedRecord,
-  recordCore: RecordCore,
-): boolean {
-  return (
-    recordCore.actionHash === stored.actionHash &&
-    recordCore.action.postIntent.authorAgentId === stored.authorAgentId &&
-    recordCore.action.postIntent.postId === stored.postId
-  );
-}
-
-function storedRecordChainMatches(
-  stored: StoredCertifiedRecord,
-  recordCore: RecordCore,
-): boolean {
-  return (
-    recordCore.anchorHash === stored.anchorHash &&
-    (recordCore.action.previousRecordHash ?? undefined) ===
-      stored.previousRecordHash
-  );
-}
-
-function decodeRecordEvidence(input: {
-  readonly stored: StoredCertifiedRecord;
-  readonly recordCore: RecordCore;
-  readonly membership: VerifiedMembership;
-  readonly recordHash: VerifiedRecordCore["recordHash"];
-}) {
-  return Effect.gen(function* () {
-    const action = yield* decodeStoredEvidence({
-      rows: input.stored.actionEvidence,
-      expectedKind: "action",
-      expectedSubject: input.recordCore.actionHash,
-      recordCore: input.recordCore,
-      membership: input.membership,
-    });
-    const durability = yield* decodeStoredEvidence({
-      rows: input.stored.durabilityEvidence,
-      expectedKind: "durability",
-      expectedSubject: input.recordHash,
-      recordCore: input.recordCore,
-      membership: input.membership,
-    });
-    return { action, durability };
-  });
-}
-
-function assembleCertifiedRecord(input: {
-  readonly recordCore: RecordCore;
-  readonly recordHash: VerifiedRecordCore["recordHash"];
-  readonly routerAnchor: RouterAnchor;
-  readonly actionRepresentations: readonly [unknown, ...unknown[]];
-  readonly durabilityRepresentations: readonly [unknown, ...unknown[]];
-}): CertifiedRecord {
-  return {
-    moltzapVersion: input.recordCore.moltzapVersion,
-    kind: "certified_record",
-    actionCertifiedRecord: {
-      moltzapVersion: input.recordCore.moltzapVersion,
-      kind: "action_certified_record",
-      recordHash: input.recordHash,
-      recordCore: input.recordCore,
-      routerAnchor: input.routerAnchor,
-      actionCertificate: {
-        moltzapVersion: input.recordCore.moltzapVersion,
-        kind: "action_certificate",
-        actionHash: input.recordCore.actionHash,
-        signatures: input.actionRepresentations,
-      },
-    },
-    durabilityCertificate: {
-      moltzapVersion: input.recordCore.moltzapVersion,
-      kind: "durability_certificate",
-      recordHash: input.recordHash,
-      votes: input.durabilityRepresentations,
-    },
-  };
-}
-
-function mapNonEmpty<Value, Result>(
-  values: readonly [Value, ...Value[]],
-  transform: (value: Value) => Result,
-): readonly [Result, ...Result[]] {
-  const [first, ...remaining] = values;
-  return [transform(first), ...remaining.map(transform)];
-}
-
-function decodeHistoryPage(input: {
+function readHistoryPage(input: {
   readonly page: HistoryPage;
   readonly recovery: EndpointRecovery;
   readonly bootstrap: DaemonBootstrap;
 }): Effect.Effect<ManagementReadConversationResult, DaemonManagementError> {
-  return Effect.forEach(
+  return readStoredHistory(
+    input.bootstrap.configuration.registrySignerPublicKey,
+    input.recovery,
     input.page.records,
-    (stored) => decodeStoredRecord({ ...input, stored }),
-    { concurrency: 1 },
   ).pipe(
-    Effect.map((verified) =>
+    Effect.mapError(persistenceFailure),
+    Effect.flatMap((records) =>
+      Effect.forEach(records, (record) => projectHistoryRecord(record), {
+        concurrency: 1,
+      }),
+    ),
+    Effect.map((records) =>
       Object.freeze({
         kind: "page" as const,
-        records: Object.freeze(verified),
+        records: Object.freeze(records),
         continuation: input.page.continuation,
       }),
     ),
@@ -899,7 +581,7 @@ const readConversationOperation =
       const recovery = yield* input.store
         .recover()
         .pipe(Effect.mapError(persistenceFailure));
-      return yield* decodeHistoryPage({
+      return yield* readHistoryPage({
         page,
         recovery,
         bootstrap: input.bootstrap,

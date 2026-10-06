@@ -41,6 +41,8 @@ export type {
 } from "./types.js";
 /** Stable opaque durable-delivery identity. */
 export { DeliveryToken } from "./types.js";
+/** Whether a store error refuses its input rather than reporting a failed store. */
+export { isSemanticStoreRejection } from "./types.js";
 
 /** Canonical runtime persistence shares the store error vocabulary. */
 export { decodeRuntimeValue, encodeRuntimeValue } from "./runtime-codec.js";

@@ -23,6 +23,14 @@ When you design or review a public interface, port, package boundary or
 configuration surface, read `workflow/reference/interface-design.md` and the
 sources it links.
 
+Before verifying, merging or releasing, read `workflow/reference/delivery.md`.
+Verify locally only what the change reaches and let CI be the full gate. Merge
+only from inside a check gate, because no repository has required checks. Hand
+mechanical conflicts to `@copilot`. Follow the moltzap → deployment → evals
+release chain. Briefs to other agents carry the same verification scope.
+Before running or analysing an evaluation batch, read
+`data/evals/reference/running-studies.md`.
+
 Use the gstack and Google skills. Review a plan with gstack `/plan-eng-review`.
 Review an implementation change with gstack `/ship`'s pre-landing review: its
 checklist pass, its specialist reviewers matched to a Google guide where the

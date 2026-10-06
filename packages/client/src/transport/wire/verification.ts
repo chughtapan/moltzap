@@ -15,7 +15,7 @@ import {
   decodeCanonical,
   deriveConversationId,
   deriveEvidenceMessageId,
-  encodeCanonical,
+  equalCanonical,
   hashAction,
   hashAnchor,
   hashMembershipDescriptor,
@@ -23,7 +23,6 @@ import {
   hashRecord,
   type OuterMembership,
   representationFailure,
-  sameBytes,
 } from "./encoding/index.js";
 import {
   type ActionCertifiedRecord,
@@ -71,18 +70,6 @@ const sortedDistinct = (agentIds: readonly AgentId[]): boolean => {
   }
   return true;
 };
-
-const equalCanonical = <A, I, R>(
-  schema: Schema.Schema<A, I, R>,
-  left: A,
-  right: A,
-): Effect.Effect<boolean, ClientRepresentationError, R> =>
-  Effect.all([
-    encodeCanonical(schema, left),
-    encodeCanonical(schema, right),
-  ]).pipe(
-    Effect.map(([leftBytes, rightBytes]) => sameBytes(leftBytes, rightBytes)),
-  );
 
 export interface VerifiedMembership extends OuterMembership {
   readonly descriptor: MembershipDescriptorValue;

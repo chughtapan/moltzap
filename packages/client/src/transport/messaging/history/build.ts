@@ -1,4 +1,8 @@
-/** @file Record certification, evidence persistence, and host projection. */
+/**
+ * @file Records built from an in-memory fold: the certified records, their
+ * store rows and evidence rows, and the inbound delivery a remote record
+ * projects to.
+ */
 
 import {
   type AgentId,
@@ -18,7 +22,6 @@ import {
   type AnchorHash,
   type CertifiedRecord,
   ClientRepresentationError,
-  compareAgentIds,
   encodeCanonical,
   hashAnchor,
   hashRecord,
@@ -31,16 +34,12 @@ import {
   InboundMessage,
   type InboundMessage as InboundMessageValue,
 } from "../message.js";
-
-function requireNonEmpty<Value>(
-  values: readonly Value[],
-): Effect.Effect<readonly [Value, ...Value[]], ClientRepresentationError> {
-  const first = values[0];
-  if (first === undefined) {
-    return Effect.fail(representationFailure());
-  }
-  return Effect.succeed([first, ...values.slice(1)]);
-}
+import {
+  actionCertifiedRecord,
+  type CertificateSignatures,
+  certifiedRecord,
+  orderedSignatures,
+} from "./certificate.js";
 
 function representationFailure(): ClientRepresentationError {
   return new ClientRepresentationError();
@@ -58,29 +57,17 @@ export const recordAnchorHash = (
     ? hashAnchor(fold.action.anchor)
     : Effect.succeed(fold.action.anchorHash);
 
-/**
- * Encode signer evidence in canonical decoded-AgentId order.
- * @param evidence Verified signer messages keyed by signer identity.
- * @returns Canonically ordered nonempty encoded evidence.
- */
 const encodeOrderedEvidence = (
   evidence: ReadonlyMap<AgentId, SignedMessage>,
-): Effect.Effect<
-  readonly [unknown, ...unknown[]],
-  ClientRepresentationError
-> => {
-  const messages = [...evidence.values()].sort((left, right) =>
-    compareAgentIds(left.senderAgentId, right.senderAgentId),
+): Effect.Effect<CertificateSignatures, ClientRepresentationError> =>
+  orderedSignatures(evidence.values()).pipe(
+    Effect.mapError(representationFailure),
+    Effect.flatMap((signatures) =>
+      signatures === undefined
+        ? Effect.fail(representationFailure())
+        : Effect.succeed(signatures),
+    ),
   );
-  return Effect.forEach(
-    messages,
-    (message) =>
-      Schema.encode(SignedMessage)(message).pipe(
-        Effect.mapError(representationFailure),
-      ),
-    { concurrency: 1 },
-  ).pipe(Effect.flatMap(requireNonEmpty));
-};
 
 /**
  * Convert one verified inner signature into its durable evidence row.
@@ -126,47 +113,26 @@ export const makeActionCertifiedRecord = (
       action: fold.action,
       actionHash: fold.actionHash,
     };
-    const actionCertifiedRecord: ActionCertifiedRecord = {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "action_certified_record",
-      recordHash: yield* hashRecord(recordCore),
+    return actionCertifiedRecord(
       recordCore,
-      routerAnchor: fold.routerAnchor,
-      actionCertificate: {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "action_certificate",
-        actionHash: fold.actionHash,
-        signatures,
-      },
-    };
-    return actionCertifiedRecord;
+      yield* hashRecord(recordCore),
+      fold.routerAnchor,
+      signatures,
+    );
   }).pipe(Effect.withSpan("makeActionCertifiedRecord"));
 
 /**
  * Add a durability certificate without changing the certified record hash.
- * @param actionCertifiedRecord Action-certified core being finalized.
+ * @param record Action-certified core being finalized.
  * @param fold In-memory fold containing verified durability evidence.
  * @returns One complete certified record with mergeable durability votes.
  */
 export const makeCertifiedRecord = (
-  actionCertifiedRecord: ActionCertifiedRecord,
+  record: ActionCertifiedRecord,
   fold: EngineActionFold,
 ): Effect.Effect<CertifiedRecord, ClientRepresentationError> =>
   encodeOrderedEvidence(fold.durabilityEvidence).pipe(
-    Effect.map((votes) => {
-      const certifiedRecord: CertifiedRecord = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "certified_record",
-        actionCertifiedRecord,
-        durabilityCertificate: {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "durability_certificate",
-          recordHash: actionCertifiedRecord.recordHash,
-          votes,
-        },
-      };
-      return certifiedRecord;
-    }),
+    Effect.map((votes) => certifiedRecord(record, votes)),
   );
 
 /**

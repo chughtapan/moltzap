@@ -145,6 +145,41 @@ export const signMessage = (
     body: new TextEncoder().encode(input.body),
   }).pipe(Effect.orDie, Effect.withSpan("signMessage"));
 
+/** The General JWS fields of an encoded SignedMessage. */
+const envelopeRepresentation = Schema.Struct({
+  payload: Schema.String,
+  signatures: Schema.Tuple(
+    Schema.Struct({ protected: Schema.String, signature: Schema.String }),
+  ),
+});
+
+/**
+ * Flip one bit of a message's Ed25519 signature. Its sender, card digest, and
+ * key id still match the sender's card, so only the cryptographic check
+ * rejects the result.
+ * @param message A validly signed message.
+ * @returns The same message under a signature its sender never made.
+ */
+export const corruptSignature = (
+  message: SignedMessageValue,
+): Effect.Effect<SignedMessageValue> =>
+  Effect.gen(function* () {
+    const representation = yield* Schema.encode(SignedMessage)(message).pipe(
+      Effect.flatMap(Schema.decodeUnknown(envelopeRepresentation)),
+    );
+    const [signature] = representation.signatures;
+    const bytes = yield* Encoding.decodeBase64Url(signature.signature);
+    const corrupted = bytes.map((value, index) =>
+      index === 0 ? value ^ 1 : value,
+    );
+    return yield* Schema.decodeUnknown(SignedMessage)({
+      ...representation,
+      signatures: [
+        { ...signature, signature: Encoding.encodeBase64Url(corrupted) },
+      ],
+    });
+  }).pipe(Effect.orDie, Effect.withSpan("corruptSignature"));
+
 /**
  * Build a Router layer that consumes explicit poll and send results in order.
  * @param input Ordered poll and send results plus an optional poll fallback.

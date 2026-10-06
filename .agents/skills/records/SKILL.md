@@ -10,6 +10,8 @@ Resolve a registered scope and load only the records needed by the task.
 
 Filing writes locally; it does not commit, merge or contact gbrain. Preview with
 `--dry-run` where supported, check the result, and commit only your own paths.
+After filing, run `pnpm records index --write` and `pnpm records check`:
+filing does not update `CATALOG.md`, and governance fails on a stale catalog.
 Follow the records reference for retaining current decision evidence and complete
 reference model results. Never omit wrong answers to improve a reported score.
 

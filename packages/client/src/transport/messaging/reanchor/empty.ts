@@ -15,30 +15,29 @@ import {
   GenesisAnchorBody,
   type GenesisAnchorBody as GenesisAnchorBodyValue,
   hashAnchor,
+  sameBytes,
   type VerifiedMembership,
 } from "../../wire/index.js";
-import {
-  type ActiveRecoveryState,
-  markConversationRecovered,
-} from "../recovery-session/index.js";
 
 interface EmptyPositionRestartInput {
   readonly runtime: EngineRuntime;
-  readonly state: ActiveRecoveryState;
+  /** The Router instance the replacement GENESIS anchor binds. */
+  readonly routerInstanceId: GenesisAnchorBodyValue["routerInstanceId"];
   readonly membership: VerifiedMembership;
   readonly recovery: EndpointRecovery;
   readonly position: EndpointRecovery["positions"][number];
 }
 
 /**
- * Replace a genesis foundation only while its certified history is empty.
+ * Replace a genesis foundation only while its certified history is empty. The
+ * caller marks the conversation recovered.
  * @param input Durable and recovered state for one empty conversation.
  * @returns Completion after the new foundation is durable and active.
  */
 export function restartEmptyPosition(
   input: EmptyPositionRestartInput,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
-  const { membership, position, recovery, runtime, state } = input;
+  const { membership, position, recovery, routerInstanceId, runtime } = input;
   return Effect.gen(function* () {
     const expectedFoundation = yield* emptyConversationFoundation(
       recovery,
@@ -46,7 +45,7 @@ export function restartEmptyPosition(
       position,
     );
     const replacement = yield* replacementEmptyFoundation(
-      state,
+      routerInstanceId,
       membership,
       expectedFoundation,
     );
@@ -72,10 +71,6 @@ export function restartEmptyPosition(
       membership.descriptor.conversationId,
       replacement.anchor,
       restarted.postIntents,
-    );
-    yield* markConversationRecovered(
-      runtime,
-      membership.descriptor.conversationId,
     );
   }).pipe(Effect.withSpan("restartEmptyPosition"));
 }
@@ -128,7 +123,7 @@ interface ReplacementEmptyFoundation {
 }
 
 function replacementEmptyFoundation(
-  state: ActiveRecoveryState,
+  routerInstanceId: GenesisAnchorBodyValue["routerInstanceId"],
   membership: VerifiedMembership,
   expected: ConversationFoundation,
 ): Effect.Effect<ReplacementEmptyFoundation, RouterWorkerPersistenceError> {
@@ -137,7 +132,7 @@ function replacementEmptyFoundation(
     kind: "genesis_anchor_body",
     conversationId: membership.descriptor.conversationId,
     membershipHash: membership.hash,
-    routerInstanceId: state.recovery.anchor.routerInstanceId,
+    routerInstanceId,
   };
   return Effect.all({
     anchorHash: hashAnchor(anchor),
@@ -260,13 +255,6 @@ function clearIntentProposals(
       pending.proposedActionHash = undefined;
     }
   }
-}
-
-function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
-  return (
-    left.byteLength === right.byteLength &&
-    left.every((byte, index) => byte === right[index])
-  );
 }
 
 function persistenceFailure(): RouterWorkerPersistenceError {

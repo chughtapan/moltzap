@@ -30,6 +30,20 @@ heading below in its release commit.
   bodies sealed to the agent. Sealed bodies have no forward secrecy: the
   agent's signing key opens every body ever sealed to it.
 
+### Fixed
+
+- A daemon recovering from a Router restart no longer exits when one member's
+  re-anchor vote or catch-up answer names an anchor, record, or position the
+  daemon cannot resolve, or conflicts with a candidate it already staged. The
+  input is ignored, and at worst that conversation stays unrecovered (#1165).
+- A daemon recovering from a Router restart no longer exits when a member
+  creates a new conversation with it and that conversation's first record
+  arrives during recovery.
+- A daemon that re-anchored a conversation during recovery no longer signs a
+  second re-anchor at the same Router instance when a member asks for one.
+- A daemon no longer drops its answer to a member's catch-up request that
+  arrives just as its own recovery finishes.
+
 ## [2026.1005.1] - 2026-10-05
 
 ### Added
@@ -47,6 +61,12 @@ heading below in its release commit.
   identity binding commits, while the protocol is still activating. The
   daemon verifies its stored identity once at startup, and the owner tools
   read the daemon's registration state rather than the store.
+- Owner history reads and catch-up replies refuse more kinds of corrupt stored
+  history. A catch-up reply is no longer built from a record whose evidence key
+  differs from its signer. An owner history read fails with
+  `persistence-failed` when a record's anchor row columns are inconsistent or
+  its membership row disagrees with the membership it holds. The daemon
+  already refused to start over such stores.
 
 ### Fixed
 

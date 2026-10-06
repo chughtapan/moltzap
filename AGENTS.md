@@ -168,6 +168,17 @@ Run the tests covering what you changed, plus `pnpm lint`, then push and let CI
 be the full gate. Judge "affected" by callers rather than diff size; run
 everything when you cannot tell what a change reaches.
 
+A test that times out on a loaded machine is rerun once on its own; the
+suite is not rerun, and CI decides. A brief that hands work to another agent
+asks for these same affected checks, not a full local run.
+
+A mechanical merge conflict (CHANGELOG entries, lockfiles, generated
+snapshots or docs) goes to Copilot: comment `@copilot Resolve the merge
+conflicts with main.` on the PR. When its commit lands, merge only after CI
+passes on the new head (`gh pr checks <n> --watch`, then `gh pr merge`); main
+has no required checks, so GitHub auto-merge would merge a red PR. A conflict
+in logic the PR changes is resolved by the PR's author.
+
 `pnpm lint` needs a prior `pnpm build` — typed linting resolves against built
 `.d.ts` outputs, and CI builds first.
 

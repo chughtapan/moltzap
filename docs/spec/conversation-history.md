@@ -466,7 +466,14 @@ ancestry, select the unique latest certified head, and use the existing
 re-anchor statement and `q(n)` threshold. An honest member stages and signs at
 most one candidate for one conversation, preceding anchor, and Router
 instance. New actions bind the durable new anchor. Catch-up and re-anchor do
-not create runtime messages by themselves.
+not create runtime messages by themselves. Verified catch-up or re-anchor
+input from a member that the endpoint cannot apply, such as input naming an
+anchor, record, or position it cannot resolve, does not count and never stops
+the endpoint. It can leave that conversation unrecovered. Recovery finishes
+only when every conversation has recovered. Until then the endpoint sends only
+catch-up and re-anchor traffic: its own posts, pending intents and retained
+outbound envelopes wait for every conversation, and the action traffic members
+send meanwhile is ignored.
 
 ## Direct packets and Router envelopes
 
@@ -627,6 +634,21 @@ Owner-authorized history and proof reads return the canonical record core and
 verified action-signature and durability-vote signer maps. They expose the
 retained signer AgentIds and signature bytes for audit without making those
 maps part of `ActionHash` or `RecordHash`.
+
+Endpoint startup and owner history reads verify stored certified history the
+same way. Each membership row's conversation and membership hash must match
+the descriptor it holds. Each record row's conversation, membership hash,
+predecessor, anchor hash, action hash, author, and post id must match the
+record core it holds. Each evidence row must name its record's conversation
+and the action or durability statement its certificate covers, and its key
+must be the AgentId that signed it. Each anchor row's columns must match the
+genesis body or completed re-anchor it holds. The record is then verified as a
+whole, which verifies every retained signature. A catch-up reply re-reads each
+record it sends with the same record, evidence, and anchor checks, under the
+verified membership the endpoint already holds for that conversation. A store
+that fails any of these checks is corrupt: the endpoint refuses to start over
+it, an owner history read that reaches it fails, and no catch-up reply is
+built from it.
 
 Physical compression is permitted only when reads reconstruct identical
 logical record cores, hashes, signature preimages, and retained evidence.

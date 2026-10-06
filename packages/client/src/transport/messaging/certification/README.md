@@ -7,7 +7,8 @@ dissemination of certified records that the store still owes to peers.
 
 Start with `index.ts`. It accepts Router and recovery ingress, resumes folds
 at startup and after each Router recovery, and re-exports the dissemination
-resume. `evidence.ts` routes a stable evidence message to the fold it names
-and verifies it. `dissemination.ts` re-queues each durable dissemination
-obligation. Both are private to this directory; the engine binds the
-operations other phases start through `EngineRuntime.phases`.
+resume and the evidence-to-fold match `../startup.ts` uses. `evidence.ts`
+routes a stable evidence message to the fold it names and verifies it.
+`dissemination.ts` re-queues each durable dissemination obligation. Both are
+private to this directory; the engine binds the operations other phases start
+through `EngineRuntime.phases`.
