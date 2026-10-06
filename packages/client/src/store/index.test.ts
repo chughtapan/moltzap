@@ -153,6 +153,57 @@ function retainsFirstProposalAcrossRestart() {
   );
 }
 
+/**
+ * Replaces a lock held on one action with the lock on an action whose
+ * certificate the endpoint verified, together with that certificate. A
+ * certificate for another action is refused and leaves the held lock in
+ * place; after the replacement, a reopened store holds the new lock with its
+ * certificate and none of the released action's evidence.
+ * @returns Completion once the reopened store is checked.
+ */
+function supersedesAConflictingLockWithItsCertificate() {
+  const directory = stateDirectory();
+  const conversationId = "conversation:supersede";
+  const held = proposal(conversationId, "ach_held");
+  const certified = proposal(conversationId, "ach_certified");
+  const certificate = actionCertificate(conversationId, certified.actionHash);
+  return Effect.runPromise(
+    withStore(directory, (store) =>
+      Effect.gen(function* () {
+        yield* bindLocalIdentity(store);
+        yield* store.putConversationFoundation(foundation(conversationId));
+        yield* store.lockProposal(held);
+        yield* store.mergeEvidence(
+          localActionEvidence(conversationId, held.actionHash),
+        );
+        yield* expectReason(
+          store.supersedeProposalLock(certified, [
+            ...certificate.slice(1),
+            localActionEvidence(conversationId, held.actionHash),
+          ]),
+          "invalid-input",
+        );
+        expect((yield* store.recover()).proposalLocks).toEqual([held]);
+        expect(yield* store.supersedeProposalLock(certified, certificate)).toBe(
+          INSERTED_MUTATION,
+        );
+      }),
+    ).pipe(
+      Effect.zipRight(
+        withStore(directory, (store) =>
+          store.recover().pipe(
+            Effect.tap((recovery) => {
+              expect(recovery.proposalLocks).toEqual([certified]);
+              expect(recovery.evidence).toEqual(certificate);
+              return Effect.void;
+            }),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 function atomicallyBindsFirstIntentWithItsFoundation() {
   const directory = stateDirectory();
   const firstConversationId = "conversation:intent:first";
@@ -966,6 +1017,21 @@ function localActionEvidence(
   };
 }
 
+function actionCertificate(
+  conversationId: string,
+  actionHash: string,
+): readonly ProtocolEvidence[] {
+  return ["agent:a", "agent:b", "agent:c"].map(
+    (signer): ProtocolEvidence => ({
+      conversationId,
+      kind: "action",
+      subjectId: actionHash,
+      evidenceKey: signer,
+      canonicalEvidence: bytes(`action-signature:${signer}`),
+    }),
+  );
+}
+
 function bindLocalIdentity(
   store: EndpointStore,
 ): Effect.Effect<StoreMutation, EndpointStoreError> {
@@ -1002,6 +1068,7 @@ describe("endpoint SQLite preflight", () => {
     rejectsNonemptyV0WithoutInitialization());
 });
 
+// @agent-code-guard/regression-only: these cases pin the proposal-lock store contract.
 describe("endpoint proposal locking", () => {
   it("atomically binds the first post intent with its foundation", () =>
     atomicallyBindsFirstIntentWithItsFoundation());
@@ -1011,6 +1078,9 @@ describe("endpoint proposal locking", () => {
 
   it("retains the first proposal lock across conflicts and restart", () =>
     retainsFirstProposalAcrossRestart());
+
+  it("replaces a conflicting lock with a certified one and its certificate", () =>
+    supersedesAConflictingLockWithItsCertificate());
 });
 
 describe("endpoint record certification and delivery", () => {

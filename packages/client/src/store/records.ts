@@ -5,6 +5,7 @@ import type {
   CertifiedRecord,
   DisseminationObligation,
   InboundDeliveryInput,
+  ProposalLock,
   ProtocolEvidence,
   StagedRecord,
   StoreMutation,
@@ -29,12 +30,13 @@ import {
   findProposalLock,
   findStagedReanchor,
   findStagedRecord,
+  GENESIS_PREDECESSOR,
+  lockProposalInTransaction,
   readStoredIdentity,
   readStoredPosition,
+  releaseProposalLock,
   requireSameRecord,
 } from "./rows/index.js";
-
-const GENESIS_PREDECESSOR = "";
 
 /**
  * Durably stages an exact verified record core.
@@ -112,6 +114,55 @@ export function mergeEvidence(
   return transaction(database, () =>
     mergeEvidenceInTransaction(database, evidence),
   );
+}
+
+/**
+ * Atomically replaces the lock this endpoint holds on another action at a
+ * predecessor with the lock on an action whose `q(n)` action certificate it
+ * verified, releasing everything held for the other action and retaining the
+ * certificate's signatures. They are written with the new lock so that a
+ * restart never finds the certified action locked without the certificate
+ * that keeps this endpoint from signing it.
+ *
+ * A held action this endpoint already staged refuses the replacement as a
+ * conflict. Staging it took its own `q(n)` action certificate, so a second one
+ * at the same predecessor shows more than `f` faulty members, and this
+ * endpoint, which may have voted for the staged record, must never vote for
+ * another successor of that head under the same anchor.
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param lock The lock on the certified action.
+ * @param certificate The action certificate's signatures as evidence rows.
+ * @returns Whether the lock on the certified action was inserted.
+ */
+export function supersedeProposalLock(
+  database: DatabaseSync,
+  lock: ProposalLock,
+  certificate: readonly ProtocolEvidence[],
+): StoreMutation {
+  validateCertificateEvidence(certificate, {
+    conversationId: lock.conversationId,
+    kind: "action",
+    subjectId: lock.actionHash,
+  });
+  return transaction(database, () => {
+    const held = findProposalLock(
+      database,
+      lock.conversationId,
+      lock.previousRecordHash ?? GENESIS_PREDECESSOR,
+    );
+    if (held !== undefined && held.actionHash !== lock.actionHash) {
+      if (hasStagedAction(database, held)) {
+        throw new StoreSignal("conflict");
+      }
+      releaseProposalLock(database, held);
+    }
+    const mutation = lockProposalInTransaction(database, lock);
+    for (const evidence of certificate) {
+      mergeEvidenceInTransaction(database, evidence);
+    }
+    return mutation;
+  });
 }
 
 /**
@@ -476,6 +527,17 @@ function hasProposalAction(
          WHERE conversation_id = ? AND action_hash = ? LIMIT 1`,
       )
       .get(evidence.conversationId, evidence.subjectId) !== undefined
+  );
+}
+
+function hasStagedAction(database: DatabaseSync, lock: ProposalLock): boolean {
+  return (
+    database
+      .prepare(
+        `SELECT 1 AS staged FROM staged_records
+         WHERE conversation_id = ? AND action_hash = ? LIMIT 1`,
+      )
+      .get(lock.conversationId, lock.actionHash) !== undefined
   );
 }
 

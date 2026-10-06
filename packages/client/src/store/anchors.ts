@@ -28,13 +28,12 @@ import {
 import {
   findProposalLock,
   findStagedReanchor,
+  lockProposalInTransaction,
   readStoredIdentity,
   readStoredPosition,
-  requireSameProposalLock,
+  releaseProposalLock,
   requireSameReanchor,
 } from "./rows/index.js";
-
-const GENESIS_PREDECESSOR = "";
 
 /** Singleton identity binding operations. */
 export const bindIdentity = Object.freeze({
@@ -239,39 +238,6 @@ export function applyCatchUpReanchor(
       ? "inserted"
       : "existing";
   });
-}
-
-function lockProposalInTransaction(
-  database: DatabaseSync,
-  proposal: ProposalLock,
-): StoreMutation {
-  const predecessorKey = proposal.previousRecordHash ?? GENESIS_PREDECESSOR;
-  const existing = findProposalLock(
-    database,
-    proposal.conversationId,
-    predecessorKey,
-  );
-  if (existing !== undefined) {
-    requireSameProposalLock(existing, proposal);
-    return "existing";
-  }
-  const position = readStoredPosition(database, proposal.conversationId);
-  requireEqual(position.headRecordHash, proposal.previousRecordHash);
-  database
-    .prepare(
-      `INSERT INTO proposal_locks
-        (conversation_id, predecessor_key, previous_record_hash,
-         action_hash, canonical_action_core)
-       VALUES (?, ?, ?, ?, ?)`,
-    )
-    .run(
-      proposal.conversationId,
-      predecessorKey,
-      proposal.previousRecordHash ?? null,
-      proposal.actionHash,
-      copyBytes(proposal.canonicalActionCore),
-    );
-  return "inserted";
 }
 
 function validateProposalLock(proposal: ProposalLock): void {
@@ -526,16 +492,13 @@ function completeReanchorInTransaction(
 }
 
 /**
- * Retires the proposal locked at the head a completed re-anchor selects: its
- * lock, the action signatures held for it, and a record this endpoint staged
- * for it with that record's durability votes and dissemination obligation.
+ * Retires the proposal locked at the head a completed re-anchor selects, with
+ * everything held for it.
  *
  * An action binds its anchor, so once the new anchor is current no action
  * under the previous one is gap-free, and the old proposal can never be
  * signed, staged or certified here again. Its lock, kept, would refuse every
- * candidate at that head under the new anchor and stall the conversation;
- * its signatures or staged record, kept without the lock, would name an
- * action no durable lock selects, which startup refuses.
+ * candidate at that head under the new anchor and stall the conversation.
  *
  * The staged record can be retired because the re-anchor's quorum
  * certificate shows it can never be certified anywhere: a member holding a
@@ -550,49 +513,14 @@ function releaseSupersededProposal(
   database: DatabaseSync,
   reanchor: CompletedReanchor,
 ): void {
-  const { conversationId } = reanchor;
   const lock = findProposalLock(
     database,
-    conversationId,
+    reanchor.conversationId,
     reanchor.selectedRecordHash,
   );
-  if (lock === undefined) {
-    return;
+  if (lock !== undefined) {
+    releaseProposalLock(database, lock);
   }
-  for (const recordHash of stagedRecordHashes(database, lock)) {
-    database
-      .prepare(
-        `DELETE FROM dissemination_obligations
-         WHERE conversation_id = ? AND record_hash = ?`,
-      )
-      .run(conversationId, recordHash);
-    database
-      .prepare(
-        `DELETE FROM protocol_evidence
-         WHERE conversation_id = ? AND evidence_kind = 'durability'
-           AND subject_id = ?`,
-      )
-      .run(conversationId, recordHash);
-    database
-      .prepare(
-        `DELETE FROM staged_records
-         WHERE conversation_id = ? AND record_hash = ?`,
-      )
-      .run(conversationId, recordHash);
-  }
-  database
-    .prepare(
-      `DELETE FROM protocol_evidence
-       WHERE conversation_id = ? AND evidence_kind = 'action'
-         AND subject_id = ?`,
-    )
-    .run(conversationId, lock.actionHash);
-  database
-    .prepare(
-      `DELETE FROM proposal_locks
-       WHERE conversation_id = ? AND predecessor_key = ?`,
-    )
-    .run(conversationId, reanchor.selectedRecordHash);
 }
 
 /**
@@ -637,19 +565,6 @@ function retireSupersededCandidates(
          AND canonical_completed_reanchor IS NULL`,
     )
     .run(...scope);
-}
-
-function stagedRecordHashes(
-  database: DatabaseSync,
-  lock: ProposalLock,
-): readonly string[] {
-  return database
-    .prepare(
-      `SELECT record_hash FROM staged_records
-       WHERE conversation_id = ? AND action_hash = ?`,
-    )
-    .all(lock.conversationId, lock.actionHash)
-    .map((row) => readText(row, "record_hash"));
 }
 
 function requireUnclaimedReanchorScope(
