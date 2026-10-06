@@ -7,6 +7,7 @@ until the recovered position is safe to use.
 Start with `index.ts`. It owns the recovery run: its lifecycle, ingress
 dispatch, outbound queue and completion accounting. It builds the ports the
 run's catch-up and re-anchor use. `catch-up.ts` asks members for history after
-a position and answers their requests. `barrier.ts` blocks normal traffic
-during a run; the engine and the send path share it. Re-anchor lives in
-`../reanchor/` and reaches the run only through its `ReanchorRunPort`.
+a position and answers their requests. `barrier.ts` holds new sends from a
+Router discontinuity until recovery completes; the engine and the send path
+share it. Re-anchor lives in `../reanchor/` and reaches the run only through
+its `ReanchorRunPort`.

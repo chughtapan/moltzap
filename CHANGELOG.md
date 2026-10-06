@@ -27,6 +27,17 @@ heading below in its release commit.
 - A daemon recovering from a Router restart no longer exits when a peer's
   re-anchor vote, held while its own catch-up ran, completes the re-anchor
   before the daemon proposes its own.
+- A daemon recovering from a Router restart no longer exits when one member's
+  re-anchor vote or catch-up answer names an anchor, record, or position the
+  daemon cannot resolve, or conflicts with a candidate it already staged. The
+  input is ignored, and at worst that conversation stays unrecovered (#1165).
+- A daemon recovering from a Router restart no longer exits when a member
+  creates a new conversation with it and that conversation's first record
+  arrives during recovery.
+- A daemon that re-anchored a conversation during recovery no longer signs a
+  second re-anchor at the same Router instance when a member asks for one.
+- A daemon no longer drops its answer to a member's catch-up request that
+  arrives just as its own recovery finishes.
 - `register` ends with `dependency-unavailable` when the Registry does not
   answer within its 30-second deadline. It previously waited out a slow
   reply before reporting the timeout, and never returned on a stalled

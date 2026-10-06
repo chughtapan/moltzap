@@ -470,8 +470,9 @@ not create runtime messages by themselves. Verified catch-up or re-anchor
 input from a member that the endpoint cannot apply, such as input naming an
 anchor, record, or position it cannot resolve, does not count and never stops
 the endpoint. It can leave that conversation unrecovered. Recovery finishes
-only when every conversation has recovered. Until then the endpoint's own sends
-and pending intents wait for every conversation, and the action traffic members
+only when every conversation has recovered. Until then the endpoint sends only
+catch-up and re-anchor traffic: its own posts, pending intents and retained
+outbound envelopes wait for every conversation, and the action traffic members
 send meanwhile is ignored.
 
 ## Direct packets and Router envelopes
