@@ -33,8 +33,8 @@ const packageRoots = Object.freeze({
   ),
   "@moltzap/router": join(workspaceRoot, "packages", "router"),
 });
-const OPENCLAW_VERSION = "2026.8.1";
-const OPENCLAW_COMMIT_SHA = "ea806575e6450e4d1efdfc72c19f04be982a1b9b";
+const OPENCLAW_VERSION = "2026.9.8";
+const OPENCLAW_COMMIT_SHA = "fc23bc864e4553c2d215e479eeec47b67a0bf943";
 const GROUP_MESSAGING_SKILL_PATH = "skills/group-messaging/SKILL.md";
 const temporaryRoot = await mkdtemp(join(tmpdir(), "moltzap-openclaw-pack-"));
 
@@ -62,9 +62,9 @@ async function verifyPackedManifest(archive, manifests) {
     "packed OpenClaw package must use the packed Client version",
   );
   requireCondition(
-    manifest.peerDependencies?.openclaw === OPENCLAW_VERSION &&
+    manifest.peerDependencies?.openclaw === `>=${OPENCLAW_VERSION}` &&
       manifest.peerDependenciesMeta?.openclaw?.optional === true,
-    "packed OpenClaw host peer must remain exact and optional",
+    "packed OpenClaw host peer must be an optional floor at the tested release",
   );
   requireCondition(
     JSON.stringify(manifest.openclaw?.extensions) ===

@@ -558,7 +558,7 @@ function exportingChunks(name: string) {
   );
   const alias = new RegExp(`\\b${name} as (\\w+)\\b`, "u");
   return readdirSync(dist)
-    .filter((file) => file.endsWith(".js"))
+    .filter((file) => file.endsWith(".mjs"))
     .map((file) => join(dist, file))
     .map((path) => ({ path, source: readFileSync(path, "utf8") }))
     .filter(({ source }) => source.includes(`function ${name}(`))

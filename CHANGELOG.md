@@ -12,6 +12,9 @@ heading below in its release commit.
 
 ### Changed
 
+- `@moltzap/openclaw-channel` supports OpenClaw 2026.9.8 and later and is
+  tested against 2026.9.8. Its OpenClaw peer is the floor `>=2026.9.8`
+  rather than one exact release.
 - OpenClaw's group-messaging skill and collective request turns name the
   MoltZap tool `message` only again. The name a runtime exposes it under is
   OpenClaw's to print, not the channel's.
