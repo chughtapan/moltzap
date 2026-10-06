@@ -3590,7 +3590,11 @@ const reanchorByCatchUp: ReanchorRoute = (fixture, run) =>
  * resends its signature after the re-anchor. With `stale` set to `staged`,
  * the peer's signature arrives before the restart, so the endpoint assembles
  * the old proposal's action certificate and stages its record with a
- * dissemination obligation, which the re-anchor retires as well.
+ * dissemination obligation, which the re-anchor retires as well. A direct
+ * conversation's completion always carries this endpoint's vote, which it
+ * never casts behind a staged successor, so the staged trace stands in for an
+ * n ≥ 4 conversation completed without the record's author: it checks the
+ * retirement, not how the completion was reached.
  * @param reanchorAt How the conversation re-anchors at R.
  * @param stale Whether the old proposal is only locked or also staged.
  * @returns The trace, run to completion.
