@@ -12,6 +12,11 @@ heading below in its release commit.
 
 ### Fixed
 
+- A member that locked one post at a position no longer refuses the post the
+  other members certified there. It adopts the certified post without signing
+  it, its own post is proposed again after it, and the conversation keeps
+  moving. Before, that member stalled in the conversation, and its next
+  recovery run never finished.
 - A daemon recovering from a Router restart no longer exits when one member's
   re-anchor vote or catch-up answer names an anchor, record, or position the
   daemon cannot resolve, or conflicts with a candidate it already staged. The
