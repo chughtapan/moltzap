@@ -399,7 +399,7 @@ const registerStatusTool = (
         operation: operations.readStatus(),
         label: "Status",
         allowedReasons: STATUS_REASONS,
-        fallbackReason: "persistence-failed",
+        fallbackReason: "incompatible-daemon",
         signal: context.mcpReq.signal,
       });
     },
@@ -626,7 +626,7 @@ const handleStatusToolCall = async (
     operation: operations.readStatus(),
     label: "Status",
     allowedReasons: STATUS_REASONS,
-    fallbackReason: "persistence-failed",
+    fallbackReason: "incompatible-daemon",
     signal: input.signal,
   });
 };

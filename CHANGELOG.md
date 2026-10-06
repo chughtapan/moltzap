@@ -39,6 +39,9 @@ heading below in its release commit.
   resends the same stored message, unchanged and under the same id, instead of
   signing a new copy. Members may receive that message more than once and
   count it once.
+- The `status` owner tool fails only with `incompatible-daemon`, including on
+  an unexpected internal failure. It reads the daemon's registration state
+  rather than the store, so it no longer reports `persistence-failed`.
 
 ### Fixed
 
