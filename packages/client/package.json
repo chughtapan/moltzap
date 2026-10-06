@@ -59,7 +59,17 @@
           "build",
           "^build"
         ],
-        "cache": false,
+        "inputs": [
+          "sources",
+          "^production",
+          {
+            "dependentTasksOutputFiles": "**/*",
+            "transitive": true
+          },
+          {
+            "runtime": "node --version"
+          }
+        ],
         "options": {
           "cwd": "packages/client",
           "command": "tsc -p tsconfig.integration.json && vitest run --config vitest.integration.config.mjs"
