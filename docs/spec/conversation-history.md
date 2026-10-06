@@ -536,20 +536,30 @@ type DirectPacket =
   | CatchUpIncomplete
 ```
 
-An outer Identity `SignedMessage` body is exactly one of:
+Every outer Identity `SignedMessage` body is a
+[SealedBody](./identity-representation.md#sealedbody) that its sender sealed
+to all of the message's recipients under the message's sender and
+`MessageId`. Its plaintext is exactly one of:
 
 1. `JCS(DirectPacket, packet)`; or
 2. `JCS(EncodedSignedMessage, stableInnerEvidence)`.
 
-The two closed representations are disjoint. Client first decodes
-`DirectPacket`; if that exact decode fails, it decodes one encoded
-`SignedMessage`; if both fail, it rejects the body. An action proposal's outer
+The two closed representations are disjoint. Client opens a verified outer
+body with its own key, then first decodes `DirectPacket` from the plaintext;
+if that exact decode fails, it decodes one encoded `SignedMessage`; if both
+fail, it rejects the body. Client also rejects a plaintext body, a body that
+does not open for it, and a body sealed under another sender or `MessageId`.
+A rejected body is the sender's fault, not a local one: the member ignores
+that message and keeps processing the rest. `ActionHash`, `RecordHash`,
+certificates, catch-up pages, and stored history cover the readable
+canonical values, never sealed bytes, because the seal protects only the
+outer message in transit. An action proposal's outer
 sender equals the post author. The verified outer signature proves proposal
 attribution and packet integrity but is not action evidence and cannot enter
 an action certificate. Any fixed member may assemble and send the other direct
 packets. Every outer message's recipients are the complete fixed-member
 AgentIds sorted by decoded bytes, including its sender. The Router sees only
-that outer Identity value.
+that outer Identity value: its addressing, sizes, and ciphertext.
 
 After ordered delivery, every conforming member, including the author, durably
 locks its first valid gap-free candidate for the predecessor before emitting a
@@ -572,8 +582,9 @@ relay and Router retry.
 
 An outer send follows the Router representation contract exactly:
 
-1. Client creates a fresh random 16-byte outer `MessageId`, signs the exact
-   body for all members, and durably stores the complete SignedMessage.
+1. Client creates a fresh random 16-byte outer `MessageId`, seals the exact
+   plaintext to all members under it, signs the sealed body for all members,
+   and durably stores the complete SignedMessage.
 2. The first attempt uses `mode: "initial"` and the polled
    `expectedRouterInstanceId`.
 3. An unknown transport outcome retries the same stored bytes and MessageId
@@ -664,10 +675,15 @@ Before enabling WAL, creating schema objects, or changing file permissions,
 Client reads the SQLite preflight state. A database is empty version 0 exactly
 when `PRAGMA user_version` is `0` and `sqlite_schema` contains no user-created
 table, index, view, or trigger. SQLite-internal objects are ignored. Only that
-state initializes the endpoint store, enables WAL, and sets `user_version=3`.
-Version 2 upgrades atomically with runtime delivery tables; version 3 reopens. A nonempty version 0, version 1, and every other
-version fail with `EndpointStoreError("incompatible")` without mutation.
-The schema 2 upgrade retains protocol state; incompatible stores are not erased.
+state, or a version 2 or 3 store, initializes the endpoint store, enables WAL,
+and sets `user_version=4`. Version 4 reopens. Versions 2 and 3 were written
+under the prior `MOLTZAP_VERSION`, so in one transaction Client drops every
+table they hold, the registered identity included, and creates the empty
+version 4 schema: the daemon starts unregistered, and nothing written under
+the prior version carries over or is resealed. A nonempty version 0,
+version 1, and every other version fail with
+`EndpointStoreError("incompatible")` without mutation; incompatible stores
+are not erased.
 
 The one source-owned `MOLTZAP_VERSION`/`V2_PROTOCOL_VERSION` value is
 `2026.1006.1`. Client wire peers must carry that exact literal. Mixed versions
@@ -716,5 +732,5 @@ exact store/wire rejection.
 ## Explicitly deferred
 
 Dynamic membership, named groups, multiple groups with the same membership,
-fragmentation, encrypted history, pruning, disk-loss recovery, view change,
+fragmentation, encrypted local history, pruning, disk-loss recovery, view change,
 and richer task/norm action vocabularies are not part of this profile.

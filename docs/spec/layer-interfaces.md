@@ -154,7 +154,10 @@ Client owns:
 
 Action signatures, durability votes, catch-up attestations, and re-anchor
 votes are stable self-addressed Identity `SignedMessage` values.
-Their Router envelope is a separate all-member `SignedMessage`. Every resend
+Their Router envelope is a separate all-member `SignedMessage`. Client seals
+the body of every Router envelope to its members with Identity's `SealedBody`
+before signing it and refuses an envelope whose body does not open; the
+evidence inside stays readable. Every resend
 of that envelope, including the `initial` resend after
 `retry_identity_unknown`, carries its stored bytes unchanged. Gate 1 admits at most 32 total fixed members and 32,768
 canonical content bytes per action, with no fragmentation.

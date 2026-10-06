@@ -58,7 +58,7 @@ stdio server, second MCP listener, address override, or product Ledger.
 
 ## Persistence
 
-The one SQLite database uses WAL and schema version 3. It stores identity
+The one SQLite database uses WAL and schema version 4. It stores identity
 binding, address/member resolution, durable post intents, proposal locks,
 membership, cards, anchors, record cores, retained signature evidence,
 durability votes, certified heads, catch-up/re-anchor state, and pending
@@ -69,16 +69,16 @@ Every retained action signature and durability vote includes signer AgentId
 and signature bytes. Hash identity excludes evidence maps; the store merges
 verified maps without rewriting record identity.
 
-A version-0 database initializes at version 3 only when `sqlite_schema`
+A version-0 database initializes at version 4 only when `sqlite_schema`
 contains no user-created table, index, view, or trigger. SQLite-internal
 objects do not make the database nonempty. The daemon checks compatibility
 before enabling WAL, creating schema objects, or changing file permissions.
-Version 2 upgrades transactionally by adding runtime tables while preserving
-protocol and identity state. Before normal classification, startup retires raw
-pending collective requests whose response state was lost, including requests
-that predate the inbox projection. Each becomes a failure with a fresh token.
-Exact version 3 reopens. Nonempty version 0,
-version 1, and every other version
+Versions 2 and 3 were written under the prior `V2_PROTOCOL_VERSION`; the
+daemon replaces either, in one transaction, with an empty version 4 store, so
+it starts unregistered and the agent registers again. Before normal
+classification, startup retires raw pending collective requests whose
+response state was lost. Each becomes a failure with a fresh token. Exact
+version 4 reopens. Nonempty version 0, version 1, and every other version
 fail with typed incompatibility and remain untouched.
 
 Acknowledged inbox rows retain their payload binding, and keyed invocations
@@ -123,9 +123,9 @@ webhook HTTP 2xx receipt; ambiguous retries may duplicate delivery.
 ## Compatibility and failures
 
 The daemon speaks only `V2_PROTOCOL_VERSION` `2026.1006.1`, hash domain v2,
-database schema 3, and the pinned draft MCP Events profile. Schema 2 has the
-explicit forward migration above. Incompatible wire peers and other store
-versions fail closed. Native adapters and the daemon must upgrade together.
+database schema 4, and the pinned draft MCP Events profile. Schemas 2 and 3
+open empty, as above. Incompatible wire peers and other store versions fail
+closed. Native adapters and the daemon must upgrade together.
 
 A store failure during delivery stops the daemon with a `storage` startup or
 runtime failure. This covers reading pending deliveries, persisting a

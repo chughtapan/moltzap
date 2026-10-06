@@ -35,7 +35,10 @@ safety boundary, not transparent recovery.
 
 Endpoints may be Byzantine. Router prevents one accepted send from becoming
 different bytes or a different relative position for different
-recipients. It does not judge the opaque body.
+recipients. It does not judge the opaque body. Client encrypts every body
+it sends to the message's recipients before signing, so the bodies Router
+retains and delivers are ciphertext; Router neither requires nor checks
+that encryption.
 
 The Router ordering guarantee assumes an endpoint receives the correct
 Router response without network-path modification. Router responses
@@ -627,8 +630,7 @@ RouterInstanceId and order.
 
 Persistent feeds, Router replication, ordering consensus, Router-level fork
 detection, transparent Router restart, per-recipient retention indexes,
-negotiated resource limits, network push transports, and a required
-end-to-end encryption or key-distribution profile.
+negotiated resource limits, and network push transports.
 
 ## Decision evidence
 

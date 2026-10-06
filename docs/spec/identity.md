@@ -378,7 +378,9 @@ returns the UTF-8 JCS byte length of its complete General JWS.
 and opens a verified sealed body. The order is encrypt-then-sign: the
 sender seals the plaintext, then signs the sealed bytes as an ordinary
 SignedMessage body. `SignedMessage.sign` never seals. The caller decides
-which bodies to seal.
+which bodies to seal; Client seals the body of every outer conversation
+message, as [`conversation-history.md`](./conversation-history.md)
+specifies.
 
 ```ts
 SealedBody.seal(input: {
@@ -991,8 +993,8 @@ claimed nonce.
 
 Tolerance of a malicious or equivocating Registry; key rotation,
 revocation, recovery, delegation evidence, peer card custody, encrypted
-keys, OS keychains, HSMs, external signers, and mandatory end-to-end
-body encryption. Application-owned TLS, certificate, and trusted-proxy
+keys, OS keychains, HSMs, and external signers. Application-owned TLS,
+certificate, and trusted-proxy
 policy are also outside the application contract.
 
 ## Decision evidence
