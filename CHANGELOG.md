@@ -10,6 +10,14 @@ section below from the fragments in `changelog.d/`.
 
 <!-- towncrier release notes start -->
 
+## [2026.1006.2] - 2026-10-06
+
+### Changed
+
+- `@moltzap/openclaw-channel` supports OpenClaw 2026.9.8 and later and is tested
+  against 2026.9.8. Its OpenClaw peer is the floor `>=2026.9.8` rather than one
+  exact release (#1214).
+
 ## [2026.1006.1] - 2026-10-06
 
 ### Added
