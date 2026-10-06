@@ -15,6 +15,7 @@ import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,
   RouterWorkerPersistenceError,
+  type RouterWorkerRecovery,
 } from "../../router/index.js";
 import {
   AnchorHash,
@@ -26,11 +27,13 @@ import {
   type CertifiedRecord,
   type CompletedReanchor as CompletedReanchorValue,
   type ConversationId as ConversationIdValue,
+  decodeCanonical,
   type DecodedOuterBody,
   memberCard,
   quorumThreshold,
   RecordHash,
   type RecordHash as RecordHashValue,
+  type ReanchorBody,
   signEvidenceMessage,
   type VerifiedMembership,
   verifyCatchUpIncomplete,
@@ -40,12 +43,11 @@ import {
 import {
   decodeStoredAnchor,
   durablePosition,
-  makeActionCertifiedRecord,
   readStoredRecord,
-  recordAnchorHash,
   stagedSuccessor,
 } from "../history/index.js";
 import { applyCompletedReanchor } from "../reanchor/index.js";
+import { queueStagedSuccessor } from "./successor.js";
 
 /**
  * One run's catch-up bookkeeping: the request in flight per conversation, the
@@ -56,6 +58,18 @@ export interface CatchUpState {
   readonly pendingRequests: Map<ConversationIdValue, CatchUpRequestValue>;
   readonly incompleteResponders: Map<ConversationIdValue, Set<AgentId>>;
   readonly acceptedSuccessors: Map<string, RecordHashValue | AnchorHashValue>;
+  /**
+   * Conversations whose pending position waits for every other member's
+   * answer while its retries last: this endpoint holds, or a member sent, a
+   * re-anchor vote at that position for an earlier Router instance. Such a
+   * re-anchor may have completed at a member that has not answered yet, and
+   * settling on a quorum without it could re-anchor apart from that member.
+   */
+  readonly waitingForEveryMember: Set<ConversationIdValue>;
+  /** Conversations whose retries ran out, so a quorum settles them again. */
+  readonly settlingOnQuorum: Set<ConversationIdValue>;
+  /** Conversations whose current request has already made its position ready. */
+  readonly readyPositions: Set<ConversationIdValue>;
 }
 
 /** What catch-up needs from the recovery run it belongs to; the run builds it. */
@@ -73,14 +87,8 @@ export interface CatchUpRun {
     membership: VerifiedMembership,
     body: DecodedOuterBody,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
-  /**
-   * Whether this endpoint is re-anchoring the conversation after a Router
-   * restart, so it answers a request over a staged, uncertified successor of
-   * the requested position with that successor instead of `incomplete`.
-   */
-  readonly withholdsIncomplete: (
-    conversationId: ConversationIdValue,
-  ) => boolean;
+  /** The Router instance the run recovers at. */
+  readonly routerInstanceId: RouterWorkerRecovery["anchor"]["routerInstanceId"];
   /**
    * A quorum of members, counting this endpoint, has attested that it holds
    * no later history.
@@ -96,7 +104,7 @@ export interface CatchUpRun {
  */
 export type CatchUpResponder = Pick<
   CatchUpRun,
-  "runtime" | "membership" | "queue" | "withholdsIncomplete"
+  "runtime" | "membership" | "queue"
 >;
 
 const acceptedDisposition: RouterIngressDisposition = "accepted";
@@ -111,6 +119,9 @@ export function makeCatchUpState(): CatchUpState {
     pendingRequests: new Map(),
     incompleteResponders: new Map(),
     acceptedSuccessors: new Map(),
+    waitingForEveryMember: new Set(),
+    settlingOnQuorum: new Set(),
+    readyPositions: new Set(),
   };
 }
 
@@ -145,6 +156,55 @@ export const resendCertifiedHistoryRequest = (
   queueCatchUpRequest(run, conversationId, "keep").pipe(
     Effect.withSpan("resendCertifiedHistoryRequest"),
   );
+
+/**
+ * Let a quorum of answers settle a conversation's position again once its
+ * request has used up its retries. The caller runs this on the retry fiber
+ * as the retries end, so the switch applies to the request those retries
+ * sent and not to one a re-arm starts afterwards.
+ * @param run Recovery run that owns the request.
+ * @param conversationId Conversation whose retries ran out.
+ * @returns Whether a quorum has already answered, so the position is ready.
+ */
+export function settleOnQuorum(
+  run: CatchUpRun,
+  conversationId: ConversationIdValue,
+): boolean {
+  const membership = run.membership(conversationId);
+  if (!run.isActive() || membership === undefined) {
+    return false;
+  }
+  run.state.settlingOnQuorum.add(conversationId);
+  return claimReadyPosition(run.state, membership, conversationId);
+}
+
+/**
+ * Make a conversation's pending position wait for every other member while
+ * its retries last, when a member's verified re-anchor vote selects that
+ * position for a Router instance other than the run's.
+ * @param run Recovery run that owns the request.
+ * @param vote The vote's re-anchor body.
+ */
+export function waitBehindEarlierReanchor(
+  run: CatchUpRun,
+  vote: Pick<
+    ReanchorBody,
+    | "conversationId"
+    | "previousAnchorHash"
+    | "selectedRecordHash"
+    | "routerInstanceId"
+  >,
+): void {
+  const pending = run.state.pendingRequests.get(vote.conversationId);
+  if (
+    pending !== undefined &&
+    vote.routerInstanceId !== run.routerInstanceId &&
+    pending.knownAnchorHash === vote.previousAnchorHash &&
+    pending.knownRecordHash === vote.selectedRecordHash
+  ) {
+    run.state.waitingForEveryMember.add(vote.conversationId);
+  }
+}
 
 /**
  * Answer an authenticated catch-up request with the requester's next certified
@@ -200,43 +260,6 @@ export function sentByOtherMember(
     senderAgentId !== runtime.input.localAgentCard.agentId &&
     memberCard(membership, senderAgentId) !== undefined
   );
-}
-
-/**
- * The bodies that hand a staged, uncertified successor to the members: its
- * action-certified record and this endpoint's durability vote for it, both
- * taken from the record's fold. A record with no fold yields nothing.
- * @param runtime Engine whose fold holds the record.
- * @param recordHash Hash of the successor this endpoint staged.
- * @returns The record body, then the vote body when this endpoint voted.
- */
-export function stagedSuccessorBodies(
-  runtime: EngineRuntime,
-  recordHash: RecordHashValue,
-): Effect.Effect<readonly DecodedOuterBody[], RouterWorkerPersistenceError> {
-  return Effect.suspend(() => {
-    const fold = runtime.recordFolds.get(recordHash);
-    if (fold === undefined) {
-      return Effect.succeed([]);
-    }
-    return recordAnchorHash(fold).pipe(
-      Effect.flatMap((anchorHash) =>
-        makeActionCertifiedRecord(fold, anchorHash),
-      ),
-      Effect.mapError(persistenceFailure),
-      Effect.map((record): readonly DecodedOuterBody[] => {
-        const vote = fold.durabilityEvidence.get(
-          runtime.input.localAgentCard.agentId,
-        );
-        return [
-          { kind: "direct", packet: record },
-          ...(vote === undefined
-            ? []
-            : [{ kind: "evidence" as const, message: vote }]),
-        ];
-      }),
-    );
-  });
 }
 
 /**
@@ -390,7 +413,10 @@ function queueCatchUpRequest(
     if (!run.isActive() || membership === undefined) {
       return;
     }
-    const { position } = yield* durablePosition(run.runtime, conversationId);
+    const { position, recovery } = yield* durablePosition(
+      run.runtime,
+      conversationId,
+    );
     if (position === undefined) {
       return yield* Effect.fail(persistenceFailure());
     }
@@ -403,14 +429,26 @@ function queueCatchUpRequest(
       knownAnchorHash,
     );
     yield* Effect.sync(() => {
-      const pending = run.state.pendingRequests.get(conversationId);
-      run.state.pendingRequests.set(conversationId, request);
+      const { state } = run;
+      const pending = state.pendingRequests.get(conversationId);
+      state.pendingRequests.set(conversationId, request);
       if (
-        held === "restart" ||
-        pending === undefined ||
-        !sameRequest(pending, request)
+        held === "keep" &&
+        pending !== undefined &&
+        sameRequest(pending, request)
       ) {
-        run.state.incompleteResponders.set(conversationId, new Set<AgentId>());
+        return;
+      }
+      state.incompleteResponders.set(conversationId, new Set<AgentId>());
+      state.settlingOnQuorum.delete(conversationId);
+      state.readyPositions.delete(conversationId);
+      state.waitingForEveryMember.delete(conversationId);
+      if (
+        heldReanchorCandidates(recovery, request).some(
+          (candidate) => candidate.routerInstanceId !== run.routerInstanceId,
+        )
+      ) {
+        state.waitingForEveryMember.add(conversationId);
       }
     });
     yield* run.queue(membership, { kind: "direct", packet: request });
@@ -447,37 +485,90 @@ function respondToCatchUp(
       return yield* sendCatchUpPage(responder, membership, request, successor);
     }
     const staged =
-      request.knownRecordHash !== null &&
-      request.knownAnchorHash !== null &&
-      responder.withholdsIncomplete(request.conversationId)
-        ? stagedSuccessor(
+      request.knownRecordHash === null || request.knownAnchorHash === null
+        ? undefined
+        : stagedSuccessor(
             recovery,
             request.conversationId,
             request.knownRecordHash,
             request.knownAnchorHash,
-          )
-        : undefined;
-    if (staged === undefined) {
-      return yield* sendCatchUpIncomplete(responder, membership, request);
+          );
+    if (staged !== undefined) {
+      return yield* queueStagedSuccessor(
+        responder.runtime,
+        responder.queue,
+        membership,
+        staged,
+      );
     }
-    const recordHash = yield* Schema.decodeUnknown(RecordHash)(
-      staged.recordHash,
-    ).pipe(Effect.mapError(persistenceFailure));
-    return yield* queueStagedSuccessor(responder, membership, recordHash);
+    const votes = yield* heldReanchorVotes(
+      responder.runtime,
+      recovery,
+      request,
+    );
+    return yield* sendCatchUpIncomplete(responder, membership, request, votes);
   });
 }
 
-function queueStagedSuccessor(
-  responder: CatchUpResponder,
-  membership: VerifiedMembership,
-  recordHash: RecordHashValue,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
-  return stagedSuccessorBodies(responder.runtime, recordHash).pipe(
-    Effect.flatMap((bodies) =>
-      Effect.forEach(bodies, (body) => responder.queue(membership, body), {
-        concurrency: 1,
-        discard: true,
-      }),
+/**
+ * This endpoint's uncompleted re-anchor candidates at a request's position:
+ * candidates that select the requested record from the requested anchor,
+ * for any Router instance.
+ * @param recovery Complete verified recovery snapshot.
+ * @param request The catch-up request whose position is examined.
+ * @returns The candidates, completed ones excluded.
+ */
+function heldReanchorCandidates(
+  recovery: EndpointRecovery,
+  request: CatchUpRequestValue,
+): EndpointRecovery["stagedReanchors"] {
+  return recovery.stagedReanchors.filter(
+    (candidate) =>
+      candidate.conversationId === request.conversationId &&
+      candidate.previousAnchorHash === request.knownAnchorHash &&
+      candidate.selectedRecordHash === request.knownRecordHash &&
+      candidate.canonicalCompletedReanchor === undefined,
+  );
+}
+
+/**
+ * This endpoint's own votes for its uncompleted re-anchor candidates at a
+ * request's position. An `incomplete` answer carries them, so a requester
+ * learns that a re-anchor from that position may already have completed for
+ * an earlier Router instance.
+ * @param runtime Engine whose identity signed the votes.
+ * @param recovery Complete verified recovery snapshot.
+ * @param request The catch-up request being answered.
+ * @returns The votes, in stored order.
+ */
+function heldReanchorVotes(
+  runtime: EngineRuntime,
+  recovery: EndpointRecovery,
+  request: CatchUpRequestValue,
+): Effect.Effect<readonly SignedMessage[], RouterWorkerPersistenceError> {
+  const candidates = new Set(
+    heldReanchorCandidates(recovery, request).map(
+      (candidate) => candidate.anchorHash,
+    ),
+  );
+  return Effect.forEach(
+    recovery.evidence.filter(
+      (evidence) =>
+        evidence.kind === "reanchor" &&
+        evidence.conversationId === request.conversationId &&
+        candidates.has(evidence.subjectId),
+    ),
+    (evidence) =>
+      decodeCanonical(SignedMessage, evidence.canonicalEvidence).pipe(
+        Effect.mapError(persistenceFailure),
+      ),
+    { concurrency: 1 },
+  ).pipe(
+    Effect.map((messages) =>
+      messages.filter(
+        (message) =>
+          message.senderAgentId === runtime.input.localAgentCard.agentId,
+      ),
     ),
   );
 }
@@ -575,16 +666,32 @@ function nextRequest(
   };
 }
 
+/**
+ * Answer that no next item is held, after this endpoint's own re-anchor votes
+ * at the requested position. The votes go first, so a requester marks the
+ * position as waiting for every member before it counts this answer.
+ * @param responder The endpoint answering.
+ * @param membership Verified membership of the request's conversation.
+ * @param request The member's verified catch-up request.
+ * @param votes This endpoint's votes for its re-anchor candidates there.
+ * @returns Completion once the votes and the answer are queued.
+ */
 function sendCatchUpIncomplete(
   responder: CatchUpResponder,
   membership: VerifiedMembership,
   request: CatchUpRequestValue,
+  votes: readonly SignedMessage[],
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return Effect.gen(function* () {
     const attestation = yield* signCatchUpAttestation(
       responder.runtime,
       request,
       { kind: "incomplete", hash: null, hasMore: false },
+    );
+    yield* Effect.forEach(
+      votes,
+      (message) => responder.queue(membership, { kind: "evidence", message }),
+      { concurrency: 1, discard: true },
     );
     yield* responder.queue(membership, {
       kind: "direct",
@@ -696,11 +803,9 @@ function persistenceFailure(): RouterWorkerPersistenceError {
 }
 
 /**
- * Count a member's attestation for the pending request. The position is
- * ready when the attestations first reach a quorum counting this endpoint,
- * so a later attestation does not make it ready twice. The request stays
- * pending afterwards: a member that had not answered may still send a page
- * with later history, which then moves the position on.
+ * Count a member's attestation for the pending request. The request stays
+ * pending once the position is ready: a member that had not answered may
+ * still send a page with later history, which then moves the position on.
  * @param state The run's catch-up bookkeeping.
  * @param membership Verified membership of the conversation.
  * @param conversationId Conversation the attestation is for.
@@ -720,7 +825,35 @@ function recordIncompleteResponder(
   }
   responders.add(senderAgentId);
   state.incompleteResponders.set(conversationId, responders);
-  return responders.size === quorumThreshold(membership.members.length) - 1;
+  return claimReadyPosition(state, membership, conversationId);
+}
+
+/**
+ * Mark a position ready the first time its attestations suffice: a quorum
+ * counting this endpoint, or every other member while the position waits
+ * behind an earlier Router instance's re-anchor vote and its retries last.
+ * @param state The run's catch-up bookkeeping.
+ * @param membership Verified membership of the conversation.
+ * @param conversationId Conversation whose attestations are counted.
+ * @returns Whether the position became ready now.
+ */
+function claimReadyPosition(
+  state: CatchUpState,
+  membership: VerifiedMembership,
+  conversationId: ConversationIdValue,
+): boolean {
+  const answered = state.incompleteResponders.get(conversationId)?.size ?? 0;
+  const memberCount = membership.members.length;
+  const needed =
+    state.waitingForEveryMember.has(conversationId) &&
+    !state.settlingOnQuorum.has(conversationId)
+      ? memberCount - 1
+      : quorumThreshold(memberCount) - 1;
+  if (answered < needed || state.readyPositions.has(conversationId)) {
+    return false;
+  }
+  state.readyPositions.add(conversationId);
+  return true;
 }
 
 function sameRequest(

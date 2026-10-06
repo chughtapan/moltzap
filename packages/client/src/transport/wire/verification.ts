@@ -190,6 +190,34 @@ export const verifyStableEvidence = (input: {
     return { message: verifiedMessage, statement };
   }).pipe(Effect.withSpan("verifyStableEvidence"));
 
+/**
+ * Verify stable evidence a member delivered inside an outer envelope: the
+ * envelope verifies as that member's, addressed to the whole membership, and
+ * the evidence it carries verifies against the same membership.
+ * @param input The outer envelope, the evidence it carries, and the
+ *     membership both must verify against.
+ * @returns The verified evidence message and its statement.
+ */
+export const verifyDeliveredEvidence = (input: {
+  readonly outer: SignedMessageValue;
+  readonly evidence: SignedMessageValue;
+  readonly membership: VerifiedMembership;
+}): Effect.Effect<VerifiedEvidence, ClientRepresentationError> =>
+  verifyOuterMessage({
+    message: input.outer,
+    membership: input.membership,
+  }).pipe(
+    Effect.zipRight(
+      Schema.encode(SignedMessage)(input.evidence).pipe(
+        Effect.catchTag("ParseError", () => representationFailure()),
+      ),
+    ),
+    Effect.flatMap((representation) =>
+      verifyStableEvidence({ representation, membership: input.membership }),
+    ),
+    Effect.withSpan("verifyDeliveredEvidence"),
+  );
+
 type EvidenceKind = EvidenceStatementValue["kind"];
 
 const verifyEvidenceSet = (input: {

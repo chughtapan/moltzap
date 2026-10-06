@@ -10,7 +10,7 @@ import {
   type SignedMessage as SignedMessageValue,
 } from "@moltzap/identity";
 import { Effect, type ParseResult, Schema } from "effect";
-import type { EndpointRecovery } from "../../../store/index.js";
+import type { EndpointRecovery, StagedRecord } from "../../../store/index.js";
 import type { EngineRuntime } from "../runtime/index.js";
 import {
   type RouterDiscontinuityReason,
@@ -105,7 +105,7 @@ export interface ReanchorRunPort {
    */
   readonly resendStagedSuccessor: (
     membership: VerifiedMembership,
-    recordHash: RecordHashValue,
+    staged: StagedRecord,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
 }
 
@@ -248,12 +248,7 @@ function advanceRestartedPosition(
   }
   const staged = stagedSuccessor(recovery, conversationId, head);
   if (staged !== undefined) {
-    return Schema.decodeUnknown(RecordHash)(staged.recordHash).pipe(
-      Effect.mapError(persistenceFailure),
-      Effect.flatMap((recordHash) =>
-        run.resendStagedSuccessor(membership, recordHash),
-      ),
-    );
+    return run.resendStagedSuccessor(membership, staged);
   }
   return replayReanchorVotes(run, membership, conversationId, head).pipe(
     Effect.zipRight(

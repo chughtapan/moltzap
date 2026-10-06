@@ -35,6 +35,7 @@ import {
   type EvidenceStatement as EvidenceStatementValue,
   memberCard,
   type VerifiedMembership,
+  verifyDeliveredEvidence,
 } from "../../wire/index.js";
 import {
   durableRouterInstanceId,
@@ -66,12 +67,13 @@ import {
   requestCertifiedHistory,
   resendCertifiedHistoryRequest,
   sentByOtherMember,
-  stagedSuccessorBodies,
+  settleOnQuorum,
+  waitBehindEarlierReanchor,
 } from "./catch-up.js";
 import {
   acceptSuccessorRecord,
   acceptSuccessorVote,
-  type PendingSuccessors,
+  queueStagedSuccessor,
   type SuccessorRun,
 } from "./successor.js";
 
@@ -138,7 +140,7 @@ interface RecoveryRun {
    */
   readonly retries: FiberMap.FiberMap<ConversationIdValue>;
   /** Staged successors members have sent that this endpoint has not staged. */
-  readonly successors: PendingSuccessors;
+  readonly successor: SuccessorRun;
   readonly catchUp: CatchUpRun;
   readonly reanchor: ReanchorRun;
 }
@@ -362,7 +364,7 @@ function acceptHistoryPacket(
     case "action_certified_record":
       return run === undefined
         ? Effect.succeed(ignoredDisposition)
-        : acceptSuccessorRecord(successorPort(run), ingress, packet);
+        : acceptSuccessorRecord(run.successor, ingress, packet);
     case "action_proposal":
       return Effect.succeed(ignoredDisposition);
     default: {
@@ -420,17 +422,62 @@ function routeEvidence(
     fenced: boolean;
   }>,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  const { statement } = evidence;
+  const { message, statement } = evidence;
+  const run = activeRuns.get(runtime);
   if (statement.kind === "reanchor_vote") {
-    return acceptRunVote(runtime, ingress, evidence.message);
+    return noteEarlierReanchor(run, ingress, message, statement).pipe(
+      Effect.zipRight(acceptRunVote(runtime, ingress, message)),
+    );
   }
   if (!evidence.fenced) {
     return runtime.phases.acceptIngress(runtime, ingress);
   }
-  const run = activeRuns.get(runtime);
   return run !== undefined && statement.kind === "durability_vote"
-    ? acceptSuccessorVote(successorPort(run), ingress, statement)
+    ? acceptSuccessorVote(run.successor, ingress, { message, statement })
     : Effect.succeed(ignoredDisposition);
+}
+
+/**
+ * Make a pending position wait for every member when a member's verified
+ * re-anchor vote selects it for a Router instance other than the run's: that
+ * re-anchor may have completed at a member that has not answered yet.
+ * @param run The active recovery run, if any.
+ * @param ingress Verified Router delivery carrying the vote.
+ * @param message The vote's evidence message.
+ * @param statement The vote's decoded statement.
+ * @returns Completion once the vote is checked.
+ */
+function noteEarlierReanchor(
+  run: RecoveryRun | undefined,
+  ingress: RouterWorkerIngress<DecodedOuterBody>,
+  message: SignedMessage,
+  statement: Extract<
+    EvidenceStatementValue,
+    { readonly kind: "reanchor_vote" }
+  >,
+): Effect.Effect<void> {
+  const body = statement.reanchor;
+  const membership = run?.memberships.get(body.conversationId);
+  if (
+    run === undefined ||
+    membership === undefined ||
+    body.routerInstanceId === run.recovery.anchor.routerInstanceId
+  ) {
+    return Effect.void;
+  }
+  return verifyDeliveredEvidence({
+    outer: ingress.message,
+    evidence: message,
+    membership,
+  }).pipe(
+    Effect.tap(() =>
+      Effect.sync(() => {
+        waitBehindEarlierReanchor(run.catchUp, body);
+      }),
+    ),
+    Effect.asVoid,
+    Effect.catchTag("ClientRepresentationError", () => Effect.void),
+  );
 }
 
 function acceptRunVote(
@@ -587,6 +634,16 @@ function armCatchUp(
   );
 }
 
+/**
+ * Resend a conversation's request on {@link catchUpRetrySchedule}, then let a
+ * quorum of answers settle a position that waited for every member. A
+ * position a quorum already settles recovers on its own fiber in the run's
+ * scope: recovering the conversation removes this retry fiber, which it could
+ * not do from inside it.
+ * @param run Recovery run that holds the conversation.
+ * @param conversationId Conversation to catch up.
+ * @returns The retries, ending once any settled position's recovery started.
+ */
 function retryCatchUp(
   run: RecoveryRun,
   conversationId: ConversationIdValue,
@@ -595,6 +652,21 @@ function retryCatchUp(
     resendCertifiedHistoryRequest(run.catchUp, conversationId),
     catchUpRetrySchedule,
   ).pipe(
+    Effect.zipRight(
+      Effect.sync(() => settleOnQuorum(run.catchUp, conversationId)),
+    ),
+    Effect.flatMap((settled) =>
+      settled
+        ? run.catchUp.onPositionReady(conversationId).pipe(
+            Effect.catchAll(() =>
+              Effect.logWarning(
+                "Catch-up did not settle on a quorum: the endpoint store failed",
+              ),
+            ),
+            Effect.forkIn(run.scope),
+          )
+        : Effect.void,
+    ),
     Effect.asVoid,
     Effect.catchAll(() =>
       Effect.logWarning(
@@ -736,8 +808,13 @@ function makeRecoveryRun(
       completedConversations: new Set(),
       scope,
       retries,
-      successors: new Map(),
-      catchUp: catchUpPort(runtime, history.memberships, isActive, () => run),
+      successor: successorPort(runtime, history, () => run),
+      catchUp: catchUpPort(
+        runtime,
+        { recovery, memberships: history.memberships },
+        isActive,
+        () => run,
+      ),
       reanchor: reanchorPort(
         runtime,
         { recovery, ...history },
@@ -752,14 +829,14 @@ function makeRecoveryRun(
 /**
  * Build a run's catch-up port.
  * @param runtime Engine the run recovers.
- * @param memberships Verified memberships the run reconciles.
+ * @param context The run's discontinuity and the memberships it reconciles.
  * @param isActive Whether the run is still the engine's active recovery.
  * @param currentRun The run the port belongs to, once it is built.
  * @returns The port the run's catch-up requests, answers, and readiness use.
  */
 function catchUpPort(
   runtime: EngineRuntime,
-  memberships: RecoveryRun["memberships"],
+  context: Pick<RecoveryRun, "recovery" | "memberships">,
   isActive: () => boolean,
   currentRun: () => RecoveryRun,
 ): CatchUpRun {
@@ -767,7 +844,8 @@ function catchUpPort(
     ...catchUpResponder(runtime),
     state: makeCatchUpState(),
     isActive,
-    membership: (conversationId) => memberships.get(conversationId),
+    routerInstanceId: context.recovery.anchor.routerInstanceId,
+    membership: (conversationId) => context.memberships.get(conversationId),
     onPositionReady: (conversationId) =>
       positionReady(currentRun(), conversationId).pipe(
         Effect.withSpan("positionReady"),
@@ -805,15 +883,12 @@ function reanchorPort(
       queueRecoveryEnvelope(runtime, membership, body),
     requestCatchUp: (conversationId) =>
       requestCertifiedHistory(currentRun().catchUp, conversationId),
-    resendStagedSuccessor: (membership, recordHash) =>
-      stagedSuccessorBodies(runtime, recordHash).pipe(
-        Effect.flatMap((bodies) =>
-          Effect.forEach(
-            bodies,
-            (body) => queueRecoveryEnvelope(runtime, membership, body),
-            { concurrency: 1, discard: true },
-          ),
-        ),
+    resendStagedSuccessor: (membership, staged) =>
+      queueStagedSuccessor(
+        runtime,
+        (target, body) => queueRecoveryEnvelope(runtime, target, body),
+        membership,
+        staged,
       ),
   });
 }
@@ -832,34 +907,29 @@ function catchUpResponder(runtime: EngineRuntime): CatchUpResponder {
       runtime.conversations.get(conversationId)?.membership,
     queue: (membership, body) =>
       queueRecoveryEnvelope(runtime, membership, body),
-    withholdsIncomplete: (conversationId) => {
-      const run = activeRuns.get(runtime);
-      return (
-        run !== undefined &&
-        run.reanchoring.has(conversationId) &&
-        !run.completedConversations.has(conversationId)
-      );
-    },
   };
 }
 
 /**
  * Build a run's staged-successor port. A newly certified head restarts the
  * conversation's catch-up from it, with fresh retries.
- * @param run Recovery run that holds the successors.
+ * @param runtime Engine the run recovers.
+ * @param context The memberships the run reconciles and the conversations it
+ *     re-anchors.
+ * @param currentRun The run the port belongs to, once it is built.
  * @returns The run's staged-successor port.
  */
-function successorPort(run: RecoveryRun): SuccessorRun {
+function successorPort(
+  runtime: EngineRuntime,
+  context: Pick<RecoveryRun, "memberships" | "reanchoring">,
+  currentRun: () => RecoveryRun,
+): SuccessorRun {
   return {
-    runtime: run.runtime,
-    pending: run.successors,
-    membership: (conversationId) => run.memberships.get(conversationId),
-    reanchoring: (conversationId) => run.reanchoring.has(conversationId),
-    certified: (conversationId, previousHead) =>
-      run.runtime.conversations.get(conversationId)?.head?.recordHash ===
-      previousHead
-        ? Effect.void
-        : armCatchUp(run, conversationId),
+    runtime,
+    pending: new Map(),
+    membership: (conversationId) => context.memberships.get(conversationId),
+    reanchoring: (conversationId) => context.reanchoring.has(conversationId),
+    armCatchUp: (conversationId) => armCatchUp(currentRun(), conversationId),
   };
 }
 

@@ -96,6 +96,7 @@ export {
   verifyMembershipDescriptor,
   verifyOuterMessage,
   verifyRecordCore,
+  verifyDeliveredEvidence,
   verifyStableEvidence,
 } from "./verification.js";
 

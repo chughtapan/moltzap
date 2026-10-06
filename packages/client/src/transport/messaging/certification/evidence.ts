@@ -1,7 +1,7 @@
 /** @file Stable evidence routing and verification for active protocol folds. */
 
-import { SignedMessage } from "@moltzap/identity";
-import { Effect, Schema } from "effect";
+import type { SignedMessage } from "@moltzap/identity";
+import { Effect } from "effect";
 import type { RouterWorkerIngress } from "../../router/index.js";
 import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
 import {
@@ -10,8 +10,7 @@ import {
   type DecodedOuterBody,
   EvidenceStatement,
   type VerifiedEvidence,
-  verifyOuterMessage,
-  verifyStableEvidence,
+  verifyDeliveredEvidence,
 } from "../../wire/index.js";
 
 /** One active fold selected by the target of a stable evidence statement. */
@@ -85,21 +84,11 @@ export function verifiedEvidenceForRoute(
   message: SignedMessage,
   route: EvidenceRoute,
 ): Effect.Effect<VerifiedEvidence, ClientRepresentationError> {
-  return Effect.gen(function* () {
-    yield* verifyOuterMessage({
-      message: ingress.message,
-      membership: route.fold.conversation.membership,
-    });
-    const representation = yield* Schema.encode(SignedMessage)(message).pipe(
-      Effect.catchTag("ParseError", () =>
-        Effect.fail(new ClientRepresentationError()),
-      ),
-    );
-    return yield* verifyStableEvidence({
-      representation,
-      membership: route.fold.conversation.membership,
-    });
-  }).pipe(Effect.withSpan("verifiedEvidenceForRoute"));
+  return verifyDeliveredEvidence({
+    outer: ingress.message,
+    evidence: message,
+    membership: route.fold.conversation.membership,
+  });
 }
 
 function actionEvidenceMatchesFold(
