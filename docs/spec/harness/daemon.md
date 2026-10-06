@@ -23,13 +23,14 @@ configuration stays:
 which only registration presents. While the state directory holds no identity
 binding, the daemon reads and validates the file at startup and fails closed
 with a configuration error when the variable is unset or empty or the file is
-missing or invalid. Once the state directory holds a registered identity, the
-daemon starts without reading the file and treats an unset or empty variable
-as absent, so a deployment can remove the credential after registration
-succeeds. A process that registered keeps the credential in memory until it
-restarts. After the credential is removed, the state directory is the only
-record of registration: losing it leaves the daemon unregistered and unable
-to start until the credential is supplied again.
+missing or invalid. Once the state directory holds a registered identity in a
+store that [reopens](#persistence), the daemon starts without reading the file
+and treats an unset or empty variable as absent, so a deployment can remove
+the credential after registration succeeds. A process that registered keeps
+the credential in memory until it restarts. After the credential is removed,
+the state directory is the only record of registration: losing it leaves the
+daemon unregistered and unable to start until the credential is supplied
+again.
 
 The optional input `MOLTZAPD_HISTORY_EXPORT` names a file the daemon appends
 one `HistoryExportRecord` JSON line to for every inbound item the daemon

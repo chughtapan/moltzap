@@ -580,11 +580,11 @@ What a completed send returns: a collecting operation names its id.
 
 ### `@moltzap/client/service`
 
-#### [`MoltZapService`](./service/index.ts#L23)
+#### [`MoltZapService`](./service/index.ts#L24)
 
 _Namespace_
 
-#### [`MoltZapService.StartupError`](./service/index.ts#L25)
+#### [`MoltZapService.StartupError`](./service/index.ts#L26)
 
 _Class_
 
@@ -606,7 +606,7 @@ _Class_
 
 Closed daemon startup phase without configuration or platform detail.
 
-#### [`MoltZapService.layer`](./service/index.ts#L78)
+#### [`MoltZapService.layer`](./service/index.ts#L85)
 
 _Variable_
 
