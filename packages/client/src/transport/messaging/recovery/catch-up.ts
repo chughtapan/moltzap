@@ -187,7 +187,8 @@ export function settleOnQuorum(
  * its retries last, once a member's re-anchor vote for an earlier Router
  * instance verifies and selects that position. A vote for any other
  * position, or for a position whose readiness is already decided, is not
- * verified at all.
+ * verified at all. The position is checked again once the vote verifies,
+ * since a retry can replace the pending request meanwhile.
  * @param run Recovery run that owns the request.
  * @param vote The vote's re-anchor body.
  * @param verified Verifies the vote as the member's.
@@ -202,15 +203,15 @@ export function waitBehindEarlierReanchor<E>(
   verified: Effect.Effect<unknown, E>,
 ): Effect.Effect<void, E> {
   const { conversationId } = vote;
-  const pending = run.state.pendingRequests.get(conversationId);
-  const undecided = () =>
-    run.state.pendingRequests.get(conversationId) === pending &&
-    !run.state.readiness.has(conversationId);
-  if (
-    pending === undefined ||
-    !selectsPosition(vote, pending) ||
-    !undecided()
-  ) {
+  const undecided = () => {
+    const pending = run.state.pendingRequests.get(conversationId);
+    return (
+      pending !== undefined &&
+      selectsPosition(vote, pending) &&
+      !run.state.readiness.has(conversationId)
+    );
+  };
+  if (!undecided()) {
     return Effect.void;
   }
   return verified.pipe(
