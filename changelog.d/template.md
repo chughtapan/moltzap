@@ -5,7 +5,7 @@
   such a release leaves CHANGELOG.md unchanged. Each fragment's line breaks
   fold into spaces so that towncrier's `wrap` refills it with two-space
   continuation lines, and its issue numbers go before its final period, as in
-  `(#1187).`
+  `(#<number>).`
 -#}
 {% if sections[""] %}
 ## [{{ versiondata.version }}] - {{ versiondata.date }}
