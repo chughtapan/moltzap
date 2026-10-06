@@ -12,10 +12,13 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { onTestFinished } from "vitest";
 import {
+  type CertifiedRecord,
+  type ConversationFoundation,
   type EndpointStore,
   type EndpointStoreError,
   openEndpointStore,
 } from "../store/index.js";
+import { digest } from "./agent-card-fixtures.js";
 
 /**
  * A new empty state directory, removed when the running test finishes; only a
@@ -68,6 +71,58 @@ export const rewindToPreCutoverSchema = (
 /** The SQLite file the endpoint store keeps inside a state directory. */
 export function databasePath(directory: string): string {
   return join(directory, "moltzapd.sqlite3");
+}
+
+/** A conversation foundation and one certified record in it. */
+export interface StoredConversation {
+  readonly foundation: ConversationFoundation;
+  readonly record: CertifiedRecord;
+}
+
+/**
+ * One conversation and a certified record Bob authored in it, carrying
+ * placeholder bytes the store keeps without interpreting them.
+ * @param label Distinguishes the conversation and its hashes.
+ * @returns The foundation and the record.
+ */
+export function storedConversation(label: string): StoredConversation {
+  const foundation = {
+    conversationId: `conversation:${label}`,
+    membershipHash: `mbr_${label}`,
+    canonicalMembership: bytes("members"),
+    anchorHash: `anc_${label}`,
+    canonicalAnchor: bytes("anchor"),
+  };
+  const recordHash = digest("rch_", 3);
+  return {
+    foundation,
+    record: {
+      ...foundation,
+      recordHash,
+      actionHash: `ach_${label}`,
+      authorAgentId: "agent:bob",
+      postId: digest("pst_", 1),
+      canonicalRecordCore: bytes("record"),
+      actionEvidence: [
+        {
+          conversationId: foundation.conversationId,
+          kind: "action",
+          subjectId: `ach_${label}`,
+          evidenceKey: "agent:bob",
+          canonicalEvidence: bytes("action"),
+        },
+      ],
+      durabilityEvidence: [
+        {
+          conversationId: foundation.conversationId,
+          kind: "durability",
+          subjectId: recordHash,
+          evidenceKey: "agent:bob",
+          canonicalEvidence: bytes("durability"),
+        },
+      ],
+    },
+  };
 }
 
 /** UTF-8 bytes of `value`, the form the store's canonical columns hold. */

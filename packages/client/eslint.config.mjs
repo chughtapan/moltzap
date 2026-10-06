@@ -1,18 +1,19 @@
 import { packageEslintConfig } from "../../eslint.shared.mjs";
 
+/** Test files, which sign peer envelopes directly. */
+const testFiles = ["src/**/*.test.ts", "src/__tests__/**"];
+
 /**
  * Keeps `transport/messaging/outbox.ts` the one production module that signs
- * an outer envelope, so every outer body leaves through the path that seals
- * it. `transport/wire/` defines and re-exports the signers, and tests sign
- * peer envelopes directly.
+ * an outer envelope, which it stores before the Router worker sends it.
+ * `transport/wire/` defines and re-exports the signers.
  */
 const soleOuterSigner = {
   files: ["src/**/*.ts"],
   ignores: [
     "src/transport/messaging/outbox.ts",
     "src/transport/wire/**",
-    "src/**/*.test.ts",
-    "src/__tests__/**",
+    ...testFiles,
   ],
   rules: {
     "no-restricted-imports": [
@@ -31,6 +32,27 @@ const soleOuterSigner = {
   },
 };
 
+/**
+ * Keeps `transport/wire/encoding/codec.ts` the one module that calls
+ * Identity's `SignedMessage.sign`. It seals every outer body before signing,
+ * so no other module can put a plaintext body on the Router.
+ */
+const sealingSigner = {
+  files: ["src/**/*.ts"],
+  ignores: ["src/transport/wire/encoding/codec.ts", ...testFiles],
+  rules: {
+    "no-restricted-properties": [
+      "error",
+      {
+        object: "SignedMessage",
+        property: "sign",
+        message:
+          "Only transport/wire/encoding/codec.ts signs a SignedMessage, after sealing every outer body; queue the body through the engine outbox.",
+      },
+    ],
+  },
+};
+
 export default [
   ...packageEslintConfig({
     projects: [
@@ -41,4 +63,5 @@ export default [
     tsconfigRootDir: import.meta.dirname,
   }),
   soleOuterSigner,
+  sealingSigner,
 ];

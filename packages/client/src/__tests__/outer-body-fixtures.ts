@@ -1,23 +1,16 @@
 /** @file Opens the sealed outer body of an envelope a test endpoint sent or received. */
 
 import {
-  type AgentSigningAuthority,
   SignedMessage,
   type SignedMessageVerificationError,
-  type VerifiedAgentCard,
 } from "@moltzap/identity";
 import { Effect } from "effect";
+import type { SigningIdentity } from "./certified-history-fixtures.js";
 import {
   type ClientRepresentationError,
   type DecodedOuterBody,
   decodeOuterBody,
 } from "../transport/wire/index.js";
-
-/** A member's verified card and the authority that holds its opening key. */
-export interface OuterBodyMember {
-  readonly card: VerifiedAgentCard;
-  readonly authority: AgentSigningAuthority;
-}
 
 /**
  * Verify an envelope against its sender's card and open its sealed body as
@@ -30,8 +23,8 @@ export interface OuterBodyMember {
  */
 export const openOuterBody = (
   message: SignedMessage,
-  sender: OuterBodyMember,
-  reader: OuterBodyMember = sender,
+  sender: SigningIdentity,
+  reader: SigningIdentity = sender,
 ): Effect.Effect<
   DecodedOuterBody,
   ClientRepresentationError | SignedMessageVerificationError

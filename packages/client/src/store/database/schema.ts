@@ -31,20 +31,24 @@ export interface StoreState {
 const DATABASE_NAME = "moltzapd.sqlite3";
 /**
  * Version 4 is the first store written under the MoltZap version that seals
- * every outer body. Versions 2 and 3 predate that cutover and open empty
- * through `cutOverDatabase`.
+ * every outer body. Versions 2 and 3 predate that cutover.
  */
 const SCHEMA_VERSION = 4;
 
-type PreflightDisposition = "initialize" | "cutover" | "reopen";
+type PreflightDisposition = "create" | "reopen";
 
-/** Empty, pre-cutover, and current stores; every other version is refused. */
-const OPENABLE_VERSIONS: ReadonlySet<number> = new Set([
-  0,
-  2,
-  3,
-  SCHEMA_VERSION,
-]);
+/**
+ * How each openable `user_version` opens. An empty store and a pre-cutover
+ * store get a new empty schema through `createStore`; the current version
+ * reopens. Every other version is refused.
+ */
+const DISPOSITION_BY_VERSION: ReadonlyMap<number, PreflightDisposition> =
+  new Map([
+    [0, "create"],
+    [2, "create"],
+    [3, "create"],
+    [SCHEMA_VERSION, "reopen"],
+  ]);
 
 /**
  * Acquires and exclusively locks one exact-version endpoint database.
@@ -162,10 +166,8 @@ function applySchema(
   database: DatabaseSync,
   disposition: PreflightDisposition,
 ): void {
-  if (disposition === "initialize") {
-    initializeDatabase(database);
-  } else if (disposition === "cutover") {
-    cutOverDatabase(database);
+  if (disposition === "create") {
+    createStore(database);
   }
 }
 
@@ -199,18 +201,15 @@ function preflightDatabase(database: DatabaseSync): PreflightDisposition {
     throw new StoreSignal("corrupt");
   }
   const version = readInteger(versionRow, "user_version");
-  if (!OPENABLE_VERSIONS.has(version)) {
+  const disposition = DISPOSITION_BY_VERSION.get(version);
+  if (
+    disposition === undefined ||
+    (version === 0 && hasUserSchemaObjects(database))
+  ) {
     throw new StoreSignal("incompatible");
   }
-  if (version === 0) {
-    if (hasUserSchemaObjects(database)) {
-      throw new StoreSignal("incompatible");
-    }
-    requireHealthyDatabase(database);
-    return "initialize";
-  }
   requireHealthyDatabase(database);
-  return version === SCHEMA_VERSION ? "reopen" : "cutover";
+  return disposition;
 }
 
 function hasUserSchemaObjects(database: DatabaseSync): boolean {
@@ -436,22 +435,6 @@ const schemaSql = `
   ) STRICT;
 `;
 
-function initializeDatabase(database: DatabaseSync): void {
-  transaction(
-    database,
-    () => {
-      createSchema(database);
-    },
-    "EXCLUSIVE",
-  );
-}
-
-function createSchema(database: DatabaseSync): void {
-  database.exec(schemaSql);
-  database.exec(runtimeSchemaSql);
-  database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-}
-
 /**
  * Every table a version 2 or 3 store can hold, each listed before the tables
  * its foreign keys reference, so dropping them in order never orphans a row.
@@ -477,19 +460,22 @@ const PRE_CUTOVER_TABLES = [
 ] as const;
 
 /**
- * Replaces a version 2 or 3 store with an empty version 4 store in one
- * transaction. Its identity was registered, and its protocol state signed,
- * under the prior MoltZap version, so nothing carries over and nothing is
- * resealed: the daemon starts unregistered and the agent registers again.
+ * Creates the empty version 4 schema in one transaction, first dropping every
+ * table a version 2 or 3 store holds. A pre-cutover store's identity was
+ * registered, and its protocol state signed, under the prior MoltZap version,
+ * so nothing carries over and nothing is resealed: the daemon starts
+ * unregistered and the agent registers again.
  */
-function cutOverDatabase(database: DatabaseSync): void {
+function createStore(database: DatabaseSync): void {
   transaction(
     database,
     () => {
       for (const table of PRE_CUTOVER_TABLES) {
         database.exec(`DROP TABLE IF EXISTS ${table}`);
       }
-      createSchema(database);
+      database.exec(schemaSql);
+      database.exec(runtimeSchemaSql);
+      database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     },
     "EXCLUSIVE",
   );

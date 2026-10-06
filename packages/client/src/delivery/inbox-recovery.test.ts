@@ -3,9 +3,12 @@
 import { Effect, Encoding, Option, Schema, Scope } from "effect";
 import { expect, it } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
-import { bytes, stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import {
-  type CertifiedRecord,
+  bytes,
+  stateDirectory,
+  storedConversation,
+} from "../__tests__/store-schema-fixtures.js";
+import {
   decodeRuntimeValue,
   type EndpointStore,
   openEndpointStore,
@@ -23,40 +26,8 @@ const self = Schema.decodeUnknownSync(AgentAddress)("agent:alice");
 const sender = Schema.decodeUnknownSync(AgentAddress)("agent:bob");
 const nonce = Encoding.encodeBase64Url(new Uint8Array(32).fill(8));
 const id = collectiveIdOf(sender, nonce);
-const recordHash = Schema.decodeUnknownSync(RecordHash)(digest("rch_", 3));
-const foundation = {
-  conversationId: "conversation:legacy-request",
-  membershipHash: "mbr_legacy",
-  canonicalMembership: bytes("members"),
-  anchorHash: "anc_legacy",
-  canonicalAnchor: bytes("anchor"),
-};
-const record: CertifiedRecord = {
-  ...foundation,
-  recordHash,
-  actionHash: "ach_legacy",
-  authorAgentId: "agent:bob",
-  postId: digest("pst_", 1),
-  canonicalRecordCore: bytes("record"),
-  actionEvidence: [
-    {
-      conversationId: foundation.conversationId,
-      kind: "action",
-      subjectId: "ach_legacy",
-      evidenceKey: "agent:bob",
-      canonicalEvidence: bytes("action"),
-    },
-  ],
-  durabilityEvidence: [
-    {
-      conversationId: foundation.conversationId,
-      kind: "durability",
-      subjectId: recordHash,
-      evidenceKey: "agent:bob",
-      canonicalEvidence: bytes("durability"),
-    },
-  ],
-};
+const { foundation, record } = storedConversation("pending-request");
+const recordHash = Schema.decodeUnknownSync(RecordHash)(record.recordHash);
 const message = () =>
   Schema.decodeUnknownSync(InboundMessage)({
     kind: "direct",
@@ -107,8 +78,8 @@ const makeCollectives = (counter: { count: number }, scope: Scope.Scope) =>
     scope,
   });
 /**
- * Give the store alice's identity, a lock, an outbox entry and Bob's gather
- * request as a certified record whose delivery is still pending.
+ * Give the store alice's identity and Bob's gather request as a certified
+ * record whose delivery is still pending.
  */
 const seedRequest = (store: EndpointStore, request: InboundMessage) =>
   Effect.gen(function* () {
@@ -117,19 +88,9 @@ const seedRequest = (store: EndpointStore, request: InboundMessage) =>
       canonicalAgentCard: bytes("identity"),
     });
     yield* store.putConversationFoundation(foundation);
-    yield* store.lockProposal({
-      conversationId: foundation.conversationId,
-      actionHash: record.actionHash,
-      canonicalActionCore: bytes("action-core"),
-    });
     yield* store.applyCatchUpRecord(record, {
       recipientAgentId: "agent:alice",
       canonicalMessage: bytes(JSON.stringify(request)),
-    });
-    yield* store.enqueueOutbound({
-      conversationId: foundation.conversationId,
-      messageId: "msg_legacy",
-      canonicalSignedMessage: bytes("outbound"),
     });
   });
 

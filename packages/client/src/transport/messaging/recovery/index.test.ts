@@ -958,17 +958,19 @@ const decodeCatchUpRequest = (message: SignedMessage) =>
 const decodeActionProposal = (
   message: SignedMessage,
   expected = "action proposal",
-  open: typeof openForwarded = openForwarded,
 ) =>
-  open(message).pipe(
-    Effect.flatMap((body) => {
-      if (body.kind === "direct" && body.packet.kind === "action_proposal") {
-        return Effect.succeed(body.packet);
-      }
-      const received = body.kind === "evidence" ? body.kind : body.packet.kind;
-      return Effect.dieMessage(`expected ${expected}, received ${received}`);
-    }),
+  openForwarded(message).pipe(
+    Effect.flatMap((body) => actionProposalIn(body, expected)),
   );
+
+/** The action proposal `body` carries; any other body is a defect naming `expected`. */
+function actionProposalIn(body: DecodedOuterBody, expected: string) {
+  if (body.kind === "direct" && body.packet.kind === "action_proposal") {
+    return Effect.succeed(body.packet);
+  }
+  const received = body.kind === "evidence" ? body.kind : body.packet.kind;
+  return Effect.dieMessage(`expected ${expected}, received ${received}`);
+}
 
 /**
  * Take the next action proposal from `outbound`, skipping the evidence
@@ -1800,12 +1802,9 @@ const reproposesPendingPostAfterRestart = () =>
           SignedMessage,
           staleOutbound.canonicalSignedMessage,
         ).pipe(
-          Effect.flatMap((message) =>
-            decodeActionProposal(
-              message,
-              "old-instance action proposal",
-              (stored) => openOuterBody(stored, fixture.local),
-            ),
+          Effect.flatMap((message) => openOuterBody(message, fixture.local)),
+          Effect.flatMap((body) =>
+            actionProposalIn(body, "old-instance action proposal"),
           ),
         );
         if (staleProposal.action.kind !== "POST") {
@@ -2173,17 +2172,6 @@ const queuePeerCatchUpResponse = (
     return row;
   }).pipe(Effect.orDie);
 
-/** The catch-up page `message` from `sender` carries; any other body is a defect. */
-const decodeCatchUpPage =
-  (sender: SigningIdentity) => (message: SignedMessage) =>
-    openOuterBody(message, sender).pipe(
-      Effect.flatMap((body) =>
-        body.kind === "direct" && body.packet.kind === "catch_up_page"
-          ? Effect.succeed(body.packet)
-          : Effect.dieMessage("expected catch-up page"),
-      ),
-    );
-
 /**
  * A peer that asks from genesis is answered with a page holding the
  * certified record the endpoint retains, read back from its stored rows.
@@ -2196,10 +2184,7 @@ const answersGenesisCatchUpWithRetainedRecord = () =>
         yield* retainCertifiedRecord(fixture);
 
         const answer = yield* queuePeerCatchUpResponse(fixture).pipe(
-          Effect.flatMap((row) =>
-            decodeCanonical(SignedMessage, row.canonicalSignedMessage),
-          ),
-          Effect.flatMap(decodeCatchUpPage(fixture.local)),
+          Effect.flatMap(decodeQueuedCatchUpPage(fixture.local)),
           Effect.exit,
         );
 
@@ -5062,8 +5047,8 @@ describe("peer input during recovery", () => {
  * @returns For an outbox row holding one signed outer envelope, the page; any
  *     other body is a defect naming what the row carries.
  */
-const decodeQueuedCatchUpPage =
-  (local: SigningIdentity) => (row: StoredOutboundMessage) =>
+function decodeQueuedCatchUpPage(local: SigningIdentity) {
+  return (row: StoredOutboundMessage) =>
     decodeCanonical(SignedMessage, row.canonicalSignedMessage).pipe(
       Effect.flatMap((message) => openOuterBody(message, local)),
       Effect.flatMap((body) => {
@@ -5078,6 +5063,7 @@ const decodeQueuedCatchUpPage =
       }),
       Effect.orDie,
     );
+}
 
 /**
  * A member's catch-up request for a conversation this endpoint holds history
@@ -5680,6 +5666,7 @@ const openPeerEngine = (fixture: RecoveryFixture) =>
  * @param sent Queue the sending endpoint's recovery sends to.
  * @param engine Endpoint that receives the traffic.
  * @param sender Member whose recovery sends it.
+ * @param receiver Member whose endpoint `engine` is, which opens each body.
  * @returns The receiving endpoint's dispositions, in delivery order.
  */
 const relayRecoveryTraffic = (

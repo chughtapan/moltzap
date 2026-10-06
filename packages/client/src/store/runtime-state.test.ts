@@ -9,13 +9,10 @@ import {
   databasePath,
   rewindToPreCutoverSchema,
   stateDirectory,
+  storedConversation,
   withStore,
 } from "../__tests__/store-schema-fixtures.js";
-import {
-  type CertifiedRecord,
-  DeliveryToken,
-  type EndpointStore,
-} from "./index.js";
+import { DeliveryToken, type EndpointStore } from "./index.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Store mutation outcomes and the schema version are the contract under test. */
 
@@ -65,40 +62,7 @@ const identity = {
   agentId: "agent:alice",
   canonicalAgentCard: new Uint8Array([1, 2, 3]),
 };
-const foundation = {
-  conversationId: "conversation:pre-cutover",
-  membershipHash: "mbr_pre_cutover",
-  canonicalMembership: bytes("members"),
-  anchorHash: "anc_pre_cutover",
-  canonicalAnchor: bytes("anchor"),
-};
-const recordHash = digest("rch_", 3);
-const record: CertifiedRecord = {
-  ...foundation,
-  recordHash,
-  actionHash: "ach_pre_cutover",
-  authorAgentId: "agent:bob",
-  postId: digest("pst_", 1),
-  canonicalRecordCore: bytes("record"),
-  actionEvidence: [
-    {
-      conversationId: foundation.conversationId,
-      kind: "action",
-      subjectId: "ach_pre_cutover",
-      evidenceKey: "agent:bob",
-      canonicalEvidence: bytes("action"),
-    },
-  ],
-  durabilityEvidence: [
-    {
-      conversationId: foundation.conversationId,
-      kind: "durability",
-      subjectId: recordHash,
-      evidenceKey: "agent:bob",
-      canonicalEvidence: bytes("durability"),
-    },
-  ],
-};
+const { foundation, record } = storedConversation("pre-cutover");
 const sendInput = bytes('{"input":{"text":"hello","to":"agent:bob"}}');
 const eventState = bytes('{"subscription":"private"}');
 const inboxItem = bytes('{"kind":"operationFailed"}');
@@ -146,6 +110,11 @@ const seedPreCutoverState = (store: EndpointStore) =>
     return outbound.outboundId;
   });
 
+/** What a newly created, unregistered store recovers. */
+const freshRecovery = Effect.suspend(() =>
+  withStore(stateDirectory(), (fresh) => fresh.recover()),
+);
+
 function readSchemaVersion(path: string) {
   const database = new DatabaseSync(databasePath(path), { readOnly: true });
   const row = database.prepare("PRAGMA user_version").get();
@@ -163,20 +132,7 @@ const opensEmptyAfterTheCutover = (version: 2 | 3) => {
       yield* withStore(path, (store) =>
         Effect.gen(function* () {
           expect(yield* store.readIdentity()).toBeUndefined();
-          expect(yield* store.recover()).toEqual({
-            postIntents: [],
-            memberships: [],
-            anchors: [],
-            positions: [],
-            proposalLocks: [],
-            stagedRecords: [],
-            evidence: [],
-            certifiedRecords: [],
-            stagedReanchors: [],
-            pendingDeliveries: [],
-            disseminationObligations: [],
-            outboundMessages: [],
-          });
+          expect(yield* store.recover()).toEqual(yield* freshRecovery);
           const unsent = yield* store
             .beginOutbound(outboundId)
             .pipe(Effect.flip);

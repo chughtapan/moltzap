@@ -1,15 +1,14 @@
 /** @file A daemon ignores a peer's outer body that does not open for it, and its Router worker keeps accepting sealed traffic. */
 
-import type { Registry } from "@moltzap/identity/registry";
 import type { Router } from "@moltzap/router";
 import {
-  type AgentSigningAuthority,
   MessageId,
   MOLTZAP_VERSION,
   SealedBody,
   SignedMessage,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
+import { Registry } from "@moltzap/identity/registry";
 import {
   type Context,
   Deferred,
@@ -20,6 +19,7 @@ import {
   Scope,
 } from "effect";
 import { describe, expect, it } from "vitest";
+import type { SigningIdentity } from "../../__tests__/certified-history-fixtures.js";
 import type { EndpointEngine } from "../../transport/messaging/index.js";
 import type { DaemonRuntimeError } from "../errors.js";
 import { digest, identifier } from "../../__tests__/agent-card-fixtures.js";
@@ -30,6 +30,7 @@ import {
   emptyBatch,
   makeIdentityFixture,
   pollCursor,
+  registryLayer,
   routerInstanceId,
 } from "../../__tests__/router-worker-fixtures.js";
 import {
@@ -47,23 +48,25 @@ import {
 } from "../../transport/wire/index.js";
 import { acquireProtocol } from "./protocol.js";
 
-interface Member {
-  readonly card: VerifiedAgentCard;
-  readonly authority: AgentSigningAuthority;
-}
-
 /** The daemon's identity, the peer it shares a conversation with, and an agent outside it. */
 interface Members {
-  readonly local: Member;
-  readonly peer: Member;
-  readonly outsider: Member;
+  readonly local: SigningIdentity;
+  readonly peer: SigningIdentity;
+  readonly outsider: SigningIdentity;
 }
 
-/** Builds one envelope from the peer side that the daemon must not open. */
-type RefusedEnvelope = (
-  members: Members,
-  plaintext: Uint8Array,
-) => Effect.Effect<SignedMessage, unknown>;
+/**
+ * An envelope addressed to the daemon and the peer that the daemon must not
+ * open: the peer seals the plaintext to `sealedTo` under MessageId byte
+ * `sealedAs`, or leaves it plaintext when `sealedTo` is absent, and `signer`
+ * signs the result under MessageId byte `signedAs`.
+ */
+interface RefusedEnvelope {
+  readonly sealedTo?: (members: Members) => readonly VerifiedAgentCard[];
+  readonly sealedAs: number;
+  readonly signer: (members: Members) => SigningIdentity;
+  readonly signedAs: number;
+}
 
 const instance = routerInstanceId(21);
 
@@ -80,107 +83,44 @@ const catchUpRequestFrom = (requester: VerifiedAgentCard): CatchUpRequest => ({
   knownAnchorHash: null,
 });
 
-/** Signs `body` as `sender` to the daemon and the peer. */
-const signToConversation = (
-  sender: Member,
+const buildRefusedEnvelope = (
+  refused: RefusedEnvelope,
   members: Members,
-  id: MessageId,
-  body: Uint8Array,
-) =>
-  SignedMessage.sign({
-    agentCard: sender.card,
-    signingAuthority: sender.authority,
-    recipientAgentIds: new Set([
-      members.local.card.agentId,
-      members.peer.card.agentId,
-    ]),
-    messageId: id,
-    body,
-  });
-
-/** Seals `plaintext` from the peer to `recipients` under `id`. */
-const sealFromPeer = (
-  members: Members,
-  recipients: readonly VerifiedAgentCard[],
-  id: MessageId,
   plaintext: Uint8Array,
-) =>
-  SealedBody.seal({
-    senderAgentId: members.peer.card.agentId,
-    recipientAgentCards: recipients,
-    messageId: id,
-    plaintext,
-  });
-
-const plaintextBody: RefusedEnvelope = (members, plaintext) =>
-  signToConversation(members.peer, members, messageId(31), plaintext);
-
-const bodySealedToOtherRecipients: RefusedEnvelope = (members, plaintext) =>
-  sealFromPeer(
-    members,
-    [members.peer.card, members.outsider.card],
-    messageId(32),
-    plaintext,
-  ).pipe(
+) => {
+  const signer = refused.signer(members);
+  const body =
+    refused.sealedTo === undefined
+      ? Effect.succeed(plaintext)
+      : SealedBody.seal({
+          senderAgentId: members.peer.card.agentId,
+          recipientAgentCards: refused.sealedTo(members),
+          messageId: messageId(refused.sealedAs),
+          plaintext,
+        });
+  return body.pipe(
     Effect.flatMap((sealed) =>
-      signToConversation(members.peer, members, messageId(32), sealed),
+      SignedMessage.sign({
+        agentCard: signer.card,
+        signingAuthority: signer.authority,
+        recipientAgentIds: new Set([
+          members.local.card.agentId,
+          members.peer.card.agentId,
+        ]),
+        messageId: messageId(refused.signedAs),
+        body: sealed,
+      }),
     ),
   );
+};
 
-const bodyResignedByAnotherSender: RefusedEnvelope = (members, plaintext) =>
-  sealFromPeer(
-    members,
-    [members.local.card, members.peer.card],
-    messageId(33),
-    plaintext,
-  ).pipe(
-    Effect.flatMap((sealed) =>
-      signToConversation(members.outsider, members, messageId(33), sealed),
-    ),
-  );
-
-const bodyResignedUnderAnotherMessageId: RefusedEnvelope = (
-  members,
-  plaintext,
-) =>
-  sealFromPeer(
-    members,
-    [members.local.card, members.peer.card],
-    messageId(34),
-    plaintext,
-  ).pipe(
-    Effect.flatMap((sealed) =>
-      signToConversation(members.peer, members, messageId(35), sealed),
-    ),
-  );
-
-const memberOf = (byte: number, name: string): Effect.Effect<Member> =>
+const memberOf = (byte: number, name: string): Effect.Effect<SigningIdentity> =>
   makeIdentityFixture(byte, name).pipe(
     Effect.map((fixture) => ({
       card: fixture.localCard,
       authority: fixture.localAuthority,
     })),
   );
-
-/** Resolves exactly the named cards, as the Registry does for registered agents. */
-const registryOf = (
-  cards: readonly VerifiedAgentCard[],
-): Context.Tag.Service<typeof Registry> => ({
-  lookup: (request) => {
-    const card = cards.find((candidate) =>
-      "agentId" in request
-        ? candidate.agentId === request.agentId
-        : candidate.agentName === request.agentName,
-    );
-    return Effect.succeed(
-      card === undefined
-        ? { kind: "not_found" }
-        : { kind: "found", agentCard: card },
-    );
-  },
-  list: () => Effect.dieMessage("the daemon lists no agents in this test"),
-  register: () => Effect.dieMessage("the daemon registers nothing here"),
-});
 
 /**
  * A Router whose tail probe answers at once and whose cursor polls wait for
@@ -262,11 +202,14 @@ const runProtocol = (input: {
             ),
           makeEngine: () => Effect.succeed(recordingEngine(accepted)),
         },
-        registry: registryOf([
-          input.members.local.card,
-          input.members.peer.card,
-          input.members.outsider.card,
-        ]),
+        registry: yield* Effect.provide(
+          Registry,
+          registryLayer([
+            input.members.local.card,
+            input.members.peer.card,
+            input.members.outsider.card,
+          ]),
+        ),
         router: routerFeeding({
           feed: input.feed,
           released: input.released,
@@ -312,7 +255,10 @@ const ignoresRefusedBodyAndKeepsRunning = (refused: RefusedEnvelope) =>
         const running = yield* runProtocol({
           fixture,
           members,
-          feed: [yield* refused(members, plaintext), sealed],
+          feed: [
+            yield* buildRefusedEnvelope(refused, members, plaintext),
+            sealed,
+          ],
           released,
           polledAgain,
         });
@@ -330,19 +276,37 @@ const ignoresRefusedBodyAndKeepsRunning = (refused: RefusedEnvelope) =>
   );
 
 describe("daemon ingress of outer bodies", () => {
-  it.each([
-    { body: "a plaintext body", refused: plaintextBody },
+  it.each<{ readonly body: string; readonly refused: RefusedEnvelope }>([
+    {
+      body: "a plaintext body",
+      refused: { sealedAs: 31, signer: ({ peer }) => peer, signedAs: 31 },
+    },
     {
       body: "a body sealed to other recipients",
-      refused: bodySealedToOtherRecipients,
+      refused: {
+        sealedTo: ({ peer, outsider }) => [peer.card, outsider.card],
+        sealedAs: 32,
+        signer: ({ peer }) => peer,
+        signedAs: 32,
+      },
     },
     {
       body: "a sealed body re-signed by another sender",
-      refused: bodyResignedByAnotherSender,
+      refused: {
+        sealedTo: ({ local, peer }) => [local.card, peer.card],
+        sealedAs: 33,
+        signer: ({ outsider }) => outsider,
+        signedAs: 33,
+      },
     },
     {
       body: "a sealed body re-signed under another MessageId",
-      refused: bodyResignedUnderAnotherMessageId,
+      refused: {
+        sealedTo: ({ local, peer }) => [local.card, peer.card],
+        sealedAs: 34,
+        signer: ({ peer }) => peer,
+        signedAs: 35,
+      },
     },
   ])("ignores $body and goes on accepting sealed traffic", ({ refused }) =>
     ignoresRefusedBodyAndKeepsRunning(refused),

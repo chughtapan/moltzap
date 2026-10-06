@@ -26,12 +26,11 @@ import {
   Stream,
   SubscriptionRef,
   TestContext,
-  TestServices,
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { AddressRegistryPort } from "../address.js";
-import { advanceClock } from "../../../__tests__/advance-clock.js";
+import { advanceClock, untilLive } from "../../../__tests__/advance-clock.js";
 import {
   digest,
   identifier,
@@ -60,6 +59,7 @@ import {
   type ConversationId as ConversationIdValue,
   decodeCanonical,
   type DecodedOuterBody,
+  decodeOuterBody,
   deriveConversationId,
   DirectPacket,
   encodeCanonical,
@@ -221,14 +221,19 @@ function decodeIngress(
 ): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> {
   return Effect.gen(function* () {
     const sender = yield* senderOf(identities, message);
+    const verified = yield* SignedMessage.verify({
+      signedMessage: message,
+      agentCard: sender.card,
+    });
     return {
       routerInstanceId,
-      message: yield* SignedMessage.verify({
-        signedMessage: message,
-        agentCard: sender.card,
-      }),
+      message: verified,
       senderCard: sender.card,
-      payload: yield* openOuterBody(message, sender, reader),
+      payload: yield* decodeOuterBody({
+        message: verified,
+        agentCard: reader.card,
+        signingAuthority: reader.authority,
+      }),
     };
   }).pipe(Effect.orDie);
 }
@@ -1159,7 +1164,6 @@ function retainsInterruptedDurableSend() {
   );
 }
 
-// @agent-code-guard/regression-only: These stateful traces exercise durable quorum and interruption boundaries across real endpoint engines.
 /** Whether an outer body decodes as a Client value without opening it. */
 function readsAsPlaintext(
   message: typeof SignedMessage.Type,
@@ -1205,6 +1209,7 @@ function sealsEveryOuterBodyOfAPost(memberCount: number) {
   );
 }
 
+// @agent-code-guard/regression-only: These stateful traces exercise durable quorum and interruption boundaries across real endpoint engines.
 function sendReturnsTheStoredCertifiedRecordHash() {
   return Effect.runPromise(
     Effect.scoped(
@@ -1719,24 +1724,6 @@ function blackHolesFirstTransmit(
     Ref.getAndUpdate(transmits, (count) => count + 1).pipe(
       Effect.flatMap(transmitOnce(forward, outboundId)),
     );
-}
-
-/**
- * Waits in live time until `ready` holds. Sealing and signing an outer
- * envelope settle on real promises, which a TestClock step does not wait for.
- * @param ready Condition the engine reaches once its envelope is queued.
- * @returns Completion once `ready` reads true.
- */
-function untilLive(ready: Effect.Effect<boolean>): Effect.Effect<void> {
-  return ready.pipe(
-    Effect.flatMap((met) =>
-      met
-        ? Effect.void
-        : TestServices.provideLive(Effect.sleep("5 millis")).pipe(
-            Effect.zipRight(Effect.suspend(() => untilLive(ready))),
-          ),
-    ),
-  );
 }
 
 /**
