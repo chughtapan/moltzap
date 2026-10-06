@@ -502,6 +502,11 @@ naming another position asks again. Such input never stops the endpoint. A
 Router discontinuity drops held proposals, because the recovery run that
 follows catches up every conversation and ignores action traffic.
 
+A POST proposal whose `previousRecordHash` names a record the member
+certified before its current head is stale: its author proposed before it saw
+the head certified, and proposes again from the head. The member ignores it
+and sends nothing.
+
 ## Direct packets and Router envelopes
 
 The exact direct packet union is:
@@ -549,8 +554,8 @@ including its sender. The Router sees only that outer Identity value.
 One certified post costs at most `1 + 2n` outer messages in a conversation of
 `n` members: the author's proposal, one action signature from each member that
 signs, and one durability vote from each member that stages the record. Each
-is addressed to all `n` members. Catch-up adds messages only for a member that
-missed a record.
+is addressed to all `n` members. Catch-up adds messages only when a member
+receives a proposal naming a position it does not hold.
 
 After ordered delivery, every conforming member, including the author, durably
 locks its first valid gap-free candidate for the predecessor before emitting a
