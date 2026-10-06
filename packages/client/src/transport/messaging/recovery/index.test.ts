@@ -5600,6 +5600,7 @@ const openPeerEngine = (fixture: RecoveryFixture) =>
       "moltzap-recovery-peer-",
     );
     const recoveryOutbound = yield* Queue.unbounded<SignedMessage>();
+    const normalOutbound = yield* Queue.unbounded<SignedMessage>();
     const engine = yield* makeEndpointEngine({
       ...fixture.input,
       localAgentCard: fixture.remote.card,
@@ -5607,7 +5608,7 @@ const openPeerEngine = (fixture: RecoveryFixture) =>
       store,
       routerWorker: makeFixtureRouter({
         store,
-        normalOutbound: yield* Queue.unbounded<SignedMessage>(),
+        normalOutbound,
         recoveryOutbound,
       }),
     });
@@ -5629,7 +5630,7 @@ const openPeerEngine = (fixture: RecoveryFixture) =>
       packet: fixture.certifiedRecord,
       routerInstanceId: oldRouterInstanceId,
     }).pipe(Effect.flatMap((ingress) => engine.acceptRouterIngress(ingress)));
-    return { engine, store, recoveryOutbound };
+    return { engine, store, recoveryOutbound, normalOutbound };
   }).pipe(Effect.provide(NodeFileSystem.layer), Effect.orDie);
 
 /**
@@ -6619,6 +6620,127 @@ describe("catch-up and re-anchor inside a recovery run", () => {
   it(
     "answers catch-up through a stored completed re-anchor",
     answersCatchUpThroughAStoredCompletedReanchor,
+  );
+});
+
+/**
+ * The local endpoint authors a post in its direct conversation, both members
+ * sign it, and the author stages the record and votes it durable; the Router
+ * restarts before the member receives the record. Both members recover: the
+ * author answers the member's catch-up with the record and its vote instead
+ * of `incomplete`, the member converts to it on that one vote, both certify
+ * it, and both re-anchor at it. The post completes, and neither member stages
+ * a re-anchor candidate at the head the record extends. Fails when the
+ * author's `incomplete` makes the member ready at that head, or when recovery
+ * ignores the record and its votes, so the conversation never recovers.
+ * @returns The trace, run to completion.
+ */
+const certifiesAPostOneDirectMemberStagedBeforeTheRestart = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+        const peer = yield* openPeerEngine(fixture);
+        const head = fixture.certifiedRecord.actionCertifiedRecord.recordHash;
+        const oldAnchor =
+          fixture.certifiedRecord.actionCertifiedRecord.recordCore.anchorHash;
+        const sending = yield* forkSend(
+          fixture.engine,
+          `agent:${fixture.remote.card.agentName}`,
+          "staged before the restart",
+        );
+        yield* fixture.engine.drainOutbound.pipe(Effect.orDie);
+        const proposal = yield* takeActionProposalAfterEvidence(
+          fixture.normalOutbound,
+        );
+        yield* Effect.forEach(
+          [fixture.engine, peer.engine],
+          (engine) =>
+            directPacketIngressFrom({
+              membership: fixture.membership,
+              sender: fixture.local,
+              packet: proposal.proposal,
+              routerInstanceId: oldRouterInstanceId,
+            }).pipe(
+              Effect.flatMap((ingress) => engine.acceptRouterIngress(ingress)),
+            ),
+          { concurrency: 1, discard: true },
+        );
+        const actionHash = yield* hashAction(proposal.proposal.action);
+        yield* peerEvidenceIngressFrom({
+          membership: fixture.membership,
+          responder: fixture.remote,
+          statement: {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "action_signature",
+            signerAgentId: fixture.remote.card.agentId,
+            actionHash,
+          },
+          routerInstanceId: oldRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) =>
+            fixture.engine.acceptRouterIngress(ingress),
+          ),
+        );
+        yield* fixture.engine.drainOutbound.pipe(Effect.orDie);
+        const staged = (yield* fixture.store.recover()).stagedRecords.find(
+          (record) => record.actionHash === actionHash,
+        );
+        if (staged === undefined) {
+          return yield* Effect.dieMessage("the author staged no record");
+        }
+        yield* Queue.takeAll(fixture.normalOutbound);
+        yield* Queue.takeAll(peer.normalOutbound);
+
+        yield* forkRecovery(
+          {
+            engine: fixture.engine,
+            recoveryOutbound: fixture.recoveryOutbound,
+          },
+          "router_restarted",
+          newRouterInstanceId,
+        );
+        yield* forkRecovery(peer, "router_restarted", newRouterInstanceId);
+        yield* Effect.forEach(
+          [
+            [fixture.recoveryOutbound, peer.engine, fixture.local],
+            [fixture.normalOutbound, peer.engine, fixture.local],
+            [peer.recoveryOutbound, fixture.engine, fixture.remote],
+            [peer.normalOutbound, fixture.engine, fixture.remote],
+          ] as const,
+          ([sent, engine, sender]) =>
+            relayRecoveryTraffic(sent, engine, sender),
+          { concurrency: 1, discard: true },
+        );
+        const localPositions = yield* awaitReanchoredFrom(
+          fixture.store,
+          oldAnchor,
+        );
+        const peerPositions = yield* awaitReanchoredFrom(peer.store, oldAnchor);
+        const sent = yield* Fiber.join(sending).pipe(
+          Effect.timeout("8 seconds"),
+          Effect.orDie,
+        );
+        const candidatesAtHead = (recovery: EndpointRecovery) =>
+          recovery.stagedReanchors.filter(
+            (candidate) => candidate.selectedRecordHash === head,
+          );
+
+        expect(localPositions[0]?.headRecordHash).toBe(staged.recordHash);
+        expect(peerPositions).toStrictEqual(localPositions);
+        expect(sent.recordHash).toBe(staged.recordHash);
+        expect(candidatesAtHead(yield* fixture.store.recover())).toEqual([]);
+        expect(candidatesAtHead(yield* peer.store.recover())).toEqual([]);
+      }),
+    ),
+  );
+
+describe("staged successors in recovery", () => {
+  it(
+    "certifies a post one direct member staged before the restart, and re-anchors at it",
+    certifiesAPostOneDirectMemberStagedBeforeTheRestart,
+    20_000,
   );
 });
 
