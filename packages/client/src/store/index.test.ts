@@ -299,19 +299,13 @@ function completesLocalPostWithoutSelfDelivery() {
 
 interface OutboundLifecycleFixture {
   readonly directory: string;
-  readonly conversationId: string;
-  readonly initial: OutboundMessageInput;
+  readonly message: OutboundMessageInput;
 }
 
 function persistsExactOutboundLifecycleAcrossRestart() {
   const fixture: OutboundLifecycleFixture = {
     directory: stateDirectory(),
-    conversationId: "conversation:outbound",
-    initial: outboundMessage(
-      "conversation:outbound",
-      "msg_initial",
-      "outer:first",
-    ),
+    message: outboundMessage("conversation:outbound", "msg_outbound", "outer"),
   };
   return Effect.runPromise(
     stageInitialOutbound(fixture).pipe(
@@ -325,10 +319,10 @@ function stageInitialOutbound(fixture: OutboundLifecycleFixture) {
   return withStore(fixture.directory, (store) =>
     Effect.gen(function* () {
       yield* store.putConversationFoundation(
-        foundation(fixture.conversationId),
+        foundation(fixture.message.conversationId),
       );
-      const staged = yield* store.enqueueOutbound(fixture.initial);
-      expect(staged.outboundId).toBe(fixture.initial.messageId);
+      const staged = yield* store.enqueueOutbound(fixture.message);
+      expect(staged.outboundId).toBe(fixture.message.messageId);
       expect(yield* store.beginOutbound(staged.outboundId)).toEqual({
         kind: "pending",
         mode: "initial",
@@ -343,8 +337,8 @@ function completeRetriedOutbound(fixture: OutboundLifecycleFixture) {
     Effect.gen(function* () {
       const replay = yield* recoverOnlyOutbound(store);
       expect(replay).toEqual({
-        outboundId: fixture.initial.messageId,
-        ...fixture.initial,
+        outboundId: fixture.message.messageId,
+        ...fixture.message,
       });
       expect(yield* store.beginOutbound(replay.outboundId)).toEqual({
         kind: "pending",

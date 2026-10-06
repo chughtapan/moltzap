@@ -40,10 +40,10 @@ import {
   makeFixture,
   makeIdentityFixture,
   makeScriptedRouter,
-  messageId,
   pollCursor,
   registryLayer,
   routerInstanceId,
+  type ScriptedSendAnswer,
   signMessage,
   type TestPayload,
   unavailableRegistryLayer,
@@ -70,6 +70,7 @@ import {
   type RouterWorkerRecoveryError,
   RouterWorkerRejectedError,
   type RouterWorkerSendError,
+  RouterWorkerTransportError,
   RouterWorkerUnavailableError,
 } from "./index.js";
 
@@ -78,7 +79,7 @@ type RouterClientFailure = Effect.Effect.Error<
   ReturnType<Context.Tag.Service<typeof Router>["poll"]>
 >;
 
-/* eslint-disable max-lines, max-lines-per-function, sonarjs/max-lines-per-function, sonarjs/no-nested-functions, agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The scripted scenarios keep each Router trace and its exact ordering assertions together and use Vitest's Promise-native contract. */
+/* eslint-disable max-lines, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The scripted scenarios keep each Router trace and its exact ordering assertions together and use Vitest's Promise-native contract. */
 
 const retryMode: RouterSendRequest["mode"] = "retry";
 
@@ -281,10 +282,8 @@ function acceptedResult(
   );
 }
 
-/** One scripted Router answer to the send request it receives. */
-type ScriptedSendAnswer = (
-  request: RouterSendRequest,
-) => Effect.Effect<RouterSendResult, RouterConnectionError>;
+/** Router instance of every scripted-send scenario. */
+const scriptedSendInstance = routerInstanceId(50);
 
 const connectionLost: ScriptedSendAnswer = () =>
   Effect.fail(new RouterConnectionError());
@@ -295,43 +294,86 @@ const identityUnknown: ScriptedSendAnswer = () =>
 const identityConflict: ScriptedSendAnswer = () =>
   Effect.succeed({ kind: "idempotency_conflict" });
 
-/** Router instance of every scripted-send scenario. */
-const scriptedSendInstance = routerInstanceId(50);
-
 const acceptsSentBytes: ScriptedSendAnswer = (request) =>
   acceptedResult(scriptedSendInstance, request.signedMessage);
 
+const acceptsDifferentBytes: ScriptedSendAnswer = () =>
+  Effect.succeed({
+    kind: "accepted",
+    routerInstanceId: scriptedSendInstance,
+    signedMessageDigest: Schema.decodeUnknownSync(SignedMessageDigest)(
+      `smd_${createHash("sha256").update("different bytes").digest("base64url")}`,
+    ),
+  });
+
 /**
- * A Router whose polls report one empty tail and whose sends take the next
- * scripted answer, recording every request. A send past the script dies.
- * @param answers Send answers in arrival order.
- * @param requests Receives every send request in arrival order.
- * @returns The scripted Router layer.
+ * Answers for a Router that keeps retry identities as the real feed does and
+ * whose first `initial` is slow. The worker loses that connection while the
+ * `initial` is still in flight, and the original appends only once the
+ * worker's resent `initial` has reached Router as well, so the original wins
+ * the race. A `retry` answers with the retained original, so the worker's
+ * digest check compares the original's bytes with its stored ones.
+ * @returns The four answers in arrival order and the identities Router keeps.
  */
-function scriptedSendRouter(
-  answers: readonly ScriptedSendAnswer[],
-  requests: Ref.Ref<RouterSendRequest[]>,
-): Layer.Layer<Router> {
-  return Layer.succeed(Router, {
-    poll: () => Effect.succeed(emptyBatch(scriptedSendInstance, pollCursor(8))),
-    send: (call) =>
-      Ref.getAndUpdate(requests, (sent) => [...sent, call.request]).pipe(
-        Effect.flatMap((earlier) => {
-          const answer = answers[earlier.length];
-          return answer === undefined
-            ? Effect.dieMessage("send past the Router script")
-            : answer(call.request);
-        }),
-      ),
+function slowOriginalRouter() {
+  return Effect.gen(function* () {
+    const retained = yield* Ref.make(new Map<string, SignedMessageValue>());
+    const resendArrived = yield* Deferred.make<void>();
+    const originalAppended = yield* Deferred.make<void>();
+    const answerFromRetained: ScriptedSendAnswer = (request) =>
+      Ref.modify(
+        retained,
+        (
+          entries: Map<string, SignedMessageValue>,
+        ): readonly [
+          Effect.Effect<RouterSendResult>,
+          Map<string, SignedMessageValue>,
+        ] => {
+          const message = request.signedMessage;
+          const entry = entries.get(message.messageId);
+          if (request.mode === "retry") {
+            return entry === undefined
+              ? [Effect.succeed({ kind: "retry_identity_unknown" }), entries]
+              : [acceptedResult(scriptedSendInstance, entry), entries];
+          }
+          return entry === undefined
+            ? [
+                acceptedResult(scriptedSendInstance, message),
+                new Map(entries).set(message.messageId, message),
+              ]
+            : [Effect.succeed({ kind: "idempotency_conflict" }), entries];
+        },
+      ).pipe(Effect.flatten);
+    const slowOriginal: ScriptedSendAnswer = (request) =>
+      Deferred.await(resendArrived).pipe(
+        Effect.zipRight(answerFromRetained(request)),
+        Effect.zipRight(Deferred.succeed(originalAppended, undefined)),
+        Effect.forkDaemon,
+        Effect.zipRight(Effect.fail(new RouterConnectionError())),
+      );
+    const resendBehindOriginal: ScriptedSendAnswer = (request) =>
+      Deferred.succeed(resendArrived, undefined).pipe(
+        Effect.zipRight(Deferred.await(originalAppended)),
+        Effect.zipRight(answerFromRetained(request)),
+      );
+    return {
+      answers: [
+        slowOriginal,
+        answerFromRetained,
+        resendBehindOriginal,
+        answerFromRetained,
+      ],
+      retained,
+    };
   });
 }
 
 /**
  * Sends one stored envelope through a scripted Router and reports what went
  * out and what the outbox retains afterwards.
- * @param answers Send answers in arrival order.
- * @returns The stored envelope, every request's mode, MessageId and canonical
- *   bytes, the send's failure if any, and the outbox's pending rows.
+ * @param answers Send answers in arrival order; a send past them dies.
+ * @returns The stored envelope, every request's mode and canonical bytes, the
+ *   send's failure if any, and the outbox's pending rows.
  */
 function sendThroughScript(answers: readonly ScriptedSendAnswer[]) {
   return withOutbox((store) =>
@@ -349,22 +391,27 @@ function sendThroughScript(answers: readonly ScriptedSendAnswer[]) {
         "conversation:scripted-send",
         outgoing,
       );
-      const requests = yield* Ref.make<RouterSendRequest[]>([]);
-      const layer = scriptedSendRouter(answers, requests);
+      const router = yield* makeScriptedRouter({
+        polls: [],
+        fallbackPoll: Effect.succeed(
+          emptyBatch(scriptedSendInstance, pollCursor(8)),
+        ),
+        sends: answers,
+      });
       const worker = yield* provide(
         makeActiveRouterWorker(makeInput(fixture, callbacks(), store)),
-        layer,
+        router.layer,
         fixture,
       );
       const failure = yield* provide(
         worker.send(outbound.outboundId).pipe(Effect.flip, Effect.option),
-        layer,
+        router.layer,
         fixture,
       );
-      const sent = yield* Ref.get(requests);
+      const sent = yield* Ref.get(router.scripted.sendCalls);
       const sentBytes = yield* Effect.forEach(
         sent,
-        (request) =>
+        ({ request }) =>
           encodeCanonical(SignedMessage, request.signedMessage).pipe(
             Effect.orDie,
           ),
@@ -372,8 +419,7 @@ function sendThroughScript(answers: readonly ScriptedSendAnswer[]) {
       );
       return {
         outbound,
-        modes: sent.map((request) => request.mode),
-        messageIds: sent.map((request) => request.signedMessage.messageId),
+        modes: sent.map(({ request }) => request.mode),
         sentBytes,
         failure,
         pending: (yield* store.recover()).outboundMessages,
@@ -512,54 +558,14 @@ const persistenceRetainsCursor = async (): Promise<void> => {
 };
 
 const ambiguousSendRetriesSameBytes = async (): Promise<void> => {
-  await Effect.runPromise(
-    withOutbox((store) =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const outgoing = yield* signMessage({
-          card: fixture.localCard,
-          authority: fixture.localAuthority,
-          recipient: fixture.localCard.agentId,
-          id: 40,
-          body: "outgoing",
-        });
-        const outbound = yield* prepareOutbound(
-          store,
-          "conversation:ambiguous-send",
-          outgoing,
-        );
-        const instance = routerInstanceId(40);
-        const requests = yield* Ref.make<RouterSendRequest[]>([]);
-        const failingLayer = Layer.succeed(Router, {
-          poll: () => Effect.succeed(emptyBatch(instance, pollCursor(7))),
-          send: (call) =>
-            Ref.getAndUpdate(requests, (values) => [
-              ...values,
-              call.request,
-            ]).pipe(
-              Effect.flatMap((earlier) =>
-                earlier.length === 0
-                  ? Effect.fail(new RouterConnectionError())
-                  : acceptedResult(instance, call.request.signedMessage),
-              ),
-            ),
-        });
-        const worker = yield* provide(
-          makeActiveRouterWorker(makeInput(fixture, callbacks(), store)),
-          failingLayer,
-          fixture,
-        );
-        yield* provide(worker.send(outbound.outboundId), failingLayer, fixture);
-        const callsMade = yield* Ref.get(requests);
-        expect(callsMade.map((request) => request.mode)).toEqual([
-          "initial",
-          "retry",
-        ]);
-        expect(callsMade[1]?.signedMessage).toBe(callsMade[0]?.signedMessage);
-        expect((yield* store.recover()).outboundMessages).toEqual([]);
-      }),
-    ),
+  const result = await Effect.runPromise(
+    sendThroughScript([connectionLost, acceptsSentBytes]),
   );
+  const stored = result.outbound.canonicalSignedMessage;
+  expect(result.failure).toEqual(Option.none());
+  expect(result.modes).toEqual(["initial", "retry"]);
+  expect(result.sentBytes).toEqual([stored, stored]);
+  expect(result.pending).toEqual([]);
 };
 
 const retryUnknownResendsStoredBytes = async (): Promise<void> => {
@@ -569,28 +575,23 @@ const retryUnknownResendsStoredBytes = async (): Promise<void> => {
   const stored = result.outbound.canonicalSignedMessage;
   expect(result.failure).toEqual(Option.none());
   expect(result.modes).toEqual(["initial", "retry", "initial"]);
-  expect(result.messageIds).toEqual([
-    messageId(50),
-    messageId(50),
-    messageId(50),
-  ]);
   expect(result.sentBytes).toEqual([stored, stored, stored]);
   expect(result.pending).toEqual([]);
 };
 
-const initialConflictAsksAgainAsRetry = async (): Promise<void> => {
-  const result = await Effect.runPromise(
-    sendThroughScript([
-      connectionLost,
-      identityUnknown,
-      identityConflict,
-      acceptsSentBytes,
-    ]),
+const resentInitialLosesRaceToSlowOriginal = async (): Promise<void> => {
+  const { result, retained } = await Effect.runPromise(
+    Effect.gen(function* () {
+      const router = yield* slowOriginalRouter();
+      const sent = yield* sendThroughScript(router.answers);
+      return { result: sent, retained: yield* Ref.get(router.retained) };
+    }),
   );
   const stored = result.outbound.canonicalSignedMessage;
   expect(result.failure).toEqual(Option.none());
   expect(result.modes).toEqual(["initial", "retry", "initial", "retry"]);
   expect(result.sentBytes).toEqual([stored, stored, stored, stored]);
+  expect([...retained.keys()]).toEqual([result.outbound.messageId]);
   expect(result.pending).toEqual([]);
 };
 
@@ -606,7 +607,8 @@ const retryConflictFailsClosed = async (): Promise<void> => {
 /**
  * Each identity loss spends one of the three attempts, so a Router that
  * alternates conflict and identity loss gets six sends and never reaches the
- * acceptance scripted seventh.
+ * acceptance scripted seventh. Running out is a transport failure, so the
+ * envelope waits for the next drain.
  */
 const alternatingConflictAndLossStopsAtTheBound = async (): Promise<void> => {
   const result = await Effect.runPromise(
@@ -620,7 +622,7 @@ const alternatingConflictAndLossStopsAtTheBound = async (): Promise<void> => {
       acceptsSentBytes,
     ]),
   );
-  expect(result.failure).toEqual(Option.some(new RouterWorkerProtocolError()));
+  expect(result.failure).toEqual(Option.some(new RouterWorkerTransportError()));
   expect(result.modes).toEqual([
     "initial",
     "retry",
@@ -633,50 +635,11 @@ const alternatingConflictAndLossStopsAtTheBound = async (): Promise<void> => {
 };
 
 const mismatchedAcceptedDigestRetainsOutbound = async (): Promise<void> => {
-  await Effect.runPromise(
-    withOutbox((store) =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const outgoing = yield* signMessage({
-          card: fixture.localCard,
-          authority: fixture.localAuthority,
-          recipient: fixture.localCard.agentId,
-          id: 52,
-          body: "digest-bound",
-        });
-        const outbound = yield* prepareOutbound(
-          store,
-          "conversation:digest-mismatch",
-          outgoing,
-        );
-        const instance = routerInstanceId(52);
-        const wrongDigest = Schema.decodeUnknownSync(SignedMessageDigest)(
-          `smd_${createHash("sha256").update("different bytes").digest("base64url")}`,
-        );
-        const layer = Layer.succeed(Router, {
-          poll: () => Effect.succeed(emptyBatch(instance, pollCursor(20))),
-          send: () =>
-            Effect.succeed({
-              kind: "accepted" as const,
-              routerInstanceId: instance,
-              signedMessageDigest: wrongDigest,
-            }),
-        });
-        const worker = yield* provide(
-          makeActiveRouterWorker(makeInput(fixture, callbacks(), store)),
-          layer,
-          fixture,
-        );
-        const error = yield* provide(
-          worker.send(outbound.outboundId).pipe(Effect.flip),
-          layer,
-          fixture,
-        );
-        expect(error).toStrictEqual(new RouterWorkerProtocolError());
-        expect((yield* store.recover()).outboundMessages).toEqual([outbound]);
-      }),
-    ),
+  const result = await Effect.runPromise(
+    sendThroughScript([acceptsDifferentBytes]),
   );
+  expect(result.failure).toEqual(Option.some(new RouterWorkerProtocolError()));
+  expect(result.pending).toEqual([result.outbound]);
 };
 
 const restartedSendRecoversBeforeReturning = async (): Promise<void> => {
@@ -1836,15 +1799,15 @@ describe("private Router worker", () => {
     retryUnknownResendsStoredBytes,
   );
   it(
-    "asks again as retry when a resent initial conflicts with its own copy",
-    initialConflictAsksAgainAsRetry,
+    "asks again as retry when a resent initial loses the race to its slow original",
+    resentInitialLosesRaceToSlowOriginal,
   );
   it(
     "fails closed and retains the envelope when a retry conflicts",
     retryConflictFailsClosed,
   );
   it(
-    "stops resending once Router alternation spends every attempt",
+    "leaves the envelope for the next drain once Router alternation spends every attempt",
     alternatingConflictAndLossStopsAtTheBound,
   );
   it(
@@ -1944,4 +1907,4 @@ describe("private Router worker", () => {
   );
 });
 
-/* eslint-enable max-lines, max-lines-per-function, sonarjs/max-lines-per-function, sonarjs/no-nested-functions, agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Restore repository defaults. */
+/* eslint-enable max-lines, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Restore repository defaults. */

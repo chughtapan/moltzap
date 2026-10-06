@@ -64,7 +64,7 @@ import {
   type RouterWorkerSendOutcome,
   type RouterWorkerServices,
   type RouterWorkerState,
-  type RouterWorkerTransportError,
+  RouterWorkerTransportError,
   RouterWorkerUnavailableError,
   type RouterWorkerVerifiedIngress,
 } from "./types.js";
@@ -170,21 +170,28 @@ type OutboundTransportError =
  * The conflict path spends no attempt, so an `initial` that conflicts with a
  * slower copy of itself still gets its answer on the last attempt. The
  * unknown-identity path spends one, so a Router alternating the two results
- * still exhausts the bound.
+ * still exhausts the bound. Running out is a transport failure, as for lost
+ * connections, so the envelope waits for the next drain.
  *
  * @param runtime Worker capabilities and endpoint identity.
  * @param input The attempt whose Router result named the other mode.
- * @param next The mode and remaining attempts for the resend.
+ * @param mode The mode the resend uses.
+ * @param spent Attempts the resend costs.
  * @returns Whether Router accepted the stored bytes or reported a restart.
  */
 function resendInMode<Payload>(
   runtime: RouterWorkerRuntime<Payload>,
   input: TransmitInput,
-  next: Pick<TransmitInput, "mode" | "attemptsRemaining">,
+  mode: TransmitInput["mode"],
+  spent: 0 | 1,
 ): Effect.Effect<RouterWorkerSendOutcome, OutboundTransportError> {
-  return input.mode === next.mode || next.attemptsRemaining < 1
-    ? Effect.fail(new RouterWorkerProtocolError())
-    : transmitOuter(runtime, { ...input, ...next });
+  const attemptsRemaining = input.attemptsRemaining - spent;
+  if (input.mode === mode) {
+    return Effect.fail(new RouterWorkerProtocolError());
+  }
+  return attemptsRemaining < 1
+    ? Effect.fail(new RouterWorkerTransportError())
+    : transmitOuter(runtime, { ...input, mode, attemptsRemaining });
 }
 
 function digestCanonicalSignedMessage(
@@ -233,15 +240,9 @@ const interpretSendResult = <Payload>(
     case "router_restarted":
       return Effect.succeed({ kind: "restarted" });
     case "retry_identity_unknown":
-      return resendInMode(runtime, input, {
-        mode: "initial",
-        attemptsRemaining: input.attemptsRemaining - 1,
-      });
+      return resendInMode(runtime, input, "initial", 1);
     case "idempotency_conflict":
-      return resendInMode(runtime, input, {
-        mode: "retry",
-        attemptsRemaining: input.attemptsRemaining,
-      });
+      return resendInMode(runtime, input, "retry", 0);
     case "message_invalid":
       return Effect.fail(new RouterWorkerProtocolError());
     default: {

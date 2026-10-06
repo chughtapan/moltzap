@@ -523,6 +523,25 @@ function decodeActionSignatureHash(
 }
 
 /**
+ * Count each member store's certified records, in member order.
+ * @param harness Engines and the stores they persist to.
+ * @returns One certified-record count per member.
+ */
+function certifiedRecordCounts(
+  harness: ProtocolHarness,
+): Effect.Effect<readonly number[]> {
+  return Effect.forEach(
+    harness.stores,
+    (store) =>
+      store.recover().pipe(
+        Effect.orDie,
+        Effect.map(({ certifiedRecords }) => certifiedRecords.length),
+      ),
+    { concurrency: 1 },
+  );
+}
+
+/**
  * Deliver a batch to every engine, drain each, and repeat with whatever the
  * engines queued, until a round queues nothing. An exchange still producing
  * traffic after 32 rounds is a defect in the scripted Router, so it dies.
@@ -563,14 +582,7 @@ function certifyGenesisOf(
       return yield* Effect.dieMessage("first addressed send was not GENESIS");
     }
     yield* pump(harness, initial);
-    const recoveries = yield* Effect.forEach(
-      harness.stores,
-      (store) => store.recover().pipe(Effect.orDie),
-      { concurrency: 1 },
-    );
-    expect(
-      recoveries.map(({ certifiedRecords }) => certifiedRecords.length),
-    ).toEqual([1, 1, 1, 1]);
+    expect(yield* certifiedRecordCounts(harness)).toEqual([1, 1, 1, 1]);
     const sent = yield* Fiber.join(sending).pipe(
       Effect.timeout("1 second"),
       Effect.orDie,
@@ -1162,14 +1174,7 @@ function reappendedOuterMessagesYieldOnePost() {
 
         yield* pump(harness, transcript);
 
-        const recoveries = yield* Effect.forEach(
-          harness.stores,
-          (store) => store.recover().pipe(Effect.orDie),
-          { concurrency: 1 },
-        );
-        expect(
-          recoveries.map(({ certifiedRecords }) => certifiedRecords.length),
-        ).toEqual([2, 2, 2, 2]);
+        expect(yield* certifiedRecordCounts(harness)).toEqual([2, 2, 2, 2]);
         const pending = yield* Effect.forEach(
           harness.engines.slice(1),
           (engine) => engine.readPendingMessages().pipe(Effect.orDie),
@@ -1818,14 +1823,7 @@ function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
     yield* SubscriptionRef.set(attached, true);
     yield* advanceClock(Duration.seconds(10));
     yield* pump(harness, yield* takeReadyBatch(harness));
-    const recoveries = yield* Effect.forEach(
-      harness.stores,
-      (store) => store.recover().pipe(Effect.orDie),
-      { concurrency: 1 },
-    );
-    expect(
-      recoveries.map(({ certifiedRecords }) => certifiedRecords.length),
-    ).toEqual([1, 1, 1, 1]);
+    expect(yield* certifiedRecordCounts(harness)).toEqual([1, 1, 1, 1]);
     expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
   });
 }
