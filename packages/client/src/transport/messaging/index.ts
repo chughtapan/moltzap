@@ -38,10 +38,11 @@ import {
 import { DeliveryAcknowledgeError, ListenError, SendError } from "./errors.js";
 import { InboundMessage } from "./message.js";
 import { makeOutbox } from "./outbox.js";
-import { installRecoveryBarrier } from "./recovery/barrier.js";
 import {
   acceptEngineIngressWithRecovery,
-  acceptEngineRecoveryIngressWithRecovery,
+  installRecoveryBarrier,
+  isRecovering,
+  rearmPausedCatchUp,
   recoverCertifiedHistory,
 } from "./recovery/index.js";
 import {
@@ -119,12 +120,17 @@ export interface EndpointEngine {
   ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
   readonly recoverCertifiedHistory: (
     recovery: RouterWorkerRecovery,
-  ) => Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError>;
+  ) => Effect.Effect<void, RouterWorkerRecoveryError>;
   readonly drainOutbound: Effect.Effect<void, EngineOutboundError>;
   readonly runOutbound: Effect.Effect<never, EngineOutboundError>;
   readonly abandonVolatileFolds: (
     reason: RouterDiscontinuityReason,
   ) => Effect.Effect<void>;
+  /**
+   * Start catch-up again for every conversation recovery still holds whose
+   * retries ran out; the Router worker calls it when it reattaches.
+   */
+  readonly rearmCatchUp: Effect.Effect<void>;
 }
 
 type RecoveredStateError = Effect.Effect.Error<
@@ -401,11 +407,14 @@ const enginePhases: EnginePhases = {
   acceptRecoveryIngress: acceptEngineRecoveryIngress,
   resumeFolds: resumeEngineFolds,
   resumeDissemination: resumeDisseminationObligations,
+  rearmCatchUp: rearmPausedCatchUp,
+  isRecovering,
 };
 
 const makeRuntime = (
   input: EndpointEngineInput,
   recovered: Effect.Effect.Success<ReturnType<typeof recoverEngineState>>,
+  scope: Scope.Scope,
 ): Effect.Effect<EngineRuntime> =>
   Effect.gen(function* () {
     return {
@@ -421,6 +430,7 @@ const makeRuntime = (
         recovered.outboundMessages.map((message) => message.outboundId),
       ),
       phases: enginePhases,
+      scope,
     };
   });
 
@@ -456,7 +466,7 @@ const hydratePostIntents = (
 
 const initializeRuntime = (
   input: EndpointEngineInput,
-): Effect.Effect<EngineRuntime, EngineInitializationError> =>
+): Effect.Effect<EngineRuntime, EngineInitializationError, Scope.Scope> =>
   Effect.gen(function* () {
     yield* validateLocalIdentity(input);
     yield* bindLocalIdentity(input);
@@ -466,7 +476,7 @@ const initializeRuntime = (
     const recovered = yield* recoverEngineState(input, recovery).pipe(
       Effect.mapError(recoveryInitializationFailure),
     );
-    const runtime = yield* makeRuntime(input, recovered);
+    const runtime = yield* makeRuntime(input, recovered, yield* Effect.scope);
     yield* hydratePostIntents(runtime, recovered.postIntents);
     return runtime;
   });
@@ -527,7 +537,7 @@ const endpointEngine = (runtime: EngineRuntime): EndpointEngine =>
     ) => acceptEngineIngressWithRecovery(runtime, ingress),
     acceptRecoveryIngress: (
       ingress: Parameters<EndpointEngine["acceptRecoveryIngress"]>[0],
-    ) => acceptEngineRecoveryIngressWithRecovery(runtime, ingress),
+    ) => acceptEngineIngressWithRecovery(runtime, ingress),
     recoverCertifiedHistory: (
       recovery: Parameters<EndpointEngine["recoverCertifiedHistory"]>[0],
     ) => recoverCertifiedHistory(runtime, recovery),
@@ -536,6 +546,7 @@ const endpointEngine = (runtime: EngineRuntime): EndpointEngine =>
     abandonVolatileFolds: (
       reason: Parameters<EndpointEngine["abandonVolatileFolds"]>[0],
     ) => abandonVolatileFolds(runtime, reason),
+    rearmCatchUp: rearmPausedCatchUp(runtime),
   });
 
 /**

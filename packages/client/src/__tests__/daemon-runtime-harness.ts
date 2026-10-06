@@ -408,6 +408,7 @@ function makeEngine(
     drainOutbound: Effect.void,
     runOutbound: background === "outbound" ? failure : Effect.never,
     abandonVolatileFolds: () => Effect.void,
+    rearmCatchUp: Effect.void,
   };
 }
 

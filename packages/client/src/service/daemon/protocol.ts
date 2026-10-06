@@ -238,6 +238,8 @@ const makeWorkerCallbacks = (
       Effect.flatMap((engine) => engine.recoverCertifiedHistory(recovery)),
       Effect.tap(() => publishPending),
     ),
+  reattached: () =>
+    awaitEngine.pipe(Effect.flatMap((engine) => engine.rearmCatchUp)),
 });
 
 const acquireProtocolWorker = (input: {
