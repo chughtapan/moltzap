@@ -2,6 +2,7 @@
 
 import type {
   ChannelGatewayContext,
+  ChannelLogSink,
   ChannelMessageActionAdapter,
   ChannelMessageActionContext,
   ChannelRuntimeSurface,
@@ -57,7 +58,7 @@ import {
 const CHANNEL_ID = "moltzap";
 const TARGET_HINT =
   'Use an explicit "agent:<name>" or "group:<member>,<member>,..." address';
-const INBOUND_LOG_PREVIEW_CHARS = 80;
+const LOG_PREVIEW_CHARS = 80;
 
 /**
  * Experiment control for evaluations that compare agents with and without
@@ -75,6 +76,16 @@ const HIDE_COLLECTIVES_VARIABLE = "MOLTZAP_EXPERIMENT_HIDE_COLLECTIVES";
  */
 const MESSAGE_ACTIONS = ["send", "reply"] as const;
 type MessageAction = (typeof MESSAGE_ACTIONS)[number];
+
+/**
+ * The plugin entry point that produced an outbound send, named in its gateway
+ * log line: the model's `message` tool action, or OpenClaw's own
+ * `message.send.text` delivery.
+ */
+type OutboundOrigin = `message-action:${MessageAction}` | "send.text";
+
+/** The operation an outbound log line names; an answer is a collective response. */
+type OutboundOperation = "plain" | "gather" | "all_gather" | "answer";
 
 type OpenClawTargetKind = "user" | "group";
 type OpenClawOutboundFailure =
@@ -119,9 +130,15 @@ interface ResolvedMessageTarget {
   readonly display: string;
 }
 
+/**
+ * The account whose endpoint performs sends. `log` is the gateway log sink of
+ * the account task, kept so outbound sends, which arrive outside that task,
+ * log to the same `openclaw.log` as inbound turns.
+ */
 interface ConnectedAccount {
   readonly accountId: string;
   readonly endpoint: HarnessEndpoint;
+  readonly log?: ChannelLogSink;
 }
 
 interface ConnectedAccountState {
@@ -379,14 +396,15 @@ function handleMessageAction(
   connectedAccount: ConnectedAccountState,
   ctx: ChannelMessageActionContext,
 ) {
-  if (!isMessageAction(ctx.action)) {
+  const action = ctx.action;
+  if (!isMessageAction(action)) {
     return Effect.fail(
       new OpenClawOutboundError({ reason: "unsupported-action" }),
     );
   }
   return refuseTargets(ctx).pipe(
     Effect.andThen(() =>
-      sendText(connectedAccount, {
+      sendText(connectedAccount, `message-action:${action}`, {
         accountId: ctx.accountId,
         to: ctx.params.to,
         text: ctx.params.message,
@@ -598,7 +616,11 @@ function runAccountConnection(
   connectedAccount: ConnectedAccountState,
 ) {
   return Effect.sync(() => {
-    connectedAccount.current = { accountId: ctx.accountId, endpoint };
+    connectedAccount.current = {
+      accountId: ctx.accountId,
+      endpoint,
+      ...(ctx.log === undefined ? {} : { log: ctx.log }),
+    };
   }).pipe(
     Effect.zipRight(reportConnected(ctx)),
     Effect.zipRight(consumeInboundMessages(ctx, runtime, endpoint)),
@@ -776,7 +798,7 @@ function logInbound(
 ): Effect.Effect<void> {
   return Effect.sync(() => {
     ctx.log?.info?.(
-      `MoltZap: inbound from ${turn.sender.id}: ${turn.body.slice(0, INBOUND_LOG_PREVIEW_CHARS)}`,
+      `MoltZap: inbound from ${turn.sender.id}: ${turn.body.slice(0, LOG_PREVIEW_CHARS)}`,
     );
     ctx.setStatus({
       ...ctx.getStatus(),
@@ -973,7 +995,7 @@ function sendOpenClawText(
   connectedAccount: ConnectedAccountState,
   ctx: ChannelMessageSendTextContext,
 ) {
-  return sendText(connectedAccount, {
+  return sendText(connectedAccount, "send.text", {
     accountId: ctx.accountId,
     text: ctx.text,
     to: ctx.to,
@@ -984,20 +1006,98 @@ function sendOpenClawText(
  * Perform one host send as the one Client operation its text states. A
  * refused send fails with an error whose message OpenClaw returns to the
  * model as the tool error: the text's failing fields, or the Client's
- * refusal.
+ * refusal. Each send, completed or refused, writes one gateway log line
+ * naming `origin`, so a run's log tells a model tool send from a send
+ * OpenClaw made itself; a refusal before the text parses names no operation.
  * @param connectedAccount The account whose endpoint performs the operation.
+ * @param origin The plugin entry point the send arrived through.
  * @param params The host's account, address and text.
  * @returns The parsed input and the endpoint's result.
  */
-function sendText(connectedAccount: ConnectedAccountState, params: TextSend) {
+function sendText(
+  connectedAccount: ConnectedAccountState,
+  origin: OutboundOrigin,
+  params: TextSend,
+) {
   return readSendInput(params).pipe(
+    Effect.tapError((error) =>
+      logOutboundFailure(
+        connectedAccount,
+        outboundLogPrefix(origin, params, "-"),
+        error,
+      ),
+    ),
     Effect.flatMap((input) =>
       requireEndpoint(connectedAccount, params).pipe(
         Effect.flatMap((endpoint) => endpoint.send(input)),
+        Effect.tapBoth({
+          onFailure: (error) =>
+            logOutboundFailure(
+              connectedAccount,
+              outboundLogPrefix(origin, params, outboundOperation(input)),
+              error,
+            ),
+          onSuccess: (result) =>
+            logOutbound(
+              connectedAccount,
+              `${outboundLogPrefix(origin, params, outboundOperation(input))} operationId=${result.operationId ?? "-"} chars=${textLength(params)}: ${textPreview(params)}`,
+            ),
+        }),
         Effect.map((result) => ({ input, result })),
       ),
     ),
   );
+}
+
+function outboundOperation(input: SendInput): OutboundOperation {
+  if ("collectiveResponse" in input) {
+    return "answer";
+  }
+  const op = input.collective?.op;
+  return op === undefined || op === "multicast" ? "plain" : op;
+}
+
+function outboundLogPrefix(
+  origin: OutboundOrigin,
+  params: TextSend,
+  operation: OutboundOperation | "-",
+): string {
+  const to =
+    typeof params.to === "string" ? params.to.slice(0, LOG_PREVIEW_CHARS) : "-";
+  return `MoltZap: outbound via ${origin} to ${to} op=${operation}`;
+}
+
+function textLength(params: TextSend): number {
+  return typeof params.text === "string" ? params.text.length : 0;
+}
+
+function textPreview(params: TextSend): string {
+  return typeof params.text === "string"
+    ? params.text.slice(0, LOG_PREVIEW_CHARS)
+    : "";
+}
+
+function logOutboundFailure(
+  connectedAccount: ConnectedAccountState,
+  prefix: string,
+  error: Error | ConfigError.ConfigError,
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    connectedAccount.current?.log?.warn?.(`${prefix} failed: ${error.message}`);
+  });
+}
+
+/**
+ * Write one completed send's line to the connected account's gateway log. A
+ * send while no account is connected has no gateway log to write to.
+ */
+function logOutbound(
+  connectedAccount: ConnectedAccountState,
+  line: string,
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    connectedAccount.current?.log?.info?.(line);
+  });
 }
 
 function requireEndpoint(
