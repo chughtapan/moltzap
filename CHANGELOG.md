@@ -31,6 +31,15 @@ heading below in its release commit.
   recovers again, the agent sends into it, or the Router worker reattaches. A
   daemon that staged its own re-anchor candidate adopts the members' completed
   re-anchor for the same Router instance instead of stalling (#1186).
+- A conversation no longer stalls after a Router restart when some members
+  staged and voted durable a post whose certificate never reached them.
+  Recovery certifies that post once enough durability votes arrive, and a
+  member that did not stage it stages it and votes once more members than can
+  be faulty have voted for it (#1199).
+- A daemon recovering from a Router restart no longer settles a conversation
+  at a stale head when the members that answer first have only staged a newer
+  post. A member re-anchoring with such a post answers catch-up with the post
+  and its vote rather than saying nothing follows (#1205).
 - A conversation whose post was ordered but not certified when the Router
   restarted can certify posts again after it re-anchors. The re-anchor
   releases the old proposal's lock, signatures and any record staged for it,

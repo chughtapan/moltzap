@@ -461,12 +461,15 @@ byte-identical request, item kind, item hash, and `hasMore`. For
 `CatchUpIncomplete`, those last three values are respectively `incomplete`,
 null, and false. Its signer and the response's outer sender are the same fixed
 member. An incomplete response says only that this responder cannot supply a
-verified next item.
+verified next item. A responder that is re-anchoring the conversation after a
+Router restart and holds a staged, uncertified successor of the requested
+position sends no incomplete response; it sends that successor's
+`ActionCertifiedRecord` and its own durability vote.
 
 Catch-up pages carry complete `CertifiedRecord` or `CompletedReanchor` values,
-including their retained certificates. There is no partial-evidence cursor or
-separate partial-evidence replay path. All received material is verified
-before mutation.
+including their retained certificates. There is no partial-evidence cursor; a
+staged successor is the only partial evidence a catch-up answer carries. All
+received material is verified before mutation.
 
 A new RouterInstanceId does not rewrite history. Members compare verified
 ancestry, select the unique latest certified head, and use the existing
@@ -488,12 +491,16 @@ input from a member that the endpoint cannot apply, such as input naming an
 anchor, record, or position it cannot resolve, does not count and never stops
 the endpoint. It can leave that conversation unrecovered, and it holds no
 other conversation: each conversation recovers on its own. Until a
-conversation recovers, the endpoint sends only catch-up and re-anchor traffic
-for it, which includes its answers to members' catch-up requests, so an answer
+conversation recovers, the endpoint sends only catch-up, re-anchor and
+staged-successor traffic for it, which includes its answers to members' catch-up requests, so an answer
 does not wait for the answering member's own recovery to finish. Its own
 posts, pending intents and retained outbound envelopes for that conversation
-wait, and the action traffic members send for it meanwhile is ignored; a
-conversation that has recovered carries traffic while others still recover.
+wait, and other action traffic members send for it meanwhile is ignored. It
+certifies a staged successor of its head at `q(n)` votes and catches up from
+it, and unless it voted to re-anchor away from its anchor, it stages and votes
+for an action-certified successor of its head once it holds that record and,
+during a re-anchor, durability votes for it from more than `n − q(n)` members;
+a conversation that has recovered carries traffic while others still recover.
 A conversation's catch-up position is ready once `q(n) − 1` other members
 have answered that they cannot supply a next item, so that with the endpoint
 `q(n)` members agree and one silent member cannot hold it. Readiness is a liveness signal only: safety rests on
