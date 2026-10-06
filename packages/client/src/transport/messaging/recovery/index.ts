@@ -52,6 +52,27 @@ import {
 } from "./catch-up.js";
 
 /**
+ * A recovery's queue to the recovery send and its envelopes not yet sent. A
+ * recovery installs it before it reads the store, so an envelope signed at
+ * any point of the recovery waits for the run's sender, not the durable
+ * outbox, which the Router worker sends from only after recovery ends. That
+ * includes an answer to a member's catch-up request that arrives before the
+ * run starts: a member recovering at the same time may need the answer
+ * before it can vote, and this recovery may need its vote to end.
+ */
+interface RecoveryOutbound {
+  readonly queue: Queue.Queue<RouterWorkerRecoverySend>;
+  pending: number;
+  /**
+   * Set when the run completes. The run then starts no new catch-up or
+   * re-anchor work, and because its sender stops when the run ends, an
+   * envelope queued after completion takes the durable outbox, which the
+   * Router worker sends once recovery ends.
+   */
+  completed: boolean;
+}
+
+/**
  * One authenticated recovery run. Its catch-up and re-anchor reach it only
  * through the ports built here.
  */
@@ -63,21 +84,14 @@ interface RecoveryRun {
    */
   readonly reanchoring: ReadonlySet<string>;
   readonly memberships: Map<ConversationIdValue, VerifiedMembership>;
-  readonly outbound: Queue.Queue<RouterWorkerRecoverySend>;
+  readonly outbound: RecoveryOutbound;
   readonly completion: Deferred.Deferred<undefined, RouterWorkerRecoveryError>;
   readonly completedConversations: Set<ConversationIdValue>;
   readonly catchUp: CatchUpRun;
   readonly reanchor: ReanchorRun;
-  pendingOutbound: number;
-  /**
-   * Set when the run completes. The run then starts no new catch-up or
-   * re-anchor work, and because its sender stops when the run ends, an
-   * envelope queued after completion takes the durable outbox, which the
-   * Router worker sends once recovery ends.
-   */
-  completed: boolean;
 }
 
+const activeOutbounds = new WeakMap<EngineRuntime, RecoveryOutbound>();
 const activeRuns = new WeakMap<EngineRuntime, RecoveryRun>();
 
 const ignoredDisposition: RouterIngressDisposition = "ignored";
@@ -141,9 +155,44 @@ export const recoverCertifiedHistory = (
     if (barrier === undefined) {
       return yield* Effect.fail(recoveryFailure());
     }
-    if (activeRuns.has(runtime)) {
+    if (activeOutbounds.has(runtime)) {
       return yield* Effect.fail(recoveryFailure());
     }
+    const outbound: RecoveryOutbound = {
+      queue: yield* Queue.unbounded<RouterWorkerRecoverySend>(),
+      pending: 0,
+      completed: false,
+    };
+    yield* Effect.sync(() => {
+      activeOutbounds.set(runtime, outbound);
+    });
+    yield* startRecoveryRun(runtime, recoveryInput, outbound).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (activeOutbounds.get(runtime) === outbound) {
+            activeOutbounds.delete(runtime);
+            activeRuns.delete(runtime);
+          }
+        }),
+      ),
+    );
+    yield* completeRecoveryBarrier(runtime, barrier);
+  }).pipe(Effect.withSpan("recoverCertifiedHistory"));
+
+/**
+ * Verify the durable history a recovery reconciles, then install its run and
+ * run it to completion.
+ * @param runtime Engine whose durable histories require reconciliation.
+ * @param recoveryInput Authenticated Router recovery callbacks and new anchor.
+ * @param outbound The recovery's installed queue, which the run sends from.
+ * @returns Completion after the run and its resumed work have finished.
+ */
+function startRecoveryRun(
+  runtime: EngineRuntime,
+  recoveryInput: RouterWorkerRecovery,
+  outbound: RecoveryOutbound,
+): Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError> {
+  return Effect.gen(function* () {
     const recovered = yield* runtime.input.store
       .recover()
       .pipe(Effect.mapError(recoveryFailure));
@@ -163,23 +212,16 @@ export const recoverCertifiedHistory = (
     const run = yield* makeRecoveryRun(
       runtime,
       recoveryInput,
+      outbound,
       memberships,
       reanchoring,
     );
     yield* Effect.sync(() => {
       activeRuns.set(runtime, run);
     });
-    yield* Effect.scoped(runRecovery(runtime, run, retainedOutbounds)).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          if (activeRuns.get(runtime) === run) {
-            activeRuns.delete(runtime);
-          }
-        }),
-      ),
-    );
-    yield* completeRecoveryBarrier(runtime, barrier);
-  }).pipe(Effect.withSpan("recoverCertifiedHistory"));
+    yield* Effect.scoped(runRecovery(runtime, run, retainedOutbounds));
+  });
+}
 
 /**
  * Select conversations whose durable anchor names another Router instance.
@@ -408,11 +450,11 @@ function runRecovery(
 function sendRecoveryOutbound(
   run: RecoveryRun,
 ): Effect.Effect<never, RouterWorkerSendError> {
-  return Queue.take(run.outbound).pipe(
+  return Queue.take(run.outbound.queue).pipe(
     Effect.flatMap((message) => run.recovery.send(message)),
     Effect.tap(() =>
       Effect.sync(() => {
-        run.pendingOutbound -= 1;
+        run.outbound.pending -= 1;
       }).pipe(Effect.zipRight(completeRecoveryIfIdle(run))),
     ),
     Effect.forever,
@@ -478,10 +520,11 @@ function resumeUncompletedIntents(
 }
 
 /**
- * Allocate one run's queue and accounting, and build the catch-up and
+ * Allocate one run's completion accounting, and build the catch-up and
  * re-anchor ports its phases run against.
  * @param runtime Engine the run recovers.
  * @param recovery RouterWorker callbacks and discontinuity anchor.
+ * @param outbound The recovery's installed queue, which the run sends from.
  * @param memberships Verified memberships that must be reconciled.
  * @param reanchoring Conversations anchored to a different Router instance.
  * @returns The run, not yet installed.
@@ -489,6 +532,7 @@ function resumeUncompletedIntents(
 function makeRecoveryRun(
   runtime: EngineRuntime,
   recovery: RouterWorkerRecovery,
+  outbound: RecoveryOutbound,
   memberships: Map<ConversationIdValue, VerifiedMembership>,
   reanchoring: ReadonlySet<string>,
 ): Effect.Effect<RecoveryRun> {
@@ -497,13 +541,14 @@ function makeRecoveryRun(
       recovery,
       reanchoring,
       memberships,
-      outbound: yield* Queue.unbounded<RouterWorkerRecoverySend>(),
+      outbound,
       completion: yield* Deferred.make<undefined, RouterWorkerRecoveryError>(),
       completedConversations: new Set(),
       catchUp: {
         ...catchUpResponder(runtime),
         state: makeCatchUpState(),
-        isActive: () => activeRuns.get(runtime) === run && !run.completed,
+        isActive: () =>
+          activeRuns.get(runtime) === run && !run.outbound.completed,
         membership: (conversationId) => memberships.get(conversationId),
         onPositionReady: (conversationId) =>
           positionReady(runtime, run, conversationId).pipe(
@@ -515,7 +560,8 @@ function makeRecoveryRun(
         reason: recovery.reason,
         routerInstanceId: recovery.anchor.routerInstanceId,
         reanchoring,
-        isActive: () => activeRuns.get(runtime) === run && !run.completed,
+        isActive: () =>
+          activeRuns.get(runtime) === run && !run.outbound.completed,
         membership: (conversationId) => memberships.get(conversationId),
         isRecovered: (conversationId) =>
           run.completedConversations.has(conversationId),
@@ -526,8 +572,6 @@ function makeRecoveryRun(
         requestCatchUp: (conversationId) =>
           requestCertifiedHistory(run.catchUp, conversationId),
       }),
-      pendingOutbound: 0,
-      completed: false,
     };
     return run;
   }).pipe(Effect.withSpan("makeRecoveryState"));
@@ -598,18 +642,19 @@ function completeRecoveryIfIdle(run: RecoveryRun): Effect.Effect<void> {
   return Effect.suspend(() => {
     if (
       run.completedConversations.size !== run.memberships.size ||
-      run.pendingOutbound !== 0
+      run.outbound.pending !== 0
     ) {
       return Effect.void;
     }
-    run.completed = true;
+    run.outbound.completed = true;
     return Deferred.succeed(run.completion, undefined).pipe(Effect.asVoid);
   });
 }
 
 /**
  * Sign one outer envelope through the outbox, then route it: to the active
- * run's queue until the run completes, otherwise to the durable outbox.
+ * recovery's queue from before its run starts until the run completes,
+ * otherwise to the durable outbox.
  * @param runtime Engine whose outbox signs the envelope.
  * @param membership Verified fixed membership for the outer envelope.
  * @param body Recovery packet or relayed evidence the envelope carries.
@@ -634,14 +679,14 @@ function enqueueOuter(
   message: SignedMessage,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return Effect.suspend(() => {
-    const run = activeRuns.get(runtime);
-    if (run === undefined || run.completed) {
+    const outbound = activeOutbounds.get(runtime);
+    if (outbound === undefined || outbound.completed) {
       return runtime.outbox
         .enqueueSigned(conversationId, message)
         .pipe(Effect.mapError(persistenceFailure));
     }
-    run.pendingOutbound += 1;
-    return Queue.offer(run.outbound, { conversationId, message }).pipe(
+    outbound.pending += 1;
+    return Queue.offer(outbound.queue, { conversationId, message }).pipe(
       Effect.asVoid,
     );
   });

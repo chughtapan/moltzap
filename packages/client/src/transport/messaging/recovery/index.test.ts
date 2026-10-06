@@ -85,7 +85,7 @@ import {
   MembershipDescriptor,
   MembershipHash,
   mintPostId,
-  type PostIntent,
+  PostIntent,
   type ReanchorBody,
   type RecordCore,
   signEvidenceMessage,
@@ -5053,6 +5053,235 @@ const holdNextStoreRead = (store: EndpointStore) =>
   });
 
 /**
+ * A member's catch-up request arrives while this endpoint's recovery still
+ * reads the durable history it recovers, before its run starts. The answer
+ * goes out through the recovery send, ahead of the run's own request, and
+ * nothing waits in the durable outbox, which the Router worker sends from
+ * only after recovery ends. The test holds the recovery's first store read
+ * until the request is answered. Fails when the answer waits in the durable
+ * outbox, so two endpoints recovering together each wait for the other's
+ * answer.
+ */
+const answersCatchUpRequestBeforeItsRunStarts = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const start = yield* holdNextStoreRead(fixture.store);
+        const engine = yield* makeEndpointEngine({
+          ...fixture.input,
+          store: start.store,
+        }).pipe(Effect.orDie);
+        const peerRequest: CatchUpRequest = {
+          moltzapVersion: MOLTZAP_VERSION,
+          kind: "catch_up_request",
+          conversationId: fixture.membership.descriptor.conversationId,
+          membershipHash: fixture.membership.hash,
+          requesterAgentId: fixture.remote.card.agentId,
+          knownRecordHash: null,
+          knownAnchorHash: null,
+        };
+
+        yield* start.arm;
+        const { recovery, outbound } = yield* forkRecovery(
+          engine,
+          "feed_gap",
+          oldRouterInstanceId,
+        );
+        yield* start.held;
+        const answered = yield* deliverRecovery(
+          engine,
+          directPacketIngressFrom({
+            membership: fixture.membership,
+            sender: fixture.remote,
+            packet: peerRequest,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        );
+        yield* start.release;
+        const firstSent = yield* Queue.take(outbound).pipe(
+          Effect.timeout("1 second"),
+          Effect.flatMap((message) => decodeOuterBody(message.body)),
+        );
+        const durable = (yield* fixture.store.recover()).outboundMessages;
+        yield* Fiber.interrupt(recovery);
+
+        expect(answered).toBe(acceptedDisposition);
+        expect(firstSent).toMatchObject({
+          kind: "direct",
+          packet: { kind: "catch_up_incomplete", request: peerRequest },
+        });
+        expect(durable).toEqual([]);
+      }),
+    ),
+  );
+
+/**
+ * Opens the fixture's remote member as a second endpoint with its own store,
+ * holding the conversation foundation and the certified genesis record the
+ * fixture endpoint holds once it retains that record. The remote member
+ * authored that record, so its store also binds the record's post intent,
+ * as an author's store does before its post certifies.
+ * @param fixture Endpoint whose remote member the peer runs as.
+ * @returns The peer engine and its store.
+ */
+const openPeerEngine = (fixture: RecoveryFixture) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const store = yield* openEndpointStore(
+      yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "moltzap-recovery-peer-",
+      }),
+    );
+    const anchor = fixture.certifiedRecord.actionCertifiedRecord.routerAnchor;
+    if (anchor.kind !== "genesis_anchor_body") {
+      return yield* Effect.dieMessage("genesis fixture lost its anchor");
+    }
+    yield* store.putConversationFoundation({
+      conversationId: fixture.membership.descriptor.conversationId,
+      membershipHash: fixture.membership.hash,
+      canonicalMembership: yield* encodeCanonical(
+        MembershipDescriptor,
+        fixture.membership.descriptor,
+      ),
+      anchorHash: yield* hashAnchor(anchor),
+      canonicalAnchor: yield* encodeCanonical(GenesisAnchorBody, anchor),
+    });
+    const engine = yield* makeEndpointEngine({
+      ...fixture.input,
+      localAgentCard: fixture.remote.card,
+      signingAuthority: fixture.remote.authority,
+      store,
+      routerWorker: makeFixtureRouter({
+        store,
+        normalOutbound: yield* Queue.unbounded<SignedMessage>(),
+      }),
+    });
+    const { postIntent } =
+      fixture.certifiedRecord.actionCertifiedRecord.recordCore.action;
+    yield* store.bindPostIntent({
+      kind: "existing-conversation",
+      intent: {
+        conversationId: postIntent.conversationId,
+        membershipHash: postIntent.membershipHash,
+        authorAgentId: postIntent.authorAgentId,
+        postId: postIntent.postId,
+        canonicalIntent: yield* encodeCanonical(PostIntent, postIntent),
+      },
+    });
+    yield* directPacketIngressFrom({
+      membership: fixture.membership,
+      sender: fixture.local,
+      packet: fixture.certifiedRecord,
+      routerInstanceId: oldRouterInstanceId,
+    }).pipe(Effect.flatMap((ingress) => engine.acceptRouterIngress(ingress)));
+    return { engine, store };
+  }).pipe(Effect.provide(NodeFileSystem.layer), Effect.orDie);
+
+/**
+ * Delivers each envelope one endpoint's recovery sends to `engine` as
+ * recovery traffic, in send order, the way the Router worker polls it while
+ * a recovery runs.
+ * @param sent Queue the sending endpoint's recovery sends to.
+ * @param engine Endpoint that receives the traffic.
+ * @param sender Member whose recovery sends it.
+ * @returns The receiving endpoint's dispositions, in delivery order.
+ */
+const relayRecoveryTraffic = (
+  sent: Queue.Queue<SignedMessage>,
+  engine: EndpointEngine,
+  sender: SigningIdentity,
+) =>
+  Effect.gen(function* () {
+    const dispositions = yield* Queue.unbounded<RouterIngressDisposition>();
+    yield* Queue.take(sent).pipe(
+      Effect.flatMap((signedMessage) =>
+        SignedMessage.verify({ signedMessage, agentCard: sender.card }),
+      ),
+      Effect.flatMap((message) =>
+        decodeOuterBody(message.body).pipe(
+          Effect.flatMap((payload) =>
+            engine.acceptRecoveryIngress({
+              routerInstanceId: newRouterInstanceId,
+              message,
+              senderCard: sender.card,
+              payload,
+            }),
+          ),
+        ),
+      ),
+      Effect.flatMap((disposition) => Queue.offer(dispositions, disposition)),
+      Effect.forever,
+      Effect.orDie,
+      Effect.forkScoped,
+    );
+    return dispositions;
+  });
+
+/**
+ * Both members of a direct conversation recover from a Router restart at
+ * once, as every endpoint does after a restart. The peer's run starts first
+ * and asks this endpoint for its history while this endpoint's recovery
+ * still reads the store; once this endpoint's run starts, the two runs answer
+ * each other, re-anchor at the same anchor, and both complete. Fails when
+ * the early answer waits in the durable outbox until this endpoint's
+ * recovery ends: the peer never votes without it, so neither run completes.
+ */
+const twoMembersRecoverTogetherAfterARouterRestart = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* retainCertifiedRecord(fixture);
+        const peer = yield* openPeerEngine(fixture);
+        const start = yield* holdNextStoreRead(fixture.store);
+        const engine = yield* makeEndpointEngine({
+          ...fixture.input,
+          store: start.store,
+        }).pipe(Effect.orDie);
+
+        yield* start.arm;
+        const local = yield* forkRecovery(
+          engine,
+          "router_restarted",
+          newRouterInstanceId,
+        );
+        yield* start.held;
+        const remote = yield* forkRecovery(
+          peer.engine,
+          "router_restarted",
+          newRouterInstanceId,
+        );
+        const toLocal = yield* relayRecoveryTraffic(
+          remote.outbound,
+          engine,
+          fixture.remote,
+        );
+        yield* relayRecoveryTraffic(local.outbound, peer.engine, fixture.local);
+        const earlyRequest = yield* Queue.take(toLocal).pipe(
+          Effect.timeout("1 second"),
+        );
+        yield* start.release;
+        const recovered = yield* Effect.all([
+          Fiber.await(local.recovery),
+          Fiber.await(remote.recovery),
+        ]).pipe(Effect.timeoutOption("3 seconds"));
+        const localAnchor = (yield* fixture.store.recover()).positions[0]
+          ?.currentAnchorHash;
+        const peerAnchor = (yield* peer.store.recover()).positions[0]
+          ?.currentAnchorHash;
+
+        expect(earlyRequest).toBe(acceptedDisposition);
+        expect(recovered).toStrictEqual(Option.some([Exit.void, Exit.void]));
+        expect(localAnchor).toBe(peerAnchor);
+        expect(localAnchor).not.toBe(
+          fixture.certifiedRecord.actionCertifiedRecord.recordCore.anchorHash,
+        );
+      }),
+    ),
+  );
+
+/**
  * A member's catch-up request arrives after the run has completed and while
  * its tail still resumes the outbox, dissemination, and folds. The run's
  * sender stops when the run ends, so the answer goes to the durable outbox,
@@ -5240,6 +5469,15 @@ describe("catch-up and re-anchor inside a recovery run", () => {
   it(
     "answers a catch-up request through the recovery send during its own recovery",
     answersCatchUpRequestDuringItsOwnRecovery,
+  );
+  it(
+    "answers a catch-up request through the recovery send before its run starts",
+    answersCatchUpRequestBeforeItsRunStarts,
+  );
+  it(
+    "completes when both members of a direct conversation recover from a Router restart at once",
+    twoMembersRecoverTogetherAfterARouterRestart,
+    10_000,
   );
   it(
     "asks for catch-up again when a member votes for a head it lacks",
