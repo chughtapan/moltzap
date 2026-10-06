@@ -216,19 +216,23 @@ export function persistCompletedReanchor(
   }).pipe(
     Effect.mapError(persistenceFailure),
     Effect.flatMap((canonical) =>
-      runtime.input.store.completeReanchor({
-        conversationId: body.conversationId,
-        anchorHash: completed.anchorHash,
-        previousAnchorHash: body.previousAnchorHash,
-        routerInstanceId: body.routerInstanceId,
-        selectedRecordHash: body.selectedRecordHash,
-        ...canonical,
-      }),
-    ),
-    Effect.flatMap(() =>
-      Effect.sync(() => {
-        adoptCompletedReanchor(runtime, completed);
-      }),
+      runtime.input.store
+        .completeReanchor({
+          conversationId: body.conversationId,
+          anchorHash: completed.anchorHash,
+          previousAnchorHash: body.previousAnchorHash,
+          routerInstanceId: body.routerInstanceId,
+          selectedRecordHash: body.selectedRecordHash,
+          ...canonical,
+        })
+        .pipe(
+          Effect.zipRight(
+            Effect.sync(() => {
+              adoptCompletedReanchor(runtime, completed);
+            }),
+          ),
+          Effect.uninterruptible,
+        ),
     ),
     Effect.mapError(persistenceFailure),
   );
@@ -242,7 +246,9 @@ export function persistCompletedReanchor(
  * certificates for one scope would need an honest member to vote twice. The
  * store refuses a completion that does not extend this endpoint's durable
  * position; that refusal comes from the member's input, not a failed store,
- * so the completion does not count.
+ * so the completion does not count. The durable change and its adoption in
+ * memory happen together, so an interruption cannot leave the store past an
+ * anchor the engine still holds.
  * @param runtime Engine whose store and conversation take the anchor.
  * @param completed Verified completed re-anchor from a member.
  * @returns Whether the anchor was applied; false when the store refused it.
@@ -251,46 +257,48 @@ export function applyCompletedReanchor(
   runtime: EngineRuntime,
   completed: CompletedReanchorValue,
 ): Effect.Effect<boolean, RouterWorkerPersistenceError> {
-  return Effect.gen(function* () {
-    const applied = yield* runtime.input.store
-      .applyCatchUpReanchor({
-        conversationId: completed.reanchor.conversationId,
-        anchorHash: completed.anchorHash,
-        previousAnchorHash: completed.reanchor.previousAnchorHash,
-        routerInstanceId: completed.reanchor.routerInstanceId,
-        selectedRecordHash: completed.reanchor.selectedRecordHash,
-        canonicalBody: yield* encodeCanonical(
-          ReanchorBody,
-          completed.reanchor,
-        ).pipe(Effect.mapError(persistenceFailure)),
-        canonicalCompletedReanchor: yield* encodeCanonical(
-          CompletedReanchor,
-          completed,
-        ).pipe(Effect.mapError(persistenceFailure)),
-      })
-      .pipe(
-        Effect.as(true),
-        Effect.catchTag("EndpointStoreError", (error) =>
-          isSemanticStoreRejection(error)
-            ? Effect.succeed(false)
-            : Effect.fail(persistenceFailure()),
+  const body = completed.reanchor;
+  return Effect.all({
+    canonicalBody: encodeCanonical(ReanchorBody, body),
+    canonicalCompletedReanchor: encodeCanonical(CompletedReanchor, completed),
+  }).pipe(
+    Effect.mapError(persistenceFailure),
+    Effect.flatMap((canonical) =>
+      runtime.input.store
+        .applyCatchUpReanchor({
+          conversationId: body.conversationId,
+          anchorHash: completed.anchorHash,
+          previousAnchorHash: body.previousAnchorHash,
+          routerInstanceId: body.routerInstanceId,
+          selectedRecordHash: body.selectedRecordHash,
+          ...canonical,
+        })
+        .pipe(
+          Effect.zipRight(
+            Effect.sync(() => {
+              adoptCompletedReanchor(runtime, completed);
+            }),
+          ),
+          Effect.as(true),
+          Effect.catchTag("EndpointStoreError", (error) =>
+            isSemanticStoreRejection(error)
+              ? Effect.succeed(false)
+              : Effect.fail(persistenceFailure()),
+          ),
+          Effect.uninterruptible,
         ),
-      );
-    if (applied) {
-      yield* Effect.sync(() => {
-        adoptCompletedReanchor(runtime, completed);
-      });
-    }
-    return applied;
-  }).pipe(Effect.withSpan("applyCompletedReanchor"));
+    ),
+    Effect.withSpan("applyCompletedReanchor"),
+  );
 }
 
 /**
  * Make a durable completed re-anchor the conversation's current anchor in
- * memory, and drop the fold of the unstaged proposal it supersedes at the
- * selected head. That proposal binds the previous anchor, so it is no longer
- * gap-free and can never certify; the store has released its lock and
- * signatures, and resuming its fold would only resend a dead signature.
+ * memory, and drop the fold of the proposal it supersedes at the selected
+ * head, staged or not. That proposal binds the previous anchor, so it is no
+ * longer gap-free and can never certify; the store has retired its lock,
+ * signatures and staged record, and resuming its fold would only resend dead
+ * evidence.
  * @param runtime Engine whose conversation and folds change.
  * @param completed Completed re-anchor the store has made current.
  */
@@ -306,6 +314,9 @@ function adoptCompletedReanchor(
   for (const [actionHash, fold] of runtime.actionFolds) {
     if (isSupersededProposal(fold, completed)) {
       runtime.actionFolds.delete(actionHash);
+      if (fold.recordHash !== undefined) {
+        runtime.recordFolds.delete(fold.recordHash);
+      }
     }
   }
 }
@@ -317,7 +328,6 @@ function isSupersededProposal(
   const body = completed.reanchor;
   if (
     fold.conversation.conversationId !== body.conversationId ||
-    fold.recordHash !== undefined ||
     fold.action.kind !== "POST"
   ) {
     return false;
