@@ -42,7 +42,6 @@ import {
   enqueueDisseminationOutbound,
   enqueueOutbound,
   enqueueOutboundInTransaction,
-  readLegacyPendingDeliveries,
   readPendingDeliveries,
 } from "./queues/index.js";
 import {
@@ -170,8 +169,6 @@ function makeTransportOperations(state: StoreState, run: StoreRunner) {
   return {
     readPendingDeliveries: () =>
       run(() => readPendingDeliveries(state.database)),
-    readLegacyPendingDeliveries: () =>
-      run(() => readLegacyPendingDeliveries(state.database)),
     acknowledgeDelivery: (deliveryToken) =>
       run(() => acknowledgeDelivery(state.database, deliveryToken)),
     enqueueOutbound: (message) =>

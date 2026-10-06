@@ -21,6 +21,7 @@ export {
   hashPostIntent,
   hashRecord,
   mintPostId,
+  type OuterBodyReader,
   type OuterMembership,
   signEvidenceMessage,
   signOuterEvidence,

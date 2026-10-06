@@ -6,11 +6,12 @@ import {
   type AgentSigningAuthority as AgentSigningAuthorityValue,
   Ed25519PublicKey,
   MOLTZAP_VERSION,
+  SealedBody,
   SignedMessage,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import { RouterInstanceId } from "@moltzap/router";
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
@@ -29,6 +30,7 @@ import {
   ClientRepresentationError,
   type CompletedReanchor,
   deriveConversationId,
+  DirectPacket,
   encodeCanonical,
   type GenesisAnchorBody,
   hashAction,
@@ -634,12 +636,26 @@ const provesMaximumArtifactFitsIdentity = () =>
         hasMore: false,
         attestation: yield* Schema.encode(SignedMessage)(attestation),
       };
+      const pagePlaintext = yield* encodeCanonical(DirectPacket, page);
       const outer = yield* signOuterPacket({
         packet: page,
         membership: fixture.membership,
         agentCard: responder.card,
         signingAuthority: responder.authority,
       });
+      expect(pagePlaintext.byteLength).toBeLessThanOrEqual(
+        Option.getOrThrow(
+          SealedBody.maximumPlaintextByteLength(maximumMembers),
+        ),
+      );
+      expect(outer.body.byteLength).toBe(
+        Option.getOrThrow(
+          SealedBody.sealedByteLength({
+            plaintextByteLength: pagePlaintext.byteLength,
+            recipientCount: maximumMembers,
+          }),
+        ),
+      );
       expect(outer.body.byteLength).toBeLessThanOrEqual(
         maximumIdentityBodyBytes,
       );
@@ -651,12 +667,24 @@ const provesMaximumArtifactFitsIdentity = () =>
         SignedMessage.maximumEncodedByteLength,
       );
 
+      const evidencePlaintext = yield* encodeCanonical(
+        SignedMessage,
+        attestation,
+      );
       const relayedEvidence = yield* signOuterEvidence({
         evidence: attestation,
         membership: fixture.membership,
         agentCard: responder.card,
         signingAuthority: responder.authority,
       });
+      expect(relayedEvidence.body.byteLength).toBe(
+        Option.getOrThrow(
+          SealedBody.sealedByteLength({
+            plaintextByteLength: evidencePlaintext.byteLength,
+            recipientCount: maximumMembers,
+          }),
+        ),
+      );
       expect(relayedEvidence.body.byteLength).toBeLessThanOrEqual(
         maximumIdentityBodyBytes,
       );
@@ -687,7 +715,7 @@ describe("Client protocol acceptance", () => {
     verifiesReanchorCatchUpBindings,
   );
   it(
-    "fits the maximum complete catch-up artifact inside Identity limits",
+    "fits the maximum complete catch-up artifact, sealed to its maximum membership, inside Identity limits",
     provesMaximumArtifactFitsIdentity,
   );
 });

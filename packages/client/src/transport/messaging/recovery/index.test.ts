@@ -45,6 +45,7 @@ import {
   withMisattributedActionEvidence,
 } from "../../../__tests__/certified-history-fixtures.js";
 import { forwardStoredOutbound } from "../../../__tests__/forward-stored-outbound.js";
+import { openOuterBody } from "../../../__tests__/outer-body-fixtures.js";
 import {
   corruptSignature,
   pollCursor as fixturePollCursor,
@@ -151,6 +152,7 @@ interface N4PartialHistory {
  */
 interface FixtureRouterContext {
   readonly store: EndpointStore;
+  readonly local: SigningIdentity;
   readonly normalOutbound: Queue.Queue<SignedMessage>;
   readonly recoveryOutbound: Queue.Queue<SignedMessage>;
 }
@@ -184,6 +186,27 @@ const newRouterInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
 const pollCursor = fixturePollCursor(1);
 
 /**
+ * The endpoint that sent each envelope a fixture Router forwarded. Every outer
+ * body is sealed to its own sender too, so a test opens what an endpoint sent
+ * as that endpoint.
+ */
+const forwardedBy = new WeakMap<SignedMessage, SigningIdentity>();
+
+/**
+ * The Client value inside an envelope a fixture Router forwarded, opened as
+ * the endpoint that sent it.
+ * @param message Envelope taken from a fixture Router queue.
+ * @returns The decoded body; an envelope no fixture Router forwarded is a
+ *     defect.
+ */
+function openForwarded(message: SignedMessage) {
+  const sender = forwardedBy.get(message);
+  return sender === undefined
+    ? Effect.dieMessage("no fixture Router forwarded this envelope")
+    : openOuterBody(message, sender);
+}
+
+/**
  * Sends one outbox row the way the fixture Router worker delivers it: to the
  * context's recovery queue when it carries catch-up or re-anchor traffic,
  * otherwise to its normal queue.
@@ -199,6 +222,9 @@ function forwardSorted(
     const staging = yield* Queue.unbounded<SignedMessage>();
     yield* forwardStoredOutbound(context.store, staging, outboundId);
     const sent = yield* Queue.takeAll(staging);
+    for (const message of sent) {
+      forwardedBy.set(message, context.local);
+    }
     yield* Effect.forEach(
       sent,
       (message) =>
@@ -221,7 +247,7 @@ function forwardSorted(
  * @returns True for catch-up packets, completed re-anchors and re-anchor votes.
  */
 function isRecoveryTraffic(message: SignedMessage): Effect.Effect<boolean> {
-  return decodeOuterBody(message.body).pipe(
+  return openForwarded(message).pipe(
     Effect.flatMap((body) =>
       body.kind === "evidence"
         ? decodeCanonical(EvidenceStatement, body.message.body).pipe(
@@ -383,7 +409,12 @@ const makeFixtureWithRouter = (
       registry,
       store,
       actionPolicy: () => Effect.succeed("sign"),
-      routerWorker: makeRouter({ store, normalOutbound, recoveryOutbound }),
+      routerWorker: makeRouter({
+        store,
+        local,
+        normalOutbound,
+        recoveryOutbound,
+      }),
     } satisfies EndpointEngineInput;
     const engine = yield* makeEndpointEngine(input).pipe(Effect.orDie);
     return {
@@ -916,7 +947,7 @@ const certifiedN4PostAt = (
   }).pipe(Effect.orDie);
 
 const decodeCatchUpRequest = (message: SignedMessage) =>
-  decodeOuterBody(message.body).pipe(
+  openForwarded(message).pipe(
     Effect.flatMap((body) =>
       body.kind === "direct" && body.packet.kind === "catch_up_request"
         ? Effect.succeed(body.packet)
@@ -928,7 +959,7 @@ const decodeActionProposal = (
   message: SignedMessage,
   expected = "action proposal",
 ) =>
-  decodeOuterBody(message.body).pipe(
+  openForwarded(message).pipe(
     Effect.flatMap((body) => {
       if (body.kind === "direct" && body.packet.kind === "action_proposal") {
         return Effect.succeed(body.packet);
@@ -951,7 +982,7 @@ function takeActionProposalAfterEvidence(
   return Queue.take(outbound).pipe(
     Effect.timeout("1 second"),
     Effect.flatMap((message) =>
-      decodeOuterBody(message.body).pipe(
+      openForwarded(message).pipe(
         Effect.flatMap((body) => {
           if (body.kind === "evidence") {
             return takeActionProposalAfterEvidence(outbound);
@@ -1378,7 +1409,7 @@ const catchUpIncompleteIngress = (
 const decodeReanchorVote = (
   message: SignedMessage,
 ): Effect.Effect<ReanchorVote> =>
-  decodeOuterBody(message.body).pipe(
+  openForwarded(message).pipe(
     Effect.flatMap((body) =>
       body.kind === "evidence"
         ? decodeCanonical(EvidenceStatement, body.message.body)
@@ -1395,7 +1426,7 @@ const decodeReanchorVote = (
 const decodeEvidenceKind = (
   message: SignedMessage,
 ): Effect.Effect<EvidenceStatementValue["kind"]> =>
-  decodeOuterBody(message.body).pipe(
+  openForwarded(message).pipe(
     Effect.flatMap((body) =>
       body.kind === "evidence"
         ? decodeCanonical(EvidenceStatement, body.message.body)
@@ -1679,7 +1710,7 @@ const completeRestartRecovery = () =>
         );
         const completed = yield* Queue.take(recoveryOutbound).pipe(
           Effect.timeout("1 second"),
-          Effect.flatMap((message) => decodeOuterBody(message.body)),
+          Effect.flatMap((message) => openForwarded(message)),
         );
         expect(completed).toMatchObject({
           kind: "direct",
@@ -2139,7 +2170,7 @@ const queuePeerCatchUpResponse = (
 
 /** The catch-up page `message` carries; any other body is a defect. */
 const decodeCatchUpPage = (message: SignedMessage) =>
-  decodeOuterBody(message.body).pipe(
+  openForwarded(message).pipe(
     Effect.flatMap((body) =>
       body.kind === "direct" && body.packet.kind === "catch_up_page"
         ? Effect.succeed(body.packet)
@@ -2202,7 +2233,7 @@ const recoverWhileDrainAwaitsWorker = () =>
         yield* Fiber.join(draining).pipe(Effect.timeout("1 second"));
         const sent = yield* Effect.forEach(
           yield* Queue.takeAll(fixture.recoveryOutbound),
-          (message) => decodeOuterBody(message.body),
+          (message) => openForwarded(message),
           { concurrency: 1 },
         );
 
@@ -2403,7 +2434,7 @@ const recoverDisseminationObligations = () =>
         );
         yield* Queue.take(recoveryOutbound).pipe(
           Effect.timeout("1 second"),
-          Effect.flatMap((message) => decodeOuterBody(message.body)),
+          Effect.flatMap((message) => openForwarded(message)),
         );
         yield* Fiber.join(recovering).pipe(Effect.timeout("1 second"));
         yield* fixture.engine.drainOutbound;
@@ -2411,7 +2442,7 @@ const recoverDisseminationObligations = () =>
           Effect.timeout("1 second"),
         );
         expect(rebuilt.messageId).not.toBe(stale.messageId);
-        expect(yield* decodeOuterBody(rebuilt.body)).toMatchObject({
+        expect(yield* openForwarded(rebuilt)).toMatchObject({
           kind: "direct",
           packet: { kind: "certified_record" },
         });
@@ -2556,7 +2587,7 @@ const takeCompletedReanchor = (
 ): Effect.Effect<DirectPacket> =>
   Queue.take(outbound).pipe(
     Effect.timeout("1 second"),
-    Effect.flatMap((message) => decodeOuterBody(message.body)),
+    Effect.flatMap((message) => openForwarded(message)),
     Effect.flatMap((body) =>
       body.kind === "direct" && body.packet.kind === "completed_reanchor"
         ? Effect.succeed(body.packet)
@@ -2656,7 +2687,7 @@ const ignoresRelayedCompletionForAnchoredConversation = () =>
  * @returns The encoded inner evidence message.
  */
 const carriedEvidence = (message: SignedMessage) =>
-  decodeOuterBody(message.body).pipe(
+  openForwarded(message).pipe(
     Effect.flatMap((body) =>
       body.kind === "evidence"
         ? Schema.encode(SignedMessage)(body.message)
@@ -2996,7 +3027,7 @@ const rebroadcastsPersistedCompletedReanchor = () =>
         );
         const replayed = yield* Queue.take(secondOutbound).pipe(
           Effect.timeout("1 second"),
-          Effect.flatMap((message) => decodeOuterBody(message.body)),
+          Effect.flatMap((message) => openForwarded(message)),
         );
         expect(replayed).toMatchObject({
           kind: "direct",
@@ -3209,7 +3240,7 @@ const recoversN4PartiallyDisseminatedSuccessor = () =>
         );
         const completed = yield* Queue.take(recoveryOutbound).pipe(
           Effect.timeout("1 second"),
-          Effect.flatMap((message) => decodeOuterBody(message.body)),
+          Effect.flatMap((message) => openForwarded(message)),
         );
         expect(completed).toMatchObject({
           kind: "direct",
@@ -3516,11 +3547,9 @@ const certifiesAtALockedHeadAfterReanchoring = (
         yield* fixture.engine.drainOutbound;
         const resumed = yield* Queue.takeAll(fixture.normalOutbound).pipe(
           Effect.flatMap((messages) =>
-            Effect.forEach(
-              messages,
-              (message) => decodeOuterBody(message.body),
-              { concurrency: 1 },
-            ),
+            Effect.forEach(messages, (message) => openForwarded(message), {
+              concurrency: 1,
+            }),
           ),
           Effect.orDie,
         );
@@ -5028,7 +5057,7 @@ describe("peer input during recovery", () => {
  */
 const decodeQueuedCatchUpPage = (row: StoredOutboundMessage) =>
   decodeCanonical(SignedMessage, row.canonicalSignedMessage).pipe(
-    Effect.flatMap((message) => decodeOuterBody(message.body)),
+    Effect.flatMap((message) => openForwarded(message)),
     Effect.flatMap((body) => {
       if (body.kind === "direct" && body.packet.kind === "catch_up_page") {
         return Effect.succeed(body.packet);
@@ -5112,7 +5141,7 @@ const answersCatchUpRequestDuringItsOwnRecovery = () =>
         );
         const answer = yield* Queue.take(outbound).pipe(
           Effect.timeout("1 second"),
-          Effect.flatMap((message) => decodeOuterBody(message.body)),
+          Effect.flatMap((message) => openForwarded(message)),
         );
         const durable = (yield* fixture.store.recover()).outboundMessages;
         yield* deliverRecovery(
@@ -5274,7 +5303,7 @@ const adoptsReanchorCompletedWhileItWasDown = () =>
         );
         const relayed = yield* Queue.take(outbound).pipe(
           Effect.timeout("1 second"),
-          Effect.flatMap((message) => decodeOuterBody(message.body)),
+          Effect.flatMap((message) => openForwarded(message)),
         );
         yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
 
@@ -5568,7 +5597,7 @@ const answersCatchUpRequestBeforeItsRunStarts = () =>
         yield* start.release;
         const firstSent = yield* Queue.take(outbound).pipe(
           Effect.timeout("1 second"),
-          Effect.flatMap((message) => decodeOuterBody(message.body)),
+          Effect.flatMap((message) => openForwarded(message)),
         );
         const durable = (yield* fixture.store.recover()).outboundMessages;
         yield* Fiber.interrupt(recovery);
@@ -5607,6 +5636,7 @@ const openPeerEngine = (fixture: RecoveryFixture) =>
       store,
       routerWorker: makeFixtureRouter({
         store,
+        local: fixture.remote,
         normalOutbound: yield* Queue.unbounded<SignedMessage>(),
         recoveryOutbound,
       }),
@@ -5645,6 +5675,7 @@ const relayRecoveryTraffic = (
   sent: Queue.Queue<SignedMessage>,
   engine: EndpointEngine,
   sender: SigningIdentity,
+  receiver: SigningIdentity,
 ) =>
   Effect.gen(function* () {
     const dispositions = yield* Queue.unbounded<RouterIngressDisposition>();
@@ -5653,7 +5684,11 @@ const relayRecoveryTraffic = (
         SignedMessage.verify({ signedMessage, agentCard: sender.card }),
       ),
       Effect.flatMap((message) =>
-        decodeOuterBody(message.body).pipe(
+        decodeOuterBody({
+          message,
+          agentCard: receiver.card,
+          signingAuthority: receiver.authority,
+        }).pipe(
           Effect.flatMap((payload) =>
             engine.acceptRecoveryIngress({
               routerInstanceId: newRouterInstanceId,
@@ -5731,8 +5766,14 @@ const twoMembersRecoverTogetherAfterARouterRestart = () =>
           remote.outbound,
           engine,
           fixture.remote,
+          fixture.local,
         );
-        yield* relayRecoveryTraffic(local.outbound, peer.engine, fixture.local);
+        yield* relayRecoveryTraffic(
+          local.outbound,
+          peer.engine,
+          fixture.local,
+          fixture.remote,
+        );
         const earlyRequestDisposition = yield* Queue.take(toLocal).pipe(
           Effect.timeout("1 second"),
         );
@@ -6124,7 +6165,7 @@ const rearmsCatchUpAfterRetriesRunOut = () =>
         yield* settle;
         const rearmed = yield* Effect.forEach(
           yield* Queue.takeAll(outbound),
-          (message) => decodeOuterBody(message.body),
+          (message) => openForwarded(message),
           { concurrency: 1 },
         );
         const request = rearmed.flatMap((body) =>

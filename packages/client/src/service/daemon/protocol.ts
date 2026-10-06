@@ -33,6 +33,7 @@ import {
   type DecodedOuterBody,
   decodeOuterBody,
   encodeCanonical,
+  type OuterBodyReader,
   sameBytes,
 } from "../../transport/wire/index.js";
 import { AgentAddress, compareAscii } from "../../transport/wire/values.js";
@@ -209,12 +210,13 @@ const mapWorkerInitializationError = (
   );
 
 const makeWorkerCallbacks = (
+  reader: OuterBodyReader,
   awaitEngine: Effect.Effect<EndpointEngine>,
   publishPending: Effect.Effect<void>,
 ): RouterWorkerInput<DecodedOuterBody>["callbacks"] => ({
   pinSenderCard: () => awaitEngine.pipe(Effect.asVoid),
   decodePayload: (message) =>
-    decodeOuterBody(message.body).pipe(
+    decodeOuterBody({ ...reader, message }).pipe(
       Effect.catchTag("ClientRepresentationError", () =>
         Effect.fail(new RouterWorkerPayloadInvalidError()),
       ),
@@ -256,7 +258,14 @@ const acquireProtocolWorker = (input: {
       pinnedSenderCards: input.pinnedSenderCards,
       signingAuthority: input.environment.bootstrap.signingAuthority,
       outbox: input.environment.store,
-      callbacks: makeWorkerCallbacks(input.awaitEngine, input.publishPending),
+      callbacks: makeWorkerCallbacks(
+        {
+          agentCard: input.agentCard,
+          signingAuthority: input.environment.bootstrap.signingAuthority,
+        },
+        input.awaitEngine,
+        input.publishPending,
+      ),
     })
     .pipe(
       Effect.provideService(Registry, input.environment.registry),

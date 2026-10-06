@@ -122,7 +122,7 @@ webhook HTTP 2xx receipt; ambiguous retries may duplicate delivery.
 
 ## Compatibility and failures
 
-The daemon speaks only `V2_PROTOCOL_VERSION` `2026.827.1`, hash domain v2,
+The daemon speaks only `V2_PROTOCOL_VERSION` `2026.1006.1`, hash domain v2,
 database schema 3, and the pinned draft MCP Events profile. Schema 2 has the
 explicit forward migration above. Incompatible wire peers and other store
 versions fail closed. Native adapters and the daemon must upgrade together.

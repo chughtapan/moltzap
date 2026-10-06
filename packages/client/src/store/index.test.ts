@@ -40,7 +40,7 @@ const LEGACY_DIRECTORY_MODE = 0o755;
 const LOCAL_AGENT_ID = "agent:local";
 const EMPTY_SCHEMA_ROW = Object.freeze({ user_version: 0 });
 const LEGACY_SCHEMA_ROW = Object.freeze({ user_version: 1 });
-const V3_SCHEMA_ROW = Object.freeze({ user_version: 3 });
+const V4_SCHEMA_ROW = Object.freeze({ user_version: 4 });
 const DELETE_JOURNAL_ROW = Object.freeze({ journal_mode: "delete" });
 const LEGACY_TABLE_ROW = Object.freeze({ name: "legacy_state" });
 const POST_INTENTS_TABLE_ROW = Object.freeze({ name: "post_intents" });
@@ -681,7 +681,7 @@ function discardsOnlyAnExactCurrentOutboundSet() {
 function assertInitializedDatabase(directory: string): void {
   const path = databasePath(directory);
   const database = new DatabaseSync(path);
-  expect(database.prepare("PRAGMA user_version").get()).toEqual(V3_SCHEMA_ROW);
+  expect(database.prepare("PRAGMA user_version").get()).toEqual(V4_SCHEMA_ROW);
   expect(
     database
       .prepare("SELECT name FROM sqlite_schema WHERE name = 'post_intents'")

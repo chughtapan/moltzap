@@ -29,9 +29,14 @@ export interface StoreState {
 }
 
 const DATABASE_NAME = "moltzapd.sqlite3";
-const SCHEMA_VERSION = 3;
+/**
+ * Version 4 is the first store written under the MoltZap version that seals
+ * every outer body. Versions 2 and 3 predate that cutover and open empty
+ * through `cutOverDatabase`.
+ */
+const SCHEMA_VERSION = 4;
 
-type PreflightDisposition = "initialize" | "upgrade" | "reopen";
+type PreflightDisposition = "initialize" | "cutover" | "reopen";
 
 /**
  * Acquires and exclusively locks one exact-version endpoint database.
@@ -151,8 +156,8 @@ function applySchema(
 ): void {
   if (disposition === "initialize") {
     initializeDatabase(database);
-  } else if (disposition === "upgrade") {
-    upgradeDatabase(database);
+  } else if (disposition === "cutover") {
+    cutOverDatabase(database);
   }
 }
 
@@ -186,7 +191,12 @@ function preflightDatabase(database: DatabaseSync): PreflightDisposition {
     throw new StoreSignal("corrupt");
   }
   const version = readInteger(versionRow, "user_version");
-  if (version !== 0 && version !== 2 && version !== SCHEMA_VERSION) {
+  if (
+    version !== 0 &&
+    version !== 2 &&
+    version !== 3 &&
+    version !== SCHEMA_VERSION
+  ) {
     throw new StoreSignal("incompatible");
   }
   if (version === 0) {
@@ -197,7 +207,7 @@ function preflightDatabase(database: DatabaseSync): PreflightDisposition {
     return "initialize";
   }
   requireHealthyDatabase(database);
-  return version === 2 ? "upgrade" : "reopen";
+  return version === SCHEMA_VERSION ? "reopen" : "cutover";
 }
 
 function hasUserSchemaObjects(database: DatabaseSync): boolean {
@@ -266,9 +276,6 @@ function requireIntegerPragma(
 }
 
 const runtimeSchemaSql = `
-  CREATE TABLE runtime_legacy_deliveries (
-    delivery_token TEXT PRIMARY KEY REFERENCES pending_deliveries(delivery_token)
-  ) STRICT;
   CREATE TABLE runtime_inbox (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     delivery_token TEXT NOT NULL UNIQUE,
@@ -427,25 +434,53 @@ const schemaSql = `
 `;
 
 function initializeDatabase(database: DatabaseSync): void {
-  transaction(
-    database,
-    () => {
-      database.exec(schemaSql);
-      database.exec(runtimeSchemaSql);
-      database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-    },
-    "EXCLUSIVE",
-  );
+  transaction(database, () => createSchema(database), "EXCLUSIVE");
 }
 
-function upgradeDatabase(database: DatabaseSync): void {
+function createSchema(database: DatabaseSync): void {
+  database.exec(schemaSql);
+  database.exec(runtimeSchemaSql);
+  database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+}
+
+/**
+ * Every table a version 2 or 3 store can hold, each listed before the tables
+ * its foreign keys reference, so dropping them in order never orphans a row.
+ */
+const PRE_CUTOVER_TABLES = [
+  "runtime_legacy_deliveries",
+  "runtime_inbox",
+  "runtime_sends",
+  "runtime_events",
+  "dissemination_obligations",
+  "outbound_messages",
+  "pending_deliveries",
+  "reanchors",
+  "certified_records",
+  "staged_records",
+  "protocol_evidence",
+  "proposal_locks",
+  "conversation_state",
+  "post_intents",
+  "anchors",
+  "memberships",
+  "identity_binding",
+] as const;
+
+/**
+ * Replaces a version 2 or 3 store with an empty version 4 store in one
+ * transaction. Its identity was registered, and its protocol state signed,
+ * under the prior MoltZap version, so nothing carries over and nothing is
+ * resealed: the daemon starts unregistered and the agent registers again.
+ */
+function cutOverDatabase(database: DatabaseSync): void {
   transaction(
     database,
     () => {
-      database.exec(runtimeSchemaSql);
-      database.exec(`INSERT INTO runtime_legacy_deliveries (delivery_token)
-        SELECT delivery_token FROM pending_deliveries WHERE acknowledged = 0`);
-      database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+      for (const table of PRE_CUTOVER_TABLES) {
+        database.exec(`DROP TABLE IF EXISTS ${table}`);
+      }
+      createSchema(database);
     },
     "EXCLUSIVE",
   );

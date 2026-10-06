@@ -13,7 +13,6 @@ import type { EndpointStore } from "../store/index.js";
 export function unusedEndpointStore(label: string): EndpointStore {
   const unused = () => Effect.dieMessage(`store operation outside ${label}`);
   return {
-    readLegacyPendingDeliveries: unused,
     readInboxItem: unused,
     completeWebhookDelivery: unused,
     putInboxItem: unused,

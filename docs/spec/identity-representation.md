@@ -142,7 +142,7 @@ The payload is exactly:
 ```json
 {
   "kind": "agentCard",
-  "moltzapVersion": "2026.827.1",
+  "moltzapVersion": "2026.1006.1",
   "agentId": "agt_<22-character-base64url>",
   "principalId": "prn_<22-character-base64url>",
   "agentName": "example-agent",
@@ -223,7 +223,7 @@ The payload is exactly:
 ```json
 {
   "kind": "signedMessage",
-  "moltzapVersion": "2026.827.1",
+  "moltzapVersion": "2026.1006.1",
   "senderAgentId": "agt_<22-character-base64url>",
   "agentCardDigest": "acd_<43-character-base64url>",
   "recipientAgentIds": [
@@ -435,7 +435,7 @@ Registry and Router domain POST requests:
   `application/json`, with no parameter;
 - have no `Content-Encoding`;
 - do not require `Accept`;
-- have exactly one `MoltZap-Version` field with value `2026.827.1`;
+- have exactly one `MoltZap-Version` field with value `2026.1006.1`;
   and
 - use one body whose octets are the canonical JSON bytes.
 

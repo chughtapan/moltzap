@@ -1,4 +1,4 @@
-/** @file Pins the runtime state the endpoint store keeps across restart and across the schema version 2 to 3 upgrade. */
+/** @file Pins the runtime state the endpoint store keeps across restart, and the empty store a pre-cutover schema version opens as. */
 
 import { Effect, Schema } from "effect";
 import { DatabaseSync } from "node:sqlite";
@@ -7,11 +7,15 @@ import { digest } from "../__tests__/agent-card-fixtures.js";
 import {
   bytes,
   databasePath,
-  downgradeToSchemaV2,
+  rewindToPreCutoverSchema,
   stateDirectory,
   withStore,
 } from "../__tests__/store-schema-fixtures.js";
-import { DeliveryToken } from "./index.js";
+import {
+  type CertifiedRecord,
+  DeliveryToken,
+  type EndpointStore,
+} from "./index.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Store mutation outcomes and the schema version are the contract under test. */
 
@@ -57,52 +61,149 @@ function retainsInvocationAndEventState() {
   );
 }
 
-function upgradesSchemaVersion2WithoutReplacingTheIdentity() {
+const identity = {
+  agentId: "agent:alice",
+  canonicalAgentCard: new Uint8Array([1, 2, 3]),
+};
+const foundation = {
+  conversationId: "conversation:pre-cutover",
+  membershipHash: "mbr_pre_cutover",
+  canonicalMembership: bytes("members"),
+  anchorHash: "anc_pre_cutover",
+  canonicalAnchor: bytes("anchor"),
+};
+const recordHash = digest("rch_", 3);
+const record: CertifiedRecord = {
+  ...foundation,
+  recordHash,
+  actionHash: "ach_pre_cutover",
+  authorAgentId: "agent:bob",
+  postId: digest("pst_", 1),
+  canonicalRecordCore: bytes("record"),
+  actionEvidence: [
+    {
+      conversationId: foundation.conversationId,
+      kind: "action",
+      subjectId: "ach_pre_cutover",
+      evidenceKey: "agent:bob",
+      canonicalEvidence: bytes("action"),
+    },
+  ],
+  durabilityEvidence: [
+    {
+      conversationId: foundation.conversationId,
+      kind: "durability",
+      subjectId: recordHash,
+      evidenceKey: "agent:bob",
+      canonicalEvidence: bytes("durability"),
+    },
+  ],
+};
+const sendInput = bytes('{"input":{"text":"hello","to":"agent:bob"}}');
+const eventState = bytes('{"subscription":"private"}');
+const inboxItem = bytes('{"kind":"operationFailed"}');
+
+/**
+ * Give the store Alice's identity, one certified conversation with a pending
+ * delivery, a proposal lock, a post intent and a queued envelope, plus the
+ * host's inbox, invocation and event state.
+ * @returns The queued envelope's outbox identity.
+ */
+const seedPreCutoverState = (store: EndpointStore) =>
+  Effect.gen(function* () {
+    yield* store.bindIdentity(identity);
+    yield* store.putConversationFoundation(foundation);
+    yield* store.bindPostIntent({
+      kind: "existing-conversation",
+      intent: {
+        conversationId: foundation.conversationId,
+        membershipHash: foundation.membershipHash,
+        authorAgentId: identity.agentId,
+        postId: digest("pst_", 2),
+        canonicalIntent: bytes("intent"),
+      },
+    });
+    yield* store.lockProposal({
+      conversationId: foundation.conversationId,
+      actionHash: record.actionHash,
+      canonicalActionCore: bytes("action-core"),
+    });
+    yield* store.applyCatchUpRecord(record, {
+      recipientAgentId: identity.agentId,
+      canonicalMessage: bytes("delivery"),
+    });
+    const outbound = yield* store.enqueueOutbound({
+      conversationId: foundation.conversationId,
+      messageId: "msg_pre_cutover",
+      canonicalSignedMessage: bytes("plaintext outer envelope"),
+    });
+    yield* store.beginSendAttempt("before-cutover", sendInput);
+    yield* store.writeEventState(eventState);
+    yield* store.putInboxItem({
+      deliveryToken: token,
+      canonicalItem: inboxItem,
+    });
+    return outbound.outboundId;
+  });
+
+function readSchemaVersion(path: string) {
+  const database = new DatabaseSync(databasePath(path), { readOnly: true });
+  const row = database.prepare("PRAGMA user_version").get();
+  database.close();
+  return row;
+}
+
+const opensEmptyAfterTheCutover = (version: 2 | 3) => {
   const path = stateDirectory();
-  const identity = {
-    agentId: "agent:alice",
-    canonicalAgentCard: new Uint8Array([1, 2, 3]),
-  };
   return Effect.runPromise(
     Effect.gen(function* () {
-      yield* withStore(path, (store) => store.bindIdentity(identity));
-      yield* downgradeToSchemaV2(path);
+      const outboundId = yield* withStore(path, seedPreCutoverState);
+      yield* rewindToPreCutoverSchema(path, version);
+
       yield* withStore(path, (store) =>
         Effect.gen(function* () {
-          expect(yield* store.readIdentity()).toEqual(identity);
+          expect(yield* store.readIdentity()).toBeUndefined();
+          expect(yield* store.recover()).toEqual({
+            postIntents: [],
+            memberships: [],
+            anchors: [],
+            positions: [],
+            proposalLocks: [],
+            stagedRecords: [],
+            evidence: [],
+            certifiedRecords: [],
+            stagedReanchors: [],
+            pendingDeliveries: [],
+            disseminationObligations: [],
+            outboundMessages: [],
+          });
+          const unsent = yield* store
+            .beginOutbound(outboundId)
+            .pipe(Effect.flip);
+          expect(unsent.reason).toBe("not-found");
+          expect(
+            yield* store.readSendAttempt("before-cutover"),
+          ).toBeUndefined();
+          expect(yield* store.readEventState()).toBeUndefined();
           expect(yield* store.readInboxSummary()).toEqual({
             pendingCount: 0,
             newestSequence: 0,
           });
-          expect(
-            yield* store.putInboxItem({
-              deliveryToken: token,
-              canonicalItem: bytes('{"kind":"operationFailed"}'),
-            }),
-          ).toBe("inserted");
         }),
       );
-      yield* Effect.sync(() => {
-        const database = new DatabaseSync(databasePath(path), {
-          readOnly: true,
-        });
-        expect(database.prepare("PRAGMA user_version").get()).toMatchObject({
-          user_version: 3,
-        });
-        database.close();
-      });
+      expect(readSchemaVersion(path)).toMatchObject({ user_version: 4 });
     }),
   );
-}
+};
 
 describe("endpoint runtime state", () => {
   it(
     "retains completed and interrupted invocations and event state across restart",
     retainsInvocationAndEventState,
   );
-  it(
-    "upgrades schema version 2 without replacing the configured identity",
-    upgradesSchemaVersion2WithoutReplacingTheIdentity,
+  it.each([3, 2] as const)(
+    "opens a schema version %i store empty, unregistered and without its queued envelope",
+    opensEmptyAfterTheCutover,
   );
 });
 

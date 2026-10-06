@@ -1,9 +1,20 @@
 /** @file Small boundary tests for the private addressed Client representation. */
 
-import { AgentId, MOLTZAP_VERSION } from "@moltzap/identity";
+import {
+  AgentId,
+  MessageId,
+  MOLTZAP_VERSION,
+  SignedMessage,
+} from "@moltzap/identity";
 import canonicalize from "canonicalize";
 import { Effect, Encoding, Schema } from "effect";
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import {
+  issueTestCard,
+  makeTestAuthority,
+  type RegistryKeyPair,
+} from "../../__tests__/agent-card-fixtures.js";
 import {
   ActionHash,
   ActionSignatureStatement,
@@ -19,6 +30,7 @@ import {
   maximumContentBytes,
   MembershipHash,
   mintPostId,
+  signOuterPacket,
 } from "./index.js";
 
 const utf8Encoder = new TextEncoder();
@@ -141,16 +153,69 @@ const derivesStableEvidenceIdentity = () =>
     }),
   );
 
-const classifiesOnlyClosedOuterBodies = () =>
+const makeMember = (byte: number, registryKeys: RegistryKeyPair) =>
+  Effect.gen(function* () {
+    const authority = yield* makeTestAuthority();
+    const card = yield* issueTestCard({
+      byte,
+      name: `sealed-member-${byte}`,
+      authority,
+      registryKeys,
+    });
+    return { agentCard: card, signingAuthority: authority };
+  });
+
+const opensSealedBodiesOnlyForMembers = () =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const bytes = yield* encodeCanonical(CatchUpRequest, catchUpRequest);
-      expect(yield* decodeOuterBody(bytes)).toMatchObject({
-        kind: "direct",
+      const registryKeys = generateKeyPairSync("ed25519");
+      const sender = yield* makeMember(1, registryKeys);
+      const receiver = yield* makeMember(2, registryKeys);
+      const outsider = yield* makeMember(3, registryKeys);
+
+      const sealed = yield* signOuterPacket({
         packet: catchUpRequest,
+        membership: { members: [sender.agentCard, receiver.agentCard] },
+        ...sender,
       });
+
       yield* expectRepresentationFailure(
-        decodeOuterBody(utf8Encoder.encode("{}")),
+        decodeCanonical(CatchUpRequest, sealed.body),
+      );
+      expect(
+        yield* decodeOuterBody({ ...receiver, message: sealed }),
+      ).toStrictEqual({ kind: "direct", packet: catchUpRequest });
+      expect(
+        yield* decodeOuterBody({ ...sender, message: sealed }),
+      ).toStrictEqual({ kind: "direct", packet: catchUpRequest });
+      yield* expectRepresentationFailure(
+        decodeOuterBody({ ...outsider, message: sealed }),
+      );
+    }),
+  );
+
+const refusesPlaintextOuterBody = () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const registryKeys = generateKeyPairSync("ed25519");
+      const sender = yield* makeMember(1, registryKeys);
+      const receiver = yield* makeMember(2, registryKeys);
+
+      const plaintext = yield* SignedMessage.sign({
+        agentCard: sender.agentCard,
+        signingAuthority: sender.signingAuthority,
+        recipientAgentIds: new Set([
+          sender.agentCard.agentId,
+          receiver.agentCard.agentId,
+        ]),
+        messageId: Schema.decodeUnknownSync(MessageId)(
+          identifier("msg_", 16, 6),
+        ),
+        body: yield* encodeCanonical(CatchUpRequest, catchUpRequest),
+      });
+
+      yield* expectRepresentationFailure(
+        decodeOuterBody({ ...receiver, message: plaintext }),
       );
     }),
   );
@@ -171,9 +236,10 @@ describe("Client protocol representation", () => {
     derivesStableEvidenceIdentity,
   );
   it(
-    "classifies only complete exact outer bodies",
-    classifiesOnlyClosedOuterBodies,
+    "opens a sealed outer body for each member and for no one else",
+    opensSealedBodiesOnlyForMembers,
   );
+  it("refuses a plaintext outer body", refusesPlaintextOuterBody);
   // Every wire hash identifier admits only its prefix over the canonical
   // base64url of 32 bytes.
   it("accepts a hash identifier in the canonical 32-byte form", () => {

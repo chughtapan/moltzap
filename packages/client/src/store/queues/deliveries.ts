@@ -48,29 +48,6 @@ export function readPendingDeliveries(
 }
 
 /**
- * Reads pending rows that predate durable classification and may have been answered.
- * The migration retains these identities atomically with the inbox schema so a
- * crash before daemon recovery cannot reopen their volatile response state.
- * @param database Exclusively owned endpoint database.
- * @returns Unacknowledged deliveries retained by the inbox schema migration.
- */
-export function readLegacyPendingDeliveries(
-  database: DatabaseSync,
-): readonly PendingDelivery[] {
-  return Object.freeze(
-    database
-      .prepare(
-        `SELECT ${deliveryColumns} FROM pending_deliveries
-         WHERE acknowledged = 0 AND delivery_token IN
-           (SELECT delivery_token FROM runtime_legacy_deliveries)
-         ORDER BY delivery_sequence`,
-      )
-      .all()
-      .map(readPendingDelivery),
-  );
-}
-
-/**
  * Reads every retained delivery, including acknowledged tombstones.
  *
  * @param database Exclusively owned endpoint database.

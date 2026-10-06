@@ -1,17 +1,12 @@
-/** @file Schema upgrade preserves protocol state without reopening answered requests. */
+/** @file A pending collective request delivery stays answerable across a restart of a current store. */
 
 import { Effect, Encoding, Option, Schema, Scope } from "effect";
 import { expect, it } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
-import {
-  bytes,
-  downgradeToSchemaV2,
-  stateDirectory,
-} from "../__tests__/store-schema-fixtures.js";
+import { bytes, stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import {
   type CertifiedRecord,
   decodeRuntimeValue,
-  type EndpointRecovery,
   type EndpointStore,
   openEndpointStore,
 } from "../store/index.js";
@@ -147,69 +142,6 @@ const storeRequest = (path: string) =>
       return yield* store.recover();
     }),
   );
-
-/** Store Bob's request, answer it through a collective layer, and return what the store recovers. */
-const storeAnsweredRequest = (path: string, counter: { count: number }) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const store = yield* openEndpointStore(path);
-      const request = message();
-      yield* seedRequest(store, request);
-      const original = makeCollectives(counter, yield* Scope.Scope);
-      yield* original.classify({ message: request, recordHash });
-      yield* original.send(response, "result");
-      return yield* store.recover();
-    }),
-  );
-const checkRecoveredRequest = (
-  path: string,
-  counter: { count: number },
-  before: EndpointRecovery,
-) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const store = yield* openEndpointStore(path);
-      expect(yield* store.recover()).toEqual(before);
-      yield* recoverRuntimeInbox(store);
-      expect(yield* store.readPendingDeliveries()).toEqual([]);
-      const inbox = yield* readRuntimeInbox(store, {});
-      expect(inbox.items.map((entry) => entry.item)).toMatchObject([
-        { kind: "operationFailed", id, to: sender },
-      ]);
-      expect(inbox.items[0]?.deliveryToken).not.toBe(
-        before.pendingDeliveries[0]?.deliveryToken,
-      );
-      const restarted = makeCollectives(counter, yield* Scope.Scope);
-      const rejected = yield* restarted
-        .send(response, "result")
-        .pipe(Effect.flip);
-      expect(rejected).toMatchObject({
-        _tag: "CollectiveError",
-        failure: { kind: "request-none" },
-      });
-      expect(counter.count).toBe(1);
-      yield* recoverRuntimeInbox(store);
-      expect(yield* readRuntimeInbox(store, {})).toEqual(inbox);
-    }),
-  );
-const preservesProtocolStateAndRetiresLegacyRequest = () => {
-  const path = stateDirectory();
-  const counter = { count: 0 };
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      const before = yield* storeAnsweredRequest(path, counter);
-      yield* downgradeToSchemaV2(path);
-      yield* Effect.scoped(openEndpointStore(path));
-      yield* checkRecoveredRequest(path, counter, before);
-    }),
-  );
-};
-
-// @agent-code-guard/regression-only: the real schema 2 replay previously reopened an already answered request; sendPost is the only protocol side effect replaced by this fixture.
-it(
-  "preserves locks, records and outbox on upgrade while retiring an answered legacy request",
-  preservesProtocolStateAndRetiresLegacyRequest,
-);
 
 const preservesUnprojectedRequest = () => {
   const path = stateDirectory();

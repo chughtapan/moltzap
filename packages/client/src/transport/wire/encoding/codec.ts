@@ -6,6 +6,7 @@ import {
   MessageId,
   type MessageId as MessageIdValue,
   MOLTZAP_VERSION,
+  SealedBody,
   SignedMessage,
   type SignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
@@ -236,7 +237,13 @@ export type DecodedOuterBody =
   | Readonly<{ kind: "direct"; packet: DirectPacketValue }>
   | Readonly<{ kind: "evidence"; message: SignedMessageValue }>;
 
-export const decodeOuterBody = (
+/** The local agent an outer body opens for, and the authority holding its opening key. */
+export interface OuterBodyReader {
+  readonly agentCard: VerifiedAgentCard;
+  readonly signingAuthority: AgentSigningAuthority;
+}
+
+const decodePlaintext = (
   bytes: Uint8Array,
 ): Effect.Effect<DecodedOuterBody, ClientRepresentationError> =>
   decodeDirectPacket(bytes).pipe(
@@ -248,6 +255,25 @@ export const decodeOuterBody = (
         ),
       ),
     ),
+  );
+
+/**
+ * Opens a verified outer message's sealed body for the reader and decodes the
+ * Client value inside. Every outer body is sealed, so a plaintext body fails
+ * here like one sealed to other recipients, under another sender, or under
+ * another MessageId: each refuses the sender's message and says nothing about
+ * local state.
+ */
+export const decodeOuterBody = (
+  input: OuterBodyReader & { readonly message: VerifiedSignedMessage },
+): Effect.Effect<DecodedOuterBody, ClientRepresentationError> =>
+  SealedBody.open({
+    agentCard: input.agentCard,
+    signingAuthority: input.signingAuthority,
+    signedMessage: input.message,
+  }).pipe(
+    Effect.mapError(representationFailure),
+    Effect.flatMap(decodePlaintext),
   );
 
 export const signEvidenceMessage = (input: {
@@ -278,6 +304,12 @@ export interface OuterMembership {
   ];
 }
 
+/**
+ * Seals a canonical Client value to every member's AgentCard key, bound to the
+ * sender and a fresh outer MessageId, then signs the sealed bytes under that
+ * MessageId to the same members. The sender is a member, so it can open its
+ * own stored envelope.
+ */
 const signOuterBody = (input: {
   readonly body: Uint8Array;
   readonly membership: OuterMembership;
@@ -301,12 +333,18 @@ const signOuterBody = (input: {
     const messageId = yield* Schema.decodeUnknown(MessageId)(
       `msg_${Encoding.encodeBase64Url(randomId)}`,
     ).pipe(Effect.mapError(representationFailure));
+    const sealed = yield* SealedBody.seal({
+      senderAgentId: input.agentCard.agentId,
+      recipientAgentCards: input.membership.members,
+      messageId,
+      plaintext: input.body,
+    }).pipe(Effect.mapError(representationFailure));
     return yield* SignedMessage.sign({
       agentCard: input.agentCard,
       signingAuthority: input.signingAuthority,
       recipientAgentIds: new Set(memberAgentIds),
       messageId,
-      body: input.body,
+      body: sealed,
     }).pipe(Effect.mapError(representationFailure));
   }).pipe(Effect.withSpan("signOuterBody"));
 

@@ -4,7 +4,6 @@
 
 export {
   acknowledgeDelivery,
-  readLegacyPendingDeliveries,
   readPendingDeliveries,
   readRetainedDeliveries,
   retainDeliveryInTransaction,
