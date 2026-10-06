@@ -40,8 +40,7 @@ heading below in its release commit.
   signing a new copy. Members may receive that message more than once and
   count it once.
 - The `status` owner tool fails only with `incompatible-daemon`, including on
-  an unexpected internal failure. It reads the daemon's registration state
-  rather than the store, so it no longer reports `persistence-failed`.
+  an unexpected internal failure; it no longer reports `persistence-failed`.
 
 ### Fixed
 
