@@ -46,7 +46,6 @@ export function unusedEndpointStore(label: string): EndpointStore {
     enqueueOutbound: unused,
     enqueueDisseminationOutbound: unused,
     beginOutbound: unused,
-    replaceOutbound: unused,
     completeOutbound: unused,
     discardOutbound: unused,
     restartEmptyConversation: unused,

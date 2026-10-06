@@ -211,10 +211,16 @@ export function completeReanchor(
 }
 
 /**
- * Atomically stages and completes exactly one verified catch-up anchor item.
+ * Atomically stages and completes one member's verified completed re-anchor.
+ *
+ * The completion replaces a different candidate this endpoint staged for the
+ * same previous anchor and Router instance. The one-candidate rule limits
+ * what this endpoint signs, not which quorum-certified anchor it accepts:
+ * two certificates in one scope would need an honest member to vote twice,
+ * so the replaced candidate can never be certified.
  *
  * @param database Exclusively owned endpoint database.
- * @param reanchor One verified completed re-anchor from catch-up.
+ * @param reanchor One verified completed re-anchor from a member.
  * @returns Whether any durable state was added.
  */
 export function applyCatchUpReanchor(
@@ -223,6 +229,7 @@ export function applyCatchUpReanchor(
 ): StoreMutation {
   validateCompletedReanchor(reanchor);
   return transaction(database, () => {
+    retireSupersededCandidates(database, reanchor);
     const staged = stageReanchorInTransaction(database, reanchor);
     const completed = completeReanchorInTransaction(database, reanchor);
     return staged === "inserted" || completed === "inserted"
@@ -498,7 +505,135 @@ function completeReanchorInTransaction(
   }
   requireReanchorPosition(database, reanchor);
   insertCompletedReanchor(database, reanchor);
+  releaseSupersededProposal(database, reanchor);
   return "inserted";
+}
+
+/**
+ * Retires the proposal locked at the head a completed re-anchor selects: its
+ * lock, the action signatures held for it, and a record this endpoint staged
+ * for it with that record's durability votes and dissemination obligation.
+ *
+ * An action binds its anchor, so once the new anchor is current no action
+ * under the previous one is gap-free, and the old proposal can never be
+ * signed, staged or certified here again. Its lock, kept, would refuse every
+ * candidate at that head under the new anchor and stall the conversation;
+ * its signatures or staged record, kept without the lock, would name an
+ * action no durable lock selects, which startup refuses.
+ *
+ * The staged record can be retired because the re-anchor's quorum
+ * certificate shows it can never be certified anywhere: a member holding a
+ * staged successor does not vote to re-anchor behind it, so the q(n) members
+ * that selected this head leave at most 2f members that can attest the
+ * successor's durability, fewer than q(n).
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param reanchor Completed re-anchor that just became current.
+ */
+function releaseSupersededProposal(
+  database: DatabaseSync,
+  reanchor: CompletedReanchor,
+): void {
+  const { conversationId } = reanchor;
+  const lock = findProposalLock(
+    database,
+    conversationId,
+    reanchor.selectedRecordHash,
+  );
+  if (lock === undefined) {
+    return;
+  }
+  for (const recordHash of stagedRecordHashes(database, lock)) {
+    database
+      .prepare(
+        `DELETE FROM dissemination_obligations
+         WHERE conversation_id = ? AND record_hash = ?`,
+      )
+      .run(conversationId, recordHash);
+    database
+      .prepare(
+        `DELETE FROM protocol_evidence
+         WHERE conversation_id = ? AND evidence_kind = 'durability'
+           AND subject_id = ?`,
+      )
+      .run(conversationId, recordHash);
+    database
+      .prepare(
+        `DELETE FROM staged_records
+         WHERE conversation_id = ? AND record_hash = ?`,
+      )
+      .run(conversationId, recordHash);
+  }
+  database
+    .prepare(
+      `DELETE FROM protocol_evidence
+       WHERE conversation_id = ? AND evidence_kind = 'action'
+         AND subject_id = ?`,
+    )
+    .run(conversationId, lock.actionHash);
+  database
+    .prepare(
+      `DELETE FROM proposal_locks
+       WHERE conversation_id = ? AND predecessor_key = ?`,
+    )
+    .run(conversationId, reanchor.selectedRecordHash);
+}
+
+/**
+ * Delete this endpoint's uncompleted candidates in a completed re-anchor's
+ * scope that the completion does not select, with their re-anchor votes.
+ * @param database Exclusively owned endpoint database.
+ * @param reanchor Verified completed re-anchor that supersedes them.
+ */
+function retireSupersededCandidates(
+  database: DatabaseSync,
+  reanchor: CompletedReanchor,
+): void {
+  const scope = [
+    reanchor.conversationId,
+    reanchor.previousAnchorHash,
+    reanchor.routerInstanceId,
+    reanchor.anchorHash,
+  ] as const;
+  const superseded = database
+    .prepare(
+      `SELECT anchor_hash FROM reanchors
+       WHERE conversation_id = ? AND previous_anchor_hash = ?
+         AND router_instance_id = ? AND anchor_hash <> ?
+         AND canonical_completed_reanchor IS NULL`,
+    )
+    .all(...scope)
+    .map((row) => readText(row, "anchor_hash"));
+  for (const anchorHash of superseded) {
+    database
+      .prepare(
+        `DELETE FROM protocol_evidence
+         WHERE conversation_id = ? AND evidence_kind = 'reanchor'
+           AND subject_id = ?`,
+      )
+      .run(reanchor.conversationId, anchorHash);
+  }
+  database
+    .prepare(
+      `DELETE FROM reanchors
+       WHERE conversation_id = ? AND previous_anchor_hash = ?
+         AND router_instance_id = ? AND anchor_hash <> ?
+         AND canonical_completed_reanchor IS NULL`,
+    )
+    .run(...scope);
+}
+
+function stagedRecordHashes(
+  database: DatabaseSync,
+  lock: ProposalLock,
+): readonly string[] {
+  return database
+    .prepare(
+      `SELECT record_hash FROM staged_records
+       WHERE conversation_id = ? AND action_hash = ?`,
+    )
+    .all(lock.conversationId, lock.actionHash)
+    .map((row) => readText(row, "record_hash"));
 }
 
 function requireUnclaimedReanchorScope(

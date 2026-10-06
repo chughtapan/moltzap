@@ -3,7 +3,6 @@
 import type {
   AgentId,
   AgentSigningAuthority,
-  SignedMessage,
   VerifiedAgentCard,
   VerifiedSignedMessage,
 } from "@moltzap/identity";
@@ -36,7 +35,9 @@ export class RouterWorkerPayloadInvalidError extends Data.TaggedError(
 
 /**
  * The Router could not be reached, timed out, or answered overloaded,
- * unavailable, or internal error through a bounded run of quick retries.
+ * unavailable, or internal error through a bounded run of quick retries, or a
+ * send spent its attempts while Router kept losing its retry identity. Either
+ * way the work waits for the next attempt rather than failing closed.
  */
 export class RouterWorkerTransportError extends Data.TaggedError(
   "RouterWorkerTransportError",
@@ -93,7 +94,7 @@ export interface RouterTailAnchor {
 /** A verified protocol input either changed durable state or was conclusively irrelevant. */
 export type RouterIngressDisposition = "accepted" | "ignored";
 
-/** Closed failures returned by initial and recovery sends. */
+/** Closed failures returned by a send. */
 export type RouterWorkerSendError =
   | RouterWorkerAuthenticationError
   | RouterWorkerPersistenceError
@@ -127,24 +128,12 @@ export interface RouterWorkerIngress<Payload> {
 export interface RouterWorkerRecovery {
   readonly reason: RouterDiscontinuityReason;
   readonly anchor: RouterTailAnchor;
-  readonly resume: (
-    outboundId: string,
-  ) => Effect.Effect<void, RouterWorkerSendError>;
-  readonly send: (
-    input: RouterWorkerRecoverySend,
-  ) => Effect.Effect<void, RouterWorkerSendError>;
-}
-
-/** One recovery-only message before its complete outer envelope is retained. */
-export interface RouterWorkerRecoverySend {
-  readonly conversationId: string;
-  readonly message: SignedMessage;
 }
 
 /** Durable operations required by the Router transport and no other worker path. */
 type RouterWorkerOutbox = Pick<
   EndpointStore,
-  "enqueueOutbound" | "beginOutbound" | "replaceOutbound" | "completeOutbound"
+  "enqueueOutbound" | "beginOutbound" | "completeOutbound"
 >;
 
 /** Private endpoint callbacks around the Router worker's ordering boundary. */
@@ -166,7 +155,9 @@ export interface RouterWorkerCallbacks<Payload> {
   ) => Effect.Effect<void>;
   readonly recoverCertifiedHistory: (
     input: RouterWorkerRecovery,
-  ) => Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError>;
+  ) => Effect.Effect<void, RouterWorkerRecoveryError>;
+  /** The worker reattached to the same Router instance after an outage. */
+  readonly reattached: () => Effect.Effect<void>;
 }
 
 /** Complete private construction input for one registered endpoint. */
@@ -273,7 +264,7 @@ export type RouterWorkerSendOutcome =
   | Readonly<{ kind: "accepted" }>
   | Readonly<{ kind: "restarted" }>;
 
-/** Complete number of attempts for one ambiguous transport operation. */
+/** Attempts one send spends on transport retries and identity-loss resends. */
 export const routerWorkerRetryAttempts = 3;
 /** Fixed interruptible spacing between bounded attempts. */
 export const routerWorkerRetryDelay = "25 millis";

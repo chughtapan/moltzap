@@ -35,7 +35,7 @@ import {
 } from "../wire/index.js";
 import { resolveMessageAddress } from "./address.js";
 import { SendError } from "./errors.js";
-import { currentRecoveryBarrier } from "./recovery/barrier.js";
+import { pendingRecoveryFence } from "./recovery/index.js";
 
 /**
  * One post the engine certifies: its address and its complete content. The
@@ -507,9 +507,12 @@ function activateIntent(
           case "ready":
             return Effect.succeed(activation.completion);
           case "waiting":
-            return Deferred.await(activation.barrier).pipe(
-              Effect.zipRight(activateIntent(runtime, prepared)),
-            );
+            return runtime.phases
+              .rearmCatchUp(runtime, prepared.intent.conversationId)
+              .pipe(
+                Effect.zipRight(Deferred.await(activation.barrier)),
+                Effect.zipRight(activateIntent(runtime, prepared)),
+              );
           default: {
             const exhaustive: never = activation;
             return exhaustive;
@@ -525,7 +528,7 @@ function activateIntentOnce(
 ): Effect.Effect<IntentActivation, SendError> {
   const { canonicalIntent, intent } = prepared;
   return Effect.gen(function* () {
-    const barrier = currentRecoveryBarrier(runtime);
+    const barrier = pendingRecoveryFence(runtime, intent.conversationId);
     if (barrier !== undefined) {
       return { kind: "waiting", barrier } satisfies IntentActivation;
     }

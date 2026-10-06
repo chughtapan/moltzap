@@ -9,11 +9,8 @@ import {
   SignedMessage,
 } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
+import type { EndpointRecovery } from "../../../store/index.js";
 import type { EngineRuntime } from "../runtime/index.js";
-import {
-  type EndpointRecovery,
-  isSemanticStoreRejection,
-} from "../../../store/index.js";
 import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,
@@ -27,14 +24,12 @@ import {
   CatchUpRequest,
   type CatchUpRequest as CatchUpRequestValue,
   type CertifiedRecord,
-  CompletedReanchor,
   type CompletedReanchor as CompletedReanchorValue,
   type ConversationId as ConversationIdValue,
   type DecodedOuterBody,
   type DirectPacket,
-  encodeCanonical,
   memberCard,
-  ReanchorBody,
+  quorumThreshold,
   RecordHash,
   type RecordHash as RecordHashValue,
   signEvidenceMessage,
@@ -48,6 +43,7 @@ import {
   durablePosition,
   readStoredRecord,
 } from "../history/index.js";
+import { applyCompletedReanchor } from "../reanchor/index.js";
 
 /**
  * One run's catch-up bookkeeping: the request in flight per conversation, the
@@ -75,7 +71,10 @@ export interface CatchUpRun {
     membership: VerifiedMembership,
     packet: DirectPacket,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
-  /** Every other member has attested that it holds no later history. */
+  /**
+   * A quorum of members, counting this endpoint, has attested that it holds
+   * no later history.
+   */
   readonly onPositionReady: (
     conversationId: ConversationIdValue,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
@@ -117,29 +116,25 @@ export const requestCertifiedHistory = (
   run: CatchUpRun,
   conversationId: ConversationIdValue,
 ): Effect.Effect<void, RouterWorkerPersistenceError> =>
-  Effect.gen(function* () {
-    const membership = run.membership(conversationId);
-    if (!run.isActive() || membership === undefined) {
-      return;
-    }
-    const { position } = yield* durablePosition(run.runtime, conversationId);
-    if (position === undefined) {
-      return yield* Effect.fail(persistenceFailure());
-    }
-    const knownRecordHash = yield* decodeKnownRecordHash(position);
-    const knownAnchorHash = yield* decodeKnownAnchorHash(position);
-    const request = yield* makeCatchUpRequest(
-      run.runtime,
-      membership,
-      knownRecordHash,
-      knownAnchorHash,
-    );
-    yield* Effect.sync(() => {
-      run.state.pendingRequests.set(conversationId, request);
-      run.state.incompleteResponders.set(conversationId, new Set<AgentId>());
-    });
-    yield* run.queuePacket(membership, request);
-  }).pipe(Effect.withSpan("requestCertifiedHistory"));
+  queueCatchUpRequest(run, conversationId, "restart").pipe(
+    Effect.withSpan("requestCertifiedHistory"),
+  );
+
+/**
+ * Ask the members again for the history after the conversation's durable
+ * position. The attestations already held for that same position still
+ * count, so a retry only collects the members that have not answered yet.
+ * @param run Recovery run that owns the request.
+ * @param conversationId Private conversation identity to reconcile.
+ * @returns Completion after the request is stored in the recovery queue.
+ */
+export const resendCertifiedHistoryRequest = (
+  run: CatchUpRun,
+  conversationId: ConversationIdValue,
+): Effect.Effect<void, RouterWorkerPersistenceError> =>
+  queueCatchUpRequest(run, conversationId, "keep").pipe(
+    Effect.withSpan("resendCertifiedHistoryRequest"),
+  );
 
 /**
  * Answer an authenticated catch-up request with the requester's next certified
@@ -160,10 +155,9 @@ export function acceptCatchUpRequest(
   }
   const senderAgentId = ingress.message.senderAgentId;
   const requestMatchesMembership =
-    senderAgentId !== responder.runtime.input.localAgentCard.agentId &&
+    sentByOtherMember(responder.runtime, membership, senderAgentId) &&
     senderAgentId === request.requesterAgentId &&
-    request.membershipHash === membership.hash &&
-    memberCard(membership, senderAgentId) !== undefined;
+    request.membershipHash === membership.hash;
   if (!requestMatchesMembership) {
     return Effect.succeed(ignoredDisposition);
   }
@@ -176,6 +170,25 @@ export function acceptCatchUpRequest(
     Effect.catchTag("ClientRepresentationError", () =>
       Effect.succeed(ignoredDisposition),
     ),
+  );
+}
+
+/**
+ * Whether a delivery came from one of the conversation's other fixed members,
+ * the only senders whose catch-up traffic counts.
+ * @param runtime Engine whose local identity is excluded.
+ * @param membership Verified fixed membership of the conversation.
+ * @param senderAgentId Outer sender of the delivery.
+ * @returns True for a fixed member other than this endpoint.
+ */
+export function sentByOtherMember(
+  runtime: EngineRuntime,
+  membership: VerifiedMembership,
+  senderAgentId: AgentId,
+): boolean {
+  return (
+    senderAgentId !== runtime.input.localAgentCard.agentId &&
+    memberCard(membership, senderAgentId) !== undefined
   );
 }
 
@@ -227,10 +240,7 @@ export function acceptCatchUpPage(
     if (applied === ignoredDisposition) {
       return ignoredDisposition;
     }
-    yield* Effect.sync(() => {
-      run.state.acceptedSuccessors.set(key, successor);
-    });
-    yield* requestCertifiedHistory(run, page.request.conversationId);
+    yield* continueAfterPage(run, page, key, successor);
     return acceptedDisposition;
   }).pipe(
     Effect.catchTag("ClientRepresentationError", () =>
@@ -241,8 +251,9 @@ export function acceptCatchUpPage(
 }
 
 /**
- * Record a member's attestation that it holds no later history; once every
- * other member has attested, the conversation's position is ready.
+ * Record a member's attestation that it holds no later history; once a
+ * quorum of members, counting this endpoint, has attested, the
+ * conversation's position is ready.
  * @param run Recovery run that sent the request.
  * @param ingress Verified Router delivery carrying the attestation.
  * @param incomplete Catch-up incomplete attestation from a fixed member.
@@ -293,6 +304,70 @@ export function acceptCatchUpIncomplete(
     ),
     Effect.withSpan("acceptCatchUpIncomplete"),
   );
+}
+
+/**
+ * Record a page's applied successor and ask for the history after it.
+ * @param run Recovery run that sent the request.
+ * @param page The applied page.
+ * @param key The page's request key.
+ * @param successor Hash of the page's applied item.
+ * @returns Completion after the next request is queued.
+ */
+function continueAfterPage(
+  run: CatchUpRun,
+  page: CatchUpPage,
+  key: string,
+  successor: RecordHashValue | AnchorHashValue,
+): Effect.Effect<void, RouterWorkerPersistenceError> {
+  return Effect.sync(() => {
+    run.state.acceptedSuccessors.set(key, successor);
+  }).pipe(
+    Effect.zipRight(requestCertifiedHistory(run, page.request.conversationId)),
+  );
+}
+
+/**
+ * Whether a request at an unchanged position starts its attestations over
+ * (`restart`) or keeps the ones already held (`keep`).
+ */
+type HeldAttestations = "restart" | "keep";
+
+function queueCatchUpRequest(
+  run: CatchUpRun,
+  conversationId: ConversationIdValue,
+  held: HeldAttestations,
+): Effect.Effect<void, RouterWorkerPersistenceError> {
+  return Effect.gen(function* () {
+    const membership = run.membership(conversationId);
+    if (!run.isActive() || membership === undefined) {
+      return;
+    }
+    const { position } = yield* durablePosition(run.runtime, conversationId);
+    if (position === undefined) {
+      return yield* Effect.fail(persistenceFailure());
+    }
+    const knownRecordHash = yield* decodeKnownRecordHash(position);
+    const knownAnchorHash = yield* decodeKnownAnchorHash(position);
+    const request = yield* makeCatchUpRequest(
+      run.runtime,
+      membership,
+      knownRecordHash,
+      knownAnchorHash,
+    );
+    yield* Effect.sync(() => {
+      const pending = run.state.pendingRequests.get(conversationId);
+      run.state.pendingRequests.set(conversationId, request);
+      if (
+        held === "restart" ||
+        pending === undefined ||
+        !sameRequest(pending, request)
+      ) {
+        run.state.incompleteResponders.set(conversationId, new Set<AgentId>());
+      }
+    });
+    yield* run.queuePacket(membership, request);
+  });
 }
 
 function respondToCatchUp(
@@ -503,7 +578,7 @@ function applyCatchUpPage(
   page: CatchUpPage,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
   if (page.item.kind === "completed_reanchor") {
-    return applyCaughtUpReanchor(runtime, page.item).pipe(
+    return applyCompletedReanchor(runtime, page.item).pipe(
       Effect.map((applied) =>
         applied ? acceptedDisposition : ignoredDisposition,
       ),
@@ -521,58 +596,17 @@ function persistenceFailure(): RouterWorkerPersistenceError {
 }
 
 /**
- * Make a member's caught-up completed re-anchor durable and the
- * conversation's current anchor. The store refuses one that conflicts with
- * durable state, such as a completion from an anchor and Router instance this
- * endpoint already staged another candidate for. That refusal comes from the
- * member's input, not a failed store, so the completion does not count.
- * @param runtime Engine whose store and conversation take the anchor.
- * @param completed Verified completed re-anchor from a catch-up page.
- * @returns Whether the anchor was applied; false when the store refused it.
+ * Count a member's attestation for the pending request. The position is
+ * ready when the attestations first reach a quorum counting this endpoint,
+ * so a later attestation does not make it ready twice. The request stays
+ * pending afterwards: a member that had not answered may still send a page
+ * with later history, which then moves the position on.
+ * @param state The run's catch-up bookkeeping.
+ * @param membership Verified membership of the conversation.
+ * @param conversationId Conversation the attestation is for.
+ * @param senderAgentId Member that attested.
+ * @returns Whether this attestation made the position ready.
  */
-function applyCaughtUpReanchor(
-  runtime: EngineRuntime,
-  completed: CompletedReanchorValue,
-): Effect.Effect<boolean, RouterWorkerPersistenceError> {
-  return Effect.gen(function* () {
-    const applied = yield* runtime.input.store
-      .applyCatchUpReanchor({
-        conversationId: completed.reanchor.conversationId,
-        anchorHash: completed.anchorHash,
-        previousAnchorHash: completed.reanchor.previousAnchorHash,
-        routerInstanceId: completed.reanchor.routerInstanceId,
-        selectedRecordHash: completed.reanchor.selectedRecordHash,
-        canonicalBody: yield* encodeCanonical(
-          ReanchorBody,
-          completed.reanchor,
-        ).pipe(Effect.mapError(persistenceFailure)),
-        canonicalCompletedReanchor: yield* encodeCanonical(
-          CompletedReanchor,
-          completed,
-        ).pipe(Effect.mapError(persistenceFailure)),
-      })
-      .pipe(
-        Effect.as(true),
-        Effect.catchTag("EndpointStoreError", (error) =>
-          isSemanticStoreRejection(error)
-            ? Effect.succeed(false)
-            : Effect.fail(persistenceFailure()),
-        ),
-      );
-    if (applied) {
-      yield* Effect.sync(() => {
-        const conversation = runtime.conversations.get(
-          completed.reanchor.conversationId,
-        );
-        if (conversation !== undefined) {
-          conversation.currentAnchor = completed;
-        }
-      });
-    }
-    return applied;
-  });
-}
-
 function recordIncompleteResponder(
   state: CatchUpState,
   membership: VerifiedMembership,
@@ -581,15 +615,12 @@ function recordIncompleteResponder(
 ): boolean {
   const responders =
     state.incompleteResponders.get(conversationId) ?? new Set<AgentId>();
-  responders.add(senderAgentId);
-  state.incompleteResponders.set(conversationId, responders);
-  const requiredRemoteResponders = membership.members.length - 1;
-  if (responders.size < requiredRemoteResponders) {
+  if (responders.has(senderAgentId)) {
     return false;
   }
-  state.pendingRequests.delete(conversationId);
-  state.incompleteResponders.delete(conversationId);
-  return true;
+  responders.add(senderAgentId);
+  state.incompleteResponders.set(conversationId, responders);
+  return responders.size === quorumThreshold(membership.members.length) - 1;
 }
 
 function sameRequest(
@@ -624,10 +655,7 @@ function pendingCatchUpContext(
   if (membership === undefined || pending === undefined) {
     return undefined;
   }
-  if (senderAgentId === run.runtime.input.localAgentCard.agentId) {
-    return undefined;
-  }
-  if (memberCard(membership, senderAgentId) === undefined) {
+  if (!sentByOtherMember(run.runtime, membership, senderAgentId)) {
     return undefined;
   }
   return { membership, pending };

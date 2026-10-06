@@ -3,7 +3,6 @@
 import {
   AgentCard,
   type AgentId,
-  MessageId,
   SignedMessage,
   type SignedMessage as SignedMessageValue,
   type VerifiedAgentCard,
@@ -27,12 +26,9 @@ import {
   Stream,
   SubscriptionRef,
 } from "effect";
-import { createHash, randomBytes } from "node:crypto";
-import type {
-  OutboundMessageInput,
-  StoredOutboundMessage,
-} from "../../store/index.js";
-import { decodeCanonical, encodeCanonical, sameBytes } from "../wire/index.js";
+import { createHash } from "node:crypto";
+import type { StoredOutboundMessage } from "../../store/index.js";
+import { decodeCanonical } from "../wire/index.js";
 import {
   detach,
   isTransportFailure,
@@ -60,7 +56,6 @@ import {
   RouterWorkerProtocolError,
   routerWorkerReconnectSchedule,
   type RouterWorkerRecoveringState,
-  type RouterWorkerRecoverySend,
   routerWorkerRetryAttempts,
   routerWorkerRetryDelay,
   type RouterWorkerRuntime,
@@ -68,7 +63,7 @@ import {
   type RouterWorkerSendOutcome,
   type RouterWorkerServices,
   type RouterWorkerState,
-  type RouterWorkerTransportError,
+  RouterWorkerTransportError,
   RouterWorkerUnavailableError,
   type RouterWorkerVerifiedIngress,
 } from "./types.js";
@@ -102,7 +97,6 @@ export type {
   RouterWorkerIngress,
   RouterWorkerInput,
   RouterWorkerRecovery,
-  RouterWorkerRecoverySend,
   RouterWorkerSendError,
 } from "./types.js";
 
@@ -149,60 +143,6 @@ const pollRouterTail = (
       Effect.interruptible,
     );
 
-const makeRandomMessageId = (): Effect.Effect<
-  MessageId,
-  RouterWorkerProtocolError
-> =>
-  Effect.try({
-    try: () => `msg_${randomBytes(16).toString("base64url")}`,
-    catch: mapProtocolError,
-  }).pipe(
-    Effect.flatMap((candidate) =>
-      Schema.decodeUnknown(MessageId)(candidate).pipe(
-        Effect.mapError(mapProtocolError),
-      ),
-    ),
-  );
-
-const recipientsEqual = (
-  left: readonly string[],
-  right: readonly string[],
-): boolean =>
-  left.length === right.length &&
-  left.every((agentId, index) => agentId === right[index]);
-
-const validateRewrapped = (
-  previous: SignedMessageValue,
-  next: SignedMessageValue,
-): Effect.Effect<SignedMessageValue, RouterWorkerProtocolError> => {
-  const sameEnvelopeBinding =
-    previous.senderAgentId === next.senderAgentId &&
-    previous.messageId !== next.messageId;
-  const sameOpaqueAttempt =
-    recipientsEqual(previous.recipientAgentIds, next.recipientAgentIds) &&
-    sameBytes(previous.body, next.body);
-  return sameEnvelopeBinding && sameOpaqueAttempt
-    ? Effect.succeed(next)
-    : Effect.fail(new RouterWorkerProtocolError());
-};
-
-const rewrapOuter = <Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-  signedMessage: SignedMessageValue,
-): Effect.Effect<SignedMessageValue, RouterWorkerProtocolError> =>
-  makeRandomMessageId().pipe(
-    Effect.flatMap((messageId) =>
-      SignedMessage.sign({
-        agentCard: runtime.input.callerAgentCard,
-        signingAuthority: runtime.input.signingAuthority,
-        recipientAgentIds: new Set(signedMessage.recipientAgentIds),
-        messageId,
-        body: signedMessage.body,
-      }).pipe(Effect.mapError(mapProtocolError)),
-    ),
-    Effect.flatMap((rewrapped) => validateRewrapped(signedMessage, rewrapped)),
-  );
-
 interface TransmitInput {
   readonly outbound: StoredOutboundMessage;
   readonly message: SignedMessageValue;
@@ -216,50 +156,43 @@ type OutboundTransportError =
   | RouterCallFailure
   | RouterWorkerProtocolError;
 
-const retryUnknown = <Payload>(
+/**
+ * Sends the same stored envelope again under the other Router mode.
+ *
+ * Router forgets a retry identity at eviction and refuses an `initial` for
+ * any retained identity, even with identical bytes. So a `retry` that finds no
+ * retained identity goes out again as `initial`, and an `initial` that
+ * conflicts asks again as `retry`, which Router accepts only for
+ * byte-identical bytes. Any other pairing of mode and result fails closed.
+ *
+ * The conflict path spends no attempt, so an `initial` that conflicts with a
+ * slower copy of itself still gets its answer on the last attempt. The
+ * unknown-identity path spends one, so a Router alternating the two results
+ * still exhausts the bound. Running out is a transport failure, as for lost
+ * connections, so the envelope waits for the next drain.
+ *
+ * @param runtime Worker capabilities and endpoint identity.
+ * @param input The attempt whose Router result named the other mode.
+ * @param mode The mode the resend uses.
+ * @param spent Attempts the resend costs.
+ * @returns Whether Router accepted the stored bytes or reported a restart.
+ */
+function resendInMode<Payload>(
   runtime: RouterWorkerRuntime<Payload>,
   input: TransmitInput,
-): Effect.Effect<RouterWorkerSendOutcome, OutboundTransportError> => {
-  if (input.mode !== "retry" || input.attemptsRemaining <= 1) {
+  mode: TransmitInput["mode"],
+  spent: 0 | 1,
+): Effect.Effect<RouterWorkerSendOutcome, OutboundTransportError> {
+  const attemptsRemaining = input.attemptsRemaining - spent;
+  if (input.mode === mode) {
     return Effect.fail(new RouterWorkerProtocolError());
   }
-  return Effect.gen(function* () {
-    const message = yield* rewrapOuter(runtime, input.message);
-    const canonicalSignedMessage = yield* encodeCanonical(
-      SignedMessage,
-      message,
-    ).pipe(Effect.mapError(mapProtocolError));
-    const replacement: OutboundMessageInput = {
-      conversationId: input.outbound.conversationId,
-      messageId: message.messageId,
-      canonicalSignedMessage,
-    };
-    const outbound = yield* runtime.input.outbox
-      .replaceOutbound(input.outbound, replacement)
-      .pipe(Effect.mapError(mapPersistenceError));
-    const attempt = yield* runtime.input.outbox
-      .beginOutbound(outbound.outboundId)
-      .pipe(Effect.mapError(mapPersistenceError));
-    if (
-      attempt.kind !== "pending" ||
-      attempt.mode !== "initial" ||
-      attempt.outbound.messageId !== outbound.messageId ||
-      !sameBytes(
-        attempt.outbound.canonicalSignedMessage,
-        outbound.canonicalSignedMessage,
-      )
-    ) {
-      return yield* Effect.fail(new RouterWorkerProtocolError());
-    }
-    return yield* transmitOuter(runtime, {
-      outbound: attempt.outbound,
-      message,
-      instance: input.instance,
-      mode: "initial",
-      attemptsRemaining: input.attemptsRemaining - 1,
-    });
-  });
-};
+  return attemptsRemaining < 1
+    ? Effect.logWarning(
+        "Router kept losing the retry identity; the envelope waits for the next drain",
+      ).pipe(Effect.zipRight(Effect.fail(new RouterWorkerTransportError())))
+    : transmitOuter(runtime, { ...input, mode, attemptsRemaining });
+}
 
 function digestCanonicalSignedMessage(
   canonicalSignedMessage: Uint8Array,
@@ -307,8 +240,9 @@ const interpretSendResult = <Payload>(
     case "router_restarted":
       return Effect.succeed({ kind: "restarted" });
     case "retry_identity_unknown":
-      return retryUnknown(runtime, input);
+      return resendInMode(runtime, input, "initial", 1);
     case "idempotency_conflict":
+      return resendInMode(runtime, input, "retry", 0);
     case "message_invalid":
       return Effect.fail(new RouterWorkerProtocolError());
     default: {
@@ -319,7 +253,8 @@ const interpretSendResult = <Payload>(
 };
 
 /**
- * Send one envelope with same-byte retry and one fresh-envelope recovery path.
+ * Send one stored envelope, resending its exact bytes and MessageId on every
+ * ambiguous outcome.
  * @param runtime Worker capabilities and endpoint identity.
  * @param input Exact envelope, Router fence, mode, and remaining attempts.
  * @returns Whether Router accepted the envelope or reported a restart.
@@ -414,38 +349,6 @@ function transmitOutbound<Payload>(
   );
 }
 
-/**
- * Retains a recovery envelope before its first recovery-only Router attempt.
- *
- * @param runtime Worker capabilities and durable outbox.
- * @param input Conversation binding and complete signed recovery message.
- * @param instance Router instance fence for this attempt.
- * @returns Whether the retained envelope completed or observed a restart.
- */
-function enqueueRecoveryOutbound<Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-  input: RouterWorkerRecoverySend,
-  instance: RouterInstanceId,
-): Effect.Effect<RouterWorkerSendOutcome, OutboundTransportError> {
-  return Effect.gen(function* () {
-    if (input.message.senderAgentId !== runtime.input.callerAgentId) {
-      return yield* Effect.fail(new RouterWorkerProtocolError());
-    }
-    const canonicalSignedMessage = yield* encodeCanonical(
-      SignedMessage,
-      input.message,
-    ).pipe(Effect.mapError(mapProtocolError));
-    const outbound = yield* runtime.input.outbox
-      .enqueueOutbound({
-        conversationId: input.conversationId,
-        messageId: input.message.messageId,
-        canonicalSignedMessage,
-      })
-      .pipe(Effect.mapError(mapPersistenceError));
-    return yield* transmitOutbound(runtime, outbound.outboundId, instance);
-  });
-}
-
 type AnchoredRecoveringState = RouterWorkerRecoveringState & {
   readonly anchor: NonNullable<RouterWorkerRecoveringState["anchor"]>;
 };
@@ -522,44 +425,6 @@ const commitRecoveryBatch = <Payload>(
     }),
   );
 
-const recoverySend = <Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-  input: RouterWorkerRecoverySend,
-): Effect.Effect<void, RouterWorkerSendError> =>
-  Effect.gen(function* () {
-    const state = yield* Ref.get(runtime.state);
-    if (state.kind !== "recovering" || state.anchor === undefined) {
-      return yield* Effect.fail(new RouterWorkerUnavailableError());
-    }
-    const outcome = yield* enqueueRecoveryOutbound(
-      runtime,
-      input,
-      state.anchor.routerInstanceId,
-    );
-    if (outcome.kind === "restarted") {
-      return yield* Effect.fail(new RouterWorkerDiscontinuityError());
-    }
-  });
-
-const recoveryResume = <Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-  outboundId: string,
-): Effect.Effect<void, RouterWorkerSendError> =>
-  Effect.gen(function* () {
-    const state = yield* Ref.get(runtime.state);
-    if (state.kind !== "recovering" || state.anchor === undefined) {
-      return yield* Effect.fail(new RouterWorkerUnavailableError());
-    }
-    const outcome = yield* transmitOutbound(
-      runtime,
-      outboundId,
-      state.anchor.routerInstanceId,
-    );
-    if (outcome.kind === "restarted") {
-      return yield* Effect.fail(new RouterWorkerDiscontinuityError());
-    }
-  });
-
 const pollRecoveringOnce = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
   operations: RecoveryOperations,
@@ -625,8 +490,6 @@ const finishRouterRecovery = <Payload>(
       runtime.input.callbacks.recoverCertifiedHistory({
         reason: prepared.reason,
         anchor: prepared.anchor,
-        resume: (outboundId) => recoveryResume(runtime, outboundId),
-        send: (message) => recoverySend(runtime, message),
       }),
       pumpRecovery(runtime, operations, prepared),
       {

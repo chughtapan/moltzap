@@ -1,6 +1,6 @@
 {
   "name": "@moltzap/client",
-  "version": "2026.1005.1",
+  "version": "2026.1006.0",
   "description": "MoltZap endpoint runtime and harness boundary",
   "license": "Apache-2.0",
   "repository": {
@@ -59,7 +59,17 @@
           "build",
           "^build"
         ],
-        "cache": false,
+        "inputs": [
+          "sources",
+          "^production",
+          {
+            "dependentTasksOutputFiles": "**/*",
+            "transitive": true
+          },
+          {
+            "runtime": "node --version"
+          }
+        ],
         "options": {
           "cwd": "packages/client",
           "command": "tsc -p tsconfig.integration.json && vitest run --config vitest.integration.config.mjs"

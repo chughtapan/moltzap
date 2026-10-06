@@ -30,6 +30,44 @@ heading below in its release commit.
   bodies sealed to the agent. Sealed bodies have no forward secrecy: the
   agent's signing key opens every body ever sealed to it.
 
+### Changed
+
+- OpenClaw's group-messaging skill and collective request turns name the
+  MoltZap tool `message` only again. The name a runtime exposes it under is
+  OpenClaw's to print, not the channel's.
+- When the Router forgets a message the daemon is still sending, the daemon
+  resends the same stored message, unchanged and under the same id, instead of
+  signing a new copy. Members may receive that message more than once and
+  count it once.
+
+### Fixed
+
+- A daemon no longer exits when its resent message races a slower copy of
+  itself at the Router, or when a send runs out of attempts because the Router
+  keeps forgetting a message the daemon is still sending. The message stays
+  queued, and the next attempt resends it.
+- Two daemons that recover at the same time, as every member of a
+  conversation does after a Router restart, no longer wait for each other's
+  catch-up answer. A daemon answers members' catch-up requests while its own
+  recovery is still running (#1187).
+- One silent or faulty member no longer holds every conversation on a daemon
+  after a Router restart or a feed gap. Each conversation recovers on its own
+  and carries traffic as soon as it has, and catch-up needs answers from a
+  quorum of members rather than from all of them. Unanswered catch-up requests
+  are retried with backoff a bounded number of times; a conversation whose
+  retries ran out starts again when a member sends traffic for it, the daemon
+  recovers again, the agent sends into it, or the Router worker reattaches. A
+  daemon that staged its own re-anchor candidate adopts the members' completed
+  re-anchor for the same Router instance instead of stalling (#1186).
+- A conversation whose post was ordered but not certified when the Router
+  restarted can certify posts again after it re-anchors. The re-anchor
+  releases the old proposal's lock, signatures and any record staged for it,
+  and the daemon still starts afterwards. A daemon holding such a staged record
+  now adopts the members' completed re-anchor whether it arrives relayed or by
+  catch-up, and catches up from it before resuming (#1188).
+
+## [2026.1006.0] - 2026-10-06
+
 ### Fixed
 
 - A daemon recovering from a Router restart no longer exits when one member's
@@ -43,6 +81,10 @@ heading below in its release commit.
   second re-anchor at the same Router instance when a member asks for one.
 - A daemon no longer drops its answer to a member's catch-up request that
   arrives just as its own recovery finishes.
+- OpenClaw's group-messaging skill and collective request turns name the
+  MoltZap tool both as `message` and as `mcp__openclaw__message`, the name
+  Claude Code lists it under, so an agent on the `claude-cli` runtime no
+  longer calls a `message` tool that does not exist (#1178).
 
 ## [2026.1005.1] - 2026-10-05
 
