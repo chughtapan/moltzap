@@ -11,7 +11,7 @@ import {
   type SignedMessage as SignedMessageValue,
 } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
-import type { EngineRuntime } from "../runtime/index.js";
+import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
 import {
   type EndpointRecovery,
   isSemanticStoreRejection,
@@ -216,24 +216,123 @@ export function persistCompletedReanchor(
   }).pipe(
     Effect.mapError(persistenceFailure),
     Effect.flatMap((canonical) =>
-      runtime.input.store.completeReanchor({
-        conversationId: body.conversationId,
-        anchorHash: completed.anchorHash,
-        previousAnchorHash: body.previousAnchorHash,
-        routerInstanceId: body.routerInstanceId,
-        selectedRecordHash: body.selectedRecordHash,
-        ...canonical,
-      }),
-    ),
-    Effect.flatMap(() =>
-      Effect.sync(() => {
-        const conversation = runtime.conversations.get(body.conversationId);
-        if (conversation !== undefined) {
-          conversation.currentAnchor = completed;
-        }
-      }),
+      runtime.input.store
+        .completeReanchor({
+          conversationId: body.conversationId,
+          anchorHash: completed.anchorHash,
+          previousAnchorHash: body.previousAnchorHash,
+          routerInstanceId: body.routerInstanceId,
+          selectedRecordHash: body.selectedRecordHash,
+          ...canonical,
+        })
+        .pipe(
+          Effect.zipRight(
+            Effect.sync(() => {
+              adoptCompletedReanchor(runtime, completed);
+            }),
+          ),
+          Effect.uninterruptible,
+        ),
     ),
     Effect.mapError(persistenceFailure),
+  );
+}
+
+/**
+ * Make a member's verified completed re-anchor durable and the
+ * conversation's current anchor. The store refuses one that does not extend
+ * this endpoint's durable position, or that conflicts with a candidate it
+ * already staged for the same anchor and Router instance; that refusal comes
+ * from the member's input, not a failed store, so the completion does not
+ * count. The durable change and its adoption in memory happen together, so
+ * an interruption cannot leave the store past an anchor the engine still
+ * holds.
+ * @param runtime Engine whose store and conversation take the anchor.
+ * @param completed Verified completed re-anchor from a member.
+ * @returns Whether the anchor was applied; false when the store refused it.
+ */
+export function applyCompletedReanchor(
+  runtime: EngineRuntime,
+  completed: CompletedReanchorValue,
+): Effect.Effect<boolean, RouterWorkerPersistenceError> {
+  const body = completed.reanchor;
+  return Effect.all({
+    canonicalBody: encodeCanonical(ReanchorBody, body),
+    canonicalCompletedReanchor: encodeCanonical(CompletedReanchor, completed),
+  }).pipe(
+    Effect.mapError(persistenceFailure),
+    Effect.flatMap((canonical) =>
+      runtime.input.store
+        .applyCatchUpReanchor({
+          conversationId: body.conversationId,
+          anchorHash: completed.anchorHash,
+          previousAnchorHash: body.previousAnchorHash,
+          routerInstanceId: body.routerInstanceId,
+          selectedRecordHash: body.selectedRecordHash,
+          ...canonical,
+        })
+        .pipe(
+          Effect.zipRight(
+            Effect.sync(() => {
+              adoptCompletedReanchor(runtime, completed);
+            }),
+          ),
+          Effect.as(true),
+          Effect.catchTag("EndpointStoreError", (error) =>
+            isSemanticStoreRejection(error)
+              ? Effect.succeed(false)
+              : Effect.fail(persistenceFailure()),
+          ),
+          Effect.uninterruptible,
+        ),
+    ),
+    Effect.withSpan("applyCompletedReanchor"),
+  );
+}
+
+/**
+ * Make a durable completed re-anchor the conversation's current anchor in
+ * memory, and drop the fold of the proposal it supersedes at the selected
+ * head, staged or not. That proposal binds the previous anchor, so it is no
+ * longer gap-free and can never certify; the store has retired its lock,
+ * signatures and staged record, and resuming its fold would only resend dead
+ * evidence.
+ * @param runtime Engine whose conversation and folds change.
+ * @param completed Completed re-anchor the store has made current.
+ */
+function adoptCompletedReanchor(
+  runtime: EngineRuntime,
+  completed: CompletedReanchorValue,
+): void {
+  const body = completed.reanchor;
+  const conversation = runtime.conversations.get(body.conversationId);
+  if (conversation !== undefined) {
+    conversation.currentAnchor = completed;
+  }
+  for (const [actionHash, fold] of runtime.actionFolds) {
+    if (isSupersededProposal(fold, completed)) {
+      runtime.actionFolds.delete(actionHash);
+      if (fold.recordHash !== undefined) {
+        runtime.recordFolds.delete(fold.recordHash);
+      }
+    }
+  }
+}
+
+function isSupersededProposal(
+  fold: EngineActionFold,
+  completed: CompletedReanchorValue,
+): boolean {
+  const body = completed.reanchor;
+  if (
+    fold.conversation.conversationId !== body.conversationId ||
+    fold.action.kind !== "POST"
+  ) {
+    return false;
+  }
+  return (
+    fold.action.previousRecordHash === body.selectedRecordHash &&
+    fold.action.anchorHash !== completed.anchorHash
   );
 }
 
