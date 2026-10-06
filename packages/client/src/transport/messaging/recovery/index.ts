@@ -1,7 +1,9 @@
 /**
- * @file Recovery run lifecycle: one authenticated catch-up and re-anchor run
- * per Router discontinuity, its ingress dispatch, its outbound queue and
- * completion accounting, and the ports its catch-up and re-anchor use.
+ * @file Recovery lifecycle: the attempts of one Router discontinuity, each
+ * with the outbound queue its run sends from and the answers it carries to
+ * the next, the authenticated catch-up and re-anchor run an attempt starts,
+ * its ingress dispatch and completion accounting, and the ports its catch-up
+ * and re-anchor use.
  */
 
 import { Deferred, Effect, Fiber, Queue, type Scope } from "effect";

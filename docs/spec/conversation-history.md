@@ -477,14 +477,19 @@ anchor it stages no record and casts no durability vote under that anchor. A
 `q(n)` re-anchor certificate at a head therefore leaves fewer than `q(n)`
 members able to attest a staged successor's durability. A member that holds
 such a successor adopts a verified completed re-anchor at its head, by relay
-or catch-up, even though it cast no vote for it. New actions bind the durable
+or catch-up, even though it cast no vote for it. After adopting a completed
+re-anchor, a member catches up from the new anchor before the conversation
+recovers, because members may already have certified records under it. New
+actions bind the durable
 new anchor. Catch-up and re-anchor do
 not create runtime messages by themselves. Verified catch-up or re-anchor
 input from a member that the endpoint cannot apply, such as input naming an
 anchor, record, or position it cannot resolve, does not count and never stops
 the endpoint. It can leave that conversation unrecovered. Recovery finishes
 only when every conversation has recovered. Until then the endpoint sends only
-catch-up and re-anchor traffic: its own posts, pending intents and retained
+catch-up and re-anchor traffic, which includes its answers to members'
+catch-up requests: an answer does not wait for the answering member's own
+recovery to finish. Its own posts, pending intents and retained
 outbound envelopes wait for every conversation, and the action traffic members
 send meanwhile is ignored.
 
