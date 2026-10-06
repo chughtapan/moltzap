@@ -970,14 +970,11 @@ const tamperCertifiedRecords =
     );
 
 /**
- * Value card. Protects: engine startup refuses a store snapshot whose rows
- * disagree with what they hold, and names the failure by its cause, so a
- * row's columns that disagree with its own bytes are persistence and bytes
- * that do not decode are representation. Fails when: startup accepts a
- * membership row whose hash names another descriptor, a certified row whose
- * PostId is not its core's, or a certified row with no action evidence; or
- * reports one of them under the other reason. Why new: the other restart
- * traces start only from snapshots the endpoint wrote itself. Seam: none; the
+ * Restart the engine over a snapshot with one changed row. Startup refuses a
+ * row that disagrees with what it holds and names the failure by its cause:
+ * columns that disagree with the row's own bytes are a persistence failure,
+ * and bytes that do not decode are a representation failure. The other
+ * restart traces start only from snapshots the endpoint wrote itself. The
  * snapshot is changed through the `EndpointStore` port the engine already
  * takes, over a real store.
  * @param tamper Changes the snapshot the restarted engine reads.
@@ -2391,13 +2388,11 @@ const reanchorUntilCompletionSend = (fixture: RecoveryFixture) =>
   });
 
 /**
- * Value card. Protects: the signer order of the re-anchor certificate this
- * endpoint completes. The store returns re-anchor votes in encoded AgentId
- * order, and here that differs from the decoded-byte order a certificate
- * requires. Fails when: the completed re-anchor carries the votes in the
- * store's order, which its own verification rejects, so the endpoint never
- * sends it. Why new: the other re-anchor traces use identities whose encoded
- * and decoded orders agree. Seam: none; the engine runs over a real store.
+ * Complete a re-anchor between identities whose encoded and decoded AgentId
+ * orders differ, which the other re-anchor traces do not. The store returns
+ * re-anchor votes in encoded order, and a certificate requires decoded-byte
+ * order: a certificate carrying the store's order fails its own verification,
+ * so the endpoint never sends it.
  */
 const reanchorsWithNonLexicalAgentOrder = () =>
   Effect.runPromise(
@@ -3223,6 +3218,15 @@ describe("endpoint restart recovery", () => {
       tamper: tamperMemberships((row) => ({
         ...row,
         membershipHash: digest("mbr_", 36),
+      })),
+      restart: new EngineInitializationError({ reason: "persistence" }),
+    },
+    {
+      outcome: "fails to restart as persistence",
+      rows: "a membership row whose conversation is not its descriptor's",
+      tamper: tamperMemberships((row) => ({
+        ...row,
+        conversationId: digest("cnv_", 37),
       })),
       restart: new EngineInitializationError({ reason: "persistence" }),
     },
