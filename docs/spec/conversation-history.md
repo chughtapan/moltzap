@@ -386,8 +386,9 @@ kinds. Numeric equality does not make the evidence interchangeable.
 An honest member verifies membership, author, post intent, action certificate,
 anchor, predecessor, and record hash, durably stages the record core, and then
 signs a durability statement. It does not vote for conflicting successors of
-one certified head. Votes are a mergeable signer map ordered by decoded
-AgentId, and every entry retains the signer AgentId and exact signature bytes.
+one certified head under one anchor. Votes are a mergeable signer map ordered
+by decoded AgentId, and every entry retains the signer AgentId and exact
+signature bytes.
 Any member may assemble and disseminate sufficient evidence.
 
 A record becomes locally certified only after the store atomically promotes
