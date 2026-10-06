@@ -984,7 +984,9 @@ const acceptCertifiedRecord = (
     if (fold === undefined) {
       return "ignored";
     }
-    yield* runtime.input.store.stageRecord(yield* stagedRecord(actionRecord));
+    yield* runtime.input.store.stageCertifiedRecord(
+      yield* stagedRecord(actionRecord),
+    );
     yield* Effect.sync(() => {
       fold.recordHash = actionRecord.recordHash;
       runtime.recordFolds.set(actionRecord.recordHash, fold);

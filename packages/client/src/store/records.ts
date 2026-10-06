@@ -51,7 +51,27 @@ export function stageRecord(
 ): StoreMutation {
   validateStagedRecord(record);
   return transaction(database, () =>
-    stageRecordInTransaction(database, record),
+    stageRecordInTransaction(database, record, "vote"),
+  );
+}
+
+/**
+ * Durably stages the record core of a certified record before its
+ * durability certificate's votes are merged. This endpoint signs nothing for
+ * it, so it is staged even under an anchor this endpoint has staged a
+ * re-anchor candidate away from.
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param record Verified record core of a certified record.
+ * @returns Whether the same staged record was inserted or already durable.
+ */
+export function stageCertifiedRecord(
+  database: DatabaseSync,
+  record: StagedRecord,
+): StoreMutation {
+  validateStagedRecord(record);
+  return transaction(database, () =>
+    stageRecordInTransaction(database, record, "certified"),
   );
 }
 
@@ -68,7 +88,7 @@ export function stageRecordForDissemination(
 ): StoreMutation {
   validateStagedRecord(record);
   return transaction(database, () => {
-    const staged = stageRecordInTransaction(database, record);
+    const staged = stageRecordInTransaction(database, record, "vote");
     const obligation = retainDisseminationInTransaction(
       database,
       disseminationObligation("action-certified-record", record),
@@ -206,7 +226,7 @@ export function applyCatchUpRecord(
 ): StoreMutation {
   validateCertifiedRecord(record);
   return transaction(database, () => {
-    const staged = stageRecordInTransaction(database, record);
+    const staged = stageRecordInTransaction(database, record, "certified");
     const promoted = promoteRecordInTransaction(database, record, delivery);
     return staged === "inserted" || promoted === "inserted"
       ? "inserted"
@@ -214,9 +234,20 @@ export function applyCatchUpRecord(
   });
 }
 
+/**
+ * Stage one record core. A record staged for this endpoint's durability vote
+ * is refused under an anchor it has staged a re-anchor candidate away from; a
+ * certified record's core is staged regardless, since it takes no vote.
+ * @param database Exclusively owned endpoint database.
+ * @param record Verified record core and private bindings.
+ * @param purpose Whether this endpoint votes for the record or holds its
+ *     durability certificate.
+ * @returns Whether the record was inserted or already staged.
+ */
 function stageRecordInTransaction(
   database: DatabaseSync,
   record: StagedRecord,
+  purpose: "vote" | "certified",
 ): StoreMutation {
   const existing = findStagedRecord(
     database,
@@ -228,6 +259,9 @@ function stageRecordInTransaction(
     return "existing";
   }
   requireRecordPosition(database, record);
+  if (purpose === "vote") {
+    requireNoReanchorAwayFrom(database, record);
+  }
   database
     .prepare(
       `INSERT INTO staged_records
@@ -338,6 +372,30 @@ function mergeEvidenceInTransaction(
       copyBytes(evidence.canonicalEvidence),
     );
   return "inserted";
+}
+
+/**
+ * Refuse a record under an anchor this endpoint has staged a re-anchor
+ * candidate away from. Staging a record leads to a durability vote for it,
+ * and a member that has voted to leave an anchor signs nothing more under it,
+ * so a re-anchor away from a head and a durability certificate extending that
+ * head never both collect this endpoint's signature.
+ * @param database Exclusively owned endpoint database.
+ * @param record Record about to be staged.
+ */
+function requireNoReanchorAwayFrom(
+  database: DatabaseSync,
+  record: StagedRecord,
+): void {
+  const left = database
+    .prepare(
+      `SELECT 1 AS staged FROM reanchors
+       WHERE conversation_id = ? AND previous_anchor_hash = ? LIMIT 1`,
+    )
+    .get(record.conversationId, record.anchorHash);
+  if (left !== undefined) {
+    throw new StoreSignal("conflict");
+  }
 }
 
 function requireRecordPosition(

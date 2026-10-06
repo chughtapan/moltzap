@@ -26,6 +26,7 @@ import {
   type ProposalLock,
   type ProtocolEvidence,
   type RestartedEmptyConversation,
+  type StagedReanchor,
   type StagedRecord,
   type StoredOutboundMessage,
   type StoreMutation,
@@ -343,6 +344,60 @@ function completesLocalPostWithoutSelfDelivery() {
           record.recordHash,
         );
         expect(recovery.pendingDeliveries).toEqual([]);
+      }),
+    ),
+  );
+}
+
+/**
+ * The endpoint holds a certified head and a staged successor of it that it
+ * voted durable. The store refuses a re-anchor candidate away from that head
+ * under the same anchor, so this endpoint's signatures never land on both a
+ * re-anchor away from the head and a durability certificate extending it,
+ * whatever order recovery and ingress reach the store in. Fails when the
+ * store stages that candidate.
+ * @returns The trace, run to completion.
+ */
+function refusesAReanchorAwayFromAStagedSuccessor() {
+  const directory = stateDirectory();
+  const conversationId = "conversation:staged-successor";
+  const head = certifiedRecord(conversationId, LOCAL_AGENT_ID);
+  const successor: StagedRecord = {
+    ...stagedRecord(head),
+    recordHash: `rch_${conversationId}:1`,
+    previousRecordHash: head.recordHash,
+    actionHash: `ach_${conversationId}:1`,
+    canonicalRecordCore: bytes(`record:${conversationId}:1`),
+  };
+  const awayFromTheHead: StagedReanchor = {
+    conversationId,
+    anchorHash: `anc_${conversationId}:1`,
+    previousAnchorHash: head.anchorHash,
+    routerInstanceId: "rti_staged-successor",
+    selectedRecordHash: head.recordHash,
+    canonicalBody: bytes(`reanchor:${conversationId}:1`),
+  };
+  return Effect.runPromise(
+    withStore(directory, (store) =>
+      Effect.gen(function* () {
+        yield* bindLocalIdentity(store);
+        yield* store.bindPostIntent({
+          kind: "new-conversation",
+          foundation: foundation(conversationId),
+          intent: {
+            conversationId,
+            membershipHash: head.membershipHash,
+            authorAgentId: head.authorAgentId,
+            postId: head.postId,
+            canonicalIntent: bytes("intent:staged-successor"),
+          },
+        });
+        yield* store.lockProposal(proposal(conversationId, head.actionHash));
+        yield* store.applyCatchUpRecord(head);
+        yield* store.stageRecord(successor);
+
+        yield* expectReason(store.stageReanchor(awayFromTheHead), "conflict");
+        expect((yield* store.recover()).stagedReanchors).toEqual([]);
       }),
     ),
   );
@@ -1037,6 +1092,11 @@ describe("endpoint record certification and delivery", () => {
 
   it("completes a local post intent without creating self-delivery", () =>
     completesLocalPostWithoutSelfDelivery());
+});
+
+describe("endpoint re-anchor candidates", () => {
+  it("refuses a candidate away from a head it holds a staged successor of", () =>
+    refusesAReanchorAwayFromAStagedSuccessor());
 });
 
 describe("endpoint durable Router outbox", () => {

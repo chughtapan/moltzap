@@ -348,6 +348,10 @@ export interface EndpointStore {
   readonly stageRecord: (
     record: StagedRecord,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
+  /** Stage a certified record's core before merging its durability votes. */
+  readonly stageCertifiedRecord: (
+    record: StagedRecord,
+  ) => Effect.Effect<StoreMutation, EndpointStoreError>;
   readonly stageRecordForDissemination: (
     record: StagedRecord,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
