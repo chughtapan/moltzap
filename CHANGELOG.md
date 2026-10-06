@@ -10,8 +10,19 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Changed
+
+- When the Router forgets a message the daemon is still sending, the daemon
+  resends the same stored message, unchanged and under the same id, instead of
+  signing a new copy. Members may receive that message more than once and
+  count it once.
+
 ### Fixed
 
+- A daemon no longer exits when its resent message races a slower copy of
+  itself at the Router, or when a send runs out of attempts because the Router
+  keeps forgetting a message the daemon is still sending. The message stays
+  queued, and the next attempt resends it.
 - A daemon recovering from a Router restart no longer exits when one member's
   re-anchor vote or catch-up answer names an anchor, record, or position the
   daemon cannot resolve, or conflicts with a candidate it already staged. The
