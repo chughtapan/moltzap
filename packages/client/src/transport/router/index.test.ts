@@ -294,6 +294,9 @@ const identityUnknown: ScriptedSendAnswer = () =>
 const identityConflict: ScriptedSendAnswer = () =>
   Effect.succeed({ kind: "idempotency_conflict" });
 
+const messageInvalid: ScriptedSendAnswer = () =>
+  Effect.succeed({ kind: "message_invalid" });
+
 const acceptsSentBytes: ScriptedSendAnswer = (request) =>
   acceptedResult(scriptedSendInstance, request.signedMessage);
 
@@ -595,12 +598,26 @@ const resentInitialLosesRaceToSlowOriginal = async (): Promise<void> => {
   expect(result.pending).toEqual([]);
 };
 
-const retryConflictFailsClosed = async (): Promise<void> => {
-  const result = await Effect.runPromise(
-    sendThroughScript([connectionLost, identityConflict]),
-  );
+/** A Router result the worker must not resend after, and its scenario. */
+interface FailClosedRow {
+  readonly result: string;
+  readonly answers: readonly ScriptedSendAnswer[];
+  readonly modes: ReadonlyArray<RouterSendRequest["mode"]>;
+}
+
+/**
+ * A conflict to a retry, identity loss to an initial, or an invalid message
+ * fails the send closed: the worker sends nothing more and keeps the envelope
+ * pending. An acceptance the worker must never reach follows that result, so
+ * a resend shows in the asserted modes rather than as an exhausted script.
+ * @param row Send answers in arrival order and the modes the worker sends
+ *   before it fails closed.
+ * @returns Completion once the send has failed closed.
+ */
+const resultFailsClosed = async (row: FailClosedRow): Promise<void> => {
+  const result = await Effect.runPromise(sendThroughScript(row.answers));
   expect(result.failure).toEqual(Option.some(new RouterWorkerProtocolError()));
-  expect(result.modes).toEqual(["initial", "retry"]);
+  expect(result.modes).toEqual(row.modes);
   expect(result.pending).toEqual([result.outbound]);
 };
 
@@ -1802,9 +1819,24 @@ describe("private Router worker", () => {
     "asks again as retry when a resent initial loses the race to its slow original",
     resentInitialLosesRaceToSlowOriginal,
   );
-  it(
-    "fails closed and retains the envelope when a retry conflicts",
-    retryConflictFailsClosed,
+  it.each<FailClosedRow>([
+    {
+      result: "a retry conflicts",
+      answers: [connectionLost, identityConflict, acceptsSentBytes],
+      modes: ["initial", "retry"],
+    },
+    {
+      result: "an initial reports retry identity loss",
+      answers: [identityUnknown, acceptsSentBytes],
+      modes: ["initial"],
+    },
+    {
+      result: "Router reports the message invalid",
+      answers: [messageInvalid, acceptsSentBytes],
+      modes: ["initial"],
+    },
+  ])("fails closed and retains the envelope when $result", (row) =>
+    resultFailsClosed(row),
   );
   it(
     "leaves the envelope for the next drain once Router alternation spends every attempt",
