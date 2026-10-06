@@ -29,8 +29,9 @@ heading below in its release commit.
   now goes out with that recovery instead of after it (#1187).
 - A conversation whose post was ordered but not certified when the Router
   restarted can certify posts again after it re-anchors. The re-anchor
-  releases the old proposal's lock and signatures, and the daemon still starts
-  afterwards (#1188).
+  releases the old proposal's lock, signatures and any record staged for it,
+  and the daemon still starts afterwards. A conversation that re-anchored this
+  way under an earlier version recovers at its next re-anchor (#1188).
 
 ## [2026.1005.1] - 2026-10-05
 

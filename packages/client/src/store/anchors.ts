@@ -504,17 +504,20 @@ function completeReanchorInTransaction(
 
 /**
  * Retires the proposal locked at the head a completed re-anchor selects: its
- * lock and the action signatures held for it.
+ * lock, the signatures held for it, and a record this endpoint staged for it.
  *
  * An action binds its anchor, so once the new anchor is current no action
- * under the previous one is gap-free and the old proposal can neither be
- * signed again nor staged. Its lock, kept, would refuse every candidate at
- * that head under the new anchor and stall the conversation. Its signatures,
- * kept without the lock, would name an action no durable lock selects, which
- * startup refuses. A lock is therefore scoped to its predecessor under the
- * current anchor. A proposal this endpoint already staged a record for keeps
- * its lock, because the staged record needs it; the re-anchor waits behind a
- * staged successor, so only a completion from catch-up reaches that case.
+ * under the previous one is gap-free, and the old proposal can never be
+ * signed, staged or certified here again. Its lock, kept, would refuse every
+ * candidate at that head under the new anchor and stall the conversation;
+ * its signatures or staged record, kept without the lock, would name an
+ * action no durable lock selects, which startup refuses.
+ *
+ * The staged record can be retired because the re-anchor's quorum
+ * certificate shows it can never be certified anywhere: a member holding a
+ * staged successor does not vote to re-anchor behind it, so the q(n) members
+ * that selected this head leave at most 2f members that can attest the
+ * successor's durability, fewer than q(n).
  *
  * @param database Exclusively owned endpoint database.
  * @param reanchor Completed re-anchor that just became current.
@@ -523,14 +526,35 @@ function releaseSupersededProposal(
   database: DatabaseSync,
   reanchor: CompletedReanchor,
 ): void {
-  const predecessorKey = reanchor.selectedRecordHash ?? GENESIS_PREDECESSOR;
+  const { conversationId } = reanchor;
   const lock = findProposalLock(
     database,
-    reanchor.conversationId,
-    predecessorKey,
+    conversationId,
+    reanchor.selectedRecordHash,
   );
-  if (lock === undefined || isStagedAction(database, lock)) {
+  if (lock === undefined) {
     return;
+  }
+  for (const recordHash of stagedRecordHashes(database, lock)) {
+    database
+      .prepare(
+        `DELETE FROM dissemination_obligations
+         WHERE conversation_id = ? AND record_hash = ?`,
+      )
+      .run(conversationId, recordHash);
+    database
+      .prepare(
+        `DELETE FROM protocol_evidence
+         WHERE conversation_id = ? AND evidence_kind = 'durability'
+           AND subject_id = ?`,
+      )
+      .run(conversationId, recordHash);
+    database
+      .prepare(
+        `DELETE FROM staged_records
+         WHERE conversation_id = ? AND record_hash = ?`,
+      )
+      .run(conversationId, recordHash);
   }
   database
     .prepare(
@@ -538,24 +562,26 @@ function releaseSupersededProposal(
        WHERE conversation_id = ? AND evidence_kind = 'action'
          AND subject_id = ?`,
     )
-    .run(reanchor.conversationId, lock.actionHash);
+    .run(conversationId, lock.actionHash);
   database
     .prepare(
       `DELETE FROM proposal_locks
        WHERE conversation_id = ? AND predecessor_key = ?`,
     )
-    .run(reanchor.conversationId, predecessorKey);
+    .run(conversationId, reanchor.selectedRecordHash);
 }
 
-function isStagedAction(database: DatabaseSync, lock: ProposalLock): boolean {
-  return (
-    database
-      .prepare(
-        `SELECT 1 AS retained FROM staged_records
-         WHERE conversation_id = ? AND action_hash = ?`,
-      )
-      .get(lock.conversationId, lock.actionHash) !== undefined
-  );
+function stagedRecordHashes(
+  database: DatabaseSync,
+  lock: ProposalLock,
+): readonly string[] {
+  return database
+    .prepare(
+      `SELECT record_hash FROM staged_records
+       WHERE conversation_id = ? AND action_hash = ?`,
+    )
+    .all(lock.conversationId, lock.actionHash)
+    .map((row) => readText(row, "record_hash"));
 }
 
 function requireUnclaimedReanchorScope(

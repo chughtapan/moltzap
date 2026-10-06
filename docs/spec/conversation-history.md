@@ -352,9 +352,10 @@ An honest endpoint durably records one proposal lock for each
 anchor. It signs only the first structurally valid, gap-free candidate it
 observes in Router order and never signs a conflicting candidate for that
 predecessor under that anchor. Completing a re-anchor releases the lock at the
-record it selects, with the signatures held for its candidate: `ActionHash`
-binds the anchor, so no candidate under the previous anchor is gap-free
-afterward. A candidate whose record the endpoint has staged keeps its lock.
+record it selects, with the signatures and any staged record held for its
+candidate: `ActionHash` binds the anchor, so no candidate under the previous
+anchor is gap-free afterward, and the re-anchor's `q(n)` certificate shows a
+staged candidate there can never collect a durability certificate.
 
 A sender persists its immutable post intent before protocol traffic. If a
 different candidate commits first, it retries the same `PostId` and intent

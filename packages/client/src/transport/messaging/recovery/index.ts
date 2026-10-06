@@ -86,7 +86,7 @@ interface RecoveryRun {
    */
   readonly reanchoring: ReadonlySet<string>;
   readonly memberships: Map<ConversationIdValue, VerifiedMembership>;
-  readonly outbound: ActiveRecovery;
+  readonly attempt: ActiveRecovery;
   readonly completion: Deferred.Deferred<undefined, RouterWorkerRecoveryError>;
   readonly completedConversations: Set<ConversationIdValue>;
   readonly catchUp: CatchUpRun;
@@ -159,38 +159,37 @@ export const recoverCertifiedHistory = (
     if (activeRecoveries.has(runtime)) {
       return yield* Effect.fail(recoveryFailure());
     }
-    const outbound: ActiveRecovery = {
-      queue: yield* Queue.unbounded<RouterWorkerRecoverySend>(),
-      pending: 0,
-      completed: false,
-    };
-    yield* Effect.sync(() => {
-      activeRecoveries.set(runtime, outbound);
-    });
-    yield* startRecoveryRun(runtime, recoveryInput, outbound).pipe(
-      Effect.ensuring(
+    const queue = yield* Queue.unbounded<RouterWorkerRecoverySend>();
+    yield* Effect.acquireUseRelease(
+      Effect.sync(() => {
+        const attempt: ActiveRecovery = { queue, pending: 0, completed: false };
+        activeRecoveries.set(runtime, attempt);
+        return attempt;
+      }),
+      (attempt) => runRecoveryAttempt(runtime, recoveryInput, attempt),
+      (attempt) =>
         Effect.sync(() => {
-          if (activeRecoveries.get(runtime) === outbound) {
+          if (activeRecoveries.get(runtime) === attempt) {
             activeRecoveries.delete(runtime);
           }
         }),
-      ),
     );
     yield* completeRecoveryBarrier(runtime, barrier);
   }).pipe(Effect.withSpan("recoverCertifiedHistory"));
 
 /**
- * Verify the durable history a recovery reconciles, then install its run and
- * run it to completion.
+ * Verify the durable history a recovery reconciles, then install its run in
+ * the attempt and run it to completion.
  * @param runtime Engine whose durable histories require reconciliation.
  * @param recoveryInput Authenticated Router recovery callbacks and new anchor.
- * @param outbound The recovery's installed queue, which the run sends from.
+ * @param attempt The installed recovery attempt: the queue the run sends
+ *     from, its unsent count and completion flag, and the slot its run takes.
  * @returns Completion after the run and its resumed work have finished.
  */
-function startRecoveryRun(
+function runRecoveryAttempt(
   runtime: EngineRuntime,
   recoveryInput: RouterWorkerRecovery,
-  outbound: ActiveRecovery,
+  attempt: ActiveRecovery,
 ): Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError> {
   return Effect.gen(function* () {
     const recovered = yield* runtime.input.store
@@ -209,12 +208,12 @@ function startRecoveryRun(
       memberships,
       reanchoring,
     );
-    const run = yield* makeRecoveryRun(runtime, recoveryInput, outbound, {
+    const run = yield* makeRecoveryRun(runtime, recoveryInput, attempt, {
       memberships,
       reanchoring,
     });
     yield* Effect.sync(() => {
-      outbound.run = run;
+      attempt.run = run;
     });
     yield* Effect.scoped(runRecovery(runtime, run, retainedOutbounds));
   });
@@ -447,11 +446,11 @@ function runRecovery(
 function sendRecoveryOutbound(
   run: RecoveryRun,
 ): Effect.Effect<never, RouterWorkerSendError> {
-  return Queue.take(run.outbound.queue).pipe(
+  return Queue.take(run.attempt.queue).pipe(
     Effect.flatMap((message) => run.recovery.send(message)),
     Effect.tap(() =>
       Effect.sync(() => {
-        run.outbound.pending -= 1;
+        run.attempt.pending -= 1;
       }).pipe(Effect.zipRight(completeRecoveryIfIdle(run))),
     ),
     Effect.forever,
@@ -521,7 +520,7 @@ function resumeUncompletedIntents(
  * re-anchor ports its phases run against.
  * @param runtime Engine the run recovers.
  * @param recovery RouterWorker callbacks and discontinuity anchor.
- * @param outbound The recovery's installed queue, which the run sends from.
+ * @param attempt The installed recovery attempt the run belongs to.
  * @param history Verified memberships that must be reconciled, and the
  *     conversations among them anchored to a different Router instance.
  * @returns The run, not yet installed.
@@ -529,18 +528,18 @@ function resumeUncompletedIntents(
 function makeRecoveryRun(
   runtime: EngineRuntime,
   recovery: RouterWorkerRecovery,
-  outbound: ActiveRecovery,
+  attempt: ActiveRecovery,
   history: Pick<RecoveryRun, "memberships" | "reanchoring">,
 ): Effect.Effect<RecoveryRun> {
   const { memberships, reanchoring } = history;
   return Effect.gen(function* () {
     const isActive = () =>
-      activeRecoveries.get(runtime) === outbound && !outbound.completed;
+      activeRecoveries.get(runtime) === attempt && !attempt.completed;
     const run: RecoveryRun = {
       recovery,
       reanchoring,
       memberships,
-      outbound,
+      attempt,
       completion: yield* Deferred.make<undefined, RouterWorkerRecoveryError>(),
       completedConversations: new Set(),
       catchUp: {
@@ -639,11 +638,11 @@ function completeRecoveryIfIdle(run: RecoveryRun): Effect.Effect<void> {
   return Effect.suspend(() => {
     if (
       run.completedConversations.size !== run.memberships.size ||
-      run.outbound.pending !== 0
+      run.attempt.pending !== 0
     ) {
       return Effect.void;
     }
-    run.outbound.completed = true;
+    run.attempt.completed = true;
     return Deferred.succeed(run.completion, undefined).pipe(Effect.asVoid);
   });
 }
@@ -676,14 +675,14 @@ function enqueueOuter(
   message: SignedMessage,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return Effect.suspend(() => {
-    const outbound = activeRecoveries.get(runtime);
-    if (outbound === undefined || outbound.completed) {
+    const attempt = activeRecoveries.get(runtime);
+    if (attempt === undefined || attempt.completed) {
       return runtime.outbox
         .enqueueSigned(conversationId, message)
         .pipe(Effect.mapError(persistenceFailure));
     }
-    outbound.pending += 1;
-    return Queue.offer(outbound.queue, { conversationId, message }).pipe(
+    attempt.pending += 1;
+    return Queue.offer(attempt.queue, { conversationId, message }).pipe(
       Effect.asVoid,
     );
   });
