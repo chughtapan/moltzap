@@ -88,6 +88,7 @@ import {
   PostIntent,
   type ReanchorBody,
   type RecordCore,
+  RecordHash,
   signEvidenceMessage,
   signOuterEvidence,
   signOuterPacket,
@@ -1606,6 +1607,181 @@ const reproposesPendingPostAfterRestart = () =>
         );
         expect(yield* Queue.size(pendingOutboundIds)).toBe(0);
         yield* Fiber.interrupt(sending);
+      }),
+    ),
+  );
+
+/**
+ * Router ingress delivering the endpoint's own queued action proposal back to
+ * it, as the Router orders it.
+ * @param fixture Endpoint that proposed.
+ * @param queued The proposal envelope and its decoded packet.
+ * @param routerInstanceId Router instance that orders the proposal.
+ * @returns The Router-ordered proposal.
+ */
+const ownProposalIngress = (
+  fixture: RecoveryFixture,
+  queued: QueuedActionProposal,
+  routerInstanceId: typeof RouterInstanceId.Type,
+): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> =>
+  SignedMessage.verify({
+    signedMessage: queued.message,
+    agentCard: fixture.local.card,
+  }).pipe(
+    Effect.map(
+      (message): RouterWorkerIngress<DecodedOuterBody> => ({
+        routerInstanceId,
+        message,
+        senderCard: fixture.local.card,
+        payload: { kind: "direct", packet: queued.proposal },
+      }),
+    ),
+    Effect.orDie,
+  );
+
+/**
+ * Router ingress at the new Router instance carrying `statement`, signed by
+ * the fixture's remote member and sent in that member's outer envelope.
+ * @param fixture Endpoint the evidence is addressed to.
+ * @param statement Evidence the remote member signs.
+ * @returns The Router-ordered evidence.
+ */
+const peerEvidenceIngress = (
+  fixture: RecoveryFixture,
+  statement: EvidenceStatementValue,
+): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> =>
+  Effect.gen(function* () {
+    const evidence = yield* signEvidenceMessage({
+      statement,
+      agentCard: fixture.remote.card,
+      signingAuthority: fixture.remote.authority,
+    });
+    const message = yield* signOuterEvidence({
+      evidence,
+      membership: fixture.membership,
+      agentCard: fixture.remote.card,
+      signingAuthority: fixture.remote.authority,
+    });
+    const ingress: RouterWorkerIngress<DecodedOuterBody> = {
+      routerInstanceId: newRouterInstanceId,
+      message,
+      senderCard: fixture.remote.card,
+      payload: { kind: "evidence", message: evidence },
+    };
+    return ingress;
+  }).pipe(Effect.orDie);
+
+/**
+ * The Router orders a post's proposal at head R, so the endpoint locks R for
+ * that proposal, and the Router restarts before it certifies. The
+ * conversation re-anchors at R, and the post's proposal at the new anchor,
+ * once the new Router orders it, certifies with the peer's signature and
+ * vote. Fails when the lock taken under the old anchor still holds R, so
+ * every proposal at R after the re-anchor conflicts with it and the
+ * conversation never certifies another record.
+ */
+const certifiesAtALockedHeadAfterReanchoring = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixtureWithRouter(
+          makeHeldRouter({
+            holdOutbound: yield* Ref.make(false),
+            pendingOutboundIds: yield* Queue.unbounded<string>(),
+          }),
+        );
+        yield* retainCertifiedRecord(fixture);
+        yield* fixture.engine.drainOutbound.pipe(Effect.orDie);
+        yield* Queue.takeAll(fixture.normalOutbound);
+        const head = fixture.certifiedRecord.actionCertifiedRecord.recordHash;
+        const sending = yield* Effect.fork(
+          fixture.engine.send(
+            yield* Effect.all({
+              to: Schema.decodeUnknown(MessageAddressInput)(
+                `agent:${fixture.remote.card.agentName}`,
+              ),
+              content: Schema.decodeUnknown(Content)([
+                { type: "text", text: "certify after re-anchoring" },
+              ]),
+            }),
+          ),
+        );
+        const stale = yield* takeActionProposalAfterEvidence(
+          fixture.normalOutbound,
+        );
+        const staleOrdered = yield* fixture.engine.acceptRouterIngress(
+          yield* ownProposalIngress(fixture, stale, oldRouterInstanceId),
+        );
+        const locksBeforeRestart = (yield* fixture.store.recover())
+          .proposalLocks;
+
+        const { recovery, outbound, request } =
+          yield* startRestartRecovery(fixture);
+        yield* deliverRecovery(
+          fixture.engine,
+          catchUpIncompleteIngress(fixture, request),
+        );
+        const reanchor = yield* Queue.take(outbound).pipe(
+          Effect.timeout("1 second"),
+          Effect.flatMap(decodeReanchorVote),
+        );
+        yield* deliverRecovery(
+          fixture.engine,
+          peerReanchorVoteIngress(fixture, reanchor),
+        );
+        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
+        yield* fixture.engine.drainOutbound;
+        const reproposed = yield* takeActionProposalAfterEvidence(
+          fixture.normalOutbound,
+        );
+        const reproposedOrdered = yield* fixture.engine.acceptRouterIngress(
+          yield* ownProposalIngress(fixture, reproposed, newRouterInstanceId),
+        );
+        const actionHash = yield* hashAction(reproposed.proposal.action);
+        yield* fixture.engine.acceptRouterIngress(
+          yield* peerEvidenceIngress(fixture, {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "action_signature",
+            signerAgentId: fixture.remote.card.agentId,
+            actionHash,
+          }),
+        );
+        const staged = (yield* fixture.store.recover()).stagedRecords.find(
+          (record) => record.actionHash === actionHash,
+        );
+        if (staged === undefined) {
+          return yield* Effect.dieMessage(
+            `the proposal at the new anchor staged no record; the Router-ordered proposal was ${reproposedOrdered}`,
+          );
+        }
+        const recordHash = yield* Schema.decodeUnknown(RecordHash)(
+          staged.recordHash,
+        );
+        yield* fixture.engine.acceptRouterIngress(
+          yield* peerEvidenceIngress(fixture, {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "durability_vote",
+            signerAgentId: fixture.remote.card.agentId,
+            conversationId: fixture.membership.descriptor.conversationId,
+            membershipHash: fixture.membership.hash,
+            recordHash,
+          }),
+        );
+        const sent = yield* Fiber.join(sending).pipe(
+          Effect.timeout("1 second"),
+        );
+
+        expect(staleOrdered).toBe(acceptedDisposition);
+        expect(locksBeforeRestart).toMatchObject([
+          {},
+          { previousRecordHash: head },
+        ]);
+        expect(reproposed.proposal.action).toMatchObject({
+          previousRecordHash: head,
+          anchorHash: reanchor.anchorHash,
+        });
+        expect(reproposedOrdered).toBe(acceptedDisposition);
+        expect(sent.recordHash).toBe(recordHash);
       }),
     ),
   );
@@ -3415,6 +3591,10 @@ describe("endpoint restart recovery", () => {
   it(
     "discards an old-instance POST and reproposes the same PostId at the new anchor",
     reproposesPendingPostAfterRestart,
+  );
+  it(
+    "certifies a post at a head a proposal locked before the conversation re-anchored there",
+    certifiesAtALockedHeadAfterReanchoring,
   );
   it(
     "restarts an empty foundation at the new Router instance",

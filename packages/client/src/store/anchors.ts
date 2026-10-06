@@ -498,7 +498,35 @@ function completeReanchorInTransaction(
   }
   requireReanchorPosition(database, reanchor);
   insertCompletedReanchor(database, reanchor);
+  releaseSupersededProposalLock(database, reanchor);
   return "inserted";
+}
+
+/**
+ * Drops the proposal lock at the head a completed re-anchor selects.
+ *
+ * An action binds its anchor, so once the new anchor is current no action
+ * under the previous one is gap-free and the old lock guards nothing this
+ * endpoint can still sign or stage. Kept, it would refuse every candidate at
+ * that head under the new anchor and stall the conversation. This makes a
+ * lock scoped to its predecessor under the current anchor.
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param reanchor Completed re-anchor that just became current.
+ */
+function releaseSupersededProposalLock(
+  database: DatabaseSync,
+  reanchor: CompletedReanchor,
+): void {
+  database
+    .prepare(
+      `DELETE FROM proposal_locks
+       WHERE conversation_id = ? AND predecessor_key = ?`,
+    )
+    .run(
+      reanchor.conversationId,
+      reanchor.selectedRecordHash ?? GENESIS_PREDECESSOR,
+    );
 }
 
 function requireUnclaimedReanchorScope(

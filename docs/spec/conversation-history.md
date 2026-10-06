@@ -348,9 +348,12 @@ statement kinds interchangeable.
 ## Proposal ordering and recovery identity
 
 An honest endpoint durably records one proposal lock for each
-`(ConversationId, previousRecordHash)`. It signs only the first structurally
-valid, gap-free candidate it observes in Router order and never signs a
-conflicting candidate for that predecessor.
+`(ConversationId, previousRecordHash)` under the conversation's current
+anchor. It signs only the first structurally valid, gap-free candidate it
+observes in Router order and never signs a conflicting candidate for that
+predecessor under that anchor. Completing a re-anchor releases the lock at the
+record it selects: `ActionHash` binds the anchor, so no candidate under the
+previous anchor is gap-free afterward.
 
 A sender persists its immutable post intent before protocol traffic. If a
 different candidate commits first, it retries the same `PostId` and intent
