@@ -3,8 +3,8 @@
 #
 # A user-visible change adds one fragment: a single Markdown paragraph named
 # <number>.<type>.md, where <number> is the issue or pull request it resolves,
-# or +<slug>.<type>.md when there is none. <type> is one of the directories
-# below. The build reflows the paragraph to 80 columns and cites the number as
+# or +<slug>.<type>.md when there is none. <type> is a lowercase name below.
+# The build reflows the paragraph to 80 columns and cites the number as
 # (#<number>) before its final period. Preview a release section with
 # `uvx towncrier build --draft --version <version>`.
 
@@ -12,30 +12,19 @@
 filename = "CHANGELOG.md"
 directory = "changelog.d"
 template = "changelog.d/template.md"
-start_string = "<!-- towncrier release notes start -->\n"
-title_format = "## [{version}] - {project_date}"
-issue_format = "#{issue}"
 wrap = 80
 # Any value turns an unrecognized file in changelog.d/ into a build error
 # rather than a fragment that is silently skipped and kept.
 ignore = []
 
 [[tool.towncrier.type]]
-directory = "added"
 name = "Added"
-showcontent = true
 
 [[tool.towncrier.type]]
-directory = "changed"
 name = "Changed"
-showcontent = true
 
 [[tool.towncrier.type]]
-directory = "removed"
 name = "Removed"
-showcontent = true
 
 [[tool.towncrier.type]]
-directory = "fixed"
 name = "Fixed"
-showcontent = true

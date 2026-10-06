@@ -167,9 +167,8 @@ jobs:
       # The runner's pnpm install wired the husky hooks; the release commit
       # is made of generated output CI already gated, so the hooks stay out.
       # towncrier writes the version's CHANGELOG.md section from the fragments
-      # in changelog.d/ and deletes them. It would write a section even with
-      # no fragments, so a release without any, like a rerun whose section is
-      # already written, leaves CHANGELOG.md as it is.
+      # in changelog.d/ and deletes them; with no fragments it writes nothing.
+      # A rerun whose section is already written skips it.
       - name: Regenerate docs and commit the release
         if: steps.plan.outputs.mode == 'bump'
         env:
@@ -178,14 +177,9 @@ jobs:
           HUSKY: "0"
         run: |
           pnpm docs:generate
-          if grep -q "^## \[$VERSION\]" CHANGELOG.md; then
-            echo "CHANGELOG.md already has a $VERSION section"
-          elif [ -z "$(find changelog.d -type f ! -name template.md)" ]; then
-            echo "changelog.d/ has no fragments; CHANGELOG.md gets no $VERSION section"
-          else
-            pipx run --spec towncrier==26.9.0 towncrier build \
+          grep -q "^## \[$VERSION\]" CHANGELOG.md \
+            || pipx run --spec towncrier==26.9.0 towncrier build \
               --version "$VERSION" --date "$(date -u +%F)" --yes
-          fi
 
           git config user.name "moltzap-release[bot]"
           git config user.email "moltzap-release[bot]@users.noreply.github.com"
