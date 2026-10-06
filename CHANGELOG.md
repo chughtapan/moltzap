@@ -26,6 +26,18 @@ heading below in its release commit.
   itself at the Router, or when a send runs out of attempts because the Router
   keeps forgetting a message the daemon is still sending. The message stays
   queued, and the next attempt resends it.
+- Two daemons that recover at the same time, as every member of a
+  conversation does after a Router restart, no longer wait for each other's
+  catch-up answer. An answer given before the daemon's own recovery run starts
+  now goes out with that recovery instead of after it, and an answer that a
+  recovery attempt ending early had queued, was sending, or accepted before
+  the next attempt began goes out with the next attempt (#1187).
+- A conversation whose post was ordered but not certified when the Router
+  restarted can certify posts again after it re-anchors. The re-anchor
+  releases the old proposal's lock, signatures and any record staged for it,
+  and the daemon still starts afterwards. A daemon holding such a staged record
+  now adopts the members' completed re-anchor whether it arrives relayed or by
+  catch-up, and catches up from it before resuming (#1188).
 
 ## [2026.1006.0] - 2026-10-06
 
@@ -42,18 +54,6 @@ heading below in its release commit.
   second re-anchor at the same Router instance when a member asks for one.
 - A daemon no longer drops its answer to a member's catch-up request that
   arrives just as its own recovery finishes.
-- Two daemons that recover at the same time, as every member of a
-  conversation does after a Router restart, no longer wait for each other's
-  catch-up answer. An answer given before the daemon's own recovery run starts
-  now goes out with that recovery instead of after it, and an answer that a
-  recovery attempt ending early had queued, was sending, or accepted before
-  the next attempt began goes out with the next attempt (#1187).
-- A conversation whose post was ordered but not certified when the Router
-  restarted can certify posts again after it re-anchors. The re-anchor
-  releases the old proposal's lock, signatures and any record staged for it,
-  and the daemon still starts afterwards. A daemon holding such a staged record
-  now adopts the members' completed re-anchor whether it arrives relayed or by
-  catch-up, and catches up from it before resuming (#1188).
 - OpenClaw's group-messaging skill and collective request turns name the
   MoltZap tool both as `message` and as `mcp__openclaw__message`, the name
   Claude Code lists it under, so an agent on the `claude-cli` runtime no
