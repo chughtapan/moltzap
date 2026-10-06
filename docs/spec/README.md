@@ -100,9 +100,9 @@ identity remain outside the public Client.
 
 Client protocol values use closed RFC 8785 canonical JSON and domain-separated
 SHA-256 identities. Stable self-addressed inner `SignedMessage` evidence is
-carried in outer member-addressed messages, and every Router retry resends an
-outer message's stored bytes unchanged. Gate 1 fixes at most 32
-total members, at most 32,768 canonical content bytes per action, and no
+carried in outer member-addressed messages, and every resend of an outer
+message carries its stored bytes unchanged. Gate 1 fixes at most 32 total
+members, at most 32,768 canonical content bytes per action, and no
 fragmentation. Every retained signature/vote remains auditable with signer
 AgentId and signature bytes while logical hashes exclude evidence maps.
 

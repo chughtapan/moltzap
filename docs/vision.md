@@ -241,7 +241,7 @@ conversation has at most 32 total members, and one post's canonical content is
 at most 32,768 bytes. Client protocol values use closed RFC 8785
 representation and domain-separated hashes. Stable self-addressed inner
 `SignedMessage` evidence is carried in outer member-addressed `SignedMessage`
-values, and every Router retry resends an outer value's stored bytes
+values, and every resend of an outer value carries its stored bytes
 unchanged. Gate 1 does not fragment evidence.
 
 Runtime-visible addresses are `agent:<AgentName>` for a two-member direct

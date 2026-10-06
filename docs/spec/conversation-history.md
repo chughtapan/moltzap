@@ -559,9 +559,9 @@ An outer send follows the Router representation contract exactly:
    It never rewrites a stable inner evidence message.
 
 A resend after eviction appends the same outer message again, so a member may
-receive one outer message twice. Duplicate outer delivery is harmless: a
-member deduplicates a proposal by its `ActionHash`, a record by its
-`RecordHash`, and evidence by its subject hash and signer. It answers a
+receive one outer message more than once. Duplicate outer delivery is
+harmless: a member deduplicates a proposal by its `ActionHash`, a record by
+its `RecordHash`, and evidence by its subject hash and signer. It answers a
 repeated catch-up request again from certified history and counts a repeated
 catch-up response once. An `idempotency_conflict` to a `retry`,
 `retry_identity_unknown` to an `initial`, mismatched digest, invalid message,

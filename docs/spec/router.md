@@ -246,10 +246,11 @@ identity again, and Router appends it as a new entry.
 - an absent or evicted identity returns `retry_identity_unknown`. An
   identity whose `initial` Router has not yet appended is absent.
 
-Because eviction frees an identity, one SignedMessage may occupy two private
-orders and reach a recipient twice. An `initial` also conflicts when a slower `initial` with the
-same identity appended first. Client's resend rule and duplicate handling are
-in [`conversation-history.md`](./conversation-history.md).
+Because eviction frees an identity, one SignedMessage may occupy more than one
+private order and reach a recipient more than once. An `initial` also
+conflicts when a slower `initial` with the same identity appended first.
+Client's resend rule and duplicate handling are in
+[`conversation-history.md`](./conversation-history.md).
 
 The accepted SignedMessageDigest is an immediate equality receipt for
 the retained live entry. It proves no position, delivery, durability,
