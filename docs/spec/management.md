@@ -113,6 +113,12 @@ the corresponding action or durability statement.
 Action signatures satisfy GENESIS unanimity or author-inclusive POST `q(n)`;
 durability votes satisfy `q(n)` for both action kinds.
 
+Each returned record is verified from the endpoint store's rows with the
+checks endpoint startup applies, as specified in
+[conversation history](./conversation-history.md#persistence-and-compatibility).
+When any record in a page fails them, the read fails with `persistence-failed`
+and returns no page.
+
 Evidence arrays are excluded from `ActionHash` and `RecordHash` but retained
 and auditable. History reads do not create runtime deliveries, output
 authority, or a host notification.

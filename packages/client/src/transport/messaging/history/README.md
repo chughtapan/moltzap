@@ -9,7 +9,9 @@ Start with `index.ts`, the curated API every consumer imports.
   rows, and projects a remote record to the inbound delivery the host reads.
 - `stored.ts` decodes and verifies stored rows: memberships, anchors, records,
   evidence and outbound envelopes. It verifies each conversation's record and
-  anchor chain, and answers the snapshot queries recovery asks.
+  anchor chain, reads certified history back for catch-up replies and the
+  owner tools with the same row checks, and answers the snapshot queries
+  recovery asks.
 - `certificate.ts` holds what both sides share: the signer order a
   certificate requires, which re-anchor also uses, and the certified-record
   envelopes.
