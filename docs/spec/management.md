@@ -17,8 +17,18 @@ Registration retains Identity-owned `OperationId`, immutable name, principal,
 configured key, admission, and exact retry recovery. An active binding changes
 the catalog on the same MCP endpoint.
 
-After registration, `status` returns exact active AgentCard state and
-`search_agents` retains Identity's lookup-or-list semantics.
+`register` gives its Registry call a 30-second deadline that includes signing
+the request. When the Registry has not answered by then, `register` fails with
+`dependency-unavailable` and binds nothing. Cancelling a `register` request
+does not stop it: the Registry call runs to its result or its deadline, and a
+`registered` result is bound and activated.
+
+`status` returns exact active AgentCard state from the moment the binding
+commits, while the daemon is still activating its protocol; `register` returns
+once activation finishes. `search_agents` retains Identity's lookup-or-list
+semantics after registration. Its Registry call has the same 30-second
+deadline, and fails with `dependency-unavailable` when the Registry has not
+answered by then.
 
 ## Conversation search and history
 
@@ -153,9 +163,7 @@ type RegisterFailureReason =
   | "persistence-failed"
   | "incompatible-daemon"
 
-type StatusFailureReason =
-  | "persistence-failed"
-  | "incompatible-daemon"
+type StatusFailureReason = "incompatible-daemon"
 
 type SearchAgentsFailureReason =
   | "not-registered"

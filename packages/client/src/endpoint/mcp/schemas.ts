@@ -122,7 +122,7 @@ export const harnessFailureReasons = {
     "persistence-failed",
     "incompatible-daemon",
   ]),
-  STATUS_REASONS: new Set(["persistence-failed", "incompatible-daemon"]),
+  STATUS_REASONS: new Set(["incompatible-daemon"]),
   SEARCH_AGENTS_REASONS: new Set([
     "not-registered",
     "dependency-unavailable",
