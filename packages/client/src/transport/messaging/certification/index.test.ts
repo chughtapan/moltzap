@@ -846,6 +846,89 @@ function adoptsAnActionCertificateOverItsOwnLock() {
   );
 }
 
+/**
+ * Member 2 misses member 1's proposal at the genesis head and locks its own
+ * there, while members 1, 3 and 4 lock, sign and vote for member 1's. Member
+ * 2 also misses that post's action certificate, so the first copy of the
+ * post to reach it is member 1's CertifiedRecord. Member 2 accepts it over
+ * its own lock, and its own post is then proposed again from the new head
+ * and certifies.
+ * @returns Completion once member 2 holds both posts.
+ */
+function adoptsACertifiedRecordOverItsOwnLock() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const winnerAuthor = yield* requireAt(
+          harness.engines,
+          0,
+          "endpoint engine",
+        );
+        const winnerAuthorIdentity = yield* requireAt(
+          harness.identities,
+          0,
+          "identity",
+        );
+        const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
+        const laggingStore = yield* requireAt(
+          harness.stores,
+          1,
+          "endpoint store",
+        );
+        const everyMemberButTheLagging = [0, 2, 3];
+        const winning = yield* Effect.fork(
+          winnerAuthor.send(yield* sendInput(harness, "winner")),
+        );
+        const winnerBatch = yield* takeReadyBatch(harness);
+        const losing = yield* Effect.fork(
+          lagging.send(yield* sendInput(harness, "member 2 post")),
+        );
+        const loserBatch = yield* takeReadyBatch(harness);
+
+        yield* harness.deliver(winnerBatch, everyMemberButTheLagging);
+        yield* harness.deliver(loserBatch);
+        yield* harness.drain();
+        yield* harness.deliver(yield* takeQueued(harness));
+        yield* harness.drain();
+        yield* harness.deliver(
+          yield* takeQueued(harness),
+          everyMemberButTheLagging,
+        );
+        yield* harness.drain();
+        const winnerCertifiedRecord = (yield* messagesOfKind(
+          yield* takeQueued(harness),
+          "certified_record",
+        )).filter(
+          (message) =>
+            message.senderAgentId === winnerAuthorIdentity.card.agentId,
+        );
+        const adopted = yield* harness.deliver(winnerCertifiedRecord, [1]);
+        yield* harness.drain([1]);
+        yield* pump(harness, yield* takeQueued(harness));
+        yield* Fiber.join(winning).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+        yield* Fiber.join(losing).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        expect(adopted).toEqual(["accepted"]);
+        const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
+        expect(pending.map(({ message }) => message.content)).toEqual([
+          [{ type: "text", text: "open group" }],
+          [{ type: "text", text: "winner" }],
+        ]);
+        const recovered = yield* laggingStore.recover().pipe(Effect.orDie);
+        expect(recovered.certifiedRecords).toHaveLength(3);
+      }),
+    ),
+  );
+}
+
 function certifiesOrdinaryN4Post() {
   return Effect.runPromise(
     Effect.scoped(
@@ -1311,6 +1394,11 @@ describe("fixed-post endpoint protocol", () => {
   it(
     "adopts an action certificate over its own lock at the same head",
     adoptsAnActionCertificateOverItsOwnLock,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "adopts a certified record over its own lock at the same head",
+    adoptsACertifiedRecordOverItsOwnLock,
     TEST_TIMEOUT_MS,
   );
   it(

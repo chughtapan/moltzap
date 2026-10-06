@@ -832,8 +832,10 @@ const mergeCertificateEvidence = (
  * certificate means that other action can never be certified, because any
  * two `q(n)` quorums share an honest member, who signs one action at a
  * predecessor under one anchor. The store replaces the lock and keeps the
- * certificate's signatures with it; the other action's fold is dropped, since
- * the store now refuses any evidence for it.
+ * certificate's signatures with it, and the other action's fold is dropped in
+ * the same uninterruptible step: the store now refuses any evidence for that
+ * action, and a redelivered record finds the new lock and never repeats the
+ * drop.
  * @param runtime Engine whose store and folds change.
  * @param conversation Conversation the record extends.
  * @param record The verified action-certified record.
@@ -865,21 +867,26 @@ const supersedeLock = (
         ),
       { concurrency: 1 },
     );
-    yield* runtime.input.store.supersedeProposalLock(lock, certificate);
-    yield* Effect.sync(() => {
-      for (const [heldHash, held] of runtime.actionFolds) {
-        if (
-          heldHash !== actionHash &&
-          held.conversation.conversationId === conversation.conversationId &&
-          held.action.previousRecordHash === action.previousRecordHash
-        ) {
-          runtime.actionFolds.delete(heldHash);
-          if (held.recordHash !== undefined) {
-            runtime.recordFolds.delete(held.recordHash);
+    yield* runtime.input.store.supersedeProposalLock(lock, certificate).pipe(
+      Effect.zipRight(
+        Effect.sync(() => {
+          for (const [heldHash, held] of runtime.actionFolds) {
+            if (
+              heldHash !== actionHash &&
+              held.conversation.conversationId ===
+                conversation.conversationId &&
+              held.action.previousRecordHash === action.previousRecordHash
+            ) {
+              runtime.actionFolds.delete(heldHash);
+              if (held.recordHash !== undefined) {
+                runtime.recordFolds.delete(held.recordHash);
+              }
+            }
           }
-        }
-      }
-    });
+        }),
+      ),
+      Effect.uninterruptible,
+    );
   });
 
 const prepareRecordFold = (

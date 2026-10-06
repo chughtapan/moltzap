@@ -356,7 +356,10 @@ record it selects, with the action signatures held for its candidate and any
 record staged for it with that record's durability votes: `ActionHash` binds
 the anchor, so no candidate under the previous anchor is gap-free afterward,
 and the re-anchor's `q(n)` certificate shows a staged candidate there can never
-collect a durability certificate, because of the re-anchor rules below.
+collect a durability certificate, because of the re-anchor rules below. A
+verified POST record whose action certificate meets `q(n)` releases a lock on
+another action at its predecessor in the same way, and the endpoint locks the
+record's action without signing it, as the cross-field validation below states.
 
 A sender persists its immutable post intent before protocol traffic. If a
 different candidate commits first, it retries the same `PostId` and intent
