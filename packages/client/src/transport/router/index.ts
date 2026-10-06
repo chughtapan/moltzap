@@ -102,7 +102,6 @@ export type {
   RouterWorkerIngress,
   RouterWorkerInput,
   RouterWorkerRecovery,
-  RouterWorkerRecoverySend,
   RouterWorkerSendError,
 } from "./types.js";
 

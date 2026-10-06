@@ -30,7 +30,10 @@ interface EmptyPositionRestartInput {
 
 /**
  * Replace a genesis foundation only while its certified history is empty. The
- * caller marks the conversation recovered.
+ * caller marks the conversation recovered. The durable replacement and the
+ * engine's adoption of its anchor are one uninterruptible step: a retry reads
+ * the durable anchor as already restarted and never resets the engine, so an
+ * interruption between them would leave actions binding the old anchor.
  * @param input Durable and recovered state for one empty conversation.
  * @returns Completion after the new foundation is durable and active.
  */
@@ -49,28 +52,32 @@ export function restartEmptyPosition(
       membership,
       expectedFoundation,
     );
-    const restarted = yield* runtime.input.store
-      .restartEmptyConversation({
-        expectedFoundation,
-        replacementFoundation: replacement.foundation,
-      })
-      .pipe(Effect.mapError(persistenceFailure));
-    if (
-      !restartedEmptyStateMatches({
-        runtime,
-        conversationId: membership.descriptor.conversationId,
-        expected: replacement.foundation,
-        retained: restarted.foundation,
-        postIntents: restarted.postIntents,
-      })
-    ) {
-      return yield* Effect.fail(persistenceFailure());
-    }
-    yield* resetEmptyConversationRuntime(
-      runtime,
-      membership.descriptor.conversationId,
-      replacement.anchor,
-      restarted.postIntents,
+    yield* Effect.uninterruptible(
+      Effect.gen(function* () {
+        const restarted = yield* runtime.input.store
+          .restartEmptyConversation({
+            expectedFoundation,
+            replacementFoundation: replacement.foundation,
+          })
+          .pipe(Effect.mapError(persistenceFailure));
+        if (
+          !restartedEmptyStateMatches({
+            runtime,
+            conversationId: membership.descriptor.conversationId,
+            expected: replacement.foundation,
+            retained: restarted.foundation,
+            postIntents: restarted.postIntents,
+          })
+        ) {
+          return yield* Effect.fail(persistenceFailure());
+        }
+        yield* resetEmptyConversationRuntime(
+          runtime,
+          membership.descriptor.conversationId,
+          replacement.anchor,
+          restarted.postIntents,
+        );
+      }),
     );
   }).pipe(Effect.withSpan("restartEmptyPosition"));
 }
