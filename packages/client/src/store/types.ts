@@ -341,6 +341,10 @@ export interface EndpointStore {
     foundation: ConversationFoundation,
     proposal: ProposalLock,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
+  readonly supersedeProposalLock: (
+    lock: ProposalLock,
+    certificate: readonly ProtocolEvidence[],
+  ) => Effect.Effect<StoreMutation, EndpointStoreError>;
   readonly stageRecord: (
     record: StagedRecord,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
@@ -360,11 +364,6 @@ export interface EndpointStore {
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
   readonly applyCatchUpRecord: (
     record: CertifiedRecord,
-    delivery?: InboundDeliveryInput,
-  ) => Effect.Effect<StoreMutation, EndpointStoreError>;
-  readonly adoptCertifiedRecord: (
-    record: CertifiedRecord,
-    lock: ProposalLock,
     delivery?: InboundDeliveryInput,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
   readonly stageReanchor: (

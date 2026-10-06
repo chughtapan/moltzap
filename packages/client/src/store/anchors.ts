@@ -497,16 +497,14 @@ function releaseSupersededProposal(
   database: DatabaseSync,
   reanchor: CompletedReanchor,
 ): void {
-  const { conversationId } = reanchor;
   const lock = findProposalLock(
     database,
-    conversationId,
+    reanchor.conversationId,
     reanchor.selectedRecordHash,
   );
-  if (lock === undefined) {
-    return;
+  if (lock !== undefined) {
+    releaseProposalLock(database, lock);
   }
-  releaseProposalLock(database, lock);
 }
 
 /**

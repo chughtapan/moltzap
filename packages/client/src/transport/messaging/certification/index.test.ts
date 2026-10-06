@@ -547,17 +547,21 @@ function certifiedRecordCounts(
  * traffic after 32 rounds is a defect in the scripted Router, so it dies.
  * @param harness Engines and the scripted Router queue they send through.
  * @param initial First batch to deliver.
+ * @param silent A member whose messages are dropped, as if it stopped
+ *     sending.
  * @returns Every delivered message in delivery order, once the exchange is
  *   idle.
  */
 function pump(
   harness: ProtocolHarness,
   initial: ReadonlyArray<typeof SignedMessage.Type>,
+  silent?: string,
 ): Effect.Effect<ReadonlyArray<typeof SignedMessage.Type>> {
   return Effect.gen(function* () {
     const delivered: Array<typeof SignedMessage.Type> = [];
     let batch = initial;
     for (let round = 0; round < 32; round += 1) {
+      batch = batch.filter((message) => message.senderAgentId !== silent);
       if (batch.length === 0) {
         return delivered;
       }
@@ -735,13 +739,15 @@ function restartOverPersistedDurabilityVote(
 
 /**
  * Member 2 misses member 1's proposal at the genesis head and locks its own
- * there, while members 1, 3 and 4 lock and certify member 1's. When member 1's
- * certified record reaches member 2, member 2 adopts it over its own lock, so
- * its own post is proposed again from the new head and certifies. Restarted
- * over its store, member 2 sends no signature for the record it adopted.
+ * there, while members 1, 3 and 4 lock and sign member 1's. Member 4 then
+ * falls silent, so member 1's post certifies only if member 2 adopts its
+ * action certificate over its own lock and votes for it. Member 2's own post
+ * is then proposed again from the new head and certifies, and its signature
+ * on the released action is ignored. Restarted over its store, member 2 sends
+ * no signature for the action it adopted.
  * @returns Completion once member 2 holds both posts and restarts cleanly.
  */
-function adoptsACertifiedRecordOverItsOwnLock() {
+function adoptsAnActionCertificateOverItsOwnLock() {
   return Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
@@ -782,10 +788,15 @@ function adoptsACertifiedRecordOverItsOwnLock() {
         );
         const loserBatch = yield* takeReadyBatch(harness);
 
+        const silent = yield* requireAt(harness.identities, 3, "identity");
+
         yield* harness.deliver(winnerBatch, [0, 2, 3]);
         yield* harness.deliver(loserBatch);
         yield* harness.drain();
-        yield* pump(harness, yield* takeQueued(harness));
+        const signatures = yield* takeQueued(harness);
+        yield* harness.deliver(signatures);
+        yield* harness.drain();
+        yield* pump(harness, yield* takeQueued(harness), silent.card.agentId);
         yield* Fiber.join(winning).pipe(
           Effect.timeout("1 second"),
           Effect.orDie,
@@ -802,6 +813,12 @@ function adoptsACertifiedRecordOverItsOwnLock() {
         ]);
         const recovered = yield* laggingStore.recover().pipe(Effect.orDie);
         expect(recovered.certifiedRecords).toHaveLength(3);
+        const releasedSignature = signatures.filter(
+          (message) => message.senderAgentId === laggingIdentity.card.agentId,
+        );
+        expect(yield* harness.deliver(releasedSignature, [1])).toEqual([
+          "ignored",
+        ]);
 
         yield* takeQueued(harness);
         const restarted = yield* makeEndpointEngine({
@@ -1292,8 +1309,8 @@ function reappendedOuterMessagesYieldOnePost() {
 
 describe("fixed-post endpoint protocol", () => {
   it(
-    "adopts a certified record over its own lock at the same head",
-    adoptsACertifiedRecordOverItsOwnLock,
+    "adopts an action certificate over its own lock at the same head",
+    adoptsAnActionCertificateOverItsOwnLock,
     TEST_TIMEOUT_MS,
   );
   it(

@@ -623,12 +623,12 @@ following applicable bindings:
 - GENESIS has all members, POST meets `q(n)` and includes its author, and
   durability and re-anchor certificates independently meet `q(n)`;
 - the predecessor-scoped proposal lock is absent or already names this
-  `ActionHash`, except for a complete `CertifiedRecord` whose durability
-  certificate meets `q(n)`: it supersedes a lock on another action at its
-  predecessor, which the endpoint releases without signing the record's
-  action. Any two `q(n)` quorums share an honest member, who votes for one
-  successor of a head per anchor, so the locked action can never be
-  certified; and
+  `ActionHash`, except for a POST record whose action certificate meets
+  `q(n)`, alone or inside a `CertifiedRecord`: it supersedes a lock on another
+  action at its predecessor, which the endpoint releases without signing the
+  record's action. Any two `q(n)` quorums share an honest member, who signs
+  one action at a predecessor under one anchor, so the locked action can never
+  be certified; and
 - catch-up position, item hash, response sender, attestation, and `hasMore`
   match the rules above.
 

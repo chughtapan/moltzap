@@ -52,13 +52,13 @@ import {
   searchStoredConversations,
 } from "./reads.js";
 import {
-  adoptCertifiedRecord,
   applyCatchUpRecord,
   mergeEvidence,
   promoteRecord,
   promoteRecordForDissemination,
   stageRecord,
   stageRecordForDissemination,
+  supersedeProposalLock,
 } from "./records.js";
 
 /** Closed endpoint-store failures without SQLite implementation details. */
@@ -145,6 +145,8 @@ function makeHistoryOperations(state: StoreState, run: StoreRunner) {
       run(() => lockProposal(state.database, proposal)),
     lockGenesisProposal: (foundation, proposal) =>
       run(() => lockGenesisProposal(state.database, foundation, proposal)),
+    supersedeProposalLock: (lock, certificate) =>
+      run(() => supersedeProposalLock(state.database, lock, certificate)),
     stageRecord: (record) => run(() => stageRecord(state.database, record)),
     stageRecordForDissemination: (record) =>
       run(() => stageRecordForDissemination(state.database, record)),
@@ -158,8 +160,6 @@ function makeHistoryOperations(state: StoreState, run: StoreRunner) {
       ),
     applyCatchUpRecord: (record, delivery) =>
       run(() => applyCatchUpRecord(state.database, record, delivery)),
-    adoptCertifiedRecord: (record, lock, delivery) =>
-      run(() => adoptCertifiedRecord(state.database, record, lock, delivery)),
     stageReanchor: (reanchor) =>
       run(() => stageReanchor(state.database, reanchor)),
     completeReanchor: (reanchor) =>

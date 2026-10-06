@@ -1,7 +1,4 @@
-/**
- * @file Typed projections, exact-binding checks and proposal-lock writes for
- * endpoint-store rows.
- */
+/** @file Row projections, binding checks and proposal-lock writes. */
 
 import type { DatabaseSync } from "node:sqlite";
 import { Either, Schema } from "effect";
@@ -30,6 +27,9 @@ import {
   type StoreMutation,
 } from "../types.js";
 
+/** The predecessor key of a conversation's first record. */
+export const GENESIS_PREDECESSOR = "";
+
 /** Durable position plus the local indexing aid that carries no authority. */
 export interface InternalPosition extends ConversationPosition {
   readonly headOrdinal: number;
@@ -46,7 +46,7 @@ export function lockProposalInTransaction(
   database: DatabaseSync,
   proposal: ProposalLock,
 ): StoreMutation {
-  const predecessorKey = proposal.previousRecordHash ?? "";
+  const predecessorKey = proposal.previousRecordHash ?? GENESIS_PREDECESSOR;
   const existing = findProposalLock(
     database,
     proposal.conversationId,
@@ -89,40 +89,24 @@ export function releaseProposalLock(
   database: DatabaseSync,
   lock: ProposalLock,
 ): void {
-  const { conversationId, actionHash } = lock;
-  const stagedRecordHashes = database
-    .prepare(
-      `SELECT record_hash FROM staged_records
-       WHERE conversation_id = ? AND action_hash = ?`,
-    )
-    .all(conversationId, actionHash)
-    .map((row) => readText(row, "record_hash"));
-  for (const recordHash of stagedRecordHashes) {
-    for (const statement of [
-      `DELETE FROM dissemination_obligations
-       WHERE conversation_id = ? AND record_hash = ?`,
-      `DELETE FROM protocol_evidence
-       WHERE conversation_id = ? AND evidence_kind = 'durability'
-         AND subject_id = ?`,
-      `DELETE FROM staged_records
-       WHERE conversation_id = ? AND record_hash = ?`,
-    ]) {
-      database.prepare(statement).run(conversationId, recordHash);
-    }
+  const staged = `SELECT record_hash FROM staged_records
+    WHERE conversation_id = ?1 AND action_hash = ?2`;
+  for (const statement of [
+    `DELETE FROM dissemination_obligations
+     WHERE conversation_id = ?1 AND record_hash IN (${staged})`,
+    `DELETE FROM protocol_evidence
+     WHERE conversation_id = ?1 AND evidence_kind = 'durability'
+       AND subject_id IN (${staged})`,
+    `DELETE FROM staged_records
+     WHERE conversation_id = ?1 AND action_hash = ?2`,
+    `DELETE FROM protocol_evidence
+     WHERE conversation_id = ?1 AND evidence_kind = 'action'
+       AND subject_id = ?2`,
+    `DELETE FROM proposal_locks
+     WHERE conversation_id = ?1 AND action_hash = ?2`,
+  ]) {
+    database.prepare(statement).run(lock.conversationId, lock.actionHash);
   }
-  database
-    .prepare(
-      `DELETE FROM protocol_evidence
-       WHERE conversation_id = ? AND evidence_kind = 'action'
-         AND subject_id = ?`,
-    )
-    .run(conversationId, actionHash);
-  database
-    .prepare(
-      `DELETE FROM proposal_locks
-       WHERE conversation_id = ? AND predecessor_key = ?`,
-    )
-    .run(conversationId, lock.previousRecordHash ?? "");
 }
 
 /**
@@ -479,22 +463,6 @@ export function requireSameRecord(
 }
 
 /**
- * Requires two proposal locks for one predecessor to be byte-identical.
- *
- * @param left Previously retained proposal lock.
- * @param right Candidate lock for the same predecessor.
- */
-export function requireSameProposalLock(
-  left: ProposalLock,
-  right: ProposalLock,
-): void {
-  requireEqual(left.conversationId, right.conversationId);
-  requireEqual(left.previousRecordHash, right.previousRecordHash);
-  requireEqual(left.actionHash, right.actionHash);
-  requireSameBytes(left.canonicalActionCore, right.canonicalActionCore);
-}
-
-/**
  * Requires two re-anchors with one hash to have identical body bindings.
  *
  * @param left Previously retained re-anchor.
@@ -510,6 +478,16 @@ export function requireSameReanchor(
   requireEqual(left.routerInstanceId, right.routerInstanceId);
   requireEqual(left.selectedRecordHash, right.selectedRecordHash);
   requireSameBytes(left.canonicalBody, right.canonicalBody);
+}
+
+function requireSameProposalLock(
+  left: ProposalLock,
+  right: ProposalLock,
+): void {
+  requireEqual(left.conversationId, right.conversationId);
+  requireEqual(left.previousRecordHash, right.previousRecordHash);
+  requireEqual(left.actionHash, right.actionHash);
+  requireSameBytes(left.canonicalActionCore, right.canonicalActionCore);
 }
 
 function readEvidenceKind(

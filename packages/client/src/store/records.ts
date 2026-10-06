@@ -30,14 +30,13 @@ import {
   findProposalLock,
   findStagedReanchor,
   findStagedRecord,
+  GENESIS_PREDECESSOR,
   lockProposalInTransaction,
   readStoredIdentity,
   readStoredPosition,
   releaseProposalLock,
   requireSameRecord,
 } from "./rows/index.js";
-
-const GENESIS_PREDECESSOR = "";
 
 /**
  * Durably stages an exact verified record core.
@@ -95,6 +94,46 @@ export function mergeEvidence(
   return transaction(database, () =>
     mergeEvidenceInTransaction(database, evidence),
   );
+}
+
+/**
+ * Atomically replaces the lock this endpoint holds on another action at a
+ * predecessor with the lock on an action whose `q(n)` action certificate it
+ * verified, releasing everything held for the other action and retaining the
+ * certificate's signatures. They are written with the new lock so that a
+ * restart never finds the certified action locked without the certificate
+ * that keeps this endpoint from signing it.
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param lock The lock on the certified action.
+ * @param certificate The action certificate's signatures as evidence rows.
+ * @returns Whether the lock on the certified action was inserted.
+ */
+export function supersedeProposalLock(
+  database: DatabaseSync,
+  lock: ProposalLock,
+  certificate: readonly ProtocolEvidence[],
+): StoreMutation {
+  validateCertificateEvidence(certificate, {
+    conversationId: lock.conversationId,
+    kind: "action",
+    subjectId: lock.actionHash,
+  });
+  return transaction(database, () => {
+    const held = findProposalLock(
+      database,
+      lock.conversationId,
+      lock.previousRecordHash ?? GENESIS_PREDECESSOR,
+    );
+    if (held !== undefined && held.actionHash !== lock.actionHash) {
+      releaseProposalLock(database, held);
+    }
+    const mutation = lockProposalInTransaction(database, lock);
+    for (const evidence of certificate) {
+      mergeEvidenceInTransaction(database, evidence);
+    }
+    return mutation;
+  });
 }
 
 /**
@@ -164,61 +203,6 @@ export function applyCatchUpRecord(
       ? "inserted"
       : "existing";
   });
-}
-
-/**
- * Atomically adopts one verified certified record at a predecessor where this
- * endpoint locked another action: it releases that lock, locks the record's
- * action, then stages and promotes the record with its remote delivery.
- *
- * @param database Exclusively owned endpoint database.
- * @param record One verified complete certified record.
- * @param lock The lock on the record's own action.
- * @param delivery Canonical remote host message, absent for the local author.
- * @returns Always `inserted`: the record was not certified here before.
- */
-export function adoptCertifiedRecord(
-  database: DatabaseSync,
-  record: CertifiedRecord,
-  lock: ProposalLock,
-  delivery?: InboundDeliveryInput,
-): StoreMutation {
-  validateCertifiedRecord(record);
-  requireEqual(lock.conversationId, record.conversationId);
-  requireEqual(lock.previousRecordHash, record.previousRecordHash);
-  requireEqual(lock.actionHash, record.actionHash);
-  return transaction(database, () => {
-    releaseConflictingProposal(database, record);
-    lockProposalInTransaction(database, lock);
-    stageRecordInTransaction(database, record);
-    promoteRecordInTransaction(database, record, delivery);
-    return "inserted";
-  });
-}
-
-/**
- * Releases a lock this endpoint holds on another action at the predecessor a
- * verified certified record extends, with everything held for that action.
- *
- * The record's durability certificate meets q(n), so the other action can
- * never be certified: any two q(n) quorums share an honest member, and that
- * member votes for one successor of a head per anchor. Kept, the lock would
- * refuse the certified record forever.
- *
- * @param database Exclusively owned endpoint database.
- * @param record Verified complete certified record.
- */
-function releaseConflictingProposal(
-  database: DatabaseSync,
-  record: CertifiedRecord,
-): void {
-  const { conversationId } = record;
-  const predecessorKey = record.previousRecordHash ?? GENESIS_PREDECESSOR;
-  const lock = findProposalLock(database, conversationId, predecessorKey);
-  if (lock === undefined || lock.actionHash === record.actionHash) {
-    return;
-  }
-  releaseProposalLock(database, lock);
 }
 
 function stageRecordInTransaction(
