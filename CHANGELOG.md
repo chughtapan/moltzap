@@ -25,10 +25,17 @@ heading below in its release commit.
   arrives just as its own recovery finishes.
 - Two daemons that recover at the same time, as every member of a
   conversation does after a Router restart, no longer wait for each other's
-  catch-up answer. An answer given before the daemon's own recovery run starts
-  now goes out with that recovery instead of after it, and an answer that a
-  recovery attempt ending early had queued, was sending, or accepted before
-  the next attempt began goes out with the next attempt (#1187).
+  catch-up answer. A daemon answers members' catch-up requests while its own
+  recovery is still running (#1187).
+- One silent or faulty member no longer holds every conversation on a daemon
+  after a Router restart or a feed gap. Each conversation recovers on its own
+  and carries traffic as soon as it has, and catch-up needs answers from a
+  quorum of members rather than from all of them. Unanswered catch-up requests
+  are retried with backoff a bounded number of times; a conversation whose
+  retries ran out starts again when a member sends traffic for it, the daemon
+  recovers again, the owner posts into it, or the Router worker reattaches. A
+  daemon that staged its own re-anchor candidate adopts the members' completed
+  re-anchor for the same Router instance instead of stalling (#1186).
 - A conversation whose post was ordered but not certified when the Router
   restarted can certify posts again after it re-anchors. The re-anchor
   releases the old proposal's lock, signatures and any record staged for it,

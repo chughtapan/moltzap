@@ -477,16 +477,36 @@ anchor it stages no record and casts no durability vote under that anchor. A
 `q(n)` re-anchor certificate at a head therefore leaves fewer than `q(n)`
 members able to attest a staged successor's durability. A member that holds
 such a successor adopts a verified completed re-anchor at its head, by relay
-or catch-up, even though it cast no vote for it. New actions bind the durable
+or catch-up, even though it cast no vote for it. After adopting a completed
+re-anchor, a member catches up from the new anchor before the conversation
+recovers, because members may already have certified records under it. New
+actions bind the durable
 new anchor. Catch-up and re-anchor do
 not create runtime messages by themselves. Verified catch-up or re-anchor
 input from a member that the endpoint cannot apply, such as input naming an
 anchor, record, or position it cannot resolve, does not count and never stops
-the endpoint. It can leave that conversation unrecovered. Recovery finishes
-only when every conversation has recovered. Until then the endpoint sends only
-catch-up and re-anchor traffic: its own posts, pending intents and retained
-outbound envelopes wait for every conversation, and the action traffic members
-send meanwhile is ignored.
+the endpoint. It can leave that conversation unrecovered, and it holds no
+other conversation: each conversation recovers on its own. Until a
+conversation recovers, the endpoint sends only catch-up and re-anchor traffic
+for it, which includes its answers to members' catch-up requests, so an answer
+does not wait for the answering member's own recovery to finish. Its own
+posts, pending intents and retained outbound envelopes for that conversation
+wait, and the action traffic members send for it meanwhile is ignored; a
+conversation that has recovered carries traffic while others still recover.
+A conversation's catch-up position is ready once `q(n)` members, counting the
+endpoint, have answered that they cannot supply a next item, so one silent
+member cannot hold it. Readiness is a liveness signal only: safety rests on
+the `q(n)` re-anchor and durability thresholds. After a Router restart the
+conversation recovers when the endpoint assembles a `q(n)` re-anchor
+certificate, or adopts a verified completed re-anchor and then catches up
+from it. A completed re-anchor it adopts supersedes a different candidate it
+staged for the same conversation, preceding anchor, and Router instance,
+because two certificates in one scope would need an honest member to vote
+twice. Unanswered catch-up requests are retried with jittered exponential
+backoff a bounded number of times. A conversation whose retries ran out
+starts a fresh schedule on verified traffic from a member for that
+conversation, on the next recovery run, on a local post into that
+conversation, or when the Router worker reattaches after an outage.
 
 ## Direct packets and Router envelopes
 
