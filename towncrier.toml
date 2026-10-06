@@ -5,8 +5,11 @@
 # <number>.<type>.md, where <number> is the issue or pull request it resolves,
 # or +<slug>.<type>.md when there is none. <type> is a lowercase name below.
 # The build reflows the paragraph to 80 columns and cites the number as
-# (#<number>) before its final period. Preview a release section with
-# `uvx towncrier build --draft --version <version>`.
+# (#<number>) before its final period. Preview a release section with the
+# release's pinned towncrier:
+#
+#   uvx --with-requirements scripts/release/towncrier-requirements.txt \
+#     towncrier build --draft --version <version>
 
 [tool.towncrier]
 filename = "CHANGELOG.md"
