@@ -10,4 +10,4 @@ export { CollectiveEmitError } from "./forms.js";
 /** The items those operations emit. */
 export type { InboundItem } from "./inbound.js";
 /** The collective part carried in a post's content. */
-export { collectiveIdOf, readCollectiveValue } from "./part/index.js";
+export { collectiveIdOf } from "./part/index.js";

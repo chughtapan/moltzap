@@ -17,7 +17,6 @@ import {
   Deferred,
   Duration,
   Effect,
-  Either,
   Fiber,
   Option,
   Queue,
@@ -59,8 +58,8 @@ import {
   Content,
   ConversationId,
   type ConversationId as ConversationIdValue,
-  type DecodedOuterBody,
   decodeCanonical,
+  type DecodedOuterBody,
   deriveConversationId,
   DirectPacket,
   encodeCanonical,
@@ -212,29 +211,6 @@ function requireAt<Value>(
   return value === undefined
     ? Effect.dieMessage(`missing ${label} ${index}`)
     : Effect.succeed(value);
-}
-
-function senderOf(
-  identities: readonly ProtocolIdentity[],
-  message: typeof SignedMessage.Type,
-): Effect.Effect<ProtocolIdentity> {
-  const identity = identities.find(
-    ({ card }) => card.agentId === message.senderAgentId,
-  );
-  return identity === undefined
-    ? Effect.dieMessage("unknown protocol sender")
-    : Effect.succeed(identity);
-}
-
-/** Opens an envelope's sealed body as its sender, which every body is sealed to. */
-function openAsSender(
-  harness: Pick<ProtocolHarness, "identities">,
-  message: typeof SignedMessage.Type,
-): Effect.Effect<DecodedOuterBody> {
-  return senderOf(harness.identities, message).pipe(
-    Effect.flatMap((sender) => openOuterBody(message, sender)),
-    Effect.orDie,
-  );
 }
 
 /** The ingress one receiving member's Router worker hands its engine. */
@@ -555,6 +531,29 @@ function decodeActionSignatureHash(
     ),
     Effect.orDie,
   );
+}
+
+/** Opens an envelope's sealed body as its sender, which every body is sealed to. */
+function openAsSender(
+  harness: Pick<ProtocolHarness, "identities">,
+  message: typeof SignedMessage.Type,
+): Effect.Effect<DecodedOuterBody> {
+  return senderOf(harness.identities, message).pipe(
+    Effect.flatMap((sender) => openOuterBody(message, sender)),
+    Effect.orDie,
+  );
+}
+
+function senderOf(
+  identities: readonly ProtocolIdentity[],
+  message: typeof SignedMessage.Type,
+): Effect.Effect<ProtocolIdentity> {
+  const identity = identities.find(
+    ({ card }) => card.agentId === message.senderAgentId,
+  );
+  return identity === undefined
+    ? Effect.dieMessage("unknown protocol sender")
+    : Effect.succeed(identity);
 }
 
 /**
@@ -1165,14 +1164,9 @@ function retainsInterruptedDurableSend() {
 function readsAsPlaintext(
   message: typeof SignedMessage.Type,
 ): Effect.Effect<boolean> {
-  return Effect.all([
-    Effect.either(decodeCanonical(DirectPacket, message.body)),
-    Effect.either(decodeCanonical(SignedMessage, message.body)),
-  ]).pipe(
-    Effect.map(
-      ([packet, evidence]) =>
-        Either.isRight(packet) || Either.isRight(evidence),
-    ),
+  return decodeCanonical(DirectPacket, message.body).pipe(
+    Effect.orElse(() => decodeCanonical(SignedMessage, message.body)),
+    Effect.match({ onFailure: () => false, onSuccess: () => true }),
   );
 }
 
@@ -1563,6 +1557,7 @@ function failsThenForwards(
 
 /**
  * The distinct action hashes each post was proposed under, across envelopes.
+ * @param harness Members whose keys open the envelopes.
  * @param messages Forwarded action-proposal envelopes.
  * @returns For each PostId, the set of proposed action hashes.
  */

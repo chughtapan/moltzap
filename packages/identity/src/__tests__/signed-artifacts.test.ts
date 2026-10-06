@@ -1,6 +1,13 @@
 /** @file AgentCard and SignedMessage immutability, representation, bounds, and signature tests. */
 
-import { Effect, Either, Encoding, Redacted, Schema } from "effect";
+import {
+  Effect,
+  Either,
+  Encoding,
+  ParseResult,
+  Redacted,
+  Schema,
+} from "effect";
 import * as fc from "fast-check";
 import { generateKeyPairSync } from "node:crypto";
 import { expect, it } from "vitest";
@@ -612,11 +619,11 @@ it("rejects a signature accepted only by cofactored Ed25519 verification", () =>
 it("refuses an AgentCard the Registry signed under the prior MoltZap version", () =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const decoded = yield* Schema.decodeUnknown(AgentCard)(
+      const refusal = yield* Schema.decodeUnknown(AgentCard)(
         priorVersionAgentCard,
-      ).pipe(Effect.either);
+      ).pipe(Effect.flip);
 
-      expect(Either.isLeft(decoded)).toBe(true);
+      expect(refusal).toBeInstanceOf(ParseResult.ParseError);
     }),
   ));
 

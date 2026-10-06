@@ -38,6 +38,14 @@ const SCHEMA_VERSION = 4;
 
 type PreflightDisposition = "initialize" | "cutover" | "reopen";
 
+/** Empty, pre-cutover, and current stores; every other version is refused. */
+const OPENABLE_VERSIONS: ReadonlySet<number> = new Set([
+  0,
+  2,
+  3,
+  SCHEMA_VERSION,
+]);
+
 /**
  * Acquires and exclusively locks one exact-version endpoint database.
  * @param stateDirectory Exclusive persistent state directory.
@@ -191,12 +199,7 @@ function preflightDatabase(database: DatabaseSync): PreflightDisposition {
     throw new StoreSignal("corrupt");
   }
   const version = readInteger(versionRow, "user_version");
-  if (
-    version !== 0 &&
-    version !== 2 &&
-    version !== 3 &&
-    version !== SCHEMA_VERSION
-  ) {
+  if (!OPENABLE_VERSIONS.has(version)) {
     throw new StoreSignal("incompatible");
   }
   if (version === 0) {
@@ -434,7 +437,13 @@ const schemaSql = `
 `;
 
 function initializeDatabase(database: DatabaseSync): void {
-  transaction(database, () => createSchema(database), "EXCLUSIVE");
+  transaction(
+    database,
+    () => {
+      createSchema(database);
+    },
+    "EXCLUSIVE",
+  );
 }
 
 function createSchema(database: DatabaseSync): void {

@@ -193,20 +193,6 @@ const pollCursor = fixturePollCursor(1);
 const forwardedBy = new WeakMap<SignedMessage, SigningIdentity>();
 
 /**
- * The Client value inside an envelope a fixture Router forwarded, opened as
- * the endpoint that sent it.
- * @param message Envelope taken from a fixture Router queue.
- * @returns The decoded body; an envelope no fixture Router forwarded is a
- *     defect.
- */
-function openForwarded(message: SignedMessage) {
-  const sender = forwardedBy.get(message);
-  return sender === undefined
-    ? Effect.dieMessage("no fixture Router forwarded this envelope")
-    : openOuterBody(message, sender);
-}
-
-/**
  * Sends one outbox row the way the fixture Router worker delivers it: to the
  * context's recovery queue when it carries catch-up or re-anchor traffic,
  * otherwise to its normal queue.
@@ -262,6 +248,20 @@ function isRecoveryTraffic(message: SignedMessage): Effect.Effect<boolean> {
     ),
     Effect.orDie,
   );
+}
+
+/**
+ * The Client value inside an envelope a fixture Router forwarded, opened as
+ * the endpoint that sent it.
+ * @param message Envelope taken from a fixture Router queue.
+ * @returns The decoded body; an envelope no fixture Router forwarded is a
+ *     defect.
+ */
+function openForwarded(message: SignedMessage) {
+  const sender = forwardedBy.get(message);
+  return sender === undefined
+    ? Effect.dieMessage("no fixture Router forwarded this envelope")
+    : openOuterBody(message, sender);
 }
 
 function makeHeldRouter(input: HeldRouterInput) {

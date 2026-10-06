@@ -1,5 +1,7 @@
 /** @file A daemon ignores a peer's outer body that does not open for it, and its Router worker keeps accepting sealed traffic. */
 
+import type { Registry } from "@moltzap/identity/registry";
+import type { Router } from "@moltzap/router";
 import {
   type AgentSigningAuthority,
   MessageId,
@@ -8,8 +10,6 @@ import {
   SignedMessage,
   type VerifiedAgentCard,
 } from "@moltzap/identity";
-import type { Registry } from "@moltzap/identity/registry";
-import type { Router } from "@moltzap/router";
 import {
   type Context,
   Deferred,
@@ -20,6 +20,8 @@ import {
   Scope,
 } from "effect";
 import { describe, expect, it } from "vitest";
+import type { EndpointEngine } from "../../transport/messaging/index.js";
+import type { DaemonRuntimeError } from "../errors.js";
 import { digest, identifier } from "../../__tests__/agent-card-fixtures.js";
 import { makeFixture } from "../../__tests__/daemon-runtime-fixtures.js";
 import { makeStore } from "../../__tests__/daemon-runtime-harness.js";
@@ -30,7 +32,6 @@ import {
   pollCursor,
   routerInstanceId,
 } from "../../__tests__/router-worker-fixtures.js";
-import type { EndpointEngine } from "../../transport/messaging/index.js";
 import {
   makeRouterWorker,
   type RouterWorker,
@@ -44,7 +45,6 @@ import {
   MembershipHash,
   signOuterPacket,
 } from "../../transport/wire/index.js";
-import type { DaemonRuntimeError } from "../errors.js";
 import { acquireProtocol } from "./protocol.js";
 
 interface Member {
@@ -228,6 +228,64 @@ const recordingEngine = (
   rearmCatchUp: Effect.void,
 });
 
+/** What a running daemon protocol exposes to the test that started it. */
+interface RunningProtocol {
+  readonly worker: RouterWorker;
+  readonly accepted: Queue.Queue<DecodedOuterBody>;
+  readonly fatal: Deferred.Deferred<never, DaemonRuntimeError>;
+}
+
+/**
+ * Acquire the daemon's protocol over a real Router worker, a Router that
+ * carries `feed` once `released` resolves and signals `polledAgain` on the
+ * poll after it, and an engine that records every payload it accepts.
+ */
+const runProtocol = (input: {
+  readonly fixture: Effect.Effect.Success<typeof makeFixture>;
+  readonly members: Members;
+  readonly feed: readonly SignedMessage[];
+  readonly released: Deferred.Deferred<undefined>;
+  readonly polledAgain: Deferred.Deferred<undefined>;
+}): Effect.Effect<RunningProtocol, unknown, Scope.Scope> =>
+  Effect.gen(function* () {
+    const workerReady = yield* Deferred.make<RouterWorker>();
+    const accepted = yield* Queue.unbounded<DecodedOuterBody>();
+    const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
+    yield* acquireProtocol(
+      {
+        store: makeStore(input.fixture, true),
+        bootstrap: input.fixture.bootstrap,
+        edges: {
+          makeWorker: (workerInput) =>
+            makeRouterWorker(workerInput).pipe(
+              Effect.tap((worker) => Deferred.succeed(workerReady, worker)),
+            ),
+          makeEngine: () => Effect.succeed(recordingEngine(accepted)),
+        },
+        registry: registryOf([
+          input.members.local.card,
+          input.members.peer.card,
+          input.members.outsider.card,
+        ]),
+        router: routerFeeding({
+          feed: input.feed,
+          released: input.released,
+          polledAgain: input.polledAgain,
+          fed: yield* Ref.make(false),
+        }),
+        daemonScope: yield* Scope.Scope,
+        fatal,
+      },
+      {
+        retain: () => undefined,
+        publishPending: Effect.void,
+        emit: () => Effect.void,
+      },
+      input.fixture.localCard,
+    );
+    return { worker: yield* Deferred.await(workerReady), accepted, fatal };
+  });
+
 const ignoresRefusedBodyAndKeepsRunning = (refused: RefusedEnvelope) =>
   Effect.runPromise(
     Effect.scoped(
@@ -251,50 +309,22 @@ const ignoresRefusedBodyAndKeepsRunning = (refused: RefusedEnvelope) =>
         });
         const released = yield* Deferred.make<undefined>();
         const polledAgain = yield* Deferred.make<undefined>();
-        const workerReady = yield* Deferred.make<RouterWorker>();
-        const accepted = yield* Queue.unbounded<DecodedOuterBody>();
-        const fatal = yield* Deferred.make<never, DaemonRuntimeError>();
+        const running = yield* runProtocol({
+          fixture,
+          members,
+          feed: [yield* refused(members, plaintext), sealed],
+          released,
+          polledAgain,
+        });
 
-        yield* acquireProtocol(
-          {
-            store: makeStore(fixture, true),
-            bootstrap: fixture.bootstrap,
-            edges: {
-              makeWorker: (input) =>
-                makeRouterWorker(input).pipe(
-                  Effect.tap((worker) => Deferred.succeed(workerReady, worker)),
-                ),
-              makeEngine: () => Effect.succeed(recordingEngine(accepted)),
-            },
-            registry: registryOf([
-              members.local.card,
-              members.peer.card,
-              members.outsider.card,
-            ]),
-            router: routerFeeding({
-              feed: [yield* refused(members, plaintext), sealed],
-              released,
-              polledAgain,
-              fed: yield* Ref.make(false),
-            }),
-            daemonScope: yield* Scope.Scope,
-            fatal,
-          },
-          {
-            retain: () => undefined,
-            publishPending: Effect.void,
-            emit: () => Effect.void,
-          },
-          fixture.localCard,
-        );
-        yield* (yield* Deferred.await(workerReady)).awaitAnchor;
+        yield* running.worker.awaitAnchor;
         yield* Deferred.succeed(released, undefined);
         yield* Deferred.await(polledAgain).pipe(Effect.timeout("5 seconds"));
 
-        expect(Array.from(yield* Queue.takeAll(accepted))).toStrictEqual([
-          { kind: "direct", packet },
-        ]);
-        expect(yield* Deferred.isDone(fatal)).toBe(false);
+        expect(
+          Array.from(yield* Queue.takeAll(running.accepted)),
+        ).toStrictEqual([{ kind: "direct", packet }]);
+        expect(yield* Deferred.isDone(running.fatal)).toBe(false);
       }),
     ),
   );
