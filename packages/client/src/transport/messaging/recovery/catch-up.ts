@@ -457,10 +457,13 @@ function queueCatchUpRequest(
 
 /**
  * Answer a member's request with the certified successor of its position, or
- * say none is held. A responder still re-anchoring after a Router restart
- * that holds a staged, uncertified successor there sends that successor and
- * its durability vote instead of `incomplete`: an `incomplete` answer from a
- * holder would let a requester settle at the head the successor extends.
+ * say none is held. A responder, recovering or not, that holds a staged,
+ * uncertified successor there sends that successor and its durability vote
+ * instead of `incomplete`: an `incomplete` answer from a holder would let a
+ * requester settle at the head the successor extends. An `incomplete` answer
+ * follows this endpoint's votes for uncompleted re-anchors at the position,
+ * so a requester at a later Router instance waits for the member that may
+ * have completed one.
  * @param responder The endpoint answering.
  * @param membership Verified membership of the request's conversation.
  * @param request The member's verified catch-up request.
