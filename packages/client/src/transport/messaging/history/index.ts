@@ -13,6 +13,8 @@ export {
   stagedRecord,
   storedCertifiedRecord,
 } from "./build.js";
+/** Signer order, shared with the re-anchor certificate. */
+export { orderedSignatures } from "./certificate.js";
 /** Stored rows read back, verified, and queried. */
 export {
   anchorRouterInstanceId,
@@ -30,5 +32,3 @@ export {
   verifyStoredMemberships,
   verifyStoredOutbounds,
 } from "./stored.js";
-/** Certificate signer order, shared with the re-anchor certificate. */
-export { orderedSignatures } from "./certificate.js";
