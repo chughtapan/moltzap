@@ -1709,6 +1709,12 @@ const takeAllMessageIds = (queue: Queue.Queue<SignedMessage>) =>
     ),
   );
 
+/**
+ * Recovery re-anchors only the conversation anchored to another Router
+ * instance. One member's catch-up incomplete for it arrives twice, as an outer
+ * message Router appended again after eviction would, and recovery still
+ * waits for the last member's answer before it finishes.
+ */
 const recoverMixedRouterInstances = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -1791,21 +1797,29 @@ const recoverMixedRouterInstances = () =>
         );
         expect(yield* Queue.size(recoveryOutbound)).toBe(0);
 
-        yield* Effect.forEach(
-          [fixture.remote, n4.third, n4.fourth],
-          (responder) =>
-            catchUpIncompleteIngressFrom({
-              membership: n4.membership,
-              responder,
-              request: changedRequest,
-              routerInstanceId: oldRouterInstanceId,
-            }).pipe(
-              Effect.flatMap((ingress) =>
-                n4.engine.acceptRecoveryIngress(ingress),
-              ),
+        const incompleteFrom = (responder: SigningIdentity) =>
+          catchUpIncompleteIngressFrom({
+            membership: n4.membership,
+            responder,
+            request: changedRequest,
+            routerInstanceId: oldRouterInstanceId,
+          }).pipe(
+            Effect.flatMap((ingress) =>
+              n4.engine.acceptRecoveryIngress(ingress),
             ),
+          );
+        yield* Effect.forEach(
+          [fixture.remote, fixture.remote, n4.third],
+          (responder) => incompleteFrom(responder),
           { concurrency: 1, discard: true },
         );
+        expect(
+          yield* Fiber.join(recovering).pipe(
+            Effect.timeout("100 millis"),
+            Effect.option,
+          ),
+        ).toEqual(Option.none());
+        yield* incompleteFrom(n4.fourth);
         yield* Fiber.join(recovering).pipe(Effect.timeout("1 second"));
 
         expect(yield* Queue.size(resumedOutbound)).toBe(0);
@@ -3429,7 +3443,7 @@ describe("endpoint restart recovery", () => {
     recoverColdStartAtUnchangedInstance,
   );
   it(
-    "re-anchors only the conversation anchored to another Router instance",
+    "re-anchors only the conversation anchored to another Router instance, counting each member's catch-up answer once",
     recoverMixedRouterInstances,
   );
   it(

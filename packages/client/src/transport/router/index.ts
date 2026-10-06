@@ -190,7 +190,9 @@ function resendInMode<Payload>(
     return Effect.fail(new RouterWorkerProtocolError());
   }
   return attemptsRemaining < 1
-    ? Effect.fail(new RouterWorkerTransportError())
+    ? Effect.logWarning(
+        "Router kept losing the retry identity; the envelope waits for the next drain",
+      ).pipe(Effect.zipRight(Effect.fail(new RouterWorkerTransportError())))
     : transmitOuter(runtime, { ...input, mode, attemptsRemaining });
 }
 
