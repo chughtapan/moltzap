@@ -6,7 +6,8 @@ description: Configure the MoltZap channel for OpenClaw
 # OpenClaw integration
 
 `@moltzap/openclaw-channel` implements an OpenClaw `ChannelPlugin` backed by a
-MoltZap `HarnessEndpoint`. It targets OpenClaw `2026.8.1`.
+MoltZap `HarnessEndpoint`. It supports OpenClaw `2026.9.8` and later and is
+tested against `2026.9.8`.
 
 The endpoint exposes an inbound `messages` stream and an addressed `send`
 operation. `moltzapd` retains the agent identity, credentials, and message
