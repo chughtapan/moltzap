@@ -6,12 +6,15 @@
 
 import {
   MOLTZAP_VERSION,
-  SignedMessage,
   type SignedMessage as SignedMessageValue,
 } from "@moltzap/identity";
-import { Effect, type ParseResult, Schema } from "effect";
-import type { EndpointRecovery } from "../../../store/index.js";
+import { Effect, Schema } from "effect";
 import type { EngineRuntime } from "../runtime/index.js";
+import {
+  type EndpointRecovery,
+  isSemanticStoreRejection,
+  type StagedRecord,
+} from "../../../store/index.js";
 import {
   type RouterDiscontinuityReason,
   type RouterIngressDisposition,
@@ -39,14 +42,15 @@ import {
   signEvidenceMessage,
   type VerifiedMembership,
   verifyCompletedReanchor,
+  verifyDeliveredEvidence,
   verifyOuterMessage,
-  verifyStableEvidence,
 } from "../../wire/index.js";
 import {
   anchorRouterInstanceId,
   durablePosition,
   observedAnchorIsResolved,
   observedHeadIsResolved,
+  stagedSuccessor,
 } from "../history/index.js";
 import { restartEmptyPosition } from "./empty.js";
 import {
@@ -97,6 +101,14 @@ export interface ReanchorRunPort {
   /** Ask members again for the history after the conversation's position. */
   readonly requestCatchUp: (
     conversationId: ConversationIdValue,
+  ) => Effect.Effect<void, RouterWorkerPersistenceError>;
+  /**
+   * Send members again the staged, uncertified successor this endpoint
+   * holds and its durability vote for it, so the successor can certify.
+   */
+  readonly resendStagedSuccessor: (
+    membership: VerifiedMembership,
+    staged: StagedRecord,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
 }
 
@@ -220,10 +232,12 @@ interface RestartedPositionInput {
 
 /**
  * Move a restart-recovered position toward the new Router instance: finish it
- * when it is already anchored there, wait behind a staged successor, or
+ * when it is already anchored there, hold behind a staged successor, or
  * replay the peer votes held while catch-up ran and then propose this
- * endpoint's own re-anchor. The replay can complete the re-anchor, so whether
- * to propose is decided only after it has run.
+ * endpoint's own re-anchor. A holder of a staged successor votes for no
+ * re-anchor at its head; it sends the successor and its durability vote
+ * again, so members can certify it. The replay can complete the re-anchor, so
+ * whether to propose is decided only after it has run.
  * @param input Recovery run, membership, durable position and its head.
  * @returns Completion once the position is finished, waiting, or proposed.
  */
@@ -235,8 +249,9 @@ function advanceRestartedPosition(
   if (currentAnchorForRecovery(run, conversationId) !== undefined) {
     return finishAnchoredPosition(run, membership);
   }
-  if (hasStagedSuccessor(recovery, conversationId, head)) {
-    return Effect.void;
+  const staged = stagedSuccessor(recovery, conversationId, head);
+  if (staged !== undefined) {
+    return run.resendStagedSuccessor(membership, staged);
   }
   return replayReanchorVotes(run, membership, conversationId, head).pipe(
     Effect.zipRight(
@@ -312,15 +327,13 @@ function verifyInboundVote(
   membership: VerifiedMembership,
 ): Effect.Effect<
   RouterIngressDisposition,
-  | ClientRepresentationError
-  | ParseResult.ParseError
-  | RouterWorkerPersistenceError
+  ClientRepresentationError | RouterWorkerPersistenceError
 > {
-  return verifyOuterMessage({ message: ingress.message, membership }).pipe(
-    Effect.zipRight(Schema.encode(SignedMessage)(message)),
-    Effect.flatMap((representation) =>
-      verifyStableEvidence({ representation, membership }),
-    ),
+  return verifyDeliveredEvidence({
+    outer: ingress.message,
+    evidence: message,
+    membership,
+  }).pipe(
     Effect.flatMap((verified) => {
       if (verified.statement.kind !== "reanchor_vote") {
         return Effect.succeed(ignoredDisposition);
@@ -603,9 +616,9 @@ function selectedHeadAction(
   const { body, head, recovery, run } = input;
   if (body.selectedRecordHash === head) {
     return Effect.succeed(
-      hasStagedSuccessor(recovery, body.conversationId, head)
-        ? holdVote
-        : certifyVote,
+      stagedSuccessor(recovery, body.conversationId, head) === undefined
+        ? certifyVote
+        : holdVote,
     );
   }
   if (
@@ -818,11 +831,11 @@ function stageReanchorCandidate(
         return Effect.succeed(false);
       }
       if (
-        hasStagedSuccessor(
+        stagedSuccessor(
           recovery,
           body.conversationId,
           body.selectedRecordHash,
-        )
+        ) !== undefined
       ) {
         return Effect.succeed(false);
       }
@@ -869,23 +882,6 @@ function stagedCandidate(
   );
 }
 
-function hasStagedSuccessor(
-  recovery: EndpointRecovery,
-  conversationId: ConversationIdValue,
-  head: RecordHashValue,
-): boolean {
-  return recovery.stagedRecords.some(
-    (record) =>
-      record.conversationId === conversationId &&
-      record.previousRecordHash === head &&
-      !recovery.certifiedRecords.some(
-        (certified) =>
-          certified.conversationId === conversationId &&
-          certified.recordHash === record.recordHash,
-      ),
-  );
-}
-
 function persistReanchorCandidate(
   runtime: EngineRuntime,
   body: ReanchorBodyValue,
@@ -903,8 +899,13 @@ function persistReanchorCandidate(
         canonicalBody,
       }),
     ),
-    Effect.mapError(persistenceFailure),
     Effect.as(true),
+    Effect.catchTag("EndpointStoreError", (error) =>
+      isSemanticStoreRejection(error)
+        ? Effect.succeed(false)
+        : Effect.fail(persistenceFailure()),
+    ),
+    Effect.mapError(persistenceFailure),
   );
 }
 

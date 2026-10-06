@@ -177,7 +177,10 @@ export function restartEmptyConversation(
 }
 
 /**
- * Durably stages at most one re-anchor proposal for one Router-instance scope.
+ * Durably stages at most one re-anchor proposal for one Router-instance scope,
+ * for this endpoint's vote. It refuses a proposal away from a head this
+ * endpoint holds a staged successor of under the same anchor, since it has
+ * voted that successor durable.
  *
  * @param database Exclusively owned endpoint database.
  * @param reanchor Verified proposal body and stable hash.
@@ -189,7 +192,7 @@ export function stageReanchor(
 ): StoreMutation {
   validateStagedReanchor(reanchor);
   return transaction(database, () =>
-    stageReanchorInTransaction(database, reanchor),
+    stageReanchorInTransaction(database, reanchor, "vote"),
   );
 }
 
@@ -230,7 +233,7 @@ export function applyCatchUpReanchor(
   validateCompletedReanchor(reanchor);
   return transaction(database, () => {
     retireSupersededCandidates(database, reanchor);
-    const staged = stageReanchorInTransaction(database, reanchor);
+    const staged = stageReanchorInTransaction(database, reanchor, "adopted");
     const completed = completeReanchorInTransaction(database, reanchor);
     return staged === "inserted" || completed === "inserted"
       ? "inserted"
@@ -468,9 +471,19 @@ function insertFoundation(
     );
 }
 
+/**
+ * Stage a re-anchor proposal. A proposal staged for this endpoint's vote
+ * must not leave a head it holds a staged successor of; one adopted complete
+ * from members carries no vote of this endpoint's, so it may.
+ * @param database Exclusively owned endpoint database.
+ * @param reanchor Verified proposal body and stable hash.
+ * @param purpose Whether this endpoint votes for it or adopts it complete.
+ * @returns Whether the proposal was inserted or already durable.
+ */
 function stageReanchorInTransaction(
   database: DatabaseSync,
   reanchor: StagedReanchor,
+  purpose: "vote" | "adopted",
 ): StoreMutation {
   const existing = findStagedReanchor(
     database,
@@ -483,6 +496,9 @@ function stageReanchorInTransaction(
   }
   requireUnclaimedReanchorScope(database, reanchor);
   requireReanchorPosition(database, reanchor);
+  if (purpose === "vote") {
+    requireNoStagedSuccessor(database, reanchor);
+  }
   insertStagedReanchor(database, reanchor);
   return "inserted";
 }
@@ -652,6 +668,34 @@ function requireUnclaimedReanchorScope(
       reanchor.routerInstanceId,
     );
   if (scoped !== undefined) {
+    throw new StoreSignal("conflict");
+  }
+}
+
+/**
+ * Refuse a re-anchor away from a head this endpoint holds a staged successor
+ * of under the same anchor. It voted that successor durable, so a re-anchor
+ * away from the head and a durability certificate extending it never both
+ * collect this endpoint's signature.
+ * @param database Exclusively owned endpoint database.
+ * @param reanchor Proposal about to be staged.
+ */
+function requireNoStagedSuccessor(
+  database: DatabaseSync,
+  reanchor: StagedReanchor,
+): void {
+  const successor = database
+    .prepare(
+      `SELECT 1 AS staged FROM staged_records
+       WHERE conversation_id = ? AND anchor_hash = ?
+         AND previous_record_hash = ? LIMIT 1`,
+    )
+    .get(
+      reanchor.conversationId,
+      reanchor.previousAnchorHash,
+      reanchor.selectedRecordHash,
+    );
+  if (successor !== undefined) {
     throw new StoreSignal("conflict");
   }
 }

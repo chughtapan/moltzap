@@ -5,6 +5,7 @@
 
 /** Records and store rows built from an in-memory fold. */
 export {
+  anchorHashAtHead,
   inboundDelivery,
   makeActionCertifiedRecord,
   makeCertifiedRecord,
@@ -26,6 +27,7 @@ export {
   readStoredHistory,
   readStoredRecord,
   recordFromStore,
+  stagedSuccessor,
   type StoredRowError,
   storedRowMatchesCore,
   verifyRecoveredHistory,

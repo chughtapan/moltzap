@@ -16,7 +16,11 @@ import type {
   StagedRecord,
   CertifiedRecord as StoredCertifiedRecord,
 } from "../../../store/index.js";
-import type { EngineActionFold, EngineConversation } from "../runtime/index.js";
+import type {
+  EngineActionFold,
+  EngineCertifiedHead,
+  EngineConversation,
+} from "../runtime/index.js";
 import {
   type ActionCertifiedRecord,
   type AnchorHash,
@@ -44,6 +48,22 @@ import {
 function representationFailure(): ClientRepresentationError {
   return new ClientRepresentationError();
 }
+
+/**
+ * The hash of a conversation's current anchor, which its next record binds.
+ * A conversation still on its GENESIS anchor holds the anchor body unhashed,
+ * and every record since that anchor, the head included, binds its hash.
+ * @param conversation The conversation whose anchor is current.
+ * @param head The conversation's certified head.
+ * @returns The current anchor's hash.
+ */
+export const anchorHashAtHead = (
+  conversation: EngineConversation,
+  head: EngineCertifiedHead,
+): AnchorHash =>
+  conversation.currentAnchor.kind === "genesis_anchor_body"
+    ? head.record.actionCertifiedRecord.recordCore.anchorHash
+    : conversation.currentAnchor.anchorHash;
 
 /**
  * Resolve the immutable Router anchor bound when one action fold is created.

@@ -27,14 +27,17 @@ import {
   RouterWorkerRecoveryError,
 } from "../../router/index.js";
 import {
+  ClientRepresentationError,
   type ConversationId as ConversationIdValue,
   decodeCanonical,
   type DecodedOuterBody,
   type DirectPacket,
   EvidenceStatement,
   type EvidenceStatement as EvidenceStatementValue,
+  hashAnchor,
   memberCard,
   type VerifiedMembership,
+  verifyDeliveredEvidence,
 } from "../../wire/index.js";
 import {
   durableRouterInstanceId,
@@ -63,10 +66,18 @@ import {
   type CatchUpResponder,
   type CatchUpRun,
   makeCatchUpState,
+  queueStagedSuccessor,
   requestCertifiedHistory,
   resendCertifiedHistoryRequest,
   sentByOtherMember,
+  settleOnQuorum,
+  waitBehindEarlierReanchor,
 } from "./catch-up.js";
+import {
+  acceptSuccessorRecord,
+  acceptSuccessorVote,
+  type SuccessorRun,
+} from "./successor.js";
 
 /**
  * The recovery fences the engine installs at a discontinuity and a send waits
@@ -130,6 +141,8 @@ interface RecoveryRun {
    * missing here has used up its retries and waits for traffic to re-arm it.
    */
   readonly retries: FiberMap.FiberMap<ConversationIdValue>;
+  /** Staged successors members have sent that this endpoint has not staged. */
+  readonly successor: SuccessorRun;
   readonly catchUp: CatchUpRun;
   readonly reanchor: ReanchorRun;
 }
@@ -321,9 +334,10 @@ function routePacket(
 
 /**
  * Route a history or action packet by its conversation's fence. A fenced
- * conversation's certified records are applied through recovery and its
- * action traffic is ignored; an open conversation's go to the protocol
- * phases.
+ * conversation's certified records are applied through recovery, an
+ * action-certified record extending its head goes to the run's staged
+ * successors, and its proposals are ignored; an open conversation's go to
+ * the protocol phases.
  * @param runtime Engine whose state receives the packet.
  * @param ingress Verified Router delivery carrying the packet.
  * @param packet The certified record or action packet.
@@ -345,17 +359,30 @@ function acceptHistoryPacket(
   if (!isRecovering(runtime, packetConversation(packet))) {
     return runtime.phases.acceptIngress(runtime, ingress);
   }
-  return packet.kind === "certified_record"
-    ? acceptRecoveryRecord(runtime, ingress)
-    : Effect.succeed(ignoredDisposition);
+  const run = activeRuns.get(runtime);
+  switch (packet.kind) {
+    case "certified_record":
+      return acceptRecoveryRecord(runtime, ingress);
+    case "action_certified_record":
+      return run === undefined
+        ? Effect.succeed(ignoredDisposition)
+        : acceptSuccessorRecord(run.successor, ingress, packet);
+    case "action_proposal":
+      return Effect.succeed(ignoredDisposition);
+    default: {
+      const exhaustive: never = packet;
+      return exhaustive;
+    }
+  }
 }
 
 /**
  * Route one evidence message by the conversation its statement names. A
- * re-anchor vote goes to the recovery run. Action and durability evidence
- * for a fenced conversation is ignored, as its action traffic is; an action
- * signature for a proposal this endpoint has not seen names no conversation
- * yet and goes to the protocol phases, which ignore it.
+ * re-anchor vote goes to the recovery run. A durability vote for a fenced
+ * conversation goes to the run's staged successors, and its action
+ * signatures are ignored, as its proposals are; an action signature for a
+ * proposal this endpoint has not seen names no conversation yet and goes to
+ * the protocol phases, which ignore it.
  * @param runtime Engine whose state receives the evidence.
  * @param ingress Verified Router delivery carrying the evidence.
  * @param message The evidence message from the outer envelope.
@@ -371,7 +398,7 @@ function acceptEvidence(
       const conversationId = evidenceConversation(runtime, statement);
       return routeEvidence(runtime, ingress, {
         message,
-        reanchorVote: statement.kind === "reanchor_vote",
+        statement,
         fenced:
           conversationId !== undefined && isRecovering(runtime, conversationId),
       }).pipe(
@@ -393,16 +420,74 @@ function routeEvidence(
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   evidence: Readonly<{
     message: SignedMessage;
-    reanchorVote: boolean;
+    statement: EvidenceStatementValue;
     fenced: boolean;
   }>,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  if (evidence.reanchorVote) {
-    return acceptRunVote(runtime, ingress, evidence.message);
+  const { message, statement } = evidence;
+  const run = activeRuns.get(runtime);
+  if (statement.kind === "reanchor_vote") {
+    return run !== undefined &&
+      statement.reanchor.routerInstanceId !==
+        run.recovery.anchor.routerInstanceId
+      ? noteEarlierReanchor(run, ingress, { message, statement })
+      : acceptRunVote(runtime, ingress, message);
   }
-  return evidence.fenced
-    ? Effect.succeed(ignoredDisposition)
-    : runtime.phases.acceptIngress(runtime, ingress);
+  if (!evidence.fenced) {
+    return runtime.phases.acceptIngress(runtime, ingress);
+  }
+  return run !== undefined && statement.kind === "durability_vote"
+    ? acceptSuccessorVote(run.successor, ingress, { message, statement })
+    : Effect.succeed(ignoredDisposition);
+}
+
+/**
+ * Take a member's re-anchor vote for a Router instance other than the run's.
+ * The run's re-anchor cannot use it, but a pending position it selects waits
+ * for every member: that re-anchor may have completed at a member that has
+ * not answered yet. Only a vote that verifies as the member's, names the
+ * conversation's membership, and hashes to the anchor it signs counts.
+ * @param run The active recovery run.
+ * @param ingress Router delivery carrying the vote.
+ * @param vote The vote's evidence message and its decoded statement.
+ * @param vote.message The vote's evidence message.
+ * @param vote.statement The vote's decoded statement.
+ * @returns Ignored, since the vote counts toward no re-anchor of this run.
+ */
+function noteEarlierReanchor(
+  run: RecoveryRun,
+  ingress: RouterWorkerIngress<DecodedOuterBody>,
+  vote: Readonly<{
+    message: SignedMessage;
+    statement: Extract<
+      EvidenceStatementValue,
+      { readonly kind: "reanchor_vote" }
+    >;
+  }>,
+): Effect.Effect<RouterIngressDisposition> {
+  const body = vote.statement.reanchor;
+  const membership = run.memberships.get(body.conversationId);
+  if (membership === undefined || body.membershipHash !== membership.hash) {
+    return Effect.succeed(ignoredDisposition);
+  }
+  return waitBehindEarlierReanchor(
+    run.catchUp,
+    body,
+    verifyDeliveredEvidence({
+      outer: ingress.message,
+      evidence: vote.message,
+      membership,
+    }).pipe(
+      Effect.zipRight(hashAnchor(body)),
+      Effect.filterOrFail(
+        (anchorHash) => anchorHash === vote.statement.anchorHash,
+        () => new ClientRepresentationError(),
+      ),
+    ),
+  ).pipe(
+    Effect.catchTag("ClientRepresentationError", () => Effect.void),
+    Effect.as(ignoredDisposition),
+  );
 }
 
 function acceptRunVote(
@@ -559,6 +644,16 @@ function armCatchUp(
   );
 }
 
+/**
+ * Resend a conversation's request on {@link catchUpRetrySchedule}, then let a
+ * quorum of answers settle a position that waited for every member. A
+ * position a quorum already settles recovers on its own fiber in the run's
+ * scope: recovering the conversation removes this retry fiber, which it could
+ * not do from inside it.
+ * @param run Recovery run that holds the conversation.
+ * @param conversationId Conversation to catch up.
+ * @returns The retries, ending once any settled position's recovery started.
+ */
 function retryCatchUp(
   run: RecoveryRun,
   conversationId: ConversationIdValue,
@@ -567,6 +662,21 @@ function retryCatchUp(
     resendCertifiedHistoryRequest(run.catchUp, conversationId),
     catchUpRetrySchedule,
   ).pipe(
+    Effect.zipRight(
+      Effect.sync(() => settleOnQuorum(run.catchUp, conversationId)),
+    ),
+    Effect.flatMap((settled) =>
+      settled
+        ? run.catchUp.onPositionReady(conversationId).pipe(
+            Effect.catchAll(() =>
+              Effect.logWarning(
+                "Catch-up did not settle on a quorum: the endpoint store failed",
+              ),
+            ),
+            Effect.forkIn(run.scope),
+          )
+        : Effect.void,
+    ),
     Effect.asVoid,
     Effect.catchAll(() =>
       Effect.logWarning(
@@ -708,7 +818,13 @@ function makeRecoveryRun(
       completedConversations: new Set(),
       scope,
       retries,
-      catchUp: catchUpPort(runtime, history.memberships, isActive, () => run),
+      successor: successorPort(runtime, history, () => run),
+      catchUp: catchUpPort(
+        runtime,
+        { recovery, memberships: history.memberships },
+        isActive,
+        () => run,
+      ),
       reanchor: reanchorPort(
         runtime,
         { recovery, ...history },
@@ -723,14 +839,14 @@ function makeRecoveryRun(
 /**
  * Build a run's catch-up port.
  * @param runtime Engine the run recovers.
- * @param memberships Verified memberships the run reconciles.
+ * @param context The run's discontinuity and the memberships it reconciles.
  * @param isActive Whether the run is still the engine's active recovery.
  * @param currentRun The run the port belongs to, once it is built.
  * @returns The port the run's catch-up requests, answers, and readiness use.
  */
 function catchUpPort(
   runtime: EngineRuntime,
-  memberships: RecoveryRun["memberships"],
+  context: Pick<RecoveryRun, "recovery" | "memberships">,
   isActive: () => boolean,
   currentRun: () => RecoveryRun,
 ): CatchUpRun {
@@ -738,7 +854,8 @@ function catchUpPort(
     ...catchUpResponder(runtime),
     state: makeCatchUpState(),
     isActive,
-    membership: (conversationId) => memberships.get(conversationId),
+    routerInstanceId: context.recovery.anchor.routerInstanceId,
+    membership: (conversationId) => context.memberships.get(conversationId),
     onPositionReady: (conversationId) =>
       positionReady(currentRun(), conversationId).pipe(
         Effect.withSpan("positionReady"),
@@ -761,6 +878,7 @@ function reanchorPort(
   isActive: () => boolean,
   currentRun: () => RecoveryRun,
 ): ReanchorRun {
+  const sender = catchUpResponder(runtime);
   return startReanchorRun({
     runtime,
     reason: context.recovery.reason,
@@ -772,10 +890,11 @@ function reanchorPort(
       currentRun().completedConversations.has(conversationId),
     markRecovered: (conversationId) =>
       markRecovered(currentRun(), conversationId),
-    queue: (membership, body) =>
-      queueRecoveryEnvelope(runtime, membership, body),
+    queue: sender.queue,
     requestCatchUp: (conversationId) =>
       requestCertifiedHistory(currentRun().catchUp, conversationId),
+    resendStagedSuccessor: (membership, staged) =>
+      queueStagedSuccessor(sender, membership, staged),
   });
 }
 
@@ -791,8 +910,31 @@ function catchUpResponder(runtime: EngineRuntime): CatchUpResponder {
     membership: (conversationId) =>
       activeRuns.get(runtime)?.memberships.get(conversationId) ??
       runtime.conversations.get(conversationId)?.membership,
-    queuePacket: (membership, packet) =>
-      queueRecoveryEnvelope(runtime, membership, { kind: "direct", packet }),
+    queue: (membership, body) =>
+      queueRecoveryEnvelope(runtime, membership, body),
+  };
+}
+
+/**
+ * Build a run's staged-successor port. A newly certified head restarts the
+ * conversation's catch-up from it, with fresh retries.
+ * @param runtime Engine the run recovers.
+ * @param context The memberships the run reconciles and the conversations it
+ *     re-anchors.
+ * @param currentRun The run the port belongs to, once it is built.
+ * @returns The run's staged-successor port.
+ */
+function successorPort(
+  runtime: EngineRuntime,
+  context: Pick<RecoveryRun, "memberships" | "reanchoring">,
+  currentRun: () => RecoveryRun,
+): SuccessorRun {
+  return {
+    runtime,
+    pending: new Map(),
+    membership: (conversationId) => context.memberships.get(conversationId),
+    reanchoring: (conversationId) => context.reanchoring.has(conversationId),
+    armCatchUp: (conversationId) => armCatchUp(currentRun(), conversationId),
   };
 }
 
