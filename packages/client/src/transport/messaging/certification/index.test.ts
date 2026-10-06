@@ -1170,18 +1170,16 @@ function reappendedOuterMessagesYieldOnePost() {
         expect(
           recoveries.map(({ certifiedRecords }) => certifiedRecords.length),
         ).toEqual([2, 2, 2, 2]);
-        const pendingHashes = yield* Effect.forEach(
+        const pending = yield* Effect.forEach(
           harness.engines.slice(1),
-          (engine) =>
-            engine.readPendingMessages().pipe(
-              Effect.orDie,
-              Effect.map((pending) =>
-                pending.map((message) => message.recordHash),
-              ),
-            ),
+          (engine) => engine.readPendingMessages().pipe(Effect.orDie),
           { concurrency: 1 },
         );
-        expect(pendingHashes).toEqual([
+        expect(
+          pending.map((messages) =>
+            messages.map((message) => message.recordHash),
+          ),
+        ).toEqual([
           [genesisHash, sent.recordHash],
           [genesisHash, sent.recordHash],
           [genesisHash, sent.recordHash],

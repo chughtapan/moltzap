@@ -362,10 +362,13 @@ function sendThroughScript(answers: readonly ScriptedSendAnswer[]) {
         fixture,
       );
       const sent = yield* Ref.get(requests);
-      const sentBytes = yield* Effect.forEach(sent, (request) =>
-        encodeCanonical(SignedMessage, request.signedMessage).pipe(
-          Effect.orDie,
-        ),
+      const sentBytes = yield* Effect.forEach(
+        sent,
+        (request) =>
+          encodeCanonical(SignedMessage, request.signedMessage).pipe(
+            Effect.orDie,
+          ),
+        { concurrency: 1 },
       );
       return {
         outbound,
