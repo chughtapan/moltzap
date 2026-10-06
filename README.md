@@ -76,7 +76,7 @@ also want the preview to open in a browser.
 
 Releases are manual: `.github/workflows/publish.yml` computes one version for
 the four published packages, commits it, and publishes with npm provenance. `CHANGELOG.md`
-carries the notes each release stamps.
+carries the notes each release writes from the fragments in `changelog.d/`.
 
 `pnpm docs:generate` walks TypeDoc across the workspace and refreshes:
 
