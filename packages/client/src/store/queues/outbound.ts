@@ -32,9 +32,6 @@ interface RetainedOutbound {
 /**
  * Stages one complete outer envelope before it can reach Router transport.
  *
- * The initial MessageId remains the durable handle even when Router retry
- * identity loss requires a replacement outer envelope.
- *
  * @param database Exclusively owned endpoint database.
  * @param message Canonical complete initial outer message.
  * @returns The retained current envelope under its stable initial identity.
@@ -122,49 +119,6 @@ export function beginOutbound(
       kind: "pending",
       mode,
       outbound: copyOutbound(retained.outbound),
-    });
-  });
-}
-
-/**
- * Atomically replaces only one expected current outer envelope.
- *
- * @param database Exclusively owned endpoint database.
- * @param current Exact durable envelope that Router no longer recognizes.
- * @param replacement Fresh outer identity over the byte-identical body.
- * @returns The durable replacement under the unchanged outbox identity.
- */
-export function replaceOutbound(
-  database: DatabaseSync,
-  current: StoredOutboundMessage,
-  replacement: OutboundMessageInput,
-): StoredOutboundMessage {
-  validateStoredOutbound(current);
-  validateMessageInput(replacement);
-  requireEqual(current.conversationId, replacement.conversationId);
-  if (current.messageId === replacement.messageId) {
-    throw new StoreSignal("invalid-input");
-  }
-  return transaction(database, () => {
-    const retained = requireOutbound(database, current.outboundId);
-    requirePending(retained);
-    requireSameOutbound(retained.outbound, current);
-    requireMessageIdAvailable(database, replacement.messageId);
-    database
-      .prepare(
-        `UPDATE outbound_messages
-         SET current_message_id = ?, canonical_current_signed_message = ?,
-             attempted = 0
-         WHERE outbound_id = ? AND disposition = 'pending'`,
-      )
-      .run(
-        replacement.messageId,
-        copyBytes(replacement.canonicalSignedMessage),
-        current.outboundId,
-      );
-    return copyOutbound({
-      outboundId: current.outboundId,
-      ...replacement,
     });
   });
 }
@@ -373,12 +327,6 @@ function requireMessageIdAvailable(
       )
       .get(messageId, messageId) !== undefined
   ) {
-    throw new StoreSignal("conflict");
-  }
-}
-
-function requirePending(retained: RetainedOutbound): void {
-  if (retained.disposition !== "pending") {
     throw new StoreSignal("conflict");
   }
 }

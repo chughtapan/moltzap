@@ -44,7 +44,6 @@ import {
   enqueueOutboundInTransaction,
   readLegacyPendingDeliveries,
   readPendingDeliveries,
-  replaceOutbound,
 } from "./queues/index.js";
 import {
   readStoredConversation,
@@ -188,8 +187,6 @@ function makeTransportOperations(state: StoreState, run: StoreRunner) {
       ),
     beginOutbound: (outboundId) =>
       run(() => beginOutbound(state.database, outboundId)),
-    replaceOutbound: (current, replacement) =>
-      run(() => replaceOutbound(state.database, current, replacement)),
     completeOutbound: (outbound) =>
       run(() => completeOutbound(state.database, outbound)),
     discardOutbound: (outbounds) =>

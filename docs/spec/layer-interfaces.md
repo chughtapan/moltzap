@@ -151,9 +151,9 @@ Client owns:
 
 Action signatures, durability votes, catch-up attestations, and re-anchor
 votes are stable self-addressed Identity `SignedMessage` values.
-Their Router envelope is a separate all-member `SignedMessage`, so
-`retry_identity_unknown` may replace the outer MessageId without changing the
-inner evidence. Gate 1 admits at most 32 total fixed members and 32,768
+Their Router envelope is a separate all-member `SignedMessage`. Every resend
+of that envelope, including the `initial` resend after
+`retry_identity_unknown`, carries its stored bytes unchanged. Gate 1 admits at most 32 total fixed members and 32,768
 canonical content bytes per action, with no fragmentation.
 
 `LedgerOffset` has no final owner and does not survive. Conversation order is
@@ -263,9 +263,10 @@ closed typed unions.
 4. Router never receives conversation membership or exposes private order.
 5. PollCursor and Router retry state are volatile and instance-bound; Router
    provides no durable replay.
-6. Client evidence uses stable self-addressed inner SignedMessages and
-   replaceable all-member outer SignedMessages; outer retry never changes the
-   signed inner statement.
+6. Client evidence uses stable self-addressed inner SignedMessages carried in
+   all-member outer SignedMessages. Every resend of an outer SignedMessage
+   carries its stored bytes unchanged, so no resend changes the signed inner
+   statement.
 7. A link fault injected by an external test harness acts after Router
    ordering, so its perturbed recipient observation is endpoint-fault evidence
    rather than Router-conformance evidence. Only an unfaulted observation of
