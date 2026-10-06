@@ -5,12 +5,13 @@
 
 import { MOLTZAP_VERSION, type SignedMessage } from "@moltzap/identity";
 import { Deferred, Effect } from "effect";
-import type {
-  ConversationFoundation,
-  EndpointStoreError,
-  ProposalLock,
-} from "../../../store/index.js";
 import type { SendError } from "../errors.js";
+import {
+  type ConversationFoundation,
+  type EndpointStoreError,
+  isSemanticStoreRejection,
+  type ProposalLock,
+} from "../../../store/index.js";
 import {
   type RouterIngressDisposition,
   type RouterWorkerIngress,
@@ -71,9 +72,6 @@ export { evidenceMatchesFold, type EvidenceRoute } from "./evidence.js";
 export { resumeDisseminationObligations } from "./dissemination.js";
 
 const persistenceFailure = () => new RouterWorkerPersistenceError();
-
-const isSemanticStoreRejection = (error: EndpointStoreError): boolean =>
-  error.reason === "conflict" || error.reason === "invalid-input";
 
 const localRepresentationFailure = (): RouterWorkerPersistenceError =>
   persistenceFailure();

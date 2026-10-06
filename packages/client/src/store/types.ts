@@ -29,6 +29,16 @@ export type DeliveryToken = typeof DeliveryToken.Type;
 /** Whether an idempotent mutation inserted state or observed the same state. */
 export type StoreMutation = "inserted" | "existing";
 
+/**
+ * Whether a store error refuses the input itself, because it conflicts with
+ * durable state or is invalid, rather than reporting a failed store.
+ * @param error A closed endpoint-store error.
+ * @returns Whether the store refused the input.
+ */
+export function isSemanticStoreRejection(error: EndpointStoreError): boolean {
+  return error.reason === "conflict" || error.reason === "invalid-input";
+}
+
 /** Immutable classified item retained until the host accepts its delivery. */
 export interface InboxEntry {
   readonly deliveryToken: DeliveryToken;

@@ -34,6 +34,7 @@ import { describe, expect, it } from "vitest";
 import { advanceClock } from "../../__tests__/advance-clock.js";
 import {
   batch,
+  corruptSignature,
   emptyBatch,
   type Fixture,
   makeFixture,
@@ -158,41 +159,6 @@ const makeInput = (
   outbox,
   callbacks: workerCallbacks,
 });
-
-/** The General JWS fields of an encoded SignedMessage. */
-const envelopeRepresentation = Schema.Struct({
-  payload: Schema.String,
-  signatures: Schema.Tuple(
-    Schema.Struct({ protected: Schema.String, signature: Schema.String }),
-  ),
-});
-
-/**
- * Flip one bit of an envelope's Ed25519 signature. Its sender, card digest,
- * and key id still match the sender's card, so only the cryptographic check
- * rejects the result.
- * @param message A validly signed envelope.
- * @returns The same envelope under a signature its sender never made.
- */
-const corruptSignature = (
-  message: SignedMessageValue,
-): Effect.Effect<SignedMessageValue> =>
-  Effect.gen(function* () {
-    const representation = yield* Schema.encode(SignedMessage)(message).pipe(
-      Effect.flatMap(Schema.decodeUnknown(envelopeRepresentation)),
-    );
-    const [signature] = representation.signatures;
-    const bytes = yield* Encoding.decodeBase64Url(signature.signature);
-    const corrupted = bytes.map((value, index) =>
-      index === 0 ? value ^ 1 : value,
-    );
-    return yield* Schema.decodeUnknown(SignedMessage)({
-      ...representation,
-      signatures: [
-        { ...signature, signature: Encoding.encodeBase64Url(corrupted) },
-      ],
-    });
-  }).pipe(Effect.orDie);
 
 /**
  * Build a worker and bring it to `active` through its cold-start recovery

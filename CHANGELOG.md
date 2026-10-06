@@ -10,6 +10,20 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Fixed
+
+- A daemon recovering from a Router restart no longer exits when one member's
+  re-anchor vote or catch-up answer names an anchor, record, or position the
+  daemon cannot resolve, or conflicts with a candidate it already staged. The
+  input is ignored, and at worst that conversation stays unrecovered (#1165).
+- A daemon recovering from a Router restart no longer exits when a member
+  creates a new conversation with it and that conversation's first record
+  arrives during recovery.
+- A daemon that re-anchored a conversation during recovery no longer signs a
+  second re-anchor at the same Router instance when a member asks for one.
+- A daemon no longer drops its answer to a member's catch-up request that
+  arrives just as its own recovery finishes.
+
 ## [2026.1005.1] - 2026-10-05
 
 ### Added
