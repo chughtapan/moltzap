@@ -348,9 +348,15 @@ statement kinds interchangeable.
 ## Proposal ordering and recovery identity
 
 An honest endpoint durably records one proposal lock for each
-`(ConversationId, previousRecordHash)`. It signs only the first structurally
-valid, gap-free candidate it observes in Router order and never signs a
-conflicting candidate for that predecessor.
+`(ConversationId, previousRecordHash)` under the conversation's current
+anchor. It signs only the first structurally valid, gap-free candidate it
+observes in Router order and never signs a conflicting candidate for that
+predecessor under that anchor. Completing a re-anchor releases the lock at the
+record it selects, with the action signatures held for its candidate and any
+record staged for it with that record's durability votes: `ActionHash` binds
+the anchor, so no candidate under the previous anchor is gap-free afterward,
+and the re-anchor's `q(n)` certificate shows a staged candidate there can never
+collect a durability certificate, because of the re-anchor rules below.
 
 A sender persists its immutable post intent before protocol traffic. If a
 different candidate commits first, it retries the same `PostId` and intent
@@ -380,8 +386,9 @@ kinds. Numeric equality does not make the evidence interchangeable.
 An honest member verifies membership, author, post intent, action certificate,
 anchor, predecessor, and record hash, durably stages the record core, and then
 signs a durability statement. It does not vote for conflicting successors of
-one certified head. Votes are a mergeable signer map ordered by decoded
-AgentId, and every entry retains the signer AgentId and exact signature bytes.
+one certified head under one anchor. Votes are a mergeable signer map ordered
+by decoded AgentId, and every entry retains the signer AgentId and exact
+signature bytes.
 Any member may assemble and disseminate sufficient evidence.
 
 A record becomes locally certified only after the store atomically promotes
@@ -465,13 +472,25 @@ A new RouterInstanceId does not rewrite history. Members compare verified
 ancestry, select the unique latest certified head, and use the existing
 re-anchor statement and `q(n)` threshold. An honest member stages and signs at
 most one candidate for one conversation, preceding anchor, and Router
-instance. New actions bind the durable new anchor. Catch-up and re-anchor do
+instance. It votes for no re-anchor at a head while it holds a staged,
+uncertified successor of that head, and after voting to re-anchor away from an
+anchor it stages no record and casts no durability vote under that anchor. A
+`q(n)` re-anchor certificate at a head therefore leaves fewer than `q(n)`
+members able to attest a staged successor's durability. A member that holds
+such a successor adopts a verified completed re-anchor at its head, by relay
+or catch-up, even though it cast no vote for it. After adopting a completed
+re-anchor, a member catches up from the new anchor before the conversation
+recovers, because members may already have certified records under it. New
+actions bind the durable
+new anchor. Catch-up and re-anchor do
 not create runtime messages by themselves. Verified catch-up or re-anchor
 input from a member that the endpoint cannot apply, such as input naming an
 anchor, record, or position it cannot resolve, does not count and never stops
 the endpoint. It can leave that conversation unrecovered. Recovery finishes
 only when every conversation has recovered. Until then the endpoint sends only
-catch-up and re-anchor traffic: its own posts, pending intents and retained
+catch-up and re-anchor traffic, which includes its answers to members'
+catch-up requests: an answer does not wait for the answering member's own
+recovery to finish. Its own posts, pending intents and retained
 outbound envelopes wait for every conversation, and the action traffic members
 send meanwhile is ignored.
 

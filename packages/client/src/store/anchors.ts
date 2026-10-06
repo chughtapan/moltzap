@@ -498,7 +498,91 @@ function completeReanchorInTransaction(
   }
   requireReanchorPosition(database, reanchor);
   insertCompletedReanchor(database, reanchor);
+  releaseSupersededProposal(database, reanchor);
   return "inserted";
+}
+
+/**
+ * Retires the proposal locked at the head a completed re-anchor selects: its
+ * lock, the action signatures held for it, and a record this endpoint staged
+ * for it with that record's durability votes and dissemination obligation.
+ *
+ * An action binds its anchor, so once the new anchor is current no action
+ * under the previous one is gap-free, and the old proposal can never be
+ * signed, staged or certified here again. Its lock, kept, would refuse every
+ * candidate at that head under the new anchor and stall the conversation;
+ * its signatures or staged record, kept without the lock, would name an
+ * action no durable lock selects, which startup refuses.
+ *
+ * The staged record can be retired because the re-anchor's quorum
+ * certificate shows it can never be certified anywhere: a member holding a
+ * staged successor does not vote to re-anchor behind it, so the q(n) members
+ * that selected this head leave at most 2f members that can attest the
+ * successor's durability, fewer than q(n).
+ *
+ * @param database Exclusively owned endpoint database.
+ * @param reanchor Completed re-anchor that just became current.
+ */
+function releaseSupersededProposal(
+  database: DatabaseSync,
+  reanchor: CompletedReanchor,
+): void {
+  const { conversationId } = reanchor;
+  const lock = findProposalLock(
+    database,
+    conversationId,
+    reanchor.selectedRecordHash,
+  );
+  if (lock === undefined) {
+    return;
+  }
+  for (const recordHash of stagedRecordHashes(database, lock)) {
+    database
+      .prepare(
+        `DELETE FROM dissemination_obligations
+         WHERE conversation_id = ? AND record_hash = ?`,
+      )
+      .run(conversationId, recordHash);
+    database
+      .prepare(
+        `DELETE FROM protocol_evidence
+         WHERE conversation_id = ? AND evidence_kind = 'durability'
+           AND subject_id = ?`,
+      )
+      .run(conversationId, recordHash);
+    database
+      .prepare(
+        `DELETE FROM staged_records
+         WHERE conversation_id = ? AND record_hash = ?`,
+      )
+      .run(conversationId, recordHash);
+  }
+  database
+    .prepare(
+      `DELETE FROM protocol_evidence
+       WHERE conversation_id = ? AND evidence_kind = 'action'
+         AND subject_id = ?`,
+    )
+    .run(conversationId, lock.actionHash);
+  database
+    .prepare(
+      `DELETE FROM proposal_locks
+       WHERE conversation_id = ? AND predecessor_key = ?`,
+    )
+    .run(conversationId, reanchor.selectedRecordHash);
+}
+
+function stagedRecordHashes(
+  database: DatabaseSync,
+  lock: ProposalLock,
+): readonly string[] {
+  return database
+    .prepare(
+      `SELECT record_hash FROM staged_records
+       WHERE conversation_id = ? AND action_hash = ?`,
+    )
+    .all(lock.conversationId, lock.actionHash)
+    .map((row) => readText(row, "record_hash"));
 }
 
 function requireUnclaimedReanchorScope(

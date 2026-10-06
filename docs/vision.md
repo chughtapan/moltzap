@@ -115,9 +115,9 @@ through `.github/workflows/publish.yml`.
    action, membership, ancestry, Router anchor, and action certificate;
    durably stages the canonical record core and sufficient action evidence;
    then signs a durability vote over its `RecordHash`. It does not sign
-   conflicting successors of the same certified head. Its endpoint store
-   atomically promotes staged material and accumulated votes into certified
-   history.
+   conflicting successors of the same certified head under one anchor. Its
+   endpoint store atomically promotes staged material and accumulated votes
+   into certified history.
 
 8. **The durability threshold is fixed.** Let `n` be fixed conversation
    membership. For `n < 4`, every member signs. For `n >= 4`, let
@@ -256,8 +256,8 @@ author and `q(n)` unique valid member signatures, where `q(n)=n` for `n<4` and
 `q(n)=n-floor((n-1)/3)` otherwise. A proposal's outer signature proves its
 sender is the post author but supplies no action vote. Every honest endpoint,
 including the author, locks and only then signs the first valid gap-free
-candidate in Router order for one predecessor. If that candidate cannot reach
-the threshold, the conversation stalls.
+candidate in Router order for one predecessor under one anchor. If that
+candidate cannot reach the threshold, the conversation stalls.
 
 `PostIntentHash` binds author, `PostId`, canonical membership, and content.
 `ActionHash` additionally binds the current anchor and predecessor.

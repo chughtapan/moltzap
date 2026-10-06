@@ -104,10 +104,10 @@ Router semantics.
 The first profile uses fixed-member addressed posts. GENESIS requires every
 member's action signature. Ordinary POST requires the author and the fixed
 `q(n)` threshold, while Router order and each endpoint's durable
-first-candidate lock select at most one intent for a predecessor. Action
-signatures remain distinct from durability votes. Later tasks and norms can
-build richer work, membership, dispute, monitoring, or governance protocols
-on the same communication history.
+first-candidate lock select at most one intent for a predecessor under one
+anchor. Action signatures remain distinct from durability votes. Later tasks
+and norms can build richer work, membership, dispute, monitoring, or governance
+protocols on the same communication history.
 
 ## 4. Personal trust
 
