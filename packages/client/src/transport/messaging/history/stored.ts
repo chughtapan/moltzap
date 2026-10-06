@@ -1,19 +1,17 @@
 /**
  * @file Stored history: decoding and verifying the rows the endpoint store
- * keeps, verifying each conversation's record and anchor chain, and the
- * snapshot queries recovery asks of it.
+ * keeps, verifying each conversation's record and anchor chain, reading
+ * certified history back for the owner tools, and the snapshot queries
+ * recovery asks of it.
  */
 
-import {
-  type Ed25519PublicKey,
-  SignedMessage,
-  type SignedMessage as SignedMessageValue,
-} from "@moltzap/identity";
+import { type Ed25519PublicKey, SignedMessage } from "@moltzap/identity";
 import { Effect, type ParseResult, Schema } from "effect";
 import type {
   EndpointRecovery,
   ProtocolEvidence,
   StagedRecord,
+  CertifiedRecord as StoredCertifiedRecord,
   StoredMembership,
   StoredOutboundMessage,
 } from "../../../store/index.js";
@@ -123,23 +121,23 @@ export function verifyStoredMemberships(
 }
 
 /**
- * Reconstruct one complete certified record from separately retained evidence.
- * @param input Engine dependencies used for Registry signature verification.
+ * Reconstruct one complete certified record from separately retained
+ * evidence. Each evidence row must name the record's conversation, the kind
+ * and subject its certificate covers, and its own signer; the signatures are
+ * verified once, with the record as a whole.
+ * @param registrySignerPublicKey Registry key the member cards verify under.
  * @param stored Durable record core and signer-attributed evidence rows.
  * @param routerAnchor Verified anchor named by the durable record core.
  * @returns The complete record after all hashes and store projections match.
  */
 export const recordFromStore = (
-  input: EndpointEngineInput,
-  stored: EndpointRecovery["certifiedRecords"][number],
+  registrySignerPublicKey: Ed25519PublicKey,
+  stored: StoredCertifiedRecord,
   routerAnchor: EngineConversation["currentAnchor"],
 ): Effect.Effect<CertifiedRecord, StoredRowError> =>
   assembleStoredRecord(stored, routerAnchor).pipe(
     Effect.flatMap((record) =>
-      verifyCertifiedRecord({
-        record,
-        registrySignerPublicKey: input.registrySignerPublicKey,
-      }).pipe(
+      verifyCertifiedRecord({ record, registrySignerPublicKey }).pipe(
         Effect.flatMap((membership) =>
           storedRowMatchesCore(
             stored,
@@ -153,6 +151,82 @@ export const recordFromStore = (
     ),
     Effect.withSpan("recordFromStore"),
   );
+
+/**
+ * Read one stored certified record with the anchor row it names. The anchor
+ * row's columns must match the anchor it holds, and the record row must pass
+ * `recordFromStore`.
+ * @param registrySignerPublicKey Registry key the member cards verify under.
+ * @param membership Verified membership of the record's conversation.
+ * @param recovery Store snapshot holding the record's anchor row.
+ * @param stored Durable record row.
+ * @returns The complete verified record.
+ */
+export function readStoredRecord(
+  registrySignerPublicKey: Ed25519PublicKey,
+  membership: VerifiedMembership,
+  recovery: EndpointRecovery,
+  stored: StoredCertifiedRecord,
+): Effect.Effect<CertifiedRecord, StoredRowError> {
+  const anchor = recovery.anchors.find(
+    (candidate) =>
+      candidate.conversationId === stored.conversationId &&
+      candidate.anchorHash === stored.anchorHash,
+  );
+  if (anchor === undefined) {
+    return Effect.fail(persistenceFailure());
+  }
+  return decodeStoredAnchor(membership, anchor).pipe(
+    Effect.flatMap((routerAnchor) =>
+      recordFromStore(registrySignerPublicKey, stored, routerAnchor),
+    ),
+  );
+}
+
+/**
+ * Read a page of stored certified history for the owner tools, with the same
+ * row checks startup and recovery apply. Each membership the page names is
+ * verified once, however many of its records the page holds.
+ * @param registrySignerPublicKey Registry key the member cards verify under.
+ * @param recovery Store snapshot holding the memberships and anchors the
+ *   records name.
+ * @param records Durable record rows, in page order.
+ * @returns The complete verified records, in page order.
+ */
+export function readStoredHistory(
+  registrySignerPublicKey: Ed25519PublicKey,
+  recovery: EndpointRecovery,
+  records: readonly StoredCertifiedRecord[],
+): Effect.Effect<readonly CertifiedRecord[], StoredRowError> {
+  const named = new Set(records.map((stored) => stored.conversationId));
+  return Effect.forEach(
+    recovery.memberships.filter((row) => named.has(row.conversationId)),
+    (row) => verifyStoredMembership(row, registrySignerPublicKey),
+    { concurrency: 1 },
+  ).pipe(
+    Effect.flatMap((memberships) =>
+      Effect.forEach(
+        records,
+        (stored) => {
+          const membership = memberships.find(
+            (candidate) =>
+              candidate.descriptor.conversationId === stored.conversationId,
+          );
+          return membership === undefined
+            ? Effect.fail(persistenceFailure())
+            : readStoredRecord(
+                registrySignerPublicKey,
+                membership,
+                recovery,
+                stored,
+              );
+        },
+        { concurrency: 1 },
+      ),
+    ),
+    Effect.withSpan("readStoredHistory"),
+  );
+}
 
 /**
  * Resolve the Router instance named by one conversation's durable current anchor.
@@ -258,21 +332,6 @@ export function verifyRecoveredHistory(
     (membership) => verifyConversationHistory(runtime, recovery, membership),
     { concurrency: 1, discard: true },
   ).pipe(Effect.withSpan("verifyRecoveredHistory"));
-}
-
-/**
- * Decode stored evidence rows to their signer messages.
- * @param rows Evidence rows of one record.
- * @returns The decoded messages, in row order.
- */
-export function decodeStoredEvidence(
-  rows: readonly ProtocolEvidence[],
-): Effect.Effect<readonly SignedMessageValue[], ClientRepresentationError> {
-  return Effect.forEach(
-    rows,
-    (row) => decodeCanonical(SignedMessage, row.canonicalEvidence),
-    { concurrency: 1 },
-  );
 }
 
 /**
@@ -498,7 +557,11 @@ function verifyHistoryRecords(
   if (!recordExtendsCursor(stored, membership, cursor)) {
     return Effect.fail(recoveryFailure());
   }
-  return recordFromStore(runtime.input, stored, cursor.currentAnchor).pipe(
+  return recordFromStore(
+    runtime.input.registrySignerPublicKey,
+    stored,
+    cursor.currentAnchor,
+  ).pipe(
     Effect.mapError(recoveryFailure),
     Effect.flatMap(() =>
       advanceHistoryAnchors(membership, history.anchors, {
@@ -603,7 +666,7 @@ function verifyStoredOutbound(
 }
 
 function assembleStoredRecord(
-  stored: EndpointRecovery["certifiedRecords"][number],
+  stored: StoredCertifiedRecord,
   routerAnchor: EngineConversation["currentAnchor"],
 ): Effect.Effect<CertifiedRecord, StoredRowError> {
   return Effect.gen(function* () {
@@ -611,8 +674,16 @@ function assembleStoredRecord(
       RecordCoreSchema,
       stored.canonicalRecordCore,
     );
-    const signatures = yield* restoreEvidence(stored.actionEvidence);
-    const votes = yield* restoreEvidence(stored.durabilityEvidence);
+    const signatures = yield* restoreEvidence(stored.actionEvidence, {
+      conversationId: stored.conversationId,
+      kind: "action",
+      subjectId: stored.actionHash,
+    });
+    const votes = yield* restoreEvidence(stored.durabilityEvidence, {
+      conversationId: stored.conversationId,
+      kind: "durability",
+      subjectId: stored.recordHash,
+    });
     const recordHash = yield* Schema.decodeUnknown(RecordHash)(
       stored.recordHash,
     );
@@ -623,10 +694,30 @@ function assembleStoredRecord(
   });
 }
 
+/**
+ * Decode one certificate's evidence rows. A row that names another
+ * conversation, kind or subject, or whose key is not its message's signer,
+ * is a persistence error.
+ */
 function restoreEvidence(
   rows: readonly ProtocolEvidence[],
+  expected: Pick<ProtocolEvidence, "conversationId" | "kind" | "subjectId">,
 ): Effect.Effect<CertificateSignatures, StoredRowError> {
-  return decodeStoredEvidence(rows).pipe(
+  return Effect.forEach(
+    rows,
+    (row) =>
+      row.conversationId === expected.conversationId &&
+      row.kind === expected.kind &&
+      row.subjectId === expected.subjectId
+        ? decodeCanonical(SignedMessage, row.canonicalEvidence).pipe(
+            Effect.filterOrFail(
+              (message) => message.senderAgentId === row.evidenceKey,
+              persistenceFailure,
+            ),
+          )
+        : Effect.fail(persistenceFailure()),
+    { concurrency: 1 },
+  ).pipe(
     Effect.flatMap(orderedSignatures),
     Effect.flatMap((signatures) =>
       signatures === undefined

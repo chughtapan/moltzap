@@ -1,6 +1,7 @@
 /** @file Canonical addressed management projection, closed failures, and the register tool's cancellation and Registry deadline. */
 
-import { HttpClient } from "@effect/platform";
+import { FileSystem, HttpClient } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import {
   AgentCard,
   AgentSigningAuthority,
@@ -32,6 +33,13 @@ import {
   issueTestCard,
   makeTestAuthority,
 } from "../__tests__/agent-card-fixtures.js";
+import {
+  buildCertifiedGenesis,
+  storeCertifiedGenesis,
+  withGenesisAnchorSelecting,
+  withMisattributedActionEvidence,
+} from "../__tests__/certified-history-fixtures.js";
+import { routerInstanceId } from "../__tests__/router-worker-fixtures.js";
 import { unusedEndpointStore } from "../__tests__/unused-endpoint-store.js";
 import {
   managementReadConversationRequestSchema,
@@ -42,7 +50,9 @@ import {
   type EndpointStore,
   EndpointStoreError,
   type IdentityBinding,
+  openEndpointStore,
 } from "../store/index.js";
+import { verifyStoredMembership } from "../transport/messaging/index.js";
 import {
   compareAgentIds,
   deriveConversationId,
@@ -55,6 +65,7 @@ import { makeDaemonManagementOperations } from "./management.js";
 interface IdentityFixture {
   readonly bootstrap: DaemonBootstrap;
   readonly cards: readonly [VerifiedAgentCard, VerifiedAgentCard];
+  readonly remoteAuthority: AgentSigningAuthority;
 }
 
 const makeIdentityFixture = Effect.gen(function* () {
@@ -90,7 +101,11 @@ const makeIdentityFixture = Effect.gen(function* () {
     agentPublicKey: AgentSigningAuthority.publicKey(localAuthority),
     admissionCredential: Effect.succeed(Redacted.make("bootstrap-token=")),
   });
-  return { bootstrap, cards: [local, remote] } satisfies IdentityFixture;
+  return {
+    bootstrap,
+    cards: [local, remote],
+    remoteAuthority,
+  } satisfies IdentityFixture;
 }).pipe(Effect.orDie);
 
 const makeDirectMembership = (fixture: IdentityFixture) =>
@@ -217,6 +232,230 @@ function makeRegistryLayer(cards: readonly VerifiedAgentCard[]) {
   return Layer.succeed(Registry, service);
 }
 
+/**
+ * A real endpoint store holding one certified record bob authored in his
+ * direct conversation with alice, with the management view of alice.
+ */
+const makeCertifiedHistory = Effect.gen(function* () {
+  const fixture = yield* makeIdentityFixture;
+  const membership = yield* makeDirectMembership(fixture).pipe(
+    Effect.flatMap((row) =>
+      verifyStoredMembership(
+        row,
+        fixture.bootstrap.configuration.registrySignerPublicKey,
+      ),
+    ),
+    Effect.orDie,
+  );
+  const record = yield* buildCertifiedGenesis(
+    { card: fixture.cards[0], authority: fixture.bootstrap.signingAuthority },
+    { card: fixture.cards[1], authority: fixture.remoteAuthority },
+    membership,
+    routerInstanceId(8),
+  );
+  const fileSystem = yield* FileSystem.FileSystem;
+  const store = yield* openEndpointStore(
+    yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "moltzap-management-",
+    }),
+  ).pipe(Effect.orDie);
+  yield* storeCertifiedGenesis(store, fixture.cards[0], membership, record);
+  return { fixture, store, record };
+}).pipe(Effect.provide(NodeFileSystem.layer));
+
+/** Alice's first history page of her conversation with bob over `store`. */
+const readBobHistory = (fixture: IdentityFixture, store: EndpointStore) =>
+  makeDaemonManagementOperations({
+    store,
+    bootstrap: fixture.bootstrap,
+    registration: activeRegistration(fixture.cards[0]),
+  }).pipe(
+    Effect.provide(makeRegistryLayer(fixture.cards)),
+    Effect.flatMap((operations) =>
+      operations.readConversation(
+        Schema.decodeUnknownSync(managementReadConversationRequestSchema)({
+          address: "agent:bob",
+        }),
+      ),
+    ),
+  );
+
+/** The record hashes of alice's read of her conversation with bob over `store`. */
+const readBobRecordHashes = (fixture: IdentityFixture, store: EndpointStore) =>
+  readBobHistory(fixture, store).pipe(
+    Effect.map((page) => page.records.map((record) => record.recordHash)),
+    Effect.exit,
+  );
+
+/** A signer message's JWS representation, read as far as its one signature. */
+const jwsSignature = Schema.Struct({
+  signatures: Schema.Tuple(Schema.Struct({ signature: Schema.String })),
+});
+
+/**
+ * The audit entry the owner tools return for one certificate signature:
+ * `signer`'s AgentId and the signature its JWS `representation` carries.
+ */
+const signerEvidence = (
+  signer: VerifiedAgentCard,
+  representation: unknown,
+) => ({
+  signerAgentId: signer.agentId,
+  signature:
+    Schema.decodeUnknownSync(jwsSignature)(representation).signatures[0]
+      .signature,
+});
+
+/**
+ * `store` as it reads once its membership rows name `membershipHash`, so the
+ * rows' columns no longer match the descriptors they hold.
+ */
+function withMembershipRowsNaming(
+  store: EndpointStore,
+  membershipHash: string,
+): EndpointStore {
+  return {
+    ...store,
+    recover: () =>
+      store.recover().pipe(
+        Effect.map((recovery) => ({
+          ...recovery,
+          memberships: recovery.memberships.map((row) => ({
+            ...row,
+            membershipHash,
+          })),
+        })),
+      ),
+  };
+}
+
+/**
+ * The owner read returns the record with the anchor it commits to and, for
+ * each certificate, every signer's AgentId with the signature its JWS
+ * representation carries, in AgentId order.
+ */
+const returnsCertificateSignersForAudit = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { fixture, store, record } = yield* makeCertifiedHistory;
+        const [alice, bob] = fixture.cards;
+        const certified = record.actionCertifiedRecord;
+        const signatures = certified.actionCertificate.signatures;
+        const votes = record.durabilityCertificate.votes;
+
+        const page = yield* readBobHistory(fixture, store);
+
+        expect(
+          compareAgentIds(alice.agentId, bob.agentId),
+          "alice precedes bob in AgentId order",
+        ).toBeLessThan(0);
+        expect(page.records, "alice's history with bob").toEqual([
+          {
+            recordHash: certified.recordHash,
+            recordCore: certified.recordCore,
+            routerAnchor: certified.routerAnchor,
+            actionSignatures: [
+              signerEvidence(alice, signatures[0]),
+              signerEvidence(bob, signatures[1]),
+            ],
+            durabilityVotes: [
+              signerEvidence(alice, votes[0]),
+              signerEvidence(bob, votes[1]),
+            ],
+          },
+        ]);
+      }),
+    ),
+  );
+
+/**
+ * A store whose membership row names a membership hash other than the one
+ * its descriptor hashes to is corrupt, so the read reports
+ * persistence-failed, while the unaltered store reads the record.
+ */
+const failsReadOverMembershipRowNamingAnotherHash = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { fixture, store, record } = yield* makeCertifiedHistory;
+        const inconsistent = withMembershipRowsNaming(store, digest("mbr_", 9));
+
+        const unaltered = yield* readBobRecordHashes(fixture, store);
+        const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
+
+        expect(unaltered, "history read over the unaltered store").toEqual(
+          Exit.succeed([record.actionCertifiedRecord.recordHash]),
+        );
+        expect(
+          corrupt,
+          "history read over the inconsistent membership row",
+        ).toEqual(
+          Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
+        );
+      }),
+    ),
+  );
+
+/**
+ * The owner tools read stored history with the row checks startup applies.
+ * A store whose action evidence row is filed under a member other than its
+ * signer is corrupt, so the read reports persistence-failed, while the
+ * unaltered store reads the record.
+ */
+const failsReadOverMisattributedEvidence = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { fixture, store, record } = yield* makeCertifiedHistory;
+        const misattributed = withMisattributedActionEvidence(
+          store,
+          fixture.cards[0].agentId,
+          fixture.cards[1].agentId,
+        );
+
+        const unaltered = yield* readBobRecordHashes(fixture, store);
+        const corrupt = yield* readBobRecordHashes(fixture, misattributed);
+
+        expect(unaltered, "history read over the unaltered store").toEqual(
+          Exit.succeed([record.actionCertifiedRecord.recordHash]),
+        );
+        expect(corrupt, "history read over the misattributed evidence").toEqual(
+          Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
+        );
+      }),
+    ),
+  );
+
+/**
+ * A store whose genesis anchor row claims to select a record, which only a
+ * completed re-anchor does, is corrupt, so the read reports
+ * persistence-failed, while the unaltered store reads the record.
+ */
+const failsReadOverGenesisAnchorSelectingRecord = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { fixture, store, record } = yield* makeCertifiedHistory;
+        const recordHash = record.actionCertifiedRecord.recordHash;
+        const inconsistent = withGenesisAnchorSelecting(store, recordHash);
+
+        const unaltered = yield* readBobRecordHashes(fixture, store);
+        const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
+
+        expect(unaltered, "history read over the unaltered store").toEqual(
+          Exit.succeed([recordHash]),
+        );
+        expect(
+          corrupt,
+          "history read over the inconsistent anchor row",
+        ).toEqual(
+          Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
+        );
+      }),
+    ),
+  );
+
 // @agent-code-guard/regression-only: these cases pin the addressed owner-management contract.
 describe("addressed daemon management", () => {
   it("pages canonical addresses without exposing conversation identity", () =>
@@ -262,6 +501,25 @@ describe("addressed daemon management", () => {
         expect(error).toMatchObject({ reason: "history-gap" });
       }),
     ));
+});
+
+describe("owner history read over stored rows", () => {
+  it(
+    "returns each certificate's signers and signatures with the record's anchor",
+    returnsCertificateSignersForAudit,
+  );
+  it(
+    "fails a history read whose action evidence is filed under another signer",
+    failsReadOverMisattributedEvidence,
+  );
+  it(
+    "fails a history read whose genesis anchor row selects a record",
+    failsReadOverGenesisAnchorSelectingRecord,
+  );
+  it(
+    "fails a history read whose membership row names another membership hash",
+    failsReadOverMembershipRowNamingAnotherHash,
+  );
 });
 
 /** What a register call left behind: the bound identity rows and activations. */

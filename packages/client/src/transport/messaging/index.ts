@@ -57,8 +57,11 @@ import { recoverEngineState } from "./startup.js";
 export type { EndpointEngineInput } from "./runtime/index.js";
 /** The send input and result the collective layer exchanges with the engine. */
 export type { EngineSendInput, EngineSentPost } from "./send.js";
-/** The one verifier of a stored membership row, shared with the daemon. */
-export { verifyStoredMembership } from "./history/index.js";
+/**
+ * The one verifier of a stored membership row, and the stored-history reader
+ * the owner tools page through, shared with the daemon.
+ */
+export { readStoredHistory, verifyStoredMembership } from "./history/index.js";
 
 /** Engine acquisition could not establish one coherent durable endpoint. */
 export class EngineInitializationError extends Data.TaggedError(

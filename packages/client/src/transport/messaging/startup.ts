@@ -42,7 +42,6 @@ import {
 } from "./certification/index.js";
 import {
   decodeStoredAnchor,
-  decodeStoredEvidence,
   recordFromStore,
   type StoredRowError,
   storedRowMatchesCore,
@@ -358,14 +357,16 @@ function recoverCertifiedFold(
   return Effect.gen(function* () {
     const context = yield* certifiedFoldContext(input, stored);
     const record = yield* recordFromStore(
-      input.input,
+      input.input.registrySignerPublicKey,
       stored,
       context.routerAnchor,
     );
     const actionHash = record.actionCertifiedRecord.recordCore.actionHash;
-    const actionEvidence = yield* decodeStoredEvidence(stored.actionEvidence);
-    const durabilityEvidence = yield* decodeStoredEvidence(
-      stored.durabilityEvidence,
+    const actionEvidence = yield* certificateMessages(
+      record.actionCertifiedRecord.actionCertificate.signatures,
+    );
+    const durabilityEvidence = yield* certificateMessages(
+      record.durabilityCertificate.votes,
     );
     yield* Effect.sync(() => {
       const fold =
@@ -385,6 +386,16 @@ function recoverCertifiedFold(
       };
     });
   });
+}
+
+function certificateMessages(
+  representations: readonly unknown[],
+): Effect.Effect<readonly SignedMessageValue[], ParseResult.ParseError> {
+  return Effect.forEach(
+    representations,
+    (representation) => Schema.decodeUnknown(SignedMessage)(representation),
+    { concurrency: 1 },
+  );
 }
 
 function certifiedFoldContext(
