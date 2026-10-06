@@ -104,6 +104,12 @@ export function mergeEvidence(
  * restart never finds the certified action locked without the certificate
  * that keeps this endpoint from signing it.
  *
+ * A held action this endpoint already staged refuses the replacement as a
+ * conflict. Staging it took its own `q(n)` action certificate, so a second one
+ * at the same predecessor shows more than `f` faulty members, and this
+ * endpoint, which may have voted for the staged record, must never vote for
+ * another successor of that head under the same anchor.
+ *
  * @param database Exclusively owned endpoint database.
  * @param lock The lock on the certified action.
  * @param certificate The action certificate's signatures as evidence rows.
@@ -126,6 +132,9 @@ export function supersedeProposalLock(
       lock.previousRecordHash ?? GENESIS_PREDECESSOR,
     );
     if (held !== undefined && held.actionHash !== lock.actionHash) {
+      if (hasStagedAction(database, held)) {
+        throw new StoreSignal("conflict");
+      }
       releaseProposalLock(database, held);
     }
     const mutation = lockProposalInTransaction(database, lock);
@@ -460,6 +469,17 @@ function hasProposalAction(
          WHERE conversation_id = ? AND action_hash = ? LIMIT 1`,
       )
       .get(evidence.conversationId, evidence.subjectId) !== undefined
+  );
+}
+
+function hasStagedAction(database: DatabaseSync, lock: ProposalLock): boolean {
+  return (
+    database
+      .prepare(
+        `SELECT 1 AS staged FROM staged_records
+         WHERE conversation_id = ? AND action_hash = ? LIMIT 1`,
+      )
+      .get(lock.conversationId, lock.actionHash) !== undefined
   );
 }
 

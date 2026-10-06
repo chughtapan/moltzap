@@ -358,8 +358,9 @@ the anchor, so no candidate under the previous anchor is gap-free afterward,
 and the re-anchor's `q(n)` certificate shows a staged candidate there can never
 collect a durability certificate, because of the re-anchor rules below. A
 verified POST record whose action certificate meets `q(n)` releases a lock on
-another action at its predecessor in the same way, and the endpoint locks the
-record's action without signing it, as the cross-field validation below states.
+another action at its predecessor in the same way, unless the endpoint staged
+that action, and the endpoint locks the record's action without signing it, as
+the cross-field validation below states.
 
 A sender persists its immutable post intent before protocol traffic. If a
 different candidate commits first, it retries the same `PostId` and intent
@@ -631,7 +632,9 @@ following applicable bindings:
   action at its predecessor, which the endpoint releases without signing the
   record's action. Any two `q(n)` quorums share an honest member, who signs
   one action at a predecessor under one anchor, so the locked action can never
-  be certified; and
+  be certified. An endpoint that staged the locked action refuses the record
+  instead: two such certificates show more than `f` faulty members, and the
+  endpoint never votes for a second successor of that head; and
 - catch-up position, item hash, response sender, attestation, and `hasMore`
   match the rules above.
 

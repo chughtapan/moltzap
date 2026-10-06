@@ -836,7 +836,8 @@ const mergeCertificateEvidence = (
  * action's fold is dropped, since the store now refuses its evidence, and the
  * certified action's fold takes the whole certificate, so this endpoint, which
  * signed the other action, never signs this one even when the rest of the
- * record's acceptance is interrupted.
+ * record's acceptance is interrupted. The store refuses the replacement when
+ * this endpoint already staged the other action, and the record is ignored.
  * @param runtime Engine whose store and folds change.
  * @param conversation Conversation the record extends.
  * @param record The verified action-certified record.

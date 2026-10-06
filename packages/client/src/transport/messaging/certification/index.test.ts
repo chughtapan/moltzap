@@ -646,6 +646,37 @@ function hostileDurabilityMessage(input: {
   );
 }
 
+/**
+ * The outer evidence message carrying an action signature that `signer` makes
+ * for `actionHash` whatever it locked, as an equivocating member sends it.
+ */
+function hostileActionSignature(input: {
+  readonly harness: ProtocolHarness;
+  readonly signer: ProtocolIdentity;
+  readonly actionHash: Effect.Effect.Success<ReturnType<typeof hashAction>>;
+}) {
+  return signEvidenceMessage({
+    statement: {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "action_signature",
+      signerAgentId: input.signer.card.agentId,
+      actionHash: input.actionHash,
+    },
+    agentCard: input.signer.card,
+    signingAuthority: input.signer.authority,
+  }).pipe(
+    Effect.flatMap((evidence) =>
+      signOuterEvidence({
+        evidence,
+        membership: input.harness.membership,
+        agentCard: input.signer.card,
+        signingAuthority: input.signer.authority,
+      }),
+    ),
+    Effect.orDie,
+  );
+}
+
 /** The conversation and membership a durability vote is signed over. */
 interface DurabilityBinding {
   readonly conversationId: ConversationIdValue;
@@ -1061,6 +1092,127 @@ function refusingPeerActionEvidence(
         ),
       ),
   };
+}
+
+/**
+ * Members 1, 2 and 3 lock and sign member 1's post, so member 2 stages it and
+ * votes for it, and its record is not yet certified there. Member 4 never saw
+ * that post and locks its own at the same head, and members 1 and 3 also sign
+ * member 4's, which takes more than `f` faulty members. When member 4's
+ * action-certified record reaches member 2, member 2 ignores it and keeps its
+ * lock: it sends nothing, so it never signs or votes for a second successor
+ * of that head.
+ * @returns Completion once member 2's traffic and lock are checked.
+ */
+function refusesASecondCertificateOverAStagedAction() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const [first, staging, equivocating, fourth] = yield* Effect.all([
+          requireAt(harness.identities, 0, "identity"),
+          requireAt(harness.identities, 1, "identity"),
+          requireAt(harness.identities, 2, "identity"),
+          requireAt(harness.identities, 3, "identity"),
+        ]);
+        const firstEngine = yield* requireAt(
+          harness.engines,
+          0,
+          "endpoint engine",
+        );
+        const fourthEngine = yield* requireAt(
+          harness.engines,
+          3,
+          "endpoint engine",
+        );
+        const stagingStore = yield* requireAt(
+          harness.stores,
+          1,
+          "endpoint store",
+        );
+        yield* Effect.forkScoped(
+          firstEngine.send(yield* sendInput(harness, "staged post")),
+        );
+        const stagedBatch = yield* takeReadyBatch(harness);
+        const stagedActionHash = yield* requireAt(
+          stagedBatch,
+          0,
+          "staged proposal",
+        ).pipe(
+          Effect.flatMap(decodeActionProposal),
+          Effect.flatMap((proposal) =>
+            hashAction(proposal.action).pipe(Effect.orDie),
+          ),
+        );
+        yield* Effect.forkScoped(
+          fourthEngine.send(yield* sendInput(harness, "second post")),
+        );
+        const secondBatch = yield* takeReadyBatch(harness);
+        const secondActionHash = yield* requireAt(
+          secondBatch,
+          0,
+          "second proposal",
+        ).pipe(
+          Effect.flatMap(decodeActionProposal),
+          Effect.flatMap((proposal) =>
+            hashAction(proposal.action).pipe(Effect.orDie),
+          ),
+        );
+
+        yield* harness.deliver(stagedBatch, [0, 1, 2]);
+        yield* harness.deliver(secondBatch, [3]);
+        yield* harness.drain();
+        const signatures = yield* takeQueued(harness);
+        yield* harness.deliver(signatures, [0, 1, 2, 3]);
+        yield* harness.drain();
+        yield* takeQueued(harness);
+        const beforeRefusal = yield* stagingStore.recover().pipe(Effect.orDie);
+        const staged = beforeRefusal.stagedRecords.filter(
+          ({ actionHash }) => actionHash === stagedActionHash,
+        );
+        const ownVotes = beforeRefusal.evidence.filter(
+          ({ kind, evidenceKey }) =>
+            kind === "durability" && evidenceKey === staging.card.agentId,
+        );
+        const equivocations = yield* Effect.forEach(
+          [first, equivocating],
+          (signer) =>
+            hostileActionSignature({
+              harness,
+              signer,
+              actionHash: secondActionHash,
+            }),
+          { concurrency: 1 },
+        );
+        yield* harness.deliver(equivocations, [3]);
+        yield* harness.drain([3]);
+        const secondCertificate = (yield* messagesOfKind(
+          yield* takeQueued(harness),
+          "action_certified_record",
+        )).filter((message) => message.senderAgentId === fourth.card.agentId);
+        const refused = yield* harness.deliver(secondCertificate, [1]);
+        yield* harness.deliver(secondBatch, [1]);
+        yield* harness.drain([1]);
+        const sentByStaging = (yield* takeQueued(harness)).filter(
+          (message) => message.senderAgentId === staging.card.agentId,
+        );
+        const locks = (yield* stagingStore.recover().pipe(Effect.orDie))
+          .proposalLocks;
+
+        expect(staged).toHaveLength(1);
+        expect(ownVotes.map(({ subjectId }) => subjectId)).toContain(
+          staged[0]?.recordHash,
+        );
+        expect(secondCertificate).toHaveLength(1);
+        expect(refused).toEqual(["ignored"]);
+        expect(sentByStaging).toEqual([]);
+        expect(locks.map(({ actionHash }) => actionHash)).not.toContain(
+          secondActionHash,
+        );
+      }),
+    ),
+  );
 }
 
 function certifiesOrdinaryN4Post() {
@@ -1538,6 +1690,11 @@ describe("fixed-post endpoint protocol", () => {
   it(
     "signs nothing for an adopted action when its record's acceptance stops",
     signsNothingForAnAdoptedActionWhenAcceptanceStops,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "refuses a second action certificate over an action it staged",
+    refusesASecondCertificateOverAStagedAction,
     TEST_TIMEOUT_MS,
   );
   it(
