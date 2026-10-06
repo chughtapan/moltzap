@@ -56,8 +56,6 @@ import {
   pendingRecoveryFence,
   releaseConversation,
 } from "./barrier.js";
-
-export { installRecoveryBarrier, pendingRecoveryFence } from "./barrier.js";
 import {
   acceptCatchUpIncomplete,
   acceptCatchUpPage,
@@ -69,6 +67,12 @@ import {
   resendCertifiedHistoryRequest,
   sentByOtherMember,
 } from "./catch-up.js";
+
+/**
+ * The recovery fences the engine installs at a discontinuity and a send waits
+ * behind.
+ */
+export { installRecoveryBarrier, pendingRecoveryFence } from "./barrier.js";
 
 /**
  * Delay before a conversation's first catch-up retry. One second is well past
@@ -791,7 +795,9 @@ function positionReady(
  * Mark one conversation recovered: stop its catch-up retries, resume its
  * retained envelopes, dissemination, folds and pending posts, and then
  * release the sends waiting on its fence. The run ends once every
- * conversation it holds has recovered.
+ * conversation it holds has recovered. The steps run uninterruptibly: the
+ * conversation counts as recovered from the first of them, so nothing would
+ * release a fence an interruption left held.
  * @param run Recovery run that reconciled the conversation.
  * @param conversationId Conversation whose verified position is complete.
  * @returns Completion after the conversation's held work has resumed.
@@ -813,7 +819,7 @@ function markRecovered(
       Effect.zipRight(releaseConversation(run.runtime, conversationId)),
       Effect.zipRight(endRunOnceRecovered(run)),
     );
-  });
+  }).pipe(Effect.uninterruptible);
 }
 
 /**
