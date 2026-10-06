@@ -137,6 +137,25 @@ export const resendCertifiedHistoryRequest = (
   );
 
 /**
+ * Whether a delivery came from one of the conversation's other fixed members,
+ * the only senders whose catch-up traffic counts.
+ * @param runtime Engine whose local identity is excluded.
+ * @param membership Verified fixed membership of the conversation.
+ * @param senderAgentId Outer sender of the delivery.
+ * @returns True for a fixed member other than this endpoint.
+ */
+export function sentByOtherMember(
+  runtime: EngineRuntime,
+  membership: VerifiedMembership,
+  senderAgentId: AgentId,
+): boolean {
+  return (
+    senderAgentId !== runtime.input.localAgentCard.agentId &&
+    memberCard(membership, senderAgentId) !== undefined
+  );
+}
+
+/**
  * Answer an authenticated catch-up request with the requester's next certified
  * history item, or with an attestation that there is none.
  * @param responder Engine and membership lookup, inside or outside a run.
@@ -155,10 +174,9 @@ export function acceptCatchUpRequest(
   }
   const senderAgentId = ingress.message.senderAgentId;
   const requestMatchesMembership =
-    senderAgentId !== responder.runtime.input.localAgentCard.agentId &&
+    sentByOtherMember(responder.runtime, membership, senderAgentId) &&
     senderAgentId === request.requesterAgentId &&
-    request.membershipHash === membership.hash &&
-    memberCard(membership, senderAgentId) !== undefined;
+    request.membershipHash === membership.hash;
   if (!requestMatchesMembership) {
     return Effect.succeed(ignoredDisposition);
   }
@@ -637,10 +655,7 @@ function pendingCatchUpContext(
   if (membership === undefined || pending === undefined) {
     return undefined;
   }
-  if (senderAgentId === run.runtime.input.localAgentCard.agentId) {
-    return undefined;
-  }
-  if (memberCard(membership, senderAgentId) === undefined) {
+  if (!sentByOtherMember(run.runtime, membership, senderAgentId)) {
     return undefined;
   }
   return { membership, pending };

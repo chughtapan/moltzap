@@ -35,7 +35,7 @@ import {
 } from "../wire/index.js";
 import { resolveMessageAddress } from "./address.js";
 import { SendError } from "./errors.js";
-import { pendingRecoveryFence } from "./recovery/barrier.js";
+import { pendingRecoveryFence } from "./recovery/index.js";
 
 /**
  * One post the engine certifies: its address and its complete content. The

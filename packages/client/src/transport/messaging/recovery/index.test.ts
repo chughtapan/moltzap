@@ -5902,9 +5902,12 @@ const forkSend = (engine: EndpointEngine, to: string, text: string) =>
  * After a Router discontinuity the endpoint holds two conversations. The
  * direct one's only other member is silent, and a quorum of the N4
  * conversation's members answer its catch-up. The N4 conversation recovers
- * and its send goes out, while the direct conversation stays fenced and its
- * send waits. Fails when the silent member's conversation holds the N4
- * conversation's send, as an engine-wide fence does.
+ * and its post reaches the Router, while the direct conversation stays fenced
+ * and the Router receives nothing of its post. Once the direct member
+ * answers, that conversation recovers and its held post reaches the Router.
+ * Fails when the silent member's conversation holds the N4 conversation's
+ * post, as an engine-wide fence does, or when a fenced conversation's post
+ * reaches the Router before that conversation recovers.
  */
 const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
   Effect.runPromise(
@@ -5925,9 +5928,14 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
           (request) =>
             request.conversationId === n4.membership.descriptor.conversationId,
         );
-        if (n4Request === undefined) {
+        const directRequest = requests.find(
+          (request) =>
+            request.conversationId ===
+            fixture.membership.descriptor.conversationId,
+        );
+        if (n4Request === undefined || directRequest === undefined) {
           return yield* Effect.dieMessage(
-            "recovery did not ask the N4 members",
+            "recovery did not ask both conversations' members",
           );
         }
         yield* Effect.forEach(
@@ -5960,12 +5968,26 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
           fixture.normalOutbound,
         );
         yield* settle;
+        const reachedRouterWhileFenced = yield* Queue.size(
+          fixture.normalOutbound,
+        );
+        const heldSend = yield* Fiber.poll(directSend);
+        yield* deliverRecovery(
+          n4.engine,
+          catchUpIncompleteIngress(fixture, directRequest),
+        );
+        const released = yield* takeActionProposalAfterEvidence(
+          fixture.normalOutbound,
+        );
 
         expect(proposal.proposal.action.conversationId).toBe(
           n4.membership.descriptor.conversationId,
         );
-        expect(yield* Queue.size(fixture.normalOutbound)).toBe(0);
-        expect(Option.isNone(yield* Fiber.poll(directSend))).toBe(true);
+        expect(reachedRouterWhileFenced).toBe(0);
+        expect(Option.isNone(heldSend)).toBe(true);
+        expect(released.proposal.action.conversationId).toBe(
+          fixture.membership.descriptor.conversationId,
+        );
       }),
     ),
   );
@@ -6162,6 +6184,68 @@ const stopsCatchUpRetriesOnceRecovered = () =>
 
 /**
  * A conversation's catch-up retries run out while its member is silent, and
+ * the Router then reports another discontinuity. The next recovery run asks
+ * the member again with a fresh request and retries on a fresh schedule, and
+ * the member's answer recovers the conversation. Fails when a new run leaves
+ * a conversation whose earlier retries ran out without a request.
+ */
+const rearmsCatchUpOnTheNextRecoveryRun = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const { outbound } = yield* forkRecovery(
+          fixture,
+          "feed_gap",
+          oldRouterInstanceId,
+          { clock: "caller" },
+        );
+        yield* takeCatchUpRequest(outbound);
+        yield* Effect.replicateEffect(
+          takeRetriedCatchUpRequest(outbound),
+          catchUpRetryAttempts,
+        );
+        yield* TestClock.adjust("100000 seconds");
+        yield* settle;
+        const quiet = yield* Queue.size(outbound);
+
+        yield* forkRecovery(fixture, "feed_gap", oldRouterInstanceId, {
+          clock: "caller",
+        });
+        const fresh = yield* takeCatchUpRequest(outbound);
+        const retried = yield* takeRetriedCatchUpRequest(outbound);
+        yield* deliverRecovery(
+          fixture.engine,
+          catchUpIncompleteIngressFrom({
+            membership: fixture.membership,
+            responder: fixture.remote,
+            request: retried,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        );
+        yield* forkSend(
+          fixture.engine,
+          `agent:${fixture.remote.card.agentName}`,
+          "recovered on the next run",
+        );
+        const proposal = yield* takeActionProposalAfterEvidence(
+          fixture.normalOutbound,
+        );
+
+        expect(quiet).toBe(0);
+        expect(fresh.conversationId).toBe(
+          fixture.membership.descriptor.conversationId,
+        );
+        expect(retried).toStrictEqual(fresh);
+        expect(proposal.proposal.action.conversationId).toBe(
+          fixture.membership.descriptor.conversationId,
+        );
+      }),
+    ).pipe(Effect.provide(TestContext.TestContext)),
+  );
+
+/**
+ * A conversation's catch-up retries run out while its member is silent, and
  * the owner then posts into it. The post arms catch-up again with a fresh
  * request and waits; once the member answers, the conversation recovers and
  * the post goes out. Fails when a post into a paused conversation waits for
@@ -6252,12 +6336,12 @@ const rearmsEveryPausedConversationOnReattach = () =>
 
         expect(quiet).toBe(0);
         expect(
-          rearmed.map(({ conversationId }) => conversationId).sort(),
+          new Set(rearmed.map(({ conversationId }) => conversationId)),
         ).toStrictEqual(
-          [
+          new Set([
             fixture.membership.descriptor.conversationId,
             n4.membership.descriptor.conversationId,
-          ].sort(),
+          ]),
         );
       }),
     ).pipe(Effect.provide(TestContext.TestContext)),
@@ -6266,7 +6350,7 @@ const rearmsEveryPausedConversationOnReattach = () =>
 // @agent-code-guard/regression-only: these traces pin the catch-up and re-anchor work a recovery run routes between its phases and its store.
 describe("catch-up and re-anchor inside a recovery run", () => {
   it(
-    "recovers one conversation while another waits on a silent member",
+    "sends a recovered conversation's post while another waits on a silent member, and the held post once that one recovers",
     recoversOneConversationWhileAnotherWaitsOnASilentMember,
     10_000,
   );
@@ -6278,6 +6362,11 @@ describe("catch-up and re-anchor inside a recovery run", () => {
   it(
     "arms catch-up again when a member's catch-up request arrives after its retries ran out",
     rearmsCatchUpAfterRetriesRunOut,
+    10_000,
+  );
+  it(
+    "arms catch-up again on the next recovery run after its retries ran out",
+    rearmsCatchUpOnTheNextRecoveryRun,
     10_000,
   );
   it(

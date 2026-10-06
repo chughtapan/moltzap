@@ -88,21 +88,16 @@ export function fenceConversation(
   runtime: EngineRuntime,
   conversationId: ConversationId,
 ): Effect.Effect<void> {
-  return Effect.suspend(() => {
-    if (fencesOf(runtime).conversations.has(conversationId)) {
-      return Effect.void;
-    }
-    return Deferred.make<undefined>().pipe(
-      Effect.flatMap((fence) =>
-        Effect.sync(() => {
-          const { conversations } = fencesOf(runtime);
-          if (!conversations.has(conversationId)) {
-            conversations.set(conversationId, fence);
-          }
-        }),
-      ),
-    );
-  });
+  return Deferred.make<undefined>().pipe(
+    Effect.flatMap((fence) =>
+      Effect.sync(() => {
+        const { conversations } = fencesOf(runtime);
+        if (!conversations.has(conversationId)) {
+          conversations.set(conversationId, fence);
+        }
+      }),
+    ),
+  );
 }
 
 /**

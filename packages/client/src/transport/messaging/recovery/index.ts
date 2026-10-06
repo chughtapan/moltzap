@@ -4,7 +4,7 @@
  * and catch-up retries it holds, and the ports its catch-up and re-anchor use.
  */
 
-import type { AgentId, SignedMessage } from "@moltzap/identity";
+import type { SignedMessage } from "@moltzap/identity";
 import {
   Duration,
   Effect,
@@ -56,6 +56,8 @@ import {
   pendingRecoveryFence,
   releaseConversation,
 } from "./barrier.js";
+
+export { installRecoveryBarrier, pendingRecoveryFence } from "./barrier.js";
 import {
   acceptCatchUpIncomplete,
   acceptCatchUpPage,
@@ -65,6 +67,7 @@ import {
   makeCatchUpState,
   requestCertifiedHistory,
   resendCertifiedHistoryRequest,
+  sentByOtherMember,
 } from "./catch-up.js";
 
 /**
@@ -72,26 +75,25 @@ import {
  * a Router round trip, so a retry follows a request that went unanswered
  * rather than racing its answers.
  */
-export const catchUpRetryBase = Duration.seconds(1);
+const catchUpRetryBase = Duration.seconds(1);
 
 /**
  * Catch-up retries after a conversation's first request. With the doubling
  * delay, eight retries span about four minutes (1 s + 2 s + ... + 128 s,
  * each jittered). After the last one the conversation stays paused until a
- * member's traffic for it, or the next recovery run, asks again.
+ * member's traffic for it, a local post into it, the Router worker
+ * reattaching, or the next recovery run arms it again.
  */
 export const catchUpRetryAttempts = 8;
 
 /**
  * A conversation's catch-up retries: doubling jittered delays, at most
- * {@link catchUpRetryAttempts} of them, ending early once a retry finds the
- * conversation recovered. The first input is the schedule's own start; each
- * later one is whether the retry still found the conversation pending.
+ * {@link catchUpRetryAttempts} of them. Recovering the conversation removes
+ * its retries from the run, which ends them early.
  */
 const catchUpRetrySchedule = Schedule.exponential(catchUpRetryBase).pipe(
   Schedule.jittered,
   Schedule.intersect(Schedule.recurs(catchUpRetryAttempts)),
-  Schedule.whileInput((pending?: boolean) => pending !== false),
 );
 
 /**
@@ -108,11 +110,11 @@ interface RecoveryRun {
    */
   readonly reanchoring: ReadonlySet<string>;
   readonly memberships: Map<ConversationIdValue, VerifiedMembership>;
-  /** Retained envelopes of each conversation, resumed once it recovers. */
-  readonly retainedOutbounds: ReadonlyMap<
-    string,
-    readonly StoredOutboundMessage[]
-  >;
+  /**
+   * Outbox ids of each conversation's retained envelopes, resumed and dropped
+   * once it recovers.
+   */
+  readonly retainedOutbounds: Map<string, readonly string[]>;
   readonly completedConversations: Set<ConversationIdValue>;
   /**
    * The run's lifetime inside the engine's. Closing it ends every catch-up
@@ -163,11 +165,13 @@ export function acceptEngineIngressWithRecovery(
  * still holds whose capped retries ran out. A local send to such a
  * conversation arms its catch-up, and a Router worker that reattaches after
  * an outage arms every one, so a paused conversation always has a way back to
- * recovery. A store failure while asking ends the new retries the same way.
+ * recovery. The requests go out on a fiber in the run's scope, so neither the
+ * send nor the reattaching worker waits on the store reads they take. A store
+ * failure while asking ends the new retries the same way.
  * @param runtime Engine whose recovery run holds the conversations.
  * @param conversationId The one conversation to arm; every paused
  *     conversation when omitted.
- * @returns Completion once each paused conversation's catch-up is armed.
+ * @returns Completion once the arming fiber is started.
  */
 export function rearmPausedCatchUp(
   runtime: EngineRuntime,
@@ -175,23 +179,28 @@ export function rearmPausedCatchUp(
 ): Effect.Effect<void> {
   return Effect.suspend(() => {
     const run = activeRuns.get(runtime);
+    if (run === undefined) {
+      return Effect.void;
+    }
     const conversations =
       conversationId === undefined
-        ? [...(run?.memberships.keys() ?? [])]
+        ? [...run.memberships.keys()]
         : [conversationId];
     return Effect.forEach(
       conversations,
       (paused) => rearmIfPaused(runtime, paused),
       { concurrency: 1, discard: true },
-    );
-  }).pipe(
-    Effect.catchAll(() =>
-      Effect.logWarning(
-        "Catch-up was not armed again: the endpoint store could not be read",
+    ).pipe(
+      Effect.catchAll(() =>
+        Effect.logWarning(
+          "Catch-up was not armed again: the endpoint store could not be read",
+        ),
       ),
-    ),
-    Effect.withSpan("rearmPausedCatchUp"),
-  );
+      Effect.withSpan("rearmPausedCatchUp"),
+      Effect.forkIn(run.scope),
+      Effect.asVoid,
+    );
+  });
 }
 
 /**
@@ -264,7 +273,7 @@ function acceptPacket(
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
   return routePacket(runtime, ingress, packet).pipe(
     Effect.tap(() =>
-      rearmCatchUp(runtime, ingress, packetConversation(packet)),
+      rearmOnMemberTraffic(runtime, ingress, packetConversation(packet)),
     ),
   );
 }
@@ -351,7 +360,7 @@ function acceptEvidence(
         Effect.tap(() =>
           conversationId === undefined
             ? Effect.void
-            : rearmCatchUp(runtime, ingress, conversationId),
+            : rearmOnMemberTraffic(runtime, ingress, conversationId),
         ),
       );
     }),
@@ -456,14 +465,13 @@ function acceptRecoveryRecord(
 
 /**
  * Arm a conversation's catch-up again after its retries ran out, on traffic
- * a fixed member sent for it. A conversation the run has recovered, or one
- * whose retries are still running, needs nothing.
+ * one of its other fixed members sent for it.
  * @param runtime Engine whose run holds the conversation.
  * @param ingress Verified Router delivery the member sent.
  * @param conversationId Conversation the delivery names.
  * @returns Completion once the conversation's catch-up is armed again.
  */
-function rearmCatchUp(
+function rearmOnMemberTraffic(
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   conversationId: ConversationIdValue,
@@ -502,17 +510,6 @@ function rearmIfPaused(
   );
 }
 
-function sentByOtherMember(
-  runtime: EngineRuntime,
-  membership: VerifiedMembership,
-  senderAgentId: AgentId,
-): boolean {
-  return (
-    senderAgentId !== runtime.input.localAgentCard.agentId &&
-    memberCard(membership, senderAgentId) !== undefined
-  );
-}
-
 /**
  * Ask a conversation's members for its history now, then retry on
  * {@link catchUpRetrySchedule} until it recovers or the retries run out. A
@@ -532,7 +529,7 @@ function armCatchUp(
         run.retries,
         conversationId,
         Effect.schedule(
-          retryCatchUp(run, conversationId),
+          resendCertifiedHistoryRequest(run.catchUp, conversationId),
           catchUpRetrySchedule,
         ).pipe(
           Effect.asVoid,
@@ -545,19 +542,6 @@ function armCatchUp(
       ),
     ),
     Effect.asVoid,
-  );
-}
-
-function retryCatchUp(
-  run: RecoveryRun,
-  conversationId: ConversationIdValue,
-): Effect.Effect<boolean, RouterWorkerPersistenceError> {
-  return Effect.suspend(() =>
-    run.catchUp.isActive() && !run.completedConversations.has(conversationId)
-      ? resendCertifiedHistoryRequest(run.catchUp, conversationId).pipe(
-          Effect.as(true),
-        )
-      : Effect.succeed(false),
   );
 }
 
@@ -649,12 +633,12 @@ function discardRestartedOutbounds(
 
 function groupByConversation(
   outbounds: readonly StoredOutboundMessage[],
-): ReadonlyMap<string, readonly StoredOutboundMessage[]> {
-  const grouped = new Map<string, StoredOutboundMessage[]>();
-  for (const outbound of outbounds) {
-    const held = grouped.get(outbound.conversationId) ?? [];
-    held.push(outbound);
-    grouped.set(outbound.conversationId, held);
+): Map<string, readonly string[]> {
+  const grouped = new Map<string, string[]>();
+  for (const { conversationId, outboundId } of outbounds) {
+    const held = grouped.get(conversationId) ?? [];
+    held.push(outboundId);
+    grouped.set(conversationId, held);
   }
   return grouped;
 }
@@ -845,21 +829,19 @@ function resumeConversation(
   conversationId: ConversationIdValue,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   const { runtime } = run;
-  return runtime.outbox
-    .resume(
-      (run.retainedOutbounds.get(conversationId) ?? []).map(
-        (outbound) => outbound.outboundId,
-      ),
-    )
-    .pipe(
-      Effect.zipRight(
-        runtime.phases.resumeDissemination(runtime, conversationId),
-      ),
-      Effect.zipRight(runtime.phases.resumeFolds(runtime, conversationId)),
-      Effect.zipRight(
-        runtime.outbox.serialized(resumeIntents(run, conversationId)),
-      ),
-    );
+  return Effect.suspend(() => {
+    const retained = run.retainedOutbounds.get(conversationId) ?? [];
+    run.retainedOutbounds.delete(conversationId);
+    return runtime.outbox.resume(retained);
+  }).pipe(
+    Effect.zipRight(
+      runtime.phases.resumeDissemination(runtime, conversationId),
+    ),
+    Effect.zipRight(runtime.phases.resumeFolds(runtime, conversationId)),
+    Effect.zipRight(
+      runtime.outbox.serialized(resumeIntents(run, conversationId)),
+    ),
+  );
 }
 
 /**

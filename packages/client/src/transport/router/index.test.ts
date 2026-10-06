@@ -69,7 +69,6 @@ import {
   type RouterWorkerRecovery,
   type RouterWorkerRecoveryError,
   RouterWorkerRejectedError,
-  type RouterWorkerSendError,
   RouterWorkerUnavailableError,
 } from "./index.js";
 
@@ -89,7 +88,7 @@ const callbacks = (input?: {
   readonly failAcceptText?: string;
   readonly recover?: (
     input: RouterWorkerRecovery,
-  ) => Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError>;
+  ) => Effect.Effect<void, RouterWorkerRecoveryError>;
 }): RouterWorkerCallbacks<TestPayload> => ({
   pinSenderCard: () => Effect.void,
   decodePayload: (message) => {
@@ -1244,7 +1243,7 @@ const outageDetachesAndReattaches = async (): Promise<void> => {
           expect(lines).toEqual(
             expect.arrayContaining([expect.stringContaining("reattached")]),
           );
-          expect(yield* Ref.get(events)).toContain("reattached");
+          expect(yield* Ref.get(events)).toEqual(["reattached"]);
           yield* worker.send(outbound.outboundId);
           expect((yield* store.recover()).outboundMessages).toEqual([]);
           yield* Fiber.interrupt(polling);

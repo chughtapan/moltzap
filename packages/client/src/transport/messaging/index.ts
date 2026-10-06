@@ -38,9 +38,9 @@ import {
 import { DeliveryAcknowledgeError, ListenError, SendError } from "./errors.js";
 import { InboundMessage } from "./message.js";
 import { makeOutbox } from "./outbox.js";
-import { installRecoveryBarrier } from "./recovery/barrier.js";
 import {
   acceptEngineIngressWithRecovery,
+  installRecoveryBarrier,
   rearmPausedCatchUp,
   recoverCertifiedHistory,
 } from "./recovery/index.js";
@@ -119,7 +119,7 @@ export interface EndpointEngine {
   ) => Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError>;
   readonly recoverCertifiedHistory: (
     recovery: RouterWorkerRecovery,
-  ) => Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError>;
+  ) => Effect.Effect<void, RouterWorkerRecoveryError>;
   readonly drainOutbound: Effect.Effect<void, EngineOutboundError>;
   readonly runOutbound: Effect.Effect<never, EngineOutboundError>;
   readonly abandonVolatileFolds: (
