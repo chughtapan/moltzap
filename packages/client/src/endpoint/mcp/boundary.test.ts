@@ -167,49 +167,59 @@ async function advertisesEventsBeforeRegistration() {
   );
 }
 
+/**
+ * Malformed status arguments fail as invalid params before the operation
+ * runs, and every expected status failure reaches the owner as
+ * `incompatible-daemon`: the one reason the status vocabulary admits, and
+ * `persistence-failed`, which other owner tools admit and status does not.
+ * The second row pins the vocabulary, because the fallback reason equals the
+ * admitted one.
+ */
 async function distinguishesProtocolAndDomainFailures() {
-  let statusFails = false;
+  let statusFailure: string | undefined;
   const failingOperations: HarnessMcpOperations = {
     ...operations,
     readStatus: () =>
-      statusFails
-        ? Effect.fail({ reason: "incompatible-daemon" as const })
-        : Effect.succeed({ kind: "unregistered" as const }),
+      statusFailure === undefined
+        ? Effect.succeed({ kind: "unregistered" as const })
+        : Effect.fail({ reason: statusFailure }),
   };
-  const [malformedCause, domainCause] = await Effect.runPromise(
+  const { malformedCause, domainCauses } = await Effect.runPromise(
     Effect.gen(function* () {
       const { port } = yield* acquireBoundaryServer(failingOperations);
       const client = yield* acquireProtocolClient(
         port,
         "harness-boundary-client",
       );
-      statusFails = true;
-      return yield* Effect.all(
-        [
-          capturesProtocolError(client, { unexpected: true }),
-          capturesProtocolError(client, {}),
-        ],
-        { concurrency: 1 },
-      );
+      statusFailure = "incompatible-daemon";
+      const malformed = yield* capturesProtocolError(client, {
+        unexpected: true,
+      });
+      const admitted = yield* capturesProtocolError(client, {});
+      statusFailure = "persistence-failed";
+      const outsideVocabulary = yield* capturesProtocolError(client, {});
+      return {
+        malformedCause: malformed,
+        domainCauses: [admitted, outsideVocabulary],
+      };
     }).pipe(Effect.scoped),
   );
 
   expect(ProtocolError.isInstance(malformedCause)).toBe(true);
-  expect(ProtocolError.isInstance(domainCause)).toBe(true);
-  if (
-    !ProtocolError.isInstance(malformedCause) ||
-    !ProtocolError.isInstance(domainCause)
-  ) {
-    throw new Error("expected protocol errors from both calls");
+  if (!ProtocolError.isInstance(malformedCause)) {
+    throw new Error("expected a protocol error for malformed arguments");
   }
   expect(malformedCause).toMatchObject({
     code: ProtocolErrorCode.InvalidParams,
   });
   expect(malformedCause.data).toBeUndefined();
-  expect(domainCause).toMatchObject({
-    code: ProtocolErrorCode.InternalError,
-    data: { reason: "incompatible-daemon" },
-  });
+  for (const domainCause of domainCauses) {
+    expect(ProtocolError.isInstance(domainCause)).toBe(true);
+    expect(domainCause).toMatchObject({
+      code: ProtocolErrorCode.InternalError,
+      data: { reason: "incompatible-daemon" },
+    });
+  }
 }
 
 async function sanitizesUnexpectedOperationDefects() {
