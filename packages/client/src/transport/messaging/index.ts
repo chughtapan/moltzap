@@ -419,6 +419,7 @@ const makeRuntime = (
       actionFolds: recovered.actionFolds,
       recordFolds: recovered.recordFolds,
       waitingProposals: new Map(),
+      earlyVotes: new Map(),
       gate: yield* Effect.makeSemaphore(1),
       outbox: yield* makeOutbox(
         input,
@@ -502,6 +503,7 @@ const abandonVolatileFolds = (
         yield* Effect.sync(() => {
           runtime.outbox.clear();
           runtime.waitingProposals.clear();
+          runtime.earlyVotes.clear();
           forgetGapCatchUps(runtime);
           if (reason !== "router_restarted") {
             return;

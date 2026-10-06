@@ -153,6 +153,12 @@ export interface EngineWaitingProposal {
   vouched: boolean;
 }
 
+/** A verified durability vote naming a record this endpoint has not staged. */
+export interface EngineEarlyVote {
+  readonly recordHash: RecordHash;
+  readonly ingress: RouterWorkerIngress<DecodedOuterBody>;
+}
+
 /** Shared acquired state used by addressed send and protocol ingress. */
 export interface EngineRuntime {
   readonly input: EndpointEngineInput;
@@ -171,6 +177,14 @@ export interface EngineRuntime {
     ConversationId,
     Map<AgentId, EngineWaitingProposal>
   >;
+  /**
+   * Per conversation, each member's latest durability vote naming a record
+   * not staged here, applied once that record is staged. A member that sends
+   * its evidence again in a catch-up answer sends its vote right after its
+   * signature, before the signatures can let this endpoint stage the record.
+   * A Router discontinuity drops them.
+   */
+  readonly earlyVotes: Map<ConversationId, Map<AgentId, EngineEarlyVote>>;
   readonly gate: Effect.Semaphore;
   readonly outbox: EngineOutbox;
   readonly phases: EnginePhases;

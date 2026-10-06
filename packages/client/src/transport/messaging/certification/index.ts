@@ -4,11 +4,7 @@
  * a proposal naming a predecessor this endpoint lacks waits for catch-up.
  */
 
-import {
-  type AgentId,
-  MOLTZAP_VERSION,
-  type SignedMessage,
-} from "@moltzap/identity";
+import { MOLTZAP_VERSION, type SignedMessage } from "@moltzap/identity";
 import { Deferred, Effect } from "effect";
 import type { SendError } from "../errors.js";
 import {
@@ -40,8 +36,8 @@ import {
   GenesisAnchorBody,
   hashAnchor,
   MembershipDescriptor,
-  type PostActionCore,
   quorumThreshold,
+  type RecordHash,
   signEvidenceMessage,
   type VerifiedEvidence,
   type VerifiedMembership,
@@ -66,7 +62,6 @@ import {
   type EngineConversation,
   type EnginePostIntent,
   type EngineRuntime,
-  type EngineWaitingProposal,
   makeActionFold,
 } from "../runtime/index.js";
 import {
@@ -75,6 +70,14 @@ import {
   type EvidenceRoute,
   verifiedEvidenceForRoute,
 } from "./evidence.js";
+import {
+  heldProposals,
+  holdEarlyVote,
+  knowsLaterPosition,
+  namesPassedRecord,
+  takeEarlyVotes,
+  vouchingSigners,
+} from "./waiting.js";
 
 /** Whether verified evidence names a fold, shared with engine startup. */
 export { evidenceMatchesFold, type EvidenceRoute } from "./evidence.js";
@@ -542,6 +545,7 @@ const stageActionCertificate = (
     });
     yield* localDurabilityEvidence(runtime, fold);
     yield* maybePromote(runtime, fold, record);
+    yield* applyEarlyVotes(runtime, fold, record.recordHash);
   });
 
 const maybeCertifyAction = (
@@ -639,6 +643,9 @@ const acceptEvidence = (
     if (route === undefined) {
       if (statement.kind === "action_signature") {
         yield* holdWaitingSignature(runtime, ingress, statement.actionHash);
+      }
+      if (statement.kind === "durability_vote") {
+        yield* holdEarlyVote(runtime, ingress, statement);
       }
       return "ignored";
     }
@@ -885,10 +892,12 @@ const ignoredDisposition: RouterIngressDisposition = "ignored";
 
 /**
  * Hold a POST proposal whose predecessor or anchor this endpoint does not
- * hold, in its author's slot. The first proposal naming a position is kept:
- * every member that held the predecessor saw the same Router order and locked
- * that one. A later proposal from the same author replaces the author's
- * earlier one, and no member's proposal displaces another author's. A GENESIS
+ * hold, in its author's slot. A later proposal from the same author replaces
+ * the author's earlier one, and no member's proposal displaces another
+ * author's. Proposals from different authors naming one position are all
+ * held: arriving first does not show the members selected a proposal, since
+ * it may have arrived before its predecessor was certified anywhere, and only
+ * the one `f + 1` members sign is ever accepted. A GENESIS
  * that does not fit, and a POST naming a record certified here before the
  * current head, are only ignored, unverified: the second is a proposal its
  * author sent before it saw the head certified, and the author proposes again
@@ -909,15 +918,7 @@ function awaitPredecessor(
   const action = proposal.action;
   if (
     action.kind !== "POST" ||
-    namesPassedRecord(runtime, conversation, action) ||
-    [
-      ...(runtime.waitingProposals.get(conversation.conversationId)?.values() ??
-        []),
-    ].some(
-      (held) =>
-        held.action.previousRecordHash === action.previousRecordHash &&
-        held.action.anchorHash === action.anchorHash,
-    )
+    namesPassedRecord(runtime, conversation, action)
   ) {
     return Effect.void;
   }
@@ -937,18 +938,6 @@ function awaitPredecessor(
         );
       }),
     ),
-  );
-}
-
-function namesPassedRecord(
-  runtime: EngineRuntime,
-  conversation: EngineConversation,
-  action: PostActionCore,
-): boolean {
-  return (
-    action.previousRecordHash !== conversation.head?.recordHash &&
-    runtime.recordFolds.get(action.previousRecordHash)?.certifiedRecord !==
-      undefined
   );
 }
 
@@ -998,6 +987,26 @@ function holdWaitingSignature(
           : runtime.phases.requestCatchUp(runtime, conversation.conversationId);
       }),
     ),
+  );
+}
+
+/**
+ * Apply the kept durability votes that name a record this endpoint just
+ * staged, as if they had just arrived.
+ * @param runtime Engine that staged the record.
+ * @param fold Fold whose record was staged.
+ * @param recordHash Hash of the staged record.
+ * @returns Completion once the matching votes are applied or ignored.
+ */
+function applyEarlyVotes(
+  runtime: EngineRuntime,
+  fold: EngineActionFold,
+  recordHash: RecordHash,
+): Effect.Effect<void, RouterWorkerPersistenceError> {
+  return Effect.forEach(
+    takeEarlyVotes(runtime, fold.conversation.conversationId, recordHash),
+    (ingress) => ignoreRejectedInput(acceptDirectPacket(runtime, ingress)),
+    { concurrency: 1, discard: true },
   );
 }
 
@@ -1055,44 +1064,6 @@ function acceptWaitingProposal(
       { concurrency: 1, discard: true },
     );
   });
-}
-
-/**
- * Whether `f + 1` members signed a proposal this endpoint holds in a
- * conversation, so the members' position is past this endpoint's head. Until
- * catch-up brings it there, this endpoint neither locks a proposal at its
- * head nor proposes its own posts again: the members already certified a
- * record at that position, and a lock on another action would refuse that
- * record when catch-up brings it.
- * @param runtime Engine whose waiting proposals are checked.
- * @param conversationId Conversation to check.
- * @returns Whether a waiting proposal there has `f + 1` signers.
- */
-function knowsLaterPosition(
-  runtime: EngineRuntime,
-  conversationId: ConversationId,
-): boolean {
-  return [
-    ...(runtime.waitingProposals.get(conversationId)?.values() ?? []),
-  ].some((waiting) => waiting.vouched);
-}
-
-function vouchingSigners(waiting: EngineWaitingProposal): number {
-  const memberCount = waiting.conversation.membership.members.length;
-  return memberCount - quorumThreshold(memberCount) + 1;
-}
-
-function heldProposals(
-  runtime: EngineRuntime,
-  conversation: EngineConversation,
-): Map<AgentId, EngineWaitingProposal> {
-  const retained = runtime.waitingProposals.get(conversation.conversationId);
-  if (retained !== undefined) {
-    return retained;
-  }
-  const created = new Map<AgentId, EngineWaitingProposal>();
-  runtime.waitingProposals.set(conversation.conversationId, created);
-  return created;
 }
 
 /**

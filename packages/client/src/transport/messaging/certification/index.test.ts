@@ -1247,6 +1247,130 @@ function proposesNothingAtPositionsItCatchesUpThrough() {
 }
 
 /**
+ * With member 4 offline, member 2 signs the post but receives members 1 and
+ * 3's durability votes before their action signatures, as when they send
+ * their evidence again in a catch-up answer. Member 2 keeps those votes until
+ * the signatures let it stage the record, then certifies it.
+ * @returns Completion once member 2 holds and delivers the post.
+ */
+function appliesDurabilityVotesThatArriveBeforeStaging() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
+        const sending = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "votes before signatures")),
+        );
+        yield* harness.deliver(yield* takeReadyBatch(harness), [0, 1, 2]);
+        yield* harness.drain([0, 1, 2]);
+        const signatures = yield* takeQueued(harness);
+        yield* harness.deliver(signatures, [0, 2]);
+        yield* harness.drain([0, 2]);
+        const votes = yield* takeQueued(harness);
+        yield* harness.deliver(votes, [0, 2]);
+        yield* harness.deliver([...votes, ...signatures], [1]);
+        yield* harness.drain([0, 1, 2]);
+        yield* pump(harness, yield* takeQueued(harness), [0, 1, 2]);
+        yield* Fiber.join(sending).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
+        expect(pending.map(({ message }) => message.content)).toEqual([
+          [{ type: "text", text: "open group" }],
+          [{ type: "text", text: "votes before signatures" }],
+        ]);
+      }),
+    ),
+  );
+}
+
+/**
+ * Member 4 sends a proposal naming the first post's record while that record
+ * is staged but not yet certified, then goes offline. Member 2 misses the
+ * first post's durability votes. Member 1's next proposal names the same
+ * record, and members 1 and 3 sign it. Member 2 holds both proposals, catches
+ * up the first post and signs member 1's, which members 1 and 3 locked.
+ * @returns Completion once member 2 holds and delivers both posts.
+ */
+function holdsEveryAuthorsProposalAtAPosition() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
+        const faultyIdentity = yield* requireAt(
+          harness.identities,
+          3,
+          "identity",
+        );
+        const faulty = yield* requireAt(harness.engines, 3, "endpoint engine");
+        const first = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "votes missed by member 2")),
+        );
+        yield* harness.deliver(yield* takeReadyBatch(harness));
+        yield* harness.drain();
+        yield* harness.deliver(yield* takeQueued(harness));
+        yield* harness.drain();
+        const votes = yield* takeQueued(harness);
+        const recordHash = yield* stagedPostRecordHash(
+          yield* requireAt(harness.stores, 3, "endpoint store"),
+        );
+        const faultySending = yield* Effect.fork(
+          faulty.send(yield* sendInput(harness, "never delivered")),
+        );
+        const faultyProposal = yield* decodeActionProposal(
+          yield* requireAt(yield* takeReadyBatch(harness), 0, "POST proposal"),
+        );
+        if (faultyProposal.action.kind !== "POST") {
+          return yield* Effect.dieMessage("ordinary send did not propose POST");
+        }
+        const early = yield* signOuterPacket({
+          packet: {
+            ...faultyProposal,
+            action: {
+              ...faultyProposal.action,
+              previousRecordHash: recordHash,
+            },
+          },
+          membership: harness.membership,
+          agentCard: faultyIdentity.card,
+          signingAuthority: faultyIdentity.authority,
+        }).pipe(Effect.orDie);
+        yield* harness.deliver([early], [0, 1, 2]);
+        yield* harness.drain([0, 1, 2]);
+        yield* pump(
+          harness,
+          [...(yield* takeQueued(harness)), ...votes],
+          [0, 2],
+        );
+        yield* Fiber.join(first).pipe(Effect.timeout("1 second"), Effect.orDie);
+
+        const next = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "needs member 2")),
+        );
+        yield* pump(harness, yield* takeReadyBatch(harness), [0, 1, 2]);
+        yield* Fiber.join(next).pipe(Effect.timeout("1 second"), Effect.orDie);
+        yield* Fiber.interrupt(faultySending);
+
+        const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
+        expect(pending.map(({ message }) => message.content)).toEqual([
+          [{ type: "text", text: "open group" }],
+          [{ type: "text", text: "votes missed by member 2" }],
+          [{ type: "text", text: "needs member 2" }],
+        ]);
+      }),
+    ),
+  );
+}
+
+/**
  * Member 2 misses one post and holds the next proposal, which members 1 and 3
  * sign with member 4 offline. Member 4 then sends member 2 a proposal naming
  * an invented predecessor. It takes only member 4's slot, so member 2 still
@@ -1490,15 +1614,10 @@ function unresolvablePredecessorLeavesTheConversationLive() {
 /**
  * Member 2 misses one post. With member 4 offline, members 1 and 3 then
  * propose at the record member 2 lacks, and the Router orders member 1's
- * proposal first. Member 2 keeps that proposal, which members 1 and 3 locked,
- * and ignores member 3's, so after catch-up it signs member 1's post and then
- * member 3's proposal from the new head.
- *
- * Value: protects=a member lacking the named record keeps the first
- * Router-ordered proposal at that position and signs it after catch-up;
- * fails_when=a later proposal at the same position replaces the held one, so
- * the member signs a proposal no other member locked; why_new=other catch-up
- * tests deliver one proposal per lacked position; seam=none.
+ * proposal first. Members 1 and 3 lock and sign member 1's. Member 2 holds
+ * both proposals, but only member 1's has signatures from `f + 1` members, so
+ * after catch-up it signs member 1's post and then member 3's proposal from
+ * the new head.
  * @returns Completion once member 2 holds and delivers every post.
  */
 function keepsTheFirstProposalAtALackedPosition() {
@@ -1920,6 +2039,16 @@ describe("fixed-post endpoint protocol", () => {
     TEST_TIMEOUT_MS,
   );
   it(
+    "applies durability votes that arrive before the record is staged",
+    appliesDurabilityVotesThatArriveBeforeStaging,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "holds every author's proposal at a position and signs the one members signed",
+    holdsEveryAuthorsProposalAtAPosition,
+    TEST_TIMEOUT_MS,
+  );
+  it(
     "keeps a held proposal when another member names an invented predecessor",
     keepsAHeldProposalWhenAnotherMemberNamesAnInventedPredecessor,
     TEST_TIMEOUT_MS,
@@ -1940,7 +2069,7 @@ describe("fixed-post endpoint protocol", () => {
     TEST_TIMEOUT_MS,
   );
   it(
-    "keeps the first Router-ordered proposal at a position a member lacks",
+    "signs the proposal members signed when two name a position a member lacks",
     keepsTheFirstProposalAtALackedPosition,
     TEST_TIMEOUT_MS,
   );

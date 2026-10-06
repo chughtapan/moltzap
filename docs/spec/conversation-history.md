@@ -489,9 +489,9 @@ When a member receives a POST proposal whose `previousRecordHash` or
 that proposal, and the action signatures members send for it. It holds at
 most one proposal per author in a conversation: a later proposal from the
 same author replaces that author's earlier one, and no member's proposal
-displaces another author's. A proposal naming a position that a held proposal
-already names is ignored, because the first one is the one every member that
-held the predecessor locked.
+displaces another author's. Proposals from different authors that name one
+position are all held: arriving first does not show that the members selected
+a proposal, since it can arrive before its predecessor is certified anywhere.
 
 Once it holds signatures for a proposal from `f + 1` members, or from one
 member when `n < 4`, at least one honest member locked that proposal, so its
@@ -517,6 +517,9 @@ had just arrived. When it certifies a record from ordinary evidence while a
 held proposal still waits for history, it requests again from its new
 position, because the answers in flight now supply a record it holds. Such
 input never stops the endpoint.
+
+A member also keeps each member's latest verified durability vote that names a
+record it has not staged, and applies it once it stages that record.
 
 A member that answers a `CatchUpRequest` and is not recovering itself also
 sends again its own action signature and durability vote for each action it

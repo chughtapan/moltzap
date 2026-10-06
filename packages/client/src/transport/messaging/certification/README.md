@@ -12,6 +12,8 @@ here.
 Start with `index.ts`. It accepts Router and catch-up ingress, holds waiting
 proposals, resumes folds at startup and after each Router recovery, and
 re-exports the evidence-to-fold match `../startup.ts` uses. `evidence.ts`
-routes a stable evidence message to the fold it names and verifies it; it is
-private to this directory. The engine binds the operations other phases start
+routes a stable evidence message to the fold it names and verifies it.
+`waiting.ts` keeps the proposals and durability votes that name a position or
+record this endpoint does not hold yet, one per member. Both are private to
+this directory. The engine binds the operations other phases start
 through `EngineRuntime.phases`.
