@@ -7617,9 +7617,9 @@ const deliverRequestTo = (
   }).pipe(Effect.flatMap((ingress) => to.engine.acceptRouterIngress(ingress)));
 
 /**
- * The #1205 trace after a Router restart. The fourth N4 member holds the
- * successor of the head staged, the remote member holds it certified but is
- * slow, and the faulty third member answers `incomplete`. The holder answers
+ * A Router restart cuts off a successor's certificate. The fourth N4 member
+ * holds the successor of the head staged, the remote member holds it
+ * certified but is slow, and the faulty third member answers `incomplete`. The holder answers
  * the local endpoint's catch-up with the record and its vote, so one
  * `incomplete` is all the endpoint counts: it stages no re-anchor candidate
  * at the head, and the remote member's late page moves it to the successor.
@@ -7682,14 +7682,15 @@ const waitsBehindASuccessorAHolderAnswersWith = () =>
   );
 
 /**
- * The #1208 trace after a feed gap. The fourth N4 member, not recovering,
- * holds the successor of the head staged; the remote member holds it
- * certified and stays silent past the retry window; the faulty third member
- * answers `incomplete`. The holder answers with the record and its vote, so
- * the local endpoint stages the record on it alone and never settles at the
- * head: a post into the conversation stays held after the retries run out,
- * and the remote member's vote then certifies the successor. Fails when a
- * responder outside recovery answers `incomplete` over its staged successor.
+ * A feed gap with a silent certified holder. The fourth N4 member, not
+ * recovering, holds the successor of the head staged; the remote member
+ * holds it certified and stays silent past the retry window; the faulty
+ * third member answers `incomplete`. The holder answers with the record and
+ * its vote, so the local endpoint stages the record on it alone and never
+ * settles at the head: a post into the conversation stays held after the
+ * retries run out, and the remote member's vote then certifies the
+ * successor. Fails when a responder outside recovery answers `incomplete`
+ * over its staged successor.
  * @returns The trace, run to completion.
  */
 const neverSettlesBehindASuccessorAfterAFeedGap = () =>
@@ -8030,6 +8031,313 @@ const settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut = () =>
     ).pipe(Effect.provide(TestContext.TestContext)),
   );
 
+/**
+ * Starts a recovery of the N4 engine at the new Router instance and has it
+ * adopt the members' completed re-anchor at its head, as a page answering
+ * its catch-up request.
+ * @param fixture Endpoint holding the N4 conversation.
+ * @param n4 The N4 conversation.
+ * @param history The N4 head.
+ * @returns The adopted re-anchor and the catch-up request the endpoint sends
+ *     from it.
+ */
+const adoptAReanchorAtTheN4Head = (
+  fixture: RecoveryFixture,
+  n4: N4Foundation,
+  history: N4PartialHistory,
+) =>
+  Effect.gen(function* () {
+    const { recordCore, recordHash } =
+      history.certifiedHead.actionCertifiedRecord;
+    const { outbound, request } = yield* recoverGroup(
+      fixture,
+      n4,
+      history.certifiedHead,
+    );
+    const completed = yield* completedReanchorBy(
+      {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "reanchor_body",
+        conversationId: n4.membership.descriptor.conversationId,
+        membershipHash: n4.membership.hash,
+        previousAnchorHash: recordCore.anchorHash,
+        selectedRecordHash: recordHash,
+        routerInstanceId: newRouterInstanceId,
+      },
+      [fixture.remote, n4.third, n4.fourth],
+    );
+    yield* deliverRecovery(
+      n4.engine,
+      catchUpPageIngressFrom({
+        membership: n4.membership,
+        responder: n4.fourth,
+        request,
+        item: completed,
+        routerInstanceId: newRouterInstanceId,
+      }),
+    );
+    return { completed, request: yield* takeCatchUpRequest(outbound) };
+  });
+
+/**
+ * After the local endpoint adopts a re-anchor at the N4 head, a member sends
+ * the successor of that head it staged under the anchor the conversation
+ * left, with two members' votes for it. The endpoint holds nothing for it,
+ * and still converts to the successor of the head under the new anchor once
+ * two members vote for that one. Fails when a record from a left anchor
+ * takes the endpoint's one conversion attempt at the head.
+ * @returns The trace, run to completion.
+ */
+const convertsUnderTheNewAnchorPastASuccessorFromTheOldOne = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const n4 = yield* addN4Foundation(fixture);
+        const history = yield* buildN4PartialHistory(fixture, n4);
+        const { completed } = yield* adoptAReanchorAtTheN4Head(
+          fixture,
+          n4,
+          history,
+        );
+        const current = yield* certifiedN4PostAt(fixture, n4, {
+          routerAnchor: completed,
+          previousRecordHash:
+            history.certifiedHead.actionCertifiedRecord.recordHash,
+        });
+        const traffic = groupSuccessorTraffic(n4);
+
+        yield* traffic.record(n4.fourth, history.stagedSuccessor);
+        yield* traffic.votes(history.stagedSuccessor.recordHash, [
+          fixture.remote,
+          n4.fourth,
+        ]);
+        yield* traffic.record(n4.fourth, current.actionCertifiedRecord);
+        yield* traffic.votes(current.actionCertifiedRecord.recordHash, [
+          fixture.remote,
+          n4.fourth,
+        ]);
+        const left = yield* groupState(
+          fixture,
+          n4,
+          history.stagedSuccessor.recordHash,
+        );
+        const converted = yield* groupState(
+          fixture,
+          n4,
+          current.actionCertifiedRecord.recordHash,
+        );
+
+        expect(left.staged).toBe(false);
+        expect(converted.staged).toBe(true);
+      }),
+    ),
+  );
+
+/**
+ * During a re-anchor the local endpoint holds the remote member's vote for
+ * the successor of the N4 head, and a catch-up page then certifies that
+ * successor. The remote member's vote for the next successor counts toward
+ * converting to it, so the remote and third members' votes convert the
+ * endpoint. Fails when what the endpoint held at the old head survives a
+ * head that catch-up moved.
+ * @returns The trace, run to completion.
+ */
+const convertsAtAHeadCatchUpMovedPastItsHold = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const n4 = yield* addN4Foundation(fixture);
+        const history = yield* buildN4PartialHistory(fixture, n4);
+        const { completed, request } = yield* adoptAReanchorAtTheN4Head(
+          fixture,
+          n4,
+          history,
+        );
+        const next = yield* certifiedN4PostAt(fixture, n4, {
+          routerAnchor: completed,
+          previousRecordHash:
+            history.certifiedHead.actionCertifiedRecord.recordHash,
+        });
+        const after = yield* certifiedN4PostAt(fixture, n4, {
+          routerAnchor: completed,
+          previousRecordHash: next.actionCertifiedRecord.recordHash,
+        });
+        const traffic = groupSuccessorTraffic(n4);
+
+        yield* traffic.votes(next.actionCertifiedRecord.recordHash, [
+          fixture.remote,
+        ]);
+        yield* deliverRecovery(
+          n4.engine,
+          catchUpPageIngressFrom({
+            membership: n4.membership,
+            responder: n4.third,
+            request,
+            item: next,
+            routerInstanceId: newRouterInstanceId,
+          }),
+        );
+        yield* traffic.record(n4.fourth, after.actionCertifiedRecord);
+        yield* traffic.votes(after.actionCertifiedRecord.recordHash, [
+          fixture.remote,
+          n4.third,
+        ]);
+        const state = yield* groupState(
+          fixture,
+          n4,
+          after.actionCertifiedRecord.recordHash,
+        );
+
+        expect(state.staged).toBe(true);
+      }),
+    ),
+  );
+
+/**
+ * The local endpoint voted to re-anchor the N4 conversation at its head, so
+ * the store refuses its conversion to the successor two holders vote for
+ * under the old anchor. The members' re-anchor then completes and the
+ * endpoint adopts it. A successor of the head under the new anchor, with two
+ * members' votes, converts it. Fails when a refused conversion under one
+ * anchor holds the endpoint at the same head under the next.
+ * @returns The trace, run to completion.
+ */
+const convertsUnderAnAdoptedAnchorAfterARefusedConversion = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const n4 = yield* addN4Foundation(fixture);
+        const history = yield* buildN4PartialHistory(fixture, n4);
+        const { recordCore, recordHash } =
+          history.certifiedHead.actionCertifiedRecord;
+        const { request } = yield* recoverGroup(
+          fixture,
+          n4,
+          history.certifiedHead,
+        );
+        const traffic = groupSuccessorTraffic(n4);
+        const completed = yield* completedReanchorBy(
+          {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "reanchor_body",
+            conversationId: n4.membership.descriptor.conversationId,
+            membershipHash: n4.membership.hash,
+            previousAnchorHash: recordCore.anchorHash,
+            selectedRecordHash: recordHash,
+            routerInstanceId: newRouterInstanceId,
+          },
+          [fixture.remote, n4.third, n4.fourth],
+        );
+        const current = yield* certifiedN4PostAt(fixture, n4, {
+          routerAnchor: completed,
+          previousRecordHash: recordHash,
+        });
+
+        yield* answerN4Incomplete(fixture, n4, request, {
+          responders: [fixture.remote, n4.third],
+        });
+        yield* settle;
+        yield* traffic.record(n4.fourth, history.stagedSuccessor);
+        yield* traffic.votes(history.stagedSuccessor.recordHash, [
+          n4.third,
+          n4.fourth,
+        ]);
+        yield* deliverRecovery(
+          n4.engine,
+          catchUpPageIngressFrom({
+            membership: n4.membership,
+            responder: n4.fourth,
+            request,
+            item: completed,
+            routerInstanceId: newRouterInstanceId,
+          }),
+        );
+        yield* traffic.record(n4.fourth, current.actionCertifiedRecord);
+        yield* traffic.votes(current.actionCertifiedRecord.recordHash, [
+          n4.third,
+          n4.fourth,
+        ]);
+        const refused = yield* groupState(
+          fixture,
+          n4,
+          history.stagedSuccessor.recordHash,
+        );
+        const converted = yield* groupState(
+          fixture,
+          n4,
+          current.actionCertifiedRecord.recordHash,
+        );
+
+        expect(refused.staged).toBe(false);
+        expect(converted.staged).toBe(true);
+      }),
+    ),
+  );
+
+/**
+ * After one Router restart, a faulty N4 member sends a vote for a re-anchor
+ * at the head for another Router instance whose signed anchor hash is not
+ * the hash of the re-anchor it names. The vote makes the local endpoint wait
+ * for no one: the remote and third members' `incomplete` answers make its
+ * position ready, and it votes to re-anchor at the head. Fails when a vote
+ * that does not hash to its anchor holds a position for every member.
+ * @returns The trace, run to completion.
+ */
+const settlesPastAnEarlierInstanceVoteForAnotherAnchor = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const n4 = yield* addN4Foundation(fixture);
+        const history = yield* buildN4PartialHistory(fixture, n4);
+        const { recordCore, recordHash } =
+          history.certifiedHead.actionCertifiedRecord;
+        const { request } = yield* recoverGroup(
+          fixture,
+          n4,
+          history.certifiedHead,
+        );
+        const earlierBody: ReanchorBody = {
+          moltzapVersion: MOLTZAP_VERSION,
+          kind: "reanchor_body",
+          conversationId: n4.membership.descriptor.conversationId,
+          membershipHash: n4.membership.hash,
+          previousAnchorHash: recordCore.anchorHash,
+          selectedRecordHash: recordHash,
+          routerInstanceId: oldRouterInstanceId,
+        };
+
+        yield* deliverRecovery(
+          n4.engine,
+          peerEvidenceIngressFrom({
+            membership: n4.membership,
+            responder: n4.third,
+            statement: {
+              moltzapVersion: MOLTZAP_VERSION,
+              kind: "reanchor_vote",
+              signerAgentId: n4.third.card.agentId,
+              anchorHash: yield* hashAnchor({
+                ...earlierBody,
+                routerInstanceId: laterRouterInstanceId,
+              }),
+              reanchor: earlierBody,
+            },
+            routerInstanceId: newRouterInstanceId,
+          }),
+        );
+        yield* answerN4Incomplete(fixture, n4, request, {
+          responders: [fixture.remote, n4.third],
+        });
+        const state = yield* groupState(fixture, n4, recordHash);
+
+        expect(state.candidates).toEqual([recordHash]);
+      }),
+    ),
+  );
+
 describe("staged successors in recovery", () => {
   it(
     "certifies a post one direct member staged before the restart, and re-anchors at it",
@@ -8107,6 +8415,11 @@ describe("staged successors in recovery", () => {
     10_000,
   );
   it(
+    "settles past an earlier-instance vote whose anchor hash names another re-anchor",
+    settlesPastAnEarlierInstanceVoteForAnotherAnchor,
+    10_000,
+  );
+  it(
     "answers incomplete with its earlier-instance re-anchor vote",
     answersIncompleteWithItsEarlierInstanceVote,
     10_000,
@@ -8115,6 +8428,21 @@ describe("staged successors in recovery", () => {
     "settles behind an earlier-instance re-anchor vote once its retries run out",
     settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut,
     20_000,
+  );
+  it(
+    "converts under a new anchor past a successor from the anchor it left",
+    convertsUnderTheNewAnchorPastASuccessorFromTheOldOne,
+    10_000,
+  );
+  it(
+    "converts at a head catch-up moved past what it held",
+    convertsAtAHeadCatchUpMovedPastItsHold,
+    10_000,
+  );
+  it(
+    "converts under an adopted anchor after a refused conversion at the same head",
+    convertsUnderAnAdoptedAnchorAfterARefusedConversion,
+    10_000,
   );
 });
 

@@ -491,8 +491,9 @@ anchor, record, or position it cannot resolve, does not count and never stops
 the endpoint. It can leave that conversation unrecovered, and it holds no
 other conversation: each conversation recovers on its own. Until a
 conversation recovers, the endpoint sends only catch-up, re-anchor and
-staged-successor traffic for it, which includes its answers to members' catch-up requests, so an answer
-does not wait for the answering member's own recovery to finish. Its own
+staged-successor traffic for it, which includes its answers to members'
+catch-up requests, so an answer does not wait for the answering member's own
+recovery to finish. Its own
 posts, pending intents and retained outbound envelopes for that conversation
 wait, and other action traffic members send for it meanwhile is ignored. It
 certifies a staged successor of its head at `q(n)` votes and catches up from
@@ -506,8 +507,8 @@ have answered that they cannot supply a next item, so that with the endpoint
 staged re-anchor candidate at that position for an earlier Router instance
 sends its vote with that answer; a requester that holds or receives one waits
 for every other member while its retries last, then settles on `q(n) − 1`.
-Readiness is a liveness signal only: safety rests on
-the `q(n)` re-anchor and durability thresholds. After a Router restart the
+Readiness is a liveness signal only: safety rests on the `q(n)` re-anchor and
+durability thresholds. After a Router restart the
 conversation recovers when the endpoint assembles a `q(n)` re-anchor
 certificate, or adopts a verified completed re-anchor and then catches up
 from it. A completed re-anchor it adopts supersedes a different candidate it

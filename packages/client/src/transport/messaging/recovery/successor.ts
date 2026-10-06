@@ -22,6 +22,7 @@ import type {
 import {
   type ActionCertifiedRecord,
   type ActionCore,
+  type AnchorHash,
   type ConversationId as ConversationIdValue,
   type DecodedOuterBody,
   type EvidenceStatement,
@@ -32,6 +33,13 @@ import {
   verifyDeliveredEvidence,
   verifyOuterMessage,
 } from "../../wire/index.js";
+import { anchorHashAtHead } from "../history/index.js";
+
+/** A conversation's certified head and the anchor its next record binds. */
+interface HeadPosition {
+  readonly head: RecordHashValue;
+  readonly anchorHash: AnchorHash;
+}
 
 /** A held delivery and the record it carries or votes for. */
 interface HeldDelivery {
@@ -40,13 +48,17 @@ interface HeldDelivery {
 }
 
 /**
- * What a re-anchoring member holds toward converting to a conversation's
- * successor: the one verified action-certified record extending its head,
- * and the first durability vote each other member sent. A correct member
- * votes for one successor of a head, so one vote per member is enough, and a
- * faulty member cannot grow the hold.
+ * What a re-anchoring member holds toward converting to a successor of its
+ * head: the one verified action-certified record extending that head under
+ * the current anchor, and each other member's latest durability vote for
+ * it. A member that voted for a successor of the head under an anchor the
+ * conversation has since left votes again under the new one, so a later
+ * vote replaces an earlier one, and one vote per member keeps a faulty
+ * member from growing the hold. A hold belongs to one position and is
+ * dropped once the head or the anchor moves, by whatever path.
  */
 interface PendingSuccessor {
+  readonly position: HeadPosition;
   record?: HeldDelivery;
   readonly votes: Map<AgentId, HeldDelivery>;
   /** Set once the endpoint has tried to stage the held record. */
@@ -89,11 +101,10 @@ export function acceptSuccessorRecord(
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   record: ActionCertifiedRecord,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  const { action } = record.recordCore;
-  const { conversationId } = action;
-  const membership = membershipExtendedBy(run, action);
+  const { conversationId } = record.recordCore.action;
+  const extended = headExtendedBy(run, record.recordCore.action);
   if (
-    membership === undefined ||
+    extended === undefined ||
     run.runtime.recordFolds.has(record.recordHash)
   ) {
     return Effect.succeed(ignoredDisposition);
@@ -101,7 +112,8 @@ export function acceptSuccessorRecord(
   if (!run.reanchoring(conversationId)) {
     return certifyThroughPhases(run, conversationId, [ingress]);
   }
-  const pending = pendingFor(run.pending, conversationId);
+  const { position, membership } = extended;
+  const pending = pendingFor(run.pending, conversationId, position);
   if (pending.settled || pending.record?.recordHash === record.recordHash) {
     return Effect.succeed(ignoredDisposition);
   }
@@ -150,11 +162,12 @@ export function acceptSuccessorVote(
       vote.statement,
     );
   }
-  if (!run.reanchoring(conversationId)) {
+  const position = headPosition(conversation);
+  if (!run.reanchoring(conversationId) || position === undefined) {
     return Effect.succeed(ignoredDisposition);
   }
-  const pending = pendingFor(run.pending, conversationId);
-  if (pending.settled || pending.votes.has(signerAgentId)) {
+  const pending = pendingFor(run.pending, conversationId, position);
+  if (!takesVote(pending, signerAgentId, recordHash)) {
     return Effect.succeed(ignoredDisposition);
   }
   return holdTowardConversion(
@@ -188,9 +201,11 @@ function acceptStagedSuccessorVote(
   statement: Extract<EvidenceStatement, { readonly kind: "durability_vote" }>,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
   const { conversation, fold } = target;
+  const position = headPosition(conversation);
   const staged =
     fold.certifiedRecord === undefined &&
-    extendsHead(conversation, fold.action);
+    position !== undefined &&
+    extendsHead(position, fold.action);
   const { conversationId, signerAgentId } = statement;
   return staged && !fold.durabilityEvidence.has(signerAgentId)
     ? certifyThroughPhases(run, conversationId, [ingress])
@@ -301,8 +316,8 @@ function maybeConvert(
 
 /**
  * Hand a staged successor's traffic to the protocol phases in order. When
- * they certify it, the conversation's head moves: its held successor traffic
- * is spent, and catch-up starts again from the new head.
+ * they certify it, the conversation's head moves, and catch-up starts again
+ * from the new head.
  * @param run Recovery run that holds the conversation.
  * @param conversationId Conversation the traffic is for.
  * @param deliveries Verified Router deliveries: a record, then votes.
@@ -328,7 +343,6 @@ function certifyThroughPhases(
       ) {
         return Effect.void;
       }
-      run.pending.delete(conversationId);
       return run.armCatchUp(conversationId);
     }),
     Effect.map((dispositions) => dispositions[0] ?? ignoredDisposition),
@@ -336,41 +350,95 @@ function certifyThroughPhases(
 }
 
 /**
- * The run's membership of the conversation an action belongs to, when the
- * action extends that conversation's head.
+ * The position an action extends in the run's conversation, with the run's
+ * membership of that conversation.
  * @param run Recovery run that holds the conversation.
  * @param action The action a member's record carries.
- * @returns The membership, or nothing when the action extends no held head.
+ * @returns The position and membership, or nothing when the action extends
+ *     no held head under the conversation's current anchor.
  */
-function membershipExtendedBy(
+function headExtendedBy(
   run: SuccessorRun,
   action: ActionCore,
-): VerifiedMembership | undefined {
+):
+  | Readonly<{ position: HeadPosition; membership: VerifiedMembership }>
+  | undefined {
   const conversation = run.runtime.conversations.get(action.conversationId);
-  return conversation !== undefined && extendsHead(conversation, action)
-    ? run.membership(action.conversationId)
+  const position =
+    conversation === undefined ? undefined : headPosition(conversation);
+  const membership = run.membership(action.conversationId);
+  return position !== undefined &&
+    membership !== undefined &&
+    extendsHead(position, action)
+    ? { position, membership }
     : undefined;
 }
 
-function extendsHead(
+function headPosition(
   conversation: EngineConversation,
-  action: ActionCore,
-): boolean {
+): HeadPosition | undefined {
+  const { head } = conversation;
+  return head === undefined
+    ? undefined
+    : {
+        head: head.recordHash,
+        anchorHash: anchorHashAtHead(conversation, head),
+      };
+}
+
+/**
+ * Whether an action is the next POST at a position. A record that names the
+ * head from an anchor the conversation has left can never be staged.
+ * @param position The conversation's head and current anchor.
+ * @param action The action a record carries.
+ * @returns Whether the action extends the position.
+ */
+function extendsHead(position: HeadPosition, action: ActionCore): boolean {
   return (
     action.kind === "POST" &&
-    action.previousRecordHash === conversation.head?.recordHash
+    action.previousRecordHash === position.head &&
+    action.anchorHash === position.anchorHash
+  );
+}
+
+/**
+ * Whether a hold takes a member's vote: one for the held record, or for any
+ * record while none is held, that the member has not already sent.
+ * @param pending The hold at the conversation's head.
+ * @param signerAgentId The member that voted.
+ * @param recordHash The record the member voted for.
+ * @returns Whether the vote may replace the member's held one.
+ */
+function takesVote(
+  pending: PendingSuccessor,
+  signerAgentId: AgentId,
+  recordHash: RecordHashValue,
+): boolean {
+  const heldRecord = pending.record?.recordHash ?? recordHash;
+  return (
+    !pending.settled &&
+    heldRecord === recordHash &&
+    pending.votes.get(signerAgentId)?.recordHash !== recordHash
   );
 }
 
 function pendingFor(
   pending: SuccessorRun["pending"],
   conversationId: ConversationIdValue,
+  position: HeadPosition,
 ): PendingSuccessor {
-  const retained = pending.get(conversationId);
-  if (retained !== undefined) {
-    return retained;
+  const held = pending.get(conversationId);
+  if (
+    held?.position.head === position.head &&
+    held.position.anchorHash === position.anchorHash
+  ) {
+    return held;
   }
-  const created: PendingSuccessor = { votes: new Map(), settled: false };
+  const created: PendingSuccessor = {
+    position,
+    votes: new Map(),
+    settled: false,
+  };
   pending.set(conversationId, created);
   return created;
 }

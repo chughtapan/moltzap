@@ -27,14 +27,15 @@ import {
   RouterWorkerRecoveryError,
 } from "../../router/index.js";
 import {
+  ClientRepresentationError,
   type ConversationId as ConversationIdValue,
   decodeCanonical,
   type DecodedOuterBody,
   type DirectPacket,
   EvidenceStatement,
   type EvidenceStatement as EvidenceStatementValue,
+  hashAnchor,
   memberCard,
-  type ReanchorBody,
   type VerifiedMembership,
   verifyDeliveredEvidence,
 } from "../../wire/index.js";
@@ -429,7 +430,7 @@ function routeEvidence(
     return run !== undefined &&
       statement.reanchor.routerInstanceId !==
         run.recovery.anchor.routerInstanceId
-      ? noteEarlierReanchor(run, ingress, message, statement.reanchor)
+      ? noteEarlierReanchor(run, ingress, { message, statement })
       : acceptRunVote(runtime, ingress, message);
   }
   if (!evidence.fenced) {
@@ -444,21 +445,29 @@ function routeEvidence(
  * Take a member's re-anchor vote for a Router instance other than the run's.
  * The run's re-anchor cannot use it, but a pending position it selects waits
  * for every member: that re-anchor may have completed at a member that has
- * not answered yet.
+ * not answered yet. Only a vote that verifies as the member's, names the
+ * conversation's membership, and hashes to the anchor it signs counts.
  * @param run The active recovery run.
  * @param ingress Router delivery carrying the vote.
- * @param message The vote's evidence message.
- * @param body The re-anchor the vote is for.
+ * @param vote The vote's evidence message and its decoded statement.
+ * @param vote.message The vote's evidence message.
+ * @param vote.statement The vote's decoded statement.
  * @returns Ignored, since the vote counts toward no re-anchor of this run.
  */
 function noteEarlierReanchor(
   run: RecoveryRun,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
-  message: SignedMessage,
-  body: ReanchorBody,
+  vote: Readonly<{
+    message: SignedMessage;
+    statement: Extract<
+      EvidenceStatementValue,
+      { readonly kind: "reanchor_vote" }
+    >;
+  }>,
 ): Effect.Effect<RouterIngressDisposition> {
+  const body = vote.statement.reanchor;
   const membership = run.memberships.get(body.conversationId);
-  if (membership === undefined) {
+  if (membership === undefined || body.membershipHash !== membership.hash) {
     return Effect.succeed(ignoredDisposition);
   }
   return waitBehindEarlierReanchor(
@@ -466,9 +475,15 @@ function noteEarlierReanchor(
     body,
     verifyDeliveredEvidence({
       outer: ingress.message,
-      evidence: message,
+      evidence: vote.message,
       membership,
-    }),
+    }).pipe(
+      Effect.zipRight(hashAnchor(body)),
+      Effect.filterOrFail(
+        (anchorHash) => anchorHash === vote.statement.anchorHash,
+        () => new ClientRepresentationError(),
+      ),
+    ),
   ).pipe(
     Effect.catchTag("ClientRepresentationError", () => Effect.void),
     Effect.as(ignoredDisposition),
