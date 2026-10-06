@@ -496,9 +496,13 @@ catch-up continues until every other member answers `CatchUpIncomplete`.
 It holds the first proposal naming a position, which is the one every member
 that held the predecessor locked. Another proposal naming the same position
 sends nothing. A proposal naming a different position replaces the held one
-and sends a new request. A proposal whose position no member holds stays
-ignored: every other member answers `CatchUpIncomplete`, and only a proposal
-naming another position asks again. Such input never stops the endpoint. A
+and asks again: at once, or, while a request for that conversation is still
+being answered, once every other member has answered it. Both requests name
+the same durable position, so an answer to the earlier one, which can predate
+the record the newer proposal names, must not count toward the later one. A
+proposal whose position no member holds stays ignored: every other member
+answers `CatchUpIncomplete`, and only a proposal naming another position asks
+again. Such input never stops the endpoint. A
 Router discontinuity drops held proposals, because the recovery run that
 follows catches up every conversation and ignores action traffic.
 

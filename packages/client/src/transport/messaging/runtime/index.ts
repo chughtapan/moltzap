@@ -31,6 +31,7 @@ import type {
   ConversationId,
   DecodedOuterBody,
   DirectPacket,
+  PostActionCore,
   PostIntent,
   RecordHash,
   RouterAnchor,
@@ -133,6 +134,20 @@ export function makeActionFold(
   };
 }
 
+/**
+ * A verified POST proposal naming a position this endpoint does not hold yet,
+ * with the action signatures members send for it while catch-up runs. They
+ * are not sent again, and the proposal may need them to reach its threshold
+ * here. One signature ingress per member, the latest verified one, is kept.
+ */
+export interface EngineWaitingProposal {
+  readonly conversation: EngineConversation;
+  readonly action: PostActionCore;
+  readonly actionHash: ActionHash;
+  readonly proposal: RouterWorkerIngress<DecodedOuterBody>;
+  readonly signatures: Map<AgentId, RouterWorkerIngress<DecodedOuterBody>>;
+}
+
 /** Shared acquired state used by addressed send and protocol ingress. */
 export interface EngineRuntime {
   readonly input: EndpointEngineInput;
@@ -142,6 +157,8 @@ export interface EngineRuntime {
   readonly completedPosts: Map<string, RecordHash>;
   readonly actionFolds: Map<ActionHash, EngineActionFold>;
   readonly recordFolds: Map<RecordHash, EngineActionFold>;
+  /** At most one per conversation; a Router discontinuity drops them all. */
+  readonly waitingProposals: Map<ConversationId, EngineWaitingProposal>;
   readonly gate: Effect.Semaphore;
   readonly outbox: EngineOutbox;
   readonly phases: EnginePhases;

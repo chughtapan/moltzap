@@ -32,7 +32,6 @@ import {
 import {
   acceptEngineIngress,
   acceptEngineRecoveryIngress,
-  forgetWaitingProposals,
   resumeEngineFolds,
 } from "./certification/index.js";
 import { DeliveryAcknowledgeError, ListenError, SendError } from "./errors.js";
@@ -42,6 +41,7 @@ import { installRecoveryBarrier } from "./recovery/barrier.js";
 import {
   acceptEngineIngressWithRecovery,
   acceptEngineRecoveryIngressWithRecovery,
+  forgetGapCatchUps,
   recoverCertifiedHistory,
   requestGapCatchUp,
 } from "./recovery/index.js";
@@ -416,6 +416,7 @@ const makeRuntime = (
       completedPosts: recovered.completedPosts,
       actionFolds: recovered.actionFolds,
       recordFolds: recovered.recordFolds,
+      waitingProposals: new Map(),
       gate: yield* Effect.makeSemaphore(1),
       outbox: yield* makeOutbox(
         input,
@@ -498,7 +499,8 @@ const abandonVolatileFolds = (
         yield* installRecoveryBarrier(runtime);
         yield* Effect.sync(() => {
           runtime.outbox.clear();
-          forgetWaitingProposals(runtime);
+          runtime.waitingProposals.clear();
+          forgetGapCatchUps(runtime);
           if (reason !== "router_restarted") {
             return;
           }

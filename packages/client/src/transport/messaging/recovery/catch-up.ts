@@ -1,6 +1,7 @@
 /**
- * @file Catch-up: a recovery run asks every member for the certified history
- * after its durable position, and any endpoint answers such requests.
+ * @file Catch-up: a recovery run, or an engine outside one that received a
+ * proposal naming a position it lacks, asks every member for the certified
+ * history after its durable position, and any endpoint answers such requests.
  */
 
 import {
@@ -60,11 +61,14 @@ export interface CatchUpState {
   readonly acceptedSuccessors: Map<string, RecordHashValue | AnchorHashValue>;
 }
 
-/** What catch-up needs from the recovery run it belongs to; the run builds it. */
+/**
+ * What catch-up needs from the run it belongs to: a recovery run, or the
+ * engine's catch-up outside recovery runs. The run builds it.
+ */
 export interface CatchUpRun {
   readonly runtime: EngineRuntime;
   readonly state: CatchUpState;
-  /** Whether the run is still the engine's active recovery. */
+  /** Whether the run is still current, so its requests and answers count. */
   readonly isActive: () => boolean;
   /** The run's verified membership of a conversation. */
   readonly membership: (
@@ -109,7 +113,7 @@ export function makeCatchUpState(): CatchUpState {
  * Queue a signed catch-up request at the engine's current durable position.
  * A run that has ended, or that does not hold the conversation, such as one a
  * member created during recovery, asks for nothing.
- * @param run Recovery run that owns the request.
+ * @param run Run that owns the request.
  * @param conversationId Private conversation identity to reconcile.
  * @returns Completion after the request is stored in the recovery queue.
  */
@@ -185,7 +189,7 @@ export function acceptCatchUpRequest(
  * the conversation, or whose successor differs from the one already applied
  * for that request, does not count: it is ignored, and at most that
  * conversation's catch-up waits on the other members.
- * @param run Recovery run that sent the request.
+ * @param run Run that sent the request.
  * @param ingress Verified Router delivery carrying the page.
  * @param page Catch-up page from a fixed member.
  * @returns Whether the page was applied or safely ignored.
@@ -243,7 +247,7 @@ export function acceptCatchUpPage(
 /**
  * Record a member's attestation that it holds no later history; once every
  * other member has attested, the conversation's position is ready.
- * @param run Recovery run that sent the request.
+ * @param run Run that sent the request.
  * @param ingress Verified Router delivery carrying the attestation.
  * @param incomplete Catch-up incomplete attestation from a fixed member.
  * @returns Whether the attestation was taken or safely ignored.

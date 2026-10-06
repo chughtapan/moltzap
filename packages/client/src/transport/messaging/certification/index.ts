@@ -4,11 +4,7 @@
  * a proposal naming a predecessor this endpoint lacks waits for catch-up.
  */
 
-import {
-  type AgentId,
-  MOLTZAP_VERSION,
-  type SignedMessage,
-} from "@moltzap/identity";
+import { MOLTZAP_VERSION, type SignedMessage } from "@moltzap/identity";
 import { Deferred, Effect } from "effect";
 import type { SendError } from "../errors.js";
 import {
@@ -31,7 +27,6 @@ import {
   type AnchorHash,
   type CertifiedRecord,
   ClientRepresentationError,
-  type ConversationId,
   decodeCanonical,
   type DecodedOuterBody,
   encodeCanonical,
@@ -39,7 +34,6 @@ import {
   EvidenceStatement,
   GenesisAnchorBody,
   hashAnchor,
-  memberCard,
   MembershipDescriptor,
   type PostActionCore,
   quorumThreshold,
@@ -477,41 +471,6 @@ const rebasePendingIntents = (
  */
 type RecordSource = "catch-up" | "ordered";
 
-function persistPromotionWithoutDelivery(
-  runtime: EngineRuntime,
-  record: Effect.Effect.Success<ReturnType<typeof storedCertifiedRecord>>,
-  source: RecordSource,
-) {
-  switch (source) {
-    case "catch-up":
-      return runtime.input.store.applyCatchUpRecord(record);
-    case "ordered":
-      return runtime.input.store.promoteRecord(record);
-    default: {
-      const exhaustive: never = source;
-      return exhaustive;
-    }
-  }
-}
-
-function persistPromotionWithDelivery(
-  runtime: EngineRuntime,
-  record: Effect.Effect.Success<ReturnType<typeof storedCertifiedRecord>>,
-  source: RecordSource,
-  delivery: Effect.Effect.Success<ReturnType<typeof inboundDelivery>>,
-) {
-  switch (source) {
-    case "catch-up":
-      return runtime.input.store.applyCatchUpRecord(record, delivery);
-    case "ordered":
-      return runtime.input.store.promoteRecord(record, delivery);
-    default: {
-      const exhaustive: never = source;
-      return exhaustive;
-    }
-  }
-}
-
 const promote = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
@@ -532,9 +491,11 @@ const promote = (
           runtime.input.localAgentCard.agentId,
         ).pipe(Effect.mapError(localRepresentationFailure))
       : undefined;
-    yield* delivery === undefined
-      ? persistPromotionWithoutDelivery(runtime, stored, source)
-      : persistPromotionWithDelivery(runtime, stored, source, delivery);
+    const persist =
+      source === "catch-up"
+        ? runtime.input.store.applyCatchUpRecord
+        : runtime.input.store.promoteRecord;
+    yield* persist(stored, delivery);
     yield* Effect.uninterruptible(completePromotion(runtime, fold, record));
     yield* rebasePendingIntents(runtime, fold.conversation.conversationId);
     yield* acceptWaitingProposal(runtime, fold.conversation);
@@ -597,6 +558,24 @@ type ProtocolAcceptanceError =
   | EndpointStoreError
   | RouterWorkerPersistenceError;
 
+const verifyProposal = (
+  conversation: EngineConversation,
+  ingress: RouterWorkerIngress<DecodedOuterBody>,
+  proposal: ActionProposal,
+) =>
+  verifyOuterMessage({
+    message: ingress.message,
+    membership: conversation.membership,
+  }).pipe(
+    Effect.zipRight(
+      verifyActionProposal({
+        proposal,
+        membership: conversation.membership,
+        outerSenderAgentId: ingress.message.senderAgentId,
+      }),
+    ),
+  );
+
 const prepareProposalFold = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
@@ -611,24 +590,11 @@ const prepareProposalFold = (
     if (conversation === undefined) {
       return undefined;
     }
-    yield* verifyOuterMessage({
-      message: ingress.message,
-      membership: conversation.membership,
-    });
-    const verified = yield* verifyActionProposal({
-      proposal,
-      membership: conversation.membership,
-      outerSenderAgentId: ingress.message.senderAgentId,
-    });
     if (!(yield* gapFree(conversation, proposal.action))) {
-      yield* awaitPredecessor(
-        runtime,
-        ingress,
-        proposal.action,
-        verified.actionHash,
-      );
+      yield* awaitPredecessor(runtime, conversation, ingress, proposal);
       return undefined;
     }
+    const verified = yield* verifyProposal(conversation, ingress, proposal);
     yield* lockAction(
       runtime,
       conversation,
@@ -659,9 +625,13 @@ const acceptEvidence = (
   message: SignedMessage,
 ): Effect.Effect<RouterIngressDisposition, ProtocolAcceptanceError> =>
   Effect.gen(function* () {
-    const route = yield* evidenceRoute(runtime, message);
+    const statement = yield* decodeCanonical(EvidenceStatement, message.body);
+    const route = evidenceRoute(runtime, statement);
     if (route === undefined) {
-      return yield* holdWaitingSignature(runtime, ingress, message);
+      if (statement.kind === "action_signature") {
+        yield* holdWaitingSignature(runtime, ingress, statement.actionHash);
+      }
+      return "ignored";
     }
     const evidence = yield* verifiedEvidenceForRoute(ingress, message, route);
     if (!evidenceMatchesFold(route, evidence.statement)) {
@@ -905,71 +875,52 @@ function acceptPacket(
 const ignoredDisposition: RouterIngressDisposition = "ignored";
 
 /**
- * A verified POST proposal naming a position this endpoint does not hold yet,
- * with the action signatures members send for it while catch-up runs. They
- * are not sent again, and the proposal may need them to reach its threshold
- * here. One signature ingress per member, the latest, is kept.
- */
-interface WaitingProposal {
-  readonly conversation: EngineConversation;
-  readonly action: PostActionCore;
-  readonly actionHash: ActionHash;
-  readonly proposal: RouterWorkerIngress<DecodedOuterBody>;
-  readonly signatures: Map<AgentId, RouterWorkerIngress<DecodedOuterBody>>;
-}
-
-/** At most one waiting proposal per conversation, for each engine. */
-const waitingProposals = new WeakMap<
-  EngineRuntime,
-  Map<ConversationId, WaitingProposal>
->();
-
-/**
- * Hold a verified POST proposal whose predecessor or anchor this endpoint does
- * not hold, and ask the members for the history after its durable position.
+ * Hold a POST proposal whose predecessor or anchor this endpoint does not
+ * hold, and ask the members for the history after its durable position.
  * The first proposal naming a position is kept: every member that held the
  * predecessor saw the same Router order and locked that one. A proposal naming
  * another position replaces it and asks again. A GENESIS that does not fit,
  * and a POST naming a record certified here before the current head, are only
- * ignored: the second is a proposal its author sent before it saw the head
- * certified, and the author proposes again from the head.
+ * ignored, unverified: the second is a proposal its author sent before it saw
+ * the head certified, and the author proposes again from the head.
  * @param runtime Engine whose conversation lacks the named position.
- * @param ingress Verified Router delivery carrying the proposal.
- * @param action The proposal's action.
- * @param actionHash Hash of `action`, which its signatures name.
+ * @param conversation Retained conversation the proposal extends.
+ * @param ingress Router delivery carrying the proposal.
+ * @param proposal The proposal, verified here before it is held.
  * @returns Completion once the proposal is held and catch-up is requested.
  */
 function awaitPredecessor(
   runtime: EngineRuntime,
+  conversation: EngineConversation,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
-  action: ActionCore,
-  actionHash: ActionHash,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
-  const conversation = runtime.conversations.get(action.conversationId);
+  proposal: ActionProposal,
+): Effect.Effect<void, ProtocolAcceptanceError> {
+  const action = proposal.action;
   if (
     action.kind !== "POST" ||
-    conversation === undefined ||
     namesPassedRecord(runtime, conversation, action)
   ) {
     return Effect.void;
   }
-  const waiting = waitingFor(runtime);
-  const held = waiting.get(conversation.conversationId);
+  const held = runtime.waitingProposals.get(conversation.conversationId);
   if (
     held?.action.previousRecordHash === action.previousRecordHash &&
     held.action.anchorHash === action.anchorHash
   ) {
     return Effect.void;
   }
-  return Effect.sync(() => {
-    waiting.set(conversation.conversationId, {
-      conversation,
-      action,
-      actionHash,
-      proposal: ingress,
-      signatures: new Map(),
-    });
-  }).pipe(
+  return verifyProposal(conversation, ingress, proposal).pipe(
+    Effect.flatMap(({ actionHash }) =>
+      Effect.sync(() => {
+        runtime.waitingProposals.set(conversation.conversationId, {
+          conversation,
+          action,
+          actionHash,
+          proposal: ingress,
+          signatures: new Map(),
+        });
+      }),
+    ),
     Effect.zipRight(
       runtime.phases.requestCatchUp(runtime, conversation.conversationId),
     ),
@@ -990,45 +941,41 @@ function namesPassedRecord(
 
 /**
  * Hold an action signature that names no fold when it signs a waiting
- * proposal and a member sent it. Every other evidence without a fold is
- * ignored.
+ * proposal and its outer message verifies against that conversation.
  * @param runtime Engine whose waiting proposals may take the signature.
  * @param ingress Router delivery carrying the evidence.
- * @param message Stable inner evidence message.
- * @returns `ignored`: a held signature changes no durable state until replayed.
+ * @param actionHash The action the signature names.
+ * @returns Completion once the signature is held or found to sign nothing
+ *     waiting.
  */
 function holdWaitingSignature(
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
-  message: SignedMessage,
-): Effect.Effect<RouterIngressDisposition, ClientRepresentationError> {
-  return decodeCanonical(EvidenceStatement, message.body).pipe(
-    Effect.flatMap((statement) =>
+  actionHash: ActionHash,
+): Effect.Effect<void, ClientRepresentationError> {
+  const waiting = [...runtime.waitingProposals.values()].find(
+    (candidate) => candidate.actionHash === actionHash,
+  );
+  if (waiting === undefined) {
+    return Effect.void;
+  }
+  return verifyOuterMessage({
+    message: ingress.message,
+    membership: waiting.conversation.membership,
+  }).pipe(
+    Effect.flatMap(() =>
       Effect.sync(() => {
-        if (statement.kind !== "action_signature") {
-          return;
-        }
-        const senderAgentId = ingress.message.senderAgentId;
-        for (const waiting of waitingFor(runtime).values()) {
-          if (
-            waiting.actionHash === statement.actionHash &&
-            memberCard(waiting.conversation.membership, senderAgentId) !==
-              undefined
-          ) {
-            waiting.signatures.set(senderAgentId, ingress);
-          }
-        }
+        waiting.signatures.set(ingress.message.senderAgentId, ingress);
       }),
     ),
-    Effect.as(ignoredDisposition),
   );
 }
 
 /**
  * Accept the proposal waiting in a conversation once the conversation holds
- * the position it names, then its held signatures. Held input that
- * fails verification or that the store refuses is ignored, as it would have
- * been on arrival.
+ * the position it names, then its held signatures. Held input that fails
+ * verification or that the store refuses is ignored, as it would have been on
+ * arrival.
  * @param runtime Engine whose conversation just advanced.
  * @param conversation Conversation whose waiting proposal may now fit.
  * @returns Completion once the waiting proposal is accepted or still waits.
@@ -1036,64 +983,41 @@ function holdWaitingSignature(
 function acceptWaitingProposal(
   runtime: EngineRuntime,
   conversation: EngineConversation,
-): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> {
-  const waiting = waitingFor(runtime);
-  const held = waiting.get(conversation.conversationId);
-  if (held === undefined) {
-    return Effect.void;
-  }
-  return gapFree(conversation, held.action).pipe(
-    Effect.flatMap((ready) =>
-      ready
-        ? Effect.sync(() => {
-            waiting.delete(conversation.conversationId);
-          }).pipe(
-            Effect.zipRight(
-              Effect.forEach(
-                [held.proposal, ...held.signatures.values()],
-                (ingress) => acceptHeldIngress(runtime, ingress),
-                { concurrency: 1, discard: true },
-              ),
-            ),
-          )
-        : Effect.void,
-    ),
-  );
-}
-
-function acceptHeldIngress(
-  runtime: EngineRuntime,
-  ingress: RouterWorkerIngress<DecodedOuterBody>,
-): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> {
-  return acceptDirectPacket(runtime, ingress).pipe(
-    Effect.asVoid,
-    Effect.catchTag("ClientRepresentationError", () => Effect.void),
-    Effect.catchTag("EndpointStoreError", (error) =>
-      isSemanticStoreRejection(error) ? Effect.void : Effect.fail(error),
-    ),
-  );
-}
-
-function waitingFor(
-  runtime: EngineRuntime,
-): Map<ConversationId, WaitingProposal> {
-  const retained = waitingProposals.get(runtime);
-  if (retained !== undefined) {
-    return retained;
-  }
-  const created = new Map<ConversationId, WaitingProposal>();
-  waitingProposals.set(runtime, created);
-  return created;
+): Effect.Effect<void, RouterWorkerPersistenceError> {
+  return Effect.gen(function* () {
+    const held = runtime.waitingProposals.get(conversation.conversationId);
+    if (held === undefined || !(yield* gapFree(conversation, held.action))) {
+      return;
+    }
+    runtime.waitingProposals.delete(conversation.conversationId);
+    yield* Effect.forEach(
+      [held.proposal, ...held.signatures.values()],
+      (ingress) => ignoreRejectedInput(acceptDirectPacket(runtime, ingress)),
+      { concurrency: 1, discard: true },
+    );
+  });
 }
 
 /**
- * Forget every waiting proposal and its held evidence, as a Router
- * discontinuity does: the recovery run that follows ignores action traffic.
- * @param runtime Engine whose waiting proposals are dropped.
+ * Settle a peer input's acceptance: input that fails verification or that the
+ * store refuses is ignored, and any other store failure is a persistence
+ * failure.
+ * @param acceptance Acceptance of one peer input.
+ * @returns The acceptance's disposition, or `ignored` for refused input.
  */
-export const forgetWaitingProposals = (runtime: EngineRuntime): void => {
-  waitingProposals.delete(runtime);
-};
+function ignoreRejectedInput(
+  acceptance: Effect.Effect<RouterIngressDisposition, ProtocolAcceptanceError>,
+): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
+  return acceptance.pipe(
+    Effect.catchTags({
+      ClientRepresentationError: () => Effect.succeed(ignoredDisposition),
+      EndpointStoreError: (error) =>
+        isSemanticStoreRejection(error)
+          ? Effect.succeed(ignoredDisposition)
+          : Effect.fail(persistenceFailure()),
+    }),
+  );
+}
 
 /**
  * Apply one semantically verified Router-ordered protocol value.
@@ -1105,19 +1029,9 @@ export const acceptEngineIngress = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> =>
-  runtime.gate
-    .withPermits(1)(acceptDirectPacket(runtime, ingress))
-    .pipe(
-      Effect.catchTag("ClientRepresentationError", () =>
-        Effect.succeed(ignoredDisposition),
-      ),
-      Effect.catchTag("EndpointStoreError", (error) =>
-        isSemanticStoreRejection(error)
-          ? Effect.succeed(ignoredDisposition)
-          : Effect.fail(persistenceFailure()),
-      ),
-      Effect.withSpan("acceptEngineIngress"),
-    );
+  ignoreRejectedInput(
+    runtime.gate.withPermits(1)(acceptDirectPacket(runtime, ingress)),
+  ).pipe(Effect.withSpan("acceptEngineIngress"));
 
 /**
  * Apply a complete certified record from catch-up, during a recovery run or
@@ -1130,24 +1044,14 @@ export const acceptEngineRecoveryIngress = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> =>
-  runtime.gate
-    .withPermits(1)(
+  ignoreRejectedInput(
+    runtime.gate.withPermits(1)(
       ingress.payload.kind === "direct" &&
         ingress.payload.packet.kind === "certified_record"
         ? acceptCertifiedRecord(runtime, ingress, ingress.payload.packet, true)
         : Effect.succeed(ignoredDisposition),
-    )
-    .pipe(
-      Effect.catchTag("ClientRepresentationError", () =>
-        Effect.succeed(ignoredDisposition),
-      ),
-      Effect.catchTag("EndpointStoreError", (error) =>
-        isSemanticStoreRejection(error)
-          ? Effect.succeed(ignoredDisposition)
-          : Effect.fail(persistenceFailure()),
-      ),
-      Effect.withSpan("acceptEngineRecoveryIngress"),
-    );
+    ),
+  ).pipe(Effect.withSpan("acceptEngineRecoveryIngress"));
 
 /**
  * Resume only the evidence obligations already selected in durable state.

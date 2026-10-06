@@ -6,9 +6,8 @@ import type { RouterWorkerIngress } from "../../router/index.js";
 import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
 import {
   ClientRepresentationError,
-  decodeCanonical,
   type DecodedOuterBody,
-  EvidenceStatement,
+  type EvidenceStatement,
   type VerifiedEvidence,
   verifyOuterMessage,
   verifyStableEvidence,
@@ -20,36 +19,33 @@ export type EvidenceRoute =
   | Readonly<{ fold: EngineActionFold; kind: "durability" }>;
 
 /**
- * Locate the active fold named by a stable evidence message.
+ * Locate the active fold named by a decoded stable evidence statement.
  * @param runtime Engine whose active folds may receive the evidence.
- * @param message Decoded stable inner evidence message.
+ * @param statement Decoded statement of a stable inner evidence message.
  * @returns The matching fold and evidence kind, when still active.
  */
-export const evidenceRoute = (
+export function evidenceRoute(
   runtime: EngineRuntime,
-  message: SignedMessage,
-): Effect.Effect<EvidenceRoute | undefined, ClientRepresentationError> =>
-  decodeCanonical(EvidenceStatement, message.body).pipe(
-    Effect.map((statement) => {
-      switch (statement.kind) {
-        case "action_signature": {
-          const fold = runtime.actionFolds.get(statement.actionHash);
-          return fold === undefined ? undefined : { fold, kind: "action" };
-        }
-        case "durability_vote": {
-          const fold = runtime.recordFolds.get(statement.recordHash);
-          return fold === undefined ? undefined : { fold, kind: "durability" };
-        }
-        case "catch_up_attestation":
-        case "reanchor_vote":
-          return undefined;
-        default: {
-          const exhaustive: never = statement;
-          return exhaustive;
-        }
-      }
-    }),
-  );
+  statement: EvidenceStatement,
+): EvidenceRoute | undefined {
+  switch (statement.kind) {
+    case "action_signature": {
+      const fold = runtime.actionFolds.get(statement.actionHash);
+      return fold === undefined ? undefined : { fold, kind: "action" };
+    }
+    case "durability_vote": {
+      const fold = runtime.recordFolds.get(statement.recordHash);
+      return fold === undefined ? undefined : { fold, kind: "durability" };
+    }
+    case "catch_up_attestation":
+    case "reanchor_vote":
+      return undefined;
+    default: {
+      const exhaustive: never = statement;
+      return exhaustive;
+    }
+  }
+}
 
 /**
  * Check that verified evidence targets the fold selected by its decoded body.

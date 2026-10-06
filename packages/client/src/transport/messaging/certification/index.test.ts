@@ -781,22 +781,14 @@ function certifiesOrdinaryN4Post() {
         );
         const recordHash = yield* stagedPostRecordHash(authorStore);
         const staged = yield* authorStore.recover().pipe(Effect.orDie);
-        expect(
-          staged.evidence
-            .filter(
-              ({ kind, subjectId }) =>
-                kind === "action" && subjectId === actionHash,
-            )
-            .map(({ evidenceKey }) => evidenceKey),
-        ).toHaveLength(3);
-        expect(
-          staged.evidence.some(
-            ({ kind, subjectId, evidenceKey }) =>
-              kind === "action" &&
-              subjectId === actionHash &&
-              evidenceKey === author.card.agentId,
-          ),
-        ).toBe(true);
+        const actionSigners = staged.evidence
+          .filter(
+            ({ kind, subjectId }) =>
+              kind === "action" && subjectId === actionHash,
+          )
+          .map(({ evidenceKey }) => evidenceKey);
+        expect(actionSigners).toHaveLength(3);
+        expect(actionSigners).toContain(author.card.agentId);
         expect(
           staged.certifiedRecords.some(
             (record) => record.recordHash === recordHash,
@@ -940,7 +932,6 @@ function sendsOnePlusTwoNMessagesPerPost() {
           "durability_vote",
           "durability_vote",
         ]);
-        expect(delivered).toHaveLength(1 + 2 * MEMBER_COUNT);
       }),
     ),
   );
@@ -1082,6 +1073,90 @@ function ignoresAProposalNamingAPassedRecord() {
 }
 
 /**
+ * Member 1 re-signs its queued POST proposal so that it names a predecessor
+ * no member holds.
+ * @param harness Engines whose identities sign the copy.
+ * @param proposalBatch The batch holding member 1's POST proposal first.
+ * @returns The forged outer message.
+ */
+function forgeUnknownPredecessor(
+  harness: ProtocolHarness,
+  proposalBatch: ReadonlyArray<typeof SignedMessage.Type>,
+): Effect.Effect<typeof SignedMessage.Type> {
+  return Effect.gen(function* () {
+    const author = yield* requireAt(harness.identities, 0, "identity");
+    const proposal = yield* decodeActionProposal(
+      yield* requireAt(proposalBatch, 0, "POST proposal"),
+    );
+    if (proposal.action.kind !== "POST") {
+      return yield* Effect.dieMessage("ordinary send did not propose POST");
+    }
+    return yield* signOuterPacket({
+      packet: {
+        ...proposal,
+        action: { ...proposal.action, previousRecordHash: unknownRecordHash },
+      },
+      membership: harness.membership,
+      agentCard: author.card,
+      signingAuthority: author.authority,
+    }).pipe(Effect.orDie);
+  });
+}
+
+/**
+ * Member 2 asks for history after a forged proposal, and members 1, 3 and 4
+ * answer that they hold nothing later. Before those answers reach member 2,
+ * a post certifies without it, and the next proposal names that post while
+ * member 4 is offline. Member 2 asks again only once the earlier answers are
+ * in, so they do not complete the newer request, and it catches up the post
+ * and signs the next one.
+ * @returns Completion once member 2 holds and delivers both posts.
+ */
+function asksAgainAfterAnswersThatPredateTheNamedRecord() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
+        const missed = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "missed by member 2")),
+        );
+        const missedBatch = yield* takeReadyBatch(harness);
+        yield* harness.deliver(
+          [yield* forgeUnknownPredecessor(harness, missedBatch)],
+          [1],
+        );
+        yield* harness.drain([1]);
+        yield* harness.deliver(yield* takeQueued(harness), [0, 2, 3]);
+        yield* harness.drain([0, 2, 3]);
+        const earlierAnswers = yield* takeQueued(harness);
+        yield* pump(harness, missedBatch, [0, 2, 3]);
+        yield* Fiber.join(missed).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        const next = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "needs member 2")),
+        );
+        const nextBatch = yield* takeReadyBatch(harness);
+        yield* pump(harness, [...nextBatch, ...earlierAnswers], [0, 1, 2]);
+        yield* Fiber.join(next).pipe(Effect.timeout("1 second"), Effect.orDie);
+
+        const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
+        expect(pending.map(({ message }) => message.content)).toEqual([
+          [{ type: "text", text: "open group" }],
+          [{ type: "text", text: "missed by member 2" }],
+          [{ type: "text", text: "needs member 2" }],
+        ]);
+      }),
+    ),
+  );
+}
+
+/**
  * A member's proposal naming a predecessor no member holds is ignored without
  * failing the endpoint. The endpoint asks the members for later history, every
  * member answers that it has none, and the conversation's next real post
@@ -1094,7 +1169,6 @@ function unresolvablePredecessorLeavesTheConversationLive() {
       Effect.gen(function* () {
         const harness = yield* makeProtocolHarness();
         yield* certifyGenesis(harness);
-        const author = yield* requireAt(harness.identities, 0, "identity");
         const authorEngine = yield* requireAt(
           harness.engines,
           0,
@@ -1104,24 +1178,7 @@ function unresolvablePredecessorLeavesTheConversationLive() {
           authorEngine.send(yield* sendInput(harness, "real successor")),
         );
         const proposalBatch = yield* takeReadyBatch(harness);
-        const proposal = yield* decodeActionProposal(
-          yield* requireAt(proposalBatch, 0, "POST proposal"),
-        );
-        if (proposal.action.kind !== "POST") {
-          return yield* Effect.dieMessage("ordinary send did not propose POST");
-        }
-        const forged = yield* signOuterPacket({
-          packet: {
-            ...proposal,
-            action: {
-              ...proposal.action,
-              previousRecordHash: unknownRecordHash,
-            },
-          },
-          membership: harness.membership,
-          agentCard: author.card,
-          signingAuthority: author.authority,
-        }).pipe(Effect.orDie);
+        const forged = yield* forgeUnknownPredecessor(harness, proposalBatch);
 
         expect(yield* harness.deliver([forged], [1])).toEqual(["ignored"]);
         yield* harness.drain([1]);
@@ -1491,6 +1548,11 @@ describe("fixed-post endpoint protocol", () => {
     "catches up a member that missed $missed when the next proposal names it",
     ({ certifyWithoutMember2 }) =>
       laggingMemberCatchesUpAndCertifiesTheNextPost(certifyWithoutMember2),
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "asks again once the members answer a request that predates the named record",
+    asksAgainAfterAnswersThatPredateTheNamedRecord,
     TEST_TIMEOUT_MS,
   );
   it(

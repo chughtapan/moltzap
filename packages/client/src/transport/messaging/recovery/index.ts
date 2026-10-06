@@ -85,15 +85,19 @@ interface RecoveryRun {
 const activeRuns = new WeakMap<EngineRuntime, RecoveryRun>();
 
 /**
- * Catch-up started outside a recovery run, one per conversation. A run ends
- * when every other member attests it holds nothing later, when a newer gap in
- * its conversation replaces it, or when a recovery run starts, which catches
- * up every conversation itself.
+ * The catch-up an engine runs outside its recovery runs, and the
+ * conversations that asked again while their request was still being
+ * answered. A request is sent again only once every member has answered the
+ * one before it: both name the same durable position, so answers to the
+ * earlier one, which can predate the record a newer proposal names, would
+ * otherwise count toward the later one.
  */
-const gapCatchUps = new WeakMap<
-  EngineRuntime,
-  Map<ConversationIdValue, CatchUpRun>
->();
+interface GapCatchUp {
+  readonly run: CatchUpRun;
+  readonly askAgain: Set<ConversationIdValue>;
+}
+
+const gapCatchUps = new WeakMap<EngineRuntime, GapCatchUp>();
 
 const ignoredDisposition: RouterIngressDisposition = "ignored";
 
@@ -131,38 +135,34 @@ export function acceptEngineIngressWithRecovery(
  * Ask every other member for the certified history after this endpoint's
  * durable position in one conversation, outside a recovery run. Pages are
  * applied as they arrive, and certification accepts the proposal that was
- * waiting once its predecessor is certified here. The request replaces any
- * earlier catch-up for the conversation.
+ * waiting once its predecessor is certified here.
  * @param runtime Engine whose conversation lacks a position a proposal named.
  * @param conversationId Retained conversation to catch up.
- * @returns Completion once the request is in the durable outbox.
+ * @returns Completion once the request is in the durable outbox, or noted
+ *     to be sent once the request in flight is answered.
  */
 export function requestGapCatchUp(
   runtime: EngineRuntime,
   conversationId: ConversationIdValue,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return Effect.suspend(() => {
-    const membership = runtime.conversations.get(conversationId)?.membership;
-    if (membership === undefined) {
+    const gap = gapCatchUpOf(runtime);
+    if (gap.run.state.pendingRequests.has(conversationId)) {
+      gap.askAgain.add(conversationId);
       return Effect.void;
     }
-    const runs = gapCatchUpsOf(runtime);
-    const run: CatchUpRun = {
-      ...catchUpResponder(runtime),
-      state: makeCatchUpState(),
-      isActive: () => runs.get(conversationId) === run,
-      membership: (requested) =>
-        requested === conversationId ? membership : undefined,
-      onPositionReady: () =>
-        Effect.sync(() => {
-          if (runs.get(conversationId) === run) {
-            runs.delete(conversationId);
-          }
-        }),
-    };
-    runs.set(conversationId, run);
-    return requestCertifiedHistory(run, conversationId);
+    return requestCertifiedHistory(gap.run, conversationId);
   }).pipe(Effect.withSpan("requestGapCatchUp"));
+}
+
+/**
+ * Drop the engine's catch-up outside recovery runs at a Router
+ * discontinuity: the recovery run that follows catches up every
+ * conversation.
+ * @param runtime Engine whose catch-up is dropped.
+ */
+export function forgetGapCatchUps(runtime: EngineRuntime): void {
+  gapCatchUps.delete(runtime);
 }
 
 /**
@@ -186,8 +186,7 @@ export function acceptEngineRecoveryIngressWithRecovery(
 
 /**
  * Take a member's answer to a catch-up this endpoint started outside a
- * recovery run. An answer for a conversation with no such catch-up is
- * ignored.
+ * recovery run. Catch-up ignores an answer to no request it has pending.
  * @param runtime Engine whose gap catch-ups may own the answer.
  * @param ingress Verified Router delivery carrying the answer.
  * @param answer Catch-up page or incomplete attestation from a member.
@@ -198,7 +197,7 @@ function acceptGapCatchUpAnswer(
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   answer: CatchUpIncomplete | CatchUpPage,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  const run = gapCatchUps.get(runtime)?.get(answer.request.conversationId);
+  const run = gapCatchUps.get(runtime)?.run;
   if (run === undefined) {
     return Effect.succeed(ignoredDisposition);
   }
@@ -207,14 +206,26 @@ function acceptGapCatchUpAnswer(
     : acceptCatchUpIncomplete(run, ingress, answer);
 }
 
-function gapCatchUpsOf(
-  runtime: EngineRuntime,
-): Map<ConversationIdValue, CatchUpRun> {
+function gapCatchUpOf(runtime: EngineRuntime): GapCatchUp {
   const retained = gapCatchUps.get(runtime);
   if (retained !== undefined) {
     return retained;
   }
-  const created = new Map<ConversationIdValue, CatchUpRun>();
+  const askAgain = new Set<ConversationIdValue>();
+  const run: CatchUpRun = {
+    ...catchUpResponder(runtime),
+    state: makeCatchUpState(),
+    isActive: () => gapCatchUps.get(runtime)?.run === run,
+    onPositionReady: (conversationId) =>
+      askAgain.delete(conversationId)
+        ? requestCertifiedHistory(run, conversationId)
+        : Effect.sync(() => {
+            if (run.state.pendingRequests.size === 0) {
+              gapCatchUps.delete(runtime);
+            }
+          }),
+  };
+  const created: GapCatchUp = { run, askAgain };
   gapCatchUps.set(runtime, created);
   return created;
 }
@@ -242,7 +253,6 @@ export const recoverCertifiedHistory = (
     if (activeRuns.has(runtime)) {
       return yield* Effect.fail(recoveryFailure());
     }
-    yield* Effect.sync(() => gapCatchUps.delete(runtime));
     const recovered = yield* runtime.input.store
       .recover()
       .pipe(Effect.mapError(recoveryFailure));
