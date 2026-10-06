@@ -546,9 +546,12 @@ An outer send follows the Router representation contract exactly:
    with `mode: "retry"`. An `accepted` result is valid only when its digest
    matches those exact bytes.
 4. `retry_identity_unknown` resends the same stored bytes and MessageId with
-   `mode: "initial"`. An `idempotency_conflict` to an `initial` resends them
-   with `mode: "retry"`, which Router accepts only for those exact bytes.
-   Client never re-signs or replaces a stored outer message.
+   `mode: "initial"`. An `idempotency_conflict` to that `initial` means the
+   first copy appended after the `retry` found its identity absent, so Client
+   sends the same bytes once more with `mode: "retry"`, which Router accepts
+   only for those exact bytes. Each `retry_identity_unknown` spends one of the
+   send's bounded attempts. Client never re-signs or replaces a stored outer
+   message.
 5. `router_restarted` stops sending, obtains the new omitted-cursor anchor,
    and completes catch-up and re-anchor before reevaluating queued packets.
    It never rewrites a stable inner evidence message.
@@ -556,10 +559,11 @@ An outer send follows the Router representation contract exactly:
 A resend after eviction appends the same outer message again, so a member may
 receive one outer message twice. Duplicate outer delivery is harmless: a
 member deduplicates a proposal by its `ActionHash`, a record by its
-`RecordHash`, and evidence by its subject hash and signer, and it answers a
-repeated catch-up request again from certified history. An
-`idempotency_conflict` to a `retry`, mismatched digest, invalid message, mixed
-version, or semantic body collision fails closed.
+`RecordHash`, and evidence by its subject hash and signer. It answers a
+repeated catch-up request again from certified history and counts a repeated
+catch-up response once. An `idempotency_conflict` to a `retry`, mismatched
+digest, invalid message, mixed version, or semantic body collision fails
+closed.
 
 ## Cross-field validation
 

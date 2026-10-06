@@ -600,6 +600,35 @@ const retryConflictFailsClosed = async (): Promise<void> => {
   expect(result.pending).toEqual([result.outbound]);
 };
 
+/**
+ * Each identity loss spends one of the three attempts, so a Router that
+ * alternates conflict and identity loss gets six sends and never reaches the
+ * acceptance scripted seventh.
+ */
+const alternatingConflictAndLossStopsAtTheBound = async (): Promise<void> => {
+  const result = await Effect.runPromise(
+    sendThroughScript([
+      identityConflict,
+      identityUnknown,
+      identityConflict,
+      identityUnknown,
+      identityConflict,
+      identityUnknown,
+      acceptsSentBytes,
+    ]),
+  );
+  expect(result.failure).toEqual(Option.some(new RouterWorkerProtocolError()));
+  expect(result.modes).toEqual([
+    "initial",
+    "retry",
+    "initial",
+    "retry",
+    "initial",
+    "retry",
+  ]);
+  expect(result.pending).toEqual([result.outbound]);
+};
+
 const mismatchedAcceptedDigestRetainsOutbound = async (): Promise<void> => {
   await Effect.runPromise(
     withOutbox((store) =>
@@ -1810,6 +1839,10 @@ describe("private Router worker", () => {
   it(
     "fails closed and retains the envelope when a retry conflicts",
     retryConflictFailsClosed,
+  );
+  it(
+    "stops resending once Router alternation spends every attempt",
+    alternatingConflictAndLossStopsAtTheBound,
   );
   it(
     "retains an envelope when Router acceptance names different bytes",

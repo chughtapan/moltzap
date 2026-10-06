@@ -243,12 +243,16 @@ identity again, and Router appends it as a new entry.
 - byte-identical retained SignedMessage returns its original
   `accepted` result;
 - changed SignedMessage bytes return `idempotency_conflict`; and
-- an absent or evicted identity returns `retry_identity_unknown`.
+- an absent or evicted identity returns `retry_identity_unknown`. An
+  identity whose `initial` Router has not yet appended is absent.
 
 After `retry_identity_unknown`, the sender resends the same SignedMessage
-bytes as `initial`. One SignedMessage may then occupy two private orders,
+bytes as `initial`. When the first copy was evicted, Router appends the
+resend as a new entry, so one SignedMessage may occupy two private orders
 and a recipient may receive it twice; endpoints deduplicate it as
-[`conversation-history.md`](./conversation-history.md) specifies.
+[`conversation-history.md`](./conversation-history.md) specifies. When the
+first `initial` appended after the `retry` found its identity absent, the
+resent `initial` conflicts, and the sender asks again with `retry`.
 
 The accepted SignedMessageDigest is an immediate equality receipt for
 the retained live entry. It proves no position, delivery, durability,
