@@ -6129,6 +6129,57 @@ const rearmsCatchUpAfterRetriesRunOut = () =>
   );
 
 /**
+ * A member's answer completes a conversation's catch-up, and the delivery
+ * that carries it is interrupted while the conversation's held work resumes,
+ * as the Router worker interrupts its recovery poll once recovery returns.
+ * The conversation still finishes recovering: its fence is released and the
+ * owner's post reaches the Router. The test holds the store read the resume
+ * takes until the interruption is pending. Fails when an interruption between
+ * counting the conversation recovered and releasing its fence leaves the
+ * fence held with nothing left to release it.
+ */
+const finishesRecoveryWhenItsDeliveryIsInterrupted = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const start = yield* holdNextStoreRead(fixture.store);
+        const engine = yield* makeEndpointEngine({
+          ...fixture.input,
+          store: start.store,
+        }).pipe(Effect.orDie);
+        const { outbound } = yield* forkRecovery(
+          { engine, recoveryOutbound: fixture.recoveryOutbound },
+          "feed_gap",
+          oldRouterInstanceId,
+        );
+        const request = yield* takeCatchUpRequest(outbound);
+
+        yield* start.arm;
+        const delivering = yield* Effect.fork(
+          deliverRecovery(engine, catchUpIncompleteIngress(fixture, request)),
+        );
+        yield* start.held;
+        const interrupting = yield* Effect.fork(Fiber.interrupt(delivering));
+        yield* start.release;
+        yield* Fiber.join(interrupting);
+        yield* forkSend(
+          engine,
+          `agent:${fixture.remote.card.agentName}`,
+          "sent after an interrupted recovery delivery",
+        );
+        const proposal = yield* takeActionProposalAfterEvidence(
+          fixture.normalOutbound,
+        );
+
+        expect(proposal.proposal.action.conversationId).toBe(
+          fixture.membership.descriptor.conversationId,
+        );
+      }),
+    ),
+  );
+
+/**
  * The direct conversation recovers on its member's first answer while the
  * N4 conversation's members stay silent, so the run keeps going. However long
  * the clock runs, every retry asks for the N4 conversation and none for the
@@ -6378,6 +6429,10 @@ describe("catch-up and re-anchor inside a recovery run", () => {
     "arms catch-up again for every paused conversation when the Router worker reattaches",
     rearmsEveryPausedConversationOnReattach,
     10_000,
+  );
+  it(
+    "finishes recovering a conversation whose completing delivery is interrupted",
+    finishesRecoveryWhenItsDeliveryIsInterrupted,
   );
   it(
     "stops catch-up retries once the conversation recovers",
