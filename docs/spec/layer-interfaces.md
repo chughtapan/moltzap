@@ -151,9 +151,9 @@ Client owns:
 
 Action signatures, durability votes, catch-up attestations, and re-anchor
 votes are stable self-addressed Identity `SignedMessage` values.
-Their Router envelope is a separate all-member `SignedMessage`, so
-`retry_identity_unknown` may replace the outer MessageId without changing the
-inner evidence. Gate 1 admits at most 32 total fixed members and 32,768
+Their Router envelope is a separate all-member `SignedMessage`. Every Router
+retry, including one after `retry_identity_unknown`, resends that envelope's
+stored bytes unchanged. Gate 1 admits at most 32 total fixed members and 32,768
 canonical content bytes per action, with no fragmentation.
 
 `LedgerOffset` has no final owner and does not survive. Conversation order is

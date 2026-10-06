@@ -315,6 +315,104 @@ function acceptedResult(
   );
 }
 
+/** One scripted Router answer to the send request it receives. */
+type ScriptedSendAnswer = (
+  request: RouterSendRequest,
+) => Effect.Effect<RouterSendResult, RouterConnectionError>;
+
+const connectionLost: ScriptedSendAnswer = () =>
+  Effect.fail(new RouterConnectionError());
+
+const identityUnknown: ScriptedSendAnswer = () =>
+  Effect.succeed({ kind: "retry_identity_unknown" });
+
+const identityConflict: ScriptedSendAnswer = () =>
+  Effect.succeed({ kind: "idempotency_conflict" });
+
+/** Router instance of every scripted-send scenario. */
+const scriptedSendInstance = routerInstanceId(50);
+
+const acceptsSentBytes: ScriptedSendAnswer = (request) =>
+  acceptedResult(scriptedSendInstance, request.signedMessage);
+
+/**
+ * A Router whose polls report one empty tail and whose sends take the next
+ * scripted answer, recording every request. A send past the script dies.
+ * @param answers Send answers in arrival order.
+ * @param requests Receives every send request in arrival order.
+ * @returns The scripted Router layer.
+ */
+function scriptedSendRouter(
+  answers: readonly ScriptedSendAnswer[],
+  requests: Ref.Ref<RouterSendRequest[]>,
+): Layer.Layer<Router> {
+  return Layer.succeed(Router, {
+    poll: () => Effect.succeed(emptyBatch(scriptedSendInstance, pollCursor(8))),
+    send: (call) =>
+      Ref.getAndUpdate(requests, (sent) => [...sent, call.request]).pipe(
+        Effect.flatMap((earlier) => {
+          const answer = answers[earlier.length];
+          return answer === undefined
+            ? Effect.dieMessage("send past the Router script")
+            : answer(call.request);
+        }),
+      ),
+  });
+}
+
+/**
+ * Sends one stored envelope through a scripted Router and reports what went
+ * out and what the outbox retains afterwards.
+ * @param answers Send answers in arrival order.
+ * @returns The stored envelope, every request's mode, MessageId and canonical
+ *   bytes, the send's failure if any, and the outbox's pending rows.
+ */
+function sendThroughScript(answers: readonly ScriptedSendAnswer[]) {
+  return withOutbox((store) =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const outgoing = yield* signMessage({
+        card: fixture.localCard,
+        authority: fixture.localAuthority,
+        recipient: fixture.localCard.agentId,
+        id: 50,
+        body: "stored-envelope",
+      });
+      const outbound = yield* prepareOutbound(
+        store,
+        "conversation:scripted-send",
+        outgoing,
+      );
+      const requests = yield* Ref.make<RouterSendRequest[]>([]);
+      const layer = scriptedSendRouter(answers, requests);
+      const worker = yield* provide(
+        makeActiveRouterWorker(makeInput(fixture, callbacks(), store)),
+        layer,
+        fixture,
+      );
+      const failure = yield* provide(
+        worker.send(outbound.outboundId).pipe(Effect.flip, Effect.option),
+        layer,
+        fixture,
+      );
+      const sent = yield* Ref.get(requests);
+      const sentBytes = yield* Effect.forEach(sent, (request) =>
+        encodeCanonical(SignedMessage, request.signedMessage).pipe(
+          Effect.orDie,
+        ),
+      );
+      return {
+        outbound,
+        modes: sent.map((request) => request.mode),
+        messageIds: sent.map((request) => request.signedMessage.messageId),
+        sentBytes,
+        failure,
+        pending: (yield* store.recover()).outboundMessages,
+      };
+    }),
+  );
+}
+
 const batchVerificationIsAtomic = async (): Promise<void> => {
   await Effect.runPromise(
     Effect.gen(function* () {
@@ -495,83 +593,45 @@ const ambiguousSendRetriesSameBytes = async (): Promise<void> => {
   );
 };
 
-const retryUnknownRewrapsBody = async (): Promise<void> => {
-  await Effect.runPromise(
-    withOutbox((store) =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const outgoing = yield* signMessage({
-          card: fixture.localCard,
-          authority: fixture.localAuthority,
-          recipient: fixture.localCard.agentId,
-          id: 50,
-          body: "stable-inner",
-        });
-        const outbound = yield* prepareOutbound(
-          store,
-          "conversation:retry-unknown",
-          outgoing,
-        );
-        const instance = routerInstanceId(50);
-        const sendCalls = yield* Ref.make<RouterSendRequest[]>([]);
-        const callCount = yield* Ref.make(0);
-        const layer = Layer.succeed(Router, {
-          poll: () => Effect.succeed(emptyBatch(instance, pollCursor(8))),
-          send: (call) =>
-            Ref.getAndUpdate(callCount, (count) => count + 1).pipe(
-              Effect.tap(() =>
-                Ref.update(sendCalls, (calls) => [...calls, call.request]),
-              ),
-              Effect.flatMap(
-                (
-                  count,
-                ): Effect.Effect<RouterSendResult, RouterConnectionError> => {
-                  if (count === 0) {
-                    return Effect.fail(new RouterConnectionError());
-                  }
-                  if (count === 1) {
-                    return Effect.succeed({
-                      kind: "retry_identity_unknown" as const,
-                    });
-                  }
-                  return store.recover().pipe(
-                    Effect.orDie,
-                    Effect.tap((recovery) => {
-                      expect(recovery.outboundMessages).toHaveLength(1);
-                      expect(recovery.outboundMessages[0]?.messageId).toBe(
-                        call.request.signedMessage.messageId,
-                      );
-                      return Effect.void;
-                    }),
-                    Effect.zipRight(
-                      acceptedResult(instance, call.request.signedMessage),
-                    ),
-                  );
-                },
-              ),
-            ),
-        });
-        const worker = yield* provide(
-          makeActiveRouterWorker(makeInput(fixture, callbacks(), store)),
-          layer,
-          fixture,
-        );
-        yield* provide(worker.send(outbound.outboundId), layer, fixture);
-        const calls = yield* Ref.get(sendCalls);
-        expect(calls.map((call) => call.mode)).toEqual([
-          "initial",
-          "retry",
-          "initial",
-        ]);
-        expect(calls[0]?.signedMessage.messageId).toBe(messageId(50));
-        expect(calls[2]?.signedMessage.messageId).not.toBe(messageId(50));
-        expect(calls[2]?.signedMessage.body).toEqual(
-          calls[0]?.signedMessage.body,
-        );
-        expect((yield* store.recover()).outboundMessages).toEqual([]);
-      }),
-    ),
+const retryUnknownResendsStoredBytes = async (): Promise<void> => {
+  const result = await Effect.runPromise(
+    sendThroughScript([connectionLost, identityUnknown, acceptsSentBytes]),
   );
+  const stored = result.outbound.canonicalSignedMessage;
+  expect(result.failure).toEqual(Option.none());
+  expect(result.modes).toEqual(["initial", "retry", "initial"]);
+  expect(result.messageIds).toEqual([
+    messageId(50),
+    messageId(50),
+    messageId(50),
+  ]);
+  expect(result.sentBytes).toEqual([stored, stored, stored]);
+  expect(result.pending).toEqual([]);
+};
+
+const initialConflictAsksAgainAsRetry = async (): Promise<void> => {
+  const result = await Effect.runPromise(
+    sendThroughScript([
+      connectionLost,
+      identityUnknown,
+      identityConflict,
+      acceptsSentBytes,
+    ]),
+  );
+  const stored = result.outbound.canonicalSignedMessage;
+  expect(result.failure).toEqual(Option.none());
+  expect(result.modes).toEqual(["initial", "retry", "initial", "retry"]);
+  expect(result.sentBytes).toEqual([stored, stored, stored, stored]);
+  expect(result.pending).toEqual([]);
+};
+
+const retryConflictFailsClosed = async (): Promise<void> => {
+  const result = await Effect.runPromise(
+    sendThroughScript([connectionLost, identityConflict]),
+  );
+  expect(result.failure).toEqual(Option.some(new RouterWorkerProtocolError()));
+  expect(result.modes).toEqual(["initial", "retry"]);
+  expect(result.pending).toEqual([result.outbound]);
 };
 
 const mismatchedAcceptedDigestRetainsOutbound = async (): Promise<void> => {
@@ -1774,8 +1834,16 @@ describe("private Router worker", () => {
     ambiguousSendRetriesSameBytes,
   );
   it(
-    "re-envelopes only the byte-identical body after retry identity loss",
-    retryUnknownRewrapsBody,
+    "resends the stored envelope as initial after retry identity loss",
+    retryUnknownResendsStoredBytes,
+  );
+  it(
+    "asks again as retry when a resent initial conflicts with its own copy",
+    initialConflictAsksAgainAsRetry,
+  );
+  it(
+    "fails closed and retains the envelope when a retry conflicts",
+    retryConflictFailsClosed,
   );
   it(
     "retains an envelope when Router acceptance names different bytes",

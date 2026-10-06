@@ -144,7 +144,7 @@ export interface RouterWorkerRecoverySend {
 /** Durable operations required by the Router transport and no other worker path. */
 type RouterWorkerOutbox = Pick<
   EndpointStore,
-  "enqueueOutbound" | "beginOutbound" | "replaceOutbound" | "completeOutbound"
+  "enqueueOutbound" | "beginOutbound" | "completeOutbound"
 >;
 
 /** Private endpoint callbacks around the Router worker's ordering boundary. */

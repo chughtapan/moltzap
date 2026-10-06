@@ -75,7 +75,6 @@ export const unreachableOutbox: RouterWorkerInput<TestPayload>["outbox"] =
   Object.freeze({
     enqueueOutbound: () => Effect.die("outbox must not be used"),
     beginOutbound: () => Effect.die("outbox must not be used"),
-    replaceOutbound: () => Effect.die("outbox must not be used"),
     completeOutbound: () => Effect.die("outbox must not be used"),
   });
 

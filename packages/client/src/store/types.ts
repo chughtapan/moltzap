@@ -378,10 +378,6 @@ export interface EndpointStore {
   readonly beginOutbound: (
     outboundId: string,
   ) => Effect.Effect<OutboundAttempt, EndpointStoreError>;
-  readonly replaceOutbound: (
-    current: StoredOutboundMessage,
-    replacement: OutboundMessageInput,
-  ) => Effect.Effect<StoredOutboundMessage, EndpointStoreError>;
   readonly completeOutbound: (
     outbound: StoredOutboundMessage,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;

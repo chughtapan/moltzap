@@ -301,7 +301,6 @@ interface OutboundLifecycleFixture {
   readonly directory: string;
   readonly conversationId: string;
   readonly initial: OutboundMessageInput;
-  readonly replacement: OutboundMessageInput;
 }
 
 function persistsExactOutboundLifecycleAcrossRestart() {
@@ -313,16 +312,10 @@ function persistsExactOutboundLifecycleAcrossRestart() {
       "msg_initial",
       "outer:first",
     ),
-    replacement: outboundMessage(
-      "conversation:outbound",
-      "msg_replacement",
-      "outer:replacement",
-    ),
   };
   return Effect.runPromise(
     stageInitialOutbound(fixture).pipe(
-      Effect.zipRight(replaceRetriedOutbound(fixture)),
-      Effect.zipRight(completeReplacementOutbound(fixture)),
+      Effect.zipRight(completeRetriedOutbound(fixture)),
       Effect.zipRight(verifyOutboundComplete(fixture.directory)),
     ),
   );
@@ -345,49 +338,21 @@ function stageInitialOutbound(fixture: OutboundLifecycleFixture) {
   );
 }
 
-function replaceRetriedOutbound(fixture: OutboundLifecycleFixture) {
+function completeRetriedOutbound(fixture: OutboundLifecycleFixture) {
   return withStore(fixture.directory, (store) =>
     Effect.gen(function* () {
       const replay = yield* recoverOnlyOutbound(store);
-      expect(replay.canonicalSignedMessage).toEqual(
-        fixture.initial.canonicalSignedMessage,
-      );
+      expect(replay).toEqual({
+        outboundId: fixture.initial.messageId,
+        ...fixture.initial,
+      });
       expect(yield* store.beginOutbound(replay.outboundId)).toEqual({
         kind: "pending",
         mode: "retry",
         outbound: replay,
       });
-      const replaced = yield* store.replaceOutbound(
-        replay,
-        fixture.replacement,
-      );
-      expect(replaced).toEqual({
-        outboundId: fixture.initial.messageId,
-        ...fixture.replacement,
-      });
-    }),
-  );
-}
-
-function completeReplacementOutbound(fixture: OutboundLifecycleFixture) {
-  return withStore(fixture.directory, (store) =>
-    Effect.gen(function* () {
-      const replacementReplay = yield* recoverOnlyOutbound(store);
-      expect(replacementReplay).toEqual({
-        outboundId: fixture.initial.messageId,
-        ...fixture.replacement,
-      });
-      expect(yield* store.beginOutbound(replacementReplay.outboundId)).toEqual({
-        kind: "pending",
-        mode: "initial",
-        outbound: replacementReplay,
-      });
-      expect(yield* store.completeOutbound(replacementReplay)).toBe(
-        INSERTED_MUTATION,
-      );
-      expect(yield* store.completeOutbound(replacementReplay)).toBe(
-        EXISTING_MUTATION,
-      );
+      expect(yield* store.completeOutbound(replay)).toBe(INSERTED_MUTATION);
+      expect(yield* store.completeOutbound(replay)).toBe(EXISTING_MUTATION);
     }),
   );
 }
@@ -1011,7 +976,7 @@ describe("endpoint record certification and delivery", () => {
 });
 
 describe("endpoint durable Router outbox", () => {
-  it("replays, retries, replaces, and completes exact envelopes", () =>
+  it("replays, retries, and completes exact envelopes", () =>
     persistsExactOutboundLifecycleAcrossRestart());
 
   it("invalidates only an exact current envelope set atomically", () =>
