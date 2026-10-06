@@ -466,7 +466,14 @@ ancestry, select the unique latest certified head, and use the existing
 re-anchor statement and `q(n)` threshold. An honest member stages and signs at
 most one candidate for one conversation, preceding anchor, and Router
 instance. New actions bind the durable new anchor. Catch-up and re-anchor do
-not create runtime messages by themselves.
+not create runtime messages by themselves. Verified catch-up or re-anchor
+input from a member that the endpoint cannot apply, such as input naming an
+anchor, record, or position it cannot resolve, does not count and never stops
+the endpoint. It can leave that conversation unrecovered. Recovery finishes
+only when every conversation has recovered. Until then the endpoint sends only
+catch-up and re-anchor traffic: its own posts, pending intents and retained
+outbound envelopes wait for every conversation, and the action traffic members
+send meanwhile is ignored.
 
 ## Direct packets and Router envelopes
 

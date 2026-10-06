@@ -710,8 +710,9 @@ Complete production process composition for `moltzapd`.
 - `transport/messaging/README.md`
 - `transport/messaging/reanchor/empty.ts`
 - `transport/messaging/reanchor/index.ts`
-- `transport/messaging/recovery-session/index.ts`
+- `transport/messaging/reanchor/votes.ts`
 - `transport/messaging/recovery/barrier.ts`
+- `transport/messaging/recovery/catch-up.ts`
 - `transport/messaging/recovery/index.ts`
 - `transport/messaging/recovery/README.md`
 - `transport/messaging/runtime/index.ts`

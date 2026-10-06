@@ -1,0 +1,307 @@
+/**
+ * @file Re-anchor votes: one recovery run's memory of the votes it took,
+ * their persistence, the stored votes for a candidate anchor, and the
+ * completed re-anchor they certify.
+ */
+
+import {
+  type AgentId,
+  MOLTZAP_VERSION,
+  SignedMessage,
+  type SignedMessage as SignedMessageValue,
+} from "@moltzap/identity";
+import { Effect, Schema } from "effect";
+import type { EngineRuntime } from "../runtime/index.js";
+import {
+  type EndpointRecovery,
+  isSemanticStoreRejection,
+} from "../../../store/index.js";
+import { RouterWorkerPersistenceError } from "../../router/index.js";
+import {
+  type AnchorHash as AnchorHashValue,
+  CompletedReanchor,
+  type CompletedReanchor as CompletedReanchorValue,
+  type ConversationId as ConversationIdValue,
+  decodeCanonical,
+  encodeCanonical,
+  type EvidenceStatement as EvidenceStatementValue,
+  ReanchorBody,
+  type ReanchorBody as ReanchorBodyValue,
+  type ReanchorVoteStatement as ReanchorVoteStatementValue,
+  type VerifiedMembership,
+  verifyStableEvidence,
+} from "../../wire/index.js";
+import { orderedSignatures, protocolEvidence } from "../history/index.js";
+
+/** One verified re-anchor vote and its signed message, held for the rest of the run. */
+export interface PendingReanchorVote {
+  readonly message: SignedMessageValue;
+  readonly statement: ReanchorVoteStatementValue;
+}
+
+/**
+ * One recovery run's re-anchor vote memory: the votes it holds per
+ * conversation and candidate anchor.
+ */
+export type ReanchorVotes = Map<
+  ConversationIdValue,
+  Map<AnchorHashValue, Map<AgentId, PendingReanchorVote>>
+>;
+
+/**
+ * Hold a verified vote for the rest of the run.
+ * @param votes The run's vote memory.
+ * @param vote Verified vote the run took.
+ * @returns Completion once the vote is held.
+ */
+export function rememberReanchorVote(
+  votes: ReanchorVotes,
+  vote: PendingReanchorVote,
+): Effect.Effect<void> {
+  return Effect.sync(() => {
+    const conversationId = vote.statement.reanchor.conversationId;
+    const candidates =
+      votes.get(conversationId) ??
+      new Map<
+        AnchorHashValue,
+        Map<
+          PendingReanchorVote["statement"]["signerAgentId"],
+          PendingReanchorVote
+        >
+      >();
+    votes.set(conversationId, candidates);
+    const signers =
+      candidates.get(vote.statement.anchorHash) ??
+      new Map<
+        PendingReanchorVote["statement"]["signerAgentId"],
+        PendingReanchorVote
+      >();
+    candidates.set(vote.statement.anchorHash, signers);
+    signers.set(vote.statement.signerAgentId, vote);
+  });
+}
+
+/**
+ * Whether the run already holds this signer's vote for this candidate anchor.
+ * @param votes The run's vote memory.
+ * @param vote Vote to look up.
+ * @returns Whether the vote is held.
+ */
+export function reanchorVoteIsRemembered(
+  votes: ReanchorVotes,
+  vote: PendingReanchorVote,
+): boolean {
+  return (
+    votes
+      .get(vote.statement.reanchor.conversationId)
+      ?.get(vote.statement.anchorHash)
+      ?.has(vote.statement.signerAgentId) === true
+  );
+}
+
+/**
+ * Merge one vote into the store's re-anchor evidence for its candidate anchor.
+ * One statement has more than one valid signature, so a member can send a
+ * second, differently signed copy of a vote the store already holds. The
+ * store refuses that copy, and it does not count.
+ * @param runtime Engine whose store keeps the evidence.
+ * @param vote Verified vote to persist.
+ * @returns Whether the vote is durable; false when the store refused it.
+ */
+export function persistReanchorVote(
+  runtime: EngineRuntime,
+  vote: PendingReanchorVote,
+): Effect.Effect<boolean, RouterWorkerPersistenceError> {
+  return protocolEvidence(
+    vote.statement.reanchor.conversationId,
+    "reanchor",
+    vote.statement.anchorHash,
+    vote.message,
+  ).pipe(
+    Effect.flatMap((evidence) => runtime.input.store.mergeEvidence(evidence)),
+    Effect.as(true),
+    Effect.catchTag("EndpointStoreError", (error) =>
+      isSemanticStoreRejection(error)
+        ? Effect.succeed(false)
+        : Effect.fail(persistenceFailure()),
+    ),
+    Effect.mapError(persistenceFailure),
+  );
+}
+
+/**
+ * Read and verify every stored vote for one candidate anchor.
+ * @param runtime Engine whose store keeps the votes.
+ * @param membership Verified membership the votes must verify under.
+ * @param body Re-anchor body every stored vote must name.
+ * @param anchorHash Candidate anchor the votes are for.
+ * @returns The stored votes, one per signer.
+ */
+export function decodeReanchorVotes(
+  runtime: EngineRuntime,
+  membership: VerifiedMembership,
+  body: ReanchorBodyValue,
+  anchorHash: AnchorHashValue,
+): Effect.Effect<readonly SignedMessageValue[], RouterWorkerPersistenceError> {
+  return runtime.input.store.recover().pipe(
+    Effect.mapError(persistenceFailure),
+    Effect.flatMap((recovery) =>
+      Effect.forEach(
+        recovery.evidence.filter((evidence) =>
+          evidenceTargetsAnchor(evidence, body.conversationId, anchorHash),
+        ),
+        (evidence) =>
+          verifyStoredReanchorVote(evidence, membership, body, anchorHash),
+        { concurrency: 1 },
+      ),
+    ),
+    Effect.flatMap((votes) =>
+      votesHaveUniqueSigners(votes)
+        ? Effect.succeed(votes)
+        : Effect.fail(persistenceFailure()),
+    ),
+  );
+}
+
+/**
+ * Assemble a completed re-anchor whose certificate holds `votes` in
+ * decoded-AgentId order.
+ * @param body Re-anchor body the votes name.
+ * @param anchorHash Hash of `body`.
+ * @param votes Stored votes for the anchor, at least one.
+ * @returns The completed re-anchor.
+ */
+export function assembleCompletedReanchor(
+  body: ReanchorBodyValue,
+  anchorHash: AnchorHashValue,
+  votes: readonly SignedMessageValue[],
+): Effect.Effect<CompletedReanchorValue, RouterWorkerPersistenceError> {
+  return orderedSignatures(votes).pipe(
+    Effect.mapError(persistenceFailure),
+    Effect.flatMap((ordered) => {
+      if (ordered === undefined) {
+        return Effect.fail(persistenceFailure());
+      }
+      const completed: CompletedReanchorValue = {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "completed_reanchor",
+        anchorHash,
+        reanchor: body,
+        certificate: {
+          moltzapVersion: MOLTZAP_VERSION,
+          kind: "reanchor_certificate",
+          anchorHash,
+          votes: ordered,
+        },
+      };
+      return Effect.succeed(completed);
+    }),
+  );
+}
+
+/**
+ * Make a completed re-anchor durable and the conversation's current anchor.
+ * @param runtime Engine whose store and conversation receive the anchor.
+ * @param completed Verified completed re-anchor.
+ * @returns Completion once the anchor is durable and current.
+ */
+export function persistCompletedReanchor(
+  runtime: EngineRuntime,
+  completed: CompletedReanchorValue,
+): Effect.Effect<void, RouterWorkerPersistenceError> {
+  const body = completed.reanchor;
+  return Effect.all({
+    canonicalBody: encodeCanonical(ReanchorBody, body),
+    canonicalCompletedReanchor: encodeCanonical(CompletedReanchor, completed),
+  }).pipe(
+    Effect.mapError(persistenceFailure),
+    Effect.flatMap((canonical) =>
+      runtime.input.store.completeReanchor({
+        conversationId: body.conversationId,
+        anchorHash: completed.anchorHash,
+        previousAnchorHash: body.previousAnchorHash,
+        routerInstanceId: body.routerInstanceId,
+        selectedRecordHash: body.selectedRecordHash,
+        ...canonical,
+      }),
+    ),
+    Effect.flatMap(() =>
+      Effect.sync(() => {
+        const conversation = runtime.conversations.get(body.conversationId);
+        if (conversation !== undefined) {
+          conversation.currentAnchor = completed;
+        }
+      }),
+    ),
+    Effect.mapError(persistenceFailure),
+  );
+}
+
+function evidenceTargetsAnchor(
+  evidence: EndpointRecovery["evidence"][number],
+  conversationId: ConversationIdValue,
+  anchorHash: AnchorHashValue,
+): boolean {
+  return (
+    evidence.kind === "reanchor" &&
+    evidence.conversationId === conversationId &&
+    evidence.subjectId === anchorHash
+  );
+}
+
+function verifyStoredReanchorVote(
+  evidence: EndpointRecovery["evidence"][number],
+  membership: VerifiedMembership,
+  body: ReanchorBodyValue,
+  anchorHash: AnchorHashValue,
+): Effect.Effect<SignedMessageValue, RouterWorkerPersistenceError> {
+  return decodeCanonical(SignedMessage, evidence.canonicalEvidence).pipe(
+    Effect.flatMap((message) => Schema.encode(SignedMessage)(message)),
+    Effect.flatMap((representation) =>
+      verifyStableEvidence({ representation, membership }),
+    ),
+    Effect.flatMap((verified) =>
+      storedVoteMatches(verified.statement, body, anchorHash)
+        ? Effect.succeed(verified.message)
+        : Effect.fail(persistenceFailure()),
+    ),
+    Effect.mapError(persistenceFailure),
+  );
+}
+
+function storedVoteMatches(
+  statement: EvidenceStatementValue,
+  body: ReanchorBodyValue,
+  anchorHash: AnchorHashValue,
+): boolean {
+  return (
+    statement.kind === "reanchor_vote" &&
+    statement.anchorHash === anchorHash &&
+    sameReanchorBody(statement.reanchor, body)
+  );
+}
+
+function votesHaveUniqueSigners(votes: readonly SignedMessageValue[]): boolean {
+  return (
+    new Set<PendingReanchorVote["statement"]["signerAgentId"]>(
+      votes.map((vote) => vote.senderAgentId),
+    ).size === votes.length
+  );
+}
+
+function sameReanchorBody(
+  left: ReanchorBodyValue,
+  right: ReanchorBodyValue,
+): boolean {
+  return [
+    left.conversationId === right.conversationId,
+    left.membershipHash === right.membershipHash,
+    left.previousAnchorHash === right.previousAnchorHash,
+    left.selectedRecordHash === right.selectedRecordHash,
+    left.routerInstanceId === right.routerInstanceId,
+  ].every((matches) => matches);
+}
+
+function persistenceFailure(): RouterWorkerPersistenceError {
+  return new RouterWorkerPersistenceError();
+}
