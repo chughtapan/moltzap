@@ -5909,10 +5909,10 @@ const forkSend = (engine: EndpointEngine, to: string, text: string) =>
 /**
  * After a Router discontinuity the endpoint holds two conversations. The
  * direct one's only other member is silent, and the N4 conversation's members
- * answer its catch-up. One answer is short of a quorum, so the N4 post still
- * waits; with the second, the N4 conversation recovers, its post reaches the
- * Router, and its Router-ordered proposal and a member's signature are
- * accepted. Meanwhile the direct conversation stays fenced and the Router
+ * answer its catch-up. Two answers are short of every member, so while its
+ * retries last the N4 post still waits; with the third, the N4 conversation
+ * recovers, its post reaches the Router, and its Router-ordered proposal and
+ * a member's signature are accepted. Meanwhile the direct conversation stays fenced and the Router
  * receives nothing of its post. Once the direct member
  * answers, that conversation recovers and its held post reaches the Router.
  * Fails when the silent member's conversation holds the N4 conversation's
@@ -5959,6 +5959,7 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
             }),
           );
         yield* n4Incomplete(fixture.remote);
+        yield* n4Incomplete(n4.third);
         const directSend = yield* forkSend(
           n4.engine,
           `agent:${fixture.remote.card.agentName}`,
@@ -5971,10 +5972,10 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
             .join(",")}`,
           "the recovered conversation sends",
         );
-        const sentBelowQuorum = yield* takeActionProposalAfterEvidence(
+        const sentBeforeEveryMember = yield* takeActionProposalAfterEvidence(
           fixture.normalOutbound,
         ).pipe(Effect.timeoutOption("300 millis"));
-        yield* n4Incomplete(n4.third);
+        yield* n4Incomplete(n4.fourth);
         const proposal = yield* takeActionProposalAfterEvidence(
           fixture.normalOutbound,
         );
@@ -6012,7 +6013,7 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
           fixture.normalOutbound,
         );
 
-        expect(Option.isNone(sentBelowQuorum)).toBe(true);
+        expect(Option.isNone(sentBeforeEveryMember)).toBe(true);
         expect(proposal.proposal.action.conversationId).toBe(
           n4.membership.descriptor.conversationId,
         );
@@ -6231,7 +6232,7 @@ const proposesPendingPostsOnlyOnceItsConversationRecovers = () =>
         yield* settle;
         const sentWhileFenced = yield* Queue.size(fixture.normalOutbound);
         yield* Effect.forEach(
-          [fixture.remote, n4.third],
+          [fixture.remote, n4.third, n4.fourth],
           (responder) =>
             deliverRecovery(
               n4.engine,
@@ -6254,6 +6255,170 @@ const proposesPendingPostsOnlyOnceItsConversationRecovers = () =>
         );
       }),
     ),
+  );
+
+/**
+ * After a feed gap, two N4 members answer that nothing follows the
+ * endpoint's head, because they have only staged the successor the fourth
+ * member holds certified. The endpoint's post waits for the fourth member,
+ * whose page brings the certified successor, and once every member has
+ * answered at the new head the post is proposed there. Fails when a quorum
+ * of answers settles the position before every member has answered while
+ * retries remain, so the endpoint proposes at a stale head.
+ */
+const waitsForTheMemberHoldingTheCertifiedSuccessor = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const n4 = yield* addN4Foundation(fixture);
+        const history = yield* buildN4PartialHistory(fixture, n4);
+        yield* directPacketIngressFrom({
+          membership: n4.membership,
+          sender: fixture.remote,
+          packet: history.certifiedHead,
+          routerInstanceId: oldRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
+        );
+        const { outbound } = yield* forkRecovery(
+          { engine: n4.engine, recoveryOutbound: fixture.recoveryOutbound },
+          "feed_gap",
+          oldRouterInstanceId,
+        );
+        const requests = yield* Effect.replicateEffect(
+          takeCatchUpRequest(outbound),
+          2,
+        );
+        const n4Request = requests.find(
+          (request) =>
+            request.conversationId === n4.membership.descriptor.conversationId,
+        );
+        if (n4Request === undefined) {
+          return yield* Effect.dieMessage(
+            "recovery did not ask the N4 members",
+          );
+        }
+        const answerIncomplete = (
+          request: CatchUpRequest,
+          responders: readonly SigningIdentity[],
+        ) =>
+          Effect.forEach(
+            responders,
+            (responder) =>
+              deliverRecovery(
+                n4.engine,
+                catchUpIncompleteIngressFrom({
+                  membership: n4.membership,
+                  responder,
+                  request,
+                  routerInstanceId: oldRouterInstanceId,
+                }),
+              ),
+            { concurrency: 1, discard: true },
+          );
+        yield* answerIncomplete(n4Request, [fixture.remote, n4.third]);
+        yield* forkSend(
+          n4.engine,
+          `group:${[fixture.remote, n4.third, n4.fourth]
+            .map((member) => member.card.agentName)
+            .join(",")}`,
+          "posted while the certified holder has not answered",
+        );
+        yield* deliverRecovery(
+          n4.engine,
+          catchUpPageIngressFrom({
+            membership: n4.membership,
+            responder: n4.fourth,
+            request: n4Request,
+            item: history.certifiedSuccessor,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        );
+        const next = yield* takeCatchUpRequest(outbound);
+        yield* answerIncomplete(next, [fixture.remote, n4.third, n4.fourth]);
+        const proposal = yield* takeActionProposalAfterEvidence(
+          fixture.normalOutbound,
+        );
+
+        expect(proposal.proposal.action.previousRecordHash).toBe(
+          history.certifiedSuccessor.actionCertifiedRecord.recordHash,
+        );
+      }),
+    ),
+  );
+
+/**
+ * An N4 member stays silent while the endpoint's post waits on the
+ * conversation. One answer arrives while the retries last; once they run out
+ * it is still short of a quorum, so the post keeps waiting. The next answer
+ * makes a quorum, which now settles the position: the conversation recovers
+ * and the post goes out. Fails when a silent member holds the conversation
+ * after its retries ran out, or when fewer than a quorum settle it.
+ */
+const settlesOnAQuorumOnceTheRetriesRunOut = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const n4 = yield* addN4Foundation(fixture);
+        const { outbound } = yield* forkRecovery(
+          { engine: n4.engine, recoveryOutbound: fixture.recoveryOutbound },
+          "feed_gap",
+          oldRouterInstanceId,
+          { clock: "caller" },
+        );
+        const requests = yield* Effect.replicateEffect(
+          takeCatchUpRequest(outbound),
+          2,
+        );
+        const n4Request = requests.find(
+          (request) =>
+            request.conversationId === n4.membership.descriptor.conversationId,
+        );
+        if (n4Request === undefined) {
+          return yield* Effect.dieMessage(
+            "recovery did not ask the N4 members",
+          );
+        }
+        const n4Incomplete = (responder: SigningIdentity) =>
+          deliverRecovery(
+            n4.engine,
+            catchUpIncompleteIngressFrom({
+              membership: n4.membership,
+              responder,
+              request: n4Request,
+              routerInstanceId: oldRouterInstanceId,
+            }),
+          );
+        yield* n4Incomplete(fixture.remote);
+        yield* forkSend(
+          n4.engine,
+          `group:${[fixture.remote, n4.third, n4.fourth]
+            .map((member) => member.card.agentName)
+            .join(",")}`,
+          "sent once a quorum settles the conversation",
+        );
+        yield* Effect.replicateEffect(
+          takeRetriedCatchUpRequest(outbound),
+          2 * catchUpRetryAttempts,
+        );
+        const sentBelowQuorum = yield* TestServices.provideLive(
+          takeActionProposalAfterEvidence(fixture.normalOutbound).pipe(
+            Effect.timeoutOption("300 millis"),
+          ),
+        );
+        yield* n4Incomplete(n4.third);
+        const proposal = yield* takeActionProposalAfterEvidence(
+          fixture.normalOutbound,
+        );
+
+        expect(Option.isNone(sentBelowQuorum)).toBe(true);
+        expect(proposal.proposal.action.conversationId).toBe(
+          n4.membership.descriptor.conversationId,
+        );
+      }),
+    ).pipe(Effect.provide(TestContext.TestContext)),
   );
 
 /**
@@ -6561,6 +6726,15 @@ describe("catch-up and re-anchor inside a recovery run", () => {
   it(
     "proposes a pending post only once its conversation recovers, at the head it settles on",
     proposesPendingPostsOnlyOnceItsConversationRecovers,
+  );
+  it(
+    "waits for the member holding a certified successor before it settles the position",
+    waitsForTheMemberHoldingTheCertifiedSuccessor,
+  );
+  it(
+    "settles a position on a quorum of answers once its retries run out",
+    settlesOnAQuorumOnceTheRetriesRunOut,
+    10_000,
   );
   it(
     "finishes recovering a conversation whose completing delivery is interrupted",

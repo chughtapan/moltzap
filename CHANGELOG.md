@@ -30,13 +30,18 @@ heading below in its release commit.
   recovery is still running (#1187).
 - One silent or faulty member no longer holds every conversation on a daemon
   after a Router restart or a feed gap. Each conversation recovers on its own
-  and carries traffic as soon as it has, and catch-up needs answers from a
-  quorum of members rather than from all of them. Unanswered catch-up requests
-  are retried with backoff a bounded number of times; a conversation whose
-  retries ran out starts again when a member sends traffic for it, the daemon
-  recovers again, the agent sends into it, or the Router worker reattaches. A
-  daemon that staged its own re-anchor candidate adopts the members' completed
-  re-anchor for the same Router instance instead of stalling (#1186).
+  and carries traffic as soon as it has. Unanswered catch-up requests are
+  retried with backoff a bounded number of times, after which answers from a
+  quorum of members settle the conversation rather than answers from all of
+  them; a conversation still short of a quorum starts again when a member
+  sends traffic for it, the daemon recovers again, the agent sends into it, or
+  the Router worker reattaches. A daemon that staged its own re-anchor
+  candidate adopts the members' completed re-anchor for the same Router
+  instance instead of stalling (#1186).
+- A daemon catching up a conversation no longer settles at a stale head when
+  the one member holding a newer certified post answers after the others,
+  which have only staged it. Catch-up waits for every member while its retries
+  last (#1205).
 - A conversation whose post was ordered but not certified when the Router
   restarted can certify posts again after it re-anchors. The re-anchor
   releases the old proposal's lock, signatures and any record staged for it,

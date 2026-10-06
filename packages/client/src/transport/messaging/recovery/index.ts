@@ -66,6 +66,7 @@ import {
   requestCertifiedHistory,
   resendCertifiedHistoryRequest,
   sentByOtherMember,
+  settleOnQuorum,
 } from "./catch-up.js";
 
 /**
@@ -84,9 +85,10 @@ const catchUpRetryBase = Duration.seconds(1);
 /**
  * Catch-up retries after a conversation's first request. With the doubling
  * delay, eight retries span about four minutes (1 s + 2 s + ... + 128 s,
- * each jittered). After the last one the conversation stays paused until a
- * member's traffic for it, a local post into it, the Router worker
- * reattaching, or the next recovery run arms it again.
+ * each jittered). After the last one a quorum of answers settles the
+ * conversation's position; without one it stays paused until a member's
+ * traffic for it, a local post into it, the Router worker reattaching, or the
+ * next recovery run arms it again.
  */
 export const catchUpRetryAttempts = 8;
 
@@ -559,6 +561,15 @@ function armCatchUp(
   );
 }
 
+/**
+ * Resend a conversation's request on {@link catchUpRetrySchedule}, then let a
+ * quorum of answers settle its position. The settling runs on its own fiber
+ * in the run's scope: recovering the conversation removes this retry fiber,
+ * which it could not do from inside it.
+ * @param run Recovery run that holds the conversation.
+ * @param conversationId Conversation to catch up.
+ * @returns The retries, ending once the settling has started.
+ */
 function retryCatchUp(
   run: RecoveryRun,
   conversationId: ConversationIdValue,
@@ -567,6 +578,16 @@ function retryCatchUp(
     resendCertifiedHistoryRequest(run.catchUp, conversationId),
     catchUpRetrySchedule,
   ).pipe(
+    Effect.zipRight(
+      settleOnQuorum(run.catchUp, conversationId).pipe(
+        Effect.catchAll(() =>
+          Effect.logWarning(
+            "Catch-up did not settle on a quorum: the endpoint store failed",
+          ),
+        ),
+        Effect.forkIn(run.scope),
+      ),
+    ),
     Effect.asVoid,
     Effect.catchAll(() =>
       Effect.logWarning(

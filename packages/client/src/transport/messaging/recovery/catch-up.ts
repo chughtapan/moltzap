@@ -54,6 +54,16 @@ export interface CatchUpState {
   readonly pendingRequests: Map<ConversationIdValue, CatchUpRequestValue>;
   readonly incompleteResponders: Map<ConversationIdValue, Set<AgentId>>;
   readonly acceptedSuccessors: Map<string, RecordHashValue | AnchorHashValue>;
+  /**
+   * Conversations whose request has used up its retries, so a quorum of
+   * answers settles their position. Until then a position waits for every
+   * other member: a member that has only staged a successor still answers
+   * incomplete, so the one member holding that successor certified must be
+   * heard before the position settles behind it.
+   */
+  readonly settlingOnQuorum: Set<ConversationIdValue>;
+  /** Conversations whose current request has already made its position ready. */
+  readonly readyPositions: Set<ConversationIdValue>;
 }
 
 /** What catch-up needs from the recovery run it belongs to; the run builds it. */
@@ -72,8 +82,8 @@ export interface CatchUpRun {
     packet: DirectPacket,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
   /**
-   * A quorum of members, counting this endpoint, has attested that it holds
-   * no later history.
+   * Every other member, or once the retries have run out a quorum counting
+   * this endpoint, has attested that it holds no later history.
    */
   readonly onPositionReady: (
     conversationId: ConversationIdValue,
@@ -101,6 +111,8 @@ export function makeCatchUpState(): CatchUpState {
     pendingRequests: new Map(),
     incompleteResponders: new Map(),
     acceptedSuccessors: new Map(),
+    settlingOnQuorum: new Set(),
+    readyPositions: new Set(),
   };
 }
 
@@ -135,6 +147,32 @@ export const resendCertifiedHistoryRequest = (
   queueCatchUpRequest(run, conversationId, "keep").pipe(
     Effect.withSpan("resendCertifiedHistoryRequest"),
   );
+
+/**
+ * Let a quorum of answers settle a conversation's position once its request
+ * has used up its retries, and settle it now if a quorum has already answered.
+ * @param run Recovery run that owns the request.
+ * @param conversationId Conversation whose retries ran out.
+ * @returns Completion once the position is settled or left waiting.
+ */
+export const settleOnQuorum = (
+  run: CatchUpRun,
+  conversationId: ConversationIdValue,
+): Effect.Effect<void, RouterWorkerPersistenceError> =>
+  Effect.suspend(() => {
+    const membership = run.membership(conversationId);
+    if (
+      !run.isActive() ||
+      membership === undefined ||
+      !run.state.pendingRequests.has(conversationId)
+    ) {
+      return Effect.void;
+    }
+    run.state.settlingOnQuorum.add(conversationId);
+    return claimReadyPosition(run.state, membership, conversationId)
+      ? run.onPositionReady(conversationId)
+      : Effect.void;
+  }).pipe(Effect.withSpan("settleOnQuorum"));
 
 /**
  * Answer an authenticated catch-up request with the requester's next certified
@@ -364,6 +402,8 @@ function queueCatchUpRequest(
         !sameRequest(pending, request)
       ) {
         run.state.incompleteResponders.set(conversationId, new Set<AgentId>());
+        run.state.settlingOnQuorum.delete(conversationId);
+        run.state.readyPositions.delete(conversationId);
       }
     });
     yield* run.queuePacket(membership, request);
@@ -596,11 +636,9 @@ function persistenceFailure(): RouterWorkerPersistenceError {
 }
 
 /**
- * Count a member's attestation for the pending request. The position is
- * ready when the attestations first reach a quorum counting this endpoint,
- * so a later attestation does not make it ready twice. The request stays
- * pending afterwards: a member that had not answered may still send a page
- * with later history, which then moves the position on.
+ * Count a member's attestation for the pending request. The request stays
+ * pending once the position is ready: a member that had not answered may
+ * still send a page with later history, which then moves the position on.
  * @param state The run's catch-up bookkeeping.
  * @param membership Verified membership of the conversation.
  * @param conversationId Conversation the attestation is for.
@@ -620,7 +658,32 @@ function recordIncompleteResponder(
   }
   responders.add(senderAgentId);
   state.incompleteResponders.set(conversationId, responders);
-  return responders.size === quorumThreshold(membership.members.length) - 1;
+  return claimReadyPosition(state, membership, conversationId);
+}
+
+/**
+ * Mark a position ready the first time its attestations suffice: every other
+ * member, or a quorum counting this endpoint once the retries have run out.
+ * @param state The run's catch-up bookkeeping.
+ * @param membership Verified membership of the conversation.
+ * @param conversationId Conversation whose attestations are counted.
+ * @returns Whether the position became ready now.
+ */
+function claimReadyPosition(
+  state: CatchUpState,
+  membership: VerifiedMembership,
+  conversationId: ConversationIdValue,
+): boolean {
+  const answered = state.incompleteResponders.get(conversationId)?.size ?? 0;
+  const memberCount = membership.members.length;
+  const needed = state.settlingOnQuorum.has(conversationId)
+    ? quorumThreshold(memberCount) - 1
+    : memberCount - 1;
+  if (answered < needed || state.readyPositions.has(conversationId)) {
+    return false;
+  }
+  state.readyPositions.add(conversationId);
+  return true;
 }
 
 function sameRequest(

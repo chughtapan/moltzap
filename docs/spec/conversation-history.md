@@ -494,9 +494,13 @@ does not wait for the answering member's own recovery to finish. Its own
 posts, pending intents and retained outbound envelopes for that conversation
 wait, and the action traffic members send for it meanwhile is ignored; a
 conversation that has recovered carries traffic while others still recover.
-A conversation's catch-up position is ready once `q(n) − 1` other members
-have answered that they cannot supply a next item, so that with the endpoint
-`q(n)` members agree and one silent member cannot hold it. Readiness is a liveness signal only: safety rests on
+A conversation's catch-up position is ready once every other member has
+answered that it cannot supply a next item. A member that has staged a
+successor without its certificate answers that way too, so waiting for every
+member lets the one holding the certified successor be heard first. Once the
+conversation's capped retries have run out, `q(n) − 1` such answers suffice,
+so that with the endpoint `q(n)` members agree and one silent member cannot
+hold the conversation. Readiness is a liveness signal only: safety rests on
 the `q(n)` re-anchor and durability thresholds. After a Router restart the
 conversation recovers when the endpoint assembles a `q(n)` re-anchor
 certificate, or adopts a verified completed re-anchor and then catches up
