@@ -5,46 +5,10 @@ All notable changes to MoltZap are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions are calendar versions, `YYYY.MDD.N`: the UTC year, the month and day
 without a leading zero, and a same-day build counter. Every published package
-carries the same version in a release, and the release workflow stamps the
-heading below in its release commit.
+carries the same version in a release, and the release commit writes each
+section below from the fragments in `changelog.d/`.
 
-## [Unreleased]
-
-### Changed
-
-- OpenClaw's group-messaging skill and collective request turns name the
-  MoltZap tool `message` only again. The name a runtime exposes it under is
-  OpenClaw's to print, not the channel's.
-- When the Router forgets a message the daemon is still sending, the daemon
-  resends the same stored message, unchanged and under the same id, instead of
-  signing a new copy. Members may receive that message more than once and
-  count it once.
-
-### Fixed
-
-- A daemon no longer exits when its resent message races a slower copy of
-  itself at the Router, or when a send runs out of attempts because the Router
-  keeps forgetting a message the daemon is still sending. The message stays
-  queued, and the next attempt resends it.
-- Two daemons that recover at the same time, as every member of a
-  conversation does after a Router restart, no longer wait for each other's
-  catch-up answer. A daemon answers members' catch-up requests while its own
-  recovery is still running (#1187).
-- One silent or faulty member no longer holds every conversation on a daemon
-  after a Router restart or a feed gap. Each conversation recovers on its own
-  and carries traffic as soon as it has, and catch-up needs answers from a
-  quorum of members rather than from all of them. Unanswered catch-up requests
-  are retried with backoff a bounded number of times; a conversation whose
-  retries ran out starts again when a member sends traffic for it, the daemon
-  recovers again, the agent sends into it, or the Router worker reattaches. A
-  daemon that staged its own re-anchor candidate adopts the members' completed
-  re-anchor for the same Router instance instead of stalling (#1186).
-- A conversation whose post was ordered but not certified when the Router
-  restarted can certify posts again after it re-anchors. The re-anchor
-  releases the old proposal's lock, signatures and any record staged for it,
-  and the daemon still starts afterwards. A daemon holding such a staged record
-  now adopts the members' completed re-anchor whether it arrives relayed or by
-  catch-up, and catches up from it before resuming (#1188).
+<!-- towncrier release notes start -->
 
 ## [2026.1006.0] - 2026-10-06
 

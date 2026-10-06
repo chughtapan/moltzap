@@ -166,6 +166,10 @@ jobs:
 
       # The runner's pnpm install wired the husky hooks; the release commit
       # is made of generated output CI already gated, so the hooks stay out.
+      # towncrier writes the version's CHANGELOG.md section from the fragments
+      # in changelog.d/ and deletes them. It would write a section even with
+      # no fragments, so a release without any, like a rerun whose section is
+      # already written, leaves CHANGELOG.md as it is.
       - name: Regenerate docs and commit the release
         if: steps.plan.outputs.mode == 'bump'
         env:
@@ -174,13 +178,18 @@ jobs:
           HUSKY: "0"
         run: |
           pnpm docs:generate
-          grep -qx '## \[Unreleased\]' CHANGELOG.md || { echo "CHANGELOG.md has no [Unreleased] section"; exit 1; }
-          grep -q "^## \[$VERSION\]" CHANGELOG.md \
-            || sed -i "s/^## \[Unreleased\]$/&\n\n## [$VERSION] - $(date -u +%F)/" CHANGELOG.md
+          if grep -q "^## \[$VERSION\]" CHANGELOG.md; then
+            echo "CHANGELOG.md already has a $VERSION section"
+          elif [ -z "$(find changelog.d -type f ! -name template.md)" ]; then
+            echo "changelog.d/ has no fragments; CHANGELOG.md gets no $VERSION section"
+          else
+            pipx run --spec towncrier==26.9.0 towncrier build \
+              --version "$VERSION" --date "$(date -u +%F)" --yes
+          fi
 
           git config user.name "moltzap-release[bot]"
           git config user.email "moltzap-release[bot]@users.noreply.github.com"
-          git add packages/*/package.json pnpm-lock.yaml CHANGELOG.md \
+          git add packages/*/package.json pnpm-lock.yaml CHANGELOG.md changelog.d/ \
             docs/ 'packages/**/MODULE.md' README.md
           git commit -m "chore(release): moltzap@$VERSION"
           git tag "v$VERSION"

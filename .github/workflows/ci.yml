@@ -28,6 +28,19 @@ jobs:
       NX_SKIP_REMOTE_CACHE: ${{ (vars.NX_CACHE_DISABLED == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
+      # The release commit writes CHANGELOG.md from the fragments in
+      # changelog.d/, so a pull request adds a fragment instead of editing it.
+      # HEAD is the pull request's merge commit, whose first parent is its
+      # base; a base without towncrier.toml still takes hand-written entries.
+      - name: Refuse CHANGELOG.md edits
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --quiet --depth=2 origin "$GITHUB_SHA"
+          if git cat-file -e HEAD^1:towncrier.toml 2>/dev/null \
+            && ! git diff --quiet HEAD^1 HEAD -- CHANGELOG.md; then
+            echo "::error file=CHANGELOG.md::This pull request edits CHANGELOG.md; add a fragment under changelog.d/ instead (see towncrier.toml)"
+            exit 1
+          fi
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
