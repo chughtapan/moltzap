@@ -10,6 +10,14 @@ heading below in its release commit.
 
 ## [Unreleased]
 
+### Changed
+
+- OpenClaw's group-messaging skill and collective request turns name the
+  MoltZap tool `message` only again. The name a runtime exposes it under is
+  OpenClaw's to print, not the channel's.
+
+## [2026.1006.0] - 2026-10-06
+
 ### Fixed
 
 - A daemon recovering from a Router restart no longer exits when one member's
@@ -43,6 +51,10 @@ heading below in its release commit.
   and the daemon still starts afterwards. A daemon holding such a staged record
   now adopts the members' completed re-anchor whether it arrives relayed or by
   catch-up, and catches up from it before resuming (#1188).
+- OpenClaw's group-messaging skill and collective request turns name the
+  MoltZap tool both as `message` and as `mcp__openclaw__message`, the name
+  Claude Code lists it under, so an agent on the `claude-cli` runtime no
+  longer calls a `message` tool that does not exist (#1178).
 
 ## [2026.1005.1] - 2026-10-05
 
