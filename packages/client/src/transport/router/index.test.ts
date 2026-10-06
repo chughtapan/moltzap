@@ -69,7 +69,6 @@ import {
   type RouterWorkerRecovery,
   type RouterWorkerRecoveryError,
   RouterWorkerRejectedError,
-  type RouterWorkerSendError,
   RouterWorkerTransportError,
   RouterWorkerUnavailableError,
 } from "./index.js";
@@ -81,8 +80,6 @@ type RouterClientFailure = Effect.Effect.Error<
 
 /* eslint-disable max-lines, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The scripted scenarios keep each Router trace and its exact ordering assertions together and use Vitest's Promise-native contract. */
 
-const retryMode: RouterSendRequest["mode"] = "retry";
-
 const callbacks = (input?: {
   readonly accepted?: Ref.Ref<string[]>;
   readonly acceptedRouterInstances?: Ref.Ref<string[]>;
@@ -92,7 +89,7 @@ const callbacks = (input?: {
   readonly failAcceptText?: string;
   readonly recover?: (
     input: RouterWorkerRecovery,
-  ) => Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError>;
+  ) => Effect.Effect<void, RouterWorkerRecoveryError>;
 }): RouterWorkerCallbacks<TestPayload> => ({
   pinSenderCard: () => Effect.void,
   decodePayload: (message) => {
@@ -146,6 +143,10 @@ const callbacks = (input?: {
       ),
     );
   },
+  reattached: () =>
+    input?.events === undefined
+      ? Effect.void
+      : Ref.update(input.events, (events) => [...events, "reattached"]),
 });
 
 const makeInput = (
@@ -871,59 +872,6 @@ const recoveryRetryPromotesChangedTailToRestart = async (): Promise<void> => {
   );
 };
 
-const recoveryResumesRetainedOutbound = async (): Promise<void> => {
-  await Effect.runPromise(
-    withOutbox((store) =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const outgoing = yield* signMessage({
-          card: fixture.localCard,
-          authority: fixture.localAuthority,
-          recipient: fixture.localCard.agentId,
-          id: 62,
-          body: "retained-recovery-envelope",
-        });
-        const outbound = yield* prepareOutbound(
-          store,
-          "conversation:recovery-resume",
-          outgoing,
-        );
-        yield* store.beginOutbound(outbound.outboundId).pipe(Effect.orDie);
-        const instance = routerInstanceId(62);
-        const accepted = yield* acceptedResult(instance, outgoing);
-        const router = yield* makeScriptedRouter({
-          polls: [
-            emptyBatch(instance, pollCursor(21)),
-            { kind: "cursor_invalid" },
-            emptyBatch(instance, pollCursor(22)),
-            emptyBatch(instance, pollCursor(23)),
-          ],
-          sends: [accepted],
-        });
-        const worker = yield* provide(
-          makeActiveRouterWorker(
-            makeInput(
-              fixture,
-              callbacks({
-                recover: (recovery) => recovery.resume(outbound.outboundId),
-              }),
-              store,
-            ),
-          ),
-          router.layer,
-          fixture,
-        );
-        yield* provide(worker.pollOnce, router.layer, fixture);
-        const sendCalls = yield* Ref.get(router.scripted.sendCalls);
-        expect(sendCalls).toHaveLength(1);
-        expect(sendCalls[0]?.request.mode).toBe(retryMode);
-        expect(sendCalls[0]?.request.signedMessage).toEqual(outgoing);
-        expect((yield* store.recover()).outboundMessages).toEqual([]);
-      }),
-    ),
-  );
-};
-
 const normalSendWaitsForRecovery = async (): Promise<void> => {
   await Effect.runPromise(
     withOutbox((store) =>
@@ -1306,10 +1254,12 @@ const outageRouter = (input: {
 /**
  * A Router outage far longer than any bounded retry detaches the worker and
  * keeps its poll loop running, warns again while it lasts, and the first
- * answered probe reattaches at the retained anchor so a held send goes out.
+ * answered probe reattaches at the retained anchor so a held send goes out
+ * and the endpoint hears of the reattach.
  */
 const outageDetachesAndReattaches = async (): Promise<void> => {
   const lines: LogLines = [];
+  const events = Effect.runSync(Ref.make<string[]>([]));
   const fixture = await Effect.runPromise(makeFixture);
   const instance = routerInstanceId(110);
   const reachable = Effect.runSync(Ref.make(true));
@@ -1332,7 +1282,7 @@ const outageDetachesAndReattaches = async (): Promise<void> => {
             outgoing,
           );
           const worker = yield* makeActiveRouterWorker(
-            makeInput(fixture, callbacks(), store),
+            makeInput(fixture, callbacks({ events }), store),
           );
           const polling = yield* Effect.fork(worker.run);
 
@@ -1365,6 +1315,7 @@ const outageDetachesAndReattaches = async (): Promise<void> => {
           expect(lines).toEqual(
             expect.arrayContaining([expect.stringContaining("reattached")]),
           );
+          expect(yield* Ref.get(events)).toEqual(["reattached"]);
           yield* worker.send(outbound.outboundId);
           expect((yield* store.recover()).outboundMessages).toEqual([]);
           yield* Fiber.interrupt(polling);
@@ -1857,10 +1808,6 @@ describe("private Router worker", () => {
   it(
     "promotes a retry-time omitted-tail instance change before recovery",
     recoveryRetryPromotesChangedTailToRestart,
-  );
-  it(
-    "resumes an already-retained envelope during same-instance recovery",
-    recoveryResumesRetainedOutbound,
   );
   it(
     "holds normal sends until recovery activates its Router generation",

@@ -85,9 +85,10 @@ export interface ReanchorRunPort {
     conversationId: ConversationIdValue,
   ) => VerifiedMembership | undefined;
   readonly isRecovered: (conversationId: ConversationIdValue) => boolean;
+  /** Finish a conversation and resume its held work. */
   readonly markRecovered: (
     conversationId: ConversationIdValue,
-  ) => Effect.Effect<void>;
+  ) => Effect.Effect<void, RouterWorkerPersistenceError>;
   /** Sign `body` and route it as the run routes its traffic. */
   readonly queue: (
     membership: VerifiedMembership,

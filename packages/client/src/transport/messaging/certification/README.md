@@ -6,7 +6,7 @@ promotes a record once its certificates reach quorum. It also resumes the
 dissemination of certified records that the store still owes to peers.
 
 Start with `index.ts`. It accepts Router and recovery ingress, resumes folds
-at startup and after each Router recovery, and re-exports the dissemination
+at startup and as each conversation recovers, and re-exports the dissemination
 resume and the evidence-to-fold match `../startup.ts` uses. `evidence.ts`
 routes a stable evidence message to the fold it names and verifies it.
 `dissemination.ts` re-queues each durable dissemination obligation. Both are

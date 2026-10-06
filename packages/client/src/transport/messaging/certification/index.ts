@@ -26,6 +26,7 @@ import {
   type AnchorHash,
   type CertifiedRecord,
   ClientRepresentationError,
+  type ConversationId,
   type DecodedOuterBody,
   encodeCanonical,
   equalCanonical,
@@ -447,19 +448,31 @@ const reproposePendingIntent = (
     ),
   );
 
+/**
+ * Propose a conversation's uncertified posts again at its new head. A
+ * conversation still recovering proposes nothing here: its endpoint ignores
+ * the Router's echo of a proposal while fenced, so the proposal would be
+ * signed by members but never by its author, and its recovery proposes the
+ * posts at the head it settles on.
+ * @param runtime Engine whose pending posts are rebased.
+ * @param conversationId Conversation whose head moved.
+ * @returns Completion once each pending post is proposed again.
+ */
 const rebasePendingIntents = (
   runtime: EngineRuntime,
   conversationId: EngineConversation["conversationId"],
 ): Effect.Effect<void, RouterWorkerPersistenceError> =>
-  Effect.forEach(
-    runtime.intents.values(),
-    (pending) =>
-      pending.intent.conversationId === conversationId &&
-      !runtime.completedPosts.has(pending.intent.postId)
-        ? reproposePendingIntent(runtime, pending)
-        : Effect.void,
-    { concurrency: 1, discard: true },
-  );
+  runtime.phases.isRecovering(runtime, conversationId)
+    ? Effect.void
+    : Effect.forEach(
+        runtime.intents.values(),
+        (pending) =>
+          pending.intent.conversationId === conversationId &&
+          !runtime.completedPosts.has(pending.intent.postId)
+            ? reproposePendingIntent(runtime, pending)
+            : Effect.void,
+        { concurrency: 1, discard: true },
+      );
 
 type RecordSource = "assembled" | "catch-up" | "received";
 
@@ -985,15 +998,22 @@ export const acceptEngineRecoveryIngress = (
 /**
  * Resume only the evidence obligations already selected in durable state.
  * @param runtime Recovered engine state and durable protocol dependencies.
+ * @param conversationId The one conversation to resume; every conversation
+ *     when omitted.
  * @returns Completion after all resumable evidence work has been queued.
  */
 export const resumeEngineFolds = (
   runtime: EngineRuntime,
+  conversationId?: ConversationId,
 ): Effect.Effect<void, RouterWorkerPersistenceError> =>
   runtime.gate
     .withPermits(1)(
       Effect.forEach(
-        runtime.actionFolds.values(),
+        [...runtime.actionFolds.values()].filter(
+          (fold) =>
+            conversationId === undefined ||
+            fold.conversation.conversationId === conversationId,
+        ),
         (fold) =>
           Effect.gen(function* () {
             yield* localActionEvidence(runtime, fold);

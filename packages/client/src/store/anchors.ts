@@ -211,10 +211,16 @@ export function completeReanchor(
 }
 
 /**
- * Atomically stages and completes exactly one verified catch-up anchor item.
+ * Atomically stages and completes one member's verified completed re-anchor.
+ *
+ * The completion replaces a different candidate this endpoint staged for the
+ * same previous anchor and Router instance. The one-candidate rule limits
+ * what this endpoint signs, not which quorum-certified anchor it accepts:
+ * two certificates in one scope would need an honest member to vote twice,
+ * so the replaced candidate can never be certified.
  *
  * @param database Exclusively owned endpoint database.
- * @param reanchor One verified completed re-anchor from catch-up.
+ * @param reanchor One verified completed re-anchor from a member.
  * @returns Whether any durable state was added.
  */
 export function applyCatchUpReanchor(
@@ -223,6 +229,7 @@ export function applyCatchUpReanchor(
 ): StoreMutation {
   validateCompletedReanchor(reanchor);
   return transaction(database, () => {
+    retireSupersededCandidates(database, reanchor);
     const staged = stageReanchorInTransaction(database, reanchor);
     const completed = completeReanchorInTransaction(database, reanchor);
     return staged === "inserted" || completed === "inserted"
@@ -570,6 +577,50 @@ function releaseSupersededProposal(
        WHERE conversation_id = ? AND predecessor_key = ?`,
     )
     .run(conversationId, reanchor.selectedRecordHash);
+}
+
+/**
+ * Delete this endpoint's uncompleted candidates in a completed re-anchor's
+ * scope that the completion does not select, with their re-anchor votes.
+ * @param database Exclusively owned endpoint database.
+ * @param reanchor Verified completed re-anchor that supersedes them.
+ */
+function retireSupersededCandidates(
+  database: DatabaseSync,
+  reanchor: CompletedReanchor,
+): void {
+  const scope = [
+    reanchor.conversationId,
+    reanchor.previousAnchorHash,
+    reanchor.routerInstanceId,
+    reanchor.anchorHash,
+  ] as const;
+  const superseded = database
+    .prepare(
+      `SELECT anchor_hash FROM reanchors
+       WHERE conversation_id = ? AND previous_anchor_hash = ?
+         AND router_instance_id = ? AND anchor_hash <> ?
+         AND canonical_completed_reanchor IS NULL`,
+    )
+    .all(...scope)
+    .map((row) => readText(row, "anchor_hash"));
+  for (const anchorHash of superseded) {
+    database
+      .prepare(
+        `DELETE FROM protocol_evidence
+         WHERE conversation_id = ? AND evidence_kind = 'reanchor'
+           AND subject_id = ?`,
+      )
+      .run(reanchor.conversationId, anchorHash);
+  }
+  database
+    .prepare(
+      `DELETE FROM reanchors
+       WHERE conversation_id = ? AND previous_anchor_hash = ?
+         AND router_instance_id = ? AND anchor_hash <> ?
+         AND canonical_completed_reanchor IS NULL`,
+    )
+    .run(...scope);
 }
 
 function stagedRecordHashes(

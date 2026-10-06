@@ -330,7 +330,8 @@ export const logRecoveryComplete = (
 
 /**
  * Mark a detached worker active again at its retained anchor, unless another
- * generation replaced it meanwhile.
+ * generation replaced it meanwhile, and then tell the engine through
+ * `callbacks.reattached`, so work the outage paused can start again.
  * @param runtime Worker whose probe the Router answered.
  * @param snapshot Detached state the probe was issued from.
  * @returns Completion once the worker is active or left as it was.
@@ -339,17 +340,23 @@ export const reattach = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
   snapshot: RouterWorkerDetachedState,
 ): Effect.Effect<void> =>
-  runtime.stateGate.withPermits(1)(
-    Ref.get(runtime.state).pipe(
-      Effect.flatMap((current) =>
-        current.kind === "detached" &&
-        current.generation === snapshot.generation
-          ? Ref.set(runtime.state, {
-              kind: "active",
-              generation: current.generation,
-              anchor: current.anchor,
-            }).pipe(Effect.zipRight(logReattached(current)))
-          : Effect.void,
+  runtime.stateGate
+    .withPermits(1)(
+      Ref.get(runtime.state).pipe(
+        Effect.flatMap((current) =>
+          current.kind === "detached" &&
+          current.generation === snapshot.generation
+            ? Ref.set(runtime.state, {
+                kind: "active",
+                generation: current.generation,
+                anchor: current.anchor,
+              }).pipe(Effect.zipRight(logReattached(current)), Effect.as(true))
+            : Effect.succeed(false),
+        ),
       ),
-    ),
-  );
+    )
+    .pipe(
+      Effect.flatMap((reattached) =>
+        reattached ? runtime.input.callbacks.reattached() : Effect.void,
+      ),
+    );

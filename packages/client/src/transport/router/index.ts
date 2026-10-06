@@ -28,7 +28,7 @@ import {
 } from "effect";
 import { createHash } from "node:crypto";
 import type { StoredOutboundMessage } from "../../store/index.js";
-import { decodeCanonical, encodeCanonical } from "../wire/index.js";
+import { decodeCanonical } from "../wire/index.js";
 import {
   detach,
   isTransportFailure,
@@ -56,7 +56,6 @@ import {
   RouterWorkerProtocolError,
   routerWorkerReconnectSchedule,
   type RouterWorkerRecoveringState,
-  type RouterWorkerRecoverySend,
   routerWorkerRetryAttempts,
   routerWorkerRetryDelay,
   type RouterWorkerRuntime,
@@ -350,38 +349,6 @@ function transmitOutbound<Payload>(
   );
 }
 
-/**
- * Retains a recovery envelope before its first recovery-only Router attempt.
- *
- * @param runtime Worker capabilities and durable outbox.
- * @param input Conversation binding and complete signed recovery message.
- * @param instance Router instance fence for this attempt.
- * @returns Whether the retained envelope completed or observed a restart.
- */
-function enqueueRecoveryOutbound<Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-  input: RouterWorkerRecoverySend,
-  instance: RouterInstanceId,
-): Effect.Effect<RouterWorkerSendOutcome, OutboundTransportError> {
-  return Effect.gen(function* () {
-    if (input.message.senderAgentId !== runtime.input.callerAgentId) {
-      return yield* Effect.fail(new RouterWorkerProtocolError());
-    }
-    const canonicalSignedMessage = yield* encodeCanonical(
-      SignedMessage,
-      input.message,
-    ).pipe(Effect.mapError(mapProtocolError));
-    const outbound = yield* runtime.input.outbox
-      .enqueueOutbound({
-        conversationId: input.conversationId,
-        messageId: input.message.messageId,
-        canonicalSignedMessage,
-      })
-      .pipe(Effect.mapError(mapPersistenceError));
-    return yield* transmitOutbound(runtime, outbound.outboundId, instance);
-  });
-}
-
 type AnchoredRecoveringState = RouterWorkerRecoveringState & {
   readonly anchor: NonNullable<RouterWorkerRecoveringState["anchor"]>;
 };
@@ -458,44 +425,6 @@ const commitRecoveryBatch = <Payload>(
     }),
   );
 
-const recoverySend = <Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-  input: RouterWorkerRecoverySend,
-): Effect.Effect<void, RouterWorkerSendError> =>
-  Effect.gen(function* () {
-    const state = yield* Ref.get(runtime.state);
-    if (state.kind !== "recovering" || state.anchor === undefined) {
-      return yield* Effect.fail(new RouterWorkerUnavailableError());
-    }
-    const outcome = yield* enqueueRecoveryOutbound(
-      runtime,
-      input,
-      state.anchor.routerInstanceId,
-    );
-    if (outcome.kind === "restarted") {
-      return yield* Effect.fail(new RouterWorkerDiscontinuityError());
-    }
-  });
-
-const recoveryResume = <Payload>(
-  runtime: RouterWorkerRuntime<Payload>,
-  outboundId: string,
-): Effect.Effect<void, RouterWorkerSendError> =>
-  Effect.gen(function* () {
-    const state = yield* Ref.get(runtime.state);
-    if (state.kind !== "recovering" || state.anchor === undefined) {
-      return yield* Effect.fail(new RouterWorkerUnavailableError());
-    }
-    const outcome = yield* transmitOutbound(
-      runtime,
-      outboundId,
-      state.anchor.routerInstanceId,
-    );
-    if (outcome.kind === "restarted") {
-      return yield* Effect.fail(new RouterWorkerDiscontinuityError());
-    }
-  });
-
 const pollRecoveringOnce = <Payload>(
   runtime: RouterWorkerRuntime<Payload>,
   operations: RecoveryOperations,
@@ -561,8 +490,6 @@ const finishRouterRecovery = <Payload>(
       runtime.input.callbacks.recoverCertifiedHistory({
         reason: prepared.reason,
         anchor: prepared.anchor,
-        resume: (outboundId) => recoveryResume(runtime, outboundId),
-        send: (message) => recoverySend(runtime, message),
       }),
       pumpRecovery(runtime, operations, prepared),
       {

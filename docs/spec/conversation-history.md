@@ -486,13 +486,28 @@ new anchor. Catch-up and re-anchor do
 not create runtime messages by themselves. Verified catch-up or re-anchor
 input from a member that the endpoint cannot apply, such as input naming an
 anchor, record, or position it cannot resolve, does not count and never stops
-the endpoint. It can leave that conversation unrecovered. Recovery finishes
-only when every conversation has recovered. Until then the endpoint sends only
-catch-up and re-anchor traffic, which includes its answers to members'
-catch-up requests: an answer does not wait for the answering member's own
-recovery to finish. Its own posts, pending intents and retained
-outbound envelopes wait for every conversation, and the action traffic members
-send meanwhile is ignored.
+the endpoint. It can leave that conversation unrecovered, and it holds no
+other conversation: each conversation recovers on its own. Until a
+conversation recovers, the endpoint sends only catch-up and re-anchor traffic
+for it, which includes its answers to members' catch-up requests, so an answer
+does not wait for the answering member's own recovery to finish. Its own
+posts, pending intents and retained outbound envelopes for that conversation
+wait, and the action traffic members send for it meanwhile is ignored; a
+conversation that has recovered carries traffic while others still recover.
+A conversation's catch-up position is ready once `q(n) − 1` other members
+have answered that they cannot supply a next item, so that with the endpoint
+`q(n)` members agree and one silent member cannot hold it. Readiness is a liveness signal only: safety rests on
+the `q(n)` re-anchor and durability thresholds. After a Router restart the
+conversation recovers when the endpoint assembles a `q(n)` re-anchor
+certificate, or adopts a verified completed re-anchor and then catches up
+from it. A completed re-anchor it adopts supersedes a different candidate it
+staged for the same conversation, preceding anchor, and Router instance,
+because two certificates in one scope would need an honest member to vote
+twice. Unanswered catch-up requests are retried with jittered exponential
+backoff a bounded number of times. A conversation whose retries ran out
+starts a fresh schedule on verified traffic from a member for that
+conversation, on the next recovery run, on a local post into that
+conversation, or when the Router worker reattaches after an outage.
 
 ## Direct packets and Router envelopes
 
@@ -574,8 +589,9 @@ An outer send follows the Router representation contract exactly:
    with `mode: "retry"`. Client never re-signs or replaces a stored outer
    message.
 5. `router_restarted` stops sending, obtains the new omitted-cursor anchor,
-   and completes catch-up and re-anchor before reevaluating queued packets.
-   It never rewrites a stable inner evidence message.
+   and completes a conversation's catch-up and re-anchor before reevaluating
+   that conversation's queued packets. It never rewrites a stable inner
+   evidence message.
 
 A resend after eviction appends the same outer message again, so a member may
 receive one outer message more than once. Duplicate outer delivery is

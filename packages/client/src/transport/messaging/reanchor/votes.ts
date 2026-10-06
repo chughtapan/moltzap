@@ -240,13 +240,15 @@ export function persistCompletedReanchor(
 
 /**
  * Make a member's verified completed re-anchor durable and the
- * conversation's current anchor. The store refuses one that does not extend
- * this endpoint's durable position, or that conflicts with a candidate it
- * already staged for the same anchor and Router instance; that refusal comes
- * from the member's input, not a failed store, so the completion does not
- * count. The durable change and its adoption in memory happen together, so
- * an interruption cannot leave the store past an anchor the engine still
- * holds.
+ * conversation's current anchor. It supersedes a different candidate this
+ * endpoint staged for the same anchor and Router instance: its quorum
+ * certificate shows that candidate can never be certified, because two
+ * certificates for one scope would need an honest member to vote twice. The
+ * store refuses a completion that does not extend this endpoint's durable
+ * position; that refusal comes from the member's input, not a failed store,
+ * so the completion does not count. The durable change and its adoption in
+ * memory happen together, so an interruption cannot leave the store past an
+ * anchor the engine still holds.
  * @param runtime Engine whose store and conversation take the anchor.
  * @param completed Verified completed re-anchor from a member.
  * @returns Whether the anchor was applied; false when the store refused it.
