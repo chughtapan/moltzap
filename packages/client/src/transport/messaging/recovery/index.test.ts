@@ -14,6 +14,7 @@ import { RouterInstanceId } from "@moltzap/router";
 import {
   Chunk,
   Deferred,
+  Duration,
   Effect,
   Exit,
   Fiber,
@@ -22,7 +23,9 @@ import {
   Ref,
   Schedule,
   Schema,
+  TestClock,
   TestContext,
+  TestServices,
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -107,6 +110,7 @@ import {
   EngineOutboundError,
   makeEndpointEngine,
 } from "../index.js";
+import { catchUpRetryAttempts } from "./index.js";
 
 /* eslint-disable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- One exact cryptographic trace keeps protocol order and assertions together. */
 
@@ -5414,8 +5418,314 @@ const proposesNothingOnceItsRunHasEnded = () =>
     ),
   );
 
+/**
+ * Lets the forwarding fibers deliver what the outbox queued, by real time,
+ * while the test clock stands still.
+ */
+const settle = TestServices.provideLive(Effect.sleep("30 millis"));
+
+/**
+ * A send to a conversation, as the host makes one.
+ * @param engine Endpoint that sends.
+ * @param to The address the send names.
+ * @param text Text the post carries.
+ * @returns The running send.
+ */
+const forkSend = (engine: EndpointEngine, to: string, text: string) =>
+  Effect.gen(function* () {
+    const input = yield* Effect.all({
+      to: Schema.decodeUnknown(MessageAddressInput)(to),
+      content: Schema.decodeUnknown(Content)([{ type: "text", text }]),
+    });
+    return yield* Effect.fork(engine.send(input));
+  }).pipe(Effect.orDie);
+
+/**
+ * After a Router discontinuity the endpoint holds two conversations. The
+ * direct one's only other member is silent, and a quorum of the N4
+ * conversation's members answer its catch-up. The N4 conversation recovers
+ * and its send goes out, while the direct conversation stays fenced and its
+ * send waits. Fails when the silent member's conversation holds the N4
+ * conversation's send, as an engine-wide fence does.
+ */
+const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const n4 = yield* addN4Foundation(fixture);
+        const { outbound } = yield* forkRecovery(
+          { engine: n4.engine, recoveryOutbound: fixture.recoveryOutbound },
+          "feed_gap",
+          oldRouterInstanceId,
+        );
+        const requests = [
+          yield* takeCatchUpRequest(outbound),
+          yield* takeCatchUpRequest(outbound),
+        ];
+        const n4Request = requests.find(
+          (request) =>
+            request.conversationId === n4.membership.descriptor.conversationId,
+        );
+        if (n4Request === undefined) {
+          return yield* Effect.dieMessage(
+            "recovery did not ask the N4 members",
+          );
+        }
+        yield* Effect.forEach(
+          [fixture.remote, n4.third],
+          (responder) =>
+            deliverRecovery(
+              n4.engine,
+              catchUpIncompleteIngressFrom({
+                membership: n4.membership,
+                responder,
+                request: n4Request,
+                routerInstanceId: oldRouterInstanceId,
+              }),
+            ),
+          { concurrency: 1, discard: true },
+        );
+        const directSend = yield* forkSend(
+          n4.engine,
+          `agent:${fixture.remote.card.agentName}`,
+          "held behind the silent member",
+        );
+        yield* forkSend(
+          n4.engine,
+          `group:${[fixture.remote, n4.third, n4.fourth]
+            .map((member) => member.card.agentName)
+            .join(",")}`,
+          "the recovered conversation sends",
+        );
+        const proposal = yield* takeActionProposalAfterEvidence(
+          fixture.normalOutbound,
+        );
+        yield* settle;
+
+        expect(proposal.proposal.action.conversationId).toBe(
+          n4.membership.descriptor.conversationId,
+        );
+        expect(yield* Queue.size(fixture.normalOutbound)).toBe(0);
+        expect(Option.isNone(yield* Fiber.poll(directSend))).toBe(true);
+      }),
+    ),
+  );
+
+/**
+ * A conversation's member stays silent, so its catch-up retries run: each
+ * delay doubles within the jitter bounds, and the retries stop after
+ * {@link catchUpRetryAttempts}. Fails when the retries do not back off, or
+ * keep going without bound.
+ */
+const backsOffCatchUpRetriesAndStops = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const { outbound } = yield* forkRecovery(
+          fixture,
+          "feed_gap",
+          oldRouterInstanceId,
+          { clock: "caller" },
+        );
+        const first = yield* takeCatchUpRequest(outbound);
+        const pendingAt = (elapsed: Duration.DurationInput) =>
+          TestClock.setTime(Duration.toMillis(elapsed)).pipe(
+            Effect.zipRight(settle),
+            Effect.zipRight(Queue.size(outbound)),
+          );
+        const retries = (count: number) =>
+          Effect.replicateEffect(takeCatchUpRequest(outbound), count).pipe(
+            Effect.map((taken) => taken.length),
+          );
+
+        const beforeFirstRetry = yield* pendingAt("790 millis");
+        yield* TestClock.setTime(1200);
+        const firstRetry = yield* retries(1);
+        const beforeSecondRetry = yield* pendingAt("2390 millis");
+        yield* TestClock.setTime(3600);
+        const secondRetry = yield* retries(1);
+        const beforeThirdRetry = yield* pendingAt("5590 millis");
+        yield* TestClock.setTime(8400);
+        const thirdRetry = yield* retries(1);
+        yield* TestClock.setTime(Duration.toMillis("1000 seconds"));
+        const laterRetries = yield* retries(catchUpRetryAttempts - 3);
+        const afterLastRetry = yield* pendingAt("100000 seconds");
+
+        expect(first.conversationId).toBe(
+          fixture.membership.descriptor.conversationId,
+        );
+        expect([beforeFirstRetry, beforeSecondRetry, beforeThirdRetry]).toEqual(
+          [0, 0, 0],
+        );
+        expect(firstRetry + secondRetry + thirdRetry + laterRetries).toBe(
+          catchUpRetryAttempts,
+        );
+        expect(afterLastRetry).toBe(0);
+      }),
+    ).pipe(Effect.provide(TestContext.TestContext)),
+  );
+
+/**
+ * A conversation's catch-up retries run out while its member is silent. The
+ * member then sends traffic for it, which arms catch-up again with a fresh
+ * request; the member's answer recovers the conversation, no further retry
+ * follows, and its send goes out. Fails when a conversation whose retries ran
+ * out has no way back to recovery.
+ */
+const rearmsCatchUpAfterRetriesRunOut = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const { outbound } = yield* forkRecovery(
+          fixture,
+          "feed_gap",
+          oldRouterInstanceId,
+          { clock: "caller" },
+        );
+        yield* takeCatchUpRequest(outbound);
+        yield* TestClock.adjust("100000 seconds");
+        const exhausted = yield* Effect.replicateEffect(
+          takeCatchUpRequest(outbound),
+          catchUpRetryAttempts,
+        );
+        yield* TestClock.adjust("100000 seconds");
+        yield* settle;
+        const quiet = yield* Queue.size(outbound);
+
+        yield* fixture.engine.acceptRouterIngress(
+          yield* directPacketIngressFrom({
+            membership: fixture.membership,
+            sender: fixture.remote,
+            packet: peerCatchUpRequest(fixture),
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        );
+        yield* settle;
+        const rearmed = yield* Effect.forEach(
+          yield* Queue.takeAll(outbound),
+          (message) => decodeOuterBody(message.body),
+          { concurrency: 1 },
+        );
+        const request = rearmed.flatMap((body) =>
+          body.kind === "direct" && body.packet.kind === "catch_up_request"
+            ? [body.packet]
+            : [],
+        );
+        const [fresh] = request;
+        if (fresh === undefined) {
+          return yield* Effect.dieMessage("the member's traffic armed nothing");
+        }
+        yield* fixture.engine.acceptRouterIngress(
+          yield* catchUpIncompleteIngressFrom({
+            membership: fixture.membership,
+            responder: fixture.remote,
+            request: fresh,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        );
+        yield* TestClock.adjust("100000 seconds");
+        yield* settle;
+        const afterRecovery = yield* Queue.size(outbound);
+        yield* forkSend(
+          fixture.engine,
+          `agent:${fixture.remote.card.agentName}`,
+          "recovered after the retries ran out",
+        );
+        const proposal = yield* takeActionProposalAfterEvidence(
+          fixture.normalOutbound,
+        );
+
+        expect(exhausted).toHaveLength(catchUpRetryAttempts);
+        expect(quiet).toBe(0);
+        expect(request).toHaveLength(1);
+        expect(afterRecovery).toBe(0);
+        expect(proposal.proposal.action.conversationId).toBe(
+          fixture.membership.descriptor.conversationId,
+        );
+      }),
+    ).pipe(Effect.provide(TestContext.TestContext)),
+  );
+
+/**
+ * The direct conversation recovers on its member's first answer while the
+ * N4 conversation's members stay silent, so the run keeps going. However long
+ * the clock runs, every retry asks for the N4 conversation and none for the
+ * recovered one. Fails when retries continue for a conversation that has
+ * recovered.
+ */
+const stopsCatchUpRetriesOnceRecovered = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const n4 = yield* addN4Foundation(fixture);
+        const { outbound } = yield* forkRecovery(
+          { engine: n4.engine, recoveryOutbound: fixture.recoveryOutbound },
+          "feed_gap",
+          oldRouterInstanceId,
+          { clock: "caller" },
+        );
+        const requests = [
+          yield* takeCatchUpRequest(outbound),
+          yield* takeCatchUpRequest(outbound),
+        ];
+        const directRequest = requests.find(
+          (request) =>
+            request.conversationId ===
+            fixture.membership.descriptor.conversationId,
+        );
+        if (directRequest === undefined) {
+          return yield* Effect.dieMessage("recovery did not ask the peer");
+        }
+        yield* deliverRecovery(
+          n4.engine,
+          catchUpIncompleteIngress(fixture, directRequest),
+        );
+        yield* TestClock.adjust("100000 seconds");
+        const retried = yield* Effect.replicateEffect(
+          takeCatchUpRequest(outbound),
+          catchUpRetryAttempts,
+        );
+        yield* settle;
+
+        expect(
+          retried.map(({ conversationId }) => conversationId),
+        ).toStrictEqual(
+          Array.from(
+            { length: catchUpRetryAttempts },
+            () => n4.membership.descriptor.conversationId,
+          ),
+        );
+        expect(yield* Queue.size(outbound)).toBe(0);
+      }),
+    ).pipe(Effect.provide(TestContext.TestContext)),
+  );
+
 // @agent-code-guard/regression-only: these traces pin the catch-up and re-anchor work a recovery run routes between its phases and its store.
 describe("catch-up and re-anchor inside a recovery run", () => {
+  it(
+    "recovers one conversation while another waits on a silent member",
+    recoversOneConversationWhileAnotherWaitsOnASilentMember,
+    10_000,
+  );
+  it(
+    "backs off catch-up retries exponentially and stops after the last attempt",
+    backsOffCatchUpRetriesAndStops,
+    10_000,
+  );
+  it(
+    "arms catch-up again on a member's traffic after its retries ran out",
+    rearmsCatchUpAfterRetriesRunOut,
+    10_000,
+  );
+  it(
+    "stops catch-up retries once the conversation recovers",
+    stopsCatchUpRetriesOnceRecovered,
+    10_000,
+  );
   it(
     "answers a catch-up request with its first certified record",
     answersCatchUpRequestWithItsFirstCertifiedRecord,

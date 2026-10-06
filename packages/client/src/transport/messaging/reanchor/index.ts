@@ -355,11 +355,9 @@ function acceptCompletedReanchorEffect(
     Effect.zipRight(verifyCompletedReanchor({ completed, membership })),
     Effect.zipRight(applyCompletedReanchor(run.runtime, completed)),
     Effect.flatMap((applied) =>
-      applied
-        ? run.markRecovered(conversationId).pipe(Effect.as(acceptedDisposition))
-        : run
-            .requestCatchUp(conversationId)
-            .pipe(Effect.as(ignoredDisposition)),
+      run
+        .requestCatchUp(conversationId)
+        .pipe(Effect.as(applied ? acceptedDisposition : ignoredDisposition)),
     ),
     Effect.catchTag("ClientRepresentationError", () =>
       Effect.succeed(ignoredDisposition),
@@ -371,10 +369,12 @@ function acceptCompletedReanchorEffect(
 /**
  * Whether a relayed completion targets this run's re-anchor: a conversation
  * the run re-anchors after a Router restart, not yet anchored to the run's
- * Router instance, under the conversation's membership. A completion this
- * endpoint cannot apply, because its position lacks the selected record,
- * sends the conversation back to catch-up, where the completion arrives again
- * with the history it extends.
+ * Router instance, under the conversation's membership. A completion it
+ * applies sends the conversation on to catch-up from the new anchor, which
+ * fetches any history members certified after it before the conversation
+ * recovers. A completion this endpoint cannot apply, because its position
+ * lacks the selected record, sends the conversation back to catch-up, where
+ * the completion arrives again with the history it extends.
  * @param run Recovery run the completion arrived in.
  * @param membership Verified membership of the completion's conversation.
  * @param completed The relayed completed re-anchor.

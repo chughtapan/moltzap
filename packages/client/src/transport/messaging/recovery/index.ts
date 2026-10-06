@@ -27,7 +27,6 @@ import {
   RouterWorkerRecoveryError,
 } from "../../router/index.js";
 import {
-  type CompletedReanchor as CompletedReanchorValue,
   type ConversationId as ConversationIdValue,
   decodeCanonical,
   type DecodedOuterBody,
@@ -38,7 +37,6 @@ import {
   type VerifiedMembership,
 } from "../../wire/index.js";
 import {
-  anchorRouterInstanceId,
   durableRouterInstanceId,
   verifyRecoveredHistory,
   verifyStoredMemberships,
@@ -677,7 +675,6 @@ function catchUpPort(
       positionReady(currentRun(), conversationId).pipe(
         Effect.withSpan("positionReady"),
       ),
-    onReanchorAdopted: (completed) => reanchorAdopted(currentRun(), completed),
   };
 }
 
@@ -751,35 +748,6 @@ function positionReady(
   return run.recovery.reason === "router_restarted"
     ? reanchorPositionReady(run.reanchor, membership)
     : markRecovered(run, conversationId);
-}
-
-/**
- * Finish a conversation once a member's verified completed re-anchor to the
- * run's Router instance has become its current anchor: the quorum
- * certificate settles its position, and catch-up keeps fetching any history
- * after it. The completion is relayed to every member first, so a member
- * still recovering can adopt it too.
- * @param run Recovery run whose catch-up applied the re-anchor.
- * @param completed The applied completed re-anchor.
- * @returns Completion once the conversation is recovered, or nothing when
- *     the re-anchor targets another Router instance.
- */
-function reanchorAdopted(
-  run: RecoveryRun,
-  completed: CompletedReanchorValue,
-): Effect.Effect<void, RouterWorkerPersistenceError> {
-  const conversationId = completed.reanchor.conversationId;
-  const membership = run.memberships.get(conversationId);
-  if (
-    membership === undefined ||
-    anchorRouterInstanceId(completed) !== run.recovery.anchor.routerInstanceId
-  ) {
-    return Effect.void;
-  }
-  return queueRecoveryEnvelope(run.runtime, membership, {
-    kind: "direct",
-    packet: completed,
-  }).pipe(Effect.zipRight(markRecovered(run, conversationId)));
 }
 
 /**

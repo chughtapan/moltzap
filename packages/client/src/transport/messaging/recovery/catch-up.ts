@@ -78,10 +78,6 @@ export interface CatchUpRun {
   readonly onPositionReady: (
     conversationId: ConversationIdValue,
   ) => Effect.Effect<void, RouterWorkerPersistenceError>;
-  /** A member's verified completed re-anchor became the current anchor. */
-  readonly onReanchorAdopted: (
-    completed: CompletedReanchorValue,
-  ) => Effect.Effect<void, RouterWorkerPersistenceError>;
 }
 
 /**
@@ -293,8 +289,7 @@ export function acceptCatchUpIncomplete(
 }
 
 /**
- * Record a page's applied successor, ask for the history after it, and report
- * a completed re-anchor it carried to the run.
+ * Record a page's applied successor and ask for the history after it.
  * @param run Recovery run that sent the request.
  * @param page The applied page.
  * @param key The page's request key.
@@ -311,11 +306,6 @@ function continueAfterPage(
     run.state.acceptedSuccessors.set(key, successor);
   }).pipe(
     Effect.zipRight(requestCertifiedHistory(run, page.request.conversationId)),
-    Effect.zipRight(
-      page.item.kind === "completed_reanchor"
-        ? run.onReanchorAdopted(page.item)
-        : Effect.void,
-    ),
   );
 }
 
