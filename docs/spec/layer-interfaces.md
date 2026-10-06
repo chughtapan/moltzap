@@ -283,7 +283,8 @@ closed typed unions.
 4. Honest members durably stage before voting.
 5. Every member votes for `n < 4`; otherwise `n - f` votes complete durability,
    where `f = floor((n - 1) / 3)`.
-6. Any member may assemble and disseminate completed evidence.
+6. Every member assembles completed evidence from the evidence it receives;
+   a member that lacks a certified record gets it through catch-up.
 7. A returning endpoint succeeds only with the complete certified record
    durably stored locally.
 

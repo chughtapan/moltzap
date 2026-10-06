@@ -485,26 +485,32 @@ send meanwhile is ignored.
 
 A member can miss a record, for example while it was offline or recovering.
 When a member receives a POST proposal whose `previousRecordHash` or
-`anchorHash` it does not hold as its current position, it sends one
-`CatchUpRequest` for that conversation from its durable position, outside any
-recovery run, and applies the pages it receives as they arrive. It holds that
-proposal, and the action signatures members send for it in the meantime. When
-certifying a record locally makes the named position its current position, it
-accepts the proposal and those signatures as if they had just arrived. Its
-catch-up continues until every other member answers `CatchUpIncomplete`.
+`anchorHash` it does not hold as its current position, it verifies and holds
+that proposal, and the action signatures members send for it. It holds at
+most one proposal per author in a conversation: a later proposal from the
+same author replaces that author's earlier one, and no member's proposal
+displaces another author's. A proposal naming a position that a held proposal
+already names is ignored, because the first one is the one every member that
+held the predecessor locked.
 
-It holds the first proposal naming a position, which is the one every member
-that held the predecessor locked. Another proposal naming the same position
-sends nothing. A proposal naming a different position replaces the held one
-and sends a new request. When every other member has answered
-`CatchUpIncomplete` and a proposal is still held, the member asks once more
-for that proposal: answers to an earlier request from the same durable
-position, which can predate the record the proposal names, may have completed
-the newer request before its own answers arrived. A proposal whose position no
-member holds stays ignored after that, and only a proposal naming another
-position asks again. Such input never stops the endpoint. A
-Router discontinuity drops held proposals, because the recovery run that
-follows catches up every conversation and ignores action traffic.
+Once it holds signatures for a proposal from `f + 1` members, or from one
+member when `n < 4`, at least one honest member locked that proposal, so its
+predecessor exists. The member then sends one `CatchUpRequest` for that
+conversation from its durable position, outside any recovery run. A proposal
+that no `f + 1` members sign, such as one naming an invented predecessor,
+starts no catch-up. The member applies a `CatchUpPage` that answers its latest
+request in that conversation, then requests the next item from its new
+position. It ignores `CatchUpIncomplete` outside a recovery run: an
+incomplete answer can predate the record a held proposal names. When
+certifying a record locally makes a held proposal's position its current
+position, the member accepts that proposal and its held signatures as if they
+had just arrived. Such input never stops the endpoint.
+
+A Router discontinuity drops held proposals, because the recovery run that
+follows catches up every conversation and ignores action traffic. When that
+run ends, the member requests catch-up for each conversation that still has a
+post in flight: an unfinished local post, or a selected action that is not yet
+certified. The members may have certified it during recovery.
 
 A POST proposal whose `previousRecordHash` names a record the member
 certified before its current head is stale: its author proposed before it saw
@@ -555,11 +561,12 @@ sends a certified record only inside a `CatchUpPage`. Every outer message's
 recipients are the complete fixed-member AgentIds sorted by decoded bytes,
 including its sender. The Router sees only that outer Identity value.
 
-One certified post costs at most `1 + 2n` outer messages in a conversation of
-`n` members: the author's proposal, one action signature from each member that
-signs, and one durability vote from each member that stages the record. Each
-is addressed to all `n` members. Catch-up adds messages only when a member
-receives a proposal naming a position it does not hold.
+Without a Router discontinuity, one certified post costs at most `1 + 2n`
+outer messages in a conversation of `n` members: the author's proposal, one
+action signature from each member that signs, and one durability vote from
+each member that stages the record. Each is addressed to all `n` members.
+Catch-up adds messages only when a member holds a proposal naming a position
+it does not hold, and after a recovery run.
 
 After ordered delivery, every conforming member, including the author, durably
 locks its first valid gap-free candidate for the predecessor before emitting a

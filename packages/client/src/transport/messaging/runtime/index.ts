@@ -146,8 +146,8 @@ export interface EngineWaitingProposal {
   readonly actionHash: ActionHash;
   readonly proposal: RouterWorkerIngress<DecodedOuterBody>;
   readonly signatures: Map<AgentId, RouterWorkerIngress<DecodedOuterBody>>;
-  /** Whether catch-up has already asked once more for this proposal. */
-  askedAgain: boolean;
+  /** Whether enough members signed it for this endpoint to ask for history. */
+  catchUpRequested: boolean;
 }
 
 /** Shared acquired state used by addressed send and protocol ingress. */
@@ -159,8 +159,15 @@ export interface EngineRuntime {
   readonly completedPosts: Map<string, RecordHash>;
   readonly actionFolds: Map<ActionHash, EngineActionFold>;
   readonly recordFolds: Map<RecordHash, EngineActionFold>;
-  /** At most one per conversation; a Router discontinuity drops them all. */
-  readonly waitingProposals: Map<ConversationId, EngineWaitingProposal>;
+  /**
+   * Per conversation, at most one waiting proposal per author, so a faulty
+   * member's proposals replace only its own. A Router discontinuity drops them
+   * all.
+   */
+  readonly waitingProposals: Map<
+    ConversationId,
+    Map<AgentId, EngineWaitingProposal>
+  >;
   readonly gate: Effect.Semaphore;
   readonly outbox: EngineOutbox;
   readonly phases: EnginePhases;

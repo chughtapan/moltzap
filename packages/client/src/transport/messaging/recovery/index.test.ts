@@ -1606,6 +1606,61 @@ const recoverSameRouterInstance = (reason: RouterDiscontinuityReason) =>
     ),
   );
 
+/**
+ * A local post is in flight when a feed gap starts a recovery run, and the
+ * member answers the run's catch-up that it holds nothing later. The members
+ * may still certify the post while this endpoint ignores their action
+ * traffic, and none sends the certified record unasked, so once the run ends
+ * the endpoint asks for the history after its position in that conversation.
+ */
+const asksForHistoryAfterRecoveryWithAPostInFlight = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const sending = yield* Effect.fork(
+          fixture.engine.send(
+            yield* Effect.all({
+              to: Schema.decodeUnknown(MessageAddressInput)(
+                `agent:${fixture.remote.card.agentName}`,
+              ),
+              content: Schema.decodeUnknown(Content)([
+                { type: "text", text: "in flight during recovery" },
+              ]),
+            }),
+          ),
+        );
+        yield* Queue.take(fixture.normalOutbound).pipe(
+          Effect.timeout("1 second"),
+        );
+        yield* runSameInstanceRecovery(fixture, "feed_gap", Effect.void);
+        yield* fixture.engine.drainOutbound;
+        const bodies = yield* Effect.forEach(
+          yield* Queue.takeAll(fixture.normalOutbound),
+          (message) => decodeOuterBody(message.body),
+          { concurrency: 1 },
+        );
+
+        expect(
+          bodies.filter(
+            (body) =>
+              body.kind === "direct" && body.packet.kind === "catch_up_request",
+          ),
+        ).toMatchObject([
+          {
+            kind: "direct",
+            packet: {
+              kind: "catch_up_request",
+              conversationId: fixture.membership.descriptor.conversationId,
+              requesterAgentId: fixture.local.card.agentId,
+            },
+          },
+        ]);
+        yield* Fiber.interrupt(sending);
+      }),
+    ),
+  );
+
 const recoverColdStartAtUnchangedInstance = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -3307,6 +3362,10 @@ describe("endpoint restart recovery", () => {
   );
   it("resumes a same-instance persisted intent without reproposing", () =>
     recoverSameRouterInstance("feed_gap"));
+  it(
+    "asks for history after recovery in a conversation with a post in flight",
+    asksForHistoryAfterRecoveryWithAPostInFlight,
+  );
   it("preserves retained envelope bytes when startup finds the same Router", () =>
     recoverSameRouterInstance("router_restarted"));
   it(

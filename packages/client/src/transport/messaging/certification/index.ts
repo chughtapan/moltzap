@@ -4,7 +4,11 @@
  * a proposal naming a predecessor this endpoint lacks waits for catch-up.
  */
 
-import { MOLTZAP_VERSION, type SignedMessage } from "@moltzap/identity";
+import {
+  type AgentId,
+  MOLTZAP_VERSION,
+  type SignedMessage,
+} from "@moltzap/identity";
 import { Deferred, Effect } from "effect";
 import type { SendError } from "../errors.js";
 import {
@@ -61,6 +65,7 @@ import {
   type EngineConversation,
   type EnginePostIntent,
   type EngineRuntime,
+  type EngineWaitingProposal,
   makeActionFold,
 } from "../runtime/index.js";
 import {
@@ -876,18 +881,20 @@ const ignoredDisposition: RouterIngressDisposition = "ignored";
 
 /**
  * Hold a POST proposal whose predecessor or anchor this endpoint does not
- * hold, and ask the members for the history after its durable position.
- * The first proposal naming a position is kept: every member that held the
- * predecessor saw the same Router order and locked that one. A proposal naming
- * another position replaces it and asks again. A GENESIS that does not fit,
- * and a POST naming a record certified here before the current head, are only
- * ignored, unverified: the second is a proposal its author sent before it saw
- * the head certified, and the author proposes again from the head.
+ * hold, in its author's slot. The first proposal naming a position is kept:
+ * every member that held the predecessor saw the same Router order and locked
+ * that one. A later proposal from the same author replaces the author's
+ * earlier one, and no member's proposal displaces another author's. A GENESIS
+ * that does not fit, and a POST naming a record certified here before the
+ * current head, are only ignored, unverified: the second is a proposal its
+ * author sent before it saw the head certified, and the author proposes again
+ * from the head. Catch-up waits for the proposal's signatures, in
+ * `holdWaitingSignature`.
  * @param runtime Engine whose conversation lacks the named position.
  * @param conversation Retained conversation the proposal extends.
  * @param ingress Router delivery carrying the proposal.
  * @param proposal The proposal, verified here before it is held.
- * @returns Completion once the proposal is held and catch-up is requested.
+ * @returns Completion once the proposal is held or ignored.
  */
 function awaitPredecessor(
   runtime: EngineRuntime,
@@ -898,32 +905,33 @@ function awaitPredecessor(
   const action = proposal.action;
   if (
     action.kind !== "POST" ||
-    namesPassedRecord(runtime, conversation, action)
-  ) {
-    return Effect.void;
-  }
-  const held = runtime.waitingProposals.get(conversation.conversationId);
-  if (
-    held?.action.previousRecordHash === action.previousRecordHash &&
-    held.action.anchorHash === action.anchorHash
+    namesPassedRecord(runtime, conversation, action) ||
+    [
+      ...(runtime.waitingProposals.get(conversation.conversationId)?.values() ??
+        []),
+    ].some(
+      (held) =>
+        held.action.previousRecordHash === action.previousRecordHash &&
+        held.action.anchorHash === action.anchorHash,
+    )
   ) {
     return Effect.void;
   }
   return verifyProposal(conversation, ingress, proposal).pipe(
     Effect.flatMap(({ actionHash }) =>
       Effect.sync(() => {
-        runtime.waitingProposals.set(conversation.conversationId, {
-          conversation,
-          action,
-          actionHash,
-          proposal: ingress,
-          signatures: new Map(),
-          askedAgain: false,
-        });
+        heldProposals(runtime, conversation).set(
+          action.postIntent.authorAgentId,
+          {
+            conversation,
+            action,
+            actionHash,
+            proposal: ingress,
+            signatures: new Map(),
+            catchUpRequested: false,
+          },
+        );
       }),
-    ),
-    Effect.zipRight(
-      runtime.phases.requestCatchUp(runtime, conversation.conversationId),
     ),
   );
 }
@@ -942,44 +950,57 @@ function namesPassedRecord(
 
 /**
  * Hold an action signature that names no fold when it signs a waiting
- * proposal and its outer message verifies against that conversation.
+ * proposal and its outer message verifies against that conversation. Once
+ * `f + 1` members (one when `n < 4`) signed the proposal, at least one honest
+ * member locked it, so its predecessor exists: only then does this endpoint
+ * ask the members for the history after its durable position. A proposal no
+ * honest member signs, such as one naming an invented predecessor, costs no
+ * catch-up traffic.
  * @param runtime Engine whose waiting proposals may take the signature.
  * @param ingress Router delivery carrying the evidence.
  * @param actionHash The action the signature names.
- * @returns Completion once the signature is held or found to sign nothing
- *     waiting.
+ * @returns Completion once the signature is held, and catch-up requested when
+ *     it completes `f + 1` signers, or once it signs nothing waiting.
  */
 function holdWaitingSignature(
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   actionHash: ActionHash,
-): Effect.Effect<void, ClientRepresentationError> {
-  const waiting = [...runtime.waitingProposals.values()].find(
-    (candidate) => candidate.actionHash === actionHash,
-  );
+): Effect.Effect<void, ProtocolAcceptanceError> {
+  const waiting = [...runtime.waitingProposals.values()]
+    .flatMap((held) => [...held.values()])
+    .find((candidate) => candidate.actionHash === actionHash);
   if (waiting === undefined) {
     return Effect.void;
   }
-  return verifyOuterMessage({
-    message: ingress.message,
-    membership: waiting.conversation.membership,
-  }).pipe(
-    Effect.flatMap(() =>
-      Effect.sync(() => {
-        waiting.signatures.set(ingress.message.senderAgentId, ingress);
-      }),
-    ),
+  const membership = waiting.conversation.membership;
+  return verifyOuterMessage({ message: ingress.message, membership }).pipe(
+    Effect.flatMap(() => {
+      waiting.signatures.set(ingress.message.senderAgentId, ingress);
+      const signersNeeded =
+        membership.members.length -
+        quorumThreshold(membership.members.length) +
+        1;
+      if (waiting.catchUpRequested || waiting.signatures.size < signersNeeded) {
+        return Effect.void;
+      }
+      waiting.catchUpRequested = true;
+      return runtime.phases.requestCatchUp(
+        runtime,
+        waiting.conversation.conversationId,
+      );
+    }),
   );
 }
 
 /**
- * Accept the proposal waiting in a conversation once the conversation holds
- * the position it names, then its held signatures. Held input that fails
- * verification or that the store refuses is ignored, as it would have been on
- * arrival.
+ * Accept the waiting proposal whose position a conversation now holds, then
+ * its held signatures, and drop the conversation's waiting proposals that name
+ * a record it has passed. Held input that fails verification or that the
+ * store refuses is ignored, as it would have been on arrival.
  * @param runtime Engine whose conversation just advanced.
- * @param conversation Conversation whose waiting proposal may now fit.
- * @returns Completion once the waiting proposal is accepted or still waits.
+ * @param conversation Conversation whose waiting proposals may now fit.
+ * @returns Completion once a fitting proposal is accepted or none fits.
  */
 function acceptWaitingProposal(
   runtime: EngineRuntime,
@@ -987,16 +1008,41 @@ function acceptWaitingProposal(
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return Effect.gen(function* () {
     const held = runtime.waitingProposals.get(conversation.conversationId);
-    if (held === undefined || !(yield* gapFree(conversation, held.action))) {
+    if (held === undefined) {
       return;
     }
-    runtime.waitingProposals.delete(conversation.conversationId);
+    for (const [author, waiting] of held) {
+      if (namesPassedRecord(runtime, conversation, waiting.action)) {
+        held.delete(author);
+      }
+    }
+    const fitting = yield* Effect.filter(held.values(), (waiting) =>
+      gapFree(conversation, waiting.action),
+    );
+    const next = fitting[0];
+    if (next === undefined) {
+      return;
+    }
+    held.delete(next.action.postIntent.authorAgentId);
     yield* Effect.forEach(
-      [held.proposal, ...held.signatures.values()],
+      [next.proposal, ...next.signatures.values()],
       (ingress) => ignoreRejectedInput(acceptDirectPacket(runtime, ingress)),
       { concurrency: 1, discard: true },
     );
   });
+}
+
+function heldProposals(
+  runtime: EngineRuntime,
+  conversation: EngineConversation,
+): Map<AgentId, EngineWaitingProposal> {
+  const retained = runtime.waitingProposals.get(conversation.conversationId);
+  if (retained !== undefined) {
+    return retained;
+  }
+  const created = new Map<AgentId, EngineWaitingProposal>();
+  runtime.waitingProposals.set(conversation.conversationId, created);
+  return created;
 }
 
 /**

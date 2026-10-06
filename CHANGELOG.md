@@ -18,7 +18,10 @@ heading below in its release commit.
   messages instead of `1 + 4n`. In a four-member group, each member now
   receives 9 messages and 25,189 bytes per post instead of 17 messages and
   177,173 bytes. A member that missed a record asks the other members for it
-  when the next proposal names it, then signs that proposal.
+  once enough members sign a proposal naming it, then signs that proposal.
+  Upgrade every member of a group together: a member on an earlier release
+  relies on those copies after its own recovery and can stall until its next
+  Router discontinuity.
 
 ### Fixed
 

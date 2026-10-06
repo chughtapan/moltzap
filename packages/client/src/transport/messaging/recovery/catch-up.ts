@@ -115,7 +115,7 @@ export function makeCatchUpState(): CatchUpState {
  * member created during recovery, asks for nothing.
  * @param run Run that owns the request.
  * @param conversationId Private conversation identity to reconcile.
- * @returns Completion after the request is stored in the recovery queue.
+ * @returns Completion once the run's `queuePacket` has queued the request.
  */
 export const requestCertifiedHistory = (
   run: CatchUpRun,
@@ -204,7 +204,7 @@ export function acceptCatchUpPage(
     page.request,
     ingress.message.senderAgentId,
   );
-  if (context === undefined) {
+  if (context === undefined || !answersKnownRequest(run, context, page)) {
     return Effect.succeed(ignoredDisposition);
   }
   return Effect.gen(function* () {
@@ -262,7 +262,10 @@ export function acceptCatchUpIncomplete(
     incomplete.request,
     ingress.message.senderAgentId,
   );
-  if (context === undefined) {
+  if (
+    context === undefined ||
+    !sameRequest(context.pending, incomplete.request)
+  ) {
     return Effect.succeed(ignoredDisposition);
   }
   return Effect.gen(function* () {
@@ -594,6 +597,25 @@ function recordIncompleteResponder(
   state.pendingRequests.delete(conversationId);
   state.incompleteResponders.delete(conversationId);
   return true;
+}
+
+/**
+ * Whether a page answers the run's pending request, or a request it already
+ * applied a successor for. Any other page is ignored before it is verified.
+ * @param run Run that sent the requests.
+ * @param context The run's pending request for the page's conversation.
+ * @param page Catch-up page from a fixed member.
+ * @returns Whether the page is worth verifying.
+ */
+function answersKnownRequest(
+  run: CatchUpRun,
+  context: Readonly<{ pending: CatchUpRequestValue }>,
+  page: CatchUpPage,
+): boolean {
+  return (
+    sameRequest(context.pending, page.request) ||
+    run.state.acceptedSuccessors.has(requestKey(page.request))
+  );
 }
 
 function sameRequest(
