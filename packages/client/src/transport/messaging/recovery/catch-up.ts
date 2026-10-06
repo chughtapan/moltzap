@@ -48,6 +48,7 @@ import {
   durablePosition,
   readStoredRecord,
 } from "../history/index.js";
+import { adoptCompletedReanchor } from "../reanchor/index.js";
 
 /**
  * One run's catch-up bookkeeping: the request in flight per conversation, the
@@ -561,12 +562,7 @@ function applyCaughtUpReanchor(
       );
     if (applied) {
       yield* Effect.sync(() => {
-        const conversation = runtime.conversations.get(
-          completed.reanchor.conversationId,
-        );
-        if (conversation !== undefined) {
-          conversation.currentAnchor = completed;
-        }
+        adoptCompletedReanchor(runtime, completed);
       });
     }
     return applied;

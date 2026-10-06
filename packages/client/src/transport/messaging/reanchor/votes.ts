@@ -11,7 +11,7 @@ import {
   type SignedMessage as SignedMessageValue,
 } from "@moltzap/identity";
 import { Effect, Schema } from "effect";
-import type { EngineRuntime } from "../runtime/index.js";
+import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
 import {
   type EndpointRecovery,
   isSemanticStoreRejection,
@@ -227,13 +227,53 @@ export function persistCompletedReanchor(
     ),
     Effect.flatMap(() =>
       Effect.sync(() => {
-        const conversation = runtime.conversations.get(body.conversationId);
-        if (conversation !== undefined) {
-          conversation.currentAnchor = completed;
-        }
+        adoptCompletedReanchor(runtime, completed);
       }),
     ),
     Effect.mapError(persistenceFailure),
+  );
+}
+
+/**
+ * Make a durable completed re-anchor the conversation's current anchor in
+ * memory, and drop the fold of the unstaged proposal it supersedes at the
+ * selected head. That proposal binds the previous anchor, so it is no longer
+ * gap-free and can never certify; the store has released its lock and
+ * signatures, and resuming its fold would only resend a dead signature.
+ * @param runtime Engine whose conversation and folds change.
+ * @param completed Completed re-anchor the store has made current.
+ */
+export function adoptCompletedReanchor(
+  runtime: EngineRuntime,
+  completed: CompletedReanchorValue,
+): void {
+  const body = completed.reanchor;
+  const conversation = runtime.conversations.get(body.conversationId);
+  if (conversation !== undefined) {
+    conversation.currentAnchor = completed;
+  }
+  for (const [actionHash, fold] of runtime.actionFolds) {
+    if (isSupersededProposal(fold, completed)) {
+      runtime.actionFolds.delete(actionHash);
+    }
+  }
+}
+
+function isSupersededProposal(
+  fold: EngineActionFold,
+  completed: CompletedReanchorValue,
+): boolean {
+  const body = completed.reanchor;
+  if (
+    fold.conversation.conversationId !== body.conversationId ||
+    fold.recordHash !== undefined ||
+    fold.action.kind !== "POST"
+  ) {
+    return false;
+  }
+  return (
+    fold.action.previousRecordHash === body.selectedRecordHash &&
+    fold.action.anchorHash !== completed.anchorHash
   );
 }
 

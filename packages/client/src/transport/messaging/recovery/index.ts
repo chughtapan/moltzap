@@ -52,17 +52,19 @@ import {
 } from "./catch-up.js";
 
 /**
- * A recovery's queue to the recovery send and its envelopes not yet sent. A
- * recovery installs it before it reads the store, so an envelope signed at
- * any point of the recovery waits for the run's sender, not the durable
- * outbox, which the Router worker sends from only after recovery ends. That
- * includes an answer to a member's catch-up request that arrives before the
- * run starts: a member recovering at the same time may need the answer
- * before it can vote, and this recovery may need its vote to end.
+ * One recovery attempt: its queue to the recovery send, its envelopes not yet
+ * sent, and its run once the run starts. A recovery installs it before it
+ * reads the store, so an envelope signed at any point of the recovery waits
+ * for the run's sender, not the durable outbox, which the Router worker sends
+ * from only after recovery ends. That includes an answer to a member's
+ * catch-up request that arrives before the run starts: a member recovering at
+ * the same time may need the answer before it can vote, and this recovery may
+ * need its vote to end.
  */
-interface RecoveryOutbound {
+interface ActiveRecovery {
   readonly queue: Queue.Queue<RouterWorkerRecoverySend>;
   pending: number;
+  run?: RecoveryRun;
   /**
    * Set when the run completes. The run then starts no new catch-up or
    * re-anchor work, and because its sender stops when the run ends, an
@@ -84,15 +86,14 @@ interface RecoveryRun {
    */
   readonly reanchoring: ReadonlySet<string>;
   readonly memberships: Map<ConversationIdValue, VerifiedMembership>;
-  readonly outbound: RecoveryOutbound;
+  readonly outbound: ActiveRecovery;
   readonly completion: Deferred.Deferred<undefined, RouterWorkerRecoveryError>;
   readonly completedConversations: Set<ConversationIdValue>;
   readonly catchUp: CatchUpRun;
   readonly reanchor: ReanchorRun;
 }
 
-const activeOutbounds = new WeakMap<EngineRuntime, RecoveryOutbound>();
-const activeRuns = new WeakMap<EngineRuntime, RecoveryRun>();
+const activeRecoveries = new WeakMap<EngineRuntime, ActiveRecovery>();
 
 const ignoredDisposition: RouterIngressDisposition = "ignored";
 
@@ -127,7 +128,7 @@ export function acceptEngineRecoveryIngressWithRecovery(
   ingress: RouterWorkerIngress<DecodedOuterBody>,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
   if (ingress.payload.kind === "evidence") {
-    const run = activeRuns.get(runtime);
+    const run = activeRun(runtime);
     return run === undefined
       ? Effect.succeed(ignoredDisposition)
       : acceptReanchorVote(run.reanchor, ingress, ingress.payload.message);
@@ -155,23 +156,22 @@ export const recoverCertifiedHistory = (
     if (barrier === undefined) {
       return yield* Effect.fail(recoveryFailure());
     }
-    if (activeOutbounds.has(runtime)) {
+    if (activeRecoveries.has(runtime)) {
       return yield* Effect.fail(recoveryFailure());
     }
-    const outbound: RecoveryOutbound = {
+    const outbound: ActiveRecovery = {
       queue: yield* Queue.unbounded<RouterWorkerRecoverySend>(),
       pending: 0,
       completed: false,
     };
     yield* Effect.sync(() => {
-      activeOutbounds.set(runtime, outbound);
+      activeRecoveries.set(runtime, outbound);
     });
     yield* startRecoveryRun(runtime, recoveryInput, outbound).pipe(
       Effect.ensuring(
         Effect.sync(() => {
-          if (activeOutbounds.get(runtime) === outbound) {
-            activeOutbounds.delete(runtime);
-            activeRuns.delete(runtime);
+          if (activeRecoveries.get(runtime) === outbound) {
+            activeRecoveries.delete(runtime);
           }
         }),
       ),
@@ -190,7 +190,7 @@ export const recoverCertifiedHistory = (
 function startRecoveryRun(
   runtime: EngineRuntime,
   recoveryInput: RouterWorkerRecovery,
-  outbound: RecoveryOutbound,
+  outbound: ActiveRecovery,
 ): Effect.Effect<void, RouterWorkerRecoveryError | RouterWorkerSendError> {
   return Effect.gen(function* () {
     const recovered = yield* runtime.input.store
@@ -209,15 +209,12 @@ function startRecoveryRun(
       memberships,
       reanchoring,
     );
-    const run = yield* makeRecoveryRun(
-      runtime,
-      recoveryInput,
-      outbound,
+    const run = yield* makeRecoveryRun(runtime, recoveryInput, outbound, {
       memberships,
       reanchoring,
-    );
+    });
     yield* Effect.sync(() => {
-      activeRuns.set(runtime, run);
+      outbound.run = run;
     });
     yield* Effect.scoped(runRecovery(runtime, run, retainedOutbounds));
   });
@@ -363,7 +360,7 @@ function acceptRunPacket(
     }
   >,
 ): Effect.Effect<RouterIngressDisposition, RouterWorkerPersistenceError> {
-  const run = activeRuns.get(runtime);
+  const run = activeRun(runtime);
   if (run === undefined) {
     return Effect.succeed(ignoredDisposition);
   }
@@ -410,7 +407,7 @@ function acceptRecoveryRecord(
       ) {
         return Effect.void;
       }
-      const run = activeRuns.get(runtime);
+      const run = activeRun(runtime);
       return run === undefined
         ? Effect.void
         : requestCertifiedHistory(
@@ -525,18 +522,20 @@ function resumeUncompletedIntents(
  * @param runtime Engine the run recovers.
  * @param recovery RouterWorker callbacks and discontinuity anchor.
  * @param outbound The recovery's installed queue, which the run sends from.
- * @param memberships Verified memberships that must be reconciled.
- * @param reanchoring Conversations anchored to a different Router instance.
+ * @param history Verified memberships that must be reconciled, and the
+ *     conversations among them anchored to a different Router instance.
  * @returns The run, not yet installed.
  */
 function makeRecoveryRun(
   runtime: EngineRuntime,
   recovery: RouterWorkerRecovery,
-  outbound: RecoveryOutbound,
-  memberships: Map<ConversationIdValue, VerifiedMembership>,
-  reanchoring: ReadonlySet<string>,
+  outbound: ActiveRecovery,
+  history: Pick<RecoveryRun, "memberships" | "reanchoring">,
 ): Effect.Effect<RecoveryRun> {
+  const { memberships, reanchoring } = history;
   return Effect.gen(function* () {
+    const isActive = () =>
+      activeRecoveries.get(runtime) === outbound && !outbound.completed;
     const run: RecoveryRun = {
       recovery,
       reanchoring,
@@ -547,8 +546,7 @@ function makeRecoveryRun(
       catchUp: {
         ...catchUpResponder(runtime),
         state: makeCatchUpState(),
-        isActive: () =>
-          activeRuns.get(runtime) === run && !run.outbound.completed,
+        isActive,
         membership: (conversationId) => memberships.get(conversationId),
         onPositionReady: (conversationId) =>
           positionReady(runtime, run, conversationId).pipe(
@@ -560,8 +558,7 @@ function makeRecoveryRun(
         reason: recovery.reason,
         routerInstanceId: recovery.anchor.routerInstanceId,
         reanchoring,
-        isActive: () =>
-          activeRuns.get(runtime) === run && !run.outbound.completed,
+        isActive,
         membership: (conversationId) => memberships.get(conversationId),
         isRecovered: (conversationId) =>
           run.completedConversations.has(conversationId),
@@ -587,7 +584,7 @@ function catchUpResponder(runtime: EngineRuntime): CatchUpResponder {
   return {
     runtime,
     membership: (conversationId) =>
-      activeRuns.get(runtime)?.memberships.get(conversationId) ??
+      activeRun(runtime)?.memberships.get(conversationId) ??
       runtime.conversations.get(conversationId)?.membership,
     queuePacket: (membership, packet) =>
       queueRecoveryEnvelope(runtime, membership, { kind: "direct", packet }),
@@ -610,7 +607,7 @@ function positionReady(
   conversationId: ConversationIdValue,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   const membership = run.memberships.get(conversationId);
-  if (activeRuns.get(runtime) !== run || membership === undefined) {
+  if (activeRun(runtime) !== run || membership === undefined) {
     return Effect.void;
   }
   return run.recovery.reason === "router_restarted"
@@ -630,7 +627,7 @@ function markRecovered(
   run: RecoveryRun,
   conversationId: ConversationIdValue,
 ): Effect.Effect<void> {
-  if (activeRuns.get(runtime) !== run) {
+  if (activeRun(runtime) !== run) {
     return Effect.void;
   }
   return Effect.sync(() => {
@@ -679,7 +676,7 @@ function enqueueOuter(
   message: SignedMessage,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return Effect.suspend(() => {
-    const outbound = activeOutbounds.get(runtime);
+    const outbound = activeRecoveries.get(runtime);
     if (outbound === undefined || outbound.completed) {
       return runtime.outbox
         .enqueueSigned(conversationId, message)
@@ -737,4 +734,8 @@ function recoveredMembershipMatches(
 
 function persistenceFailure(): RouterWorkerPersistenceError {
   return new RouterWorkerPersistenceError();
+}
+
+function activeRun(runtime: EngineRuntime): RecoveryRun | undefined {
+  return activeRecoveries.get(runtime)?.run;
 }

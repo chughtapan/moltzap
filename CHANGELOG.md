@@ -23,6 +23,14 @@ heading below in its release commit.
   second re-anchor at the same Router instance when a member asks for one.
 - A daemon no longer drops its answer to a member's catch-up request that
   arrives just as its own recovery finishes.
+- Two daemons that recover at the same time, as every member of a
+  conversation does after a Router restart, no longer wait for each other
+  forever. A catch-up answer given before the daemon's own recovery run starts
+  now goes out with that recovery instead of after it (#1187).
+- A conversation whose post was ordered but not certified when the Router
+  restarted can certify posts again after it re-anchors. The re-anchor
+  releases the old proposal's lock and signatures, and the daemon still starts
+  afterwards (#1188).
 
 ## [2026.1005.1] - 2026-10-05
 

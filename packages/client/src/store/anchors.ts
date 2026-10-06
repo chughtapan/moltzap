@@ -498,35 +498,64 @@ function completeReanchorInTransaction(
   }
   requireReanchorPosition(database, reanchor);
   insertCompletedReanchor(database, reanchor);
-  releaseSupersededProposalLock(database, reanchor);
+  releaseSupersededProposal(database, reanchor);
   return "inserted";
 }
 
 /**
- * Drops the proposal lock at the head a completed re-anchor selects.
+ * Retires the proposal locked at the head a completed re-anchor selects: its
+ * lock and the action signatures held for it.
  *
  * An action binds its anchor, so once the new anchor is current no action
- * under the previous one is gap-free and the old lock guards nothing this
- * endpoint can still sign or stage. Kept, it would refuse every candidate at
- * that head under the new anchor and stall the conversation. This makes a
- * lock scoped to its predecessor under the current anchor.
+ * under the previous one is gap-free and the old proposal can neither be
+ * signed again nor staged. Its lock, kept, would refuse every candidate at
+ * that head under the new anchor and stall the conversation. Its signatures,
+ * kept without the lock, would name an action no durable lock selects, which
+ * startup refuses. A lock is therefore scoped to its predecessor under the
+ * current anchor. A proposal this endpoint already staged a record for keeps
+ * its lock, because the staged record needs it; the re-anchor waits behind a
+ * staged successor, so only a completion from catch-up reaches that case.
  *
  * @param database Exclusively owned endpoint database.
  * @param reanchor Completed re-anchor that just became current.
  */
-function releaseSupersededProposalLock(
+function releaseSupersededProposal(
   database: DatabaseSync,
   reanchor: CompletedReanchor,
 ): void {
+  const predecessorKey = reanchor.selectedRecordHash ?? GENESIS_PREDECESSOR;
+  const lock = findProposalLock(
+    database,
+    reanchor.conversationId,
+    predecessorKey,
+  );
+  if (lock === undefined || isStagedAction(database, lock)) {
+    return;
+  }
+  database
+    .prepare(
+      `DELETE FROM protocol_evidence
+       WHERE conversation_id = ? AND evidence_kind = 'action'
+         AND subject_id = ?`,
+    )
+    .run(reanchor.conversationId, lock.actionHash);
   database
     .prepare(
       `DELETE FROM proposal_locks
        WHERE conversation_id = ? AND predecessor_key = ?`,
     )
-    .run(
-      reanchor.conversationId,
-      reanchor.selectedRecordHash ?? GENESIS_PREDECESSOR,
-    );
+    .run(reanchor.conversationId, predecessorKey);
+}
+
+function isStagedAction(database: DatabaseSync, lock: ProposalLock): boolean {
+  return (
+    database
+      .prepare(
+        `SELECT 1 AS retained FROM staged_records
+         WHERE conversation_id = ? AND action_hash = ?`,
+      )
+      .get(lock.conversationId, lock.actionHash) !== undefined
+  );
 }
 
 function requireUnclaimedReanchorScope(

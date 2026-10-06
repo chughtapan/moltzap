@@ -60,6 +60,9 @@ import {
   rememberReanchorVote,
 } from "./votes.js";
 
+/** In-memory adoption of a durable completed re-anchor, shared with catch-up. */
+export { adoptCompletedReanchor } from "./votes.js";
+
 const acceptedDisposition: RouterIngressDisposition = "accepted";
 const ignoredDisposition: RouterIngressDisposition = "ignored";
 

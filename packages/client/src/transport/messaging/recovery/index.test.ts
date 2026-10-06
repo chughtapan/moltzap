@@ -197,6 +197,42 @@ function makeHeldRouter(input: HeldRouterInput) {
   });
 }
 
+/**
+ * Opens an endpoint store in a scoped temporary directory holding the
+ * conversation foundation of a certified GENESIS record: its membership and
+ * its genesis Router anchor.
+ * @param membership Verified membership of the conversation.
+ * @param certifiedRecord Certified GENESIS record whose anchor is stored.
+ * @param prefix Temporary directory name prefix.
+ * @returns The opened store.
+ */
+const openGenesisStore = (
+  membership: VerifiedMembership,
+  certifiedRecord: CertifiedRecord,
+  prefix: string,
+) =>
+  Effect.gen(function* () {
+    const anchor = certifiedRecord.actionCertifiedRecord.routerAnchor;
+    if (anchor.kind !== "genesis_anchor_body") {
+      return yield* Effect.dieMessage("genesis fixture lost its anchor");
+    }
+    const fileSystem = yield* FileSystem.FileSystem;
+    const store = yield* openEndpointStore(
+      yield* fileSystem.makeTempDirectoryScoped({ prefix }),
+    );
+    yield* store.putConversationFoundation({
+      conversationId: membership.descriptor.conversationId,
+      membershipHash: membership.hash,
+      canonicalMembership: yield* encodeCanonical(
+        MembershipDescriptor,
+        membership.descriptor,
+      ),
+      anchorHash: yield* hashAnchor(anchor),
+      canonicalAnchor: yield* encodeCanonical(GenesisAnchorBody, anchor),
+    });
+    return store;
+  });
+
 const makeFixtureWithRouter = (
   makeRouter: (context: FixtureRouterContext) => EngineRouterPort,
   identityBytes: { readonly local: number; readonly remote: number } = {
@@ -205,7 +241,6 @@ const makeFixtureWithRouter = (
   },
 ) =>
   Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
     const registryKeys = generateKeyPairSync("ed25519");
     const registrySignerPublicKey = yield* Schema.decodeUnknown(
       Ed25519PublicKey,
@@ -252,25 +287,11 @@ const makeFixtureWithRouter = (
       membership,
       oldRouterInstanceId,
     );
-    const anchor = certifiedRecord.actionCertifiedRecord.routerAnchor;
-    if (anchor.kind !== "genesis_anchor_body") {
-      return yield* Effect.dieMessage("genesis fixture lost its anchor");
-    }
-    const store = yield* openEndpointStore(
-      yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "moltzap-recovery-",
-      }),
+    const store = yield* openGenesisStore(
+      membership,
+      certifiedRecord,
+      "moltzap-recovery-",
     );
-    yield* store.putConversationFoundation({
-      conversationId,
-      membershipHash: membership.hash,
-      canonicalMembership: yield* encodeCanonical(
-        MembershipDescriptor,
-        membership.descriptor,
-      ),
-      anchorHash: yield* hashAnchor(anchor),
-      canonicalAnchor: yield* encodeCanonical(GenesisAnchorBody, anchor),
-    });
     const cards: readonly [VerifiedAgentCard, VerifiedAgentCard] = [
       local.card,
       remote.card,
@@ -314,21 +335,22 @@ const makeFixtureWithRouter = (
     } satisfies RecoveryFixture;
   }).pipe(Effect.provide(NodeFileSystem.layer));
 
-const makeFixtureRouter = ({
-  store,
-  normalOutbound,
-}: FixtureRouterContext): EngineRouterPort => ({
-  currentAnchor: Effect.succeed({
-    routerInstanceId: newRouterInstanceId,
-    pollCursor,
-  }),
-  awaitAnchor: Effect.succeed({
-    routerInstanceId: newRouterInstanceId,
-    pollCursor,
-  }),
-  send: (outboundId) =>
-    forwardStoredOutbound(store, normalOutbound, outboundId),
-});
+/**
+ * A Router worker anchored at `routerInstanceId` that forwards every sent
+ * outbox row to the fixture's normal outbound queue.
+ * @param routerInstanceId Router instance the worker is anchored at.
+ * @returns The worker, built over the fixture's store and queue.
+ */
+const fixtureRouterAt =
+  (routerInstanceId: typeof RouterInstanceId.Type) =>
+  ({ store, normalOutbound }: FixtureRouterContext): EngineRouterPort => ({
+    currentAnchor: Effect.succeed({ routerInstanceId, pollCursor }),
+    awaitAnchor: Effect.succeed({ routerInstanceId, pollCursor }),
+    send: (outboundId) =>
+      forwardStoredOutbound(store, normalOutbound, outboundId),
+  });
+
+const makeFixtureRouter = fixtureRouterAt(newRouterInstanceId);
 
 const makeFixture = makeFixtureWithRouter(makeFixtureRouter);
 const makeNonLexicalAgentOrderFixture = makeFixtureWithRouter(
@@ -1164,16 +1186,29 @@ const decodeEvidenceKind = (
     Effect.orDie,
   );
 
+/**
+ * Router ingress at the new Router instance carrying `statement`, signed by
+ * the fixture's remote member and sent in that member's outer envelope.
+ * @param fixture Endpoint the evidence is addressed to.
+ * @param statement Evidence the remote member signs.
+ * @returns The Router-ordered evidence.
+ */
+const peerEvidenceIngress = (
+  fixture: RecoveryFixture,
+  statement: EvidenceStatementValue,
+): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> =>
+  peerEvidenceIngressFrom({
+    membership: fixture.membership,
+    responder: fixture.remote,
+    statement,
+    routerInstanceId: newRouterInstanceId,
+  });
+
 const peerReanchorVoteIngress = (
   fixture: RecoveryFixture,
   proposal: ReanchorVote,
 ): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> =>
-  peerReanchorVoteIngressFrom({
-    membership: fixture.membership,
-    responder: fixture.remote,
-    proposal,
-    routerInstanceId: newRouterInstanceId,
-  });
+  peerEvidenceIngress(fixture, proposal);
 
 /**
  * Router ingress carrying a re-anchor vote whose outer envelope `responder`
@@ -1187,11 +1222,26 @@ function peerReanchorVoteIngressFrom(input: {
   readonly routerInstanceId: typeof RouterInstanceId.Type;
   readonly evidenceSigner?: SigningIdentity;
 }): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> {
+  return peerEvidenceIngressFrom({ ...input, statement: input.proposal });
+}
+
+/**
+ * Router ingress carrying `statement` in an outer envelope `responder` signs
+ * and addresses to `membership`. The evidence is signed by `evidenceSigner`
+ * when given, otherwise by `responder`.
+ */
+function peerEvidenceIngressFrom(input: {
+  readonly membership: VerifiedMembership;
+  readonly responder: SigningIdentity;
+  readonly statement: EvidenceStatementValue;
+  readonly routerInstanceId: typeof RouterInstanceId.Type;
+  readonly evidenceSigner?: SigningIdentity;
+}): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> {
   const signer = input.evidenceSigner ?? input.responder;
   return Effect.gen(function* () {
     const evidence = yield* signEvidenceMessage({
       statement: {
-        ...input.proposal,
+        ...input.statement,
         signerAgentId: signer.card.agentId,
       },
       agentCard: signer.card,
@@ -1611,181 +1661,6 @@ const reproposesPendingPostAfterRestart = () =>
     ),
   );
 
-/**
- * Router ingress delivering the endpoint's own queued action proposal back to
- * it, as the Router orders it.
- * @param fixture Endpoint that proposed.
- * @param queued The proposal envelope and its decoded packet.
- * @param routerInstanceId Router instance that orders the proposal.
- * @returns The Router-ordered proposal.
- */
-const ownProposalIngress = (
-  fixture: RecoveryFixture,
-  queued: QueuedActionProposal,
-  routerInstanceId: typeof RouterInstanceId.Type,
-): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> =>
-  SignedMessage.verify({
-    signedMessage: queued.message,
-    agentCard: fixture.local.card,
-  }).pipe(
-    Effect.map(
-      (message): RouterWorkerIngress<DecodedOuterBody> => ({
-        routerInstanceId,
-        message,
-        senderCard: fixture.local.card,
-        payload: { kind: "direct", packet: queued.proposal },
-      }),
-    ),
-    Effect.orDie,
-  );
-
-/**
- * Router ingress at the new Router instance carrying `statement`, signed by
- * the fixture's remote member and sent in that member's outer envelope.
- * @param fixture Endpoint the evidence is addressed to.
- * @param statement Evidence the remote member signs.
- * @returns The Router-ordered evidence.
- */
-const peerEvidenceIngress = (
-  fixture: RecoveryFixture,
-  statement: EvidenceStatementValue,
-): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> =>
-  Effect.gen(function* () {
-    const evidence = yield* signEvidenceMessage({
-      statement,
-      agentCard: fixture.remote.card,
-      signingAuthority: fixture.remote.authority,
-    });
-    const message = yield* signOuterEvidence({
-      evidence,
-      membership: fixture.membership,
-      agentCard: fixture.remote.card,
-      signingAuthority: fixture.remote.authority,
-    });
-    const ingress: RouterWorkerIngress<DecodedOuterBody> = {
-      routerInstanceId: newRouterInstanceId,
-      message,
-      senderCard: fixture.remote.card,
-      payload: { kind: "evidence", message: evidence },
-    };
-    return ingress;
-  }).pipe(Effect.orDie);
-
-/**
- * The Router orders a post's proposal at head R, so the endpoint locks R for
- * that proposal, and the Router restarts before it certifies. The
- * conversation re-anchors at R, and the post's proposal at the new anchor,
- * once the new Router orders it, certifies with the peer's signature and
- * vote. Fails when the lock taken under the old anchor still holds R, so
- * every proposal at R after the re-anchor conflicts with it and the
- * conversation never certifies another record.
- */
-const certifiesAtALockedHeadAfterReanchoring = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fixture = yield* makeFixtureWithRouter(
-          makeHeldRouter({
-            holdOutbound: yield* Ref.make(false),
-            pendingOutboundIds: yield* Queue.unbounded<string>(),
-          }),
-        );
-        yield* retainCertifiedRecord(fixture);
-        yield* fixture.engine.drainOutbound.pipe(Effect.orDie);
-        yield* Queue.takeAll(fixture.normalOutbound);
-        const head = fixture.certifiedRecord.actionCertifiedRecord.recordHash;
-        const sending = yield* Effect.fork(
-          fixture.engine.send(
-            yield* Effect.all({
-              to: Schema.decodeUnknown(MessageAddressInput)(
-                `agent:${fixture.remote.card.agentName}`,
-              ),
-              content: Schema.decodeUnknown(Content)([
-                { type: "text", text: "certify after re-anchoring" },
-              ]),
-            }),
-          ),
-        );
-        const stale = yield* takeActionProposalAfterEvidence(
-          fixture.normalOutbound,
-        );
-        const staleOrdered = yield* fixture.engine.acceptRouterIngress(
-          yield* ownProposalIngress(fixture, stale, oldRouterInstanceId),
-        );
-        const locksBeforeRestart = (yield* fixture.store.recover())
-          .proposalLocks;
-
-        const { recovery, outbound, request } =
-          yield* startRestartRecovery(fixture);
-        yield* deliverRecovery(
-          fixture.engine,
-          catchUpIncompleteIngress(fixture, request),
-        );
-        const reanchor = yield* Queue.take(outbound).pipe(
-          Effect.timeout("1 second"),
-          Effect.flatMap(decodeReanchorVote),
-        );
-        yield* deliverRecovery(
-          fixture.engine,
-          peerReanchorVoteIngress(fixture, reanchor),
-        );
-        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
-        yield* fixture.engine.drainOutbound;
-        const reproposed = yield* takeActionProposalAfterEvidence(
-          fixture.normalOutbound,
-        );
-        const reproposedOrdered = yield* fixture.engine.acceptRouterIngress(
-          yield* ownProposalIngress(fixture, reproposed, newRouterInstanceId),
-        );
-        const actionHash = yield* hashAction(reproposed.proposal.action);
-        yield* fixture.engine.acceptRouterIngress(
-          yield* peerEvidenceIngress(fixture, {
-            moltzapVersion: MOLTZAP_VERSION,
-            kind: "action_signature",
-            signerAgentId: fixture.remote.card.agentId,
-            actionHash,
-          }),
-        );
-        const staged = (yield* fixture.store.recover()).stagedRecords.find(
-          (record) => record.actionHash === actionHash,
-        );
-        if (staged === undefined) {
-          return yield* Effect.dieMessage(
-            `the proposal at the new anchor staged no record; the Router-ordered proposal was ${reproposedOrdered}`,
-          );
-        }
-        const recordHash = yield* Schema.decodeUnknown(RecordHash)(
-          staged.recordHash,
-        );
-        yield* fixture.engine.acceptRouterIngress(
-          yield* peerEvidenceIngress(fixture, {
-            moltzapVersion: MOLTZAP_VERSION,
-            kind: "durability_vote",
-            signerAgentId: fixture.remote.card.agentId,
-            conversationId: fixture.membership.descriptor.conversationId,
-            membershipHash: fixture.membership.hash,
-            recordHash,
-          }),
-        );
-        const sent = yield* Fiber.join(sending).pipe(
-          Effect.timeout("1 second"),
-        );
-
-        expect(staleOrdered).toBe(acceptedDisposition);
-        expect(locksBeforeRestart).toMatchObject([
-          {},
-          { previousRecordHash: head },
-        ]);
-        expect(reproposed.proposal.action).toMatchObject({
-          previousRecordHash: head,
-          anchorHash: reanchor.anchorHash,
-        });
-        expect(reproposedOrdered).toBe(acceptedDisposition);
-        expect(sent.recordHash).toBe(recordHash);
-      }),
-    ),
-  );
-
 const recoverSameRouterInstance = (reason: RouterDiscontinuityReason) =>
   Effect.runPromise(
     Effect.scoped(
@@ -2053,6 +1928,27 @@ const releaseHeldSend = (held: HeldSend) =>
   Deferred.succeed(held.release, undefined);
 
 /**
+ * The catch-up request the fixture's remote member sends for its position.
+ * @param fixture Endpoint the request is addressed to.
+ * @param known The requester's position; GENESIS when omitted.
+ * @returns The remote member's catch-up request.
+ */
+const peerCatchUpRequest = (
+  fixture: RecoveryFixture,
+  known: Pick<CatchUpRequest, "knownRecordHash" | "knownAnchorHash"> = {
+    knownRecordHash: null,
+    knownAnchorHash: null,
+  },
+): CatchUpRequest => ({
+  moltzapVersion: MOLTZAP_VERSION,
+  kind: "catch_up_request",
+  conversationId: fixture.membership.descriptor.conversationId,
+  membershipHash: fixture.membership.hash,
+  requesterAgentId: fixture.remote.card.agentId,
+  ...known,
+});
+
+/**
  * Queue one normal outbound envelope by answering a peer catch-up request.
  * @param fixture Engine that answers outside recovery.
  * @param known Position the peer's request names; by default the peer holds
@@ -2068,14 +1964,7 @@ const queuePeerCatchUpResponse = (
 ) =>
   Effect.gen(function* () {
     const before = yield* fixture.store.recover();
-    const request: CatchUpRequest = {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "catch_up_request",
-      conversationId: fixture.membership.descriptor.conversationId,
-      membershipHash: fixture.membership.hash,
-      requesterAgentId: fixture.remote.card.agentId,
-      ...known,
-    };
+    const request = peerCatchUpRequest(fixture, known);
     const ingress = yield* directPacketIngressFrom({
       membership: fixture.membership,
       sender: fixture.remote,
@@ -3479,6 +3368,173 @@ const blocksN4ReanchorBehindStagedSuccessor = () =>
   );
 
 // @agent-code-guard/regression-only: these traces pin restart liveness and fail-closed ancestry handling.
+/**
+ * Accepts one ingress through the engine's recovery path, as the Router
+ * worker does while a recovery runs.
+ * @param engine Endpoint receiving the ingress.
+ * @param ingress The ingress to deliver.
+ * @returns How the engine disposed of the ingress.
+ */
+const deliverRecovery = (
+  engine: EndpointEngine,
+  ingress: Effect.Effect<RouterWorkerIngress<DecodedOuterBody>>,
+) =>
+  ingress.pipe(Effect.flatMap((value) => engine.acceptRecoveryIngress(value)));
+
+/**
+ * The Router orders a post's proposal at head R, so the endpoint locks R for
+ * that proposal, and the Router restarts before it certifies. The
+ * conversation re-anchors at R, and the post's proposal at the new anchor,
+ * once the new Router orders it, certifies with the peer's signature and
+ * vote, and the endpoint starts again over the same store. Fails when the
+ * lock taken under the old anchor still holds R, so every proposal at R
+ * after the re-anchor conflicts with it and the conversation never
+ * certifies another record, or when the old proposal's signatures outlive
+ * its lock and startup refuses the store.
+ */
+const certifiesAtALockedHeadAfterReanchoring = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixtureWithRouter(
+          fixtureRouterAt(oldRouterInstanceId),
+        );
+        yield* retainCertifiedRecord(fixture);
+        yield* fixture.engine.drainOutbound.pipe(Effect.orDie);
+        yield* Queue.takeAll(fixture.normalOutbound);
+        const head = fixture.certifiedRecord.actionCertifiedRecord.recordHash;
+        const sending = yield* Effect.fork(
+          fixture.engine.send(
+            yield* Effect.all({
+              to: Schema.decodeUnknown(MessageAddressInput)(
+                `agent:${fixture.remote.card.agentName}`,
+              ),
+              content: Schema.decodeUnknown(Content)([
+                { type: "text", text: "certify after re-anchoring" },
+              ]),
+            }),
+          ),
+        );
+        const stale = yield* takeActionProposalAfterEvidence(
+          fixture.normalOutbound,
+        );
+        const staleOrdered = yield* fixture.engine.acceptRouterIngress(
+          yield* directPacketIngressFrom({
+            membership: fixture.membership,
+            sender: fixture.local,
+            packet: stale.proposal,
+            routerInstanceId: oldRouterInstanceId,
+          }),
+        );
+        const locksBeforeRestart = (yield* fixture.store.recover())
+          .proposalLocks;
+
+        const { recovery, outbound, request } =
+          yield* startRestartRecovery(fixture);
+        yield* deliverRecovery(
+          fixture.engine,
+          catchUpIncompleteIngress(fixture, request),
+        );
+        const reanchor = yield* Queue.take(outbound).pipe(
+          Effect.timeout("1 second"),
+          Effect.flatMap(decodeReanchorVote),
+        );
+        yield* deliverRecovery(
+          fixture.engine,
+          peerReanchorVoteIngress(fixture, reanchor),
+        );
+        yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
+        yield* fixture.engine.drainOutbound;
+        const resumed = yield* Queue.takeAll(fixture.normalOutbound).pipe(
+          Effect.flatMap((messages) =>
+            Effect.forEach(
+              messages,
+              (message) => decodeOuterBody(message.body),
+              { concurrency: 1 },
+            ),
+          ),
+          Effect.orDie,
+        );
+        const resumedEvidence = yield* Effect.forEach(
+          resumed.flatMap((body) =>
+            body.kind === "evidence" ? [body.message] : [],
+          ),
+          (message) => decodeCanonical(EvidenceStatement, message.body),
+          { concurrency: 1 },
+        );
+        const [reproposal] = resumed.flatMap((body) =>
+          body.kind === "direct" && body.packet.kind === "action_proposal"
+            ? [body.packet]
+            : [],
+        );
+        if (reproposal === undefined) {
+          return yield* Effect.dieMessage("recovery reproposed nothing");
+        }
+        const reproposed = { proposal: reproposal };
+        const reproposedOrdered = yield* fixture.engine.acceptRouterIngress(
+          yield* directPacketIngressFrom({
+            membership: fixture.membership,
+            sender: fixture.local,
+            packet: reproposed.proposal,
+            routerInstanceId: newRouterInstanceId,
+          }),
+        );
+        const actionHash = yield* hashAction(reproposed.proposal.action);
+        yield* fixture.engine.acceptRouterIngress(
+          yield* peerEvidenceIngress(fixture, {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "action_signature",
+            signerAgentId: fixture.remote.card.agentId,
+            actionHash,
+          }),
+        );
+        const staged = (yield* fixture.store.recover()).stagedRecords.find(
+          (record) => record.actionHash === actionHash,
+        );
+        if (staged === undefined) {
+          return yield* Effect.dieMessage(
+            `the proposal at the new anchor staged no record; the Router-ordered proposal was ${reproposedOrdered}`,
+          );
+        }
+        const recordHash = yield* Schema.decodeUnknown(RecordHash)(
+          staged.recordHash,
+        );
+        yield* fixture.engine.acceptRouterIngress(
+          yield* peerEvidenceIngress(fixture, {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "durability_vote",
+            signerAgentId: fixture.remote.card.agentId,
+            conversationId: fixture.membership.descriptor.conversationId,
+            membershipHash: fixture.membership.hash,
+            recordHash,
+          }),
+        );
+        const sent = yield* Fiber.join(sending).pipe(
+          Effect.timeout("1 second"),
+        );
+        const restarted = yield* Effect.exit(makeEndpointEngine(fixture.input));
+
+        expect(staleOrdered).toBe(acceptedDisposition);
+        expect(resumedEvidence).not.toContainEqual(
+          expect.objectContaining({
+            actionHash: yield* hashAction(stale.proposal.action),
+          }),
+        );
+        expect(locksBeforeRestart).toMatchObject([
+          {},
+          { previousRecordHash: head },
+        ]);
+        expect(reproposed.proposal.action).toMatchObject({
+          previousRecordHash: head,
+          anchorHash: reanchor.anchorHash,
+        });
+        expect(reproposedOrdered).toBe(acceptedDisposition);
+        expect(sent.recordHash).toBe(recordHash);
+        expect(restarted).toMatchObject({ _tag: "Success" });
+      }),
+    ),
+  );
+
 describe("endpoint restart recovery", () => {
   it(
     "completes recovery before a held normal send resumes",
@@ -3595,6 +3651,7 @@ describe("endpoint restart recovery", () => {
   it(
     "certifies a post at a head a proposal locked before the conversation re-anchored there",
     certifiesAtALockedHeadAfterReanchoring,
+    10_000,
   );
   it(
     "restarts an empty foundation at the new Router instance",
@@ -3669,19 +3726,6 @@ describe("endpoint outbound drain", () => {
     drainRecoversRouterRestartOnItsOwnFiber,
   );
 });
-
-/**
- * Accepts one ingress through the engine's recovery path, as the Router
- * worker does while a recovery runs.
- * @param engine Endpoint receiving the ingress.
- * @param ingress The ingress to deliver.
- * @returns How the engine disposed of the ingress.
- */
-const deliverRecovery = (
-  engine: EndpointEngine,
-  ingress: Effect.Effect<RouterWorkerIngress<DecodedOuterBody>>,
-) =>
-  ingress.pipe(Effect.flatMap((value) => engine.acceptRecoveryIngress(value)));
 
 /**
  * Takes the two catch-up requests a recovery of the N4 engine sends first.
@@ -4733,15 +4777,7 @@ const answersCatchUpRequestDuringItsOwnRecovery = () =>
           oldRouterInstanceId,
         );
         const own = yield* takeCatchUpRequest(outbound);
-        const peerRequest: CatchUpRequest = {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "catch_up_request",
-          conversationId: fixture.membership.descriptor.conversationId,
-          membershipHash: fixture.membership.hash,
-          requesterAgentId: fixture.remote.card.agentId,
-          knownRecordHash: null,
-          knownAnchorHash: null,
-        };
+        const peerRequest = peerCatchUpRequest(fixture);
 
         const answered = yield* deliverRecovery(
           fixture.engine,
@@ -5032,15 +5068,7 @@ const ignoresCatchUpRequestsItMustNotAnswer = () =>
     Effect.scoped(
       Effect.gen(function* () {
         const fixture = yield* makeFixture;
-        const request: CatchUpRequest = {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "catch_up_request",
-          conversationId: fixture.membership.descriptor.conversationId,
-          membershipHash: fixture.membership.hash,
-          requesterAgentId: fixture.remote.card.agentId,
-          knownRecordHash: null,
-          knownAnchorHash: null,
-        };
+        const request = peerCatchUpRequest(fixture);
         const deliver = (sender: SigningIdentity, packet: CatchUpRequest) =>
           directPacketIngressFrom({
             membership: fixture.membership,
@@ -5252,15 +5280,7 @@ const answersCatchUpRequestBeforeItsRunStarts = () =>
           ...fixture.input,
           store: start.store,
         }).pipe(Effect.orDie);
-        const peerRequest: CatchUpRequest = {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "catch_up_request",
-          conversationId: fixture.membership.descriptor.conversationId,
-          membershipHash: fixture.membership.hash,
-          requesterAgentId: fixture.remote.card.agentId,
-          knownRecordHash: null,
-          knownAnchorHash: null,
-        };
+        const peerRequest = peerCatchUpRequest(fixture);
 
         yield* start.arm;
         const { recovery, outbound } = yield* forkRecovery(
@@ -5307,26 +5327,11 @@ const answersCatchUpRequestBeforeItsRunStarts = () =>
  */
 const openPeerEngine = (fixture: RecoveryFixture) =>
   Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-    const store = yield* openEndpointStore(
-      yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "moltzap-recovery-peer-",
-      }),
+    const store = yield* openGenesisStore(
+      fixture.membership,
+      fixture.certifiedRecord,
+      "moltzap-recovery-peer-",
     );
-    const anchor = fixture.certifiedRecord.actionCertifiedRecord.routerAnchor;
-    if (anchor.kind !== "genesis_anchor_body") {
-      return yield* Effect.dieMessage("genesis fixture lost its anchor");
-    }
-    yield* store.putConversationFoundation({
-      conversationId: fixture.membership.descriptor.conversationId,
-      membershipHash: fixture.membership.hash,
-      canonicalMembership: yield* encodeCanonical(
-        MembershipDescriptor,
-        fixture.membership.descriptor,
-      ),
-      anchorHash: yield* hashAnchor(anchor),
-      canonicalAnchor: yield* encodeCanonical(GenesisAnchorBody, anchor),
-    });
     const engine = yield* makeEndpointEngine({
       ...fixture.input,
       localAgentCard: fixture.remote.card,
@@ -5446,15 +5451,14 @@ const twoMembersRecoverTogetherAfterARouterRestart = () =>
           Fiber.await(local.recovery),
           Fiber.await(remote.recovery),
         ]).pipe(Effect.timeoutOption("3 seconds"));
-        const localAnchor = (yield* fixture.store.recover()).positions[0]
-          ?.currentAnchorHash;
-        const peerAnchor = (yield* peer.store.recover()).positions[0]
-          ?.currentAnchorHash;
+        const localPositions = (yield* fixture.store.recover()).positions;
+        const peerPositions = (yield* peer.store.recover()).positions;
 
         expect(earlyRequest).toBe(acceptedDisposition);
         expect(recovered).toStrictEqual(Option.some([Exit.void, Exit.void]));
-        expect(localAnchor).toBe(peerAnchor);
-        expect(localAnchor).not.toBe(
+        expect(localPositions).toHaveLength(1);
+        expect(peerPositions).toStrictEqual(localPositions);
+        expect(localPositions[0]?.currentAnchorHash).not.toBe(
           fixture.certifiedRecord.actionCertifiedRecord.recordCore.anchorHash,
         );
       }),
