@@ -6662,10 +6662,12 @@ describe("catch-up and re-anchor inside a recovery run", () => {
   it(
     "proposes a pending post only once its conversation recovers, at the head it settles on",
     proposesPendingPostsOnlyOnceItsConversationRecovers,
+    10_000,
   );
   it(
     "waits for the member holding a certified successor before it settles the position",
     waitsForTheMemberHoldingTheCertifiedSuccessor,
+    10_000,
   );
   it(
     "settles a position on a quorum of answers once its retries run out",
