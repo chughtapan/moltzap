@@ -4841,6 +4841,13 @@ const adoptsCompletionSupersedingTheStagedCandidate = (
             .filter((candidate) => candidate.conversationId === conversationId)
             .map(({ anchorHash }) => anchorHash),
         ).toEqual([completed.anchorHash]);
+        expect(
+          recovered.evidence.filter(
+            (evidence) =>
+              evidence.kind === "reanchor" &&
+              evidence.subjectId === staged.anchorHash,
+          ),
+        ).toEqual([]);
         yield* Fiber.interrupt(recovery);
       }),
     ),
@@ -5901,10 +5908,12 @@ const forkSend = (engine: EndpointEngine, to: string, text: string) =>
 
 /**
  * After a Router discontinuity the endpoint holds two conversations. The
- * direct one's only other member is silent, and a quorum of the N4
- * conversation's members answer its catch-up. The N4 conversation recovers
- * and its post reaches the Router, while the direct conversation stays fenced
- * and the Router receives nothing of its post. Once the direct member
+ * direct one's only other member is silent, and the N4 conversation's members
+ * answer its catch-up. One answer is short of a quorum, so the N4 post still
+ * waits; with the second, the N4 conversation recovers, its post reaches the
+ * Router, and its Router-ordered proposal and a member's signature are
+ * accepted. Meanwhile the direct conversation stays fenced and the Router
+ * receives nothing of its post. Once the direct member
  * answers, that conversation recovers and its held post reaches the Router.
  * Fails when the silent member's conversation holds the N4 conversation's
  * post, as an engine-wide fence does, or when a fenced conversation's post
@@ -5939,20 +5948,17 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
             "recovery did not ask both conversations' members",
           );
         }
-        yield* Effect.forEach(
-          [fixture.remote, n4.third],
-          (responder) =>
-            deliverRecovery(
-              n4.engine,
-              catchUpIncompleteIngressFrom({
-                membership: n4.membership,
-                responder,
-                request: n4Request,
-                routerInstanceId: oldRouterInstanceId,
-              }),
-            ),
-          { concurrency: 1, discard: true },
-        );
+        const n4Incomplete = (responder: SigningIdentity) =>
+          deliverRecovery(
+            n4.engine,
+            catchUpIncompleteIngressFrom({
+              membership: n4.membership,
+              responder,
+              request: n4Request,
+              routerInstanceId: oldRouterInstanceId,
+            }),
+          );
+        yield* n4Incomplete(fixture.remote);
         const directSend = yield* forkSend(
           n4.engine,
           `agent:${fixture.remote.card.agentName}`,
@@ -5965,6 +5971,10 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
             .join(",")}`,
           "the recovered conversation sends",
         );
+        const sentBelowQuorum = yield* takeActionProposalAfterEvidence(
+          fixture.normalOutbound,
+        ).pipe(Effect.timeoutOption("300 millis"));
+        yield* n4Incomplete(n4.third);
         const proposal = yield* takeActionProposalAfterEvidence(
           fixture.normalOutbound,
         );
@@ -5973,6 +5983,27 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
           fixture.normalOutbound,
         );
         const heldSend = yield* Fiber.poll(directSend);
+        const ordered = yield* directPacketIngressFrom({
+          membership: n4.membership,
+          sender: fixture.local,
+          packet: proposal.proposal,
+          routerInstanceId: oldRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
+        );
+        const signed = yield* peerEvidenceIngressFrom({
+          membership: n4.membership,
+          responder: n4.third,
+          statement: {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "action_signature",
+            signerAgentId: n4.third.card.agentId,
+            actionHash: yield* hashAction(proposal.proposal.action),
+          },
+          routerInstanceId: oldRouterInstanceId,
+        }).pipe(
+          Effect.flatMap((ingress) => n4.engine.acceptRouterIngress(ingress)),
+        );
         yield* deliverRecovery(
           n4.engine,
           catchUpIncompleteIngress(fixture, directRequest),
@@ -5981,9 +6012,14 @@ const recoversOneConversationWhileAnotherWaitsOnASilentMember = () =>
           fixture.normalOutbound,
         );
 
+        expect(Option.isNone(sentBelowQuorum)).toBe(true);
         expect(proposal.proposal.action.conversationId).toBe(
           n4.membership.descriptor.conversationId,
         );
+        expect([ordered, signed]).toEqual([
+          acceptedDisposition,
+          acceptedDisposition,
+        ]);
         expect(reachedRouterWhileFenced).toBe(0);
         expect(Option.isNone(heldSend)).toBe(true);
         expect(released.proposal.action.conversationId).toBe(

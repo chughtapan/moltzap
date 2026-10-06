@@ -330,7 +330,8 @@ export const logRecoveryComplete = (
 
 /**
  * Mark a detached worker active again at its retained anchor, unless another
- * generation replaced it meanwhile.
+ * generation replaced it meanwhile, and then tell the engine through
+ * `callbacks.reattached`, so work the outage paused can start again.
  * @param runtime Worker whose probe the Router answered.
  * @param snapshot Detached state the probe was issued from.
  * @returns Completion once the worker is active or left as it was.

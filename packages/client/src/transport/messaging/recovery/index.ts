@@ -208,6 +208,20 @@ export function rearmPausedCatchUp(
 }
 
 /**
+ * Whether a conversation is still fenced: by the engine fence before a run
+ * has fenced each conversation, or by its own fence until it recovers.
+ * @param runtime Engine whose recovery fences are read.
+ * @param conversationId Conversation to check.
+ * @returns True while the conversation's traffic waits for its recovery.
+ */
+export function isRecovering(
+  runtime: EngineRuntime,
+  conversationId: ConversationIdValue,
+): boolean {
+  return pendingRecoveryFence(runtime, conversationId) !== undefined;
+}
+
+/**
  * Reconcile every certified chain and threshold-anchor a restarted Router.
  * It verifies durable history, fences each conversation, asks its members
  * for catch-up, and returns: the Router worker resumes normal ingress while
@@ -516,9 +530,11 @@ function rearmIfPaused(
 
 /**
  * Ask a conversation's members for its history now, then retry on
- * {@link catchUpRetrySchedule} until it recovers or the retries run out. A
- * retry whose store read fails ends the retries; the conversation waits for
- * traffic to arm them again.
+ * {@link catchUpRetrySchedule} until it recovers or the retries run out. The
+ * retries start only if the conversation has not recovered while the first
+ * request was being queued, since a re-arm runs beside the ingress that can
+ * recover it. A retry whose store read fails ends the retries; the
+ * conversation waits for traffic to arm them again.
  * @param run Recovery run that holds the conversation.
  * @param conversationId Conversation to catch up.
  * @returns Completion once the first request is queued and the retries run.
@@ -529,23 +545,34 @@ function armCatchUp(
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return requestCertifiedHistory(run.catchUp, conversationId).pipe(
     Effect.zipRight(
-      FiberMap.run(
-        run.retries,
-        conversationId,
-        Effect.schedule(
-          resendCertifiedHistoryRequest(run.catchUp, conversationId),
-          catchUpRetrySchedule,
-        ).pipe(
-          Effect.asVoid,
-          Effect.catchAll(() =>
-            Effect.logWarning(
-              "Catch-up retries stopped: the endpoint store could not be read",
+      Effect.suspend(() =>
+        run.completedConversations.has(conversationId)
+          ? Effect.void
+          : FiberMap.run(
+              run.retries,
+              conversationId,
+              retryCatchUp(run, conversationId),
             ),
-          ),
-        ),
       ),
     ),
     Effect.asVoid,
+  );
+}
+
+function retryCatchUp(
+  run: RecoveryRun,
+  conversationId: ConversationIdValue,
+): Effect.Effect<void> {
+  return Effect.schedule(
+    resendCertifiedHistoryRequest(run.catchUp, conversationId),
+    catchUpRetrySchedule,
+  ).pipe(
+    Effect.asVoid,
+    Effect.catchAll(() =>
+      Effect.logWarning(
+        "Catch-up retries stopped: the endpoint store could not be read",
+      ),
+    ),
   );
 }
 
@@ -936,20 +963,6 @@ function queueRecoveryEnvelope(
     ),
     Effect.mapError(persistenceFailure),
   );
-}
-
-/**
- * Whether a conversation is still fenced: by the engine fence before a run
- * has fenced each conversation, or by its own fence until it recovers.
- * @param runtime Engine whose recovery fences are read.
- * @param conversationId Conversation to check.
- * @returns True while the conversation's traffic waits for its recovery.
- */
-export function isRecovering(
-  runtime: EngineRuntime,
-  conversationId: ConversationIdValue,
-): boolean {
-  return pendingRecoveryFence(runtime, conversationId) !== undefined;
 }
 
 function packetConversation(packet: DirectPacket): ConversationIdValue {
