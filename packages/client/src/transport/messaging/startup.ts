@@ -430,7 +430,7 @@ function completeRecoveredFold(
     fold.durabilityEvidence.set(message.senderAgentId, message);
   }
   fold.recordHash = record.actionCertifiedRecord.recordHash;
-  fold.certifiedRecord = record;
+  fold.certified = true;
 }
 
 function recoverCompletedPosts(

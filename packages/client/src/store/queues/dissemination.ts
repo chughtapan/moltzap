@@ -30,7 +30,7 @@ export function retainDisseminationInTransaction(
   obligation: DisseminationObligation,
 ): StoreMutation {
   validateObligation(obligation);
-  if (findOutboundId(database, obligation) !== undefined) {
+  if (findObligation(database, obligation) !== undefined) {
     return "existing";
   }
   database
@@ -64,7 +64,7 @@ export function enqueueDisseminationOutbound(
   validateObligation(obligation);
   requireEqual(obligation.conversationId, message.conversationId);
   return transaction(database, () => {
-    const retained = findOutboundId(database, obligation);
+    const retained = findObligation(database, obligation);
     if (retained === undefined) {
       throw new StoreSignal("not-found");
     }
@@ -121,7 +121,7 @@ interface RetainedDissemination {
   readonly outboundId?: string;
 }
 
-function findOutboundId(
+function findObligation(
   database: DatabaseSync,
   obligation: DisseminationObligation,
 ): RetainedDissemination | undefined {

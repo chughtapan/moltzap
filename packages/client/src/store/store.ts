@@ -57,7 +57,6 @@ import {
   mergeEvidence,
   promoteRecord,
   stageCertifiedRecord,
-  stageRecord,
   stageRecordForDissemination,
   supersedeProposalLock,
 } from "./records.js";
@@ -164,7 +163,6 @@ function makeHistoryOperations(state: StoreState, run: StoreRunner) {
       run(() => lockGenesisProposal(state.database, foundation, proposal)),
     supersedeProposalLock: (lock, certificate) =>
       run(() => supersedeProposalLock(state.database, lock, certificate)),
-    stageRecord: (record) => run(() => stageRecord(state.database, record)),
     stageCertifiedRecord: (record) =>
       run(() => stageCertifiedRecord(state.database, record)),
     stageRecordForDissemination: (record) =>

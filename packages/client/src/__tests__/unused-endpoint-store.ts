@@ -32,7 +32,6 @@ export function unusedEndpointStore(label: string): EndpointStore {
     lockProposal: unused,
     lockGenesisProposal: unused,
     supersedeProposalLock: unused,
-    stageRecord: unused,
     stageCertifiedRecord: unused,
     stageRecordForDissemination: unused,
     mergeEvidence: unused,

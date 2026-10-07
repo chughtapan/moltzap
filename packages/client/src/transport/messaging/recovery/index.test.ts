@@ -1160,14 +1160,6 @@ const decodeCatchUpRequest = (message: SignedMessage) =>
     ),
   );
 
-const decodeActionProposal = (
-  message: SignedMessage,
-  expected = "action proposal",
-) =>
-  openForwarded(message).pipe(
-    Effect.flatMap((body) => actionProposalIn(body, expected)),
-  );
-
 /** The action proposal `body` carries; any other body is a defect naming `expected`. */
 function actionProposalIn(body: DecodedOuterBody, expected: string) {
   if (body.kind === "direct" && body.packet.kind === "action_proposal") {
@@ -1178,8 +1170,33 @@ function actionProposalIn(body: DecodedOuterBody, expected: string) {
 }
 
 /**
- * Take the next action proposal from `outbound`, skipping the evidence
- * envelopes queued ahead of it.
+ * Take the bodies `outbound` carries up to and including the next action
+ * proposal. A proposal follows its head's certified record, so it can reach
+ * the queue after a drain returns.
+ * @param outbound Router queue the engine forwards to.
+ * @param taken Bodies already taken, in order.
+ * @returns Every body through the proposal; one second without traffic is a
+ *     defect.
+ */
+function takeBodiesThroughActionProposal(
+  outbound: Queue.Queue<SignedMessage>,
+  taken: readonly DecodedOuterBody[] = [],
+): Effect.Effect<readonly DecodedOuterBody[]> {
+  return Queue.take(outbound).pipe(
+    Effect.timeout("1 second"),
+    Effect.flatMap((message) => openForwarded(message)),
+    Effect.flatMap((body) =>
+      body.kind === "direct" && body.packet.kind === "action_proposal"
+        ? Effect.succeed([...taken, body])
+        : takeBodiesThroughActionProposal(outbound, [...taken, body]),
+    ),
+    Effect.orDie,
+  );
+}
+
+/**
+ * Take the next action proposal from `outbound`, skipping the evidence,
+ * action-certified-record and certified-head envelopes queued ahead of it.
  * @param outbound Router queue the engine forwards to.
  * @returns The proposal envelope and its decoded packet; any other direct
  *     packet, or one second without traffic, is a defect.
@@ -1192,7 +1209,11 @@ function takeActionProposalAfterEvidence(
     Effect.flatMap((message) =>
       openForwarded(message).pipe(
         Effect.flatMap((body) => {
-          if (body.kind === "evidence") {
+          if (
+            body.kind === "evidence" ||
+            body.packet.kind === "action_certified_record" ||
+            body.packet.kind === "certified_record"
+          ) {
             return takeActionProposalAfterEvidence(outbound);
           }
           return body.packet.kind === "action_proposal"
@@ -1948,10 +1969,8 @@ const completeRestartRecovery = () =>
             }),
           ),
         );
-        const resumedProposal = yield* Queue.take(fixture.normalOutbound).pipe(
-          Effect.timeout("1 second"),
-          Effect.flatMap(decodeActionProposal),
-        );
+        const { proposal: resumedProposal } =
+          yield* takeActionProposalAfterEvidence(fixture.normalOutbound);
         expect(resumedProposal.action).toMatchObject({
           kind: "POST",
           anchorHash: proposal.anchorHash,
@@ -1985,12 +2004,17 @@ const reproposesPendingPostAfterRestart = () =>
             }),
           ),
         );
+        const headRecordOutboundId = yield* Queue.take(pendingOutboundIds).pipe(
+          Effect.timeout("1 second"),
+        );
         const staleOutboundId = yield* Queue.take(pendingOutboundIds).pipe(
           Effect.timeout("1 second"),
         );
         const before = yield* fixture.store.recover();
-        expect(before.outboundMessages).toHaveLength(1);
-        const staleOutbound = before.outboundMessages[0];
+        expect(
+          before.outboundMessages.map(({ outboundId }) => outboundId),
+        ).toEqual([headRecordOutboundId, staleOutboundId]);
+        const staleOutbound = before.outboundMessages[1];
         if (staleOutbound === undefined) {
           return yield* Effect.dieMessage("pending POST was not retained");
         }
@@ -3739,13 +3763,8 @@ const certifiesAtALockedHeadAfterReanchoring = (
         const anchorHash = yield* reanchorAt(fixture, { outbound, request });
         yield* Fiber.join(recovery).pipe(Effect.timeout("1 second"));
         yield* fixture.engine.drainOutbound;
-        const resumed = yield* Queue.takeAll(fixture.normalOutbound).pipe(
-          Effect.flatMap((messages) =>
-            Effect.forEach(messages, (message) => openForwarded(message), {
-              concurrency: 1,
-            }),
-          ),
-          Effect.orDie,
+        const resumed = yield* takeBodiesThroughActionProposal(
+          fixture.normalOutbound,
         );
         const resumedEvidence = yield* Effect.forEach(
           resumed.flatMap((body) =>
@@ -7364,13 +7383,16 @@ const convertsToAThreeMemberSuccessorOnOneVote = () =>
         yield* traffic.record(holder, history.successor);
         yield* traffic.votes(recordHash, [holder]);
         const converted = yield* groupState(fixture, group, recordHash);
-        const ownVote = yield* takeSentBodies(fixture.normalOutbound);
+        const ownCopyAndVote = yield* takeSentBodies(fixture.normalOutbound);
         yield* traffic.votes(recordHash, [third]);
         const next = yield* takeCatchUpRequest(outbound);
         const certified = yield* groupState(fixture, group, recordHash);
 
         expect(converted.staged).toBe(true);
-        expect(ownVote).toMatchObject([{ kind: "evidence" }]);
+        expect(ownCopyAndVote).toMatchObject([
+          { kind: "direct", packet: { kind: "action_certified_record" } },
+          { kind: "evidence" },
+        ]);
         expect(certified.head).toBe(recordHash);
         expect(next.knownRecordHash).toBe(recordHash);
         expect(certified.candidates).toEqual([]);
@@ -7537,10 +7559,13 @@ const stagesASuccessorOnItsRecordAloneAfterAFeedGap = () =>
           history.stagedSuccessor,
         );
         const state = yield* groupState(fixture, n4, recordHash);
-        const ownVote = yield* takeSentBodies(fixture.normalOutbound);
+        const ownCopyAndVote = yield* takeSentBodies(fixture.normalOutbound);
 
         expect(state.staged).toBe(true);
-        expect(ownVote).toMatchObject([{ kind: "evidence" }]);
+        expect(ownCopyAndVote).toMatchObject([
+          { kind: "direct", packet: { kind: "action_certified_record" } },
+          { kind: "evidence" },
+        ]);
       }),
     ),
   );

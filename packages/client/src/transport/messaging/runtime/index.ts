@@ -104,7 +104,7 @@ export interface EngineActionFold {
   localActionEvidenceQueued: boolean;
   localDurabilityEvidenceQueued: boolean;
   recordHash?: RecordHash;
-  certifiedRecord?: CertifiedRecord;
+  certified: boolean;
 }
 
 /**
@@ -131,6 +131,7 @@ export function makeActionFold(
     durabilityEvidence: new Map(),
     localActionEvidenceQueued: false,
     localDurabilityEvidenceQueued: false,
+    certified: false,
   };
 }
 

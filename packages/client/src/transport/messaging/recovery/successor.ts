@@ -203,7 +203,7 @@ function acceptStagedSuccessorVote(
   const { conversation, fold } = target;
   const position = headPosition(conversation);
   const staged =
-    fold.certifiedRecord === undefined &&
+    !fold.certified &&
     position !== undefined &&
     extendsHead(position, fold.action);
   const { conversationId, signerAgentId } = statement;

@@ -394,7 +394,7 @@ function refusesAReanchorAwayFromAStagedSuccessor() {
         });
         yield* store.lockProposal(proposal(conversationId, head.actionHash));
         yield* store.applyCatchUpRecord(head);
-        yield* store.stageRecord(successor);
+        yield* store.stageRecordForDissemination(successor);
 
         yield* expectReason(store.stageReanchor(awayFromTheHead), "conflict");
         expect((yield* store.recover()).stagedReanchors).toEqual([]);
@@ -543,6 +543,9 @@ function stageDisseminationObligation(fixture: DisseminationLifecycleFixture) {
       expect(
         yield* store.stageRecordForDissemination(stagedRecord(fixture.record)),
       ).toBe(INSERTED_MUTATION);
+      expect(
+        yield* store.stageRecordForDissemination(stagedRecord(fixture.record)),
+      ).toBe(EXISTING_MUTATION);
       expect((yield* store.recover()).disseminationObligations).toEqual([
         fixture.actionObligation,
       ]);

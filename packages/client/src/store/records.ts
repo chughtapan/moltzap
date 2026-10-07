@@ -38,23 +38,6 @@ import {
 } from "./rows/index.js";
 
 /**
- * Durably stages an exact verified record core.
- *
- * @param database Exclusively owned endpoint database.
- * @param record Verified record core and private bindings.
- * @returns Whether the same staged record was inserted or already durable.
- */
-export function stageRecord(
-  database: DatabaseSync,
-  record: StagedRecord,
-): StoreMutation {
-  validateStagedRecord(record);
-  return transaction(database, () =>
-    stageRecordInTransaction(database, record, "vote"),
-  );
-}
-
-/**
  * Durably stages the record core of a certified record before its
  * durability certificate's votes are merged. This endpoint signs nothing for
  * it, so it is staged even under an anchor this endpoint has staged a
