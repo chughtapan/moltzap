@@ -7004,14 +7004,15 @@ const stagePostAtTheAuthor = (
   }).pipe(Effect.orDie);
 
 /**
- * Takes every envelope `outbound` holds once the endpoint has settled, and
- * decodes each one's body.
+ * Takes the envelopes `outbound` receives until it has been quiet for
+ * `QUIET_PERIOD` of live time, and decodes each one's body. One step can
+ * seal and queue several envelopes in turn, so a fixed pause before reading
+ * can split them under load.
  * @param outbound Queue the endpoint sends to.
  * @returns The decoded bodies, in send order.
  */
 const takeSentBodies = (outbound: Queue.Queue<SignedMessage>) =>
-  settle.pipe(
-    Effect.zipRight(Queue.takeAll(outbound)),
+  takeUntilQuiet(outbound, []).pipe(
     Effect.flatMap((messages) =>
       Effect.forEach(messages, (message) => openForwarded(message), {
         concurrency: 1,
@@ -7019,6 +7020,25 @@ const takeSentBodies = (outbound: Queue.Queue<SignedMessage>) =>
     ),
     Effect.orDie,
   );
+
+/** Live time with no new envelope after which `takeSentBodies` stops reading. */
+const QUIET_PERIOD = "200 millis";
+
+function takeUntilQuiet(
+  outbound: Queue.Queue<SignedMessage>,
+  taken: readonly SignedMessage[],
+): Effect.Effect<readonly SignedMessage[]> {
+  return TestServices.provideLive(
+    Queue.take(outbound).pipe(Effect.timeoutOption(QUIET_PERIOD)),
+  ).pipe(
+    Effect.flatMap(
+      Option.match({
+        onNone: () => Effect.succeed(taken),
+        onSome: (message) => takeUntilQuiet(outbound, [...taken, message]),
+      }),
+    ),
+  );
+}
 
 /**
  * Both members of a direct conversation staged the local endpoint's post
