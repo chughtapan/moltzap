@@ -3,7 +3,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type {
   CertifiedRecord,
-  DisseminationObligation,
   InboundDeliveryInput,
   ProposalLock,
   ProtocolEvidence,
@@ -39,23 +38,6 @@ import {
 } from "./rows/index.js";
 
 /**
- * Durably stages an exact verified record core.
- *
- * @param database Exclusively owned endpoint database.
- * @param record Verified record core and private bindings.
- * @returns Whether the same staged record was inserted or already durable.
- */
-export function stageRecord(
-  database: DatabaseSync,
-  record: StagedRecord,
-): StoreMutation {
-  validateStagedRecord(record);
-  return transaction(database, () =>
-    stageRecordInTransaction(database, record, "vote"),
-  );
-}
-
-/**
  * Durably stages the record core of a certified record before its
  * durability certificate's votes are merged. This endpoint signs nothing for
  * it, so it is staged even under an anchor this endpoint has staged a
@@ -89,10 +71,7 @@ export function stageRecordForDissemination(
   validateStagedRecord(record);
   return transaction(database, () => {
     const staged = stageRecordInTransaction(database, record, "vote");
-    const obligation = retainDisseminationInTransaction(
-      database,
-      disseminationObligation("action-certified-record", record),
-    );
+    const obligation = retainDisseminationInTransaction(database, record);
     return staged === "inserted" || obligation === "inserted"
       ? "inserted"
       : "existing";
@@ -183,32 +162,6 @@ export function promoteRecord(
   return transaction(database, () =>
     promoteRecordInTransaction(database, record, delivery),
   );
-}
-
-/**
- * Atomically promotes a certified record and retains its send obligation.
- *
- * @param database Exclusively owned endpoint database.
- * @param record Verified complete certified record.
- * @param delivery Canonical remote host message, absent for the local author.
- * @returns Whether either exact durable component was inserted.
- */
-export function promoteRecordForDissemination(
-  database: DatabaseSync,
-  record: CertifiedRecord,
-  delivery?: InboundDeliveryInput,
-): StoreMutation {
-  validateCertifiedRecord(record);
-  return transaction(database, () => {
-    const promoted = promoteRecordInTransaction(database, record, delivery);
-    const obligation = retainDisseminationInTransaction(
-      database,
-      disseminationObligation("certified-record", record),
-    );
-    return promoted === "inserted" || obligation === "inserted"
-      ? "inserted"
-      : "existing";
-  });
 }
 
 /**
@@ -706,15 +659,4 @@ function validateEvidence(evidence: ProtocolEvidence): void {
   requireText(evidence.subjectId);
   requireText(evidence.evidenceKey);
   requireBytes(evidence.canonicalEvidence);
-}
-
-function disseminationObligation(
-  kind: DisseminationObligation["kind"],
-  record: StagedRecord,
-): DisseminationObligation {
-  return Object.freeze({
-    conversationId: record.conversationId,
-    recordHash: record.recordHash,
-    kind,
-  });
 }

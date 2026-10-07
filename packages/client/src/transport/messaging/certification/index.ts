@@ -398,7 +398,7 @@ const applyPromotionState = (
   record: CertifiedRecord,
 ) =>
   Effect.sync(() => {
-    fold.certifiedRecord = record;
+    fold.certified = true;
     fold.conversation.head = {
       recordHash: record.actionCertifiedRecord.recordHash,
       record,
@@ -487,55 +487,11 @@ const rebasePendingIntents = (
         { concurrency: 1, discard: true },
       );
 
-type RecordSource = "assembled" | "catch-up" | "received";
-
-function persistPromotionWithoutDelivery(
-  runtime: EngineRuntime,
-  record: Effect.Effect.Success<ReturnType<typeof storedCertifiedRecord>>,
-  source: RecordSource,
-) {
-  switch (source) {
-    case "assembled":
-      return runtime.input.store.promoteRecordForDissemination(record);
-    case "catch-up":
-      return runtime.input.store.applyCatchUpRecord(record);
-    case "received":
-      return runtime.input.store.promoteRecord(record);
-    default: {
-      const exhaustive: never = source;
-      return exhaustive;
-    }
-  }
-}
-
-function persistPromotionWithDelivery(
-  runtime: EngineRuntime,
-  record: Effect.Effect.Success<ReturnType<typeof storedCertifiedRecord>>,
-  source: RecordSource,
-  delivery: Effect.Effect.Success<ReturnType<typeof inboundDelivery>>,
-) {
-  switch (source) {
-    case "assembled":
-      return runtime.input.store.promoteRecordForDissemination(
-        record,
-        delivery,
-      );
-    case "catch-up":
-      return runtime.input.store.applyCatchUpRecord(record, delivery);
-    case "received":
-      return runtime.input.store.promoteRecord(record, delivery);
-    default: {
-      const exhaustive: never = source;
-      return exhaustive;
-    }
-  }
-}
-
 const promote = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
   record: CertifiedRecord,
-  source: RecordSource,
+  applyCatchUp = false,
 ): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
   Effect.gen(function* () {
     const stored = yield* storedCertifiedRecord(record, fold).pipe(
@@ -551,20 +507,11 @@ const promote = (
           runtime.input.localAgentCard.agentId,
         ).pipe(Effect.mapError(localRepresentationFailure))
       : undefined;
-    yield* delivery === undefined
-      ? persistPromotionWithoutDelivery(runtime, stored, source)
-      : persistPromotionWithDelivery(runtime, stored, source, delivery);
-    const queuePromotion =
-      source === "assembled"
-        ? runtime.outbox
-            .queueCertifiedPacket(fold.conversation, record)
-            .pipe(Effect.mapError(() => persistenceFailure()))
-        : Effect.void;
-    yield* Effect.uninterruptible(
-      queuePromotion.pipe(
-        Effect.zipRight(completePromotion(runtime, fold, record)),
-      ),
-    );
+    const persist = applyCatchUp
+      ? runtime.input.store.applyCatchUpRecord
+      : runtime.input.store.promoteRecord;
+    yield* persist(stored, delivery);
+    yield* Effect.uninterruptible(completePromotion(runtime, fold, record));
     yield* rebasePendingIntents(runtime, fold.conversation.conversationId);
   });
 
@@ -574,7 +521,7 @@ const maybePromote = (
   actionCertifiedRecord: ActionCertifiedRecord,
 ): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
   Effect.gen(function* () {
-    if (!hasDurabilityThreshold(fold) || fold.certifiedRecord !== undefined) {
+    if (!hasDurabilityThreshold(fold) || fold.certified) {
       return;
     }
     const record = yield* makeCertifiedRecord(actionCertifiedRecord, fold).pipe(
@@ -584,52 +531,46 @@ const maybePromote = (
       record,
       registrySignerPublicKey: runtime.input.registrySignerPublicKey,
     }).pipe(Effect.mapError(localRepresentationFailure));
-    yield* promote(runtime, fold, record, "assembled");
+    yield* promote(runtime, fold, record);
   });
 
-type ActionCertificateSource = "assembled" | "received";
-
-function persistActionCertificate(
-  runtime: EngineRuntime,
-  record: Effect.Effect.Success<ReturnType<typeof stagedRecord>>,
-  source: ActionCertificateSource,
-) {
-  switch (source) {
-    case "assembled":
-      return runtime.input.store.stageRecordForDissemination(record);
-    case "received":
-      return runtime.input.store.stageRecord(record);
-    default: {
-      const exhaustive: never = source;
-      return exhaustive;
-    }
-  }
-}
-
+/**
+ * Stage a record from its action certificate, then vote for it and promote it
+ * once the votes reach `q(n)`. The first time this endpoint stages the record,
+ * whether it assembled the certificate or received a copy, it sends its own
+ * copy before its vote. A faulty member can seal a body that some members
+ * cannot open, so a member that staged from such a copy still gives every
+ * member a copy it can open ahead of its vote.
+ * @param runtime Engine that stages the record and owns its fold.
+ * @param fold Fold of the record's action.
+ * @param record Verified action certificate for the fold's action.
+ * @returns Completion once the record is staged and its local evidence queued.
+ */
 const stageActionCertificate = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
   record: ActionCertifiedRecord,
-  source: ActionCertificateSource,
 ): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
   Effect.gen(function* () {
-    const stored = yield* stagedRecord(record).pipe(
-      Effect.mapError(localRepresentationFailure),
-    );
-    yield* persistActionCertificate(runtime, stored, source);
-    const updateFold = Effect.sync(() => {
-      fold.recordHash = record.recordHash;
-      runtime.recordFolds.set(record.recordHash, fold);
-    });
-    const queueStaged =
-      source === "assembled"
-        ? runtime.outbox
-            .queueCertifiedPacket(fold.conversation, record)
-            .pipe(Effect.mapError(() => persistenceFailure()))
-        : Effect.void;
-    yield* Effect.uninterruptible(
-      queueStaged.pipe(Effect.zipRight(updateFold)),
-    );
+    if (fold.recordHash === undefined) {
+      const stored = yield* stagedRecord(record).pipe(
+        Effect.mapError(localRepresentationFailure),
+      );
+      yield* runtime.input.store.stageRecordForDissemination(stored);
+      yield* Effect.uninterruptible(
+        runtime.outbox
+          .queueActionCertifiedRecord(fold.conversation, record)
+          .pipe(
+            Effect.mapError(() => persistenceFailure()),
+            Effect.zipRight(
+              Effect.sync(() => {
+                fold.recordHash = record.recordHash;
+                runtime.recordFolds.set(record.recordHash, fold);
+              }),
+            ),
+          ),
+      );
+    }
     yield* localDurabilityEvidence(runtime, fold);
     yield* maybePromote(runtime, fold, record);
   });
@@ -646,7 +587,7 @@ const maybeCertifyAction = (
       fold,
       yield* actionAnchorHash(fold),
     ).pipe(Effect.mapError(localRepresentationFailure));
-    yield* stageActionCertificate(runtime, fold, record, "assembled");
+    yield* stageActionCertificate(runtime, fold, record);
   });
 
 type ProtocolAcceptanceError =
@@ -959,7 +900,7 @@ const acceptActionCertifiedRecord = (
     if (fold === undefined) {
       return "ignored";
     }
-    yield* stageActionCertificate(runtime, fold, record, "received");
+    yield* stageActionCertificate(runtime, fold, record);
     return "accepted";
   });
 
@@ -997,12 +938,7 @@ const acceptCertifiedRecord = (
       "durability",
       record.durabilityCertificate.votes,
     );
-    yield* promote(
-      runtime,
-      fold,
-      record,
-      applyCatchUp ? "catch-up" : "received",
-    );
+    yield* promote(runtime, fold, record, applyCatchUp);
     return "accepted";
   });
 

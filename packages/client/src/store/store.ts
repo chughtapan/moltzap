@@ -56,9 +56,7 @@ import {
   applyCatchUpRecord,
   mergeEvidence,
   promoteRecord,
-  promoteRecordForDissemination,
   stageCertifiedRecord,
-  stageRecord,
   stageRecordForDissemination,
   supersedeProposalLock,
 } from "./records.js";
@@ -165,7 +163,6 @@ function makeHistoryOperations(state: StoreState, run: StoreRunner) {
       run(() => lockGenesisProposal(state.database, foundation, proposal)),
     supersedeProposalLock: (lock, certificate) =>
       run(() => supersedeProposalLock(state.database, lock, certificate)),
-    stageRecord: (record) => run(() => stageRecord(state.database, record)),
     stageCertifiedRecord: (record) =>
       run(() => stageCertifiedRecord(state.database, record)),
     stageRecordForDissemination: (record) =>
@@ -174,10 +171,6 @@ function makeHistoryOperations(state: StoreState, run: StoreRunner) {
       run(() => mergeEvidence(state.database, evidence)),
     promoteRecord: (record, delivery) =>
       run(() => promoteRecord(state.database, record, delivery)),
-    promoteRecordForDissemination: (record, delivery) =>
-      run(() =>
-        promoteRecordForDissemination(state.database, record, delivery),
-      ),
     applyCatchUpRecord: (record, delivery) =>
       run(() => applyCatchUpRecord(state.database, record, delivery)),
     stageReanchor: (reanchor) =>

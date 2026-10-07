@@ -239,31 +239,47 @@ interface AuthorizedProposal {
   readonly actionHash: ActionHash;
 }
 
+/**
+ * Queue a proposal behind the certified record it extends. A faulty member
+ * can seal its durability vote so that only some members open it, so a member
+ * may not have certified the head the proposer certified when the proposal
+ * arrives, and it would drop the proposal as not gap-free. The proposer's own
+ * copy of that record, which every member can open, reaches each member first.
+ * @param runtime Engine that sends the proposal.
+ * @param proposal Authorized proposal and the intent it proposes.
+ * @returns Completion once both envelopes are queued and the intent records
+ *     the proposed action.
+ */
 function queueAuthorizedProposal(
   runtime: EngineRuntime,
   proposal: AuthorizedProposal,
 ): Effect.Effect<void, SendError> {
   return Effect.gen(function* () {
     yield* authorizeAction(runtime, proposal);
+    const head = proposal.conversation.head;
+    const queueHead =
+      head === undefined
+        ? Effect.void
+        : runtime.outbox.queuePacket(proposal.conversation, head.record);
     yield* Effect.uninterruptible(
-      runtime.outbox
-        .queuePacket(proposal.conversation, {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "action_proposal",
-          action: proposal.action,
-        })
-        .pipe(
-          Effect.catchTags({
-            EndpointStoreError: (error) => Effect.fail(storeFailure(error)),
-            ClientRepresentationError: () =>
-              Effect.fail(representationFailure()),
+      queueHead.pipe(
+        Effect.zipRight(
+          runtime.outbox.queuePacket(proposal.conversation, {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "action_proposal",
+            action: proposal.action,
           }),
-          Effect.zipRight(
-            Effect.sync(() => {
-              proposal.localIntent.proposedActionHash = proposal.actionHash;
-            }),
-          ),
         ),
+        Effect.catchTags({
+          EndpointStoreError: (error) => Effect.fail(storeFailure(error)),
+          ClientRepresentationError: () => Effect.fail(representationFailure()),
+        }),
+        Effect.zipRight(
+          Effect.sync(() => {
+            proposal.localIntent.proposedActionHash = proposal.actionHash;
+          }),
+        ),
+      ),
     );
   });
 }

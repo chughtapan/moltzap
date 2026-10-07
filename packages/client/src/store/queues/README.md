@@ -2,8 +2,8 @@
 
 The three durable queues in the endpoint's SQLite replica. `deliveries.ts`
 holds certified posts waiting for the host to accept them. `dissemination.ts`
-holds the packets a certified record still owes its members. `outbound.ts`
-holds signed Router envelopes until the Router accepts them.
+holds the action-certified records this endpoint still owes its members.
+`outbound.ts` holds signed Router envelopes until the Router accepts them.
 
 `index.ts` is the only entrypoint. The store assembly in `../store.ts`, the
 recovery reads in `../reads.ts` and record promotion in `../records.ts` reach

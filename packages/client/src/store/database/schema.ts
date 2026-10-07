@@ -441,11 +441,8 @@ const schemaSql = `
     obligation_sequence INTEGER PRIMARY KEY,
     conversation_id TEXT NOT NULL,
     record_hash TEXT NOT NULL,
-    packet_kind TEXT NOT NULL CHECK (
-      packet_kind IN ('action-certified-record', 'certified-record')
-    ),
     outbound_id TEXT UNIQUE,
-    UNIQUE (conversation_id, record_hash, packet_kind),
+    UNIQUE (conversation_id, record_hash),
     FOREIGN KEY (conversation_id, record_hash)
       REFERENCES staged_records(conversation_id, record_hash),
     FOREIGN KEY (outbound_id) REFERENCES outbound_messages(outbound_id)

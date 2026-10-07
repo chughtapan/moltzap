@@ -394,7 +394,7 @@ function refusesAReanchorAwayFromAStagedSuccessor() {
         });
         yield* store.lockProposal(proposal(conversationId, head.actionHash));
         yield* store.applyCatchUpRecord(head);
-        yield* store.stageRecord(successor);
+        yield* store.stageRecordForDissemination(successor);
 
         yield* expectReason(store.stageReanchor(awayFromTheHead), "conflict");
         expect((yield* store.recover()).stagedReanchors).toEqual([]);
@@ -486,7 +486,6 @@ interface DisseminationLifecycleFixture {
   readonly conversationId: string;
   readonly record: CertifiedRecord;
   readonly actionObligation: DisseminationObligation;
-  readonly certifiedObligation: DisseminationObligation;
   readonly actionEnvelope: OutboundMessageInput;
 }
 
@@ -498,11 +497,10 @@ function retainsRecordDisseminationAcrossCrashWindows() {
     directory,
     conversationId,
     record,
-    actionObligation: disseminationObligation(
-      "action-certified-record",
-      record,
-    ),
-    certifiedObligation: disseminationObligation("certified-record", record),
+    actionObligation: {
+      conversationId: record.conversationId,
+      recordHash: record.recordHash,
+    },
     actionEnvelope: outboundMessage(
       conversationId,
       "msg_action_certified",
@@ -545,6 +543,9 @@ function stageDisseminationObligation(fixture: DisseminationLifecycleFixture) {
       expect(
         yield* store.stageRecordForDissemination(stagedRecord(fixture.record)),
       ).toBe(INSERTED_MUTATION);
+      expect(
+        yield* store.stageRecordForDissemination(stagedRecord(fixture.record)),
+      ).toBe(EXISTING_MUTATION);
       expect((yield* store.recover()).disseminationObligations).toEqual([
         fixture.actionObligation,
       ]);
@@ -564,16 +565,13 @@ function reconcileDisseminationCrashWindows(
       const attached = yield* store.recover();
       expect(attached.disseminationObligations).toEqual([]);
       expect(attached.outboundMessages).toEqual([outbound]);
-      expect(yield* store.promoteRecordForDissemination(fixture.record)).toBe(
+      expect(yield* store.promoteRecord(fixture.record)).toBe(
         INSERTED_MUTATION,
       );
-      expect((yield* store.recover()).disseminationObligations).toEqual([
-        fixture.certifiedObligation,
-      ]);
+      expect((yield* store.recover()).disseminationObligations).toEqual([]);
       expect(yield* store.discardOutbound([outbound])).toBe(INSERTED_MUTATION);
       expect((yield* store.recover()).disseminationObligations).toEqual([
         fixture.actionObligation,
-        fixture.certifiedObligation,
       ]);
     }),
   );
@@ -990,17 +988,6 @@ function outboundMessage(
     conversationId,
     messageId,
     canonicalSignedMessage: bytes(canonical),
-  };
-}
-
-function disseminationObligation(
-  kind: DisseminationObligation["kind"],
-  record: StagedRecord,
-): DisseminationObligation {
-  return {
-    conversationId: record.conversationId,
-    recordHash: record.recordHash,
-    kind,
   };
 }
 

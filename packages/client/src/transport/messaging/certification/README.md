@@ -5,7 +5,7 @@ each predecessor, signs and collects action and durability evidence, and
 promotes a record once its certificates reach quorum. When a verified POST
 record whose action certificate meets `q(n)` names another proposal at a
 locked predecessor, it releases that lock and locks the record's action
-without signing it. It also resumes the dissemination of certified records
+without signing it. It also resumes sending the action-certified records
 that the store still owes to peers.
 
 Start with `index.ts`. It accepts Router and recovery ingress, resumes folds

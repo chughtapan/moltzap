@@ -104,7 +104,7 @@ export interface EngineActionFold {
   localActionEvidenceQueued: boolean;
   localDurabilityEvidenceQueued: boolean;
   recordHash?: RecordHash;
-  certifiedRecord?: CertifiedRecord;
+  certified: boolean;
 }
 
 /**
@@ -131,6 +131,7 @@ export function makeActionFold(
     durabilityEvidence: new Map(),
     localActionEvidenceQueued: false,
     localDurabilityEvidenceQueued: false,
+    certified: false,
   };
 }
 
@@ -183,10 +184,13 @@ export interface EngineOutbox {
     conversation: EngineConversation,
     evidence: SignedMessage,
   ) => Effect.Effect<void, EngineOutboxError>;
-  /** Attach the signed packet to its durable dissemination obligation. */
-  readonly queueCertifiedPacket: (
+  /**
+   * Send an action-certified record and attach its envelope to the durable
+   * obligation staged with it, so a restart resends it only when unattached.
+   */
+  readonly queueActionCertifiedRecord: (
     conversation: EngineConversation,
-    packet: ActionCertifiedRecord | CertifiedRecord,
+    packet: ActionCertifiedRecord,
   ) => Effect.Effect<void, EngineOutboxError>;
   /**
    * Stage an envelope that `sign` returned; any other `SignedMessage` would

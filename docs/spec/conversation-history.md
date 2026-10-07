@@ -396,7 +396,30 @@ signs a durability statement. It does not vote for conflicting successors of
 one certified head under one anchor. Votes are a mergeable signer map ordered
 by decoded AgentId, and every entry retains the signer AgentId and exact
 signature bytes.
-Any member may assemble and disseminate sufficient evidence.
+The first time a member stages a record, whether from the action signatures
+it received or from a copy, it sends its own `ActionCertifiedRecord` for that
+record once, before its durability vote. A member that proposes sends the
+`CertifiedRecord` of the head its proposal extends once, before the proposal.
+No member otherwise sends a `CertifiedRecord` it assembles: each member
+assembles it from the durability votes it receives, and catch-up pages carry
+certified records to a member that missed Router deliveries.
+
+A sealed body can open for some members and not others, so the evidence one
+member used can be evidence another member cannot read. Router order is one
+order for every recipient, and every member opens an honest member's body, so
+an honest member's `ActionCertifiedRecord` precedes its durability vote, and an
+honest proposer's `CertifiedRecord` precedes its proposal, at every member that
+can read either. An honest vote therefore never names a record a member cannot
+stage, and an honest proposal never names a predecessor a member has not
+certified. A Byzantine member that is not the author cannot stall a head by
+sealing its evidence away from some members. A Byzantine author can still split
+locks and stall a head, as described above.
+
+A post with one proposal costs `2 + 3n` outer messages: the proposer's
+`CertifiedRecord` of its head, the proposal, `n` action signatures, `n`
+action-certified records, and `n` durability votes. Each further proposal at
+the same head adds one `CertifiedRecord`. GENESIS has no head, so it costs
+`1 + 3n`.
 
 A record becomes locally certified only after the store atomically promotes
 its staged core and valid `q(n)` durability votes. Semantic send succeeds only
