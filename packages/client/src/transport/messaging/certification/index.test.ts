@@ -946,9 +946,9 @@ function certifiedRecordPacket(
     const index = harness.identities.indexOf(author);
     const store = yield* requireAt(harness.stores, index, "endpoint store");
     const recovery = yield* store.recover();
-    const stored = recovery.certifiedRecords.findLast(
-      ({ previousRecordHash }) => previousRecordHash !== undefined,
-    );
+    const stored = recovery.certifiedRecords
+      .filter(({ previousRecordHash }) => previousRecordHash !== undefined)
+      .at(-1);
     if (stored === undefined) {
       return yield* Effect.dieMessage("no POST record is certified");
     }
