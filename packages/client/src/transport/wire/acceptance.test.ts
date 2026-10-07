@@ -11,7 +11,7 @@ import {
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import { RouterInstanceId } from "@moltzap/router";
-import { Effect, Option, Schema } from "effect";
+import { Effect, Either, Option, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
@@ -229,14 +229,24 @@ const buildRecord = (input: {
       input.action.kind === "GENESIS"
         ? yield* hashAnchor(input.action.anchor)
         : input.action.anchorHash;
-    const recordCore: ActionCertifiedRecord["recordCore"] = {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "record_core",
-      membership: input.fixture.membership.descriptor,
-      anchorHash,
-      action: input.action,
-      actionHash,
-    };
+    const recordCore: ActionCertifiedRecord["recordCore"] =
+      input.action.kind === "GENESIS"
+        ? {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "record_core",
+            membership: input.fixture.membership.descriptor,
+            anchorHash,
+            action: input.action,
+            actionHash,
+          }
+        : {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "record_core",
+            membershipHash: input.fixture.membership.hash,
+            anchorHash,
+            action: input.action,
+            actionHash,
+          };
     const recordHash = yield* hashRecord(recordCore);
     const actionCertifiedRecord: ActionCertifiedRecord = {
       moltzapVersion: MOLTZAP_VERSION,
@@ -384,10 +394,23 @@ const voteReanchor = (fixture: ProtocolFixture, selected: RecordFixture) =>
     return { reanchor, anchorHash, votes };
   });
 
+/**
+ * Expect `effect` to fail as a representation error. A value that verifies
+ * instead is reported as a short string: reporting the verified value itself,
+ * membership keys included, can hang the run.
+ * @param effect Verification expected to fail.
+ * @returns Completion once the failure is checked.
+ */
 const expectRepresentationFailure = <Value>(
   effect: Effect.Effect<Value, ClientRepresentationError>,
 ) =>
-  Effect.flip(effect).pipe(
+  Effect.either(effect).pipe(
+    Effect.map(
+      Either.match({
+        onLeft: (failure): unknown => failure,
+        onRight: () => "it verified",
+      }),
+    ),
     Effect.tap((failure) => {
       expect(failure).toBeInstanceOf(ClientRepresentationError);
       return Effect.void;
@@ -414,6 +437,7 @@ const verifiesThreshold = (memberCount: number, expectedThreshold: number) =>
       expect(quorumThreshold(memberCount)).toBe(expectedThreshold);
       yield* verifyCertifiedRecord({
         record: accepted,
+        membership: fixture.membership,
         registrySignerPublicKey: fixture.registrySignerPublicKey,
       });
       const belowThreshold: CertifiedRecord = {
@@ -428,6 +452,7 @@ const verifiesThreshold = (memberCount: number, expectedThreshold: number) =>
       yield* expectRepresentationFailure(
         verifyCertifiedRecord({
           record: belowThreshold,
+          membership: fixture.membership,
           registrySignerPublicKey: fixture.registrySignerPublicKey,
         }),
       );
@@ -451,6 +476,7 @@ const enforcesGenesisAndPostEvidence = () =>
       yield* expectRepresentationFailure(
         verifyActionCertifiedRecord({
           record: nonUnanimousGenesis,
+          membership: fixture.membership,
           registrySignerPublicKey: fixture.registrySignerPublicKey,
         }),
       );
@@ -467,6 +493,7 @@ const enforcesGenesisAndPostEvidence = () =>
       };
       yield* verifyActionCertifiedRecord({
         record: thresholdPost,
+        membership: fixture.membership,
         registrySignerPublicKey: fixture.registrySignerPublicKey,
       });
       const missingAuthor: ActionCertifiedRecord = {
@@ -483,6 +510,7 @@ const enforcesGenesisAndPostEvidence = () =>
       yield* expectRepresentationFailure(
         verifyActionCertifiedRecord({
           record: missingAuthor,
+          membership: fixture.membership,
           registrySignerPublicKey: fixture.registrySignerPublicKey,
         }),
       );
@@ -501,6 +529,74 @@ const enforcesGenesisAndPostEvidence = () =>
       yield* expectRepresentationFailure(
         verifyCertifiedRecord({
           record: wrongEvidenceKind,
+          membership: fixture.membership,
+          registrySignerPublicKey: fixture.registrySignerPublicKey,
+        }),
+      );
+    }),
+  );
+
+/**
+ * A POST record names its membership only by `MembershipHash`, so it verifies
+ * against the membership an endpoint holds from the conversation's GENESIS,
+ * and neither without one nor against another conversation's membership. A
+ * GENESIS record carries its descriptor and verifies with no held membership,
+ * but not against a different held one. Fails when POST verification accepts
+ * a hash it cannot resolve to the held membership, or a POST core that names
+ * another membership than the one its action and the endpoint hold.
+ * @returns Completion after every case is checked.
+ */
+const resolvesPostMembershipFromTheHeldGenesis = () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeProtocolFixture(4);
+      const other = yield* makeProtocolFixture(4);
+      const genesis = yield* buildGenesis(fixture, [
+        { type: "text", text: "genesis" },
+      ]);
+      const post = yield* buildPost(fixture, genesis, [
+        { type: "text", text: "ordinary post" },
+      ]);
+      const verify = (
+        record: CertifiedRecord,
+        membership?: VerifiedMembership,
+      ) =>
+        verifyCertifiedRecord({
+          record,
+          membership,
+          registrySignerPublicKey: fixture.registrySignerPublicKey,
+        });
+
+      expect((yield* verify(genesis.certifiedRecord)).hash).toBe(
+        fixture.membership.hash,
+      );
+      expect(
+        (yield* verify(post.certifiedRecord, fixture.membership)).hash,
+      ).toBe(fixture.membership.hash);
+      yield* expectRepresentationFailure(verify(post.certifiedRecord));
+      yield* expectRepresentationFailure(
+        verify(post.certifiedRecord, other.membership),
+      );
+      yield* expectRepresentationFailure(
+        verify(genesis.certifiedRecord, other.membership),
+      );
+
+      const postCore = post.actionCertifiedRecord.recordCore;
+      if (!("membershipHash" in postCore)) {
+        return yield* Effect.dieMessage("a POST core carries a MembershipHash");
+      }
+      const renamedCore = {
+        ...postCore,
+        membershipHash: other.membership.hash,
+      };
+      yield* expectRepresentationFailure(
+        verifyActionCertifiedRecord({
+          record: {
+            ...post.actionCertifiedRecord,
+            recordCore: renamedCore,
+            recordHash: yield* hashRecord(renamedCore),
+          },
+          membership: fixture.membership,
           registrySignerPublicKey: fixture.registrySignerPublicKey,
         }),
       );
@@ -609,6 +705,84 @@ const verifiesReanchorCatchUpBindings = () =>
           registrySignerPublicKey: fixture.registrySignerPublicKey,
         }),
       );
+    }),
+  );
+
+/**
+ * A member that holds no record catches up GENESIS first: a page for an empty
+ * position must carry GENESIS, whose descriptor gives the member the
+ * membership a later POST page names only by hash. A POST page then verifies
+ * at the position GENESIS sets. Fails when an empty position accepts a POST
+ * record, which the member could not resolve without the descriptor.
+ * @returns Completion after every page is checked.
+ */
+const catchesUpGenesisFirst = () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeProtocolFixture(4);
+      const genesis = yield* buildGenesis(fixture, [
+        { type: "text", text: "genesis" },
+      ]);
+      const post = yield* buildPost(fixture, genesis, [
+        { type: "text", text: "after genesis" },
+      ]);
+      const responder = at(fixture.identities, 0);
+      const request = (
+        known: Pick<CatchUpRequest, "knownRecordHash" | "knownAnchorHash">,
+      ): CatchUpRequest => ({
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "catch_up_request",
+        conversationId: fixture.membership.descriptor.conversationId,
+        membershipHash: fixture.membership.hash,
+        requesterAgentId: at(fixture.identities, 1).card.agentId,
+        ...known,
+      });
+      const page = (asked: CatchUpRequest, item: CertifiedRecord) =>
+        signEvidenceMessage({
+          statement: {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "catch_up_attestation",
+            signerAgentId: responder.card.agentId,
+            request: asked,
+            itemKind: "certified_record",
+            itemHash: item.actionCertifiedRecord.recordHash,
+            hasMore: false,
+          },
+          agentCard: responder.card,
+          signingAuthority: responder.authority,
+        }).pipe(
+          Effect.flatMap((attestation) =>
+            Schema.encode(SignedMessage)(attestation),
+          ),
+          Effect.map(
+            (attestation): CatchUpPage => ({
+              moltzapVersion: MOLTZAP_VERSION,
+              kind: "catch_up_page",
+              request: asked,
+              item,
+              hasMore: false,
+              attestation,
+            }),
+          ),
+        );
+      const verify = (candidate: CatchUpPage) =>
+        verifyCatchUpPage({
+          page: candidate,
+          membership: fixture.membership,
+          responseSenderAgentId: responder.card.agentId,
+          registrySignerPublicKey: fixture.registrySignerPublicKey,
+        });
+      const empty = request({ knownRecordHash: null, knownAnchorHash: null });
+      const atGenesis = request({
+        knownRecordHash: genesis.actionCertifiedRecord.recordHash,
+        knownAnchorHash: genesis.actionCertifiedRecord.recordCore.anchorHash,
+      });
+
+      yield* verify(yield* page(empty, genesis.certifiedRecord));
+      yield* expectRepresentationFailure(
+        verify(yield* page(empty, post.certifiedRecord)),
+      );
+      yield* verify(yield* page(atGenesis, post.certifiedRecord));
     }),
   );
 
@@ -750,12 +924,20 @@ describe("Client protocol acceptance", () => {
     enforcesGenesisAndPostEvidence,
   );
   it(
+    "verifies a POST record only against the membership held from its GENESIS",
+    resolvesPostMembershipFromTheHeldGenesis,
+  );
+  it(
     "requires the proposal envelope sender to be the post author",
     verifiesProposalEnvelopeAttribution,
   );
   it(
     "binds re-anchor and catch-up evidence to the exact position and responder",
     verifiesReanchorCatchUpBindings,
+  );
+  it(
+    "catches up GENESIS first, so a later POST page resolves its membership",
+    catchesUpGenesisFirst,
   );
   it(
     "fits the largest catch-up page, a re-anchored POST sealed to its maximum membership, inside Identity limits",

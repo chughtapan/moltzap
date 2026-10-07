@@ -284,16 +284,19 @@ function recoverStagedFolds(
           staged.recordHash,
         );
         const fold = actionFolds.get(actionHash);
+        if (fold === undefined) {
+          return yield* Effect.fail(persistenceFailure());
+        }
         const recordCore = yield* decodeCanonical(
           RecordCoreSchema,
           staged.canonicalRecordCore,
         );
         const verified = yield* verifyRecordCore({
           recordCore,
+          membership: fold.conversation.membership,
           registrySignerPublicKey: input.registrySignerPublicKey,
         });
         if (
-          fold === undefined ||
           !stagedRecordMatches(staged, fold, recordCore, verified.recordHash)
         ) {
           return yield* Effect.fail(persistenceFailure());
@@ -358,6 +361,7 @@ function recoverCertifiedFold(
     const context = yield* certifiedFoldContext(input, stored);
     const record = yield* recordFromStore(
       input.input.registrySignerPublicKey,
+      context.conversation.membership,
       stored,
       context.routerAnchor,
     );

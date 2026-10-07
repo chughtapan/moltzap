@@ -126,18 +126,25 @@ export function verifyStoredMemberships(
  * and subject its certificate covers, and its own signer; the signatures are
  * verified once, with the record as a whole.
  * @param registrySignerPublicKey Registry key the member cards verify under.
+ * @param membership Verified membership of the record's conversation, which a
+ *     POST record names only by its hash.
  * @param stored Durable record core and signer-attributed evidence rows.
  * @param routerAnchor Verified anchor named by the durable record core.
  * @returns The complete record after all hashes and store projections match.
  */
 export const recordFromStore = (
   registrySignerPublicKey: Ed25519PublicKey,
+  membership: VerifiedMembership,
   stored: StoredCertifiedRecord,
   routerAnchor: EngineConversation["currentAnchor"],
 ): Effect.Effect<CertifiedRecord, StoredRowError> =>
   assembleStoredRecord(stored, routerAnchor).pipe(
     Effect.flatMap((record) =>
-      verifyCertifiedRecord({ record, registrySignerPublicKey }).pipe(
+      verifyCertifiedRecord({
+        record,
+        membership,
+        registrySignerPublicKey,
+      }).pipe(
         Effect.flatMap((membership) =>
           storedRowMatchesCore(
             stored,
@@ -178,7 +185,12 @@ export function readStoredRecord(
   }
   return decodeStoredAnchor(membership, anchor).pipe(
     Effect.flatMap((routerAnchor) =>
-      recordFromStore(registrySignerPublicKey, stored, routerAnchor),
+      recordFromStore(
+        registrySignerPublicKey,
+        membership,
+        stored,
+        routerAnchor,
+      ),
     ),
   );
 }
@@ -584,6 +596,7 @@ function verifyHistoryRecords(
   }
   return recordFromStore(
     runtime.input.registrySignerPublicKey,
+    membership,
     stored,
     cursor.currentAnchor,
   ).pipe(

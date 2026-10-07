@@ -248,10 +248,11 @@ function verifyHeldRecord(
     Effect.zipRight(
       verifyActionCertifiedRecord({
         record,
+        membership,
         registrySignerPublicKey: run.runtime.input.registrySignerPublicKey,
       }),
     ),
-    Effect.map((verified) => verified.membership.hash === membership.hash),
+    Effect.as(true),
     Effect.catchTag("ClientRepresentationError", () => Effect.succeed(false)),
   );
 }

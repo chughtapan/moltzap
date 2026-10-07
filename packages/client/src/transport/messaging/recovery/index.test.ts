@@ -66,7 +66,6 @@ import {
 } from "../../router/index.js";
 import {
   type ActionCertifiedRecord as ActionCertifiedRecordValue,
-  type ActionCore,
   type ActionProposal,
   type CatchUpIncomplete,
   type CatchUpPage,
@@ -83,6 +82,7 @@ import {
   encodeCanonical,
   EvidenceStatement,
   type EvidenceStatement as EvidenceStatementValue,
+  type GenesisActionCore,
   GenesisAnchorBody,
   hashAction,
   hashAnchor,
@@ -91,6 +91,7 @@ import {
   MembershipDescriptor,
   MembershipHash,
   mintPostId,
+  type PostActionCore,
   PostIntent,
   quorumThreshold,
   type ReanchorBody,
@@ -726,7 +727,7 @@ const buildGroupHistory = (
         }),
       );
     const headIntent = yield* intent("certified group head");
-    const headAction: ActionCore = {
+    const headAction: GenesisActionCore = {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "GENESIS",
       conversationId,
@@ -782,7 +783,7 @@ const buildGroupHistory = (
       },
     };
     const successorIntent = yield* intent("staged group successor");
-    const successorAction: ActionCore = {
+    const successorAction: PostActionCore = {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "POST",
       conversationId,
@@ -796,7 +797,7 @@ const buildGroupHistory = (
     const successorCore: RecordCore = {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "record_core",
-      membership: group.membership.descriptor,
+      membershipHash: group.membership.hash,
       anchorHash,
       action: successorAction,
       actionHash: successorActionHash,
@@ -838,7 +839,7 @@ const buildN4PartialHistory = (
       membershipHash: n4.membership.hash,
       routerInstanceId: oldRouterInstanceId,
     };
-    const headAction: ActionCore = {
+    const headAction: GenesisActionCore = {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "GENESIS",
       conversationId: n4.membership.descriptor.conversationId,
@@ -949,7 +950,7 @@ const buildN4PartialHistory = (
       postId: yield* mintPostId(),
       content: [{ type: "text", text: "partially disseminated successor" }],
     };
-    const successorAction: ActionCore = {
+    const successorAction: PostActionCore = {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "POST",
       conversationId: n4.membership.descriptor.conversationId,
@@ -981,7 +982,7 @@ const buildN4PartialHistory = (
     const successorCore: RecordCore = {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "record_core",
-      membership: n4.membership.descriptor,
+      membershipHash: n4.membership.hash,
       anchorHash: headAnchorHash,
       action: successorAction,
       actionHash: successorActionHash,
@@ -1078,7 +1079,7 @@ const certifiedN4PostAt = (
       postId: yield* mintPostId(),
       content: [{ type: "text", text: "post under the new anchor" }],
     };
-    const action: ActionCore = {
+    const action: PostActionCore = {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "POST",
       conversationId: n4.membership.descriptor.conversationId,
@@ -1092,7 +1093,7 @@ const certifiedN4PostAt = (
     const recordCore: RecordCore = {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "record_core",
-      membership: n4.membership.descriptor,
+      membershipHash: n4.membership.hash,
       anchorHash: position.routerAnchor.anchorHash,
       action,
       actionHash,

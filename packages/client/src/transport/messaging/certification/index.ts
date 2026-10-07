@@ -529,6 +529,7 @@ const maybePromote = (
     );
     yield* verifyCertifiedRecord({
       record,
+      membership: fold.conversation.membership,
       registrySignerPublicKey: runtime.input.registrySignerPublicKey,
     }).pipe(Effect.mapError(localRepresentationFailure));
     yield* promote(runtime, fold, record);
@@ -701,12 +702,29 @@ function advanceDurabilityFold(
   });
 }
 
+/**
+ * The membership this endpoint holds for a record's conversation, which it
+ * took from that conversation's GENESIS. A POST record names its membership
+ * only by hash, so without it a POST record cannot verify.
+ * @param runtime Engine whose conversations are searched.
+ * @param record Record whose conversation is looked up.
+ * @returns The held membership, or nothing before this endpoint holds the
+ *     conversation's GENESIS.
+ */
+const heldMembership = (
+  runtime: EngineRuntime,
+  record: ActionCertifiedRecord,
+): VerifiedMembership | undefined =>
+  runtime.conversations.get(record.recordCore.action.conversationId)
+    ?.membership;
+
 const membershipForRecord = (
   runtime: EngineRuntime,
   record: ActionCertifiedRecord,
 ): Effect.Effect<VerifiedMembership, ClientRepresentationError> =>
   verifyActionCertifiedRecord({
     record,
+    membership: heldMembership(runtime, record),
     registrySignerPublicKey: runtime.input.registrySignerPublicKey,
   }).pipe(Effect.map((verified) => verified.membership));
 
@@ -913,6 +931,7 @@ const acceptCertifiedRecord = (
   Effect.gen(function* () {
     const membership = yield* verifyCertifiedRecord({
       record,
+      membership: heldMembership(runtime, record.actionCertifiedRecord),
       registrySignerPublicKey: runtime.input.registrySignerPublicKey,
     });
     const actionRecord = record.actionCertifiedRecord;

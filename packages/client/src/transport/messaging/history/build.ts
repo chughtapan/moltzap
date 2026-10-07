@@ -125,14 +125,24 @@ export const makeActionCertifiedRecord = (
 ): Effect.Effect<ActionCertifiedRecord, ClientRepresentationError> =>
   Effect.gen(function* () {
     const signatures = yield* encodeOrderedEvidence(fold.actionEvidence);
-    const recordCore: RecordCore = {
-      moltzapVersion: MOLTZAP_VERSION,
-      kind: "record_core",
-      membership: fold.conversation.membership.descriptor,
-      anchorHash,
-      action: fold.action,
-      actionHash: fold.actionHash,
-    };
+    const recordCore: RecordCore =
+      fold.action.kind === "GENESIS"
+        ? {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "record_core",
+            membership: fold.conversation.membership.descriptor,
+            anchorHash,
+            action: fold.action,
+            actionHash: fold.actionHash,
+          }
+        : {
+            moltzapVersion: MOLTZAP_VERSION,
+            kind: "record_core",
+            membershipHash: fold.conversation.membership.hash,
+            anchorHash,
+            action: fold.action,
+            actionHash: fold.actionHash,
+          };
     return actionCertifiedRecord(
       recordCore,
       yield* hashRecord(recordCore),

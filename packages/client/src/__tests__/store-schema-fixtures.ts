@@ -40,31 +40,35 @@ export function withStore<Value, Failure>(
   return Effect.scoped(openEndpointStore(directory).pipe(Effect.flatMap(use)));
 }
 
+/** The statements that make a current store read as each earlier version. */
+const REWIND_TO_VERSION = {
+  4: "PRAGMA user_version = 4",
+  3: `CREATE TABLE runtime_legacy_deliveries (
+        delivery_token TEXT PRIMARY KEY REFERENCES pending_deliveries(delivery_token)
+      ) STRICT;
+      INSERT INTO runtime_legacy_deliveries (delivery_token)
+        SELECT delivery_token FROM pending_deliveries WHERE acknowledged = 0;
+      PRAGMA user_version = 3`,
+  2: "DROP TABLE runtime_inbox; DROP TABLE runtime_sends; DROP TABLE runtime_events; PRAGMA user_version = 2",
+} as const;
+
 /**
  * Rewind the closed store in `directory` to a schema version from before the
- * sealed-body cutover. Every protocol row and the bound identity stay, so the
- * next open cuts over a store that already holds them. Version 3 kept the
- * legacy-delivery table beside the runtime tables; version 2 had neither.
+ * current cutover. Every protocol row and the bound identity stay, so the next
+ * open cuts over a store that already holds them. Version 4 has the current
+ * tables; version 3 kept the legacy-delivery table beside the runtime tables;
+ * version 2 had neither.
  * @param directory The state directory of a store no scope holds open.
  * @param version The pre-cutover schema version to read as.
  * @returns Completion once the database reads as `version`.
  */
 export const rewindToPreCutoverSchema = (
   directory: string,
-  version: 2 | 3,
+  version: keyof typeof REWIND_TO_VERSION,
 ): Effect.Effect<void> =>
   Effect.sync(() => {
     const database = new DatabaseSync(databasePath(directory));
-    database.exec(
-      version === 3
-        ? `CREATE TABLE runtime_legacy_deliveries (
-             delivery_token TEXT PRIMARY KEY REFERENCES pending_deliveries(delivery_token)
-           ) STRICT;
-           INSERT INTO runtime_legacy_deliveries (delivery_token)
-             SELECT delivery_token FROM pending_deliveries WHERE acknowledged = 0;
-           PRAGMA user_version = 3`
-        : "DROP TABLE runtime_inbox; DROP TABLE runtime_sends; DROP TABLE runtime_events; PRAGMA user_version = 2",
-    );
+    database.exec(REWIND_TO_VERSION[version]);
     database.close();
   });
 

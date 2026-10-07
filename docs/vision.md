@@ -104,7 +104,8 @@ through `.github/workflows/publish.yml`.
    action evidence alone does not establish the replicated-storage guarantee.
 
 6. **Records are hash-linked and self-verifying.** `RecordHash` commits to one
-   canonical record core: the fixed-membership descriptor, current Router
+   canonical record core: the fixed-membership descriptor (its MembershipHash in
+   a POST record), current Router
    anchor hash, action core, and `ActionHash`. Action signatures, re-anchor
    votes, and durability votes remain separately retained evidence and are not
    part of `RecordHash`. A complete certified record carries the core and the

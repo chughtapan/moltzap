@@ -437,15 +437,48 @@ export interface VerifiedRecordCore {
   readonly recordHash: RecordHash;
 }
 
-export const verifyRecordCore = (input: {
+interface RecordMembershipInput {
   readonly recordCore: RecordCore;
+  readonly membership?: VerifiedMembership;
   readonly registrySignerPublicKey: Ed25519PublicKey;
-}): Effect.Effect<VerifiedRecordCore, ClientRepresentationError> =>
-  Effect.gen(function* () {
-    const membership = yield* verifyMembershipDescriptor(
-      input.recordCore.membership,
+}
+
+/**
+ * The membership a record core binds. A GENESIS core carries the descriptor,
+ * verified here against the Registry key; a POST core carries only its
+ * `MembershipHash`, which must name the membership this endpoint already holds
+ * from the conversation's GENESIS. With no held membership a POST core does
+ * not verify.
+ * @param input The record core and the conversation's held membership, absent
+ *     before this endpoint holds the conversation's GENESIS.
+ * @returns The verified membership the core binds.
+ */
+const recordMembership = (
+  input: RecordMembershipInput,
+): Effect.Effect<VerifiedMembership, ClientRepresentationError> => {
+  const { recordCore, membership } = input;
+  if ("membership" in recordCore) {
+    return verifyMembershipDescriptor(
+      recordCore.membership,
       input.registrySignerPublicKey,
+    ).pipe(
+      Effect.filterOrFail(
+        (verified) =>
+          membership === undefined || verified.hash === membership.hash,
+        representationFailure,
+      ),
     );
+  }
+  return membership?.hash === recordCore.membershipHash
+    ? Effect.succeed(membership)
+    : Effect.fail(representationFailure());
+};
+
+export const verifyRecordCore = (
+  input: RecordMembershipInput,
+): Effect.Effect<VerifiedRecordCore, ClientRepresentationError> =>
+  Effect.gen(function* () {
+    const membership = yield* recordMembership(input);
     const verifiedAction = yield* verifyActionCore({
       action: input.recordCore.action,
       membership,
@@ -516,11 +549,13 @@ const verifyGenesisRouterAnchor = (input: {
 
 export const verifyActionCertifiedRecord = (input: {
   readonly record: ActionCertifiedRecord;
+  readonly membership?: VerifiedMembership;
   readonly registrySignerPublicKey: Ed25519PublicKey;
 }): Effect.Effect<VerifiedActionCertifiedRecord, ClientRepresentationError> =>
   Effect.gen(function* () {
     const verified = yield* verifyRecordCore({
       recordCore: input.record.recordCore,
+      membership: input.membership,
       registrySignerPublicKey: input.registrySignerPublicKey,
     });
     if (input.record.recordHash !== verified.recordHash) {
@@ -541,11 +576,13 @@ export const verifyActionCertifiedRecord = (input: {
 
 export const verifyCertifiedRecord = (input: {
   readonly record: CertifiedRecord;
+  readonly membership?: VerifiedMembership;
   readonly registrySignerPublicKey: Ed25519PublicKey;
 }): Effect.Effect<VerifiedMembership, ClientRepresentationError> =>
   Effect.gen(function* () {
     const verified = yield* verifyActionCertifiedRecord({
       record: input.record.actionCertifiedRecord,
+      membership: input.membership,
       registrySignerPublicKey: input.registrySignerPublicKey,
     });
     const certificate = input.record.durabilityCertificate;
@@ -653,12 +690,12 @@ const verifyCertifiedCatchUpItem = (input: {
   readonly registrySignerPublicKey: Ed25519PublicKey;
 }): Effect.Effect<VerifiedCatchUpItem, ClientRepresentationError> =>
   Effect.gen(function* () {
-    const itemMembership = yield* verifyCertifiedRecord({
+    yield* verifyCertifiedRecord({
       record: input.item,
+      membership: input.membership,
       registrySignerPublicKey: input.registrySignerPublicKey,
     });
     if (
-      itemMembership.hash !== input.membership.hash ||
       !certifiedItemExtendsPosition({
         request: input.page.request,
         record: input.item,

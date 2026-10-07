@@ -126,7 +126,7 @@ function readSchemaVersion(path: string) {
   return row;
 }
 
-const opensEmptyAfterTheCutover = (version: 2 | 3) => {
+const opensEmptyAfterTheCutover = (version: 2 | 3 | 4) => {
   const path = stateDirectory();
   return Effect.runPromise(
     Effect.gen(function* () {
@@ -151,7 +151,7 @@ const opensEmptyAfterTheCutover = (version: 2 | 3) => {
           });
         }),
       );
-      expect(readSchemaVersion(path)).toMatchObject({ user_version: 4 });
+      expect(readSchemaVersion(path)).toMatchObject({ user_version: 5 });
     }),
   );
 };
@@ -185,7 +185,7 @@ describe("endpoint runtime state", () => {
     "inspects how a store opens without creating or cutting it over",
     inspectsWithoutWriting,
   );
-  it.each([3, 2] as const)(
+  it.each([4, 3, 2] as const)(
     "opens a schema version %i store empty, unregistered and without its queued envelope",
     opensEmptyAfterTheCutover,
   );

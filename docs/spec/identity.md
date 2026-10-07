@@ -266,9 +266,10 @@ immutable card.
 - Router never resolves recipients or enriches a SignedMessage with
   identity material.
 
-Certified conversation records retain their immutable membership verification
-descriptor and complete offline proof chain. Their verification does not
-depend on cache or live Registry state.
+A conversation's certified records retain its immutable membership
+verification descriptor, which its GENESIS record carries, and a complete
+offline proof chain. Their verification does not depend on cache or live
+Registry state.
 
 ## SignedMessage
 
