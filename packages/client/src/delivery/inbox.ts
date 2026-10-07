@@ -1,6 +1,6 @@
 /** @file Classified inbox paging and explicit loss of volatile request context. */
 
-import { Effect, Encoding, Option, Schema } from "effect";
+import { Effect, Encoding, Schema } from "effect";
 import { randomBytes } from "node:crypto";
 import {
   decodeRuntimeValue,
@@ -10,11 +10,6 @@ import {
   EndpointStoreError,
 } from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
-import {
-  collectiveIdOf,
-  readCollectiveValue,
-} from "../transport/collectives/index.js";
-import { InboundMessage } from "../transport/messaging/message.js";
 import {
   eventIdSchema,
   type HarnessMessageReadyEvent,
@@ -147,45 +142,6 @@ const lostRequest = (
 });
 
 /**
- * Requests predating durable projection may already have been answered.
- * @param store Daemon-owned persistence read before normal classification.
- * @returns Completion after lost requests are replaced atomically.
- */
-const retireUnprojectedRequests = (store: EndpointStore) =>
-  Effect.gen(function* () {
-    const pending = yield* store.readLegacyPendingDeliveries();
-    for (const entry of pending) {
-      const message = yield* decodeRuntimeValue(
-        InboundMessage,
-        entry.canonicalMessage,
-      );
-      const collective = yield* readCollectiveValue(message.content).pipe(
-        Effect.catchAll(() => Effect.succeed(Option.none())),
-      );
-      if (
-        Option.isNone(collective) ||
-        collective.value.kind !== "operation" ||
-        collective.value.op === "multicast"
-      ) {
-        continue;
-      }
-      const value = collective.value;
-      if (collectiveIdOf(message.sender, value.nonce) === value.id) {
-        yield* store.replaceInboxItem(entry.deliveryToken, {
-          deliveryToken: yield* mintLocalDeliveryToken,
-          canonicalItem: yield* encodeRuntimeValue(
-            lostRequest({
-              id: value.id,
-              from: message.sender,
-              to: value.op === "gather" ? message.sender : message.address,
-            }),
-          ),
-        });
-      }
-    }
-  });
-
-/**
  * Retire requests whose schema, address and answered state were process-local.
  * Results and failures retain their original delivery identity across restart.
  * @param store Daemon-owned endpoint persistence.
@@ -217,7 +173,6 @@ export const recoverRuntimeInbox = (
         );
       }
       if (page.nextAfter === undefined) {
-        yield* retireUnprojectedRequests(store);
         return;
       }
       page = yield* store.readInbox({

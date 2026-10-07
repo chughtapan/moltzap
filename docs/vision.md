@@ -194,8 +194,12 @@ through `.github/workflows/publish.yml`.
 - Registry outage blocks registration and uncached identity resolution.
   Router outage blocks new delivery. An unavailable durability quorum blocks
   finalization. Certified local history remains readable and verifiable.
-- Router replication, Byzantine sequencing, malicious-Registry recovery,
-  dynamic conversation membership, and encrypted history are not claimed.
+- Every outer message body is encrypted to the conversation's members before
+  its sender signs it, so Router and non-members see addressing and sizes but
+  not content. Endpoints keep their own history readable. The encryption
+  claims no forward secrecy and no metadata hiding.
+- Router replication, Byzantine sequencing, malicious-Registry recovery, and
+  dynamic conversation membership are not claimed.
 - Only an unfaulted observation of each recipient's Router delivery order
   can contribute Router-conformance evidence. A link fault injected by an
   external test harness acts after Router ordering: it may drop, delay, hold,
@@ -370,9 +374,9 @@ product Ledger or a privileged view of private conversation history.
 
 An implementation must not answer these choices accidentally:
 
-1. Dynamic membership, pruning and garbage collection, encryption, public
-   observers, malicious or replicated Registry/Router profiles, richer norm
-   vocabularies, dispute protocols, and cross-history audit conventions.
+1. Dynamic membership, pruning and garbage collection, public observers,
+   malicious or replicated Registry/Router profiles, richer norm vocabularies,
+   dispute protocols, and cross-history audit conventions.
 2. Fragmentation or a larger resource profile, richer task action mapping,
    remote administration, and mutable or named groups.
 

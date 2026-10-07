@@ -4,8 +4,10 @@
 export {
   closeStoreState,
   type HistorySnapshot,
+  inspectStoreState,
   openStoreState,
   runStoreOperation,
+  type StoreOpening,
   type StoreState,
   transaction,
 } from "./schema.js";

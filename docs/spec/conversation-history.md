@@ -63,7 +63,7 @@ statements, certified records, dissemination evidence, and recovery values.
 Every Client protocol value is decoded by a closed Effect Schema with
 `exact: true` and `onExcessProperty: "error"`. Every object below has exactly
 the listed required fields. Each carries the literal
-`moltzapVersion: "2026.827.1"` and its listed `kind`. Unions discriminate only
+`moltzapVersion: "2026.1006.1"` and its listed `kind`. Unions discriminate only
 on `kind`; unknown fields and kinds fail before semantic state changes.
 
 `AgentId`, `AgentCard`, `MessageId`, `RouterInstanceId`, and `SignedMessage`
@@ -105,13 +105,13 @@ The exact membership and identifier preimages are:
 
 ```ts
 interface ConversationIdentityInput {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "conversation_identity"
   readonly memberAgentIds: readonly [AgentId, AgentId, ...AgentId[]]
 }
 
 interface MembershipDescriptor {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "membership_descriptor"
   readonly conversationId: ConversationId
   readonly members: readonly [
@@ -135,7 +135,7 @@ peer validates its canonical form and rejects changed intent under the same
 
 ```ts
 interface PostIntent {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "post_intent"
   readonly conversationId: ConversationId
   readonly membershipHash: MembershipHash
@@ -145,7 +145,7 @@ interface PostIntent {
 }
 
 interface GenesisAnchorBody {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "genesis_anchor_body"
   readonly conversationId: ConversationId
   readonly membershipHash: MembershipHash
@@ -153,7 +153,7 @@ interface GenesisAnchorBody {
 }
 
 interface ReanchorBody {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "reanchor_body"
   readonly conversationId: ConversationId
   readonly membershipHash: MembershipHash
@@ -165,7 +165,7 @@ interface ReanchorBody {
 type AnchorBody = GenesisAnchorBody | ReanchorBody
 
 interface GenesisActionCore {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "GENESIS"
   readonly conversationId: ConversationId
   readonly membership: MembershipDescriptor
@@ -176,7 +176,7 @@ interface GenesisActionCore {
 }
 
 interface PostActionCore {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "POST"
   readonly conversationId: ConversationId
   readonly membershipHash: MembershipHash
@@ -189,7 +189,7 @@ interface PostActionCore {
 type ActionCore = GenesisActionCore | PostActionCore
 
 interface RecordCore {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "record_core"
   readonly membership: MembershipDescriptor
   readonly anchorHash: AnchorHash
@@ -242,14 +242,14 @@ sign a bare hash. The exact statement and certificate schemas are:
 
 ```ts
 interface ActionSignatureStatement {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "action_signature"
   readonly signerAgentId: AgentId
   readonly actionHash: ActionHash
 }
 
 interface DurabilityVoteStatement {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "durability_vote"
   readonly signerAgentId: AgentId
   readonly conversationId: ConversationId
@@ -258,7 +258,7 @@ interface DurabilityVoteStatement {
 }
 
 interface ReanchorVoteStatement {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "reanchor_vote"
   readonly signerAgentId: AgentId
   readonly anchorHash: AnchorHash
@@ -271,28 +271,28 @@ type EvidenceMessages = readonly [
 ]
 
 interface ActionCertificate {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "action_certificate"
   readonly actionHash: ActionHash
   readonly signatures: EvidenceMessages
 }
 
 interface DurabilityCertificate {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "durability_certificate"
   readonly recordHash: RecordHash
   readonly votes: EvidenceMessages
 }
 
 interface ReanchorCertificate {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "reanchor_certificate"
   readonly anchorHash: AnchorHash
   readonly votes: EvidenceMessages
 }
 
 interface CompletedReanchor {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "completed_reanchor"
   readonly anchorHash: AnchorHash
   readonly reanchor: ReanchorBody
@@ -302,7 +302,7 @@ interface CompletedReanchor {
 type RouterAnchor = GenesisAnchorBody | CompletedReanchor
 
 interface ActionCertifiedRecord {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "action_certified_record"
   readonly recordHash: RecordHash
   readonly recordCore: RecordCore
@@ -311,7 +311,7 @@ interface ActionCertifiedRecord {
 }
 
 interface CertifiedRecord {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "certified_record"
   readonly actionCertifiedRecord: ActionCertifiedRecord
   readonly durabilityCertificate: DurabilityCertificate
@@ -366,7 +366,10 @@ A sender persists its immutable post intent before protocol traffic. If a
 different candidate commits first, it retries the same `PostId` and intent
 against the new head, producing a new `ActionHash`. If its selected candidate
 cannot reach `q(n)`, that conversation head stalls. Gate 1 has no timeout
-replacement, view change, or alternative-candidate election.
+replacement, view change, or alternative-candidate election. A sealed body
+can open for some members and not others, so a Byzantine author can make one
+proposal a candidate only for some honest members, split their locks for a
+predecessor, and stall that head this way.
 
 Daemon recovery resumes a persisted unfinished intent under its existing
 `PostId`. A later `HarnessEndpoint.send` invocation always mints a new
@@ -420,7 +423,7 @@ Catch-up uses these exact closed values:
 
 ```ts
 interface CatchUpRequest {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "catch_up_request"
   readonly conversationId: ConversationId
   readonly membershipHash: MembershipHash
@@ -432,7 +435,7 @@ interface CatchUpRequest {
 type CatchUpItem = CertifiedRecord | CompletedReanchor
 
 interface CatchUpAttestationStatement {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "catch_up_attestation"
   readonly signerAgentId: AgentId
   readonly request: CatchUpRequest
@@ -445,7 +448,7 @@ interface CatchUpAttestationStatement {
 }
 
 interface CatchUpPage {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "catch_up_page"
   readonly request: CatchUpRequest
   readonly item: CatchUpItem
@@ -454,7 +457,7 @@ interface CatchUpPage {
 }
 
 interface CatchUpIncomplete {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "catch_up_incomplete"
   readonly request: CatchUpRequest
   readonly attestation: EncodedSignedMessage
@@ -541,7 +544,7 @@ The exact direct packet union is:
 
 ```ts
 interface ActionProposal {
-  readonly moltzapVersion: "2026.827.1"
+  readonly moltzapVersion: "2026.1006.1"
   readonly kind: "action_proposal"
   readonly action: ActionCore
 }
@@ -562,20 +565,30 @@ type DirectPacket =
   | CatchUpIncomplete
 ```
 
-An outer Identity `SignedMessage` body is exactly one of:
+Every outer Identity `SignedMessage` body is a
+[SealedBody](./identity-representation.md#sealedbody) that its sender sealed
+to all of the message's recipients under the message's sender and
+`MessageId`. Its plaintext is exactly one of:
 
 1. `JCS(DirectPacket, packet)`; or
 2. `JCS(EncodedSignedMessage, stableInnerEvidence)`.
 
-The two closed representations are disjoint. Client first decodes
-`DirectPacket`; if that exact decode fails, it decodes one encoded
-`SignedMessage`; if both fail, it rejects the body. An action proposal's outer
+The two closed representations are disjoint. Client opens a verified outer
+body with its own key, then first decodes `DirectPacket` from the plaintext;
+if that exact decode fails, it decodes one encoded `SignedMessage`; if both
+fail, it rejects the body. Client also rejects a plaintext body, a body that
+does not open for it, and a body sealed under another sender or `MessageId`.
+A rejected body is the sender's fault, not a local one: the member ignores
+that message and keeps processing the rest. `ActionHash`, `RecordHash`,
+certificates, catch-up pages, and stored history cover the readable
+canonical values, never sealed bytes, because the seal protects only the
+outer message in transit. An action proposal's outer
 sender equals the post author. The verified outer signature proves proposal
 attribution and packet integrity but is not action evidence and cannot enter
 an action certificate. Any fixed member may assemble and send the other direct
 packets. Every outer message's recipients are the complete fixed-member
 AgentIds sorted by decoded bytes, including its sender. The Router sees only
-that outer Identity value.
+that outer Identity value: its addressing, sizes, and ciphertext.
 
 After ordered delivery, every conforming member, including the author, durably
 locks its first valid gap-free candidate for the predecessor before emitting a
@@ -598,8 +611,9 @@ relay and Router retry.
 
 An outer send follows the Router representation contract exactly:
 
-1. Client creates a fresh random 16-byte outer `MessageId`, signs the exact
-   body for all members, and durably stores the complete SignedMessage.
+1. Client creates a fresh random 16-byte outer `MessageId`, seals the exact
+   plaintext to all members under it, signs the sealed body for all members,
+   and durably stores the complete SignedMessage.
 2. The first attempt uses `mode: "initial"` and the polled
    `expectedRouterInstanceId`.
 3. An unknown transport outcome retries the same stored bytes and MessageId
@@ -697,13 +711,18 @@ Before enabling WAL, creating schema objects, or changing file permissions,
 Client reads the SQLite preflight state. A database is empty version 0 exactly
 when `PRAGMA user_version` is `0` and `sqlite_schema` contains no user-created
 table, index, view, or trigger. SQLite-internal objects are ignored. Only that
-state initializes the endpoint store, enables WAL, and sets `user_version=3`.
-Version 2 upgrades atomically with runtime delivery tables; version 3 reopens. A nonempty version 0, version 1, and every other
-version fail with `EndpointStoreError("incompatible")` without mutation.
-The schema 2 upgrade retains protocol state; incompatible stores are not erased.
+state, or a version 2 or 3 store, initializes the endpoint store, enables WAL,
+and sets `user_version=4`. Version 4 reopens. Versions 2 and 3 were written
+under the prior `MOLTZAP_VERSION`, so in one transaction Client drops every
+table they hold, the registered identity included, and creates the empty
+version 4 schema: the daemon starts unregistered, and nothing written under
+the prior version carries over or is resealed. A nonempty version 0,
+version 1, and every other version fail with
+`EndpointStoreError("incompatible")` without mutation; incompatible stores
+are not erased.
 
 The one source-owned `MOLTZAP_VERSION`/`V2_PROTOCOL_VERSION` value is
-`2026.827.1`. Client wire peers must carry that exact literal. Mixed versions
+`2026.1006.1`. Client wire peers must carry that exact literal. Mixed versions
 fail with the existing typed version mismatch before semantic state changes.
 The external MCP protocol revision remains `2026-07-28`; runtime notifications
 follow the [pinned MCP Events profile](./harness/ingress.md).
@@ -749,5 +768,5 @@ exact store/wire rejection.
 ## Explicitly deferred
 
 Dynamic membership, named groups, multiple groups with the same membership,
-fragmentation, encrypted history, pruning, disk-loss recovery, view change,
+fragmentation, encrypted local history, pruning, disk-loss recovery, view change,
 and richer task/norm action vocabularies are not part of this profile.

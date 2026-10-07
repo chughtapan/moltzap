@@ -14,8 +14,10 @@ Personal trust. Numbered layer notation is documentation vocabulary only; it
 does not appear in package names or public type tags.
 
 Communication has two parts. The post envelope is the certified post: routing
-address, author, Router anchor, signatures and an opaque content body; the
-Router sees only the envelope. The collective layer sits above the envelope
+address, author, Router anchor, signatures and an opaque content body. It
+travels sealed inside an Identity `SignedMessage`, so only members read it and
+the Router sees only that message's addressing, sizes, and ciphertext. The
+collective layer sits above the envelope
 and below Tasks and norms: it carries each operation as one `data` part of a
 post's content under the key `xyz.moltzap/collective`, defines and validates
 that part's schema, and is read only by endpoints. `Content` stays a generic
@@ -154,7 +156,10 @@ Client owns:
 
 Action signatures, durability votes, catch-up attestations, and re-anchor
 votes are stable self-addressed Identity `SignedMessage` values.
-Their Router envelope is a separate all-member `SignedMessage`. Every resend
+Their Router envelope is a separate all-member `SignedMessage`. Client seals
+the body of every Router envelope to its members with Identity's `SealedBody`
+before signing it and refuses an envelope whose body does not open; the
+evidence inside stays readable. Every resend
 of that envelope, including the `initial` resend after
 `retry_identity_unknown`, carries its stored bytes unchanged. Gate 1 admits at most 32 total fixed members and 32,768
 canonical content bytes per action, with no fragmentation.

@@ -63,9 +63,7 @@ Collective state itself remains volatile. At startup, an unread request whose
 response context was lost is atomically retired with its raw pending row. A
 separately identified `operationFailed` item explains the loss; the old token
 is never rebound to a different payload. An already acknowledged request does
-not become actionable again.
-Raw requests that predate durable inbox projection are also retired because
-they may already have been answered. A fresh request persisted before its first
+not become actionable again. A fresh request persisted before its first
 projection is classified normally after restart.
 
 ## Webhook consumer

@@ -29,9 +29,30 @@ export interface StoreState {
 }
 
 const DATABASE_NAME = "moltzapd.sqlite3";
-const SCHEMA_VERSION = 3;
+/**
+ * Version 4 is the first store written under the MoltZap version that seals
+ * every outer body. Versions 2 and 3 predate that cutover.
+ */
+const SCHEMA_VERSION = 4;
 
-type PreflightDisposition = "initialize" | "upgrade" | "reopen";
+/**
+ * How a state directory's store opens: `create` replaces an absent, empty, or
+ * pre-cutover database with an empty current one, and `reopen` keeps the
+ * current one.
+ */
+export type StoreOpening = "create" | "reopen";
+
+/**
+ * How each openable `user_version` opens. An empty store and a pre-cutover
+ * store get a new empty schema through `createStore`; the current version
+ * reopens. Every other version is refused.
+ */
+const DISPOSITION_BY_VERSION: ReadonlyMap<number, StoreOpening> = new Map([
+  [0, "create"],
+  [2, "create"],
+  [3, "create"],
+  [SCHEMA_VERSION, "reopen"],
+]);
 
 /**
  * Acquires and exclusively locks one exact-version endpoint database.
@@ -43,6 +64,26 @@ export const openStoreState = (
 ): Effect.Effect<StoreState, EndpointStoreError> =>
   Effect.try({
     try: () => initializeStoreState(stateDirectory),
+    catch: (failure) => mapStoreFailure(failure, "persistence"),
+  });
+
+/**
+ * Reads, without writing, how the store in `stateDirectory` would open. An
+ * incompatible or corrupt database fails as `openStoreState` would.
+ * @param stateDirectory Exclusive persistent state directory.
+ * @returns How `openStoreState` will open the store.
+ */
+export const inspectStoreState = (
+  stateDirectory: string,
+): Effect.Effect<StoreOpening, EndpointStoreError> =>
+  Effect.try({
+    try: () => {
+      requireText(stateDirectory);
+      const databasePath = resolve(stateDirectory, DATABASE_NAME);
+      return existsSync(databasePath)
+        ? inspectExistingDatabase(databasePath)
+        : "create";
+    },
     catch: (failure) => mapStoreFailure(failure, "persistence"),
   });
 
@@ -132,7 +173,9 @@ function initializeStoreState(stateDirectory: string): StoreState {
     chmodSync(stateDirectory, 0o700);
     chmodSync(databasePath, 0o600);
     configureDatabase(database);
-    applySchema(database, disposition);
+    if (disposition === "create") {
+      createStore(database);
+    }
     return { database, snapshots: new Map(), closed: false };
   } catch (failure) {
     try {
@@ -145,18 +188,7 @@ function initializeStoreState(stateDirectory: string): StoreState {
   }
 }
 
-function applySchema(
-  database: DatabaseSync,
-  disposition: PreflightDisposition,
-): void {
-  if (disposition === "initialize") {
-    initializeDatabase(database);
-  } else if (disposition === "upgrade") {
-    upgradeDatabase(database);
-  }
-}
-
-function inspectExistingDatabase(databasePath: string): PreflightDisposition {
+function inspectExistingDatabase(databasePath: string): StoreOpening {
   const database = new DatabaseSync(databasePath, {
     readOnly: true,
     enableForeignKeyConstraints: false,
@@ -180,24 +212,21 @@ function openWritableDatabase(databasePath: string): DatabaseSync {
   });
 }
 
-function preflightDatabase(database: DatabaseSync): PreflightDisposition {
+function preflightDatabase(database: DatabaseSync): StoreOpening {
   const versionRow = database.prepare("PRAGMA user_version").get();
   if (versionRow === undefined) {
     throw new StoreSignal("corrupt");
   }
   const version = readInteger(versionRow, "user_version");
-  if (version !== 0 && version !== 2 && version !== SCHEMA_VERSION) {
+  const disposition = DISPOSITION_BY_VERSION.get(version);
+  if (
+    disposition === undefined ||
+    (version === 0 && hasUserSchemaObjects(database))
+  ) {
     throw new StoreSignal("incompatible");
   }
-  if (version === 0) {
-    if (hasUserSchemaObjects(database)) {
-      throw new StoreSignal("incompatible");
-    }
-    requireHealthyDatabase(database);
-    return "initialize";
-  }
   requireHealthyDatabase(database);
-  return version === 2 ? "upgrade" : "reopen";
+  return disposition;
 }
 
 function hasUserSchemaObjects(database: DatabaseSync): boolean {
@@ -266,9 +295,6 @@ function requireIntegerPragma(
 }
 
 const runtimeSchemaSql = `
-  CREATE TABLE runtime_legacy_deliveries (
-    delivery_token TEXT PRIMARY KEY REFERENCES pending_deliveries(delivery_token)
-  ) STRICT;
   CREATE TABLE runtime_inbox (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     delivery_token TEXT NOT NULL UNIQUE,
@@ -426,25 +452,46 @@ const schemaSql = `
   ) STRICT;
 `;
 
-function initializeDatabase(database: DatabaseSync): void {
+/**
+ * Every table a version 2 or 3 store can hold, each listed before the tables
+ * its foreign keys reference, so dropping them in order never orphans a row.
+ */
+const PRE_CUTOVER_TABLES = [
+  "runtime_legacy_deliveries",
+  "runtime_inbox",
+  "runtime_sends",
+  "runtime_events",
+  "dissemination_obligations",
+  "outbound_messages",
+  "pending_deliveries",
+  "reanchors",
+  "certified_records",
+  "staged_records",
+  "protocol_evidence",
+  "proposal_locks",
+  "conversation_state",
+  "post_intents",
+  "anchors",
+  "memberships",
+  "identity_binding",
+] as const;
+
+/**
+ * Creates the empty version 4 schema in one transaction, first dropping every
+ * table a version 2 or 3 store holds. A pre-cutover store's identity was
+ * registered, and its protocol state signed, under the prior MoltZap version,
+ * so nothing carries over and nothing is resealed: the daemon starts
+ * unregistered and the agent registers again.
+ */
+function createStore(database: DatabaseSync): void {
   transaction(
     database,
     () => {
+      for (const table of PRE_CUTOVER_TABLES) {
+        database.exec(`DROP TABLE IF EXISTS ${table}`);
+      }
       database.exec(schemaSql);
       database.exec(runtimeSchemaSql);
-      database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-    },
-    "EXCLUSIVE",
-  );
-}
-
-function upgradeDatabase(database: DatabaseSync): void {
-  transaction(
-    database,
-    () => {
-      database.exec(runtimeSchemaSql);
-      database.exec(`INSERT INTO runtime_legacy_deliveries (delivery_token)
-        SELECT delivery_token FROM pending_deliveries WHERE acknowledged = 0`);
       database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     },
     "EXCLUSIVE",

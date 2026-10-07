@@ -115,7 +115,7 @@ recipient. For send it must also equal the verified SignedMessage
 sender.
 
 Requests use `Content-Type: application/json`,
-`MoltZap-Version: 2026.827.1`, exact Content-Digest, and the
+`MoltZap-Version: 2026.1006.1`, exact Content-Digest, and the
 `moltzap-request-v1` HTTP message-signature profile. Application code
 imposes no URL scheme or TLS requirement.
 
@@ -132,7 +132,7 @@ exact `{"error":"..."}` bodies in
 Identity fixes the decoded opaque-body maximum at 262,144 bytes and
 the SignedMessage recipient maximum at 128. Its closed SignedMessage
 representation derives a maximum complete General JWS JCS encoding of
-471,671 bytes. Router consumes that identity-owned maximum; it does not
+471,673 bytes. Router consumes that identity-owned maximum; it does not
 reproduce the General JWS size calculation.
 
 Router derives one received-body cap from each closed authenticated
@@ -140,20 +140,20 @@ request representation:
 
 | Route | Maximum received body |
 |---|---:|
-| `POST /v1/messages:send` | 471,819 octets |
+| `POST /v1/messages:send` | 471,821 octets |
 | `POST /v1/messages:poll` | 422 octets |
 
 The poll cap admits the maximum 348-character PollCursor. The maximum
 complete one-message `batch`, including a maximum PollCursor, is
-472,119 UTF-8 JCS bytes.
+472,121 UTF-8 JCS bytes.
 
 These five enclosing maxima are representation consequences, not
 operator-selected configuration:
 
-- maximum complete SignedMessage: 471,671 bytes;
-- maximum send request: 471,819 octets;
+- maximum complete SignedMessage: 471,673 bytes;
+- maximum send request: 471,821 octets;
 - maximum PollCursor: 348 ASCII characters; and
-- maximum poll request and one-message result: 422 octets and 472,119
+- maximum poll request and one-message result: 422 octets and 472,121
   bytes respectively.
 
 The HTTP reader rejects a route body above its own cap before parsing.

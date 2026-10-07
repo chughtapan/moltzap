@@ -35,7 +35,10 @@ safety boundary, not transparent recovery.
 
 Endpoints may be Byzantine. Router prevents one accepted send from becoming
 different bytes or a different relative position for different
-recipients. It does not judge the opaque body.
+recipients. It does not judge the opaque body. Client encrypts every body
+it sends to the message's recipients before signing, so the bodies Router
+retains and delivers are ciphertext; Router neither requires nor checks
+that encryption.
 
 The Router ordering guarantee assumes an endpoint receives the correct
 Router response without network-path modification. Router responses
@@ -497,10 +500,10 @@ count and byte retention, accepted-nonce and positive-card cache
 capacities, and request, held-poll, and Registry-lookup concurrency.
 Identity fixes the opaque body at 262,144 decoded bytes maximum and the
 recipient set at 128 AgentIds maximum. Identity derives the complete
-SignedMessage maximum as 471,671 UTF-8 JCS bytes. Router derives the
-send and poll received-body caps as 471,819 and 422 octets,
+SignedMessage maximum as 471,673 UTF-8 JCS bytes. Router derives the
+send and poll received-body caps as 471,821 and 422 octets,
 respectively. A PollCursor is at most 348 ASCII characters, and a
-complete one-message batch is at most 472,119 UTF-8 JCS bytes.
+complete one-message batch is at most 472,121 UTF-8 JCS bytes.
 
 The representation depth, these fixed and derived bounds, and the
 25-second poll hold are not deployment configuration.
@@ -627,8 +630,7 @@ RouterInstanceId and order.
 
 Persistent feeds, Router replication, ordering consensus, Router-level fork
 detection, transparent Router restart, per-recipient retention indexes,
-negotiated resource limits, network push transports, and a required
-end-to-end encryption or key-distribution profile.
+negotiated resource limits, and network push transports.
 
 ## Decision evidence
 

@@ -79,6 +79,8 @@ const SIGNATURE_PARAMETERS = Object.freeze([
   "tag",
 ]);
 const WRONG_VERSION = "wrong-version";
+/** The MoltZap version before every outer body was sealed. */
+const PRIOR_MOLTZAP_VERSION = "2026.827.1";
 const SIGNATURE_INTERVAL_MILLISECONDS = 300_000;
 const CONCURRENT_REQUEST_COUNT = 4;
 const REGISTRY_LOOKUP_DEADLINE = Duration.millis(20);
@@ -786,6 +788,31 @@ it("claims a valid wrong-version nonce before returning version mismatch", () =>
       yield* verifyTwice.pipe(
         Effect.provide(authenticatedHttpLayer(controller)),
       );
+    }),
+  ));
+
+it("returns version mismatch to a peer still on the prior MoltZap version", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const controller = yield* makeLookupController({
+        kind: "found",
+        agentCard: fixture.agentCard,
+      });
+      yield* releaseLookups(controller);
+      const prepared = yield* prepareRequest({ fixture });
+      const priorVersion = yield* resignWithVersion(
+        prepared,
+        fixture,
+        PRIOR_MOLTZAP_VERSION,
+      );
+
+      const refusal = yield* verifyAgentRequest(priorVersion).pipe(
+        Effect.flip,
+        Effect.provide(authenticatedHttpLayer(controller)),
+      );
+
+      expect(refusal).toBeInstanceOf(VersionMismatchError);
     }),
   ));
 

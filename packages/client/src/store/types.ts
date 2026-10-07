@@ -270,10 +270,6 @@ export interface HistoryPage {
 
 /** Private durable operations owned by one daemon process. */
 export interface EndpointStore {
-  readonly readLegacyPendingDeliveries: () => Effect.Effect<
-    readonly PendingDelivery[],
-    EndpointStoreError
-  >;
   readonly readInboxItem: (
     deliveryToken: DeliveryToken,
   ) => Effect.Effect<

@@ -1,4 +1,4 @@
-/** @file Pins the runtime state the endpoint store keeps across restart and across the schema version 2 to 3 upgrade. */
+/** @file Pins the runtime state the endpoint store keeps across restart, and the empty store a pre-cutover schema version opens as. */
 
 import { Effect, Schema } from "effect";
 import { DatabaseSync } from "node:sqlite";
@@ -7,11 +7,16 @@ import { digest } from "../__tests__/agent-card-fixtures.js";
 import {
   bytes,
   databasePath,
-  downgradeToSchemaV2,
+  rewindToPreCutoverSchema,
   stateDirectory,
+  storedConversation,
   withStore,
 } from "../__tests__/store-schema-fixtures.js";
-import { DeliveryToken } from "./index.js";
+import {
+  DeliveryToken,
+  type EndpointStore,
+  inspectEndpointStore,
+} from "./index.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- Store mutation outcomes and the schema version are the contract under test. */
 
@@ -57,40 +62,116 @@ function retainsInvocationAndEventState() {
   );
 }
 
-function upgradesSchemaVersion2WithoutReplacingTheIdentity() {
+const identity = {
+  agentId: "agent:alice",
+  canonicalAgentCard: new Uint8Array([1, 2, 3]),
+};
+const { foundation, record } = storedConversation("pre-cutover");
+const sendInput = bytes('{"input":{"text":"hello","to":"agent:bob"}}');
+const eventState = bytes('{"subscription":"private"}');
+const inboxItem = bytes('{"kind":"operationFailed"}');
+
+/**
+ * Give the store Alice's identity, one certified conversation with a pending
+ * delivery, a proposal lock, a post intent and a queued envelope, plus the
+ * host's inbox, invocation and event state, and return the queued envelope's
+ * outbox identity.
+ */
+const seedPreCutoverState = (store: EndpointStore) =>
+  Effect.gen(function* () {
+    yield* store.bindIdentity(identity);
+    yield* store.putConversationFoundation(foundation);
+    yield* store.bindPostIntent({
+      kind: "existing-conversation",
+      intent: {
+        conversationId: foundation.conversationId,
+        membershipHash: foundation.membershipHash,
+        authorAgentId: identity.agentId,
+        postId: digest("pst_", 2),
+        canonicalIntent: bytes("intent"),
+      },
+    });
+    yield* store.lockProposal({
+      conversationId: foundation.conversationId,
+      actionHash: record.actionHash,
+      canonicalActionCore: bytes("action-core"),
+    });
+    yield* store.applyCatchUpRecord(record, {
+      recipientAgentId: identity.agentId,
+      canonicalMessage: bytes("delivery"),
+    });
+    const outbound = yield* store.enqueueOutbound({
+      conversationId: foundation.conversationId,
+      messageId: "msg_pre_cutover",
+      canonicalSignedMessage: bytes("plaintext outer envelope"),
+    });
+    yield* store.beginSendAttempt("before-cutover", sendInput);
+    yield* store.writeEventState(eventState);
+    yield* store.putInboxItem({
+      deliveryToken: token,
+      canonicalItem: inboxItem,
+    });
+    return outbound.outboundId;
+  });
+
+/** What a newly created, unregistered store recovers. */
+const freshRecovery = Effect.suspend(() =>
+  withStore(stateDirectory(), (fresh) => fresh.recover()),
+);
+
+function readSchemaVersion(path: string) {
+  const database = new DatabaseSync(databasePath(path), { readOnly: true });
+  const row = database.prepare("PRAGMA user_version").get();
+  database.close();
+  return row;
+}
+
+const opensEmptyAfterTheCutover = (version: 2 | 3) => {
   const path = stateDirectory();
-  const identity = {
-    agentId: "agent:alice",
-    canonicalAgentCard: new Uint8Array([1, 2, 3]),
-  };
   return Effect.runPromise(
     Effect.gen(function* () {
-      yield* withStore(path, (store) => store.bindIdentity(identity));
-      yield* downgradeToSchemaV2(path);
+      const outboundId = yield* withStore(path, seedPreCutoverState);
+      yield* rewindToPreCutoverSchema(path, version);
+
       yield* withStore(path, (store) =>
         Effect.gen(function* () {
-          expect(yield* store.readIdentity()).toEqual(identity);
+          expect(yield* store.readIdentity()).toBeUndefined();
+          expect(yield* store.recover()).toEqual(yield* freshRecovery);
+          const unsent = yield* store
+            .beginOutbound(outboundId)
+            .pipe(Effect.flip);
+          expect(unsent.reason).toBe("not-found");
+          expect(
+            yield* store.readSendAttempt("before-cutover"),
+          ).toBeUndefined();
+          expect(yield* store.readEventState()).toBeUndefined();
           expect(yield* store.readInboxSummary()).toEqual({
             pendingCount: 0,
             newestSequence: 0,
           });
-          expect(
-            yield* store.putInboxItem({
-              deliveryToken: token,
-              canonicalItem: bytes('{"kind":"operationFailed"}'),
-            }),
-          ).toBe("inserted");
         }),
       );
-      yield* Effect.sync(() => {
-        const database = new DatabaseSync(databasePath(path), {
-          readOnly: true,
-        });
-        expect(database.prepare("PRAGMA user_version").get()).toMatchObject({
-          user_version: 3,
-        });
-        database.close();
-      });
+      expect(readSchemaVersion(path)).toMatchObject({ user_version: 4 });
+    }),
+  );
+};
+
+function inspectsWithoutWriting() {
+  const path = stateDirectory();
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const absent = yield* inspectEndpointStore(path);
+      yield* withStore(path, seedPreCutoverState);
+      const current = yield* inspectEndpointStore(path);
+      yield* rewindToPreCutoverSchema(path, 3);
+      const preCutover = yield* inspectEndpointStore(path);
+
+      expect([absent, current, preCutover]).toEqual([
+        "create",
+        "reopen",
+        "create",
+      ]);
+      expect(readSchemaVersion(path)).toMatchObject({ user_version: 3 });
     }),
   );
 }
@@ -101,8 +182,12 @@ describe("endpoint runtime state", () => {
     retainsInvocationAndEventState,
   );
   it(
-    "upgrades schema version 2 without replacing the configured identity",
-    upgradesSchemaVersion2WithoutReplacingTheIdentity,
+    "inspects how a store opens without creating or cutting it over",
+    inspectsWithoutWriting,
+  );
+  it.each([3, 2] as const)(
+    "opens a schema version %i store empty, unregistered and without its queued envelope",
+    opensEmptyAfterTheCutover,
   );
 });
 

@@ -339,7 +339,7 @@ The selected route does not accept the request method.
 _Variable_
 
 ```ts
-export const MOLTZAP_VERSION = "2026.827.1"
+export const MOLTZAP_VERSION = "2026.1006.1"
 ```
 
 Sole compatibility value for MoltZap-owned network boundaries.
@@ -448,7 +448,7 @@ export class SealedBodySealingError extends Data.TaggedError(
 
 A body cannot be sealed from the supplied sender to the supplied recipients.
 
-### [`SignedMessage (type)`](./signed-message.ts#L163)
+### [`SignedMessage (type)`](./signed-message.ts#L169)
 
 _Interface_
 
@@ -464,7 +464,7 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](./signed-message.ts#L478)
+### [`SignedMessage (value)`](./signed-message.ts#L484)
 
 _Variable_
 
@@ -485,7 +485,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
 
 Opaque attributed message operations and exact representation Schema.
 
-### [`SignedMessageSigningError`](./signed-message.ts#L307)
+### [`SignedMessageSigningError`](./signed-message.ts#L313)
 
 _Class_
 
@@ -497,7 +497,7 @@ export class SignedMessageSigningError extends Data.TaggedError(
 
 A message cannot be signed under the supplied immutable identity.
 
-### [`SignedMessageVerificationError`](./signed-message.ts#L312)
+### [`SignedMessageVerificationError`](./signed-message.ts#L318)
 
 _Class_
 
@@ -560,7 +560,7 @@ export type VerifiedAgentRequest = Readonly<{
 
 Request body and caller identity established by AuthenticatedHttp.
 
-### [`VerifiedSignedMessage`](./signed-message.ts#L301)
+### [`VerifiedSignedMessage`](./signed-message.ts#L307)
 
 _TypeAlias_
 

@@ -8,6 +8,7 @@ import {
 } from "@moltzap/identity/registry";
 import { Data, Effect, Fiber, Schema } from "effect";
 import type { HarnessMcpOperations } from "../../endpoint/mcp/index.js";
+import type { StoreOpening } from "../../store/index.js";
 import type {
   DaemonBootstrap,
   DaemonConfigurationError,
@@ -66,6 +67,25 @@ export const requireAdmission = (
     ? Effect.asVoid(bootstrap.admissionCredential)
     : Effect.void
   ).pipe(Effect.withSpan("requireAdmission"));
+
+/**
+ * Loads the admission credential before a store that opens empty is created.
+ * Creating replaces a pre-cutover store and leaves the daemon unregistered,
+ * so a daemon that could not then register fails closed before it touches
+ * the state directory.
+ *
+ * @param opening How the state directory's store will open.
+ * @param bootstrap Configured deferred admission credential.
+ * @returns Nothing once the store may be opened.
+ */
+export const requireAdmissionToCreate = (
+  opening: StoreOpening,
+  bootstrap: DaemonBootstrap,
+): Effect.Effect<void, DaemonConfigurationError> =>
+  (opening === "create"
+    ? Effect.asVoid(bootstrap.admissionCredential)
+    : Effect.void
+  ).pipe(Effect.withSpan("requireAdmissionToCreate"));
 
 const makeRegistryRequest = (input: {
   readonly request: RegistrationRequest;
