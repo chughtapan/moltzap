@@ -3,7 +3,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type {
   CertifiedRecord,
-  DisseminationObligation,
   InboundDeliveryInput,
   ProposalLock,
   ProtocolEvidence,
@@ -91,7 +90,11 @@ export function stageRecordForDissemination(
     const staged = stageRecordInTransaction(database, record, "vote");
     const obligation = retainDisseminationInTransaction(
       database,
-      disseminationObligation("action-certified-record", record),
+      Object.freeze({
+        conversationId: record.conversationId,
+        recordHash: record.recordHash,
+        kind: "action-certified-record",
+      }),
     );
     return staged === "inserted" || obligation === "inserted"
       ? "inserted"
@@ -183,32 +186,6 @@ export function promoteRecord(
   return transaction(database, () =>
     promoteRecordInTransaction(database, record, delivery),
   );
-}
-
-/**
- * Atomically promotes a certified record and retains its send obligation.
- *
- * @param database Exclusively owned endpoint database.
- * @param record Verified complete certified record.
- * @param delivery Canonical remote host message, absent for the local author.
- * @returns Whether either exact durable component was inserted.
- */
-export function promoteRecordForDissemination(
-  database: DatabaseSync,
-  record: CertifiedRecord,
-  delivery?: InboundDeliveryInput,
-): StoreMutation {
-  validateCertifiedRecord(record);
-  return transaction(database, () => {
-    const promoted = promoteRecordInTransaction(database, record, delivery);
-    const obligation = retainDisseminationInTransaction(
-      database,
-      disseminationObligation("certified-record", record),
-    );
-    return promoted === "inserted" || obligation === "inserted"
-      ? "inserted"
-      : "existing";
-  });
 }
 
 /**
@@ -706,15 +683,4 @@ function validateEvidence(evidence: ProtocolEvidence): void {
   requireText(evidence.subjectId);
   requireText(evidence.evidenceKey);
   requireBytes(evidence.canonicalEvidence);
-}
-
-function disseminationObligation(
-  kind: DisseminationObligation["kind"],
-  record: StagedRecord,
-): DisseminationObligation {
-  return Object.freeze({
-    conversationId: record.conversationId,
-    recordHash: record.recordHash,
-    kind,
-  });
 }

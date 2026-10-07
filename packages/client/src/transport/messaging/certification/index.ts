@@ -489,48 +489,6 @@ const rebasePendingIntents = (
 
 type RecordSource = "assembled" | "catch-up" | "received";
 
-function persistPromotionWithoutDelivery(
-  runtime: EngineRuntime,
-  record: Effect.Effect.Success<ReturnType<typeof storedCertifiedRecord>>,
-  source: RecordSource,
-) {
-  switch (source) {
-    case "assembled":
-      return runtime.input.store.promoteRecordForDissemination(record);
-    case "catch-up":
-      return runtime.input.store.applyCatchUpRecord(record);
-    case "received":
-      return runtime.input.store.promoteRecord(record);
-    default: {
-      const exhaustive: never = source;
-      return exhaustive;
-    }
-  }
-}
-
-function persistPromotionWithDelivery(
-  runtime: EngineRuntime,
-  record: Effect.Effect.Success<ReturnType<typeof storedCertifiedRecord>>,
-  source: RecordSource,
-  delivery: Effect.Effect.Success<ReturnType<typeof inboundDelivery>>,
-) {
-  switch (source) {
-    case "assembled":
-      return runtime.input.store.promoteRecordForDissemination(
-        record,
-        delivery,
-      );
-    case "catch-up":
-      return runtime.input.store.applyCatchUpRecord(record, delivery);
-    case "received":
-      return runtime.input.store.promoteRecord(record, delivery);
-    default: {
-      const exhaustive: never = source;
-      return exhaustive;
-    }
-  }
-}
-
 const promote = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
@@ -551,20 +509,12 @@ const promote = (
           runtime.input.localAgentCard.agentId,
         ).pipe(Effect.mapError(localRepresentationFailure))
       : undefined;
-    yield* delivery === undefined
-      ? persistPromotionWithoutDelivery(runtime, stored, source)
-      : persistPromotionWithDelivery(runtime, stored, source, delivery);
-    const queuePromotion =
-      source === "assembled"
-        ? runtime.outbox
-            .queueCertifiedPacket(fold.conversation, record)
-            .pipe(Effect.mapError(() => persistenceFailure()))
-        : Effect.void;
-    yield* Effect.uninterruptible(
-      queuePromotion.pipe(
-        Effect.zipRight(completePromotion(runtime, fold, record)),
-      ),
-    );
+    const persist =
+      source === "catch-up"
+        ? runtime.input.store.applyCatchUpRecord
+        : runtime.input.store.promoteRecord;
+    yield* persist(stored, delivery);
+    yield* Effect.uninterruptible(completePromotion(runtime, fold, record));
     yield* rebasePendingIntents(runtime, fold.conversation.conversationId);
   });
 

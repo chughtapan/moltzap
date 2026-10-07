@@ -181,7 +181,7 @@ export interface StoredOutboundMessage extends OutboundMessageInput {
 }
 
 /** Closed packet family whose durable state requires later dissemination. */
-export type DisseminationKind = "action-certified-record" | "certified-record";
+export type DisseminationKind = "action-certified-record";
 
 /** Durable logical packet that has not yet been attached to an outbox row. */
 export interface DisseminationObligation {
@@ -359,10 +359,6 @@ export interface EndpointStore {
     evidence: ProtocolEvidence,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
   readonly promoteRecord: (
-    record: CertifiedRecord,
-    delivery?: InboundDeliveryInput,
-  ) => Effect.Effect<StoreMutation, EndpointStoreError>;
-  readonly promoteRecordForDissemination: (
     record: CertifiedRecord,
     delivery?: InboundDeliveryInput,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;

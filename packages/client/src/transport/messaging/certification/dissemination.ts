@@ -1,4 +1,4 @@
-/** @file Recovery of durable certified-record dissemination obligations. */
+/** @file Recovery of durable action-certified-record send obligations. */
 
 import { Effect, Schema } from "effect";
 import type { DisseminationObligation } from "../../../store/index.js";
@@ -6,7 +6,6 @@ import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
 import { RouterWorkerPersistenceError } from "../../router/index.js";
 import {
   type ActionCertifiedRecord,
-  type CertifiedRecord,
   ConversationId,
   RecordHash,
 } from "../../wire/index.js";
@@ -55,7 +54,7 @@ function attachObligation(
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return Effect.gen(function* () {
     const { fold, recordHash } = yield* obligationFold(runtime, obligation);
-    const packet = yield* packetForObligation(fold, obligation, recordHash);
+    const packet = yield* packetForObligation(fold, recordHash);
     yield* Effect.uninterruptible(
       runtime.outbox
         .queueCertifiedPacket(fold.conversation, packet)
@@ -92,38 +91,20 @@ function obligationFold(
 
 function packetForObligation(
   fold: EngineActionFold,
-  obligation: DisseminationObligation,
   recordHash: typeof RecordHash.Type,
-): Effect.Effect<
-  ActionCertifiedRecord | CertifiedRecord,
-  RouterWorkerPersistenceError
-> {
-  switch (obligation.kind) {
-    case "action-certified-record":
-      return recordAnchorHash(fold).pipe(
+): Effect.Effect<ActionCertifiedRecord, RouterWorkerPersistenceError> {
+  return recordAnchorHash(fold).pipe(
+    Effect.mapError(persistenceFailure),
+    Effect.flatMap((anchorHash) =>
+      makeActionCertifiedRecord(fold, anchorHash).pipe(
         Effect.mapError(persistenceFailure),
-        Effect.flatMap((anchorHash) =>
-          makeActionCertifiedRecord(fold, anchorHash).pipe(
-            Effect.mapError(persistenceFailure),
-          ),
-        ),
-        Effect.filterOrFail(
-          (record) => record.recordHash === recordHash,
-          persistenceFailure,
-        ),
-      );
-    case "certified-record": {
-      const record = fold.certifiedRecord;
-      return record !== undefined &&
-        record.actionCertifiedRecord.recordHash === recordHash
-        ? Effect.succeed(record)
-        : Effect.fail(persistenceFailure());
-    }
-    default: {
-      const exhaustive: never = obligation.kind;
-      return exhaustive;
-    }
-  }
+      ),
+    ),
+    Effect.filterOrFail(
+      (record) => record.recordHash === recordHash,
+      persistenceFailure,
+    ),
+  );
 }
 
 function persistenceFailure(): RouterWorkerPersistenceError {

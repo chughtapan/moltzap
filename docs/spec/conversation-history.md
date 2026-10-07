@@ -393,7 +393,16 @@ signs a durability statement. It does not vote for conflicting successors of
 one certified head under one anchor. Votes are a mergeable signer map ordered
 by decoded AgentId, and every entry retains the signer AgentId and exact
 signature bytes.
-Any member may assemble and disseminate sufficient evidence.
+A member that assembles an action certificate from the action signatures it
+receives sends that `ActionCertifiedRecord` once to every member. A member
+that receives one before assembling its own stages from it and sends none.
+No member sends the `CertifiedRecord` it assembles; each member assembles it
+from the durability votes it receives. Router order is one order for every
+recipient, so the `ActionCertifiedRecord` a member stages from precedes that
+member's durability vote and its next proposal at every member. A record
+therefore costs at most `1 + 3n` outer messages: the proposal, `n` action
+signatures, `n` action-certified records, and `n` durability votes. A member
+that misses durability votes reaches the certified record through catch-up.
 
 A record becomes locally certified only after the store atomically promotes
 its staged core and valid `q(n)` durability votes. Semantic send succeeds only

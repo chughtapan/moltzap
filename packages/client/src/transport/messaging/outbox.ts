@@ -17,7 +17,6 @@ import {
 } from "../router/index.js";
 import {
   type ActionCertifiedRecord,
-  type CertifiedRecord,
   type ClientRepresentationError,
   type ConversationId,
   type DecodedOuterBody,
@@ -105,19 +104,13 @@ function queueBody(
 
 function disseminationObligation(
   conversationId: ConversationId,
-  packet: ActionCertifiedRecord | CertifiedRecord,
+  packet: ActionCertifiedRecord,
 ): DisseminationObligation {
-  return packet.kind === "action_certified_record"
-    ? {
-        conversationId,
-        recordHash: packet.recordHash,
-        kind: "action-certified-record",
-      }
-    : {
-        conversationId,
-        recordHash: packet.actionCertifiedRecord.recordHash,
-        kind: "certified-record",
-      };
+  return {
+    conversationId,
+    recordHash: packet.recordHash,
+    kind: "action-certified-record",
+  };
 }
 
 function sign(

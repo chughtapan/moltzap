@@ -55,7 +55,6 @@ import {
   applyCatchUpRecord,
   mergeEvidence,
   promoteRecord,
-  promoteRecordForDissemination,
   stageCertifiedRecord,
   stageRecord,
   stageRecordForDissemination,
@@ -157,10 +156,6 @@ function makeHistoryOperations(state: StoreState, run: StoreRunner) {
       run(() => mergeEvidence(state.database, evidence)),
     promoteRecord: (record, delivery) =>
       run(() => promoteRecord(state.database, record, delivery)),
-    promoteRecordForDissemination: (record, delivery) =>
-      run(() =>
-        promoteRecordForDissemination(state.database, record, delivery),
-      ),
     applyCatchUpRecord: (record, delivery) =>
       run(() => applyCatchUpRecord(state.database, record, delivery)),
     stageReanchor: (reanchor) =>

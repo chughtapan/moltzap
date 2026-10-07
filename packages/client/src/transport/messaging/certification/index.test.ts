@@ -73,11 +73,13 @@ import {
   type RecordHash,
   signEvidenceMessage,
   signOuterEvidence,
+  signOuterPacket,
   type VerifiedMembership,
   verifyMembershipDescriptor,
 } from "../../wire/index.js";
 import { MessageAddressInput } from "../../wire/values.js";
 import { SendError } from "../errors.js";
+import { readStoredRecord } from "../history/index.js";
 import {
   type EndpointEngine,
   type EndpointEngineInput,
@@ -888,12 +890,47 @@ function adoptsAnActionCertificateOverItsOwnLock() {
 }
 
 /**
+ * The latest POST record `author`'s store certified, sent whole by `author`.
+ * @param harness Engines and the stores they persist to.
+ * @param author The member whose store and identity send the record.
+ * @returns The outer message carrying the `CertifiedRecord`.
+ */
+function certifiedRecordPacket(
+  harness: ProtocolHarness,
+  author: ProtocolIdentity,
+) {
+  return Effect.gen(function* () {
+    const index = harness.identities.indexOf(author);
+    const store = yield* requireAt(harness.stores, index, "endpoint store");
+    const recovery = yield* store.recover();
+    const stored = recovery.certifiedRecords.findLast(
+      ({ previousRecordHash }) => previousRecordHash !== undefined,
+    );
+    if (stored === undefined) {
+      return yield* Effect.dieMessage("no POST record is certified");
+    }
+    const record = yield* readStoredRecord(
+      harness.registrySignerPublicKey,
+      harness.membership,
+      recovery,
+      stored,
+    );
+    return yield* signOuterPacket({
+      packet: record,
+      membership: harness.membership,
+      agentCard: author.card,
+      signingAuthority: author.authority,
+    });
+  }).pipe(Effect.orDie);
+}
+
+/**
  * Member 2 misses member 1's proposal at the genesis head and locks its own
  * there, while members 1, 3 and 4 lock, sign and vote for member 1's. Member
- * 2 also misses that post's action certificate, so the first copy of the
- * post to reach it is member 1's CertifiedRecord. Member 2 accepts it over
- * its own lock, and its own post is then proposed again from the new head
- * and certifies.
+ * 2 also misses that post's action-certified copies, so the first copy of the
+ * post to reach it is member 1's CertifiedRecord, as a catch-up answer carries
+ * it. Member 2 accepts it over its own lock, and its own post is then proposed
+ * again from the new head and certifies.
  * @returns Completion once member 2 holds both posts.
  */
 function adoptsACertifiedRecordOverItsOwnLock() {
@@ -938,14 +975,12 @@ function adoptsACertifiedRecordOverItsOwnLock() {
           everyMemberButTheLagging,
         );
         yield* harness.drain();
-        const winnerCertifiedRecord = (yield* messagesOfKind(
-          yield* takeQueued(harness),
-          "certified_record",
-        )).filter(
-          (message) =>
-            message.senderAgentId === winnerAuthorIdentity.card.agentId,
+        yield* takeQueued(harness);
+        const winnerCertifiedRecord = yield* certifiedRecordPacket(
+          harness,
+          winnerAuthorIdentity,
         );
-        const adopted = yield* harness.deliver(winnerCertifiedRecord, [1]);
+        const adopted = yield* harness.deliver([winnerCertifiedRecord], [1]);
         yield* harness.drain([1]);
         yield* pump(harness, yield* takeQueued(harness));
         yield* Fiber.join(winning).pipe(
@@ -1210,6 +1245,110 @@ function refusesASecondCertificateOverAStagedAction() {
         expect(locks.map(({ actionHash }) => actionHash)).not.toContain(
           secondActionHash,
         );
+      }),
+    ),
+  );
+}
+
+/**
+ * One N4 post costs `1 + 3n` outer messages: the proposal, every member's
+ * action signature, every member's action-certified copy and every member's
+ * durability vote. No member sends the certified record it assembles. Fails
+ * when the certified record is sent again, or when the action-certified copy
+ * is not.
+ * @returns Completion once the post's traffic is counted.
+ */
+function sendsOnePlusThreeNMessagesPerPost() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const sending = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "counted post")),
+        );
+
+        const delivered = yield* pump(harness, yield* takeReadyBatch(harness));
+        yield* Fiber.join(sending).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        const kinds = yield* Effect.forEach(delivered, protocolMessageKind, {
+          concurrency: 1,
+        });
+        expect(
+          [...kinds].sort((left, right) => left.localeCompare(right)),
+        ).toEqual([
+          "action_certified_record",
+          "action_certified_record",
+          "action_certified_record",
+          "action_certified_record",
+          "action_proposal",
+          "action_signature",
+          "action_signature",
+          "action_signature",
+          "action_signature",
+          "durability_vote",
+          "durability_vote",
+          "durability_vote",
+          "durability_vote",
+        ]);
+      }),
+    ),
+  );
+}
+
+/**
+ * Member 2 is away while member 1 proposes a post and the members sign it,
+ * so it holds no fold for the post. It is back for the action-certified
+ * copies and the durability votes: it stages the record from a copy, votes,
+ * certifies the record from the votes it receives, and delivers the post.
+ * Fails when no member sends its action-certified copy.
+ * @returns Completion once member 2 holds the post.
+ */
+function catchesUpThroughActionCertifiedCopies() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const returning = yield* requireAt(
+          harness.engines,
+          1,
+          "endpoint engine",
+        );
+        const returningStore = yield* requireAt(
+          harness.stores,
+          1,
+          "endpoint store",
+        );
+        const present = [0, 2, 3];
+        const sending = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "missed post")),
+        );
+
+        yield* harness.deliver(yield* takeReadyBatch(harness), present);
+        yield* harness.drain(present);
+        yield* harness.deliver(yield* takeQueued(harness), present);
+        yield* harness.drain(present);
+        yield* pump(harness, yield* takeQueued(harness));
+        yield* Fiber.join(sending).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        const pending = yield* returning
+          .readPendingMessages()
+          .pipe(Effect.orDie);
+        expect(pending.map(({ message }) => message.content)).toEqual([
+          [{ type: "text", text: "open group" }],
+          [{ type: "text", text: "missed post" }],
+        ]);
+        const recovered = yield* returningStore.recover().pipe(Effect.orDie);
+        expect(recovered.certifiedRecords).toHaveLength(2);
       }),
     ),
   );
@@ -1677,6 +1816,16 @@ function reappendedOuterMessagesYieldOnePost() {
 }
 
 describe("fixed-post endpoint protocol", () => {
+  it(
+    "sends 1 + 3n outer messages for one N4 post, with no certified-record copy",
+    sendsOnePlusThreeNMessagesPerPost,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "catches up a member that missed a post's signatures through the action-certified copies",
+    catchesUpThroughActionCertifiedCopies,
+    TEST_TIMEOUT_MS,
+  );
   it(
     "adopts an action certificate over its own lock at the same head",
     adoptsAnActionCertificateOverItsOwnLock,

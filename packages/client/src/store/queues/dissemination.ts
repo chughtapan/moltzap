@@ -167,13 +167,10 @@ function readDisseminationKind(
   row: Readonly<Record<string, unknown>>,
 ): DisseminationKind {
   const kind = readText(row, "packet_kind");
-  switch (kind) {
-    case "action-certified-record":
-    case "certified-record":
-      return kind;
-    default:
-      throw new StoreSignal("corrupt");
+  if (kind !== "action-certified-record") {
+    throw new StoreSignal("corrupt");
   }
+  return kind;
 }
 
 function validateObligation(obligation: DisseminationObligation): void {
@@ -195,26 +192,12 @@ function findRecordState(
   database: DatabaseSync,
   obligation: DisseminationObligation,
 ): Readonly<Record<string, unknown>> | undefined {
-  switch (obligation.kind) {
-    case "action-certified-record":
-      return database
-        .prepare(
-          `SELECT 1 AS retained FROM staged_records
-           WHERE conversation_id = ? AND record_hash = ?`,
-        )
-        .get(obligation.conversationId, obligation.recordHash);
-    case "certified-record":
-      return database
-        .prepare(
-          `SELECT 1 AS retained FROM certified_records
-           WHERE conversation_id = ? AND record_hash = ?`,
-        )
-        .get(obligation.conversationId, obligation.recordHash);
-    default: {
-      const exhaustive: never = obligation.kind;
-      return exhaustive;
-    }
-  }
+  return database
+    .prepare(
+      `SELECT 1 AS retained FROM staged_records
+       WHERE conversation_id = ? AND record_hash = ?`,
+    )
+    .get(obligation.conversationId, obligation.recordHash);
 }
 
 function requireSameObligation(

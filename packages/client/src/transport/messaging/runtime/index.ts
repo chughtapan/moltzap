@@ -186,7 +186,7 @@ export interface EngineOutbox {
   /** Attach the signed packet to its durable dissemination obligation. */
   readonly queueCertifiedPacket: (
     conversation: EngineConversation,
-    packet: ActionCertifiedRecord | CertifiedRecord,
+    packet: ActionCertifiedRecord,
   ) => Effect.Effect<void, EngineOutboxError>;
   /**
    * Stage an envelope that `sign` returned; any other `SignedMessage` would

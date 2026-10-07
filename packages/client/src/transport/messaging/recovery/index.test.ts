@@ -1414,20 +1414,13 @@ const stageAttachedDissemination = (fixture: RecoveryFixture) =>
       Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
     );
     const recovery = yield* fixture.store.recover();
-    const record = recovery.certifiedRecords[0];
+    const record = recovery.stagedRecords[0];
     if (record === undefined) {
-      return yield* Effect.dieMessage("certified record was not retained");
+      return yield* Effect.dieMessage("staged record was not retained");
     }
-    const delivery = recovery.pendingDeliveries[0];
-    if (delivery === undefined) {
-      return yield* Effect.dieMessage("remote delivery was not retained");
-    }
-    yield* fixture.store.promoteRecordForDissemination(record, {
-      recipientAgentId: delivery.recipientAgentId,
-      canonicalMessage: delivery.canonicalMessage,
-    });
+    yield* fixture.store.stageRecordForDissemination(record);
     const message = yield* signOuterPacket({
-      packet: fixture.certifiedRecord,
+      packet: fixture.certifiedRecord.actionCertifiedRecord,
       membership: fixture.membership,
       agentCard: fixture.local.card,
       signingAuthority: fixture.local.authority,
@@ -1436,7 +1429,7 @@ const stageAttachedDissemination = (fixture: RecoveryFixture) =>
       {
         conversationId: record.conversationId,
         recordHash: record.recordHash,
-        kind: "certified-record",
+        kind: "action-certified-record",
       },
       {
         conversationId: record.conversationId,
@@ -2624,7 +2617,7 @@ const recoverDisseminationObligations = () =>
         expect(rebuilt.messageId).not.toBe(stale.messageId);
         expect(yield* decodeOuterBody(rebuilt.body)).toMatchObject({
           kind: "direct",
-          packet: { kind: "certified_record" },
+          packet: { kind: "action_certified_record" },
         });
         expect(
           yield* Queue.take(resumedOutbound).pipe(

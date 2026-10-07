@@ -31,7 +31,7 @@ independent proofs:
    `RecordHash`.
 3. Any member merges votes until the durability threshold is met.
 4. The endpoint atomically promotes the staged value and evidence into its
-   certified local history, then disseminates it for member catch-up.
+   certified local history, then serves it to members through catch-up.
 
 For `n < 4`, every fixed member supplies a durability vote. For `n >= 4`, with
 `f = floor((n - 1) / 3)`, `n - f` votes complete the durability evidence.
