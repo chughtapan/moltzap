@@ -108,6 +108,32 @@ const gapFree = (
     );
   });
 
+/**
+ * The membership an action's conversation has here: the one this endpoint
+ * holds, or, for the GENESIS of a conversation it does not hold yet, the
+ * descriptor GENESIS carries, verified against the Registry key. A POST names
+ * its membership only by hash, so a POST for a conversation this endpoint
+ * does not hold does not verify.
+ * @param runtime Engine whose held conversations are searched.
+ * @param action The action whose conversation is resolved.
+ * @returns The verified membership of the action's conversation.
+ */
+const ingressMembership = (
+  runtime: EngineRuntime,
+  action: ActionCore,
+): Effect.Effect<VerifiedMembership, ClientRepresentationError> => {
+  const retained = runtime.conversations.get(action.conversationId);
+  if (retained !== undefined) {
+    return Effect.succeed(retained.membership);
+  }
+  return action.kind === "GENESIS"
+    ? verifyMembershipDescriptor(
+        action.membership,
+        runtime.input.registrySignerPublicKey,
+      )
+    : Effect.fail(new ClientRepresentationError());
+};
+
 const conversationForAction = (
   runtime: EngineRuntime,
   action: ActionCore,
@@ -115,16 +141,10 @@ const conversationForAction = (
 ): Effect.Effect<EngineConversation | undefined, ClientRepresentationError> =>
   Effect.gen(function* () {
     const retained = runtime.conversations.get(action.conversationId);
-    if (action.kind === "POST") {
+    if (retained !== undefined || action.kind === "POST") {
       return retained;
     }
-    if (retained !== undefined) {
-      return retained;
-    }
-    const membership = yield* verifyMembershipDescriptor(
-      action.membership,
-      runtime.input.registrySignerPublicKey,
-    );
+    const membership = yield* ingressMembership(runtime, action);
     if (action.anchor.routerInstanceId !== routerInstanceId) {
       return undefined;
     }
@@ -530,7 +550,6 @@ const maybePromote = (
     yield* verifyCertifiedRecord({
       record,
       membership: fold.conversation.membership,
-      registrySignerPublicKey: runtime.input.registrySignerPublicKey,
     }).pipe(Effect.mapError(localRepresentationFailure));
     yield* promote(runtime, fold, record);
   });
@@ -702,31 +721,16 @@ function advanceDurabilityFold(
   });
 }
 
-/**
- * The membership this endpoint holds for a record's conversation, which it
- * took from that conversation's GENESIS. A POST record names its membership
- * only by hash, so without it a POST record cannot verify.
- * @param runtime Engine whose conversations are searched.
- * @param record Record whose conversation is looked up.
- * @returns The held membership, or nothing before this endpoint holds the
- *     conversation's GENESIS.
- */
-const heldMembership = (
-  runtime: EngineRuntime,
-  record: ActionCertifiedRecord,
-): VerifiedMembership | undefined =>
-  runtime.conversations.get(record.recordCore.action.conversationId)
-    ?.membership;
-
 const membershipForRecord = (
   runtime: EngineRuntime,
   record: ActionCertifiedRecord,
 ): Effect.Effect<VerifiedMembership, ClientRepresentationError> =>
-  verifyActionCertifiedRecord({
-    record,
-    membership: heldMembership(runtime, record),
-    registrySignerPublicKey: runtime.input.registrySignerPublicKey,
-  }).pipe(Effect.map((verified) => verified.membership));
+  ingressMembership(runtime, record.recordCore.action).pipe(
+    Effect.flatMap((membership) =>
+      verifyActionCertifiedRecord({ record, membership }),
+    ),
+    Effect.map((verified) => verified.membership),
+  );
 
 const ensureConversation = (
   runtime: EngineRuntime,
@@ -736,7 +740,7 @@ const ensureConversation = (
   const action = record.recordCore.action;
   const retained = runtime.conversations.get(action.conversationId);
   if (retained !== undefined) {
-    return retained.membership.hash === membership.hash ? retained : undefined;
+    return retained;
   }
   if (
     action.kind !== "GENESIS" ||
@@ -931,8 +935,10 @@ const acceptCertifiedRecord = (
   Effect.gen(function* () {
     const membership = yield* verifyCertifiedRecord({
       record,
-      membership: heldMembership(runtime, record.actionCertifiedRecord),
-      registrySignerPublicKey: runtime.input.registrySignerPublicKey,
+      membership: yield* ingressMembership(
+        runtime,
+        record.actionCertifiedRecord.recordCore.action,
+      ),
     });
     const actionRecord = record.actionCertifiedRecord;
     const fold = yield* prepareRecordFold(

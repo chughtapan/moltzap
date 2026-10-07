@@ -91,7 +91,7 @@ export const recoverEngineState = (
       conversations,
       anchors.byHash,
     );
-    const recordFolds = yield* recoverStagedFolds(input, recovery, actionFolds);
+    const recordFolds = yield* recoverStagedFolds(recovery, actionFolds);
     const outboundMessages = yield* verifyStoredOutbounds(
       input,
       recovery.outboundMessages,
@@ -269,7 +269,6 @@ function recoverActionFolds(
 }
 
 function recoverStagedFolds(
-  input: EndpointEngineInput,
   recovery: EndpointRecovery,
   actionFolds: Map<ActionHash, EngineActionFold>,
 ): Effect.Effect<Map<RecordHashValue, EngineActionFold>, StoredRowError> {
@@ -294,7 +293,6 @@ function recoverStagedFolds(
         const verified = yield* verifyRecordCore({
           recordCore,
           membership: fold.conversation.membership,
-          registrySignerPublicKey: input.registrySignerPublicKey,
         });
         if (
           !stagedRecordMatches(staged, fold, recordCore, verified.recordHash)
@@ -360,7 +358,6 @@ function recoverCertifiedFold(
   return Effect.gen(function* () {
     const context = yield* certifiedFoldContext(input, stored);
     const record = yield* recordFromStore(
-      input.input.registrySignerPublicKey,
       context.conversation.membership,
       stored,
       context.routerAnchor,

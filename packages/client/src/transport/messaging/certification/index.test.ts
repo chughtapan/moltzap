@@ -976,7 +976,6 @@ function certifiedRecordPacket(
       return yield* Effect.dieMessage("no POST record is certified");
     }
     const record = yield* readStoredRecord(
-      harness.registrySignerPublicKey,
       harness.membership,
       recovery,
       stored,

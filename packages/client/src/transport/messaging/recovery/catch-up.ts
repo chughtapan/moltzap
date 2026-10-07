@@ -355,7 +355,6 @@ export function acceptCatchUpPage(
       page,
       membership: context.membership,
       responseSenderAgentId: ingress.message.senderAgentId,
-      registrySignerPublicKey: run.runtime.input.registrySignerPublicKey,
     });
     const key = requestKey(page.request);
     const successor = pageSuccessorHash(page);
@@ -535,7 +534,6 @@ function respondToCatchUp(
       .recover()
       .pipe(Effect.mapError(persistenceFailure));
     const successor = yield* decodeCatchUpSuccessor(
-      responder.runtime,
       membership,
       recovery,
       request,
@@ -657,7 +655,6 @@ function heldReanchorCandidates(
 }
 
 function decodeCatchUpSuccessor(
-  runtime: EngineRuntime,
   membership: VerifiedMembership,
   recovery: EndpointRecovery,
   request: CatchUpRequestValue,
@@ -671,7 +668,7 @@ function decodeCatchUpSuccessor(
     if (row === undefined) {
       return undefined;
     }
-    const item = yield* decodeSuccessorRow(runtime, membership, recovery, row);
+    const item = yield* decodeSuccessorRow(membership, recovery, row);
     const later = successorRows(recovery, nextRequest(request, item));
     if (later.length > 1) {
       return yield* Effect.fail(persistenceFailure());
@@ -681,18 +678,12 @@ function decodeCatchUpSuccessor(
 }
 
 function decodeSuccessorRow(
-  runtime: EngineRuntime,
   membership: VerifiedMembership,
   recovery: EndpointRecovery,
   row: CatchUpSuccessorRow,
 ) {
   if (row.kind === "record") {
-    return readStoredRecord(
-      runtime.input.registrySignerPublicKey,
-      membership,
-      recovery,
-      row.value,
-    );
+    return readStoredRecord(membership, recovery, row.value);
   }
   return decodeStoredAnchor(membership, row.value).pipe(
     Effect.flatMap((anchor) =>

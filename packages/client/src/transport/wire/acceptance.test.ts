@@ -11,7 +11,7 @@ import {
   type VerifiedAgentCard,
 } from "@moltzap/identity";
 import { RouterInstanceId } from "@moltzap/router";
-import { Effect, Either, Option, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
@@ -396,7 +396,7 @@ const voteReanchor = (fixture: ProtocolFixture, selected: RecordFixture) =>
 
 /**
  * Expect `effect` to fail as a representation error. A value that verifies
- * instead is reported as a short string: reporting the verified value itself,
+ * instead fails as a short string: reporting the verified value itself,
  * membership keys included, can hang the run.
  * @param effect Verification expected to fail.
  * @returns Completion once the failure is checked.
@@ -404,13 +404,9 @@ const voteReanchor = (fixture: ProtocolFixture, selected: RecordFixture) =>
 const expectRepresentationFailure = <Value>(
   effect: Effect.Effect<Value, ClientRepresentationError>,
 ) =>
-  Effect.either(effect).pipe(
-    Effect.map(
-      Either.match({
-        onLeft: (failure): unknown => failure,
-        onRight: () => "it verified",
-      }),
-    ),
+  effect.pipe(
+    Effect.as("it verified"),
+    Effect.flip,
     Effect.tap((failure) => {
       expect(failure).toBeInstanceOf(ClientRepresentationError);
       return Effect.void;
@@ -438,7 +434,6 @@ const verifiesThreshold = (memberCount: number, expectedThreshold: number) =>
       yield* verifyCertifiedRecord({
         record: accepted,
         membership: fixture.membership,
-        registrySignerPublicKey: fixture.registrySignerPublicKey,
       });
       const belowThreshold: CertifiedRecord = {
         ...accepted,
@@ -453,7 +448,6 @@ const verifiesThreshold = (memberCount: number, expectedThreshold: number) =>
         verifyCertifiedRecord({
           record: belowThreshold,
           membership: fixture.membership,
-          registrySignerPublicKey: fixture.registrySignerPublicKey,
         }),
       );
     }),
@@ -477,7 +471,6 @@ const enforcesGenesisAndPostEvidence = () =>
         verifyActionCertifiedRecord({
           record: nonUnanimousGenesis,
           membership: fixture.membership,
-          registrySignerPublicKey: fixture.registrySignerPublicKey,
         }),
       );
 
@@ -494,7 +487,6 @@ const enforcesGenesisAndPostEvidence = () =>
       yield* verifyActionCertifiedRecord({
         record: thresholdPost,
         membership: fixture.membership,
-        registrySignerPublicKey: fixture.registrySignerPublicKey,
       });
       const missingAuthor: ActionCertifiedRecord = {
         ...thresholdPost,
@@ -511,7 +503,6 @@ const enforcesGenesisAndPostEvidence = () =>
         verifyActionCertifiedRecord({
           record: missingAuthor,
           membership: fixture.membership,
-          registrySignerPublicKey: fixture.registrySignerPublicKey,
         }),
       );
 
@@ -530,7 +521,6 @@ const enforcesGenesisAndPostEvidence = () =>
         verifyCertifiedRecord({
           record: wrongEvidenceKind,
           membership: fixture.membership,
-          registrySignerPublicKey: fixture.registrySignerPublicKey,
         }),
       );
     }),
@@ -538,15 +528,14 @@ const enforcesGenesisAndPostEvidence = () =>
 
 /**
  * A POST record names its membership only by `MembershipHash`, so it verifies
- * against the membership an endpoint holds from the conversation's GENESIS,
- * and neither without one nor against another conversation's membership. A
- * GENESIS record carries its descriptor and verifies with no held membership,
- * but not against a different held one. Fails when POST verification accepts
- * a hash it cannot resolve to the held membership, or a POST core that names
- * another membership than the one its action and the endpoint hold.
+ * against the membership an endpoint holds from the conversation's GENESIS and
+ * not against another conversation's membership. A GENESIS record verifies
+ * only against the descriptor it carries. Fails when a record verifies against
+ * a membership it does not name, or when a POST core names another membership
+ * than the one its action and the endpoint hold.
  * @returns Completion after every case is checked.
  */
-const resolvesPostMembershipFromTheHeldGenesis = () =>
+const verifiesRecordsAgainstTheHeldMembership = () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fixture = yield* makeProtocolFixture(4);
@@ -557,28 +546,26 @@ const resolvesPostMembershipFromTheHeldGenesis = () =>
       const post = yield* buildPost(fixture, genesis, [
         { type: "text", text: "ordinary post" },
       ]);
-      const verify = (
-        record: CertifiedRecord,
-        membership?: VerifiedMembership,
-      ) =>
-        verifyCertifiedRecord({
-          record,
-          membership,
-          registrySignerPublicKey: fixture.registrySignerPublicKey,
-        });
 
-      expect((yield* verify(genesis.certifiedRecord)).hash).toBe(
-        fixture.membership.hash,
-      );
-      expect(
-        (yield* verify(post.certifiedRecord, fixture.membership)).hash,
-      ).toBe(fixture.membership.hash);
-      yield* expectRepresentationFailure(verify(post.certifiedRecord));
+      yield* verifyCertifiedRecord({
+        record: genesis.certifiedRecord,
+        membership: fixture.membership,
+      });
+      yield* verifyCertifiedRecord({
+        record: post.certifiedRecord,
+        membership: fixture.membership,
+      });
       yield* expectRepresentationFailure(
-        verify(post.certifiedRecord, other.membership),
+        verifyCertifiedRecord({
+          record: genesis.certifiedRecord,
+          membership: other.membership,
+        }),
       );
       yield* expectRepresentationFailure(
-        verify(genesis.certifiedRecord, other.membership),
+        verifyCertifiedRecord({
+          record: post.certifiedRecord,
+          membership: other.membership,
+        }),
       );
 
       const postCore = post.actionCertifiedRecord.recordCore;
@@ -597,7 +584,6 @@ const resolvesPostMembershipFromTheHeldGenesis = () =>
             recordHash: yield* hashRecord(renamedCore),
           },
           membership: fixture.membership,
-          registrySignerPublicKey: fixture.registrySignerPublicKey,
         }),
       );
     }),
@@ -695,14 +681,12 @@ const verifiesReanchorCatchUpBindings = () =>
         page,
         membership: fixture.membership,
         responseSenderAgentId: responder.card.agentId,
-        registrySignerPublicKey: fixture.registrySignerPublicKey,
       });
       yield* expectRepresentationFailure(
         verifyCatchUpPage({
           page,
           membership: fixture.membership,
           responseSenderAgentId: at(fixture.identities, 1).card.agentId,
-          registrySignerPublicKey: fixture.registrySignerPublicKey,
         }),
       );
     }),
@@ -770,7 +754,6 @@ const catchesUpGenesisFirst = () =>
           page: candidate,
           membership: fixture.membership,
           responseSenderAgentId: responder.card.agentId,
-          registrySignerPublicKey: fixture.registrySignerPublicKey,
         });
       const empty = request({ knownRecordHash: null, knownAnchorHash: null });
       const atGenesis = request({
@@ -851,7 +834,6 @@ const provesMaximumArtifactFitsIdentity = () =>
         page,
         membership: fixture.membership,
         responseSenderAgentId: responder.card.agentId,
-        registrySignerPublicKey: fixture.registrySignerPublicKey,
       });
       const pagePlaintext = yield* encodeCanonical(DirectPacket, page);
       const outer = yield* signOuterPacket({
@@ -924,8 +906,8 @@ describe("Client protocol acceptance", () => {
     enforcesGenesisAndPostEvidence,
   );
   it(
-    "verifies a POST record only against the membership held from its GENESIS",
-    resolvesPostMembershipFromTheHeldGenesis,
+    "verifies a record only against the membership it names, held from GENESIS",
+    verifiesRecordsAgainstTheHeldMembership,
   );
   it(
     "requires the proposal envelope sender to be the post author",

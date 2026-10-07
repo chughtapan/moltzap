@@ -5319,7 +5319,6 @@ const answersCatchUpRequestWithItsFirstCertifiedRecord = () =>
             page,
             membership: fixture.membership,
             responseSenderAgentId: fixture.local.card.agentId,
-            registrySignerPublicKey: fixture.registrySignerPublicKey,
           }),
         );
 
@@ -5729,7 +5728,6 @@ const answersCatchUpThroughAStoredCompletedReanchor = () =>
                 page,
                 membership: fixture.membership,
                 responseSenderAgentId: fixture.local.card.agentId,
-                registrySignerPublicKey: fixture.registrySignerPublicKey,
               }),
             ),
           { concurrency: 1 },

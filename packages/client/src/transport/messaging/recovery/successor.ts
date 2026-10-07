@@ -120,7 +120,7 @@ export function acceptSuccessorRecord(
   return holdTowardConversion(
     run,
     membership,
-    verifyHeldRecord(run, membership, ingress, record),
+    verifyHeldRecord(membership, ingress, record),
     () => {
       pending.record = { recordHash: record.recordHash, ingress };
     },
@@ -239,7 +239,6 @@ function holdTowardConversion(
 }
 
 function verifyHeldRecord(
-  run: SuccessorRun,
   membership: VerifiedMembership,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   record: ActionCertifiedRecord,
@@ -249,7 +248,6 @@ function verifyHeldRecord(
       verifyActionCertifiedRecord({
         record,
         membership,
-        registrySignerPublicKey: run.runtime.input.registrySignerPublicKey,
       }),
     ),
     Effect.as(true),
