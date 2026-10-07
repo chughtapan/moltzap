@@ -1463,7 +1463,6 @@ const stageAttachedDissemination = (fixture: RecoveryFixture) =>
       {
         conversationId: record.conversationId,
         recordHash: record.recordHash,
-        kind: "action-certified-record",
       },
       {
         conversationId: record.conversationId,

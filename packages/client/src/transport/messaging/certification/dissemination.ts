@@ -6,18 +6,13 @@ import type { EngineActionFold, EngineRuntime } from "../runtime/index.js";
 import { RouterWorkerPersistenceError } from "../../router/index.js";
 import {
   type ActionCertifiedRecord,
-  ConversationId,
+  type ConversationId,
   RecordHash,
 } from "../../wire/index.js";
 import {
   makeActionCertifiedRecord,
   recordAnchorHash,
 } from "../history/index.js";
-
-interface VerifiedDisseminationObligation {
-  readonly fold: EngineActionFold;
-  readonly recordHash: typeof RecordHash.Type;
-}
 
 /**
  * Attach every durable certification obligation that lacks an outer envelope.
@@ -53,11 +48,11 @@ function attachObligation(
   obligation: DisseminationObligation,
 ): Effect.Effect<void, RouterWorkerPersistenceError> {
   return Effect.gen(function* () {
-    const { fold, recordHash } = yield* obligationFold(runtime, obligation);
-    const packet = yield* packetForObligation(fold, recordHash);
+    const fold = yield* obligationFold(runtime, obligation);
+    const packet = yield* packetForObligation(fold);
     yield* Effect.uninterruptible(
       runtime.outbox
-        .queueCertifiedPacket(fold.conversation, packet)
+        .queueActionCertifiedRecord(fold.conversation, packet)
         .pipe(Effect.mapError(persistenceFailure)),
     );
   });
@@ -66,24 +61,14 @@ function attachObligation(
 function obligationFold(
   runtime: EngineRuntime,
   obligation: DisseminationObligation,
-): Effect.Effect<
-  VerifiedDisseminationObligation,
-  RouterWorkerPersistenceError
-> {
-  return Effect.all({
-    conversationId: Schema.decodeUnknown(ConversationId)(
-      obligation.conversationId,
-    ).pipe(Effect.mapError(persistenceFailure)),
-    recordHash: Schema.decodeUnknown(RecordHash)(obligation.recordHash).pipe(
-      Effect.mapError(persistenceFailure),
-    ),
-  }).pipe(
-    Effect.flatMap(({ conversationId, recordHash }) => {
+): Effect.Effect<EngineActionFold, RouterWorkerPersistenceError> {
+  return Schema.decodeUnknown(RecordHash)(obligation.recordHash).pipe(
+    Effect.mapError(persistenceFailure),
+    Effect.flatMap((recordHash) => {
       const fold = runtime.recordFolds.get(recordHash);
-      return fold !== undefined &&
-        fold.conversation.conversationId === conversationId &&
+      return fold?.conversation.conversationId === obligation.conversationId &&
         fold.recordHash === recordHash
-        ? Effect.succeed({ fold, recordHash })
+        ? Effect.succeed(fold)
         : Effect.fail(persistenceFailure());
     }),
   );
@@ -91,17 +76,12 @@ function obligationFold(
 
 function packetForObligation(
   fold: EngineActionFold,
-  recordHash: typeof RecordHash.Type,
 ): Effect.Effect<ActionCertifiedRecord, RouterWorkerPersistenceError> {
   return recordAnchorHash(fold).pipe(
+    Effect.flatMap((anchorHash) => makeActionCertifiedRecord(fold, anchorHash)),
     Effect.mapError(persistenceFailure),
-    Effect.flatMap((anchorHash) =>
-      makeActionCertifiedRecord(fold, anchorHash).pipe(
-        Effect.mapError(persistenceFailure),
-      ),
-    ),
     Effect.filterOrFail(
-      (record) => record.recordHash === recordHash,
+      (record) => record.recordHash === fold.recordHash,
       persistenceFailure,
     ),
   );

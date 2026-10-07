@@ -183,8 +183,11 @@ export interface EngineOutbox {
     conversation: EngineConversation,
     evidence: SignedMessage,
   ) => Effect.Effect<void, EngineOutboxError>;
-  /** Attach the signed packet to its durable dissemination obligation. */
-  readonly queueCertifiedPacket: (
+  /**
+   * Send an action-certified record and attach its envelope to the durable
+   * obligation staged with it, so a restart resends it only when unattached.
+   */
+  readonly queueActionCertifiedRecord: (
     conversation: EngineConversation,
     packet: ActionCertifiedRecord,
   ) => Effect.Effect<void, EngineOutboxError>;

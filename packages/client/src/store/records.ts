@@ -88,14 +88,7 @@ export function stageRecordForDissemination(
   validateStagedRecord(record);
   return transaction(database, () => {
     const staged = stageRecordInTransaction(database, record, "vote");
-    const obligation = retainDisseminationInTransaction(
-      database,
-      Object.freeze({
-        conversationId: record.conversationId,
-        recordHash: record.recordHash,
-        kind: "action-certified-record",
-      }),
-    );
+    const obligation = retainDisseminationInTransaction(database, record);
     return staged === "inserted" || obligation === "inserted"
       ? "inserted"
       : "existing";

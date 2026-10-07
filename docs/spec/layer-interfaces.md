@@ -293,7 +293,8 @@ closed typed unions.
 5. Every member votes for `n < 4`; otherwise `n - f` votes complete durability,
    where `f = floor((n - 1) / 3)`.
 6. Any member may assemble completed evidence. Each member sends the action
-   certificate it assembles once and sends no certified record.
+   certificate it assembles once and certifies the record from the durability
+   votes it receives; certified records travel in catch-up pages.
 7. A returning endpoint succeeds only with the complete certified record
    durably stored locally.
 

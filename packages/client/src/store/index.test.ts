@@ -497,10 +497,10 @@ function retainsRecordDisseminationAcrossCrashWindows() {
     directory,
     conversationId,
     record,
-    actionObligation: disseminationObligation(
-      "action-certified-record",
-      record,
-    ),
+    actionObligation: {
+      conversationId: record.conversationId,
+      recordHash: record.recordHash,
+    },
     actionEnvelope: outboundMessage(
       conversationId,
       "msg_action_certified",
@@ -985,17 +985,6 @@ function outboundMessage(
     conversationId,
     messageId,
     canonicalSignedMessage: bytes(canonical),
-  };
-}
-
-function disseminationObligation(
-  kind: DisseminationObligation["kind"],
-  record: StagedRecord,
-): DisseminationObligation {
-  return {
-    conversationId: record.conversationId,
-    recordHash: record.recordHash,
-    kind,
   };
 }
 

@@ -970,10 +970,10 @@ function certifiedRecordPacket(
 /**
  * Member 2 misses member 1's proposal at the genesis head and locks its own
  * there, while members 1, 3 and 4 lock, sign and vote for member 1's. Member
- * 2 also misses that post's action-certified copies, so the first copy of the
- * post to reach it is member 1's CertifiedRecord, as a catch-up answer carries
- * it. Member 2 accepts it over its own lock, and its own post is then proposed
- * again from the new head and certifies.
+ * 2 also misses that post's action-certified copies, so the post first reaches
+ * it as member 1's whole CertifiedRecord in a direct packet, which members
+ * accept although none sends one. Member 2 accepts it over its own lock, and
+ * its own post is then proposed again from the new head and certifies.
  * @returns Completion once member 2 holds both posts.
  */
 function adoptsACertifiedRecordOverItsOwnLock() {
@@ -1368,11 +1368,6 @@ function catchesUpThroughActionCertifiedCopies() {
           1,
           "endpoint engine",
         );
-        const returningStore = yield* requireAt(
-          harness.stores,
-          1,
-          "endpoint store",
-        );
         const present = [0, 2, 3];
         const sending = yield* Effect.fork(
           author.send(yield* sendInput(harness, "missed post")),
@@ -1395,8 +1390,7 @@ function catchesUpThroughActionCertifiedCopies() {
           [{ type: "text", text: "open group" }],
           [{ type: "text", text: "missed post" }],
         ]);
-        const recovered = yield* returningStore.recover().pipe(Effect.orDie);
-        expect(recovered.certifiedRecords).toHaveLength(2);
+        expect(yield* certifiedRecordCounts(harness)).toEqual([2, 2, 2, 2]);
       }),
     ),
   );

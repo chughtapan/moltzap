@@ -180,14 +180,13 @@ export interface StoredOutboundMessage extends OutboundMessageInput {
   readonly outboundId: string;
 }
 
-/** Closed packet family whose durable state requires later dissemination. */
-export type DisseminationKind = "action-certified-record";
-
-/** Durable logical packet that has not yet been attached to an outbox row. */
+/**
+ * A staged action-certified record this endpoint still owes its members,
+ * until its outer envelope is attached to an outbox row.
+ */
 export interface DisseminationObligation {
   readonly conversationId: string;
   readonly recordHash: string;
-  readonly kind: DisseminationKind;
 }
 
 /** Durable disposition chosen immediately before one Router attempt. */
