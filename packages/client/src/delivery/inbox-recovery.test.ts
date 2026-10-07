@@ -1,24 +1,20 @@
-/** @file Schema upgrade preserves protocol state without reopening answered requests. */
+/** @file A pending collective request delivery stays answerable across a restart of a current store. */
 
 import { Effect, Encoding, Option, Schema, Scope } from "effect";
 import { expect, it } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
 import {
   bytes,
-  downgradeToSchemaV2,
   stateDirectory,
+  storedConversation,
 } from "../__tests__/store-schema-fixtures.js";
 import {
-  type CertifiedRecord,
   decodeRuntimeValue,
-  type EndpointRecovery,
   type EndpointStore,
   openEndpointStore,
 } from "../store/index.js";
-import {
-  collectiveIdOf,
-  makeCollectiveOperations,
-} from "../transport/collectives/index.js";
+import { makeCollectiveOperations } from "../transport/collectives/index.js";
+import { collectiveIdOf } from "../transport/collectives/part/index.js";
 import { InboundMessage } from "../transport/messaging/message.js";
 import { PostId, RecordHash } from "../transport/wire/index.js";
 import { AgentAddress } from "../transport/wire/values.js";
@@ -28,40 +24,8 @@ const self = Schema.decodeUnknownSync(AgentAddress)("agent:alice");
 const sender = Schema.decodeUnknownSync(AgentAddress)("agent:bob");
 const nonce = Encoding.encodeBase64Url(new Uint8Array(32).fill(8));
 const id = collectiveIdOf(sender, nonce);
-const recordHash = Schema.decodeUnknownSync(RecordHash)(digest("rch_", 3));
-const foundation = {
-  conversationId: "conversation:legacy-request",
-  membershipHash: "mbr_legacy",
-  canonicalMembership: bytes("members"),
-  anchorHash: "anc_legacy",
-  canonicalAnchor: bytes("anchor"),
-};
-const record: CertifiedRecord = {
-  ...foundation,
-  recordHash,
-  actionHash: "ach_legacy",
-  authorAgentId: "agent:bob",
-  postId: digest("pst_", 1),
-  canonicalRecordCore: bytes("record"),
-  actionEvidence: [
-    {
-      conversationId: foundation.conversationId,
-      kind: "action",
-      subjectId: "ach_legacy",
-      evidenceKey: "agent:bob",
-      canonicalEvidence: bytes("action"),
-    },
-  ],
-  durabilityEvidence: [
-    {
-      conversationId: foundation.conversationId,
-      kind: "durability",
-      subjectId: recordHash,
-      evidenceKey: "agent:bob",
-      canonicalEvidence: bytes("durability"),
-    },
-  ],
-};
+const { foundation, record } = storedConversation("pending-request");
+const recordHash = Schema.decodeUnknownSync(RecordHash)(record.recordHash);
 const message = () =>
   Schema.decodeUnknownSync(InboundMessage)({
     kind: "direct",
@@ -112,8 +76,8 @@ const makeCollectives = (counter: { count: number }, scope: Scope.Scope) =>
     scope,
   });
 /**
- * Give the store alice's identity, a lock, an outbox entry and Bob's gather
- * request as a certified record whose delivery is still pending.
+ * Give the store alice's identity and Bob's gather request as a certified
+ * record whose delivery is still pending.
  */
 const seedRequest = (store: EndpointStore, request: InboundMessage) =>
   Effect.gen(function* () {
@@ -122,19 +86,9 @@ const seedRequest = (store: EndpointStore, request: InboundMessage) =>
       canonicalAgentCard: bytes("identity"),
     });
     yield* store.putConversationFoundation(foundation);
-    yield* store.lockProposal({
-      conversationId: foundation.conversationId,
-      actionHash: record.actionHash,
-      canonicalActionCore: bytes("action-core"),
-    });
     yield* store.applyCatchUpRecord(record, {
       recipientAgentId: "agent:alice",
       canonicalMessage: bytes(JSON.stringify(request)),
-    });
-    yield* store.enqueueOutbound({
-      conversationId: foundation.conversationId,
-      messageId: "msg_legacy",
-      canonicalSignedMessage: bytes("outbound"),
     });
   });
 
@@ -147,69 +101,6 @@ const storeRequest = (path: string) =>
       return yield* store.recover();
     }),
   );
-
-/** Store Bob's request, answer it through a collective layer, and return what the store recovers. */
-const storeAnsweredRequest = (path: string, counter: { count: number }) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const store = yield* openEndpointStore(path);
-      const request = message();
-      yield* seedRequest(store, request);
-      const original = makeCollectives(counter, yield* Scope.Scope);
-      yield* original.classify({ message: request, recordHash });
-      yield* original.send(response, "result");
-      return yield* store.recover();
-    }),
-  );
-const checkRecoveredRequest = (
-  path: string,
-  counter: { count: number },
-  before: EndpointRecovery,
-) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const store = yield* openEndpointStore(path);
-      expect(yield* store.recover()).toEqual(before);
-      yield* recoverRuntimeInbox(store);
-      expect(yield* store.readPendingDeliveries()).toEqual([]);
-      const inbox = yield* readRuntimeInbox(store, {});
-      expect(inbox.items.map((entry) => entry.item)).toMatchObject([
-        { kind: "operationFailed", id, to: sender },
-      ]);
-      expect(inbox.items[0]?.deliveryToken).not.toBe(
-        before.pendingDeliveries[0]?.deliveryToken,
-      );
-      const restarted = makeCollectives(counter, yield* Scope.Scope);
-      const rejected = yield* restarted
-        .send(response, "result")
-        .pipe(Effect.flip);
-      expect(rejected).toMatchObject({
-        _tag: "CollectiveError",
-        failure: { kind: "request-none" },
-      });
-      expect(counter.count).toBe(1);
-      yield* recoverRuntimeInbox(store);
-      expect(yield* readRuntimeInbox(store, {})).toEqual(inbox);
-    }),
-  );
-const preservesProtocolStateAndRetiresLegacyRequest = () => {
-  const path = stateDirectory();
-  const counter = { count: 0 };
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      const before = yield* storeAnsweredRequest(path, counter);
-      yield* downgradeToSchemaV2(path);
-      yield* Effect.scoped(openEndpointStore(path));
-      yield* checkRecoveredRequest(path, counter, before);
-    }),
-  );
-};
-
-// @agent-code-guard/regression-only: the real schema 2 replay previously reopened an already answered request; sendPost is the only protocol side effect replaced by this fixture.
-it(
-  "preserves locks, records and outbox on upgrade while retiring an answered legacy request",
-  preservesProtocolStateAndRetiresLegacyRequest,
-);
 
 const preservesUnprojectedRequest = () => {
   const path = stateDirectory();

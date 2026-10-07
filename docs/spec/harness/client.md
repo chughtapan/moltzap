@@ -299,8 +299,9 @@ after its question, where `id` is `col_` followed by the base64url SHA-256 of
 `xyz.moltzap/collective-id`, a NUL, the requester's `agent:` address, a NUL
 and `nonce`; a response carries `{"kind": "response", "id", "action",
 "content"?}` alone, and an all_gather close carries
-`{"kind": "close", "id", "included"}` alone. The Router sees only the envelope; only endpoints read
-the part. The text and the operation part together must fit the 32,768-byte
+`{"kind": "close", "id", "included"}` alone. The envelope travels sealed to
+the members, so only endpoints read the part; the Router sees the outer
+message's addressing, sizes, and ciphertext. The text and the operation part together must fit the 32,768-byte
 content limit; a send whose content does not fit fails with
 `content-invalid`.
 

@@ -74,7 +74,7 @@ The Registry subpath exports these type-only capability results:
 - `RegistryListResult`.
 
 The remaining root exports are `MOLTZAP_VERSION` (exactly
-`2026.827.1`), `AgentSigningAuthority`, `SealedBody`,
+`2026.1006.1`), `AgentSigningAuthority`, `SealedBody`,
 `AuthenticatedHttp`, and the shared exact error classes in
 [Error contract](#error-contract).
 The Registry subpath also exports `Registry` and its exact client error
@@ -313,7 +313,7 @@ nominal trust brand. Only `SignedMessage.sign` and
 `SignedMessage.verify` construct it; there is no public constructor or
 standalone decoder.
 
-The complete General JWS has a fixed maximum of 471,671 UTF-8 JCS
+The complete General JWS has a fixed maximum of 471,673 UTF-8 JCS
 bytes under the recipient and body bounds. Identity owns that
 calculation and exposes only
 `SignedMessage.maximumEncodedByteLength` and the total
@@ -370,7 +370,7 @@ key must equal the verified AgentCard key.
 
 `encodedByteLength` is total for a parsed exact SignedMessage and
 returns the UTF-8 JCS byte length of its complete General JWS.
-`maximumEncodedByteLength` is exactly 471,671.
+`maximumEncodedByteLength` is exactly 471,673.
 
 ## Sealed bodies
 
@@ -378,7 +378,9 @@ returns the UTF-8 JCS byte length of its complete General JWS.
 and opens a verified sealed body. The order is encrypt-then-sign: the
 sender seals the plaintext, then signs the sealed bytes as an ordinary
 SignedMessage body. `SignedMessage.sign` never seals. The caller decides
-which bodies to seal.
+which bodies to seal; Client seals the body of every outer conversation
+message, as [`conversation-history.md`](./conversation-history.md)
+specifies.
 
 ```ts
 SealedBody.seal(input: {
@@ -991,8 +993,8 @@ claimed nonce.
 
 Tolerance of a malicious or equivocating Registry; key rotation,
 revocation, recovery, delegation evidence, peer card custody, encrypted
-keys, OS keychains, HSMs, external signers, and mandatory end-to-end
-body encryption. Application-owned TLS, certificate, and trusted-proxy
+keys, OS keychains, HSMs, and external signers. Application-owned TLS,
+certificate, and trusted-proxy
 policy are also outside the application contract.
 
 ## Decision evidence

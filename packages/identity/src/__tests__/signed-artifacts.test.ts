@@ -1,6 +1,13 @@
 /** @file AgentCard and SignedMessage immutability, representation, bounds, and signature tests. */
 
-import { Effect, Either, Encoding, Redacted, Schema } from "effect";
+import {
+  Effect,
+  Either,
+  Encoding,
+  ParseResult,
+  Redacted,
+  Schema,
+} from "effect";
 import * as fc from "fast-check";
 import { generateKeyPairSync } from "node:crypto";
 import { expect, it } from "vitest";
@@ -32,7 +39,7 @@ import {
 
 const MAXIMUM_BODY_BYTES = 262_144;
 const MAXIMUM_RECIPIENTS = 128;
-const EXPECTED_MAXIMUM_MESSAGE_BYTES = 471_671;
+const EXPECTED_MAXIMUM_MESSAGE_BYTES = 471_673;
 
 /*
  * This mixed-order key and odd-challenge signature satisfy only the
@@ -43,8 +50,8 @@ const MIXED_ORDER_PUBLIC_KEY_X = "lZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZk";
 const MIXED_ORDER_KEY_ID =
   "urn:ietf:params:oauth:jwk-thumbprint:sha-256:7jTI1Cc6_T4lcL3Vui-LXIjwjxL7Yw9lwXS3UE9hnb4";
 const MIXED_ORDER_CARD_DIGEST =
-  "acd_tYNDdFERbHa5gVAXiCxpRcDENoT49FbUtDqyn0uuizM";
-const COFACTORED_ONLY_BODY_TEXT = "cofactored-canary-1";
+  "acd_3sspaWrS1VzA3RBkg-ezXZExJRG-8UXi-IYu1P7CcOs";
+const COFACTORED_ONLY_BODY_TEXT = "cofactored-canary-2";
 
 const strictRegistryPublicKey = {
   crv: "Ed25519",
@@ -53,6 +60,23 @@ const strictRegistryPublicKey = {
 };
 
 const mixedOrderAgentCard = {
+  payload:
+    "eyJhZ2VudElkIjoiYWd0Xy12cjYtdnI2LXZyNi12cjYtdnI2LWciLCJhZ2VudE5hbWUiOiJtaXhlZC1vcmRlci1zZW5kZXIiLCJpc3N1ZWRBdCI6IjIwMjYtMDctMzBUMTI6MDA6MDBaIiwia2luZCI6ImFnZW50Q2FyZCIsIm1vbHR6YXBWZXJzaW9uIjoiMjAyNi4xMDA2LjEiLCJwcmluY2lwYWxJZCI6InBybl8tZm41LWZuNS1mbjUtZm41LWZuNS1RIiwicHVibGljS2V5Ijp7ImNydiI6IkVkMjU1MTkiLCJrdHkiOiJPS1AiLCJ4IjoibFptWm1abVptWm1abVptWm1abVptWm1abVptWm1abVptWm1abVptWm1aayJ9fQ",
+  signatures: [
+    {
+      protected:
+        "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6a1ByS19xbXhWV2FZVkE5d3dCRjZJdW8zdlZ6ejdUeEhDVHdYQnlnclM0ayIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5tb2x0emFwLmFnZW50LWNhcmQrandzIn0",
+      signature:
+        "JLdCF4hX3xl5eH84PHhpbBICIlys6ysnxmTJYk8jK0BAbMwR7jrh23Gd0BrHx6u4fr8J9VChCgVY4mVlTWfqCg",
+    },
+  ],
+};
+
+/**
+ * The mixed-order card as the same Registry key signed it under the prior
+ * MoltZap version, 2026.827.1, before every outer body was sealed.
+ */
+const priorVersionAgentCard = {
   payload:
     "eyJhZ2VudElkIjoiYWd0Xy12cjYtdnI2LXZyNi12cjYtdnI2LWciLCJhZ2VudE5hbWUiOiJtaXhlZC1vcmRlci1zZW5kZXIiLCJpc3N1ZWRBdCI6IjIwMjYtMDctMzBUMTI6MDA6MDBaIiwia2luZCI6ImFnZW50Q2FyZCIsIm1vbHR6YXBWZXJzaW9uIjoiMjAyNi44MjcuMSIsInByaW5jaXBhbElkIjoicHJuXy1mbjUtZm41LWZuNS1mbjUtZm41LVEiLCJwdWJsaWNLZXkiOnsiY3J2IjoiRWQyNTUxOSIsImt0eSI6Ik9LUCIsIngiOiJsWm1abVptWm1abVptWm1abVptWm1abVptWm1abVptWm1abVptWm1abVprIn19",
   signatures: [
@@ -67,13 +91,13 @@ const mixedOrderAgentCard = {
 
 const cofactoredOnlySignedMessage = {
   payload:
-    "eyJhZ2VudENhcmREaWdlc3QiOiJhY2RfdFlORGRGRVJiSGE1Z1ZBWGlDeHBSY0RFTm9UNDlGYlV0RHF5bjB1dWl6TSIsImJvZHkiOiJZMjltWVdOMGIzSmxaQzFqWVc1aGNua3RNUSIsImtpbmQiOiJzaWduZWRNZXNzYWdlIiwibWVzc2FnZUlkIjoibXNnX0FRRUJBUUVCQVFFQkFRRUJBUUVCQVEiLCJtb2x0emFwVmVyc2lvbiI6IjIwMjYuODI3LjEiLCJyZWNpcGllbnRBZ2VudElkcyI6WyJhZ3RfQUFBQUFBQUFBQUFBQUFBQUFBQUFBQSJdLCJzZW5kZXJBZ2VudElkIjoiYWd0Xy12cjYtdnI2LXZyNi12cjYtdnI2LWcifQ",
+    "eyJhZ2VudENhcmREaWdlc3QiOiJhY2RfM3NzcGFXclMxVnpBM1JCa2ctZXpYWkV4SlJHLThVWGktSVl1MVA3Q2NPcyIsImJvZHkiOiJZMjltWVdOMGIzSmxaQzFqWVc1aGNua3RNZyIsImtpbmQiOiJzaWduZWRNZXNzYWdlIiwibWVzc2FnZUlkIjoibXNnX0FRRUJBUUVCQVFFQkFRRUJBUUVCQVEiLCJtb2x0emFwVmVyc2lvbiI6IjIwMjYuMTAwNi4xIiwicmVjaXBpZW50QWdlbnRJZHMiOlsiYWd0X0FBQUFBQUFBQUFBQUFBQUFBQUFBQUEiXSwic2VuZGVyQWdlbnRJZCI6ImFndF8tdnI2LXZyNi12cjYtdnI2LXZyNi1nIn0",
   signatures: [
     {
       protected:
         "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoidXJuOmlldGY6cGFyYW1zOm9hdXRoOmp3ay10aHVtYnByaW50OnNoYS0yNTY6N2pUSTFDYzZfVDRsY0wzVnVpLUxYSWp3anhMN1l3OWx3WFMzVUU5aG5iNCIsInR5cCI6ImFwcGxpY2F0aW9uL3ZuZC5tb2x0emFwLnNpZ25lZC1tZXNzYWdlK2p3cyJ9",
       signature:
-        "WGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmasBPIGvCccWmhvPvevRg9sjZO3RWp3BwYAmJjpFfnDCA",
+        "WGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZ4Wb3a-LFZTlcVrAELPuHXZNOPFYtgVXe9FopgyLSHAg",
     },
   ],
 };
@@ -589,6 +613,17 @@ it("rejects a signature accepted only by cofactored Ed25519 verification", () =>
         agentCard,
       }).pipe(Effect.either);
       expect(wasRejected(result)).toBe(true);
+    }),
+  ));
+
+it("refuses an AgentCard the Registry signed under the prior MoltZap version", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const refusal = yield* Schema.decodeUnknown(AgentCard)(
+        priorVersionAgentCard,
+      ).pipe(Effect.flip);
+
+      expect(refusal).toBeInstanceOf(ParseResult.ParseError);
     }),
   ));
 

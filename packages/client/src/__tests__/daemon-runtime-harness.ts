@@ -231,7 +231,6 @@ export function makeStore(
     completeWebhookDelivery: () => Effect.void,
     ...makeInboxStore(onAcknowledge),
     readPendingDeliveries: () => Effect.succeed([]),
-    readLegacyPendingDeliveries: () => Effect.succeed([]),
     readIdentity: () => Effect.succeed(identity),
     bindIdentity: (candidate) =>
       Effect.suspend(() => {

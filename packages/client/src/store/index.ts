@@ -1,9 +1,13 @@
 /** @file Private typed facade for one daemon-owned endpoint store. */
 
 /** Closed error value and scoped store acquisition. */
-export { EndpointStoreError, openEndpointStore } from "./store.js";
-/** Closed non-diagnostic persistence failure categories. */
-export type { EndpointStoreFailure } from "./database/index.js";
+export {
+  EndpointStoreError,
+  inspectEndpointStore,
+  openEndpointStore,
+} from "./store.js";
+/** Closed non-diagnostic persistence failure categories, and how a store opens. */
+export type { EndpointStoreFailure, StoreOpening } from "./database/index.js";
 /** Canonical private DTOs and the EndpointStore capability. */
 export type {
   CertifiedRecord,

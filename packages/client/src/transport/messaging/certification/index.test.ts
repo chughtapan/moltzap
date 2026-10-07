@@ -30,7 +30,7 @@ import {
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { AddressRegistryPort } from "../address.js";
-import { advanceClock } from "../../../__tests__/advance-clock.js";
+import { advanceClock, untilLive } from "../../../__tests__/advance-clock.js";
 import {
   digest,
   identifier,
@@ -39,6 +39,7 @@ import {
   type RegistryKeyPair,
 } from "../../../__tests__/agent-card-fixtures.js";
 import { forwardStoredOutbound } from "../../../__tests__/forward-stored-outbound.js";
+import { openOuterBody } from "../../../__tests__/outer-body-fixtures.js";
 import { pollCursor as fixturePollCursor } from "../../../__tests__/router-worker-fixtures.js";
 import {
   type EndpointStore,
@@ -61,8 +62,10 @@ import {
   ConversationId,
   type ConversationId as ConversationIdValue,
   decodeCanonical,
+  type DecodedOuterBody,
   decodeOuterBody,
   deriveConversationId,
+  DirectPacket,
   encodeCanonical,
   EvidenceStatement,
   hashAction,
@@ -127,9 +130,10 @@ const unrelatedConversationId = Schema.decodeUnknownSync(ConversationId)(
 const unrelatedMembershipHash = Schema.decodeUnknownSync(MembershipHash)(
   digest("mbr_", 36),
 );
-const endpointIndexes = Object.freeze([0, 1, 2, 3]);
-
-function makeIdentities(registryKeys: RegistryKeyPair) {
+function makeIdentities(
+  registryKeys: RegistryKeyPair,
+  endpointIndexes: readonly number[],
+) {
   return Effect.forEach(
     endpointIndexes,
     (index) =>
@@ -213,28 +217,27 @@ function requireAt<Value>(
     : Effect.succeed(value);
 }
 
+/** The ingress one receiving member's Router worker hands its engine. */
 function decodeIngress(
   identities: readonly ProtocolIdentity[],
   message: typeof SignedMessage.Type,
-): Effect.Effect<
-  RouterWorkerIngress<Effect.Effect.Success<ReturnType<typeof decodeOuterBody>>>
-> {
+  reader: ProtocolIdentity,
+): Effect.Effect<RouterWorkerIngress<DecodedOuterBody>> {
   return Effect.gen(function* () {
-    const identity = identities.find(
-      ({ card }) => card.agentId === message.senderAgentId,
-    );
-    if (identity === undefined) {
-      return yield* Effect.dieMessage("unknown protocol sender");
-    }
-    const verifiedMessage = yield* SignedMessage.verify({
+    const sender = yield* senderOf(identities, message);
+    const verified = yield* SignedMessage.verify({
       signedMessage: message,
-      agentCard: identity.card,
+      agentCard: sender.card,
     });
     return {
       routerInstanceId,
-      message: verifiedMessage,
-      senderCard: identity.card,
-      payload: yield* decodeOuterBody(message.body),
+      message: verified,
+      senderCard: sender.card,
+      payload: yield* decodeOuterBody({
+        message: verified,
+        agentCard: reader.card,
+        signingAuthority: reader.authority,
+      }),
     };
   }).pipe(Effect.orDie);
 }
@@ -286,15 +289,23 @@ function scriptedRouterWorker(
 }
 
 function deliverIngress(
+  identities: readonly ProtocolIdentity[],
   engines: readonly EndpointEngine[],
   selectedIndexes: readonly number[],
-  ingress: Effect.Effect.Success<ReturnType<typeof decodeIngress>>,
+  message: typeof SignedMessage.Type,
 ) {
   return Effect.forEach(
     selectedIndexes,
     (index) =>
-      requireAt(engines, index, "endpoint engine").pipe(
-        Effect.flatMap((engine) => engine.acceptRouterIngress(ingress)),
+      Effect.all([
+        requireAt(identities, index, "identity"),
+        requireAt(engines, index, "endpoint engine"),
+      ]).pipe(
+        Effect.flatMap(([reader, engine]) =>
+          decodeIngress(identities, message, reader).pipe(
+            Effect.flatMap((ingress) => engine.acceptRouterIngress(ingress)),
+          ),
+        ),
       ),
     { concurrency: 1 },
   );
@@ -308,12 +319,7 @@ function deliverMessages(
 ) {
   return Effect.forEach(
     messages,
-    (message) =>
-      decodeIngress(identities, message).pipe(
-        Effect.flatMap((ingress) =>
-          deliverIngress(engines, selectedIndexes, ingress),
-        ),
-      ),
+    (message) => deliverIngress(identities, engines, selectedIndexes, message),
     { concurrency: 1 },
   ).pipe(
     Effect.map((dispositions) => dispositions.flat()),
@@ -336,6 +342,8 @@ function drainEngines(
 }
 
 interface HarnessOptions {
+  /** Members of the conversation; four when omitted. */
+  readonly memberCount?: number;
   readonly actionPolicy?: EndpointEngineInput["actionPolicy"];
   /** Present when the author's Router worker has not attached yet. */
   readonly attachment?: WorkerAttachment;
@@ -358,7 +366,10 @@ function makeProtocolHarness(
     const registrySignerPublicKey = yield* Schema.decodeUnknown(
       Ed25519PublicKey,
     )(registryKeys.publicKey.export({ format: "jwk" }));
-    const identities = yield* makeIdentities(registryKeys);
+    const endpointIndexes = Array.from(
+      Array(options.memberCount ?? MEMBER_COUNT).keys(),
+    );
+    const identities = yield* makeIdentities(registryKeys, endpointIndexes);
     const membership = yield* makeMembership(
       identities,
       registrySignerPublicKey,
@@ -454,9 +465,10 @@ function takeQueued(harness: ProtocolHarness) {
 }
 
 function protocolMessageKind(
+  harness: Pick<ProtocolHarness, "identities">,
   message: typeof SignedMessage.Type,
 ): Effect.Effect<string> {
-  return decodeOuterBody(message.body).pipe(
+  return openAsSender(harness, message).pipe(
     Effect.flatMap((body) =>
       body.kind === "direct"
         ? Effect.succeed(body.packet.kind)
@@ -469,13 +481,14 @@ function protocolMessageKind(
 }
 
 function messagesOfKind(
+  harness: Pick<ProtocolHarness, "identities">,
   messages: ReadonlyArray<typeof SignedMessage.Type>,
   kind: string,
 ) {
   return Effect.forEach(
     messages,
     (message) =>
-      protocolMessageKind(message).pipe(
+      protocolMessageKind(harness, message).pipe(
         Effect.map((actualKind) => ({ actualKind, message })),
       ),
     { concurrency: 1 },
@@ -489,9 +502,10 @@ function messagesOfKind(
 }
 
 function decodeActionProposal(
+  harness: Pick<ProtocolHarness, "identities">,
   message: typeof SignedMessage.Type,
 ): Effect.Effect<ActionProposal> {
-  return decodeOuterBody(message.body).pipe(
+  return openAsSender(harness, message).pipe(
     Effect.flatMap((body) =>
       body.kind === "direct" && body.packet.kind === "action_proposal"
         ? Effect.succeed(body.packet)
@@ -502,9 +516,10 @@ function decodeActionProposal(
 }
 
 function decodeActionCertifiedRecord(
+  harness: Pick<ProtocolHarness, "identities">,
   message: typeof SignedMessage.Type,
 ): Effect.Effect<ActionCertifiedRecordValue> {
-  return decodeOuterBody(message.body).pipe(
+  return openAsSender(harness, message).pipe(
     Effect.flatMap((body) =>
       body.kind === "direct" && body.packet.kind === "action_certified_record"
         ? Effect.succeed(body.packet)
@@ -515,9 +530,10 @@ function decodeActionCertifiedRecord(
 }
 
 function decodeActionSignatureHash(
+  harness: Pick<ProtocolHarness, "identities">,
   message: typeof SignedMessage.Type,
 ): Effect.Effect<Effect.Effect.Success<ReturnType<typeof hashAction>>> {
-  return decodeOuterBody(message.body).pipe(
+  return openAsSender(harness, message).pipe(
     Effect.flatMap((body) =>
       body.kind === "evidence"
         ? decodeCanonical(EvidenceStatement, body.message.body)
@@ -530,6 +546,29 @@ function decodeActionSignatureHash(
     ),
     Effect.orDie,
   );
+}
+
+/** Opens an envelope's sealed body as its sender, which every body is sealed to. */
+function openAsSender(
+  harness: Pick<ProtocolHarness, "identities">,
+  message: typeof SignedMessage.Type,
+): Effect.Effect<DecodedOuterBody> {
+  return senderOf(harness.identities, message).pipe(
+    Effect.flatMap((sender) => openOuterBody(message, sender)),
+    Effect.orDie,
+  );
+}
+
+function senderOf(
+  identities: readonly ProtocolIdentity[],
+  message: typeof SignedMessage.Type,
+): Effect.Effect<ProtocolIdentity> {
+  const identity = identities.find(
+    ({ card }) => card.agentId === message.senderAgentId,
+  );
+  return identity === undefined
+    ? Effect.dieMessage("unknown protocol sender")
+    : Effect.succeed(identity);
 }
 
 /**
@@ -591,7 +630,7 @@ function certifyGenesisOf(
   return Effect.gen(function* () {
     const initial = yield* takeReadyBatch(harness);
     const proposalMessage = yield* requireAt(initial, 0, "genesis proposal");
-    const proposal = yield* decodeActionProposal(proposalMessage);
+    const proposal = yield* decodeActionProposal(harness, proposalMessage);
     if (proposal.action.kind !== "GENESIS") {
       return yield* Effect.dieMessage("first addressed send was not GENESIS");
     }
@@ -720,12 +759,14 @@ function restartOverPersistedDurabilityVote(
     yield* harness.deliver(yield* takeReadyBatch(harness));
     yield* harness.drain();
     const actionSignatures = yield* messagesOfKind(
+      harness,
       yield* takeQueued(harness),
       "action_signature",
     );
     yield* harness.deliver(actionSignatures.slice(0, 3));
     yield* harness.drain();
     const authorActionRecordMessage = (yield* messagesOfKind(
+      harness,
       yield* takeQueued(harness),
       "action_certified_record",
     )).find((message) => message.senderAgentId === author.card.agentId);
@@ -735,6 +776,7 @@ function restartOverPersistedDurabilityVote(
       );
     }
     const actionRecord = yield* decodeActionCertifiedRecord(
+      harness,
       authorActionRecordMessage,
     );
     const vote = yield* signEvidenceMessage({
@@ -819,7 +861,7 @@ function adoptsAnActionCertificateOverItsOwnLock() {
           0,
           "winning proposal",
         ).pipe(
-          Effect.flatMap(decodeActionProposal),
+          Effect.flatMap((message) => decodeActionProposal(harness, message)),
           Effect.flatMap((proposal) =>
             hashAction(proposal.action).pipe(Effect.orDie),
           ),
@@ -873,12 +915,13 @@ function adoptsAnActionCertificateOverItsOwnLock() {
         }).pipe(Effect.orDie);
         yield* restarted.drainOutbound.pipe(Effect.orDie);
         const resent = yield* messagesOfKind(
+          harness,
           yield* takeQueued(harness),
           "action_signature",
         );
         const resentHashes = yield* Effect.forEach(
           resent,
-          decodeActionSignatureHash,
+          (message) => decodeActionSignatureHash(harness, message),
           { concurrency: 1 },
         );
         expect(resentHashes).not.toContain(winnerActionHash);
@@ -939,6 +982,7 @@ function adoptsACertifiedRecordOverItsOwnLock() {
         );
         yield* harness.drain();
         const winnerCertifiedRecord = (yield* messagesOfKind(
+          harness,
           yield* takeQueued(harness),
           "certified_record",
         )).filter(
@@ -1020,7 +1064,7 @@ function signsNothingForAnAdoptedActionWhenAcceptanceStops() {
           0,
           "winning proposal",
         ).pipe(
-          Effect.flatMap(decodeActionProposal),
+          Effect.flatMap((message) => decodeActionProposal(harness, message)),
           Effect.flatMap((proposal) =>
             hashAction(proposal.action).pipe(Effect.orDie),
           ),
@@ -1036,6 +1080,7 @@ function signsNothingForAnAdoptedActionWhenAcceptanceStops() {
         yield* harness.deliver(yield* takeQueued(harness));
         yield* harness.drain();
         const winnerCertificate = (yield* messagesOfKind(
+          harness,
           yield* takeQueued(harness),
           "action_certified_record",
         )).filter(
@@ -1047,6 +1092,7 @@ function signsNothingForAnAdoptedActionWhenAcceptanceStops() {
         yield* harness.deliver(winnerBatch, [1]);
         yield* harness.drain([1]);
         const sent = (yield* messagesOfKind(
+          harness,
           yield* takeQueued(harness),
           "action_signature",
         )).filter(
@@ -1054,7 +1100,7 @@ function signsNothingForAnAdoptedActionWhenAcceptanceStops() {
         );
         const signedHashes = yield* Effect.forEach(
           sent,
-          decodeActionSignatureHash,
+          (message) => decodeActionSignatureHash(harness, message),
           { concurrency: 1 },
         );
 
@@ -1140,7 +1186,7 @@ function refusesASecondCertificateOverAStagedAction() {
           0,
           "staged proposal",
         ).pipe(
-          Effect.flatMap(decodeActionProposal),
+          Effect.flatMap((message) => decodeActionProposal(harness, message)),
           Effect.flatMap((proposal) =>
             hashAction(proposal.action).pipe(Effect.orDie),
           ),
@@ -1154,7 +1200,7 @@ function refusesASecondCertificateOverAStagedAction() {
           0,
           "second proposal",
         ).pipe(
-          Effect.flatMap(decodeActionProposal),
+          Effect.flatMap((message) => decodeActionProposal(harness, message)),
           Effect.flatMap((proposal) =>
             hashAction(proposal.action).pipe(Effect.orDie),
           ),
@@ -1188,6 +1234,7 @@ function refusesASecondCertificateOverAStagedAction() {
         yield* harness.deliver(equivocations, [3]);
         yield* harness.drain([3]);
         const secondCertificate = (yield* messagesOfKind(
+          harness,
           yield* takeQueued(harness),
           "action_certified_record",
         )).filter((message) => message.senderAgentId === fourth.card.agentId);
@@ -1243,7 +1290,7 @@ function certifiesOrdinaryN4Post() {
           0,
           "POST proposal",
         );
-        const proposal = yield* decodeActionProposal(proposalMessage);
+        const proposal = yield* decodeActionProposal(harness, proposalMessage);
         if (proposal.action.kind !== "POST") {
           return yield* Effect.dieMessage("ordinary send did not propose POST");
         }
@@ -1252,6 +1299,7 @@ function certifiesOrdinaryN4Post() {
         yield* harness.drain();
         const signatureBatch = yield* takeQueued(harness);
         const actionSignatures = yield* messagesOfKind(
+          harness,
           signatureBatch,
           "action_signature",
         );
@@ -1261,10 +1309,12 @@ function certifiesOrdinaryN4Post() {
         yield* harness.drain();
         const certificationBatch = yield* takeQueued(harness);
         const actionRecordMessages = yield* messagesOfKind(
+          harness,
           certificationBatch,
           "action_certified_record",
         );
         const durabilityMessages = yield* messagesOfKind(
+          harness,
           certificationBatch,
           "durability_vote",
         );
@@ -1280,6 +1330,7 @@ function certifiesOrdinaryN4Post() {
           );
         }
         const actionRecord = yield* decodeActionCertifiedRecord(
+          harness,
           authorActionRecordMessage,
         );
         expect(actionRecord.recordCore.action.kind).toBe(proposal.action.kind);
@@ -1437,7 +1488,10 @@ function ordersCompetingProposalsBeforeActionVotes(input: {
         );
         const firstBatch = yield* takeReadyBatch(harness);
         const firstMessage = yield* requireAt(firstBatch, 0, "first proposal");
-        const firstProposal = yield* decodeActionProposal(firstMessage);
+        const firstProposal = yield* decodeActionProposal(
+          harness,
+          firstMessage,
+        );
         const secondSending = yield* Effect.fork(
           secondAuthor.send(yield* sendInput(harness, "second candidate")),
         );
@@ -1447,7 +1501,10 @@ function ordersCompetingProposalsBeforeActionVotes(input: {
           0,
           "second proposal",
         );
-        const secondProposal = yield* decodeActionProposal(secondMessage);
+        const secondProposal = yield* decodeActionProposal(
+          harness,
+          secondMessage,
+        );
         if (
           firstProposal.action.kind !== "POST" ||
           secondProposal.action.kind !== "POST"
@@ -1476,6 +1533,7 @@ function ordersCompetingProposalsBeforeActionVotes(input: {
         yield* harness.drain();
         const emitted = yield* takeQueued(harness);
         const actionSignatures = yield* messagesOfKind(
+          harness,
           emitted,
           "action_signature",
         );
@@ -1488,7 +1546,7 @@ function ordersCompetingProposalsBeforeActionVotes(input: {
         );
         const signatureHashes = yield* Effect.forEach(
           actionSignatures,
-          (message) => decodeActionSignatureHash(message),
+          (message) => decodeActionSignatureHash(harness, message),
           { concurrency: 1 },
         );
         expect(new Set(signatureHashes)).toEqual(new Set([firstActionHash]));
@@ -1523,7 +1581,9 @@ function givesIdenticalHostInvocationsDistinctPostIds() {
           firstBatch,
           0,
           "first repeated proposal",
-        ).pipe(Effect.flatMap(decodeActionProposal));
+        ).pipe(
+          Effect.flatMap((message) => decodeActionProposal(harness, message)),
+        );
         yield* pump(harness, firstBatch);
         yield* Fiber.join(firstSending).pipe(
           Effect.timeout("1 second"),
@@ -1536,7 +1596,9 @@ function givesIdenticalHostInvocationsDistinctPostIds() {
           secondBatch,
           0,
           "second repeated proposal",
-        ).pipe(Effect.flatMap(decodeActionProposal));
+        ).pipe(
+          Effect.flatMap((message) => decodeActionProposal(harness, message)),
+        );
 
         expect(secondProposal.action.postIntent.postId).not.toBe(
           firstProposal.action.postIntent.postId,
@@ -1579,11 +1641,56 @@ function retainsInterruptedDurableSend() {
           Effect.flatMap((messages) =>
             requireAt(messages, 0, "retained proposal"),
           ),
-          Effect.flatMap(decodeActionProposal),
+          Effect.flatMap((message) => decodeActionProposal(harness, message)),
         );
         expect(proposal.action.postIntent.content).toEqual([
           { type: "text", text: "retained send" },
         ]);
+      }),
+    ),
+  );
+}
+
+/** Whether an outer body decodes as a Client value without opening it. */
+function readsAsPlaintext(
+  message: typeof SignedMessage.Type,
+): Effect.Effect<boolean> {
+  return decodeCanonical(DirectPacket, message.body).pipe(
+    Effect.orElse(() => decodeCanonical(SignedMessage, message.body)),
+    Effect.match({ onFailure: () => false, onSuccess: () => true }),
+  );
+}
+
+/**
+ * A first post among `memberCount` members certifies at every member while
+ * each member opens every outer body with its own key, and no body on the
+ * wire reads as plaintext.
+ */
+function sealsEveryOuterBodyOfAPost(memberCount: number) {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness({ memberCount });
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const sending = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "sealed post")),
+        );
+
+        const delivered = yield* pump(harness, yield* takeReadyBatch(harness));
+        yield* Fiber.join(sending).pipe(
+          Effect.timeout("1 second"),
+          Effect.orDie,
+        );
+
+        expect(yield* certifiedRecordCounts(harness)).toEqual(
+          harness.identities.map(() => 1),
+        );
+        expect(delivered.length).toBeGreaterThan(memberCount);
+        expect(
+          yield* Effect.forEach(delivered, readsAsPlaintext, {
+            concurrency: 1,
+          }),
+        ).toEqual(delivered.map(() => false));
       }),
     ),
   );
@@ -1677,6 +1784,11 @@ function reappendedOuterMessagesYieldOnePost() {
 }
 
 describe("fixed-post endpoint protocol", () => {
+  it.each([2, 4])(
+    "seals every outer body of a %i-member post to its members, each of which opens it",
+    sealsEveryOuterBodyOfAPost,
+    TEST_TIMEOUT_MS,
+  );
   it(
     "adopts an action certificate over its own lock at the same head",
     adoptsAnActionCertificateOverItsOwnLock,
@@ -1957,17 +2069,19 @@ function failsThenForwards(
 
 /**
  * The distinct action hashes each post was proposed under, across envelopes.
+ * @param harness Members whose keys open the envelopes.
  * @param messages Forwarded action-proposal envelopes.
  * @returns For each PostId, the set of proposed action hashes.
  */
 function proposalHashesByPost(
+  harness: Pick<ProtocolHarness, "identities">,
   messages: ReadonlyArray<typeof SignedMessage.Type>,
 ): Effect.Effect<Map<string, Set<string>>> {
   return Effect.reduce(
     messages,
     new Map<string, Set<string>>(),
     (byPost, message) =>
-      decodeActionProposal(message).pipe(
+      decodeActionProposal(harness, message).pipe(
         Effect.flatMap((proposal) =>
           hashAction(proposal.action).pipe(
             Effect.orDie,
@@ -2003,7 +2117,7 @@ function expectDrainedAlive(
     expect(new Set(delivered.map(({ messageId }) => messageId)).size).toBe(
       delivered.length,
     );
-    const hashesByPost = yield* proposalHashesByPost(delivered);
+    const hashesByPost = yield* proposalHashesByPost(harness, delivered);
     expect(Array.from(hashesByPost.values(), (hashes) => hashes.size)).toEqual([
       1,
     ]);
@@ -2150,6 +2264,7 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
     const sending = yield* Effect.fork(
       author.send(yield* sendInput(harness, "black-holed transmit")),
     );
+    yield* untilLive(Ref.get(transmits).pipe(Effect.map((count) => count > 0)));
     yield* advanceClock(Duration.subtract(DRAIN_BOUND, Duration.seconds(1)));
     expect(yield* Fiber.poll(sending)).toEqual(Option.none());
     yield* advanceClock(Duration.seconds(2));
@@ -2229,6 +2344,7 @@ function concurrentDrainsSendEachOutboxOnce(): Effect.Effect<
     const sending = yield* Effect.fork(
       author.send(yield* sendInput(harness, "drained twice at once")),
     );
+    yield* untilLive(Ref.get(transmits).pipe(Effect.map((count) => count > 0)));
     yield* advanceClock(Duration.seconds(1));
     expect(yield* Ref.get(transmits)).toBe(2);
     expect(yield* Queue.size(harness.outbound)).toBe(1);

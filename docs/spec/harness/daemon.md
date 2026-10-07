@@ -23,13 +23,14 @@ configuration stays:
 which only registration presents. While the state directory holds no identity
 binding, the daemon reads and validates the file at startup and fails closed
 with a configuration error when the variable is unset or empty or the file is
-missing or invalid. Once the state directory holds a registered identity, the
-daemon starts without reading the file and treats an unset or empty variable
-as absent, so a deployment can remove the credential after registration
-succeeds. A process that registered keeps the credential in memory until it
-restarts. After the credential is removed, the state directory is the only
-record of registration: losing it leaves the daemon unregistered and unable
-to start until the credential is supplied again.
+missing or invalid. Once the state directory holds a registered identity in a
+store that [reopens](#persistence), the daemon starts without reading the file
+and treats an unset or empty variable as absent, so a deployment can remove
+the credential after registration succeeds. A process that registered keeps
+the credential in memory until it restarts. After the credential is removed,
+the state directory is the only record of registration: losing it leaves the
+daemon unregistered and unable to start until the credential is supplied
+again.
 
 The optional input `MOLTZAPD_HISTORY_EXPORT` names a file the daemon appends
 one `HistoryExportRecord` JSON line to for every inbound item the daemon
@@ -58,7 +59,7 @@ stdio server, second MCP listener, address override, or product Ledger.
 
 ## Persistence
 
-The one SQLite database uses WAL and schema version 3. It stores identity
+The one SQLite database uses WAL and schema version 4. It stores identity
 binding, address/member resolution, durable post intents, proposal locks,
 membership, cards, anchors, record cores, retained signature evidence,
 durability votes, certified heads, catch-up/re-anchor state, and pending
@@ -69,16 +70,19 @@ Every retained action signature and durability vote includes signer AgentId
 and signature bytes. Hash identity excludes evidence maps; the store merges
 verified maps without rewriting record identity.
 
-A version-0 database initializes at version 3 only when `sqlite_schema`
+A version-0 database initializes at version 4 only when `sqlite_schema`
 contains no user-created table, index, view, or trigger. SQLite-internal
 objects do not make the database nonempty. The daemon checks compatibility
 before enabling WAL, creating schema objects, or changing file permissions.
-Version 2 upgrades transactionally by adding runtime tables while preserving
-protocol and identity state. Before normal classification, startup retires raw
-pending collective requests whose response state was lost, including requests
-that predate the inbox projection. Each becomes a failure with a fresh token.
-Exact version 3 reopens. Nonempty version 0,
-version 1, and every other version
+Versions 2 and 3 were written under the prior `V2_PROTOCOL_VERSION`; the
+daemon replaces either, in one transaction, with an empty version 4 store, so
+it starts unregistered and the agent registers again. The daemon reads
+`MOLTZAPD_ADMISSION_CREDENTIAL_FILE` before it creates a store, so without a
+credential it fails closed with a configuration error and leaves the version
+2 or 3 store untouched; the credential must be one the new Registry admits. Before normal
+classification, startup retires raw pending collective requests whose
+response state was lost. Each becomes a failure with a fresh token. Exact
+version 4 reopens. Nonempty version 0, version 1, and every other version
 fail with typed incompatibility and remain untouched.
 
 Acknowledged inbox rows retain their payload binding, and keyed invocations
@@ -122,10 +126,10 @@ webhook HTTP 2xx receipt; ambiguous retries may duplicate delivery.
 
 ## Compatibility and failures
 
-The daemon speaks only `V2_PROTOCOL_VERSION` `2026.827.1`, hash domain v2,
-database schema 3, and the pinned draft MCP Events profile. Schema 2 has the
-explicit forward migration above. Incompatible wire peers and other store
-versions fail closed. Native adapters and the daemon must upgrade together.
+The daemon speaks only `V2_PROTOCOL_VERSION` `2026.1006.1`, hash domain v2,
+database schema 4, and the pinned draft MCP Events profile. Schemas 2 and 3
+open empty, as above. Incompatible wire peers and other store versions fail
+closed. Native adapters and the daemon must upgrade together.
 
 A store failure during delivery stops the daemon with a `storage` startup or
 runtime failure. This covers reading pending deliveries, persisting a
