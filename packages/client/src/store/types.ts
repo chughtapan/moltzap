@@ -337,7 +337,15 @@ export interface EndpointStore {
     foundation: ConversationFoundation,
     proposal: ProposalLock,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
+  readonly supersedeProposalLock: (
+    lock: ProposalLock,
+    certificate: readonly ProtocolEvidence[],
+  ) => Effect.Effect<StoreMutation, EndpointStoreError>;
   readonly stageRecord: (
+    record: StagedRecord,
+  ) => Effect.Effect<StoreMutation, EndpointStoreError>;
+  /** Stage a certified record's core before merging its durability votes. */
+  readonly stageCertifiedRecord: (
     record: StagedRecord,
   ) => Effect.Effect<StoreMutation, EndpointStoreError>;
   readonly stageRecordForDissemination: (

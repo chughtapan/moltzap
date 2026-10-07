@@ -356,7 +356,11 @@ record it selects, with the action signatures held for its candidate and any
 record staged for it with that record's durability votes: `ActionHash` binds
 the anchor, so no candidate under the previous anchor is gap-free afterward,
 and the re-anchor's `q(n)` certificate shows a staged candidate there can never
-collect a durability certificate, because of the re-anchor rules below.
+collect a durability certificate, because of the re-anchor rules below. A
+verified POST record whose action certificate meets `q(n)` releases a lock on
+another action at its predecessor in the same way, unless the endpoint staged
+that action, and the endpoint locks the record's action without signing it, as
+the cross-field validation below states.
 
 A sender persists its immutable post intent before protocol traffic. If a
 different candidate commits first, it retries the same `PostId` and intent
@@ -464,12 +468,16 @@ byte-identical request, item kind, item hash, and `hasMore`. For
 `CatchUpIncomplete`, those last three values are respectively `incomplete`,
 null, and false. Its signer and the response's outer sender are the same fixed
 member. An incomplete response says only that this responder cannot supply a
-verified next item.
+verified next item. A responder that holds a staged, uncertified successor of
+the requested position sends no incomplete response; it sends that
+successor's `ActionCertifiedRecord` and its own durability vote.
 
 Catch-up pages carry complete `CertifiedRecord` or `CompletedReanchor` values,
-including their retained certificates. There is no partial-evidence cursor or
-separate partial-evidence replay path. All received material is verified
-before mutation.
+including their retained certificates. There is no partial-evidence cursor. A
+catch-up answer carries no partial evidence except a staged successor with the
+responder's durability vote, or, with an incomplete answer, the responder's
+re-anchor vote for an earlier Router instance. All received material is
+verified before mutation.
 
 A new RouterInstanceId does not rewrite history. Members compare verified
 ancestry, select the unique latest certified head, and use the existing
@@ -491,16 +499,25 @@ input from a member that the endpoint cannot apply, such as input naming an
 anchor, record, or position it cannot resolve, does not count and never stops
 the endpoint. It can leave that conversation unrecovered, and it holds no
 other conversation: each conversation recovers on its own. Until a
-conversation recovers, the endpoint sends only catch-up and re-anchor traffic
-for it, which includes its answers to members' catch-up requests, so an answer
-does not wait for the answering member's own recovery to finish. Its own
+conversation recovers, the endpoint sends only catch-up, re-anchor and
+staged-successor traffic for it, which includes its answers to members'
+catch-up requests, so an answer does not wait for the answering member's own
+recovery to finish. Its own
 posts, pending intents and retained outbound envelopes for that conversation
-wait, and the action traffic members send for it meanwhile is ignored; a
-conversation that has recovered carries traffic while others still recover.
+wait, and other action traffic members send for it meanwhile is ignored. It
+certifies a staged successor of its head at `q(n)` votes and catches up from
+it, and unless it voted to re-anchor away from its anchor, it stages and votes
+for an action-certified successor of its head once it holds that record and,
+during a re-anchor, durability votes for it from more than `n − q(n)` members;
+a conversation that has recovered carries traffic while others still recover.
 A conversation's catch-up position is ready once `q(n) − 1` other members
 have answered that they cannot supply a next item, so that with the endpoint
-`q(n)` members agree and one silent member cannot hold it. Readiness is a liveness signal only: safety rests on
-the `q(n)` re-anchor and durability thresholds. After a Router restart the
+`q(n)` members agree and one silent member cannot hold it. A member holding a
+staged re-anchor candidate at that position for an earlier Router instance
+sends its vote with that answer; a requester that holds or receives one waits
+for every other member while its retries last, then settles on `q(n) − 1`.
+Readiness is a liveness signal only: safety rests on the `q(n)` re-anchor and
+durability thresholds. After a Router restart the
 conversation recovers when the endpoint assembles a `q(n)` re-anchor
 certificate, or adopts a verified completed re-anchor and then catches up
 from it. A completed re-anchor it adopts supersedes a different candidate it
@@ -637,7 +654,14 @@ following applicable bindings:
 - GENESIS has all members, POST meets `q(n)` and includes its author, and
   durability and re-anchor certificates independently meet `q(n)`;
 - the predecessor-scoped proposal lock is absent or already names this
-  `ActionHash`; and
+  `ActionHash`, except for a POST record whose action certificate meets
+  `q(n)`, alone or inside a `CertifiedRecord`: it supersedes a lock on another
+  action at its predecessor, which the endpoint releases without signing the
+  record's action. Any two `q(n)` quorums share an honest member, who signs
+  one action at a predecessor under one anchor, so the locked action can never
+  be certified. An endpoint that staged the locked action refuses the record
+  instead: two such certificates show more than `f` faulty members, and the
+  endpoint never votes for a second successor of that head; and
 - catch-up position, item hash, response sender, attestation, and `hasMore`
   match the rules above.
 

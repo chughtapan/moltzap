@@ -270,6 +270,16 @@ const localActionEvidence = (
     );
   });
 
+/**
+ * Select this endpoint's action signature for a fold: the one it holds, or a
+ * new one its action policy allows. A fold that already holds its action
+ * certificate gets no new signature: the action needs none, and this endpoint
+ * may have taken that certificate over a lock it held on another action at
+ * the same predecessor, which it signed.
+ * @param runtime Engine whose identity and policy sign.
+ * @param fold Fold the signature names.
+ * @returns The signature to send, or nothing when none is due.
+ */
 function selectLocalActionEvidence(
   runtime: EngineRuntime,
   fold: EngineActionFold,
@@ -279,6 +289,9 @@ function selectLocalActionEvidence(
   );
   if (retained !== undefined) {
     return Effect.succeed(retained);
+  }
+  if (hasActionThreshold(fold)) {
+    return Effect.succeed(undefined);
   }
   return runtime.input
     .actionPolicy({
@@ -317,7 +330,7 @@ function signLocalActionEvidence(
   }).pipe(Effect.mapError(localRepresentationFailure));
 }
 
-const hasActionThreshold = (fold: EngineActionFold): boolean => {
+function hasActionThreshold(fold: EngineActionFold): boolean {
   const memberCount = fold.conversation.membership.members.length;
   const count = fold.actionEvidence.size;
   const thresholdReached =
@@ -328,7 +341,7 @@ const hasActionThreshold = (fold: EngineActionFold): boolean => {
     thresholdReached &&
     fold.actionEvidence.has(fold.action.postIntent.authorAgentId)
   );
-};
+}
 
 const hasDurabilityThreshold = (fold: EngineActionFold): boolean =>
   fold.durabilityEvidence.size >=
@@ -813,6 +826,85 @@ const mergeCertificateEvidence = (
     { concurrency: 1, discard: true },
   );
 
+/**
+ * Lock the action a verified record certifies over the lock this endpoint
+ * holds on another POST at the same predecessor. The record's `q(n)` action
+ * certificate means that other action can never be certified, because any
+ * two `q(n)` quorums share an honest member, who signs one action at a
+ * predecessor under one anchor. The store replaces the lock and keeps the
+ * certificate's signatures with it. In the same uninterruptible step the other
+ * action's fold is dropped, since the store now refuses its evidence, and the
+ * certified action's fold takes the whole certificate, so this endpoint, which
+ * signed the other action, never signs this one even when the rest of the
+ * record's acceptance is interrupted. The store refuses the replacement when
+ * this endpoint already staged the other action, and the record is ignored.
+ * @param runtime Engine whose store and folds change.
+ * @param conversation Conversation the record extends.
+ * @param record The verified action-certified record.
+ * @returns Completion once the record's action is locked here.
+ */
+const supersedeLock = (
+  runtime: EngineRuntime,
+  conversation: EngineConversation,
+  record: ActionCertifiedRecord,
+): Effect.Effect<void, ProtocolAcceptanceError> =>
+  Effect.gen(function* () {
+    const { action, actionHash } = record.recordCore;
+    const lock = yield* proposalLock(conversation, action, actionHash);
+    const signatures = yield* Effect.forEach(
+      record.actionCertificate.signatures,
+      (representation) =>
+        verifyStableEvidence({
+          representation,
+          membership: conversation.membership,
+        }).pipe(Effect.map(({ message }) => message)),
+      { concurrency: 1 },
+    );
+    const certificate = yield* Effect.forEach(
+      signatures,
+      (message) =>
+        protocolEvidence(
+          conversation.conversationId,
+          "action",
+          actionHash,
+          message,
+        ),
+      { concurrency: 1 },
+    );
+    yield* runtime.input.store.supersedeProposalLock(lock, certificate).pipe(
+      Effect.zipRight(
+        Effect.sync(() => {
+          dropFoldsAtPredecessor(runtime, conversation, action, actionHash);
+          const adopted = foldFor(runtime, conversation, action, actionHash);
+          for (const message of signatures) {
+            adopted.actionEvidence.set(message.senderAgentId, message);
+          }
+        }),
+      ),
+      Effect.uninterruptible,
+    );
+  });
+
+function dropFoldsAtPredecessor(
+  runtime: EngineRuntime,
+  conversation: EngineConversation,
+  action: ActionCore,
+  kept: ActionHash,
+): void {
+  for (const [actionHash, fold] of runtime.actionFolds) {
+    if (
+      actionHash !== kept &&
+      fold.conversation.conversationId === conversation.conversationId &&
+      fold.action.previousRecordHash === action.previousRecordHash
+    ) {
+      runtime.actionFolds.delete(actionHash);
+      if (fold.recordHash !== undefined) {
+        runtime.recordFolds.delete(fold.recordHash);
+      }
+    }
+  }
+}
+
 const prepareRecordFold = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
@@ -834,6 +926,12 @@ const prepareRecordFold = (
       conversation,
       action,
       record.recordCore.actionHash,
+    ).pipe(
+      Effect.catchTag("EndpointStoreError", (error) =>
+        action.kind === "POST" && error.reason === "conflict"
+          ? supersedeLock(runtime, conversation, record)
+          : Effect.fail(error),
+      ),
     );
     const fold = foldFor(
       runtime,
@@ -886,7 +984,9 @@ const acceptCertifiedRecord = (
     if (fold === undefined) {
       return "ignored";
     }
-    yield* runtime.input.store.stageRecord(yield* stagedRecord(actionRecord));
+    yield* runtime.input.store.stageCertifiedRecord(
+      yield* stagedRecord(actionRecord),
+    );
     yield* Effect.sync(() => {
       fold.recordHash = actionRecord.recordHash;
       runtime.recordFolds.set(actionRecord.recordHash, fold);

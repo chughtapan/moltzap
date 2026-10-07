@@ -57,8 +57,10 @@ import {
   mergeEvidence,
   promoteRecord,
   promoteRecordForDissemination,
+  stageCertifiedRecord,
   stageRecord,
   stageRecordForDissemination,
+  supersedeProposalLock,
 } from "./records.js";
 
 /** Closed endpoint-store failures without SQLite implementation details. */
@@ -161,7 +163,11 @@ function makeHistoryOperations(state: StoreState, run: StoreRunner) {
       run(() => lockProposal(state.database, proposal)),
     lockGenesisProposal: (foundation, proposal) =>
       run(() => lockGenesisProposal(state.database, foundation, proposal)),
+    supersedeProposalLock: (lock, certificate) =>
+      run(() => supersedeProposalLock(state.database, lock, certificate)),
     stageRecord: (record) => run(() => stageRecord(state.database, record)),
+    stageCertifiedRecord: (record) =>
+      run(() => stageCertifiedRecord(state.database, record)),
     stageRecordForDissemination: (record) =>
       run(() => stageRecordForDissemination(state.database, record)),
     mergeEvidence: (evidence) =>

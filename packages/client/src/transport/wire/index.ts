@@ -94,6 +94,7 @@ export {
   verifyCatchUpPage,
   verifyCertifiedRecord,
   verifyCompletedReanchor,
+  verifyDeliveredEvidence,
   verifyMembershipDescriptor,
   verifyOuterMessage,
   verifyRecordCore,

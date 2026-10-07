@@ -35,6 +35,7 @@ import {
 } from "../wire/index.js";
 import { resolveMessageAddress } from "./address.js";
 import { SendError } from "./errors.js";
+import { anchorHashAtHead } from "./history/index.js";
 import { pendingRecoveryFence } from "./recovery/index.js";
 
 /**
@@ -188,10 +189,7 @@ const proposalAction = (
         kind: "POST",
         conversationId: conversation.conversationId,
         membershipHash: conversation.membership.hash,
-        anchorHash:
-          conversation.currentAnchor.kind === "genesis_anchor_body"
-            ? head.record.actionCertifiedRecord.recordCore.anchorHash
-            : conversation.currentAnchor.anchorHash,
+        anchorHash: anchorHashAtHead(conversation, head),
         previousRecordHash: head.recordHash,
         postIntent: intent,
         postIntentHash,

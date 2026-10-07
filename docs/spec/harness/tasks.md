@@ -39,8 +39,11 @@ the evidence-free `ActionHash`.
 ## Candidate selection
 
 An honest endpoint durably locks only the first valid gap-free candidate it
-observes in Router order for one predecessor under one anchor. It signs no
-conflicting candidate in that domain. Later intents wait for the winner and retry unchanged
+observes in Router order for one predecessor under one anchor, until a verified
+POST record whose action certificate meets `q(n)` names another candidate
+there; it then locks that candidate without signing it, as
+[Proposal ordering](../conversation-history.md#proposal-ordering-and-recovery-identity)
+states. It signs no conflicting candidate in that domain. Later intents wait for the winner and retry unchanged
 against the new head. If the selected candidate cannot reach `q(n)`, the
 conversation stalls. Gate 1 supplies no timeout replacement or view change.
 

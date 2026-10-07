@@ -26,6 +26,7 @@ import {
   type ProposalLock,
   type ProtocolEvidence,
   type RestartedEmptyConversation,
+  type StagedReanchor,
   type StagedRecord,
   type StoredOutboundMessage,
   type StoreMutation,
@@ -143,6 +144,57 @@ function retainsFirstProposalAcrossRestart() {
           store.recover().pipe(
             Effect.tap((recovery) => {
               expect(recovery.proposalLocks).toEqual([first]);
+              return Effect.void;
+            }),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/**
+ * Replaces a lock held on one action with the lock on an action whose
+ * certificate the endpoint verified, together with that certificate. A
+ * certificate for another action is refused and leaves the held lock in
+ * place; after the replacement, a reopened store holds the new lock with its
+ * certificate and none of the released action's evidence.
+ * @returns Completion once the reopened store is checked.
+ */
+function supersedesAConflictingLockWithItsCertificate() {
+  const directory = stateDirectory();
+  const conversationId = "conversation:supersede";
+  const held = proposal(conversationId, "ach_held");
+  const certified = proposal(conversationId, "ach_certified");
+  const certificate = actionCertificate(conversationId, certified.actionHash);
+  return Effect.runPromise(
+    withStore(directory, (store) =>
+      Effect.gen(function* () {
+        yield* bindLocalIdentity(store);
+        yield* store.putConversationFoundation(foundation(conversationId));
+        yield* store.lockProposal(held);
+        yield* store.mergeEvidence(
+          localActionEvidence(conversationId, held.actionHash),
+        );
+        yield* expectReason(
+          store.supersedeProposalLock(certified, [
+            ...certificate.slice(1),
+            localActionEvidence(conversationId, held.actionHash),
+          ]),
+          "invalid-input",
+        );
+        expect((yield* store.recover()).proposalLocks).toEqual([held]);
+        expect(yield* store.supersedeProposalLock(certified, certificate)).toBe(
+          INSERTED_MUTATION,
+        );
+      }),
+    ).pipe(
+      Effect.zipRight(
+        withStore(directory, (store) =>
+          store.recover().pipe(
+            Effect.tap((recovery) => {
+              expect(recovery.proposalLocks).toEqual([certified]);
+              expect(recovery.evidence).toEqual(certificate);
               return Effect.void;
             }),
           ),
@@ -292,6 +344,60 @@ function completesLocalPostWithoutSelfDelivery() {
           record.recordHash,
         );
         expect(recovery.pendingDeliveries).toEqual([]);
+      }),
+    ),
+  );
+}
+
+/**
+ * The endpoint holds a certified head and a staged successor of it that it
+ * voted durable. The store refuses a re-anchor candidate away from that head
+ * under the same anchor, so this endpoint's signatures never land on both a
+ * re-anchor away from the head and a durability certificate extending it,
+ * whatever order recovery and ingress reach the store in. Fails when the
+ * store stages that candidate.
+ * @returns The trace, run to completion.
+ */
+function refusesAReanchorAwayFromAStagedSuccessor() {
+  const directory = stateDirectory();
+  const conversationId = "conversation:staged-successor";
+  const head = certifiedRecord(conversationId, LOCAL_AGENT_ID);
+  const successor: StagedRecord = {
+    ...stagedRecord(head),
+    recordHash: `rch_${conversationId}:1`,
+    previousRecordHash: head.recordHash,
+    actionHash: `ach_${conversationId}:1`,
+    canonicalRecordCore: bytes(`record:${conversationId}:1`),
+  };
+  const awayFromTheHead: StagedReanchor = {
+    conversationId,
+    anchorHash: `anc_${conversationId}:1`,
+    previousAnchorHash: head.anchorHash,
+    routerInstanceId: "rti_staged-successor",
+    selectedRecordHash: head.recordHash,
+    canonicalBody: bytes(`reanchor:${conversationId}:1`),
+  };
+  return Effect.runPromise(
+    withStore(directory, (store) =>
+      Effect.gen(function* () {
+        yield* bindLocalIdentity(store);
+        yield* store.bindPostIntent({
+          kind: "new-conversation",
+          foundation: foundation(conversationId),
+          intent: {
+            conversationId,
+            membershipHash: head.membershipHash,
+            authorAgentId: head.authorAgentId,
+            postId: head.postId,
+            canonicalIntent: bytes("intent:staged-successor"),
+          },
+        });
+        yield* store.lockProposal(proposal(conversationId, head.actionHash));
+        yield* store.applyCatchUpRecord(head);
+        yield* store.stageRecord(successor);
+
+        yield* expectReason(store.stageReanchor(awayFromTheHead), "conflict");
+        expect((yield* store.recover()).stagedReanchors).toEqual([]);
       }),
     ),
   );
@@ -911,6 +1017,21 @@ function localActionEvidence(
   };
 }
 
+function actionCertificate(
+  conversationId: string,
+  actionHash: string,
+): readonly ProtocolEvidence[] {
+  return ["agent:a", "agent:b", "agent:c"].map(
+    (signer): ProtocolEvidence => ({
+      conversationId,
+      kind: "action",
+      subjectId: actionHash,
+      evidenceKey: signer,
+      canonicalEvidence: bytes(`action-signature:${signer}`),
+    }),
+  );
+}
+
 function bindLocalIdentity(
   store: EndpointStore,
 ): Effect.Effect<StoreMutation, EndpointStoreError> {
@@ -947,6 +1068,7 @@ describe("endpoint SQLite preflight", () => {
     rejectsNonemptyV0WithoutInitialization());
 });
 
+// @agent-code-guard/regression-only: these cases pin the proposal-lock store contract.
 describe("endpoint proposal locking", () => {
   it("atomically binds the first post intent with its foundation", () =>
     atomicallyBindsFirstIntentWithItsFoundation());
@@ -956,6 +1078,9 @@ describe("endpoint proposal locking", () => {
 
   it("retains the first proposal lock across conflicts and restart", () =>
     retainsFirstProposalAcrossRestart());
+
+  it("replaces a conflicting lock with a certified one and its certificate", () =>
+    supersedesAConflictingLockWithItsCertificate());
 });
 
 describe("endpoint record certification and delivery", () => {
@@ -967,6 +1092,11 @@ describe("endpoint record certification and delivery", () => {
 
   it("completes a local post intent without creating self-delivery", () =>
     completesLocalPostWithoutSelfDelivery());
+});
+
+describe("endpoint re-anchor candidates", () => {
+  it("refuses a candidate away from a head it holds a staged successor of", () =>
+    refusesAReanchorAwayFromAStagedSuccessor());
 });
 
 describe("endpoint durable Router outbox", () => {
