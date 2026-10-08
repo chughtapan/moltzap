@@ -8941,3 +8941,302 @@ describe("staged successors in recovery", () => {
 });
 
 /* eslint-enable max-lines, max-lines-per-function, max-statements, sonarjs/max-lines-per-function -- Restore repository defaults. */
+
+/**
+ * The remote member's POST proposal at the fixture's retained head.
+ * @param fixture Endpoint whose retained GENESIS record is the head.
+ * @returns A proposal the remote member authors, extending that head.
+ */
+const remoteProposalAtTheHead = (
+  fixture: RecoveryFixture,
+): Effect.Effect<ActionProposal> =>
+  Effect.gen(function* () {
+    const { recordCore, recordHash } =
+      fixture.certifiedRecord.actionCertifiedRecord;
+    const postIntent: PostIntent = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "post_intent",
+      conversationId: fixture.membership.descriptor.conversationId,
+      membershipHash: fixture.membership.hash,
+      authorAgentId: fixture.remote.card.agentId,
+      postId: yield* mintPostId(),
+      content: [{ type: "text", text: "proposed before the discontinuity" }],
+    };
+    const action: PostActionCore = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "POST",
+      conversationId: postIntent.conversationId,
+      membershipHash: fixture.membership.hash,
+      anchorHash: recordCore.anchorHash,
+      previousRecordHash: recordHash,
+      postIntent,
+      postIntentHash: yield* hashPostIntent(postIntent),
+    };
+    return {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "action_proposal",
+      action,
+    } satisfies ActionProposal;
+  }).pipe(Effect.orDie);
+
+/**
+ * Takes every envelope `outbound` holds and reads the action hash each action
+ * signature among them names.
+ * @param outbound Queue a fixture Router forwarded to.
+ * @returns The signed action hashes, in send order.
+ */
+const takeSignedActionHashes = (outbound: Queue.Queue<SignedMessage>) =>
+  Queue.takeAll(outbound).pipe(
+    Effect.flatMap((messages) =>
+      Effect.forEach(
+        messages,
+        (message) =>
+          openForwarded(message).pipe(
+            Effect.flatMap((body) =>
+              body.kind === "evidence"
+                ? decodeCanonical(EvidenceStatement, body.message.body)
+                : Effect.succeed(undefined),
+            ),
+          ),
+        { concurrency: 1 },
+      ),
+    ),
+    Effect.map((statements) =>
+      statements.flatMap((statement) =>
+        statement?.kind === "action_signature" ? [statement.actionHash] : [],
+      ),
+    ),
+    Effect.orDie,
+  );
+
+/**
+ * Retains the fixture's GENESIS record, has the local endpoint lock and sign
+ * the remote member's proposal at it, and sends that signature.
+ * @param fixture Endpoint that signs.
+ * @returns The proposal's action hash, and the action hashes the endpoint's
+ *     sent signatures name.
+ */
+const signARemoteProposal = (fixture: RecoveryFixture) =>
+  Effect.gen(function* () {
+    yield* retainCertifiedRecord(fixture);
+    const proposal = yield* remoteProposalAtTheHead(fixture);
+    yield* directPacketIngressFrom({
+      membership: fixture.membership,
+      sender: fixture.remote,
+      packet: proposal,
+      routerInstanceId: oldRouterInstanceId,
+    }).pipe(
+      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
+    );
+    yield* fixture.engine.drainOutbound;
+    return {
+      actionHash: yield* hashAction(proposal.action),
+      signed: yield* takeSignedActionHashes(fixture.normalOutbound),
+    };
+  }).pipe(Effect.orDie);
+
+/**
+ * The remote member asks for catch-up from genesis, and the local endpoint's
+ * answer is sent. The answer queues behind every envelope the endpoint queued
+ * before it and one outbound loop sends them in order, so once the answer is
+ * sent, so are they.
+ * @param fixture Endpoint that answers, its outbound loop running.
+ * @returns Completion once the answer reaches the fixture Router.
+ */
+const awaitAnswerToACatchUpRequest = (fixture: RecoveryFixture) =>
+  directPacketIngressFrom({
+    membership: fixture.membership,
+    sender: fixture.remote,
+    packet: peerCatchUpRequest(fixture),
+    routerInstanceId: oldRouterInstanceId,
+  }).pipe(
+    Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
+    Effect.zipRight(Queue.take(fixture.recoveryOutbound)),
+    Effect.flatMap((message) => openForwarded(message)),
+    Effect.filterOrDieMessage(
+      (body) => body.kind === "direct" && body.packet.kind === "catch_up_page",
+      "expected the answer to the catch-up request",
+    ),
+    Effect.asVoid,
+  );
+
+/**
+ * Runs one recovery of the fixture at its unchanged Router instance to
+ * completion: the remote member answers the endpoint's catch-up request as
+ * incomplete. Each step waits for the signal it needs, with no time bound of
+ * its own, so a loaded machine only slows it.
+ * @param fixture Endpoint under recovery.
+ * @param reason Discontinuity that started the recovery.
+ * @returns Completion once the recovery has completed.
+ */
+const recoverAtTheSameInstance = (
+  fixture: RecoveryFixture,
+  reason: RouterDiscontinuityReason,
+) =>
+  Effect.gen(function* () {
+    const { recovery, outbound } = yield* forkRecovery(
+      fixture,
+      reason,
+      oldRouterInstanceId,
+    );
+    const request = yield* Queue.take(outbound).pipe(
+      Effect.flatMap(decodeCatchUpRequest),
+    );
+    yield* deliverRecovery(
+      fixture.engine,
+      catchUpIncompleteIngress(fixture, request),
+    );
+    yield* Fiber.join(recovery);
+  });
+
+/**
+ * The local endpoint signs the remote member's proposal at its head and sends
+ * the signature. A discontinuity of `reason` follows, and recovery at the
+ * same Router instance completes by catch-up. Only a Router restart loses
+ * what the Router held, so only then does the endpoint send that signature
+ * again; after a feed gap it sends none. Fails when abandoning volatile folds
+ * stops re-arming their evidence on a Router restart, or re-arms it for every
+ * reason.
+ * @param reason Discontinuity the endpoint recovers from.
+ * @param resent Signatures for the proposal the endpoint sends again.
+ * @returns The trace, run to completion.
+ */
+const resendsItsSignatureForAHeldProposal = (
+  reason: RouterDiscontinuityReason,
+  resent: number,
+) =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const { actionHash, signed } = yield* signARemoteProposal(fixture);
+
+        yield* recoverAtTheSameInstance(fixture, reason);
+        yield* awaitAnswerToACatchUpRequest(fixture);
+        const signedAgain = yield* takeSignedActionHashes(
+          fixture.normalOutbound,
+        );
+
+        expect(signed).toEqual([actionHash]);
+        expect(
+          signedAgain.filter((hash) => hash === actionHash),
+          "signatures for the proposal sent after the recovery",
+        ).toHaveLength(resent);
+      }),
+    ),
+  );
+
+/**
+ * An outbox row the store holds at startup goes out once the restarted
+ * engine's outbound loop runs, with no send, ingress or recovery to wake the
+ * loop. Fails when the outbox ignores the rows the store retains, or does not
+ * wake its loop for them, so the row waits for unrelated traffic.
+ * @returns The trace, run to completion.
+ */
+const sendsARetainedOutboxRowAfterAColdStart = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const retained = yield* stageCatchUpOutbound(fixture);
+        const restarted = yield* makeEndpointEngine(fixture.input);
+
+        yield* restarted.runOutbound.pipe(Effect.orDie, Effect.forkScoped);
+        const sent = yield* Queue.take(fixture.recoveryOutbound);
+
+        expect(sent.messageId).toBe(retained.messageId);
+        expect((yield* fixture.store.recover()).outboundMessages).toEqual([]);
+      }),
+    ),
+  );
+
+/**
+ * Retains the fixture's certified record and writes its dissemination
+ * obligation with no outbox row attached, the state a crash between staging
+ * a record for dissemination and queueing its copy leaves an obligation in.
+ * @param fixture Endpoint whose store receives the rows.
+ * @returns Completion once the obligation is stored.
+ */
+const stageUnattachedDissemination = (fixture: RecoveryFixture) =>
+  retainCertifiedRecord(fixture).pipe(
+    Effect.zipRight(fixture.store.recover()),
+    Effect.flatMap(({ stagedRecords }) =>
+      Effect.fromNullable(stagedRecords[0]),
+    ),
+    Effect.flatMap((record) =>
+      fixture.store.stageRecordForDissemination(record),
+    ),
+    Effect.orDie,
+  );
+
+/**
+ * The store holds a record's dissemination obligation with no outbox row.
+ * The engine that starts over the store queues the record's action-certified
+ * copy for it at startup, so the copy goes out on the next drain without
+ * waiting for a Router recovery. Fails when startup leaves an obligation
+ * unattached.
+ * @returns The trace, run to completion.
+ */
+const sendsAnUnattachedObligationsCopyAfterAColdStart = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        yield* stageUnattachedDissemination(fixture);
+        const before = yield* fixture.store.recover();
+
+        const restarted = yield* makeEndpointEngine(fixture.input);
+        yield* restarted.drainOutbound;
+        const sent = yield* Effect.forEach(
+          yield* Queue.takeAll(fixture.normalOutbound),
+          (message) => openForwarded(message),
+          { concurrency: 1 },
+        );
+
+        expect(
+          before.disseminationObligations,
+          "unattached obligations before the restart",
+        ).toHaveLength(1);
+        expect(
+          sent.filter(
+            (body) =>
+              body.kind === "direct" &&
+              body.packet.kind === "action_certified_record",
+          ),
+          "action-certified copies the restarted engine sent",
+        ).toHaveLength(1);
+        expect(
+          (yield* fixture.store.recover()).disseminationObligations,
+        ).toEqual([]);
+      }),
+    ),
+  );
+
+/**
+ * Vitest's bound on each test below. A trace finishes in a few seconds even
+ * on a loaded machine, so only a hang reaches it.
+ */
+const RESUME_TEST_TIMEOUT_MS = 30_000;
+
+describe("evidence and outbox rows an engine resumes", () => {
+  it(
+    "sends its signature for a proposal it signed again after a Router restart recovery",
+    () => resendsItsSignatureForAHeldProposal("router_restarted", 1),
+    RESUME_TEST_TIMEOUT_MS,
+  );
+  it(
+    "sends no second signature for a proposal it signed after a feed-gap recovery",
+    () => resendsItsSignatureForAHeldProposal("feed_gap", 0),
+    RESUME_TEST_TIMEOUT_MS,
+  );
+  it(
+    "sends an outbox row the store retained once a restarted engine's loop runs",
+    sendsARetainedOutboxRowAfterAColdStart,
+    RESUME_TEST_TIMEOUT_MS,
+  );
+  it(
+    "queues the copy an unattached dissemination obligation owes when an engine starts",
+    sendsAnUnattachedObligationsCopyAfterAColdStart,
+    RESUME_TEST_TIMEOUT_MS,
+  );
+});
