@@ -1,17 +1,8 @@
 /** @file Three real daemons run gather operations end to end. */
 
-import type { AgentName } from "@moltzap/identity";
-import { Effect, Queue, Schema, type Scope, Stream } from "effect";
+import { Effect } from "effect";
 import { expect, it } from "vitest";
-import {
-  acquireHarnessEndpoint,
-  AgentAddress,
-  CollectiveError,
-  type HarnessEndpoint,
-  type InboundDelivery,
-  type InboundItem,
-  SendInput,
-} from "../src/index.js";
+import { CollectiveError } from "../src/index.js";
 import {
   acquireDaemonManagementClient,
   acquireDaemonProcess,
@@ -20,9 +11,16 @@ import {
   makeDaemonProcessFixture,
   makeRegistrationRequest,
   measuredDeadlineSeconds,
-  ProcessTestError,
   processTrace,
 } from "./daemon-process-harness.js";
+import {
+  groupAddress,
+  groupRound,
+  joinParticipant,
+  nextItem,
+  type Participant,
+  send,
+} from "./participants.js";
 
 /**
  * Each test starts PGlite, the Registry, the Router and three daemons, and the
@@ -45,17 +43,6 @@ const slotSchema = {
   required: ["slot"],
 } as const;
 
-/** One endpoint and the items its subscription has delivered, in order. */
-interface Participant {
-  readonly address: AgentAddress;
-  readonly endpoint: HarnessEndpoint;
-  readonly inbox: Queue.Queue<InboundDelivery>;
-}
-
-function directAddress(agentName: AgentName): AgentAddress {
-  return Schema.decodeUnknownSync(AgentAddress)(`agent:${agentName}`);
-}
-
 const registerFixture = (fixture: DaemonProcessFixture) =>
   Effect.scoped(
     acquireDaemonManagementClient(fixture.endpoint).pipe(
@@ -65,49 +52,13 @@ const registerFixture = (fixture: DaemonProcessFixture) =>
     ),
   );
 
-const joinParticipant = (
-  fixture: DaemonProcessFixture,
-): Effect.Effect<Participant, ProcessTestError, Scope.Scope> =>
-  Effect.gen(function* () {
-    const endpoint = yield* acquireHarnessEndpoint(fixture.endpoint).pipe(
-      Effect.mapError(
-        (cause) =>
-          new ProcessTestError({
-            message: "endpoint acquisition failed",
-            cause,
-          }),
-      ),
-    );
-    const inbox = yield* Queue.unbounded<InboundDelivery>();
-    yield* endpoint.messages.pipe(
-      Stream.runForEach((delivery) => Queue.offer(inbox, delivery)),
-      Effect.forkScoped,
-    );
-    return { address: directAddress(fixture.agentName), endpoint, inbox };
-  });
-
-/**
- * Take the participant's next item and acknowledge its delivery. It waits for
- * the item itself; the test's timeout bounds an item that never comes.
- */
-const nextItem = (participant: Participant) =>
-  Queue.take(participant.inbox).pipe(
-    Effect.tap((delivery) => delivery.acknowledge),
-    Effect.map((delivery): InboundItem => delivery.item),
-  );
-
-const send = (participant: Participant, input: unknown) =>
-  participant.endpoint.send(Schema.decodeUnknownSync(SendInput)(input));
-
 const gather = (
   requester: Participant,
   members: readonly Participant[],
   deadline: number,
 ) =>
   send(requester, {
-    to: `group:${[requester, ...members]
-      .map(({ address }) => address.slice("agent:".length))
-      .join(",")}`,
+    to: groupAddress([requester, ...members]),
     text: question,
     collective: { op: "gather", deadline, requestedSchema: slotSchema },
   });
@@ -207,18 +158,10 @@ const allAnsweredBehavior = Effect.gen(function* () {
 }).pipe(Effect.scoped);
 
 /**
- * A post from the requester to a group of every participant, received by each
- * member. The gather's requests go to direct conversations, which it leaves
+ * The deadline is measured on a post to the group of every participant. The
+ * gather's requests go to direct conversations, which that post leaves
  * untouched.
  */
-const groupRound = (requester: Participant, members: readonly Participant[]) =>
-  send(requester, {
-    to: `group:${[requester, ...members]
-      .map(({ address }) => address.slice("agent:".length))
-      .join(",")}`,
-    text: "one measured round",
-  }).pipe(Effect.zipRight(Effect.forEach(members, nextItem)));
-
 const silentMemberBehavior = Effect.gen(function* () {
   const { requester, first, second } = yield* acquireParticipants.pipe(
     Effect.flatMap(requireThree),

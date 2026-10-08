@@ -1,17 +1,8 @@
 /** @file A requester and three members run all_gather operations through four real daemons. */
 
-import type { AgentName } from "@moltzap/identity";
-import { Effect, Queue, Schema, type Scope, Stream } from "effect";
+import { Effect } from "effect";
 import { expect, it } from "vitest";
-import {
-  acquireHarnessEndpoint,
-  AgentAddress,
-  CollectiveError,
-  type HarnessEndpoint,
-  type InboundDelivery,
-  type InboundItem,
-  SendInput,
-} from "../src/index.js";
+import { CollectiveError } from "../src/index.js";
 import {
   acquireDaemonManagementClient,
   acquireDaemonProcess,
@@ -20,9 +11,15 @@ import {
   makeDaemonProcessFixture,
   makeRegistrationRequest,
   measuredDeadlineSeconds,
-  ProcessTestError,
   processTrace,
 } from "./daemon-process-harness.js";
+import {
+  groupRound,
+  joinParticipant,
+  nextItem,
+  type Participant,
+  send,
+} from "./participants.js";
 
 /**
  * Each test starts PGlite, the Registry, the Router and four daemons, and the
@@ -47,25 +44,6 @@ const slotSchema = {
   required: ["slot"],
 } as const;
 
-/** One endpoint and the items its subscription has delivered, in order. */
-interface Participant {
-  readonly address: AgentAddress;
-  readonly endpoint: HarnessEndpoint;
-  readonly inbox: Queue.Queue<InboundDelivery>;
-}
-
-/** The requester and the three members its all_gather group asks. */
-interface Participants {
-  readonly requester: Participant;
-  readonly first: Participant;
-  readonly second: Participant;
-  readonly third: Participant;
-}
-
-function directAddress(agentName: AgentName): AgentAddress {
-  return Schema.decodeUnknownSync(AgentAddress)(`agent:${agentName}`);
-}
-
 const registerFixture = (fixture: DaemonProcessFixture) =>
   Effect.scoped(
     acquireDaemonManagementClient(fixture.endpoint).pipe(
@@ -74,40 +52,6 @@ const registerFixture = (fixture: DaemonProcessFixture) =>
       ),
     ),
   );
-
-const joinParticipant = (
-  fixture: DaemonProcessFixture,
-): Effect.Effect<Participant, ProcessTestError, Scope.Scope> =>
-  Effect.gen(function* () {
-    const endpoint = yield* acquireHarnessEndpoint(fixture.endpoint).pipe(
-      Effect.mapError(
-        (cause) =>
-          new ProcessTestError({
-            message: "endpoint acquisition failed",
-            cause,
-          }),
-      ),
-    );
-    const inbox = yield* Queue.unbounded<InboundDelivery>();
-    yield* endpoint.messages.pipe(
-      Stream.runForEach((delivery) => Queue.offer(inbox, delivery)),
-      Effect.forkScoped,
-    );
-    return { address: directAddress(fixture.agentName), endpoint, inbox };
-  });
-
-/**
- * Take the participant's next item and acknowledge its delivery. It waits for
- * the item itself; the test's timeout bounds an item that never comes.
- */
-const nextItem = (participant: Participant) =>
-  Queue.take(participant.inbox).pipe(
-    Effect.tap((delivery) => delivery.acknowledge),
-    Effect.map((delivery): InboundItem => delivery.item),
-  );
-
-const send = (participant: Participant, input: unknown) =>
-  participant.endpoint.send(Schema.decodeUnknownSync(SendInput)(input));
 
 const allGather = (requester: Participant, to: string, deadline: number) =>
   send(requester, {
@@ -213,22 +157,11 @@ const allAnsweredBehavior = Effect.gen(function* () {
   expect(yield* nextItem(third)).toEqual(requesterResult);
 }).pipe(Effect.scoped);
 
-/** A post from the requester to the group, received by each member. */
-const groupRound = (participants: Participants) =>
-  send(participants.requester, { to: group, text: "one measured round" }).pipe(
-    Effect.zipRight(
-      Effect.all([
-        nextItem(participants.first),
-        nextItem(participants.second),
-        nextItem(participants.third),
-      ]),
-    ),
-  );
-
 const silentMemberBehavior = Effect.gen(function* () {
-  const participants = yield* acquireParticipants;
-  const { requester, first, second, third } = participants;
-  const deadline = yield* measuredDeadlineSeconds(groupRound(participants));
+  const { requester, first, second, third } = yield* acquireParticipants;
+  const deadline = yield* measuredDeadlineSeconds(
+    groupRound(requester, [first, second, third]),
+  );
 
   const started = yield* allGather(requester, group, deadline);
   yield* nextItem(first);
