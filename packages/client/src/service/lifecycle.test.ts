@@ -16,7 +16,7 @@ import {
   Schema,
 } from "effect";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { EventStore } from "../delivery/operations.js";
 import type { HarnessMcpEventHandler } from "../endpoint/mcp/tools.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
@@ -58,7 +58,15 @@ import { InboundItem } from "../transport/collectives/inbound.js";
 import { RouterWorkerTransportError } from "../transport/router/index.js";
 import { DaemonRuntimeError } from "./lifecycle.js";
 
-/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- The focused tests drive the official Promise-native MCP stream boundary. */
+/* eslint-disable max-lines, agent-code-guard/async-keyword, agent-code-guard/promise-type -- The focused tests drive the official Promise-native MCP stream boundary, and each daemon trace keeps its stages beside its assertions over one shared runtime harness. */
+
+/**
+ * Covers a test's stages plus one `daemon-runtime-harness.ts →
+ * STAGE_HANG_BOUND`, so a hung stage fails with its name first.
+ */
+const LIFECYCLE_TEST_TIMEOUT_MS = 60_000;
+
+vi.setConfig({ testTimeout: LIFECYCLE_TEST_TIMEOUT_MS });
 
 const withHistoryExport = (fixture: Fixture, path: string): Fixture => ({
   ...fixture,
@@ -1283,4 +1291,4 @@ describe("daemon activation", () => {
   );
 });
 
-/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type -- Restore repository defaults after the MCP lifecycle tests. */
+/* eslint-enable max-lines, agent-code-guard/async-keyword, agent-code-guard/promise-type -- Restore repository defaults after the MCP lifecycle tests. */

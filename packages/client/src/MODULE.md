@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./transport/collectives/forms.ts#L312)
+### [`CollectiveError`](./transport/collectives/forms.ts#L317)
 
 _Class_
 
@@ -128,7 +128,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L88)
+### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L103)
 
 _Class_
 
@@ -371,7 +371,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./transport/messaging/errors.ts#L67)
+### [`ListenError`](./transport/messaging/errors.ts#L82)
 
 _Class_
 
@@ -512,7 +512,7 @@ each data part as JSON, one part per line.
 
 **Returns:** The text a host puts in the model's turn.
 
-### [`SendError`](./transport/messaging/errors.ts#L51)
+### [`SendError`](./transport/messaging/errors.ts#L52)
 
 _Class_
 
@@ -564,7 +564,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./transport/collectives/forms.ts#L170)
+### [`SendResult`](./transport/collectives/forms.ts#L174)
 
 _Interface_
 

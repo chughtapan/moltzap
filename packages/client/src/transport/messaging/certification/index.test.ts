@@ -53,6 +53,7 @@ import {
   RouterWorkerDiscontinuityError,
   type RouterWorkerIngress,
   RouterWorkerPersistenceError,
+  RouterWorkerRecoveryError,
   type RouterWorkerSendError,
   RouterWorkerTransportError,
   RouterWorkerUnavailableError,
@@ -83,7 +84,7 @@ import {
   verifyMembershipDescriptor,
 } from "../../wire/index.js";
 import { MessageAddressInput } from "../../wire/values.js";
-import { SendError } from "../errors.js";
+import { queuedNetworkFailure, SendError } from "../errors.js";
 import { readStoredRecord } from "../history/index.js";
 import {
   type EndpointEngine,
@@ -122,7 +123,14 @@ interface ProtocolHarness {
 }
 
 const MEMBER_COUNT = 4;
-const TEST_TIMEOUT_MS = 30_000;
+/**
+ * Bounds a hang in one protocol trace; no assertion depends on it. A trace
+ * certifies up to three N4 posts, each about 1,760 sequential WebCrypto calls
+ * of signing, sealing and verifying, and these slow with machine load: the
+ * slowest traces took up to 11 s at a load average of 18 to 27 on 8 cores and
+ * passed 30 s at 35 to 46.
+ */
+const TEST_TIMEOUT_MS = 90_000;
 
 const routerInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
   identifier("rti_", 31),
@@ -292,6 +300,17 @@ function scriptedRouterWorker(
   };
 }
 
+/**
+ * Hands one message to each selected member at once, as separate endpoint
+ * processes receive it, so the members' WebCrypto round trips overlap instead
+ * of adding up. Each member still takes its deliveries in order, and the
+ * dispositions come back in member order.
+ * @param identities Every member, whose keys open the message.
+ * @param engines Every member's engine.
+ * @param selectedIndexes The members that receive the message.
+ * @param message The outer message Router delivers.
+ * @returns Each selected member's disposition, in member order.
+ */
 function deliverIngress(
   identities: readonly ProtocolIdentity[],
   engines: readonly EndpointEngine[],
@@ -311,7 +330,7 @@ function deliverIngress(
           ),
         ),
       ),
-    { concurrency: 1 },
+    { concurrency: selectedIndexes.length },
   );
 }
 
@@ -452,13 +471,11 @@ function sendInput(
 
 function takeReadyBatch(harness: ProtocolHarness) {
   return Queue.take(harness.outbound).pipe(
-    Effect.timeout("1 second"),
     Effect.flatMap((first) =>
       Queue.takeAll(harness.outbound).pipe(
         Effect.map((remaining) => [first, ...remaining]),
       ),
     ),
-    Effect.orDie,
   );
 }
 
@@ -663,10 +680,7 @@ function certifyGenesisOf(
     }
     yield* pump(harness, initial);
     expect(yield* certifiedRecordCounts(harness)).toEqual([1, 1, 1, 1]);
-    const sent = yield* Fiber.join(sending).pipe(
-      Effect.timeout("1 second"),
-      Effect.orDie,
-    );
+    const sent = yield* Fiber.join(sending).pipe(Effect.orDie);
     return sent.recordHash;
   });
 }
@@ -907,14 +921,8 @@ function adoptsAnActionCertificateOverItsOwnLock() {
         yield* harness.deliver(signatures);
         yield* harness.drain();
         yield* pump(harness, yield* takeQueued(harness), silent.card.agentId);
-        yield* Fiber.join(winning).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
-        yield* Fiber.join(losing).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(winning).pipe(Effect.orDie);
+        yield* Fiber.join(losing).pipe(Effect.orDie);
 
         const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
         expect(pending.map(({ message }) => message.content)).toEqual([
@@ -1050,14 +1058,8 @@ function adoptsACertifiedRecordOverItsOwnLock() {
         const adopted = yield* harness.deliver([winnerCertifiedRecord], [1]);
         yield* harness.drain([1]);
         yield* pump(harness, yield* takeQueued(harness));
-        yield* Fiber.join(winning).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
-        yield* Fiber.join(losing).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(winning).pipe(Effect.orDie);
+        yield* Fiber.join(losing).pipe(Effect.orDie);
 
         expect(adopted).toEqual(["accepted"]);
         const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
@@ -1341,10 +1343,7 @@ function sendsTwoPlusThreeNMessagesPerPost() {
         );
 
         const delivered = yield* pump(harness, yield* takeReadyBatch(harness));
-        yield* Fiber.join(sending).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(sending).pipe(Effect.orDie);
 
         const kinds = yield* Effect.forEach(
           delivered,
@@ -1406,10 +1405,7 @@ function certifiesFromActionCertifiedCopiesAfterMissingTheSignatures() {
         yield* harness.deliver(yield* takeQueued(harness), present);
         yield* harness.drain(present);
         const delivered = yield* pump(harness, yield* takeQueued(harness));
-        yield* Fiber.join(sending).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(sending).pipe(Effect.orDie);
 
         const pending = yield* returning
           .readPendingMessages()
@@ -1495,10 +1491,7 @@ function certifiesPastAVoteSealedAwayFromOneMember() {
           [2],
         );
         yield* harness.drain();
-        yield* Fiber.join(sendingFirst).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(sendingFirst).pipe(Effect.orDie);
 
         const sendingSecond = yield* Effect.fork(
           author.send(yield* sendInput(harness, "second post")),
@@ -1508,10 +1501,7 @@ function certifiesPastAVoteSealedAwayFromOneMember() {
         yield* harness.deliver(yield* vote(second), [2]);
         yield* harness.drain([2]);
         yield* pump(harness, yield* takeQueued(harness), faulty.card.agentId);
-        yield* Fiber.join(sendingSecond).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(sendingSecond).pipe(Effect.orDie);
 
         const laggingEngine = yield* requireAt(
           harness.engines,
@@ -1841,12 +1831,17 @@ function ordersCompetingProposalsBeforeActionVotes(input: {
   );
 }
 
+/**
+ * A host repeats a send with identical input once the first has certified.
+ * The first invocation opens the conversation with its GENESIS and the second
+ * proposes a POST at that head, and each proposal carries its own PostId.
+ * Fails when identical input reuses a PostId.
+ */
 function givesIdenticalHostInvocationsDistinctPostIds() {
   return Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         const harness = yield* makeProtocolHarness();
-        yield* certifyGenesis(harness);
         const author = yield* requireAt(harness.engines, 0, "endpoint engine");
         const input = yield* sendInput(harness, "repeat intentionally");
 
@@ -1854,34 +1849,23 @@ function givesIdenticalHostInvocationsDistinctPostIds() {
         const firstBatch = yield* takeReadyBatch(harness);
         const firstProposal = yield* requireAt(
           firstBatch,
-          1,
+          0,
           "first repeated proposal",
         ).pipe(
           Effect.flatMap((message) => decodeActionProposal(harness, message)),
         );
         yield* pump(harness, firstBatch);
-        yield* Fiber.join(firstSending).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
-
-        const secondSending = yield* Effect.fork(author.send(input));
-        const secondBatch = yield* takeReadyBatch(harness);
-        const secondProposal = yield* requireAt(
-          secondBatch,
-          1,
-          "second repeated proposal",
-        ).pipe(
+        yield* Fiber.join(firstSending).pipe(Effect.orDie);
+        yield* Effect.forkScoped(author.send(input));
+        const secondProposal = yield* takeReadyBatch(harness).pipe(
+          Effect.flatMap((batch) =>
+            requireAt(batch, 1, "second repeated proposal"),
+          ),
           Effect.flatMap((message) => decodeActionProposal(harness, message)),
         );
 
         expect(secondProposal.action.postIntent.postId).not.toBe(
           firstProposal.action.postIntent.postId,
-        );
-        yield* pump(harness, secondBatch);
-        yield* Fiber.join(secondSending).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
         );
       }),
     ),
@@ -1952,10 +1936,7 @@ function sealsEveryOuterBodyOfAPost(memberCount: number) {
         );
 
         const delivered = yield* pump(harness, yield* takeReadyBatch(harness));
-        yield* Fiber.join(sending).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(sending).pipe(Effect.orDie);
 
         expect(yield* certifiedRecordCounts(harness)).toEqual(
           harness.identities.map(() => 1),
@@ -2031,10 +2012,7 @@ function reappendedOuterMessagesYieldOnePost() {
           ...proposalBatch,
           ...(yield* takeQueued(harness)),
         ]);
-        const sent = yield* Fiber.join(sending).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        const sent = yield* Fiber.join(sending).pipe(Effect.orDie);
 
         yield* pump(harness, transcript);
 
@@ -2241,6 +2219,10 @@ function sendHeldUntilAttached(): Effect.Effect<void, never, Scope.Scope> {
   });
 }
 
+/**
+ * A send whose worker never attaches queues nothing, so it fails with the
+ * plain `network-unavailable` rather than the queued one.
+ */
 function sendFailsAfterAttachBound(): Effect.Effect<void, never, Scope.Scope> {
   return Effect.gen(function* () {
     const harness = yield* makeProtocolHarness({ attachment: neverAttaches });
@@ -2437,9 +2419,7 @@ function transientTransmitFailureLeavesOutboundLoopAlive(
     const sendResult = yield* author
       .send(yield* sendInput(harness, "router restarts mid-drain"))
       .pipe(Effect.flip, Effect.orDie);
-    expect(sendResult).toStrictEqual(
-      new SendError({ reason: "network-unavailable" }),
-    );
+    expect(sendResult).toStrictEqual(queuedNetworkFailure());
     yield* advanceClock(OUTAGE_SPAN);
     yield* expectDrainedAlive(harness, attempts, fatal);
   });
@@ -2527,17 +2507,17 @@ function blackHolesFirstTransmit(
 }
 
 /**
- * The local send's drain bound, after which it answers `network-unavailable`,
- * mirroring the private `index.ts → LOCAL_DRAIN_TIMEOUT`.
+ * The local send's drain bound, after which it fails as queued, mirroring the
+ * private `index.ts → LOCAL_DRAIN_TIMEOUT`.
  */
 const DRAIN_BOUND = Duration.seconds(10);
 
 /**
  * A black-holed transmit holds the local send's drain: the send is still
- * pending one second short of `DRAIN_BOUND` and answers `network-unavailable`
- * one second past it. The background drain then delivers the envelope the
- * interrupted transmit left begun, exactly once however often the queue
- * drains afterwards.
+ * pending one second short of `DRAIN_BOUND` and fails as queued one second
+ * past it. The background drain then delivers the envelope the interrupted
+ * transmit left begun, exactly once however often the queue drains
+ * afterwards.
  */
 function blackHoledTransmitBoundsTheSend(): Effect.Effect<
   void,
@@ -2563,7 +2543,7 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
     yield* advanceClock(Duration.seconds(2));
     expect(
       yield* Fiber.join(sending).pipe(Effect.flip, Effect.orDie),
-    ).toStrictEqual(new SendError({ reason: "network-unavailable" }));
+    ).toStrictEqual(queuedNetworkFailure());
     yield* superviseOutbound(author, fatal);
     yield* advanceClock(Duration.seconds(1));
     yield* author.drainOutbound.pipe(Effect.orDie);
@@ -2616,7 +2596,10 @@ function serializedSlowTransmit(
 
 /**
  * A local send's drain and the background drain run at once over the same
- * queue head. Both transmit it, and the outbox row still goes out once.
+ * queue head. Both transmit it, and the outbox row still goes out once. The
+ * first transmit holds the gate on a TestClock sleep, and the second counts
+ * itself before it takes the gate, so both transmits are counted before the
+ * clock moves.
  */
 function concurrentDrainsSendEachOutboxOnce(): Effect.Effect<
   void,
@@ -2637,7 +2620,9 @@ function concurrentDrainsSendEachOutboxOnce(): Effect.Effect<
     const sending = yield* Effect.fork(
       author.send(yield* sendInput(harness, "drained twice at once")),
     );
-    yield* untilLive(Ref.get(transmits).pipe(Effect.map((count) => count > 0)));
+    yield* untilLive(
+      Ref.get(transmits).pipe(Effect.map((count) => count >= 2)),
+    );
     yield* advanceClock(Duration.seconds(1));
     expect(yield* Ref.get(transmits)).toBe(2);
     expect(yield* Queue.size(harness.outbound)).toBe(1);
@@ -2708,9 +2693,10 @@ function detachesOnFirstTransmit(
 }
 
 /**
- * What a host sees when the Router drops during its send: the send returns
- * `network-unavailable` promptly, the outbound loop stays up, and the durably queued
- * envelope goes out and certifies once the worker re-anchors.
+ * What a host sees when the Router drops during its send: the send fails
+ * promptly with a `network-unavailable` whose text says the post is queued,
+ * the outbound loop stays up, and the durably queued envelope goes out and
+ * certifies once the worker re-anchors.
  */
 function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
   return Effect.gen(function* () {
@@ -2724,9 +2710,7 @@ function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
     const failure = yield* author
       .send(yield* sendInput(harness, "sent during outage"))
       .pipe(Effect.flip, Effect.orDie);
-    expect(failure).toStrictEqual(
-      new SendError({ reason: "network-unavailable" }),
-    );
+    expect(failure).toStrictEqual(queuedNetworkFailure());
     yield* advanceClock(OUTAGE_SPAN);
     expect(yield* Queue.size(harness.outbound)).toBe(0);
     expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
@@ -2753,7 +2737,7 @@ function onTestClock(
 
 describe("a local send during a Router outage", () => {
   it(
-    "returns network-unavailable at once and delivers the post after re-attachment",
+    "fails at once saying the post is queued and delivers it after re-attachment",
     () => Effect.runPromise(onTestClock(localSendDuringOutage())),
     TEST_TIMEOUT_MS,
   );
@@ -3026,6 +3010,34 @@ function persistenceFailureEndsTheOutboundLoop(): Effect.Effect<
   });
 }
 
+/**
+ * The author's worker fails every transmit because its recovery failed, which
+ * stops the outbound loop. The send's post is queued, but no loop delivers
+ * it, so the send fails with the plain `network-unavailable` rather than the
+ * queued one. Fails when a fatal worker failure says the post is on its way.
+ * @returns The scenario, before its scope closes.
+ */
+function failedRecoveryFailsASendAsUnqueued(): Effect.Effect<
+  void,
+  never,
+  Scope.Scope
+> {
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness({
+      authorSend: () => () => Effect.fail(new RouterWorkerRecoveryError()),
+    });
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+
+    const failure = yield* author
+      .send(yield* sendInput(harness, "recovery failed"))
+      .pipe(Effect.flip, Effect.orDie);
+
+    expect(failure).toStrictEqual(
+      new SendError({ reason: "network-unavailable" }),
+    );
+  });
+}
+
 describe("engine faults while staging and sending", () => {
   it(
     "keeps a staged record's copy and fold together when its acceptance is interrupted",
@@ -3044,6 +3056,11 @@ describe("engine faults while staging and sending", () => {
     "ends the outbound loop with a persistence failure the worker cannot retry",
     () =>
       Effect.runPromise(onTestClock(persistenceFailureEndsTheOutboundLoop())),
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "fails a send without the queued text when the worker's recovery failed",
+    () => Effect.runPromise(onTestClock(failedRecoveryFailsASendAsUnqueued())),
     TEST_TIMEOUT_MS,
   );
 });

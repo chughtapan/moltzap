@@ -289,6 +289,12 @@ an hour past its deadline while it waits for the close. A member that first
 receives the request after its deadline, within that hour, keeps it without
 presenting it, so it still applies the close and emits the result.
 
+When a gather or all_gather request post, or an all_gather close, fails as
+queued (a `network-unavailable` whose text says the message is queued), the
+operation reports that post refused or uncertified as stated above, yet the
+daemon still delivers the post later
+([moltzap#1230](https://github.com/chughtapan/moltzap/issues/1230)).
+
 The operation travels in the post's content. Client certifies `text` as a
 `text` part followed by one `data` part whose value is an object with the key
 `xyz.moltzap/collective`. For a multicast that value is exactly
@@ -415,11 +421,12 @@ handoff can replay; the runtime does not track processing completion.
 
 `CollectiveError` carries the operation's `id` and one `failure`, keyed by
 `kind`: `members-unreachable` with each refused member and its `SendError`
-reason, `schema-invalid` with a detail naming each failing path and the
-form-mode shape it expects, `answer-invalid` with each failing field and
-whether it is missing, unexpected or invalid, `request-none`,
-`request-ambiguous`, `request-answered`, or `request-expired`. Its message names the members,
-schema paths or fields, so a host hands it to its model as the tool error.
+reason and any detail, `schema-invalid` with a detail naming each failing path
+and the form-mode shape it expects, `answer-invalid` with each failing field
+and whether it is missing, unexpected or invalid, `request-none`,
+`request-ambiguous`, `request-answered`, or `request-expired`. Its message
+names the members, schema paths or fields, so a host hands it to its model as
+the tool error.
 
 `SendError.reason` is exactly one of:
 
@@ -439,7 +446,10 @@ A `SendError` or collective refusal message is the failed action, then its
 cause: `send failed: agent:dana is not a known agent`, or `reply failed: the
 question's deadline has passed`. It names the specific input when the failing
 step knows it and states no remedy. A failed send was not sent, except
-`outcome-unknown`, whose text says the message may have been sent.
+`outcome-unknown`, whose text says the message may have been sent, and a
+`network-unavailable` whose text says the message is queued: that send failed
+after durably queueing its post, when its drain timed out or lost the Router,
+and the daemon delivers the post once the Router is reachable.
 
 `ListenError.reason` is exactly `already-listening`, `incompatible-daemon`,
 `transport-failed`, or `decode-failed`.

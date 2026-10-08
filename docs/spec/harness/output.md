@@ -126,7 +126,8 @@ Retrying a keyless send can create another post.
 It returns its structured result once the send completes. A multicast has no
 operation id, so its result is `{}`; a gather's or all_gather's result names its id,
 and a response's names the request it answered. A refused send is a JSON-RPC
-error whose data is `{reason}` with the `SendError` reason, or
+error whose data is `{reason, detail?}` with the `SendError` reason and
+detail, or
 `{reason: "collective-failed", id, failure}` with the `CollectiveError`
 failure, from which the loopback Client rebuilds the same typed error. It is
 not exposed as a second model messaging tool when the host already supplies

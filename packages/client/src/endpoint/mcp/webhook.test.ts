@@ -6,13 +6,14 @@ import {
   HttpClientResponse,
 } from "@effect/platform";
 import {
+  Clock,
+  Context,
   Deferred,
+  Duration,
   Effect,
   Fiber,
   Match,
   Schema,
-  TestClock,
-  TestContext,
 } from "effect";
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -148,6 +149,47 @@ const fixture = (store: EndpointStore) => {
   };
 };
 
+/** Moves the clock of a scenario that runs `onSteppedClock`. */
+class SteppedClock extends Context.Tag("SteppedClock")<
+  SteppedClock,
+  (span: Duration.DurationInput) => Effect.Effect<void>
+>() {}
+
+/** Moves the clock of the running scenario by `span`, at once. */
+const stepClock = (span: Duration.DurationInput) =>
+  Effect.flatMap(SteppedClock, (step) => step(span));
+
+/**
+ * Runs `scenario` on its own clock, starting at the epoch, which only
+ * `stepClock` moves, at once. These scenarios only read the time, and the
+ * clock's sleeps never end because a scripted callback answers before its
+ * bound.
+ * @param scenario Scenario that reads and steps the clock.
+ * @returns The scenario on a fresh stepped clock.
+ */
+const onSteppedClock = <Value, Failure>(
+  scenario: Effect.Effect<Value, Failure, SteppedClock>,
+): Effect.Effect<Value, Failure> =>
+  Effect.suspend(() => {
+    let millis = 0;
+    const clock: Clock.Clock = {
+      [Clock.ClockTypeId]: Clock.ClockTypeId,
+      unsafeCurrentTimeMillis: () => millis,
+      currentTimeMillis: Effect.sync(() => millis),
+      unsafeCurrentTimeNanos: () => BigInt(millis) * 1_000_000n,
+      currentTimeNanos: Effect.sync(() => BigInt(millis) * 1_000_000n),
+      sleep: () => Effect.never,
+    };
+    return scenario.pipe(
+      Effect.withClock(clock),
+      Effect.provideService(SteppedClock, (span) =>
+        Effect.sync(() => {
+          millis += Duration.toMillis(span);
+        }),
+      ),
+    );
+  });
+
 const signsVerifiesAndRotates = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -181,7 +223,7 @@ const signsVerifiesAndRotates = () =>
         };
         expect((yield* events.subscribe(rotated, "runtime")).id).toBe(grant.id);
         test.challenge(false);
-        yield* TestClock.adjust("11 minutes");
+        yield* stepClock("11 minutes");
         expect(
           (yield* events.subscribe(input, "runtime").pipe(Effect.flip)).code,
         ).toBe(-32015);
@@ -195,7 +237,7 @@ const signsVerifiesAndRotates = () =>
           (yield* readRuntimeEvent(store, eventIdOf(token(1)))).item,
         ).toEqual(item());
       }),
-    ).pipe(Effect.provide(TestContext.TestContext)),
+    ).pipe(onSteppedClock),
   );
 
 const retainsTerminalRejections = () =>
@@ -215,7 +257,7 @@ const retainsTerminalRejections = () =>
           test.status(200);
           yield* restarted.subscribe(input, "runtime");
           expect((yield* restarted.resume.pipe(Effect.flip)).code).toBe(-32014);
-          yield* TestClock.adjust("1 day");
+          yield* stepClock("1 day");
           yield* restarted.subscribe(input, "runtime");
           yield* restarted.observe();
           expect(test.posts).toHaveLength(4);
@@ -226,7 +268,7 @@ const retainsTerminalRejections = () =>
           expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
         }
       }),
-    ).pipe(Effect.provide(TestContext.TestContext)),
+    ).pipe(onSteppedClock),
   );
 
 const verifiesRotatedSecret = () =>
@@ -255,7 +297,7 @@ const verifiesRotatedSecret = () =>
         yield* events.subscribe(rotated, "runtime");
         expect(test.posts).toHaveLength(3);
       }),
-    ).pipe(Effect.provide(TestContext.TestContext)),
+    ).pipe(onSteppedClock),
   );
 
 const permitsReadAndRevokeDuringDelivery = () =>
@@ -317,7 +359,7 @@ const refreshPreservesTerminalReceipt = () =>
         expect((yield* events.status).stalled).toBe("terminal");
         expect((yield* store.readInboxSummary()).pendingCount).toBe(1);
       }),
-    ).pipe(Effect.provide(TestContext.TestContext)),
+    ).pipe(onSteppedClock),
   );
 
 const retriesAcrossRestart = () => {
@@ -338,7 +380,7 @@ const retriesAcrossRestart = () => {
           expect((yield* store.readInboxSummary()).pendingCount).toBe(1);
         }),
       );
-      yield* TestClock.adjust("3 seconds");
+      yield* stepClock("3 seconds");
       yield* Effect.scoped(
         Effect.gen(function* () {
           const store = yield* openEndpointStore(path);
@@ -350,7 +392,7 @@ const retriesAcrossRestart = () => {
             eventIdOf(token(1)),
           );
           expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
-          yield* TestClock.adjust("10 minutes");
+          yield* stepClock("10 minutes");
           yield* events.observe();
           expect(test.posts).toHaveLength(1);
         }),
@@ -363,7 +405,7 @@ const retriesAcrossRestart = () => {
           ).toEqual(item());
         }),
       );
-    }).pipe(Effect.provide(TestContext.TestContext)),
+    }).pipe(onSteppedClock),
   );
 };
 
@@ -377,17 +419,18 @@ const resumesExhaustedCallbacks = () =>
         yield* enqueue(store, 1);
         yield* events.subscribe(input, "runtime");
         test.status(503);
-        for (let attempt = 0; attempt < 99; attempt += 1) {
-          yield* events.observe();
-          yield* TestClock.adjust("5 minutes");
-        }
+        yield* Effect.replicateEffect(
+          events.observe().pipe(Effect.zipRight(stepClock("5 minutes"))),
+          99,
+          { discard: true },
+        );
         expect((yield* events.status).stalled).toBeNull();
         yield* events.observe();
         expect((yield* events.status).stalled).toBe("callback");
         expect((yield* store.readInboxSummary()).pendingCount).toBe(1);
         const restarted = yield* test.acquire;
         test.status(200);
-        yield* TestClock.adjust("5 minutes");
+        yield* stepClock("5 minutes");
         yield* restarted.observe();
         expect(test.posts).toHaveLength(101);
         yield* restarted.resume;
@@ -397,7 +440,7 @@ const resumesExhaustedCallbacks = () =>
         expect((yield* events.status).pendingCount).toBe(0);
         expect((yield* restarted.status).stalled).toBeNull();
       }),
-    ).pipe(Effect.provide(TestContext.TestContext)),
+    ).pipe(onSteppedClock),
   );
 
 const boundsPayloadAndDrains = () =>
@@ -426,13 +469,13 @@ const boundsPayloadAndDrains = () =>
         ).toEqual(item(large));
         expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
         yield* enqueue(store, 55);
-        yield* TestClock.adjust("1 day");
+        yield* stepClock("1 day");
         yield* events.observe();
         expect((yield* events.status).mode).toBe("webhook");
         expect(events.hasActiveSubscription()).toBe(false);
         expect((yield* store.readInboxSummary()).pendingCount).toBe(1);
       }),
-    ).pipe(Effect.provide(TestContext.TestContext)),
+    ).pipe(onSteppedClock),
   );
 
 const removesRetiredOccurrence = () =>
@@ -468,7 +511,7 @@ const removesRetiredOccurrence = () =>
           )).reason,
         ).toBe("unknown-event");
       }),
-    ).pipe(Effect.provide(TestContext.TestContext)),
+    ).pipe(onSteppedClock),
   );
 
 const rejectsUnsafeCallbacks = () =>

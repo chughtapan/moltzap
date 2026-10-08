@@ -2,7 +2,7 @@
 
 import { Data, ParseResult, Schema } from "effect";
 import {
-  type SendFailure,
+  type SendError,
   sendFailureReasons,
   sendFailureText,
 } from "../messaging/errors.js";
@@ -158,11 +158,15 @@ export type SendInput = typeof SendInput.Type;
  */
 export type FailureDelivery = "result" | "inbound";
 
-/** Members a send could not reach, each with its send failure's reason. */
+/**
+ * Members a send could not reach, each with its send failure's reason and,
+ * when the failure has one, its detail, such as that the post is queued.
+ */
 const unreachableMembers = Schema.NonEmptyArray(
   exactStruct({
     member: AgentAddress,
     reason: Schema.Literal(...sendFailureReasons),
+    detail: Schema.optionalWith(Schema.String, { exact: true }),
   }),
 );
 
@@ -212,13 +216,14 @@ export type CollectiveFailure = typeof collectiveFailure.Type;
 export const decodeCollectiveFailure = Schema.decodeUnknown(collectiveFailure);
 
 /**
- * The text of an all_gather whose close could not be certified: no member
- * received a result, so the question ended without one.
- * @param reason Why the close post failed.
+ * The text of an all_gather whose close was not certified, so the asker has
+ * no result. A close refused before it was queued reaches no member; a queued
+ * close reaches them once MoltZap is reachable, and its detail says so.
+ * @param error Why the close post failed.
  * @returns The `operationFailed` text the asker's model reads.
  */
-export function closeFailureText(reason: SendFailure): string {
-  return `all_gather failed: the result could not be shared with the group: ${sendFailureText[reason]}`;
+export function closeFailureText(error: SendError): string {
+  return `all_gather failed: the result could not be shared with the group: ${error.detail ?? sendFailureText[error.reason]}`;
 }
 
 /**
@@ -269,10 +274,10 @@ function describeCollectiveFailure(failure: CollectiveFailure): string {
   switch (failure.kind) {
     case "members-unreachable":
       return `send failed: ${failure.members
-        .map(({ member, reason }) =>
+        .map(({ member, reason, detail }) =>
           reason === "unknown-agent"
             ? `${member} is not a known agent`
-            : `${member} could not be reached: ${sendFailureText[reason]}`,
+            : `${member} could not be reached: ${detail ?? sendFailureText[reason]}`,
         )
         .join("; ")}`;
     case "schema-invalid":

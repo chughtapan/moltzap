@@ -34,7 +34,7 @@ import {
   slotSchema,
   unkeptEmit,
 } from "../../__tests__/collective-operation-fixtures.js";
-import { SendError } from "../messaging/errors.js";
+import { queuedNetworkFailure, SendError } from "../messaging/errors.js";
 import { InboundMessage } from "../messaging/message.js";
 import { CollectiveEmitError } from "./forms.js";
 import { collectiveIdOf } from "./part/index.js";
@@ -43,6 +43,10 @@ const group = "group:alice,bob,carol";
 const groupMembers = ["agent:alice", "agent:bob", "agent:carol"];
 const requestId = collectiveIdOf(alice, requestNonce);
 const otherId = `col_${"B".repeat(43)}`;
+
+/** What a send that failed after queueing its post says about it. */
+const queuedText =
+  "MoltZap is unavailable (network unavailable); the message is queued and will be delivered once MoltZap is reachable";
 
 /**
  * An emit port that records each item and resolves `emitted` on the first,
@@ -209,6 +213,25 @@ function namesEveryMemberWithThePostReasonWhenTheGroupPostIsRefused() {
           { member: "agent:carol", reason: "network-unavailable" },
         ],
       });
+    }),
+  );
+}
+
+/**
+ * A group post that failed after it was queued still reaches the group, so
+ * the refusal says so for every member rather than that it was not sent.
+ */
+function saysEveryMemberIsStillSentAQueuedGroupPost() {
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(newObserved(), {
+        sendPost: () => Effect.fail(queuedNetworkFailure()),
+      });
+      const refusal = yield* Effect.flip(send(layer, allGatherInput()));
+
+      expect(refusal.message).toBe(
+        `send failed: agent:bob could not be reached: ${queuedText}; agent:carol could not be reached: ${queuedText}`,
+      );
     }),
   );
 }
@@ -489,6 +512,39 @@ function reportsACloseThatCannotBeCertifiedAsAFailedOperation() {
           to: group,
           error:
             "all_gather failed: the result could not be shared with the group: MoltZap is unavailable (network unavailable)",
+        },
+      ]);
+    }),
+  );
+}
+
+/**
+ * A close that failed after it was queued still reaches the group, so the
+ * asker's failure says so rather than that no member will see a result.
+ */
+function saysAQueuedCloseWillStillReachTheGroup() {
+  const observed = newObserved();
+
+  return run(
+    Effect.gen(function* () {
+      const emitted = yield* Deferred.make<undefined>();
+      const layer = yield* makeLayer(observed, {
+        ...signalEmitted(observed, emitted),
+        sendPost: (input) =>
+          observed.sent.length === 0
+            ? certifyNext(observed, input)
+            : Effect.fail(queuedNetworkFailure()),
+      });
+      const id = yield* startAllGather(layer);
+      yield* TestClock.adjust(Duration.seconds(60));
+      yield* Deferred.await(emitted);
+
+      expect(observed.emitted).toEqual([
+        {
+          kind: "operationFailed",
+          id,
+          to: group,
+          error: `all_gather failed: the result could not be shared with the group: ${queuedText}`,
         },
       ]);
     }),
@@ -955,6 +1011,17 @@ describe("all_gather at the requester", () => {
   it(
     "reports a close that cannot be certified as a failed operation",
     reportsACloseThatCannotBeCertifiedAsAFailedOperation,
+  );
+});
+
+describe("all_gather posts that failed once queued", () => {
+  it(
+    "says every member is still sent a group post that failed once queued",
+    saysEveryMemberIsStillSentAQueuedGroupPost,
+  );
+  it(
+    "says a close that failed once queued will still reach the group",
+    saysAQueuedCloseWillStillReachTheGroup,
   );
 });
 

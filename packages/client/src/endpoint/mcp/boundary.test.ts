@@ -366,6 +366,17 @@ const sendInput = Schema.decodeUnknownSync(SendInput)({
 });
 const sendResult = {};
 
+/**
+ * Bounds a hang in a boundary trace that starts servers and endpoints and
+ * makes MCP requests one after another; no assertion depends on it. The
+ * send-validation trace starts three servers and three endpoints and, as the
+ * file's first, pays the MCP and endpoint stack's warm-up: it took 1.4 to
+ * 5.2 s at a load average of 30 to 42 on 8 cores. The bookkeeping trace's
+ * sequential requests took 2.6 to 4.6 s there. Both have timed out at the
+ * 5 s default.
+ */
+const MCP_TRACE_TIMEOUT_MS = 30_000;
+
 const distinguishesSendValidationFailures = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -729,6 +740,7 @@ describe("Harness MCP HTTP boundary", () => {
   it(
     "keeps dispatch and invalid output distinct from rejected send input",
     distinguishesSendValidationFailures,
+    MCP_TRACE_TIMEOUT_MS,
   );
   it(
     "carries a refusal's detail across the daemon boundary",
@@ -745,6 +757,7 @@ describe("Harness MCP HTTP boundary", () => {
   it(
     "rejects bookkeeping in model arguments and validates runtime metadata",
     rejectsSendBookkeepingArguments,
+    MCP_TRACE_TIMEOUT_MS,
   );
   it("advertises the event descriptor before registration", () =>
     advertisesEventsBeforeRegistration());

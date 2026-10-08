@@ -2,7 +2,7 @@
 
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
 import { AgentCard, type AgentName } from "@moltzap/identity";
-import { Duration, Effect, Fiber, Option, Schema, Stream } from "effect";
+import { Effect, Fiber, Option, Schema, Stream } from "effect";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
 import {
@@ -13,8 +13,12 @@ import {
   acquireHarnessEndpoint,
   AgentAddress,
   type Content,
+  type HarnessEndpoint,
   type InboundDelivery,
+  SendError,
+  type SendInput,
 } from "../src/index.js";
+import { queuedNetworkFailure } from "../src/transport/messaging/errors.js";
 import {
   acquireDaemonManagementClient,
   acquireDaemonProcess,
@@ -25,9 +29,17 @@ import {
   makeRegistrationRequest,
   ProcessTestError,
   stopProcess,
+  processTrace,
 } from "./daemon-process-harness.js";
 
-const DELIVERY_TIMEOUT = Duration.seconds(60);
+/**
+ * Each test starts PGlite, the Registry, the Router and two daemons, and two
+ * of them restart a daemon. Beside a second full Client suite and another
+ * integration file (load average 17 to 32 on 8 cores) the restart test has
+ * taken 62 to 163 seconds, most of it process startup. The limit is the only
+ * wall-clock bound these traces set themselves.
+ */
+const PROCESS_TEST_TIMEOUT_MS = 180_000;
 const initialText = "hello from the first real daemon";
 const responseText = "addressed response from the second real daemon";
 const multicastPart = {
@@ -59,16 +71,35 @@ function requireDelivery(
   });
 }
 
+/** The next delivery on `stream`. */
 function nextDelivery<E>(stream: Stream.Stream<InboundDelivery, E>) {
-  return Stream.runHead(stream).pipe(
-    Effect.timeoutFail({
-      duration: DELIVERY_TIMEOUT,
-      onTimeout: () =>
-        new ProcessTestError({
-          message: "timed out awaiting certified delivery",
-        }),
-    }),
-    Effect.flatMap(requireDelivery),
+  return Stream.runHead(stream).pipe(Effect.flatMap(requireDelivery));
+}
+
+/**
+ * Sends one post from `endpoint` after a daemon restart. A send whose own
+ * outbox drain outlasts its bound or loses the Router fails with the queued
+ * `network-unavailable`, whose detail says the post is durably queued, and
+ * the daemon delivers it once its Router worker answers. Under load that
+ * happens while the restarted daemon and its peer exchange recovery traffic,
+ * so the trace takes that failure as queued and confirms the post by the
+ * peer's delivery. Any other failure, the plain `network-unavailable` of a
+ * send that queued nothing included, fails the trace.
+ * @param endpoint Endpoint that sends.
+ * @param input The post.
+ * @returns Completion once the post is certified or queued.
+ */
+function sendOrQueue(endpoint: HarnessEndpoint, input: SendInput) {
+  const queued = queuedNetworkFailure();
+  return endpoint.send(input).pipe(
+    Effect.asVoid,
+    Effect.catchIf(
+      (error) =>
+        error instanceof SendError &&
+        error.reason === queued.reason &&
+        error.detail === queued.detail,
+      () => Effect.void,
+    ),
   );
 }
 
@@ -116,11 +147,16 @@ const readDurableHistory = (
     }),
   );
 
-/** Sends one addressed post and waits for the peer to receive it. */
+/** Sends one post as a host does, failing on any send failure. */
+const certifiedSend = (endpoint: HarnessEndpoint, input: SendInput) =>
+  endpoint.send(input).pipe(Effect.asVoid);
+
+/** Sends one addressed post with `send` and waits for the peer to receive it. */
 const deliverDirect = (input: {
   readonly from: DaemonProcessFixture;
   readonly to: DaemonProcessFixture;
   readonly text: string;
+  readonly send: typeof sendOrQueue;
 }) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -129,7 +165,7 @@ const deliverDirect = (input: {
       const delivery = yield* Effect.forkScoped(
         nextDelivery(receiver.messages),
       );
-      yield* sender.send({
+      yield* input.send(sender, {
         to: directAddress(input.to.agentName),
         text: input.text,
       });
@@ -150,6 +186,12 @@ const beforeRestartText = "sent before the daemon restarts";
 const fromRestartedText = "sent by the restarted daemon";
 const toRestartedText = "sent to the restarted daemon";
 
+/**
+ * Either send after the restart may fail as queued, so each is confirmed by
+ * its delivery. The restarted daemon's delivery of the peer's post shows it
+ * stored that record, and an endpoint stores a record only after the one it
+ * extends, so its durable history then holds all three posts.
+ */
 const singleRestartBehavior = Effect.gen(function* () {
   const infrastructure = yield* acquireProcessInfrastructure;
   const [restartedFixture, peerFixture] = yield* Effect.all(
@@ -159,8 +201,13 @@ const singleRestartBehavior = Effect.gen(function* () {
     ] as const,
     { concurrency: 2 },
   );
-  const restartedDaemon = yield* acquireDaemonProcess(restartedFixture);
-  yield* acquireDaemonProcess(peerFixture);
+  const [restartedDaemon] = yield* Effect.all(
+    [
+      acquireDaemonProcess(restartedFixture),
+      acquireDaemonProcess(peerFixture),
+    ] as const,
+    { concurrency: 2 },
+  );
   yield* registerFixture(restartedFixture);
   yield* registerFixture(peerFixture);
 
@@ -168,6 +215,7 @@ const singleRestartBehavior = Effect.gen(function* () {
     from: restartedFixture,
     to: peerFixture,
     text: beforeRestartText,
+    send: certifiedSend,
   });
 
   yield* stopProcess(restartedDaemon);
@@ -177,11 +225,13 @@ const singleRestartBehavior = Effect.gen(function* () {
     from: restartedFixture,
     to: peerFixture,
     text: fromRestartedText,
+    send: sendOrQueue,
   });
   yield* deliverDirect({
     from: peerFixture,
     to: restartedFixture,
     text: toRestartedText,
+    send: sendOrQueue,
   });
 
   const history = yield* readDurableHistory(
@@ -211,8 +261,10 @@ const processBehavior = Effect.gen(function* () {
     ] as const,
     { concurrency: 2 },
   );
-  yield* acquireDaemonProcess(callerFixture);
-  const targetDaemon = yield* acquireDaemonProcess(targetFixture);
+  const [, targetDaemon] = yield* Effect.all(
+    [acquireDaemonProcess(callerFixture), acquireDaemonProcess(targetFixture)],
+    { concurrency: 2 },
+  );
 
   yield* registerFixture(callerFixture);
   yield* registerFixture(targetFixture);
@@ -307,7 +359,7 @@ const processBehavior = Effect.gen(function* () {
       const targetDelivery = yield* Effect.forkScoped(
         nextDelivery(target.messages),
       );
-      yield* caller.send({
+      yield* sendOrQueue(caller, {
         to: targetAddress,
         text: "new message after the recipient restarts",
       });
@@ -326,7 +378,7 @@ const processBehavior = Effect.gen(function* () {
       const callerDelivery = yield* Effect.forkScoped(
         nextDelivery(caller.messages),
       );
-      yield* target.send({
+      yield* sendOrQueue(target, {
         to: callerAddress,
         text: "reply from the restarted recipient",
       });
@@ -345,10 +397,11 @@ const processBehavior = Effect.gen(function* () {
   );
 }).pipe(Effect.scoped);
 
-it("certifies fresh posts in both directions after one daemon restarts", () => {
-  expect.hasAssertions();
-  return Effect.runPromise(processBehavior);
-}, 180_000);
+it(
+  "certifies fresh posts in both directions after one daemon restarts",
+  processTrace(processBehavior),
+  PROCESS_TEST_TIMEOUT_MS,
+);
 
 const withoutAdmissionCredential = (
   fixture: DaemonProcessFixture,
@@ -503,12 +556,14 @@ const admissionLifetimeBehavior = Effect.gen(function* () {
   );
 }).pipe(Effect.scoped);
 
-it("restarts a registered daemon without the admission credential but not under another agent's key", () => {
-  expect.hasAssertions();
-  return Effect.runPromise(admissionLifetimeBehavior);
-}, 180_000);
+it(
+  "restarts a registered daemon without the admission credential but not under another agent's key",
+  processTrace(admissionLifetimeBehavior),
+  PROCESS_TEST_TIMEOUT_MS,
+);
 
-it("delivers both ways after one real daemon restarts while its peer stays up", () => {
-  expect.hasAssertions();
-  return Effect.runPromise(singleRestartBehavior);
-}, 180_000);
+it(
+  "delivers both ways after one real daemon restarts while its peer stays up",
+  processTrace(singleRestartBehavior),
+  PROCESS_TEST_TIMEOUT_MS,
+);

@@ -8,7 +8,7 @@ import {
 } from "@modelcontextprotocol/server";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
-import { type Context, Deferred, Effect } from "effect";
+import { type Context, Deferred, Duration, Effect } from "effect";
 import type { EventStore } from "../delivery/operations.js";
 import type { Fixture } from "./daemon-runtime-fixtures.js";
 import { makeHistoryExport } from "../delivery/history-export.js";
@@ -601,7 +601,18 @@ const readFrame = async (
   }
 };
 
-/** Await an effect for one named stage, failing after one second. */
+/**
+ * How long one stage may wait for its signal. It only bounds a hang, and it
+ * is well under the test timeout of each file that awaits stages, so a hung
+ * stage fails with its name and the test still reaches its cleanup.
+ */
+const STAGE_HANG_BOUND = Duration.seconds(20);
+
+/**
+ * Await an effect for one named stage. Each stage completes on a signal the
+ * runtime raises; one still waiting after `STAGE_HANG_BOUND` fails with
+ * `timed out awaiting` and the stage's name, which also names its span.
+ */
 export const awaitStage = <Value, Failure>(
   effect: Effect.Effect<Value, Failure>,
   stage: string,
@@ -609,9 +620,10 @@ export const awaitStage = <Value, Failure>(
   Effect.runPromise(
     effect.pipe(
       Effect.timeoutFail({
-        duration: "1 second",
+        duration: STAGE_HANG_BOUND,
         onTimeout: () => new Error(`timed out awaiting ${stage}`),
       }),
+      Effect.withSpan(stage),
     ),
   );
 

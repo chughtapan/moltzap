@@ -828,72 +828,105 @@ const catchesUpGenesisFirst = () =>
     }),
   );
 
-const provesMaximumArtifactFitsIdentity = () =>
+/**
+ * Builds the largest catch-up page: a POST of the largest content at the
+ * maximum membership, certified by every member under a re-anchor every
+ * member voted for.
+ */
+const buildMaximumArtifact = Effect.gen(function* () {
+  const fixture = yield* makeProtocolFixture(maximumMembers);
+  const empty = [{ type: "text", text: "" }] as const;
+  const fixedBytes = yield* encodeCanonical(Content, empty);
+  const content = yield* Schema.decodeUnknown(Content)([
+    {
+      type: "text",
+      text: "x".repeat(maximumContentBytes - fixedBytes.byteLength),
+    },
+  ]);
+  const genesis = yield* buildGenesis(fixture, content);
+  const { reanchor, anchorHash, votes } = yield* voteReanchor(fixture, genesis);
+  const reanchored: CompletedReanchor = {
+    moltzapVersion: MOLTZAP_VERSION,
+    kind: "completed_reanchor",
+    anchorHash,
+    reanchor,
+    certificate: {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "reanchor_certificate",
+      anchorHash,
+      votes: asNonEmpty(votes),
+    },
+  };
+  const post = yield* buildPost(fixture, genesis, content, reanchored);
+  const responder = at(fixture.identities, 0);
+  const request: CatchUpRequest = {
+    moltzapVersion: MOLTZAP_VERSION,
+    kind: "catch_up_request",
+    conversationId: fixture.membership.descriptor.conversationId,
+    membershipHash: fixture.membership.hash,
+    requesterAgentId: at(fixture.identities, 1).card.agentId,
+    knownRecordHash: genesis.actionCertifiedRecord.recordHash,
+    knownAnchorHash: anchorHash,
+  };
+  const attestation = yield* signEvidenceMessage({
+    statement: {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "catch_up_attestation",
+      signerAgentId: responder.card.agentId,
+      request,
+      itemKind: "certified_record",
+      itemHash: post.actionCertifiedRecord.recordHash,
+      hasMore: false,
+    },
+    agentCard: responder.card,
+    signingAuthority: responder.authority,
+  });
+  const page: CatchUpPage = {
+    moltzapVersion: MOLTZAP_VERSION,
+    kind: "catch_up_page",
+    request,
+    item: post.certifiedRecord,
+    hasMore: false,
+    attestation: yield* Schema.encode(SignedMessage)(attestation),
+  };
+  return { fixture, responder, page, attestation };
+});
+
+/**
+ * The largest catch-up page, built once and shared by every case that checks
+ * it; the first case to read it pays for the build.
+ */
+const maximumArtifact = Effect.runSync(Effect.cached(buildMaximumArtifact));
+
+/**
+ * Bounds a hang in building the largest catch-up page and in each case that
+ * checks it; no assertion depends on it. The build issues one identity per
+ * member and signs five certificates of one signature per member: GENESIS and
+ * POST action and durability certificates, and a re-anchor certificate. The
+ * cases verify the page or seal it to every member. The case that pays for
+ * the build took 0.9 to 1.7 s at a load average of 6 to 8 on 8 cores, and
+ * two cases passed the 5 s default at a load average of 30 to 45.
+ */
+const MAXIMUM_PAGE_TIMEOUT_MS = 60_000;
+
+const verifiesMaximumPage = () =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const fixture = yield* makeProtocolFixture(maximumMembers);
-      const empty = [{ type: "text", text: "" }] as const;
-      const fixedBytes = yield* encodeCanonical(Content, empty);
-      const content = yield* Schema.decodeUnknown(Content)([
-        {
-          type: "text",
-          text: "x".repeat(maximumContentBytes - fixedBytes.byteLength),
-        },
-      ]);
-      const genesis = yield* buildGenesis(fixture, content);
-      const { reanchor, anchorHash, votes } = yield* voteReanchor(
-        fixture,
-        genesis,
-      );
-      const reanchored: CompletedReanchor = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "completed_reanchor",
-        anchorHash,
-        reanchor,
-        certificate: {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "reanchor_certificate",
-          anchorHash,
-          votes: asNonEmpty(votes),
-        },
-      };
-      const post = yield* buildPost(fixture, genesis, content, reanchored);
-      const responder = at(fixture.identities, 0);
-      const request: CatchUpRequest = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "catch_up_request",
-        conversationId: fixture.membership.descriptor.conversationId,
-        membershipHash: fixture.membership.hash,
-        requesterAgentId: at(fixture.identities, 1).card.agentId,
-        knownRecordHash: genesis.actionCertifiedRecord.recordHash,
-        knownAnchorHash: anchorHash,
-      };
-      const attestation = yield* signEvidenceMessage({
-        statement: {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "catch_up_attestation",
-          signerAgentId: responder.card.agentId,
-          request,
-          itemKind: "certified_record",
-          itemHash: post.actionCertifiedRecord.recordHash,
-          hasMore: false,
-        },
-        agentCard: responder.card,
-        signingAuthority: responder.authority,
-      });
-      const page: CatchUpPage = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "catch_up_page",
-        request,
-        item: post.certifiedRecord,
-        hasMore: false,
-        attestation: yield* Schema.encode(SignedMessage)(attestation),
-      };
+      const { fixture, responder, page } = yield* maximumArtifact;
+
       yield* verifyCatchUpPage({
         page,
         membership: fixture.membership,
         responseSenderAgentId: responder.card.agentId,
       });
+    }),
+  );
+
+const sealsMaximumPageInsideIdentityLimits = () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const { fixture, responder, page } = yield* maximumArtifact;
+
       const pagePlaintext = yield* encodeCanonical(DirectPacket, page);
       const outer = yield* signOuterPacket({
         packet: page,
@@ -901,6 +934,7 @@ const provesMaximumArtifactFitsIdentity = () =>
         agentCard: responder.card,
         signingAuthority: responder.authority,
       });
+
       expect(pagePlaintext.byteLength).toBeLessThanOrEqual(
         Option.getOrThrow(
           SealedBody.maximumPlaintextByteLength(maximumMembers),
@@ -924,6 +958,13 @@ const provesMaximumArtifactFitsIdentity = () =>
       expect(SignedMessage.encodedByteLength(outer)).toBeLessThanOrEqual(
         SignedMessage.maximumEncodedByteLength,
       );
+    }),
+  );
+
+const relaysMaximumAttestationInsideIdentityLimits = () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const { fixture, responder, attestation } = yield* maximumArtifact;
 
       const evidencePlaintext = yield* encodeCanonical(
         SignedMessage,
@@ -935,6 +976,7 @@ const provesMaximumArtifactFitsIdentity = () =>
         agentCard: responder.card,
         signingAuthority: responder.authority,
       });
+
       expect(relayedEvidence.body.byteLength).toBe(
         Option.getOrThrow(
           SealedBody.sealedByteLength({
@@ -980,9 +1022,20 @@ describe("Client protocol acceptance", () => {
     "catches up GENESIS first, so a later POST page resolves its membership",
     catchesUpGenesisFirst,
   );
-  it(
-    "fits the largest catch-up page, a re-anchored POST sealed to its maximum membership, inside Identity limits",
-    provesMaximumArtifactFitsIdentity,
+  describe(
+    "the largest catch-up page, a re-anchored POST at its maximum membership",
+    { timeout: MAXIMUM_PAGE_TIMEOUT_MS },
+    () => {
+      it("verifies from its responder", verifiesMaximumPage);
+      it(
+        "fits inside Identity limits sealed to every member",
+        sealsMaximumPageInsideIdentityLimits,
+      );
+      it(
+        "relays its attestation inside Identity limits sealed to every member",
+        relaysMaximumAttestationInsideIdentityLimits,
+      );
+    },
   );
 });
 

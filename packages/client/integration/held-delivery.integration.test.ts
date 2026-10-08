@@ -24,11 +24,18 @@ import {
   type DaemonProcessFixture,
   makeDaemonProcessFixture,
   makeRegistrationRequest,
-  ProcessTestError,
+  processTrace,
 } from "./daemon-process-harness.js";
 import { acquireRouterHoldProxy } from "./router-hold-proxy.js";
 
-const DELIVERY_TIMEOUT = Duration.seconds(60);
+/**
+ * The test starts PGlite, the Registry, the Router, a hold proxy and two
+ * daemons, and certifies three posts between them. Beside a second full
+ * Client suite (load average 30 to 47 on 8 cores) it has taken 114 to 127
+ * seconds, most of it process startup. The limit is the only wall-clock bound
+ * the trace sets itself, apart from its quiet windows.
+ */
+const HELD_DELIVERY_TEST_TIMEOUT_MS = 180_000;
 const PARK_POLL_INTERVAL = Duration.millis(25);
 
 /**
@@ -83,16 +90,6 @@ const registerFixture = (fixture: DaemonProcessFixture) =>
     }),
   );
 
-const bounded =
-  (message: string) =>
-  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    effect.pipe(
-      Effect.timeoutFail({
-        duration: DELIVERY_TIMEOUT,
-        onTimeout: () => new ProcessTestError({ message }),
-      }),
-    );
-
 /** Collects the endpoint's single inbound subscription for the whole scope. */
 const collectDeliveries = <E>(messages: Stream.Stream<InboundDelivery, E>) =>
   Effect.gen(function* () {
@@ -103,22 +100,19 @@ const collectDeliveries = <E>(messages: Stream.Stream<InboundDelivery, E>) =>
     return inbox;
   });
 
-const takeDelivery = (inbox: Queue.Queue<InboundDelivery>) =>
-  Queue.take(inbox).pipe(bounded("timed out awaiting certified delivery"));
-
 const expectQuiet = (inbox: Queue.Queue<InboundDelivery>) =>
   Effect.sleep(QUIET_WINDOW).pipe(
     Effect.zipRight(Queue.size(inbox)),
     Effect.map((size) => expect(size).toBe(0)),
   );
 
+/** Waits until the proxy parks a Router response for the held endpoint. */
 const awaitParkedResponse = (parkedResponses: Effect.Effect<number>) =>
   parkedResponses.pipe(
     Effect.repeat({
       until: (count) => count > 0,
       schedule: Schedule.spaced(PARK_POLL_INTERVAL),
     }),
-    bounded("Router never ordered a delivery for the held endpoint"),
   );
 
 const readHistory = (fixture: DaemonProcessFixture, address: AgentAddress) =>
@@ -140,8 +134,10 @@ const heldDeliveryBehavior = Effect.gen(function* () {
     { concurrency: 2 },
   );
   const targetFixture = throughProxy(directFixture, proxy.origin);
-  yield* acquireDaemonProcess(senderFixture);
-  yield* acquireDaemonProcess(targetFixture);
+  yield* Effect.all(
+    [acquireDaemonProcess(senderFixture), acquireDaemonProcess(targetFixture)],
+    { concurrency: 2, discard: true },
+  );
   yield* registerFixture(senderFixture);
   yield* registerFixture(targetFixture);
 
@@ -164,7 +160,7 @@ const heldDeliveryBehavior = Effect.gen(function* () {
       expect(yield* Queue.size(targetInbox)).toBe(0);
 
       yield* proxy.release;
-      const released = yield* takeDelivery(targetInbox);
+      const released = yield* Queue.take(targetInbox);
       expect(released.item).toMatchObject({
         kind: "multicast",
         message: {
@@ -175,10 +171,10 @@ const heldDeliveryBehavior = Effect.gen(function* () {
         },
       });
       yield* released.acknowledge;
-      yield* Fiber.join(heldSend).pipe(bounded("held send never certified"));
+      yield* Fiber.join(heldSend);
 
       yield* target.send({ to: senderAddress, text: replyText });
-      const reply = yield* takeDelivery(senderInbox);
+      const reply = yield* Queue.take(senderInbox);
       expect(reply.item).toMatchObject({
         kind: "multicast",
         message: {
@@ -191,7 +187,7 @@ const heldDeliveryBehavior = Effect.gen(function* () {
       yield* reply.acknowledge;
 
       yield* sender.send({ to: targetAddress, text: followUpText });
-      const followUp = yield* takeDelivery(targetInbox);
+      const followUp = yield* Queue.take(targetInbox);
       expect(followUp.item).toMatchObject({
         kind: "multicast",
         message: {
@@ -230,7 +226,8 @@ const heldDeliveryBehavior = Effect.gen(function* () {
   }
 }).pipe(Effect.scoped);
 
-it("recovers a delivery held after Router ordering between real daemons", () => {
-  expect.hasAssertions();
-  return Effect.runPromise(heldDeliveryBehavior);
-}, 180_000);
+it(
+  "recovers a delivery held after Router ordering between real daemons",
+  processTrace(heldDeliveryBehavior),
+  HELD_DELIVERY_TEST_TIMEOUT_MS,
+);
