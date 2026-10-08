@@ -153,6 +153,11 @@ daemon stops:
   under the volatile collective state described in
   [Delivery ownership](#delivery-ownership).
 
+A failure or defect while the protocol activates, at startup or after a
+registration binds, also stops the daemon: a Router it cannot reach in phase
+`listener`, anything else in phase `storage`. The failure and its cause are
+logged.
+
 Acceptance covers single-process store ownership, explicit configuration,
 registration recovery, address-based management, signer-evidence audit,
 pending-delivery replay, exact catalog, and old-format rejection.

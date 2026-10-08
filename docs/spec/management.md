@@ -28,7 +28,8 @@ commits, while the daemon is still activating its protocol; `register` returns
 once activation finishes. The post-registration tools appear in the catalog
 once activation has brought the protocol up, including after a cancelled
 `register`, and the daemon then sends `notifications/tools/list_changed` to
-each host listening for tool list changes. `search_agents` retains Identity's
+each host listening for tool list changes through `subscriptions/listen` with
+`notifications.toolsListChanged`. `search_agents` retains Identity's
 lookup-or-list semantics after registration. Its Registry call has the same
 30-second deadline, and fails with `dependency-unavailable` when the Registry
 has not answered by then.
