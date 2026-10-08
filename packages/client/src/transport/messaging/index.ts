@@ -35,7 +35,12 @@ import {
   resumeDisseminationObligations,
   resumeEngineFolds,
 } from "./certification/index.js";
-import { DeliveryAcknowledgeError, ListenError, SendError } from "./errors.js";
+import {
+  DeliveryAcknowledgeError,
+  ListenError,
+  queuedNetworkFailure,
+  SendError,
+} from "./errors.js";
 import { InboundMessage } from "./message.js";
 import { makeOutbox } from "./outbox.js";
 import {
@@ -221,12 +226,18 @@ const outboundFailure = (error: RouterWorkerSendError): EngineOutboundError => {
   });
 };
 
+/**
+ * The failure of a send whose own drain failed. The send's post is already
+ * durably queued then, so a lost Router fails it as queued.
+ * @param error Why the drain failed.
+ * @returns The send's closed failure.
+ */
 function outboundSendFailure(error: EngineOutboundError): SendError {
   switch (error.reason) {
     case "persistence":
       return new SendError({ reason: "persistence-failed" });
     case "network":
-      return new SendError({ reason: "network-unavailable" });
+      return queuedNetworkFailure();
     case "representation":
       return new SendError({ reason: "certification-unavailable" });
     case "version":
@@ -322,8 +333,8 @@ function resumeFoldFailure(): EngineInitializationError {
 }
 
 /**
- * How long a local send's own drain may run before the send fails as
- * `network-unavailable`. With `ROUTER_ATTACH_TIMEOUT` it stays under the MCP
+ * How long a local send's own drain may run before the send fails with
+ * `queuedNetworkFailure`. With `ROUTER_ATTACH_TIMEOUT` it stays under the MCP
  * SDK's `DEFAULT_REQUEST_TIMEOUT_MSEC`. The envelope stays queued, so the
  * background drain still delivers it once the Router answers.
  */
@@ -339,7 +350,7 @@ const send = (
       Effect.mapError((error) => outboundSendFailure(outboundFailure(error))),
       Effect.timeoutFail({
         duration: LOCAL_DRAIN_TIMEOUT,
-        onTimeout: () => new SendError({ reason: "network-unavailable" }),
+        onTimeout: queuedNetworkFailure,
       }),
     );
     const recordHash = yield* Deferred.await(prepared.completion);

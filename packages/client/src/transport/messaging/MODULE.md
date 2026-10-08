@@ -9,7 +9,7 @@ composition, and the assembly that binds the phases into one engine.
 
 ## Public surface
 
-### [`DeliveryAcknowledgeError`](./errors.ts#L88)
+### [`DeliveryAcknowledgeError`](./errors.ts#L103)
 
 _Class_
 
@@ -70,7 +70,7 @@ export const InboundMessage = Schema.Union(
 
 One certified remote-authored post, direct or to a fixed group.
 
-### [`ListenError`](./errors.ts#L67)
+### [`ListenError`](./errors.ts#L82)
 
 _Class_
 
@@ -86,7 +86,7 @@ export class ListenError extends Data.TaggedError("ListenError")<{
 
 The endpoint's sole inbound subscription failed.
 
-### [`SendError`](./errors.ts#L51)
+### [`SendError`](./errors.ts#L52)
 
 _Class_
 

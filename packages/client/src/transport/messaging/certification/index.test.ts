@@ -83,7 +83,7 @@ import {
   verifyMembershipDescriptor,
 } from "../../wire/index.js";
 import { MessageAddressInput } from "../../wire/values.js";
-import { SendError } from "../errors.js";
+import { queuedNetworkFailure, SendError } from "../errors.js";
 import { readStoredRecord } from "../history/index.js";
 import {
   type EndpointEngine,
@@ -2218,6 +2218,10 @@ function sendHeldUntilAttached(): Effect.Effect<void, never, Scope.Scope> {
   });
 }
 
+/**
+ * A send whose worker never attaches queues nothing, so it fails with the
+ * plain `network-unavailable` rather than the queued one.
+ */
 function sendFailsAfterAttachBound(): Effect.Effect<void, never, Scope.Scope> {
   return Effect.gen(function* () {
     const harness = yield* makeProtocolHarness({ attachment: neverAttaches });
@@ -2414,9 +2418,7 @@ function transientTransmitFailureLeavesOutboundLoopAlive(
     const sendResult = yield* author
       .send(yield* sendInput(harness, "router restarts mid-drain"))
       .pipe(Effect.flip, Effect.orDie);
-    expect(sendResult).toStrictEqual(
-      new SendError({ reason: "network-unavailable" }),
-    );
+    expect(sendResult).toStrictEqual(queuedNetworkFailure());
     yield* advanceClock(OUTAGE_SPAN);
     yield* expectDrainedAlive(harness, attempts, fatal);
   });
@@ -2504,17 +2506,17 @@ function blackHolesFirstTransmit(
 }
 
 /**
- * The local send's drain bound, after which it answers `network-unavailable`,
- * mirroring the private `index.ts → LOCAL_DRAIN_TIMEOUT`.
+ * The local send's drain bound, after which it fails as queued, mirroring the
+ * private `index.ts → LOCAL_DRAIN_TIMEOUT`.
  */
 const DRAIN_BOUND = Duration.seconds(10);
 
 /**
  * A black-holed transmit holds the local send's drain: the send is still
- * pending one second short of `DRAIN_BOUND` and answers `network-unavailable`
- * one second past it. The background drain then delivers the envelope the
- * interrupted transmit left begun, exactly once however often the queue
- * drains afterwards.
+ * pending one second short of `DRAIN_BOUND` and fails as queued one second
+ * past it. The background drain then delivers the envelope the interrupted
+ * transmit left begun, exactly once however often the queue drains
+ * afterwards.
  */
 function blackHoledTransmitBoundsTheSend(): Effect.Effect<
   void,
@@ -2540,7 +2542,7 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
     yield* advanceClock(Duration.seconds(2));
     expect(
       yield* Fiber.join(sending).pipe(Effect.flip, Effect.orDie),
-    ).toStrictEqual(new SendError({ reason: "network-unavailable" }));
+    ).toStrictEqual(queuedNetworkFailure());
     yield* superviseOutbound(author, fatal);
     yield* advanceClock(Duration.seconds(1));
     yield* author.drainOutbound.pipe(Effect.orDie);
@@ -2685,9 +2687,10 @@ function detachesOnFirstTransmit(
 }
 
 /**
- * What a host sees when the Router drops during its send: the send returns
- * `network-unavailable` promptly, the outbound loop stays up, and the durably queued
- * envelope goes out and certifies once the worker re-anchors.
+ * What a host sees when the Router drops during its send: the send fails
+ * promptly with a `network-unavailable` whose text says the post is queued,
+ * the outbound loop stays up, and the durably queued envelope goes out and
+ * certifies once the worker re-anchors.
  */
 function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
   return Effect.gen(function* () {
@@ -2701,9 +2704,7 @@ function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
     const failure = yield* author
       .send(yield* sendInput(harness, "sent during outage"))
       .pipe(Effect.flip, Effect.orDie);
-    expect(failure).toStrictEqual(
-      new SendError({ reason: "network-unavailable" }),
-    );
+    expect(failure).toStrictEqual(queuedNetworkFailure());
     yield* advanceClock(OUTAGE_SPAN);
     expect(yield* Queue.size(harness.outbound)).toBe(0);
     expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
@@ -2730,7 +2731,7 @@ function onTestClock(
 
 describe("a local send during a Router outage", () => {
   it(
-    "returns network-unavailable at once and delivers the post after re-attachment",
+    "fails at once saying the post is queued and delivers it after re-attachment",
     () => Effect.runPromise(onTestClock(localSendDuringOutage())),
     TEST_TIMEOUT_MS,
   );
