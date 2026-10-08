@@ -22,6 +22,8 @@ import {
   makeHarness,
   makeListenRequest,
   makeStore,
+  makeToolCallRequest,
+  makeToolListRequest,
   type ReadBarrier,
   requireEventStore,
   requireHandler,
@@ -479,7 +481,11 @@ const settlesRegistrationWhenThePassFails = async () => {
   }
 };
 
-/** Restart over `store` and expect the daemon to start active with `agentCard`. */
+/**
+ * Restart over `store` and expect the daemon to start active with
+ * `agentCard`, which pins that the binding a registration committed is
+ * durable.
+ */
 const expectActiveAfterRestart = async (
   fixture: Fixture,
   store: EndpointStore,
@@ -683,6 +689,137 @@ const replaysUntilAcknowledged = async () => {
   }
 };
 
+/** The names a `tools/list` response carries. */
+const listedToolNames = Schema.decodeUnknown(
+  Schema.Struct({
+    result: Schema.Struct({
+      tools: Schema.Array(Schema.Struct({ name: Schema.String })),
+    }),
+  }),
+);
+
+/** The delivery tokens a `read_inbox` response carries. */
+const inboxTokens = Schema.decodeUnknown(
+  Schema.Struct({
+    result: Schema.Struct({
+      structuredContent: Schema.Struct({
+        items: Schema.Array(Schema.Struct({ deliveryToken: Schema.String })),
+      }),
+    }),
+  }),
+);
+
+/** The JSON body of one MCP response through the daemon's handler. */
+const fetchJson = (handler: HarnessMcpEventHandler, request: Request) =>
+  Effect.tryPromise(() => handler.fetch(request)).pipe(
+    Effect.flatMap((response) => Effect.tryPromise(() => response.json())),
+  );
+
+/** The tools the daemon's handler lists, sorted. */
+const listTools = (handler: HarnessMcpEventHandler) =>
+  fetchJson(handler, makeToolListRequest("tools-list")).pipe(
+    Effect.flatMap(listedToolNames),
+    Effect.map(({ result }) =>
+      result.tools
+        .map(({ name }) => name)
+        .sort((left, right) => left.localeCompare(right)),
+    ),
+  );
+
+/** The delivery tokens `read_inbox` returns through the daemon's handler. */
+const readInboxThroughMcp = (handler: HarnessMcpEventHandler) =>
+  fetchJson(
+    handler,
+    makeToolCallRequest({
+      id: "read-inbox",
+      name: "read_inbox",
+      toolArguments: {},
+    }),
+  ).pipe(
+    Effect.flatMap(inboxTokens),
+    Effect.map(({ result }) =>
+      result.structuredContent.items.map(({ deliveryToken }) => deliveryToken),
+    ),
+  );
+
+/**
+ * Sends a register request through MCP, cancels it once engine activation
+ * has begun, then releases activation and waits until the activation's first
+ * delivery pass has started, by which point the protocol is up. `yieldNow`
+ * lets the cancel reach the register operation before activation is released.
+ * @param fixture The registering identity.
+ * @param harness The daemon's harness, with the engine blocked.
+ * @param firstPass Holds the activation's first delivery pass.
+ * @returns Completion once the pass is released.
+ */
+const cancelRegisterDuringActivation = async (
+  fixture: Fixture,
+  harness: RuntimeHarness,
+  firstPass: ReadBarrier,
+) => {
+  const cancel = new AbortController();
+  const registering = requireHandler(harness).fetch(
+    makeToolCallRequest({
+      id: "register",
+      name: "register",
+      toolArguments: fixture.registerRequest,
+      signal: cancel.signal,
+    }),
+  );
+  await awaitStage(Deferred.await(harness.engineEntered), "engine acquisition");
+  cancel.abort();
+  await Effect.runPromise(Effect.exit(Effect.tryPromise(() => registering)));
+  await Effect.runPromise(Effect.yieldNow());
+  await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
+  await awaitStage(Deferred.await(firstPass.entered), "first delivery pass");
+  await Effect.runPromise(Deferred.succeed(firstPass.release, undefined));
+};
+
+/**
+ * Cancelling a register request through MCP once activation has begun
+ * interrupts its operation, and registration and activation still finish.
+ * The catalog reads the daemon's protocol state, so once the protocol is up
+ * it lists the post-registration tools and serves `read_inbox`. Fails when
+ * the catalog keeps its own flag that only a returned `registered` result
+ * sets, which a cancelled call never returns.
+ */
+const listsToolsAfterACancelledRegister = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
+  const firstPass: ReadBarrier = {
+    entered: await Effect.runPromise(Deferred.make<undefined>()),
+    release: await Effect.runPromise(Deferred.make<undefined>()),
+  };
+  harness.delivery.readBarrier = firstPass;
+  const daemon = Effect.runFork(
+    run(fixture, makeStore(fixture, false), harness),
+  );
+  try {
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    await cancelRegisterDuringActivation(fixture, harness, firstPass);
+
+    const tools = await Effect.runPromise(listTools(requireHandler(harness)));
+
+    expect(tools, "tools listed after the cancelled register").toEqual([
+      "acknowledge_delivery",
+      "read_conversation",
+      "read_event",
+      "read_inbox",
+      "read_send",
+      "search_agents",
+      "search_conversations",
+      "send_message",
+      "status",
+    ]);
+    expect(
+      await Effect.runPromise(readInboxThroughMcp(requireHandler(harness))),
+      "inbox read through MCP",
+    ).toEqual([fixture.pending.deliveryToken]);
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(daemon));
+  }
+};
+
 describe("daemon runtime composition", () => {
   it(
     "closes after fatal persistence with a receipt waiting for the delivery gate",
@@ -723,6 +860,13 @@ describe("daemon runtime composition", () => {
   );
   it("publishes durable deliveries before completing acknowledgment", () =>
     replaysUntilAcknowledged());
+});
+
+describe("daemon activation", () => {
+  it(
+    "lists the post-registration tools after a cancelled register activates",
+    listsToolsAfterACancelledRegister,
+  );
 });
 
 /* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type -- Restore repository defaults after the MCP lifecycle tests. */

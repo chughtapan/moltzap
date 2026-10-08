@@ -25,7 +25,9 @@ does not stop it: the Registry call runs to its result or its deadline, and a
 
 `status` returns exact active AgentCard state from the moment the binding
 commits, while the daemon is still activating its protocol; `register` returns
-once activation finishes. `search_agents` retains Identity's lookup-or-list
+once activation finishes. The post-registration tools appear in the catalog
+once activation has brought the protocol up, including after a cancelled
+`register`. `search_agents` retains Identity's lookup-or-list
 semantics after registration. Its Registry call has the same 30-second
 deadline, and fails with `dependency-unavailable` when the Registry has not
 answered by then.

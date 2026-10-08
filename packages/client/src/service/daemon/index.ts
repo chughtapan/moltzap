@@ -46,6 +46,11 @@ export interface Daemon {
   /** The registration status reads; active from the bind commit on. */
   readonly readRegistration: () => DaemonRegistrationState;
   /**
+   * Whether the protocol is up: from the moment activation acquires the
+   * engine and Router worker for the bound card. The MCP catalog reads it.
+   */
+  readonly protocolActive: () => boolean;
+  /**
    * Marks the daemon active with the card just bound, then activates its
    * protocol. A failure also stops the daemon, since the binding is durable.
    */
@@ -287,6 +292,7 @@ const assembleDaemon = ({
   initialize,
 }: DaemonAssembly): Daemon => ({
   readRegistration: () => environment.state.registration,
+  protocolActive: () => environment.state.activeProtocol !== undefined,
   activateRegistered: (agentCard) =>
     activateRegistered(environment, initialize, agentCard),
   deliveryOperations: environment.delivery.operations,

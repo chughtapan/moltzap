@@ -11,7 +11,6 @@ import {
   ProtocolErrorCode,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import { AgentCard } from "@moltzap/identity";
 import {
   Deferred,
   Duration,
@@ -25,7 +24,6 @@ import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { describe, expect, it } from "vitest";
 import type { HarnessEndpoint } from "../harness-endpoint/capability.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
-import { makeFixture } from "../../__tests__/router-worker-fixtures.js";
 import { readRuntimeEvent } from "../../delivery/inbox.js";
 import {
   eventIdOf,
@@ -59,6 +57,7 @@ const PRIVATE_STATUS_DEFECT = "private status defect";
 
 const unusedOperation = Effect.dieMessage("operation is outside this test");
 const operations: HarnessMcpOperations = {
+  protocolActive: () => false,
   readEvent: () => Effect.fail({ reason: "unknown-event" }),
   readInboxSummary: () =>
     Effect.succeed({ pendingCount: 0, newestSequence: 0 }),
@@ -168,13 +167,9 @@ async function advertisesEventsBeforeRegistration() {
 }
 
 async function distinguishesProtocolAndDomainFailures() {
-  let statusFails = false;
   const failingOperations: HarnessMcpOperations = {
     ...operations,
-    readStatus: () =>
-      statusFails
-        ? Effect.fail({ reason: "incompatible-daemon" as const })
-        : Effect.succeed({ kind: "unregistered" as const }),
+    readStatus: () => Effect.fail({ reason: "incompatible-daemon" }),
   };
   const [malformedCause, domainCause] = await Effect.runPromise(
     Effect.gen(function* () {
@@ -183,7 +178,6 @@ async function distinguishesProtocolAndDomainFailures() {
         port,
         "harness-boundary-client",
       );
-      statusFails = true;
       return yield* Effect.all(
         [
           capturesProtocolError(client, { unexpected: true }),
@@ -216,17 +210,12 @@ async function distinguishesProtocolAndDomainFailures() {
  * A status failure outside the status vocabulary, such as
  * `persistence-failed`, which other owner tools admit, reaches the owner as
  * `incompatible-daemon`. A failure the vocabulary admits cannot show this,
- * because the fallback reason equals the one admitted reason. Status starts
- * failing only once the handler is built, since building it reads status.
+ * because the fallback reason equals the one admitted reason.
  */
 async function reportsOutsideVocabularyStatusFailure() {
-  let statusFails = false;
   const failingOperations: HarnessMcpOperations = {
     ...operations,
-    readStatus: () =>
-      statusFails
-        ? Effect.fail({ reason: "persistence-failed" })
-        : Effect.succeed({ kind: "unregistered" as const }),
+    readStatus: () => Effect.fail({ reason: "persistence-failed" }),
   };
   const cause = await Effect.runPromise(
     Effect.gen(function* () {
@@ -235,7 +224,6 @@ async function reportsOutsideVocabularyStatusFailure() {
         port,
         "harness-status-vocabulary-client",
       );
-      statusFails = true;
       return yield* capturesProtocolError(client, {});
     }).pipe(Effect.scoped),
   );
@@ -247,13 +235,9 @@ async function reportsOutsideVocabularyStatusFailure() {
 }
 
 async function sanitizesUnexpectedOperationDefects() {
-  let statusDefective = false;
   const defectiveOperations: HarnessMcpOperations = {
     ...operations,
-    readStatus: () =>
-      statusDefective
-        ? Effect.dieMessage(PRIVATE_STATUS_DEFECT)
-        : Effect.succeed({ kind: "unregistered" as const }),
+    readStatus: () => Effect.dieMessage(PRIVATE_STATUS_DEFECT),
   };
   const cause = await Effect.runPromise(
     Effect.gen(function* () {
@@ -262,7 +246,6 @@ async function sanitizesUnexpectedOperationDefects() {
         port,
         "harness-defect-client",
       );
-      statusDefective = true;
       return yield* capturesProtocolError(client, {});
     }).pipe(Effect.scoped),
   );
@@ -351,13 +334,8 @@ async function idleSubscriptionOutcome(keepAliveMillis: number) {
 function observeListeningSubscription(keepAliveMillis?: number) {
   return Effect.gen(function* () {
     const subscriptionActive = yield* Deferred.make<undefined>();
-    const fixture = yield* makeFixture;
-    const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
     const { port, server } = yield* acquireBoundaryServer(
-      {
-        ...operations,
-        readStatus: () => Effect.succeed({ kind: "active", agentCard }),
-      },
+      { ...operations, protocolActive: () => true },
       (active) => {
         if (active) {
           Effect.runSync(Deferred.succeed(subscriptionActive, undefined));
@@ -398,13 +376,9 @@ const distinguishesSendValidationFailures = () =>
             reason: "network-unavailable",
           },
         );
-        const fixture = yield* makeFixture;
-        const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
-        const readStatus: HarnessMcpOperations["readStatus"] = () =>
-          Effect.succeed({ kind: "active", agentCard });
         const refused = yield* acquireSendEndpoint({
           ...operations,
-          readStatus,
+          protocolActive: () => true,
           send: () => Effect.fail(new SendError({ reason: "not-registered" })),
         });
         expect(yield* refused.send(sendInput).pipe(Effect.flip)).toMatchObject({
@@ -412,7 +386,7 @@ const distinguishesSendValidationFailures = () =>
         });
         const invalidOutput = yield* acquireSendEndpoint({
           ...operations,
-          readStatus,
+          protocolActive: () => true,
           send: () =>
             Effect.succeed({
               operationId: Schema.decodeUnknownSync(CollectiveId)(
@@ -434,15 +408,13 @@ const carriesARefusalDetailAcrossTheDaemonBoundary = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
         const refusal = new SendError({
           reason: "unknown-agent",
           detail: "agent:dana is not a known agent",
         });
         const endpoint = yield* acquireSendEndpoint({
           ...operations,
-          readStatus: () => Effect.succeed({ kind: "active", agentCard }),
+          protocolActive: () => true,
           send: () => Effect.fail(refusal),
         });
 
@@ -454,7 +426,7 @@ const carriesARefusalDetailAcrossTheDaemonBoundary = () =>
   );
 
 function acquireSendEndpoint(
-  selected: Pick<HarnessMcpOperations, "readStatus" | "send" | "readSend">,
+  selected: Pick<HarnessMcpOperations, "protocolActive" | "send" | "readSend">,
 ) {
   return Effect.gen(function* () {
     const { port } = yield* acquireBoundaryServer({
@@ -537,13 +509,13 @@ function checksSendConflicts(endpoint: HarnessEndpoint) {
   });
 }
 
-function checksRuntimeRetries(
-  directory: string,
-  readStatus: HarnessMcpOperations["readStatus"],
-) {
+function checksRuntimeRetries(directory: string) {
   return Effect.gen(function* () {
     const observed = yield* observeInvocations(directory);
-    const endpoint = yield* acquireSendEndpoint({ ...observed, readStatus });
+    const endpoint = yield* acquireSendEndpoint({
+      ...observed,
+      protocolActive: () => true,
+    });
     const hostOptions = { ...runtimeOptions, hostContext: "stays in the host" };
     const lost = yield* endpoint
       .send(sendInput, hostOptions)
@@ -568,10 +540,7 @@ function checksRuntimeRetries(
   });
 }
 
-function checksRetainedRuntimeSend(
-  directory: string,
-  readStatus: HarnessMcpOperations["readStatus"],
-) {
+function checksRetainedRuntimeSend(directory: string) {
   return Effect.gen(function* () {
     const store = yield* openEndpointStore(directory);
     const scope = yield* Scope.Scope;
@@ -580,7 +549,10 @@ function checksRetainedRuntimeSend(
       () => unusedOperation,
       scope,
     );
-    const endpoint = yield* acquireSendEndpoint({ ...invocations, readStatus });
+    const endpoint = yield* acquireSendEndpoint({
+      ...invocations,
+      protocolActive: () => true,
+    });
     expect(yield* endpoint.send(sendInput, runtimeOptions)).toEqual(sendResult);
   });
 }
@@ -592,12 +564,8 @@ function preservesRuntimeInvocationMetadata() {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const directory = yield* fs.makeTempDirectoryScoped();
-        const fixture = yield* makeFixture;
-        const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
-        const readStatus: HarnessMcpOperations["readStatus"] = () =>
-          Effect.succeed({ kind: "active", agentCard });
-        yield* Effect.scoped(checksRuntimeRetries(directory, readStatus));
-        yield* Effect.scoped(checksRetainedRuntimeSend(directory, readStatus));
+        yield* Effect.scoped(checksRuntimeRetries(directory));
+        yield* Effect.scoped(checksRetainedRuntimeSend(directory));
       }),
     ).pipe(Effect.provide(NodeFileSystem.layer)),
   );
@@ -672,12 +640,10 @@ function rejectsSendBookkeepingArguments() {
   return Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
         const executed: unknown[] = [];
         const { port } = yield* acquireBoundaryServer({
           ...operations,
-          readStatus: () => Effect.succeed({ kind: "active", agentCard }),
+          protocolActive: () => true,
           send: (input) =>
             Effect.sync(() => {
               executed.push(input);
@@ -724,8 +690,6 @@ function readsRetainedEventThroughSdk() {
         const store = yield* openEndpointStore(
           yield* fs.makeTempDirectoryScoped(),
         );
-        const fixture = yield* makeFixture;
-        const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
         const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
           digest("dlv_", 7),
         );
@@ -740,7 +704,7 @@ function readsRetainedEventThroughSdk() {
         yield* store.acknowledgeInboxItem(deliveryToken);
         const { port } = yield* acquireBoundaryServer({
           ...operations,
-          readStatus: () => Effect.succeed({ kind: "active", agentCard }),
+          protocolActive: () => true,
           readEvent: ({ eventId }) => readRuntimeEvent(store, eventId),
         });
         const client = yield* acquireProtocolClient(

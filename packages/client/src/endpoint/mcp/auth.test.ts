@@ -28,6 +28,7 @@ const unreachable = () =>
   Effect.dieMessage("unauthorized tool reached its operation");
 const operations: HarnessMcpOperations = {
   readEvent: () => Effect.fail({ reason: "unknown-event" }),
+  protocolActive: () => false,
   readStatus: () => Effect.succeed({ kind: "unregistered" }),
   register: unreachable,
   searchAgents: () => Effect.succeed({ kind: "not_found" }),
@@ -197,6 +198,7 @@ const acquireHandler = (
       ...access,
       operations: {
         ...operations,
+        protocolActive: () => registered,
         readStatus: () =>
           Effect.succeed(
             registered

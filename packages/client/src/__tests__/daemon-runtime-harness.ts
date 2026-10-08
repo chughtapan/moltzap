@@ -471,23 +471,30 @@ export const run = (
   );
 };
 
-/** An MCP Events subscription request with the given id. */
-export const makeListenRequest = (id: string): Request =>
+interface McpRequestInput {
+  readonly id: string;
+  readonly method: string;
+  readonly params: Readonly<Record<string, unknown>>;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly signal?: AbortSignal;
+}
+
+/** One modern MCP request to the daemon's loopback handler. */
+const makeMcpRequest = (input: McpRequestInput): Request =>
   new Request("http://127.0.0.1/mcp", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
-      "mcp-method": SUBSCRIPTIONS_LISTEN_METHOD,
+      "mcp-method": input.method,
+      ...input.headers,
     },
     body: JSON.stringify({
       jsonrpc: "2.0",
-      id,
-      method: SUBSCRIPTIONS_LISTEN_METHOD,
+      id: input.id,
+      method: input.method,
       params: {
-        name: INBOX_PENDING_EVENT,
-        arguments: {},
-        cursor: null,
+        ...input.params,
         _meta: {
           [PROTOCOL_VERSION_META_KEY]: MODERN_PROTOCOL_VERSION,
           [CLIENT_INFO_META_KEY]: {
@@ -498,6 +505,37 @@ export const makeListenRequest = (id: string): Request =>
         },
       },
     }),
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
+  });
+
+/** An MCP Events subscription request with the given id. */
+export const makeListenRequest = (id: string): Request =>
+  makeMcpRequest({
+    id,
+    method: SUBSCRIPTIONS_LISTEN_METHOD,
+    params: { name: INBOX_PENDING_EVENT, arguments: {}, cursor: null },
+  });
+
+/** A `tools/list` request with the given id. */
+export const makeToolListRequest = (id: string): Request =>
+  makeMcpRequest({ id, method: "tools/list", params: {} });
+
+/**
+ * A `tools/call` request with the given id. Aborting `signal` cancels it, as
+ * a client that drops the request does.
+ */
+export const makeToolCallRequest = (input: {
+  readonly id: string;
+  readonly name: string;
+  readonly toolArguments: Readonly<Record<string, unknown>>;
+  readonly signal?: AbortSignal;
+}): Request =>
+  makeMcpRequest({
+    id: input.id,
+    method: "tools/call",
+    params: { name: input.name, arguments: input.toolArguments },
+    headers: { "mcp-name": input.name },
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
   });
 
 /** A reader over a streamed MCP response body. */

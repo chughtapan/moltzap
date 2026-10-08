@@ -129,6 +129,7 @@ const inboxOperations = (
   inbox: MemoryInbox,
   agentCard: typeof AgentCard.Encoded,
 ): HarnessMcpOperations => ({
+  protocolActive: () => true,
   readStatus: () => Effect.succeed({ kind: "active", agentCard }),
   register: unreachable,
   searchAgents: unreachable,
