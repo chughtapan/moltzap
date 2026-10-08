@@ -161,12 +161,9 @@ const stepClock = (span: Duration.DurationInput) =>
 
 /**
  * Runs `scenario` on its own clock, starting at the epoch, which only
- * `stepClock` moves. Moving a TestClock waits real timer turns until every
- * fiber suspends, and again for each sleep it passes, and every callback
- * leaves its response bound behind as a sleep, so a scenario of many
- * callbacks and moves spends seconds of a loaded machine on those waits.
- * These scenarios only read the time: this clock moves at once, and its
- * sleeps never end because a scripted callback answers before its bound.
+ * `stepClock` moves, at once. These scenarios only read the time, and the
+ * clock's sleeps never end because a scripted callback answers before its
+ * bound.
  * @param scenario Scenario that reads and steps the clock.
  * @returns The scenario on a fresh stepped clock.
  */
