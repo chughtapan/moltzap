@@ -17,6 +17,7 @@ import {
   Deferred,
   Duration,
   Effect,
+  Exit,
   Fiber,
   Option,
   Queue,
@@ -51,6 +52,7 @@ import {
   type RouterTailAnchor,
   RouterWorkerDiscontinuityError,
   type RouterWorkerIngress,
+  RouterWorkerPersistenceError,
   type RouterWorkerSendError,
   RouterWorkerTransportError,
   RouterWorkerUnavailableError,
@@ -2810,6 +2812,238 @@ describe("outbound loop under a transient Router worker state", () => {
       Effect.runPromise(
         onTestClock(coldStartWithPendingOutboundLeavesOutboundLoopAlive()),
       ),
+    TEST_TIMEOUT_MS,
+  );
+});
+
+/**
+ * Wraps a store so that a dissemination enqueue writes its outbox row, then
+ * completes `entered` and waits for `release`, as a store slow to return
+ * would. Once `release` is done, enqueues pass straight through.
+ * @param store The store to wrap.
+ * @param entered Completed once an enqueue has written its row.
+ * @param release Ends the wait.
+ * @returns The wrapping store.
+ */
+function holdingDisseminationEnqueue(
+  store: EndpointStore,
+  entered: Deferred.Deferred<undefined>,
+  release: Deferred.Deferred<undefined>,
+): EndpointStore {
+  return {
+    ...store,
+    enqueueDisseminationOutbound: (obligation, outbound) =>
+      store
+        .enqueueDisseminationOutbound(obligation, outbound)
+        .pipe(
+          Effect.tap(() =>
+            Deferred.succeed(entered, undefined).pipe(
+              Effect.zipRight(Deferred.await(release)),
+            ),
+          ),
+        ),
+  };
+}
+
+/**
+ * Member 1 sends a GENESIS post, every member signs its proposal, and member
+ * 2 receives every action signature but member 4's.
+ * @param harness Engines of the four members.
+ * @returns Every member's action signature, and member 4's on its own.
+ */
+function signGenesisShortOfMember4(harness: ProtocolHarness) {
+  return Effect.gen(function* () {
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const fourth = yield* requireAt(harness.identities, 3, "identity");
+    yield* Effect.forkScoped(
+      author.send(yield* sendInput(harness, "open group")),
+    );
+    yield* harness.deliver([yield* Queue.take(harness.outbound)]);
+    yield* harness.drain();
+    const signatures = yield* takeQueued(harness);
+    yield* harness.deliver(
+      signatures.filter(
+        ({ senderAgentId }) => senderAgentId !== fourth.card.agentId,
+      ),
+      [1],
+    );
+    return {
+      signatures,
+      fourths: signatures.filter(
+        ({ senderAgentId }) => senderAgentId === fourth.card.agentId,
+      ),
+    };
+  });
+}
+
+/**
+ * Members 1, 3 and 4 receive every action signature of the GENESIS post, so
+ * each stages its record and votes for it.
+ * @param harness Engines of the four members.
+ * @param signatures Every member's action signature.
+ * @returns Member 3's durability vote.
+ */
+function voteOfMember3(
+  harness: ProtocolHarness,
+  signatures: ReadonlyArray<typeof SignedMessage.Type>,
+) {
+  return Effect.gen(function* () {
+    const voter = yield* requireAt(harness.identities, 2, "identity");
+    yield* harness.deliver(signatures, [0, 2, 3]);
+    yield* harness.drain([0, 2, 3]);
+    return yield* sentOfKind(
+      harness,
+      yield* takeQueued(harness),
+      voter,
+      "durability_vote",
+    );
+  });
+}
+
+/**
+ * Member 2 holds three of the four GENESIS action signatures, and member 4's
+ * completes the action certificate, so member 2 stages the record and queues
+ * its action-certified copy. Its acceptance of that signature is interrupted
+ * while the store writes the copy's outbox row, the first dissemination row
+ * any member writes. The row and the fold's record hash commit together, so
+ * member 3's durability vote for the record still reaches the fold. Fails
+ * when the copy is queued interruptibly, or when the fold takes the record
+ * hash outside that step: the row is written, the fold never learns the
+ * record, and the vote is ignored.
+ * @returns Completion once member 2 has answered the vote.
+ */
+function takesAVoteAfterItsStagingWasInterrupted() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const entered = yield* Deferred.make<undefined>();
+        const release = yield* Deferred.make<undefined>();
+        const harness = yield* makeProtocolHarness({
+          wrapStore: (store) =>
+            holdingDisseminationEnqueue(store, entered, release),
+        });
+        const { signatures, fourths } =
+          yield* signGenesisShortOfMember4(harness);
+        const accepting = yield* Effect.fork(harness.deliver(fourths, [1]));
+        yield* Deferred.await(entered);
+
+        yield* Fiber.interruptAsFork(accepting, yield* Effect.fiberId);
+        yield* Deferred.succeed(release, undefined);
+        const accepted = yield* Fiber.await(accepting);
+        const answered = yield* harness.deliver(
+          yield* voteOfMember3(harness, signatures),
+          [1],
+        );
+
+        expect(
+          Exit.isInterrupted(accepted),
+          "member 2's acceptance of member 4's signature was interrupted",
+        ).toBe(true);
+        expect(answered).toEqual(["accepted"]);
+      }),
+    ),
+  );
+}
+
+/**
+ * Wraps a store so that it refuses every plain outbox row as a persistence
+ * failure.
+ * @param store The store to wrap.
+ * @returns The wrapping store.
+ */
+function refusingOutboxRows(store: EndpointStore): EndpointStore {
+  return {
+    ...store,
+    enqueueOutbound: () =>
+      Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+  };
+}
+
+/** The send failure a host reads as a storage fault. */
+const persistenceFailed: SendError["reason"] = "persistence-failed";
+
+/** The outbound failure that ends the loop on a storage fault. */
+const outboundPersistence: EngineOutboundError["reason"] = "persistence";
+
+/**
+ * Every member's store refuses plain outbox rows, and the first one any
+ * member needs is the author's GENESIS proposal. The send fails as
+ * `persistence-failed`, the reason a host reads as a storage fault. Fails
+ * when the refusal maps to another send reason or escapes the send as a
+ * defect.
+ * @returns The scenario, before its scope closes.
+ */
+function failsASendWhoseProposalTheStoreRefuses(): Effect.Effect<
+  void,
+  never,
+  Scope.Scope
+> {
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness({
+      wrapStore: (store) => refusingOutboxRows(store),
+    });
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+
+    const failure = yield* author
+      .send(yield* sendInput(harness, "refused proposal"))
+      .pipe(Effect.flip, Effect.orDie);
+
+    expect(failure.reason, "the refused send's SendError reason").toBe(
+      persistenceFailed,
+    );
+  });
+}
+
+/**
+ * The author's worker fails every transmit with a persistence failure, which
+ * no retry clears. The supervised outbound loop ends with an
+ * `EngineOutboundError` naming persistence, so the host stops on a store
+ * fault instead of retrying it. Fails when a non-transient worker failure is
+ * retried, which keeps the loop running, or maps to another outbound reason.
+ * @returns The scenario, before its scope closes.
+ */
+function persistenceFailureEndsTheOutboundLoop(): Effect.Effect<
+  void,
+  never,
+  Scope.Scope
+> {
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness({
+      authorSend: () => () => Effect.fail(new RouterWorkerPersistenceError()),
+    });
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const fatal = yield* Deferred.make<never, EngineOutboundError>();
+    yield* superviseOutbound(author, fatal);
+
+    yield* author
+      .send(yield* sendInput(harness, "never transmitted"))
+      .pipe(Effect.ignore);
+    const ended = yield* Deferred.await(fatal).pipe(Effect.flip);
+
+    expect(ended.reason, "the ended loop's EngineOutboundError reason").toBe(
+      outboundPersistence,
+    );
+  });
+}
+
+describe("engine faults while staging and sending", () => {
+  it(
+    "keeps a staged record's copy and fold together when its acceptance is interrupted",
+    takesAVoteAfterItsStagingWasInterrupted,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "fails a send as persistence-failed when the store refuses its proposal",
+    () =>
+      Effect.runPromise(
+        Effect.scoped(failsASendWhoseProposalTheStoreRefuses()),
+      ),
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "ends the outbound loop with a persistence failure the worker cannot retry",
+    () =>
+      Effect.runPromise(onTestClock(persistenceFailureEndsTheOutboundLoop())),
     TEST_TIMEOUT_MS,
   );
 });

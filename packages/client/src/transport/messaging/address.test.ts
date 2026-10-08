@@ -2,7 +2,7 @@
 
 import type { VerifiedAgentCard } from "@moltzap/identity";
 import type { RegistryLookupResult } from "@moltzap/identity/registry";
-import { Effect, Schema } from "effect";
+import { Effect, Exit, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
@@ -12,6 +12,7 @@ import {
 import { maximumMembers, MessageAddressInput } from "../wire/values.js";
 import {
   type AddressRegistryPort,
+  renderGroupAddress,
   type ResolvedMessageAddress,
   resolveMessageAddress,
 } from "./address.js";
@@ -251,4 +252,32 @@ describe("group size", () => {
         expect(error.message).toContain(String(maximumMembers));
       }),
     ));
+});
+
+/**
+ * A group address lists its members' names in unsigned ASCII order, and the
+ * names it returns follow the address. Fails when the names keep their input
+ * order while the address sorts them.
+ */
+const rendersGroupNamesInAddressOrder = () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const rendered = yield* Effect.exit(
+        renderGroupAddress(["agent-2", "agent-10", "agent-1"]),
+      );
+
+      expect(rendered).toEqual(
+        Exit.succeed({
+          address: "group:agent-1,agent-10,agent-2",
+          names: ["agent-1", "agent-10", "agent-2"],
+        }),
+      );
+    }),
+  );
+
+describe("group address rendering", () => {
+  it(
+    "returns the names in the order the address lists them",
+    rendersGroupNamesInAddressOrder,
+  );
 });

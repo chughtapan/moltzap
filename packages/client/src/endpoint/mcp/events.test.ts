@@ -10,13 +10,11 @@ import {
   McpServer,
   PROTOCOL_VERSION_META_KEY,
 } from "@modelcontextprotocol/server";
-import { AgentCard } from "@moltzap/identity";
 import { Chunk, Deferred, Effect, Fiber, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import type { HarnessMessageReadyEvent } from "../../delivery/operations.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
-import { makeFixture } from "../../__tests__/router-worker-fixtures.js";
 import { DeliveryToken } from "../../store/index.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
 import { acquireHarnessEndpoint } from "../harness-endpoint/index.js";
@@ -125,11 +123,9 @@ interface MemoryInbox {
  * Registered daemon operations over `inbox`; operations outside the events
  * scenarios die.
  */
-const inboxOperations = (
-  inbox: MemoryInbox,
-  agentCard: typeof AgentCard.Encoded,
-): HarnessMcpOperations => ({
-  readStatus: () => Effect.succeed({ kind: "active", agentCard }),
+const inboxOperations = (inbox: MemoryInbox): HarnessMcpOperations => ({
+  protocolActive: () => true,
+  readStatus: unreachable,
   register: unreachable,
   searchAgents: unreachable,
   searchConversations: unreachable,
@@ -162,11 +158,9 @@ const acquireEventsServer = Effect.gen(function* () {
   const inbox: MemoryInbox = { unread: [], sequence: 0 };
   const attached = yield* Deferred.make<undefined>();
   const detached = yield* Deferred.make<undefined>();
-  const fixture = yield* makeFixture;
-  const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
   const handler = yield* makeHarnessMcpHttpHandler({
     implementation,
-    operations: inboxOperations(inbox, agentCard),
+    operations: inboxOperations(inbox),
     onSubscriptionActiveChange: (active) => {
       Effect.runFork(Deferred.succeed(active ? attached : detached, undefined));
     },
@@ -196,7 +190,7 @@ const acquireRacingEventsServer = Effect.gen(function* () {
   const gate = yield* Effect.makeSemaphore(1);
   const events: HarnessEvents = yield* makeHarnessEvents({
     gate: yieldAfterReservation(gate, () => events),
-    registered: () => true,
+    protocolActive: () => true,
     summary: () =>
       Effect.sync(() => ({
         pendingCount: unread.length,

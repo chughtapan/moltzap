@@ -91,6 +91,7 @@ export const runDaemonRuntime = (
           operations: Object.freeze({
             ...management,
             ...daemon.deliveryOperations,
+            protocolActive: daemon.protocolActive,
           }),
           credentials: input.bootstrap.mcpCredentials,
           eventStore: daemon.eventStore,
