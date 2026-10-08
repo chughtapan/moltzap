@@ -432,11 +432,6 @@ export const verifyCompletedReanchor = (input: {
     return expectedAnchorHash;
   }).pipe(Effect.withSpan("verifyCompletedReanchor"));
 
-export interface VerifiedRecordCore {
-  readonly membership: VerifiedMembership;
-  readonly recordHash: RecordHash;
-}
-
 /**
  * Check that a record core binds the membership this endpoint holds for its
  * conversation. A GENESIS core carries the descriptor, which must be the held
@@ -466,7 +461,7 @@ const verifyRecordMembership = (
 export const verifyRecordCore = (input: {
   readonly recordCore: RecordCore;
   readonly membership: VerifiedMembership;
-}): Effect.Effect<VerifiedRecordCore, ClientRepresentationError> =>
+}): Effect.Effect<RecordHash, ClientRepresentationError> =>
   Effect.gen(function* () {
     const { membership } = input;
     yield* verifyRecordMembership(input.recordCore, membership);
@@ -480,16 +475,8 @@ export const verifyRecordCore = (input: {
     ) {
       return yield* representationFailure();
     }
-    return {
-      membership,
-      recordHash: yield* hashRecord(input.recordCore),
-    };
+    return yield* hashRecord(input.recordCore);
   }).pipe(Effect.withSpan("verifyRecordCore"));
-
-export interface VerifiedActionCertifiedRecord {
-  readonly membership: VerifiedMembership;
-  readonly recordHash: RecordHash;
-}
 
 const verifyRecordRouterAnchor = (input: {
   readonly record: ActionCertifiedRecord;
@@ -541,56 +528,55 @@ const verifyGenesisRouterAnchor = (input: {
 export const verifyActionCertifiedRecord = (input: {
   readonly record: ActionCertifiedRecord;
   readonly membership: VerifiedMembership;
-}): Effect.Effect<VerifiedActionCertifiedRecord, ClientRepresentationError> =>
+}): Effect.Effect<RecordHash, ClientRepresentationError> =>
   Effect.gen(function* () {
-    const verified = yield* verifyRecordCore({
+    const recordHash = yield* verifyRecordCore({
       recordCore: input.record.recordCore,
       membership: input.membership,
     });
-    if (input.record.recordHash !== verified.recordHash) {
+    if (input.record.recordHash !== recordHash) {
       return yield* representationFailure();
     }
     yield* verifyActionCertificate({
       certificate: input.record.actionCertificate,
       action: input.record.recordCore.action,
-      membership: verified.membership,
+      membership: input.membership,
     });
     yield* verifyRecordRouterAnchor({
       record: input.record,
-      membership: verified.membership,
+      membership: input.membership,
     });
     yield* verifyGenesisRouterAnchor({ record: input.record });
-    return verified;
+    return recordHash;
   }).pipe(Effect.withSpan("verifyActionCertifiedRecord"));
 
 export const verifyCertifiedRecord = (input: {
   readonly record: CertifiedRecord;
   readonly membership: VerifiedMembership;
-}): Effect.Effect<VerifiedMembership, ClientRepresentationError> =>
+}): Effect.Effect<void, ClientRepresentationError> =>
   Effect.gen(function* () {
-    const verified = yield* verifyActionCertifiedRecord({
+    const { membership } = input;
+    const recordHash = yield* verifyActionCertifiedRecord({
       record: input.record.actionCertifiedRecord,
-      membership: input.membership,
+      membership,
     });
     const certificate = input.record.durabilityCertificate;
-    if (certificate.recordHash !== verified.recordHash) {
+    if (certificate.recordHash !== recordHash) {
       return yield* representationFailure();
     }
     yield* verifyEvidenceSet({
       representations: certificate.votes,
       expectedKind: "durability_vote",
-      membership: verified.membership,
-      minimumCount: quorumThreshold(verified.membership.members.length),
+      membership,
+      minimumCount: quorumThreshold(membership.members.length),
       statementMatches: (statement) =>
         Effect.succeed(
           statement.kind === "durability_vote" &&
-            statement.conversationId ===
-              verified.membership.descriptor.conversationId &&
-            statement.membershipHash === verified.membership.hash &&
-            statement.recordHash === verified.recordHash,
+            statement.conversationId === membership.descriptor.conversationId &&
+            statement.membershipHash === membership.hash &&
+            statement.recordHash === recordHash,
         ),
     });
-    return verified.membership;
   }).pipe(Effect.withSpan("verifyCertifiedRecord"));
 
 const verifyCatchUpRequest = (input: {

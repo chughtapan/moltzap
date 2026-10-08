@@ -152,7 +152,7 @@ const PostRecordCore = exactStruct({
   action: PostActionCore,
   actionHash: ActionHash,
 });
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- A GENESIS core carries the membership descriptor and a POST core only its hash.
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- Private record decoding and hashing compose the complete closed record-core union.
 export const RecordCore = Schema.Union(GenesisRecordCore, PostRecordCore);
 export type RecordCore = typeof RecordCore.Type;
 

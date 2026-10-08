@@ -290,13 +290,11 @@ function recoverStagedFolds(
           RecordCoreSchema,
           staged.canonicalRecordCore,
         );
-        const verified = yield* verifyRecordCore({
+        const verifiedHash = yield* verifyRecordCore({
           recordCore,
           membership: fold.conversation.membership,
         });
-        if (
-          !stagedRecordMatches(staged, fold, recordCore, verified.recordHash)
-        ) {
+        if (!stagedRecordMatches(staged, fold, recordCore, verifiedHash)) {
           return yield* Effect.fail(persistenceFailure());
         }
         yield* Effect.sync(() => {

@@ -77,7 +77,9 @@ before enabling WAL, creating schema objects, or changing file permissions.
 Versions 2 and 3 were written under the prior `V2_PROTOCOL_VERSION`, and
 version 4 under the prior record format; the daemon replaces any of them, in
 one transaction, with an empty version 5 store, so it starts unregistered and
-the agent registers again. The daemon reads
+the agent registers again. A version 4 store's identity was registered with a
+Registry of the current version, which keeps that registration, so its agent
+registers again only on a fresh Registry or with a new key and AgentName. The daemon reads
 `MOLTZAPD_ADMISSION_CREDENTIAL_FILE` before it creates a store, so without a
 credential it fails closed with a configuration error and leaves the version
 2, 3 or 4 store untouched; the credential must be one the new Registry admits. Before normal

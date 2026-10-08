@@ -86,6 +86,7 @@ import {
   GenesisAnchorBody,
   hashAction,
   hashAnchor,
+  hashMembershipDescriptor,
   hashPostIntent,
   hashRecord,
   MembershipDescriptor,
@@ -5106,6 +5107,259 @@ const adoptsCompletionSupersedingTheStagedCandidate = (
   );
 
 /**
+ * A two-member conversation between the fixture's endpoint and a member whose
+ * card a Registry other than the endpoint's issued, which the endpoint's
+ * store does not hold, and its certified GENESIS record. Its membership is
+ * assembled from the cards without checking them against any Registry.
+ * @param fixture Endpoint the conversation includes.
+ * @returns The foreign member, the conversation's membership, and its record.
+ */
+const conversationWithForeignCard = (fixture: RecoveryFixture) =>
+  Effect.gen(function* () {
+    const authority = yield* makeTestAuthority();
+    const member: SigningIdentity = {
+      card: yield* issueTestCard({
+        byte: 6,
+        name: "foreign-6",
+        authority,
+        registryKeys: generateKeyPairSync("ed25519"),
+      }),
+      authority,
+    };
+    const conversationId = yield* deriveConversationId([
+      fixture.local.card.agentId,
+      member.card.agentId,
+    ]);
+    const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "membership_descriptor",
+      conversationId,
+      members: yield* Effect.forEach(
+        [fixture.local, member],
+        (identity) => Schema.encode(AgentCard)(identity.card),
+        { concurrency: 1 },
+      ),
+    });
+    const membership: VerifiedMembership = {
+      descriptor,
+      hash: yield* hashMembershipDescriptor(descriptor),
+      members: [fixture.local.card, member.card],
+    };
+    const genesis = yield* buildCertifiedGenesis(
+      fixture.local,
+      member,
+      membership,
+      oldRouterInstanceId,
+    );
+    return { member, membership, genesis };
+  }).pipe(Effect.orDie);
+
+/**
+ * A certified POST the member of a two-member conversation authors directly
+ * after its GENESIS, signed and voted by both members.
+ * @param conversation The conversation's member, membership and GENESIS.
+ * @param conversation.member Author of the post, and one of its two signers.
+ * @param conversation.membership Membership the post names by hash.
+ * @param conversation.genesis Record the post extends, under its anchor.
+ * @param local The fixture's endpoint, which also signs and votes.
+ * @returns The certified record.
+ */
+const certifiedPostAfterGenesis = (
+  conversation: {
+    readonly member: SigningIdentity;
+    readonly membership: VerifiedMembership;
+    readonly genesis: CertifiedRecord;
+  },
+  local: SigningIdentity,
+): Effect.Effect<CertifiedRecord> =>
+  Effect.gen(function* () {
+    const { member, membership, genesis } = conversation;
+    const signers = [local, member].sort((left, right) =>
+      compareAgentIds(left.card.agentId, right.card.agentId),
+    );
+    const intent: PostIntent = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "post_intent",
+      conversationId: membership.descriptor.conversationId,
+      membershipHash: membership.hash,
+      authorAgentId: member.card.agentId,
+      postId: yield* mintPostId(),
+      content: [{ type: "text", text: "post after genesis" }],
+    };
+    const anchorHash = genesis.actionCertifiedRecord.recordCore.anchorHash;
+    const action: PostActionCore = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "POST",
+      conversationId: membership.descriptor.conversationId,
+      membershipHash: membership.hash,
+      anchorHash,
+      previousRecordHash: genesis.actionCertifiedRecord.recordHash,
+      postIntent: intent,
+      postIntentHash: yield* hashPostIntent(intent),
+    };
+    const actionHash = yield* hashAction(action);
+    const recordCore: RecordCore = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "record_core",
+      membershipHash: membership.hash,
+      anchorHash,
+      action,
+      actionHash,
+    };
+    const recordHash = yield* hashRecord(recordCore);
+    const [firstSignature, ...signatures] = yield* Effect.forEach(
+      signers,
+      (signer) =>
+        signEvidence(signer, {
+          moltzapVersion: MOLTZAP_VERSION,
+          kind: "action_signature",
+          signerAgentId: signer.card.agentId,
+          actionHash,
+        }),
+      { concurrency: 1 },
+    );
+    const [firstVote, ...votes] = yield* Effect.forEach(
+      signers,
+      (signer) =>
+        signEvidence(signer, {
+          moltzapVersion: MOLTZAP_VERSION,
+          kind: "durability_vote",
+          signerAgentId: signer.card.agentId,
+          conversationId: membership.descriptor.conversationId,
+          membershipHash: membership.hash,
+          recordHash,
+        }),
+      { concurrency: 1 },
+    );
+    if (firstSignature === undefined || firstVote === undefined) {
+      return yield* Effect.dieMessage("a certificate needs signers");
+    }
+    const record: CertifiedRecord = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "certified_record",
+      actionCertifiedRecord: {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "action_certified_record",
+        recordHash,
+        recordCore,
+        routerAnchor: genesis.actionCertifiedRecord.routerAnchor,
+        actionCertificate: {
+          moltzapVersion: MOLTZAP_VERSION,
+          kind: "action_certificate",
+          actionHash,
+          signatures: [firstSignature, ...signatures],
+        },
+      },
+      durabilityCertificate: {
+        moltzapVersion: MOLTZAP_VERSION,
+        kind: "durability_certificate",
+        recordHash,
+        votes: [firstVote, ...votes],
+      },
+    };
+    return record;
+  }).pipe(Effect.orDie);
+
+/**
+ * A member offers a conversation whose descriptor holds a card a Registry
+ * other than this endpoint's issued. Its GENESIS, as an action-certified copy
+ * or as a certified record, is ignored and stores no conversation, while a
+ * conversation whose cards this endpoint's Registry issued is accepted. Fails
+ * when an endpoint takes a conversation's membership from a GENESIS without
+ * verifying its cards against the Registry key.
+ */
+const ignoresGenesisWithACardAnotherRegistryIssued = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const foreign = yield* conversationWithForeignCard(fixture);
+        const issued = yield* unstoredConversationWith(fixture);
+        const deliver = (conversation: typeof foreign, packet: DirectPacket) =>
+          directPacketIngressFrom({
+            membership: conversation.membership,
+            sender: conversation.member,
+            packet,
+            routerInstanceId: oldRouterInstanceId,
+          }).pipe(
+            Effect.flatMap((ingress) =>
+              fixture.engine.acceptRouterIngress(ingress),
+            ),
+          );
+
+        const foreignDispositions = [
+          yield* deliver(foreign, foreign.genesis.actionCertifiedRecord),
+          yield* deliver(foreign, foreign.genesis),
+        ];
+        const afterForeign = yield* fixture.store.recover();
+        const issuedDisposition = yield* deliver(issued, issued.genesis);
+
+        expect(foreignDispositions).toEqual([
+          ignoredDisposition,
+          ignoredDisposition,
+        ]);
+        expect(
+          afterForeign.positions.some(
+            ({ conversationId }) =>
+              conversationId === foreign.membership.descriptor.conversationId,
+          ),
+        ).toBe(false);
+        expect(issuedDisposition).toBe(acceptedDisposition);
+      }),
+    ),
+  );
+
+/**
+ * A POST record names its membership only by hash, so an endpoint that does
+ * not hold the conversation ignores it and stores nothing. Once the
+ * conversation's GENESIS arrives, the same POST certifies. Fails when an
+ * unheld conversation's POST is accepted, or is treated as a fault instead of
+ * being ignored.
+ */
+const ignoresAPostForAConversationItDoesNotHold = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeFixture;
+        const created = yield* unstoredConversationWith(fixture);
+        const post = yield* certifiedPostAfterGenesis(created, fixture.local);
+        const deliver = (packet: DirectPacket) =>
+          directPacketIngressFrom({
+            membership: created.membership,
+            sender: created.member,
+            packet,
+            routerInstanceId: oldRouterInstanceId,
+          }).pipe(
+            Effect.flatMap((ingress) =>
+              fixture.engine.acceptRouterIngress(ingress),
+            ),
+          );
+        const { conversationId } = created.membership.descriptor;
+
+        const early = yield* deliver(post);
+        const beforeGenesis = (yield* fixture.store.recover()).positions.find(
+          (held) => held.conversationId === conversationId,
+        );
+        const genesis = yield* deliver(created.genesis);
+        const later = yield* deliver(post);
+        const afterPost = (yield* fixture.store.recover()).positions.find(
+          (held) => held.conversationId === conversationId,
+        );
+
+        expect([early, genesis, later]).toEqual([
+          ignoredDisposition,
+          acceptedDisposition,
+          acceptedDisposition,
+        ]);
+        expect(beforeGenesis).toBeUndefined();
+        expect(afterPost?.headRecordHash).toBe(
+          post.actionCertifiedRecord.recordHash,
+        );
+      }),
+    ),
+  );
+
+/**
  * A member creates a new conversation with this endpoint while it recovers,
  * and the conversation's certified GENESIS record arrives as recovery
  * traffic. The run holds no membership for that conversation, so it applies
@@ -5215,6 +5469,14 @@ const ignoresReanchorVoteAfterTheConversationReanchored = () =>
 
 // @agent-code-guard/regression-only: these traces pin that input from a peer never ends a recovery run.
 describe("peer input during recovery", () => {
+  it(
+    "ignores a GENESIS whose membership holds a card another Registry issued",
+    ignoresGenesisWithACardAnotherRegistryIssued,
+  );
+  it(
+    "ignores a POST for a conversation it does not hold, and certifies it after its GENESIS",
+    ignoresAPostForAConversationItDoesNotHold,
+  );
   it(
     "ignores a re-anchor vote whose previous anchor this endpoint cannot resolve",
     ignoresReanchorVoteFromUnknownPreviousAnchor,

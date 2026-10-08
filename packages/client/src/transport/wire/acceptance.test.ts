@@ -44,6 +44,7 @@ import {
   type PostIntent,
   quorumThreshold,
   type ReanchorBody,
+  RecordCore as RecordCoreSchema,
   signEvidenceMessage,
   signOuterEvidence,
   signOuterPacket,
@@ -70,7 +71,6 @@ interface IdentityFixture {
 interface ProtocolFixture {
   readonly identities: readonly IdentityFixture[];
   readonly membership: VerifiedMembership;
-  readonly registrySignerPublicKey: typeof Ed25519PublicKey.Type;
 }
 
 interface RecordFixture {
@@ -168,7 +168,6 @@ const makeProtocolFixture = (memberCount: number) =>
         descriptor,
         registrySignerPublicKey,
       ),
-      registrySignerPublicKey,
     } satisfies ProtocolFixture;
   });
 
@@ -531,8 +530,9 @@ const enforcesGenesisAndPostEvidence = () =>
  * against the membership an endpoint holds from the conversation's GENESIS and
  * not against another conversation's membership. A GENESIS record verifies
  * only against the descriptor it carries. Fails when a record verifies against
- * a membership it does not name, or when a POST core names another membership
- * than the one its action and the endpoint hold.
+ * a membership it does not name, when a GENESIS or POST core names another
+ * membership than the one its action and the endpoint hold, or when a core
+ * whose membership field does not fit its action decodes.
  * @returns Completion after every case is checked.
  */
 const verifiesRecordsAgainstTheHeldMembership = () =>
@@ -586,6 +586,57 @@ const verifiesRecordsAgainstTheHeldMembership = () =>
           membership: fixture.membership,
         }),
       );
+
+      const genesisCore = genesis.actionCertifiedRecord.recordCore;
+      if (!("membership" in genesisCore)) {
+        return yield* Effect.dieMessage(
+          "a GENESIS core carries its descriptor",
+        );
+      }
+      const foreignCore = {
+        ...genesisCore,
+        membership: other.membership.descriptor,
+      };
+      yield* expectRepresentationFailure(
+        verifyActionCertifiedRecord({
+          record: {
+            ...genesis.actionCertifiedRecord,
+            recordCore: foreignCore,
+            recordHash: yield* hashRecord(foreignCore),
+          },
+          membership: fixture.membership,
+        }),
+      );
+
+      const decodesAsRecordCore = (value: unknown) =>
+        Schema.decodeUnknown(RecordCoreSchema)(value).pipe(
+          Effect.as(true),
+          Effect.orElseSucceed(() => false),
+        );
+      const { membershipHash, ...postCoreFields } = postCore;
+      expect(
+        yield* decodesAsRecordCore({
+          ...postCoreFields,
+          membership: fixture.membership.descriptor,
+        }),
+      ).toBe(false);
+      const { membership: genesisDescriptor, ...genesisCoreFields } =
+        genesisCore;
+      expect(
+        yield* decodesAsRecordCore({
+          ...genesisCoreFields,
+          membershipHash: fixture.membership.hash,
+        }),
+      ).toBe(false);
+      expect(
+        yield* decodesAsRecordCore({ ...postCoreFields, membershipHash }),
+      ).toBe(true);
+      expect(
+        yield* decodesAsRecordCore({
+          ...genesisCoreFields,
+          membership: genesisDescriptor,
+        }),
+      ).toBe(true);
     }),
   );
 
@@ -697,7 +748,8 @@ const verifiesReanchorCatchUpBindings = () =>
  * position must carry GENESIS, whose descriptor gives the member the
  * membership a later POST page names only by hash. A POST page then verifies
  * at the position GENESIS sets. Fails when an empty position accepts a POST
- * record, which the member could not resolve without the descriptor.
+ * record, which the member could not resolve without the descriptor, or
+ * another conversation's GENESIS.
  * @returns Completion after every page is checked.
  */
 const catchesUpGenesisFirst = () =>
@@ -761,9 +813,16 @@ const catchesUpGenesisFirst = () =>
         knownAnchorHash: genesis.actionCertifiedRecord.recordCore.anchorHash,
       });
 
+      const elsewhere = yield* buildGenesis(yield* makeProtocolFixture(4), [
+        { type: "text", text: "elsewhere" },
+      ]);
+
       yield* verify(yield* page(empty, genesis.certifiedRecord));
       yield* expectRepresentationFailure(
         verify(yield* page(empty, post.certifiedRecord)),
+      );
+      yield* expectRepresentationFailure(
+        verify(yield* page(empty, elsewhere.certifiedRecord)),
       );
       yield* verify(yield* page(atGenesis, post.certifiedRecord));
     }),

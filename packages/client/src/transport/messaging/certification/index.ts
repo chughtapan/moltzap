@@ -144,7 +144,10 @@ const conversationForAction = (
     if (retained !== undefined || action.kind === "POST") {
       return retained;
     }
-    const membership = yield* ingressMembership(runtime, action);
+    const membership = yield* verifyMembershipDescriptor(
+      action.membership,
+      runtime.input.registrySignerPublicKey,
+    );
     if (action.anchor.routerInstanceId !== routerInstanceId) {
       return undefined;
     }
@@ -726,10 +729,9 @@ const membershipForRecord = (
   record: ActionCertifiedRecord,
 ): Effect.Effect<VerifiedMembership, ClientRepresentationError> =>
   ingressMembership(runtime, record.recordCore.action).pipe(
-    Effect.flatMap((membership) =>
+    Effect.tap((membership) =>
       verifyActionCertifiedRecord({ record, membership }),
     ),
-    Effect.map((verified) => verified.membership),
   );
 
 const ensureConversation = (
@@ -933,13 +935,11 @@ const acceptCertifiedRecord = (
   applyCatchUp = false,
 ): Effect.Effect<RouterIngressDisposition, ProtocolAcceptanceError> =>
   Effect.gen(function* () {
-    const membership = yield* verifyCertifiedRecord({
-      record,
-      membership: yield* ingressMembership(
-        runtime,
-        record.actionCertifiedRecord.recordCore.action,
-      ),
-    });
+    const membership = yield* ingressMembership(
+      runtime,
+      record.actionCertifiedRecord.recordCore.action,
+    );
+    yield* verifyCertifiedRecord({ record, membership });
     const actionRecord = record.actionCertifiedRecord;
     const fold = yield* prepareRecordFold(
       runtime,

@@ -211,10 +211,13 @@ type RecordCore = GenesisRecordCore | PostRecordCore
 
 A GENESIS record core carries the membership descriptor. A POST record core
 carries only its `MembershipHash`, and a member verifies a POST record against
-the membership it holds from the conversation's GENESIS: a catch-up page for an
-empty position carries GENESIS, so a member holds GENESIS before any POST
-record it verifies. A POST record whose `MembershipHash` is not the held
-membership's hash fails verification.
+the membership it holds for the conversation. Every member holds that
+Registry-verified membership before it sees any POST record: GENESIS needs
+every member's action signature, and a member signs GENESIS only after it locks
+the GENESIS proposal and its verified membership. A catch-up page for an empty
+position carries GENESIS. A POST record whose `MembershipHash` is not the held
+membership's hash fails verification, and a POST record for a conversation the
+member does not hold is ignored.
 
 `GENESIS` is the first nonempty post. Its anchor uses the
 `RouterInstanceId` from an omitted-cursor poll. `POST` extends exactly one
