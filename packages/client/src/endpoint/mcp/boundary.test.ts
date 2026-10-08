@@ -388,6 +388,15 @@ const sendInput = Schema.decodeUnknownSync(SendInput)({
 });
 const sendResult = {};
 
+/**
+ * Bounds a hang in the send-validation trace; no assertion depends on it.
+ * The trace starts three boundary servers and three endpoints, and as the
+ * file's first trace it also pays the one-time warm-up of the MCP and
+ * endpoint stack: it took 1.4 to 5.2 s at a load average of 30 to 42 on 8
+ * cores, past the 5 s default.
+ */
+const SEND_VALIDATION_TIMEOUT_MS = 30_000;
+
 const distinguishesSendValidationFailures = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -765,6 +774,7 @@ describe("Harness MCP HTTP boundary", () => {
   it(
     "keeps dispatch and invalid output distinct from rejected send input",
     distinguishesSendValidationFailures,
+    SEND_VALIDATION_TIMEOUT_MS,
   );
   it(
     "carries a refusal's detail across the daemon boundary",
