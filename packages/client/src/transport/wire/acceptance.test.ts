@@ -954,6 +954,16 @@ const buildMaximumArtifact = Effect.gen(function* () {
  */
 const maximumArtifact = Effect.runSync(Effect.cached(buildMaximumArtifact));
 
+/**
+ * Bounds a hang in building the largest catch-up page and in each case that
+ * checks it; no assertion depends on it. The build issues 32 identities and
+ * signs a re-anchor certificate and a POST certificate of one signature per
+ * member, and the cases verify the page or seal it to every member. The build
+ * took 1 to 4 s at a load average of 20 to 27 on 8 cores, and two cases
+ * passed the 5 s default at a load average of 30 to 45.
+ */
+const MAXIMUM_PAGE_TIMEOUT_MS = 60_000;
+
 const verifiesMaximumPage = () =>
   Effect.runPromise(
     Effect.gen(function* () {
@@ -1067,18 +1077,25 @@ describe("Client protocol acceptance", () => {
     "catches up GENESIS first, so a later POST page resolves its membership",
     catchesUpGenesisFirst,
   );
-  describe("the largest catch-up page, a re-anchored POST at its maximum membership", () => {
-    beforeAll(() => Effect.runPromise(Effect.asVoid(maximumArtifact)));
-    it("verifies from its responder", verifiesMaximumPage);
-    it(
-      "fits inside Identity limits sealed to every member",
-      sealsMaximumPageInsideIdentityLimits,
-    );
-    it(
-      "relays its attestation inside Identity limits sealed to every member",
-      relaysMaximumAttestationInsideIdentityLimits,
-    );
-  });
+  describe(
+    "the largest catch-up page, a re-anchored POST at its maximum membership",
+    { timeout: MAXIMUM_PAGE_TIMEOUT_MS },
+    () => {
+      beforeAll(
+        () => Effect.runPromise(Effect.asVoid(maximumArtifact)),
+        MAXIMUM_PAGE_TIMEOUT_MS,
+      );
+      it("verifies from its responder", verifiesMaximumPage);
+      it(
+        "fits inside Identity limits sealed to every member",
+        sealsMaximumPageInsideIdentityLimits,
+      );
+      it(
+        "relays its attestation inside Identity limits sealed to every member",
+        relaysMaximumAttestationInsideIdentityLimits,
+      );
+    },
+  );
 });
 
 /* eslint-enable max-lines-per-function, sonarjs/max-lines-per-function -- Restore repository defaults. */
