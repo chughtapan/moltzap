@@ -7,19 +7,20 @@ import { AgentCard, AgentSigningAuthority } from "@moltzap/identity";
 import { Data, Deferred, Duration, Effect, Schema, type Scope } from "effect";
 import type { DeliveryToken, EndpointStoreError } from "../../store/index.js";
 import type {
-  RouterDiscontinuityReason,
-  RouterIngressDisposition,
-  RouterWorkerIngress,
-  RouterWorkerPersistenceError,
-  RouterWorkerRecovery,
-  RouterWorkerRecoveryError,
-  RouterWorkerSendError,
-} from "../router/index.js";
-import type {
   EndpointEngineInput,
   EnginePhases,
   EngineRuntime,
 } from "./runtime/index.js";
+import {
+  isTransientRouterWorkerError,
+  type RouterDiscontinuityReason,
+  type RouterIngressDisposition,
+  type RouterWorkerIngress,
+  type RouterWorkerPersistenceError,
+  type RouterWorkerRecovery,
+  type RouterWorkerRecoveryError,
+  type RouterWorkerSendError,
+} from "../router/index.js";
 import {
   type ClientRepresentationError,
   decodeCanonical,
@@ -228,22 +229,28 @@ const outboundFailure = (error: RouterWorkerSendError): EngineOutboundError => {
 
 /**
  * The failure of a send whose own drain failed. The send's post is already
- * durably queued then, so a lost Router fails it as queued.
+ * durably queued then: a worker failure that ends once the Router answers
+ * fails it as queued, since the outbound loop delivers it then; any other
+ * stops that loop, so the post is not said to be on its way.
  * @param error Why the drain failed.
  * @returns The send's closed failure.
  */
-function outboundSendFailure(error: EngineOutboundError): SendError {
-  switch (error.reason) {
+function outboundSendFailure(error: RouterWorkerSendError): SendError {
+  if (isTransientRouterWorkerError(error)) {
+    return queuedNetworkFailure();
+  }
+  const failure = outboundFailure(error);
+  switch (failure.reason) {
     case "persistence":
       return new SendError({ reason: "persistence-failed" });
     case "network":
-      return queuedNetworkFailure();
+      return new SendError({ reason: "network-unavailable" });
     case "representation":
       return new SendError({ reason: "certification-unavailable" });
     case "version":
       return new SendError({ reason: "version-mismatch" });
     default: {
-      const exhaustive: never = error.reason;
+      const exhaustive: never = failure.reason;
       return exhaustive;
     }
   }
@@ -347,7 +354,7 @@ const send = (
   Effect.gen(function* () {
     const prepared = yield* prepareSend(runtime, input);
     yield* runtime.outbox.drain.pipe(
-      Effect.mapError((error) => outboundSendFailure(outboundFailure(error))),
+      Effect.mapError((error) => outboundSendFailure(error)),
       Effect.timeoutFail({
         duration: LOCAL_DRAIN_TIMEOUT,
         onTimeout: queuedNetworkFailure,

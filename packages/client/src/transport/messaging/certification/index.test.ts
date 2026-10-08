@@ -53,6 +53,7 @@ import {
   RouterWorkerDiscontinuityError,
   type RouterWorkerIngress,
   RouterWorkerPersistenceError,
+  RouterWorkerRecoveryError,
   type RouterWorkerSendError,
   RouterWorkerTransportError,
   RouterWorkerUnavailableError,
@@ -3009,6 +3010,34 @@ function persistenceFailureEndsTheOutboundLoop(): Effect.Effect<
   });
 }
 
+/**
+ * The author's worker fails every transmit because its recovery failed, which
+ * stops the outbound loop. The send's post is queued, but no loop delivers
+ * it, so the send fails with the plain `network-unavailable` rather than the
+ * queued one. Fails when a fatal worker failure says the post is on its way.
+ * @returns The scenario, before its scope closes.
+ */
+function failedRecoveryFailsASendAsUnqueued(): Effect.Effect<
+  void,
+  never,
+  Scope.Scope
+> {
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness({
+      authorSend: () => () => Effect.fail(new RouterWorkerRecoveryError()),
+    });
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+
+    const failure = yield* author
+      .send(yield* sendInput(harness, "recovery failed"))
+      .pipe(Effect.flip, Effect.orDie);
+
+    expect(failure).toStrictEqual(
+      new SendError({ reason: "network-unavailable" }),
+    );
+  });
+}
+
 describe("engine faults while staging and sending", () => {
   it(
     "keeps a staged record's copy and fold together when its acceptance is interrupted",
@@ -3027,6 +3056,11 @@ describe("engine faults while staging and sending", () => {
     "ends the outbound loop with a persistence failure the worker cannot retry",
     () =>
       Effect.runPromise(onTestClock(persistenceFailureEndsTheOutboundLoop())),
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "fails a send without the queued text when the worker's recovery failed",
+    () => Effect.runPromise(onTestClock(failedRecoveryFailsASendAsUnqueued())),
     TEST_TIMEOUT_MS,
   );
 });
