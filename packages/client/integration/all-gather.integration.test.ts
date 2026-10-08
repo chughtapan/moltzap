@@ -157,6 +157,11 @@ const allAnsweredBehavior = Effect.gen(function* () {
   expect(yield* nextItem(third)).toEqual(requesterResult);
 }).pipe(Effect.scoped);
 
+/**
+ * Two members answer and the third stays silent, so the all_gather closes at
+ * its measured deadline. The members take the request together and the two
+ * answer together, so the deadline covers one round of each.
+ */
 const silentMemberBehavior = Effect.gen(function* () {
   const { requester, first, second, third } = yield* acquireParticipants;
   const deadline = yield* measuredDeadlineSeconds(
@@ -164,11 +169,12 @@ const silentMemberBehavior = Effect.gen(function* () {
   );
 
   const started = yield* allGather(requester, group, deadline);
-  yield* nextItem(first);
-  yield* nextItem(second);
-  yield* nextItem(third);
-  yield* answer(first, "mon");
-  yield* answer(second, "mon");
+  yield* Effect.all([nextItem(first), nextItem(second), nextItem(third)], {
+    concurrency: 3,
+  });
+  yield* Effect.all([answer(first, "mon"), answer(second, "mon")], {
+    concurrency: 2,
+  });
 
   const requesterResult = yield* nextItem(requester);
   expect(requesterResult).toMatchObject({

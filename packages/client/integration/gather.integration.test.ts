@@ -171,8 +171,7 @@ const silentMemberBehavior = Effect.gen(function* () {
   );
 
   const started = yield* gather(requester, [first, second], deadline);
-  yield* nextItem(first);
-  yield* nextItem(second);
+  yield* Effect.all([nextItem(first), nextItem(second)], { concurrency: 2 });
   yield* send(first, {
     to: requester.address,
     collectiveResponse: { action: "accept", content: { slot: "mon" } },
