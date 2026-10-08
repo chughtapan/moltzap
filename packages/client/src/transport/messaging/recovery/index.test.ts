@@ -9061,6 +9061,35 @@ const awaitAnswerToACatchUpRequest = (fixture: RecoveryFixture) =>
   );
 
 /**
+ * Runs one recovery of the fixture at its unchanged Router instance to
+ * completion: the remote member answers the endpoint's catch-up request as
+ * incomplete. Each step waits for the signal it needs, with no time bound of
+ * its own, so a loaded machine only slows it.
+ * @param fixture Endpoint under recovery.
+ * @param reason Discontinuity that started the recovery.
+ * @returns Completion once the recovery has completed.
+ */
+const recoverAtTheSameInstance = (
+  fixture: RecoveryFixture,
+  reason: RouterDiscontinuityReason,
+) =>
+  Effect.gen(function* () {
+    const { recovery, outbound } = yield* forkRecovery(
+      fixture,
+      reason,
+      oldRouterInstanceId,
+    );
+    const request = yield* Queue.take(outbound).pipe(
+      Effect.flatMap(decodeCatchUpRequest),
+    );
+    yield* deliverRecovery(
+      fixture.engine,
+      catchUpIncompleteIngress(fixture, request),
+    );
+    yield* Fiber.join(recovery);
+  });
+
+/**
  * The local endpoint signs the remote member's proposal at its head and sends
  * the signature. A discontinuity of `reason` follows, and recovery at the
  * same Router instance completes by catch-up. Only a Router restart loses
@@ -9082,7 +9111,7 @@ const resendsItsSignatureForAHeldProposal = (
         const fixture = yield* makeFixture;
         const { actionHash, signed } = yield* signARemoteProposal(fixture);
 
-        yield* runSameInstanceRecovery(fixture, reason, Effect.void);
+        yield* recoverAtTheSameInstance(fixture, reason);
         yield* awaitAnswerToACatchUpRequest(fixture);
         const signedAgain = yield* takeSignedActionHashes(
           fixture.normalOutbound,
