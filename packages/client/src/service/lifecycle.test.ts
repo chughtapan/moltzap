@@ -4,7 +4,17 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { SUBSCRIPTION_ID_META_KEY } from "@modelcontextprotocol/server";
 import { AgentCard } from "@moltzap/identity";
-import { Cause, Deferred, Effect, Exit, Fiber, Option, Schema } from "effect";
+import {
+  Cause,
+  Data,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  Option,
+  Ref,
+  Schema,
+} from "effect";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { EventStore } from "../delivery/operations.js";
@@ -917,6 +927,144 @@ const stopsWhenActivationFails = async (row: ActivationFault) => {
   }
 };
 
+/** A listener the operating system refused to open. */
+class ListenerUnavailableError extends Data.TaggedError(
+  "ListenerUnavailableError",
+) {}
+
+/** A fault a registered daemon's startup hits, and the phase it fails in. */
+interface StartupFault {
+  readonly fault: string;
+  readonly store: (store: EndpointStore) => EndpointStore;
+  readonly harness: (harness: RuntimeHarness) => RuntimeHarness;
+  readonly phase: DaemonRuntimeError["phase"];
+}
+
+/**
+ * A stored membership row that fails verification stops startup in storage;
+ * a listener that cannot open stops it in the listener phase.
+ */
+const startupFaults: readonly StartupFault[] = [
+  {
+    fault: "a stored membership fails verification",
+    store: (store) => ({
+      ...store,
+      recover: () =>
+        store.recover().pipe(
+          Effect.map((recovery) => ({
+            ...recovery,
+            memberships: [
+              {
+                conversationId: digest("cnv_", 9),
+                membershipHash: digest("mbr_", 9),
+                canonicalMembership: Uint8Array.of(0x7b, 0x7d),
+              },
+            ],
+          })),
+        ),
+    }),
+    harness: (harness) => harness,
+    phase: "storage",
+  },
+  {
+    fault: "the listener cannot open",
+    store: (store) => store,
+    harness: (harness) => ({
+      ...harness,
+      dependencies: {
+        ...harness.dependencies,
+        acquireListener: () => Effect.fail(new ListenerUnavailableError()),
+      },
+    }),
+    phase: "listener",
+  },
+];
+
+/**
+ * A registered daemon whose startup hits `fault` fails in the row's phase
+ * before it listens. Fails when activation accepts a row it cannot verify,
+ * or when a startup failure maps to another phase.
+ */
+const failsStartupWith = (row: StartupFault) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const harness = row.harness(yield* makeHarness(fixture, "none"));
+
+      const error = yield* run(
+        fixture,
+        row.store(makeStore(fixture, true)),
+        harness,
+      ).pipe(Effect.flip);
+
+      expect(error.phase, "phase startup failed in").toBe(row.phase);
+      expect(
+        Option.isNone(yield* Deferred.poll(harness.listenerReady)),
+        "listener stays closed after the failed startup",
+      ).toBe(true);
+    }),
+  );
+
+/**
+ * The harness with an engine constructor that counts each engine it builds.
+ * @param original The harness to wrap.
+ * @param engines Incremented once per engine.
+ * @returns The counting harness.
+ */
+const countingEngines = (
+  original: RuntimeHarness,
+  engines: Ref.Ref<number>,
+): RuntimeHarness => ({
+  ...original,
+  dependencies: {
+    ...original.dependencies,
+    makeEngine: (input) =>
+      Ref.update(engines, (count) => count + 1).pipe(
+        Effect.zipRight(original.dependencies.makeEngine(input)),
+      ),
+  },
+});
+
+/**
+ * A register retried after it succeeded returns the same registration and
+ * keeps the protocol the first one started: the engine is built once. Fails
+ * when activation builds a second engine and Router worker for an identity
+ * whose protocol is already up.
+ */
+const keepsOneProtocolAcrossARetriedRegister = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const engines = await Effect.runPromise(Ref.make(0));
+  const harness = countingEngines(
+    await Effect.runPromise(makeHarness(fixture, "none")),
+    engines,
+  );
+  const daemon = Effect.runFork(
+    run(fixture, makeStore(fixture, false), harness),
+  );
+  try {
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const operations = requireOperations(harness);
+    const agentCard = await Effect.runPromise(
+      Schema.encode(AgentCard)(fixture.localCard),
+    );
+
+    const first = await awaitStage(
+      operations.register(fixture.registerRequest),
+      "first registration",
+    );
+    const retried = await awaitStage(
+      operations.register(fixture.registerRequest),
+      "retried registration",
+    );
+
+    expect(first).toEqual({ kind: "registered", agentCard });
+    expect(retried).toEqual({ kind: "registered", agentCard });
+    expect(await Effect.runPromise(Ref.get(engines)), "engines built").toBe(1);
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(daemon));
+  }
+};
+
 describe("daemon runtime composition", () => {
   it(
     "closes after fatal persistence with a receipt waiting for the delivery gate",
@@ -967,6 +1115,14 @@ describe("daemon activation", () => {
   it.each(activationFaults)(
     "stops the daemon when activation $fault",
     stopsWhenActivationFails,
+  );
+  it.each(startupFaults)(
+    "fails a registered startup in phase $phase when $fault",
+    failsStartupWith,
+  );
+  it(
+    "keeps one protocol when a register is retried",
+    keepsOneProtocolAcrossARetriedRegister,
   );
 });
 

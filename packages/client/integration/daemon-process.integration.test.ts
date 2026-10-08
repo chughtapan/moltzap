@@ -481,3 +481,47 @@ it("delivers both ways after one real daemon restarts while its peer stays up", 
   expect.hasAssertions();
   return Effect.runPromise(singleRestartBehavior);
 }, 180_000);
+
+/** `fixture` configured with `other`'s agent key in place of its own. */
+const withAgentKeyOf = (
+  fixture: DaemonProcessFixture,
+  other: DaemonProcessFixture,
+): DaemonProcessFixture => ({
+  ...fixture,
+  environment: {
+    ...fixture.environment,
+    MOLTZAPD_AGENT_PRIVATE_KEY_FILE: other.agentPrivateKeyFile,
+  },
+});
+
+/**
+ * A registered state directory restarted with another agent's key holds an
+ * identity row that fails verification against the configured key, so the
+ * daemon refuses to start, in phase storage, before it listens. Fails when
+ * startup reports the refusal in another phase or accepts the row.
+ */
+const identityKeyMismatchBehavior = Effect.gen(function* () {
+  const infrastructure = yield* acquireProcessInfrastructure;
+  const [registeredFixture, otherFixture] = yield* Effect.all(
+    [
+      makeDaemonProcessFixture(infrastructure, "identity-registered"),
+      makeDaemonProcessFixture(infrastructure, "identity-other-key"),
+    ] as const,
+    { concurrency: 2 },
+  );
+  const firstRun = yield* acquireDaemonProcess(registeredFixture);
+  yield* registerFixture(registeredFixture);
+  yield* stopProcess(firstRun);
+
+  const failure = yield* awaitDaemonStartupFailure(
+    withAgentKeyOf(registeredFixture, otherFixture),
+  );
+
+  expect(failure.exitCode).not.toBe(0);
+  expect(failure.logs).toContain("moltzapd startup failed in phase storage");
+}).pipe(Effect.scoped);
+
+it("refuses to start in phase storage when its identity row fails verification", () => {
+  expect.hasAssertions();
+  return Effect.runPromise(identityKeyMismatchBehavior);
+}, 180_000);
