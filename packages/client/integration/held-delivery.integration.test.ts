@@ -106,10 +106,7 @@ const expectQuiet = (inbox: Queue.Queue<InboundDelivery>) =>
     Effect.map((size) => expect(size).toBe(0)),
   );
 
-/**
- * Waits until the proxy parks a Router response for the held endpoint. The
- * test's timeout bounds a Router that never orders the delivery.
- */
+/** Waits until the proxy parks a Router response for the held endpoint. */
 const awaitParkedResponse = (parkedResponses: Effect.Effect<number>) =>
   parkedResponses.pipe(
     Effect.repeat({

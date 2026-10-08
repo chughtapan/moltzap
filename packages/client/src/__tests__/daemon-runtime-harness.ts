@@ -603,9 +603,7 @@ const readFrame = async (
 
 /**
  * Await an effect for one named stage, which names the span a failure's trace
- * shows. A stage has no time bound of its own: each one completes on a signal
- * the runtime raises, a wall-clock bound fails a stage that is only slow on a
- * loaded machine, and the test's own timeout catches one that never completes.
+ * shows. Each stage completes on a signal the runtime raises.
  */
 export const awaitStage = <Value, Failure>(
   effect: Effect.Effect<Value, Failure>,

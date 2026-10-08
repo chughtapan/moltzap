@@ -67,11 +67,7 @@ function requireDelivery(
   });
 }
 
-/**
- * The next delivery on `stream`. It waits for the delivery itself rather than
- * for a wall-clock bound, since certifying a post through real daemons slows
- * with host load; the test's timeout bounds a delivery that never comes.
- */
+/** The next delivery on `stream`. */
 function nextDelivery<E>(stream: Stream.Stream<InboundDelivery, E>) {
   return Stream.runHead(stream).pipe(Effect.flatMap(requireDelivery));
 }
