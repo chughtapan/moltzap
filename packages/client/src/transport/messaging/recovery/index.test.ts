@@ -122,6 +122,16 @@ import { catchUpRetryAttempts } from "./index.js";
 /** The Router-worker operations an engine consumes. */
 type EngineRouterPort = EndpointEngineInput["routerWorker"];
 
+/**
+ * Bounds a hang in one recovery trace; no assertion depends on it. A trace
+ * signs, seals to every member and verifies each envelope it exchanges, from
+ * about 150 sequential WebCrypto calls for a restart over one record to about
+ * 1,750 for an N4 trace with a holder, and these slow with machine load: the
+ * traces took 2.3 to 8.5 s at a load average of 21 to 28 on 8 cores, and the
+ * slowest passed 20 s at 45.
+ */
+const TRACE_TIMEOUT_MS = 60_000;
+
 interface RecoveryFixture {
   readonly engine: EndpointEngine;
   readonly input: EndpointEngineInput;
@@ -3994,7 +4004,7 @@ const retiresAStagedSuccessorWhenAReanchorSelectsItsHead = (
   );
 
 // @agent-code-guard/regression-only: these traces pin restart liveness and fail-closed ancestry handling.
-describe("endpoint restart recovery", () => {
+describe("endpoint restart recovery", { timeout: TRACE_TIMEOUT_MS }, () => {
   it(
     "starts its recovery run while a normal send is held",
     recoverWhileNormalSendIsHeld,
@@ -4091,16 +4101,10 @@ describe("endpoint restart recovery", () => {
     "does not re-anchor behind a staged N4 successor when every peer reports incomplete",
     blocksN4ReanchorBehindStagedSuccessor,
   );
-  it(
-    "retires a staged N4 successor when a caught-up re-anchor selects its head",
-    () => retiresAStagedSuccessorWhenAReanchorSelectsItsHead("catch-up"),
-    10_000,
-  );
-  it(
-    "retires a staged N4 successor when a relayed re-anchor selects its head",
-    () => retiresAStagedSuccessorWhenAReanchorSelectsItsHead("relay"),
-    10_000,
-  );
+  it("retires a staged N4 successor when a caught-up re-anchor selects its head", () =>
+    retiresAStagedSuccessorWhenAReanchorSelectsItsHead("catch-up"));
+  it("retires a staged N4 successor when a relayed re-anchor selects its head", () =>
+    retiresAStagedSuccessorWhenAReanchorSelectsItsHead("relay"));
   it(
     "rebroadcasts a persisted local vote after an interrupted send",
     rebroadcastsPersistedLocalVote,
@@ -4117,21 +4121,12 @@ describe("endpoint restart recovery", () => {
     "discards an old-instance POST and reproposes the same PostId at the new anchor",
     reproposesPendingPostAfterRestart,
   );
-  it(
-    "certifies a post at a head a proposal locked before the conversation re-anchored there",
-    () => certifiesAtALockedHeadAfterReanchoring(reanchorByVote),
-    10_000,
-  );
-  it(
-    "certifies a post at a head a proposal locked before a caught-up re-anchor there",
-    () => certifiesAtALockedHeadAfterReanchoring(reanchorByCatchUp),
-    10_000,
-  );
-  it(
-    "certifies a post at a head where it staged a record before a caught-up re-anchor there",
-    () => certifiesAtALockedHeadAfterReanchoring(reanchorByCatchUp, "staged"),
-    10_000,
-  );
+  it("certifies a post at a head a proposal locked before the conversation re-anchored there", () =>
+    certifiesAtALockedHeadAfterReanchoring(reanchorByVote));
+  it("certifies a post at a head a proposal locked before a caught-up re-anchor there", () =>
+    certifiesAtALockedHeadAfterReanchoring(reanchorByCatchUp));
+  it("certifies a post at a head where it staged a record before a caught-up re-anchor there", () =>
+    certifiesAtALockedHeadAfterReanchoring(reanchorByCatchUp, "staged"));
   it(
     "restarts an empty foundation at the new Router instance",
     restartEmptyConversation,
@@ -4191,7 +4186,7 @@ describe("endpoint restart recovery", () => {
 });
 
 // @agent-code-guard/regression-only: these traces pin outbound drain order and gate release.
-describe("endpoint outbound drain", () => {
+describe("endpoint outbound drain", { timeout: TRACE_TIMEOUT_MS }, () => {
   it(
     "sends each queued envelope once, in order, across concurrent drains",
     concurrentDrainsSendOnceInOrder,
@@ -5407,7 +5402,7 @@ const ignoresReanchorVoteAfterTheConversationReanchored = () =>
   );
 
 // @agent-code-guard/regression-only: these traces pin that input from a peer never ends a recovery run.
-describe("peer input during recovery", () => {
+describe("peer input during recovery", { timeout: TRACE_TIMEOUT_MS }, () => {
   it(
     "ignores a GENESIS whose membership holds a card another Registry issued",
     ignoresGenesisWithACardAnotherRegistryIssued,
@@ -7037,100 +7032,96 @@ const rearmsEveryPausedConversationOnReattach = () =>
   );
 
 // @agent-code-guard/regression-only: these traces pin the catch-up and re-anchor work a recovery run routes between its phases and its store.
-describe("catch-up and re-anchor inside a recovery run", () => {
-  it(
-    "sends a recovered conversation's post while another waits on a silent member, and the held post once that one recovers",
-    recoversOneConversationWhileAnotherWaitsOnASilentMember,
-    10_000,
-  );
-  it(
-    "backs off catch-up retries exponentially and stops after the last attempt",
-    backsOffCatchUpRetriesAndStops,
-    10_000,
-  );
-  it(
-    "arms catch-up again when a member's catch-up request arrives after its retries ran out",
-    rearmsCatchUpAfterRetriesRunOut,
-    10_000,
-  );
-  it(
-    "arms catch-up again on the next recovery run after its retries ran out",
-    rearmsCatchUpOnTheNextRecoveryRun,
-    10_000,
-  );
-  it(
-    "arms catch-up again on a local send after its retries ran out",
-    rearmsCatchUpOnALocalSend,
-    10_000,
-  );
-  it(
-    "arms catch-up again for every paused conversation when the Router worker reattaches",
-    rearmsEveryPausedConversationOnReattach,
-    10_000,
-  );
-  it(
-    "proposes a pending post only once its conversation recovers, at the head it settles on",
-    proposesPendingPostsOnlyOnceItsConversationRecovers,
-  );
-  it(
-    "finishes recovering a conversation whose completing delivery is interrupted",
-    finishesRecoveryWhenItsDeliveryIsInterrupted,
-  );
-  it(
-    "stops catch-up retries once the conversation recovers",
-    stopsCatchUpRetriesOnceRecovered,
-    10_000,
-  );
-  it(
-    "answers a catch-up request with its first certified record",
-    answersCatchUpRequestWithItsFirstCertifiedRecord,
-  );
-  it(
-    "answers a catch-up request during its own recovery",
-    answersCatchUpRequestDuringItsOwnRecovery,
-  );
-  it(
-    "answers a catch-up request that arrives before its run starts",
-    answersCatchUpRequestBeforeItsRunStarts,
-  );
-  it(
-    "completes when both members of a direct conversation recover from a Router restart at once",
-    twoMembersRecoverTogetherAfterARouterRestart,
-    10_000,
-  );
-  it(
-    "asks for catch-up again when a member votes for a head it lacks",
-    requestsCatchUpForAVoteAtAnUnknownHead,
-  );
-  it(
-    "adopts a re-anchor members completed while it was down",
-    adoptsReanchorCompletedWhileItWasDown,
-  );
-  it(
-    "fails when the store fails while persisting a member's vote",
-    failsWhenTheStoreFailsWhilePersistingAPeerVote,
-  );
-  it(
-    "fails when the store fails while applying a caught-up re-anchor",
-    failsWhenTheStoreFailsWhileApplyingACaughtUpReanchor,
-  );
-  it(
-    "proposes nothing once a new recovery replaces its run",
-    proposesNothingOnceItsRunHasEnded,
-  );
-  it(
-    "fails when the store refuses its own fresh re-anchor vote",
-    failsWhenTheStoreRefusesItsOwnFreshVote,
-  );
-  it(
-    "ignores catch-up requests for another requester, another membership, or itself",
-    ignoresCatchUpRequestsItMustNotAnswer,
-  );
-  it(
-    "answers catch-up through a stored completed re-anchor",
-    answersCatchUpThroughAStoredCompletedReanchor,
-  );
-});
+describe(
+  "catch-up and re-anchor inside a recovery run",
+  { timeout: TRACE_TIMEOUT_MS },
+  () => {
+    it(
+      "sends a recovered conversation's post while another waits on a silent member, and the held post once that one recovers",
+      recoversOneConversationWhileAnotherWaitsOnASilentMember,
+    );
+    it(
+      "backs off catch-up retries exponentially and stops after the last attempt",
+      backsOffCatchUpRetriesAndStops,
+    );
+    it(
+      "arms catch-up again when a member's catch-up request arrives after its retries ran out",
+      rearmsCatchUpAfterRetriesRunOut,
+    );
+    it(
+      "arms catch-up again on the next recovery run after its retries ran out",
+      rearmsCatchUpOnTheNextRecoveryRun,
+    );
+    it(
+      "arms catch-up again on a local send after its retries ran out",
+      rearmsCatchUpOnALocalSend,
+    );
+    it(
+      "arms catch-up again for every paused conversation when the Router worker reattaches",
+      rearmsEveryPausedConversationOnReattach,
+    );
+    it(
+      "proposes a pending post only once its conversation recovers, at the head it settles on",
+      proposesPendingPostsOnlyOnceItsConversationRecovers,
+    );
+    it(
+      "finishes recovering a conversation whose completing delivery is interrupted",
+      finishesRecoveryWhenItsDeliveryIsInterrupted,
+    );
+    it(
+      "stops catch-up retries once the conversation recovers",
+      stopsCatchUpRetriesOnceRecovered,
+    );
+    it(
+      "answers a catch-up request with its first certified record",
+      answersCatchUpRequestWithItsFirstCertifiedRecord,
+    );
+    it(
+      "answers a catch-up request during its own recovery",
+      answersCatchUpRequestDuringItsOwnRecovery,
+    );
+    it(
+      "answers a catch-up request that arrives before its run starts",
+      answersCatchUpRequestBeforeItsRunStarts,
+    );
+    it(
+      "completes when both members of a direct conversation recover from a Router restart at once",
+      twoMembersRecoverTogetherAfterARouterRestart,
+    );
+    it(
+      "asks for catch-up again when a member votes for a head it lacks",
+      requestsCatchUpForAVoteAtAnUnknownHead,
+    );
+    it(
+      "adopts a re-anchor members completed while it was down",
+      adoptsReanchorCompletedWhileItWasDown,
+    );
+    it(
+      "fails when the store fails while persisting a member's vote",
+      failsWhenTheStoreFailsWhilePersistingAPeerVote,
+    );
+    it(
+      "fails when the store fails while applying a caught-up re-anchor",
+      failsWhenTheStoreFailsWhileApplyingACaughtUpReanchor,
+    );
+    it(
+      "proposes nothing once a new recovery replaces its run",
+      proposesNothingOnceItsRunHasEnded,
+    );
+    it(
+      "fails when the store refuses its own fresh re-anchor vote",
+      failsWhenTheStoreRefusesItsOwnFreshVote,
+    );
+    it(
+      "ignores catch-up requests for another requester, another membership, or itself",
+      ignoresCatchUpRequestsItMustNotAnswer,
+    );
+    it(
+      "answers catch-up through a stored completed re-anchor",
+      answersCatchUpThroughAStoredCompletedReanchor,
+    );
+  },
+);
 
 /**
  * The local endpoint posts into its direct conversation, the Router orders
@@ -8753,96 +8744,70 @@ const answersIncompleteWithoutItsVoteForTheDeliveringInstance = () =>
     ),
   );
 
-describe("staged successors in recovery", () => {
+describe("staged successors in recovery", { timeout: TRACE_TIMEOUT_MS }, () => {
   it(
     "certifies a post one direct member staged before the restart, and re-anchors at it",
     certifiesAPostOneDirectMemberStagedBeforeTheRestart,
-    20_000,
   );
   it(
     "certifies a staged successor on the vote a member sends again, after answering with it",
     certifiesAStagedSuccessorOnAVoteAMemberSendsAgain,
-    10_000,
   );
   it(
     "sends its staged successor again instead of voting at the head it extends",
     resendsItsStagedSuccessorInsteadOfVotingAtItsHead,
-    10_000,
   );
   it(
     "converts to a three-member successor on one holder's vote",
     convertsToAThreeMemberSuccessorOnOneVote,
-    10_000,
   );
   it(
     "votes at the head over an N4 successor only its author staged",
     votesAtTheHeadOverASuccessorOnlyItsAuthorStaged,
-    10_000,
   );
-  it(
-    "converts on two N4 holders' votes",
-    () => convertsOnTwoN4HoldersUnlessItLeftTheAnchor("none"),
-    10_000,
-  );
-  it(
-    "refuses to convert after staging a re-anchor candidate at the head",
-    () => convertsOnTwoN4HoldersUnlessItLeftTheAnchor("candidate"),
-    10_000,
-  );
+  it("converts on two N4 holders' votes", () =>
+    convertsOnTwoN4HoldersUnlessItLeftTheAnchor("none"));
+  it("refuses to convert after staging a re-anchor candidate at the head", () =>
+    convertsOnTwoN4HoldersUnlessItLeftTheAnchor("candidate"));
   it(
     "converts to a seven-member successor only above the fault bound",
     convertsToASevenMemberSuccessorAboveTheFaultBound,
-    10_000,
   );
   it(
     "stages a successor on its record alone after a feed gap",
     stagesASuccessorOnItsRecordAloneAfterAFeedGap,
-    10_000,
   );
   it(
     "answers with the successor it staged instead of incomplete during a re-anchor",
     answersWithTheSuccessorItStagedInsteadOfIncomplete,
-    10_000,
   );
   it(
     "stages no candidate at the head while a holder answers with its successor",
     waitsBehindASuccessorAHolderAnswersWith,
-    20_000,
   );
   it(
     "never settles behind a successor a holder answers with after a feed gap",
     neverSettlesBehindASuccessorAfterAFeedGap,
-    20_000,
   );
   it(
     "settles on a quorum at once with no earlier re-anchor vote",
     settlesOnAQuorumWithNoEarlierReanchor,
-    10_000,
   );
-  it(
-    "waits behind its own earlier-instance re-anchor vote and adopts that re-anchor",
-    () => waitsBehindAnEarlierInstanceReanchor("own"),
-    10_000,
-  );
-  it(
-    "waits behind a member's earlier-instance re-anchor vote and adopts that re-anchor",
-    () => waitsBehindAnEarlierInstanceReanchor("member"),
-    10_000,
-  );
+  it("waits behind its own earlier-instance re-anchor vote and adopts that re-anchor", () =>
+    waitsBehindAnEarlierInstanceReanchor("own"));
+  it("waits behind a member's earlier-instance re-anchor vote and adopts that re-anchor", () =>
+    waitsBehindAnEarlierInstanceReanchor("member"));
   it(
     "settles past an earlier-instance vote whose anchor hash names another re-anchor",
     settlesPastAnEarlierInstanceVoteForAnotherAnchor,
-    10_000,
   );
   it(
     "answers incomplete with its earlier-instance re-anchor vote",
     answersIncompleteWithItsEarlierInstanceVote,
-    10_000,
   );
   it(
     "answers incomplete without its vote for the Router instance that delivers the request",
     answersIncompleteWithoutItsVoteForTheDeliveringInstance,
-    10_000,
   );
   it(
     "keeps an earlier-instance wait across an identical catch-up retry",
@@ -8851,22 +8816,18 @@ describe("staged successors in recovery", () => {
   it(
     "settles behind an earlier-instance re-anchor vote once its retries run out",
     settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut,
-    20_000,
   );
   it(
     "converts under a new anchor past a successor from the anchor it left",
     convertsUnderTheNewAnchorPastASuccessorFromTheOldOne,
-    10_000,
   );
   it(
     "converts at a head catch-up moved past what it held",
     convertsAtAHeadCatchUpMovedPastItsHold,
-    10_000,
   );
   it(
     "converts under an adopted anchor after a refused conversion at the same head",
     convertsUnderAnAdoptedAnchorAfterARefusedConversion,
-    10_000,
   );
 });
 
