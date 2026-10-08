@@ -6,7 +6,7 @@
 import type { VerifiedAgentCard } from "@moltzap/identity";
 import { Registry } from "@moltzap/identity/registry";
 import { Router } from "@moltzap/router";
-import { Deferred, Effect, Queue, Scope } from "effect";
+import { Cause, Deferred, Effect, Option, Queue, Scope } from "effect";
 import type { HistoryExportPort } from "../../delivery/history-export.js";
 import type { HarnessMcpEventHandler } from "../../endpoint/mcp/index.js";
 import type { EndpointStore } from "../../store/index.js";
@@ -52,7 +52,8 @@ export interface Daemon {
   readonly protocolActive: () => boolean;
   /**
    * Marks the daemon active with the card just bound, then activates its
-   * protocol. A failure also stops the daemon, since the binding is durable.
+   * protocol. A failure or defect also stops the daemon, since the binding
+   * is durable; only an interrupt leaves it running.
    */
   readonly activateRegistered: (
     agentCard: VerifiedAgentCard,
@@ -107,6 +108,20 @@ const activationRuntimeFailure = (
   error: DaemonActivationError,
 ): DaemonRuntimeError =>
   runtimeFailure(error.reason === "upstream" ? "listener" : "storage");
+
+/**
+ * The daemon failure an activation's cause stops it with. A defect has no
+ * typed reason, so it stops the daemon as a storage failure.
+ * @param cause Why the activation ended, other than an interrupt.
+ * @returns The failure the daemon stops with.
+ */
+const activationCauseFailure = (
+  cause: Cause.Cause<DaemonActivationError>,
+): DaemonRuntimeError =>
+  Option.match(Cause.failureOption(cause), {
+    onNone: () => runtimeFailure("storage"),
+    onSome: activationRuntimeFailure,
+  });
 
 /**
  * Classify newly durable deliveries and publish what a subscriber can take.
@@ -267,8 +282,10 @@ const activateRegistered = (
     });
   }).pipe(
     Effect.zipRight(initialize(agentCard)),
-    Effect.tapError((error) =>
-      Deferred.fail(environment.fatal, activationRuntimeFailure(error)),
+    Effect.tapErrorCause((cause) =>
+      Cause.isInterruptedOnly(cause)
+        ? Effect.void
+        : Deferred.fail(environment.fatal, activationCauseFailure(cause)),
     ),
   );
 

@@ -4,7 +4,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { SUBSCRIPTION_ID_META_KEY } from "@modelcontextprotocol/server";
 import { AgentCard } from "@moltzap/identity";
-import { Deferred, Effect, Exit, Fiber, Option, Schema } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Option, Schema } from "effect";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { EventStore } from "../delivery/operations.js";
@@ -44,6 +44,7 @@ import {
   EndpointStoreError,
 } from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
+import { RouterWorkerTransportError } from "../transport/router/index.js";
 import { DaemonRuntimeError } from "./lifecycle.js";
 
 /* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- The focused tests drive the official Promise-native MCP stream boundary. */
@@ -820,6 +821,102 @@ const listsToolsAfterACancelledRegister = async () => {
   }
 };
 
+/** A fault one activation hits, and how register and the daemon end. */
+interface ActivationFault {
+  readonly fault: string;
+  readonly store: (store: EndpointStore) => EndpointStore;
+  readonly harness: (harness: RuntimeHarness) => RuntimeHarness;
+  readonly registerFailure: unknown;
+  readonly phase: DaemonRuntimeError["phase"];
+}
+
+const engineDefect = new Error("engine construction defect");
+
+/**
+ * Faults a registration's activation hits after the binding commits. A
+ * typed failure gives register its closed reason; a defect has none, so
+ * register dies with it. The runtime annotates a defect with its span on a
+ * copy, so the defect row matches the message. Each one stops the daemon, in
+ * the phase its cause belongs to.
+ */
+const activationFaults: readonly ActivationFault[] = [
+  {
+    fault: "cannot recover its store",
+    store: (store) => ({
+      ...store,
+      recover: () =>
+        Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+    }),
+    harness: (harness) => harness,
+    registerFailure: { reason: "persistence-failed" },
+    phase: "storage",
+  },
+  {
+    fault: "cannot reach the Router",
+    store: (store) => store,
+    harness: (harness) => ({
+      ...harness,
+      dependencies: {
+        ...harness.dependencies,
+        makeWorker: () => Effect.fail(new RouterWorkerTransportError()),
+      },
+    }),
+    registerFailure: { reason: "dependency-unavailable" },
+    phase: "listener",
+  },
+  {
+    fault: "dies constructing the engine",
+    store: (store) => store,
+    harness: (harness) => ({
+      ...harness,
+      dependencies: {
+        ...harness.dependencies,
+        makeEngine: () => Effect.die(engineDefect),
+      },
+    }),
+    registerFailure: expect.objectContaining({
+      message: engineDefect.message,
+    }),
+    phase: "storage",
+  },
+];
+
+/**
+ * A registration whose activation hits `fault` fails register with the
+ * row's failure and stops the daemon in the row's phase, since the binding
+ * is durable and the daemon cannot serve it without a protocol. Fails when
+ * a failure or defect leaves the daemon running, reporting active with no
+ * protocol.
+ */
+const stopsWhenActivationFails = async (row: ActivationFault) => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const harness = row.harness(
+    await Effect.runPromise(makeHarness(fixture, "none")),
+  );
+  const daemon = Effect.runFork(
+    run(fixture, row.store(makeStore(fixture, false)), harness),
+  );
+  try {
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+
+    const registerFailure = await awaitStage(
+      requireOperations(harness)
+        .register(fixture.registerRequest)
+        .pipe(Effect.sandbox, Effect.flip, Effect.map(Cause.squash)),
+      "registration failure",
+    );
+    const stopped = await awaitStage(
+      Effect.flip(Fiber.join(daemon)),
+      "daemon failure",
+    );
+
+    expect(registerFailure, "register failure").toEqual(row.registerFailure);
+    expect(stopped.phase, "phase the daemon stopped in").toBe(row.phase);
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(daemon));
+  }
+};
+
 describe("daemon runtime composition", () => {
   it(
     "closes after fatal persistence with a receipt waiting for the delivery gate",
@@ -866,6 +963,10 @@ describe("daemon activation", () => {
   it(
     "lists the post-registration tools after a cancelled register activates",
     listsToolsAfterACancelledRegister,
+  );
+  it.each(activationFaults)(
+    "stops the daemon when activation $fault",
+    stopsWhenActivationFails,
   );
 });
 
