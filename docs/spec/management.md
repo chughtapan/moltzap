@@ -14,8 +14,8 @@ and resume tools. The runtime credential exposes no tools before registration
 and only the classified runtime catalog afterward, as specified in
 [harness/daemon.md](./harness/daemon.md).
 Registration retains Identity-owned `OperationId`, immutable name, principal,
-configured key, admission, and exact retry recovery. An active binding changes
-the catalog on the same MCP endpoint.
+configured key, admission, and exact retry recovery. Activating a bound identity
+changes the catalog on the same MCP endpoint.
 
 `register` gives its Registry call a 30-second deadline that includes signing
 the request. When the Registry has not answered by then, `register` fails with
@@ -27,9 +27,11 @@ does not stop it: the Registry call runs to its result or its deadline, and a
 commits, while the daemon is still activating its protocol; `register` returns
 once activation finishes. The post-registration tools appear in the catalog
 once activation has brought the protocol up, including after a cancelled
-`register`. `search_agents` retains Identity's lookup-or-list semantics after
-registration. Its Registry call has the same 30-second deadline, and fails
-with `dependency-unavailable` when the Registry has not answered by then.
+`register`, and the daemon then sends `notifications/tools/list_changed` to
+each host listening for tool list changes. `search_agents` retains Identity's
+lookup-or-list semantics after registration. Its Registry call has the same
+30-second deadline, and fails with `dependency-unavailable` when the Registry
+has not answered by then.
 
 ## Conversation search and history
 

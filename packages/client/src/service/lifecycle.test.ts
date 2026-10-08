@@ -33,6 +33,7 @@ import {
   makeListenRequest,
   makeStore,
   makeToolCallRequest,
+  makeToolListChangesRequest,
   makeToolListRequest,
   type ReadBarrier,
   requireEventStore,
@@ -713,7 +714,7 @@ const readInboxThroughMcp = (handler: HarnessMcpEventHandler) =>
  * @param fixture The registering identity.
  * @param harness The daemon's harness, with the engine blocked.
  * @param firstPass Holds the activation's first delivery pass.
- * @returns Completion once the pass is released.
+ * @returns The cancelled request's response, once the pass is released.
  */
 const cancelRegisterDuringActivation = async (
   fixture: Fixture,
@@ -731,11 +732,12 @@ const cancelRegisterDuringActivation = async (
   );
   await awaitStage(Deferred.await(harness.engineEntered), "engine acquisition");
   cancel.abort();
-  await Effect.runPromise(Effect.exit(Effect.tryPromise(() => registering)));
+  const cancelled = await registering;
   await Effect.runPromise(Effect.yieldNow());
   await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
   await awaitStage(Deferred.await(firstPass.entered), "first delivery pass");
   await Effect.runPromise(Deferred.succeed(firstPass.release, undefined));
+  return cancelled;
 };
 
 /**
@@ -759,10 +761,17 @@ const listsToolsAfterACancelledRegister = async () => {
   );
   try {
     await awaitStage(Deferred.await(harness.listenerReady), "listener");
-    await cancelRegisterDuringActivation(fixture, harness, firstPass);
+    const cancelled = await cancelRegisterDuringActivation(
+      fixture,
+      harness,
+      firstPass,
+    );
 
     const tools = await Effect.runPromise(listTools(requireHandler(harness)));
 
+    expect(cancelled.ok, "the cancelled register returned a result").toBe(
+      false,
+    );
     expect(tools, "tools listed after the cancelled register").toEqual([
       "acknowledge_delivery",
       "read_conversation",
@@ -783,6 +792,135 @@ const listsToolsAfterACancelledRegister = async () => {
   }
 };
 
+/**
+ * Between the binding commit and the protocol coming up, status already
+ * reports the binding while the catalog still offers only `register` and
+ * `status`: the post-registration tools need the protocol. Fails when the
+ * catalog follows the registration state instead of the protocol.
+ */
+const holdsTheCatalogWhileTheProtocolActivates = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const harness = await Effect.runPromise(makeHarness(fixture, "none", true));
+  const daemon = Effect.runFork(
+    run(fixture, makeStore(fixture, false), harness),
+  );
+  try {
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const operations = requireOperations(harness);
+    const registering = Effect.runFork(
+      operations.register(fixture.registerRequest),
+    );
+    await awaitStage(
+      Deferred.await(harness.engineEntered),
+      "engine acquisition",
+    );
+
+    const status = await Effect.runPromise(operations.readStatus());
+    const tools = await Effect.runPromise(listTools(requireHandler(harness)));
+
+    expect(status.kind, "status once the binding commits").toBe(
+      "active" satisfies typeof status.kind,
+    );
+    expect(tools, "catalog while the protocol activates").toEqual([
+      "register",
+      "status",
+    ]);
+    await Effect.runPromise(Deferred.succeed(harness.engineRelease, undefined));
+    await awaitStage(Fiber.join(registering), "registration");
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(daemon));
+  }
+};
+
+/** The JSON-RPC error code that refuses a subscription before the protocol is up. */
+const NOT_REGISTERED_ERROR_CODE = -32012;
+
+/** The method of the SDK's first frame on a tool list change stream. */
+const LISTEN_ACKNOWLEDGED_METHOD = "notifications/subscriptions/acknowledged";
+
+/** The notification a host hears when the tool list changes. */
+const TOOL_LIST_CHANGED_METHOD = "notifications/tools/list_changed";
+
+/**
+ * A host listening for tool list changes before registration hears that the
+ * list changed once registration brings the protocol up. Fails when the
+ * catalog changes without the notice, so a host holding the
+ * pre-registration list never learns of the new tools.
+ */
+const announcesTheToolListChangeAtActivation = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
+  const daemon = Effect.runFork(
+    run(fixture, makeStore(fixture, false), harness),
+  );
+  try {
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const reader = responseReader(
+      await requireHandler(harness).fetch(
+        makeToolListChangesRequest("tool-list-changes"),
+      ),
+    );
+    const acknowledged = await awaitFrame(reader, "listen acknowledgment");
+
+    await awaitStage(
+      requireOperations(harness).register(fixture.registerRequest),
+      "registration",
+    );
+    const changed = await awaitFrame(reader, "tool list change");
+
+    expect(acknowledged, "listen acknowledgment").toMatchObject({
+      method: LISTEN_ACKNOWLEDGED_METHOD,
+      params: { notifications: { toolsListChanged: true } },
+    });
+    expect(changed, "notice after activation").toMatchObject({
+      method: TOOL_LIST_CHANGED_METHOD,
+    });
+    await reader.cancel();
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(daemon));
+  }
+};
+
+/**
+ * The inbox subscription needs the protocol: before registration it is
+ * refused as not registered, and once registration brings the protocol up
+ * the same handler acknowledges it. Fails when the gate is dropped, or reads
+ * a protocol state captured when the handler was built.
+ */
+const refusesTheInboxStreamUntilTheProtocolIsUp = async () => {
+  const fixture = await Effect.runPromise(makeFixture);
+  const harness = await Effect.runPromise(makeHarness(fixture, "none"));
+  const daemon = Effect.runFork(
+    run(fixture, makeStore(fixture, false), harness),
+  );
+  try {
+    await awaitStage(Deferred.await(harness.listenerReady), "listener");
+    const handler = requireHandler(harness);
+
+    const refused = await Effect.runPromise(
+      fetchJson(handler, makeListenRequest("before-registration")),
+    );
+    await awaitStage(
+      requireOperations(harness).register(fixture.registerRequest),
+      "registration",
+    );
+    const reader = responseReader(
+      await handler.fetch(makeListenRequest("after-registration")),
+    );
+    const acknowledged = await awaitFrame(reader, "inbox acknowledgment");
+
+    expect(refused, "subscription before registration").toMatchObject({
+      error: { code: NOT_REGISTERED_ERROR_CODE },
+    });
+    expect(acknowledged, "subscription after registration").toMatchObject({
+      method: SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION,
+    });
+    await reader.cancel();
+  } finally {
+    await Effect.runPromise(Fiber.interrupt(daemon));
+  }
+};
+
 /** A fault a daemon hits, and the phase the daemon stops in. */
 interface DaemonFault {
   readonly fault: string;
@@ -794,6 +932,11 @@ interface DaemonFault {
 /** A fault one activation hits, and how register fails. */
 interface ActivationFault extends DaemonFault {
   readonly registerFailure: unknown;
+}
+
+/** A fault a registered daemon's startup hits, and its listener attempts. */
+interface StartupFault extends DaemonFault {
+  readonly listenerAttempts: number;
 }
 
 const engineDefect = new Error("engine construction defect");
@@ -890,11 +1033,12 @@ class ListenerUnavailableError extends Data.TaggedError(
 
 /**
  * Faults a registered daemon's startup hits. A store fault in its first
- * delivery pass, or a stored membership row that fails verification, stops
- * startup in storage; a listener that cannot open stops it in the listener
+ * delivery pass, a stored membership row that fails verification, or a
+ * defect while its protocol activates, stops startup in storage before it
+ * tries the listener; a listener that cannot open stops it in the listener
  * phase.
  */
-const startupFaults: readonly DaemonFault[] = [
+const startupFaults: readonly StartupFault[] = [
   {
     fault: "classified inbox persistence fails",
     store: (store) => ({
@@ -904,6 +1048,7 @@ const startupFaults: readonly DaemonFault[] = [
     }),
     harness: (harness) => harness,
     phase: "storage",
+    listenerAttempts: 0,
   },
   {
     fault: "the pending read fails",
@@ -913,6 +1058,20 @@ const startupFaults: readonly DaemonFault[] = [
       return harness;
     },
     phase: "storage",
+    listenerAttempts: 0,
+  },
+  {
+    fault: "the engine construction dies",
+    store: (store) => store,
+    harness: (harness) => ({
+      ...harness,
+      dependencies: {
+        ...harness.dependencies,
+        makeEngine: () => Effect.die(engineDefect),
+      },
+    }),
+    phase: "storage",
+    listenerAttempts: 0,
   },
   {
     fault: "a stored membership fails verification",
@@ -934,6 +1093,7 @@ const startupFaults: readonly DaemonFault[] = [
     }),
     harness: (harness) => harness,
     phase: "storage",
+    listenerAttempts: 0,
   },
   {
     fault: "the listener cannot open",
@@ -946,19 +1106,44 @@ const startupFaults: readonly DaemonFault[] = [
       },
     }),
     phase: "listener",
+    listenerAttempts: 1,
   },
 ];
 
 /**
- * A registered daemon whose startup hits `fault` fails in the row's phase
- * before it listens. Fails when startup carries on past the fault, or maps
- * it to another phase.
+ * The harness with a listener that counts each acquisition attempt.
+ * @param original The harness to wrap.
+ * @param attempts Incremented once per attempt.
+ * @returns The counting harness.
  */
-const failsStartupWith = (row: DaemonFault) =>
+const countingListeners = (
+  original: RuntimeHarness,
+  attempts: Ref.Ref<number>,
+): RuntimeHarness => ({
+  ...original,
+  dependencies: {
+    ...original.dependencies,
+    acquireListener: (input) =>
+      Ref.update(attempts, (count) => count + 1).pipe(
+        Effect.zipRight(original.dependencies.acquireListener(input)),
+      ),
+  },
+});
+
+/**
+ * A registered daemon whose startup hits `fault` fails in the row's phase,
+ * having tried the listener the row's number of times. Fails when startup
+ * carries on past the fault, or maps it to another phase.
+ */
+const failsStartupWith = (row: StartupFault) =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fixture = yield* makeFixture;
-      const harness = row.harness(yield* makeHarness(fixture, "none"));
+      const attempts = yield* Ref.make(0);
+      const harness = countingListeners(
+        row.harness(yield* makeHarness(fixture, "none")),
+        attempts,
+      );
 
       const error = yield* run(
         fixture,
@@ -967,10 +1152,9 @@ const failsStartupWith = (row: DaemonFault) =>
       ).pipe(Effect.flip);
 
       expect(error.phase, "phase startup failed in").toBe(row.phase);
-      expect(
-        Option.isNone(yield* Deferred.poll(harness.listenerReady)),
-        "listener stays closed after the failed startup",
-      ).toBe(true);
+      expect(yield* Ref.get(attempts), "listener attempts").toBe(
+        row.listenerAttempts,
+      );
     }),
   );
 
@@ -1072,6 +1256,18 @@ describe("daemon activation", () => {
   it(
     "lists the post-registration tools after a cancelled register activates",
     listsToolsAfterACancelledRegister,
+  );
+  it(
+    "offers only register and status until the protocol is up",
+    holdsTheCatalogWhileTheProtocolActivates,
+  );
+  it(
+    "tells a listening host the tool list changed once the protocol is up",
+    announcesTheToolListChangeAtActivation,
+  );
+  it(
+    "refuses an inbox subscription until the protocol is up",
+    refusesTheInboxStreamUntilTheProtocolIsUp,
   );
   it.each(activationFaults)(
     "stops the daemon when activation $fault",

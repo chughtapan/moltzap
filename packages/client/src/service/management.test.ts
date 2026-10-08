@@ -745,9 +745,9 @@ const REGISTRY_WATCHDOG = Duration.seconds(3);
  * `operation`'s failure, on the TestClock, once virtual time has passed the
  * Registry deadline and `REGISTRY_WATCHDOG`. It waits in live time for the
  * request to reach the HTTP client, since signing settles on real promises,
- * then moves the clock. An operation still running then fails with `hung`.
- * The operation runs detached, so a masked call that never ends cannot hold
- * the test fiber open.
+ * or for the operation to end first, then moves the clock. An operation
+ * still running then fails with `hung`. The operation runs detached, so a
+ * masked call that never ends cannot hold the test fiber open.
  * @param input What to run and how to tell it is hung.
  * @param input.operation The Registry-backed operation.
  * @param input.requested Completes when the request reaches the HTTP client.
@@ -769,7 +769,10 @@ const failureAtTheRegistryDeadline = <A, E>(input: {
       }),
       Effect.fork,
     );
-    yield* Deferred.await(input.requested);
+    yield* Effect.raceFirst(
+      Deferred.await(input.requested),
+      Fiber.await(running).pipe(Effect.asVoid),
+    );
     yield* advanceClock(Duration.sum(REGISTRY_WATCHDOG, Duration.seconds(1)));
     return yield* Fiber.join(failure);
   });

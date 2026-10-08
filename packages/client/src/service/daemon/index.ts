@@ -53,7 +53,8 @@ export interface Daemon {
   /**
    * Marks the daemon active with the card just bound, then activates its
    * protocol. A failure or defect also stops the daemon, since the binding
-   * is durable; only an interrupt leaves it running.
+   * is durable; only an interrupt leaves it running. Hosts listening for
+   * tool list changes hear once the protocol is up.
    */
   readonly activateRegistered: (
     agentCard: VerifiedAgentCard,
@@ -66,13 +67,16 @@ export interface Daemon {
   ) => Effect.Effect<void>;
   readonly runSubscriptions: Effect.Effect<never, DaemonRuntimeError>;
   readonly awaitFailure: Effect.Effect<never, DaemonRuntimeError>;
-  /** Activates the protocol of a daemon that started registered. */
+  /**
+   * Activates the protocol of a daemon that started registered. A failure or
+   * defect fails it in the phase registration activation would stop in.
+   */
   readonly activateAtStart: Effect.Effect<void, DaemonRuntimeError>;
 }
 
 type SubscriptionHandler = Pick<
   HarnessMcpEventHandler,
-  "hasActiveSubscription" | "notifyPending"
+  "hasActiveSubscription" | "notifyPending" | "notify"
 >;
 
 interface DaemonInput extends DaemonStartup {
@@ -110,18 +114,23 @@ const activationRuntimeFailure = (
   runtimeFailure(error.reason === "upstream" ? "listener" : "storage");
 
 /**
- * The daemon failure an activation's cause stops it with. A defect has no
- * typed reason, so it stops the daemon as a storage failure.
- * @param cause Why the activation ended, other than an interrupt.
- * @returns The failure the daemon stops with.
+ * Logs why an activation ended, other than by an interrupt, and gives the
+ * failure the daemon stops with. A defect has no typed reason, so it stops
+ * the daemon as a storage failure.
+ * @param cause Why the activation ended.
+ * @returns The failure the daemon stops with, once the cause is logged.
  */
-const activationCauseFailure = (
+const activationStopped = (
   cause: Cause.Cause<DaemonActivationError>,
-): DaemonRuntimeError =>
-  Option.match(Cause.failureOption(cause), {
-    onNone: () => runtimeFailure("storage"),
-    onSome: activationRuntimeFailure,
-  });
+): Effect.Effect<DaemonRuntimeError> =>
+  Effect.logError("Protocol activation failed, daemon exits", cause).pipe(
+    Effect.as(
+      Option.match(Cause.failureOption(cause), {
+        onNone: () => runtimeFailure("storage"),
+        onSome: activationRuntimeFailure,
+      }),
+    ),
+  );
 
 /**
  * Classify newly durable deliveries and publish what a subscriber can take.
@@ -237,6 +246,7 @@ const initializeProtocol = (
           {
             retain: (protocol) => {
               environment.state.activeProtocol = protocol;
+              environment.state.handler?.notify.toolsChanged();
             },
             publishPending: Effect.ignore(reconciler),
             emit: (item) => emitLocalItem(environment, reconciler, item),
@@ -285,7 +295,11 @@ const activateRegistered = (
     Effect.tapErrorCause((cause) =>
       Cause.isInterruptedOnly(cause)
         ? Effect.void
-        : Deferred.fail(environment.fatal, activationCauseFailure(cause)),
+        : activationStopped(cause).pipe(
+            Effect.flatMap((failure) =>
+              Deferred.fail(environment.fatal, failure),
+            ),
+          ),
     ),
   );
 
@@ -298,7 +312,13 @@ const activateAtStart = (
     return registration.kind === "unregistered"
       ? Effect.void
       : initialize(registration.agentCard).pipe(
-          Effect.mapError(activationRuntimeFailure),
+          Effect.catchAllCause((cause) =>
+            Cause.isInterruptedOnly(cause)
+              ? Effect.interrupt
+              : activationStopped(cause).pipe(
+                  Effect.flatMap((failure) => Effect.fail(failure)),
+                ),
+          ),
         );
   });
 

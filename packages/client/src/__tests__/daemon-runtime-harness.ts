@@ -516,6 +516,17 @@ export const makeListenRequest = (id: string): Request =>
     params: { name: INBOX_PENDING_EVENT, arguments: {}, cursor: null },
   });
 
+/**
+ * A `subscriptions/listen` request with the given id for tool list changes,
+ * the stream a host keeps open to hear that the catalog changed.
+ */
+export const makeToolListChangesRequest = (id: string): Request =>
+  makeMcpRequest({
+    id,
+    method: "subscriptions/listen",
+    params: { notifications: { toolsListChanged: true } },
+  });
+
 /** A `tools/list` request with the given id. */
 export const makeToolListRequest = (id: string): Request =>
   makeMcpRequest({ id, method: "tools/list", params: {} });

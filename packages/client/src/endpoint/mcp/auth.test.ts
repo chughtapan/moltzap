@@ -378,6 +378,80 @@ describe.each(registrationStates)(
   },
 );
 
+/**
+ * Calls a non-runtime catalog does not list, by caller and registration
+ * state. Each named tool reaches an operation or event that would answer if
+ * it were admitted, so only admission yields "not found".
+ */
+const unlistedCalls = [
+  {
+    caller: "the local handler",
+    state: "unregistered",
+    name: "read_inbox",
+    given: () => acquireHandler(false, {}),
+    credential: noCredential,
+  },
+  {
+    caller: "the local handler",
+    state: "unregistered",
+    name: "event_subscription_status",
+    given: () => acquireHandler(false, {}),
+    credential: noCredential,
+  },
+  {
+    caller: "the local handler",
+    state: "registered",
+    name: "register",
+    given: () => acquireHandler(true, {}),
+    credential: noCredential,
+  },
+  {
+    caller: "the local handler",
+    state: "registered",
+    name: "resume_event_subscription",
+    given: () => acquireHandler(true, {}),
+    credential: noCredential,
+  },
+  {
+    caller: "the owner credential",
+    state: "unregistered",
+    name: "search_agents",
+    given: () => credentialedHandler(false),
+    credential: credentials.owner,
+  },
+  {
+    caller: "the owner credential",
+    state: "unregistered",
+    name: "read_send",
+    given: () => credentialedHandler(false),
+    credential: credentials.owner,
+  },
+  {
+    caller: "the owner credential",
+    state: "registered",
+    name: "register",
+    given: () => credentialedHandler(true),
+    credential: credentials.owner,
+  },
+];
+
+// @agent-code-guard/regression-only: admission must refuse exactly what the caller's catalog does not list.
+describe("calls a caller's catalog does not list", () => {
+  it.each(unlistedCalls)(
+    "refuses $caller a call to $name while $state",
+    ({ name, given, credential }) =>
+      verify(
+        given(),
+        (handler) => callTool(handler, { name, arguments: {} }, credential),
+        (body) => {
+          expect(body).toMatchObject({
+            error: { code: -32602, message: `Tool ${name} not found` },
+          });
+        },
+      ),
+  );
+});
+
 describe.each(invalidIdempotencyKeys)(
   "tunneled MCP invocation identity with $key key",
   ({ idempotencyKey }) => {
