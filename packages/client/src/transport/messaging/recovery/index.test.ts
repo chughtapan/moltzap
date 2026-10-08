@@ -2352,9 +2352,6 @@ function makeGatedRouter(sends: Queue.Queue<HeldSend>) {
   });
 }
 
-const takeHeldSend = (sends: Queue.Queue<HeldSend>) =>
-  Queue.take(sends).pipe(Effect.orDie);
-
 const releaseHeldSend = (held: HeldSend) =>
   Deferred.succeed(held.release, undefined);
 
@@ -2459,7 +2456,7 @@ const recoverWhileDrainAwaitsWorker = () =>
         const fixture = yield* makeFixtureWithRouter(makeGatedRouter(sends));
         const queued = yield* queuePeerCatchUpResponse(fixture);
         const draining = yield* Effect.fork(fixture.engine.drainOutbound);
-        const held = yield* takeHeldSend(sends);
+        const held = yield* Queue.take(sends);
         expect(held.outboundId).toBe(queued.outboundId);
 
         yield* fixture.engine.abandonVolatileFolds("feed_gap");
@@ -2468,7 +2465,7 @@ const recoverWhileDrainAwaitsWorker = () =>
           anchor: { routerInstanceId: oldRouterInstanceId, pollCursor },
         });
         yield* releaseHeldSend(held);
-        const requestSend = yield* takeHeldSend(sends);
+        const requestSend = yield* Queue.take(sends);
         yield* releaseHeldSend(requestSend);
         yield* Fiber.join(draining);
         const sent = yield* Effect.forEach(
@@ -2496,19 +2493,19 @@ const concurrentDrainsSendOnceInOrder = () =>
         const second = yield* queuePeerCatchUpResponse(fixture);
 
         const leading = yield* Effect.fork(fixture.engine.drainOutbound);
-        const leadingFirst = yield* takeHeldSend(sends);
+        const leadingFirst = yield* Queue.take(sends);
         const trailing = yield* Effect.fork(fixture.engine.drainOutbound);
-        const trailingFirst = yield* takeHeldSend(sends);
+        const trailingFirst = yield* Queue.take(sends);
         expect([leadingFirst.outboundId, trailingFirst.outboundId]).toEqual([
           first.outboundId,
           first.outboundId,
         ]);
 
         yield* releaseHeldSend(trailingFirst);
-        const trailingSecond = yield* takeHeldSend(sends);
+        const trailingSecond = yield* Queue.take(sends);
         expect(trailingSecond.outboundId).toBe(second.outboundId);
         yield* releaseHeldSend(leadingFirst);
-        const leadingSecond = yield* takeHeldSend(sends);
+        const leadingSecond = yield* Queue.take(sends);
         expect(leadingSecond.outboundId).toBe(second.outboundId);
         yield* releaseHeldSend(trailingSecond);
         yield* releaseHeldSend(leadingSecond);
@@ -2535,15 +2532,15 @@ const staleDrainKeepsLaterHead = () =>
         const first = yield* queuePeerCatchUpResponse(fixture);
 
         const stale = yield* Effect.fork(fixture.engine.drainOutbound);
-        const staleFirst = yield* takeHeldSend(sends);
+        const staleFirst = yield* Queue.take(sends);
         const current = yield* Effect.fork(fixture.engine.drainOutbound);
-        const currentFirst = yield* takeHeldSend(sends);
+        const currentFirst = yield* Queue.take(sends);
         yield* releaseHeldSend(currentFirst);
         yield* Fiber.join(current);
 
         const second = yield* queuePeerCatchUpResponse(fixture);
         yield* releaseHeldSend(staleFirst);
-        const staleSecond = yield* takeHeldSend(sends);
+        const staleSecond = yield* Queue.take(sends);
         expect(staleSecond.outboundId).toBe(second.outboundId);
         yield* releaseHeldSend(staleSecond);
         yield* Fiber.join(stale);
@@ -2806,25 +2803,6 @@ const startRestartRecovery = (fixture: RecoveryFixture) =>
   });
 
 /**
- * Takes the next completed re-anchor a recovery sent, skipping the catch-up
- * requests sent ahead of it.
- * @param outbound Queue the recovery sends to.
- * @returns The completed re-anchor packet.
- */
-const takeCompletedReanchor = (
-  outbound: Queue.Queue<SignedMessage>,
-): Effect.Effect<DirectPacket> =>
-  Queue.take(outbound).pipe(
-    Effect.flatMap((message) => openForwarded(message)),
-    Effect.flatMap((body) =>
-      body.kind === "direct" && body.packet.kind === "completed_reanchor"
-        ? Effect.succeed(body.packet)
-        : takeCompletedReanchor(outbound),
-    ),
-    Effect.orDie,
-  );
-
-/**
  * Runs a restart recovery that re-anchors the fixture conversation at the new
  * Router instance with the peer's vote, and takes the completed re-anchor the
  * endpoint relays. The store has committed the new anchor by then, so a later
@@ -2844,7 +2822,19 @@ const reanchorUntilCompletionSend = (fixture: RecoveryFixture) =>
       fixture.engine,
       peerReanchorVoteIngress(fixture, proposal),
     );
-    const completed = yield* takeCompletedReanchor(outbound);
+    const completed = yield* takeNextCarrying(
+      outbound,
+      "completed_reanchor",
+    ).pipe(
+      Effect.flatMap(carriedBy),
+      Effect.flatMap((carried) =>
+        carried.kind === "completed_reanchor"
+          ? Effect.succeed(carried)
+          : Effect.dieMessage(
+              `expected a completed re-anchor, received ${carried.kind}`,
+            ),
+      ),
+    );
     return { proposal, completed };
   });
 
@@ -2865,9 +2855,6 @@ const reanchorsWithNonLexicalAgentOrder = () =>
         const { proposal, completed } =
           yield* reanchorUntilCompletionSend(fixture);
 
-        if (completed.kind !== "completed_reanchor") {
-          return yield* Effect.dieMessage("expected a completed re-anchor");
-        }
         expect(
           yield* verifyCompletedReanchor({
             completed,
@@ -7992,8 +7979,10 @@ const waitsBehindASuccessorAHolderAnswersWith = () =>
  * its vote, so the local endpoint stages the record on it alone and never
  * settles at the head: a post into the conversation stays held after the
  * retries run out, and the remote member's vote then certifies the
- * successor. Fails when a responder outside recovery answers `incomplete`
- * over its staged successor.
+ * successor. The recovery's two conversations, the direct one with the silent
+ * remote member and the N4 group, each retry until their attempts run out, so
+ * the trace takes `2 * catchUpRetryAttempts` retried requests. Fails when a
+ * responder outside recovery answers `incomplete` over its staged successor.
  * @returns The trace, run to completion.
  */
 const neverSettlesBehindASuccessorAfterAFeedGap = () =>
