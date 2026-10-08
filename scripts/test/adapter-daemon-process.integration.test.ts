@@ -28,6 +28,7 @@ import {
   type DaemonProcessFixture,
   makeDaemonProcessFixture,
   makeRegistrationRequest,
+  processTrace,
   ProcessTestError,
 } from "../../packages/client/integration/daemon-process-harness.js";
 
@@ -1186,17 +1187,20 @@ function runOpenClawAllGatherScenario() {
   );
 }
 
-it("keeps OpenClaw host identities local across a durable exchange", () => {
-  expect.hasAssertions();
-  return Effect.runPromise(runOpenClawScenario());
-}, 300_000);
+it(
+  "keeps OpenClaw host identities local across a durable exchange",
+  processTrace(runOpenClawScenario()),
+  300_000,
+);
 
-it("runs a gather in both directions through the OpenClaw message tool", () => {
-  expect.hasAssertions();
-  return Effect.runPromise(runOpenClawGatherScenario());
-}, 300_000);
+it(
+  "runs a gather in both directions through the OpenClaw message tool",
+  processTrace(runOpenClawGatherScenario()),
+  300_000,
+);
 
-it("runs an all_gather in both directions through the OpenClaw message tool", () => {
-  expect.hasAssertions();
-  return Effect.runPromise(runOpenClawAllGatherScenario());
-}, 300_000);
+it(
+  "runs an all_gather in both directions through the OpenClaw message tool",
+  processTrace(runOpenClawAllGatherScenario()),
+  300_000,
+);
