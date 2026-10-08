@@ -3,19 +3,11 @@
 import { Effect } from "effect";
 import { expect, it } from "vitest";
 import { CollectiveError } from "../src/index.js";
+import { processTrace } from "./daemon-process-harness.js";
 import {
-  acquireDaemonManagementClient,
-  acquireDaemonProcess,
-  acquireProcessInfrastructure,
-  type DaemonProcessFixture,
-  makeDaemonProcessFixture,
-  makeRegistrationRequest,
-  measuredDeadlineSeconds,
-  processTrace,
-} from "./daemon-process-harness.js";
-import {
+  acquireParticipants,
   groupRound,
-  joinParticipant,
+  measuredDeadlineSeconds,
   nextItem,
   type Participant,
   send,
@@ -44,15 +36,6 @@ const slotSchema = {
   required: ["slot"],
 } as const;
 
-const registerFixture = (fixture: DaemonProcessFixture) =>
-  Effect.scoped(
-    acquireDaemonManagementClient(fixture.endpoint).pipe(
-      Effect.flatMap((management) =>
-        management.register(makeRegistrationRequest(fixture)),
-      ),
-    ),
-  );
-
 const allGather = (requester: Participant, to: string, deadline: number) =>
   send(requester, {
     to,
@@ -66,26 +49,14 @@ const answer = (member: Participant, slot: string) =>
     collectiveResponse: { action: "accept", content: { slot } },
   });
 
-const acquireParticipants = Effect.gen(function* () {
-  const infrastructure = yield* acquireProcessInfrastructure;
-  const fixtures = yield* Effect.all(
-    [
-      "all-gather-requester",
-      "all-gather-member-a",
-      "all-gather-member-b",
-      "all-gather-member-c",
-    ].map((name) => makeDaemonProcessFixture(infrastructure, name)),
-    { concurrency: 4 },
-  );
-  yield* Effect.forEach(fixtures, acquireDaemonProcess, {
-    concurrency: "unbounded",
-    discard: true,
-  });
-  yield* Effect.forEach(fixtures, registerFixture, { discard: true });
-  const [requester, first, second, third] = yield* Effect.forEach(
-    fixtures,
-    joinParticipant,
-  );
+/** The requester and the three members every all_gather trace starts. */
+const acquireFour = Effect.gen(function* () {
+  const [requester, first, second, third] = yield* acquireParticipants([
+    "all-gather-requester",
+    "all-gather-member-a",
+    "all-gather-member-b",
+    "all-gather-member-c",
+  ]);
   return requester === undefined ||
     first === undefined ||
     second === undefined ||
@@ -95,7 +66,7 @@ const acquireParticipants = Effect.gen(function* () {
 });
 
 const allAnsweredBehavior = Effect.gen(function* () {
-  const { requester, first, second, third } = yield* acquireParticipants;
+  const { requester, first, second, third } = yield* acquireFour;
 
   const unreachable = yield* allGather(
     requester,
@@ -160,10 +131,11 @@ const allAnsweredBehavior = Effect.gen(function* () {
 /**
  * Two members answer and the third stays silent, so the all_gather closes at
  * its measured deadline. The members take the request together and the two
- * answer together, so the deadline covers one round of each.
+ * answer together; both answers extend the one group head, so they certify
+ * one after the other within the deadline's rounds.
  */
 const silentMemberBehavior = Effect.gen(function* () {
-  const { requester, first, second, third } = yield* acquireParticipants;
+  const { requester, first, second, third } = yield* acquireFour;
   const deadline = yield* measuredDeadlineSeconds(
     groupRound(requester, [first, second, third]),
   );

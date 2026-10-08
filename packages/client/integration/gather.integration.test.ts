@@ -3,20 +3,12 @@
 import { Effect } from "effect";
 import { expect, it } from "vitest";
 import { CollectiveError } from "../src/index.js";
+import { processTrace } from "./daemon-process-harness.js";
 import {
-  acquireDaemonManagementClient,
-  acquireDaemonProcess,
-  acquireProcessInfrastructure,
-  type DaemonProcessFixture,
-  makeDaemonProcessFixture,
-  makeRegistrationRequest,
-  measuredDeadlineSeconds,
-  processTrace,
-} from "./daemon-process-harness.js";
-import {
+  acquireParticipants,
   groupAddress,
   groupRound,
-  joinParticipant,
+  measuredDeadlineSeconds,
   nextItem,
   type Participant,
   send,
@@ -43,15 +35,6 @@ const slotSchema = {
   required: ["slot"],
 } as const;
 
-const registerFixture = (fixture: DaemonProcessFixture) =>
-  Effect.scoped(
-    acquireDaemonManagementClient(fixture.endpoint).pipe(
-      Effect.flatMap((management) =>
-        management.register(makeRegistrationRequest(fixture)),
-      ),
-    ),
-  );
-
 const gather = (
   requester: Participant,
   members: readonly Participant[],
@@ -63,22 +46,6 @@ const gather = (
     collective: { op: "gather", deadline, requestedSchema: slotSchema },
   });
 
-const acquireParticipants = Effect.gen(function* () {
-  const infrastructure = yield* acquireProcessInfrastructure;
-  const fixtures = yield* Effect.all(
-    ["gather-requester", "gather-member-a", "gather-member-b"].map((name) =>
-      makeDaemonProcessFixture(infrastructure, name),
-    ),
-    { concurrency: 3 },
-  );
-  yield* Effect.forEach(fixtures, acquireDaemonProcess, {
-    concurrency: "unbounded",
-    discard: true,
-  });
-  yield* Effect.forEach(fixtures, registerFixture, { discard: true });
-  return yield* Effect.forEach(fixtures, joinParticipant);
-});
-
 const requireThree = (participants: readonly Participant[]) => {
   const [requester, first, second] = participants;
   return requester === undefined || first === undefined || second === undefined
@@ -86,10 +53,15 @@ const requireThree = (participants: readonly Participant[]) => {
     : Effect.succeed({ requester, first, second });
 };
 
+/** The requester and the two members every gather trace starts. */
+const acquireThree = acquireParticipants([
+  "gather-requester",
+  "gather-member-a",
+  "gather-member-b",
+]).pipe(Effect.flatMap(requireThree));
+
 const allAnsweredBehavior = Effect.gen(function* () {
-  const { requester, first, second } = yield* acquireParticipants.pipe(
-    Effect.flatMap(requireThree),
-  );
+  const { requester, first, second } = yield* acquireThree;
 
   const unreachable = yield* send(requester, {
     to: `group:gather-member-a,gather-nobody,gather-requester`,
@@ -163,9 +135,7 @@ const allAnsweredBehavior = Effect.gen(function* () {
  * untouched.
  */
 const silentMemberBehavior = Effect.gen(function* () {
-  const { requester, first, second } = yield* acquireParticipants.pipe(
-    Effect.flatMap(requireThree),
-  );
+  const { requester, first, second } = yield* acquireThree;
   const deadline = yield* measuredDeadlineSeconds(
     groupRound(requester, [first, second]),
   );

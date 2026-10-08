@@ -1,7 +1,7 @@
 /** @file Endpoints a collective-operation trace drives through real daemons. */
 
 import type { AgentName } from "@moltzap/identity";
-import { Effect, Queue, Schema, type Scope, Stream } from "effect";
+import { Duration, Effect, Queue, Schema, type Scope, Stream } from "effect";
 import {
   acquireHarnessEndpoint,
   AgentAddress,
@@ -11,7 +11,12 @@ import {
   SendInput,
 } from "../src/index.js";
 import {
+  acquireDaemonManagementClient,
+  acquireDaemonProcess,
+  acquireProcessInfrastructure,
   type DaemonProcessFixture,
+  makeDaemonProcessFixture,
+  makeRegistrationRequest,
   ProcessTestError,
 } from "./daemon-process-harness.js";
 
@@ -51,6 +56,36 @@ export const joinParticipant = (
     return { address: directAddress(fixture.agentName), endpoint, inbox };
   });
 
+const registerFixture = (fixture: DaemonProcessFixture) =>
+  Effect.scoped(
+    acquireDaemonManagementClient(fixture.endpoint).pipe(
+      Effect.flatMap((management) =>
+        management.register(makeRegistrationRequest(fixture)),
+      ),
+    ),
+  );
+
+/**
+ * Starts PGlite, the Registry, the Router and one daemon per name, registers
+ * each daemon, and joins each as a participant.
+ * @param names The agent name of each daemon.
+ * @returns The participants, in `names` order.
+ */
+export const acquireParticipants = (names: readonly string[]) =>
+  Effect.gen(function* () {
+    const infrastructure = yield* acquireProcessInfrastructure;
+    const fixtures = yield* Effect.all(
+      names.map((name) => makeDaemonProcessFixture(infrastructure, name)),
+      { concurrency: "unbounded" },
+    );
+    yield* Effect.forEach(fixtures, acquireDaemonProcess, {
+      concurrency: "unbounded",
+      discard: true,
+    });
+    yield* Effect.forEach(fixtures, registerFixture, { discard: true });
+    return yield* Effect.forEach(fixtures, joinParticipant);
+  });
+
 /** Take the participant's next item and acknowledge its delivery. */
 export const nextItem = (participant: Participant) =>
   Queue.take(participant.inbox).pipe(
@@ -80,3 +115,42 @@ export const groupRound = (
     to: groupAddress([requester, ...members]),
     text: "one measured round",
   }).pipe(Effect.zipRight(Effect.forEach(members, nextItem)));
+
+/**
+ * How many measured rounds a silent-member trace's collecting operation waits
+ * before its deadline. Before it, the request posts certify and reach the
+ * members and the answers certify; an all_gather's two answers extend one
+ * group head and certify one after the other, so that work is several post
+ * rounds. The remaining rounds absorb load that changes between the
+ * measurement and the operation, and every round lengthens the test.
+ */
+const MEASURED_DEADLINE_ROUNDS = 4;
+
+/**
+ * The shortest deadline a measurement yields. 15 s has covered a
+ * silent-member trace's pre-deadline work in CI, so a round measured in a
+ * quiet moment cannot shrink the deadline below what that work needs.
+ */
+const MINIMUM_DEADLINE_SECONDS = 15;
+
+/**
+ * A collecting operation's deadline, in whole seconds: `MEASURED_DEADLINE_ROUNDS`
+ * runs of `round` on this host as loaded now, and at least
+ * `MINIMUM_DEADLINE_SECONDS`. It scales with the host's load, as the
+ * certification work before the deadline does.
+ * @param round One post that every asked member receives, as a trace sends it.
+ * @returns The deadline in seconds, rounded up.
+ */
+export const measuredDeadlineSeconds = <E, R>(
+  round: Effect.Effect<unknown, E, R>,
+): Effect.Effect<number, E, R> =>
+  Effect.timed(round).pipe(
+    Effect.map(([elapsed]) =>
+      Math.max(
+        MINIMUM_DEADLINE_SECONDS,
+        Math.ceil(
+          Duration.toSeconds(Duration.times(elapsed, MEASURED_DEADLINE_ROUNDS)),
+        ),
+      ),
+    ),
+  );

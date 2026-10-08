@@ -544,35 +544,6 @@ export function processTrace<E>(
   };
 }
 
-/**
- * How many measured rounds a silent-member trace's collecting operation waits
- * before its deadline. The work it must finish first, its request posts
- * certifying and reaching the members and the answers certifying, has taken
- * 1.0 to 2.2 rounds beside a second full Client suite (load average 25 to 39
- * on 8 cores); the other rounds absorb load that changes between the
- * measurement and the operation. Every round also lengthens the test.
- */
-const MEASURED_DEADLINE_ROUNDS = 4;
-
-/**
- * A collecting operation's deadline, in whole seconds, of
- * `MEASURED_DEADLINE_ROUNDS` runs of `round` on this host as loaded now. A
- * fixed deadline is raced by the certification work before it, which slows
- * with host load, while the operation still has to close at the deadline.
- * @param round One post that every asked member receives, as a trace sends it.
- * @returns The deadline in seconds, rounded up.
- */
-export const measuredDeadlineSeconds = <E, R>(
-  round: Effect.Effect<unknown, E, R>,
-): Effect.Effect<number, E, R> =>
-  Effect.timed(round).pipe(
-    Effect.map(([elapsed]) =>
-      Math.ceil(
-        Duration.toSeconds(Duration.times(elapsed, MEASURED_DEADLINE_ROUNDS)),
-      ),
-    ),
-  );
-
 /** Creates exact one-shot bootstrap fields for a fixture's configured identity. */
 export const makeRegistrationRequest = (
   fixture: DaemonProcessFixture,
