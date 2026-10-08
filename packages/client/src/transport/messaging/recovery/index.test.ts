@@ -28,7 +28,7 @@ import {
   TestServices,
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AddressRegistryPort } from "../address.js";
 import {
   digest,
@@ -131,6 +131,8 @@ type EngineRouterPort = EndpointEngineInput["routerWorker"];
  * slowest passed 20 s at 45.
  */
 const TRACE_TIMEOUT_MS = 60_000;
+
+vi.setConfig({ testTimeout: TRACE_TIMEOUT_MS });
 
 interface RecoveryFixture {
   readonly engine: EndpointEngine;
@@ -297,6 +299,47 @@ function openForwarded(message: SignedMessage) {
   return sender === undefined
     ? Effect.dieMessage("no fixture Router forwarded this envelope")
     : openOuterBody(message, sender);
+}
+
+/**
+ * The direct packet or evidence statement inside an envelope a fixture Router
+ * forwarded. Packet and statement kinds are disjoint, so a kind names one.
+ * @param message Envelope taken from a fixture Router queue.
+ * @returns The packet, or the decoded statement.
+ */
+function carriedBy(
+  message: SignedMessage,
+): Effect.Effect<DirectPacket | EvidenceStatementValue> {
+  return Effect.gen(function* () {
+    const body = yield* openForwarded(message);
+    return body.kind === "evidence"
+      ? yield* decodeCanonical(EvidenceStatement, body.message.body)
+      : body.packet;
+  }).pipe(Effect.orDie);
+}
+
+/**
+ * Takes envelopes from `outbound` until one carries `kind`, dropping those
+ * before it.
+ * @param outbound Queue the endpoint sends to.
+ * @param kind Direct packet or evidence statement kind to wait for.
+ * @returns The first envelope that carries `kind`.
+ */
+function takeNextCarrying(
+  outbound: Queue.Queue<SignedMessage>,
+  kind: (DirectPacket | EvidenceStatementValue)["kind"],
+): Effect.Effect<SignedMessage> {
+  return Queue.take(outbound).pipe(
+    Effect.flatMap((message) =>
+      carriedBy(message).pipe(
+        Effect.flatMap((carried) =>
+          carried.kind === kind
+            ? Effect.succeed(message)
+            : takeNextCarrying(outbound, kind),
+        ),
+      ),
+    ),
+  );
 }
 
 function makeHeldRouter(input: HeldRouterInput) {
@@ -1163,12 +1206,16 @@ const certifiedN4PostAt = (
     return record;
   }).pipe(Effect.orDie);
 
-const decodeCatchUpRequest = (message: SignedMessage) =>
-  openForwarded(message).pipe(
-    Effect.flatMap((body) =>
-      body.kind === "direct" && body.packet.kind === "catch_up_request"
-        ? Effect.succeed(body.packet)
-        : Effect.dieMessage("expected catch-up request"),
+const decodeCatchUpRequest = (
+  message: SignedMessage,
+): Effect.Effect<CatchUpRequest> =>
+  carriedBy(message).pipe(
+    Effect.flatMap((carried) =>
+      carried.kind === "catch_up_request"
+        ? Effect.succeed(carried)
+        : Effect.dieMessage(
+            `expected catch-up request, received ${carried.kind}`,
+          ),
     ),
   );
 
@@ -1187,8 +1234,7 @@ function actionProposalIn(body: DecodedOuterBody, expected: string) {
  * the queue after a drain returns.
  * @param outbound Router queue the engine forwards to.
  * @param taken Bodies already taken, in order.
- * @returns Every body through the proposal; one second without traffic is a
- *     defect.
+ * @returns Every body through the proposal.
  */
 function takeBodiesThroughActionProposal(
   outbound: Queue.Queue<SignedMessage>,
@@ -1210,7 +1256,7 @@ function takeBodiesThroughActionProposal(
  * action-certified-record and certified-head envelopes queued ahead of it.
  * @param outbound Router queue the engine forwards to.
  * @returns The proposal envelope and its decoded packet; any other direct
- *     packet, or one second without traffic, is a defect.
+ *     packet is a defect.
  */
 function takeActionProposalAfterEvidence(
   outbound: Queue.Queue<SignedMessage>,
@@ -1649,18 +1695,14 @@ const catchUpIncompleteIngress = (
 const decodeReanchorVote = (
   message: SignedMessage,
 ): Effect.Effect<ReanchorVote> =>
-  openForwarded(message).pipe(
-    Effect.flatMap((body) =>
-      body.kind === "evidence"
-        ? decodeCanonical(EvidenceStatement, body.message.body)
-        : Effect.dieMessage("expected re-anchor evidence"),
+  carriedBy(message).pipe(
+    Effect.flatMap((carried) =>
+      carried.kind === "reanchor_vote"
+        ? Effect.succeed(carried)
+        : Effect.dieMessage(
+            `expected re-anchor vote, received ${carried.kind}`,
+          ),
     ),
-    Effect.flatMap((statement) =>
-      statement.kind === "reanchor_vote"
-        ? Effect.succeed(statement)
-        : Effect.dieMessage("expected re-anchor vote"),
-    ),
-    Effect.orDie,
   );
 
 const decodeEvidenceKind = (
@@ -1856,9 +1898,7 @@ const runSameInstanceRecovery = <A, E>(
   Effect.gen(function* () {
     const { recovery: recovering, outbound: recoveryOutbound } =
       yield* forkRecovery(fixture, reason, oldRouterInstanceId);
-    const request = yield* Queue.take(recoveryOutbound).pipe(
-      Effect.flatMap(decodeCatchUpRequest),
-    );
+    const request = yield* takeCatchUpRequest(recoveryOutbound);
     const result = yield* during;
     yield* catchUpIncompleteIngress(fixture, request).pipe(
       Effect.flatMap((ingress) =>
@@ -1920,17 +1960,13 @@ const completeRestartRecovery = () =>
             fixture.engine.acceptRecoveryIngress(ingress),
           ),
         );
-        const terminalRequest = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeCatchUpRequest),
-        );
+        const terminalRequest = yield* takeCatchUpRequest(recoveryOutbound);
         yield* catchUpIncompleteIngress(fixture, terminalRequest).pipe(
           Effect.flatMap((ingress) =>
             fixture.engine.acceptRecoveryIngress(ingress),
           ),
         );
-        const proposal = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeReanchorVote),
-        );
+        const proposal = yield* takeReanchorVote(recoveryOutbound);
         expect(proposal.reanchor).toMatchObject({
           previousAnchorHash:
             fixture.certifiedRecord.actionCertifiedRecord.recordCore.anchorHash,
@@ -2051,17 +2087,13 @@ const reproposesPendingPostAfterRestart = () =>
         const resumedOutbound = fixture.normalOutbound;
         const { recovery: recovering, outbound: recoveryOutbound } =
           yield* forkRecovery(fixture, "router_restarted", newRouterInstanceId);
-        const request = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeCatchUpRequest),
-        );
+        const request = yield* takeCatchUpRequest(recoveryOutbound);
         yield* catchUpIncompleteIngress(fixture, request).pipe(
           Effect.flatMap((ingress) =>
             fixture.engine.acceptRecoveryIngress(ingress),
           ),
         );
-        const reanchor = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeReanchorVote),
-        );
+        const reanchor = yield* takeReanchorVote(recoveryOutbound);
         yield* peerReanchorVoteIngress(fixture, reanchor).pipe(
           Effect.flatMap((ingress) =>
             fixture.engine.acceptRecoveryIngress(ingress),
@@ -2137,9 +2169,7 @@ const recoverColdStartAtUnchangedInstance = () =>
         const retained = yield* stageCatchUpOutbound(fixture);
         const { recovery: recovering, outbound: recoveryOutbound } =
           yield* forkRecovery(fixture, "router_restarted", oldRouterInstanceId);
-        const request = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeCatchUpRequest),
-        );
+        const request = yield* takeCatchUpRequest(recoveryOutbound);
         yield* catchUpIncompleteIngressFrom({
           membership: fixture.membership,
           responder: fixture.remote,
@@ -2196,10 +2226,7 @@ const recoverMixedRouterInstances = () =>
           );
         const requests = yield* Effect.forEach(
           [1, 2],
-          () =>
-            Queue.take(recoveryOutbound).pipe(
-              Effect.flatMap(decodeCatchUpRequest),
-            ),
+          () => takeCatchUpRequest(recoveryOutbound),
           { concurrency: 1 },
         );
         const unchangedRequest = requests.find(
@@ -2585,9 +2612,7 @@ const drainRecoversRouterRestartOnItsOwnFiber = () =>
 
         const drained = yield* Effect.exit(fixture.engine.drainOutbound);
         yield* fixture.engine.drainOutbound;
-        const request = yield* Queue.take(fixture.recoveryOutbound).pipe(
-          Effect.flatMap(decodeCatchUpRequest),
-        );
+        const request = yield* takeCatchUpRequest(fixture.recoveryOutbound);
         yield* deliverRecovery(
           fixture.engine,
           catchUpIncompleteIngress(fixture, request),
@@ -2624,17 +2649,13 @@ const recoverDisseminationObligations = () =>
         const resumedOutbound = fixture.normalOutbound;
         const { recovery: recovering, outbound: recoveryOutbound } =
           yield* forkRecovery(fixture, "router_restarted", newRouterInstanceId);
-        const request = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeCatchUpRequest),
-        );
+        const request = yield* takeCatchUpRequest(recoveryOutbound);
         yield* catchUpIncompleteIngress(fixture, request).pipe(
           Effect.flatMap((ingress) =>
             fixture.engine.acceptRecoveryIngress(ingress),
           ),
         );
-        const proposal = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeReanchorVote),
-        );
+        const proposal = yield* takeReanchorVote(recoveryOutbound);
         yield* peerReanchorVoteIngress(fixture, proposal).pipe(
           Effect.flatMap((ingress) =>
             fixture.engine.acceptRecoveryIngress(ingress),
@@ -2700,9 +2721,7 @@ const recoverWhileNormalSendIsHeld = () =>
         yield* Fiber.join(recovering);
         expect((yield* fixture.store.recover()).postIntents).toHaveLength(1);
         yield* Deferred.succeed(releaseSend, undefined);
-        const request = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeCatchUpRequest),
-        );
+        const request = yield* takeCatchUpRequest(recoveryOutbound);
         yield* deliverRecovery(
           fixture.engine,
           catchUpIncompleteIngress(fixture, request),
@@ -2723,9 +2742,7 @@ const restartEmptyConversation = () =>
         const fixture = yield* makeFixture;
         const { recovery: recovering, outbound: recoveryOutbound } =
           yield* forkRecovery(fixture, "router_restarted", newRouterInstanceId);
-        const request = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeCatchUpRequest),
-        );
+        const request = yield* takeCatchUpRequest(recoveryOutbound);
         yield* catchUpIncompleteIngress(fixture, request).pipe(
           Effect.flatMap((ingress) =>
             fixture.engine.acceptRecoveryIngress(ingress),
@@ -2754,8 +2771,22 @@ const restartEmptyConversation = () =>
  * @param outbound Queue the recovery sends to.
  * @returns The decoded catch-up request.
  */
-const takeCatchUpRequest = (outbound: Queue.Queue<SignedMessage>) =>
-  Queue.take(outbound).pipe(Effect.flatMap(decodeCatchUpRequest));
+function takeCatchUpRequest(
+  outbound: Queue.Queue<SignedMessage>,
+): Effect.Effect<CatchUpRequest> {
+  return Queue.take(outbound).pipe(Effect.flatMap(decodeCatchUpRequest));
+}
+
+/**
+ * Takes the next envelope a recovery sent, which must be a re-anchor vote.
+ * @param outbound Queue the recovery sends to.
+ * @returns The decoded vote statement.
+ */
+function takeReanchorVote(
+  outbound: Queue.Queue<SignedMessage>,
+): Effect.Effect<ReanchorVote> {
+  return Queue.take(outbound).pipe(Effect.flatMap(decodeReanchorVote));
+}
 
 /**
  * Starts a restart recovery at the new Router instance and waits until it has
@@ -2808,9 +2839,7 @@ const reanchorUntilCompletionSend = (fixture: RecoveryFixture) =>
       fixture.engine,
       catchUpIncompleteIngress(fixture, request),
     );
-    const proposal = yield* Queue.take(outbound).pipe(
-      Effect.flatMap(decodeReanchorVote),
-    );
+    const proposal = yield* takeReanchorVote(outbound);
     yield* deliverRecovery(
       fixture.engine,
       peerReanchorVoteIngress(fixture, proposal),
@@ -3047,9 +3076,7 @@ const replaysPeerVoteHeldBeforeCatchUpCompletes = () =>
           ),
         );
         yield* Fiber.join(recovery);
-        const proposal = yield* Queue.take(outbound).pipe(
-          Effect.flatMap(decodeReanchorVote),
-        );
+        const proposal = yield* takeReanchorVote(outbound);
 
         expect(early).toBe(acceptedDisposition);
         expect(
@@ -3187,9 +3214,7 @@ const rebroadcastsPersistedLocalVote = () =>
             fixture.engine.acceptRecoveryIngress(ingress),
           ),
         );
-        const replayedVote = yield* Queue.take(secondOutbound).pipe(
-          Effect.flatMap(decodeReanchorVote),
-        );
+        const replayedVote = yield* takeReanchorVote(secondOutbound);
         expect(replayedVote.signerAgentId).toBe(fixture.local.card.agentId);
         yield* Fiber.interrupt(secondRecovery);
       }),
@@ -3288,12 +3313,8 @@ const recoversN4PartiallyDisseminatedSuccessor = () =>
             "router_restarted",
             newRouterInstanceId,
           );
-        const firstRequest = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeCatchUpRequest),
-        );
-        const secondRequest = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeCatchUpRequest),
-        );
+        const firstRequest = yield* takeCatchUpRequest(recoveryOutbound);
+        const secondRequest = yield* takeCatchUpRequest(recoveryOutbound);
         const directRequest = [firstRequest, secondRequest].find(
           (request) =>
             request.conversationId ===
@@ -3357,9 +3378,7 @@ const recoversN4PartiallyDisseminatedSuccessor = () =>
         }).pipe(
           Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
         );
-        const advancedRequest = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeCatchUpRequest),
-        );
+        const advancedRequest = yield* takeCatchUpRequest(recoveryOutbound);
         expect(advancedRequest).toMatchObject({
           conversationId: n4.membership.descriptor.conversationId,
           knownRecordHash: history.stagedSuccessor.recordHash,
@@ -3403,9 +3422,7 @@ const recoversN4PartiallyDisseminatedSuccessor = () =>
         }).pipe(
           Effect.flatMap((ingress) => n4.engine.acceptRecoveryIngress(ingress)),
         );
-        const proposal = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeReanchorVote),
-        );
+        const proposal = yield* takeReanchorVote(recoveryOutbound);
         expect(proposal.reanchor.selectedRecordHash).toBe(
           history.stagedSuccessor.recordHash,
         );
@@ -3481,12 +3498,8 @@ const blocksN4ReanchorBehindStagedSuccessor = () =>
             "router_restarted",
             newRouterInstanceId,
           );
-        const firstRequest = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeCatchUpRequest),
-        );
-        const secondRequest = yield* Queue.take(recoveryOutbound).pipe(
-          Effect.flatMap(decodeCatchUpRequest),
-        );
+        const firstRequest = yield* takeCatchUpRequest(recoveryOutbound);
+        const secondRequest = yield* takeCatchUpRequest(recoveryOutbound);
         const directRequest = [firstRequest, secondRequest].find(
           (request) =>
             request.conversationId ===
@@ -3587,9 +3600,7 @@ const reanchorByVote: ReanchorRoute = (fixture, run) =>
       fixture.engine,
       catchUpIncompleteIngress(fixture, run.request),
     );
-    const vote = yield* Queue.take(run.outbound).pipe(
-      Effect.flatMap(decodeReanchorVote),
-    );
+    const vote = yield* takeReanchorVote(run.outbound);
     yield* deliverRecovery(
       fixture.engine,
       peerReanchorVoteIngress(fixture, vote),
@@ -4013,7 +4024,7 @@ const retiresAStagedSuccessorWhenAReanchorSelectsItsHead = (
   );
 
 // @agent-code-guard/regression-only: these traces pin restart liveness and fail-closed ancestry handling.
-describe("endpoint restart recovery", { timeout: TRACE_TIMEOUT_MS }, () => {
+describe("endpoint restart recovery", () => {
   it(
     "starts its recovery run while a normal send is held",
     recoverWhileNormalSendIsHeld,
@@ -4195,7 +4206,7 @@ describe("endpoint restart recovery", { timeout: TRACE_TIMEOUT_MS }, () => {
 });
 
 // @agent-code-guard/regression-only: these traces pin outbound drain order and gate release.
-describe("endpoint outbound drain", { timeout: TRACE_TIMEOUT_MS }, () => {
+describe("endpoint outbound drain", () => {
   it(
     "sends each queued envelope once, in order, across concurrent drains",
     concurrentDrainsSendOnceInOrder,
@@ -4354,9 +4365,7 @@ const advanceN4HeadPastStagedCandidate = (
       }),
     );
     yield* answerN4Incomplete(fixture, n4, requests.group);
-    const staged = yield* Queue.take(outbound).pipe(
-      Effect.flatMap(decodeReanchorVote),
-    );
+    const staged = yield* takeReanchorVote(outbound);
     const successor = yield* deliverRecovery(
       n4.engine,
       directPacketIngressFrom({
@@ -4490,9 +4499,7 @@ const reanchorsPastHeldVoteForUnsuppliedHead = () =>
           fixture.engine,
           catchUpIncompleteIngress(fixture, request),
         );
-        const proposal = yield* Queue.take(outbound).pipe(
-          Effect.flatMap(decodeReanchorVote),
-        );
+        const proposal = yield* takeReanchorVote(outbound);
         const genuine = yield* deliverRecovery(
           fixture.engine,
           peerReanchorVoteIngress(fixture, proposal),
@@ -5378,9 +5385,7 @@ const ignoresReanchorVoteAfterTheConversationReanchored = () =>
             routerInstanceId: newRouterInstanceId,
           }),
         );
-        const proposal = yield* Queue.take(outbound).pipe(
-          Effect.flatMap(decodeReanchorVote),
-        );
+        const proposal = yield* takeReanchorVote(outbound);
         const completing = yield* deliverRecovery(
           n4.engine,
           peerReanchorVoteIngress(fixture, proposal),
@@ -5411,7 +5416,7 @@ const ignoresReanchorVoteAfterTheConversationReanchored = () =>
   );
 
 // @agent-code-guard/regression-only: these traces pin that input from a peer never ends a recovery run.
-describe("peer input during recovery", { timeout: TRACE_TIMEOUT_MS }, () => {
+describe("peer input during recovery", () => {
   it(
     "ignores a GENESIS whose membership holds a card another Registry issued",
     ignoresGenesisWithACardAnotherRegistryIssued,
@@ -6349,68 +6354,33 @@ const proposesNothingOnceItsRunHasEnded = () =>
 const settle = TestServices.provideLive(Effect.sleep("30 millis"));
 
 /**
- * Takes the next catch-up request a recovery retries, moving the test clock
- * on until it is sent. One clock adjustment can finish before the retry
- * fiber, still signing the previous request, has scheduled its next delay,
- * so the clock moves again after each live pause until a request arrives.
+ * Runs `wait` while the test clock moves on after each live pause, until
+ * `wait` ends. One clock move can finish before a fiber still signing its
+ * previous envelope has scheduled its next delay, so no fixed number of moves
+ * is sure to release what `wait` waits for.
+ * @param wait Effect that ends once what it waits for arrives.
+ * @returns What `wait` returns.
+ */
+const whileTheClockRuns = <A, E>(wait: Effect.Effect<A, E>) =>
+  wait.pipe(
+    Effect.raceFirst(
+      TestClock.adjust("100000 seconds").pipe(
+        Effect.zipRight(settle),
+        Effect.forever,
+      ),
+    ),
+  );
+
+/**
+ * Takes the next catch-up request a recovery under the caller's test clock
+ * retries, moving the clock on until it is sent.
  * @param outbound Queue the recovery sends to.
  * @returns The decoded catch-up request.
  */
 const takeRetriedCatchUpRequest = (outbound: Queue.Queue<SignedMessage>) =>
-  Queue.take(outbound).pipe(
-    Effect.raceFirst(
-      TestClock.adjust("100000 seconds").pipe(
-        Effect.zipRight(settle),
-        Effect.forever,
-      ),
-    ),
+  whileTheClockRuns(Queue.take(outbound)).pipe(
     Effect.flatMap(decodeCatchUpRequest),
   );
-
-/**
- * Takes the re-anchor vote a recovery under the caller's test clock sends
- * once its catch-up retries run out and the position settles, dropping the
- * retried requests before it. The clock moves after each live pause until
- * the vote arrives, since a retry still signing its request can outlast any
- * fixed number of clock moves.
- * @param outbound Queue the recovery sends to.
- * @returns The decoded vote statement.
- */
-const takeReanchorVoteOnceRetriesRunOut = (
-  outbound: Queue.Queue<SignedMessage>,
-) =>
-  takeNextReanchorVote(outbound).pipe(
-    Effect.raceFirst(
-      TestClock.adjust("100000 seconds").pipe(
-        Effect.zipRight(settle),
-        Effect.forever,
-      ),
-    ),
-  );
-
-/**
- * Takes envelopes from `outbound` until one carries a re-anchor vote.
- * @param outbound Queue the recovery sends to.
- * @returns The vote; the envelopes taken before it are dropped.
- */
-function takeNextReanchorVote(
-  outbound: Queue.Queue<SignedMessage>,
-): Effect.Effect<ReanchorVote> {
-  return Queue.take(outbound).pipe(
-    Effect.flatMap((message) => openForwarded(message)),
-    Effect.flatMap((body) =>
-      body.kind === "evidence"
-        ? decodeCanonical(EvidenceStatement, body.message.body)
-        : Effect.succeed(undefined),
-    ),
-    Effect.flatMap((statement) =>
-      statement?.kind === "reanchor_vote"
-        ? Effect.succeed(statement)
-        : takeNextReanchorVote(outbound),
-    ),
-    Effect.orDie,
-  );
-}
 
 /**
  * A send to a conversation, as the host makes one.
@@ -6616,27 +6586,6 @@ const backsOffCatchUpRetriesAndStops = () =>
   );
 
 /**
- * Takes envelopes from `outbound` until one carries a catch-up request. It
- * waits on the queue rather than on a clock, because sealing the request
- * settles on real promises.
- * @param outbound Queue the recovery sends to.
- * @returns The request; the envelopes taken before it are dropped.
- */
-function takeNextCatchUpRequest(
-  outbound: Queue.Queue<SignedMessage>,
-): Effect.Effect<CatchUpRequest> {
-  return Queue.take(outbound).pipe(
-    Effect.flatMap((message) => openForwarded(message)),
-    Effect.flatMap((body) =>
-      body.kind === "direct" && body.packet.kind === "catch_up_request"
-        ? Effect.succeed(body.packet)
-        : takeNextCatchUpRequest(outbound),
-    ),
-    Effect.orDie,
-  );
-}
-
-/**
  * A conversation's catch-up retries run out while its member is silent. The
  * member then sends traffic for it, which arms catch-up again with a fresh
  * request; the member's answer recovers the conversation, no further retry
@@ -6671,7 +6620,10 @@ const rearmsCatchUpAfterRetriesRunOut = () =>
             routerInstanceId: oldRouterInstanceId,
           }),
         );
-        const fresh = yield* takeNextCatchUpRequest(outbound);
+        const fresh = yield* takeNextCarrying(
+          outbound,
+          "catch_up_request",
+        ).pipe(Effect.flatMap(decodeCatchUpRequest));
         yield* settle;
         const laterRequests = yield* Effect.filter(
           yield* Queue.takeAll(outbound),
@@ -7077,96 +7029,92 @@ const rearmsEveryPausedConversationOnReattach = () =>
   );
 
 // @agent-code-guard/regression-only: these traces pin the catch-up and re-anchor work a recovery run routes between its phases and its store.
-describe(
-  "catch-up and re-anchor inside a recovery run",
-  { timeout: TRACE_TIMEOUT_MS },
-  () => {
-    it(
-      "sends a recovered conversation's post while another waits on a silent member, and the held post once that one recovers",
-      recoversOneConversationWhileAnotherWaitsOnASilentMember,
-    );
-    it(
-      "backs off catch-up retries exponentially and stops after the last attempt",
-      backsOffCatchUpRetriesAndStops,
-    );
-    it(
-      "arms catch-up again when a member's catch-up request arrives after its retries ran out",
-      rearmsCatchUpAfterRetriesRunOut,
-    );
-    it(
-      "arms catch-up again on the next recovery run after its retries ran out",
-      rearmsCatchUpOnTheNextRecoveryRun,
-    );
-    it(
-      "arms catch-up again on a local send after its retries ran out",
-      rearmsCatchUpOnALocalSend,
-    );
-    it(
-      "arms catch-up again for every paused conversation when the Router worker reattaches",
-      rearmsEveryPausedConversationOnReattach,
-    );
-    it(
-      "proposes a pending post only once its conversation recovers, at the head it settles on",
-      proposesPendingPostsOnlyOnceItsConversationRecovers,
-    );
-    it(
-      "finishes recovering a conversation whose completing delivery is interrupted",
-      finishesRecoveryWhenItsDeliveryIsInterrupted,
-    );
-    it(
-      "stops catch-up retries once the conversation recovers",
-      stopsCatchUpRetriesOnceRecovered,
-    );
-    it(
-      "answers a catch-up request with its first certified record",
-      answersCatchUpRequestWithItsFirstCertifiedRecord,
-    );
-    it(
-      "answers a catch-up request during its own recovery",
-      answersCatchUpRequestDuringItsOwnRecovery,
-    );
-    it(
-      "answers a catch-up request that arrives before its run starts",
-      answersCatchUpRequestBeforeItsRunStarts,
-    );
-    it(
-      "completes when both members of a direct conversation recover from a Router restart at once",
-      twoMembersRecoverTogetherAfterARouterRestart,
-    );
-    it(
-      "asks for catch-up again when a member votes for a head it lacks",
-      requestsCatchUpForAVoteAtAnUnknownHead,
-    );
-    it(
-      "adopts a re-anchor members completed while it was down",
-      adoptsReanchorCompletedWhileItWasDown,
-    );
-    it(
-      "fails when the store fails while persisting a member's vote",
-      failsWhenTheStoreFailsWhilePersistingAPeerVote,
-    );
-    it(
-      "fails when the store fails while applying a caught-up re-anchor",
-      failsWhenTheStoreFailsWhileApplyingACaughtUpReanchor,
-    );
-    it(
-      "proposes nothing once a new recovery replaces its run",
-      proposesNothingOnceItsRunHasEnded,
-    );
-    it(
-      "fails when the store refuses its own fresh re-anchor vote",
-      failsWhenTheStoreRefusesItsOwnFreshVote,
-    );
-    it(
-      "ignores catch-up requests for another requester, another membership, or itself",
-      ignoresCatchUpRequestsItMustNotAnswer,
-    );
-    it(
-      "answers catch-up through a stored completed re-anchor",
-      answersCatchUpThroughAStoredCompletedReanchor,
-    );
-  },
-);
+describe("catch-up and re-anchor inside a recovery run", () => {
+  it(
+    "sends a recovered conversation's post while another waits on a silent member, and the held post once that one recovers",
+    recoversOneConversationWhileAnotherWaitsOnASilentMember,
+  );
+  it(
+    "backs off catch-up retries exponentially and stops after the last attempt",
+    backsOffCatchUpRetriesAndStops,
+  );
+  it(
+    "arms catch-up again when a member's catch-up request arrives after its retries ran out",
+    rearmsCatchUpAfterRetriesRunOut,
+  );
+  it(
+    "arms catch-up again on the next recovery run after its retries ran out",
+    rearmsCatchUpOnTheNextRecoveryRun,
+  );
+  it(
+    "arms catch-up again on a local send after its retries ran out",
+    rearmsCatchUpOnALocalSend,
+  );
+  it(
+    "arms catch-up again for every paused conversation when the Router worker reattaches",
+    rearmsEveryPausedConversationOnReattach,
+  );
+  it(
+    "proposes a pending post only once its conversation recovers, at the head it settles on",
+    proposesPendingPostsOnlyOnceItsConversationRecovers,
+  );
+  it(
+    "finishes recovering a conversation whose completing delivery is interrupted",
+    finishesRecoveryWhenItsDeliveryIsInterrupted,
+  );
+  it(
+    "stops catch-up retries once the conversation recovers",
+    stopsCatchUpRetriesOnceRecovered,
+  );
+  it(
+    "answers a catch-up request with its first certified record",
+    answersCatchUpRequestWithItsFirstCertifiedRecord,
+  );
+  it(
+    "answers a catch-up request during its own recovery",
+    answersCatchUpRequestDuringItsOwnRecovery,
+  );
+  it(
+    "answers a catch-up request that arrives before its run starts",
+    answersCatchUpRequestBeforeItsRunStarts,
+  );
+  it(
+    "completes when both members of a direct conversation recover from a Router restart at once",
+    twoMembersRecoverTogetherAfterARouterRestart,
+  );
+  it(
+    "asks for catch-up again when a member votes for a head it lacks",
+    requestsCatchUpForAVoteAtAnUnknownHead,
+  );
+  it(
+    "adopts a re-anchor members completed while it was down",
+    adoptsReanchorCompletedWhileItWasDown,
+  );
+  it(
+    "fails when the store fails while persisting a member's vote",
+    failsWhenTheStoreFailsWhilePersistingAPeerVote,
+  );
+  it(
+    "fails when the store fails while applying a caught-up re-anchor",
+    failsWhenTheStoreFailsWhileApplyingACaughtUpReanchor,
+  );
+  it(
+    "proposes nothing once a new recovery replaces its run",
+    proposesNothingOnceItsRunHasEnded,
+  );
+  it(
+    "fails when the store refuses its own fresh re-anchor vote",
+    failsWhenTheStoreRefusesItsOwnFreshVote,
+  );
+  it(
+    "ignores catch-up requests for another requester, another membership, or itself",
+    ignoresCatchUpRequestsItMustNotAnswer,
+  );
+  it(
+    "answers catch-up through a stored completed re-anchor",
+    answersCatchUpThroughAStoredCompletedReanchor,
+  );
+});
 
 /**
  * The local endpoint posts into its direct conversation, the Router orders
@@ -7234,20 +7182,20 @@ const stagePostAtTheAuthor = (
   }).pipe(Effect.orDie);
 
 /**
- * Takes the `count` envelopes one step sends, waiting on `outbound` for each
- * rather than on a clock, then any further ones until the queue has been
- * quiet for `QUIET_PERIOD` of live time, and decodes each one's body. Sealing
- * an envelope settles on real promises, so under load the gap between two
- * envelopes of one step can outlast any fixed pause; only the check that
- * nothing more follows reads by a pause, and a late extra envelope can only
- * pass it.
+ * Takes the `count` envelopes one step sends, then any further ones until the
+ * queue has been quiet for `QUIET_PERIOD` of live time, and decodes each one's
+ * body. Only the check that nothing more follows reads by a pause: sealing an
+ * envelope settles on real promises, so under load a late extra envelope can
+ * only pass it.
  * @param outbound Queue the endpoint sends to.
  * @param count Envelopes the step must send; zero when it must send none.
  * @returns The decoded bodies, in send order.
  */
 const takeSentBodies = (outbound: Queue.Queue<SignedMessage>, count: number) =>
-  Effect.replicateEffect(Queue.take(outbound), count).pipe(
-    Effect.flatMap((expected) => takeUntilQuiet(outbound, expected)),
+  Queue.takeN(outbound, count).pipe(
+    Effect.flatMap((expected) =>
+      takeUntilQuiet(outbound, Chunk.toReadonlyArray(expected)),
+    ),
     Effect.flatMap((messages) =>
       Effect.forEach(messages, (message) => openForwarded(message), {
         concurrency: 1,
@@ -8012,7 +7960,7 @@ const waitsBehindASuccessorAHolderAnswersWith = () =>
           engine: holder.engine,
           routerInstanceId: newRouterInstanceId,
         });
-        yield* Effect.replicateEffect(Queue.take(holderAnswers), 2);
+        yield* Queue.takeN(holderAnswers, 2);
         yield* answerN4Incomplete(fixture, n4, request, {
           responders: [n4.third],
         });
@@ -8075,7 +8023,7 @@ const neverSettlesBehindASuccessorAfterAFeedGap = () =>
           routerInstanceId: oldRouterInstanceId,
         });
         yield* holder.engine.drainOutbound.pipe(Effect.orDie);
-        yield* Effect.replicateEffect(Queue.take(holderAnswers), 2);
+        yield* Queue.takeN(holderAnswers, 2);
         yield* answerN4Incomplete(fixture, n4, request, {
           responders: [n4.third],
           routerInstanceId: oldRouterInstanceId,
@@ -8183,9 +8131,7 @@ const waitsBehindAnEarlierInstanceReanchor = (earlierVote: "own" | "member") =>
           yield* answerN4Incomplete(fixture, n4, first.request, {
             responders: [fixture.remote, n4.third],
           });
-          yield* Queue.take(fixture.recoveryOutbound).pipe(
-            Effect.flatMap(decodeReanchorVote),
-          );
+          yield* takeReanchorVote(fixture.recoveryOutbound);
         } else {
           yield* directPacketIngressFrom({
             membership: n4.membership,
@@ -8276,9 +8222,7 @@ const answersIncompleteWithItsEarlierInstanceVote = () =>
         yield* answerN4Incomplete(fixture, n4, first.request, {
           responders: [fixture.remote, n4.third],
         });
-        yield* Queue.take(fixture.recoveryOutbound).pipe(
-          Effect.flatMap(decodeReanchorVote),
-        );
+        yield* takeReanchorVote(fixture.recoveryOutbound);
         const { outbound } = yield* forkRecovery(
           { engine: n4.engine, recoveryOutbound: fixture.recoveryOutbound },
           "router_restarted",
@@ -8382,7 +8326,7 @@ const settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut = () =>
         });
         const whileRetrying = (yield* groupState(fixture, n4, recordHash))
           .candidates;
-        yield* takeReanchorVoteOnceRetriesRunOut(outbound);
+        yield* whileTheClockRuns(takeNextCarrying(outbound, "reanchor_vote"));
         const settled = (yield* groupState(fixture, n4, recordHash)).candidates;
 
         expect(whileRetrying).toEqual([]);
@@ -8768,7 +8712,7 @@ const answersIncompleteWithoutItsVoteForTheDeliveringInstance = () =>
         yield* answerN4Incomplete(fixture, n4, request, {
           responders: [fixture.remote, n4.third],
         });
-        yield* Queue.take(outbound).pipe(Effect.flatMap(decodeReanchorVote));
+        yield* takeReanchorVote(outbound);
 
         yield* deliverRecovery(
           n4.engine,
@@ -8795,7 +8739,7 @@ const answersIncompleteWithoutItsVoteForTheDeliveringInstance = () =>
     ),
   );
 
-describe("staged successors in recovery", { timeout: TRACE_TIMEOUT_MS }, () => {
+describe("staged successors in recovery", () => {
   it(
     "certifies a post one direct member staged before the restart, and re-anchors at it",
     certifiesAPostOneDirectMemberStagedBeforeTheRestart,
@@ -9106,31 +9050,17 @@ const sendsAnUnattachedObligationsCopyAfterAColdStart = () =>
     ),
   );
 
-/**
- * Vitest's bound on each test below. A trace finishes in a few seconds even
- * on a loaded machine, so only a hang reaches it.
- */
-const RESUME_TEST_TIMEOUT_MS = 30_000;
-
 describe("evidence and outbox rows an engine resumes", () => {
-  it(
-    "sends its signature for a proposal it signed again after a Router restart recovery",
-    () => resendsItsSignatureForAHeldProposal("router_restarted", 1),
-    RESUME_TEST_TIMEOUT_MS,
-  );
-  it(
-    "sends no second signature for a proposal it signed after a feed-gap recovery",
-    () => resendsItsSignatureForAHeldProposal("feed_gap", 0),
-    RESUME_TEST_TIMEOUT_MS,
-  );
+  it("sends its signature for a proposal it signed again after a Router restart recovery", () =>
+    resendsItsSignatureForAHeldProposal("router_restarted", 1));
+  it("sends no second signature for a proposal it signed after a feed-gap recovery", () =>
+    resendsItsSignatureForAHeldProposal("feed_gap", 0));
   it(
     "sends an outbox row the store retained once a restarted engine's loop runs",
     sendsARetainedOutboxRowAfterAColdStart,
-    RESUME_TEST_TIMEOUT_MS,
   );
   it(
     "queues the copy an unattached dissemination obligation owes when an engine starts",
     sendsAnUnattachedObligationsCopyAfterAColdStart,
-    RESUME_TEST_TIMEOUT_MS,
   );
 });
