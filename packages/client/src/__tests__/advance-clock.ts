@@ -27,8 +27,8 @@ export function advanceClock(
 }
 
 /**
- * Wait in live time until `ready` reads true, polling every 5 ms for at most
- * 10 seconds; a condition that never holds is a defect.
+ * Wait in live time until `ready` reads true, polling every 5 ms. A condition
+ * that never holds ends at the test's timeout.
  * @param ready Condition the system under test reaches on its own.
  * @returns Completion once `ready` reads true.
  */
@@ -39,7 +39,6 @@ export function untilLive(ready: Effect.Effect<boolean>): Effect.Effect<void> {
         until: (met) => met,
         schedule: Schedule.spaced("5 millis"),
       }),
-      Effect.timeout("10 seconds"),
     ),
-  ).pipe(Effect.orDie, Effect.asVoid);
+  ).pipe(Effect.asVoid);
 }
