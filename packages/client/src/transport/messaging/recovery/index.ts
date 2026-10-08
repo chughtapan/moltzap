@@ -263,7 +263,7 @@ export const recoverCertifiedHistory = (
       .recover()
       .pipe(Effect.mapError(recoveryFailure));
     const memberships = yield* recoverMemberships(runtime, recovered);
-    yield* verifyRecoveredHistory(runtime, recovered, memberships);
+    yield* verifyRecoveredHistory(recovered, memberships);
     const reanchoring = yield* reanchoringConversations(
       recoveryInput,
       recovered,

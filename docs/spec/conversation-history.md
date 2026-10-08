@@ -188,15 +188,36 @@ interface PostActionCore {
 
 type ActionCore = GenesisActionCore | PostActionCore
 
-interface RecordCore {
+interface GenesisRecordCore {
   readonly moltzapVersion: "2026.1006.1"
   readonly kind: "record_core"
   readonly membership: MembershipDescriptor
   readonly anchorHash: AnchorHash
-  readonly action: ActionCore
+  readonly action: GenesisActionCore
   readonly actionHash: ActionHash
 }
+
+interface PostRecordCore {
+  readonly moltzapVersion: "2026.1006.1"
+  readonly kind: "record_core"
+  readonly membershipHash: MembershipHash
+  readonly anchorHash: AnchorHash
+  readonly action: PostActionCore
+  readonly actionHash: ActionHash
+}
+
+type RecordCore = GenesisRecordCore | PostRecordCore
 ```
+
+A GENESIS record core carries the membership descriptor. A POST record core
+carries only its `MembershipHash`, and a member verifies a POST record against
+the membership it holds for the conversation. Every member holds that
+Registry-verified membership before it sees any POST record: GENESIS needs
+every member's action signature, and a member signs GENESIS only after it locks
+the GENESIS proposal and its verified membership. A catch-up page for an empty
+position carries GENESIS. A POST record whose `MembershipHash` is not the held
+membership's hash fails verification, and a POST record for a conversation the
+member does not hold is ignored.
 
 `GENESIS` is the first nonempty post. Its anchor uses the
 `RouterInstanceId` from an omitted-cursor poll. `POST` extends exactly one
@@ -665,9 +686,10 @@ following applicable bindings:
   order, `ConversationId`, and `MembershipHash` recompute;
 - author and signer are fixed members, each post intent matches its enclosing
   conversation and membership, and `PostIntentHash` recomputes;
-- GENESIS embeds the record membership and genesis anchor, uses a null
-  predecessor, and is the first record; POST uses the record membership hash,
-  current `anchorHash`, and exact certified head;
+- GENESIS embeds the membership descriptor and genesis anchor, uses a null
+  predecessor, and is the first record; a POST action and record core carry
+  the `MembershipHash` of the membership held from the conversation's
+  GENESIS, the current `anchorHash`, and the exact certified head;
 - `ActionHash`, `AnchorHash`, and `RecordHash` recompute from their exact cores;
 - `RouterAnchor` is either the byte-identical genesis anchor or a completed
   re-anchor whose body hashes to the record core's `anchorHash`;
@@ -725,12 +747,13 @@ Before enabling WAL, creating schema objects, or changing file permissions,
 Client reads the SQLite preflight state. A database is empty version 0 exactly
 when `PRAGMA user_version` is `0` and `sqlite_schema` contains no user-created
 table, index, view, or trigger. SQLite-internal objects are ignored. Only that
-state, or a version 2 or 3 store, initializes the endpoint store, enables WAL,
-and sets `user_version=4`. Version 4 reopens. Versions 2 and 3 were written
-under the prior `MOLTZAP_VERSION`, so in one transaction Client drops every
-table they hold, the registered identity included, and creates the empty
-version 4 schema: the daemon starts unregistered, and nothing written under
-the prior version carries over or is resealed. A nonempty version 0,
+state, or a version 2, 3 or 4 store, initializes the endpoint store, enables
+WAL, and sets `user_version=5`. Version 5 reopens. Versions 2 and 3 were
+written under the prior `MOLTZAP_VERSION`, and version 4 holds POST record
+cores that embed the membership descriptor, so in one transaction Client drops
+every table they hold, the registered identity included, and creates the empty
+version 5 schema: the daemon starts unregistered, and nothing written under
+the prior version or record format carries over or is resealed. A nonempty version 0,
 version 1, and every other version fail with
 `EndpointStoreError("incompatible")` without mutation; incompatible stores
 are not erased.

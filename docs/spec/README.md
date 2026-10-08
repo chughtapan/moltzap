@@ -112,8 +112,8 @@ AgentId and signature bytes while logical hashes exclude evidence maps.
   representation contracts through relocation. The addressed-message hard cut
   advances the shared source-owned `V2_PROTOCOL_VERSION` once for every
   participating process; a path/package rename alone does not change bytes.
-- Client retains hash domain v2. The runtime uses database schema 4, opens
-  pre-cutover schemas 2 and 3 empty, and uses the pinned draft MCP Events
+- Client retains hash domain v2. The runtime uses database schema 5, opens
+  pre-cutover schemas 2, 3 and 4 empty, and uses the pinned draft MCP Events
   profile.
 - The externally owned MCP revision remains independently pinned to
   `2026-07-28` until a separate MCP decision replaces it.

@@ -91,7 +91,7 @@ export const recoverEngineState = (
       conversations,
       anchors.byHash,
     );
-    const recordFolds = yield* recoverStagedFolds(input, recovery, actionFolds);
+    const recordFolds = yield* recoverStagedFolds(recovery, actionFolds);
     const outboundMessages = yield* verifyStoredOutbounds(
       input,
       recovery.outboundMessages,
@@ -269,7 +269,6 @@ function recoverActionFolds(
 }
 
 function recoverStagedFolds(
-  input: EndpointEngineInput,
   recovery: EndpointRecovery,
   actionFolds: Map<ActionHash, EngineActionFold>,
 ): Effect.Effect<Map<RecordHashValue, EngineActionFold>, StoredRowError> {
@@ -284,18 +283,18 @@ function recoverStagedFolds(
           staged.recordHash,
         );
         const fold = actionFolds.get(actionHash);
+        if (fold === undefined) {
+          return yield* Effect.fail(persistenceFailure());
+        }
         const recordCore = yield* decodeCanonical(
           RecordCoreSchema,
           staged.canonicalRecordCore,
         );
-        const verified = yield* verifyRecordCore({
+        const verifiedHash = yield* verifyRecordCore({
           recordCore,
-          registrySignerPublicKey: input.registrySignerPublicKey,
+          membership: fold.conversation.membership,
         });
-        if (
-          fold === undefined ||
-          !stagedRecordMatches(staged, fold, recordCore, verified.recordHash)
-        ) {
+        if (!stagedRecordMatches(staged, fold, recordCore, verifiedHash)) {
           return yield* Effect.fail(persistenceFailure());
         }
         yield* Effect.sync(() => {
@@ -357,7 +356,7 @@ function recoverCertifiedFold(
   return Effect.gen(function* () {
     const context = yield* certifiedFoldContext(input, stored);
     const record = yield* recordFromStore(
-      input.input.registrySignerPublicKey,
+      context.conversation.membership,
       stored,
       context.routerAnchor,
     );

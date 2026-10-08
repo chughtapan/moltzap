@@ -36,8 +36,8 @@ cards is outside the Gate 1 L1 identity-binding guarantee.
 Correctness does not imply availability. Registry outage prevents
 registration and public lookup or list operations. Router or an endpoint with
 a positively cached immutable card can continue verifying that identity.
-Pinned cards and self-contained certified conversation records remain
-verifiable without a live Registry.
+Pinned cards and certified conversation histories, whose GENESIS record carries
+the membership, remain verifiable without a live Registry.
 
 ## Public package boundary
 
@@ -266,9 +266,10 @@ immutable card.
 - Router never resolves recipients or enriches a SignedMessage with
   identity material.
 
-Certified conversation records retain their immutable membership verification
-descriptor and complete offline proof chain. Their verification does not
-depend on cache or live Registry state.
+A conversation's certified records retain its immutable membership
+verification descriptor, which its GENESIS record carries, and a complete
+offline proof chain. Their verification does not depend on cache or live
+Registry state.
 
 ## SignedMessage
 

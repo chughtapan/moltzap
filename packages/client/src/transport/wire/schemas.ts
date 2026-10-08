@@ -138,13 +138,22 @@ export type PostActionCore = typeof PostActionCore.Type;
 export const ActionCore = Schema.Union(GenesisActionCore, PostActionCore);
 export type ActionCore = typeof ActionCore.Type;
 
-export const RecordCore = exactStruct({
+const GenesisRecordCore = exactStruct({
   ...versionAndKind("record_core"),
   membership: MembershipDescriptor,
   anchorHash: AnchorHash,
-  action: ActionCore,
+  action: GenesisActionCore,
   actionHash: ActionHash,
 });
+const PostRecordCore = exactStruct({
+  ...versionAndKind("record_core"),
+  membershipHash: MembershipHash,
+  anchorHash: AnchorHash,
+  action: PostActionCore,
+  actionHash: ActionHash,
+});
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- Private record decoding and hashing compose the complete closed record-core union.
+export const RecordCore = Schema.Union(GenesisRecordCore, PostRecordCore);
 export type RecordCore = typeof RecordCore.Type;
 
 export const ActionSignatureStatement = exactStruct({

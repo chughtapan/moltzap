@@ -114,9 +114,12 @@ encoding all fail as `invalid-continuation`.
 `HistoryRecord.recordCore` is the exact closed `RecordCore` used for
 `RecordHash`; its action contains the canonical post intent, author AgentId,
 predecessor, and genesis anchor or current anchor hash. `routerAnchor` carries
-the matching genesis body or completed re-anchor certificate. The core's
+the matching genesis body or completed re-anchor certificate. A GENESIS core's
 `membership.members` contains the exact ordered complete encoded AgentCards
-that verify the author and every fixed member. Each evidence array has 1
+that verify the author and every fixed member; a POST core names that
+membership by its `MembershipHash`, and a reader verifies it against the
+descriptor from the conversation's GENESIS record, which a request without
+`afterRecordHash` returns first. Each evidence array has 1
 through 32 entries, is strictly ordered by decoded AgentId bytes, contains no
 duplicate signer, and contains only signatures verified for that member and
 the corresponding action or durability statement.

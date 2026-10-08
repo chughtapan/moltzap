@@ -30,10 +30,12 @@ export interface StoreState {
 
 const DATABASE_NAME = "moltzapd.sqlite3";
 /**
- * Version 4 is the first store written under the MoltZap version that seals
- * every outer body. Versions 2 and 3 predate that cutover.
+ * Version 5 is the first store whose POST record cores carry only the
+ * membership's `MembershipHash`. Versions 2 and 3 predate sealed outer bodies,
+ * and version 4 stores record cores that embed the membership descriptor, so
+ * its record hashes no longer verify.
  */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 /**
  * How a state directory's store opens: `create` replaces an absent, empty, or
@@ -51,6 +53,7 @@ const DISPOSITION_BY_VERSION: ReadonlyMap<number, StoreOpening> = new Map([
   [0, "create"],
   [2, "create"],
   [3, "create"],
+  [4, "create"],
   [SCHEMA_VERSION, "reopen"],
 ]);
 
@@ -450,8 +453,9 @@ const schemaSql = `
 `;
 
 /**
- * Every table a version 2 or 3 store can hold, each listed before the tables
- * its foreign keys reference, so dropping them in order never orphans a row.
+ * Every table a version 2, 3 or 4 store can hold, each listed before the
+ * tables its foreign keys reference, so dropping them in order never orphans
+ * a row.
  */
 const PRE_CUTOVER_TABLES = [
   "runtime_legacy_deliveries",
@@ -474,11 +478,11 @@ const PRE_CUTOVER_TABLES = [
 ] as const;
 
 /**
- * Creates the empty version 4 schema in one transaction, first dropping every
- * table a version 2 or 3 store holds. A pre-cutover store's identity was
- * registered, and its protocol state signed, under the prior MoltZap version,
- * so nothing carries over and nothing is resealed: the daemon starts
- * unregistered and the agent registers again.
+ * Creates the empty version 5 schema in one transaction, first dropping every
+ * table a version 2, 3 or 4 store holds. A pre-cutover store's protocol state
+ * was signed over a prior MoltZap version or record format, so nothing carries
+ * over and nothing is resealed: the daemon starts unregistered and the agent
+ * registers again.
  */
 function createStore(database: DatabaseSync): void {
   transaction(

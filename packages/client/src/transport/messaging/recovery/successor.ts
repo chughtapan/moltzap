@@ -120,7 +120,7 @@ export function acceptSuccessorRecord(
   return holdTowardConversion(
     run,
     membership,
-    verifyHeldRecord(run, membership, ingress, record),
+    verifyHeldRecord(membership, ingress, record),
     () => {
       pending.record = { recordHash: record.recordHash, ingress };
     },
@@ -239,7 +239,6 @@ function holdTowardConversion(
 }
 
 function verifyHeldRecord(
-  run: SuccessorRun,
   membership: VerifiedMembership,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   record: ActionCertifiedRecord,
@@ -248,10 +247,10 @@ function verifyHeldRecord(
     Effect.zipRight(
       verifyActionCertifiedRecord({
         record,
-        registrySignerPublicKey: run.runtime.input.registrySignerPublicKey,
+        membership,
       }),
     ),
-    Effect.map((verified) => verified.membership.hash === membership.hash),
+    Effect.as(true),
     Effect.catchTag("ClientRepresentationError", () => Effect.succeed(false)),
   );
 }

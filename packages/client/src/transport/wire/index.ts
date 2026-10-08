@@ -81,11 +81,9 @@ export {
 export {
   memberCard,
   quorumThreshold,
-  type VerifiedActionCertifiedRecord,
   type VerifiedActionCore,
   type VerifiedEvidence,
   type VerifiedMembership,
-  type VerifiedRecordCore,
   verifyActionCertificate,
   verifyActionCertifiedRecord,
   verifyActionCore,

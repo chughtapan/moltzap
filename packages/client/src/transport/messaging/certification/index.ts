@@ -108,6 +108,32 @@ const gapFree = (
     );
   });
 
+/**
+ * The membership an action's conversation has here: the one this endpoint
+ * holds, or, for the GENESIS of a conversation it does not hold yet, the
+ * descriptor GENESIS carries, verified against the Registry key. A POST names
+ * its membership only by hash, so a POST for a conversation this endpoint
+ * does not hold does not verify.
+ * @param runtime Engine whose held conversations are searched.
+ * @param action The action whose conversation is resolved.
+ * @returns The verified membership of the action's conversation.
+ */
+const ingressMembership = (
+  runtime: EngineRuntime,
+  action: ActionCore,
+): Effect.Effect<VerifiedMembership, ClientRepresentationError> => {
+  const retained = runtime.conversations.get(action.conversationId);
+  if (retained !== undefined) {
+    return Effect.succeed(retained.membership);
+  }
+  return action.kind === "GENESIS"
+    ? verifyMembershipDescriptor(
+        action.membership,
+        runtime.input.registrySignerPublicKey,
+      )
+    : Effect.fail(new ClientRepresentationError());
+};
+
 const conversationForAction = (
   runtime: EngineRuntime,
   action: ActionCore,
@@ -115,10 +141,7 @@ const conversationForAction = (
 ): Effect.Effect<EngineConversation | undefined, ClientRepresentationError> =>
   Effect.gen(function* () {
     const retained = runtime.conversations.get(action.conversationId);
-    if (action.kind === "POST") {
-      return retained;
-    }
-    if (retained !== undefined) {
+    if (retained !== undefined || action.kind === "POST") {
       return retained;
     }
     const membership = yield* verifyMembershipDescriptor(
@@ -529,7 +552,7 @@ const maybePromote = (
     );
     yield* verifyCertifiedRecord({
       record,
-      registrySignerPublicKey: runtime.input.registrySignerPublicKey,
+      membership: fold.conversation.membership,
     }).pipe(Effect.mapError(localRepresentationFailure));
     yield* promote(runtime, fold, record);
   });
@@ -705,10 +728,11 @@ const membershipForRecord = (
   runtime: EngineRuntime,
   record: ActionCertifiedRecord,
 ): Effect.Effect<VerifiedMembership, ClientRepresentationError> =>
-  verifyActionCertifiedRecord({
-    record,
-    registrySignerPublicKey: runtime.input.registrySignerPublicKey,
-  }).pipe(Effect.map((verified) => verified.membership));
+  ingressMembership(runtime, record.recordCore.action).pipe(
+    Effect.tap((membership) =>
+      verifyActionCertifiedRecord({ record, membership }),
+    ),
+  );
 
 const ensureConversation = (
   runtime: EngineRuntime,
@@ -718,7 +742,7 @@ const ensureConversation = (
   const action = record.recordCore.action;
   const retained = runtime.conversations.get(action.conversationId);
   if (retained !== undefined) {
-    return retained.membership.hash === membership.hash ? retained : undefined;
+    return retained;
   }
   if (
     action.kind !== "GENESIS" ||
@@ -911,10 +935,11 @@ const acceptCertifiedRecord = (
   applyCatchUp = false,
 ): Effect.Effect<RouterIngressDisposition, ProtocolAcceptanceError> =>
   Effect.gen(function* () {
-    const membership = yield* verifyCertifiedRecord({
-      record,
-      registrySignerPublicKey: runtime.input.registrySignerPublicKey,
-    });
+    const membership = yield* ingressMembership(
+      runtime,
+      record.actionCertifiedRecord.recordCore.action,
+    );
+    yield* verifyCertifiedRecord({ record, membership });
     const actionRecord = record.actionCertifiedRecord;
     const fold = yield* prepareRecordFold(
       runtime,
