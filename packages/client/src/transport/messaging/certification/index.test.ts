@@ -329,7 +329,7 @@ function deliverIngress(
           ),
         ),
       ),
-    { concurrency: MEMBER_COUNT },
+    { concurrency: selectedIndexes.length },
   );
 }
 
