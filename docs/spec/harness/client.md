@@ -415,11 +415,12 @@ handoff can replay; the runtime does not track processing completion.
 
 `CollectiveError` carries the operation's `id` and one `failure`, keyed by
 `kind`: `members-unreachable` with each refused member and its `SendError`
-reason, `schema-invalid` with a detail naming each failing path and the
-form-mode shape it expects, `answer-invalid` with each failing field and
-whether it is missing, unexpected or invalid, `request-none`,
-`request-ambiguous`, `request-answered`, or `request-expired`. Its message names the members,
-schema paths or fields, so a host hands it to its model as the tool error.
+reason and any detail, `schema-invalid` with a detail naming each failing path
+and the form-mode shape it expects, `answer-invalid` with each failing field
+and whether it is missing, unexpected or invalid, `request-none`,
+`request-ambiguous`, `request-answered`, or `request-expired`. Its message
+names the members, schema paths or fields, so a host hands it to its model as
+the tool error.
 
 `SendError.reason` is exactly one of:
 
@@ -439,7 +440,10 @@ A `SendError` or collective refusal message is the failed action, then its
 cause: `send failed: agent:dana is not a known agent`, or `reply failed: the
 question's deadline has passed`. It names the specific input when the failing
 step knows it and states no remedy. A failed send was not sent, except
-`outcome-unknown`, whose text says the message may have been sent.
+`outcome-unknown`, whose text says the message may have been sent, and a
+`network-unavailable` whose text says the message is queued: that send failed
+after durably queueing its post, when its drain timed out or lost the Router,
+and the daemon delivers the post once the Router is reachable.
 
 `ListenError.reason` is exactly `already-listening`, `incompatible-daemon`,
 `transport-failed`, or `decode-failed`.
