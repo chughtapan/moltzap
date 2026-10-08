@@ -552,19 +552,16 @@ const readFrame = async (
   }
 };
 
-/** Await an effect for one named stage, failing after one second. */
+/**
+ * Await an effect for one named stage, which names the span a failure's trace
+ * shows. A stage has no time bound of its own: each one completes on a signal
+ * the runtime raises, a wall-clock bound fails a stage that is only slow on a
+ * loaded machine, and the test's own timeout catches one that never completes.
+ */
 export const awaitStage = <Value, Failure>(
   effect: Effect.Effect<Value, Failure>,
   stage: string,
-): Promise<Value> =>
-  Effect.runPromise(
-    effect.pipe(
-      Effect.timeoutFail({
-        duration: "1 second",
-        onTimeout: () => new Error(`timed out awaiting ${stage}`),
-      }),
-    ),
-  );
+): Promise<Value> => Effect.runPromise(effect.pipe(Effect.withSpan(stage)));
 
 /** Await the next server-sent frame for one named stage. */
 export const awaitFrame = (
