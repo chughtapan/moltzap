@@ -120,7 +120,14 @@ interface ProtocolHarness {
 }
 
 const MEMBER_COUNT = 4;
-const TEST_TIMEOUT_MS = 30_000;
+/**
+ * Bounds a hang in one protocol trace; no assertion depends on it. A trace
+ * certifies up to three N4 posts, each about 1,760 sequential WebCrypto calls
+ * of signing, sealing and verifying, and these slow with machine load: the
+ * slowest traces took up to 11 s at a load average of 18 to 27 on 8 cores and
+ * passed 30 s at 35 to 46.
+ */
+const TEST_TIMEOUT_MS = 90_000;
 
 const routerInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
   identifier("rti_", 31),
@@ -290,6 +297,17 @@ function scriptedRouterWorker(
   };
 }
 
+/**
+ * Hands one message to each selected member at once, as separate endpoint
+ * processes receive it, so the members' WebCrypto round trips overlap instead
+ * of adding up. Each member still takes its deliveries in order, and the
+ * dispositions come back in member order.
+ * @param identities Every member, whose keys open the message.
+ * @param engines Every member's engine.
+ * @param selectedIndexes The members that receive the message.
+ * @param message The outer message Router delivers.
+ * @returns Each selected member's disposition, in member order.
+ */
 function deliverIngress(
   identities: readonly ProtocolIdentity[],
   engines: readonly EndpointEngine[],
@@ -309,7 +327,7 @@ function deliverIngress(
           ),
         ),
       ),
-    { concurrency: 1 },
+    { concurrency: MEMBER_COUNT },
   );
 }
 
@@ -450,13 +468,11 @@ function sendInput(
 
 function takeReadyBatch(harness: ProtocolHarness) {
   return Queue.take(harness.outbound).pipe(
-    Effect.timeout("1 second"),
     Effect.flatMap((first) =>
       Queue.takeAll(harness.outbound).pipe(
         Effect.map((remaining) => [first, ...remaining]),
       ),
     ),
-    Effect.orDie,
   );
 }
 
@@ -661,10 +677,7 @@ function certifyGenesisOf(
     }
     yield* pump(harness, initial);
     expect(yield* certifiedRecordCounts(harness)).toEqual([1, 1, 1, 1]);
-    const sent = yield* Fiber.join(sending).pipe(
-      Effect.timeout("1 second"),
-      Effect.orDie,
-    );
+    const sent = yield* Fiber.join(sending).pipe(Effect.orDie);
     return sent.recordHash;
   });
 }
@@ -905,14 +918,8 @@ function adoptsAnActionCertificateOverItsOwnLock() {
         yield* harness.deliver(signatures);
         yield* harness.drain();
         yield* pump(harness, yield* takeQueued(harness), silent.card.agentId);
-        yield* Fiber.join(winning).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
-        yield* Fiber.join(losing).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(winning).pipe(Effect.orDie);
+        yield* Fiber.join(losing).pipe(Effect.orDie);
 
         const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
         expect(pending.map(({ message }) => message.content)).toEqual([
@@ -1048,14 +1055,8 @@ function adoptsACertifiedRecordOverItsOwnLock() {
         const adopted = yield* harness.deliver([winnerCertifiedRecord], [1]);
         yield* harness.drain([1]);
         yield* pump(harness, yield* takeQueued(harness));
-        yield* Fiber.join(winning).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
-        yield* Fiber.join(losing).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(winning).pipe(Effect.orDie);
+        yield* Fiber.join(losing).pipe(Effect.orDie);
 
         expect(adopted).toEqual(["accepted"]);
         const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
@@ -1339,10 +1340,7 @@ function sendsTwoPlusThreeNMessagesPerPost() {
         );
 
         const delivered = yield* pump(harness, yield* takeReadyBatch(harness));
-        yield* Fiber.join(sending).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(sending).pipe(Effect.orDie);
 
         const kinds = yield* Effect.forEach(
           delivered,
@@ -1404,10 +1402,7 @@ function certifiesFromActionCertifiedCopiesAfterMissingTheSignatures() {
         yield* harness.deliver(yield* takeQueued(harness), present);
         yield* harness.drain(present);
         const delivered = yield* pump(harness, yield* takeQueued(harness));
-        yield* Fiber.join(sending).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(sending).pipe(Effect.orDie);
 
         const pending = yield* returning
           .readPendingMessages()
@@ -1493,10 +1488,7 @@ function certifiesPastAVoteSealedAwayFromOneMember() {
           [2],
         );
         yield* harness.drain();
-        yield* Fiber.join(sendingFirst).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(sendingFirst).pipe(Effect.orDie);
 
         const sendingSecond = yield* Effect.fork(
           author.send(yield* sendInput(harness, "second post")),
@@ -1506,10 +1498,7 @@ function certifiesPastAVoteSealedAwayFromOneMember() {
         yield* harness.deliver(yield* vote(second), [2]);
         yield* harness.drain([2]);
         yield* pump(harness, yield* takeQueued(harness), faulty.card.agentId);
-        yield* Fiber.join(sendingSecond).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(sendingSecond).pipe(Effect.orDie);
 
         const laggingEngine = yield* requireAt(
           harness.engines,
@@ -1858,10 +1847,7 @@ function givesIdenticalHostInvocationsDistinctPostIds() {
           Effect.flatMap((message) => decodeActionProposal(harness, message)),
         );
         yield* pump(harness, firstBatch);
-        yield* Fiber.join(firstSending).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(firstSending).pipe(Effect.orDie);
 
         const secondSending = yield* Effect.fork(author.send(input));
         const secondBatch = yield* takeReadyBatch(harness);
@@ -1877,10 +1863,7 @@ function givesIdenticalHostInvocationsDistinctPostIds() {
           firstProposal.action.postIntent.postId,
         );
         yield* pump(harness, secondBatch);
-        yield* Fiber.join(secondSending).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(secondSending).pipe(Effect.orDie);
       }),
     ),
   );
@@ -1950,10 +1933,7 @@ function sealsEveryOuterBodyOfAPost(memberCount: number) {
         );
 
         const delivered = yield* pump(harness, yield* takeReadyBatch(harness));
-        yield* Fiber.join(sending).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        yield* Fiber.join(sending).pipe(Effect.orDie);
 
         expect(yield* certifiedRecordCounts(harness)).toEqual(
           harness.identities.map(() => 1),
@@ -2029,10 +2009,7 @@ function reappendedOuterMessagesYieldOnePost() {
           ...proposalBatch,
           ...(yield* takeQueued(harness)),
         ]);
-        const sent = yield* Fiber.join(sending).pipe(
-          Effect.timeout("1 second"),
-          Effect.orDie,
-        );
+        const sent = yield* Fiber.join(sending).pipe(Effect.orDie);
 
         yield* pump(harness, transcript);
 
