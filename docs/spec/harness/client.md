@@ -289,6 +289,12 @@ an hour past its deadline while it waits for the close. A member that first
 receives the request after its deadline, within that hour, keeps it without
 presenting it, so it still applies the close and emits the result.
 
+When a gather or all_gather request post, or an all_gather close, fails as
+queued (a `network-unavailable` whose text says the message is queued), the
+operation reports that post refused or uncertified as stated above, yet the
+daemon still delivers the post later
+([moltzap#1230](https://github.com/chughtapan/moltzap/issues/1230)).
+
 The operation travels in the post's content. Client certifies `text` as a
 `text` part followed by one `data` part whose value is an object with the key
 `xyz.moltzap/collective`. For a multicast that value is exactly
