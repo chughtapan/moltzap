@@ -18,6 +18,7 @@ import {
   SendError,
   type SendInput,
 } from "../src/index.js";
+import { queuedNetworkFailure } from "../src/transport/messaging/errors.js";
 import {
   acquireDaemonManagementClient,
   acquireDaemonProcess,
@@ -77,21 +78,26 @@ function nextDelivery<E>(stream: Stream.Stream<InboundDelivery, E>) {
 
 /**
  * Sends one post from `endpoint` after a daemon restart. A send whose own
- * outbox drain outlasts its bound, or meets a worker that is not attached,
- * answers `network-unavailable` with the post durably queued, and the daemon
- * delivers it once its Router worker answers. Under load that happens while
- * the restarted daemon and its peer exchange recovery traffic, so the trace
- * takes that answer as queued and confirms the post by the peer's delivery.
+ * outbox drain outlasts its bound or loses the Router fails with the queued
+ * `network-unavailable`, whose detail says the post is durably queued, and
+ * the daemon delivers it once its Router worker answers. Under load that
+ * happens while the restarted daemon and its peer exchange recovery traffic,
+ * so the trace takes that failure as queued and confirms the post by the
+ * peer's delivery. Any other failure, the plain `network-unavailable` of a
+ * send that queued nothing included, fails the trace.
  * @param endpoint Endpoint that sends.
  * @param input The post.
  * @returns Completion once the post is certified or queued.
  */
 function sendOrQueue(endpoint: HarnessEndpoint, input: SendInput) {
+  const queued = queuedNetworkFailure();
   return endpoint.send(input).pipe(
     Effect.asVoid,
     Effect.catchIf(
       (error) =>
-        error instanceof SendError && error.reason === "network-unavailable",
+        error instanceof SendError &&
+        error.reason === queued.reason &&
+        error.detail === queued.detail,
       () => Effect.void,
     ),
   );
@@ -141,11 +147,16 @@ const readDurableHistory = (
     }),
   );
 
-/** Sends one addressed post and waits for the peer to receive it. */
+/** Sends one post as a host does, failing on any send failure. */
+const certifiedSend = (endpoint: HarnessEndpoint, input: SendInput) =>
+  endpoint.send(input).pipe(Effect.asVoid);
+
+/** Sends one addressed post with `send` and waits for the peer to receive it. */
 const deliverDirect = (input: {
   readonly from: DaemonProcessFixture;
   readonly to: DaemonProcessFixture;
   readonly text: string;
+  readonly send: typeof sendOrQueue;
 }) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -154,7 +165,7 @@ const deliverDirect = (input: {
       const delivery = yield* Effect.forkScoped(
         nextDelivery(receiver.messages),
       );
-      yield* sender.send({
+      yield* input.send(sender, {
         to: directAddress(input.to.agentName),
         text: input.text,
       });
@@ -175,6 +186,12 @@ const beforeRestartText = "sent before the daemon restarts";
 const fromRestartedText = "sent by the restarted daemon";
 const toRestartedText = "sent to the restarted daemon";
 
+/**
+ * Either send after the restart may fail as queued, so each is confirmed by
+ * its delivery. The restarted daemon's delivery of the peer's post shows it
+ * stored that record, and an endpoint stores a record only after the one it
+ * extends, so its durable history then holds all three posts.
+ */
 const singleRestartBehavior = Effect.gen(function* () {
   const infrastructure = yield* acquireProcessInfrastructure;
   const [restartedFixture, peerFixture] = yield* Effect.all(
@@ -198,6 +215,7 @@ const singleRestartBehavior = Effect.gen(function* () {
     from: restartedFixture,
     to: peerFixture,
     text: beforeRestartText,
+    send: certifiedSend,
   });
 
   yield* stopProcess(restartedDaemon);
@@ -207,11 +225,13 @@ const singleRestartBehavior = Effect.gen(function* () {
     from: restartedFixture,
     to: peerFixture,
     text: fromRestartedText,
+    send: sendOrQueue,
   });
   yield* deliverDirect({
     from: peerFixture,
     to: restartedFixture,
     text: toRestartedText,
+    send: sendOrQueue,
   });
 
   const history = yield* readDurableHistory(
