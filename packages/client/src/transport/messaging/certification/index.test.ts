@@ -1828,12 +1828,17 @@ function ordersCompetingProposalsBeforeActionVotes(input: {
   );
 }
 
+/**
+ * A host repeats a send with identical input once the first has certified.
+ * The first invocation opens the conversation with its GENESIS and the second
+ * proposes a POST at that head, and each proposal carries its own PostId.
+ * Fails when identical input reuses a PostId.
+ */
 function givesIdenticalHostInvocationsDistinctPostIds() {
   return Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         const harness = yield* makeProtocolHarness();
-        yield* certifyGenesis(harness);
         const author = yield* requireAt(harness.engines, 0, "endpoint engine");
         const input = yield* sendInput(harness, "repeat intentionally");
 
@@ -1841,29 +1846,24 @@ function givesIdenticalHostInvocationsDistinctPostIds() {
         const firstBatch = yield* takeReadyBatch(harness);
         const firstProposal = yield* requireAt(
           firstBatch,
-          1,
+          0,
           "first repeated proposal",
         ).pipe(
           Effect.flatMap((message) => decodeActionProposal(harness, message)),
         );
         yield* pump(harness, firstBatch);
         yield* Fiber.join(firstSending).pipe(Effect.orDie);
-
-        const secondSending = yield* Effect.fork(author.send(input));
-        const secondBatch = yield* takeReadyBatch(harness);
-        const secondProposal = yield* requireAt(
-          secondBatch,
-          1,
-          "second repeated proposal",
-        ).pipe(
+        yield* Effect.forkScoped(author.send(input));
+        const secondProposal = yield* takeReadyBatch(harness).pipe(
+          Effect.flatMap((batch) =>
+            requireAt(batch, 1, "second repeated proposal"),
+          ),
           Effect.flatMap((message) => decodeActionProposal(harness, message)),
         );
 
         expect(secondProposal.action.postIntent.postId).not.toBe(
           firstProposal.action.postIntent.postId,
         );
-        yield* pump(harness, secondBatch);
-        yield* Fiber.join(secondSending).pipe(Effect.orDie);
       }),
     ),
   );
