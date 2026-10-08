@@ -36,9 +36,9 @@ serves one loopback `/mcp` endpoint:
 | authenticated runtime, unregistered | No tools |
 | authenticated runtime, registered | `send_message`, `read_event`, `search_agents`, plus draft MCP Events |
 
-Registration changes durable daemon state and therefore the catalog. There is
-no profile selector, profile file, bespoke CLI, Unix socket, stdio server,
-second MCP listener, or fallback bind.
+Registration changes durable daemon state, and the protocol activation it
+starts changes the catalog. There is no profile selector, profile file,
+bespoke CLI, Unix socket, stdio server, second MCP listener, or fallback bind.
 
 ## Final packages
 

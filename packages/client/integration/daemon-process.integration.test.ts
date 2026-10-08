@@ -397,12 +397,28 @@ const withAdmissionCredentialFile = (
   },
 });
 
-const expectConfigurationFailure = (fixture: DaemonProcessFixture) =>
+/** `fixture` configured with `other`'s agent key in place of its own. */
+const withAgentKeyOf = (
+  fixture: DaemonProcessFixture,
+  other: DaemonProcessFixture,
+): DaemonProcessFixture => ({
+  ...fixture,
+  environment: {
+    ...fixture.environment,
+    MOLTZAPD_AGENT_PRIVATE_KEY_FILE: other.agentPrivateKeyFile,
+  },
+});
+
+/** Starts `fixture`'s daemon and expects it to stop in `phase` before it listens. */
+const expectStartupFailure = (
+  fixture: DaemonProcessFixture,
+  phase: "configuration" | "storage",
+) =>
   awaitDaemonStartupFailure(fixture).pipe(
     Effect.map((failure) => {
       expect(failure.exitCode).not.toBe(0);
       expect(failure.logs).toContain(
-        "moltzapd startup failed in phase configuration",
+        `moltzapd startup failed in phase ${phase}`,
       );
     }),
   );
@@ -429,6 +445,13 @@ const readStoredIdentity = (fixture: DaemonProcessFixture) =>
     return { version, bound: identity !== undefined };
   });
 
+/**
+ * A registered daemon restarts without its admission credential, whether the
+ * credential is unset, missing, empty or invalid. Started with another
+ * agent's key, it refuses its identity row and stops in phase storage before
+ * it listens. A pre-cutover store and an unregistered daemon without the
+ * credential stop in phase configuration.
+ */
 const admissionLifetimeBehavior = Effect.gen(function* () {
   const infrastructure = yield* acquireProcessInfrastructure;
   const [registeredFixture, unregisteredFixture] = yield* Effect.all(
@@ -470,25 +493,33 @@ const admissionLifetimeBehavior = Effect.gen(function* () {
   expect((yield* readActiveStatus(registeredFixture)).kind).toBe("active");
   yield* stopProcess(invalidRun);
 
+  yield* expectStartupFailure(
+    withAgentKeyOf(registeredFixture, unregisteredFixture),
+    "storage",
+  );
+
   yield* rewindToPreCutoverSchema(registeredFixture.stateDirectory, 3);
-  yield* expectConfigurationFailure(
+  yield* expectStartupFailure(
     withMissingAdmissionCredential(registeredFixture),
+    "configuration",
   );
   expect(yield* readStoredIdentity(registeredFixture)).toEqual({
     version: { user_version: 3 },
     bound: true,
   });
 
-  yield* expectConfigurationFailure(
+  yield* expectStartupFailure(
     withoutAdmissionCredential(unregisteredFixture),
+    "configuration",
   );
-  yield* expectConfigurationFailure(
+  yield* expectStartupFailure(
     withMissingAdmissionCredential(unregisteredFixture),
+    "configuration",
   );
 }).pipe(Effect.scoped);
 
 it(
-  "restarts a registered daemon without the admission credential",
+  "restarts a registered daemon without the admission credential but not under another agent's key",
   (context) => {
     expect.hasAssertions();
     return runProcessTrace(admissionLifetimeBehavior, context);

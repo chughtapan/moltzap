@@ -1,4 +1,4 @@
-/** @file Canonical addressed management projection, closed failures, and the register tool's cancellation and Registry deadline. */
+/** @file Canonical addressed management projection, closed failures, and the register tool's cancellation and Registry deadlines. */
 
 import { FileSystem, HttpClient } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
@@ -24,14 +24,18 @@ import {
   Redacted,
   Ref,
   Schema,
+  TestContext,
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { DaemonBootstrap } from "./bootstrap.js";
+import type { DaemonRegistrationState } from "./registration/index.js";
+import { advanceClock } from "../__tests__/advance-clock.js";
 import {
   digest,
   issueTestCard,
   makeTestAuthority,
+  type RegistryKeyPair,
 } from "../__tests__/agent-card-fixtures.js";
 import {
   buildCertifiedGenesis,
@@ -44,6 +48,7 @@ import { unusedEndpointStore } from "../__tests__/unused-endpoint-store.js";
 import {
   managementReadConversationRequestSchema,
   managementRegisterRequestSchema,
+  managementSearchAgentsRequestSchema,
 } from "../endpoint/mcp/owner-tools.js";
 import {
   type EndpointRecovery,
@@ -60,12 +65,17 @@ import {
   hashMembershipDescriptor,
   MembershipDescriptor,
 } from "../transport/wire/index.js";
-import { makeDaemonManagementOperations } from "./management.js";
+import {
+  type DaemonManagementOperations,
+  makeDaemonManagementOperations,
+} from "./management.js";
 
 interface IdentityFixture {
   readonly bootstrap: DaemonBootstrap;
   readonly cards: readonly [VerifiedAgentCard, VerifiedAgentCard];
   readonly remoteAuthority: AgentSigningAuthority;
+  /** The Registry key pair the cards are issued under, for further members. */
+  readonly registryKeys: RegistryKeyPair;
 }
 
 const makeIdentityFixture = Effect.gen(function* () {
@@ -105,29 +115,36 @@ const makeIdentityFixture = Effect.gen(function* () {
     bootstrap,
     cards: [local, remote],
     remoteAuthority,
+    registryKeys,
   } satisfies IdentityFixture;
 }).pipe(Effect.orDie);
 
-const makeDirectMembership = (fixture: IdentityFixture) =>
+/**
+ * The stored membership row of a conversation among `members`, which the
+ * descriptor lists in AgentId order.
+ */
+const makeMembershipRow = (members: readonly VerifiedAgentCard[]) =>
   Effect.gen(function* () {
-    const cards = fixture.cards.slice();
+    const cards = members.slice();
     cards.sort((left, right) => compareAgentIds(left.agentId, right.agentId));
-    const firstAgent = cards[0];
-    const secondAgent = cards[1];
+    const [firstAgent, secondAgent, ...otherAgents] = cards;
     if (firstAgent === undefined || secondAgent === undefined) {
-      return yield* Effect.dieMessage("direct fixture lost a member");
+      return yield* Effect.dieMessage("a membership needs two members");
     }
-    const firstCard = yield* Schema.encode(AgentCard)(firstAgent);
-    const secondCard = yield* Schema.encode(AgentCard)(secondAgent);
     const conversationId = yield* deriveConversationId([
       firstAgent.agentId,
       secondAgent.agentId,
+      ...otherAgents.map((card) => card.agentId),
     ]);
     const descriptor = yield* Schema.decodeUnknown(MembershipDescriptor)({
       moltzapVersion: MOLTZAP_VERSION,
       kind: "membership_descriptor",
       conversationId,
-      members: [firstCard, secondCard],
+      members: yield* Effect.forEach(
+        cards,
+        (card) => Schema.encode(AgentCard)(card),
+        { concurrency: 1 },
+      ),
     });
     const membershipHash = yield* hashMembershipDescriptor(descriptor);
     return {
@@ -140,9 +157,16 @@ const makeDirectMembership = (fixture: IdentityFixture) =>
     };
   }).pipe(Effect.orDie);
 
-const makeRecovery = (fixture: IdentityFixture) =>
+/**
+ * The recovery of the fixture's local agent holding one certified
+ * conversation among `members`.
+ */
+const makeRecovery = (
+  fixture: IdentityFixture,
+  members: readonly VerifiedAgentCard[],
+) =>
   Effect.gen(function* () {
-    const membership = yield* makeDirectMembership(fixture);
+    const membership = yield* makeMembershipRow(members);
     const canonicalAgentCard = yield* encodeCanonical(
       AgentCard,
       fixture.cards[0],
@@ -193,7 +217,6 @@ interface StoreInput {
 function makeStore(input: StoreInput): EndpointStore {
   return {
     ...unusedEndpointStore("management test"),
-    readIdentity: () => Effect.succeed(input.recovery.identity),
     readConversation: () =>
       input.historyFailure === undefined
         ? Effect.succeed({ records: [], continuation: null })
@@ -238,7 +261,7 @@ function makeRegistryLayer(cards: readonly VerifiedAgentCard[]) {
  */
 const makeCertifiedHistory = Effect.gen(function* () {
   const fixture = yield* makeIdentityFixture;
-  const membership = yield* makeDirectMembership(fixture).pipe(
+  const membership = yield* makeMembershipRow(fixture.cards).pipe(
     Effect.flatMap((row) =>
       verifyStoredMembership(
         row,
@@ -462,7 +485,7 @@ describe("addressed daemon management", () => {
     Effect.runPromise(
       Effect.gen(function* () {
         const fixture = yield* makeIdentityFixture;
-        const recovery = yield* makeRecovery(fixture);
+        const recovery = yield* makeRecovery(fixture, fixture.cards);
         const operations = yield* makeDaemonManagementOperations({
           store: makeStore({ recovery }),
           bootstrap: fixture.bootstrap,
@@ -481,7 +504,7 @@ describe("addressed daemon management", () => {
     Effect.runPromise(
       Effect.gen(function* () {
         const fixture = yield* makeIdentityFixture;
-        const recovery = yield* makeRecovery(fixture);
+        const recovery = yield* makeRecovery(fixture, fixture.cards);
         const operations = yield* makeDaemonManagementOperations({
           store: makeStore({
             recovery,
@@ -501,6 +524,126 @@ describe("addressed daemon management", () => {
         expect(error).toMatchObject({ reason: "history-gap" });
       }),
     ));
+});
+
+/** The daemon's registration port before registration. */
+const unregisteredPort = {
+  readRegistration: (): DaemonRegistrationState => ({ kind: "unregistered" }),
+  activateRegistered: () => Effect.dieMessage("outside management test"),
+};
+
+/** A Registry no call may reach. */
+const unusedRegistryLayer = Layer.succeed(Registry, {
+  register: () => outsideManagementTest(),
+  lookup: () => outsideManagementTest(),
+  list: () => outsideManagementTest(),
+});
+
+/** One owner read, named by its tool. */
+interface OwnerRead {
+  readonly tool: string;
+  readonly read: (
+    operations: DaemonManagementOperations,
+  ) => Effect.Effect<unknown, Readonly<{ reason: string }>>;
+}
+
+/** The owner reads that need the local identity, each with one request. */
+const ownerReads: readonly OwnerRead[] = [
+  {
+    tool: "search_conversations",
+    read: (operations) => operations.searchConversations({}),
+  },
+  {
+    tool: "read_conversation",
+    read: (operations) =>
+      operations.readConversation(
+        Schema.decodeUnknownSync(managementReadConversationRequestSchema)({
+          address: "agent:bob",
+        }),
+      ),
+  },
+  {
+    tool: "search_agents",
+    read: (operations) =>
+      operations.searchAgents(
+        Schema.decodeUnknownSync(managementSearchAgentsRequestSchema)({
+          agentName: "bob",
+        }),
+      ),
+  },
+];
+
+/**
+ * Before registration an owner read that needs the local identity reports
+ * not-registered and reads nothing: the store and the Registry die on every
+ * call. Fails when the read reaches either before the registration check.
+ */
+const refusesAnOwnerReadBeforeRegistration = ({ read }: OwnerRead) =>
+  Effect.gen(function* () {
+    const fixture = yield* makeIdentityFixture;
+    const operations = yield* makeDaemonManagementOperations({
+      store: unusedEndpointStore("unregistered management test"),
+      bootstrap: fixture.bootstrap,
+      registration: unregisteredPort,
+    }).pipe(Effect.provide(unusedRegistryLayer));
+
+    const error = yield* read(operations).pipe(Effect.flip);
+
+    expect(error).toMatchObject({ reason: "not-registered" });
+  }).pipe(Effect.runPromise);
+
+/**
+ * A group conversation lists as its group address, with the members' names
+ * in unsigned ASCII order: `agent-10` before `agent-2`, both before the
+ * local `alice`, although their AgentIds order them alice, agent-2,
+ * agent-10. Fails when the address follows the membership's AgentId order.
+ */
+const listsAGroupInAsciiNameOrder = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeIdentityFixture;
+    const agent2 = yield* issueTestCard({
+      byte: 3,
+      name: "agent-2",
+      authority: yield* makeTestAuthority(),
+      registryKeys: fixture.registryKeys,
+    });
+    const agent10 = yield* issueTestCard({
+      byte: 4,
+      name: "agent-10",
+      authority: yield* makeTestAuthority(),
+      registryKeys: fixture.registryKeys,
+    });
+    const recovery = yield* makeRecovery(fixture, [
+      fixture.cards[0],
+      agent2,
+      agent10,
+    ]);
+    const operations = yield* makeDaemonManagementOperations({
+      store: makeStore({ recovery }),
+      bootstrap: fixture.bootstrap,
+      registration: activeRegistration(fixture.cards[0]),
+    }).pipe(Effect.provide(unusedRegistryLayer));
+
+    const page = yield* Effect.exit(operations.searchConversations({}));
+
+    expect(page).toEqual(
+      Exit.succeed({
+        kind: "page",
+        addresses: ["group:agent-10,agent-2,alice"],
+        hasMore: false,
+      }),
+    );
+  }).pipe(Effect.runPromise);
+
+describe("owner reads by registration state", () => {
+  it.each(ownerReads)(
+    "refuses $tool as not-registered before registration without reading state",
+    refusesAnOwnerReadBeforeRegistration,
+  );
+  it(
+    "lists a group conversation with its names in unsigned ASCII order",
+    listsAGroupInAsciiNameOrder,
+  );
 });
 
 describe("owner history read over stored rows", () => {
@@ -595,14 +738,50 @@ function silentRegistryLayer(
   );
 }
 
+/** Virtual time past the Registry deadline after which a call is hung. */
+const REGISTRY_WATCHDOG = Duration.seconds(3);
+
+/**
+ * `operation`'s failure, on the TestClock, once virtual time has passed the
+ * Registry deadline and `REGISTRY_WATCHDOG`. It waits in live time for the
+ * request to reach the HTTP client, since signing settles on real promises,
+ * or for the operation to end first, then moves the clock. An operation
+ * still running then fails with `hung`. The operation runs detached, so a
+ * masked call that never ends cannot hold the test fiber open.
+ * @param input What to run and how to tell it is hung.
+ * @param input.operation The Registry-backed operation.
+ * @param input.requested Completes when the request reaches the HTTP client.
+ * @param input.hung The failure the watchdog reports.
+ * @returns The operation's failure, or `hung`.
+ */
+const failureAtTheRegistryDeadline = <A, E>(input: {
+  readonly operation: Effect.Effect<A, E>;
+  readonly requested: Deferred.Deferred<undefined>;
+  readonly hung: string;
+}) =>
+  Effect.gen(function* () {
+    const running = yield* Effect.forkDaemon(input.operation);
+    const failure = yield* Fiber.join(running).pipe(
+      Effect.flip,
+      Effect.timeoutFail({
+        duration: REGISTRY_WATCHDOG,
+        onTimeout: () => input.hung,
+      }),
+      Effect.fork,
+    );
+    yield* Effect.raceFirst(
+      Deferred.await(input.requested),
+      Fiber.await(running).pipe(Effect.asVoid),
+    );
+    yield* advanceClock(Duration.sum(REGISTRY_WATCHDOG, Duration.seconds(1)));
+    return yield* Fiber.join(failure);
+  });
+
 /**
  * The register tool runs uninterruptibly so a cancelled request still binds.
  * That region must not also hold the Registry client's deadline off: a
- * Registry that never answers ends the call at the deadline, not never. The
- * deadline covers request signing too, so it is long enough for signing to
- * reach the HTTP client on a loaded machine. The register runs detached so a
- * masked call that never ends fails this test at its own bound instead of
- * holding the test fiber open.
+ * Registry that never answers ends the call at the deadline, not never, and
+ * binds and activates nothing.
  */
 const failsAtTheRegistryDeadline = () =>
   Effect.gen(function* () {
@@ -612,23 +791,56 @@ const failsAtTheRegistryDeadline = () =>
     const operations = yield* makeRegisteringOperations(fixture, effects).pipe(
       Effect.provide(silentRegistryLayer(fixture, requested)),
     );
-    const registration = yield* Effect.forkDaemon(
-      operations.register(localRegisterRequest(fixture)),
-    );
 
-    const error = yield* Fiber.join(registration).pipe(
-      Effect.flip,
-      Effect.timeoutFail({
-        duration: Duration.seconds(3),
-        onTimeout: () => "register outlived the Registry deadline",
-      }),
-    );
+    const error = yield* failureAtTheRegistryDeadline({
+      operation: operations.register(localRegisterRequest(fixture)),
+      requested,
+      hung: "register outlived the Registry deadline",
+    });
 
-    expect(yield* Deferred.isDone(requested)).toBe(true);
+    expect(
+      yield* Deferred.isDone(requested),
+      "the register reached the Registry's HTTP client",
+    ).toBe(true);
     expect(error).toMatchObject({ reason: "dependency-unavailable" });
     expect(yield* Ref.get(effects.bound)).toEqual([]);
     expect(yield* Ref.get(effects.activated)).toEqual([]);
-  }).pipe(Effect.runPromise);
+  }).pipe(Effect.provide(TestContext.TestContext), Effect.runPromise);
+
+/** A lookup and a list, the two Registry calls `search_agents` makes. */
+const agentSearches = [
+  { search: "lookup", request: { agentName: "bob" } },
+  { search: "list", request: {} },
+];
+
+/**
+ * `search_agents` gives its Registry call the same deadline: a Registry that
+ * never answers ends the search as dependency-unavailable at the deadline.
+ * Fails when the search outlives the deadline or the timeout maps to another
+ * reason.
+ */
+const failsSearchAtTheRegistryDeadline = ({
+  request,
+}: (typeof agentSearches)[number]) =>
+  Effect.gen(function* () {
+    const fixture = yield* makeIdentityFixture;
+    const requested = yield* Deferred.make<undefined>();
+    const operations = yield* makeDaemonManagementOperations({
+      store: unusedEndpointStore("management search deadline test"),
+      bootstrap: fixture.bootstrap,
+      registration: activeRegistration(fixture.cards[0]),
+    }).pipe(Effect.provide(silentRegistryLayer(fixture, requested)));
+
+    const error = yield* failureAtTheRegistryDeadline({
+      operation: operations.searchAgents(
+        Schema.decodeUnknownSync(managementSearchAgentsRequestSchema)(request),
+      ),
+      requested,
+      hung: "search_agents outlived the Registry deadline",
+    });
+
+    expect(error).toMatchObject({ reason: "dependency-unavailable" });
+  }).pipe(Effect.provide(TestContext.TestContext), Effect.runPromise);
 
 /** A Registry whose register waits for `release` after signalling `entered`. */
 function heldRegistry(
@@ -672,7 +884,10 @@ const bindsWhenCancelledDuringTheRegistryCall = () =>
     yield* Effect.sleep(Duration.zero);
     yield* Deferred.succeed(release, undefined);
 
-    expect(Exit.isInterrupted(yield* Fiber.join(interruption))).toBe(true);
+    expect(
+      Exit.isInterrupted(yield* Fiber.join(interruption)),
+      "the cancelled register reports an interrupt",
+    ).toBe(true);
 
     const canonicalAgentCard = yield* encodeCanonical(
       AgentCard,
@@ -689,6 +904,10 @@ describe("daemon registration through the register tool", () => {
   it(
     "fails a register at the Registry deadline when the Registry never answers",
     failsAtTheRegistryDeadline,
+  );
+  it.each(agentSearches)(
+    "fails a search_agents $search at the Registry deadline when the Registry never answers",
+    failsSearchAtTheRegistryDeadline,
   );
   it(
     "binds and activates a register cancelled during the Registry call",

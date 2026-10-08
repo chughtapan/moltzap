@@ -483,10 +483,6 @@ describe("daemon admission credential", () => {
     registeredStartupSkipsCredential,
   );
   it(
-    "surfaces an unreadable identity binding as a persistence failure",
-    startupSurfacesStoreFailure,
-  );
-  it(
     "presents the loaded credential to Registry registration",
     presentsLoadedCredentialToRegistry,
   );
@@ -517,6 +513,10 @@ describe("daemon registration", () => {
   it(
     "fails closed on a corrupt preexisting binding",
     rejectsCorruptPreexistingBinding,
+  );
+  it(
+    "surfaces an unreadable identity binding as a persistence failure",
+    startupSurfacesStoreFailure,
   );
 });
 
