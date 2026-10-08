@@ -305,13 +305,11 @@ export function verifyStoredOutbounds(
 
 /**
  * Verify that every recovered record and anchor forms one gap-free history.
- * @param runtime Engine used for Registry and conversation verification.
  * @param recovery Complete store snapshot to verify.
  * @param memberships Verified fixed memberships keyed by conversation.
  * @returns Completion only when every retained history is complete and unique.
  */
 export function verifyRecoveredHistory(
-  runtime: EngineRuntime,
   recovery: EndpointRecovery,
   memberships: Map<ConversationIdValue, VerifiedMembership>,
 ): Effect.Effect<void, RouterWorkerRecoveryError> {
@@ -320,7 +318,7 @@ export function verifyRecoveredHistory(
   }
   return Effect.forEach(
     memberships.values(),
-    (membership) => verifyConversationHistory(runtime, recovery, membership),
+    (membership) => verifyConversationHistory(recovery, membership),
     { concurrency: 1, discard: true },
   ).pipe(Effect.withSpan("verifyRecoveredHistory"));
 }
@@ -475,14 +473,12 @@ interface ConversationHistory {
 }
 
 function verifyConversationHistory(
-  runtime: EngineRuntime,
   recovery: EndpointRecovery,
   membership: VerifiedMembership,
 ): Effect.Effect<void, RouterWorkerRecoveryError> {
   return conversationHistory(recovery, membership).pipe(
     Effect.flatMap((history) =>
       verifyHistoryRecords({
-        runtime,
         membership,
         history,
         recordIndex: 0,
@@ -555,7 +551,6 @@ interface VerifiedHistoryResult {
 }
 
 interface HistoryVerificationInput {
-  readonly runtime: EngineRuntime;
   readonly membership: VerifiedMembership;
   readonly history: ConversationHistory;
   readonly recordIndex: number;
@@ -565,7 +560,7 @@ interface HistoryVerificationInput {
 function verifyHistoryRecords(
   input: HistoryVerificationInput,
 ): Effect.Effect<VerifiedHistoryResult, RouterWorkerRecoveryError> {
-  const { cursor, history, membership, recordIndex, runtime } = input;
+  const { cursor, history, membership, recordIndex } = input;
   const stored = history.records[recordIndex];
   if (stored === undefined) {
     return Effect.succeed({ history, cursor });
@@ -583,7 +578,6 @@ function verifyHistoryRecords(
     ),
     Effect.flatMap((nextCursor) =>
       verifyHistoryRecords({
-        runtime,
         membership,
         history,
         recordIndex: recordIndex + 1,
