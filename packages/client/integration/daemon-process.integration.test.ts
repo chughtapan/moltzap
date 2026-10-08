@@ -25,7 +25,7 @@ import {
   makeRegistrationRequest,
   ProcessTestError,
   stopProcess,
-  runProcessTrace,
+  processTrace,
 } from "./daemon-process-harness.js";
 
 /**
@@ -358,10 +358,7 @@ const processBehavior = Effect.gen(function* () {
 
 it(
   "certifies fresh posts in both directions after one daemon restarts",
-  (context) => {
-    expect.hasAssertions();
-    return runProcessTrace(processBehavior, context);
-  },
+  processTrace(processBehavior),
   PROCESS_TEST_TIMEOUT_MS,
 );
 
@@ -520,18 +517,12 @@ const admissionLifetimeBehavior = Effect.gen(function* () {
 
 it(
   "restarts a registered daemon without the admission credential but not under another agent's key",
-  (context) => {
-    expect.hasAssertions();
-    return runProcessTrace(admissionLifetimeBehavior, context);
-  },
+  processTrace(admissionLifetimeBehavior),
   PROCESS_TEST_TIMEOUT_MS,
 );
 
 it(
   "delivers both ways after one real daemon restarts while its peer stays up",
-  (context) => {
-    expect.hasAssertions();
-    return runProcessTrace(singleRestartBehavior, context);
-  },
+  processTrace(singleRestartBehavior),
   PROCESS_TEST_TIMEOUT_MS,
 );

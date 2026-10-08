@@ -13,9 +13,11 @@ import {
 } from "@moltzap/identity";
 import { OperationId } from "@moltzap/identity/registry";
 import {
+  Console,
   Data,
   Duration,
   Effect,
+  Exit,
   Fiber,
   Redacted,
   Schema,
@@ -27,9 +29,9 @@ import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { TestContext } from "vitest";
+import { expect, type TestContext } from "vitest";
 import type { MessageAddressInput } from "../src/index.js";
 import {
   managementReadConversationResultSchema,
@@ -186,8 +188,12 @@ const startProcess = (
   return { child, logs: () => output };
 };
 
+/** Whether `child` has exited on its own or by a signal. */
+const hasExited = (child: ChildProcess): boolean =>
+  child.exitCode !== null || child.signalCode !== null;
+
 const waitForExit = (running: RunningProcess): Effect.Effect<void> => {
-  if (running.child.exitCode !== null || running.child.signalCode !== null) {
+  if (hasExited(running.child)) {
     return Effect.void;
   }
   return Effect.async<void>((resume) => {
@@ -209,7 +215,7 @@ const waitForExit = (running: RunningProcess): Effect.Effect<void> => {
  */
 export const stopProcess = (running: RunningProcess): Effect.Effect<void> =>
   Effect.gen(function* () {
-    if (running.child.exitCode !== null || running.child.signalCode !== null) {
+    if (hasExited(running.child)) {
       return;
     }
     running.child.kill("SIGTERM");
@@ -226,15 +232,24 @@ export const stopProcess = (running: RunningProcess): Effect.Effect<void> =>
     }
   });
 
+/**
+ * Starts a child that the trace's enclosing scope stops. A scope closed by
+ * interruption, as a timed-out test's is, first prints the child's output, so
+ * one run shows where a hang stood.
+ */
 const managedProcess = (
   executable: string,
   arguments_: readonly string[],
   environment: Readonly<Record<string, string>> = {},
 ) =>
-  // Every process is tied to the integration behavior's enclosing scope.
   Effect.acquireRelease(
     Effect.sync(() => startProcess(executable, arguments_, environment)),
-    stopProcess,
+    (running, exit) =>
+      Exit.isInterrupted(exit)
+        ? Console.error(
+            `${basename(executable)} (pid ${running.child.pid}) output when interrupted:\n${running.logs()}`,
+          ).pipe(Effect.zipRight(stopProcess(running)))
+        : stopProcess(running),
   );
 
 const canConnect = (port: number) =>
@@ -251,59 +266,39 @@ const canConnect = (port: number) =>
     });
   });
 
-/**
- * Waits until `port` accepts a connection, and fails with the child's output
- * once the child exits first. The wait has no deadline of its own: under load
- * PGlite's in-memory initdb alone has taken over a minute, so only the
- * enclosing test's timeout bounds a child that neither listens nor exits.
- */
-const waitForTcpListener = (running: RunningProcess, port: number) =>
-  Effect.gen(function* () {
-    while (
-      running.child.exitCode === null &&
-      running.child.signalCode === null
-    ) {
-      if (yield* canConnect(port)) {
-        return;
-      }
-      yield* Effect.sleep(POLL_INTERVAL);
-    }
-    return yield* Effect.fail(
-      processTestError(`process exited before listening\n${running.logs()}`),
-    );
-  });
-
-const readHealthStatus = (origin: URL) =>
+/** Whether `origin` answers its health check as ready. */
+const isHealthy = (origin: URL) =>
   Effect.tryPromise({
     try: (signal) =>
       fetch(new URL("/healthz", origin), { signal }).then(async (response) => {
         await response.body?.cancel();
-        return response.status;
+        return response.status === READY_STATUS;
       }),
     catch: (cause) => processTestError("health request failed", cause),
-  });
+  }).pipe(Effect.orElseSucceed(() => false));
 
 /**
- * Waits until `origin` reports healthy, and fails with the child's output once
- * the child exits first. Like `waitForTcpListener`, it leaves the deadline to
- * the enclosing test.
+ * Polls `probe` until it reads true, and fails with the child's output once
+ * the child exits first.
+ * @param running Child that must become ready.
+ * @param probe One readiness check of the child.
+ * @param phase What the child had yet to do, for the failure message.
+ * @returns Completion once `probe` reads true.
  */
-const waitForHealth = (running: RunningProcess, origin: URL) =>
+const awaitReady = (
+  running: RunningProcess,
+  probe: Effect.Effect<boolean>,
+  phase: string,
+) =>
   Effect.gen(function* () {
-    while (
-      running.child.exitCode === null &&
-      running.child.signalCode === null
-    ) {
-      const status = yield* readHealthStatus(origin).pipe(Effect.option);
-      if (status._tag === "Some" && status.value === READY_STATUS) {
+    while (!hasExited(running.child)) {
+      if (yield* probe) {
         return;
       }
       yield* Effect.sleep(POLL_INTERVAL);
     }
     return yield* Effect.fail(
-      processTestError(
-        `process exited before health response\n${running.logs()}`,
-      ),
+      processTestError(`process exited before ${phase}\n${running.logs()}`),
     );
   });
 
@@ -390,7 +385,7 @@ export const acquireProcessInfrastructure: Effect.Effect<
       `--host=${LOOPBACK_HOST}`,
       "--max-connections=20",
     ]);
-    yield* waitForTcpListener(postgresql, postgresqlPort);
+    yield* awaitReady(postgresql, canConnect(postgresqlPort), "listening");
     const registry = yield* managedProcess(REGISTRY_BINARY, [], {
       MOLTZAP_REGISTRY_HOST: LOOPBACK_HOST,
       MOLTZAP_REGISTRY_PORT: String(registryPort),
@@ -399,7 +394,7 @@ export const acquireProcessInfrastructure: Effect.Effect<
       MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH: registryKeyPath,
       MOLTZAP_REGISTRY_LIST_PAGE_SIZE: "16",
     });
-    yield* waitForHealth(registry, registryOrigin);
+    yield* awaitReady(registry, isHealthy(registryOrigin), "health response");
   });
   const startRouter = managedProcess(ROUTER_BINARY, [], {
     MOLTZAP_ROUTER_HOST: LOOPBACK_HOST,
@@ -408,7 +403,11 @@ export const acquireProcessInfrastructure: Effect.Effect<
     MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: registrySignerPublicKeyJson,
     MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT: "16",
     MOLTZAP_ROUTER_HELD_POLL_CAPACITY: "8",
-  }).pipe(Effect.flatMap((router) => waitForHealth(router, routerOrigin)));
+  }).pipe(
+    Effect.flatMap((router) =>
+      awaitReady(router, isHealthy(routerOrigin), "health response"),
+    ),
+  );
   yield* Effect.all([startRegistry, startRouter], {
     concurrency: 2,
     discard: true,
@@ -474,7 +473,11 @@ export const acquireDaemonProcess = (
       [],
       fixture.environment,
     );
-    yield* waitForTcpListener(running, Number(fixture.endpoint.port));
+    yield* awaitReady(
+      running,
+      canConnect(Number(fixture.endpoint.port)),
+      "listening",
+    );
     return running;
   });
 
@@ -497,9 +500,10 @@ export const awaitDaemonStartupFailure = (
       [],
       fixture.environment,
     );
-    const listened = yield* waitForTcpListener(
+    const listened = yield* awaitReady(
       running,
-      Number(fixture.endpoint.port),
+      canConnect(Number(fixture.endpoint.port)),
+      "listening",
     ).pipe(
       Effect.as(true),
       Effect.catchAll(() => Effect.succeed(false)),
@@ -517,25 +521,27 @@ const makeIdentifier = (prefix: "opn_" | "prn_"): string =>
   `${prefix}${randomBytes(16).toString("base64url")}`;
 
 /**
- * Runs a real-process trace as a vitest test body. A test that times out is
- * failed without waiting for its body, and the worker can exit before an
- * interrupted trace's scope has stopped its children, which then outlive the
- * run. The trace therefore runs as a fiber that an `onTestFinished` hook
- * interrupts, waiting until its scope has stopped every child.
+ * The vitest test function of a real-process trace that must assert. A test
+ * that times out is failed without waiting for its body, and the worker can
+ * exit before an interrupted trace's scope has stopped its children, which
+ * then outlive the run. The trace therefore runs as a fiber that an
+ * `onTestFinished` hook interrupts, waiting until its scope has stopped every
+ * child.
  * @param trace A trace whose scope owns every process it starts.
- * @param context The running test's context.
- * @returns The trace's outcome, as the test body's promise.
+ * @returns The test function, whose promise settles with the trace.
  */
-export function runProcessTrace<E>(
+export function processTrace<E>(
   trace: Effect.Effect<void, E>,
-  context: Pick<TestContext, "onTestFinished">,
-): Promise<void> {
-  const fiber = Effect.runFork(trace);
-  context.onTestFinished(
-    () => Effect.runPromise(Fiber.interrupt(fiber).pipe(Effect.asVoid)),
-    TEARDOWN_TIMEOUT_MS,
-  );
-  return Effect.runPromise(Fiber.join(fiber));
+): (context: TestContext) => Promise<void> {
+  return (context) => {
+    expect.hasAssertions();
+    const fiber = Effect.runFork(trace);
+    context.onTestFinished(
+      () => Effect.runPromise(Fiber.interrupt(fiber).pipe(Effect.asVoid)),
+      TEARDOWN_TIMEOUT_MS,
+    );
+    return Effect.runPromise(Fiber.join(fiber));
+  };
 }
 
 /**

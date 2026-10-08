@@ -21,7 +21,7 @@ import {
   makeRegistrationRequest,
   measuredDeadlineSeconds,
   ProcessTestError,
-  runProcessTrace,
+  processTrace,
 } from "./daemon-process-harness.js";
 
 /**
@@ -256,18 +256,12 @@ const silentMemberBehavior = Effect.gen(function* () {
 
 it(
   "gathers every member's answer through three real daemons",
-  (context) => {
-    expect.hasAssertions();
-    return runProcessTrace(allAnsweredBehavior, context);
-  },
+  processTrace(allAnsweredBehavior),
   GATHER_TEST_TIMEOUT_MS,
 );
 
 it(
   "reports a silent member as no-answer at the deadline",
-  (context) => {
-    expect.hasAssertions();
-    return runProcessTrace(silentMemberBehavior, context);
-  },
+  processTrace(silentMemberBehavior),
   GATHER_TEST_TIMEOUT_MS,
 );

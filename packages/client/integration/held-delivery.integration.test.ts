@@ -24,7 +24,7 @@ import {
   type DaemonProcessFixture,
   makeDaemonProcessFixture,
   makeRegistrationRequest,
-  runProcessTrace,
+  processTrace,
 } from "./daemon-process-harness.js";
 import { acquireRouterHoldProxy } from "./router-hold-proxy.js";
 
@@ -231,9 +231,6 @@ const heldDeliveryBehavior = Effect.gen(function* () {
 
 it(
   "recovers a delivery held after Router ordering between real daemons",
-  (context) => {
-    expect.hasAssertions();
-    return runProcessTrace(heldDeliveryBehavior, context);
-  },
+  processTrace(heldDeliveryBehavior),
   HELD_DELIVERY_TEST_TIMEOUT_MS,
 );
