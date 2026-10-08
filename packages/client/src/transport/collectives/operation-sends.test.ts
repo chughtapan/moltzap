@@ -24,7 +24,12 @@ import {
   slotSchema,
   startGather,
 } from "../../__tests__/collective-operation-fixtures.js";
+import { queuedNetworkFailure } from "../messaging/errors.js";
 import { collectiveIdOf } from "./part/index.js";
+
+/** What a send that failed after queueing its post says about it. */
+const queuedText =
+  "MoltZap is unavailable (network unavailable); the message is queued and will be delivered once MoltZap is reachable";
 
 function certifiesAMulticastAsItsTextAndAnExplicitMulticastPart() {
   const observed = newObserved();
@@ -235,6 +240,25 @@ function failsAGatherNoneOfWhosePostsWasDelivered() {
   );
 }
 
+/**
+ * Request posts that failed after they were queued still reach their
+ * members, so the refusal says so rather than that they were not sent.
+ */
+function saysEachMemberIsStillSentAQueuedRequestPost() {
+  return run(
+    Effect.gen(function* () {
+      const layer = yield* makeLayer(newObserved(), {
+        sendPost: () => Effect.fail(queuedNetworkFailure()),
+      });
+      const refusal = yield* Effect.flip(send(layer, gatherInput()));
+
+      expect(refusal.message).toBe(
+        `send failed: agent:bob could not be reached: ${queuedText}; agent:carol could not be reached: ${queuedText}`,
+      );
+    }),
+  );
+}
+
 function failsAGatherWhoseSchemaIsOutsideTheFormModeGrammar() {
   const observed = newObserved();
 
@@ -409,6 +433,10 @@ describe("collective sends", () => {
   it(
     "fails a gather none of whose request posts was delivered",
     failsAGatherNoneOfWhosePostsWasDelivered,
+  );
+  it(
+    "says each member is still sent a request post that failed once queued",
+    saysEachMemberIsStillSentAQueuedRequestPost,
   );
 
   it(

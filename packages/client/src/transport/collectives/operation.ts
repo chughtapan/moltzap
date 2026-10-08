@@ -131,6 +131,7 @@ import {
 import {
   isAddressRefusal,
   lookupRefusals,
+  postRefusal,
   type RequestRefusal,
   type RequestSend,
   requestsSoFar,
@@ -616,7 +617,7 @@ function sendRequests(
       open.members,
       (member): Effect.Effect<RequestSend> =>
         state.ports.sendPost({ to: member, content: prepared.content }).pipe(
-          Effect.mapError((error) => ({ member, reason: error.reason })),
+          Effect.mapError((error) => postRefusal(member, error)),
           Effect.tapError((refusal) => recordRefusal(state, id, refusal)),
           Effect.either,
           Effect.forkIn(state.ports.scope),
@@ -697,8 +698,9 @@ function updateGather(
  * deadline timer is forked just before the wait starts, so it can complete
  * the all_gather first; its result then stands and the send succeeds, so an
  * operation ends in exactly one refusal or one result. A group post succeeds
- * or fails as a whole, so the refusal names every member with its reason;
- * members whose address resolution fails were refused before the post.
+ * or fails as a whole, so the refusal names every member with the post's
+ * reason and detail; members whose address resolution fails were refused
+ * before the post.
  */
 function sendGroupRequest(
   state: CollectiveState,
@@ -722,7 +724,7 @@ function sendGroupRequest(
                       kind: "members-unreachable",
                       members: EffectArray.map(
                         prepared.open.members,
-                        (member) => ({ member, reason: error.reason }),
+                        (member) => postRefusal(member, error),
                       ),
                     }),
                   ),
@@ -797,8 +799,10 @@ function completeGather(
 
 /**
  * Post an all_gather's close, listing the certified record of every answer
- * its result counts, and emit the result once the close is certified. A close that cannot be certified ends the operation as an
- * `operationFailed` item, since members then have no result to agree on.
+ * its result counts, and emit the result once the close is certified. A close
+ * that is not certified ends the operation at the asker as an
+ * `operationFailed` item, whose text says when the close is still queued for
+ * the members.
  */
 function closeAllGather(
   state: CollectiveState,
@@ -821,7 +825,7 @@ function closeAllGather(
           kind: "operationFailed",
           id: result.id,
           to: open.to,
-          error: closeFailureText(error.reason),
+          error: closeFailureText(error),
         }),
       onSuccess: () => state.ports.emit(result),
     }),

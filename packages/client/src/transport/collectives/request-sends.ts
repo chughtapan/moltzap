@@ -15,11 +15,30 @@ import type { SendError } from "../messaging/errors.js";
 import type { EngineSentPost } from "../messaging/index.js";
 import type { AgentAddress } from "../wire/values.js";
 
-/** A member whose request post was refused, and why. */
+/**
+ * A member whose request post was refused, and why: the send's reason and,
+ * when it has one, its detail, which says when the post is still queued.
+ */
 export type RequestRefusal = Readonly<{
   member: AgentAddress;
   reason: SendError["reason"];
+  detail?: string;
 }>;
+
+/**
+ * The refusal of a member whose post failed with `error`. A post can fail
+ * after it was queued, and then the detail says it will still be delivered.
+ * @param member The member the post was for.
+ * @param error The post's send failure.
+ * @returns The member with the failure's reason and any detail.
+ */
+export const postRefusal = (
+  member: AgentAddress,
+  error: SendError,
+): RequestRefusal =>
+  error.detail === undefined
+    ? { member, reason: error.reason }
+    : { member, reason: error.reason, detail: error.detail };
 
 /** A request post in flight, resolving to the member's refusal, if any. */
 export type RequestSend = Fiber.RuntimeFiber<
