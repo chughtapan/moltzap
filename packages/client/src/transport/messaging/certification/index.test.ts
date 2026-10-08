@@ -2595,7 +2595,10 @@ function serializedSlowTransmit(
 
 /**
  * A local send's drain and the background drain run at once over the same
- * queue head. Both transmit it, and the outbox row still goes out once.
+ * queue head. Both transmit it, and the outbox row still goes out once. The
+ * first transmit holds the gate on a TestClock sleep, and the second counts
+ * itself before it takes the gate, so both transmits are counted before the
+ * clock moves.
  */
 function concurrentDrainsSendEachOutboxOnce(): Effect.Effect<
   void,
@@ -2616,7 +2619,9 @@ function concurrentDrainsSendEachOutboxOnce(): Effect.Effect<
     const sending = yield* Effect.fork(
       author.send(yield* sendInput(harness, "drained twice at once")),
     );
-    yield* untilLive(Ref.get(transmits).pipe(Effect.map((count) => count > 0)));
+    yield* untilLive(
+      Ref.get(transmits).pipe(Effect.map((count) => count >= 2)),
+    );
     yield* advanceClock(Duration.seconds(1));
     expect(yield* Ref.get(transmits)).toBe(2);
     expect(yield* Queue.size(harness.outbound)).toBe(1);
