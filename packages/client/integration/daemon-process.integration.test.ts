@@ -13,7 +13,10 @@ import {
   acquireHarnessEndpoint,
   AgentAddress,
   type Content,
+  type HarnessEndpoint,
   type InboundDelivery,
+  SendError,
+  type SendInput,
 } from "../src/index.js";
 import {
   acquireDaemonManagementClient,
@@ -70,6 +73,28 @@ function requireDelivery(
 /** The next delivery on `stream`. */
 function nextDelivery<E>(stream: Stream.Stream<InboundDelivery, E>) {
   return Stream.runHead(stream).pipe(Effect.flatMap(requireDelivery));
+}
+
+/**
+ * Sends one post from `endpoint` after a daemon restart. A send whose own
+ * outbox drain outlasts its bound, or meets a worker that is not attached,
+ * answers `network-unavailable` with the post durably queued, and the daemon
+ * delivers it once its Router worker answers. Under load that happens while
+ * the restarted daemon and its peer exchange recovery traffic, so the trace
+ * takes that answer as queued and confirms the post by the peer's delivery.
+ * @param endpoint Endpoint that sends.
+ * @param input The post.
+ * @returns Completion once the post is certified or queued.
+ */
+function sendOrQueue(endpoint: HarnessEndpoint, input: SendInput) {
+  return endpoint.send(input).pipe(
+    Effect.asVoid,
+    Effect.catchIf(
+      (error) =>
+        error instanceof SendError && error.reason === "network-unavailable",
+      () => Effect.void,
+    ),
+  );
 }
 
 const decodeManagementCard = (encoded: unknown) =>
@@ -314,7 +339,7 @@ const processBehavior = Effect.gen(function* () {
       const targetDelivery = yield* Effect.forkScoped(
         nextDelivery(target.messages),
       );
-      yield* caller.send({
+      yield* sendOrQueue(caller, {
         to: targetAddress,
         text: "new message after the recipient restarts",
       });
@@ -333,7 +358,7 @@ const processBehavior = Effect.gen(function* () {
       const callerDelivery = yield* Effect.forkScoped(
         nextDelivery(caller.messages),
       );
-      yield* target.send({
+      yield* sendOrQueue(target, {
         to: callerAddress,
         text: "reply from the restarted recipient",
       });
