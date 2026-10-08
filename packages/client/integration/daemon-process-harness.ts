@@ -12,7 +12,15 @@ import {
   PrincipalId,
 } from "@moltzap/identity";
 import { OperationId } from "@moltzap/identity/registry";
-import { Data, Duration, Effect, Redacted, Schema, type Scope } from "effect";
+import {
+  Data,
+  Duration,
+  Effect,
+  Fiber,
+  Redacted,
+  Schema,
+  type Scope,
+} from "effect";
 import { type ChildProcess, spawn } from "node:child_process";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 // This black-box fixture owns exact temporary process files at the Node process boundary.
@@ -21,6 +29,7 @@ import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { TestContext } from "vitest";
 import type { MessageAddressInput } from "../src/index.js";
 import {
   managementReadConversationResultSchema,
@@ -37,14 +46,14 @@ import {
 const LOOPBACK_HOST = "127.0.0.1";
 const ADMISSION_CREDENTIAL = "client-process-admission";
 const READY_STATUS = 204;
-/**
- * How long a child process has to listen or report healthy. A daemon listens
- * in about 3 seconds on an idle 8-core host and has taken 14 seconds while
- * other Nx projects build alongside it; the bound leaves room for that
- * contention while still failing a process that never starts.
- */
-const STARTUP_TIMEOUT = Duration.seconds(60);
 const SHUTDOWN_TIMEOUT = Duration.seconds(5);
+/**
+ * How long a finished test waits for its trace's scope to stop every child: a
+ * trace holds at most seven, PGlite, the Registry, the Router and four
+ * daemons, stopped one at a time, each within `SHUTDOWN_TIMEOUT` before it is
+ * killed.
+ */
+const TEARDOWN_TIMEOUT_MS = 60_000;
 const POLL_INTERVAL = Duration.millis(25);
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 const WORKSPACE_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
@@ -192,7 +201,12 @@ const waitForExit = (running: RunningProcess): Effect.Effect<void> => {
   });
 };
 
-/** Stops one exact acquired child, escalating only after its shutdown grace. */
+/**
+ * Stops one exact acquired child, escalating only after its shutdown grace.
+ * A scope runs this release uninterruptibly, and a race does not finish until
+ * its loser stops, so both sides are interruptible: otherwise every teardown
+ * waits out the full grace for a child that has already exited.
+ */
 export const stopProcess = (running: RunningProcess): Effect.Effect<void> =>
   Effect.gen(function* () {
     if (running.child.exitCode !== null || running.child.signalCode !== null) {
@@ -200,8 +214,11 @@ export const stopProcess = (running: RunningProcess): Effect.Effect<void> =>
     }
     running.child.kill("SIGTERM");
     const stopped = yield* Effect.raceFirst(
-      waitForExit(running).pipe(Effect.as(true)),
-      Effect.sleep(SHUTDOWN_TIMEOUT).pipe(Effect.as(false)),
+      waitForExit(running).pipe(Effect.as(true), Effect.interruptible),
+      Effect.sleep(SHUTDOWN_TIMEOUT).pipe(
+        Effect.as(false),
+        Effect.interruptible,
+      ),
     );
     if (!stopped) {
       running.child.kill("SIGKILL");
@@ -234,29 +251,25 @@ const canConnect = (port: number) =>
     });
   });
 
+/**
+ * Waits until `port` accepts a connection, and fails with the child's output
+ * once the child exits first. The wait has no deadline of its own: under load
+ * PGlite's in-memory initdb alone has taken over a minute, so only the
+ * enclosing test's timeout bounds a child that neither listens nor exits.
+ */
 const waitForTcpListener = (running: RunningProcess, port: number) =>
   Effect.gen(function* () {
-    const deadline = Date.now() + Duration.toMillis(STARTUP_TIMEOUT);
-    while (Date.now() < deadline) {
-      if (
-        running.child.exitCode !== null ||
-        running.child.signalCode !== null
-      ) {
-        return yield* Effect.fail(
-          processTestError(
-            `process exited before listening\n${running.logs()}`,
-          ),
-        );
-      }
+    while (
+      running.child.exitCode === null &&
+      running.child.signalCode === null
+    ) {
       if (yield* canConnect(port)) {
         return;
       }
       yield* Effect.sleep(POLL_INTERVAL);
     }
     return yield* Effect.fail(
-      processTestError(
-        `process did not listen before timeout\n${running.logs()}`,
-      ),
+      processTestError(`process exited before listening\n${running.logs()}`),
     );
   });
 
@@ -270,20 +283,17 @@ const readHealthStatus = (origin: URL) =>
     catch: (cause) => processTestError("health request failed", cause),
   });
 
+/**
+ * Waits until `origin` reports healthy, and fails with the child's output once
+ * the child exits first. Like `waitForTcpListener`, it leaves the deadline to
+ * the enclosing test.
+ */
 const waitForHealth = (running: RunningProcess, origin: URL) =>
   Effect.gen(function* () {
-    const deadline = Date.now() + Duration.toMillis(STARTUP_TIMEOUT);
-    while (Date.now() < deadline) {
-      if (
-        running.child.exitCode !== null ||
-        running.child.signalCode !== null
-      ) {
-        return yield* Effect.fail(
-          processTestError(
-            `process exited before health response\n${running.logs()}`,
-          ),
-        );
-      }
+    while (
+      running.child.exitCode === null &&
+      running.child.signalCode === null
+    ) {
       const status = yield* readHealthStatus(origin).pipe(Effect.option);
       if (status._tag === "Some" && status.value === READY_STATUS) {
         return;
@@ -291,7 +301,9 @@ const waitForHealth = (running: RunningProcess, origin: URL) =>
       yield* Effect.sleep(POLL_INTERVAL);
     }
     return yield* Effect.fail(
-      processTestError(`process did not become healthy\n${running.logs()}`),
+      processTestError(
+        `process exited before health response\n${running.logs()}`,
+      ),
     );
   });
 
@@ -340,7 +352,11 @@ const encodePublicKey = (
     ),
   );
 
-/** Starts disposable PGlite, Registry, and Router processes in dependency order. */
+/**
+ * Starts disposable PGlite, Registry, and Router processes. The Registry waits
+ * for PGlite to listen; the Router reads the Registry only to serve a request,
+ * so it starts alongside them.
+ */
 export const acquireProcessInfrastructure: Effect.Effect<
   ProcessInfrastructure,
   ProcessTestError,
@@ -364,36 +380,39 @@ export const acquireProcessInfrastructure: Effect.Effect<
     [reservePort, reservePort, reservePort] as const,
     { concurrency: 3 },
   );
-
-  const postgresql = yield* managedProcess(PGLITE_BINARY, [
-    "--db=memory://",
-    `--port=${postgresqlPort}`,
-    `--host=${LOOPBACK_HOST}`,
-    "--max-connections=20",
-  ]);
-  yield* waitForTcpListener(postgresql, postgresqlPort);
-
   const registryOrigin = new URL(`http://${LOOPBACK_HOST}:${registryPort}`);
-  const registry = yield* managedProcess(REGISTRY_BINARY, [], {
-    MOLTZAP_REGISTRY_HOST: LOOPBACK_HOST,
-    MOLTZAP_REGISTRY_PORT: String(registryPort),
-    MOLTZAP_REGISTRY_POSTGRESQL_URL: `postgresql://postgres:postgres@${LOOPBACK_HOST}:${postgresqlPort}/postgres`,
-    MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL: ADMISSION_CREDENTIAL,
-    MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH: registryKeyPath,
-    MOLTZAP_REGISTRY_LIST_PAGE_SIZE: "16",
-  });
-  yield* waitForHealth(registry, registryOrigin);
-
   const routerOrigin = new URL(`http://${LOOPBACK_HOST}:${routerPort}`);
-  const router = yield* managedProcess(ROUTER_BINARY, [], {
+
+  const startRegistry = Effect.gen(function* () {
+    const postgresql = yield* managedProcess(PGLITE_BINARY, [
+      "--db=memory://",
+      `--port=${postgresqlPort}`,
+      `--host=${LOOPBACK_HOST}`,
+      "--max-connections=20",
+    ]);
+    yield* waitForTcpListener(postgresql, postgresqlPort);
+    const registry = yield* managedProcess(REGISTRY_BINARY, [], {
+      MOLTZAP_REGISTRY_HOST: LOOPBACK_HOST,
+      MOLTZAP_REGISTRY_PORT: String(registryPort),
+      MOLTZAP_REGISTRY_POSTGRESQL_URL: `postgresql://postgres:postgres@${LOOPBACK_HOST}:${postgresqlPort}/postgres`,
+      MOLTZAP_REGISTRY_ADMISSION_CREDENTIAL: ADMISSION_CREDENTIAL,
+      MOLTZAP_REGISTRY_SIGNING_PRIVATE_KEY_PATH: registryKeyPath,
+      MOLTZAP_REGISTRY_LIST_PAGE_SIZE: "16",
+    });
+    yield* waitForHealth(registry, registryOrigin);
+  });
+  const startRouter = managedProcess(ROUTER_BINARY, [], {
     MOLTZAP_ROUTER_HOST: LOOPBACK_HOST,
     MOLTZAP_ROUTER_PORT: String(routerPort),
     MOLTZAP_ROUTER_REGISTRY_ORIGIN: registryOrigin.origin,
     MOLTZAP_ROUTER_REGISTRY_SIGNER_PUBLIC_KEY: registrySignerPublicKeyJson,
     MOLTZAP_ROUTER_REQUEST_CONCURRENCY_LIMIT: "16",
     MOLTZAP_ROUTER_HELD_POLL_CAPACITY: "8",
+  }).pipe(Effect.flatMap((router) => waitForHealth(router, routerOrigin)));
+  yield* Effect.all([startRegistry, startRouter], {
+    concurrency: 2,
+    discard: true,
   });
-  yield* waitForHealth(router, routerOrigin);
 
   return {
     registryOrigin,
@@ -496,6 +515,57 @@ export const awaitDaemonStartupFailure = (
 
 const makeIdentifier = (prefix: "opn_" | "prn_"): string =>
   `${prefix}${randomBytes(16).toString("base64url")}`;
+
+/**
+ * Runs a real-process trace as a vitest test body. A test that times out is
+ * failed without waiting for its body, and the worker can exit before an
+ * interrupted trace's scope has stopped its children, which then outlive the
+ * run. The trace therefore runs as a fiber that an `onTestFinished` hook
+ * interrupts, waiting until its scope has stopped every child.
+ * @param trace A trace whose scope owns every process it starts.
+ * @param context The running test's context.
+ * @returns The trace's outcome, as the test body's promise.
+ */
+export function runProcessTrace<E>(
+  trace: Effect.Effect<void, E>,
+  context: Pick<TestContext, "onTestFinished">,
+): Promise<void> {
+  const fiber = Effect.runFork(trace);
+  context.onTestFinished(
+    () => Effect.runPromise(Fiber.interrupt(fiber).pipe(Effect.asVoid)),
+    TEARDOWN_TIMEOUT_MS,
+  );
+  return Effect.runPromise(Fiber.join(fiber));
+}
+
+/**
+ * How many measured rounds a silent-member trace's collecting operation waits
+ * before its deadline. The work it must finish first, its request posts
+ * certifying and reaching the members and the answers certifying, has taken
+ * 1.0 to 2.2 rounds beside a second full Client suite (load average 25 to 39
+ * on 8 cores); the other rounds absorb load that changes between the
+ * measurement and the operation. Every round also lengthens the test.
+ */
+const MEASURED_DEADLINE_ROUNDS = 4;
+
+/**
+ * A collecting operation's deadline, in whole seconds, of
+ * `MEASURED_DEADLINE_ROUNDS` runs of `round` on this host as loaded now. A
+ * fixed deadline is raced by the certification work before it, which slows
+ * with host load, while the operation still has to close at the deadline.
+ * @param round One post that every asked member receives, as a trace sends it.
+ * @returns The deadline in seconds, rounded up.
+ */
+export const measuredDeadlineSeconds = <E, R>(
+  round: Effect.Effect<unknown, E, R>,
+): Effect.Effect<number, E, R> =>
+  Effect.timed(round).pipe(
+    Effect.map(([elapsed]) =>
+      Math.ceil(
+        Duration.toSeconds(Duration.times(elapsed, MEASURED_DEADLINE_ROUNDS)),
+      ),
+    ),
+  );
 
 /** Creates exact one-shot bootstrap fields for a fixture's configured identity. */
 export const makeRegistrationRequest = (

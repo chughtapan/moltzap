@@ -1,7 +1,7 @@
 /** @file A requester and three members run all_gather operations through four real daemons. */
 
 import type { AgentName } from "@moltzap/identity";
-import { Duration, Effect, Queue, Schema, type Scope, Stream } from "effect";
+import { Effect, Queue, Schema, type Scope, Stream } from "effect";
 import { expect, it } from "vitest";
 import {
   acquireHarnessEndpoint,
@@ -19,11 +19,25 @@ import {
   type DaemonProcessFixture,
   makeDaemonProcessFixture,
   makeRegistrationRequest,
+  measuredDeadlineSeconds,
   ProcessTestError,
+  runProcessTrace,
 } from "./daemon-process-harness.js";
 
-const DELIVERY_TIMEOUT = Duration.seconds(60);
-const SILENT_MEMBER_DEADLINE_SECONDS = 15;
+/**
+ * Each test starts PGlite, the Registry, the Router and four daemons, and the
+ * silent member's test waits out a deadline of several measured post rounds.
+ * Beside a second full Client suite (load average 30 to 42 on 8 cores) that
+ * test has taken 113 to 127 seconds, most of it process startup. Apart from
+ * that measured deadline, the limit is the only wall-clock bound these traces
+ * set themselves.
+ */
+const ALL_GATHER_TEST_TIMEOUT_MS = 300_000;
+/**
+ * The deadline of an all_gather every member answers: the test's own limit,
+ * so only the answers close it and no deadline races them.
+ */
+const ANSWERED_DEADLINE_SECONDS = ALL_GATHER_TEST_TIMEOUT_MS / 1000;
 const question = "Which day works for the review?";
 const group =
   "group:all-gather-member-a,all-gather-member-b,all-gather-member-c,all-gather-requester";
@@ -38,6 +52,14 @@ interface Participant {
   readonly address: AgentAddress;
   readonly endpoint: HarnessEndpoint;
   readonly inbox: Queue.Queue<InboundDelivery>;
+}
+
+/** The requester and the three members its all_gather group asks. */
+interface Participants {
+  readonly requester: Participant;
+  readonly first: Participant;
+  readonly second: Participant;
+  readonly third: Participant;
 }
 
 function directAddress(agentName: AgentName): AgentAddress {
@@ -74,16 +96,12 @@ const joinParticipant = (
     return { address: directAddress(fixture.agentName), endpoint, inbox };
   });
 
-/** Take the participant's next item and acknowledge its delivery. */
+/**
+ * Take the participant's next item and acknowledge its delivery. It waits for
+ * the item itself; the test's timeout bounds an item that never comes.
+ */
 const nextItem = (participant: Participant) =>
   Queue.take(participant.inbox).pipe(
-    Effect.timeoutFail({
-      duration: DELIVERY_TIMEOUT,
-      onTimeout: () =>
-        new ProcessTestError({
-          message: `${participant.address} timed out awaiting an item`,
-        }),
-    }),
     Effect.tap((delivery) => delivery.acknowledge),
     Effect.map((delivery): InboundItem => delivery.item),
   );
@@ -115,7 +133,10 @@ const acquireParticipants = Effect.gen(function* () {
     ].map((name) => makeDaemonProcessFixture(infrastructure, name)),
     { concurrency: 4 },
   );
-  yield* Effect.forEach(fixtures, acquireDaemonProcess, { discard: true });
+  yield* Effect.forEach(fixtures, acquireDaemonProcess, {
+    concurrency: "unbounded",
+    discard: true,
+  });
   yield* Effect.forEach(fixtures, registerFixture, { discard: true });
   const [requester, first, second, third] = yield* Effect.forEach(
     fixtures,
@@ -145,7 +166,7 @@ const allAnsweredBehavior = Effect.gen(function* () {
     },
   });
 
-  const started = yield* allGather(requester, group, 60);
+  const started = yield* allGather(requester, group, ANSWERED_DEADLINE_SECONDS);
   const request = {
     kind: "collectiveRequest",
     op: "all_gather",
@@ -192,14 +213,24 @@ const allAnsweredBehavior = Effect.gen(function* () {
   expect(yield* nextItem(third)).toEqual(requesterResult);
 }).pipe(Effect.scoped);
 
-const silentMemberBehavior = Effect.gen(function* () {
-  const { requester, first, second, third } = yield* acquireParticipants;
-
-  const started = yield* allGather(
-    requester,
-    group,
-    SILENT_MEMBER_DEADLINE_SECONDS,
+/** A post from the requester to the group, received by each member. */
+const groupRound = (participants: Participants) =>
+  send(participants.requester, { to: group, text: "one measured round" }).pipe(
+    Effect.zipRight(
+      Effect.all([
+        nextItem(participants.first),
+        nextItem(participants.second),
+        nextItem(participants.third),
+      ]),
+    ),
   );
+
+const silentMemberBehavior = Effect.gen(function* () {
+  const participants = yield* acquireParticipants;
+  const { requester, first, second, third } = participants;
+  const deadline = yield* measuredDeadlineSeconds(groupRound(participants));
+
+  const started = yield* allGather(requester, group, deadline);
   yield* nextItem(first);
   yield* nextItem(second);
   yield* nextItem(third);
@@ -222,12 +253,20 @@ const silentMemberBehavior = Effect.gen(function* () {
   expect(yield* nextItem(third)).toEqual(requesterResult);
 }).pipe(Effect.scoped);
 
-it("gives the requester and every member the same all_gather result", () => {
-  expect.hasAssertions();
-  return Effect.runPromise(allAnsweredBehavior);
-}, 300_000);
+it(
+  "gives the requester and every member the same all_gather result",
+  (context) => {
+    expect.hasAssertions();
+    return runProcessTrace(allAnsweredBehavior, context);
+  },
+  ALL_GATHER_TEST_TIMEOUT_MS,
+);
 
-it("closes an all_gather at the deadline without the silent member", () => {
-  expect.hasAssertions();
-  return Effect.runPromise(silentMemberBehavior);
-}, 300_000);
+it(
+  "closes an all_gather at the deadline without the silent member",
+  (context) => {
+    expect.hasAssertions();
+    return runProcessTrace(silentMemberBehavior, context);
+  },
+  ALL_GATHER_TEST_TIMEOUT_MS,
+);

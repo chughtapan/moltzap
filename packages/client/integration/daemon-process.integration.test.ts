@@ -2,7 +2,7 @@
 
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
 import { AgentCard, type AgentName } from "@moltzap/identity";
-import { Duration, Effect, Fiber, Option, Schema, Stream } from "effect";
+import { Effect, Fiber, Option, Schema, Stream } from "effect";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
 import {
@@ -25,9 +25,17 @@ import {
   makeRegistrationRequest,
   ProcessTestError,
   stopProcess,
+  runProcessTrace,
 } from "./daemon-process-harness.js";
 
-const DELIVERY_TIMEOUT = Duration.seconds(60);
+/**
+ * Each test starts PGlite, the Registry, the Router and two daemons, and two
+ * of them restart a daemon. Beside a second full Client suite and another
+ * integration file (load average 17 to 32 on 8 cores) the restart test has
+ * taken 62 to 163 seconds, most of it process startup. The limit is the only
+ * wall-clock bound these traces set themselves.
+ */
+const PROCESS_TEST_TIMEOUT_MS = 180_000;
 const initialText = "hello from the first real daemon";
 const responseText = "addressed response from the second real daemon";
 const multicastPart = {
@@ -59,17 +67,13 @@ function requireDelivery(
   });
 }
 
+/**
+ * The next delivery on `stream`. It waits for the delivery itself rather than
+ * for a wall-clock bound, since certifying a post through real daemons slows
+ * with host load; the test's timeout bounds a delivery that never comes.
+ */
 function nextDelivery<E>(stream: Stream.Stream<InboundDelivery, E>) {
-  return Stream.runHead(stream).pipe(
-    Effect.timeoutFail({
-      duration: DELIVERY_TIMEOUT,
-      onTimeout: () =>
-        new ProcessTestError({
-          message: "timed out awaiting certified delivery",
-        }),
-    }),
-    Effect.flatMap(requireDelivery),
-  );
+  return Stream.runHead(stream).pipe(Effect.flatMap(requireDelivery));
 }
 
 const decodeManagementCard = (encoded: unknown) =>
@@ -159,8 +163,13 @@ const singleRestartBehavior = Effect.gen(function* () {
     ] as const,
     { concurrency: 2 },
   );
-  const restartedDaemon = yield* acquireDaemonProcess(restartedFixture);
-  yield* acquireDaemonProcess(peerFixture);
+  const [restartedDaemon] = yield* Effect.all(
+    [
+      acquireDaemonProcess(restartedFixture),
+      acquireDaemonProcess(peerFixture),
+    ] as const,
+    { concurrency: 2 },
+  );
   yield* registerFixture(restartedFixture);
   yield* registerFixture(peerFixture);
 
@@ -211,8 +220,10 @@ const processBehavior = Effect.gen(function* () {
     ] as const,
     { concurrency: 2 },
   );
-  yield* acquireDaemonProcess(callerFixture);
-  const targetDaemon = yield* acquireDaemonProcess(targetFixture);
+  const [, targetDaemon] = yield* Effect.all(
+    [acquireDaemonProcess(callerFixture), acquireDaemonProcess(targetFixture)],
+    { concurrency: 2 },
+  );
 
   yield* registerFixture(callerFixture);
   yield* registerFixture(targetFixture);
@@ -345,10 +356,14 @@ const processBehavior = Effect.gen(function* () {
   );
 }).pipe(Effect.scoped);
 
-it("certifies fresh posts in both directions after one daemon restarts", () => {
-  expect.hasAssertions();
-  return Effect.runPromise(processBehavior);
-}, 180_000);
+it(
+  "certifies fresh posts in both directions after one daemon restarts",
+  (context) => {
+    expect.hasAssertions();
+    return runProcessTrace(processBehavior, context);
+  },
+  PROCESS_TEST_TIMEOUT_MS,
+);
 
 const withoutAdmissionCredential = (
   fixture: DaemonProcessFixture,
@@ -472,12 +487,20 @@ const admissionLifetimeBehavior = Effect.gen(function* () {
   );
 }).pipe(Effect.scoped);
 
-it("restarts a registered daemon without the admission credential", () => {
-  expect.hasAssertions();
-  return Effect.runPromise(admissionLifetimeBehavior);
-}, 180_000);
+it(
+  "restarts a registered daemon without the admission credential",
+  (context) => {
+    expect.hasAssertions();
+    return runProcessTrace(admissionLifetimeBehavior, context);
+  },
+  PROCESS_TEST_TIMEOUT_MS,
+);
 
-it("delivers both ways after one real daemon restarts while its peer stays up", () => {
-  expect.hasAssertions();
-  return Effect.runPromise(singleRestartBehavior);
-}, 180_000);
+it(
+  "delivers both ways after one real daemon restarts while its peer stays up",
+  (context) => {
+    expect.hasAssertions();
+    return runProcessTrace(singleRestartBehavior, context);
+  },
+  PROCESS_TEST_TIMEOUT_MS,
+);
