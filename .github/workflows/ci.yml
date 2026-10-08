@@ -94,6 +94,8 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    # Bounds a hung test run. Green runs of this job have taken at most 340 s.
+    timeout-minutes: 20
     environment: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'nx-cache-write' || '' }}
     env:
       NX_SELF_HOSTED_REMOTE_CACHE_SERVER: ${{ vars.NX_CACHE_URL }}
