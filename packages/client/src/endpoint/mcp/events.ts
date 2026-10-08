@@ -73,7 +73,8 @@ interface EventsOptions {
     InboxSummary,
     { readonly reason: string }
   >;
-  readonly registered: () => boolean;
+  /** Whether the daemon's protocol is up; a subscription needs it. */
+  readonly protocolActive: () => boolean;
   readonly gate: Effect.Semaphore;
   readonly webhook?: HarnessWebhookEvents;
   readonly keepAliveMillis?: number;
@@ -111,8 +112,8 @@ const requireNoReplay = (cursor?: string | null): void => {
   }
 };
 
-const requireRegistered = (options: EventsOptions): void => {
-  if (!options.registered()) {
+const requireProtocolActive = (options: EventsOptions): void => {
+  if (!options.protocolActive()) {
     throw new ProtocolError(-32012, "Endpoint is not registered");
   }
 };
@@ -264,7 +265,7 @@ const stream = (
   Effect.scoped(
     Effect.gen(function* () {
       yield* Effect.sync(() => {
-        requireRegistered(runtime.options);
+        requireProtocolActive(runtime.options);
         requireInboxEvent(input.name);
         requireNoReplay(input.cursor);
       });
@@ -378,7 +379,7 @@ const subscribe = (
   input: EventSubscribeInput,
   principal?: string,
 ) => {
-  requireRegistered(runtime.options);
+  requireProtocolActive(runtime.options);
   if (input.name !== INBOX_ITEM_EVENT) {
     throw new ProtocolError(-32011, "Event not found", { kind: "event" });
   }

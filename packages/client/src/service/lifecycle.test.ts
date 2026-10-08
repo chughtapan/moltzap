@@ -187,54 +187,6 @@ const blocksStartupAndSupervisesWorker = async () => {
   }
 };
 
-/**
- * A startup pass that cannot persist the classified pending delivery fails in
- * storage, and the listener never opens.
- */
-const failsStartupWhenInboxPersistenceFails = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const harness = yield* makeHarness(fixture, "none");
-      const store: EndpointStore = {
-        ...makeStore(fixture, true),
-        putInboxItem: () =>
-          Effect.fail(new EndpointStoreError({ reason: "persistence" })),
-      };
-
-      const error = yield* run(fixture, store, harness).pipe(Effect.flip);
-
-      expect(error).toEqual(new DaemonRuntimeError({ phase: "storage" }));
-      expect(
-        Option.isNone(yield* Deferred.poll(harness.listenerReady)),
-        "listener stays closed after the failed startup pass",
-      ).toBe(true);
-    }),
-  );
-
-/**
- * A startup pass that cannot read pending deliveries fails in storage, and
- * the listener never opens.
- */
-const failsStartupWhenThePendingReadFails = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const harness = yield* makeHarness(fixture, "none");
-      harness.delivery.failReads = true;
-
-      const error = yield* run(fixture, makeStore(fixture, true), harness).pipe(
-        Effect.flip,
-      );
-
-      expect(error).toEqual(new DaemonRuntimeError({ phase: "storage" }));
-      expect(
-        Option.isNone(yield* Deferred.poll(harness.listenerReady)),
-        "listener stays closed after the failed startup pass",
-      ).toBe(true);
-    }),
-  );
-
 /** A response to no open request, which the collective layer refuses. */
 const unmatchedResponse = Schema.decodeUnknownSync(SendInput)({
   to: "agent:bob",
@@ -831,13 +783,17 @@ const listsToolsAfterACancelledRegister = async () => {
   }
 };
 
-/** A fault one activation hits, and how register and the daemon end. */
-interface ActivationFault {
+/** A fault a daemon hits, and the phase the daemon stops in. */
+interface DaemonFault {
   readonly fault: string;
   readonly store: (store: EndpointStore) => EndpointStore;
   readonly harness: (harness: RuntimeHarness) => RuntimeHarness;
-  readonly registerFailure: unknown;
   readonly phase: DaemonRuntimeError["phase"];
+}
+
+/** A fault one activation hits, and how register fails. */
+interface ActivationFault extends DaemonFault {
+  readonly registerFailure: unknown;
 }
 
 const engineDefect = new Error("engine construction defect");
@@ -932,19 +888,32 @@ class ListenerUnavailableError extends Data.TaggedError(
   "ListenerUnavailableError",
 ) {}
 
-/** A fault a registered daemon's startup hits, and the phase it fails in. */
-interface StartupFault {
-  readonly fault: string;
-  readonly store: (store: EndpointStore) => EndpointStore;
-  readonly harness: (harness: RuntimeHarness) => RuntimeHarness;
-  readonly phase: DaemonRuntimeError["phase"];
-}
-
 /**
- * A stored membership row that fails verification stops startup in storage;
- * a listener that cannot open stops it in the listener phase.
+ * Faults a registered daemon's startup hits. A store fault in its first
+ * delivery pass, or a stored membership row that fails verification, stops
+ * startup in storage; a listener that cannot open stops it in the listener
+ * phase.
  */
-const startupFaults: readonly StartupFault[] = [
+const startupFaults: readonly DaemonFault[] = [
+  {
+    fault: "classified inbox persistence fails",
+    store: (store) => ({
+      ...store,
+      putInboxItem: () =>
+        Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+    }),
+    harness: (harness) => harness,
+    phase: "storage",
+  },
+  {
+    fault: "the pending read fails",
+    store: (store) => store,
+    harness: (harness) => {
+      harness.delivery.failReads = true;
+      return harness;
+    },
+    phase: "storage",
+  },
   {
     fault: "a stored membership fails verification",
     store: (store) => ({
@@ -982,10 +951,10 @@ const startupFaults: readonly StartupFault[] = [
 
 /**
  * A registered daemon whose startup hits `fault` fails in the row's phase
- * before it listens. Fails when activation accepts a row it cannot verify,
- * or when a startup failure maps to another phase.
+ * before it listens. Fails when startup carries on past the fault, or maps
+ * it to another phase.
  */
-const failsStartupWith = (row: StartupFault) =>
+const failsStartupWith = (row: DaemonFault) =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fixture = yield* makeFixture;
@@ -1071,20 +1040,12 @@ describe("daemon runtime composition", () => {
     closesWhileReceiptWaitsOnFailedPersistence,
   );
   it(
-    "fails startup when classified inbox persistence fails",
-    failsStartupWhenInboxPersistenceFails,
-  );
-  it(
     "emits a local item while a pass holds the delivery gate",
     emitsWhileAPassHoldsTheDeliveryGate,
   );
   it(
     "fails the daemon when an emitted item cannot persist",
     failsWhenAnEmittedItemCannotPersist,
-  );
-  it(
-    "fails startup when the pending read fails",
-    failsStartupWhenThePendingReadFails,
   );
   it(
     "settles registration when its first delivery pass fails",

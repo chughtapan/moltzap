@@ -505,7 +505,7 @@ const makeMcpRequest = (input: McpRequestInput): Request =>
         },
       },
     }),
-    ...(input.signal === undefined ? {} : { signal: input.signal }),
+    signal: input.signal,
   });
 
 /** An MCP Events subscription request with the given id. */
@@ -524,18 +524,18 @@ export const makeToolListRequest = (id: string): Request =>
  * A `tools/call` request with the given id. Aborting `signal` cancels it, as
  * a client that drops the request does.
  */
-export const makeToolCallRequest = (input: {
-  readonly id: string;
-  readonly name: string;
-  readonly toolArguments: Readonly<Record<string, unknown>>;
-  readonly signal?: AbortSignal;
-}): Request =>
+export const makeToolCallRequest = (
+  input: Pick<McpRequestInput, "id" | "signal"> & {
+    readonly name: string;
+    readonly toolArguments: Readonly<Record<string, unknown>>;
+  },
+): Request =>
   makeMcpRequest({
     id: input.id,
     method: "tools/call",
     params: { name: input.name, arguments: input.toolArguments },
     headers: { "mcp-name": input.name },
-    ...(input.signal === undefined ? {} : { signal: input.signal }),
+    signal: input.signal,
   });
 
 /** A reader over a streamed MCP response body. */

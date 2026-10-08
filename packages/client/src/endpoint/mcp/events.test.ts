@@ -197,7 +197,7 @@ const acquireRacingEventsServer = Effect.gen(function* () {
   const gate = yield* Effect.makeSemaphore(1);
   const events: HarnessEvents = yield* makeHarnessEvents({
     gate: yieldAfterReservation(gate, () => events),
-    registered: () => true,
+    protocolActive: () => true,
     summary: () =>
       Effect.sync(() => ({
         pendingCount: unread.length,

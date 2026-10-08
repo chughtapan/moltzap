@@ -157,10 +157,6 @@ const makeMembershipRow = (members: readonly VerifiedAgentCard[]) =>
     };
   }).pipe(Effect.orDie);
 
-/** The direct conversation between the fixture's two cards. */
-const makeDirectMembership = (fixture: IdentityFixture) =>
-  makeMembershipRow(fixture.cards);
-
 /**
  * The recovery of the fixture's local agent holding one certified
  * conversation among `members`.
@@ -265,7 +261,7 @@ function makeRegistryLayer(cards: readonly VerifiedAgentCard[]) {
  */
 const makeCertifiedHistory = Effect.gen(function* () {
   const fixture = yield* makeIdentityFixture;
-  const membership = yield* makeDirectMembership(fixture).pipe(
+  const membership = yield* makeMembershipRow(fixture.cards).pipe(
     Effect.flatMap((row) =>
       verifyStoredMembership(
         row,
@@ -555,12 +551,11 @@ interface OwnerRead {
 const ownerReads: readonly OwnerRead[] = [
   {
     tool: "search_conversations",
-    read: (operations: DaemonManagementOperations) =>
-      operations.searchConversations({}),
+    read: (operations) => operations.searchConversations({}),
   },
   {
     tool: "read_conversation",
-    read: (operations: DaemonManagementOperations) =>
+    read: (operations) =>
       operations.readConversation(
         Schema.decodeUnknownSync(managementReadConversationRequestSchema)({
           address: "agent:bob",
@@ -569,7 +564,7 @@ const ownerReads: readonly OwnerRead[] = [
   },
   {
     tool: "search_agents",
-    read: (operations: DaemonManagementOperations) =>
+    read: (operations) =>
       operations.searchAgents(
         Schema.decodeUnknownSync(managementSearchAgentsRequestSchema)({
           agentName: "bob",

@@ -1465,17 +1465,26 @@ const restartOverTamperedSnapshot = (tamper: SnapshotTamper) =>
     );
   });
 
+/**
+ * Retains the fixture's certified record and writes its dissemination
+ * obligation with no outbox row attached, the state a crash between staging
+ * a record for dissemination and queueing its copy leaves an obligation in.
+ * @param fixture Endpoint whose store receives the rows.
+ * @returns The staged record the obligation names.
+ */
+const stageUnattachedDissemination = (fixture: RecoveryFixture) =>
+  retainCertifiedRecord(fixture).pipe(
+    Effect.zipRight(fixture.store.recover()),
+    Effect.flatMap(({ stagedRecords }) =>
+      Effect.fromNullable(stagedRecords[0]),
+    ),
+    Effect.tap((record) => fixture.store.stageRecordForDissemination(record)),
+    Effect.orDie,
+  );
+
 const stageAttachedDissemination = (fixture: RecoveryFixture) =>
   Effect.gen(function* () {
-    yield* certifiedRecordIngress(fixture).pipe(
-      Effect.flatMap((ingress) => fixture.engine.acceptRouterIngress(ingress)),
-    );
-    const recovery = yield* fixture.store.recover();
-    const record = recovery.stagedRecords[0];
-    if (record === undefined) {
-      return yield* Effect.dieMessage("staged record was not retained");
-    }
-    yield* fixture.store.stageRecordForDissemination(record);
+    const record = yield* stageUnattachedDissemination(fixture);
     const message = yield* signOuterPacket({
       packet: fixture.certifiedRecord.actionCertifiedRecord,
       membership: fixture.membership,
@@ -9148,25 +9157,6 @@ const sendsARetainedOutboxRowAfterAColdStart = () =>
         expect((yield* fixture.store.recover()).outboundMessages).toEqual([]);
       }),
     ),
-  );
-
-/**
- * Retains the fixture's certified record and writes its dissemination
- * obligation with no outbox row attached, the state a crash between staging
- * a record for dissemination and queueing its copy leaves an obligation in.
- * @param fixture Endpoint whose store receives the rows.
- * @returns Completion once the obligation is stored.
- */
-const stageUnattachedDissemination = (fixture: RecoveryFixture) =>
-  retainCertifiedRecord(fixture).pipe(
-    Effect.zipRight(fixture.store.recover()),
-    Effect.flatMap(({ stagedRecords }) =>
-      Effect.fromNullable(stagedRecords[0]),
-    ),
-    Effect.flatMap((record) =>
-      fixture.store.stageRecordForDissemination(record),
-    ),
-    Effect.orDie,
   );
 
 /**

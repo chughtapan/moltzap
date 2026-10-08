@@ -52,16 +52,3 @@ export const authenticateHarnessRequest = (
     ? "runtime"
     : undefined;
 };
-
-/**
- * Keep raw protocol history and administrative authority outside the runtime.
- * @param role Authenticated authority, supplied by the server wrapper.
- * @param name Tool selected in the model's request.
- * @returns Whether this role can invoke the selected tool.
- */
-export const mayInvokeHarnessTool = (
-  role: HarnessMcpRole,
-  name: string,
-): boolean =>
-  role !== "runtime" ||
-  ["send_message", "read_event", "search_agents"].includes(name);

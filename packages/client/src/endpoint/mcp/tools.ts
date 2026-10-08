@@ -45,7 +45,6 @@ import {
   authenticateHarnessRequest,
   type HarnessMcpCredentials,
   type HarnessMcpRole,
-  mayInvokeHarnessTool,
 } from "./auth.js";
 import {
   type HarnessEvents,
@@ -333,16 +332,6 @@ const runSendOperation = async (
   return toolResult(outcome.value);
 };
 
-const runVoidOperation = (
-  input: Omit<RunOperationOptions<HarnessEmptyResult>, "operation"> & {
-    readonly operation: Effect.Effect<void, ClosedOperationError>;
-  },
-) =>
-  runOperation({
-    ...input,
-    operation: input.operation.pipe(Effect.as({})),
-  });
-
 // #ignore-sloppy-code-next-line[async-keyword]: Standard Schema output validation is Promise-capable and runs inside the MCP SDK's Promise callback contract.
 const validateToolOutput = async <
   Value,
@@ -370,19 +359,6 @@ const runValidatedOperation = async <
   toolName: string,
   options: RunOperationOptions<Value>,
 ) => await validateToolOutput(schema, await runOperation(options), toolName);
-
-// #ignore-sloppy-code-next-line[async-keyword]: The MCP SDK callback must await the Promise-native void operation bridge before validating its result.
-const runValidatedVoidOperation = async (
-  toolName: string,
-  input: Omit<RunOperationOptions<HarnessEmptyResult>, "operation"> & {
-    readonly operation: Effect.Effect<void, ClosedOperationError>;
-  },
-) =>
-  await validateToolOutput(
-    emptyOutput,
-    await runVoidOperation(input),
-    toolName,
-  );
 
 /** A tool's catalog entry: its description and schemas. */
 interface ToolListing {
@@ -625,10 +601,10 @@ const decodeInvocationInput = <A>(
   );
 
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
-async function handleSendToolCall(
+const handleSendToolCall = async (
   input: ToolCallInput,
   operations: HarnessMcpOperations,
-) {
+) => {
   const decoded = await decodeInvocationInput(
     decodeHarnessSendCall(input.toolArguments, input.metadata),
     input.signal,
@@ -638,7 +614,7 @@ async function handleSendToolCall(
     await runSendOperation(operations.send(decoded), input.signal),
     input.name,
   );
-}
+};
 
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
 const handleAcknowledgeDeliveryToolCall = async (
@@ -650,8 +626,10 @@ const handleAcknowledgeDeliveryToolCall = async (
     input.toolArguments,
     input.name,
   );
-  return await runValidatedVoidOperation(input.name, {
-    operation: operations.acknowledgeDelivery(decoded.deliveryToken),
+  return await runValidatedOperation(emptyOutput, input.name, {
+    operation: operations
+      .acknowledgeDelivery(decoded.deliveryToken)
+      .pipe(Effect.as<HarnessEmptyResult>({})),
     label: "Delivery acknowledgment",
     allowedReasons: ACKNOWLEDGE_DELIVERY_REASONS,
     fallbackReason: "transport-failed",
@@ -735,35 +713,6 @@ const handleActiveToolCall = async (
   }
 };
 
-// #ignore-sloppy-code-next-line[async-keyword]: Inactive dispatch admits only the Promise-native registration operation.
-const handleInactiveToolCall = async (
-  input: ToolCallInput,
-  operations: HarnessMcpOperations,
-) => {
-  if (input.name !== REGISTER_TOOL) {
-    return toolNotFound(input.name);
-  }
-  return await handleRegistrationToolCall(input, operations);
-};
-
-// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP dispatcher awaits the selected state-dependent Promise callback.
-const handleToolCall = async (
-  input: ToolCallInput,
-  operations: HarnessMcpOperations,
-  role: HarnessMcpRole,
-) => {
-  if (!mayInvokeHarnessTool(role, input.name)) {
-    return toolNotFound(input.name);
-  }
-  if (input.name === STATUS_TOOL) {
-    return await handleStatusToolCall(input, operations);
-  }
-  if (!operations.protocolActive()) {
-    return await handleInactiveToolCall(input, operations);
-  }
-  return await handleActiveToolCall(input, operations);
-};
-
 const ownerEventOperation = (events: HarnessEvents, name: string) => {
   switch (name) {
     case "event_subscription_status":
@@ -790,6 +739,45 @@ const handleOwnerOperation = async (
   return toolResult(await runEventOperation(operation, input.signal));
 };
 
+/**
+ * The tools `role` lists and may call now: its catalog for whether the
+ * daemon's protocol is up. Listing and admission read this one answer.
+ * @param role The request's authority.
+ * @param operations The daemon operations that report the protocol state.
+ * @returns The tool names, in catalog order.
+ */
+const currentTools = (
+  role: HarnessMcpRole,
+  operations: HarnessMcpOperations,
+): readonly ToolName[] => {
+  const catalog = roleCatalogs[role];
+  return operations.protocolActive() ? catalog.active : catalog.inactive;
+};
+
+// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP dispatcher awaits the selected Promise-native tool handler.
+const handleToolCall = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+  authority: RequestAuthority,
+) => {
+  const admitted: readonly string[] = currentTools(authority.role, operations);
+  if (!admitted.includes(input.name)) {
+    return toolNotFound(input.name);
+  }
+  const ownerOperation = ownerEventOperation(authority.events, input.name);
+  if (ownerOperation !== undefined) {
+    return await handleOwnerOperation(ownerOperation, input);
+  }
+  switch (input.name) {
+    case STATUS_TOOL:
+      return await handleStatusToolCall(input, operations);
+    case REGISTER_TOOL:
+      return await handleRegistrationToolCall(input, operations);
+    default:
+      return await handleActiveToolCall(input, operations);
+  }
+};
+
 /** Schema failures and refused operations stay on the JSON-RPC error channel. */
 const installToolCallHandler = (
   server: McpServer,
@@ -803,11 +791,7 @@ const installToolCallHandler = (
       metadata: context.mcpReq._meta,
       signal: context.mcpReq.signal,
     };
-    const ownerOperation = ownerEventOperation(authority.events, input.name);
-    if (authority.role === "owner" && ownerOperation !== undefined) {
-      return handleOwnerOperation(ownerOperation, input);
-    }
-    return handleToolCall(input, operations, authority.role);
+    return handleToolCall(input, operations, authority);
   });
 };
 const runtimeOperations = (
@@ -831,11 +815,7 @@ const makeServer = (
 ): McpServer => {
   const capabilities = { tools: {}, events: {} };
   const server = new McpServer(options.implementation, { capabilities });
-  const catalog = roleCatalogs[role];
-  const listed = options.operations.protocolActive()
-    ? catalog.active
-    : catalog.inactive;
-  for (const name of listed) {
+  for (const name of currentTools(role, options.operations)) {
     const listing: ToolListing = toolListings[name];
     server.registerTool(name, listing, () => toolResult({}));
   }
@@ -918,7 +898,7 @@ const acquireHandler = (
     const events = yield* makeHarnessEvents({
       ...(webhook === undefined ? {} : { webhook }),
       summary: options.operations.readInboxSummary,
-      registered: () => options.operations.protocolActive(),
+      protocolActive: options.operations.protocolActive,
       gate,
       keepAliveMillis: options.keepAliveMillis,
       onActiveChange: options.onSubscriptionActiveChange,
