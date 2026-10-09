@@ -102,7 +102,7 @@ const runGenerateDirect = (): { code: number; stderr: string } =>
   ]);
 
 const runBoundaries = (): { code: number; stderr: string } =>
-  runNode([resolve(workspaceRoot, "scripts/architecture/check-boundaries.js")]);
+  runNode([resolve(workspaceRoot, "scripts/architecture/check-boundaries.ts")]);
 
 // ─── Plant / restore helpers ──────────────────────────────────────────────
 //
