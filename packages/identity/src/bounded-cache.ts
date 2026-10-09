@@ -2,7 +2,7 @@
 
 import { Option } from "effect";
 
-// safer-arch-ignore no-trivial-sink-file: The bound is a memory-safety property tested through this module's own API; agent-key.ts is its one consumer, and inlining it would leave the bound testable only through identity internals.
+// safer-arch-ignore no-trivial-sink-file: The bound keeps memory fixed however many distinct keys arrive and is tested through this module's own API; agent-key.ts is its one consumer, and inlining it would leave the bound testable only through identity internals.
 
 /**
  * A map that keeps at most its capacity of entries. Reading or storing an

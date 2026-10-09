@@ -39,6 +39,18 @@ describe("makeBoundedCache", () => {
     expect(cache.get("a")).toStrictEqual(Option.some(2));
   });
 
+  it("keeps an entry that was replaced while a newer entry arrives", () => {
+    const cache = makeBoundedCache<string, number>(2);
+    cache.set("a", 1);
+    cache.set("b", 2);
+    // eslint-disable-next-line sonarjs/no-element-overwrite -- Replacing "a" must make it the most recently used entry.
+    cache.set("a", 3);
+    cache.set("c", 4);
+
+    expect(cache.get("a")).toStrictEqual(Option.some(3));
+    expect(cache.get("b")).toStrictEqual(Option.none());
+  });
+
   it("holds an undefined value as present", () => {
     const cache = makeBoundedCache<string, undefined>(1);
     cache.set("a", undefined);
