@@ -195,14 +195,14 @@ it.effect("stores each import under the key it was imported from", () =>
     const other = indexedPublicKey(4_001);
     const reads = [stored.x, other.x];
     const shifting = Object.freeze({
-      crv: "Ed25519",
-      kty: "OKP",
+      crv: "Ed25519" as const,
+      kty: "OKP" as const,
       get x() {
         return reads.shift() ?? stored.x;
       },
     });
     // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The getter object models a caller that bypasses the Ed25519PublicKey Schema.
-    yield* ed25519VerificationKey(shifting as unknown as Ed25519PublicKey);
+    yield* ed25519VerificationKey(shifting as Ed25519PublicKey);
 
     const imported = yield* ed25519VerificationKey(stored);
     const exported = yield* Effect.tryPromise({
