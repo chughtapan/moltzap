@@ -375,6 +375,16 @@ const actionAnchorHash = (
 ): Effect.Effect<AnchorHash, RouterWorkerPersistenceError> =>
   recordAnchorHash(fold).pipe(Effect.mapError(localRepresentationFailure));
 
+/**
+ * Queue this endpoint's durability vote for a fold's staged record: the vote
+ * it holds, or a new one. A certified fold gets no new vote. A vote is stored
+ * before it is sent, so a certified fold without one names a record this
+ * endpoint never voted for, such as one it accepted already certified, and
+ * the record needs no vote.
+ * @param runtime Engine whose identity signs and whose outbox sends.
+ * @param fold Fold whose staged record the vote names.
+ * @returns Completion once the vote is queued, or at once when none is due.
+ */
 const localDurabilityEvidence = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
@@ -386,6 +396,9 @@ const localDurabilityEvidence = (
       return;
     }
     const retained = fold.durabilityEvidence.get(localAgentId);
+    if (retained === undefined && fold.certified) {
+      return;
+    }
     const evidence =
       retained ??
       (yield* signEvidenceMessage({
@@ -1057,11 +1070,7 @@ export const acceptEngineRecoveryIngress = (
     );
 
 /**
- * Resume only the evidence obligations already selected in durable state. A
- * staged record that is not yet certified resumes this endpoint's durability
- * vote. A certified record resumes it only when the fold holds it: a vote is
- * stored before it is sent, so a certified fold without one names a record
- * this endpoint never voted for, such as one it accepted already certified.
+ * Resume only the evidence obligations already selected in durable state.
  * @param runtime Recovered engine state and durable protocol dependencies.
  * @param conversationId The one conversation to resume; every conversation
  *     when omitted.
@@ -1084,14 +1093,7 @@ export const resumeEngineFolds = (
             yield* localActionEvidence(runtime, fold);
             yield* maybeCertifyAction(runtime, fold);
             if (fold.recordHash !== undefined) {
-              if (
-                !fold.certified ||
-                fold.durabilityEvidence.has(
-                  runtime.input.localAgentCard.agentId,
-                )
-              ) {
-                yield* localDurabilityEvidence(runtime, fold);
-              }
+              yield* localDurabilityEvidence(runtime, fold);
               const record = yield* makeActionCertifiedRecord(
                 fold,
                 yield* actionAnchorHash(fold),

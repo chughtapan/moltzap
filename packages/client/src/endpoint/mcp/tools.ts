@@ -473,8 +473,6 @@ interface ToolCallInput {
   readonly toolArguments: unknown;
   readonly metadata: unknown;
   readonly signal: AbortSignal;
-  /** The subscription the owner event tools inspect, revoke and resume. */
-  readonly events: HarnessEvents;
 }
 
 const toolNotFound = (name: string): never => {
@@ -687,16 +685,14 @@ const handleReadSendToolCall = async (
     signal: input.signal,
   });
 
-interface RequestAuthority {
-  readonly role: HarnessMcpRole;
+/** The operations a tool call runs: the daemon's and the event subscription's. */
+interface ToolOperations extends HarnessMcpOperations {
   readonly events: HarnessEvents;
 }
 
 // #ignore-sloppy-code-next-line[async-keyword]: The MCP edge validates its Promise-native tool schema before running the owner operation.
-const handleOwnerOperation = async <
-  Value extends Readonly<Record<string, unknown>>,
->(
-  operation: Effect.Effect<Value, ProtocolError>,
+const handleOwnerOperation = async (
+  operation: Effect.Effect<Readonly<Record<string, unknown>>, ProtocolError>,
   input: ToolCallInput,
 ) => {
   await decodeToolInput(emptyInput, input.toolArguments, input.name);
@@ -706,7 +702,7 @@ const handleOwnerOperation = async <
 /** Serves one admitted call of the tool it is keyed by in `toolHandlers`. */
 type ToolHandler = (
   input: ToolCallInput,
-  operations: HarnessMcpOperations,
+  operations: ToolOperations,
   // eslint-disable-next-line agent-code-guard/promise-type -- MCP tool handlers are Promise callbacks of the official SDK.
 ) => Promise<ReturnType<typeof toolResult>>;
 
@@ -717,12 +713,12 @@ type ToolHandler = (
 const toolHandlers = {
   [STATUS_TOOL]: handleStatusToolCall,
   [REGISTER_TOOL]: handleRegistrationToolCall,
-  event_subscription_status: (input) =>
-    handleOwnerOperation(input.events.status, input),
-  revoke_event_subscription: (input) =>
-    handleOwnerOperation(input.events.revoke.pipe(Effect.as({})), input),
-  resume_event_subscription: (input) =>
-    handleOwnerOperation(input.events.resume.pipe(Effect.as({})), input),
+  event_subscription_status: (input, operations) =>
+    handleOwnerOperation(operations.events.status, input),
+  revoke_event_subscription: (input, operations) =>
+    handleOwnerOperation(operations.events.revoke.pipe(Effect.as({})), input),
+  resume_event_subscription: (input, operations) =>
+    handleOwnerOperation(operations.events.resume.pipe(Effect.as({})), input),
   [SEARCH_AGENTS_TOOL]: handleSearchAgentsToolCall,
   [SEARCH_CONVERSATIONS_TOOL]: handleSearchConversationsToolCall,
   [READ_CONVERSATION_TOOL]: handleReadConversationToolCall,
@@ -751,7 +747,7 @@ const currentTools = (
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP dispatcher awaits the selected Promise-native tool handler.
 const handleToolCall = async (
   input: ToolCallInput,
-  operations: HarnessMcpOperations,
+  operations: ToolOperations,
   role: HarnessMcpRole,
 ) => {
   const name = currentTools(role, operations).find(
@@ -766,8 +762,8 @@ const handleToolCall = async (
 /** Schema failures and refused operations stay on the JSON-RPC error channel. */
 const installToolCallHandler = (
   server: McpServer,
-  operations: HarnessMcpOperations,
-  authority: RequestAuthority,
+  operations: ToolOperations,
+  role: HarnessMcpRole,
 ): void => {
   server.server.setRequestHandler("tools/call", (request, context) => {
     const input = {
@@ -775,16 +771,16 @@ const installToolCallHandler = (
       toolArguments: request.params.arguments ?? {},
       metadata: context.mcpReq._meta,
       signal: context.mcpReq.signal,
-      events: authority.events,
     };
-    return handleToolCall(input, operations, authority.role);
+    return handleToolCall(input, operations, role);
   });
 };
 const runtimeOperations = (
   operations: HarnessMcpOperations,
   events: HarnessEvents,
-): HarnessMcpOperations => ({
+): ToolOperations => ({
   ...operations,
+  events,
   acknowledgeDelivery: (token) =>
     operations
       .acknowledgeDelivery(token)
@@ -808,7 +804,7 @@ const makeServer = (
   installToolCallHandler(
     server,
     runtimeOperations(options.operations, events),
-    { role, events },
+    role,
   );
   events.install(server.server, role === "local" ? undefined : role);
   return server;
