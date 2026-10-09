@@ -347,8 +347,12 @@ function failsTheCompletingAnswerWhenTheResultCannotBeKept() {
   );
 }
 
-/** A refusal routed inbound that cannot be kept fails the send as persistence-failed. */
-function failsASendWhoseInboundRefusalCannotBeKept() {
+/**
+ * A refusal routed inbound that cannot be kept fails the send with the
+ * refusal itself, rather than with a storage reason that says nothing of the
+ * operation.
+ */
+function failsASendWithItsRefusalWhenTheInboundCopyCannotBeKept() {
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(newObserved(), { emit: unkeptEmit });
@@ -360,7 +364,10 @@ function failsASendWhoseInboundRefusalCannotBeKept() {
         ),
       );
 
-      expect(failure).toMatchObject({ reason: "persistence-failed" });
+      expect(failure).toMatchObject({
+        _tag: "CollectiveError",
+        failure: { kind: "request-none" },
+      });
     }),
   );
 }
@@ -368,10 +375,11 @@ function failsASendWhoseInboundRefusalCannotBeKept() {
 /**
  * A gather whose last outcome arrives before its request sends return
  * completes when they settle; when that result cannot be kept, the send
- * fails as persistence-failed. Bob's post certifies at once and he declines;
- * Carol's post is refused later, inside the send's wait.
+ * still returns the operation and the request post that exists. Bob's post
+ * certifies at once and he declines; Carol's post is refused later, inside
+ * the send's wait.
  */
-function failsAGatherSendWhoseSettlingResultCannotBeKept() {
+function keepsAGatherSendWhoseSettlingResultCannotBeKept() {
   const observed = newObserved();
 
   return run(
@@ -389,9 +397,10 @@ function failsAGatherSendWhoseSettlingResultCannotBeKept() {
       );
       yield* TestClock.adjust(Duration.millis(500));
 
-      expect(yield* Effect.flip(Fiber.join(sending))).toEqual(
-        new SendError({ reason: "persistence-failed" }),
-      );
+      const outcome = yield* Fiber.join(sending);
+
+      expect(outcome.operationId).toBe(id);
+      expect(outcome.postIds).toHaveLength(1);
     }),
   );
 }
@@ -460,11 +469,11 @@ describe("emitted items the service cannot keep", () => {
     failsTheCompletingAnswerWhenTheResultCannotBeKept,
   );
   it(
-    "fails a send whose inbound refusal cannot be kept",
-    failsASendWhoseInboundRefusalCannotBeKept,
+    "fails a send with its refusal when the inbound copy cannot be kept",
+    failsASendWithItsRefusalWhenTheInboundCopyCannotBeKept,
   );
   it(
-    "fails a gather send whose settling result cannot be kept",
-    failsAGatherSendWhoseSettlingResultCannotBeKept,
+    "keeps a gather send's outcome when its settling result cannot be kept",
+    keepsAGatherSendWhoseSettlingResultCannotBeKept,
   );
 });

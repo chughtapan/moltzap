@@ -2947,21 +2947,18 @@ function refusingOutboxRows(store: EndpointStore): EndpointStore {
   };
 }
 
-/** The send failure a host reads as a storage fault. */
-const persistenceFailed: SendError["reason"] = "persistence-failed";
-
 /** The outbound failure that ends the loop on a storage fault. */
 const outboundPersistence: EngineOutboundError["reason"] = "persistence";
 
 /**
  * Every member's store refuses plain outbox rows, and the first one any
- * member needs is the author's GENESIS proposal. The send fails as
- * `persistence-failed`, the reason a host reads as a storage fault. Fails
- * when the refusal maps to another send reason or escapes the send as a
- * defect.
+ * member needs is the author's GENESIS proposal. The author bound the post's
+ * intent before that refusal, so the intent is proposed again later and the
+ * send fails as `delivery-pending`. Fails when the refusal reports the post
+ * as not sent, or escapes the send as a defect.
  * @returns The scenario, before its scope closes.
  */
-function failsASendWhoseProposalTheStoreRefuses(): Effect.Effect<
+function failsASendWhoseBoundProposalTheStoreRefuses(): Effect.Effect<
   void,
   never,
   Scope.Scope
@@ -2976,9 +2973,39 @@ function failsASendWhoseProposalTheStoreRefuses(): Effect.Effect<
       .send(yield* sendInput(harness, "refused proposal"))
       .pipe(Effect.flip, Effect.orDie);
 
-    expect(failure.reason, "the refused send's SendError reason").toBe(
-      persistenceFailed,
+    expect(failure).toStrictEqual(
+      new SendError({ reason: "delivery-pending" }),
     );
+  });
+}
+
+/**
+ * The author's store fails the intent bind itself with `reason`. A raw
+ * persistence failure can follow the bind's commit, so whether the intent is
+ * durable is unknown; a store refusal rolls the bind back, so nothing was
+ * queued. Fails when either reports the other's outcome.
+ * @param reason The store failure the bind meets.
+ * @param expected The send's failure for it.
+ * @returns The scenario, before its scope closes.
+ */
+function failsASendWhoseBindTheStoreFails(
+  reason: EndpointStoreError["reason"],
+  expected: SendError["reason"],
+): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness({
+      wrapStore: (store) => ({
+        ...store,
+        bindPostIntent: () => Effect.fail(new EndpointStoreError({ reason })),
+      }),
+    });
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+
+    const failure = yield* author
+      .send(yield* sendInput(harness, "unbound intent"))
+      .pipe(Effect.flip, Effect.orDie);
+
+    expect(failure).toStrictEqual(new SendError({ reason: expected }));
   });
 }
 
@@ -3055,10 +3082,21 @@ describe("engine faults while staging and sending", () => {
     TEST_TIMEOUT_MS,
   );
   it(
-    "fails a send as persistence-failed when the store refuses its proposal",
+    "fails a send as delivery-pending when the store refuses its bound proposal",
     () =>
       Effect.runPromise(
-        Effect.scoped(failsASendWhoseProposalTheStoreRefuses()),
+        Effect.scoped(failsASendWhoseBoundProposalTheStoreRefuses()),
+      ),
+    TEST_TIMEOUT_MS,
+  );
+  it.each([
+    ["persistence", "outcome-unknown"],
+    ["conflict", "persistence-failed"],
+  ] as const)(
+    "fails a send whose intent bind meets a %s store failure as %s",
+    (reason, expected) =>
+      Effect.runPromise(
+        Effect.scoped(failsASendWhoseBindTheStoreFails(reason, expected)),
       ),
     TEST_TIMEOUT_MS,
   );

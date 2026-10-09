@@ -357,7 +357,10 @@ under [operations](#operations) and returns its `operationId`.
 A host whose tool returns before the send runs passes
 `failureDelivery: "inbound"`. A refused gather, all_gather or response then completes,
 naming its operation, and its error arrives as an `operationFailed` item with
-the same text. A multicast has no operation id, so its failure is always
+the same text. When the daemon cannot keep that item, it stops on the storage
+failure and the send fails with the refusal itself. A result or item that
+cannot be kept never replaces a send's own outcome: a send whose posts exist
+still returns them. A multicast has no operation id, so its failure is always
 returned.
 
 Registration and daemon restart both admit sends before the daemon's Router
@@ -450,14 +453,17 @@ step knows it and states no remedy. A failed send was not sent, except
 create a second post:
 
 - `outcome-unknown` says the message may have been sent. The send ended
-  without a typed failure, interrupted or by a defect, or the host's request
-  failed or timed out after it may have reached the daemon. A request the
-  daemon cannot have acted on, such as one whose connection was refused,
+  without a typed failure, interrupted or by a defect, the store failed while
+  binding the post's intent in a way that can follow its commit, or the host's
+  request failed or timed out after it may have reached the daemon. A request
+  the daemon cannot have acted on, such as one whose connection was refused,
   fails as `network-unavailable`.
-- `delivery-pending` says the message is queued. The send durably queued its
-  post and its drain then timed out or failed. The daemon delivers the post
-  once the Router answers or, when that failure stopped the daemon, once it
-  restarts and resumes the post.
+- `delivery-pending` says the message is queued. The send durably bound its
+  post's intent, and a later step failed: queueing its proposal, or its drain,
+  which also fails as `delivery-pending` when it times out. The daemon
+  proposes a bound intent again when the conversation's head moves or after a
+  restart, and delivers a queued post once the Router answers or, when that
+  failure stopped the daemon, once it restarts and resumes the post.
 
 `ListenError.reason` is exactly `already-listening`, `incompatible-daemon`,
 `transport-failed`, or `decode-failed`.

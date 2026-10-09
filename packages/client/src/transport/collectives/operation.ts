@@ -96,7 +96,7 @@ import {
 } from "../wire/index.js";
 import {
   type CollectiveSendOutcome,
-  emitFailureAsSendError,
+  ignoreEmitFailure,
   refusedAs,
   type RefusedSend,
   reportFailure,
@@ -221,7 +221,9 @@ export interface CollectivePorts {
   ) => Effect.Effect<EngineSentPost, SendError>;
   /**
    * Queue an item the layer emits itself: a result or a failure. It fails
-   * when the item cannot be kept, which ends the work that emitted it.
+   * when the item cannot be kept, which ends the work that emitted it, after
+   * reporting the storage failure itself, as the daemon's port does by
+   * stopping.
    */
   readonly emit: (
     item: InboundItem,
@@ -603,9 +605,9 @@ function sleepUntil(at: number): Effect.Effect<void> {
  * send keeps running and settles its member when it completes: certified
  * asks it, refused makes it `no-answer`, as does pending at the deadline.
  * The send fails only when every post was refused and the gather has not
- * completed, so an operation ends in exactly one refusal or one result, or
- * as persistence-failed when the result its settling completes cannot be
- * kept.
+ * completed, so an operation ends in exactly one refusal or one result. A
+ * result its settling completes that cannot be kept leaves the send's
+ * outcome as it is, since its request posts exist.
  */
 function sendRequests(
   state: CollectiveState,
@@ -642,7 +644,7 @@ function sendRequests(
         }),
       );
     }
-    yield* emitFailureAsSendError(
+    yield* ignoreEmitFailure(
       updateGather(state, id, (settled) => {
         settled.requestsSettled = true;
       }),
@@ -855,19 +857,21 @@ function respond(
     yield* claimRequest(id, request).pipe(Effect.mapError(refused));
     const post = yield* state.ports.sendPost({ to: request.to, content }).pipe(
       Effect.tapBoth({
-        onFailure: () => settleAnswer(state, id, request, Option.none()),
+        onFailure: () =>
+          ignoreEmitFailure(settleAnswer(state, id, request, Option.none())),
         onSuccess: (sent) =>
-          settleAnswer(
-            state,
-            id,
-            request,
-            Option.some({ recordHash: sent.recordHash, response: value }),
+          ignoreEmitFailure(
+            settleAnswer(
+              state,
+              id,
+              request,
+              Option.some({ recordHash: sent.recordHash, response: value }),
+            ),
           ),
       }),
       Effect.onInterrupt(() =>
         Effect.ignore(settleAnswer(state, id, request, Option.none())),
       ),
-      emitFailureAsSendError,
       Effect.mapError(refused),
     );
     return { operationId: id, postIds: [post.postId] };

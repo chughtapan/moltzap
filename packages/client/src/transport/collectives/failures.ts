@@ -1,10 +1,10 @@
 /** @file How a collective send reports failure: a refused send, routed to its result or inbound, and an emitted item the service cannot keep. */
 
 import { Effect } from "effect";
+import type { SendError } from "../messaging/errors.js";
 import type { EngineSentPost } from "../messaging/index.js";
 import type { MessageAddressInput } from "../wire/values.js";
 import type { InboundItem } from "./inbound.js";
-import { SendError } from "../messaging/errors.js";
 import {
   CollectiveEmitError,
   type CollectiveError,
@@ -13,15 +13,22 @@ import {
   type SendResult,
 } from "./forms.js";
 
-/** Fail a send whose emitted item could not be kept as persistence-failed. */
-export function emitFailureAsSendError<A, E, R>(
-  effect: Effect.Effect<A, E | CollectiveEmitError, R>,
-): Effect.Effect<A, Exclude<E, CollectiveEmitError> | SendError, R> {
+/**
+ * Keep a send's own outcome when an item its work emitted cannot be kept. The
+ * send's posts may already exist, so the emit failure must not read as the
+ * send's failure, which tells a host its posts were not sent; the emit port
+ * has reported the storage failure itself, as the daemon's does by stopping.
+ * @param effect Work whose emitted item may not be kept.
+ * @returns The work, with an emit failure dropped.
+ */
+export function ignoreEmitFailure<E, R>(
+  effect: Effect.Effect<void, E | CollectiveEmitError, R>,
+): Effect.Effect<void, Exclude<E, CollectiveEmitError>, R> {
   return Effect.catchIf(
     effect,
     (error): error is CollectiveEmitError =>
       error instanceof CollectiveEmitError,
-    () => Effect.fail(new SendError({ reason: "persistence-failed" })),
+    () => Effect.void,
   );
 }
 
@@ -43,7 +50,8 @@ export interface RefusedSend<E> {
 /**
  * Deliver a refused collective send's error where the host wants it. With
  * `inbound` the send completes, naming the operation, and the error arrives
- * as an `operationFailed` item carrying the same text.
+ * as an `operationFailed` item carrying the same text. When that item cannot
+ * be kept, the send fails with the refusal itself, the outcome it had.
  */
 export function reportFailure(
   emit: (item: InboundItem) => Effect.Effect<void, CollectiveEmitError>,
@@ -65,8 +73,12 @@ export function reportFailure(
             to: refused.to,
             error: refused.error.message,
           }).pipe(
-            emitFailureAsSendError,
             Effect.as({ operationId: refused.id, postIds: [] }),
+            Effect.catchIf(
+              (error): error is CollectiveEmitError =>
+                error instanceof CollectiveEmitError,
+              () => Effect.fail(refused.error),
+            ),
           );
         default: {
           const exhaustive: never = failureDelivery;
