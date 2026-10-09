@@ -137,7 +137,8 @@ error whose data is `{reason, detail?}` with the `SendError` reason and
 detail, or
 `{reason: "collective-failed", id, failure}` with the `CollectiveError`
 failure, from which the loopback Client rebuilds the same typed error. A send
-that ends without a typed failure answers `outcome-unknown`. It is
+that ends without a typed failure, or whose completed result fails the tool's
+output schema, answers `outcome-unknown`. It is
 not exposed as a second model messaging tool when the host already supplies
 native messaging.
 
