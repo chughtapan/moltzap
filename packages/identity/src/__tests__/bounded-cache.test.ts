@@ -5,7 +5,7 @@ import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { makeBoundedCache } from "../bounded-cache.js";
 
-describe("makeBoundedCache", () => {
+describe("makeBoundedCache eviction", () => {
   it("drops the least recently used entry once past its capacity", () => {
     const cache = makeBoundedCache<string, number>(2);
     cache.set("a", 1);
@@ -29,16 +29,6 @@ describe("makeBoundedCache", () => {
     expect(cache.get("b")).toStrictEqual(Option.none());
   });
 
-  it("replaces a stored key's value without growing", () => {
-    const cache = makeBoundedCache<string, number>(2);
-    cache.set("a", 1);
-    // eslint-disable-next-line sonarjs/no-element-overwrite -- The test stores a second value under the same key on purpose.
-    cache.set("a", 2);
-
-    expect(cache.size()).toBe(1);
-    expect(cache.get("a")).toStrictEqual(Option.some(2));
-  });
-
   it("keeps an entry that was replaced while a newer entry arrives", () => {
     const cache = makeBoundedCache<string, number>(2);
     cache.set("a", 1);
@@ -49,13 +39,6 @@ describe("makeBoundedCache", () => {
 
     expect(cache.get("a")).toStrictEqual(Option.some(3));
     expect(cache.get("b")).toStrictEqual(Option.none());
-  });
-
-  it("holds an undefined value as present", () => {
-    const cache = makeBoundedCache<string, undefined>(1);
-    cache.set("a", undefined);
-
-    expect(cache.get("a")).toStrictEqual(Option.some(undefined));
   });
 
   it("never holds more entries than its capacity, whatever keys arrive", () => {
@@ -73,5 +56,24 @@ describe("makeBoundedCache", () => {
         },
       ),
     );
+  });
+});
+
+describe("makeBoundedCache values", () => {
+  it("replaces a stored key's value without growing", () => {
+    const cache = makeBoundedCache<string, number>(2);
+    cache.set("a", 1);
+    // eslint-disable-next-line sonarjs/no-element-overwrite -- The test stores a second value under the same key on purpose.
+    cache.set("a", 2);
+
+    expect(cache.size()).toBe(1);
+    expect(cache.get("a")).toStrictEqual(Option.some(2));
+  });
+
+  it("holds an undefined value as present", () => {
+    const cache = makeBoundedCache<string, undefined>(1);
+    cache.set("a", undefined);
+
+    expect(cache.get("a")).toStrictEqual(Option.some(undefined));
   });
 });
