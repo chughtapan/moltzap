@@ -68,6 +68,24 @@ const sendReasonByStoreReason = {
 >;
 
 /**
+ * Fail a send whose intent bind failed, reporting a raw persistence failure
+ * as a storage fault, since its intent may be durable but is not in
+ * `runtime.intents`, so only a restart proposes it.
+ * @param runtime The engine whose daemon hears of the fault.
+ * @param error The store's failure.
+ * @returns The send's failure.
+ */
+function failBind(
+  runtime: EngineRuntime,
+  error: EndpointStoreError,
+): Effect.Effect<never, SendError> {
+  return Effect.when(
+    runtime.input.reportStorageFault,
+    () => error.reason === "persistence",
+  ).pipe(Effect.zipRight(Effect.fail(bindFailure(error))));
+}
+
+/**
  * The failure of an intent bind that did not complete. A store refusal is
  * raised before the bind commits and rolls it back, so nothing was queued; a
  * raw persistence failure may come from the commit itself, so whether the
@@ -490,7 +508,7 @@ function bindPreparedIntent(
           kind: "existing-conversation",
           intent: storedIntent(prepared),
         })
-        .pipe(Effect.mapError(bindFailure));
+        .pipe(Effect.catchAll((error) => failBind(runtime, error)));
       return retained;
     }
     const created = yield* createConversation(runtime, prepared.membership);
@@ -500,7 +518,7 @@ function bindPreparedIntent(
         foundation: created.foundation,
         intent: storedIntent(prepared),
       })
-      .pipe(Effect.mapError(bindFailure));
+      .pipe(Effect.catchAll((error) => failBind(runtime, error)));
     yield* Effect.sync(() => {
       runtime.conversations.set(
         created.conversation.conversationId,
@@ -614,8 +632,24 @@ function activateBoundIntent(
       yield* proposeIntent(runtime, localIntent);
     }
     return { kind: "ready", completion } satisfies IntentActivation;
-  }).pipe(
-    // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- A bound intent is proposed again later, so every failure here is delivery-pending, as this function's JSDoc explains.
-    Effect.mapError(() => new SendError({ reason: "delivery-pending" })),
+  }).pipe(Effect.catchAll((error) => failBoundSend(runtime, error)));
+}
+
+/**
+ * Fail a send whose intent is bound as `delivery-pending`, reporting a store
+ * failure as a storage fault so that the daemon restarts and proposes it.
+ * @param runtime The engine whose daemon hears of the fault.
+ * @param error Why the bound send failed.
+ * @returns The send's failure.
+ */
+function failBoundSend(
+  runtime: EngineRuntime,
+  error: SendError,
+): Effect.Effect<never, SendError> {
+  return Effect.when(
+    runtime.input.reportStorageFault,
+    () => error.reason === "persistence-failed",
+  ).pipe(
+    Effect.zipRight(Effect.fail(new SendError({ reason: "delivery-pending" }))),
   );
 }

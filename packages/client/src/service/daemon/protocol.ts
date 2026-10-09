@@ -295,6 +295,10 @@ const acquireProtocolEngine = (
       store: environment.store,
       routerWorker: worker,
       actionPolicy: signStructurallyValidAction,
+      reportStorageFault: Deferred.fail(
+        environment.fatal,
+        runtimeFailure("storage"),
+      ).pipe(Effect.asVoid),
     })
     .pipe(
       Scope.extend(environment.daemonScope),
