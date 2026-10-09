@@ -3,6 +3,7 @@
 import type { RegistryLookupResult } from "@moltzap/identity/registry";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import { live as it } from "@effect/vitest";
 import {
   AgentCard,
   type AgentSigningAuthority,
@@ -26,10 +27,10 @@ import {
   type Scope,
   Stream,
   SubscriptionRef,
+  TestContext,
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect } from "vitest";
-import { it } from "@effect/vitest";
 import type { AddressRegistryPort } from "../address.js";
 import { advanceClock, untilLive } from "../../../__tests__/advance-clock.js";
 import {
@@ -283,6 +284,30 @@ const neverAttaches: WorkerAttachment = {
   currentAnchor: Effect.fail(new RouterWorkerUnavailableError()),
   awaitAnchor: Effect.never,
 };
+
+/**
+ * Start a member's engine again over its store, as the member does when it
+ * restarts.
+ * @param harness Registry and Router queue the engine uses.
+ * @param identity Member whose engine starts again.
+ * @param store Store the member's engine wrote before the restart.
+ * @returns The restarted engine, or the error its startup failed with.
+ */
+function restartMember(
+  harness: ProtocolHarness,
+  identity: ProtocolIdentity,
+  store: EndpointStore,
+) {
+  return makeEndpointEngine({
+    localAgentCard: identity.card,
+    signingAuthority: identity.authority,
+    registrySignerPublicKey: harness.registrySignerPublicKey,
+    registry: harness.registry,
+    store,
+    actionPolicy: signEveryAction,
+    routerWorker: scriptedRouterWorker(store, harness.outbound),
+  });
+}
 
 function scriptedRouterWorker(
   store: EndpointStore,
@@ -586,19 +611,6 @@ function decodeActionSignatureHash(
   );
 }
 
-function decodeDurabilityVoteRecordHash(
-  harness: Pick<ProtocolHarness, "identities">,
-  message: typeof SignedMessage.Type,
-): Effect.Effect<RecordHash> {
-  return decodeEvidenceStatement(harness, message).pipe(
-    Effect.flatMap((statement) =>
-      statement.kind === "durability_vote"
-        ? Effect.succeed(statement.recordHash)
-        : Effect.dieMessage("expected durability vote"),
-    ),
-  );
-}
-
 function decodeEvidenceStatement(
   harness: Pick<ProtocolHarness, "identities">,
   message: typeof SignedMessage.Type,
@@ -865,15 +877,7 @@ function restartOverPersistedDurabilityVote(
       .pipe(Effect.orDie);
     yield* Fiber.interrupt(sending);
 
-    return yield* makeEndpointEngine({
-      localAgentCard: author.card,
-      signingAuthority: author.authority,
-      registrySignerPublicKey: harness.registrySignerPublicKey,
-      registry: harness.registry,
-      store: authorStore,
-      actionPolicy: signEveryAction,
-      routerWorker: scriptedRouterWorker(authorStore, harness.outbound),
-    }).pipe(
+    return yield* restartMember(harness, author, authorStore).pipe(
       Effect.match({
         onFailure: (error) => error,
         onSuccess: () => "started" as const,
@@ -959,15 +963,11 @@ function adoptsAnActionCertificateOverItsOwnLock() {
       ]);
 
       yield* takeQueued(harness);
-      const restarted = yield* makeEndpointEngine({
-        localAgentCard: laggingIdentity.card,
-        signingAuthority: laggingIdentity.authority,
-        registrySignerPublicKey: harness.registrySignerPublicKey,
-        registry: harness.registry,
-        store: laggingStore,
-        actionPolicy: signEveryAction,
-        routerWorker: scriptedRouterWorker(laggingStore, harness.outbound),
-      }).pipe(Effect.orDie);
+      const restarted = yield* restartMember(
+        harness,
+        laggingIdentity,
+        laggingStore,
+      ).pipe(Effect.orDie);
       yield* restarted.drainOutbound.pipe(Effect.orDie);
       const resent = yield* messagesOfKind(
         harness,
@@ -1143,15 +1143,11 @@ function restartSignsNoVoteForARecordAcceptedWhole() {
       yield* harness.drain([3]);
       yield* takeQueued(harness);
 
-      const restarted = yield* makeEndpointEngine({
-        localAgentCard: absentIdentity.card,
-        signingAuthority: absentIdentity.authority,
-        registrySignerPublicKey: harness.registrySignerPublicKey,
-        registry: harness.registry,
-        store: absentStore,
-        actionPolicy: signEveryAction,
-        routerWorker: scriptedRouterWorker(absentStore, harness.outbound),
-      }).pipe(Effect.orDie);
+      const restarted = yield* restartMember(
+        harness,
+        absentIdentity,
+        absentStore,
+      ).pipe(Effect.orDie);
       yield* restarted.drainOutbound.pipe(Effect.orDie);
       const resentVotes = yield* sentOfKind(
         harness,
@@ -1159,14 +1155,16 @@ function restartSignsNoVoteForARecordAcceptedWhole() {
         absentIdentity,
         "durability_vote",
       );
-      const votedRecordHashes = yield* Effect.forEach(
+      const resentStatements = yield* Effect.forEach(
         resentVotes,
-        (message) => decodeDurabilityVoteRecordHash(harness, message),
+        (message) => decodeEvidenceStatement(harness, message),
         { concurrency: 1 },
       );
 
       expect(accepted).toEqual(["accepted"]);
-      expect(votedRecordHashes).toEqual([genesisRecordHash]);
+      expect(resentStatements).toMatchObject([
+        { recordHash: genesisRecordHash },
+      ]);
     }),
   );
 }
@@ -2082,72 +2080,72 @@ function reappendedOuterMessagesYieldOnePost() {
 }
 
 describe("fixed-post endpoint protocol", () => {
-  it.live.each([2, 4])(
+  it.each([2, 4])(
     "seals every outer body of a %i-member post to its members, each of which opens it",
     sealsEveryOuterBodyOfAPost,
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "sends 2 + 3n outer messages for one N4 post: its head's certified record and no copy of its own",
     sendsTwoPlusThreeNMessagesPerPost,
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "certifies from the action-certified copies a post whose signatures a member missed, sending its own copy first",
     certifiesFromActionCertifiedCopiesAfterMissingTheSignatures,
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "certifies a post past a durability vote a faulty member sealed away from one member",
     certifiesPastAVoteSealedAwayFromOneMember,
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "adopts an action certificate over its own lock at the same head",
     adoptsAnActionCertificateOverItsOwnLock,
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "adopts a certified record over its own lock at the same head",
     adoptsACertifiedRecordOverItsOwnLock,
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "signs no durability vote on restart for a record it accepted already certified",
     restartSignsNoVoteForARecordAcceptedWhole,
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "signs nothing for an adopted action when its record's acceptance stops",
     signsNothingForAnAdoptedActionWhenAcceptanceStops,
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "refuses a second action certificate over an action it staged",
     refusesASecondCertificateOverAStagedAction,
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "returns the hash of the send's locally stored certified record",
     sendReturnsTheStoredCertifiedRecordHash,
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "reads a pending delivery with the hash of its certified record",
     pendingDeliveryCarriesTheCertifiedRecordHash,
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "mints a distinct PostId for each identical host invocation",
     givesIdenticalHostInvocationsDistinctPostIds,
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "certifies an author-inclusive N4 POST only after an independent durability quorum",
     certifiesOrdinaryN4Post,
     TEST_TIMEOUT_MS,
   );
-  it.live.each([
+  it.each([
     {
       outcome: "fails to restart as persistence",
       binding: "another conversation",
@@ -2204,7 +2202,7 @@ describe("fixed-post endpoint protocol", () => {
       ),
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "creates no action vote before ordering concurrent authors",
     () =>
       ordersCompetingProposalsBeforeActionVotes({
@@ -2213,7 +2211,7 @@ describe("fixed-post endpoint protocol", () => {
       }),
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "creates no action vote before ordering concurrent sends by one author",
     () =>
       ordersCompetingProposalsBeforeActionVotes({
@@ -2222,12 +2220,12 @@ describe("fixed-post endpoint protocol", () => {
       }),
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "retains a durably bound send when its caller is interrupted",
     retainsInterruptedDurableSend,
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "holds one post when Router appends its outer messages twice",
     reappendedOuterMessagesYieldOnePost,
     TEST_TIMEOUT_MS,
@@ -2320,21 +2318,21 @@ function attachmentWaitLeavesTheEngineGateFree(): Effect.Effect<
 }
 
 describe("engine sends and Router-worker attachment", () => {
-  it.scoped(
+  it(
     "holds a send issued before the worker attaches and completes it on attachment",
-    sendHeldUntilAttached,
+    () => onTestClock(sendHeldUntilAttached()),
     TEST_TIMEOUT_MS,
   );
 
-  it.scoped(
+  it(
     "fails a send as network-unavailable once the attachment bound elapses",
-    sendFailsAfterAttachBound,
+    () => onTestClock(sendFailsAfterAttachBound()),
     TEST_TIMEOUT_MS,
   );
 
-  it.scoped(
+  it(
     "waits for attachment without holding the engine gate recovery needs",
-    attachmentWaitLeavesTheEngineGateFree,
+    () => onTestClock(attachmentWaitLeavesTheEngineGateFree()),
     TEST_TIMEOUT_MS,
   );
 });
@@ -2770,52 +2768,70 @@ function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
   });
 }
 
+/**
+ * A scoped scenario on the TestClock, so backoff and timeouts pass in virtual
+ * time.
+ * @param scenario Scoped scenario to run.
+ * @returns The scenario with its scope closed and test services provided.
+ */
+function onTestClock(
+  scenario: Effect.Effect<void, never, Scope.Scope>,
+): Effect.Effect<void> {
+  return Effect.scoped(scenario).pipe(Effect.provide(TestContext.TestContext));
+}
+
 describe("a local send during a Router outage", () => {
-  it.scoped(
+  it(
     "fails at once saying the post is queued and delivers it after re-attachment",
-    localSendDuringOutage,
+    () => onTestClock(localSendDuringOutage()),
     TEST_TIMEOUT_MS,
   );
-  it.scoped(
+  it(
     "sends each outbox row once while the local and background drains race",
-    concurrentDrainsSendEachOutboxOnce,
+    () => onTestClock(concurrentDrainsSendEachOutboxOnce()),
     TEST_TIMEOUT_MS,
   );
-  it.scoped(
+  it(
     "bounds a black-holed transmit and delivers its envelope exactly once",
-    blackHoledTransmitBoundsTheSend,
+    () => onTestClock(blackHoledTransmitBoundsTheSend()),
     TEST_TIMEOUT_MS,
   );
 });
 
 describe("outbound loop under a transient Router worker state", () => {
-  it.scoped(
+  it(
     "keeps the outbound loop alive when the worker reports unavailable mid-drain",
     () =>
-      transientTransmitFailureLeavesOutboundLoopAlive(
-        new RouterWorkerUnavailableError(),
+      onTestClock(
+        transientTransmitFailureLeavesOutboundLoopAlive(
+          new RouterWorkerUnavailableError(),
+        ),
       ),
     TEST_TIMEOUT_MS,
   );
-  it.scoped(
+  it(
     "keeps the outbound loop alive when a transmit observes a Router restart",
     () =>
-      transientTransmitFailureLeavesOutboundLoopAlive(
-        new RouterWorkerDiscontinuityError(),
+      onTestClock(
+        transientTransmitFailureLeavesOutboundLoopAlive(
+          new RouterWorkerDiscontinuityError(),
+        ),
       ),
     TEST_TIMEOUT_MS,
   );
-  it.scoped(
+  it(
     "keeps the outbound loop alive when the Router transport drops mid-drain",
     () =>
-      transientTransmitFailureLeavesOutboundLoopAlive(
-        new RouterWorkerTransportError(),
+      onTestClock(
+        transientTransmitFailureLeavesOutboundLoopAlive(
+          new RouterWorkerTransportError(),
+        ),
       ),
     TEST_TIMEOUT_MS,
   );
-  it.scoped(
+  it(
     "keeps a cold-started outbound loop alive with a pending outbound row",
-    coldStartWithPendingOutboundLeavesOutboundLoopAlive,
+    () => onTestClock(coldStartWithPendingOutboundLeavesOutboundLoopAlive()),
     TEST_TIMEOUT_MS,
   );
 });
@@ -3056,24 +3072,24 @@ function failedRecoveryFailsASendAsUnqueued(): Effect.Effect<
 }
 
 describe("engine faults while staging and sending", () => {
-  it.live(
+  it(
     "keeps a staged record's copy and fold together when its acceptance is interrupted",
     takesAVoteAfterItsStagingWasInterrupted,
     TEST_TIMEOUT_MS,
   );
-  it.live(
+  it(
     "fails a send as persistence-failed when the store refuses its proposal",
     () => Effect.scoped(failsASendWhoseProposalTheStoreRefuses()),
     TEST_TIMEOUT_MS,
   );
-  it.scoped(
+  it(
     "ends the outbound loop with a persistence failure the worker cannot retry",
-    persistenceFailureEndsTheOutboundLoop,
+    () => onTestClock(persistenceFailureEndsTheOutboundLoop()),
     TEST_TIMEOUT_MS,
   );
-  it.scoped(
+  it(
     "fails a send without the queued text when the worker's recovery failed",
-    failedRecoveryFailsASendAsUnqueued,
+    () => onTestClock(failedRecoveryFailsASendAsUnqueued()),
     TEST_TIMEOUT_MS,
   );
 });

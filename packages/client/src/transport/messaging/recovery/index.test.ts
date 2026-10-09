@@ -3,6 +3,7 @@
 import type { RegistryLookupResult } from "@moltzap/identity/registry";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import { live as it } from "@effect/vitest";
 import {
   AgentCard,
   Ed25519PublicKey,
@@ -29,7 +30,6 @@ import {
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, vi } from "vitest";
-import { it } from "@effect/vitest";
 import type { AddressRegistryPort } from "../address.js";
 import {
   digest,
@@ -3934,31 +3934,31 @@ const retiresAStagedSuccessorWhenAReanchorSelectsItsHead = (
 
 // @agent-code-guard/regression-only: these traces pin restart liveness and fail-closed ancestry handling.
 describe("endpoint restart recovery", () => {
-  it.live(
+  it(
     "starts its recovery run while a normal send is held",
     recoverWhileNormalSendIsHeld,
   );
-  it.live(
+  it(
     "recovers certificates when encoded and canonical AgentId orders differ",
     restartWithNonLexicalAgentOrder,
   );
-  it.live(
+  it(
     "refuses to start when an action evidence row is filed under another signer",
     refusesMisattributedEvidenceAtStartup,
   );
-  it.live(
+  it(
     "refuses to start when the genesis anchor row selects a record",
     refusesGenesisAnchorSelectingRecordAtStartup,
   );
-  it.live(
+  it(
     "answers a peer's catch-up request from genesis with its retained record",
     answersGenesisCatchUpWithRetainedRecord,
   );
-  it.live(
+  it(
     "re-anchors with a certificate in canonical order when encoded and canonical AgentId orders differ",
     reanchorsWithNonLexicalAgentOrder,
   );
-  it.live.each([
+  it.each([
     {
       outcome: "restarts",
       rows: "only the rows the endpoint wrote",
@@ -4020,106 +4020,93 @@ describe("endpoint restart recovery", () => {
       }),
     ),
   );
-  it.live(
+  it(
     "waits for the complete N4 successor before re-anchoring its latest head",
     recoversN4PartiallyDisseminatedSuccessor,
   );
-  it.live(
+  it(
     "does not re-anchor behind a staged N4 successor when every peer reports incomplete",
     blocksN4ReanchorBehindStagedSuccessor,
   );
-  it.live(
-    "retires a staged N4 successor when a caught-up re-anchor selects its head",
-    () => retiresAStagedSuccessorWhenAReanchorSelectsItsHead("catch-up"),
-  );
-  it.live(
-    "retires a staged N4 successor when a relayed re-anchor selects its head",
-    () => retiresAStagedSuccessorWhenAReanchorSelectsItsHead("relay"),
-  );
-  it.live(
+  it("retires a staged N4 successor when a caught-up re-anchor selects its head", () =>
+    retiresAStagedSuccessorWhenAReanchorSelectsItsHead("catch-up"));
+  it("retires a staged N4 successor when a relayed re-anchor selects its head", () =>
+    retiresAStagedSuccessorWhenAReanchorSelectsItsHead("relay"));
+  it(
     "rebroadcasts a persisted local vote after an interrupted send",
     rebroadcastsPersistedLocalVote,
   );
-  it.live(
+  it(
     "rebroadcasts a persisted completed re-anchor after an interrupted send",
     rebroadcastsPersistedCompletedReanchor,
   );
-  it.live(
+  it(
     "re-anchors, requeues retained evidence, and resumes normal sends",
     completeRestartRecovery,
   );
-  it.live(
+  it(
     "discards an old-instance POST and reproposes the same PostId at the new anchor",
     reproposesPendingPostAfterRestart,
   );
-  it.live(
-    "certifies a post at a head a proposal locked before the conversation re-anchored there",
-    () => certifiesAtALockedHeadAfterReanchoring(reanchorByVote),
-  );
-  it.live(
-    "certifies a post at a head a proposal locked before a caught-up re-anchor there",
-    () => certifiesAtALockedHeadAfterReanchoring(reanchorByCatchUp),
-  );
-  it.live(
-    "certifies a post at a head where it staged a record before a caught-up re-anchor there",
-    () => certifiesAtALockedHeadAfterReanchoring(reanchorByCatchUp, "staged"),
-  );
-  it.live(
+  it("certifies a post at a head a proposal locked before the conversation re-anchored there", () =>
+    certifiesAtALockedHeadAfterReanchoring(reanchorByVote));
+  it("certifies a post at a head a proposal locked before a caught-up re-anchor there", () =>
+    certifiesAtALockedHeadAfterReanchoring(reanchorByCatchUp));
+  it("certifies a post at a head where it staged a record before a caught-up re-anchor there", () =>
+    certifiesAtALockedHeadAfterReanchoring(reanchorByCatchUp, "staged"));
+  it(
     "restarts an empty foundation at the new Router instance",
     restartEmptyConversation,
   );
-  it.live("resumes a same-instance persisted intent without reproposing", () =>
-    recoverSameRouterInstance("feed_gap"),
-  );
-  it.live(
-    "preserves retained envelope bytes when startup finds the same Router",
-    () => recoverSameRouterInstance("router_restarted"),
-  );
-  it.live(
+  it("resumes a same-instance persisted intent without reproposing", () =>
+    recoverSameRouterInstance("feed_gap"));
+  it("preserves retained envelope bytes when startup finds the same Router", () =>
+    recoverSameRouterInstance("router_restarted"));
+  it(
     "catches up without re-anchoring when a cold start finds the anchored Router instance",
     recoverColdStartAtUnchangedInstance,
   );
-  it.live(
+  it(
     "re-anchors only the conversation anchored to another Router instance",
     recoverMixedRouterInstances,
   );
-  it.live(
+  it(
     "starts its recovery run while an outbound drain waits on the worker",
     recoverWhileDrainAwaitsWorker,
   );
-  it.live(
+  it(
     "rebuilds one discarded record dissemination without duplication",
     recoverDisseminationObligations,
   );
-  it.live(
+  it(
     "ignores a re-anchor vote during a feed_gap recovery",
     ignoresReanchorVoteDuringFeedGapRecovery,
   );
-  it.live(
+  it(
     "ignores a re-anchor vote that arrives after recovery completes",
     ignoresReanchorVoteAfterRecovery,
   );
-  it.live(
+  it(
     "ignores a relayed completed re-anchor for a conversation already anchored at the new Router",
     ignoresRelayedCompletionForAnchoredConversation,
   );
-  it.live(
+  it(
     "adopts a relayed completed re-anchor for a conversation it is re-anchoring",
     adoptsRelayedCompletionForReanchoringConversation,
   );
-  it.live(
+  it(
     "ignores a re-anchor vote whose anchor hash its body does not hash to",
     ignoresReanchorVoteWithMismatchedAnchorHash,
   );
-  it.live(
+  it(
     "ignores a re-anchor vote whose envelope is addressed beyond its members",
     ignoresReanchorVoteAddressedBeyondItsMembers,
   );
-  it.live(
+  it(
     "ignores a re-anchor vote whose evidence an agent outside the conversation signed",
     ignoresReanchorVoteWhoseEvidenceSignerIsNotAMember,
   );
-  it.live(
+  it(
     "replays a peer's re-anchor vote held from before its catch-up completed",
     replaysPeerVoteHeldBeforeCatchUpCompletes,
   );
@@ -4127,15 +4114,15 @@ describe("endpoint restart recovery", () => {
 
 // @agent-code-guard/regression-only: these traces pin outbound drain order and gate release.
 describe("endpoint outbound drain", () => {
-  it.live(
+  it(
     "sends each queued envelope once, in order, across concurrent drains",
     concurrentDrainsSendOnceInOrder,
   );
-  it.live(
+  it(
     "keeps a later head when another drain removed the one it sent",
     staleDrainKeepsLaterHead,
   );
-  it.live(
+  it(
     "completes Router recovery that runs on the draining fiber",
     drainRecoversRouterRestartOnItsOwnFiber,
   );
@@ -5302,71 +5289,67 @@ const ignoresReanchorVoteAfterTheConversationReanchored = () =>
 
 // @agent-code-guard/regression-only: these traces pin that input from a peer never ends a recovery run.
 describe("peer input during recovery", () => {
-  it.live(
+  it(
     "ignores a GENESIS whose membership holds a card another Registry issued",
     ignoresGenesisWithACardAnotherRegistryIssued,
   );
-  it.live(
+  it(
     "ignores a POST for a conversation it does not hold, and certifies it after its GENESIS",
     ignoresAPostForAConversationItDoesNotHold,
   );
-  it.live(
+  it(
     "ignores a re-anchor vote whose previous anchor this endpoint cannot resolve",
     ignoresReanchorVoteFromUnknownPreviousAnchor,
   );
-  it.live(
+  it(
     "ignores a re-anchor vote for an unknown head once a candidate is staged",
     ignoresReanchorVoteForUnknownHeadOnceStaged,
   );
-  it.live(
+  it(
     "re-anchors at its own head past a held vote for a head catch-up never supplied",
     reanchorsPastHeldVoteForUnsuppliedHead,
   );
-  it.live(
+  it(
     "ignores a re-anchor vote for a conversation restarted empty",
     ignoresReanchorVoteForRestartedEmptyConversation,
   );
-  it.live(
+  it(
     "ignores a relayed completed re-anchor for a conversation restarted empty",
     ignoresRelayedCompletionForRestartedEmptyConversation,
   );
-  it.live(
+  it(
     "ignores a catch-up page whose successor conflicts with one already applied",
     ignoresCatchUpPageWithConflictingSuccessor,
   );
-  it.live(
+  it(
     "ignores a catch-up page whose record does not extend the conversation",
     ignoresCatchUpPageWhoseRecordDoesNotExtendTheConversation,
   );
-  it.live(
+  it(
     "accepts a certified record delivered before the recovery run starts",
     acceptsCertifiedRecordBeforeTheRunStarts,
   );
-  it.live(
+  it(
     "ignores a re-anchor vote at a head past the staged candidate",
     ignoresReanchorVotePastTheStagedCandidate,
   );
-  it.live(
+  it(
     "keeps one candidate after a certified successor moves the head past it",
     keepsOneCandidateAfterTheHeadMovesPastIt,
   );
-  it.live(
+  it(
     "ignores a re-anchor vote that conflicts with a stored copy of the same vote",
     ignoresReanchorVoteConflictingWithAStoredCopy,
   );
-  it.live(
-    "adopts a caught-up re-anchor that supersedes its staged candidate",
-    () => adoptsCompletionSupersedingTheStagedCandidate("catch-up"),
-  );
-  it.live(
-    "adopts a relayed re-anchor that supersedes its staged candidate",
-    () => adoptsCompletionSupersedingTheStagedCandidate("relay"),
-  );
-  it.live(
+  it("adopts a caught-up re-anchor that supersedes its staged candidate", () =>
+    adoptsCompletionSupersedingTheStagedCandidate("catch-up"));
+  it("adopts a relayed re-anchor that supersedes its staged candidate", () =>
+    adoptsCompletionSupersedingTheStagedCandidate("relay"));
+  it(
     "accepts the GENESIS of a conversation created during recovery",
     acceptsGenesisOfAConversationCreatedDuringRecovery,
   );
-  it.live(
+  it(
     "ignores a re-anchor vote once its conversation has re-anchored",
     ignoresReanchorVoteAfterTheConversationReanchored,
   );
@@ -6439,7 +6422,7 @@ const backsOffCatchUpRetriesAndStops = () =>
       );
       expect(afterLastRetry).toBe(0);
     }),
-  );
+  ).pipe(Effect.provide(TestContext.TestContext));
 
 /**
  * A conversation's catch-up retries run out while its member is silent. The
@@ -6518,7 +6501,7 @@ const rearmsCatchUpAfterRetriesRunOut = () =>
         fixture.membership.descriptor.conversationId,
       );
     }),
-  );
+  ).pipe(Effect.provide(TestContext.TestContext));
 
 /**
  * The endpoint's post in the N4 conversation is proposed at the certified
@@ -6704,7 +6687,7 @@ const stopsCatchUpRetriesOnceRecovered = () =>
       );
       expect(yield* Queue.size(outbound)).toBe(0);
     }),
-  );
+  ).pipe(Effect.provide(TestContext.TestContext));
 
 /**
  * A conversation's catch-up retries run out while its member is silent, and
@@ -6764,7 +6747,7 @@ const rearmsCatchUpOnTheNextRecoveryRun = () =>
         fixture.membership.descriptor.conversationId,
       );
     }),
-  );
+  ).pipe(Effect.provide(TestContext.TestContext));
 
 /**
  * A conversation's catch-up retries run out while its member is silent, and
@@ -6819,7 +6802,7 @@ const rearmsCatchUpOnALocalSend = () =>
       );
       yield* Fiber.interrupt(sending);
     }),
-  );
+  ).pipe(Effect.provide(TestContext.TestContext));
 
 /**
  * Both of the endpoint's conversations exhaust their catch-up retries while
@@ -6863,91 +6846,91 @@ const rearmsEveryPausedConversationOnReattach = () =>
         ]),
       );
     }),
-  );
+  ).pipe(Effect.provide(TestContext.TestContext));
 
 // @agent-code-guard/regression-only: these traces pin the catch-up and re-anchor work a recovery run routes between its phases and its store.
 describe("catch-up and re-anchor inside a recovery run", () => {
-  it.live(
+  it(
     "sends a recovered conversation's post while another waits on a silent member, and the held post once that one recovers",
     recoversOneConversationWhileAnotherWaitsOnASilentMember,
   );
-  it.effect(
+  it(
     "backs off catch-up retries exponentially and stops after the last attempt",
     backsOffCatchUpRetriesAndStops,
   );
-  it.effect(
+  it(
     "arms catch-up again when a member's catch-up request arrives after its retries ran out",
     rearmsCatchUpAfterRetriesRunOut,
   );
-  it.effect(
+  it(
     "arms catch-up again on the next recovery run after its retries ran out",
     rearmsCatchUpOnTheNextRecoveryRun,
   );
-  it.effect(
+  it(
     "arms catch-up again on a local send after its retries ran out",
     rearmsCatchUpOnALocalSend,
   );
-  it.effect(
+  it(
     "arms catch-up again for every paused conversation when the Router worker reattaches",
     rearmsEveryPausedConversationOnReattach,
   );
-  it.live(
+  it(
     "proposes a pending post only once its conversation recovers, at the head it settles on",
     proposesPendingPostsOnlyOnceItsConversationRecovers,
   );
-  it.live(
+  it(
     "finishes recovering a conversation whose completing delivery is interrupted",
     finishesRecoveryWhenItsDeliveryIsInterrupted,
   );
-  it.effect(
+  it(
     "stops catch-up retries once the conversation recovers",
     stopsCatchUpRetriesOnceRecovered,
   );
-  it.live(
+  it(
     "answers a catch-up request with its first certified record",
     answersCatchUpRequestWithItsFirstCertifiedRecord,
   );
-  it.live(
+  it(
     "answers a catch-up request during its own recovery",
     answersCatchUpRequestDuringItsOwnRecovery,
   );
-  it.live(
+  it(
     "answers a catch-up request that arrives before its run starts",
     answersCatchUpRequestBeforeItsRunStarts,
   );
-  it.live(
+  it(
     "completes when both members of a direct conversation recover from a Router restart at once",
     twoMembersRecoverTogetherAfterARouterRestart,
   );
-  it.live(
+  it(
     "asks for catch-up again when a member votes for a head it lacks",
     requestsCatchUpForAVoteAtAnUnknownHead,
   );
-  it.live(
+  it(
     "adopts a re-anchor members completed while it was down",
     adoptsReanchorCompletedWhileItWasDown,
   );
-  it.live(
+  it(
     "fails when the store fails while persisting a member's vote",
     failsWhenTheStoreFailsWhilePersistingAPeerVote,
   );
-  it.live(
+  it(
     "fails when the store fails while applying a caught-up re-anchor",
     failsWhenTheStoreFailsWhileApplyingACaughtUpReanchor,
   );
-  it.live(
+  it(
     "proposes nothing once a new recovery replaces its run",
     proposesNothingOnceItsRunHasEnded,
   );
-  it.live(
+  it(
     "fails when the store refuses its own fresh re-anchor vote",
     failsWhenTheStoreRefusesItsOwnFreshVote,
   );
-  it.live(
+  it(
     "ignores catch-up requests for another requester, another membership, or itself",
     ignoresCatchUpRequestsItMustNotAnswer,
   );
-  it.live(
+  it(
     "answers catch-up through a stored completed re-anchor",
     answersCatchUpThroughAStoredCompletedReanchor,
   );
@@ -7861,7 +7844,7 @@ const neverSettlesBehindASuccessorAfterAFeedGap = () =>
       expect(certified.head).toBe(recordHash);
       yield* Fiber.interrupt(sending);
     }),
-  );
+  ).pipe(Effect.provide(TestContext.TestContext));
 
 /**
  * After one Router restart with nothing in flight and one N4 member offline,
@@ -8129,7 +8112,7 @@ const settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut = () =>
       expect(whileRetrying).toEqual([]);
       expect(settled).toEqual([recordHash]);
     }),
-  );
+  ).pipe(Effect.provide(TestContext.TestContext));
 
 /**
  * Starts a recovery of the N4 engine at the new Router instance and has it
@@ -8524,94 +8507,87 @@ const answersIncompleteWithoutItsVoteForTheDeliveringInstance = () =>
   );
 
 describe("staged successors in recovery", () => {
-  it.live(
+  it(
     "certifies a post one direct member staged before the restart, and re-anchors at it",
     certifiesAPostOneDirectMemberStagedBeforeTheRestart,
   );
-  it.live(
+  it(
     "certifies a staged successor on the vote a member sends again, after answering with it",
     certifiesAStagedSuccessorOnAVoteAMemberSendsAgain,
   );
-  it.live(
+  it(
     "sends its staged successor again instead of voting at the head it extends",
     resendsItsStagedSuccessorInsteadOfVotingAtItsHead,
   );
-  it.live(
+  it(
     "converts to a three-member successor on one holder's vote",
     convertsToAThreeMemberSuccessorOnOneVote,
   );
-  it.live(
+  it(
     "votes at the head over an N4 successor only its author staged",
     votesAtTheHeadOverASuccessorOnlyItsAuthorStaged,
   );
-  it.live("converts on two N4 holders' votes", () =>
-    convertsOnTwoN4HoldersUnlessItLeftTheAnchor("none"),
-  );
-  it.live(
-    "refuses to convert after staging a re-anchor candidate at the head",
-    () => convertsOnTwoN4HoldersUnlessItLeftTheAnchor("candidate"),
-  );
-  it.live(
+  it("converts on two N4 holders' votes", () =>
+    convertsOnTwoN4HoldersUnlessItLeftTheAnchor("none"));
+  it("refuses to convert after staging a re-anchor candidate at the head", () =>
+    convertsOnTwoN4HoldersUnlessItLeftTheAnchor("candidate"));
+  it(
     "converts to a seven-member successor only above the fault bound",
     convertsToASevenMemberSuccessorAboveTheFaultBound,
   );
-  it.live(
+  it(
     "stages a successor on its record alone after a feed gap",
     stagesASuccessorOnItsRecordAloneAfterAFeedGap,
   );
-  it.live(
+  it(
     "answers with the successor it staged instead of incomplete during a re-anchor",
     answersWithTheSuccessorItStagedInsteadOfIncomplete,
   );
-  it.live(
+  it(
     "stages no candidate at the head while a holder answers with its successor",
     waitsBehindASuccessorAHolderAnswersWith,
   );
-  it.effect(
+  it(
     "never settles behind a successor a holder answers with after a feed gap",
     neverSettlesBehindASuccessorAfterAFeedGap,
   );
-  it.live(
+  it(
     "settles on a quorum at once with no earlier re-anchor vote",
     settlesOnAQuorumWithNoEarlierReanchor,
   );
-  it.live(
-    "waits behind its own earlier-instance re-anchor vote and adopts that re-anchor",
-    () => waitsBehindAnEarlierInstanceReanchor("own"),
-  );
-  it.live(
-    "waits behind a member's earlier-instance re-anchor vote and adopts that re-anchor",
-    () => waitsBehindAnEarlierInstanceReanchor("member"),
-  );
-  it.live(
+  it("waits behind its own earlier-instance re-anchor vote and adopts that re-anchor", () =>
+    waitsBehindAnEarlierInstanceReanchor("own"));
+  it("waits behind a member's earlier-instance re-anchor vote and adopts that re-anchor", () =>
+    waitsBehindAnEarlierInstanceReanchor("member"));
+  it(
     "settles past an earlier-instance vote whose anchor hash names another re-anchor",
     settlesPastAnEarlierInstanceVoteForAnotherAnchor,
   );
-  it.live(
+  it(
     "answers incomplete with its earlier-instance re-anchor vote",
     answersIncompleteWithItsEarlierInstanceVote,
   );
-  it.live(
+  it(
     "answers incomplete without its vote for the Router instance that delivers the request",
     answersIncompleteWithoutItsVoteForTheDeliveringInstance,
   );
-  it.live(
+  it(
     "keeps an earlier-instance wait across an identical catch-up retry",
     keepsAnEarlierInstanceWaitAcrossAnIdenticalRetry,
   );
-  it.effect(
+  it(
     "settles behind an earlier-instance re-anchor vote once its retries run out",
     settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut,
   );
-  it.live(
+  it(
     "converts under a new anchor past a successor from the anchor it left",
     convertsUnderTheNewAnchorPastASuccessorFromTheOldOne,
   );
-  it.live(
+  it(
     "converts at a head catch-up moved past what it held",
     convertsAtAHeadCatchUpMovedPastItsHold,
   );
-  it.live(
+  it(
     "converts under an adopted anchor after a refused conversion at the same head",
     convertsUnderAnAdoptedAnchorAfterARefusedConversion,
   );
@@ -8834,19 +8810,15 @@ const sendsAnUnattachedObligationsCopyAfterAColdStart = () =>
   );
 
 describe("evidence and outbox rows an engine resumes", () => {
-  it.live(
-    "sends its signature for a proposal it signed again after a Router restart recovery",
-    () => resendsItsSignatureForAHeldProposal("router_restarted", 1),
-  );
-  it.live(
-    "sends no second signature for a proposal it signed after a feed-gap recovery",
-    () => resendsItsSignatureForAHeldProposal("feed_gap", 0),
-  );
-  it.live(
+  it("sends its signature for a proposal it signed again after a Router restart recovery", () =>
+    resendsItsSignatureForAHeldProposal("router_restarted", 1));
+  it("sends no second signature for a proposal it signed after a feed-gap recovery", () =>
+    resendsItsSignatureForAHeldProposal("feed_gap", 0));
+  it(
     "sends an outbox row the store retained once a restarted engine's loop runs",
     sendsARetainedOutboxRowAfterAColdStart,
   );
-  it.live(
+  it(
     "queues the copy an unattached dissemination obligation owes when an engine starts",
     sendsAnUnattachedObligationsCopyAfterAColdStart,
   );
