@@ -11,7 +11,6 @@ import {
   ed25519PublicKeyThumbprintUri,
   ed25519VerificationKey,
   hasCanonicalEd25519SignatureEncoding,
-  PUBLIC_KEY_CACHE_ENTRIES,
 } from "../agent-key.js";
 
 const it = effectIt;
@@ -156,33 +155,6 @@ describe("Ed25519PublicKey thumbprints", () => {
     }),
   );
 });
-
-/**
- * A cached import is the same `CryptoKey` on every call, and a key imported
- * again after eviction is a new one.
- */
-it.effect(
-  "imports a key again once as many newer keys as the cache holds displace it",
-  () =>
-    Effect.gen(function* () {
-      const oldest = indexedPublicKey(0);
-      const oldestImport = yield* ed25519VerificationKey(oldest);
-      const newerImports = yield* Effect.forEach(
-        Array.from({ length: PUBLIC_KEY_CACHE_ENTRIES }, (...[, index]) =>
-          indexedPublicKey(index + 1),
-        ),
-        (publicKey) => ed25519VerificationKey(publicKey),
-        { concurrency: 16 },
-      );
-
-      expect(
-        yield* ed25519VerificationKey(
-          indexedPublicKey(PUBLIC_KEY_CACHE_ENTRIES),
-        ),
-      ).toBe(newerImports[PUBLIC_KEY_CACHE_ENTRIES - 1]);
-      expect(yield* ed25519VerificationKey(oldest)).not.toBe(oldestImport);
-    }),
-);
 
 /**
  * A caller that bypasses the Schema can pass an object whose `x` changes

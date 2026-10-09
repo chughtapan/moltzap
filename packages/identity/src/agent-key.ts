@@ -1,7 +1,15 @@
 /** @file Exact Ed25519 public keys and opaque private signing authority. */
 
 import { ed25519 } from "@noble/curves/ed25519.js";
-import { Data, Effect, Either, Encoding, Redacted, Schema } from "effect";
+import {
+  Data,
+  Effect,
+  Either,
+  Encoding,
+  Option,
+  Redacted,
+  Schema,
+} from "effect";
 import {
   calculateJwkThumbprintUri,
   type CryptoKey,
@@ -10,6 +18,7 @@ import {
   importPKCS8,
   type JWK,
 } from "jose";
+import { type BoundedCache, makeBoundedCache } from "./bounded-cache.js";
 
 const PUBLIC_KEY_BYTE_LENGTH = 32;
 const SIGNATURE_BYTE_LENGTH = 64;
@@ -258,24 +267,7 @@ const publicKeyOperationFailure = (): Ed25519PublicKeyOperationError =>
  * 128 members, so the bound holds the keys of eight full conversations, and
  * each entry is one short string or one imported public `CryptoKey`.
  */
-export const PUBLIC_KEY_CACHE_ENTRIES = 1_024;
-
-/**
- * Stores `value` as the most recently used entry and drops the least recently
- * used entry past `PUBLIC_KEY_CACHE_ENTRIES`. A `Map` iterates in insertion
- * order, so re-inserting an entry moves it to the end and the first key is the
- * least recently used.
- */
-const retain = <A>(entries: Map<string, A>, x: string, value: A): void => {
-  entries.delete(x);
-  entries.set(x, value);
-  if (entries.size > PUBLIC_KEY_CACHE_ENTRIES) {
-    const oldest = entries.keys().next();
-    if (oldest.done !== true) {
-      entries.delete(oldest.value);
-    }
-  }
-};
+const PUBLIC_KEY_CACHE_ENTRIES = 1_024;
 
 /**
  * Derives a value from a public key once while the key stays among the
@@ -290,7 +282,7 @@ const retain = <A>(entries: Map<string, A>, x: string, value: A): void => {
  * verification outcome.
  */
 const cachedPerPublicKey = <A>(
-  entries: Map<string, A>,
+  entries: BoundedCache<string, A>,
   publicKey: Ed25519PublicKey,
   derive: (
     jwk: PublicKeyValue,
@@ -302,18 +294,18 @@ const cachedPerPublicKey = <A>(
       kty: "OKP",
       x: publicKey.x,
     });
-    const cached = entries.get(jwk.x);
-    const value = cached === undefined ? derive(jwk) : Effect.succeed(cached);
-    return value.pipe(
-      Effect.tap((derived) =>
-        Effect.sync(() => {
-          retain(entries, jwk.x, derived);
+    return Option.match(entries.get(jwk.x), {
+      onNone: () =>
+        Effect.tap(derive(jwk), (derived) => {
+          entries.set(jwk.x, derived);
         }),
-      ),
-    );
+      onSome: (cached) => Effect.succeed(cached),
+    });
   });
 
-const thumbprintUris = new Map<string, string>();
+const thumbprintUris = makeBoundedCache<string, string>(
+  PUBLIC_KEY_CACHE_ENTRIES,
+);
 
 /**
  * Derives the RFC JWK thumbprint URI for a validated Ed25519 public key.
@@ -342,7 +334,9 @@ const importPublicJwk = (
     catch: publicKeyOperationFailure,
   });
 
-const verificationKeys = new Map<string, CryptoKey>();
+const verificationKeys = makeBoundedCache<string, CryptoKey>(
+  PUBLIC_KEY_CACHE_ENTRIES,
+);
 
 /** Imports a validated Ed25519 public key to verify signatures under it. */
 export const ed25519VerificationKey = (
@@ -389,7 +383,9 @@ export const x25519PublicJwk = (
     catch: publicKeyOperationFailure,
   });
 
-const sealingKeys = new Map<string, CryptoKey>();
+const sealingKeys = makeBoundedCache<string, CryptoKey>(
+  PUBLIC_KEY_CACHE_ENTRIES,
+);
 
 /** Imports the `x25519PublicJwk` image of a validated key to seal bodies to. */
 export const x25519SealingKey = (
