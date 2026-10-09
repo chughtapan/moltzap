@@ -1,7 +1,8 @@
 /** @file Pins which certified posts reach the subscriber, in what form, and which received requests a member keeps. */
 
+import { scoped as it } from "@effect/vitest";
 import { Duration, Effect, Option, TestClock } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import {
   classifyPost,
   collectiveKey,
@@ -14,111 +15,95 @@ import {
   requestId,
   requestNonce,
   requestPost,
-  run,
   slotSchema,
 } from "../../__tests__/collective-operation-fixtures.js";
 import { decodeCollectiveValue } from "./part/index.js";
 
 function deliversAMulticastWithoutItsCollectivePart() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved());
-      const item = yield* classifyPost(
-        layer,
-        directPost("agent:bob", [
-          { type: "text", text: "Hello" },
-          multicastPart,
-        ]),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved());
+    const item = yield* classifyPost(
+      layer,
+      directPost("agent:bob", [{ type: "text", text: "Hello" }, multicastPart]),
+    );
 
-      expect(item).toEqual(
-        Option.some({
-          kind: "multicast",
-          message: directPost("agent:bob", [{ type: "text", text: "Hello" }]),
-        }),
-      );
-    }),
-  );
+    expect(item).toEqual(
+      Option.some({
+        kind: "multicast",
+        message: directPost("agent:bob", [{ type: "text", text: "Hello" }]),
+      }),
+    );
+  });
 }
 
 function deliversAPostWithoutACollectivePartAsAMulticast() {
   const post = directPost("agent:bob", [{ type: "text", text: "Hello" }]);
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved());
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved());
 
-      expect(yield* classifyPost(layer, post)).toEqual(
-        Option.some({ kind: "multicast", message: post }),
-      );
-    }),
-  );
+    expect(yield* classifyPost(layer, post)).toEqual(
+      Option.some({ kind: "multicast", message: post }),
+    );
+  });
 }
 
 function consumesAPostWhoseCollectivePartIsMalformed() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved());
-      const item = yield* classifyPost(
-        layer,
-        directPost("agent:bob", [
-          { type: "text", text: "Hello" },
-          { type: "data", value: { [collectiveKey]: { kind: "operation" } } },
-        ]),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved());
+    const item = yield* classifyPost(
+      layer,
+      directPost("agent:bob", [
+        { type: "text", text: "Hello" },
+        { type: "data", value: { [collectiveKey]: { kind: "operation" } } },
+      ]),
+    );
 
-      expect(item).toEqual(Option.none());
-    }),
-  );
+    expect(item).toEqual(Option.none());
+  });
 }
 
 function consumesAMulticastWhoseOnlyPartIsTheCollectivePart() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved());
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved());
 
-      expect(
-        yield* classifyPost(layer, directPost("agent:bob", [multicastPart])),
-      ).toEqual(Option.none());
-    }),
-  );
+    expect(
+      yield* classifyPost(layer, directPost("agent:bob", [multicastPart])),
+    ).toEqual(Option.none());
+  });
 }
 
 function consumesAPostThatCarriesTwoCollectiveParts() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved());
-      const item = yield* classifyPost(
-        layer,
-        directPost("agent:bob", [
-          { type: "text", text: "Hello" },
-          multicastPart,
-          multicastPart,
-        ]),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved());
+    const item = yield* classifyPost(
+      layer,
+      directPost("agent:bob", [
+        { type: "text", text: "Hello" },
+        multicastPart,
+        multicastPart,
+      ]),
+    );
 
-      expect(item).toEqual(Option.none());
-    }),
-  );
+    expect(item).toEqual(Option.none());
+  });
 }
 
 function consumesACloseForAnAllGatherThisEndpointWasNotAsked() {
   const close = { kind: "close", id: requestId, included: [] };
 
-  return run(
-    Effect.gen(function* () {
-      yield* decodeCollectiveValue(close);
-      const layer = yield* makeLayer(newObserved());
-      const item = yield* classifyPost(
-        layer,
-        directPost("agent:bob", [
-          { type: "data", value: { [collectiveKey]: close } },
-        ]),
-      );
+  return Effect.gen(function* () {
+    yield* decodeCollectiveValue(close);
+    const layer = yield* makeLayer(newObserved());
+    const item = yield* classifyPost(
+      layer,
+      directPost("agent:bob", [
+        { type: "data", value: { [collectiveKey]: close } },
+      ]),
+    );
 
-      expect(item).toEqual(Option.none());
-    }),
-  );
+    expect(item).toEqual(Option.none());
+  });
 }
 
 function consumesAnAllGatherRequestInADirectConversation() {
@@ -131,90 +116,77 @@ function consumesAnAllGatherRequestInADirectConversation() {
     requestedSchema: slotSchema,
   };
 
-  return run(
-    Effect.gen(function* () {
-      yield* decodeCollectiveValue(request);
-      const layer = yield* makeLayer(newObserved());
-      const item = yield* classifyPost(
-        layer,
-        directPost("agent:bob", [
-          { type: "text", text: questionText },
-          { type: "data", value: { [collectiveKey]: request } },
-        ]),
-      );
+  return Effect.gen(function* () {
+    yield* decodeCollectiveValue(request);
+    const layer = yield* makeLayer(newObserved());
+    const item = yield* classifyPost(
+      layer,
+      directPost("agent:bob", [
+        { type: "text", text: questionText },
+        { type: "data", value: { [collectiveKey]: request } },
+      ]),
+    );
 
-      expect(item).toEqual(Option.none());
-    }),
-  );
+    expect(item).toEqual(Option.none());
+  });
 }
 
 function deliversARequestPostAsACollectiveRequestItem() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved());
-      const item = yield* classifyPost(layer, requestPost("agent:bob", 60_000));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved());
+    const item = yield* classifyPost(layer, requestPost("agent:bob", 60_000));
 
-      expect(item).toEqual(
-        Option.some({
-          kind: "collectiveRequest",
-          op: "gather",
-          id: requestId,
-          postId: postId(9),
-          from: "agent:bob",
-          to: "agent:bob",
-          question: questionText,
-          requestedSchema: slotSchema,
-          deadlineAt: 60_000,
-        }),
-      );
-    }),
-  );
+    expect(item).toEqual(
+      Option.some({
+        kind: "collectiveRequest",
+        op: "gather",
+        id: requestId,
+        postId: postId(9),
+        from: "agent:bob",
+        to: "agent:bob",
+        question: questionText,
+        requestedSchema: slotSchema,
+        deadlineAt: 60_000,
+      }),
+    );
+  });
 }
 
 function consumesARequestPostWhoseDeadlineHasPassed() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved());
-      yield* TestClock.adjust(Duration.seconds(61));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved());
+    yield* TestClock.adjust(Duration.seconds(61));
 
-      expect(
-        yield* classifyPost(layer, requestPost("agent:bob", 60_000)),
-      ).toEqual(Option.none());
-    }),
-  );
+    expect(
+      yield* classifyPost(layer, requestPost("agent:bob", 60_000)),
+    ).toEqual(Option.none());
+  });
 }
 
 function consumesARequestWhoseIdDoesNotDeriveFromItsSender() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved());
-      const takenOver = yield* classifyPost(
-        layer,
-        requestPost("agent:mallory", 60_000),
-      );
-      const honest = yield* classifyPost(
-        layer,
-        requestPost("agent:bob", 60_000),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved());
+    const takenOver = yield* classifyPost(
+      layer,
+      requestPost("agent:mallory", 60_000),
+    );
+    const honest = yield* classifyPost(layer, requestPost("agent:bob", 60_000));
 
-      expect(takenOver).toEqual(Option.none());
-      expect(Option.isSome(honest)).toBe(true);
-    }),
-  );
+    expect(takenOver).toEqual(Option.none());
+    expect(Option.isSome(honest)).toBe(true);
+  });
 }
 
 function consumesARequestWhoseDeadlineLiesBeyondTheLongestAGatherStates() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved());
-      const item = yield* classifyPost(
-        layer,
-        requestPost("agent:bob", Duration.toMillis(Duration.days(31)) + 1),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved());
+    const item = yield* classifyPost(
+      layer,
+      requestPost("agent:bob", Duration.toMillis(Duration.days(31)) + 1),
+    );
 
-      expect(item).toEqual(Option.none());
-    }),
-  );
+    expect(item).toEqual(Option.none());
+  });
 }
 
 // @agent-code-guard/regression-only: examples pin which certified posts reach the subscriber and in what form.

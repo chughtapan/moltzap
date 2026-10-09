@@ -1,7 +1,8 @@
 /** @file Pins how a requester completes a gather, and what happens when the service cannot keep what the layer emits. */
 
+import { scoped as it } from "@effect/vitest";
 import { Duration, Effect, Fiber, Option, Supervisor, TestClock } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import type { CollectivePorts } from "./operation.js";
 import {
   answerPost,
@@ -15,7 +16,6 @@ import {
   type Observed,
   postId,
   questionText,
-  run,
   send,
   startGather,
   unkeptEmit,
@@ -39,216 +39,200 @@ const refuseCarolLater =
       : certifyNext(observed, input);
 
 function consumesAMemberSAnswerRatherThanDeliveringIt() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved());
-      const id = yield* startGather(layer);
-      const item = yield* classifyPost(
-        layer,
-        answerPost("agent:bob", id, {
-          action: "accept",
-          content: { slot: "mon" },
-        }),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved());
+    const id = yield* startGather(layer);
+    const item = yield* classifyPost(
+      layer,
+      answerPost("agent:bob", id, {
+        action: "accept",
+        content: { slot: "mon" },
+      }),
+    );
 
-      expect(item).toEqual(Option.none());
-    }),
-  );
+    expect(item).toEqual(Option.none());
+  });
 }
 
 function emitsTheResultOnceEveryMemberHasAnswered() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      const id = yield* startGather(layer);
-      yield* classifyPost(
-        layer,
-        answerPost("agent:bob", id, {
-          action: "accept",
-          content: { slot: "mon" },
-        }),
-      );
-      yield* classifyPost(
-        layer,
-        answerPost("agent:carol", id, { action: "decline" }),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    const id = yield* startGather(layer);
+    yield* classifyPost(
+      layer,
+      answerPost("agent:bob", id, {
+        action: "accept",
+        content: { slot: "mon" },
+      }),
+    );
+    yield* classifyPost(
+      layer,
+      answerPost("agent:carol", id, { action: "decline" }),
+    );
 
-      expect(observed.emitted).toEqual([
-        {
-          kind: "collectiveResult",
-          op: "gather",
-          id,
-          to: gatherTo,
-          question: questionText,
-          outcomes: [
-            {
-              member: "agent:bob",
-              outcome: { kind: "answered", content: { slot: "mon" } },
-            },
-            { member: "agent:carol", outcome: { kind: "declined" } },
-          ],
-        },
-      ]);
-    }),
-  );
+    expect(observed.emitted).toEqual([
+      {
+        kind: "collectiveResult",
+        op: "gather",
+        id,
+        to: gatherTo,
+        question: questionText,
+        outcomes: [
+          {
+            member: "agent:bob",
+            outcome: { kind: "answered", content: { slot: "mon" } },
+          },
+          { member: "agent:carol", outcome: { kind: "declined" } },
+        ],
+      },
+    ]);
+  });
 }
 
 function reportsASilentMemberAsNoAnswerAtTheDeadline() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      const id = yield* startGather(layer);
-      yield* classifyPost(
-        layer,
-        answerPost("agent:bob", id, { action: "decline" }),
-      );
-      yield* TestClock.adjust(Duration.seconds(60));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    const id = yield* startGather(layer);
+    yield* classifyPost(
+      layer,
+      answerPost("agent:bob", id, { action: "decline" }),
+    );
+    yield* TestClock.adjust(Duration.seconds(60));
 
-      expect(observed.emitted).toEqual([
-        {
-          kind: "collectiveResult",
-          op: "gather",
-          id,
-          to: gatherTo,
-          question: questionText,
-          outcomes: [
-            { member: "agent:bob", outcome: { kind: "declined" } },
-            { member: "agent:carol", outcome: { kind: "no-answer" } },
-          ],
-        },
-      ]);
-    }),
-  );
+    expect(observed.emitted).toEqual([
+      {
+        kind: "collectiveResult",
+        op: "gather",
+        id,
+        to: gatherTo,
+        question: questionText,
+        outcomes: [
+          { member: "agent:bob", outcome: { kind: "declined" } },
+          { member: "agent:carol", outcome: { kind: "no-answer" } },
+        ],
+      },
+    ]);
+  });
 }
 
 function recordsAnAnswerThatFailsTheSchemaAsInvalid() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      const id = yield* startGather(layer);
-      yield* classifyPost(
-        layer,
-        answerPost("agent:bob", id, {
-          action: "accept",
-          content: { slot: "sun" },
-        }),
-      );
-      yield* classifyPost(
-        layer,
-        answerPost("agent:carol", id, { action: "accept", content: {} }),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    const id = yield* startGather(layer);
+    yield* classifyPost(
+      layer,
+      answerPost("agent:bob", id, {
+        action: "accept",
+        content: { slot: "sun" },
+      }),
+    );
+    yield* classifyPost(
+      layer,
+      answerPost("agent:carol", id, { action: "accept", content: {} }),
+    );
 
-      expect(observed.emitted).toEqual([
-        {
-          kind: "collectiveResult",
-          op: "gather",
-          id,
-          to: gatherTo,
-          question: questionText,
-          outcomes: [
-            {
-              member: "agent:bob",
-              outcome: {
-                kind: "invalid",
-                reason:
-                  'field "slot" is invalid (enum: must be one of the allowed values)',
-              },
+    expect(observed.emitted).toEqual([
+      {
+        kind: "collectiveResult",
+        op: "gather",
+        id,
+        to: gatherTo,
+        question: questionText,
+        outcomes: [
+          {
+            member: "agent:bob",
+            outcome: {
+              kind: "invalid",
+              reason:
+                'field "slot" is invalid (enum: must be one of the allowed values)',
             },
-            {
-              member: "agent:carol",
-              outcome: { kind: "invalid", reason: 'field "slot" is missing' },
-            },
-          ],
-        },
-      ]);
-    }),
-  );
+          },
+          {
+            member: "agent:carol",
+            outcome: { kind: "invalid", reason: 'field "slot" is missing' },
+          },
+        ],
+      },
+    ]);
+  });
 }
 
 function keepsAMemberSFirstAnswerAndIgnoresItsSecond() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      const id = yield* startGather(layer);
-      yield* classifyPost(
-        layer,
-        answerPost("agent:bob", id, { action: "decline" }),
-      );
-      yield* classifyPost(
-        layer,
-        answerPost("agent:bob", id, {
-          action: "accept",
-          content: { slot: "mon" },
-        }),
-      );
-      yield* TestClock.adjust(Duration.seconds(60));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    const id = yield* startGather(layer);
+    yield* classifyPost(
+      layer,
+      answerPost("agent:bob", id, { action: "decline" }),
+    );
+    yield* classifyPost(
+      layer,
+      answerPost("agent:bob", id, {
+        action: "accept",
+        content: { slot: "mon" },
+      }),
+    );
+    yield* TestClock.adjust(Duration.seconds(60));
 
-      expect(observed.emitted[0]).toMatchObject({
-        outcomes: [{ member: "agent:bob", outcome: { kind: "declined" } }, {}],
-      });
-    }),
-  );
+    expect(observed.emitted[0]).toMatchObject({
+      outcomes: [{ member: "agent:bob", outcome: { kind: "declined" } }, {}],
+    });
+  });
 }
 
 function changesNothingForAnAnswerThatArrivesAfterTheDeadline() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      const id = yield* startGather(layer);
-      yield* TestClock.adjust(Duration.seconds(60));
-      const late = yield* classifyPost(
-        layer,
-        answerPost("agent:bob", id, {
-          action: "accept",
-          content: { slot: "mon" },
-        }),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    const id = yield* startGather(layer);
+    yield* TestClock.adjust(Duration.seconds(60));
+    const late = yield* classifyPost(
+      layer,
+      answerPost("agent:bob", id, {
+        action: "accept",
+        content: { slot: "mon" },
+      }),
+    );
 
-      expect(late).toEqual(Option.none());
-      expect(observed.emitted).toHaveLength(1);
-    }),
-  );
+    expect(late).toEqual(Option.none());
+    expect(observed.emitted).toHaveLength(1);
+  });
 }
 
 function namesTheResultByTheGroupSCanonicalAddress() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      yield* send(layer, { ...gatherInput(), to: "group:carol,bob" });
-      yield* TestClock.adjust(Duration.seconds(60));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    yield* send(layer, { ...gatherInput(), to: "group:carol,bob" });
+    yield* TestClock.adjust(Duration.seconds(60));
 
-      expect(observed.emitted[0]).toMatchObject({ to: gatherTo });
-    }),
-  );
+    expect(observed.emitted[0]).toMatchObject({ to: gatherTo });
+  });
 }
 
 function returnsTheGatherSIdWithTheRequestPostsItCertified() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      const outcome = yield* send(layer, gatherInput());
-      const { id } = yield* firstRequestOf(observed);
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    const outcome = yield* send(layer, gatherInput());
+    const { id } = yield* firstRequestOf(observed);
 
-      expect(outcome).toEqual({
-        postIds: [postId(101), postId(102)],
-        operationId: id,
-      });
-    }),
-  );
+    expect(outcome).toEqual({
+      postIds: [postId(101), postId(102)],
+      operationId: id,
+    });
+  });
 }
 
 /**
@@ -258,68 +242,62 @@ function returnsTheGatherSIdWithTheRequestPostsItCertified() {
 function endsAPendingGatherAtItsDeadlineInOneResult() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, {
-        refused: { "agent:bob": "slow", "agent:carol": "slow" },
-      });
-      const sending = yield* Effect.fork(send(layer, gatherInput(1)));
-      yield* TestClock.adjust(Duration.seconds(1));
-      const outcome = yield* Fiber.join(sending);
-      yield* TestClock.adjust(Duration.seconds(60));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, {
+      refused: { "agent:bob": "slow", "agent:carol": "slow" },
+    });
+    const sending = yield* Effect.fork(send(layer, gatherInput(1)));
+    yield* TestClock.adjust(Duration.seconds(1));
+    const outcome = yield* Fiber.join(sending);
+    yield* TestClock.adjust(Duration.seconds(60));
 
-      expect(outcome.postIds).toEqual([]);
-      expect(observed.emitted).toEqual([
-        {
-          kind: "collectiveResult",
-          op: "gather",
-          id: outcome.operationId,
-          to: gatherTo,
-          question: questionText,
-          outcomes: [
-            { member: "agent:bob", outcome: { kind: "no-answer" } },
-            { member: "agent:carol", outcome: { kind: "no-answer" } },
-          ],
-        },
-      ]);
-    }),
-  );
+    expect(outcome.postIds).toEqual([]);
+    expect(observed.emitted).toEqual([
+      {
+        kind: "collectiveResult",
+        op: "gather",
+        id: outcome.operationId,
+        to: gatherTo,
+        question: questionText,
+        outcomes: [
+          { member: "agent:bob", outcome: { kind: "no-answer" } },
+          { member: "agent:carol", outcome: { kind: "no-answer" } },
+        ],
+      },
+    ]);
+  });
 }
 
 function stopsTheDeadlineTimerOfAGatherEveryMemberAnswered() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const supervisor = yield* Supervisor.track;
-      const layer = yield* makeLayer(observed);
-      const id = yield* startGather(layer).pipe(Effect.supervised(supervisor));
-      yield* classifyPost(
-        layer,
-        answerPost("agent:bob", id, { action: "decline" }),
-      );
-      yield* classifyPost(
-        layer,
-        answerPost("agent:carol", id, { action: "decline" }),
-      );
+  return Effect.gen(function* () {
+    const supervisor = yield* Supervisor.track;
+    const layer = yield* makeLayer(observed);
+    const id = yield* startGather(layer).pipe(Effect.supervised(supervisor));
+    yield* classifyPost(
+      layer,
+      answerPost("agent:bob", id, { action: "decline" }),
+    );
+    yield* classifyPost(
+      layer,
+      answerPost("agent:carol", id, { action: "decline" }),
+    );
 
-      expect(yield* supervisor.value).toEqual([]);
-    }),
-  );
+    expect(yield* supervisor.value).toEqual([]);
+  });
 }
 
 function completesAGatherWhoseDeadlineIsThirtyDaysAway() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      yield* send(layer, gatherInput(2_592_000));
-      yield* TestClock.adjust(Duration.days(30));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    yield* send(layer, gatherInput(2_592_000));
+    yield* TestClock.adjust(Duration.days(30));
 
-      expect(observed.emitted).toMatchObject([{ kind: "collectiveResult" }]);
-    }),
-  );
+    expect(observed.emitted).toMatchObject([{ kind: "collectiveResult" }]);
+  });
 }
 
 /**
@@ -327,42 +305,35 @@ function completesAGatherWhoseDeadlineIsThirtyDaysAway() {
  * cannot be kept, so the pass classifying it ends instead of waiting.
  */
 function failsTheCompletingAnswerWhenTheResultCannotBeKept() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved(), { emit: unkeptEmit });
-      const id = yield* startGather(layer);
-      yield* classifyPost(
-        layer,
-        answerPost("agent:bob", id, { action: "decline" }),
-      );
-      const failure = yield* Effect.flip(
-        classifyPost(
-          layer,
-          answerPost("agent:carol", id, { action: "decline" }),
-        ),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved(), { emit: unkeptEmit });
+    const id = yield* startGather(layer);
+    yield* classifyPost(
+      layer,
+      answerPost("agent:bob", id, { action: "decline" }),
+    );
+    const failure = yield* Effect.flip(
+      classifyPost(layer, answerPost("agent:carol", id, { action: "decline" })),
+    );
 
-      expect(failure).toEqual(new CollectiveEmitError());
-    }),
-  );
+    expect(failure).toEqual(new CollectiveEmitError());
+  });
 }
 
 /** A refusal routed inbound that cannot be kept fails the send as persistence-failed. */
 function failsASendWhoseInboundRefusalCannotBeKept() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved(), { emit: unkeptEmit });
-      const failure = yield* Effect.flip(
-        send(
-          layer,
-          { to: "agent:bob", collectiveResponse: { action: "decline" } },
-          "inbound",
-        ),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved(), { emit: unkeptEmit });
+    const failure = yield* Effect.flip(
+      send(
+        layer,
+        { to: "agent:bob", collectiveResponse: { action: "decline" } },
+        "inbound",
+      ),
+    );
 
-      expect(failure).toMatchObject({ reason: "persistence-failed" });
-    }),
-  );
+    expect(failure).toMatchObject({ reason: "persistence-failed" });
+  });
 }
 
 /**
@@ -374,26 +345,24 @@ function failsASendWhoseInboundRefusalCannotBeKept() {
 function failsAGatherSendWhoseSettlingResultCannotBeKept() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, {
-        sendPost: refuseCarolLater(observed),
-        emit: unkeptEmit,
-      });
-      const sending = yield* Effect.fork(send(layer, gatherInput()));
-      yield* TestClock.adjust(Duration.millis(100));
-      const { id } = yield* firstRequestOf(observed);
-      yield* classifyPost(
-        layer,
-        answerPost("agent:bob", id, { action: "decline" }),
-      );
-      yield* TestClock.adjust(Duration.millis(500));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, {
+      sendPost: refuseCarolLater(observed),
+      emit: unkeptEmit,
+    });
+    const sending = yield* Effect.fork(send(layer, gatherInput()));
+    yield* TestClock.adjust(Duration.millis(100));
+    const { id } = yield* firstRequestOf(observed);
+    yield* classifyPost(
+      layer,
+      answerPost("agent:bob", id, { action: "decline" }),
+    );
+    yield* TestClock.adjust(Duration.millis(500));
 
-      expect(yield* Effect.flip(Fiber.join(sending))).toEqual(
-        new SendError({ reason: "persistence-failed" }),
-      );
-    }),
-  );
+    expect(yield* Effect.flip(Fiber.join(sending))).toEqual(
+      new SendError({ reason: "persistence-failed" }),
+    );
+  });
 }
 
 // @agent-code-guard/regression-only: examples pin how the requester completes a gather.
