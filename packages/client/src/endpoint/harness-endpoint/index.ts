@@ -5,6 +5,7 @@ import {
   fromJsonSchema,
   type JsonSchemaType,
   ProtocolError,
+  SdkHttpError,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { Data, Effect, Ref, type Scope, Stream } from "effect";
@@ -78,13 +79,22 @@ interface ReasonPayload {
 
 /**
  * Rebuild the typed error of a refused send from its JSON-RPC error data: a
- * collective failure with its id and detail, or a closed send reason.
+ * collective failure with its id and detail, or a closed send reason. A
+ * rejection that is not the daemon's answer, such as a timeout or a dropped
+ * connection, can follow the daemon queueing the post, so it is
+ * `outcome-unknown` unless the request never reached the daemon.
  * @param cause Upstream rejection at the MCP tool boundary.
  * @returns A closed send failure without transport details.
  */
 function sendFailure(cause: unknown): SendError | CollectiveError {
-  const data: unknown = ProtocolError.isInstance(cause) ? cause.data : cause;
-  return decodeHarnessSendErrorData(data).pipe(
+  if (!ProtocolError.isInstance(cause)) {
+    return new SendError({
+      reason: neverReachedDaemon(cause)
+        ? "network-unavailable"
+        : "outcome-unknown",
+    });
+  }
+  return decodeHarnessSendErrorData(cause.data).pipe(
     Effect.map((decoded) =>
       "failure" in decoded
         ? new CollectiveError({ id: decoded.id, failure: decoded.failure })
@@ -101,6 +111,33 @@ function sendFailure(cause: unknown): SendError | CollectiveError {
       () => new SendError({ reason: "network-unavailable" }),
     ),
     Effect.runSync,
+  );
+}
+
+/**
+ * HTTP statuses that the daemon's HTTP layer, or the MCP server SDK before it
+ * dispatches a request, answers with. Any other status may follow a send that
+ * ran: the SDK answers 499 for a call it closed mid-dispatch.
+ */
+const PRE_DISPATCH_STATUSES: ReadonlySet<number> = new Set([
+  400, 401, 403, 404, 405,
+]);
+
+/**
+ * Whether a rejected request certainly ran no daemon tool: the daemon turned
+ * it away before dispatch, or the connection was refused.
+ * @param cause A rejection that is not a JSON-RPC error.
+ * @returns Whether the daemon cannot have acted on the request.
+ */
+function neverReachedDaemon(cause: unknown): boolean {
+  if (SdkHttpError.isInstance(cause)) {
+    return PRE_DISPATCH_STATUSES.has(cause.status);
+  }
+  return (
+    cause instanceof Error &&
+    cause.cause instanceof Error &&
+    "code" in cause.cause &&
+    cause.cause.code === "ECONNREFUSED"
   );
 }
 

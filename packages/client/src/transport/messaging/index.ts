@@ -7,20 +7,19 @@ import { AgentCard, AgentSigningAuthority } from "@moltzap/identity";
 import { Data, Deferred, Duration, Effect, Schema, type Scope } from "effect";
 import type { DeliveryToken, EndpointStoreError } from "../../store/index.js";
 import type {
+  RouterDiscontinuityReason,
+  RouterIngressDisposition,
+  RouterWorkerIngress,
+  RouterWorkerPersistenceError,
+  RouterWorkerRecovery,
+  RouterWorkerRecoveryError,
+  RouterWorkerSendError,
+} from "../router/index.js";
+import type {
   EndpointEngineInput,
   EnginePhases,
   EngineRuntime,
 } from "./runtime/index.js";
-import {
-  isTransientRouterWorkerError,
-  type RouterDiscontinuityReason,
-  type RouterIngressDisposition,
-  type RouterWorkerIngress,
-  type RouterWorkerPersistenceError,
-  type RouterWorkerRecovery,
-  type RouterWorkerRecoveryError,
-  type RouterWorkerSendError,
-} from "../router/index.js";
 import {
   type ClientRepresentationError,
   decodeCanonical,
@@ -36,12 +35,7 @@ import {
   resumeDisseminationObligations,
   resumeEngineFolds,
 } from "./certification/index.js";
-import {
-  DeliveryAcknowledgeError,
-  ListenError,
-  queuedNetworkFailure,
-  SendError,
-} from "./errors.js";
+import { DeliveryAcknowledgeError, ListenError, SendError } from "./errors.js";
 import { InboundMessage } from "./message.js";
 import { makeOutbox } from "./outbox.js";
 import {
@@ -195,6 +189,7 @@ const resumeDispositionBySendReason = {
   "invalid-address": "fail-representation",
   "membership-invalid": "fail-representation",
   "network-unavailable": "ignore",
+  "delivery-pending": "ignore",
   "not-registered": "fail-representation",
   "persistence-failed": "fail-persistence",
   "unknown-agent": "fail-representation",
@@ -226,35 +221,6 @@ const outboundFailure = (error: RouterWorkerSendError): EngineOutboundError => {
     reason: error.reason === "version" ? "version" : "representation",
   });
 };
-
-/**
- * The failure of a send whose own drain failed. The send's post is already
- * durably queued then: a worker failure that ends once the Router answers
- * fails it as queued, since the outbound loop delivers it then; any other
- * stops that loop, so the post is not said to be on its way.
- * @param error Why the drain failed.
- * @returns The send's closed failure.
- */
-function outboundSendFailure(error: RouterWorkerSendError): SendError {
-  if (isTransientRouterWorkerError(error)) {
-    return queuedNetworkFailure();
-  }
-  const failure = outboundFailure(error);
-  switch (failure.reason) {
-    case "persistence":
-      return new SendError({ reason: "persistence-failed" });
-    case "network":
-      return new SendError({ reason: "network-unavailable" });
-    case "representation":
-      return new SendError({ reason: "certification-unavailable" });
-    case "version":
-      return new SendError({ reason: "version-mismatch" });
-    default: {
-      const exhaustive: never = failure.reason;
-      return exhaustive;
-    }
-  }
-}
 
 function listenStoreFailure(error: EndpointStoreError): ListenError {
   return new ListenError({ reason: listenReasonByStoreReason[error.reason] });
@@ -340,13 +306,23 @@ function resumeFoldFailure(): EngineInitializationError {
 }
 
 /**
- * How long a local send's own drain may run before the send fails with
- * `queuedNetworkFailure`. With `ROUTER_ATTACH_TIMEOUT` it stays under the MCP
- * SDK's `DEFAULT_REQUEST_TIMEOUT_MSEC`. The envelope stays queued, so the
- * background drain still delivers it once the Router answers.
+ * How long a local send's own drain may run before the send fails as
+ * `delivery-pending`. With `ROUTER_ATTACH_TIMEOUT` it stays under the MCP
+ * SDK's `DEFAULT_REQUEST_TIMEOUT_MSEC`.
  */
 const LOCAL_DRAIN_TIMEOUT = Duration.seconds(10);
 
+/**
+ * Bind, queue and certify one post. Once `prepareSend` returns, the post is
+ * durably queued, so a drain that fails or outlasts `LOCAL_DRAIN_TIMEOUT`
+ * fails the send as `delivery-pending` whatever the cause: a worker failure
+ * that ends once the Router answers leaves the background drain to deliver
+ * the post, and any other stops the daemon, whose recovery resumes the post
+ * when it restarts.
+ * @param runtime The engine that sends.
+ * @param input The post's address and content.
+ * @returns The post's id and certified record hash.
+ */
 const send = (
   runtime: EngineRuntime,
   input: EngineSendInput,
@@ -354,11 +330,9 @@ const send = (
   Effect.gen(function* () {
     const prepared = yield* prepareSend(runtime, input);
     yield* runtime.outbox.drain.pipe(
-      Effect.mapError((error) => outboundSendFailure(error)),
-      Effect.timeoutFail({
-        duration: LOCAL_DRAIN_TIMEOUT,
-        onTimeout: queuedNetworkFailure,
-      }),
+      Effect.timeout(LOCAL_DRAIN_TIMEOUT),
+      // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Every drain failure, the timeout included, leaves the post queued and still delivered, as this function's JSDoc explains.
+      Effect.mapError(() => new SendError({ reason: "delivery-pending" })),
     );
     const recordHash = yield* Deferred.await(prepared.completion);
     return { postId: prepared.postId, recordHash };

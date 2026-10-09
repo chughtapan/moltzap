@@ -1,7 +1,8 @@
 /** @file Pins the posts each collective send certifies and the refusals it returns. */
 
+import { scoped as it } from "@effect/vitest";
 import { Duration, Effect, Fiber, TestClock } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import {
   alice,
   answerPost,
@@ -19,102 +20,93 @@ import {
   postId,
   questionText,
   requestSendWait,
-  run,
   send,
   slotSchema,
   startGather,
 } from "../../__tests__/collective-operation-fixtures.js";
-import { queuedNetworkFailure } from "../messaging/errors.js";
+import { SendError } from "../messaging/errors.js";
 import { collectiveIdOf } from "./part/index.js";
 
 /** What a send that failed after queueing its post says about it. */
 const queuedText =
-  "MoltZap is unavailable (network unavailable); the message is queued and will be delivered once MoltZap is reachable";
+  "MoltZap is unavailable; the message is queued and will be delivered once MoltZap is reachable";
 
 function certifiesAMulticastAsItsTextAndAnExplicitMulticastPart() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      yield* send(layer, { to: "agent:bob", text: "Hello" });
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    yield* send(layer, { to: "agent:bob", text: "Hello" });
 
-      expect(observed.sent).toEqual([
-        {
-          to: "agent:bob",
-          content: [{ type: "text", text: "Hello" }, multicastPart],
-        },
-      ]);
-    }),
-  );
+    expect(observed.sent).toEqual([
+      {
+        to: "agent:bob",
+        content: [{ type: "text", text: "Hello" }, multicastPart],
+      },
+    ]);
+  });
 }
 
 function failsAMulticastWhoseTextAndPartExceedTheContentLimit() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      const failure = yield* collectiveFailureOf(
-        send(layer, { to: "agent:bob", text: "a".repeat(32_741) }),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    const failure = yield* collectiveFailureOf(
+      send(layer, { to: "agent:bob", text: "a".repeat(32_741) }),
+    );
 
-      expect(failure).toMatchObject({ reason: "content-invalid" });
-    }),
-  );
+    expect(failure).toMatchObject({ reason: "content-invalid" });
+  });
 }
 
 function fansAGatherOutAsOneRequestPostPerMemberButTheRequester() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      const id = yield* startGather(layer);
-      const { nonce } = yield* firstRequestOf(observed);
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    const id = yield* startGather(layer);
+    const { nonce } = yield* firstRequestOf(observed);
 
-      expect(collectiveIdOf(alice, nonce)).toBe(id);
-      expect(observed.sent.map((post) => post.to)).toEqual([
-        "agent:bob",
-        "agent:carol",
-      ]);
-      expect(observed.sent[0]?.content).toEqual([
-        { type: "text", text: questionText },
-        {
-          type: "data",
-          value: {
-            [collectiveKey]: {
-              kind: "operation",
-              op: "gather",
-              id,
-              nonce,
-              deadlineAt: 60_000,
-              requestedSchema: slotSchema,
-            },
+    expect(collectiveIdOf(alice, nonce)).toBe(id);
+    expect(observed.sent.map((post) => post.to)).toEqual([
+      "agent:bob",
+      "agent:carol",
+    ]);
+    expect(observed.sent[0]?.content).toEqual([
+      { type: "text", text: questionText },
+      {
+        type: "data",
+        value: {
+          [collectiveKey]: {
+            kind: "operation",
+            op: "gather",
+            id,
+            nonce,
+            deadlineAt: 60_000,
+            requestedSchema: slotSchema,
           },
         },
-      ]);
-    }),
-  );
+      },
+    ]);
+  });
 }
 
 function refusesAGatherWithAnUnknownMemberBeforeAnyPost() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, {
-        unknown: ["agent:carol"],
-      });
-      const failure = yield* collectiveFailureOf(send(layer, gatherInput()));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, {
+      unknown: ["agent:carol"],
+    });
+    const failure = yield* collectiveFailureOf(send(layer, gatherInput()));
 
-      expect(failure).toEqual({
-        kind: "members-unreachable",
-        members: [{ member: "agent:carol", reason: "unknown-agent" }],
-      });
-      expect(observed.sent).toEqual([]);
-    }),
-  );
+    expect(failure).toEqual({
+      kind: "members-unreachable",
+      members: [{ member: "agent:carol", reason: "unknown-agent" }],
+    });
+    expect(observed.sent).toEqual([]);
+  });
 }
 
 /**
@@ -125,119 +117,113 @@ function refusesAGatherWithAnUnknownMemberBeforeAnyPost() {
 function continuesAGatherPastMembersItCouldNotReach() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, {
-        refused: { "agent:carol": "network-unavailable", "agent:dave": "slow" },
-      });
-      const sending = yield* Effect.fork(
-        send(layer, { ...gatherInput(), to: "group:alice,bob,carol,dave" }),
-      );
-      yield* TestClock.adjust(requestSendWait);
-      const outcome = yield* Fiber.join(sending);
-      const { id } = yield* firstRequestOf(observed);
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, {
+      refused: { "agent:carol": "network-unavailable", "agent:dave": "slow" },
+    });
+    const sending = yield* Effect.fork(
+      send(layer, { ...gatherInput(), to: "group:alice,bob,carol,dave" }),
+    );
+    yield* TestClock.adjust(requestSendWait);
+    const outcome = yield* Fiber.join(sending);
+    const { id } = yield* firstRequestOf(observed);
 
-      expect(outcome).toEqual({ postIds: [postId(101)], operationId: id });
-      expect(observed.sent.map((post) => post.to)).toEqual(["agent:bob"]);
+    expect(outcome).toEqual({ postIds: [postId(101)], operationId: id });
+    expect(observed.sent.map((post) => post.to)).toEqual(["agent:bob"]);
 
-      yield* classifyPost(
-        layer,
-        answerPost("agent:bob", id, { action: "decline" }),
-      );
+    yield* classifyPost(
+      layer,
+      answerPost("agent:bob", id, { action: "decline" }),
+    );
 
-      expect(observed.emitted).toEqual([]);
+    expect(observed.emitted).toEqual([]);
 
-      yield* TestClock.adjust(Duration.seconds(60));
+    yield* TestClock.adjust(Duration.seconds(60));
 
-      expect(observed.emitted).toEqual([
-        {
-          kind: "collectiveResult",
-          op: "gather",
-          id,
-          to: "group:alice,bob,carol,dave",
-          question: questionText,
-          outcomes: [
-            { member: "agent:bob", outcome: { kind: "declined" } },
-            { member: "agent:carol", outcome: { kind: "no-answer" } },
-            { member: "agent:dave", outcome: { kind: "no-answer" } },
-          ],
-        },
-      ]);
-    }),
-  );
+    expect(observed.emitted).toEqual([
+      {
+        kind: "collectiveResult",
+        op: "gather",
+        id,
+        to: "group:alice,bob,carol,dave",
+        question: questionText,
+        outcomes: [
+          { member: "agent:bob", outcome: { kind: "declined" } },
+          { member: "agent:carol", outcome: { kind: "no-answer" } },
+          { member: "agent:dave", outcome: { kind: "no-answer" } },
+        ],
+      },
+    ]);
+  });
 }
 
 /** A post certified after the send stopped waiting still asks its member. */
 function countsAnAnswerToAPostCertifiedAfterTheWait() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, {
-        refused: { "agent:carol": "late" },
-      });
-      const sending = yield* Effect.fork(send(layer, gatherInput()));
-      yield* TestClock.adjust(requestSendWait);
-      const outcome = yield* Fiber.join(sending);
-      yield* TestClock.adjust(latePostDelay);
-      const id = yield* operationIdOf(outcome);
-      yield* classifyPost(
-        layer,
-        answerPost("agent:bob", id, { action: "decline" }),
-      );
-      yield* classifyPost(
-        layer,
-        answerPost("agent:carol", id, {
-          action: "accept",
-          content: { slot: "tue" },
-        }),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, {
+      refused: { "agent:carol": "late" },
+    });
+    const sending = yield* Effect.fork(send(layer, gatherInput()));
+    yield* TestClock.adjust(requestSendWait);
+    const outcome = yield* Fiber.join(sending);
+    yield* TestClock.adjust(latePostDelay);
+    const id = yield* operationIdOf(outcome);
+    yield* classifyPost(
+      layer,
+      answerPost("agent:bob", id, { action: "decline" }),
+    );
+    yield* classifyPost(
+      layer,
+      answerPost("agent:carol", id, {
+        action: "accept",
+        content: { slot: "tue" },
+      }),
+    );
 
-      expect(observed.sent.map((post) => post.to)).toEqual([
-        "agent:bob",
-        "agent:carol",
-      ]);
-      expect(observed.emitted).toMatchObject([
-        {
-          kind: "collectiveResult",
-          op: "gather",
-          outcomes: [
-            { member: "agent:bob", outcome: { kind: "declined" } },
-            {
-              member: "agent:carol",
-              outcome: { kind: "answered", content: { slot: "tue" } },
-            },
-          ],
-        },
-      ]);
-    }),
-  );
+    expect(observed.sent.map((post) => post.to)).toEqual([
+      "agent:bob",
+      "agent:carol",
+    ]);
+    expect(observed.emitted).toMatchObject([
+      {
+        kind: "collectiveResult",
+        op: "gather",
+        outcomes: [
+          { member: "agent:bob", outcome: { kind: "declined" } },
+          {
+            member: "agent:carol",
+            outcome: { kind: "answered", content: { slot: "tue" } },
+          },
+        ],
+      },
+    ]);
+  });
 }
 
 function failsAGatherNoneOfWhosePostsWasDelivered() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, {
-        refused: {
-          "agent:bob": "network-unavailable",
-          "agent:carol": "persistence-failed",
-        },
-      });
-      const failure = yield* collectiveFailureOf(send(layer, gatherInput()));
-      yield* TestClock.adjust(Duration.seconds(60));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, {
+      refused: {
+        "agent:bob": "network-unavailable",
+        "agent:carol": "persistence-failed",
+      },
+    });
+    const failure = yield* collectiveFailureOf(send(layer, gatherInput()));
+    yield* TestClock.adjust(Duration.seconds(60));
 
-      expect(failure).toEqual({
-        kind: "members-unreachable",
-        members: [
-          { member: "agent:bob", reason: "network-unavailable" },
-          { member: "agent:carol", reason: "persistence-failed" },
-        ],
-      });
-      expect(observed.emitted).toEqual([]);
-    }),
-  );
+    expect(failure).toEqual({
+      kind: "members-unreachable",
+      members: [
+        { member: "agent:bob", reason: "network-unavailable" },
+        { member: "agent:carol", reason: "persistence-failed" },
+      ],
+    });
+    expect(observed.emitted).toEqual([]);
+  });
 }
 
 /**
@@ -245,40 +231,37 @@ function failsAGatherNoneOfWhosePostsWasDelivered() {
  * members, so the refusal says so rather than that they were not sent.
  */
 function saysEachMemberIsStillSentAQueuedRequestPost() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved(), {
-        sendPost: () => Effect.fail(queuedNetworkFailure()),
-      });
-      const refusal = yield* Effect.flip(send(layer, gatherInput()));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved(), {
+      sendPost: () =>
+        Effect.fail(new SendError({ reason: "delivery-pending" })),
+    });
+    const refusal = yield* Effect.flip(send(layer, gatherInput()));
 
-      expect(refusal.message).toBe(
-        `send failed: agent:bob could not be reached: ${queuedText}; agent:carol could not be reached: ${queuedText}`,
-      );
-    }),
-  );
+    expect(refusal.message).toBe(
+      `send failed: agent:bob could not be reached: ${queuedText}; agent:carol could not be reached: ${queuedText}`,
+    );
+  });
 }
 
 function failsAGatherWhoseSchemaIsOutsideTheFormModeGrammar() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      const failure = yield* collectiveFailureOf(
-        send(
-          layer,
-          gatherInput(60, {
-            type: "object",
-            properties: { slot: { type: "object" } },
-          }),
-        ),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    const failure = yield* collectiveFailureOf(
+      send(
+        layer,
+        gatherInput(60, {
+          type: "object",
+          properties: { slot: { type: "object" } },
+        }),
+      ),
+    );
 
-      expect(failure).toMatchObject({ kind: "schema-invalid" });
-      expect(observed.sent).toEqual([]);
-    }),
-  );
+    expect(failure).toMatchObject({ kind: "schema-invalid" });
+    expect(observed.sent).toEqual([]);
+  });
 }
 
 /**
@@ -289,116 +272,104 @@ function failsAGatherWhoseSchemaIsOutsideTheFormModeGrammar() {
 function namesTheFailingKeywordAndTheExpectedShapeOfAnInvalidProperty() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      const failure = yield* collectiveFailureOf(
-        send(
-          layer,
-          gatherInput(60, {
-            type: "object",
-            properties: {
-              note: { type: "string" },
-              slots: { type: "array", items: { enum: ["mon", "tue"] } },
-            },
-          }),
-        ),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    const failure = yield* collectiveFailureOf(
+      send(
+        layer,
+        gatherInput(60, {
+          type: "object",
+          properties: {
+            note: { type: "string" },
+            slots: { type: "array", items: { enum: ["mon", "tue"] } },
+          },
+        }),
+      ),
+    );
 
-      expect(failure).toEqual({
-        kind: "schema-invalid",
-        detail:
-          'properties.slots: items.type: Invalid input: expected "string"; a multi-select is {"type":"array","items":{"type":"string","enum":["a","b"]}}',
-      });
-    }),
-  );
+    expect(failure).toEqual({
+      kind: "schema-invalid",
+      detail:
+        'properties.slots: items.type: Invalid input: expected "string"; a multi-select is {"type":"array","items":{"type":"string","enum":["a","b"]}}',
+    });
+  });
 }
 
 function namesTheUndeclaredRequiredField() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      const failure = yield* collectiveFailureOf(
-        send(
-          layer,
-          gatherInput(60, {
-            type: "object",
-            properties: { note: { type: "string" } },
-            required: ["slot"],
-          }),
-        ),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    const failure = yield* collectiveFailureOf(
+      send(
+        layer,
+        gatherInput(60, {
+          type: "object",
+          properties: { note: { type: "string" } },
+          required: ["slot"],
+        }),
+      ),
+    );
 
-      expect(failure).toEqual({
-        kind: "schema-invalid",
-        detail: 'required: names "slot", which properties does not declare',
-      });
-    }),
-  );
+    expect(failure).toEqual({
+      kind: "schema-invalid",
+      detail: 'required: names "slot", which properties does not declare',
+    });
+  });
 }
 
 function emitsARefusedGatherAsAnOperationFailedItemWhenFailuresGoInbound() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, { unknown: ["agent:carol"] });
-      const outcome = yield* send(layer, gatherInput(), "inbound");
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, { unknown: ["agent:carol"] });
+    const outcome = yield* send(layer, gatherInput(), "inbound");
 
-      expect(observed.emitted).toEqual([
-        {
-          kind: "operationFailed",
-          id: outcome.operationId,
-          to: gatherTo,
-          error: "send failed: agent:carol is not a known agent",
-        },
-      ]);
-    }),
-  );
+    expect(observed.emitted).toEqual([
+      {
+        kind: "operationFailed",
+        id: outcome.operationId,
+        to: gatherTo,
+        error: "send failed: agent:carol is not a known agent",
+      },
+    ]);
+  });
 }
 
 function asksTheOneAgentOfAGroupAddressNamingOneOtherAgent() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      yield* send(layer, { ...gatherInput(), to: "group:bob" });
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    yield* send(layer, { ...gatherInput(), to: "group:bob" });
 
-      expect(observed.sent.map((post) => post.to)).toEqual(["agent:bob"]);
-    }),
-  );
+    expect(observed.sent.map((post) => post.to)).toEqual(["agent:bob"]);
+  });
 }
 
 function refusesAGatherToAGroupThatNamesAMemberTwice() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      const failure = yield* collectiveFailureOf(
-        send(layer, { ...gatherInput(), to: "group:bob,carol,bob" }),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    const failure = yield* collectiveFailureOf(
+      send(layer, { ...gatherInput(), to: "group:bob,carol,bob" }),
+    );
 
-      expect(failure).toMatchObject({ reason: "membership-invalid" });
-      expect(observed.sent).toEqual([]);
-    }),
-  );
+    expect(failure).toMatchObject({ reason: "membership-invalid" });
+    expect(observed.sent).toEqual([]);
+  });
 }
 
 function asksTheOneAgentOfAnAgentAddress() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      yield* send(layer, { ...gatherInput(), to: "agent:bob" });
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    yield* send(layer, { ...gatherInput(), to: "agent:bob" });
 
-      expect(observed.sent.map((post) => post.to)).toEqual(["agent:bob"]);
-    }),
-  );
+    expect(observed.sent.map((post) => post.to)).toEqual(["agent:bob"]);
+  });
 }
 
 // @agent-code-guard/regression-only: examples pin the posts each operation certifies.

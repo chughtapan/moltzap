@@ -2,6 +2,7 @@
 
 import { FileSystem, HttpClient } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import { live as it, effect as itOnTestClock } from "@effect/vitest";
 import {
   AgentCard,
   AgentSigningAuthority,
@@ -24,10 +25,9 @@ import {
   Redacted,
   Ref,
   Schema,
-  TestContext,
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import type { DaemonBootstrap } from "./bootstrap.js";
 import type { DaemonRegistrationState } from "./registration/index.js";
 import { advanceClock } from "../__tests__/advance-clock.js";
@@ -358,38 +358,36 @@ function withMembershipRowsNaming(
  * representation carries, in AgentId order.
  */
 const returnsCertificateSignersForAudit = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const { fixture, store, record } = yield* makeCertifiedHistory;
-        const [alice, bob] = fixture.cards;
-        const certified = record.actionCertifiedRecord;
-        const signatures = certified.actionCertificate.signatures;
-        const votes = record.durabilityCertificate.votes;
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { fixture, store, record } = yield* makeCertifiedHistory;
+      const [alice, bob] = fixture.cards;
+      const certified = record.actionCertifiedRecord;
+      const signatures = certified.actionCertificate.signatures;
+      const votes = record.durabilityCertificate.votes;
 
-        const page = yield* readBobHistory(fixture, store);
+      const page = yield* readBobHistory(fixture, store);
 
-        expect(
-          compareAgentIds(alice.agentId, bob.agentId),
-          "alice precedes bob in AgentId order",
-        ).toBeLessThan(0);
-        expect(page.records, "alice's history with bob").toEqual([
-          {
-            recordHash: certified.recordHash,
-            recordCore: certified.recordCore,
-            routerAnchor: certified.routerAnchor,
-            actionSignatures: [
-              signerEvidence(alice, signatures[0]),
-              signerEvidence(bob, signatures[1]),
-            ],
-            durabilityVotes: [
-              signerEvidence(alice, votes[0]),
-              signerEvidence(bob, votes[1]),
-            ],
-          },
-        ]);
-      }),
-    ),
+      expect(
+        compareAgentIds(alice.agentId, bob.agentId),
+        "alice precedes bob in AgentId order",
+      ).toBeLessThan(0);
+      expect(page.records, "alice's history with bob").toEqual([
+        {
+          recordHash: certified.recordHash,
+          recordCore: certified.recordCore,
+          routerAnchor: certified.routerAnchor,
+          actionSignatures: [
+            signerEvidence(alice, signatures[0]),
+            signerEvidence(bob, signatures[1]),
+          ],
+          durabilityVotes: [
+            signerEvidence(alice, votes[0]),
+            signerEvidence(bob, votes[1]),
+          ],
+        },
+      ]);
+    }),
   );
 
 /**
@@ -398,26 +396,24 @@ const returnsCertificateSignersForAudit = () =>
  * persistence-failed, while the unaltered store reads the record.
  */
 const failsReadOverMembershipRowNamingAnotherHash = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const { fixture, store, record } = yield* makeCertifiedHistory;
-        const inconsistent = withMembershipRowsNaming(store, digest("mbr_", 9));
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { fixture, store, record } = yield* makeCertifiedHistory;
+      const inconsistent = withMembershipRowsNaming(store, digest("mbr_", 9));
 
-        const unaltered = yield* readBobRecordHashes(fixture, store);
-        const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
+      const unaltered = yield* readBobRecordHashes(fixture, store);
+      const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
 
-        expect(unaltered, "history read over the unaltered store").toEqual(
-          Exit.succeed([record.actionCertifiedRecord.recordHash]),
-        );
-        expect(
-          corrupt,
-          "history read over the inconsistent membership row",
-        ).toEqual(
-          Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
-        );
-      }),
-    ),
+      expect(unaltered, "history read over the unaltered store").toEqual(
+        Exit.succeed([record.actionCertifiedRecord.recordHash]),
+      );
+      expect(
+        corrupt,
+        "history read over the inconsistent membership row",
+      ).toEqual(
+        Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
+      );
+    }),
   );
 
 /**
@@ -427,27 +423,25 @@ const failsReadOverMembershipRowNamingAnotherHash = () =>
  * unaltered store reads the record.
  */
 const failsReadOverMisattributedEvidence = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const { fixture, store, record } = yield* makeCertifiedHistory;
-        const misattributed = withMisattributedActionEvidence(
-          store,
-          fixture.cards[0].agentId,
-          fixture.cards[1].agentId,
-        );
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { fixture, store, record } = yield* makeCertifiedHistory;
+      const misattributed = withMisattributedActionEvidence(
+        store,
+        fixture.cards[0].agentId,
+        fixture.cards[1].agentId,
+      );
 
-        const unaltered = yield* readBobRecordHashes(fixture, store);
-        const corrupt = yield* readBobRecordHashes(fixture, misattributed);
+      const unaltered = yield* readBobRecordHashes(fixture, store);
+      const corrupt = yield* readBobRecordHashes(fixture, misattributed);
 
-        expect(unaltered, "history read over the unaltered store").toEqual(
-          Exit.succeed([record.actionCertifiedRecord.recordHash]),
-        );
-        expect(corrupt, "history read over the misattributed evidence").toEqual(
-          Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
-        );
-      }),
-    ),
+      expect(unaltered, "history read over the unaltered store").toEqual(
+        Exit.succeed([record.actionCertifiedRecord.recordHash]),
+      );
+      expect(corrupt, "history read over the misattributed evidence").toEqual(
+        Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
+      );
+    }),
   );
 
 /**
@@ -456,74 +450,65 @@ const failsReadOverMisattributedEvidence = () =>
  * persistence-failed, while the unaltered store reads the record.
  */
 const failsReadOverGenesisAnchorSelectingRecord = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const { fixture, store, record } = yield* makeCertifiedHistory;
-        const recordHash = record.actionCertifiedRecord.recordHash;
-        const inconsistent = withGenesisAnchorSelecting(store, recordHash);
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { fixture, store, record } = yield* makeCertifiedHistory;
+      const recordHash = record.actionCertifiedRecord.recordHash;
+      const inconsistent = withGenesisAnchorSelecting(store, recordHash);
 
-        const unaltered = yield* readBobRecordHashes(fixture, store);
-        const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
+      const unaltered = yield* readBobRecordHashes(fixture, store);
+      const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
 
-        expect(unaltered, "history read over the unaltered store").toEqual(
-          Exit.succeed([recordHash]),
-        );
-        expect(
-          corrupt,
-          "history read over the inconsistent anchor row",
-        ).toEqual(
-          Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
-        );
-      }),
-    ),
+      expect(unaltered, "history read over the unaltered store").toEqual(
+        Exit.succeed([recordHash]),
+      );
+      expect(corrupt, "history read over the inconsistent anchor row").toEqual(
+        Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
+      );
+    }),
   );
 
 // @agent-code-guard/regression-only: these cases pin the addressed owner-management contract.
 describe("addressed daemon management", () => {
   it("pages canonical addresses without exposing conversation identity", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const fixture = yield* makeIdentityFixture;
-        const recovery = yield* makeRecovery(fixture, fixture.cards);
-        const operations = yield* makeDaemonManagementOperations({
-          store: makeStore({ recovery }),
-          bootstrap: fixture.bootstrap,
-          registration: activeRegistration(fixture.cards[0]),
-        }).pipe(Effect.provide(makeRegistryLayer(fixture.cards)));
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const recovery = yield* makeRecovery(fixture, fixture.cards);
+      const operations = yield* makeDaemonManagementOperations({
+        store: makeStore({ recovery }),
+        bootstrap: fixture.bootstrap,
+        registration: activeRegistration(fixture.cards[0]),
+      }).pipe(Effect.provide(makeRegistryLayer(fixture.cards)));
 
-        expect(yield* operations.searchConversations({})).toEqual({
-          kind: "page",
-          addresses: ["agent:bob"],
-          hasMore: false,
-        });
-      }),
-    ));
+      expect(yield* operations.searchConversations({})).toEqual({
+        kind: "page",
+        addresses: ["agent:bob"],
+        hasMore: false,
+      });
+    }));
 
   it("maps a missing certified history to history-gap", () =>
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const fixture = yield* makeIdentityFixture;
-        const recovery = yield* makeRecovery(fixture, fixture.cards);
-        const operations = yield* makeDaemonManagementOperations({
-          store: makeStore({
-            recovery,
-            historyFailure: new EndpointStoreError({ reason: "not-found" }),
-          }),
-          bootstrap: fixture.bootstrap,
-          registration: activeRegistration(fixture.cards[0]),
-        }).pipe(Effect.provide(makeRegistryLayer(fixture.cards)));
-        const request = Schema.decodeUnknownSync(
-          managementReadConversationRequestSchema,
-        )({ address: "agent:bob" });
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const recovery = yield* makeRecovery(fixture, fixture.cards);
+      const operations = yield* makeDaemonManagementOperations({
+        store: makeStore({
+          recovery,
+          historyFailure: new EndpointStoreError({ reason: "not-found" }),
+        }),
+        bootstrap: fixture.bootstrap,
+        registration: activeRegistration(fixture.cards[0]),
+      }).pipe(Effect.provide(makeRegistryLayer(fixture.cards)));
+      const request = Schema.decodeUnknownSync(
+        managementReadConversationRequestSchema,
+      )({ address: "agent:bob" });
 
-        const error = yield* operations
-          .readConversation(request)
-          .pipe(Effect.flip);
+      const error = yield* operations
+        .readConversation(request)
+        .pipe(Effect.flip);
 
-        expect(error).toMatchObject({ reason: "history-gap" });
-      }),
-    ));
+      expect(error).toMatchObject({ reason: "history-gap" });
+    }));
 });
 
 /** The daemon's registration port before registration. */
@@ -590,7 +575,7 @@ const refusesAnOwnerReadBeforeRegistration = ({ read }: OwnerRead) =>
     const error = yield* read(operations).pipe(Effect.flip);
 
     expect(error).toMatchObject({ reason: "not-registered" });
-  }).pipe(Effect.runPromise);
+  });
 
 /**
  * A group conversation lists as its group address, with the members' names
@@ -633,7 +618,7 @@ const listsAGroupInAsciiNameOrder = () =>
         hasMore: false,
       }),
     );
-  }).pipe(Effect.runPromise);
+  });
 
 describe("owner reads by registration state", () => {
   it.each(ownerReads)(
@@ -805,7 +790,7 @@ const failsAtTheRegistryDeadline = () =>
     expect(error).toMatchObject({ reason: "dependency-unavailable" });
     expect(yield* Ref.get(effects.bound)).toEqual([]);
     expect(yield* Ref.get(effects.activated)).toEqual([]);
-  }).pipe(Effect.provide(TestContext.TestContext), Effect.runPromise);
+  });
 
 /** A lookup and a list, the two Registry calls `search_agents` makes. */
 const agentSearches = [
@@ -840,7 +825,7 @@ const failsSearchAtTheRegistryDeadline = ({
     });
 
     expect(error).toMatchObject({ reason: "dependency-unavailable" });
-  }).pipe(Effect.provide(TestContext.TestContext), Effect.runPromise);
+  });
 
 /** A Registry whose register waits for `release` after signalling `entered`. */
 function heldRegistry(
@@ -897,15 +882,15 @@ const bindsWhenCancelledDuringTheRegistryCall = () =>
       { agentId: fixture.cards[0].agentId, canonicalAgentCard },
     ]);
     expect(yield* Ref.get(effects.activated)).toEqual([fixture.cards[0]]);
-  }).pipe(Effect.runPromise);
+  });
 
 // @agent-code-guard/regression-only: these cases pin the register tool's cancellation and Registry deadline contract.
 describe("daemon registration through the register tool", () => {
-  it(
+  itOnTestClock(
     "fails a register at the Registry deadline when the Registry never answers",
     failsAtTheRegistryDeadline,
   );
-  it.each(agentSearches)(
+  itOnTestClock.each(agentSearches)(
     "fails a search_agents $search at the Registry deadline when the Registry never answers",
     failsSearchAtTheRegistryDeadline,
   );

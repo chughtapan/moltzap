@@ -1,5 +1,6 @@
 /** @file Small boundary tests for the private addressed Client representation. */
 
+import { it } from "@effect/vitest";
 import {
   AgentId,
   MessageId,
@@ -10,7 +11,7 @@ import {
 import canonicalize from "canonicalize";
 import { Effect, Encoding, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import {
   issueTestCard,
   makeTestAuthority,
@@ -82,77 +83,67 @@ const expectRepresentationFailure = <Value>(
   );
 
 const verifiesCanonicalClosure = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const bytes = yield* encodeCanonical(CatchUpRequest, catchUpRequest);
-      expect(yield* decodeCanonical(CatchUpRequest, bytes)).toEqual(
-        catchUpRequest,
-      );
+  Effect.gen(function* () {
+    const bytes = yield* encodeCanonical(CatchUpRequest, catchUpRequest);
+    expect(yield* decodeCanonical(CatchUpRequest, bytes)).toEqual(
+      catchUpRequest,
+    );
 
-      const nonCanonical = utf8Encoder.encode(` ${utf8Decoder.decode(bytes)}`);
-      yield* expectRepresentationFailure(
-        decodeCanonical(CatchUpRequest, nonCanonical),
-      );
-      yield* expectRepresentationFailure(
-        decodeCanonical(
-          CatchUpRequest,
-          canonicalInputBytes({ ...catchUpRequest, unexpected: true }),
-        ),
-      );
-    }),
-  );
+    const nonCanonical = utf8Encoder.encode(` ${utf8Decoder.decode(bytes)}`);
+    yield* expectRepresentationFailure(
+      decodeCanonical(CatchUpRequest, nonCanonical),
+    );
+    yield* expectRepresentationFailure(
+      decodeCanonical(
+        CatchUpRequest,
+        canonicalInputBytes({ ...catchUpRequest, unexpected: true }),
+      ),
+    );
+  });
 
 const derivesPrivateIdentifiers = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const memberAgentIds = [firstAgentId, secondAgentId] as const;
-      const firstConversationId = yield* deriveConversationId(memberAgentIds);
-      const secondConversationId = yield* deriveConversationId(memberAgentIds);
-      expect(firstConversationId).toBe(secondConversationId);
-      yield* expectRepresentationFailure(
-        deriveConversationId([secondAgentId, firstAgentId] as const),
-      );
+  Effect.gen(function* () {
+    const memberAgentIds = [firstAgentId, secondAgentId] as const;
+    const firstConversationId = yield* deriveConversationId(memberAgentIds);
+    const secondConversationId = yield* deriveConversationId(memberAgentIds);
+    expect(firstConversationId).toBe(secondConversationId);
+    yield* expectRepresentationFailure(
+      deriveConversationId([secondAgentId, firstAgentId] as const),
+    );
 
-      const firstPostId = yield* mintPostId();
-      const secondPostId = yield* mintPostId();
-      expect(secondPostId).not.toBe(firstPostId);
-    }),
-  );
+    const firstPostId = yield* mintPostId();
+    const secondPostId = yield* mintPostId();
+    expect(secondPostId).not.toBe(firstPostId);
+  });
 
 const enforcesContentBounds = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const empty = [{ type: "text", text: "" }] as const;
-      const fixedBytes = yield* encodeCanonical(Content, empty);
-      const maximumText = "x".repeat(
-        maximumContentBytes - fixedBytes.byteLength,
-      );
-      const maximumContent = [{ type: "text", text: maximumText }] as const;
-      expect(yield* encodeCanonical(Content, maximumContent)).toHaveLength(
-        maximumContentBytes,
-      );
-      yield* expectRepresentationFailure(
-        encodeCanonical(Content, [{ type: "text", text: `${maximumText}x` }]),
-      );
-    }),
-  );
+  Effect.gen(function* () {
+    const empty = [{ type: "text", text: "" }] as const;
+    const fixedBytes = yield* encodeCanonical(Content, empty);
+    const maximumText = "x".repeat(maximumContentBytes - fixedBytes.byteLength);
+    const maximumContent = [{ type: "text", text: maximumText }] as const;
+    expect(yield* encodeCanonical(Content, maximumContent)).toHaveLength(
+      maximumContentBytes,
+    );
+    yield* expectRepresentationFailure(
+      encodeCanonical(Content, [{ type: "text", text: `${maximumText}x` }]),
+    );
+  });
 
 const derivesStableEvidenceIdentity = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const statement = Schema.decodeUnknownSync(ActionSignatureStatement)({
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "action_signature",
-        signerAgentId: firstAgentId,
-        actionHash: Schema.decodeUnknownSync(ActionHash)(
-          identifier("ach_", 32, 5),
-        ),
-      });
-      const first = yield* deriveEvidenceMessageId(statement);
-      const retry = yield* deriveEvidenceMessageId(statement);
-      expect(retry).toBe(first);
-    }),
-  );
+  Effect.gen(function* () {
+    const statement = Schema.decodeUnknownSync(ActionSignatureStatement)({
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "action_signature",
+      signerAgentId: firstAgentId,
+      actionHash: Schema.decodeUnknownSync(ActionHash)(
+        identifier("ach_", 32, 5),
+      ),
+    });
+    const first = yield* deriveEvidenceMessageId(statement);
+    const retry = yield* deriveEvidenceMessageId(statement);
+    expect(retry).toBe(first);
+  });
 
 const makeMember = (byte: number, registryKeys: RegistryKeyPair) =>
   Effect.gen(function* () {
@@ -167,114 +158,109 @@ const makeMember = (byte: number, registryKeys: RegistryKeyPair) =>
   });
 
 const opensSealedBodiesOnlyForMembers = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const registryKeys = generateKeyPairSync("ed25519");
-      const sender = yield* makeMember(1, registryKeys);
-      const receiver = yield* makeMember(2, registryKeys);
-      const outsider = yield* makeMember(3, registryKeys);
+  Effect.gen(function* () {
+    const registryKeys = generateKeyPairSync("ed25519");
+    const sender = yield* makeMember(1, registryKeys);
+    const receiver = yield* makeMember(2, registryKeys);
+    const outsider = yield* makeMember(3, registryKeys);
 
-      const sealed = yield* signOuterPacket({
-        packet: catchUpRequest,
-        membership: { members: [sender.agentCard, receiver.agentCard] },
-        ...sender,
-      });
+    const sealed = yield* signOuterPacket({
+      packet: catchUpRequest,
+      membership: { members: [sender.agentCard, receiver.agentCard] },
+      ...sender,
+    });
 
-      yield* expectRepresentationFailure(
-        decodeCanonical(CatchUpRequest, sealed.body),
-      );
-      expect(
-        yield* decodeOuterBody({ ...receiver, message: sealed }),
-      ).toStrictEqual({ kind: "direct", packet: catchUpRequest });
-      expect(
-        yield* decodeOuterBody({ ...sender, message: sealed }),
-      ).toStrictEqual({ kind: "direct", packet: catchUpRequest });
-      yield* expectRepresentationFailure(
-        decodeOuterBody({ ...outsider, message: sealed }),
-      );
-    }),
-  );
+    yield* expectRepresentationFailure(
+      decodeCanonical(CatchUpRequest, sealed.body),
+    );
+    expect(
+      yield* decodeOuterBody({ ...receiver, message: sealed }),
+    ).toStrictEqual({ kind: "direct", packet: catchUpRequest });
+    expect(
+      yield* decodeOuterBody({ ...sender, message: sealed }),
+    ).toStrictEqual({ kind: "direct", packet: catchUpRequest });
+    yield* expectRepresentationFailure(
+      decodeOuterBody({ ...outsider, message: sealed }),
+    );
+  });
 
 const refusesPlaintextOuterBody = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const registryKeys = generateKeyPairSync("ed25519");
-      const sender = yield* makeMember(1, registryKeys);
-      const receiver = yield* makeMember(2, registryKeys);
+  Effect.gen(function* () {
+    const registryKeys = generateKeyPairSync("ed25519");
+    const sender = yield* makeMember(1, registryKeys);
+    const receiver = yield* makeMember(2, registryKeys);
 
-      const plaintext = yield* SignedMessage.sign({
-        agentCard: sender.agentCard,
-        signingAuthority: sender.signingAuthority,
-        recipientAgentIds: new Set([
-          sender.agentCard.agentId,
-          receiver.agentCard.agentId,
-        ]),
-        messageId: Schema.decodeUnknownSync(MessageId)(
-          identifier("msg_", 16, 6),
-        ),
-        body: yield* encodeCanonical(CatchUpRequest, catchUpRequest),
-      });
+    const plaintext = yield* SignedMessage.sign({
+      agentCard: sender.agentCard,
+      signingAuthority: sender.signingAuthority,
+      recipientAgentIds: new Set([
+        sender.agentCard.agentId,
+        receiver.agentCard.agentId,
+      ]),
+      messageId: Schema.decodeUnknownSync(MessageId)(identifier("msg_", 16, 6)),
+      body: yield* encodeCanonical(CatchUpRequest, catchUpRequest),
+    });
 
-      yield* expectRepresentationFailure(
-        decodeOuterBody({ ...receiver, message: plaintext }),
-      );
-    }),
-  );
+    yield* expectRepresentationFailure(
+      decodeOuterBody({ ...receiver, message: plaintext }),
+    );
+  });
 
 const refusesSealedBodyHoldingNoClientValue = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const registryKeys = generateKeyPairSync("ed25519");
-      const sender = yield* makeMember(1, registryKeys);
-      const receiver = yield* makeMember(2, registryKeys);
-      const messageId = Schema.decodeUnknownSync(MessageId)(
-        identifier("msg_", 16, 7),
-      );
-      const sealed = yield* SealedBody.seal({
-        senderAgentId: sender.agentCard.agentId,
-        recipientAgentCards: [sender.agentCard, receiver.agentCard],
-        messageId,
-        plaintext: utf8Encoder.encode("{}"),
-      });
+  Effect.gen(function* () {
+    const registryKeys = generateKeyPairSync("ed25519");
+    const sender = yield* makeMember(1, registryKeys);
+    const receiver = yield* makeMember(2, registryKeys);
+    const messageId = Schema.decodeUnknownSync(MessageId)(
+      identifier("msg_", 16, 7),
+    );
+    const sealed = yield* SealedBody.seal({
+      senderAgentId: sender.agentCard.agentId,
+      recipientAgentCards: [sender.agentCard, receiver.agentCard],
+      messageId,
+      plaintext: utf8Encoder.encode("{}"),
+    });
 
-      const message = yield* SignedMessage.sign({
-        agentCard: sender.agentCard,
-        signingAuthority: sender.signingAuthority,
-        recipientAgentIds: new Set([
-          sender.agentCard.agentId,
-          receiver.agentCard.agentId,
-        ]),
-        messageId,
-        body: sealed,
-      });
+    const message = yield* SignedMessage.sign({
+      agentCard: sender.agentCard,
+      signingAuthority: sender.signingAuthority,
+      recipientAgentIds: new Set([
+        sender.agentCard.agentId,
+        receiver.agentCard.agentId,
+      ]),
+      messageId,
+      body: sealed,
+    });
 
-      yield* expectRepresentationFailure(
-        decodeOuterBody({ ...receiver, message }),
-      );
-    }),
-  );
+    yield* expectRepresentationFailure(
+      decodeOuterBody({ ...receiver, message }),
+    );
+  });
 
 // @agent-code-guard/regression-only: these examples pin the accepted private Client wire boundary and hostile-input closure.
 describe("Client protocol representation", () => {
-  it(
+  it.live(
     "accepts exact JCS and rejects alternate or open representations",
     verifiesCanonicalClosure,
   );
-  it(
+  it.live(
     "derives stable conversation and author-scoped post identities",
     derivesPrivateIdentifiers,
   );
-  it("enforces the exact canonical content byte bound", enforcesContentBounds);
-  it(
+  it.live(
+    "enforces the exact canonical content byte bound",
+    enforcesContentBounds,
+  );
+  it.live(
     "derives a stable inner evidence message identity",
     derivesStableEvidenceIdentity,
   );
-  it(
+  it.live(
     "opens a sealed outer body for each member and for no one else",
     opensSealedBodiesOnlyForMembers,
   );
-  it("refuses a plaintext outer body", refusesPlaintextOuterBody);
-  it(
+  it.live("refuses a plaintext outer body", refusesPlaintextOuterBody);
+  it.live(
     "refuses a sealed outer body that holds no Client value",
     refusesSealedBodyHoldingNoClientValue,
   );

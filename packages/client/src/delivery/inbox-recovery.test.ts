@@ -1,7 +1,8 @@
 /** @file A pending collective request delivery stays answerable across a restart of a current store. */
 
+import { live as it } from "@effect/vitest";
 import { Effect, Encoding, Option, Schema, Scope } from "effect";
-import { expect, it } from "vitest";
+import { expect } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
 import {
   bytes,
@@ -105,41 +106,39 @@ const storeRequest = (path: string) =>
 const preservesUnprojectedRequest = () => {
   const path = stateDirectory();
   const counter = { count: 0 };
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      const before = yield* storeRequest(path);
-      yield* Effect.scoped(
-        Effect.gen(function* () {
-          const store = yield* openEndpointStore(path);
-          yield* recoverRuntimeInbox(store);
-          const pending = yield* store.readPendingDeliveries();
-          expect(pending).toEqual(before.pendingDeliveries);
-          expect((yield* readRuntimeInbox(store, {})).items).toEqual([]);
-          const entry = yield* Effect.fromNullable(pending[0]).pipe(
-            Effect.orElse(() =>
-              Effect.dieMessage(
-                "expected the unprojected request to remain pending",
-              ),
+  return Effect.gen(function* () {
+    const before = yield* storeRequest(path);
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const store = yield* openEndpointStore(path);
+        yield* recoverRuntimeInbox(store);
+        const pending = yield* store.readPendingDeliveries();
+        expect(pending).toEqual(before.pendingDeliveries);
+        expect((yield* readRuntimeInbox(store, {})).items).toEqual([]);
+        const entry = yield* Effect.fromNullable(pending[0]).pipe(
+          Effect.orElse(() =>
+            Effect.dieMessage(
+              "expected the unprojected request to remain pending",
             ),
-          );
-          const restarted = makeCollectives(counter, yield* Scope.Scope);
-          const item = yield* restarted.classify({
-            message: yield* decodeRuntimeValue(
-              InboundMessage,
-              entry.canonicalMessage,
-            ),
-            recordHash,
-          });
-          expect(Option.getOrNull(item)).toMatchObject({
-            kind: "collectiveRequest",
-            id,
-          });
-          yield* restarted.send(response, "result");
-          expect(counter.count).toBe(1);
-        }),
-      );
-    }),
-  );
+          ),
+        );
+        const restarted = makeCollectives(counter, yield* Scope.Scope);
+        const item = yield* restarted.classify({
+          message: yield* decodeRuntimeValue(
+            InboundMessage,
+            entry.canonicalMessage,
+          ),
+          recordHash,
+        });
+        expect(Option.getOrNull(item)).toMatchObject({
+          kind: "collectiveRequest",
+          id,
+        });
+        yield* restarted.send(response, "result");
+        expect(counter.count).toBe(1);
+      }),
+    );
+  });
 };
 
 it(

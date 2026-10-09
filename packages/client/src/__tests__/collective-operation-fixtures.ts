@@ -1,6 +1,6 @@
 /** @file Recording ports, post builders and send helpers shared by the collective operation tests. */
 
-import { Duration, Effect, Schema, type Scope, TestContext } from "effect";
+import { Duration, Effect, Schema, type Scope } from "effect";
 import type { InboundItem } from "../transport/collectives/inbound.js";
 import type { EngineSendInput } from "../transport/messaging/index.js";
 import {
@@ -191,16 +191,6 @@ export const makeLayer = (
       emit,
       scope,
     }),
-  );
-
-/**
- * Run a scoped test program on the test clock.
- * @param effect The test program.
- * @returns A promise of its result, for the test runner.
- */
-export const run = <A, E>(effect: Effect.Effect<A, E, Scope.Scope>) =>
-  Effect.runPromise(
-    effect.pipe(Effect.scoped, Effect.provide(TestContext.TestContext)),
   );
 
 /**
