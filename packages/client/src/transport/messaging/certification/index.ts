@@ -806,6 +806,22 @@ const ensureConversation = (
   };
 };
 
+const certificateEvidence = (
+  fold: EngineActionFold,
+  representation: unknown,
+  matches: (statement: VerifiedEvidence["statement"]) => boolean,
+): Effect.Effect<SignedMessage, ClientRepresentationError> =>
+  verifyStableEvidence({
+    representation,
+    membership: fold.conversation.membership,
+  }).pipe(
+    Effect.filterOrFail(
+      ({ statement }) => matches(statement),
+      () => new ClientRepresentationError(),
+    ),
+    Effect.map(({ message }) => message),
+  );
+
 const mergeActionCertificate = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
@@ -847,22 +863,6 @@ const certificateVotes = (
         ),
       ),
     { concurrency: 1 },
-  );
-
-const certificateEvidence = (
-  fold: EngineActionFold,
-  representation: unknown,
-  matches: (statement: VerifiedEvidence["statement"]) => boolean,
-): Effect.Effect<SignedMessage, ClientRepresentationError> =>
-  verifyStableEvidence({
-    representation,
-    membership: fold.conversation.membership,
-  }).pipe(
-    Effect.filterOrFail(
-      ({ statement }) => matches(statement),
-      () => new ClientRepresentationError(),
-    ),
-    Effect.map(({ message }) => message),
   );
 
 /**

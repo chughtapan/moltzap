@@ -1131,7 +1131,8 @@ function restartSignsNoVoteForARecordAcceptedWhole() {
 /**
  * Members 1, 2 and 3 certify a post that member 4 misses, and member 4's store
  * refuses member 1's whole CertifiedRecord of it, as a crash before the store
- * commits the record leaves it. Member 4 keeps the post's action certificate
+ * commits the record leaves it. Every store refuses records received whole,
+ * and member 4's is the only one that receives one. Member 4 keeps the post's action certificate
  * it verified on the way, so once restarted over its store it resends its
  * genesis signature and vote, then stages the post from that certificate and
  * sends its own action-certified copy of the post before its vote. Fails when
@@ -1144,10 +1145,9 @@ function restartSendsItsCopyBeforeVotingForARecordItsStoreRefused() {
   return Effect.scoped(
     Effect.gen(function* () {
       const harness = yield* makeProtocolHarness({
-        wrapStore: (store, identity, index) =>
-          index === 3 ? refusingWholeRecords(store) : store,
+        wrapStore: (store) => refusingWholeRecords(store),
       });
-      const genesisRecordHash = yield* certifyGenesis(harness);
+      yield* certifyGenesis(harness);
       const authorIdentity = yield* requireAt(
         harness.identities,
         0,

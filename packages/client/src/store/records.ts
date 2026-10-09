@@ -145,13 +145,14 @@ export function promoteRecord(
 }
 
 /**
- * Atomically stages, certifies and promotes a record received whole, with its
+ * Atomically stages and promotes a record received whole, with its
  * certificates' evidence and its local post completion or remote host
  * delivery. A crash therefore never leaves its core staged without its
  * certification, where a restart could not tell it from a record this
- * endpoint staged for its own durability vote. This endpoint votes for none
- * of it, so its core is staged even under an anchor this endpoint has staged
- * a re-anchor candidate away from.
+ * endpoint staged for its own durability vote. This endpoint casts no vote
+ * for it, so its core is staged even under an anchor this endpoint has
+ * staged a re-anchor candidate away from; a vote of this endpoint's own in
+ * its certificate is held to the rules it would be cast under.
  *
  * @param database Exclusively owned endpoint database.
  * @param record Verified complete certified record.
@@ -313,32 +314,6 @@ function mergeEvidenceInTransaction(
   return "inserted";
 }
 
-/**
- * Refuse a record under an anchor this endpoint has staged a re-anchor
- * candidate away from, when this endpoint would vote for it: as it stages the
- * record for its vote, and as it stores the vote. A member that has voted to
- * leave an anchor signs nothing more under it, so a re-anchor away from a
- * head and a durability certificate extending that head never both collect
- * this endpoint's signature, whichever this endpoint reaches first.
- * @param database Exclusively owned endpoint database.
- * @param record Record staged, or about to be staged, for this endpoint's
- *     durability vote.
- */
-function requireNoReanchorAwayFrom(
-  database: DatabaseSync,
-  record: StagedRecord,
-): void {
-  const left = database
-    .prepare(
-      `SELECT 1 AS staged FROM reanchors
-       WHERE conversation_id = ? AND previous_anchor_hash = ? LIMIT 1`,
-    )
-    .get(record.conversationId, record.anchorHash);
-  if (left !== undefined) {
-    throw new StoreSignal("conflict");
-  }
-}
-
 function requireRecordPosition(
   database: DatabaseSync,
   record: StagedRecord,
@@ -456,6 +431,32 @@ function requireLocalDurabilityEvidenceLock(
     throw new StoreSignal("not-found");
   }
   requireNoReanchorAwayFrom(database, record);
+}
+
+/**
+ * Refuse a record under an anchor this endpoint has staged a re-anchor
+ * candidate away from, wherever this endpoint would vote for it: as it stages
+ * the record for its vote, and as it stores its own vote for any staged
+ * record. A member that has voted to leave an anchor signs nothing more under
+ * it, so a re-anchor away from a head and a durability certificate extending
+ * that head never both collect this endpoint's signature.
+ * @param database Exclusively owned endpoint database.
+ * @param record Record staged, or about to be staged, for this endpoint's
+ *     durability vote.
+ */
+function requireNoReanchorAwayFrom(
+  database: DatabaseSync,
+  record: StagedRecord,
+): void {
+  const left = database
+    .prepare(
+      `SELECT 1 AS staged FROM reanchors
+       WHERE conversation_id = ? AND previous_anchor_hash = ? LIMIT 1`,
+    )
+    .get(record.conversationId, record.anchorHash);
+  if (left !== undefined) {
+    throw new StoreSignal("conflict");
+  }
 }
 
 function hasProposalAction(

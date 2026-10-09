@@ -92,26 +92,6 @@ export function verifiedEvidenceForRoute(
   });
 }
 
-function actionEvidenceMatchesFold(
-  fold: EngineActionFold,
-  statement: VerifiedEvidence["statement"],
-): boolean {
-  return (
-    statement.kind === "action_signature" &&
-    statement.actionHash === fold.actionHash
-  );
-}
-
-function durabilityEvidenceMatchesFold(
-  fold: EngineActionFold,
-  statement: VerifiedEvidence["statement"],
-): boolean {
-  return (
-    fold.recordHash !== undefined &&
-    isVoteForRecord(fold, fold.recordHash, statement)
-  );
-}
-
 /**
  * Whether verified evidence is a durability vote for a record under a fold's
  * conversation and membership, including a record the fold does not hold yet.
@@ -130,5 +110,25 @@ export function isVoteForRecord(
     statement.recordHash === recordHash &&
     statement.conversationId === fold.conversation.conversationId &&
     statement.membershipHash === fold.conversation.membership.hash
+  );
+}
+
+function actionEvidenceMatchesFold(
+  fold: EngineActionFold,
+  statement: VerifiedEvidence["statement"],
+): boolean {
+  return (
+    statement.kind === "action_signature" &&
+    statement.actionHash === fold.actionHash
+  );
+}
+
+function durabilityEvidenceMatchesFold(
+  fold: EngineActionFold,
+  statement: VerifiedEvidence["statement"],
+): boolean {
+  return (
+    fold.recordHash !== undefined &&
+    isVoteForRecord(fold, fold.recordHash, statement)
   );
 }

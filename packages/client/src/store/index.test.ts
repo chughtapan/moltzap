@@ -307,19 +307,7 @@ function completesLocalPostWithoutSelfDelivery() {
   const record = certifiedRecord(conversationId, LOCAL_AGENT_ID);
   return withStore(directory, (store) =>
     Effect.gen(function* () {
-      yield* bindLocalIdentity(store);
-      yield* store.bindPostIntent({
-        kind: "new-conversation",
-        foundation: foundation(conversationId),
-        intent: {
-          conversationId,
-          membershipHash: record.membershipHash,
-          authorAgentId: record.authorAgentId,
-          postId: record.postId,
-          canonicalIntent: bytes("intent:local"),
-        },
-      });
-      yield* store.lockProposal(proposal(conversationId, record.actionHash));
+      yield* lockLocalPost(store, record);
       yield* store.applyCertifiedRecord(record);
       const recovery = yield* store.recover();
       expect(recovery.postIntents[0]?.completedRecordHash).toBe(
@@ -343,40 +331,19 @@ function refusesAReanchorAwayFromAStagedSuccessor() {
   const directory = stateDirectory();
   const conversationId = "conversation:staged-successor";
   const head = certifiedRecord(conversationId, LOCAL_AGENT_ID);
-  const successor: StagedRecord = {
-    ...stagedRecord(head),
-    recordHash: `rch_${conversationId}:1`,
-    previousRecordHash: head.recordHash,
-    actionHash: `ach_${conversationId}:1`,
-    canonicalRecordCore: bytes(`record:${conversationId}:1`),
-  };
-  const awayFromTheHead: StagedReanchor = {
-    conversationId,
-    anchorHash: `anc_${conversationId}:1`,
-    previousAnchorHash: head.anchorHash,
-    routerInstanceId: "rti_staged-successor",
-    selectedRecordHash: head.recordHash,
-    canonicalBody: bytes(`reanchor:${conversationId}:1`),
-  };
+  const successor = stagedRecord(
+    certifiedRecord(conversationId, LOCAL_AGENT_ID, head),
+  );
   return withStore(directory, (store) =>
     Effect.gen(function* () {
-      yield* bindLocalIdentity(store);
-      yield* store.bindPostIntent({
-        kind: "new-conversation",
-        foundation: foundation(conversationId),
-        intent: {
-          conversationId,
-          membershipHash: head.membershipHash,
-          authorAgentId: head.authorAgentId,
-          postId: head.postId,
-          canonicalIntent: bytes("intent:staged-successor"),
-        },
-      });
-      yield* store.lockProposal(proposal(conversationId, head.actionHash));
+      yield* lockLocalPost(store, head);
       yield* store.applyCertifiedRecord(head);
       yield* store.stageRecordForDissemination(successor);
 
-      yield* expectReason(store.stageReanchor(awayFromTheHead), "conflict");
+      yield* expectReason(
+        store.stageReanchor(reanchorAwayFrom(head)),
+        "conflict",
+      );
       expect((yield* store.recover()).stagedReanchors).toEqual([]);
     }),
   );
@@ -396,15 +363,7 @@ function refusesALocalVoteUnderAnAnchorItReanchorsAwayFrom() {
   const directory = stateDirectory();
   const conversationId = "conversation:reanchored-vote";
   const head = certifiedRecord(conversationId, LOCAL_AGENT_ID);
-  const successor = certifiedSuccessor(head, "agent:remote");
-  const awayFromTheHead: StagedReanchor = {
-    conversationId,
-    anchorHash: `anc_${conversationId}:1`,
-    previousAnchorHash: head.anchorHash,
-    routerInstanceId: "rti_reanchored-vote",
-    selectedRecordHash: head.recordHash,
-    canonicalBody: bytes(`reanchor:${conversationId}:1`),
-  };
+  const successor = certifiedRecord(conversationId, "agent:remote", head);
   const localVote: ProtocolEvidence = {
     conversationId,
     kind: "durability",
@@ -414,25 +373,13 @@ function refusesALocalVoteUnderAnAnchorItReanchorsAwayFrom() {
   };
   return withStore(directory, (store) =>
     Effect.gen(function* () {
-      yield* bindLocalIdentity(store);
-      yield* store.bindPostIntent({
-        kind: "new-conversation",
-        foundation: foundation(conversationId),
-        intent: {
-          conversationId,
-          membershipHash: head.membershipHash,
-          authorAgentId: head.authorAgentId,
-          postId: head.postId,
-          canonicalIntent: bytes("intent:reanchored-vote"),
-        },
-      });
-      yield* store.lockProposal(proposal(conversationId, head.actionHash));
+      yield* lockLocalPost(store, head);
       yield* store.applyCertifiedRecord(head);
       yield* store.lockProposal({
         ...proposal(conversationId, successor.actionHash),
         previousRecordHash: head.recordHash,
       });
-      yield* store.stageReanchor(awayFromTheHead);
+      yield* store.stageReanchor(reanchorAwayFrom(head));
       yield* store.applyCertifiedRecord(successor, {
         recipientAgentId: LOCAL_AGENT_ID,
         canonicalMessage: bytes("message:successor"),
@@ -554,21 +501,7 @@ function retainsRecordDisseminationAcrossCrashWindows() {
 function stageDisseminationObligation(fixture: DisseminationLifecycleFixture) {
   return withStore(fixture.directory, (store) =>
     Effect.gen(function* () {
-      yield* bindLocalIdentity(store);
-      yield* store.bindPostIntent({
-        kind: "new-conversation",
-        foundation: foundation(fixture.conversationId),
-        intent: {
-          conversationId: fixture.conversationId,
-          membershipHash: fixture.record.membershipHash,
-          authorAgentId: fixture.record.authorAgentId,
-          postId: fixture.record.postId,
-          canonicalIntent: bytes("intent:dissemination"),
-        },
-      });
-      yield* store.lockProposal(
-        proposal(fixture.conversationId, fixture.record.actionHash),
-      );
+      yield* lockLocalPost(store, fixture.record);
       yield* expectReason(
         store.enqueueDisseminationOutbound(
           fixture.actionObligation,
@@ -750,19 +683,7 @@ function refusesEmptyRestartAfterCertification() {
   };
   return withStore(directory, (store) =>
     Effect.gen(function* () {
-      yield* bindLocalIdentity(store);
-      yield* store.bindPostIntent({
-        kind: "new-conversation",
-        foundation: oldFoundation,
-        intent: {
-          conversationId,
-          membershipHash: record.membershipHash,
-          authorAgentId: LOCAL_AGENT_ID,
-          postId: record.postId,
-          canonicalIntent: bytes("intent:certified-restart"),
-        },
-      });
-      yield* store.lockProposal(proposal(conversationId, record.actionHash));
+      yield* lockLocalPost(store, record);
       yield* store.applyCertifiedRecord(record);
       yield* expectReason(
         store.restartEmptyConversation({
@@ -931,22 +852,35 @@ function verifyRemoteDeliveryRecovery(
   });
 }
 
+/**
+ * A certified record under a conversation's first anchor, with one action
+ * signature and one durability vote, both its author's.
+ * @param conversationId Conversation under whose first foundation it is.
+ * @param authorAgentId Agent that authored it and signed both certificates.
+ * @param previous Record it extends; it is the first record when absent.
+ * @returns A record whose hashes and bytes follow from its position.
+ */
 function certifiedRecord(
   conversationId: string,
   authorAgentId: string,
+  previous?: CertifiedRecord,
 ): CertifiedRecord {
-  const actionHash = `ach_${conversationId}:0`;
-  const recordHash = `rch_${conversationId}:0`;
+  const ordinal = previous === undefined ? 0 : 1;
+  const actionHash = `ach_${conversationId}:${ordinal}`;
+  const recordHash = `rch_${conversationId}:${ordinal}`;
   const conversationFoundation = foundation(conversationId);
   return {
     conversationId,
     recordHash,
+    ...(previous === undefined
+      ? {}
+      : { previousRecordHash: previous.recordHash }),
     membershipHash: conversationFoundation.membershipHash,
     anchorHash: conversationFoundation.anchorHash,
     actionHash,
     authorAgentId,
-    postId: `pst_${authorAgentId}`,
-    canonicalRecordCore: bytes(`record:${conversationId}:0`),
+    postId: `pst_${authorAgentId}:${ordinal}`,
+    canonicalRecordCore: bytes(`record:${conversationId}:${ordinal}`),
     actionEvidence: [
       {
         conversationId,
@@ -968,39 +902,42 @@ function certifiedRecord(
   };
 }
 
-function certifiedSuccessor(
-  head: CertifiedRecord,
-  authorAgentId: string,
-): CertifiedRecord {
-  const { conversationId } = head;
-  const actionHash = `ach_${conversationId}:1`;
-  const recordHash = `rch_${conversationId}:1`;
+/**
+ * Bind this endpoint's identity and its post intent for `record`, with the
+ * conversation's first foundation, and lock `record`'s action: the state in
+ * which this endpoint proposes its own post.
+ * @param store Store that takes the identity, the intent and the lock.
+ * @param record Record whose post intent is bound and whose action is locked.
+ * @returns Completion once all three are durable.
+ */
+function lockLocalPost(store: EndpointStore, record: StagedRecord) {
+  return Effect.gen(function* () {
+    yield* bindLocalIdentity(store);
+    yield* store.bindPostIntent({
+      kind: "new-conversation",
+      foundation: foundation(record.conversationId),
+      intent: {
+        conversationId: record.conversationId,
+        membershipHash: record.membershipHash,
+        authorAgentId: record.authorAgentId,
+        postId: record.postId,
+        canonicalIntent: bytes(`intent:${record.postId}`),
+      },
+    });
+    yield* store.lockProposal(
+      proposal(record.conversationId, record.actionHash),
+    );
+  });
+}
+
+function reanchorAwayFrom(head: CertifiedRecord): StagedReanchor {
   return {
-    ...head,
-    recordHash,
-    previousRecordHash: head.recordHash,
-    actionHash,
-    authorAgentId,
-    postId: `pst_${authorAgentId}`,
-    canonicalRecordCore: bytes(`record:${conversationId}:1`),
-    actionEvidence: [
-      {
-        conversationId,
-        kind: "action",
-        subjectId: actionHash,
-        evidenceKey: authorAgentId,
-        canonicalEvidence: bytes(`action-signature:${authorAgentId}:1`),
-      },
-    ],
-    durabilityEvidence: [
-      {
-        conversationId,
-        kind: "durability",
-        subjectId: recordHash,
-        evidenceKey: authorAgentId,
-        canonicalEvidence: bytes(`durability-vote:${authorAgentId}:1`),
-      },
-    ],
+    conversationId: head.conversationId,
+    anchorHash: `anc_${head.conversationId}:1`,
+    previousAnchorHash: head.anchorHash,
+    routerInstanceId: `rti_${head.conversationId}`,
+    selectedRecordHash: head.recordHash,
+    canonicalBody: bytes(`reanchor:${head.conversationId}:1`),
   };
 }
 
