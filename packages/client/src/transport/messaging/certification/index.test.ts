@@ -577,16 +577,37 @@ function decodeActionSignatureHash(
   harness: Pick<ProtocolHarness, "identities">,
   message: typeof SignedMessage.Type,
 ): Effect.Effect<Effect.Effect.Success<ReturnType<typeof hashAction>>> {
+  return decodeEvidenceStatement(harness, message).pipe(
+    Effect.flatMap((statement) =>
+      statement.kind === "action_signature"
+        ? Effect.succeed(statement.actionHash)
+        : Effect.dieMessage("expected action signature"),
+    ),
+  );
+}
+
+function decodeDurabilityVoteRecordHash(
+  harness: Pick<ProtocolHarness, "identities">,
+  message: typeof SignedMessage.Type,
+): Effect.Effect<RecordHash> {
+  return decodeEvidenceStatement(harness, message).pipe(
+    Effect.flatMap((statement) =>
+      statement.kind === "durability_vote"
+        ? Effect.succeed(statement.recordHash)
+        : Effect.dieMessage("expected durability vote"),
+    ),
+  );
+}
+
+function decodeEvidenceStatement(
+  harness: Pick<ProtocolHarness, "identities">,
+  message: typeof SignedMessage.Type,
+): Effect.Effect<typeof EvidenceStatement.Type> {
   return openAsSender(harness, message).pipe(
     Effect.flatMap((body) =>
       body.kind === "evidence"
         ? decodeCanonical(EvidenceStatement, body.message.body)
         : Effect.dieMessage("expected evidence envelope"),
-    ),
-    Effect.flatMap((statement) =>
-      statement.kind === "action_signature"
-        ? Effect.succeed(statement.actionHash)
-        : Effect.dieMessage("expected action signature"),
     ),
     Effect.orDie,
   );
@@ -1069,6 +1090,92 @@ function adoptsACertifiedRecordOverItsOwnLock() {
         ]);
         const recovered = yield* laggingStore.recover().pipe(Effect.orDie);
         expect(recovered.certifiedRecords).toHaveLength(3);
+      }),
+    ),
+  );
+}
+
+/**
+ * Members 1, 2 and 3 certify a post that member 4 misses, so the post first
+ * reaches member 4 as member 1's whole CertifiedRecord and member 4 never
+ * votes for it. Restarted over its store, member 4 resends the genesis vote
+ * it signed and signs no vote for the post.
+ * @returns Completion once member 4's restart traffic is checked.
+ */
+function restartSignsNoVoteForARecordAcceptedWhole() {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeProtocolHarness();
+        const genesisRecordHash = yield* certifyGenesis(harness);
+        const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+        const authorIdentity = yield* requireAt(
+          harness.identities,
+          0,
+          "identity",
+        );
+        const absentIdentity = yield* requireAt(
+          harness.identities,
+          3,
+          "identity",
+        );
+        const absentStore = yield* requireAt(
+          harness.stores,
+          3,
+          "endpoint store",
+        );
+        const everyMemberButTheAbsent = [0, 1, 2];
+        const sending = yield* Effect.fork(
+          author.send(yield* sendInput(harness, "certified without member 4")),
+        );
+        yield* harness.deliver(
+          yield* takeReadyBatch(harness),
+          everyMemberButTheAbsent,
+        );
+        yield* harness.drain(everyMemberButTheAbsent);
+        yield* harness.deliver(
+          yield* takeQueued(harness),
+          everyMemberButTheAbsent,
+        );
+        yield* harness.drain(everyMemberButTheAbsent);
+        yield* harness.deliver(
+          yield* takeQueued(harness),
+          everyMemberButTheAbsent,
+        );
+        yield* harness.drain(everyMemberButTheAbsent);
+        yield* takeQueued(harness);
+        yield* Fiber.join(sending).pipe(Effect.orDie);
+        const accepted = yield* harness.deliver(
+          [yield* certifiedRecordPacket(harness, authorIdentity)],
+          [3],
+        );
+        yield* harness.drain([3]);
+        yield* takeQueued(harness);
+
+        const restarted = yield* makeEndpointEngine({
+          localAgentCard: absentIdentity.card,
+          signingAuthority: absentIdentity.authority,
+          registrySignerPublicKey: harness.registrySignerPublicKey,
+          registry: harness.registry,
+          store: absentStore,
+          actionPolicy: signEveryAction,
+          routerWorker: scriptedRouterWorker(absentStore, harness.outbound),
+        }).pipe(Effect.orDie);
+        yield* restarted.drainOutbound.pipe(Effect.orDie);
+        const resentVotes = yield* sentOfKind(
+          harness,
+          yield* takeQueued(harness),
+          absentIdentity,
+          "durability_vote",
+        );
+        const votedRecordHashes = yield* Effect.forEach(
+          resentVotes,
+          (message) => decodeDurabilityVoteRecordHash(harness, message),
+          { concurrency: 1 },
+        );
+
+        expect(accepted).toEqual(["accepted"]);
+        expect(votedRecordHashes).toEqual([genesisRecordHash]);
       }),
     ),
   );
@@ -2065,6 +2172,11 @@ describe("fixed-post endpoint protocol", () => {
   it(
     "adopts a certified record over its own lock at the same head",
     adoptsACertifiedRecordOverItsOwnLock,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "signs no durability vote on restart for a record it accepted already certified",
+    restartSignsNoVoteForARecordAcceptedWhole,
     TEST_TIMEOUT_MS,
   );
   it(

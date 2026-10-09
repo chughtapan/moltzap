@@ -1057,7 +1057,11 @@ export const acceptEngineRecoveryIngress = (
     );
 
 /**
- * Resume only the evidence obligations already selected in durable state.
+ * Resume only the evidence obligations already selected in durable state. A
+ * staged record that is not yet certified resumes this endpoint's durability
+ * vote. A certified record resumes it only when the fold holds it: a vote is
+ * stored before it is sent, so a certified fold without one names a record
+ * this endpoint never voted for, such as one it accepted already certified.
  * @param runtime Recovered engine state and durable protocol dependencies.
  * @param conversationId The one conversation to resume; every conversation
  *     when omitted.
@@ -1080,7 +1084,14 @@ export const resumeEngineFolds = (
             yield* localActionEvidence(runtime, fold);
             yield* maybeCertifyAction(runtime, fold);
             if (fold.recordHash !== undefined) {
-              yield* localDurabilityEvidence(runtime, fold);
+              if (
+                !fold.certified ||
+                fold.durabilityEvidence.has(
+                  runtime.input.localAgentCard.agentId,
+                )
+              ) {
+                yield* localDurabilityEvidence(runtime, fold);
+              }
               const record = yield* makeActionCertifiedRecord(
                 fold,
                 yield* actionAnchorHash(fold),
