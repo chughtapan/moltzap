@@ -125,12 +125,12 @@ interface ProtocolHarness {
 const MEMBER_COUNT = 4;
 /**
  * Bounds a hang in one protocol trace; no assertion depends on it. A trace
- * certifies up to three N4 posts, each about 1,760 sequential WebCrypto calls
- * of signing, sealing and verifying, and these slow with machine load: the
- * slowest traces took up to 11 s at a load average of 18 to 27 on 8 cores and
- * passed 30 s at 35 to 46.
+ * certifies up to three N4 posts, each about 1,230 WebCrypto calls of
+ * signing, sealing and verifying, and these slow with machine load: the
+ * slowest traces took up to 11.5 s at a load average of 21 to 29 on 8 cores
+ * and 15.3 s at 50 to 58. The bound is about four times the slowest.
  */
-const TEST_TIMEOUT_MS = 90_000;
+const TEST_TIMEOUT_MS = 60_000;
 
 const routerInstanceId = Schema.decodeUnknownSync(RouterInstanceId)(
   identifier("rti_", 31),
