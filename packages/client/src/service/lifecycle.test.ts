@@ -2,6 +2,7 @@
 
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import { it } from "@effect/vitest";
 import { SUBSCRIPTION_ID_META_KEY } from "@modelcontextprotocol/server";
 import { AgentCard } from "@moltzap/identity";
 import {
@@ -16,7 +17,7 @@ import {
   Schema,
 } from "effect";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, vi } from "vitest";
 import type { EventStore } from "../delivery/operations.js";
 import type { HarnessMcpEventHandler } from "../endpoint/mcp/tools.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
@@ -58,7 +59,7 @@ import { InboundItem } from "../transport/collectives/inbound.js";
 import { RouterWorkerTransportError } from "../transport/router/index.js";
 import { DaemonRuntimeError } from "./lifecycle.js";
 
-/* eslint-disable max-lines, agent-code-guard/async-keyword, agent-code-guard/promise-type -- The focused tests drive the official Promise-native MCP stream boundary, and each daemon trace keeps its stages beside its assertions over one shared runtime harness. */
+/* eslint-disable agent-code-guard/async-keyword, agent-code-guard/promise-type -- The focused tests drive the official Promise-native MCP stream boundary. */
 
 /**
  * Covers a test's stages plus one `daemon-runtime-harness.ts →
@@ -1144,27 +1145,25 @@ const countingListeners = (
  * carries on past the fault, or maps it to another phase.
  */
 const failsStartupWith = (row: StartupFault) =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const attempts = yield* Ref.make(0);
-      const harness = countingListeners(
-        row.harness(yield* makeHarness(fixture, "none")),
-        attempts,
-      );
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const attempts = yield* Ref.make(0);
+    const harness = countingListeners(
+      row.harness(yield* makeHarness(fixture, "none")),
+      attempts,
+    );
 
-      const error = yield* run(
-        fixture,
-        row.store(makeStore(fixture, true)),
-        harness,
-      ).pipe(Effect.flip);
+    const error = yield* run(
+      fixture,
+      row.store(makeStore(fixture, true)),
+      harness,
+    ).pipe(Effect.flip);
 
-      expect(error.phase, "phase startup failed in").toBe(row.phase);
-      expect(yield* Ref.get(attempts), "listener attempts").toBe(
-        row.listenerAttempts,
-      );
-    }),
-  );
+    expect(error.phase, "phase startup failed in").toBe(row.phase);
+    expect(yield* Ref.get(attempts), "listener attempts").toBe(
+      row.listenerAttempts,
+    );
+  });
 
 /**
  * The harness with an engine constructor that counts each engine it builds.
@@ -1281,7 +1280,7 @@ describe("daemon activation", () => {
     "stops the daemon when activation $fault",
     stopsWhenActivationFails,
   );
-  it.each(startupFaults)(
+  it.live.each(startupFaults)(
     "fails a registered startup in phase $phase when $fault",
     failsStartupWith,
   );
@@ -1291,4 +1290,4 @@ describe("daemon activation", () => {
   );
 });
 
-/* eslint-enable max-lines, agent-code-guard/async-keyword, agent-code-guard/promise-type -- Restore repository defaults after the MCP lifecycle tests. */
+/* eslint-enable agent-code-guard/async-keyword, agent-code-guard/promise-type -- Restore repository defaults after the MCP lifecycle tests. */

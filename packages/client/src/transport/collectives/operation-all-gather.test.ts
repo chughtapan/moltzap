@@ -1,5 +1,6 @@
 /** @file Pins how the collective layer runs an all_gather at its requester and members. */
 
+import { live as it, scoped as itOnTestClock } from "@effect/vitest";
 import {
   Deferred,
   Duration,
@@ -10,7 +11,7 @@ import {
   Supervisor,
   TestClock,
 } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import type { EngineSendInput } from "../messaging/index.js";
 import type { InboundItem } from "./inbound.js";
 import type { CollectiveOperations } from "./operation.js";
@@ -29,7 +30,6 @@ import {
   recordHashOf,
   requestNonce,
   requestSendWait,
-  run,
   send,
   slotSchema,
   unkeptEmit,
@@ -148,73 +148,67 @@ const respond = (layer: CollectiveOperations, slot: string) =>
 function sendsOneRequestPostToTheGroup() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      const id = yield* startAllGather(layer);
-      const { nonce } = yield* firstRequestOf(observed);
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    const id = yield* startAllGather(layer);
+    const { nonce } = yield* firstRequestOf(observed);
 
-      expect(collectiveIdOf(alice, nonce)).toBe(id);
-      expect(observed.sent).toEqual([
-        {
-          to: group,
-          content: [
-            { type: "text", text: questionText },
-            {
-              type: "data",
-              value: {
-                [collectiveKey]: {
-                  kind: "operation",
-                  op: "all_gather",
-                  id,
-                  nonce,
-                  deadlineAt: 60_000,
-                  requestedSchema: slotSchema,
-                },
+    expect(collectiveIdOf(alice, nonce)).toBe(id);
+    expect(observed.sent).toEqual([
+      {
+        to: group,
+        content: [
+          { type: "text", text: questionText },
+          {
+            type: "data",
+            value: {
+              [collectiveKey]: {
+                kind: "operation",
+                op: "all_gather",
+                id,
+                nonce,
+                deadlineAt: 60_000,
+                requestedSchema: slotSchema,
               },
             },
-          ],
-        },
-      ]);
-    }),
-  );
+          },
+        ],
+      },
+    ]);
+  });
 }
 
 function refusesAnAllGatherToAnAgentAddress() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed);
-      const failure = yield* collectiveFailureOf(
-        send(layer, allGatherInput("agent:bob")),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed);
+    const failure = yield* collectiveFailureOf(
+      send(layer, allGatherInput("agent:bob")),
+    );
 
-      expect(failure).toMatchObject({ reason: "membership-invalid" });
-    }),
-  );
+    expect(failure).toMatchObject({ reason: "membership-invalid" });
+  });
 }
 
 function namesEveryMemberWithThePostReasonWhenTheGroupPostIsRefused() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, {
-        sendPost: () =>
-          Effect.fail(new SendError({ reason: "network-unavailable" })),
-      });
-      const failure = yield* collectiveFailureOf(send(layer, allGatherInput()));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, {
+      sendPost: () =>
+        Effect.fail(new SendError({ reason: "network-unavailable" })),
+    });
+    const failure = yield* collectiveFailureOf(send(layer, allGatherInput()));
 
-      expect(failure).toEqual({
-        kind: "members-unreachable",
-        members: [
-          { member: "agent:bob", reason: "network-unavailable" },
-          { member: "agent:carol", reason: "network-unavailable" },
-        ],
-      });
-    }),
-  );
+    expect(failure).toEqual({
+      kind: "members-unreachable",
+      members: [
+        { member: "agent:bob", reason: "network-unavailable" },
+        { member: "agent:carol", reason: "network-unavailable" },
+      ],
+    });
+  });
 }
 
 /**
@@ -222,67 +216,61 @@ function namesEveryMemberWithThePostReasonWhenTheGroupPostIsRefused() {
  * the refusal says so for every member rather than that it was not sent.
  */
 function saysEveryMemberIsStillSentAQueuedGroupPost() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved(), {
-        sendPost: () =>
-          Effect.fail(new SendError({ reason: "delivery-pending" })),
-      });
-      const refusal = yield* Effect.flip(send(layer, allGatherInput()));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved(), {
+      sendPost: () =>
+        Effect.fail(new SendError({ reason: "delivery-pending" })),
+    });
+    const refusal = yield* Effect.flip(send(layer, allGatherInput()));
 
-      expect(refusal.message).toBe(
-        `send failed: agent:bob could not be reached: ${queuedText}; agent:carol could not be reached: ${queuedText}`,
-      );
-    }),
-  );
+    expect(refusal.message).toBe(
+      `send failed: agent:bob could not be reached: ${queuedText}; agent:carol could not be reached: ${queuedText}`,
+    );
+  });
 }
 
 function refusesAnAllGatherWithAnUnknownMemberBeforePosting() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const posts = { attempted: 0 };
-      const layer = yield* makeLayer(observed, {
-        unknown: ["agent:carol"],
-        sendPost: (input) => {
-          posts.attempted += 1;
-          return certifyNext(observed, input);
-        },
-      });
-      const failure = yield* collectiveFailureOf(send(layer, allGatherInput()));
+  return Effect.gen(function* () {
+    const posts = { attempted: 0 };
+    const layer = yield* makeLayer(observed, {
+      unknown: ["agent:carol"],
+      sendPost: (input) => {
+        posts.attempted += 1;
+        return certifyNext(observed, input);
+      },
+    });
+    const failure = yield* collectiveFailureOf(send(layer, allGatherInput()));
 
-      expect(failure).toEqual({
-        kind: "members-unreachable",
-        members: [{ member: "agent:carol", reason: "unknown-agent" }],
-      });
-      expect(posts.attempted).toBe(0);
-    }),
-  );
+    expect(failure).toEqual({
+      kind: "members-unreachable",
+      members: [{ member: "agent:carol", reason: "unknown-agent" }],
+    });
+    expect(posts.attempted).toBe(0);
+  });
 }
 
 function namesEveryMemberWhenTheGroupPostIsNotCertifiedInTime() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, {
-        sendPost: () => Effect.never,
-      });
-      const sending = yield* Effect.fork(
-        collectiveFailureOf(send(layer, allGatherInput())),
-      );
-      yield* TestClock.adjust(requestSendWait);
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, {
+      sendPost: () => Effect.never,
+    });
+    const sending = yield* Effect.fork(
+      collectiveFailureOf(send(layer, allGatherInput())),
+    );
+    yield* TestClock.adjust(requestSendWait);
 
-      expect(yield* Fiber.join(sending)).toEqual({
-        kind: "members-unreachable",
-        members: [
-          { member: "agent:bob", reason: "certification-unavailable" },
-          { member: "agent:carol", reason: "certification-unavailable" },
-        ],
-      });
-    }),
-  );
+    expect(yield* Fiber.join(sending)).toEqual({
+      kind: "members-unreachable",
+      members: [
+        { member: "agent:bob", reason: "certification-unavailable" },
+        { member: "agent:carol", reason: "certification-unavailable" },
+      ],
+    });
+  });
 }
 
 /**
@@ -302,22 +290,20 @@ const JUST_WITHIN_REQUEST_SEND_WAIT = Duration.seconds(19);
 function startsWhenTheGroupPostCertifiesWithinTheWait() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, {
-        sendPost: (input) =>
-          Effect.sleep(JUST_WITHIN_REQUEST_SEND_WAIT).pipe(
-            Effect.zipRight(certifyNext(observed, input)),
-          ),
-      });
-      const sending = yield* Effect.fork(send(layer, allGatherInput()));
-      yield* TestClock.adjust(JUST_WITHIN_REQUEST_SEND_WAIT);
-      const outcome = yield* Fiber.join(sending);
-      const { id } = yield* firstRequestOf(observed);
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, {
+      sendPost: (input) =>
+        Effect.sleep(JUST_WITHIN_REQUEST_SEND_WAIT).pipe(
+          Effect.zipRight(certifyNext(observed, input)),
+        ),
+    });
+    const sending = yield* Effect.fork(send(layer, allGatherInput()));
+    yield* TestClock.adjust(JUST_WITHIN_REQUEST_SEND_WAIT);
+    const outcome = yield* Fiber.join(sending);
+    const { id } = yield* firstRequestOf(observed);
 
-      expect(outcome).toEqual({ postIds: [postId(101)], operationId: id });
-    }),
-  );
+    expect(outcome).toEqual({ postIds: [postId(101)], operationId: id });
+  });
 }
 
 /**
@@ -331,192 +317,168 @@ function startsWhenTheGroupPostCertifiesWithinTheWait() {
 function endsInItsResultAloneWhenTheDeadlinePassesBeforeTheGroupPostCertifies() {
   const observed = newObserved();
 
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      const posts = { attempted: 0 };
-      const emitted = yield* Deferred.make<undefined>();
-      const layer = yield* makeLayer(observed, {
-        ...signalEmitted(observed, emitted),
-        sendPost: (input) =>
-          posts.attempted++ === 0 ? Effect.never : certifyNext(observed, input),
-      });
-      yield* send(layer, {
-        ...allGatherInput(),
-        collective: {
-          op: "all_gather",
-          deadline: 1,
-          requestedSchema: slotSchema,
-        },
-      });
-      yield* Deferred.await(emitted);
+  return Effect.gen(function* () {
+    const posts = { attempted: 0 };
+    const emitted = yield* Deferred.make<undefined>();
+    const layer = yield* makeLayer(observed, {
+      ...signalEmitted(observed, emitted),
+      sendPost: (input) =>
+        posts.attempted++ === 0 ? Effect.never : certifyNext(observed, input),
+    });
+    yield* send(layer, {
+      ...allGatherInput(),
+      collective: {
+        op: "all_gather",
+        deadline: 1,
+        requestedSchema: slotSchema,
+      },
+    });
+    yield* Deferred.await(emitted);
 
-      expect(observed.emitted).toMatchObject([
-        { kind: "collectiveResult", to: group },
-      ]);
-    }).pipe(Effect.scoped),
-  );
+    expect(observed.emitted).toMatchObject([
+      { kind: "collectiveResult", to: group },
+    ]);
+  }).pipe(Effect.scoped);
 }
 
 function closesWithTheRecordHashOfEachCountedAnswer() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const emitted = yield* Deferred.make<undefined>();
-      const layer = yield* makeLayer(
-        observed,
-        signalEmitted(observed, emitted),
-      );
-      const id = yield* startAllGather(layer);
-      yield* classify(layer, "agent:bob", 11, answer(id, "mon"));
-      yield* classify(layer, "agent:bob", 12, answer(id, "tue"));
-      yield* classify(layer, "agent:carol", 13, answer(id, "tue"));
-      yield* Deferred.await(emitted);
+  return Effect.gen(function* () {
+    const emitted = yield* Deferred.make<undefined>();
+    const layer = yield* makeLayer(observed, signalEmitted(observed, emitted));
+    const id = yield* startAllGather(layer);
+    yield* classify(layer, "agent:bob", 11, answer(id, "mon"));
+    yield* classify(layer, "agent:bob", 12, answer(id, "tue"));
+    yield* classify(layer, "agent:carol", 13, answer(id, "tue"));
+    yield* Deferred.await(emitted);
 
-      expect(observed.sent[1]).toEqual({
-        to: group,
-        content: [
-          {
-            type: "data",
-            value: {
-              [collectiveKey]: {
-                kind: "close",
-                id,
-                included: [recordHashOf(11), recordHashOf(13)],
-              },
+    expect(observed.sent[1]).toEqual({
+      to: group,
+      content: [
+        {
+          type: "data",
+          value: {
+            [collectiveKey]: {
+              kind: "close",
+              id,
+              included: [recordHashOf(11), recordHashOf(13)],
             },
           },
-        ],
-      });
-    }),
-  );
+        },
+      ],
+    });
+  });
 }
 
 function publishesTheRequesterResultOnceItsCloseIsCertified() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const emitted = yield* Deferred.make<undefined>();
-      const layer = yield* makeLayer(
-        observed,
-        signalEmitted(observed, emitted),
-      );
-      const id = yield* startAllGather(layer);
-      yield* classify(layer, "agent:bob", 11, answer(id, "mon"));
-      yield* classify(layer, "agent:carol", 13, answer(id, "tue"));
-      yield* Deferred.await(emitted);
+  return Effect.gen(function* () {
+    const emitted = yield* Deferred.make<undefined>();
+    const layer = yield* makeLayer(observed, signalEmitted(observed, emitted));
+    const id = yield* startAllGather(layer);
+    yield* classify(layer, "agent:bob", 11, answer(id, "mon"));
+    yield* classify(layer, "agent:carol", 13, answer(id, "tue"));
+    yield* Deferred.await(emitted);
 
-      expect(observed.emitted).toEqual([
-        {
-          kind: "collectiveResult",
-          op: "all_gather",
-          id,
-          to: group,
-          question: questionText,
-          outcomes: [
-            {
-              member: "agent:bob",
-              outcome: { kind: "answered", content: { slot: "mon" } },
-            },
-            {
-              member: "agent:carol",
-              outcome: { kind: "answered", content: { slot: "tue" } },
-            },
-          ],
-        },
-      ]);
-    }),
-  );
+    expect(observed.emitted).toEqual([
+      {
+        kind: "collectiveResult",
+        op: "all_gather",
+        id,
+        to: group,
+        question: questionText,
+        outcomes: [
+          {
+            member: "agent:bob",
+            outcome: { kind: "answered", content: { slot: "mon" } },
+          },
+          {
+            member: "agent:carol",
+            outcome: { kind: "answered", content: { slot: "tue" } },
+          },
+        ],
+      },
+    ]);
+  });
 }
 
 function closesAtTheDeadlineWithoutTheSilentMember() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const emitted = yield* Deferred.make<undefined>();
-      const layer = yield* makeLayer(
-        observed,
-        signalEmitted(observed, emitted),
-      );
-      const id = yield* startAllGather(layer);
-      yield* classify(layer, "agent:bob", 11, answer(id, "mon"));
-      yield* TestClock.adjust(Duration.seconds(60));
-      yield* Deferred.await(emitted);
+  return Effect.gen(function* () {
+    const emitted = yield* Deferred.make<undefined>();
+    const layer = yield* makeLayer(observed, signalEmitted(observed, emitted));
+    const id = yield* startAllGather(layer);
+    yield* classify(layer, "agent:bob", 11, answer(id, "mon"));
+    yield* TestClock.adjust(Duration.seconds(60));
+    yield* Deferred.await(emitted);
 
-      expect(observed.emitted).toMatchObject([
-        {
-          outcomes: [
-            { member: "agent:bob", outcome: { kind: "answered" } },
-            { member: "agent:carol", outcome: { kind: "no-answer" } },
-          ],
-        },
-      ]);
-      expect(observed.sent[1]?.content).toMatchObject([
-        { value: { [collectiveKey]: { included: [recordHashOf(11)] } } },
-      ]);
-    }),
-  );
+    expect(observed.emitted).toMatchObject([
+      {
+        outcomes: [
+          { member: "agent:bob", outcome: { kind: "answered" } },
+          { member: "agent:carol", outcome: { kind: "no-answer" } },
+        ],
+      },
+    ]);
+    expect(observed.sent[1]?.content).toMatchObject([
+      { value: { [collectiveKey]: { included: [recordHashOf(11)] } } },
+    ]);
+  });
 }
 
 function ignoresAnAnswerThatArrivesAfterTheClose() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const emitted = yield* Deferred.make<undefined>();
-      const supervisor = yield* Supervisor.track;
-      const layer = yield* makeLayer(
-        observed,
-        signalEmitted(observed, emitted),
-      );
-      const id = yield* startAllGather(layer);
-      yield* TestClock.adjust(Duration.seconds(60));
-      yield* Deferred.await(emitted);
-      const late = yield* classify(
-        layer,
-        "agent:carol",
-        13,
-        answer(id, "tue"),
-      ).pipe(Effect.supervised(supervisor));
+  return Effect.gen(function* () {
+    const emitted = yield* Deferred.make<undefined>();
+    const supervisor = yield* Supervisor.track;
+    const layer = yield* makeLayer(observed, signalEmitted(observed, emitted));
+    const id = yield* startAllGather(layer);
+    yield* TestClock.adjust(Duration.seconds(60));
+    yield* Deferred.await(emitted);
+    const late = yield* classify(
+      layer,
+      "agent:carol",
+      13,
+      answer(id, "tue"),
+    ).pipe(Effect.supervised(supervisor));
 
-      expect(late).toEqual(Option.none());
-      expect(yield* supervisor.value).toEqual([]);
-      expect(observed.sent).toHaveLength(2);
-      expect(observed.emitted).toHaveLength(1);
-    }),
-  );
+    expect(late).toEqual(Option.none());
+    expect(yield* supervisor.value).toEqual([]);
+    expect(observed.sent).toHaveLength(2);
+    expect(observed.emitted).toHaveLength(1);
+  });
 }
 
 function reportsACloseThatCannotBeCertifiedAsAFailedOperation() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const emitted = yield* Deferred.make<undefined>();
-      const layer = yield* makeLayer(observed, {
-        ...signalEmitted(observed, emitted),
-        sendPost: (input) =>
-          observed.sent.length === 0
-            ? certifyNext(observed, input)
-            : Effect.fail(new SendError({ reason: "network-unavailable" })),
-      });
-      const id = yield* startAllGather(layer);
-      yield* TestClock.adjust(Duration.seconds(60));
-      yield* Deferred.await(emitted);
+  return Effect.gen(function* () {
+    const emitted = yield* Deferred.make<undefined>();
+    const layer = yield* makeLayer(observed, {
+      ...signalEmitted(observed, emitted),
+      sendPost: (input) =>
+        observed.sent.length === 0
+          ? certifyNext(observed, input)
+          : Effect.fail(new SendError({ reason: "network-unavailable" })),
+    });
+    const id = yield* startAllGather(layer);
+    yield* TestClock.adjust(Duration.seconds(60));
+    yield* Deferred.await(emitted);
 
-      expect(observed.emitted).toEqual([
-        {
-          kind: "operationFailed",
-          id,
-          to: group,
-          error:
-            "all_gather failed: the result could not be shared with the group: MoltZap is unavailable (network unavailable)",
-        },
-      ]);
-    }),
-  );
+    expect(observed.emitted).toEqual([
+      {
+        kind: "operationFailed",
+        id,
+        to: group,
+        error:
+          "all_gather failed: the result could not be shared with the group: MoltZap is unavailable (network unavailable)",
+      },
+    ]);
+  });
 }
 
 /**
@@ -526,248 +488,223 @@ function reportsACloseThatCannotBeCertifiedAsAFailedOperation() {
 function saysAQueuedCloseWillStillReachTheGroup() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const emitted = yield* Deferred.make<undefined>();
-      const layer = yield* makeLayer(observed, {
-        ...signalEmitted(observed, emitted),
-        sendPost: (input) =>
-          observed.sent.length === 0
-            ? certifyNext(observed, input)
-            : Effect.fail(new SendError({ reason: "delivery-pending" })),
-      });
-      const id = yield* startAllGather(layer);
-      yield* TestClock.adjust(Duration.seconds(60));
-      yield* Deferred.await(emitted);
+  return Effect.gen(function* () {
+    const emitted = yield* Deferred.make<undefined>();
+    const layer = yield* makeLayer(observed, {
+      ...signalEmitted(observed, emitted),
+      sendPost: (input) =>
+        observed.sent.length === 0
+          ? certifyNext(observed, input)
+          : Effect.fail(new SendError({ reason: "delivery-pending" })),
+    });
+    const id = yield* startAllGather(layer);
+    yield* TestClock.adjust(Duration.seconds(60));
+    yield* Deferred.await(emitted);
 
-      expect(observed.emitted).toEqual([
-        {
-          kind: "operationFailed",
-          id,
-          to: group,
-          error: `all_gather failed: the result could not be shared with the group: ${queuedText}`,
-        },
-      ]);
-    }),
-  );
+    expect(observed.emitted).toEqual([
+      {
+        kind: "operationFailed",
+        id,
+        to: group,
+        error: `all_gather failed: the result could not be shared with the group: ${queuedText}`,
+      },
+    ]);
+  });
 }
 
 function deliversAGroupRequestAsAnItemAddressedToTheGroup() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved(), { self: "agent:bob" });
-      const item = yield* classify(layer, "agent:alice", 10, requestValue);
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved(), { self: "agent:bob" });
+    const item = yield* classify(layer, "agent:alice", 10, requestValue);
 
-      expect(item).toEqual(
-        Option.some({
-          kind: "collectiveRequest",
-          op: "all_gather",
-          id: requestId,
-          postId: postId(10),
-          from: "agent:alice",
-          to: group,
-          question: questionText,
-          requestedSchema: slotSchema,
-          deadlineAt: 60_000,
-        }),
-      );
-    }),
-  );
+    expect(item).toEqual(
+      Option.some({
+        kind: "collectiveRequest",
+        op: "all_gather",
+        id: requestId,
+        postId: postId(10),
+        from: "agent:alice",
+        to: group,
+        question: questionText,
+        requestedSchema: slotSchema,
+        deadlineAt: 60_000,
+      }),
+    );
+  });
 }
 
 function consumesAGroupRequestWhoseIdDoesNotDeriveFromItsSender() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved(), { self: "agent:bob" });
-      const item = yield* classify(layer, "agent:carol", 10, requestValue);
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved(), { self: "agent:bob" });
+    const item = yield* classify(layer, "agent:carol", 10, requestValue);
 
-      expect(item).toEqual(Option.none());
-    }),
-  );
+    expect(item).toEqual(Option.none());
+  });
 }
 
 function consumesASecondRequestPostThatReusesAHeldId() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, { self: "agent:bob" });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      const reused = yield* layer.classify({
-        message: Schema.decodeUnknownSync(InboundMessage)({
-          kind: "direct",
-          postId: postId(20),
-          address: "agent:alice",
-          sender: "agent:alice",
-          content: [
-            { type: "text", text: "Private question?" },
-            {
-              type: "data",
-              value: { [collectiveKey]: { ...requestValue, op: "gather" } },
-            },
-          ],
-        }),
-        recordHash: recordHashOf(20),
-      });
-      const redelivered = yield* classify(
-        layer,
-        "agent:alice",
-        10,
-        requestValue,
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, { self: "agent:bob" });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    const reused = yield* layer.classify({
+      message: Schema.decodeUnknownSync(InboundMessage)({
+        kind: "direct",
+        postId: postId(20),
+        address: "agent:alice",
+        sender: "agent:alice",
+        content: [
+          { type: "text", text: "Private question?" },
+          {
+            type: "data",
+            value: { [collectiveKey]: { ...requestValue, op: "gather" } },
+          },
+        ],
+      }),
+      recordHash: recordHashOf(20),
+    });
+    const redelivered = yield* classify(layer, "agent:alice", 10, requestValue);
 
-      expect(reused).toEqual(Option.none());
-      expect(redelivered).toMatchObject(Option.some({ to: group }));
-    }),
-  );
+    expect(reused).toEqual(Option.none());
+    expect(redelivered).toMatchObject(Option.some({ to: group }));
+  });
 }
 
 function keepsARequestFirstSeenAfterItsDeadlineForTheClose() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, { self: "agent:bob" });
-      yield* TestClock.adjust(Duration.seconds(60));
-      const item = yield* classify(layer, "agent:alice", 10, requestValue);
-      yield* classify(layer, "agent:carol", 13, answer(requestId, "tue"));
-      yield* classify(layer, "agent:alice", 14, close(requestId, [13]));
-      const failure = yield* collectiveFailureOf(respond(layer, "mon"));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, { self: "agent:bob" });
+    yield* TestClock.adjust(Duration.seconds(60));
+    const item = yield* classify(layer, "agent:alice", 10, requestValue);
+    yield* classify(layer, "agent:carol", 13, answer(requestId, "tue"));
+    yield* classify(layer, "agent:alice", 14, close(requestId, [13]));
+    const failure = yield* collectiveFailureOf(respond(layer, "mon"));
 
-      expect(item).toEqual(Option.none());
-      expect(failure).toEqual({ kind: "request-expired" });
-      expect(observed.emitted).toMatchObject([
-        {
-          outcomes: [
-            { member: "agent:bob", outcome: { kind: "no-answer" } },
-            { member: "agent:carol", outcome: { kind: "answered" } },
-          ],
-        },
-      ]);
-    }),
-  );
+    expect(item).toEqual(Option.none());
+    expect(failure).toEqual({ kind: "request-expired" });
+    expect(observed.emitted).toMatchObject([
+      {
+        outcomes: [
+          { member: "agent:bob", outcome: { kind: "no-answer" } },
+          { member: "agent:carol", outcome: { kind: "answered" } },
+        ],
+      },
+    ]);
+  });
 }
 
 function postsAMemberAnswerToTheGroup() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, { self: "agent:bob" });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      yield* respond(layer, "mon");
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, { self: "agent:bob" });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    yield* respond(layer, "mon");
 
-      expect(observed.sent.map((post) => post.to)).toEqual([group]);
-    }),
-  );
+    expect(observed.sent.map((post) => post.to)).toEqual([group]);
+  });
 }
 
 function consumesAPeerAnswerWithoutPublishingIt() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, { self: "agent:bob" });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      const item = yield* classify(
-        layer,
-        "agent:carol",
-        13,
-        answer(requestId, "tue"),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, { self: "agent:bob" });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    const item = yield* classify(
+      layer,
+      "agent:carol",
+      13,
+      answer(requestId, "tue"),
+    );
 
-      expect(item).toEqual(Option.none());
-      expect(observed.emitted).toEqual([]);
-    }),
-  );
+    expect(item).toEqual(Option.none());
+    expect(observed.emitted).toEqual([]);
+  });
 }
 
 function buildsTheMemberResultFromExactlyTheListedAnswers() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, { self: "agent:bob" });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      yield* respond(layer, "mon");
-      yield* classify(layer, "agent:carol", 13, answer(requestId, "tue"));
-      yield* classify(layer, "agent:alice", 14, close(requestId, [101]));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, { self: "agent:bob" });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    yield* respond(layer, "mon");
+    yield* classify(layer, "agent:carol", 13, answer(requestId, "tue"));
+    yield* classify(layer, "agent:alice", 14, close(requestId, [101]));
 
-      expect(observed.emitted).toEqual([
-        {
-          kind: "collectiveResult",
-          op: "all_gather",
-          id: requestId,
-          to: group,
-          question: questionText,
-          outcomes: [
-            {
-              member: "agent:bob",
-              outcome: { kind: "answered", content: { slot: "mon" } },
-            },
-            { member: "agent:carol", outcome: { kind: "no-answer" } },
-          ],
-        },
-      ]);
-    }),
-  );
+    expect(observed.emitted).toEqual([
+      {
+        kind: "collectiveResult",
+        op: "all_gather",
+        id: requestId,
+        to: group,
+        question: questionText,
+        outcomes: [
+          {
+            member: "agent:bob",
+            outcome: { kind: "answered", content: { slot: "mon" } },
+          },
+          { member: "agent:carol", outcome: { kind: "no-answer" } },
+        ],
+      },
+    ]);
+  });
 }
 
 function includesAListedPeerAnswerInTheMemberResult() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, { self: "agent:bob" });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      yield* classify(layer, "agent:carol", 13, answer(requestId, "tue"));
-      yield* classify(layer, "agent:alice", 14, close(requestId, [13]));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, { self: "agent:bob" });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    yield* classify(layer, "agent:carol", 13, answer(requestId, "tue"));
+    yield* classify(layer, "agent:alice", 14, close(requestId, [13]));
 
-      expect(observed.emitted).toMatchObject([
-        {
-          outcomes: [
-            { member: "agent:bob", outcome: { kind: "no-answer" } },
-            {
-              member: "agent:carol",
-              outcome: { kind: "answered", content: { slot: "tue" } },
-            },
-          ],
-        },
-      ]);
-    }),
-  );
+    expect(observed.emitted).toMatchObject([
+      {
+        outcomes: [
+          { member: "agent:bob", outcome: { kind: "no-answer" } },
+          {
+            member: "agent:carol",
+            outcome: { kind: "answered", content: { slot: "tue" } },
+          },
+        ],
+      },
+    ]);
+  });
 }
 
 function holdsACloseUntilTheMemberOwnAnswerIsCertified() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const attempted = yield* Deferred.make<undefined>();
-      const certified = yield* Deferred.make<undefined>();
-      const layer = yield* makeLayer(observed, {
-        self: "agent:bob",
-        ...holdPosts(observed, attempted, certified),
-      });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      const answering = yield* Effect.fork(respond(layer, "mon"));
-      yield* Deferred.await(attempted);
-      yield* classify(layer, "agent:alice", 14, close(requestId, [101]));
-      const emittedBeforeCertification = [...observed.emitted];
-      yield* Deferred.succeed(certified, undefined);
-      yield* Fiber.join(answering);
+  return Effect.gen(function* () {
+    const attempted = yield* Deferred.make<undefined>();
+    const certified = yield* Deferred.make<undefined>();
+    const layer = yield* makeLayer(observed, {
+      self: "agent:bob",
+      ...holdPosts(observed, attempted, certified),
+    });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    const answering = yield* Effect.fork(respond(layer, "mon"));
+    yield* Deferred.await(attempted);
+    yield* classify(layer, "agent:alice", 14, close(requestId, [101]));
+    const emittedBeforeCertification = [...observed.emitted];
+    yield* Deferred.succeed(certified, undefined);
+    yield* Fiber.join(answering);
 
-      expect(emittedBeforeCertification).toEqual([]);
-      expect(observed.emitted).toMatchObject([
-        {
-          outcomes: [
-            { member: "agent:bob", outcome: { kind: "answered" } },
-            { member: "agent:carol", outcome: { kind: "no-answer" } },
-          ],
-        },
-      ]);
-    }),
-  );
+    expect(emittedBeforeCertification).toEqual([]);
+    expect(observed.emitted).toMatchObject([
+      {
+        outcomes: [
+          { member: "agent:bob", outcome: { kind: "answered" } },
+          { member: "agent:carol", outcome: { kind: "no-answer" } },
+        ],
+      },
+    ]);
+  });
 }
 
 /**
@@ -775,20 +712,18 @@ function holdsACloseUntilTheMemberOwnAnswerIsCertified() {
  * the pass classifying it ends instead of waiting.
  */
 function failsACloseWhoseMemberResultCannotBeKept() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved(), {
-        self: "agent:bob",
-        emit: unkeptEmit,
-      });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      const failure = yield* Effect.flip(
-        classify(layer, "agent:alice", 14, close(requestId, [])),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved(), {
+      self: "agent:bob",
+      emit: unkeptEmit,
+    });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    const failure = yield* Effect.flip(
+      classify(layer, "agent:alice", 14, close(requestId, [])),
+    );
 
-      expect(failure).toEqual(new CollectiveEmitError());
-    }),
-  );
+    expect(failure).toEqual(new CollectiveEmitError());
+  });
 }
 
 /**
@@ -798,191 +733,173 @@ function failsACloseWhoseMemberResultCannotBeKept() {
 function keepsAnAnswerThatReleasesAnUnkeptClose() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const attempted = yield* Deferred.make<undefined>();
-      const certified = yield* Deferred.make<undefined>();
-      const layer = yield* makeLayer(observed, {
-        self: "agent:bob",
-        emit: unkeptEmit,
-        ...holdPosts(observed, attempted, certified),
-      });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      const answering = yield* Effect.fork(respond(layer, "mon"));
-      yield* Deferred.await(attempted);
-      yield* classify(layer, "agent:alice", 14, close(requestId, [101]));
-      yield* Deferred.succeed(certified, undefined);
+  return Effect.gen(function* () {
+    const attempted = yield* Deferred.make<undefined>();
+    const certified = yield* Deferred.make<undefined>();
+    const layer = yield* makeLayer(observed, {
+      self: "agent:bob",
+      emit: unkeptEmit,
+      ...holdPosts(observed, attempted, certified),
+    });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    const answering = yield* Effect.fork(respond(layer, "mon"));
+    yield* Deferred.await(attempted);
+    yield* classify(layer, "agent:alice", 14, close(requestId, [101]));
+    yield* Deferred.succeed(certified, undefined);
 
-      const outcome = yield* Fiber.join(answering);
+    const outcome = yield* Fiber.join(answering);
 
-      expect(outcome.operationId).toBe(requestId);
-      expect(outcome.postIds).toHaveLength(1);
-    }),
-  );
+    expect(outcome.operationId).toBe(requestId);
+    expect(outcome.postIds).toHaveLength(1);
+  });
 }
 
 function excludesAPeerAnswerThatArrivesAfterTheClose() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, { self: "agent:bob" });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      yield* classify(layer, "agent:alice", 14, close(requestId, []));
-      yield* classify(layer, "agent:carol", 15, answer(requestId, "tue"));
-      yield* classify(layer, "agent:alice", 14, close(requestId, []));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, { self: "agent:bob" });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    yield* classify(layer, "agent:alice", 14, close(requestId, []));
+    yield* classify(layer, "agent:carol", 15, answer(requestId, "tue"));
+    yield* classify(layer, "agent:alice", 14, close(requestId, []));
 
-      expect(observed.emitted).toMatchObject([
-        {
-          outcomes: [
-            { member: "agent:bob", outcome: { kind: "no-answer" } },
-            { member: "agent:carol", outcome: { kind: "no-answer" } },
-          ],
-        },
-      ]);
-    }),
-  );
+    expect(observed.emitted).toMatchObject([
+      {
+        outcomes: [
+          { member: "agent:bob", outcome: { kind: "no-answer" } },
+          { member: "agent:carol", outcome: { kind: "no-answer" } },
+        ],
+      },
+    ]);
+  });
 }
 
 function refusesAMemberAnswerAfterTheClose() {
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(newObserved(), { self: "agent:bob" });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      yield* classify(layer, "agent:alice", 14, close(requestId, []));
-      const failure = yield* collectiveFailureOf(respond(layer, "mon"));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(newObserved(), { self: "agent:bob" });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    yield* classify(layer, "agent:alice", 14, close(requestId, []));
+    const failure = yield* collectiveFailureOf(respond(layer, "mon"));
 
-      expect(failure).toEqual({ kind: "request-expired" });
-    }),
-  );
+    expect(failure).toEqual({ kind: "request-expired" });
+  });
 }
 
 function ignoresACloseFromAMemberOtherThanTheRequester() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, { self: "agent:bob" });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      const item = yield* classify(
-        layer,
-        "agent:carol",
-        14,
-        close(requestId, []),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, { self: "agent:bob" });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    const item = yield* classify(
+      layer,
+      "agent:carol",
+      14,
+      close(requestId, []),
+    );
 
-      expect(item).toEqual(Option.none());
-      expect(observed.emitted).toEqual([]);
-    }),
-  );
+    expect(item).toEqual(Option.none());
+    expect(observed.emitted).toEqual([]);
+  });
 }
 
 function keepsItsResultWhenItsOwnAnswerSettlesAfterTheClose() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const attempted = yield* Deferred.make<undefined>();
-      const certified = yield* Deferred.make<undefined>();
-      const layer = yield* makeLayer(observed, {
-        self: "agent:bob",
-        ...holdPosts(observed, attempted, certified),
-      });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      const answering = yield* Effect.fork(respond(layer, "mon"));
-      yield* Deferred.await(attempted);
-      yield* classify(layer, "agent:alice", 14, close(requestId, []));
-      yield* Deferred.succeed(certified, undefined);
-      yield* Fiber.join(answering);
-      yield* classify(layer, "agent:alice", 14, close(requestId, []));
-      const failure = yield* collectiveFailureOf(respond(layer, "tue"));
+  return Effect.gen(function* () {
+    const attempted = yield* Deferred.make<undefined>();
+    const certified = yield* Deferred.make<undefined>();
+    const layer = yield* makeLayer(observed, {
+      self: "agent:bob",
+      ...holdPosts(observed, attempted, certified),
+    });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    const answering = yield* Effect.fork(respond(layer, "mon"));
+    yield* Deferred.await(attempted);
+    yield* classify(layer, "agent:alice", 14, close(requestId, []));
+    yield* Deferred.succeed(certified, undefined);
+    yield* Fiber.join(answering);
+    yield* classify(layer, "agent:alice", 14, close(requestId, []));
+    const failure = yield* collectiveFailureOf(respond(layer, "tue"));
 
-      expect(observed.emitted).toHaveLength(1);
-      expect(failure).toEqual({ kind: "request-expired" });
-    }),
-  );
+    expect(observed.emitted).toHaveLength(1);
+    expect(failure).toEqual({ kind: "request-expired" });
+  });
 }
 
 function appliesOnlyTheFirstCloseWhileItsOwnAnswerIsInFlight() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const attempted = yield* Deferred.make<undefined>();
-      const certified = yield* Deferred.make<undefined>();
-      const layer = yield* makeLayer(observed, {
-        self: "agent:bob",
-        ...holdPosts(observed, attempted, certified),
-      });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      const answering = yield* Effect.fork(respond(layer, "mon"));
-      yield* Deferred.await(attempted);
-      yield* classify(layer, "agent:alice", 14, close(requestId, [101]));
-      yield* classify(layer, "agent:alice", 15, close(requestId, []));
-      yield* Deferred.succeed(certified, undefined);
-      yield* Fiber.join(answering);
+  return Effect.gen(function* () {
+    const attempted = yield* Deferred.make<undefined>();
+    const certified = yield* Deferred.make<undefined>();
+    const layer = yield* makeLayer(observed, {
+      self: "agent:bob",
+      ...holdPosts(observed, attempted, certified),
+    });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    const answering = yield* Effect.fork(respond(layer, "mon"));
+    yield* Deferred.await(attempted);
+    yield* classify(layer, "agent:alice", 14, close(requestId, [101]));
+    yield* classify(layer, "agent:alice", 15, close(requestId, []));
+    yield* Deferred.succeed(certified, undefined);
+    yield* Fiber.join(answering);
 
-      expect(observed.emitted).toMatchObject([
-        {
-          outcomes: [
-            { member: "agent:bob", outcome: { kind: "answered" } },
-            { member: "agent:carol", outcome: { kind: "no-answer" } },
-          ],
-        },
-      ]);
-    }),
-  );
+    expect(observed.emitted).toMatchObject([
+      {
+        outcomes: [
+          { member: "agent:bob", outcome: { kind: "answered" } },
+          { member: "agent:carol", outcome: { kind: "no-answer" } },
+        ],
+      },
+    ]);
+  });
 }
 
 function ignoresACloseForAnUnknownId() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, { self: "agent:bob" });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      const item = yield* classify(
-        layer,
-        "agent:alice",
-        14,
-        close(otherId, []),
-      );
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, { self: "agent:bob" });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    const item = yield* classify(layer, "agent:alice", 14, close(otherId, []));
 
-      expect(item).toEqual(Option.none());
-      expect(observed.emitted).toEqual([]);
-    }),
-  );
+    expect(item).toEqual(Option.none());
+    expect(observed.emitted).toEqual([]);
+  });
 }
 
 function ignoresACloseListingAnAnswerTheMemberDoesNotHold() {
   const observed = newObserved();
 
-  return run(
-    Effect.gen(function* () {
-      const layer = yield* makeLayer(observed, { self: "agent:bob" });
-      yield* classify(layer, "agent:alice", 10, requestValue);
-      yield* classify(layer, "agent:alice", 14, close(requestId, [99]));
+  return Effect.gen(function* () {
+    const layer = yield* makeLayer(observed, { self: "agent:bob" });
+    yield* classify(layer, "agent:alice", 10, requestValue);
+    yield* classify(layer, "agent:alice", 14, close(requestId, [99]));
 
-      expect(observed.emitted).toEqual([]);
-    }),
-  );
+    expect(observed.emitted).toEqual([]);
+  });
 }
 
 describe("all_gather at the requester", () => {
-  it("sends one request post to the group", sendsOneRequestPostToTheGroup);
-  it(
+  itOnTestClock(
+    "sends one request post to the group",
+    sendsOneRequestPostToTheGroup,
+  );
+  itOnTestClock(
     "refuses an all_gather to an agent address",
     refusesAnAllGatherToAnAgentAddress,
   );
-  it(
+  itOnTestClock(
     "names every member with the post's reason when the group post is refused",
     namesEveryMemberWithThePostReasonWhenTheGroupPostIsRefused,
   );
-  it(
+  itOnTestClock(
     "names every member when the group post is not certified in time",
     namesEveryMemberWhenTheGroupPostIsNotCertifiedInTime,
   );
-  it(
+  itOnTestClock(
     "starts when its group post certifies within the send's wait",
     startsWhenTheGroupPostCertifiesWithinTheWait,
   );
@@ -990,113 +907,116 @@ describe("all_gather at the requester", () => {
     "ends in its result alone when the deadline passes before the group post certifies",
     endsInItsResultAloneWhenTheDeadlinePassesBeforeTheGroupPostCertifies,
   );
-  it(
+  itOnTestClock(
     "refuses an all_gather with an unknown member before posting",
     refusesAnAllGatherWithAnUnknownMemberBeforePosting,
   );
-  it(
+  itOnTestClock(
     "closes with the record hash of each counted answer",
     closesWithTheRecordHashOfEachCountedAnswer,
   );
-  it(
+  itOnTestClock(
     "publishes its result once its close is certified",
     publishesTheRequesterResultOnceItsCloseIsCertified,
   );
-  it(
+  itOnTestClock(
     "closes at the deadline without the silent member",
     closesAtTheDeadlineWithoutTheSilentMember,
   );
-  it(
+  itOnTestClock(
     "ignores an answer that arrives after the close",
     ignoresAnAnswerThatArrivesAfterTheClose,
   );
-  it(
+  itOnTestClock(
     "reports a close that cannot be certified as a failed operation",
     reportsACloseThatCannotBeCertifiedAsAFailedOperation,
   );
 });
 
 describe("all_gather posts that failed once queued", () => {
-  it(
+  itOnTestClock(
     "says every member is still sent a group post that failed once queued",
     saysEveryMemberIsStillSentAQueuedGroupPost,
   );
-  it(
+  itOnTestClock(
     "says a close that failed once queued will still reach the group",
     saysAQueuedCloseWillStillReachTheGroup,
   );
 });
 
 describe("all_gather at a member", () => {
-  it(
+  itOnTestClock(
     "delivers a group request as an item addressed to the group",
     deliversAGroupRequestAsAnItemAddressedToTheGroup,
   );
-  it(
+  itOnTestClock(
     "consumes a group request whose id does not derive from its sender",
     consumesAGroupRequestWhoseIdDoesNotDeriveFromItsSender,
   );
-  it(
+  itOnTestClock(
     "consumes a second request post that reuses a held id",
     consumesASecondRequestPostThatReusesAHeldId,
   );
-  it(
+  itOnTestClock(
     "keeps a request first seen after its deadline for the close",
     keepsARequestFirstSeenAfterItsDeadlineForTheClose,
   );
-  it("posts its answer to the group", postsAMemberAnswerToTheGroup);
-  it(
+  itOnTestClock("posts its answer to the group", postsAMemberAnswerToTheGroup);
+  itOnTestClock(
     "consumes a peer answer without publishing it",
     consumesAPeerAnswerWithoutPublishingIt,
   );
-  it(
+  itOnTestClock(
     "builds its result from exactly the listed answers",
     buildsTheMemberResultFromExactlyTheListedAnswers,
   );
-  it(
+  itOnTestClock(
     "includes a listed peer answer in its result",
     includesAListedPeerAnswerInTheMemberResult,
   );
-  it(
+  itOnTestClock(
     "holds a close until its own answer is certified",
     holdsACloseUntilTheMemberOwnAnswerIsCertified,
   );
-  it(
+  itOnTestClock(
     "excludes a peer answer that arrives after the close",
     excludesAPeerAnswerThatArrivesAfterTheClose,
   );
-  it(
+  itOnTestClock(
     "refuses its own answer after the close",
     refusesAMemberAnswerAfterTheClose,
   );
-  it(
+  itOnTestClock(
     "ignores a close from a member other than the requester",
     ignoresACloseFromAMemberOtherThanTheRequester,
   );
 });
 
 describe("all_gather close at a member", () => {
-  it(
+  itOnTestClock(
     "keeps its result when its own answer settles after the close",
     keepsItsResultWhenItsOwnAnswerSettlesAfterTheClose,
   );
-  it(
+  itOnTestClock(
     "applies only the first close while its own answer is in flight",
     appliesOnlyTheFirstCloseWhileItsOwnAnswerIsInFlight,
   );
-  it("ignores a close for an unknown id", ignoresACloseForAnUnknownId);
-  it(
+  itOnTestClock(
+    "ignores a close for an unknown id",
+    ignoresACloseForAnUnknownId,
+  );
+  itOnTestClock(
     "ignores a close listing an answer it does not hold",
     ignoresACloseListingAnAnswerTheMemberDoesNotHold,
   );
 });
 
 describe("all_gather member results the service cannot keep", () => {
-  it(
+  itOnTestClock(
     "fails a close whose member result cannot be kept",
     failsACloseWhoseMemberResultCannotBeKept,
   );
-  it(
+  itOnTestClock(
     "keeps an answer's outcome when the close it releases cannot be kept",
     keepsAnAnswerThatReleasesAnUnkeptClose,
   );
