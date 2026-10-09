@@ -1,7 +1,15 @@
 /** @file Exact Ed25519 public keys and opaque private signing authority. */
 
 import { ed25519 } from "@noble/curves/ed25519.js";
-import { Data, Effect, Either, Encoding, Redacted, Schema } from "effect";
+import {
+  Data,
+  Effect,
+  Either,
+  Encoding,
+  Option,
+  Redacted,
+  Schema,
+} from "effect";
 import {
   calculateJwkThumbprintUri,
   type CryptoKey,
@@ -10,6 +18,7 @@ import {
   importPKCS8,
   type JWK,
 } from "jose";
+import { type BoundedCache, makeBoundedCache } from "./bounded-cache.js";
 
 const PUBLIC_KEY_BYTE_LENGTH = 32;
 const SIGNATURE_BYTE_LENGTH = 64;
@@ -244,11 +253,59 @@ export type Ed25519PublicKey = typeof Ed25519PublicKey.Type;
 
 /**
  * Reports failure to derive the standard thumbprint URI or the X25519 key for
- * a validated key.
+ * a validated key, or to import it.
  */
 export class Ed25519PublicKeyOperationError extends Data.TaggedError(
   "Ed25519PublicKeyOperationError",
 ) {}
+
+const publicKeyOperationFailure = (): Ed25519PublicKeyOperationError =>
+  new Ed25519PublicKeyOperationError();
+
+/**
+ * Most keys that each per-key cache below keeps. A conversation names at most
+ * 128 members, so the bound holds the keys of eight full conversations, and
+ * each entry is one short string or one imported public `CryptoKey`.
+ */
+const PUBLIC_KEY_CACHE_ENTRIES = 1_024;
+
+/**
+ * Derives a value from a public key once while the key stays among the
+ * `PUBLIC_KEY_CACHE_ENTRIES` most recently used. Entries are keyed by `x`:
+ * `crv` and `kty` are fixed and `x` has one accepted spelling, so `x`
+ * determines the RFC 7638 canonical JWK the thumbprint hashes, and two keys
+ * share an entry only when they are the same key. Keying by value keeps a hit
+ * for every AgentCard decode, each of which makes a new key object. The entry
+ * and its derivation share one read of `x`, so an entry holds its own key's
+ * value even for an object whose members change between reads. A failed
+ * derivation is not kept, and the caches hold key material, never a
+ * verification outcome.
+ */
+const cachedPerPublicKey = <A>(
+  entries: BoundedCache<string, A>,
+  publicKey: Ed25519PublicKey,
+  derive: (
+    jwk: PublicKeyValue,
+  ) => Effect.Effect<A, Ed25519PublicKeyOperationError>,
+): Effect.Effect<A, Ed25519PublicKeyOperationError> =>
+  Effect.suspend(() => {
+    const jwk: PublicKeyValue = Object.freeze({
+      crv: "Ed25519",
+      kty: "OKP",
+      x: publicKey.x,
+    });
+    return Option.match(entries.get(jwk.x), {
+      onNone: () =>
+        Effect.tap(derive(jwk), (derived) => {
+          entries.set(jwk.x, derived);
+        }),
+      onSome: (cached) => Effect.succeed(cached),
+    });
+  });
+
+const thumbprintUris = makeBoundedCache<string, string>(
+  PUBLIC_KEY_CACHE_ENTRIES,
+);
 
 /**
  * Derives the RFC JWK thumbprint URI for a validated Ed25519 public key.
@@ -261,18 +318,33 @@ export class Ed25519PublicKeyOperationError extends Data.TaggedError(
 export const ed25519PublicKeyThumbprintUri = (
   publicKey: Ed25519PublicKey,
 ): Effect.Effect<string, Ed25519PublicKeyOperationError> =>
+  cachedPerPublicKey(thumbprintUris, publicKey, (jwk) =>
+    Effect.tryPromise({
+      try: () => calculateJwkThumbprintUri(jwk, "sha256"),
+      catch: publicKeyOperationFailure,
+    }),
+  );
+
+const importPublicJwk = (
+  jwk: PublicKeyValue | X25519PublicJwk,
+  algorithm: string,
+): Effect.Effect<CryptoKey, Ed25519PublicKeyOperationError> =>
   Effect.tryPromise({
-    try: () =>
-      calculateJwkThumbprintUri(
-        {
-          crv: publicKey.crv,
-          kty: publicKey.kty,
-          x: publicKey.x,
-        },
-        "sha256",
-      ),
-    catch: () => new Ed25519PublicKeyOperationError(),
+    try: () => importJWK(jwk, algorithm),
+    catch: publicKeyOperationFailure,
   });
+
+const verificationKeys = makeBoundedCache<string, CryptoKey>(
+  PUBLIC_KEY_CACHE_ENTRIES,
+);
+
+/** Imports a validated Ed25519 public key to verify signatures under it. */
+export const ed25519VerificationKey = (
+  publicKey: Ed25519PublicKey,
+): Effect.Effect<CryptoKey, Ed25519PublicKeyOperationError> =>
+  cachedPerPublicKey(verificationKeys, publicKey, (jwk) =>
+    importPublicJwk(jwk, "Ed25519"),
+  );
 
 /** JWE key management of sealed bodies; the opening key is imported for it. */
 export const SEALED_BODY_KEY_MANAGEMENT_ALGORITHM = "ECDH-ES+A256KW";
@@ -296,7 +368,7 @@ export interface X25519PublicJwk {
  * @returns The X25519 public JWK.
  */
 export const x25519PublicJwk = (
-  publicKey: Ed25519PublicKey,
+  publicKey: PublicKeyValue,
 ): Either.Either<X25519PublicJwk, Ed25519PublicKeyOperationError> =>
   Either.try({
     try: (): X25519PublicJwk => ({
@@ -308,8 +380,22 @@ export const x25519PublicJwk = (
         ),
       ),
     }),
-    catch: () => new Ed25519PublicKeyOperationError(),
+    catch: publicKeyOperationFailure,
   });
+
+const sealingKeys = makeBoundedCache<string, CryptoKey>(
+  PUBLIC_KEY_CACHE_ENTRIES,
+);
+
+/** Imports the `x25519PublicJwk` image of a validated key to seal bodies to. */
+export const x25519SealingKey = (
+  publicKey: Ed25519PublicKey,
+): Effect.Effect<CryptoKey, Ed25519PublicKeyOperationError> =>
+  cachedPerPublicKey(sealingKeys, publicKey, (jwk) =>
+    Effect.flatMap(x25519PublicJwk(jwk), (agreementKey) =>
+      importPublicJwk(agreementKey, SEALED_BODY_KEY_MANAGEMENT_ALGORITHM),
+    ),
+  );
 
 declare const agentSigningAuthorityBrand: unique symbol;
 
@@ -416,7 +502,7 @@ const importFromSeed = (
       try: () => ed25519.utils.toMontgomerySecret(seed),
       catch: invalidPrivateKey,
     });
-    const openingKey = yield* zeroAfter(
+    return yield* zeroAfter(
       secret,
       Effect.tryPromise({
         try: () =>
@@ -428,10 +514,6 @@ const importFromSeed = (
         catch: invalidPrivateKey,
       }),
     );
-    if (openingKey instanceof Uint8Array) {
-      return yield* new InvalidAgentPrivateKeyError();
-    }
-    return openingKey;
   });
 
 /**

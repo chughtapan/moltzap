@@ -1,5 +1,6 @@
 /** @file RFC 9421 request signing and strict identity-bound verification profiles. */
 
+import type { CryptoKey } from "jose";
 import {
   HttpClientRequest as ClientRequest,
   type HttpClientRequest,
@@ -7,7 +8,6 @@ import {
 } from "@effect/platform";
 import { Clock, Data, Effect, Option } from "effect";
 import { httpbis, type VerifyingKey } from "http-message-signatures";
-import { type CryptoKey, importJWK } from "jose";
 import { createHash, randomBytes, webcrypto } from "node:crypto";
 import {
   type BareItem,
@@ -21,6 +21,7 @@ import {
   agentSigningPrivateKey,
   type Ed25519PublicKey,
   ed25519PublicKeyThumbprintUri,
+  ed25519VerificationKey,
   hasCanonicalEd25519SignatureEncoding,
 } from "./agent-key.js";
 import { AuthenticationFailedError } from "./http-errors.js";
@@ -559,10 +560,11 @@ export const verifyHttpRequestSignature = (input: {
       profile: input.profile,
       publicKey: input.publicKey,
     });
-    const publicKey = yield* Effect.tryPromise({
-      try: () => importJWK(input.publicKey, "Ed25519"),
-      catch: () => new AuthenticationFailedError(),
-    });
+    const publicKey = yield* ed25519VerificationKey(input.publicKey).pipe(
+      Effect.catchTag("Ed25519PublicKeyOperationError", () =>
+        Effect.fail(new AuthenticationFailedError()),
+      ),
+    );
     const verified = yield* verifyWithLibrary({
       httpRequest: input.httpRequest,
       profile: input.profile,
