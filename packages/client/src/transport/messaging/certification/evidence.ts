@@ -9,6 +9,7 @@ import {
   decodeCanonical,
   type DecodedOuterBody,
   EvidenceStatement,
+  type RecordHash,
   type VerifiedEvidence,
   verifyDeliveredEvidence,
 } from "../../wire/index.js";
@@ -105,11 +106,28 @@ function durabilityEvidenceMatchesFold(
   fold: EngineActionFold,
   statement: VerifiedEvidence["statement"],
 ): boolean {
-  if (statement.kind !== "durability_vote" || fold.recordHash === undefined) {
-    return false;
-  }
   return (
-    statement.recordHash === fold.recordHash &&
+    fold.recordHash !== undefined &&
+    isVoteForRecord(fold, fold.recordHash, statement)
+  );
+}
+
+/**
+ * Whether verified evidence is a durability vote for a record under a fold's
+ * conversation and membership, including a record the fold does not hold yet.
+ * @param fold Fold whose conversation and membership the vote must name.
+ * @param recordHash Record the vote must name.
+ * @param statement Cryptographically verified evidence statement.
+ * @returns Whether the statement is such a vote.
+ */
+export function isVoteForRecord(
+  fold: EngineActionFold,
+  recordHash: RecordHash,
+  statement: VerifiedEvidence["statement"],
+): boolean {
+  return (
+    statement.kind === "durability_vote" &&
+    statement.recordHash === recordHash &&
     statement.conversationId === fold.conversation.conversationId &&
     statement.membershipHash === fold.conversation.membership.hash
   );

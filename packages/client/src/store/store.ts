@@ -53,10 +53,9 @@ import {
   searchStoredConversations,
 } from "./reads.js";
 import {
-  applyCatchUpRecord,
+  applyCertifiedRecord,
   mergeEvidence,
   promoteRecord,
-  stageCertifiedRecord,
   stageRecordForDissemination,
   supersedeProposalLock,
 } from "./records.js";
@@ -163,16 +162,14 @@ function makeHistoryOperations(state: StoreState, run: StoreRunner) {
       run(() => lockGenesisProposal(state.database, foundation, proposal)),
     supersedeProposalLock: (lock, certificate) =>
       run(() => supersedeProposalLock(state.database, lock, certificate)),
-    stageCertifiedRecord: (record) =>
-      run(() => stageCertifiedRecord(state.database, record)),
     stageRecordForDissemination: (record) =>
       run(() => stageRecordForDissemination(state.database, record)),
     mergeEvidence: (evidence) =>
       run(() => mergeEvidence(state.database, evidence)),
     promoteRecord: (record, delivery) =>
       run(() => promoteRecord(state.database, record, delivery)),
-    applyCatchUpRecord: (record, delivery) =>
-      run(() => applyCatchUpRecord(state.database, record, delivery)),
+    applyCertifiedRecord: (record, delivery) =>
+      run(() => applyCertifiedRecord(state.database, record, delivery)),
     stageReanchor: (reanchor) =>
       run(() => stageReanchor(state.database, reanchor)),
     completeReanchor: (reanchor) =>

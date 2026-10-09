@@ -64,6 +64,7 @@ import {
   evidenceMatchesFold,
   evidenceRoute,
   type EvidenceRoute,
+  isVoteForRecord,
   verifiedEvidenceForRoute,
 } from "./evidence.js";
 
@@ -377,10 +378,11 @@ const actionAnchorHash = (
 
 /**
  * Queue this endpoint's durability vote for a fold's staged record: the vote
- * it holds, or a new one. A certified fold gets no new vote. A vote is stored
- * before it is sent, so a certified fold without one names a record this
- * endpoint never voted for, such as one it accepted already certified, and
- * the record needs no vote.
+ * it holds, or a new one. An uncertified fold's record is one this endpoint
+ * staged for its own vote, since a record received whole is staged in the
+ * transaction that certifies it. A certified fold gets no new vote: a vote is
+ * stored before it is sent, so a certified fold without one names a record
+ * this endpoint never voted for, and the record needs no vote.
  * @param runtime Engine whose identity signs and whose outbox sends.
  * @param fold Fold whose staged record the vote names.
  * @returns Completion once the vote is queued, or at once when none is due.
@@ -525,56 +527,65 @@ const rebasePendingIntents = (
       );
 
 /**
- * Store a complete record as certified and install it as its conversation's
- * head in one uninterruptible step. An interruption between the two would
- * leave the store holding the record certified while the fold does not, and
- * the fold would then take a durability vote the record never needed.
- * @param runtime Engine whose store and conversation take the record.
+ * The store rows of a fold's complete certified record: the record with the
+ * fold's action signatures and the given durability votes, and, for another
+ * member's post, its inbound delivery.
+ * @param runtime Engine whose agent the delivery is for.
  * @param fold Fold of the record's action.
  * @param record The complete certified record.
- * @param applyCatchUp Whether the record arrived as a catch-up answer.
- * @returns Completion once the record is stored and installed.
+ * @param votes Durability votes stored with the record.
+ * @returns The stored record, and the delivery of a remote post.
  */
-const commitPromotion = (
+const certifiedRecordRows = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
   record: CertifiedRecord,
-  applyCatchUp: boolean,
-): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
+  votes: Iterable<SignedMessage>,
+) =>
   Effect.gen(function* () {
-    const stored = yield* storedCertifiedRecord(record, fold).pipe(
-      Effect.mapError(localRepresentationFailure),
+    const localAgentId = runtime.input.localAgentCard.agentId;
+    const stored = yield* storedCertifiedRecord(
+      record,
+      fold.actionEvidence.values(),
+      votes,
     );
-    const remote =
-      fold.action.postIntent.authorAgentId !==
-      runtime.input.localAgentCard.agentId;
-    const delivery = remote
-      ? yield* inboundDelivery(
-          fold.conversation,
-          record,
-          runtime.input.localAgentCard.agentId,
-        ).pipe(Effect.mapError(localRepresentationFailure))
-      : undefined;
-    const persist = applyCatchUp
-      ? runtime.input.store.applyCatchUpRecord
-      : runtime.input.store.promoteRecord;
-    yield* Effect.uninterruptible(
-      persist(stored, delivery).pipe(
-        Effect.zipRight(completePromotion(runtime, fold, record)),
-      ),
-    );
-  });
+    const delivery =
+      fold.action.postIntent.authorAgentId === localAgentId
+        ? undefined
+        : yield* inboundDelivery(fold.conversation, record, localAgentId);
+    return { stored, delivery };
+  }).pipe(Effect.mapError(localRepresentationFailure));
 
+/**
+ * Store a fold's complete record as certified and install it as its
+ * conversation's head in one uninterruptible step. An interruption between
+ * the two would leave the store holding the record certified while the fold
+ * does not, and the fold would then take a durability vote the record never
+ * needed.
+ * @param runtime Engine whose store and conversation take the record.
+ * @param fold Fold of the record's action, holding its votes.
+ * @param record The complete certified record.
+ * @returns Completion once the record is installed and pending posts rebased.
+ */
 const promote = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
   record: CertifiedRecord,
 ): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
-  commitPromotion(runtime, fold, record, false).pipe(
-    Effect.zipRight(
-      rebasePendingIntents(runtime, fold.conversation.conversationId),
-    ),
-  );
+  Effect.gen(function* () {
+    const { stored, delivery } = yield* certifiedRecordRows(
+      runtime,
+      fold,
+      record,
+      fold.durabilityEvidence.values(),
+    );
+    yield* Effect.uninterruptible(
+      runtime.input.store
+        .promoteRecord(stored, delivery)
+        .pipe(Effect.zipRight(completePromotion(runtime, fold, record))),
+    );
+    yield* rebasePendingIntents(runtime, fold.conversation.conversationId);
+  });
 
 const maybePromote = (
   runtime: EngineRuntime,
@@ -795,38 +806,63 @@ const ensureConversation = (
   };
 };
 
-const certificateEvidenceMatches = (
-  fold: EngineActionFold,
-  kind: "action" | "durability",
-  evidence: VerifiedEvidence,
-): boolean =>
-  evidenceMatchesFold(
-    kind === "action" ? { fold, kind: "action" } : { fold, kind: "durability" },
-    evidence.statement,
-  );
-
-const mergeCertificateEvidence = (
+const mergeActionCertificate = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
-  kind: "action" | "durability",
-  representations: readonly unknown[],
+  signatures: readonly unknown[],
 ): Effect.Effect<void, ProtocolAcceptanceError> =>
   Effect.forEach(
-    representations,
+    signatures,
     (representation) =>
-      verifyStableEvidence({
-        representation,
-        membership: fold.conversation.membership,
-      }).pipe(
-        Effect.filterOrFail(
-          (evidence) => certificateEvidenceMatches(fold, kind, evidence),
-          () => new ClientRepresentationError(),
-        ),
-        Effect.flatMap((evidence) =>
-          mergeEvidence(runtime, fold, kind, evidence.message),
+      certificateEvidence(fold, representation, (statement) =>
+        evidenceMatchesFold({ fold, kind: "action" }, statement),
+      ).pipe(
+        Effect.flatMap((message) =>
+          mergeEvidence(runtime, fold, "action", message),
         ),
       ),
     { concurrency: 1, discard: true },
+  );
+
+/**
+ * The votes of a record's durability certificate, each verified for the
+ * fold's membership and required to name the record, which the fold does not
+ * hold until the record is stored.
+ * @param fold Fold of the record's action.
+ * @param record The record with its durability certificate.
+ * @returns The certificate's verified votes.
+ */
+const certificateVotes = (
+  fold: EngineActionFold,
+  record: CertifiedRecord,
+): Effect.Effect<readonly SignedMessage[], ClientRepresentationError> =>
+  Effect.forEach(
+    record.durabilityCertificate.votes,
+    (representation) =>
+      certificateEvidence(fold, representation, (statement) =>
+        isVoteForRecord(
+          fold,
+          record.actionCertifiedRecord.recordHash,
+          statement,
+        ),
+      ),
+    { concurrency: 1 },
+  );
+
+const certificateEvidence = (
+  fold: EngineActionFold,
+  representation: unknown,
+  matches: (statement: VerifiedEvidence["statement"]) => boolean,
+): Effect.Effect<SignedMessage, ClientRepresentationError> =>
+  verifyStableEvidence({
+    representation,
+    membership: fold.conversation.membership,
+  }).pipe(
+    Effect.filterOrFail(
+      ({ statement }) => matches(statement),
+      () => new ClientRepresentationError(),
+    ),
+    Effect.map(({ message }) => message),
   );
 
 /**
@@ -942,10 +978,9 @@ const prepareRecordFold = (
       action,
       record.recordCore.actionHash,
     );
-    yield* mergeCertificateEvidence(
+    yield* mergeActionCertificate(
       runtime,
       fold,
-      "action",
       record.actionCertificate.signatures,
     );
     return fold;
@@ -967,22 +1002,21 @@ const acceptActionCertifiedRecord = (
   });
 
 /**
- * Accept a record that arrives whole, with its durability certificate. Its
- * staging, its certificate's votes and its promotion form one uninterruptible
- * step: an interrupted acceptance would leave the record staged but not
- * certified in this endpoint's fold, and the fold would then take a
- * durability vote for a record this endpoint never voted for.
+ * Accept a record that arrives whole, with its durability certificate. The
+ * store stages, certifies and promotes it in one transaction, and the fold
+ * takes the record, its votes and its promotion in the same uninterruptible
+ * step. Neither a crash nor an interruption therefore leaves the record
+ * staged but not certified, where it would draw a durability vote from this
+ * endpoint, which never voted for it.
  * @param runtime Engine that accepts the record.
  * @param ingress Authenticated delivery carrying the record.
  * @param record The record with its durability certificate.
- * @param applyCatchUp Whether the record arrived as a catch-up answer.
  * @returns Whether the record was accepted or ignored.
  */
 const acceptCertifiedRecord = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
   record: CertifiedRecord,
-  applyCatchUp = false,
 ): Effect.Effect<RouterIngressDisposition, ProtocolAcceptanceError> =>
   Effect.gen(function* () {
     const membership = yield* ingressMembership(
@@ -1000,22 +1034,26 @@ const acceptCertifiedRecord = (
     if (fold === undefined) {
       return "ignored";
     }
-    const staged = yield* stagedRecord(actionRecord);
+    const votes = yield* certificateVotes(fold, record);
+    const { stored, delivery } = yield* certifiedRecordRows(
+      runtime,
+      fold,
+      record,
+      votes,
+    );
     yield* Effect.uninterruptible(
-      Effect.gen(function* () {
-        yield* runtime.input.store.stageCertifiedRecord(staged);
-        yield* Effect.sync(() => {
-          fold.recordHash = actionRecord.recordHash;
-          runtime.recordFolds.set(actionRecord.recordHash, fold);
-        });
-        yield* mergeCertificateEvidence(
-          runtime,
-          fold,
-          "durability",
-          record.durabilityCertificate.votes,
-        );
-        yield* commitPromotion(runtime, fold, record, applyCatchUp);
-      }),
+      runtime.input.store.applyCertifiedRecord(stored, delivery).pipe(
+        Effect.zipRight(
+          Effect.sync(() => {
+            fold.recordHash = actionRecord.recordHash;
+            runtime.recordFolds.set(actionRecord.recordHash, fold);
+            for (const vote of votes) {
+              fold.durabilityEvidence.set(vote.senderAgentId, vote);
+            }
+          }),
+        ),
+        Effect.zipRight(completePromotion(runtime, fold, record)),
+      ),
     );
     yield* rebasePendingIntents(runtime, fold.conversation.conversationId);
     return "accepted";
@@ -1095,7 +1133,7 @@ export const acceptEngineRecoveryIngress = (
     .withPermits(1)(
       ingress.payload.kind === "direct" &&
         ingress.payload.packet.kind === "certified_record"
-        ? acceptCertifiedRecord(runtime, ingress, ingress.payload.packet, true)
+        ? acceptCertifiedRecord(runtime, ingress, ingress.payload.packet)
         : Effect.succeed(ignoredDisposition),
     )
     .pipe(

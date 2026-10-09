@@ -177,6 +177,10 @@ interface GroupHistory {
 interface N4PartialHistory {
   readonly certifiedHead: CertifiedRecord;
   readonly stagedSuccessor: ActionCertifiedRecordValue;
+  /**
+   * `stagedSuccessor` with the other three members' durability votes. The
+   * local endpoint never staged it, so it holds no vote of its own for it.
+   */
   readonly certifiedSuccessor: CertifiedRecord;
 }
 
@@ -1060,10 +1064,10 @@ const buildN4PartialHistory = (
         ],
       },
     };
-    const successorLocalDurability = yield* signEvidence(fixture.local, {
+    const successorThirdDurability = yield* signEvidence(n4.third, {
       moltzapVersion: MOLTZAP_VERSION,
       kind: "durability_vote",
-      signerAgentId: fixture.local.card.agentId,
+      signerAgentId: n4.third.card.agentId,
       conversationId: n4.membership.descriptor.conversationId,
       membershipHash: n4.membership.hash,
       recordHash: successorRecordHash,
@@ -1093,8 +1097,8 @@ const buildN4PartialHistory = (
         kind: "durability_certificate",
         recordHash: successorRecordHash,
         votes: [
-          successorLocalDurability,
           successorRemoteDurability,
+          successorThirdDurability,
           successorFourthDurability,
         ],
       },

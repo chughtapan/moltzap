@@ -290,7 +290,7 @@ function rollsBackRemoteRecordWithoutDelivery() {
     Effect.gen(function* () {
       yield* bindLocalIdentity(store);
       yield* store.putConversationFoundation(foundation(conversationId));
-      yield* expectReason(store.applyCatchUpRecord(record), "invalid-input");
+      yield* expectReason(store.applyCertifiedRecord(record), "invalid-input");
       const recovery = yield* store.recover();
       expect(recovery.positions[0]?.headRecordHash).toBeUndefined();
       expect(recovery.stagedRecords).toEqual([]);
@@ -320,7 +320,7 @@ function completesLocalPostWithoutSelfDelivery() {
         },
       });
       yield* store.lockProposal(proposal(conversationId, record.actionHash));
-      yield* store.applyCatchUpRecord(record);
+      yield* store.applyCertifiedRecord(record);
       const recovery = yield* store.recover();
       expect(recovery.postIntents[0]?.completedRecordHash).toBe(
         record.recordHash,
@@ -373,11 +373,73 @@ function refusesAReanchorAwayFromAStagedSuccessor() {
         },
       });
       yield* store.lockProposal(proposal(conversationId, head.actionHash));
-      yield* store.applyCatchUpRecord(head);
+      yield* store.applyCertifiedRecord(head);
       yield* store.stageRecordForDissemination(successor);
 
       yield* expectReason(store.stageReanchor(awayFromTheHead), "conflict");
       expect((yield* store.recover()).stagedReanchors).toEqual([]);
+    }),
+  );
+}
+
+/**
+ * The endpoint locks a successor of its certified head, then stages a
+ * re-anchor candidate away from the head's anchor, and then receives the
+ * successor whole, which it stores without voting for it. The store refuses
+ * this endpoint's durability vote for the successor, so its signatures never
+ * land on both a re-anchor away from the head and a durability certificate
+ * extending it, in this order as in the other. Fails when the store checks
+ * only the proposal lock before it keeps the vote.
+ * @returns The trace, run to completion.
+ */
+function refusesALocalVoteUnderAnAnchorItReanchorsAwayFrom() {
+  const directory = stateDirectory();
+  const conversationId = "conversation:reanchored-vote";
+  const head = certifiedRecord(conversationId, LOCAL_AGENT_ID);
+  const successor = certifiedSuccessor(head, "agent:remote");
+  const awayFromTheHead: StagedReanchor = {
+    conversationId,
+    anchorHash: `anc_${conversationId}:1`,
+    previousAnchorHash: head.anchorHash,
+    routerInstanceId: "rti_reanchored-vote",
+    selectedRecordHash: head.recordHash,
+    canonicalBody: bytes(`reanchor:${conversationId}:1`),
+  };
+  const localVote: ProtocolEvidence = {
+    conversationId,
+    kind: "durability",
+    subjectId: successor.recordHash,
+    evidenceKey: LOCAL_AGENT_ID,
+    canonicalEvidence: bytes("durability-vote:local"),
+  };
+  return withStore(directory, (store) =>
+    Effect.gen(function* () {
+      yield* bindLocalIdentity(store);
+      yield* store.bindPostIntent({
+        kind: "new-conversation",
+        foundation: foundation(conversationId),
+        intent: {
+          conversationId,
+          membershipHash: head.membershipHash,
+          authorAgentId: head.authorAgentId,
+          postId: head.postId,
+          canonicalIntent: bytes("intent:reanchored-vote"),
+        },
+      });
+      yield* store.lockProposal(proposal(conversationId, head.actionHash));
+      yield* store.applyCertifiedRecord(head);
+      yield* store.lockProposal({
+        ...proposal(conversationId, successor.actionHash),
+        previousRecordHash: head.recordHash,
+      });
+      yield* store.stageReanchor(awayFromTheHead);
+      yield* store.applyCertifiedRecord(successor, {
+        recipientAgentId: LOCAL_AGENT_ID,
+        canonicalMessage: bytes("message:successor"),
+      });
+
+      yield* expectReason(store.mergeEvidence(localVote), "conflict");
+      expect((yield* store.recover()).evidence).not.toContainEqual(localVote);
     }),
   );
 }
@@ -701,7 +763,7 @@ function refusesEmptyRestartAfterCertification() {
         },
       });
       yield* store.lockProposal(proposal(conversationId, record.actionHash));
-      yield* store.applyCatchUpRecord(record);
+      yield* store.applyCertifiedRecord(record);
       yield* expectReason(
         store.restartEmptyConversation({
           expectedFoundation: oldFoundation,
@@ -811,7 +873,7 @@ function writeRemoteDelivery(
   return Effect.gen(function* () {
     yield* bindLocalIdentity(store);
     yield* store.putConversationFoundation(foundation(record.conversationId));
-    expect(yield* store.applyCatchUpRecord(record, delivery)).toBe(
+    expect(yield* store.applyCertifiedRecord(record, delivery)).toBe(
       INSERTED_MUTATION,
     );
     const firstReplay = yield* store.readPendingDeliveries();
@@ -821,14 +883,14 @@ function writeRemoteDelivery(
       return yield* Effect.die("pending delivery did not retain a row");
     }
     expect(firstDelivery.deliveryToken).toMatch(/^dlv_[A-Za-z0-9_-]{43}$/u);
-    expect(yield* store.applyCatchUpRecord(record, delivery)).toBe(
+    expect(yield* store.applyCertifiedRecord(record, delivery)).toBe(
       EXISTING_MUTATION,
     );
     expect((yield* store.readPendingDeliveries())[0]?.deliveryToken).toBe(
       firstDelivery.deliveryToken,
     );
     yield* expectReason(
-      store.applyCatchUpRecord(record, {
+      store.applyCertifiedRecord(record, {
         ...delivery,
         canonicalMessage: bytes("message:collision"),
       }),
@@ -901,6 +963,42 @@ function certifiedRecord(
         subjectId: recordHash,
         evidenceKey: authorAgentId,
         canonicalEvidence: bytes(`durability-vote:${authorAgentId}`),
+      },
+    ],
+  };
+}
+
+function certifiedSuccessor(
+  head: CertifiedRecord,
+  authorAgentId: string,
+): CertifiedRecord {
+  const { conversationId } = head;
+  const actionHash = `ach_${conversationId}:1`;
+  const recordHash = `rch_${conversationId}:1`;
+  return {
+    ...head,
+    recordHash,
+    previousRecordHash: head.recordHash,
+    actionHash,
+    authorAgentId,
+    postId: `pst_${authorAgentId}`,
+    canonicalRecordCore: bytes(`record:${conversationId}:1`),
+    actionEvidence: [
+      {
+        conversationId,
+        kind: "action",
+        subjectId: actionHash,
+        evidenceKey: authorAgentId,
+        canonicalEvidence: bytes(`action-signature:${authorAgentId}:1`),
+      },
+    ],
+    durabilityEvidence: [
+      {
+        conversationId,
+        kind: "durability",
+        subjectId: recordHash,
+        evidenceKey: authorAgentId,
+        canonicalEvidence: bytes(`durability-vote:${authorAgentId}:1`),
       },
     ],
   };
@@ -1057,12 +1155,12 @@ describe("endpoint proposal locking", () => {
 
 describe("endpoint record certification and delivery", () => {
   it(
-    "atomically promotes remote catch-up and replays one stable delivery",
+    "atomically applies a remote record received whole and replays one stable delivery",
     promotesRemoteRecordWithStableDelivery,
   );
 
   it(
-    "rolls back remote certification when its delivery is absent",
+    "rolls back a record received whole, its staging included, when its delivery is absent",
     rollsBackRemoteRecordWithoutDelivery,
   );
 
@@ -1076,6 +1174,11 @@ describe("endpoint re-anchor candidates", () => {
   it(
     "refuses a candidate away from a head it holds a staged successor of",
     refusesAReanchorAwayFromAStagedSuccessor,
+  );
+
+  it(
+    "refuses its own durability vote under an anchor it staged a candidate away from",
+    refusesALocalVoteUnderAnAnchorItReanchorsAwayFrom,
   );
 });
 
