@@ -220,9 +220,10 @@ export interface CollectivePorts {
   ) => Effect.Effect<EngineSentPost, SendError>;
   /**
    * Queue an item the layer emits itself: a result or a failure. It fails
-   * when the item cannot be kept, which ends the work that emitted it, after
-   * reporting the storage failure itself, as the daemon's port does by
-   * stopping.
+   * when the item cannot be kept, and only after it has reported the storage
+   * failure itself, as the daemon's port does by stopping the daemon. A
+   * caller may therefore discard the failure: classification ends its pass on
+   * it, and a send keeps its own outcome.
    */
   readonly emit: (
     item: InboundItem,
@@ -604,10 +605,9 @@ function sleepUntil(at: number): Effect.Effect<void> {
  * send keeps running and settles its member when it completes: certified
  * asks it, refused makes it `no-answer`, as does pending at the deadline.
  * The send fails only when every post was refused and the gather has not
- * completed, so an operation ends in exactly one refusal or one result. A
- * result its settling completes that cannot be kept leaves the send's
- * outcome as it is, since its request posts exist and the emit port reports
- * the failure.
+ * completed, so an operation ends in exactly one refusal or one result.
+ * When the result that settling the gather emits cannot be kept, the send
+ * keeps its own outcome, the request posts that exist.
  */
 function sendRequests(
   state: CollectiveState,
@@ -837,9 +837,9 @@ function closeAllGather(
 /**
  * Answer the one request open in the conversation `to` names. The answer
  * carries no request id, so the conversation decides which request it
- * answers; with none open, or several, nothing is sent. An item settling
- * the answer emits that the daemon cannot keep leaves the answer's outcome
- * as it is, since its post exists and the emit port reports the failure.
+ * answers; with none open, or several, nothing is sent. When the item that
+ * settling the answer emits cannot be kept, the answer keeps its own outcome,
+ * its post or its refusal.
  */
 function respond(
   state: CollectiveState,

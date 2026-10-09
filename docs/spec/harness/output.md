@@ -36,8 +36,12 @@ including its original operation id. Caller cancellation does not cancel the
 daemon-owned keyed invocation. A reservation interrupted by daemon restart
 stays indeterminate and returns `outcome-unknown`; it is never executed again
 under that key. So does a key whose outcome the store could not retain, though
-the call that ran it returns the send's own outcome, and a retained outcome
-the store cannot decode replays as `outcome-unknown`.
+the call that ran it returns the send's own outcome. A retained outcome the
+store cannot decode, an earlier attempt it cannot read, and a reservation it
+fails after it may have read the key also return `outcome-unknown`; only a
+reservation refused before any read returns `persistence-failed`. For a key
+whose outcome was not retained or cannot be decoded, `read_send` returns
+`indeterminate`.
 `read_send({idempotencyKey})` returns `absent`, `pending`,
 `indeterminate`, or `returned` with the stored input and observed outcome.
 These are invocation states, not collective completion. A returned failure

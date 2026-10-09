@@ -45,8 +45,7 @@ const requestId = collectiveIdOf(alice, requestNonce);
 const otherId = `col_${"B".repeat(43)}`;
 
 /** What a send that failed after queueing its post says about it. */
-const queuedText =
-  "MoltZap is unavailable; the message is queued and will be delivered once MoltZap is reachable";
+const queuedText = "the message is pending and MoltZap will still deliver it";
 
 /**
  * An emit port that records each item and resolves `emitted` on the first,

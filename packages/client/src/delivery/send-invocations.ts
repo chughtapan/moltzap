@@ -137,6 +137,11 @@ const retainedOutcome = (
           runtime.store.finishSendAttempt(key, bytes).pipe(Effect.as(bytes)),
         ),
         Effect.flatMap((bytes) => Effect.exit(replayOutcome(bytes))),
+        Effect.tapError((error) =>
+          Effect.logWarning(
+            `send outcome for key ${key} not retained: ${error.reason}`,
+          ),
+        ),
         Effect.catchTag("EndpointStoreError", () => Effect.succeed(executed)),
       ),
   });
@@ -159,7 +164,13 @@ const existingInvocation = (runtime: Invocations, key: string) =>
     if (live !== undefined) {
       return Deferred.await(live);
     }
-    const retained = yield* runtime.store.readSendAttempt(key);
+    const retained = yield* runtime.store
+      .readSendAttempt(key)
+      .pipe(
+        Effect.catchTag("EndpointStoreError", () =>
+          Effect.fail(new SendError({ reason: "outcome-unknown" })),
+        ),
+      );
     return retained?.canonicalOutcome === undefined
       ? Effect.fail(new SendError({ reason: "outcome-unknown" }))
       : replayOutcome(retained.canonicalOutcome);
@@ -186,6 +197,26 @@ const reserve = (
     );
     return Deferred.await(result);
   });
+/**
+ * The failure of a keyed send whose reservation failed in the store. A
+ * conflict is a different input under the key. A refusal raised before the
+ * store reads the key leaves nothing reserved, so the send was not sent. Any
+ * other failure can come from reading an attempt the key already reserved,
+ * which may have posted, so it is `outcome-unknown`.
+ */
+const reservationReasonByStoreReason = {
+  closed: "persistence-failed",
+  conflict: "idempotency-conflict",
+  corrupt: "outcome-unknown",
+  incompatible: "outcome-unknown",
+  "invalid-continuation": "persistence-failed",
+  "invalid-input": "persistence-failed",
+  "not-found": "outcome-unknown",
+  persistence: "outcome-unknown",
+} as const satisfies Readonly<
+  Record<EndpointStoreError["reason"], SendError["reason"]>
+>;
+
 const keyedSend = (
   runtime: Invocations,
   key: string,
@@ -197,10 +228,7 @@ const keyedSend = (
       Effect.catchTag("EndpointStoreError", (error) =>
         Effect.fail(
           new SendError({
-            reason:
-              error.reason === "conflict"
-                ? "idempotency-conflict"
-                : "persistence-failed",
+            reason: reservationReasonByStoreReason[error.reason],
           }),
         ),
       ),
@@ -230,8 +258,17 @@ const readSend = (
         input,
       };
     }
-    const outcome = yield* decodeStoredOutcome(retained.canonicalOutcome);
-    return { state: "returned", input, outcome };
+    const decoded = yield* Effect.option(
+      decodeStoredOutcome(retained.canonicalOutcome),
+    );
+    return Option.match(decoded, {
+      onNone: (): HarnessReadSendResult => ({ state: "indeterminate", input }),
+      onSome: (outcome): HarnessReadSendResult => ({
+        state: "returned",
+        input,
+        outcome,
+      }),
+    });
   });
 const send = (runtime: Invocations, request: HarnessSendRequest) =>
   decodeHarnessSendRequest(request).pipe(

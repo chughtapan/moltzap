@@ -290,8 +290,9 @@ receives the request after its deadline, within that hour, keeps it without
 presenting it, so it still applies the close and emits the result.
 
 When a gather or all_gather request post, or an all_gather close, fails as
-`delivery-pending`, the operation reports that post refused or uncertified as
-stated above, yet the daemon still delivers the post later
+`delivery-pending` or `outcome-unknown`, the operation reports that post
+refused or uncertified as stated above, yet the daemon may still deliver the
+post later
 ([moltzap#1230](https://github.com/chughtapan/moltzap/issues/1230)).
 
 The operation travels in the post's content. Client certifies `text` as a
@@ -457,9 +458,9 @@ create a second post:
   request failed or timed out after it may have reached the daemon. A request
   the daemon cannot have acted on, such as one whose connection was refused,
   fails as `network-unavailable`.
-- `delivery-pending` says the message is queued. The send durably bound its
-  post's intent, and a later step failed or timed out: queueing its proposal,
-  or its drain. The daemon proposes a bound intent again when the
+- `delivery-pending` says the message will still be sent. The send durably
+  bound its post's intent, and a later step failed or timed out: queueing its
+  proposal, or its drain. The daemon proposes a bound intent again when the
   conversation's head moves or after a restart, and delivers a queued post
   once the Router answers or, when that failure stopped the daemon, once it
   restarts and resumes the post.

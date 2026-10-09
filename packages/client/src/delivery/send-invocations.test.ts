@@ -326,7 +326,8 @@ const returnsTheOwnOutcomeWhenItCannotBeRetained = () =>
 
 /**
  * A retained outcome the store cannot decode says nothing about whether the
- * send posted, so its key replays as `outcome-unknown`.
+ * send posted, so its key replays as `outcome-unknown` and reads as
+ * `indeterminate`.
  */
 const replaysAnUndecodableOutcomeAsUnknown = () =>
   withFileSystem(
@@ -362,6 +363,73 @@ const replaysAnUndecodableOutcomeAsUnknown = () =>
       expect(
         yield* corrupted.send(onceRequest).pipe(Effect.flip),
       ).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
+      expect(
+        yield* corrupted.readSend({ idempotencyKey: "once" }),
+      ).toStrictEqual({ state: "indeterminate", input });
+    }),
+  );
+
+/**
+ * A retried key whose earlier attempt the store cannot read may have posted,
+ * so the retry reports `outcome-unknown` rather than a storage reason that
+ * says it was not sent.
+ */
+const reportsAnUnreadableEarlierAttemptAsUnknown = () =>
+  withFileSystem(
+    Effect.gen(function* () {
+      const store = yield* temporaryDirectory.pipe(
+        Effect.flatMap(openEndpointStore),
+      );
+      const scope = yield* Scope.Scope;
+      const first = yield* makeSendInvocations(
+        store,
+        () => Effect.succeed({ operationId }),
+        scope,
+      );
+      yield* first.send(onceRequest);
+      const unreadable = yield* makeSendInvocations(
+        {
+          ...store,
+          readSendAttempt: () =>
+            Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+        },
+        () => Effect.dieMessage("retained send executed again"),
+        scope,
+      );
+
+      expect(
+        yield* unreadable.send(onceRequest).pipe(Effect.flip),
+      ).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
+    }),
+  );
+
+/**
+ * A reservation the store fails may have read an attempt the key already
+ * reserved, so it reports `outcome-unknown`; one it refuses before reading
+ * the key reserved nothing, so it reports `persistence-failed`.
+ */
+const classifiesAFailedReservation = (
+  reason: EndpointStoreError["reason"],
+  expected: SendError["reason"],
+) =>
+  withFileSystem(
+    Effect.gen(function* () {
+      const store = yield* temporaryDirectory.pipe(
+        Effect.flatMap(openEndpointStore),
+      );
+      const invocations = yield* makeSendInvocations(
+        {
+          ...store,
+          beginSendAttempt: () =>
+            Effect.fail(new EndpointStoreError({ reason })),
+        },
+        () => Effect.dieMessage("unreserved send executed"),
+        yield* Scope.Scope,
+      );
+
+      expect(
+        yield* invocations.send(onceRequest).pipe(Effect.flip),
+      ).toStrictEqual(new SendError({ reason: expected }));
     }),
   );
 
@@ -403,5 +471,16 @@ describe("durable send invocations", () => {
   it(
     "replays an outcome the store cannot decode as outcome-unknown",
     replaysAnUndecodableOutcomeAsUnknown,
+  );
+  it(
+    "reports a retried key whose earlier attempt cannot be read as outcome-unknown",
+    reportsAnUnreadableEarlierAttemptAsUnknown,
+  );
+  it.each([
+    { reason: "persistence", expected: "outcome-unknown" },
+    { reason: "invalid-input", expected: "persistence-failed" },
+  ] as const)(
+    "reports a reservation that meets a $reason store failure as $expected",
+    ({ reason, expected }) => classifiesAFailedReservation(reason, expected),
   );
 });

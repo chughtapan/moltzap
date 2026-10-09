@@ -41,7 +41,7 @@ export const sendFailureText: Readonly<Record<SendFailure, string>> = {
     "MoltZap is unavailable (the message could not be stored)",
   "network-unavailable": "MoltZap is unavailable (network unavailable)",
   "delivery-pending":
-    "MoltZap is unavailable; the message is queued and will be delivered once MoltZap is reachable",
+    "the message is pending and MoltZap will still deliver it",
   "idempotency-conflict":
     "this send repeats an earlier send with different content",
   "outcome-unknown":
