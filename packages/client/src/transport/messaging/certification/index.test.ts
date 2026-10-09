@@ -2986,8 +2986,10 @@ function failsASendWhoseProposalTheStoreRefuses(): Effect.Effect<
  * The author's worker fails every transmit with a persistence failure, which
  * no retry clears. The supervised outbound loop ends with an
  * `EngineOutboundError` naming persistence, so the host stops on a store
- * fault instead of retrying it. Fails when a non-transient worker failure is
- * retried, which keeps the loop running, or maps to another outbound reason.
+ * fault instead of retrying it, and the send, whose post stays queued for the
+ * restarted daemon, fails as `delivery-pending`. Fails when a non-transient
+ * worker failure is retried, which keeps the loop running, maps to another
+ * outbound reason, or fails the send as not sent.
  * @returns The scenario, before its scope closes.
  */
 function persistenceFailureEndsTheOutboundLoop(): Effect.Effect<
@@ -3003,11 +3005,14 @@ function persistenceFailureEndsTheOutboundLoop(): Effect.Effect<
     const fatal = yield* Deferred.make<never, EngineOutboundError>();
     yield* superviseOutbound(author, fatal);
 
-    yield* author
+    const failure = yield* author
       .send(yield* sendInput(harness, "never transmitted"))
-      .pipe(Effect.ignore);
+      .pipe(Effect.flip, Effect.orDie);
     const ended = yield* Deferred.await(fatal).pipe(Effect.flip);
 
+    expect(failure).toStrictEqual(
+      new SendError({ reason: "delivery-pending" }),
+    );
     expect(ended.reason, "the ended loop's EngineOutboundError reason").toBe(
       outboundPersistence,
     );

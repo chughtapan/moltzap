@@ -78,11 +78,11 @@ and its error reaches the model as an `operationFailed` item. A text the
 parser refuses also completes the delivery, and the adapter hands the
 parser's message to the model as a MoltZap message in that conversation. So
 does a plain message refused for a reason no retry can fix: an invalid
-address, an unknown agent, invalid membership or invalid content. So does a
-plain message that fails as `delivery-pending` or `outcome-unknown`, since a
-keyless retry would send the message a second time: the daemon still delivers
-a `delivery-pending` post, and an `outcome-unknown` one may already have gone
-out. The model reads that the message is queued and will be delivered, or
+address, an unknown agent, invalid membership or invalid content. So does
+any send whose call fails as `delivery-pending` or `outcome-unknown`, a gather,
+all_gather or answer included, since a keyless retry would send the message a
+second time: the daemon still delivers a `delivery-pending` post, and an
+`outcome-unknown` one may already have gone out. The model reads that the message is queued and will be delivered, or
 that it may have been sent, and can resend it deliberately. Any other
 plain-message failure stays with NanoClaw's retry.
 

@@ -21,7 +21,13 @@ import {
   Scope,
   Stream,
 } from "effect";
-import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
+import {
+  Agent,
+  type Dispatcher,
+  getGlobalDispatcher,
+  MockAgent,
+  setGlobalDispatcher,
+} from "undici";
 import { describe, expect, it } from "vitest";
 import type { HarnessEndpoint } from "../harness-endpoint/capability.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
@@ -41,7 +47,11 @@ import { InboundItem } from "../../transport/collectives/inbound.js";
 import { ListenError, SendError } from "../../transport/messaging/errors.js";
 import { acquireHarnessEndpoint } from "../harness-endpoint/index.js";
 import { acquireHarnessMcpHttpServer } from "./http.js";
-import { HARNESS_SEND_META_KEY, INBOX_PENDING_EVENT } from "./names.js";
+import {
+  HARNESS_SEND_META_KEY,
+  HARNESS_SEND_TOOL,
+  INBOX_PENDING_EVENT,
+} from "./names.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
@@ -410,7 +420,7 @@ const distinguishesSendValidationFailures = () =>
         expect(
           yield* invalidOutput.send(sendInput).pipe(Effect.flip),
         ).toMatchObject({
-          reason: "network-unavailable",
+          reason: "outcome-unknown",
         });
       }),
     ),
@@ -505,36 +515,86 @@ const reportsOutcomeUnknownWhenTheConnectionDropsMidSend = () =>
   );
 
 /**
- * Route this scope's requests through an agent that opens a connection per
- * request, so a request after the server closes meets a refused connection
- * rather than a pooled socket the server closed, which the request may race.
+ * Route this scope's requests through `dispatcher`, then restore the previous
+ * global dispatcher and close this one.
+ * @param dispatcher The undici dispatcher the MCP client's fetch uses.
+ * @returns The scoped routing.
  */
-const connectionPerRequest = Effect.acquireRelease(
-  Effect.sync(() => {
-    const previous = getGlobalDispatcher();
-    const agent = new Agent({ pipelining: 0 });
-    setGlobalDispatcher(agent);
-    return { previous, agent };
-  }),
-  ({ previous, agent }) =>
+function routeRequestsThrough(dispatcher: Dispatcher) {
+  return Effect.acquireRelease(
     Effect.sync(() => {
-      setGlobalDispatcher(previous);
-    }).pipe(
-      Effect.zipRight(
-        Effect.tryPromise({
-          try: () => agent.close(),
-          catch: (cause) => cause,
-        }),
+      const previous = getGlobalDispatcher();
+      setGlobalDispatcher(dispatcher);
+      return previous;
+    }),
+    (previous) =>
+      Effect.sync(() => {
+        setGlobalDispatcher(previous);
+      }).pipe(
+        Effect.zipRight(
+          Effect.tryPromise({
+            try: () => dispatcher.close(),
+            catch: (cause) => cause,
+          }),
+        ),
+        Effect.orDie,
       ),
-      Effect.orDie,
-    ),
-);
+  );
+}
 
+/**
+ * A dispatcher that answers the next `send_message` POST with `status` before
+ * it reaches the daemon and passes every other request through.
+ * @param status The HTTP status the daemon's HTTP layer seems to answer.
+ * @returns The dispatcher.
+ */
+function answerSendWithStatus(status: number): MockAgent {
+  const agent = new MockAgent();
+  agent.enableNetConnect();
+  agent
+    .get(/^http:\/\/127\.0\.0\.1:\d+$/)
+    .intercept({
+      path: "/mcp",
+      method: "POST",
+      body: (body) => body.includes(`"${HARNESS_SEND_TOOL}"`),
+    })
+    .reply(status, "refused");
+  return agent;
+}
+
+const classifiesAnHttpAnswerToASend = (
+  status: number,
+  reason: SendError["reason"],
+) =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { port } = yield* acquireBoundaryServer({
+          ...operations,
+          protocolActive: () => true,
+        });
+        const endpoint = yield* acquireHarnessEndpoint(
+          new URL(`http://127.0.0.1:${port}/mcp`),
+        );
+        yield* routeRequestsThrough(answerSendWithStatus(status));
+
+        const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
+
+        expect(error).toStrictEqual(new SendError({ reason }));
+      }),
+    ),
+  );
+
+/**
+ * A send after the server closed. Its requests open one connection each, so
+ * the send meets a refused connection rather than a pooled socket the server
+ * closed, which the request may race.
+ */
 const keepsARefusedConnectionNetworkUnavailable = () =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
-        yield* connectionPerRequest;
+        yield* routeRequestsThrough(new Agent({ pipelining: 0 }));
         const serverScope = yield* Scope.make();
         const { port } = yield* acquireBoundaryServer({
           ...operations,
@@ -907,6 +967,15 @@ describe("a refused send across the daemon boundary", () => {
   it(
     "keeps a refused connection network-unavailable",
     keepsARefusedConnectionNetworkUnavailable,
+    MCP_TRACE_TIMEOUT_MS,
+  );
+  it.each([
+    [404, "network-unavailable"],
+    [499, "outcome-unknown"],
+    [500, "outcome-unknown"],
+  ] as const)(
+    "classifies an HTTP %i answer to a send as %s",
+    classifiesAnHttpAnswerToASend,
     MCP_TRACE_TIMEOUT_MS,
   );
 });

@@ -5,8 +5,6 @@ import {
   fromJsonSchema,
   type JsonSchemaType,
   ProtocolError,
-  SdkError,
-  SdkErrorCode,
   SdkHttpError,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
@@ -117,18 +115,23 @@ function sendFailure(cause: unknown): SendError | CollectiveError {
 }
 
 /**
- * Whether a rejected request certainly ran no daemon tool: the SDK refused to
- * send it unconnected, the daemon's HTTP layer turned it away with a client
- * error status, or the connection was refused.
+ * HTTP statuses that the daemon's HTTP layer, or the MCP server SDK before it
+ * dispatches a request, answers with. Any other status may follow a send that
+ * ran: the SDK answers 499 for a call it closed mid-dispatch.
+ */
+const PRE_DISPATCH_STATUSES: ReadonlySet<number> = new Set([
+  400, 401, 403, 404, 405,
+]);
+
+/**
+ * Whether a rejected request certainly ran no daemon tool: the daemon turned
+ * it away before dispatch, or the connection was refused.
  * @param cause A rejection that is not a JSON-RPC error.
  * @returns Whether the daemon cannot have acted on the request.
  */
 function neverReachedDaemon(cause: unknown): boolean {
   if (SdkHttpError.isInstance(cause)) {
-    return cause.status < 500;
-  }
-  if (SdkError.isInstance(cause)) {
-    return cause.code === SdkErrorCode.NotConnected;
+    return PRE_DISPATCH_STATUSES.has(cause.status);
   }
   return (
     cause instanceof Error &&

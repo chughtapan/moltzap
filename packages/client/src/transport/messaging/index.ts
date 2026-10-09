@@ -306,15 +306,23 @@ function resumeFoldFailure(): EngineInitializationError {
 }
 
 /**
- * How long a local send's own drain may run. With `ROUTER_ATTACH_TIMEOUT` it
- * stays under the MCP SDK's `DEFAULT_REQUEST_TIMEOUT_MSEC`. A drain that fails
- * or outlasts it fails the send as `delivery-pending` whatever the cause,
- * since `prepareSend` has durably queued the post: a worker failure that ends
- * once the Router answers leaves the background drain to deliver it, and any
- * other stops the daemon, whose recovery resumes the post when it restarts.
+ * How long a local send's own drain may run before the send fails as
+ * `delivery-pending`. With `ROUTER_ATTACH_TIMEOUT` it stays under the MCP
+ * SDK's `DEFAULT_REQUEST_TIMEOUT_MSEC`.
  */
 const LOCAL_DRAIN_TIMEOUT = Duration.seconds(10);
 
+/**
+ * Bind, queue and certify one post. Once `prepareSend` returns, the post is
+ * durably queued, so a drain that fails or outlasts `LOCAL_DRAIN_TIMEOUT`
+ * fails the send as `delivery-pending` whatever the cause: a worker failure
+ * that ends once the Router answers leaves the background drain to deliver
+ * the post, and any other stops the daemon, whose recovery resumes the post
+ * when it restarts.
+ * @param runtime The engine that sends.
+ * @param input The post's address and content.
+ * @returns The post's id and certified record hash.
+ */
 const send = (
   runtime: EngineRuntime,
   input: EngineSendInput,
@@ -323,7 +331,7 @@ const send = (
     const prepared = yield* prepareSend(runtime, input);
     yield* runtime.outbox.drain.pipe(
       Effect.timeout(LOCAL_DRAIN_TIMEOUT),
-      // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Every drain failure, the timeout included, leaves the post queued and still delivered, as LOCAL_DRAIN_TIMEOUT explains.
+      // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- Every drain failure, the timeout included, leaves the post queued and still delivered, as this function's JSDoc explains.
       Effect.mapError(() => new SendError({ reason: "delivery-pending" })),
     );
     const recordHash = yield* Deferred.await(prepared.completion);

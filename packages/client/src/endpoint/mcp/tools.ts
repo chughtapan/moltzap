@@ -27,6 +27,7 @@ import type { CollectiveError } from "../../transport/collectives/forms.js";
 import type { SendError } from "../../transport/messaging/errors.js";
 import {
   decodeHarnessReadSendRequest,
+  decodeHarnessSendResult,
   type DeliveryOperations,
   type EventStore,
   type HarnessAcknowledgeDeliveryRequest,
@@ -608,6 +609,14 @@ const decodeInvocationInput = <A>(
     signal,
   );
 
+/**
+ * Run one send call. A send that returns a result outside its output schema
+ * has already run, so that result is a defect, which `runSendOperation`
+ * answers as `outcome-unknown`.
+ * @param input The `send_message` arguments, metadata and abort signal.
+ * @param operations The daemon operations that run the send.
+ * @returns The send's validated tool result.
+ */
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
 const handleSendToolCall = async (
   input: ToolCallInput,
@@ -617,9 +626,16 @@ const handleSendToolCall = async (
     decodeHarnessSendCall(input.toolArguments, input.metadata),
     input.signal,
   );
+  const send = operations
+    .send(decoded)
+    .pipe(
+      Effect.flatMap((result) =>
+        decodeHarnessSendResult(result).pipe(Effect.orDie),
+      ),
+    );
   return await validateToolOutput(
     sendOutput,
-    await runSendOperation(operations.send(decoded), input.signal),
+    await runSendOperation(send, input.signal),
     input.name,
   );
 };

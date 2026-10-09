@@ -8,7 +8,7 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./endpoint/harness-endpoint/index.ts#L60)
+### [`acquireHarnessEndpoint`](./endpoint/harness-endpoint/index.ts#L58)
 
 _Function_
 

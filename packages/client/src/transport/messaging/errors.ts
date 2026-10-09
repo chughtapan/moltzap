@@ -45,7 +45,7 @@ export const sendFailureText: Readonly<Record<SendFailure, string>> = {
   "idempotency-conflict":
     "this send repeats an earlier send with different content",
   "outcome-unknown":
-    "the connection was lost; the message may or may not have been sent",
+    "the send did not complete; the message may or may not have been sent",
 };
 
 /**
