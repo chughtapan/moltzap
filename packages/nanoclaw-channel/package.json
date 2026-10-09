@@ -50,14 +50,14 @@
         ],
         "cache": false,
         "options": {
-          "command": "node scripts/test-nanoclaw-package.mjs"
+          "command": "node scripts/test-nanoclaw-package.ts"
         }
       },
       "arch:check": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/nanoclaw-channel",
-          "command": "node ../../scripts/architecture/check-package.mjs ."
+          "command": "node ../../scripts/architecture/check-package.ts ."
         }
       }
     }

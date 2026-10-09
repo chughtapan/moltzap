@@ -5,16 +5,9 @@
     "declaration": false,
     "declarationMap": false,
     "noEmit": true,
-    "incremental": true,
-    "rootDir": "../..",
-    "tsBuildInfoFile": "./tsconfig.test.tsbuildinfo"
+    "rootDir": "../.."
   },
   "include": [
-    "src/**/*.ts",
-    "scripts/**/*.ts",
     "*.ts"
-  ],
-  "exclude": [
-    "dist"
   ]
 }

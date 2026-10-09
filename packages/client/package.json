@@ -43,7 +43,7 @@
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/client",
-          "command": "node scripts/clean-dist.mjs && tsc -b"
+          "command": "node ../../scripts/build/clean-dist.ts && tsc -b"
         }
       },
       "lint": {
@@ -72,7 +72,7 @@
         ],
         "options": {
           "cwd": "packages/client",
-          "command": "tsc -p tsconfig.integration.json && vitest run --config vitest.integration.config.mjs"
+          "command": "tsc -p tsconfig.integration.json && vitest run --config vitest.integration.config.ts"
         }
       },
       "test:pack": {
@@ -83,14 +83,14 @@
         ],
         "cache": false,
         "options": {
-          "command": "node scripts/test-client-package.mjs"
+          "command": "node scripts/test-client-package.ts"
         }
       },
       "arch:check": {
         "executor": "nx:run-commands",
         "options": {
           "cwd": "packages/client",
-          "command": "node ../../scripts/architecture/check-package.mjs ."
+          "command": "node ../../scripts/architecture/check-package.ts ."
         }
       }
     }
