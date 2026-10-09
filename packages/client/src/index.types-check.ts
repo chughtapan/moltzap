@@ -212,6 +212,7 @@ type SendReasonsAreExact = Expect<
     | "certification-unavailable"
     | "persistence-failed"
     | "network-unavailable"
+    | "delivery-pending"
     | "idempotency-conflict"
     | "outcome-unknown"
   >

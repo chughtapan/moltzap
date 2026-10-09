@@ -174,14 +174,18 @@ function extractOutboundText(message: MoltZapOutboundMessage): string | null {
 }
 
 /**
- * Send failures no retry can fix: the address or content itself is wrong.
- * The model hears of these; any other failure stays with NanoClaw's retry.
+ * Send failures NanoClaw's retry must not repeat. The model hears of these;
+ * any other failure stays with that retry. An invalid address or content
+ * fails the same way again. A `delivery-pending` post is already queued and
+ * still delivered, and the retry is a new keyless send, so it would send the
+ * message twice.
  */
 const FINAL_REFUSALS: ReadonlySet<SendError["reason"]> = new Set([
   "invalid-address",
   "unknown-agent",
   "membership-invalid",
   "content-invalid",
+  "delivery-pending",
 ]);
 
 function isFinalRefusal(error: unknown): error is SendError {
@@ -418,8 +422,8 @@ class MoltZapChannelAdapter {
   /**
    * Hand a refused send back to the model as a MoltZap message in the
    * conversation it was sent to. `send_message` has already returned, so this
-   * is how the model learns of it; the row completes, since NanoClaw retrying
-   * the same text would fail the same way.
+   * is how the model learns of it; the row completes rather than reaching
+   * NanoClaw's retry, for the reasons `FINAL_REFUSALS` gives.
    * @param to The conversation the text was sent to.
    * @param report The refusal's text.
    * @returns Completion after the host callback completed.

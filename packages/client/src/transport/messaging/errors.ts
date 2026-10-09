@@ -13,6 +13,7 @@ export const sendFailureReasons = [
   "certification-unavailable",
   "persistence-failed",
   "network-unavailable",
+  "delivery-pending",
   "idempotency-conflict",
   "outcome-unknown",
 ] as const;
@@ -23,8 +24,9 @@ export type SendFailure = (typeof sendFailureReasons)[number];
 /**
  * What each failure means, in words a model reads as a tool error. The text
  * states only the cause. A failed send was not sent, except `outcome-unknown`,
- * where the message may have gone out, and a send that failed after queueing
- * its post, whose `queuedNetworkFailure` detail says the post is queued.
+ * where the message may have gone out, and `delivery-pending`: that send lost
+ * the Router after durably queueing its post, and the daemon delivers the post
+ * once the Router is reachable, so a resend posts the message twice.
  */
 export const sendFailureText: Readonly<Record<SendFailure, string>> = {
   "invalid-address": "the address is not a valid agent: or group: address",
@@ -38,6 +40,8 @@ export const sendFailureText: Readonly<Record<SendFailure, string>> = {
   "persistence-failed":
     "MoltZap is unavailable (the message could not be stored)",
   "network-unavailable": "MoltZap is unavailable (network unavailable)",
+  "delivery-pending":
+    "MoltZap is unavailable (network unavailable); the message is queued and will be delivered once MoltZap is reachable",
   "idempotency-conflict":
     "this send repeats an earlier send with different content",
   "outcome-unknown":
@@ -56,20 +60,6 @@ export class SendError extends Data.TaggedError("SendError")<{
   override get message(): string {
     return `send failed: ${this.detail ?? sendFailureText[this.reason]}`;
   }
-}
-
-/**
- * The failure of a send that lost the Router after durably queueing its post.
- * The daemon delivers the post once the Router is reachable, so a host that
- * resends creates a second post; the detail says the post is queued.
- * @returns A `network-unavailable` failure whose detail says so.
- */
-export function queuedNetworkFailure(): SendError {
-  return new SendError({
-    reason: "network-unavailable",
-    detail:
-      "MoltZap is unavailable (network unavailable); the message is queued and will be delivered once MoltZap is reachable",
-  });
 }
 
 type ListenFailure =

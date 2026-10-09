@@ -436,6 +436,24 @@ const carriesARefusalDetailAcrossTheDaemonBoundary = () =>
     ),
   );
 
+const carriesDeliveryPendingAcrossTheDaemonBoundary = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const pending = new SendError({ reason: "delivery-pending" });
+        const endpoint = yield* acquireSendEndpoint({
+          ...operations,
+          protocolActive: () => true,
+          send: () => Effect.fail(pending),
+        });
+
+        const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
+
+        expect(error).toStrictEqual(pending);
+      }),
+    ),
+  );
+
 function acquireSendEndpoint(
   selected: Pick<HarnessMcpOperations, "protocolActive" | "send" | "readSend">,
 ) {
@@ -745,6 +763,10 @@ describe("Harness MCP HTTP boundary", () => {
   it(
     "carries a refusal's detail across the daemon boundary",
     carriesARefusalDetailAcrossTheDaemonBoundary,
+  );
+  it(
+    "carries delivery-pending across the daemon boundary",
+    carriesDeliveryPendingAcrossTheDaemonBoundary,
   );
   it(
     "reads an acknowledged event through the SDK without redelivery",

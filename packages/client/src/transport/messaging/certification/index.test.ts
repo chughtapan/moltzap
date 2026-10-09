@@ -84,7 +84,7 @@ import {
   verifyMembershipDescriptor,
 } from "../../wire/index.js";
 import { MessageAddressInput } from "../../wire/values.js";
-import { queuedNetworkFailure, SendError } from "../errors.js";
+import { SendError } from "../errors.js";
 import { readStoredRecord } from "../history/index.js";
 import {
   type EndpointEngine,
@@ -2220,8 +2220,8 @@ function sendHeldUntilAttached(): Effect.Effect<void, never, Scope.Scope> {
 }
 
 /**
- * A send whose worker never attaches queues nothing, so it fails with the
- * plain `network-unavailable` rather than the queued one.
+ * A send whose worker never attaches queues nothing, so it fails with
+ * `network-unavailable` rather than `delivery-pending`.
  */
 function sendFailsAfterAttachBound(): Effect.Effect<void, never, Scope.Scope> {
   return Effect.gen(function* () {
@@ -2419,7 +2419,9 @@ function transientTransmitFailureLeavesOutboundLoopAlive(
     const sendResult = yield* author
       .send(yield* sendInput(harness, "router restarts mid-drain"))
       .pipe(Effect.flip, Effect.orDie);
-    expect(sendResult).toStrictEqual(queuedNetworkFailure());
+    expect(sendResult).toStrictEqual(
+      new SendError({ reason: "delivery-pending" }),
+    );
     yield* advanceClock(OUTAGE_SPAN);
     yield* expectDrainedAlive(harness, attempts, fatal);
   });
@@ -2507,15 +2509,15 @@ function blackHolesFirstTransmit(
 }
 
 /**
- * The local send's drain bound, after which it fails as queued, mirroring the
- * private `index.ts → LOCAL_DRAIN_TIMEOUT`.
+ * The local send's drain bound, after which it fails as `delivery-pending`,
+ * mirroring the private `index.ts → LOCAL_DRAIN_TIMEOUT`.
  */
 const DRAIN_BOUND = Duration.seconds(10);
 
 /**
  * A black-holed transmit holds the local send's drain: the send is still
- * pending one second short of `DRAIN_BOUND` and fails as queued one second
- * past it. The background drain then delivers the envelope the interrupted
+ * pending one second short of `DRAIN_BOUND` and fails as `delivery-pending`
+ * one second past it. The background drain then delivers the envelope the interrupted
  * transmit left begun, exactly once however often the queue drains
  * afterwards.
  */
@@ -2543,7 +2545,7 @@ function blackHoledTransmitBoundsTheSend(): Effect.Effect<
     yield* advanceClock(Duration.seconds(2));
     expect(
       yield* Fiber.join(sending).pipe(Effect.flip, Effect.orDie),
-    ).toStrictEqual(queuedNetworkFailure());
+    ).toStrictEqual(new SendError({ reason: "delivery-pending" }));
     yield* superviseOutbound(author, fatal);
     yield* advanceClock(Duration.seconds(1));
     yield* author.drainOutbound.pipe(Effect.orDie);
@@ -2694,7 +2696,7 @@ function detachesOnFirstTransmit(
 
 /**
  * What a host sees when the Router drops during its send: the send fails
- * promptly with a `network-unavailable` whose text says the post is queued,
+ * promptly with `delivery-pending`, whose text says the post is queued,
  * the outbound loop stays up, and the durably queued envelope goes out and
  * certifies once the worker re-anchors.
  */
@@ -2710,7 +2712,9 @@ function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
     const failure = yield* author
       .send(yield* sendInput(harness, "sent during outage"))
       .pipe(Effect.flip, Effect.orDie);
-    expect(failure).toStrictEqual(queuedNetworkFailure());
+    expect(failure).toStrictEqual(
+      new SendError({ reason: "delivery-pending" }),
+    );
     yield* advanceClock(OUTAGE_SPAN);
     expect(yield* Queue.size(harness.outbound)).toBe(0);
     expect(yield* Deferred.poll(fatal)).toEqual(Option.none());
@@ -3013,8 +3017,9 @@ function persistenceFailureEndsTheOutboundLoop(): Effect.Effect<
 /**
  * The author's worker fails every transmit because its recovery failed, which
  * stops the outbound loop. The send's post is queued, but no loop delivers
- * it, so the send fails with the plain `network-unavailable` rather than the
- * queued one. Fails when a fatal worker failure says the post is on its way.
+ * it, so the send fails with `network-unavailable` rather than
+ * `delivery-pending`. Fails when a fatal worker failure says the post is on
+ * its way.
  * @returns The scenario, before its scope closes.
  */
 function failedRecoveryFailsASendAsUnqueued(): Effect.Effect<
@@ -3059,7 +3064,7 @@ describe("engine faults while staging and sending", () => {
     TEST_TIMEOUT_MS,
   );
   it(
-    "fails a send without the queued text when the worker's recovery failed",
+    "fails a send as network-unavailable when the worker's recovery failed",
     () => Effect.runPromise(onTestClock(failedRecoveryFailsASendAsUnqueued())),
     TEST_TIMEOUT_MS,
   );

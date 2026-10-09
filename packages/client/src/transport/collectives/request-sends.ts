@@ -16,8 +16,8 @@ import type { EngineSentPost } from "../messaging/index.js";
 import type { AgentAddress } from "../wire/values.js";
 
 /**
- * A member whose request post was refused, and why: the send's reason and,
- * when it has one, its detail, which says when the post is still queued.
+ * A member whose request post was refused, and why: the send's reason, which
+ * is `delivery-pending` when the post is still queued, and any detail.
  */
 export type RequestRefusal = Readonly<{
   member: AgentAddress;
@@ -27,7 +27,7 @@ export type RequestRefusal = Readonly<{
 
 /**
  * The refusal of a member whose post failed with `error`. A post can fail
- * after it was queued, and then the detail says it will still be delivered.
+ * after it was queued, as `delivery-pending`, and is still delivered.
  * @param member The member the post was for.
  * @param error The post's send failure.
  * @returns The member with the failure's reason and any detail.

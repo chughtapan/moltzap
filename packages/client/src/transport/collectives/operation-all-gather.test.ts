@@ -34,7 +34,7 @@ import {
   slotSchema,
   unkeptEmit,
 } from "../../__tests__/collective-operation-fixtures.js";
-import { queuedNetworkFailure, SendError } from "../messaging/errors.js";
+import { SendError } from "../messaging/errors.js";
 import { InboundMessage } from "../messaging/message.js";
 import { CollectiveEmitError } from "./forms.js";
 import { collectiveIdOf } from "./part/index.js";
@@ -225,7 +225,8 @@ function saysEveryMemberIsStillSentAQueuedGroupPost() {
   return run(
     Effect.gen(function* () {
       const layer = yield* makeLayer(newObserved(), {
-        sendPost: () => Effect.fail(queuedNetworkFailure()),
+        sendPost: () =>
+          Effect.fail(new SendError({ reason: "delivery-pending" })),
       });
       const refusal = yield* Effect.flip(send(layer, allGatherInput()));
 
@@ -533,7 +534,7 @@ function saysAQueuedCloseWillStillReachTheGroup() {
         sendPost: (input) =>
           observed.sent.length === 0
             ? certifyNext(observed, input)
-            : Effect.fail(queuedNetworkFailure()),
+            : Effect.fail(new SendError({ reason: "delivery-pending" })),
       });
       const id = yield* startAllGather(layer);
       yield* TestClock.adjust(Duration.seconds(60));

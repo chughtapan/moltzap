@@ -18,7 +18,6 @@ import {
   SendError,
   type SendInput,
 } from "../src/index.js";
-import { queuedNetworkFailure } from "../src/transport/messaging/errors.js";
 import {
   acquireDaemonManagementClient,
   acquireDaemonProcess,
@@ -78,26 +77,22 @@ function nextDelivery<E>(stream: Stream.Stream<InboundDelivery, E>) {
 
 /**
  * Sends one post from `endpoint` after a daemon restart. A send whose own
- * outbox drain outlasts its bound or loses the Router fails with the queued
- * `network-unavailable`, whose detail says the post is durably queued, and
- * the daemon delivers it once its Router worker answers. Under load that
- * happens while the restarted daemon and its peer exchange recovery traffic,
- * so the trace takes that failure as queued and confirms the post by the
- * peer's delivery. Any other failure, the plain `network-unavailable` of a
- * send that queued nothing included, fails the trace.
+ * outbox drain outlasts its bound or loses the Router fails with
+ * `delivery-pending`: the post is durably queued, and the daemon delivers it
+ * once its Router worker answers. Under load that happens while the restarted
+ * daemon and its peer exchange recovery traffic, so the trace takes that
+ * failure as queued and confirms the post by the peer's delivery. Any other
+ * failure, `network-unavailable` included, fails the trace.
  * @param endpoint Endpoint that sends.
  * @param input The post.
  * @returns Completion once the post is certified or queued.
  */
 function sendOrQueue(endpoint: HarnessEndpoint, input: SendInput) {
-  const queued = queuedNetworkFailure();
   return endpoint.send(input).pipe(
     Effect.asVoid,
     Effect.catchIf(
       (error) =>
-        error instanceof SendError &&
-        error.reason === queued.reason &&
-        error.detail === queued.detail,
+        error instanceof SendError && error.reason === "delivery-pending",
       () => Effect.void,
     ),
   );

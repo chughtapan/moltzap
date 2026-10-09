@@ -39,7 +39,10 @@ through re-exports. Publication does not change this package boundary.
   Client operation, decoded from the `messages_out` content's text; do not pass `messages_out.id` or
   add adapter deduplication. `send_message` has returned before the adapter
   sends, so a gather, all_gather or response reports a refusal as an `operationFailed`
-  item and its delivery completes; a multicast's refusal fails the delivery.
+  item and its delivery completes. A multicast refused for its address or
+  content, or one that fails as `delivery-pending`, reaches the model and its
+  delivery completes, since a keyless retry would fail again or send the
+  message twice; any other multicast refusal fails the delivery.
   Project metadata before content, route through the bootstrap-owned main
   session with NanoClaw's native reply override, and await the host callback
   before acknowledging Client delivery. Do not add `accepted`/`pending`

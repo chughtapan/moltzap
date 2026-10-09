@@ -36,12 +36,7 @@ import {
   resumeDisseminationObligations,
   resumeEngineFolds,
 } from "./certification/index.js";
-import {
-  DeliveryAcknowledgeError,
-  ListenError,
-  queuedNetworkFailure,
-  SendError,
-} from "./errors.js";
+import { DeliveryAcknowledgeError, ListenError, SendError } from "./errors.js";
 import { InboundMessage } from "./message.js";
 import { makeOutbox } from "./outbox.js";
 import {
@@ -195,6 +190,7 @@ const resumeDispositionBySendReason = {
   "invalid-address": "fail-representation",
   "membership-invalid": "fail-representation",
   "network-unavailable": "ignore",
+  "delivery-pending": "ignore",
   "not-registered": "fail-representation",
   "persistence-failed": "fail-persistence",
   "unknown-agent": "fail-representation",
@@ -230,14 +226,14 @@ const outboundFailure = (error: RouterWorkerSendError): EngineOutboundError => {
 /**
  * The failure of a send whose own drain failed. The send's post is already
  * durably queued then: a worker failure that ends once the Router answers
- * fails it as queued, since the outbound loop delivers it then; any other
- * stops that loop, so the post is not said to be on its way.
+ * fails it as `delivery-pending`, since the outbound loop delivers it then;
+ * any other stops that loop, so the post is not said to be on its way.
  * @param error Why the drain failed.
  * @returns The send's closed failure.
  */
 function outboundSendFailure(error: RouterWorkerSendError): SendError {
   if (isTransientRouterWorkerError(error)) {
-    return queuedNetworkFailure();
+    return new SendError({ reason: "delivery-pending" });
   }
   const failure = outboundFailure(error);
   switch (failure.reason) {
@@ -340,8 +336,8 @@ function resumeFoldFailure(): EngineInitializationError {
 }
 
 /**
- * How long a local send's own drain may run before the send fails with
- * `queuedNetworkFailure`. With `ROUTER_ATTACH_TIMEOUT` it stays under the MCP
+ * How long a local send's own drain may run before the send fails as
+ * `delivery-pending`. With `ROUTER_ATTACH_TIMEOUT` it stays under the MCP
  * SDK's `DEFAULT_REQUEST_TIMEOUT_MSEC`. The envelope stays queued, so the
  * background drain still delivers it once the Router answers.
  */
@@ -357,7 +353,7 @@ const send = (
       Effect.mapError((error) => outboundSendFailure(error)),
       Effect.timeoutFail({
         duration: LOCAL_DRAIN_TIMEOUT,
-        onTimeout: queuedNetworkFailure,
+        onTimeout: () => new SendError({ reason: "delivery-pending" }),
       }),
     );
     const recordHash = yield* Deferred.await(prepared.completion);
