@@ -4,11 +4,12 @@ import { it as effectIt } from "@effect/vitest";
 import { Effect, Either, Schema } from "effect";
 import * as fc from "fast-check";
 import { generateKeyPairSync, sign as signWithPrivateKey } from "node:crypto";
-import { describe, expect } from "vitest";
+import { describe, expect, onTestFinished, vi } from "vitest";
 import {
   Ed25519PublicKey,
   ed25519PublicKeyThumbprintUri,
   hasCanonicalEd25519SignatureEncoding,
+  PUBLIC_KEY_CACHE_ENTRIES,
 } from "../agent-key.js";
 
 const it = effectIt;
@@ -119,6 +120,58 @@ describe("Ed25519PublicKey thumbprints", () => {
         validPublicKey,
       );
     }),
+  );
+});
+
+/**
+ * A distinct accepted key for each index below 65,536: the index fills the
+ * first two bytes, and the 0x11 fill keeps the encoding canonical and away
+ * from every small-order point.
+ */
+const indexedPublicKey = (index: number) => {
+  const bytes = new Uint8Array(32).fill(0x11);
+  bytes[0] = index % 256;
+  bytes[1] = Math.floor(index / 256);
+  return Schema.decodeUnknownSync(Ed25519PublicKey)({
+    crv: "Ed25519",
+    kty: "OKP",
+    x: Buffer.from(bytes).toString("base64url"),
+  });
+};
+
+describe("Ed25519PublicKey thumbprint cache", () => {
+  /**
+   * A thumbprint costs one SHA-256 digest when it is derived and none when it
+   * is served from the cache, so the digest count shows which keys the cache
+   * still holds. Filling the cache takes 1,025 digests, about 1.3 s at a load
+   * average of 22 to 26 on 8 cores, so a 20 s bound replaces the 5 s default.
+   */
+  it.effect(
+    "derives a key again once as many newer keys as the cache holds displace it",
+    () =>
+      Effect.gen(function* () {
+        const oldest = indexedPublicKey(0);
+        yield* ed25519PublicKeyThumbprintUri(oldest);
+        yield* Effect.forEach(
+          Array.from({ length: PUBLIC_KEY_CACHE_ENTRIES }, (_, index) =>
+            indexedPublicKey(index + 1),
+          ),
+          (publicKey) => ed25519PublicKeyThumbprintUri(publicKey),
+          { concurrency: "unbounded", discard: true },
+        );
+        const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
+        onTestFinished(() => {
+          digest.mockRestore();
+        });
+
+        yield* ed25519PublicKeyThumbprintUri(
+          indexedPublicKey(PUBLIC_KEY_CACHE_ENTRIES),
+        );
+        expect(digest).not.toHaveBeenCalled();
+        yield* ed25519PublicKeyThumbprintUri(oldest);
+        expect(digest).toHaveBeenCalledTimes(1);
+      }),
+    20_000,
   );
 });
 

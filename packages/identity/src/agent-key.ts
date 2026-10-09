@@ -244,11 +244,88 @@ export type Ed25519PublicKey = typeof Ed25519PublicKey.Type;
 
 /**
  * Reports failure to derive the standard thumbprint URI or the X25519 key for
- * a validated key.
+ * a validated key, or to import it.
  */
 export class Ed25519PublicKeyOperationError extends Data.TaggedError(
   "Ed25519PublicKeyOperationError",
 ) {}
+
+const publicKeyOperationFailure = (): Ed25519PublicKeyOperationError =>
+  new Ed25519PublicKeyOperationError();
+
+/**
+ * Most keys that each per-key cache below keeps. A conversation names at most
+ * 128 members, so the bound holds the keys of eight full conversations, and
+ * each entry is one short string or one imported public `CryptoKey`.
+ */
+export const PUBLIC_KEY_CACHE_ENTRIES = 1_024;
+
+/**
+ * Stores `value` as the most recently used entry and drops the least recently
+ * used entry past `PUBLIC_KEY_CACHE_ENTRIES`. A `Map` iterates in insertion
+ * order, so re-inserting an entry moves it to the end and the first key is the
+ * least recently used.
+ */
+const retain = <A>(
+  entries: Map<string, A>,
+  canonicalJwk: string,
+  value: A,
+): void => {
+  entries.delete(canonicalJwk);
+  entries.set(canonicalJwk, value);
+  if (entries.size > PUBLIC_KEY_CACHE_ENTRIES) {
+    const oldest = entries.keys().next();
+    if (oldest.done !== true) {
+      entries.delete(oldest.value);
+    }
+  }
+};
+
+/**
+ * Derives a value from a public key alone, once per key while the key stays in
+ * `entries`.
+ *
+ * The cache is an LRU `Map` bounded by `PUBLIC_KEY_CACHE_ENTRIES` and keyed by
+ * the RFC 7638 canonical JWK, the exact string the thumbprint hashes, so two
+ * keys share an entry only when they are the same key. It is not a `WeakMap`
+ * on the key object, because every AgentCard decode makes a new key object and
+ * such a cache would miss for each card read from storage or the wire. The
+ * derivation reads the snapshot that forms the cache key, so a value is stored
+ * only under the key it came from. A failed derivation is not kept. The caches
+ * hold key material and never a verification outcome, so every signature, card
+ * and body is still checked.
+ *
+ * @param entries The cache of one derivation.
+ * @param publicKey Validated public key.
+ * @param derive Derivation from the key's members.
+ * @returns The cached or newly derived value.
+ */
+const cachedPerPublicKey = <A>(
+  entries: Map<string, A>,
+  publicKey: PublicKeyValue,
+  derive: (
+    jwk: PublicKeyValue,
+  ) => Effect.Effect<A, Ed25519PublicKeyOperationError>,
+): Effect.Effect<A, Ed25519PublicKeyOperationError> =>
+  Effect.suspend(() => {
+    const jwk: PublicKeyValue = Object.freeze({
+      crv: publicKey.crv,
+      kty: publicKey.kty,
+      x: publicKey.x,
+    });
+    const canonicalJwk = JSON.stringify(jwk);
+    const cached = entries.get(canonicalJwk);
+    const value = cached === undefined ? derive(jwk) : Effect.succeed(cached);
+    return value.pipe(
+      Effect.tap((derived) =>
+        Effect.sync(() => {
+          retain(entries, canonicalJwk, derived);
+        }),
+      ),
+    );
+  });
+
+const thumbprintUris = new Map<string, string>();
 
 /**
  * Derives the RFC JWK thumbprint URI for a validated Ed25519 public key.
@@ -261,18 +338,41 @@ export class Ed25519PublicKeyOperationError extends Data.TaggedError(
 export const ed25519PublicKeyThumbprintUri = (
   publicKey: Ed25519PublicKey,
 ): Effect.Effect<string, Ed25519PublicKeyOperationError> =>
+  cachedPerPublicKey(thumbprintUris, publicKey, (jwk) =>
+    Effect.tryPromise({
+      try: () => calculateJwkThumbprintUri(jwk, "sha256"),
+      catch: publicKeyOperationFailure,
+    }),
+  );
+
+const importPublicJwk = (
+  jwk: JWK,
+  algorithm: string,
+): Effect.Effect<CryptoKey, Ed25519PublicKeyOperationError> =>
   Effect.tryPromise({
-    try: () =>
-      calculateJwkThumbprintUri(
-        {
-          crv: publicKey.crv,
-          kty: publicKey.kty,
-          x: publicKey.x,
-        },
-        "sha256",
-      ),
-    catch: () => new Ed25519PublicKeyOperationError(),
-  });
+    try: () => importJWK(jwk, algorithm),
+    catch: publicKeyOperationFailure,
+  }).pipe(
+    Effect.filterOrFail(
+      (key): key is CryptoKey => !(key instanceof Uint8Array),
+      publicKeyOperationFailure,
+    ),
+  );
+
+const verificationKeys = new Map<string, CryptoKey>();
+
+/**
+ * Imports a validated Ed25519 public key for signature verification.
+ *
+ * @param publicKey Validated public key, such as an AgentCard key.
+ * @returns The imported Ed25519 verification key.
+ */
+export const ed25519VerificationKey = (
+  publicKey: Ed25519PublicKey,
+): Effect.Effect<CryptoKey, Ed25519PublicKeyOperationError> =>
+  cachedPerPublicKey(verificationKeys, publicKey, (jwk) =>
+    importPublicJwk(jwk, "Ed25519"),
+  );
 
 /** JWE key management of sealed bodies; the opening key is imported for it. */
 export const SEALED_BODY_KEY_MANAGEMENT_ALGORITHM = "ECDH-ES+A256KW";
@@ -296,7 +396,7 @@ export interface X25519PublicJwk {
  * @returns The X25519 public JWK.
  */
 export const x25519PublicJwk = (
-  publicKey: Ed25519PublicKey,
+  publicKey: PublicKeyValue,
 ): Either.Either<X25519PublicJwk, Ed25519PublicKeyOperationError> =>
   Either.try({
     try: (): X25519PublicJwk => ({
@@ -308,8 +408,26 @@ export const x25519PublicJwk = (
         ),
       ),
     }),
-    catch: () => new Ed25519PublicKeyOperationError(),
+    catch: publicKeyOperationFailure,
   });
+
+const sealingKeys = new Map<string, CryptoKey>();
+
+/**
+ * Imports the X25519 key that `x25519PublicJwk` maps a validated Ed25519
+ * public key to: the key a body is sealed to for that key's agent.
+ *
+ * @param publicKey Validated Ed25519 public key, such as an AgentCard key.
+ * @returns The imported X25519 public key.
+ */
+export const x25519SealingKey = (
+  publicKey: Ed25519PublicKey,
+): Effect.Effect<CryptoKey, Ed25519PublicKeyOperationError> =>
+  cachedPerPublicKey(sealingKeys, publicKey, (jwk) =>
+    Effect.flatMap(x25519PublicJwk(jwk), (agreementKey) =>
+      importPublicJwk(agreementKey, SEALED_BODY_KEY_MANAGEMENT_ALGORITHM),
+    ),
+  );
 
 declare const agentSigningAuthorityBrand: unique symbol;
 
