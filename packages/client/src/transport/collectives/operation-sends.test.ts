@@ -28,8 +28,7 @@ import { SendError } from "../messaging/errors.js";
 import { collectiveIdOf } from "./part/index.js";
 
 /** What a send that failed after queueing its post says about it. */
-const queuedText =
-  "MoltZap is unavailable; the message is queued and will be delivered once MoltZap is reachable";
+const queuedText = "the message is pending and MoltZap will still deliver it";
 
 function certifiesAMulticastAsItsTextAndAnExplicitMulticastPart() {
   const observed = newObserved();

@@ -290,8 +290,9 @@ receives the request after its deadline, within that hour, keeps it without
 presenting it, so it still applies the close and emits the result.
 
 When a gather or all_gather request post, or an all_gather close, fails as
-`delivery-pending`, the operation reports that post refused or uncertified as
-stated above, yet the daemon still delivers the post later
+`delivery-pending` or `outcome-unknown`, the operation reports that post
+refused or uncertified as stated above, yet the daemon may still deliver the
+post later
 ([moltzap#1230](https://github.com/chughtapan/moltzap/issues/1230)).
 
 The operation travels in the post's content. Client certifies `text` as a
@@ -357,7 +358,9 @@ under [operations](#operations) and returns its `operationId`.
 A host whose tool returns before the send runs passes
 `failureDelivery: "inbound"`. A refused gather, all_gather or response then completes,
 naming its operation, and its error arrives as an `operationFailed` item with
-the same text. A multicast has no operation id, so its failure is always
+the same text. An item the daemon cannot keep stops it on the storage failure
+and never replaces a send's own outcome: the refusal, or the posts that exist,
+stays the outcome. A multicast has no operation id, so its failure is always
 returned.
 
 Registration and daemon restart both admit sends before the daemon's Router
@@ -450,12 +453,15 @@ step knows it and states no remedy. A failed send was not sent, except
 create a second post:
 
 - `outcome-unknown` says the message may have been sent. The send ended
-  without a typed failure, interrupted or by a defect, or the host's request
-  failed or timed out after it may have reached the daemon. A request the
-  daemon cannot have acted on, such as one whose connection was refused,
+  without a typed failure, interrupted or by a defect, the store failed while
+  binding the post's intent in a way that can follow its commit, or the host's
+  request failed or timed out after it may have reached the daemon. A request
+  the daemon cannot have acted on, such as one whose connection was refused,
   fails as `network-unavailable`.
-- `delivery-pending` says the message is queued. The send durably queued its
-  post and its drain then timed out or failed. The daemon delivers the post
+- `delivery-pending` says the message will still be sent. The send durably
+  bound its post's intent, and a later step failed or timed out: queueing its
+  proposal, or its drain. The daemon proposes a bound intent again when the
+  conversation's head moves or after a restart, and delivers a queued post
   once the Router answers or, when that failure stopped the daemon, once it
   restarts and resumes the post.
 

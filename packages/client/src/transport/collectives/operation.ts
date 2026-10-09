@@ -96,7 +96,6 @@ import {
 } from "../wire/index.js";
 import {
   type CollectiveSendOutcome,
-  emitFailureAsSendError,
   refusedAs,
   type RefusedSend,
   reportFailure,
@@ -221,7 +220,10 @@ export interface CollectivePorts {
   ) => Effect.Effect<EngineSentPost, SendError>;
   /**
    * Queue an item the layer emits itself: a result or a failure. It fails
-   * when the item cannot be kept, which ends the work that emitted it.
+   * when the item cannot be kept, and only after it has reported the storage
+   * failure itself, as the daemon's port does by stopping the daemon. A
+   * caller may therefore discard the failure: classification ends its pass on
+   * it, and a send keeps its own outcome.
    */
   readonly emit: (
     item: InboundItem,
@@ -603,9 +605,9 @@ function sleepUntil(at: number): Effect.Effect<void> {
  * send keeps running and settles its member when it completes: certified
  * asks it, refused makes it `no-answer`, as does pending at the deadline.
  * The send fails only when every post was refused and the gather has not
- * completed, so an operation ends in exactly one refusal or one result, or
- * as persistence-failed when the result its settling completes cannot be
- * kept.
+ * completed, so an operation ends in exactly one refusal or one result.
+ * When the result that settling the gather emits cannot be kept, the send
+ * keeps its own outcome, the request posts that exist.
  */
 function sendRequests(
   state: CollectiveState,
@@ -642,7 +644,7 @@ function sendRequests(
         }),
       );
     }
-    yield* emitFailureAsSendError(
+    yield* Effect.ignore(
       updateGather(state, id, (settled) => {
         settled.requestsSettled = true;
       }),
@@ -835,7 +837,9 @@ function closeAllGather(
 /**
  * Answer the one request open in the conversation `to` names. The answer
  * carries no request id, so the conversation decides which request it
- * answers; with none open, or several, nothing is sent.
+ * answers; with none open, or several, nothing is sent. When the item that
+ * settling the answer emits cannot be kept, the answer keeps its own outcome,
+ * its post or its refusal.
  */
 function respond(
   state: CollectiveState,
@@ -855,19 +859,21 @@ function respond(
     yield* claimRequest(id, request).pipe(Effect.mapError(refused));
     const post = yield* state.ports.sendPost({ to: request.to, content }).pipe(
       Effect.tapBoth({
-        onFailure: () => settleAnswer(state, id, request, Option.none()),
+        onFailure: () =>
+          Effect.ignore(settleAnswer(state, id, request, Option.none())),
         onSuccess: (sent) =>
-          settleAnswer(
-            state,
-            id,
-            request,
-            Option.some({ recordHash: sent.recordHash, response: value }),
+          Effect.ignore(
+            settleAnswer(
+              state,
+              id,
+              request,
+              Option.some({ recordHash: sent.recordHash, response: value }),
+            ),
           ),
       }),
       Effect.onInterrupt(() =>
         Effect.ignore(settleAnswer(state, id, request, Option.none())),
       ),
-      emitFailureAsSendError,
       Effect.mapError(refused),
     );
     return { operationId: id, postIds: [post.postId] };

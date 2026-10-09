@@ -1,29 +1,17 @@
 /** @file How a collective send reports failure: a refused send, routed to its result or inbound, and an emitted item the service cannot keep. */
 
 import { Effect } from "effect";
+import type { SendError } from "../messaging/errors.js";
 import type { EngineSentPost } from "../messaging/index.js";
 import type { MessageAddressInput } from "../wire/values.js";
-import type { InboundItem } from "./inbound.js";
-import { SendError } from "../messaging/errors.js";
-import {
+import type {
   CollectiveEmitError,
-  type CollectiveError,
-  type CollectiveId,
-  type FailureDelivery,
-  type SendResult,
+  CollectiveError,
+  CollectiveId,
+  FailureDelivery,
+  SendResult,
 } from "./forms.js";
-
-/** Fail a send whose emitted item could not be kept as persistence-failed. */
-export function emitFailureAsSendError<A, E, R>(
-  effect: Effect.Effect<A, E | CollectiveEmitError, R>,
-): Effect.Effect<A, Exclude<E, CollectiveEmitError> | SendError, R> {
-  return Effect.catchIf(
-    effect,
-    (error): error is CollectiveEmitError =>
-      error instanceof CollectiveEmitError,
-    () => Effect.fail(new SendError({ reason: "persistence-failed" })),
-  );
-}
+import type { InboundItem } from "./inbound.js";
 
 /** One completed send: the posts certified by its return, and a collective id. */
 export interface CollectiveSendOutcome extends SendResult {
@@ -43,7 +31,8 @@ export interface RefusedSend<E> {
 /**
  * Deliver a refused collective send's error where the host wants it. With
  * `inbound` the send completes, naming the operation, and the error arrives
- * as an `operationFailed` item carrying the same text.
+ * as an `operationFailed` item carrying the same text. When that item cannot
+ * be kept, the send fails with the refusal itself, the outcome it had.
  */
 export function reportFailure(
   emit: (item: InboundItem) => Effect.Effect<void, CollectiveEmitError>,
@@ -65,8 +54,10 @@ export function reportFailure(
             to: refused.to,
             error: refused.error.message,
           }).pipe(
-            emitFailureAsSendError,
             Effect.as({ operationId: refused.id, postIds: [] }),
+            Effect.catchTag("CollectiveEmitError", () =>
+              Effect.fail(refused.error),
+            ),
           );
         default: {
           const exhaustive: never = failureDelivery;

@@ -5,7 +5,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { live as it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Schema, Scope } from "effect";
 import { describe, expect } from "vitest";
-import { openEndpointStore } from "../store/index.js";
+import { EndpointStoreError, openEndpointStore } from "../store/index.js";
 import { CollectiveId, SendInput } from "../transport/collectives/forms.js";
 import { SendError } from "../transport/messaging/errors.js";
 import { makeSendInvocations } from "./send-invocations.js";
@@ -295,6 +295,144 @@ const replaysARefusalWithItsDetail = () =>
     }),
   ).pipe(Effect.provide(NodeFileSystem.layer));
 
+/**
+ * A keyed send that posted, whose outcome the store cannot retain, still
+ * returns its result rather than a storage reason that says it was not sent.
+ * A later lookup of the key reads `outcome-unknown`, since nothing was
+ * retained.
+ */
+const returnsTheOwnOutcomeWhenItCannotBeRetained = () =>
+  withFileSystem(
+    Effect.gen(function* () {
+      const store = yield* temporaryDirectory.pipe(
+        Effect.flatMap(openEndpointStore),
+      );
+      const invocations = yield* makeSendInvocations(
+        {
+          ...store,
+          finishSendAttempt: () =>
+            Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+        },
+        () => Effect.succeed({ operationId }),
+        yield* Scope.Scope,
+      );
+
+      expect(yield* invocations.send(onceRequest)).toEqual({ operationId });
+      expect(
+        yield* invocations.send(onceRequest).pipe(Effect.flip),
+      ).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
+    }),
+  );
+
+/**
+ * A retained outcome the store cannot decode says nothing about whether the
+ * send posted, so its key replays as `outcome-unknown` and reads as
+ * `indeterminate`.
+ */
+const replaysAnUndecodableOutcomeAsUnknown = () =>
+  withFileSystem(
+    Effect.gen(function* () {
+      const store = yield* temporaryDirectory.pipe(
+        Effect.flatMap(openEndpointStore),
+      );
+      const scope = yield* Scope.Scope;
+      const first = yield* makeSendInvocations(
+        store,
+        () => Effect.succeed({ operationId }),
+        scope,
+      );
+      yield* first.send(onceRequest);
+      const corrupted = yield* makeSendInvocations(
+        {
+          ...store,
+          readSendAttempt: (key) =>
+            store
+              .readSendAttempt(key)
+              .pipe(
+                Effect.map((attempt) =>
+                  attempt === undefined
+                    ? attempt
+                    : { ...attempt, canonicalOutcome: Uint8Array.of(0xff) },
+                ),
+              ),
+        },
+        () => Effect.dieMessage("retained send executed again"),
+        scope,
+      );
+
+      expect(
+        yield* corrupted.send(onceRequest).pipe(Effect.flip),
+      ).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
+      expect(
+        yield* corrupted.readSend({ idempotencyKey: "once" }),
+      ).toStrictEqual({ state: "indeterminate", input });
+    }),
+  );
+
+/**
+ * A retried key whose earlier attempt the store cannot read may have posted,
+ * so the retry reports `outcome-unknown` rather than a storage reason that
+ * says it was not sent.
+ */
+const reportsAnUnreadableEarlierAttemptAsUnknown = () =>
+  withFileSystem(
+    Effect.gen(function* () {
+      const store = yield* temporaryDirectory.pipe(
+        Effect.flatMap(openEndpointStore),
+      );
+      const scope = yield* Scope.Scope;
+      const first = yield* makeSendInvocations(
+        store,
+        () => Effect.succeed({ operationId }),
+        scope,
+      );
+      yield* first.send(onceRequest);
+      const unreadable = yield* makeSendInvocations(
+        {
+          ...store,
+          readSendAttempt: () =>
+            Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+        },
+        () => Effect.dieMessage("retained send executed again"),
+        scope,
+      );
+
+      expect(
+        yield* unreadable.send(onceRequest).pipe(Effect.flip),
+      ).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
+    }),
+  );
+
+/**
+ * A reservation the store fails may have read an attempt the key already
+ * reserved, so it reports `outcome-unknown`; one it refuses before reading
+ * the key reserved nothing, so it reports `persistence-failed`.
+ */
+const classifiesAFailedReservation = (
+  reason: EndpointStoreError["reason"],
+  expected: SendError["reason"],
+) =>
+  withFileSystem(
+    Effect.gen(function* () {
+      const store = yield* temporaryDirectory.pipe(
+        Effect.flatMap(openEndpointStore),
+      );
+      const invocations = yield* makeSendInvocations(
+        {
+          ...store,
+          beginSendAttempt: () =>
+            Effect.fail(new EndpointStoreError({ reason })),
+        },
+        () => Effect.dieMessage("unreserved send executed"),
+        yield* Scope.Scope,
+      );
+
+      expect(
+        yield* invocations.send(onceRequest).pipe(Effect.flip),
+      ).toStrictEqual(new SendError({ reason: expected }));
+    }),
+  );
+
 // @agent-code-guard/regression-only: these crash and concurrency transcripts pin the invocation contract without asserting collective completion.
 describe("durable send invocations", () => {
   it(
@@ -326,4 +464,23 @@ describe("durable send invocations", () => {
     preservesUncertaintyAndFailure,
   );
   it("replays a refusal with its detail", replaysARefusalWithItsDetail);
+  it(
+    "returns a keyed send's own outcome when the store cannot retain it",
+    returnsTheOwnOutcomeWhenItCannotBeRetained,
+  );
+  it(
+    "replays an outcome the store cannot decode as outcome-unknown",
+    replaysAnUndecodableOutcomeAsUnknown,
+  );
+  it(
+    "reports a retried key whose earlier attempt cannot be read as outcome-unknown",
+    reportsAnUnreadableEarlierAttemptAsUnknown,
+  );
+  it.each([
+    { reason: "persistence", expected: "outcome-unknown" },
+    { reason: "invalid-input", expected: "persistence-failed" },
+  ] as const)(
+    "reports a reservation that meets a $reason store failure as $expected",
+    ({ reason, expected }) => classifiesAFailedReservation(reason, expected),
+  );
 });
