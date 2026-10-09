@@ -283,7 +283,9 @@ const retain = <A>(entries: Map<string, A>, x: string, value: A): void => {
  * `crv` and `kty` are fixed and `x` has one accepted spelling, so `x`
  * determines the RFC 7638 canonical JWK the thumbprint hashes, and two keys
  * share an entry only when they are the same key. Keying by value keeps a hit
- * for every AgentCard decode, each of which makes a new key object. A failed
+ * for every AgentCard decode, each of which makes a new key object. The entry
+ * and its derivation share one read of `x`, so an entry holds its own key's
+ * value even for an object whose members change between reads. A failed
  * derivation is not kept, and the caches hold key material, never a
  * verification outcome.
  */
@@ -291,17 +293,21 @@ const cachedPerPublicKey = <A>(
   entries: Map<string, A>,
   publicKey: Ed25519PublicKey,
   derive: (
-    publicKey: Ed25519PublicKey,
+    jwk: PublicKeyValue,
   ) => Effect.Effect<A, Ed25519PublicKeyOperationError>,
 ): Effect.Effect<A, Ed25519PublicKeyOperationError> =>
   Effect.suspend(() => {
-    const cached = entries.get(publicKey.x);
-    const value =
-      cached === undefined ? derive(publicKey) : Effect.succeed(cached);
+    const jwk: PublicKeyValue = Object.freeze({
+      crv: "Ed25519",
+      kty: "OKP",
+      x: publicKey.x,
+    });
+    const cached = entries.get(jwk.x);
+    const value = cached === undefined ? derive(jwk) : Effect.succeed(cached);
     return value.pipe(
       Effect.tap((derived) =>
         Effect.sync(() => {
-          retain(entries, publicKey.x, derived);
+          retain(entries, jwk.x, derived);
         }),
       ),
     );
@@ -320,15 +326,15 @@ const thumbprintUris = new Map<string, string>();
 export const ed25519PublicKeyThumbprintUri = (
   publicKey: Ed25519PublicKey,
 ): Effect.Effect<string, Ed25519PublicKeyOperationError> =>
-  cachedPerPublicKey(thumbprintUris, publicKey, (key) =>
+  cachedPerPublicKey(thumbprintUris, publicKey, (jwk) =>
     Effect.tryPromise({
-      try: () => calculateJwkThumbprintUri(key, "sha256"),
+      try: () => calculateJwkThumbprintUri(jwk, "sha256"),
       catch: publicKeyOperationFailure,
     }),
   );
 
 const importPublicJwk = (
-  jwk: Ed25519PublicKey | X25519PublicJwk,
+  jwk: PublicKeyValue | X25519PublicJwk,
   algorithm: string,
 ): Effect.Effect<CryptoKey, Ed25519PublicKeyOperationError> =>
   Effect.tryPromise({
@@ -342,8 +348,8 @@ const verificationKeys = new Map<string, CryptoKey>();
 export const ed25519VerificationKey = (
   publicKey: Ed25519PublicKey,
 ): Effect.Effect<CryptoKey, Ed25519PublicKeyOperationError> =>
-  cachedPerPublicKey(verificationKeys, publicKey, (key) =>
-    importPublicJwk(key, "Ed25519"),
+  cachedPerPublicKey(verificationKeys, publicKey, (jwk) =>
+    importPublicJwk(jwk, "Ed25519"),
   );
 
 /** JWE key management of sealed bodies; the opening key is imported for it. */
@@ -368,7 +374,7 @@ export interface X25519PublicJwk {
  * @returns The X25519 public JWK.
  */
 export const x25519PublicJwk = (
-  publicKey: Ed25519PublicKey,
+  publicKey: PublicKeyValue,
 ): Either.Either<X25519PublicJwk, Ed25519PublicKeyOperationError> =>
   Either.try({
     try: (): X25519PublicJwk => ({
@@ -389,8 +395,8 @@ const sealingKeys = new Map<string, CryptoKey>();
 export const x25519SealingKey = (
   publicKey: Ed25519PublicKey,
 ): Effect.Effect<CryptoKey, Ed25519PublicKeyOperationError> =>
-  cachedPerPublicKey(sealingKeys, publicKey, (key) =>
-    Effect.flatMap(x25519PublicJwk(key), (agreementKey) =>
+  cachedPerPublicKey(sealingKeys, publicKey, (jwk) =>
+    Effect.flatMap(x25519PublicJwk(jwk), (agreementKey) =>
       importPublicJwk(agreementKey, SEALED_BODY_KEY_MANAGEMENT_ALGORITHM),
     ),
   );

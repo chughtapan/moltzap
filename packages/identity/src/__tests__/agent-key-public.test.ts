@@ -3,7 +3,7 @@
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Either, Schema } from "effect";
 import * as fc from "fast-check";
-import { calculateJwkThumbprintUri } from "jose";
+import { calculateJwkThumbprintUri, exportJWK } from "jose";
 import { generateKeyPairSync, sign as signWithPrivateKey } from "node:crypto";
 import { describe, expect } from "vitest";
 import {
@@ -182,6 +182,35 @@ it.effect(
       ).toBe(newerImports[PUBLIC_KEY_CACHE_ENTRIES - 1]);
       expect(yield* ed25519VerificationKey(oldest)).not.toBe(oldestImport);
     }),
+);
+
+/**
+ * A caller that bypasses the Schema can pass an object whose `x` changes
+ * between reads. Here the first read names `stored` and the next names
+ * `other`; the cache must still store `stored`'s own import under `stored`.
+ */
+it.effect("stores each import under the key it was imported from", () =>
+  Effect.gen(function* () {
+    const stored = indexedPublicKey(4_000);
+    const other = indexedPublicKey(4_001);
+    const reads = [stored.x, other.x];
+    const shifting = Object.freeze({
+      crv: "Ed25519",
+      kty: "OKP",
+      get x() {
+        return reads.shift() ?? stored.x;
+      },
+    });
+    // eslint-disable-next-line agent-code-guard/require-assertion-rationale -- The getter object models a caller that bypasses the Ed25519PublicKey Schema.
+    yield* ed25519VerificationKey(shifting as unknown as Ed25519PublicKey);
+
+    const imported = yield* ed25519VerificationKey(stored);
+    const exported = yield* Effect.tryPromise({
+      try: () => exportJWK(imported),
+      catch: (cause) => new Error("export failed", { cause }),
+    });
+    expect(exported.x).toBe(stored.x);
+  }),
 );
 
 describe("Ed25519PublicKey representation", () => {
