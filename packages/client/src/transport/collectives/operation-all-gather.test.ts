@@ -45,8 +45,7 @@ const requestId = collectiveIdOf(alice, requestNonce);
 const otherId = `col_${"B".repeat(43)}`;
 
 /** What a send that failed after queueing its post says about it. */
-const queuedText =
-  "MoltZap is unavailable; the message is queued and will be delivered once MoltZap is reachable";
+const queuedText = "the message is pending and MoltZap will still deliver it";
 
 /**
  * An emit port that records each item and resolves `emitted` on the first,
@@ -728,9 +727,9 @@ function failsACloseWhoseMemberResultCannotBeKept() {
 
 /**
  * A member answer that releases a held close whose result cannot be kept
- * fails as persistence-failed.
+ * still returns its certified answer post, since that post exists.
  */
-function failsAnAnswerThatReleasesAnUnkeptClose() {
+function keepsAnAnswerThatReleasesAnUnkeptClose() {
   const observed = newObserved();
 
   return Effect.gen(function* () {
@@ -747,9 +746,10 @@ function failsAnAnswerThatReleasesAnUnkeptClose() {
     yield* classify(layer, "agent:alice", 14, close(requestId, [101]));
     yield* Deferred.succeed(certified, undefined);
 
-    expect(yield* Effect.flip(Fiber.join(answering))).toEqual(
-      new SendError({ reason: "persistence-failed" }),
-    );
+    const outcome = yield* Fiber.join(answering);
+
+    expect(outcome.operationId).toBe(requestId);
+    expect(outcome.postIds).toHaveLength(1);
   });
 }
 
@@ -1016,7 +1016,7 @@ describe("all_gather member results the service cannot keep", () => {
     failsACloseWhoseMemberResultCannotBeKept,
   );
   itOnTestClock(
-    "fails an answer that releases a close whose result cannot be kept",
-    failsAnAnswerThatReleasesAnUnkeptClose,
+    "keeps an answer's outcome when the close it releases cannot be kept",
+    keepsAnAnswerThatReleasesAnUnkeptClose,
   );
 });

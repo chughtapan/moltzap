@@ -1,6 +1,14 @@
 /** @file Durable reservation of whole send invocations without protocol replay. */
 
-import { Deferred, Effect, Schema, type Scope } from "effect";
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Exit,
+  Option,
+  Schema,
+  type Scope,
+} from "effect";
 import {
   decodeRuntimeValue,
   encodeRuntimeValue,
@@ -53,7 +61,7 @@ const decodeStoredOutcome = (bytes: Uint8Array) =>
 const storedError = (value: unknown): Effect.Effect<never, SendFailure> =>
   decodeHarnessSendErrorData(value).pipe(
     Effect.catchTag("ParseError", () =>
-      Effect.fail(new SendError({ reason: "persistence-failed" })),
+      Effect.fail(new SendError({ reason: "outcome-unknown" })),
     ),
     Effect.flatMap(
       (error): Effect.Effect<never, SendFailure> =>
@@ -70,12 +78,18 @@ const storedError = (value: unknown): Effect.Effect<never, SendFailure> =>
     ),
   );
 
+/**
+ * Replay a retained outcome. One the store cannot decode says nothing about
+ * whether the send posted, so it replays as `outcome-unknown`.
+ * @param bytes The retained canonical outcome.
+ * @returns The send's result or failure.
+ */
 const replayOutcome = (
   bytes: Uint8Array,
 ): Effect.Effect<SendResult, SendFailure> =>
   decodeStoredOutcome(bytes).pipe(
     Effect.catchTag("EndpointStoreError", () =>
-      Effect.fail(new SendError({ reason: "persistence-failed" })),
+      Effect.fail(new SendError({ reason: "outcome-unknown" })),
     ),
     Effect.flatMap((outcome) =>
       outcome.kind === "success"
@@ -90,6 +104,48 @@ interface Invocations {
   readonly gate: Effect.Semaphore;
   readonly pending: Map<string, PendingSend>;
 }
+const outcomeOf = (
+  executed: Exit.Exit<SendResult, SendFailure>,
+): Option.Option<HarnessSendOutcome> =>
+  Exit.match(executed, {
+    onFailure: (cause) => Option.map(Cause.failureOption(cause), errorOutcome),
+    onSuccess: (result) => Option.some({ kind: "success", result }),
+  });
+
+/**
+ * The outcome a reserved send's caller gets: the one the store retained,
+ * replayed, so it matches a later lookup of the key. When the store cannot
+ * retain it, the caller gets the send's own outcome, since the send may have
+ * posted and the storage fault must not read as not sent; a later lookup
+ * then reads `outcome-unknown`. A send that ended without a typed outcome,
+ * by a defect or an interruption, retains nothing.
+ * @param runtime The invocations whose store retains the outcome.
+ * @param key The send's idempotency key.
+ * @param executed How the send ended.
+ * @returns The outcome to complete the reservation with.
+ */
+const retainedOutcome = (
+  runtime: Invocations,
+  key: string,
+  executed: Exit.Exit<SendResult, SendFailure>,
+): Effect.Effect<Exit.Exit<SendResult, SendFailure>> =>
+  Option.match(outcomeOf(executed), {
+    onNone: () => Effect.succeed(executed),
+    onSome: (outcome) =>
+      encodeRuntimeValue(outcome).pipe(
+        Effect.flatMap((bytes) =>
+          runtime.store.finishSendAttempt(key, bytes).pipe(Effect.as(bytes)),
+        ),
+        Effect.flatMap((bytes) => Effect.exit(replayOutcome(bytes))),
+        Effect.tapError((error) =>
+          Effect.logWarning(
+            `send outcome for key ${key} not retained: ${error.reason}`,
+          ),
+        ),
+        Effect.catchTag("EndpointStoreError", () => Effect.succeed(executed)),
+      ),
+  });
+
 const runReserved = (
   runtime: Invocations,
   key: string,
@@ -97,22 +153,8 @@ const runReserved = (
   result: PendingSend,
 ) =>
   runtime.execute(request).pipe(
-    Effect.match({
-      onFailure: errorOutcome,
-      onSuccess: (value): HarnessSendOutcome => ({
-        kind: "success",
-        result: value,
-      }),
-    }),
-    Effect.flatMap(encodeRuntimeValue),
-    Effect.flatMap((bytes) =>
-      runtime.store.finishSendAttempt(key, bytes).pipe(Effect.as(bytes)),
-    ),
-    Effect.catchTag("EndpointStoreError", () =>
-      Effect.fail(new SendError({ reason: "persistence-failed" })),
-    ),
-    Effect.flatMap(replayOutcome),
     Effect.exit,
+    Effect.flatMap((executed) => retainedOutcome(runtime, key, executed)),
     Effect.flatMap((outcome) => Deferred.done(result, outcome)),
     Effect.ensuring(Effect.sync(() => runtime.pending.delete(key))),
   );
@@ -122,7 +164,13 @@ const existingInvocation = (runtime: Invocations, key: string) =>
     if (live !== undefined) {
       return Deferred.await(live);
     }
-    const retained = yield* runtime.store.readSendAttempt(key);
+    const retained = yield* runtime.store
+      .readSendAttempt(key)
+      .pipe(
+        Effect.catchTag("EndpointStoreError", () =>
+          Effect.fail(new SendError({ reason: "outcome-unknown" })),
+        ),
+      );
     return retained?.canonicalOutcome === undefined
       ? Effect.fail(new SendError({ reason: "outcome-unknown" }))
       : replayOutcome(retained.canonicalOutcome);
@@ -149,6 +197,26 @@ const reserve = (
     );
     return Deferred.await(result);
   });
+/**
+ * The failure of a keyed send whose reservation failed in the store. A
+ * conflict is a different input under the key. A refusal raised before the
+ * store reads the key leaves nothing reserved, so the send was not sent. Any
+ * other failure can come from reading an attempt the key already reserved,
+ * which may have posted, so it is `outcome-unknown`.
+ */
+const reservationReasonByStoreReason = {
+  closed: "persistence-failed",
+  conflict: "idempotency-conflict",
+  corrupt: "outcome-unknown",
+  incompatible: "outcome-unknown",
+  "invalid-continuation": "persistence-failed",
+  "invalid-input": "persistence-failed",
+  "not-found": "outcome-unknown",
+  persistence: "outcome-unknown",
+} as const satisfies Readonly<
+  Record<EndpointStoreError["reason"], SendError["reason"]>
+>;
+
 const keyedSend = (
   runtime: Invocations,
   key: string,
@@ -160,10 +228,7 @@ const keyedSend = (
       Effect.catchTag("EndpointStoreError", (error) =>
         Effect.fail(
           new SendError({
-            reason:
-              error.reason === "conflict"
-                ? "idempotency-conflict"
-                : "persistence-failed",
+            reason: reservationReasonByStoreReason[error.reason],
           }),
         ),
       ),
@@ -193,8 +258,17 @@ const readSend = (
         input,
       };
     }
-    const outcome = yield* decodeStoredOutcome(retained.canonicalOutcome);
-    return { state: "returned", input, outcome };
+    const decoded = yield* Effect.option(
+      decodeStoredOutcome(retained.canonicalOutcome),
+    );
+    return Option.match(decoded, {
+      onNone: (): HarnessReadSendResult => ({ state: "indeterminate", input }),
+      onSome: (outcome): HarnessReadSendResult => ({
+        state: "returned",
+        input,
+        outcome,
+      }),
+    });
   });
 const send = (runtime: Invocations, request: HarnessSendRequest) =>
   decodeHarnessSendRequest(request).pipe(

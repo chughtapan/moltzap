@@ -10,7 +10,7 @@ import {
   Schema,
   type SchemaAST,
 } from "effect";
-import { GeneralSign, generalVerify, importJWK } from "jose";
+import { GeneralSign, generalVerify } from "jose";
 import {
   AgentCardDigest,
   type AgentCardDigest as AgentCardDigestValue,
@@ -22,6 +22,7 @@ import {
   type AgentSigningAuthority as AgentSigningAuthorityValue,
   agentSigningPrivateKey,
   ed25519PublicKeyThumbprintUri,
+  ed25519VerificationKey,
   hasCanonicalEd25519SignatureEncoding,
 } from "./agent-key.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
@@ -448,10 +449,9 @@ const verify = (
     if (!messageMatches || !headerMatches) {
       return yield* new SignedMessageVerificationError();
     }
-    const key = yield* Effect.tryPromise({
-      try: () => importJWK(input.agentCard.publicKey, "Ed25519"),
-      catch: verificationFailure,
-    });
+    const key = yield* ed25519VerificationKey(input.agentCard.publicKey).pipe(
+      Effect.mapError(verificationFailure),
+    );
     yield* Effect.tryPromise({
       try: () => {
         const signature = state.representation.signatures[0];

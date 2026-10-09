@@ -35,7 +35,14 @@ join it, and completed retries return its retained result or typed failure,
 including its original operation id. Caller cancellation does not cancel the
 daemon-owned keyed invocation. A reservation interrupted by daemon restart
 stays indeterminate and returns `outcome-unknown`; it is never executed again
-under that key. `read_send({idempotencyKey})` returns `absent`, `pending`,
+under that key. So does a key whose outcome the store could not retain, though
+the call that ran it returns the send's own outcome. A retained outcome the
+store cannot decode, an earlier attempt it cannot read, and a reservation it
+fails after it may have read the key also return `outcome-unknown`; only a
+reservation refused before any read returns `persistence-failed`. For a key
+whose outcome was not retained or cannot be decoded, `read_send` returns
+`indeterminate`.
+`read_send({idempotencyKey})` returns `absent`, `pending`,
 `indeterminate`, or `returned` with the stored input and observed outcome.
 These are invocation states, not collective completion. A returned failure
 also does not prove that an underlying post cannot certify later.
@@ -83,7 +90,7 @@ any send whose call fails as `delivery-pending` or `outcome-unknown`, a gather,
 all_gather or answer included, since a keyless retry would send the message a
 second time: the daemon still delivers a `delivery-pending` post, and an
 `outcome-unknown` one may already have gone out. The model reads that the
-message is queued and will be delivered, or that it may have been sent, and can
+message is pending and will still be delivered, or that it may have been sent, and can
 resend it deliberately; such a delivery completes even when the host callback
 that reports it fails. Any other plain-message failure stays with NanoClaw's
 retry.

@@ -145,13 +145,15 @@ daemon stops:
 - At startup, the daemon fails before it starts the MCP listener.
 - `register` returns `persistence-failed` when the first delivery pass after
   activation fails.
-- `send_message` returns `persistence-failed` when the item its operation
-  produces cannot be kept: a gather's result, or a refused send's failure when
-  failures go inbound.
-- An item that could not be kept is not delivered. The pending row that
-  produced it stays unacknowledged and is classified again after restart,
-  under the volatile collective state described in
-  [Delivery ownership](#delivery-ownership).
+- `send_message` keeps its own outcome when the item its operation produces
+  cannot be kept: a gather whose request posts exist, or a certified answer,
+  returns as sent, and a refused send whose failure goes inbound fails with
+  that refusal.
+- An item that could not be kept is not delivered. When classifying a pending
+  row produced it, that row stays unacknowledged and is classified again after
+  restart, under the volatile collective state described in
+  [Delivery ownership](#delivery-ownership); an item a send produced is lost
+  with that state.
 
 A failure or defect while the protocol activates, at startup or after a
 registration binds, also stops the daemon: a Router it cannot reach in phase

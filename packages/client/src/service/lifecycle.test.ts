@@ -48,7 +48,7 @@ import {
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import { HistoryExportRecord } from "../delivery/history-export.js";
 import { INBOX_PENDING_EVENT } from "../endpoint/mcp/names.js";
-import { SendError, SendInput } from "../index.js";
+import { SendInput } from "../index.js";
 import {
   DeliveryToken,
   encodeRuntimeValue,
@@ -249,10 +249,10 @@ const emitsWhileAPassHoldsTheDeliveryGate = async () => {
 };
 
 /**
- * An emitted item the store cannot persist fails its send as
- * persistence-failed, rather than leaving the send waiting, and fails the
- * daemon in storage. The store rejects only items other than the fixture's
- * startup delivery.
+ * An emitted item the store cannot persist fails the daemon in storage, and
+ * its send fails with the refusal it would have carried, rather than waiting
+ * or reporting the storage fault as the send's outcome. The store rejects
+ * only items other than the fixture's startup delivery.
  */
 const failsWhenAnEmittedItemCannotPersist = async () => {
   const fixture = await Effect.runPromise(makeFixture);
@@ -280,8 +280,8 @@ const failsWhenAnEmittedItemCannotPersist = async () => {
     Fiber.join(daemon).pipe(Effect.flip),
     "daemon failure after the rejected emission",
   );
-  expect(sent).toEqual(
-    Exit.fail(new SendError({ reason: "persistence-failed" })),
+  expect(sent).toMatchObject(
+    Exit.fail({ _tag: "CollectiveError", failure: { kind: "request-none" } }),
   );
   expect(error).toEqual(new DaemonRuntimeError({ phase: "storage" }));
 };

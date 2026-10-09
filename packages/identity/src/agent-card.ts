@@ -10,7 +10,7 @@ import {
   Schema,
   type SchemaAST,
 } from "effect";
-import { GeneralSign, generalVerify, importJWK } from "jose";
+import { GeneralSign, generalVerify } from "jose";
 import { createHash } from "node:crypto";
 import {
   AgentSigningAuthority,
@@ -18,6 +18,7 @@ import {
   Ed25519PublicKey,
   ed25519PublicKeyThumbprintUri,
   type Ed25519PublicKey as Ed25519PublicKeyValue,
+  ed25519VerificationKey,
   hasCanonicalEd25519SignatureEncoding,
 } from "./agent-key.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
@@ -324,10 +325,9 @@ const verifyAgentCard = (input: {
     ) {
       return yield* new AgentCardVerificationError();
     }
-    const key = yield* Effect.tryPromise({
-      try: () => importJWK(input.registrySignerPublicKey, "Ed25519"),
-      catch: verificationFailure,
-    });
+    const key = yield* ed25519VerificationKey(
+      input.registrySignerPublicKey,
+    ).pipe(Effect.mapError(verificationFailure));
     yield* Effect.tryPromise({
       try: () => {
         const signature = state.representation.signatures[0];
