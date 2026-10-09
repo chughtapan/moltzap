@@ -10,10 +10,6 @@
     "tsBuildInfoFile": "./tsconfig.test.tsbuildinfo"
   },
   "include": [
-    "src/**/*.ts",
     "*.ts"
-  ],
-  "exclude": [
-    "dist"
   ]
 }

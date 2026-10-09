@@ -1,7 +1,81 @@
-/** @file Generates package-local architecture analyzer configurations. */
+/**
+ * @file Generates package-local architecture analyzer configurations.
+ *
+ * Every package's `safer-architecture.config.json` is written from the
+ * definitions here. Generation fails, writing nothing, when any path an
+ * allowance claims does not exist: the analyzer never complains about an
+ * allowance whose target is gone, so a renamed or deleted path would keep
+ * passing while guarding nothing.
+ */
+import { existsSync, writeFileSync } from "node:fs";
 
-import { writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+interface Allowance {
+  readonly package: string;
+  readonly reason: string;
+}
+
+interface TestSubpath {
+  readonly subpath: string;
+  readonly reason: string;
+}
+
+interface FacadeFile {
+  readonly file: string;
+  readonly reason: string;
+}
+
+interface ClientDomain {
+  readonly name: string;
+  /** Domain folder relative to `src/`. */
+  readonly root: string;
+  /** A bare string is the domain's index; an object is a facade with its reason. */
+  readonly entrypoints: ReadonlyArray<string | FacadeFile>;
+  readonly reason: string;
+}
+
+/** The analyzer configuration keys this generator writes, in emitted order. */
+interface ArchitectureConfig {
+  readonly packageRuntime?: string;
+  readonly minExportedSiblingModules?: number;
+  readonly maxPublicExports?: number;
+  readonly minPublicFacadeModules?: number;
+  readonly maxFolderCycles?: number;
+  readonly publicTypePackages?: readonly Allowance[];
+  readonly allowedTestPublicSubpaths?: readonly TestSubpath[];
+  readonly folderReadmeFileNames?: readonly string[];
+  readonly folderChildCountOverrides?: ReadonlyArray<{
+    readonly folder: string;
+    readonly maxChildren: number;
+    readonly reason: string;
+  }>;
+  readonly facadeFiles?: readonly FacadeFile[];
+  readonly compositionRoots?: ReadonlyArray<{
+    readonly path: string;
+    readonly reason: string;
+  }>;
+  readonly domains?: ReadonlyArray<{
+    readonly name: string;
+    readonly roots: readonly string[];
+    readonly entrypoints: readonly string[];
+    readonly reason: string;
+  }>;
+  readonly layers?: ReadonlyArray<{
+    readonly name: string;
+    readonly folders: readonly string[];
+    readonly reason: string;
+  }>;
+}
+
+/**
+ * A package either spells out its whole config or wraps the shared
+ * allowances; `beforeShared` and `afterShared` keys land on either side of
+ * them, which fixes the emitted key order.
+ */
+interface PackageDefinition {
+  readonly config?: ArchitectureConfig;
+  readonly beforeShared?: ArchitectureConfig;
+  readonly afterShared?: ArchitectureConfig;
+}
 
 const publicTypePackage = {
   effect: {
@@ -28,9 +102,10 @@ const publicTypePackage = {
   },
 };
 
-const publicTypePackages = Object.values(publicTypePackage);
+const publicTypePackages: readonly Allowance[] =
+  Object.values(publicTypePackage);
 
-const allowedTestPublicSubpaths = [
+const allowedTestPublicSubpaths: readonly TestSubpath[] = [
   {
     subpath: "./test-utils",
     reason: "Test helpers exposed for cross-package integration testing",
@@ -45,7 +120,7 @@ const allowedTestPublicSubpaths = [
   },
 ];
 
-const sharedConfig = {
+const sharedConfig: ArchitectureConfig = {
   publicTypePackages,
   allowedTestPublicSubpaths,
 };
@@ -55,7 +130,7 @@ const sharedConfig = {
  * entrypoints of domains listed before it; the generator derives both the
  * CUPID domains and the layer order from this one list.
  */
-const clientDomains = [
+const clientDomains: readonly ClientDomain[] = [
   {
     name: "identity",
     root: "identity",
@@ -188,13 +263,14 @@ const clientDomains = [
  * A domain's non-index entrypoints are deliberate boundaries, so declaring
  * one with its reason also declares it a facade.
  */
-const clientEntrypointFacades = clientDomains.flatMap(({ root, entrypoints }) =>
-  entrypoints
-    .filter((entry) => typeof entry !== "string")
-    .map(({ file, reason }) => ({ file: `${root}/${file}`, reason })),
+const clientEntrypointFacades: readonly FacadeFile[] = clientDomains.flatMap(
+  ({ root, entrypoints }) =>
+    entrypoints
+      .filter((entry) => typeof entry !== "string")
+      .map(({ file, reason }) => ({ file: `${root}/${file}`, reason })),
 );
 
-const packageDefinitions = {
+const packageDefinitions: Readonly<Record<string, PackageDefinition>> = {
   client: {
     beforeShared: {
       maxFolderCycles: 1,
@@ -220,12 +296,11 @@ const packageDefinitions = {
         name,
         roots: [`src/${root}`],
         entrypoints: entrypoints.map(
-          (entry) =>
-            `src/${root}/${typeof entry === "string" ? entry : entry.file}`,
+          (entry) => `src/${root}/${entrypointFile(entry)}`,
         ),
         reason,
       })),
-      layers: clientDomains.toReversed().map(({ name, root, reason }) => ({
+      layers: [...clientDomains].reverse().map(({ name, root, reason }) => ({
         name,
         folders: [root],
         reason,
@@ -254,7 +329,10 @@ const packageDefinitions = {
 
 const workspaceRoot = new URL("../../", import.meta.url);
 
-const architectureConfigDefinitions = [
+const architectureConfigDefinitions: ReadonlyArray<{
+  readonly packageRoot: string;
+  readonly definition: PackageDefinition;
+}> = [
   ...Object.entries(packageDefinitions).map(([packageName, definition]) => ({
     packageRoot: `packages/${packageName}`,
     definition,
@@ -397,33 +475,6 @@ const architectureConfigDefinitions = [
   },
 ];
 
-// Nothing in the analyzer complains about an allowance whose target does not
-// exist, so a renamed or deleted path keeps passing while guarding nothing.
-// These two helpers mirror how the analyzer resolves each key: a facade file is
-// package-root relative and gains an implicit `src/` when it lacks one, while a
-// folder key is relative to `src/`, with `.` naming `src/` itself.
-const facadePath = (file) => {
-  const trimmed = file.replace(/^\.\//, "");
-  return trimmed.startsWith("src/") ? trimmed : `src/${trimmed}`;
-};
-
-const folderPath = (folder) => (folder === "." ? "src" : `src/${folder}`);
-
-function pathClaims(config) {
-  return [
-    ...(config.facadeFiles ?? []).map((entry) => facadePath(entry.file)),
-    ...(config.folderChildCountOverrides ?? []).map((entry) =>
-      folderPath(entry.folder),
-    ),
-    ...(config.layers ?? []).flatMap((layer) => layer.folders.map(folderPath)),
-    ...(config.compositionRoots ?? []).map((entry) => entry.path),
-    ...(config.domains ?? []).flatMap((domain) => [
-      ...domain.roots,
-      ...domain.entrypoints,
-    ]),
-  ];
-}
-
 const resolved = architectureConfigDefinitions.map(
   ({ packageRoot, definition }) => ({
     packageRoot,
@@ -442,24 +493,56 @@ const danglingClaims = resolved.flatMap(({ packageRoot, config }) =>
 );
 
 if (danglingClaims.length > 0) {
-  throw new Error(
-    [
+  process.stderr.write(
+    `${[
       "Architecture config names paths that do not exist:",
       ...danglingClaims.map((claim) => `  ${claim}`),
       "",
       "Every facadeFiles.file, folderChildCountOverrides.folder,",
       "layers[].folders, compositionRoots.path, and domains root or",
       "entrypoint must name a real path. Fix the entry in",
-      "scripts/architecture/gen-configs.mjs or restore the path it claims.",
-    ].join("\n"),
+      "scripts/architecture/gen-configs.ts or restore the path it claims.",
+    ].join("\n")}\n`,
   );
+  process.exit(1);
 }
 
 for (const { packageRoot, config } of resolved) {
-  const configUrl = new URL(
-    `${packageRoot}/safer-architecture.config.json`,
-    workspaceRoot,
+  writeFileSync(
+    new URL(`${packageRoot}/safer-architecture.config.json`, workspaceRoot),
+    `${JSON.stringify(config, null, 2)}\n`,
   );
+}
 
-  await writeFile(configUrl, `${JSON.stringify(config, null, 2)}\n`);
+function entrypointFile(entry: string | FacadeFile): string {
+  return typeof entry === "string" ? entry : entry.file;
+}
+
+/** Every path the config claims, resolved the way the analyzer resolves it. */
+function pathClaims(config: ArchitectureConfig): readonly string[] {
+  return [
+    ...(config.facadeFiles ?? []).map((entry) => facadePath(entry.file)),
+    ...(config.folderChildCountOverrides ?? []).map((entry) =>
+      folderPath(entry.folder),
+    ),
+    ...(config.layers ?? []).flatMap((layer) =>
+      layer.folders.map((folder) => folderPath(folder)),
+    ),
+    ...(config.compositionRoots ?? []).map((entry) => entry.path),
+    ...(config.domains ?? []).flatMap((domain) => [
+      ...domain.roots,
+      ...domain.entrypoints,
+    ]),
+  ];
+}
+
+/** A facade file is package-root relative and gains an implicit `src/`. */
+function facadePath(file: string): string {
+  const trimmed = file.replace(/^\.\//u, "");
+  return trimmed.startsWith("src/") ? trimmed : `src/${trimmed}`;
+}
+
+/** A folder key is relative to `src/`, with `.` naming `src/` itself. */
+function folderPath(folder: string): string {
+  return folder === "." ? "src" : `src/${folder}`;
 }

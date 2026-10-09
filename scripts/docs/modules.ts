@@ -951,7 +951,7 @@ export function readLeadingJsDoc(source: string): string | null {
 /**
  * Parse a `&amp;#64;failure ErrName when prose` tag content into
  * structured form. This is the single source of truth for the parse rule;
- * the tag itself is registered in `eslint.shared.mjs`.
+ * the tag itself is registered in `eslint.shared.ts`.
  * @param text Text to process.
  * @returns The decoded failure tag.
  */
