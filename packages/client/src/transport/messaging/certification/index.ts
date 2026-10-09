@@ -35,7 +35,6 @@ import {
   MembershipDescriptor,
   quorumThreshold,
   signEvidenceMessage,
-  type VerifiedEvidence,
   type VerifiedMembership,
   verifyActionCertifiedRecord,
   verifyActionProposal,
@@ -64,7 +63,6 @@ import {
   evidenceMatchesFold,
   evidenceRoute,
   type EvidenceRoute,
-  isVoteForRecord,
   verifiedEvidenceForRoute,
 } from "./evidence.js";
 
@@ -806,22 +804,6 @@ const ensureConversation = (
   };
 };
 
-const certificateEvidence = (
-  fold: EngineActionFold,
-  representation: unknown,
-  matches: (statement: VerifiedEvidence["statement"]) => boolean,
-): Effect.Effect<SignedMessage, ClientRepresentationError> =>
-  verifyStableEvidence({
-    representation,
-    membership: fold.conversation.membership,
-  }).pipe(
-    Effect.filterOrFail(
-      ({ statement }) => matches(statement),
-      () => new ClientRepresentationError(),
-    ),
-    Effect.map(({ message }) => message),
-  );
-
 const mergeActionCertificate = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
@@ -830,39 +812,20 @@ const mergeActionCertificate = (
   Effect.forEach(
     signatures,
     (representation) =>
-      certificateEvidence(fold, representation, (statement) =>
-        evidenceMatchesFold({ fold, kind: "action" }, statement),
-      ).pipe(
-        Effect.flatMap((message) =>
+      verifyStableEvidence({
+        representation,
+        membership: fold.conversation.membership,
+      }).pipe(
+        Effect.filterOrFail(
+          ({ statement }) =>
+            evidenceMatchesFold({ fold, kind: "action" }, statement),
+          () => new ClientRepresentationError(),
+        ),
+        Effect.flatMap(({ message }) =>
           mergeEvidence(runtime, fold, "action", message),
         ),
       ),
     { concurrency: 1, discard: true },
-  );
-
-/**
- * The votes of a record's durability certificate, each verified for the
- * fold's membership and required to name the record, which the fold does not
- * hold until the record is stored.
- * @param fold Fold of the record's action.
- * @param record The record with its durability certificate.
- * @returns The certificate's verified votes.
- */
-const certificateVotes = (
-  fold: EngineActionFold,
-  record: CertifiedRecord,
-): Effect.Effect<readonly SignedMessage[], ClientRepresentationError> =>
-  Effect.forEach(
-    record.durabilityCertificate.votes,
-    (representation) =>
-      certificateEvidence(fold, representation, (statement) =>
-        isVoteForRecord(
-          fold,
-          record.actionCertifiedRecord.recordHash,
-          statement,
-        ),
-      ),
-    { concurrency: 1 },
   );
 
 /**
@@ -1023,7 +986,9 @@ const acceptCertifiedRecord = (
       runtime,
       record.actionCertifiedRecord.recordCore.action,
     );
-    yield* verifyCertifiedRecord({ record, membership });
+    const votes = (yield* verifyCertifiedRecord({ record, membership })).map(
+      ({ message }) => message,
+    );
     const actionRecord = record.actionCertifiedRecord;
     const fold = yield* prepareRecordFold(
       runtime,
@@ -1034,7 +999,6 @@ const acceptCertifiedRecord = (
     if (fold === undefined) {
       return "ignored";
     }
-    const votes = yield* certificateVotes(fold, record);
     const { stored, delivery } = yield* certifiedRecordRows(
       runtime,
       fold,

@@ -332,7 +332,7 @@ function refusesAReanchorAwayFromAStagedSuccessor() {
   const conversationId = "conversation:staged-successor";
   const head = certifiedRecord(conversationId, LOCAL_AGENT_ID);
   const successor = stagedRecord(
-    certifiedRecord(conversationId, LOCAL_AGENT_ID, head),
+    certifiedRecord(conversationId, LOCAL_AGENT_ID, 1),
   );
   return withStore(directory, (store) =>
     Effect.gen(function* () {
@@ -363,7 +363,7 @@ function refusesALocalVoteUnderAnAnchorItReanchorsAwayFrom() {
   const directory = stateDirectory();
   const conversationId = "conversation:reanchored-vote";
   const head = certifiedRecord(conversationId, LOCAL_AGENT_ID);
-  const successor = certifiedRecord(conversationId, "agent:remote", head);
+  const successor = certifiedRecord(conversationId, "agent:remote", 1);
   const localVote: ProtocolEvidence = {
     conversationId,
     kind: "durability",
@@ -857,24 +857,24 @@ function verifyRemoteDeliveryRecovery(
  * signature and one durability vote, both its author's.
  * @param conversationId Conversation under whose first foundation it is.
  * @param authorAgentId Agent that authored it and signed both certificates.
- * @param previous Record it extends; it is the first record when absent.
+ * @param ordinal Its position in the conversation, extending the record one
+ *     position before it.
  * @returns A record whose hashes and bytes follow from its position.
  */
 function certifiedRecord(
   conversationId: string,
   authorAgentId: string,
-  previous?: CertifiedRecord,
+  ordinal = 0,
 ): CertifiedRecord {
-  const ordinal = previous === undefined ? 0 : 1;
   const actionHash = `ach_${conversationId}:${ordinal}`;
   const recordHash = `rch_${conversationId}:${ordinal}`;
   const conversationFoundation = foundation(conversationId);
   return {
     conversationId,
     recordHash,
-    ...(previous === undefined
+    ...(ordinal === 0
       ? {}
-      : { previousRecordHash: previous.recordHash }),
+      : { previousRecordHash: `rch_${conversationId}:${ordinal - 1}` }),
     membershipHash: conversationFoundation.membershipHash,
     anchorHash: conversationFoundation.anchorHash,
     actionHash,
@@ -916,13 +916,7 @@ function lockLocalPost(store: EndpointStore, record: StagedRecord) {
     yield* store.bindPostIntent({
       kind: "new-conversation",
       foundation: foundation(record.conversationId),
-      intent: {
-        conversationId: record.conversationId,
-        membershipHash: record.membershipHash,
-        authorAgentId: record.authorAgentId,
-        postId: record.postId,
-        canonicalIntent: bytes(`intent:${record.postId}`),
-      },
+      intent: postIntent(record.conversationId, record.postId),
     });
     yield* store.lockProposal(
       proposal(record.conversationId, record.actionHash),
