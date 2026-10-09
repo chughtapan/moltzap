@@ -24,7 +24,8 @@
   },
   "scripts": {
     "build": "nx run @moltzap/nanoclaw-channel:build",
-    "lint": "nx run @moltzap/nanoclaw-channel:lint"
+    "lint": "nx run @moltzap/nanoclaw-channel:lint",
+    "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "nx": {
     "targets": {

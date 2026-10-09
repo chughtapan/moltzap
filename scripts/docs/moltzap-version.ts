@@ -6,7 +6,7 @@
  * the gate test that plants replacement values rewrites it with the same
  * pattern it is read with — a pattern that drifted between reader and planter
  * would let the plant become a silent no-op. The architecture check
- * in `scripts/architecture/check-boundaries.ts` carries the same pattern and
+ * in `scripts/architecture/boundary-manifests.ts` carries the same pattern and
  * must keep matching it.
  */
 import { readFileSync } from "node:fs";

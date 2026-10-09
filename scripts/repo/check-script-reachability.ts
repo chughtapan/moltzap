@@ -12,7 +12,8 @@
  * directories it scanned no longer existed.
  *
  * A reference is any mention of the script's repo-relative path anywhere
- * else in the tracked tree. Prose counts on purpose: a regeneration tool
+ * else in the tracked tree, or a relative import of it from a sibling in
+ * the same directory. Prose counts on purpose: a regeneration tool
  * cited by the test that consumes its fixtures is reachable, because a
  * reader can find their way to it.
  *

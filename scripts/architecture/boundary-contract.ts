@@ -146,7 +146,7 @@ export const FINAL_PACKAGES: Readonly<Record<PackageDir, PackageContract>> = {
       },
     },
     bin: {},
-    targets: ["arch:check", "build", "lint", "test:pack"],
+    targets: ["arch:check", "build", "lint", "test:pack", "typecheck:tests"],
   },
 };
 

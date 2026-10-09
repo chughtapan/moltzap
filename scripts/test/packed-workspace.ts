@@ -15,14 +15,7 @@ import {
   type Error as PlatformError,
 } from "@effect/platform";
 import { NodeContext, NodeRuntime } from "@effect/platform-node";
-import {
-  Data,
-  Effect,
-  type ParseResult,
-  Schema,
-  type Scope,
-  Stream,
-} from "effect";
+import { Cause, Data, Effect, type ParseResult, Schema, Stream } from "effect";
 import { join, relative, resolve } from "node:path";
 
 /** Services every pack gate step runs against. */
@@ -56,7 +49,9 @@ const packedManifest = Schema.Struct({
   dependencies: Schema.optional(
     Schema.Record({ key: Schema.String, value: Schema.String }),
   ),
-  exports: Schema.optional(Schema.Unknown),
+  exports: Schema.optional(
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  ),
   main: Schema.optional(Schema.Unknown),
   types: Schema.optional(Schema.Unknown),
 });
@@ -66,18 +61,21 @@ export type PackedManifest = typeof packedManifest.Type;
 
 const sourceManifest = Schema.Struct({ version: Schema.String });
 
-/** Options for {@link runCommand}. */
-export interface RunOptions {
+/**
+ * Options for {@link runCommand}. `env` entries override the parent
+ * environment; an empty `NODE_PATH` adds no search paths, which is how a
+ * consumer check drops the parent's.
+ */
+interface RunOptions {
   readonly cwd?: string;
-  /** Overrides on top of the parent environment; `undefined` unsets one. */
-  readonly env?: Record<string, string | undefined>;
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 /** Package names mapped to the tarball each one packed into. */
 export type Archives = Readonly<Record<string, string>>;
 
 /** Description of the consumer project {@link installPackedConsumer} builds. */
-export interface ConsumerInput {
+interface ConsumerInput {
   /** Scratch directory owned by the caller. */
   readonly temporaryRoot: string;
   /** Source workspace the install must not reach. */
@@ -108,7 +106,8 @@ export function requireCondition(
 
 /**
  * Run one command to completion and return its standard output, failing when
- * it exits non-zero. The failure carries the command's standard error.
+ * it exits non-zero. The failure carries both output streams, because tools
+ * such as `tsc` print their diagnostics on standard output.
  * @param command Executable name or path.
  * @param args Arguments passed verbatim.
  * @param options Working directory and environment overrides.
@@ -127,7 +126,7 @@ export function runCommand(
       );
       yield* requireCondition(
         exitCode === 0,
-        `${[command, ...args].join(" ")} exited with ${exitCode}:\n${stderr}`,
+        `${[command, ...args].join(" ")} exited with ${exitCode}:\n${stdout}${stderr}`,
       );
       return stdout;
     }),
@@ -172,43 +171,40 @@ export function readText(
 
 /**
  * Run a pack gate as the process entry point: provide the Node services and a
- * scope for its temporary directories, print the line the gate returns when it
- * passes, and exit non-zero with the failure message when it does not.
- * @param gate The gate program; it returns the success line to print.
+ * scratch directory that is removed with everything under it when the gate
+ * ends on any path, print the line the gate returns when it passes, and exit
+ * non-zero with the failure, or the defect's cause, when it does not.
+ * @param prefix Scratch directory name prefix.
+ * @param gate The gate program, given the scratch directory; it returns the
+ * success line to print.
  */
 export function runGate(
-  gate: Effect.Effect<string, GateError, GateServices | Scope.Scope>,
+  prefix: string,
+  gate: (
+    temporaryRoot: string,
+  ) => Effect.Effect<string, GateError, GateServices>,
 ): void {
-  const program = Effect.scoped(gate).pipe(
+  const program = Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      return yield* gate(yield* fs.makeTempDirectoryScoped({ prefix }));
+    }),
+  ).pipe(
     Effect.flatMap((line) =>
       Effect.sync(() => process.stdout.write(`${line}\n`)),
     ),
-    Effect.tapError((error) =>
-      Effect.sync(() => process.stderr.write(`${error.message}\n`)),
+    Effect.tapErrorCause((cause) =>
+      Effect.sync(() =>
+        process.stderr.write(
+          `${Cause.isFailType(cause) ? cause.error.message : Cause.pretty(cause)}\n`,
+        ),
+      ),
     ),
     Effect.withSpan("packedWorkspace.runGate"),
   );
   NodeRuntime.runMain(program.pipe(Effect.provide(NodeContext.layer)), {
     disableErrorReporting: true,
   });
-}
-
-/**
- * Make a scratch directory that is removed, with everything under it, when
- * the caller's scope closes on any path.
- * @param prefix Directory name prefix.
- */
-export function makeTemporaryRoot(
-  prefix: string,
-): Effect.Effect<
-  string,
-  PlatformError.PlatformError,
-  FileSystem.FileSystem | Scope.Scope
-> {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    return yield* fs.makeTempDirectoryScoped({ prefix });
-  }).pipe(Effect.withSpan("packedWorkspace.makeTemporaryRoot"));
 }
 
 /**

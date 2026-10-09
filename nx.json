@@ -90,7 +90,8 @@
       ],
       "inputs": [
         "default",
-        "^production"
+        "^production",
+        "{workspaceRoot}/eslint.shared.ts"
       ],
       "outputs": [
         "{projectRoot}/tsconfig.test.tsbuildinfo"
