@@ -5,6 +5,9 @@ import {
   fromJsonSchema,
   type JsonSchemaType,
   ProtocolError,
+  SdkError,
+  SdkErrorCode,
+  SdkHttpError,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { Data, Effect, Ref, type Scope, Stream } from "effect";
@@ -78,13 +81,22 @@ interface ReasonPayload {
 
 /**
  * Rebuild the typed error of a refused send from its JSON-RPC error data: a
- * collective failure with its id and detail, or a closed send reason.
+ * collective failure with its id and detail, or a closed send reason. A
+ * rejection that is not the daemon's answer, such as a timeout or a dropped
+ * connection, can follow the daemon queueing the post, so it is
+ * `outcome-unknown` unless the request never reached the daemon.
  * @param cause Upstream rejection at the MCP tool boundary.
  * @returns A closed send failure without transport details.
  */
 function sendFailure(cause: unknown): SendError | CollectiveError {
-  const data: unknown = ProtocolError.isInstance(cause) ? cause.data : cause;
-  return decodeHarnessSendErrorData(data).pipe(
+  if (!ProtocolError.isInstance(cause)) {
+    return new SendError({
+      reason: neverReachedDaemon(cause)
+        ? "network-unavailable"
+        : "outcome-unknown",
+    });
+  }
+  return decodeHarnessSendErrorData(cause.data).pipe(
     Effect.map((decoded) =>
       "failure" in decoded
         ? new CollectiveError({ id: decoded.id, failure: decoded.failure })
@@ -101,6 +113,28 @@ function sendFailure(cause: unknown): SendError | CollectiveError {
       () => new SendError({ reason: "network-unavailable" }),
     ),
     Effect.runSync,
+  );
+}
+
+/**
+ * Whether a rejected request certainly ran no daemon tool: the SDK refused to
+ * send it unconnected, the daemon's HTTP layer turned it away with a client
+ * error status, or the connection was refused.
+ * @param cause A rejection that is not a JSON-RPC error.
+ * @returns Whether the daemon cannot have acted on the request.
+ */
+function neverReachedDaemon(cause: unknown): boolean {
+  if (SdkHttpError.isInstance(cause)) {
+    return cause.status < 500;
+  }
+  if (SdkError.isInstance(cause)) {
+    return cause.code === SdkErrorCode.NotConnected;
+  }
+  return (
+    cause instanceof Error &&
+    cause.cause instanceof Error &&
+    "code" in cause.cause &&
+    cause.cause.code === "ECONNREFUSED"
   );
 }
 

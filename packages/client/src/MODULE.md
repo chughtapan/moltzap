@@ -8,7 +8,7 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./endpoint/harness-endpoint/index.ts#L57)
+### [`acquireHarnessEndpoint`](./endpoint/harness-endpoint/index.ts#L60)
 
 _Function_
 
@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./transport/collectives/forms.ts#L318)
+### [`CollectiveError`](./transport/collectives/forms.ts#L315)
 
 _Class_
 
@@ -564,7 +564,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./transport/collectives/forms.ts#L174)
+### [`SendResult`](./transport/collectives/forms.ts#L171)
 
 _Interface_
 

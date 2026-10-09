@@ -176,9 +176,10 @@ function extractOutboundText(message: MoltZapOutboundMessage): string | null {
 /**
  * Send failures NanoClaw's retry must not repeat. The model hears of these;
  * any other failure stays with that retry. An invalid address or content
- * fails the same way again. A `delivery-pending` post is already queued and
- * still delivered, and the retry is a new keyless send, so it would send the
- * message twice.
+ * fails the same way again. The retry is a new keyless send, so it would
+ * post a `delivery-pending` message, which is queued and still delivered, a
+ * second time, and an `outcome-unknown` one possibly so; the model, told the
+ * message may have been sent, can resend it deliberately.
  */
 const FINAL_REFUSALS: ReadonlySet<SendError["reason"]> = new Set([
   "invalid-address",
@@ -186,6 +187,7 @@ const FINAL_REFUSALS: ReadonlySet<SendError["reason"]> = new Set([
   "membership-invalid",
   "content-invalid",
   "delivery-pending",
+  "outcome-unknown",
 ]);
 
 function isFinalRefusal(error: unknown): error is SendError {

@@ -446,10 +446,18 @@ A `SendError` or collective refusal message is the failed action, then its
 cause: `send failed: agent:dana is not a known agent`, or `reply failed: the
 question's deadline has passed`. It names the specific input when the failing
 step knows it and states no remedy. A failed send was not sent, except
-`outcome-unknown`, whose text says the message may have been sent, and
-`delivery-pending`: that send failed after durably queueing its post, when
-its drain timed out or lost the Router, and the daemon delivers the post once
-the Router is reachable, so a keyless resend creates a second post.
+`outcome-unknown` and `delivery-pending`, and a keyless resend of either can
+create a second post:
+
+- `outcome-unknown` says the message may have been sent. The send ended
+  without a typed failure, interrupted or by a defect, or the host's request
+  failed or timed out after it may have reached the daemon. A request the
+  daemon cannot have acted on, such as one whose connection was refused,
+  fails as `network-unavailable`.
+- `delivery-pending` says the message is queued. The send durably queued its
+  post and its drain then timed out or failed. The daemon delivers the post
+  once the Router answers or, when that failure stopped the daemon, once it
+  restarts and resumes the post.
 
 `ListenError.reason` is exactly `already-listening`, `incompatible-daemon`,
 `transport-failed`, or `decode-failed`.

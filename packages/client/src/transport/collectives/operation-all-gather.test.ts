@@ -46,7 +46,7 @@ const otherId = `col_${"B".repeat(43)}`;
 
 /** What a send that failed after queueing its post says about it. */
 const queuedText =
-  "MoltZap is unavailable (network unavailable); the message is queued and will be delivered once MoltZap is reachable";
+  "MoltZap is unavailable; the message is queued and will be delivered once MoltZap is reachable";
 
 /**
  * An emit port that records each item and resolves `emitted` on the first,

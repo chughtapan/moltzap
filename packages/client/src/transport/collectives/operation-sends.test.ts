@@ -29,7 +29,7 @@ import { collectiveIdOf } from "./part/index.js";
 
 /** What a send that failed after queueing its post says about it. */
 const queuedText =
-  "MoltZap is unavailable (network unavailable); the message is queued and will be delivered once MoltZap is reachable";
+  "MoltZap is unavailable; the message is queued and will be delivered once MoltZap is reachable";
 
 function certifiesAMulticastAsItsTextAndAnExplicitMulticastPart() {
   const observed = newObserved();

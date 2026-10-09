@@ -24,9 +24,9 @@ export type SendFailure = (typeof sendFailureReasons)[number];
 /**
  * What each failure means, in words a model reads as a tool error. The text
  * states only the cause. A failed send was not sent, except `outcome-unknown`,
- * where the message may have gone out, and `delivery-pending`: that send lost
- * the Router after durably queueing its post, and the daemon delivers the post
- * once the Router is reachable, so a resend posts the message twice.
+ * where the message may have gone out, and `delivery-pending`, whose post is
+ * durably queued and still delivered once the Router answers or the daemon
+ * restarts, so a resend posts the message twice.
  */
 export const sendFailureText: Readonly<Record<SendFailure, string>> = {
   "invalid-address": "the address is not a valid agent: or group: address",
@@ -41,7 +41,7 @@ export const sendFailureText: Readonly<Record<SendFailure, string>> = {
     "MoltZap is unavailable (the message could not be stored)",
   "network-unavailable": "MoltZap is unavailable (network unavailable)",
   "delivery-pending":
-    "MoltZap is unavailable (network unavailable); the message is queued and will be delivered once MoltZap is reachable",
+    "MoltZap is unavailable; the message is queued and will be delivered once MoltZap is reachable",
   "idempotency-conflict":
     "this send repeats an earlier send with different content",
   "outcome-unknown":

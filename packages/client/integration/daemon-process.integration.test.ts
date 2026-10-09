@@ -82,7 +82,7 @@ function nextDelivery<E>(stream: Stream.Stream<InboundDelivery, E>) {
  * once its Router worker answers. Under load that happens while the restarted
  * daemon and its peer exchange recovery traffic, so the trace takes that
  * failure as queued and confirms the post by the peer's delivery. Any other
- * failure, `network-unavailable` included, fails the trace.
+ * failure fails the trace.
  * @param endpoint Endpoint that sends.
  * @param input The post.
  * @returns Completion once the post is certified or queued.

@@ -312,6 +312,14 @@ const runOperation = async <Value extends Readonly<Record<string, unknown>>>(
   return toolResult(outcome.value);
 };
 
+/**
+ * Run one send and answer its typed failure as JSON-RPC error data. A send
+ * that ends without one, interrupted or by a defect, may already have queued
+ * its post, so it answers `outcome-unknown`.
+ * @param operation A multicast, collective send or collective response.
+ * @param signal The request's abort signal, which interrupts the send.
+ * @returns The send's tool result.
+ */
 // #ignore-sloppy-code-next-line[async-keyword]: MCP tool handlers are Promise callbacks, so this edge awaits Effect before returning the SDK result.
 const runSendOperation = async (
   operation: Effect.Effect<HarnessSendResult, SendError | CollectiveError>,
@@ -320,7 +328,7 @@ const runSendOperation = async (
   const outcome = await Effect.runPromiseExit(operation, { signal });
   if (Exit.isFailure(outcome)) {
     const data = Option.match(Cause.failureOption(outcome.cause), {
-      onNone: (): HarnessSendErrorData => ({ reason: "network-unavailable" }),
+      onNone: (): HarnessSendErrorData => ({ reason: "outcome-unknown" }),
       onSome: sendErrorData,
     });
     throw new ProtocolError(

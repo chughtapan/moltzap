@@ -2517,9 +2517,9 @@ const DRAIN_BOUND = Duration.seconds(10);
 /**
  * A black-holed transmit holds the local send's drain: the send is still
  * pending one second short of `DRAIN_BOUND` and fails as `delivery-pending`
- * one second past it. The background drain then delivers the envelope the interrupted
- * transmit left begun, exactly once however often the queue drains
- * afterwards.
+ * one second past it. The background drain then delivers the envelope the
+ * interrupted transmit left begun, exactly once however often the queue
+ * drains afterwards.
  */
 function blackHoledTransmitBoundsTheSend(): Effect.Effect<
   void,
@@ -3016,13 +3016,13 @@ function persistenceFailureEndsTheOutboundLoop(): Effect.Effect<
 
 /**
  * The author's worker fails every transmit because its recovery failed, which
- * stops the outbound loop. The send's post is queued, but no loop delivers
- * it, so the send fails with `network-unavailable` rather than
- * `delivery-pending`. Fails when a fatal worker failure says the post is on
- * its way.
+ * stops the outbound loop and with it the daemon. The send's post stays
+ * durably queued, and the daemon's recovery resumes it when it restarts, so
+ * the send fails as `delivery-pending`. Fails when a fatal worker failure says
+ * the post was not sent.
  * @returns The scenario, before its scope closes.
  */
-function failedRecoveryFailsASendAsUnqueued(): Effect.Effect<
+function failedRecoveryFailsASendAsDeliveryPending(): Effect.Effect<
   void,
   never,
   Scope.Scope
@@ -3038,7 +3038,7 @@ function failedRecoveryFailsASendAsUnqueued(): Effect.Effect<
       .pipe(Effect.flip, Effect.orDie);
 
     expect(failure).toStrictEqual(
-      new SendError({ reason: "network-unavailable" }),
+      new SendError({ reason: "delivery-pending" }),
     );
   });
 }
@@ -3064,8 +3064,11 @@ describe("engine faults while staging and sending", () => {
     TEST_TIMEOUT_MS,
   );
   it(
-    "fails a send as network-unavailable when the worker's recovery failed",
-    () => Effect.runPromise(onTestClock(failedRecoveryFailsASendAsUnqueued())),
+    "fails a send as delivery-pending when the worker's recovery failed",
+    () =>
+      Effect.runPromise(
+        onTestClock(failedRecoveryFailsASendAsDeliveryPending()),
+      ),
     TEST_TIMEOUT_MS,
   );
 });

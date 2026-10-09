@@ -158,10 +158,7 @@ export type SendInput = typeof SendInput.Type;
  */
 export type FailureDelivery = "result" | "inbound";
 
-/**
- * Members a send could not reach, each with its send failure's reason and,
- * when the failure has one, its detail.
- */
+/** Members a send could not reach. */
 const unreachableMembers = Schema.NonEmptyArray(
   exactStruct({
     member: AgentAddress,
