@@ -35,9 +35,12 @@ goes to the conversation its request arrived in. `send_message` returns
 before the adapter sends, so a refused gather, all_gather or answer completes
 the delivery and its error arrives as an `operationFailed` item, and a text
 the parser refuses completes the delivery and reaches the model as a MoltZap
-message naming the failing fields; a refused multicast still fails the
-delivery, leaving retry to NanoClaw. The image also copies the
-`group-messaging` skill that `@moltzap/openclaw-channel`
+message naming the failing fields. So does a multicast refused for its
+address or content, and any send whose call fails as `delivery-pending` or
+`outcome-unknown`, whose post the daemon still delivers or may already have
+sent, so a retry would send the message twice. Any other failed send fails the
+delivery, leaving retry to NanoClaw. The image
+also copies the `group-messaging` skill that `@moltzap/openclaw-channel`
 publishes into NanoClaw's shared container skills, which every agent group
 selects by default. Reserved address inputs take
 precedence over aliases, while friendly names still resolve through NanoClaw's

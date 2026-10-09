@@ -34,7 +34,7 @@ import {
   slotSchema,
   unkeptEmit,
 } from "../../__tests__/collective-operation-fixtures.js";
-import { queuedNetworkFailure, SendError } from "../messaging/errors.js";
+import { SendError } from "../messaging/errors.js";
 import { InboundMessage } from "../messaging/message.js";
 import { CollectiveEmitError } from "./forms.js";
 import { collectiveIdOf } from "./part/index.js";
@@ -46,7 +46,7 @@ const otherId = `col_${"B".repeat(43)}`;
 
 /** What a send that failed after queueing its post says about it. */
 const queuedText =
-  "MoltZap is unavailable (network unavailable); the message is queued and will be delivered once MoltZap is reachable";
+  "MoltZap is unavailable; the message is queued and will be delivered once MoltZap is reachable";
 
 /**
  * An emit port that records each item and resolves `emitted` on the first,
@@ -218,7 +218,8 @@ function namesEveryMemberWithThePostReasonWhenTheGroupPostIsRefused() {
 function saysEveryMemberIsStillSentAQueuedGroupPost() {
   return Effect.gen(function* () {
     const layer = yield* makeLayer(newObserved(), {
-      sendPost: () => Effect.fail(queuedNetworkFailure()),
+      sendPost: () =>
+        Effect.fail(new SendError({ reason: "delivery-pending" })),
     });
     const refusal = yield* Effect.flip(send(layer, allGatherInput()));
 
@@ -494,7 +495,7 @@ function saysAQueuedCloseWillStillReachTheGroup() {
       sendPost: (input) =>
         observed.sent.length === 0
           ? certifyNext(observed, input)
-          : Effect.fail(queuedNetworkFailure()),
+          : Effect.fail(new SendError({ reason: "delivery-pending" })),
     });
     const id = yield* startAllGather(layer);
     yield* TestClock.adjust(Duration.seconds(60));

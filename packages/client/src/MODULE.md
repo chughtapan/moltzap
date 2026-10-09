@@ -8,7 +8,7 @@ Public barrel for the final endpoint runtime capability.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./endpoint/harness-endpoint/index.ts#L57)
+### [`acquireHarnessEndpoint`](./endpoint/harness-endpoint/index.ts#L58)
 
 _Function_
 
@@ -46,7 +46,7 @@ export const AgentAddress = addressInput.pipe(
 
 An explicit direct destination using one canonical Registry name.
 
-### [`CollectiveError`](./transport/collectives/forms.ts#L317)
+### [`CollectiveError`](./transport/collectives/forms.ts#L315)
 
 _Class_
 
@@ -128,7 +128,7 @@ export const ContentPart = Schema.Union(
 
 One exact semantic part of a message.
 
-### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L103)
+### [`DeliveryAcknowledgeError`](./transport/messaging/errors.ts#L93)
 
 _Class_
 
@@ -371,7 +371,7 @@ export const JsonValue: Schema.Schema<JsonValue> = Schema.suspend(() =>
 
 Runtime validation for the closed recursive JSON value.
 
-### [`ListenError`](./transport/messaging/errors.ts#L82)
+### [`ListenError`](./transport/messaging/errors.ts#L72)
 
 _Class_
 
@@ -512,7 +512,7 @@ each data part as JSON, one part per line.
 
 **Returns:** The text a host puts in the model's turn.
 
-### [`SendError`](./transport/messaging/errors.ts#L52)
+### [`SendError`](./transport/messaging/errors.ts#L56)
 
 _Class_
 
@@ -564,7 +564,7 @@ when `collective` is omitted, or an answer to the request open in that
 address's conversation. `parseMessageText` reads both from a message's
 text.
 
-### [`SendResult`](./transport/collectives/forms.ts#L174)
+### [`SendResult`](./transport/collectives/forms.ts#L171)
 
 _Interface_
 

@@ -78,8 +78,15 @@ and its error reaches the model as an `operationFailed` item. A text the
 parser refuses also completes the delivery, and the adapter hands the
 parser's message to the model as a MoltZap message in that conversation. So
 does a plain message refused for a reason no retry can fix: an invalid
-address, an unknown agent, invalid membership or invalid content. Any other
-plain-message failure stays with NanoClaw's retry.
+address, an unknown agent, invalid membership or invalid content. So does
+any send whose call fails as `delivery-pending` or `outcome-unknown`, a gather,
+all_gather or answer included, since a keyless retry would send the message a
+second time: the daemon still delivers a `delivery-pending` post, and an
+`outcome-unknown` one may already have gone out. The model reads that the
+message is queued and will be delivered, or that it may have been sent, and can
+resend it deliberately; such a delivery completes even when the host callback
+that reports it fails. Any other plain-message failure stays with NanoClaw's
+retry.
 
 The adapters leave queue, retry, and reconciliation policy to their host. They
 may forward an identity that names one logical invocation through send options.
@@ -129,7 +136,9 @@ and a response's names the request it answered. A refused send is a JSON-RPC
 error whose data is `{reason, detail?}` with the `SendError` reason and
 detail, or
 `{reason: "collective-failed", id, failure}` with the `CollectiveError`
-failure, from which the loopback Client rebuilds the same typed error. It is
+failure, from which the loopback Client rebuilds the same typed error. A send
+that ends without a typed failure, or whose completed result fails the tool's
+output schema, answers `outcome-unknown`. It is
 not exposed as a second model messaging tool when the host already supplies
 native messaging.
 

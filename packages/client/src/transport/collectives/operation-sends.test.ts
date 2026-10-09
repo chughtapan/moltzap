@@ -24,12 +24,12 @@ import {
   slotSchema,
   startGather,
 } from "../../__tests__/collective-operation-fixtures.js";
-import { queuedNetworkFailure } from "../messaging/errors.js";
+import { SendError } from "../messaging/errors.js";
 import { collectiveIdOf } from "./part/index.js";
 
 /** What a send that failed after queueing its post says about it. */
 const queuedText =
-  "MoltZap is unavailable (network unavailable); the message is queued and will be delivered once MoltZap is reachable";
+  "MoltZap is unavailable; the message is queued and will be delivered once MoltZap is reachable";
 
 function certifiesAMulticastAsItsTextAndAnExplicitMulticastPart() {
   const observed = newObserved();
@@ -233,7 +233,8 @@ function failsAGatherNoneOfWhosePostsWasDelivered() {
 function saysEachMemberIsStillSentAQueuedRequestPost() {
   return Effect.gen(function* () {
     const layer = yield* makeLayer(newObserved(), {
-      sendPost: () => Effect.fail(queuedNetworkFailure()),
+      sendPost: () =>
+        Effect.fail(new SendError({ reason: "delivery-pending" })),
     });
     const refusal = yield* Effect.flip(send(layer, gatherInput()));
 
