@@ -1,4 +1,8 @@
-import { packageEslintConfig } from "../../eslint.shared.mjs";
+/**
+ * @file Package ESLint configuration: the shared workspace preset plus the
+ * rules that keep envelope signing in its owning modules.
+ */
+import { packageEslintConfig } from "../../eslint.shared.js";
 
 /** Test files, which sign peer envelopes directly. */
 const testFiles = ["src/**/*.test.ts", "src/__tests__/**"];

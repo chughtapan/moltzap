@@ -82,7 +82,7 @@
     "arch:config:generate": {
       "cache": true,
       "inputs": [
-        "{workspaceRoot}/scripts/architecture/gen-configs.mjs"
+        "{workspaceRoot}/scripts/architecture/gen-configs.ts"
       ],
       "outputs": [
         "{workspaceRoot}/packages/*/safer-architecture.config.json"
@@ -90,7 +90,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "node scripts/architecture/gen-configs.mjs"
+        "command": "node scripts/architecture/gen-configs.ts"
       }
     },
     "arch:config:check": {
@@ -112,7 +112,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "node scripts/architecture/check-boundaries.js"
+        "command": "node scripts/architecture/check-boundaries.ts"
       }
     },
     "lint:typescript": {
@@ -126,7 +126,8 @@
         "parallel": false,
         "commands": [
           "tsc --noEmit -p tsconfig.eslint.json",
-          "tsc --noEmit -p scripts/docs/tsconfig.json"
+          "tsc --noEmit -p scripts/docs/tsconfig.json",
+          "tsc --noEmit -p scripts/tsconfig.json"
         ]
       }
     },
@@ -138,7 +139,7 @@
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "node scripts/code/effect-diagnostics.mjs"
+        "command": "node scripts/code/effect-diagnostics.ts"
       }
     },
     "lint:dead-code": {
@@ -155,19 +156,21 @@
     "lint:eslint": {
       "cache": true,
       "inputs": [
-        "{workspaceRoot}/eslint.config.mjs",
-        "{workspaceRoot}/eslint.shared.mjs",
+        "{workspaceRoot}/eslint.config.ts",
+        "{workspaceRoot}/eslint.shared.ts",
         "{workspaceRoot}/tsconfig.eslint.json",
         "{workspaceRoot}/tsconfig.base.json",
         "{workspaceRoot}/package.json",
         "{workspaceRoot}/pnpm-lock.yaml",
         "{workspaceRoot}/*.ts",
-        "{workspaceRoot}/examples/**/*.ts"
+        "{workspaceRoot}/examples/**/*.ts",
+        "{workspaceRoot}/scripts/**/*.ts",
+        "{workspaceRoot}/scripts/tsconfig.json"
       ],
       "executor": "nx:run-commands",
       "options": {
         "cwd": ".",
-        "command": "eslint eslint.config.mjs eslint.shared.mjs '*.ts' 'examples/**/*.ts' --no-error-on-unmatched-pattern --cache --max-warnings=0"
+        "command": "eslint '*.ts' 'examples/**/*.ts' 'scripts/**/*.ts' --no-error-on-unmatched-pattern --cache --max-warnings=0"
       }
     },
     "lint:oxlint": {

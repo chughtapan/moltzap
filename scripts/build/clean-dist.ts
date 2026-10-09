@@ -1,6 +1,7 @@
 /**
- * @file Discard `dist/` so each `tsc -b` emits only what current sources
- * produce.
+ * @file Discards the calling package's `dist/` so each `tsc -b` emits only
+ * what current sources produce. A package build runs it from the package
+ * directory.
  *
  * Build mode never removes an output whose source is gone: a deleted or
  * renamed module leaves a resolvable `dist/*.js` and `*.d.ts` that project
@@ -10,10 +11,7 @@
  * as up to date and re-emits nothing. Dropping the whole directory discards
  * the orphans and that build stamp together.
  */
-import { rm } from "node:fs/promises";
+import { rmSync } from "node:fs";
+import { resolve } from "node:path";
 
-await rm(new URL("../dist/", import.meta.url), {
-  force: true,
-  recursive: true,
-  maxRetries: 3,
-});
+rmSync(resolve("dist"), { force: true, recursive: true, maxRetries: 3 });

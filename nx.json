@@ -10,8 +10,8 @@
       "!{projectRoot}/**/*.test.ts",
       "!{projectRoot}/src/**/__tests__/**",
       "!{projectRoot}/tsconfig.test.json",
-      "!{projectRoot}/vitest.config.mjs",
-      "!{projectRoot}/vitest.integration.config.mjs",
+      "!{projectRoot}/vitest.config.ts",
+      "!{projectRoot}/vitest.integration.config.ts",
       "!{projectRoot}/**/MODULE.md",
       "!{projectRoot}/safer-architecture.config.json"
     ],
@@ -124,8 +124,8 @@
       "inputs": [
         "default",
         "^production",
-        "{workspaceRoot}/eslint.config.mjs",
-        "{workspaceRoot}/eslint.shared.mjs",
+        "{workspaceRoot}/eslint.config.ts",
+        "{workspaceRoot}/eslint.shared.ts",
         "{workspaceRoot}/knip.json",
         "{workspaceRoot}/oxlint.json",
         "{workspaceRoot}/tsconfig.eslint.json"
@@ -147,7 +147,7 @@
       "inputs": [
         "default",
         "{projectRoot}/safer-architecture.config.json",
-        "{workspaceRoot}/scripts/architecture/check-package.mjs"
+        "{workspaceRoot}/scripts/architecture/check-package.ts"
       ],
       "cache": true
     }
