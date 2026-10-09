@@ -35,7 +35,10 @@ join it, and completed retries return its retained result or typed failure,
 including its original operation id. Caller cancellation does not cancel the
 daemon-owned keyed invocation. A reservation interrupted by daemon restart
 stays indeterminate and returns `outcome-unknown`; it is never executed again
-under that key. `read_send({idempotencyKey})` returns `absent`, `pending`,
+under that key. So does a key whose outcome the store could not retain, though
+the call that ran it returns the send's own outcome, and a retained outcome
+the store cannot decode replays as `outcome-unknown`.
+`read_send({idempotencyKey})` returns `absent`, `pending`,
 `indeterminate`, or `returned` with the stored input and observed outcome.
 These are invocation states, not collective completion. A returned failure
 also does not prove that an underlying post cannot certify later.

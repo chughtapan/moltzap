@@ -1,6 +1,14 @@
 /** @file Durable reservation of whole send invocations without protocol replay. */
 
-import { Deferred, Effect, Schema, type Scope } from "effect";
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Exit,
+  Option,
+  Schema,
+  type Scope,
+} from "effect";
 import {
   decodeRuntimeValue,
   encodeRuntimeValue,
@@ -53,7 +61,7 @@ const decodeStoredOutcome = (bytes: Uint8Array) =>
 const storedError = (value: unknown): Effect.Effect<never, SendFailure> =>
   decodeHarnessSendErrorData(value).pipe(
     Effect.catchTag("ParseError", () =>
-      Effect.fail(new SendError({ reason: "persistence-failed" })),
+      Effect.fail(new SendError({ reason: "outcome-unknown" })),
     ),
     Effect.flatMap(
       (error): Effect.Effect<never, SendFailure> =>
@@ -70,12 +78,18 @@ const storedError = (value: unknown): Effect.Effect<never, SendFailure> =>
     ),
   );
 
+/**
+ * Replay a retained outcome. One the store cannot decode says nothing about
+ * whether the send posted, so it replays as `outcome-unknown`.
+ * @param bytes The retained canonical outcome.
+ * @returns The send's result or failure.
+ */
 const replayOutcome = (
   bytes: Uint8Array,
 ): Effect.Effect<SendResult, SendFailure> =>
   decodeStoredOutcome(bytes).pipe(
     Effect.catchTag("EndpointStoreError", () =>
-      Effect.fail(new SendError({ reason: "persistence-failed" })),
+      Effect.fail(new SendError({ reason: "outcome-unknown" })),
     ),
     Effect.flatMap((outcome) =>
       outcome.kind === "success"
@@ -90,6 +104,43 @@ interface Invocations {
   readonly gate: Effect.Semaphore;
   readonly pending: Map<string, PendingSend>;
 }
+const outcomeOf = (
+  executed: Exit.Exit<SendResult, SendFailure>,
+): Option.Option<HarnessSendOutcome> =>
+  Exit.match(executed, {
+    onFailure: (cause) => Option.map(Cause.failureOption(cause), errorOutcome),
+    onSuccess: (result) => Option.some({ kind: "success", result }),
+  });
+
+/**
+ * The outcome a reserved send's caller gets: the one the store retained,
+ * replayed, so it matches a later lookup of the key. When the store cannot
+ * retain it, the caller gets the send's own outcome, since the send may have
+ * posted and the storage fault must not read as not sent; a later lookup
+ * then reads `outcome-unknown`. A send that ended without a typed outcome,
+ * by a defect or an interruption, retains nothing.
+ * @param runtime The invocations whose store retains the outcome.
+ * @param key The send's idempotency key.
+ * @param executed How the send ended.
+ * @returns The outcome to complete the reservation with.
+ */
+const retainedOutcome = (
+  runtime: Invocations,
+  key: string,
+  executed: Exit.Exit<SendResult, SendFailure>,
+): Effect.Effect<Exit.Exit<SendResult, SendFailure>> =>
+  Option.match(outcomeOf(executed), {
+    onNone: () => Effect.succeed(executed),
+    onSome: (outcome) =>
+      encodeRuntimeValue(outcome).pipe(
+        Effect.flatMap((bytes) =>
+          runtime.store.finishSendAttempt(key, bytes).pipe(Effect.as(bytes)),
+        ),
+        Effect.flatMap((bytes) => Effect.exit(replayOutcome(bytes))),
+        Effect.catchTag("EndpointStoreError", () => Effect.succeed(executed)),
+      ),
+  });
+
 const runReserved = (
   runtime: Invocations,
   key: string,
@@ -97,22 +148,8 @@ const runReserved = (
   result: PendingSend,
 ) =>
   runtime.execute(request).pipe(
-    Effect.match({
-      onFailure: errorOutcome,
-      onSuccess: (value): HarnessSendOutcome => ({
-        kind: "success",
-        result: value,
-      }),
-    }),
-    Effect.flatMap(encodeRuntimeValue),
-    Effect.flatMap((bytes) =>
-      runtime.store.finishSendAttempt(key, bytes).pipe(Effect.as(bytes)),
-    ),
-    Effect.catchTag("EndpointStoreError", () =>
-      Effect.fail(new SendError({ reason: "persistence-failed" })),
-    ),
-    Effect.flatMap(replayOutcome),
     Effect.exit,
+    Effect.flatMap((executed) => retainedOutcome(runtime, key, executed)),
     Effect.flatMap((outcome) => Deferred.done(result, outcome)),
     Effect.ensuring(Effect.sync(() => runtime.pending.delete(key))),
   );

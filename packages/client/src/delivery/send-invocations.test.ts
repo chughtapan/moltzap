@@ -4,7 +4,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Deferred, Effect, Fiber, Schema, Scope } from "effect";
 import { describe, expect, it } from "vitest";
-import { openEndpointStore } from "../store/index.js";
+import { EndpointStoreError, openEndpointStore } from "../store/index.js";
 import { CollectiveId, SendInput } from "../transport/collectives/forms.js";
 import { SendError } from "../transport/messaging/errors.js";
 import { makeSendInvocations } from "./send-invocations.js";
@@ -301,6 +301,76 @@ const replaysARefusalWithItsDetail = () =>
     ).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 
+/**
+ * A keyed send that posted, whose outcome the store cannot retain, still
+ * returns its result rather than a storage reason that says it was not sent.
+ * A later lookup of the key reads `outcome-unknown`, since nothing was
+ * retained.
+ */
+const returnsTheOwnOutcomeWhenItCannotBeRetained = () =>
+  runWithFileSystem(
+    Effect.gen(function* () {
+      const store = yield* temporaryDirectory.pipe(
+        Effect.flatMap(openEndpointStore),
+      );
+      const invocations = yield* makeSendInvocations(
+        {
+          ...store,
+          finishSendAttempt: () =>
+            Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+        },
+        () => Effect.succeed({ operationId }),
+        yield* Scope.Scope,
+      );
+
+      expect(yield* invocations.send(onceRequest)).toEqual({ operationId });
+      expect(
+        yield* invocations.send(onceRequest).pipe(Effect.flip),
+      ).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
+    }),
+  );
+
+/**
+ * A retained outcome the store cannot decode says nothing about whether the
+ * send posted, so its key replays as `outcome-unknown`.
+ */
+const replaysAnUndecodableOutcomeAsUnknown = () =>
+  runWithFileSystem(
+    Effect.gen(function* () {
+      const store = yield* temporaryDirectory.pipe(
+        Effect.flatMap(openEndpointStore),
+      );
+      const scope = yield* Scope.Scope;
+      const first = yield* makeSendInvocations(
+        store,
+        () => Effect.succeed({ operationId }),
+        scope,
+      );
+      yield* first.send(onceRequest);
+      const corrupted = yield* makeSendInvocations(
+        {
+          ...store,
+          readSendAttempt: (key) =>
+            store
+              .readSendAttempt(key)
+              .pipe(
+                Effect.map((attempt) =>
+                  attempt === undefined
+                    ? attempt
+                    : { ...attempt, canonicalOutcome: Uint8Array.of(0xff) },
+                ),
+              ),
+        },
+        () => Effect.dieMessage("retained send executed again"),
+        scope,
+      );
+
+      expect(
+        yield* corrupted.send(onceRequest).pipe(Effect.flip),
+      ).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
+    }),
+  );
+
 // @agent-code-guard/regression-only: these crash and concurrency transcripts pin the invocation contract without asserting collective completion.
 describe("durable send invocations", () => {
   it(
@@ -332,4 +402,12 @@ describe("durable send invocations", () => {
     preservesUncertaintyAndFailure,
   );
   it("replays a refusal with its detail", replaysARefusalWithItsDetail);
+  it(
+    "returns a keyed send's own outcome when the store cannot retain it",
+    returnsTheOwnOutcomeWhenItCannotBeRetained,
+  );
+  it(
+    "replays an outcome the store cannot decode as outcome-unknown",
+    replaysAnUndecodableOutcomeAsUnknown,
+  );
 });
