@@ -547,10 +547,11 @@ const terminallyStalledWebhookStore = Effect.gen(function* () {
 });
 
 /**
- * The owner credential resumes and then revokes a terminally stalled webhook
- * subscription through its tools, reading the subscription before and after.
+ * Through its tools, the owner credential is refused a resume of a terminally
+ * stalled webhook subscription and then revokes the subscription, reading it
+ * before and after.
  */
-const ownerResumesAndRevokesAStalledWebhook = () =>
+const ownerResumeIsRefusedThenRevokeRetiresAStalledWebhook = () =>
   Effect.scoped(
     Effect.gen(function* () {
       const store = yield* terminallyStalledWebhookStore;
@@ -581,7 +582,7 @@ const ownerResumesAndRevokesAStalledWebhook = () =>
 
 // @agent-code-guard/regression-only: each admitted tool must reach the operation its name documents.
 describe("calls a caller's catalog lists", () => {
-  // Value: protects=runtime search_agents and owner read_send answer from their own operations; fails_when=the tool dispatch keys either name to another handler or operation; why_new=the only read_send test stops at input decoding and no test calls search_agents through MCP, so a mis-keyed handler passes the suite; seam=none
+  // Value: protects=runtime search_agents and owner read_send answer from their own operations; fails_when=the tool dispatch keys either name to another handler or operation; why_new=the other read_send and search_agents tests stop at input decoding or call the operations object directly; seam=none
   it.each(admittedCalls)(
     "answers $name for $caller from its operation",
     ({ name, toolArguments, credential, answer }) =>
@@ -595,10 +596,10 @@ describe("calls a caller's catalog lists", () => {
       ),
   );
 
-  // Value: protects=owner resume refuses a terminal stall and owner revoke retires the webhook subscription; fails_when=revoke_event_subscription or resume_event_subscription runs another event operation or none; why_new=webhook.test drives revoke and resume on the webhook object and auth.test only checks their admission, so no test reaches them through the tool dispatch; seam=none
+  // Value: protects=owner resume refuses a terminal stall and owner revoke retires the webhook subscription; fails_when=revoke_event_subscription or resume_event_subscription runs another event operation or none; why_new=webhook.test drives revoke and resume on the webhook object, not through the MCP tool dispatch; seam=none
   it(
-    "lets the owner credential resume and then revoke a stalled webhook subscription",
-    ownerResumesAndRevokesAStalledWebhook,
+    "refuses the owner a resume of a terminally stalled webhook subscription and lets it revoke the subscription",
+    ownerResumeIsRefusedThenRevokeRetiresAStalledWebhook,
   );
 });
 
