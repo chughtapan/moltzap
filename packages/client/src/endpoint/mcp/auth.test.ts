@@ -1,5 +1,6 @@
 /** @file Runtime credentials cannot expose collective protocol history or owner tools. */
 
+import { HttpClient, HttpClientResponse } from "@effect/platform";
 import { live as it } from "@effect/vitest";
 import {
   CLIENT_CAPABILITIES_META_KEY,
@@ -7,16 +8,24 @@ import {
   PROTOCOL_VERSION_META_KEY,
 } from "@modelcontextprotocol/server";
 import { AgentCard } from "@moltzap/identity";
-import { Effect, Redacted, Schema } from "effect";
+import { Effect, Match, Redacted, Schema } from "effect";
 import { describe, expect } from "vitest";
 import type { EventStore } from "../../delivery/operations.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { makeFixture } from "../../__tests__/router-worker-fixtures.js";
-import { HARNESS_SEND_META_KEY } from "./names.js";
+import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
+import {
+  DeliveryToken,
+  encodeRuntimeValue,
+  openEndpointStore,
+} from "../../store/index.js";
+import { InboundItem } from "../../transport/collectives/inbound.js";
+import { HARNESS_SEND_META_KEY, INBOX_ITEM_EVENT } from "./names.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
 } from "./tools.js";
+import { makeWebhookEvents } from "./webhook.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals -- HTTP and JSON-RPC codes are external conformance expectations. */
 
@@ -447,6 +456,149 @@ describe("calls a caller's catalog does not list", () => {
           });
         },
       ),
+  );
+});
+
+/**
+ * Calls a registered daemon's catalog lists, each with arguments only its own
+ * tool accepts and the answer only its own operation gives.
+ */
+const admittedCalls = [
+  {
+    caller: "the runtime credential",
+    name: "search_agents",
+    toolArguments: { agentName: "bob" },
+    credential: credentials.runtime,
+    answer: { kind: "not_found" },
+  },
+  {
+    caller: "the owner credential",
+    name: "read_send",
+    toolArguments: { idempotencyKey: "retried-send" },
+    credential: credentials.owner,
+    answer: { state: "absent" },
+  },
+];
+
+const webhookSecret = `whsec_${Buffer.alloc(32, 1).toString("base64")}`;
+const verificationRequest = Schema.parseJson(
+  Schema.Struct({
+    type: Schema.Literal("verification"),
+    challenge: Schema.String,
+  }),
+);
+
+/**
+ * A webhook callback that echoes each verification challenge and answers
+ * every event delivery 410 Gone, which stalls the subscription terminally.
+ */
+const goneCallback = HttpClient.make((request) =>
+  Schema.decodeUnknown(verificationRequest)(
+    Match.value(request.body).pipe(
+      Match.tag("Uint8Array", ({ body }) => new TextDecoder().decode(body)),
+      Match.orElse(() => ""),
+    ),
+  ).pipe(
+    Effect.match({
+      onSuccess: ({ challenge }) =>
+        new Response(JSON.stringify({ challenge }), { status: 200 }),
+      onFailure: () => new Response("gone", { status: 410 }),
+    }),
+    Effect.map((response) => HttpClientResponse.fromWeb(request, response)),
+  ),
+);
+
+/**
+ * A store holding a runtime webhook subscription whose callback rejected an
+ * inbox item terminally, which only an owner revoke clears.
+ */
+const terminallyStalledWebhookStore = Effect.gen(function* () {
+  const store = yield* openEndpointStore(stateDirectory());
+  const webhook = yield* makeWebhookEvents(
+    store,
+    yield* Effect.makeSemaphore(1),
+  ).pipe(Effect.provideService(HttpClient.HttpClient, goneCallback));
+  yield* webhook.subscribe(
+    {
+      name: INBOX_ITEM_EVENT,
+      arguments: {},
+      cursor: null,
+      delivery: {
+        mode: "webhook",
+        url: "https://callback.example/events",
+        secret: webhookSecret,
+      },
+    },
+    "runtime",
+  );
+  yield* store.putInboxItem({
+    deliveryToken: Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", 1)),
+    canonicalItem: yield* encodeRuntimeValue(
+      Schema.decodeUnknownSync(InboundItem)({
+        kind: "operationFailed",
+        id: digest("col_", 1),
+        to: "agent:bob",
+        error: "rejected by the callback",
+      }),
+    ),
+  });
+  yield* webhook.observe();
+  return store;
+});
+
+/**
+ * The owner credential resumes and then revokes a terminally stalled webhook
+ * subscription through its tools, reading the subscription before and after.
+ */
+const ownerResumesAndRevokesAStalledWebhook = () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const store = yield* terminallyStalledWebhookStore;
+      const handler = yield* acquireHandler(true, {
+        credentials,
+        eventStore: store,
+      });
+      const ownerCall = (name: string) =>
+        callTool(handler, { name, arguments: {} }, credentials.owner);
+
+      const stalled = yield* ownerCall("event_subscription_status");
+      const resumed = yield* ownerCall("resume_event_subscription");
+      const revoked = yield* ownerCall("revoke_event_subscription");
+      const retired = yield* ownerCall("event_subscription_status");
+
+      expect(stalled).toMatchObject({
+        result: {
+          structuredContent: { mode: "webhook", stalled: "terminal" },
+        },
+      });
+      expect(resumed).toMatchObject({ error: { code: -32014 } });
+      expect(revoked).toHaveProperty("result.structuredContent", {});
+      expect(retired).toHaveProperty("result.structuredContent", {
+        mode: "none",
+      });
+    }),
+  );
+
+// @agent-code-guard/regression-only: each admitted tool must reach the operation its name documents.
+describe("calls a caller's catalog lists", () => {
+  // Value: protects=runtime search_agents and owner read_send answer from their own operations; fails_when=the tool dispatch keys either name to another handler or operation; why_new=the only read_send test stops at input decoding and no test calls search_agents through MCP, so a mis-keyed handler passes the suite; seam=none
+  it.each(admittedCalls)(
+    "answers $name for $caller from its operation",
+    ({ name, toolArguments, credential, answer }) =>
+      verify(
+        credentialedHandler(true),
+        (handler) =>
+          callTool(handler, { name, arguments: toolArguments }, credential),
+        (body) => {
+          expect(body).toHaveProperty("result.structuredContent", answer);
+        },
+      ),
+  );
+
+  // Value: protects=owner resume refuses a terminal stall and owner revoke retires the webhook subscription; fails_when=revoke_event_subscription or resume_event_subscription runs another event operation or none; why_new=webhook.test drives revoke and resume on the webhook object and auth.test only checks their admission, so no test reaches them through the tool dispatch; seam=none
+  it(
+    "lets the owner credential resume and then revoke a stalled webhook subscription",
+    ownerResumesAndRevokesAStalledWebhook,
   );
 });
 
