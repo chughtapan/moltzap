@@ -68,10 +68,10 @@ const sendReasonByStoreReason = {
 >;
 
 /**
- * The failure of an intent bind that did not complete. A store refusal rolls
- * the bind back, so nothing was queued; a raw persistence failure can follow
- * the commit, so whether the intent is durable, and so proposed later, is
- * unknown.
+ * The failure of an intent bind that did not complete. A store refusal is
+ * raised before the bind commits and rolls it back, so nothing was queued; a
+ * raw persistence failure may come from the commit itself, so whether the
+ * intent is durable, and so proposed later, is unknown.
  * @param error The store's failure.
  * @returns The send's closed failure.
  */
@@ -561,10 +561,7 @@ function activateIntentOnce(
       return { kind: "waiting", barrier } satisfies IntentActivation;
     }
     yield* bindPreparedIntent(runtime, prepared);
-    return yield* activateBoundIntent(runtime, prepared).pipe(
-      // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- A bound intent is proposed again later, so every failure after the bind is delivery-pending, as activateBoundIntent explains.
-      Effect.mapError(() => new SendError({ reason: "delivery-pending" })),
-    );
+    return yield* activateBoundIntent(runtime, prepared);
   });
 }
 
@@ -573,7 +570,8 @@ function activateIntentOnce(
  * it when it already certified. The intent is in the store and
  * `runtime.intents` before any proposal, so a failure here does not mean the
  * post was not sent: `rebasePendingIntents` proposes it again when the
- * conversation's head moves, and recovery proposes it after a restart.
+ * conversation's head moves, and recovery proposes it after a restart. So
+ * every failure here fails the send as `delivery-pending`.
  * @param runtime Engine whose conversation and outbox take the proposal.
  * @param prepared The stored intent with its canonical bytes.
  * @returns The ready activation and its completion latch.
@@ -616,5 +614,8 @@ function activateBoundIntent(
       yield* proposeIntent(runtime, localIntent);
     }
     return { kind: "ready", completion } satisfies IntentActivation;
-  });
+  }).pipe(
+    // eslint-disable-next-line agent-code-guard/no-effect-error-coalescing -- A bound intent is proposed again later, so every failure here is delivery-pending, as this function's JSDoc explains.
+    Effect.mapError(() => new SendError({ reason: "delivery-pending" })),
+  );
 }

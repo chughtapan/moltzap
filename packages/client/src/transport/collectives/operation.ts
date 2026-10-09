@@ -96,7 +96,6 @@ import {
 } from "../wire/index.js";
 import {
   type CollectiveSendOutcome,
-  ignoreEmitFailure,
   refusedAs,
   type RefusedSend,
   reportFailure,
@@ -607,7 +606,8 @@ function sleepUntil(at: number): Effect.Effect<void> {
  * The send fails only when every post was refused and the gather has not
  * completed, so an operation ends in exactly one refusal or one result. A
  * result its settling completes that cannot be kept leaves the send's
- * outcome as it is, since its request posts exist.
+ * outcome as it is, since its request posts exist and the emit port reports
+ * the failure.
  */
 function sendRequests(
   state: CollectiveState,
@@ -644,7 +644,7 @@ function sendRequests(
         }),
       );
     }
-    yield* ignoreEmitFailure(
+    yield* Effect.ignore(
       updateGather(state, id, (settled) => {
         settled.requestsSettled = true;
       }),
@@ -837,7 +837,9 @@ function closeAllGather(
 /**
  * Answer the one request open in the conversation `to` names. The answer
  * carries no request id, so the conversation decides which request it
- * answers; with none open, or several, nothing is sent.
+ * answers; with none open, or several, nothing is sent. An item settling
+ * the answer emits that the daemon cannot keep leaves the answer's outcome
+ * as it is, since its post exists and the emit port reports the failure.
  */
 function respond(
   state: CollectiveState,
@@ -858,9 +860,9 @@ function respond(
     const post = yield* state.ports.sendPost({ to: request.to, content }).pipe(
       Effect.tapBoth({
         onFailure: () =>
-          ignoreEmitFailure(settleAnswer(state, id, request, Option.none())),
+          Effect.ignore(settleAnswer(state, id, request, Option.none())),
         onSuccess: (sent) =>
-          ignoreEmitFailure(
+          Effect.ignore(
             settleAnswer(
               state,
               id,

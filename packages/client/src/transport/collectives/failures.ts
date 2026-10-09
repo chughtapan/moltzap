@@ -4,33 +4,14 @@ import { Effect } from "effect";
 import type { SendError } from "../messaging/errors.js";
 import type { EngineSentPost } from "../messaging/index.js";
 import type { MessageAddressInput } from "../wire/values.js";
-import type { InboundItem } from "./inbound.js";
-import {
+import type {
   CollectiveEmitError,
-  type CollectiveError,
-  type CollectiveId,
-  type FailureDelivery,
-  type SendResult,
+  CollectiveError,
+  CollectiveId,
+  FailureDelivery,
+  SendResult,
 } from "./forms.js";
-
-/**
- * Keep a send's own outcome when an item its work emitted cannot be kept. The
- * send's posts may already exist, so the emit failure must not read as the
- * send's failure, which tells a host its posts were not sent; the emit port
- * has reported the storage failure itself, as the daemon's does by stopping.
- * @param effect Work whose emitted item may not be kept.
- * @returns The work, with an emit failure dropped.
- */
-export function ignoreEmitFailure<E, R>(
-  effect: Effect.Effect<void, E | CollectiveEmitError, R>,
-): Effect.Effect<void, Exclude<E, CollectiveEmitError>, R> {
-  return Effect.catchIf(
-    effect,
-    (error): error is CollectiveEmitError =>
-      error instanceof CollectiveEmitError,
-    () => Effect.void,
-  );
-}
+import type { InboundItem } from "./inbound.js";
 
 /** One completed send: the posts certified by its return, and a collective id. */
 export interface CollectiveSendOutcome extends SendResult {
@@ -74,10 +55,8 @@ export function reportFailure(
             error: refused.error.message,
           }).pipe(
             Effect.as({ operationId: refused.id, postIds: [] }),
-            Effect.catchIf(
-              (error): error is CollectiveEmitError =>
-                error instanceof CollectiveEmitError,
-              () => Effect.fail(refused.error),
+            Effect.catchTag("CollectiveEmitError", () =>
+              Effect.fail(refused.error),
             ),
           );
         default: {
