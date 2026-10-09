@@ -138,12 +138,9 @@ closed. Native adapters and the daemon must upgrade together.
 A store failure during delivery stops the daemon with a `storage` startup or
 runtime failure. This covers reading pending deliveries, persisting a
 classified item, and keeping a result or failure item that a collective
-operation produces. A store failure while binding or proposing a post's
-intent also stops the daemon: the send fails as `outcome-unknown` or
-`delivery-pending`, and recovery proposes the intent after the restart. The
-delivery work that hit the failure ends instead of waiting, so
-inbox reads and acknowledgments are not held behind it while the daemon
-stops:
+operation produces. The delivery work that hit the failure ends instead of
+waiting, so inbox reads and acknowledgments are not held behind it while the
+daemon stops:
 
 - At startup, the daemon fails before it starts the MCP listener.
 - `register` returns `persistence-failed` when the first delivery pass after
@@ -157,6 +154,14 @@ stops:
   restart, under the volatile collective state described in
   [Delivery ownership](#delivery-ownership); an item a send produced is lost
   with that state.
+
+A store failure that may leave a post's intent bound but not proposed also
+stops the daemon in `storage`, and recovery proposes the intent after the
+restart. That is a raw persistence failure while binding the intent, which
+fails the send as `outcome-unknown`, or any store failure while queueing its
+proposal, which fails the send as `delivery-pending`. A store refusal while
+binding rolls the bind back: the send fails as `persistence-failed` and the
+daemon keeps running.
 
 A failure or defect while the protocol activates, at startup or after a
 registration binds, also stops the daemon: a Router it cannot reach in phase

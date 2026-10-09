@@ -70,10 +70,11 @@ export interface EndpointEngineInput {
   readonly routerWorker: EngineRouterPort;
   readonly actionPolicy: EngineActionPolicy;
   /**
-   * Report a store failure while binding or proposing a post's intent. The
-   * daemon stops on it, so recovery after the restart proposes the intent; a
-   * daemon that kept running would leave it waiting for a head move that a
-   * new conversation never gets.
+   * Report a store failure that may leave a post's intent bound but not
+   * proposed: a raw persistence failure while binding it, or any store failure
+   * while queueing its proposal. The host must stop, so recovery after the
+   * restart proposes the intent; a host that kept running would leave it
+   * waiting for a head move that a new conversation never gets.
    */
   readonly reportStorageFault: Effect.Effect<void>;
 }

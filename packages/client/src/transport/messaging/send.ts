@@ -269,7 +269,7 @@ interface AuthorizedProposal {
  * arrives, and it would drop the proposal as not gap-free. The proposer's own
  * copy of that record, which every member can open, reaches each member first.
  * A store failure while queueing is reported as a storage fault: the intent
- * is bound, and every caller treats the failure as fatal.
+ * stays bound but not proposed until recovery after a restart proposes it.
  * @param runtime Engine that sends the proposal.
  * @param proposal Authorized proposal and the intent it proposes.
  * @returns Completion once both envelopes are queued and the intent records

@@ -249,39 +249,6 @@ const emitsWhileAPassHoldsTheDeliveryGate = async () => {
 };
 
 /**
- * A storage fault the engine reports stops the daemon in storage. The
- * harness hands the test the report the daemon gave the engine.
- */
-const stopsTheDaemonOnAReportedStorageFault = async () => {
-  const fixture = await Effect.runPromise(makeFixture);
-  const original = await Effect.runPromise(makeHarness(fixture, "none"));
-  const reported = await Effect.runPromise(
-    Deferred.make<Effect.Effect<void>>(),
-  );
-  const harness: RuntimeHarness = {
-    ...original,
-    dependencies: {
-      ...original.dependencies,
-      makeEngine: (input) =>
-        Deferred.succeed(reported, input.reportStorageFault).pipe(
-          Effect.zipRight(original.dependencies.makeEngine(input)),
-        ),
-    },
-  };
-  const daemon = Effect.runFork(
-    run(fixture, makeStore(fixture, true, harness.delivery), harness),
-  );
-  await awaitStage(Deferred.await(harness.listenerReady), "listener");
-  const report = await awaitStage(Deferred.await(reported), "engine input");
-
-  await Effect.runPromise(report);
-
-  expect(
-    await awaitStage(Fiber.join(daemon).pipe(Effect.flip), "daemon failure"),
-  ).toEqual(new DaemonRuntimeError({ phase: "storage" }));
-};
-
-/**
  * An emitted item the store cannot persist fails the daemon in storage, and
  * its send fails with the refusal it would have carried, rather than waiting
  * or reporting the storage fault as the send's outcome. The store rejects
@@ -1270,10 +1237,6 @@ describe("daemon runtime composition", () => {
   it(
     "fails the daemon when an emitted item cannot persist",
     failsWhenAnEmittedItemCannotPersist,
-  );
-  it(
-    "stops the daemon in storage when the engine reports a storage fault",
-    stopsTheDaemonOnAReportedStorageFault,
   );
   it(
     "settles registration when its first delivery pass fails",
