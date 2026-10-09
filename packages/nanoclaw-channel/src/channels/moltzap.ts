@@ -174,20 +174,28 @@ function extractOutboundText(message: MoltZapOutboundMessage): string | null {
 }
 
 /**
+ * Send failures whose post the daemon still delivers, `delivery-pending`, or
+ * may already have sent, `outcome-unknown`. NanoClaw's retry is a new keyless
+ * send and would post the message a second time, so such a row completes even
+ * when the host callback that reports it fails; the model, told the message
+ * may have been sent, can resend it deliberately.
+ */
+const POSTED_REFUSALS: ReadonlySet<SendError["reason"]> = new Set([
+  "delivery-pending",
+  "outcome-unknown",
+]);
+
+/**
  * Send failures NanoClaw's retry must not repeat. The model hears of these;
  * any other failure stays with that retry. An invalid address or content
- * fails the same way again. The retry is a new keyless send, so it would
- * post a `delivery-pending` message, which is queued and still delivered, a
- * second time, and an `outcome-unknown` one possibly so; the model, told the
- * message may have been sent, can resend it deliberately.
+ * fails the same way again, and `POSTED_REFUSALS` says why the rest do.
  */
 const FINAL_REFUSALS: ReadonlySet<SendError["reason"]> = new Set([
   "invalid-address",
   "unknown-agent",
   "membership-invalid",
   "content-invalid",
-  "delivery-pending",
-  "outcome-unknown",
+  ...POSTED_REFUSALS,
 ]);
 
 function isFinalRefusal(error: unknown): error is SendError {
@@ -415,12 +423,39 @@ class MoltZapChannelAdapter {
                 .pipe(
                   Effect.asVoid,
                   Effect.catchIf(isFinalRefusal, (error) =>
-                    this.reportRefusedText(config, to, error.message),
+                    this.reportFinalRefusal(config, to, error),
                   ),
                 ),
           }),
       ),
     );
+  }
+
+  /**
+   * Report a send refused for a reason in `FINAL_REFUSALS`. A send in
+   * `POSTED_REFUSALS` completes even when its report cannot reach the host,
+   * since failing its row would hand it to NanoClaw's retry.
+   * @param config The host callbacks the delivery started under.
+   * @param to The conversation the text was sent to.
+   * @param error The send's refusal.
+   * @returns Completion once the report is handed to the host or, for a
+   *     posted refusal, logged as unreported.
+   */
+  private reportFinalRefusal(
+    config: ChannelSetup,
+    to: MessageAddressInput,
+    error: SendError,
+  ): Effect.Effect<void, MoltZapChannelError> {
+    const report = this.reportRefusedText(config, to, error.message);
+    return POSTED_REFUSALS.has(error.reason)
+      ? report.pipe(
+          Effect.catchAll((unreported) =>
+            Effect.logWarning(
+              `MoltZap completed a ${error.reason} send to ${to} without reporting it: ${unreported.message}`,
+            ),
+          ),
+        )
+      : report;
   }
 
   /**
