@@ -1169,6 +1169,131 @@ function restartSignsNoVoteForARecordAcceptedWhole() {
 }
 
 /**
+ * Members 1, 2 and 3 certify a post that member 4 misses. Member 4's acceptance
+ * of member 1's whole CertifiedRecord is interrupted right after its store
+ * commits the post, as the Router worker interrupts its recovery pump. The
+ * acceptance still completes, so member 4 holds the post as its head: a later
+ * action-certified copy of the post is ignored and draws no durability vote.
+ * @returns Completion once member 4's answer to the copy is checked.
+ */
+function finishesAnInterruptedAcceptanceOfARecordReceivedWhole() {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const hold = {
+        armed: yield* Ref.make(false),
+        committed: yield* Deferred.make<undefined>(),
+        release: yield* Deferred.make<undefined>(),
+      };
+      const harness = yield* makeProtocolHarness({
+        wrapStore: (store) => holdingPostPromotion(store, hold),
+      });
+      yield* certifyGenesis(harness);
+      const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+      const authorIdentity = yield* requireAt(
+        harness.identities,
+        0,
+        "identity",
+      );
+      const absentIdentity = yield* requireAt(
+        harness.identities,
+        3,
+        "identity",
+      );
+      const everyMemberButTheAbsent = [0, 1, 2];
+      const sending = yield* Effect.fork(
+        author.send(yield* sendInput(harness, "accepted whole")),
+      );
+      yield* harness.deliver(
+        yield* takeReadyBatch(harness),
+        everyMemberButTheAbsent,
+      );
+      yield* harness.drain(everyMemberButTheAbsent);
+      yield* harness.deliver(
+        yield* takeQueued(harness),
+        everyMemberButTheAbsent,
+      );
+      yield* harness.drain(everyMemberButTheAbsent);
+      const certifying = yield* takeQueued(harness);
+      const authorCopy = yield* sentOfKind(
+        harness,
+        certifying,
+        authorIdentity,
+        "action_certified_record",
+      );
+      yield* harness.deliver(certifying, everyMemberButTheAbsent);
+      yield* harness.drain(everyMemberButTheAbsent);
+      yield* takeQueued(harness);
+      yield* Fiber.join(sending).pipe(Effect.orDie);
+
+      yield* Ref.set(hold.armed, true);
+      const accepting = yield* Effect.fork(
+        harness.deliver(
+          [yield* certifiedRecordPacket(harness, authorIdentity)],
+          [3],
+        ),
+      );
+      yield* Deferred.await(hold.committed);
+      const interrupting = yield* Effect.fork(Fiber.interrupt(accepting));
+      yield* Deferred.succeed(hold.release, undefined);
+      yield* Fiber.join(interrupting);
+      yield* harness.drain([3]);
+      yield* takeQueued(harness);
+      const answer = yield* harness.deliver(authorCopy, [3]);
+      yield* harness.drain([3]);
+      const votes = yield* sentOfKind(
+        harness,
+        yield* takeQueued(harness),
+        absentIdentity,
+        "durability_vote",
+      );
+
+      expect(answer).toEqual(["ignored"]);
+      expect(votes).toEqual([]);
+    }),
+  );
+}
+
+/**
+ * `store`, which, once `hold.armed` is set, signals `hold.committed` after it
+ * commits a promotion and then waits for `hold.release`: the point an
+ * interruption right after the commit reaches.
+ * @param store A member's store.
+ * @param hold The switch and the two signals of the held promotion.
+ * @param hold.armed Whether promotions are held.
+ * @param hold.committed Completed once a held promotion is committed.
+ * @param hold.release Awaited before a held promotion returns.
+ * @returns The wrapped store.
+ */
+function holdingPostPromotion(
+  store: EndpointStore,
+  hold: Readonly<{
+    armed: Ref.Ref<boolean>;
+    committed: Deferred.Deferred<undefined>;
+    release: Deferred.Deferred<undefined>;
+  }>,
+): EndpointStore {
+  return {
+    ...store,
+    promoteRecord: (record, delivery) =>
+      store
+        .promoteRecord(record, delivery)
+        .pipe(
+          Effect.tap(() =>
+            Ref.get(hold.armed).pipe(
+              Effect.flatMap((armed) =>
+                armed
+                  ? Deferred.succeed(hold.committed, undefined).pipe(
+                      Effect.zipRight(Deferred.await(hold.release)),
+                    )
+                  : Effect.void,
+              ),
+            ),
+          ),
+        ),
+  };
+}
+
+/**
  * Member 2 locks its own post at the genesis head while members 1, 3 and 4
  * lock and sign member 1's. Member 2's store then starts refusing every other
  * member's action signature, so its acceptance of member 1's action-certified
@@ -2112,6 +2237,11 @@ describe("fixed-post endpoint protocol", () => {
   it(
     "signs no durability vote on restart for a record it accepted already certified",
     restartSignsNoVoteForARecordAcceptedWhole,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "finishes an interrupted acceptance of a record received whole, so a later copy of it draws no durability vote",
+    finishesAnInterruptedAcceptanceOfARecordReceivedWhole,
     TEST_TIMEOUT_MS,
   );
   it(

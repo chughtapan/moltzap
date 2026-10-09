@@ -523,11 +523,22 @@ const rebasePendingIntents = (
         { concurrency: 1, discard: true },
       );
 
-const promote = (
+/**
+ * Store a complete record as certified and install it as its conversation's
+ * head in one uninterruptible step. An interruption between the two would
+ * leave the store holding the record certified while the fold does not, and
+ * the fold would then take a durability vote the record never needed.
+ * @param runtime Engine whose store and conversation take the record.
+ * @param fold Fold of the record's action.
+ * @param record The complete certified record.
+ * @param applyCatchUp Whether the record arrived as a catch-up answer.
+ * @returns Completion once the record is stored and installed.
+ */
+const commitPromotion = (
   runtime: EngineRuntime,
   fold: EngineActionFold,
   record: CertifiedRecord,
-  applyCatchUp = false,
+  applyCatchUp: boolean,
 ): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
   Effect.gen(function* () {
     const stored = yield* storedCertifiedRecord(record, fold).pipe(
@@ -546,10 +557,23 @@ const promote = (
     const persist = applyCatchUp
       ? runtime.input.store.applyCatchUpRecord
       : runtime.input.store.promoteRecord;
-    yield* persist(stored, delivery);
-    yield* Effect.uninterruptible(completePromotion(runtime, fold, record));
-    yield* rebasePendingIntents(runtime, fold.conversation.conversationId);
+    yield* Effect.uninterruptible(
+      persist(stored, delivery).pipe(
+        Effect.zipRight(completePromotion(runtime, fold, record)),
+      ),
+    );
   });
+
+const promote = (
+  runtime: EngineRuntime,
+  fold: EngineActionFold,
+  record: CertifiedRecord,
+): Effect.Effect<void, EndpointStoreError | RouterWorkerPersistenceError> =>
+  commitPromotion(runtime, fold, record, false).pipe(
+    Effect.zipRight(
+      rebasePendingIntents(runtime, fold.conversation.conversationId),
+    ),
+  );
 
 const maybePromote = (
   runtime: EngineRuntime,
@@ -941,6 +965,18 @@ const acceptActionCertifiedRecord = (
     return "accepted";
   });
 
+/**
+ * Accept a record that arrives whole, with its durability certificate. Its
+ * staging, its certificate's votes and its promotion form one uninterruptible
+ * step: an interrupted acceptance would leave the record staged but not
+ * certified in this endpoint's fold, and the fold would then take a
+ * durability vote for a record this endpoint never voted for.
+ * @param runtime Engine that accepts the record.
+ * @param ingress Authenticated delivery carrying the record.
+ * @param record The record with its durability certificate.
+ * @param applyCatchUp Whether the record arrived as a catch-up answer.
+ * @returns Whether the record was accepted or ignored.
+ */
 const acceptCertifiedRecord = (
   runtime: EngineRuntime,
   ingress: RouterWorkerIngress<DecodedOuterBody>,
@@ -963,20 +999,24 @@ const acceptCertifiedRecord = (
     if (fold === undefined) {
       return "ignored";
     }
-    yield* runtime.input.store.stageCertifiedRecord(
-      yield* stagedRecord(actionRecord),
+    const staged = yield* stagedRecord(actionRecord);
+    yield* Effect.uninterruptible(
+      Effect.gen(function* () {
+        yield* runtime.input.store.stageCertifiedRecord(staged);
+        yield* Effect.sync(() => {
+          fold.recordHash = actionRecord.recordHash;
+          runtime.recordFolds.set(actionRecord.recordHash, fold);
+        });
+        yield* mergeCertificateEvidence(
+          runtime,
+          fold,
+          "durability",
+          record.durabilityCertificate.votes,
+        );
+        yield* commitPromotion(runtime, fold, record, applyCatchUp);
+      }),
     );
-    yield* Effect.sync(() => {
-      fold.recordHash = actionRecord.recordHash;
-      runtime.recordFolds.set(actionRecord.recordHash, fold);
-    });
-    yield* mergeCertificateEvidence(
-      runtime,
-      fold,
-      "durability",
-      record.durabilityCertificate.votes,
-    );
-    yield* promote(runtime, fold, record, applyCatchUp);
+    yield* rebasePendingIntents(runtime, fold.conversation.conversationId);
     return "accepted";
   });
 
