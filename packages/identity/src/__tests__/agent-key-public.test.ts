@@ -139,38 +139,46 @@ const indexedPublicKey = (index: number) => {
   });
 };
 
+/** Derives the thumbprints of keys 1 to `count`, newer than key 0. */
+const deriveNewerThumbprints = (count: number) =>
+  Effect.forEach(
+    Array.from({ length: count }, (...[, index]) =>
+      indexedPublicKey(index + 1),
+    ),
+    (publicKey) => ed25519PublicKeyThumbprintUri(publicKey),
+    { concurrency: 16, discard: true },
+  );
+
+/**
+ * A thumbprint costs one SHA-256 digest when it is derived and none when it
+ * is served from the cache, so the digest count shows which keys the cache
+ * still holds.
+ */
+const derivesDisplacedKeyAgain = Effect.gen(function* () {
+  const oldest = indexedPublicKey(0);
+  yield* ed25519PublicKeyThumbprintUri(oldest);
+  yield* deriveNewerThumbprints(PUBLIC_KEY_CACHE_ENTRIES);
+  const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
+  onTestFinished(() => {
+    digest.mockRestore();
+  });
+
+  yield* ed25519PublicKeyThumbprintUri(
+    indexedPublicKey(PUBLIC_KEY_CACHE_ENTRIES),
+  );
+  expect(digest).not.toHaveBeenCalled();
+  yield* ed25519PublicKeyThumbprintUri(oldest);
+  expect(digest).toHaveBeenCalledTimes(1);
+});
+
 describe("Ed25519PublicKey thumbprint cache", () => {
   /**
-   * A thumbprint costs one SHA-256 digest when it is derived and none when it
-   * is served from the cache, so the digest count shows which keys the cache
-   * still holds. Filling the cache takes 1,025 digests, about 1.3 s at a load
-   * average of 22 to 26 on 8 cores, so a 20 s bound replaces the 5 s default.
+   * Filling the cache takes 1,025 digests, about 1.3 s at a load average of
+   * 22 to 26 on 8 cores, so a 20 s bound replaces the 5 s default.
    */
   it.effect(
     "derives a key again once as many newer keys as the cache holds displace it",
-    () =>
-      Effect.gen(function* () {
-        const oldest = indexedPublicKey(0);
-        yield* ed25519PublicKeyThumbprintUri(oldest);
-        yield* Effect.forEach(
-          Array.from({ length: PUBLIC_KEY_CACHE_ENTRIES }, (_, index) =>
-            indexedPublicKey(index + 1),
-          ),
-          (publicKey) => ed25519PublicKeyThumbprintUri(publicKey),
-          { concurrency: "unbounded", discard: true },
-        );
-        const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
-        onTestFinished(() => {
-          digest.mockRestore();
-        });
-
-        yield* ed25519PublicKeyThumbprintUri(
-          indexedPublicKey(PUBLIC_KEY_CACHE_ENTRIES),
-        );
-        expect(digest).not.toHaveBeenCalled();
-        yield* ed25519PublicKeyThumbprintUri(oldest);
-        expect(digest).toHaveBeenCalledTimes(1);
-      }),
+    () => derivesDisplacedKeyAgain,
     20_000,
   );
 });

@@ -1,5 +1,6 @@
 /** @file RFC 9421 request signing and strict identity-bound verification profiles. */
 
+import type { CryptoKey } from "jose";
 import {
   HttpClientRequest as ClientRequest,
   type HttpClientRequest,
@@ -7,7 +8,6 @@ import {
 } from "@effect/platform";
 import { Clock, Data, Effect, Option } from "effect";
 import { httpbis, type VerifyingKey } from "http-message-signatures";
-import type { CryptoKey } from "jose";
 import { createHash, randomBytes, webcrypto } from "node:crypto";
 import {
   type BareItem,

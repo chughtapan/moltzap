@@ -242,8 +242,10 @@ const seal = (
       catch: sealingFailure,
     });
     const commitment = yield* commitmentOf(saltedPlaintext, sealingFailure);
-    const recipientKeys = yield* Effect.forEach(recipients, (card) =>
-      x25519SealingKey(card.publicKey),
+    const recipientKeys = yield* Effect.forEach(
+      recipients,
+      (card) => x25519SealingKey(card.publicKey),
+      { concurrency: 1 },
     ).pipe(Effect.mapError(sealingFailure));
     const encryption = new GeneralEncrypt(saltedPlaintext).setProtectedHeader(
       protectedHeaderMembers(commitment, input.messageId, input.senderAgentId),

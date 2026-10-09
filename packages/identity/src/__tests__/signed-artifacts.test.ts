@@ -326,15 +326,17 @@ const resignWith = (
   representation: RawRepresentation,
   authority: AgentSigningAuthorityValue,
 ) =>
-  Effect.promise(() =>
-    crypto.subtle.sign(
-      "Ed25519",
-      agentSigningPrivateKey(authority),
-      new TextEncoder().encode(
-        `${representation.signatures[0].protected}.${representation.payload}`,
+  Effect.tryPromise({
+    try: () =>
+      crypto.subtle.sign(
+        "Ed25519",
+        agentSigningPrivateKey(authority),
+        new TextEncoder().encode(
+          `${representation.signatures[0].protected}.${representation.payload}`,
+        ),
       ),
-    ),
-  ).pipe(
+    catch: (cause) => new Error("re-signing failed", { cause }),
+  }).pipe(
     Effect.map((signature) =>
       replaceSignature(representation, new Uint8Array(signature)),
     ),
@@ -633,9 +635,11 @@ it("never answers for one key with another key's kid or verification key", () =>
         secondRepresentation,
         first.agentSigningAuthority,
       );
-      const secondKid = yield* Effect.promise(() =>
-        calculateJwkThumbprintUri(second.agentCard.publicKey, "sha256"),
-      );
+      const secondKid = yield* Effect.tryPromise({
+        try: () =>
+          calculateJwkThumbprintUri(second.agentCard.publicKey, "sha256"),
+        catch: (cause) => new Error("thumbprint failed", { cause }),
+      });
 
       expect((yield* protectedHeaderOf(secondRepresentation)).kid).toBe(
         secondKid,
