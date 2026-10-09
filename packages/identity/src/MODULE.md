@@ -131,7 +131,7 @@ export const AgentName = Schema.String.pipe(
 
 Immutable Registry-wide human-facing agent handle.
 
-### [`AgentSigningAuthority (type)`](./agent-key.ts#L410)
+### [`AgentSigningAuthority (type)`](./agent-key.ts#L406)
 
 _Interface_
 
@@ -144,7 +144,7 @@ export interface AgentSigningAuthority {
 Opaque authority over one imported Ed25519 private key and the X25519
 opening key derived from it.
 
-### [`AgentSigningAuthority (value)`](./agent-key.ts#L623)
+### [`AgentSigningAuthority (value)`](./agent-key.ts#L619)
 
 _Variable_
 
@@ -214,7 +214,7 @@ export class AuthenticationFailedError extends Schema.TaggedError<Authentication
 
 The request does not prove the required identity or admission authority.
 
-### [`Ed25519PublicKey (type)`](./agent-key.ts#L243)
+### [`Ed25519PublicKey (type)`](./agent-key.ts#L252)
 
 _TypeAlias_
 
@@ -224,7 +224,7 @@ export type Ed25519PublicKey = typeof Ed25519PublicKey.Type;
 
 Validated immutable Ed25519 public JWK.
 
-### [`Ed25519PublicKey (value)`](./agent-key.ts#L212)
+### [`Ed25519PublicKey (value)`](./agent-key.ts#L221)
 
 _Variable_
 
@@ -274,7 +274,7 @@ export class InternalServerError extends Schema.TaggedError<InternalServerError>
 
 An unexpected implementation failure prevented a closed result.
 
-### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L419)
+### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L415)
 
 _Class_
 
@@ -841,6 +841,7 @@ flowchart TD
 - `agent-card.ts`
 - `agent-key.ts`
 - `authenticated-http.ts`
+- `bounded-cache.ts`
 - `canonical-json.ts`
 - `http-errors.ts`
 - `http-signature.ts`
