@@ -49,6 +49,7 @@ import {
   unavailableRegistryLayer,
   unreachableOutbox,
 } from "../../__tests__/router-worker-fixtures.js";
+import { runTrace, runTraceFor } from "../../__tests__/run-trace.js";
 import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
 import {
   type ConversationFoundation,
@@ -78,7 +79,7 @@ type RouterClientFailure = Effect.Effect.Error<
   ReturnType<Context.Tag.Service<typeof Router>["poll"]>
 >;
 
-/* eslint-disable max-lines, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- The scripted scenarios keep each Router trace and its exact ordering assertions together and use Vitest's Promise-native contract. */
+/* eslint-disable max-lines, max-lines-per-function, sonarjs/max-lines-per-function, @typescript-eslint/no-invalid-void-type -- The scripted scenarios keep each Router trace and its exact ordering assertions together, and their latch Deferreds carry no value. */
 
 const callbacks = (input?: {
   readonly accepted?: Ref.Ref<string[]>;
@@ -432,172 +433,164 @@ function sendThroughScript(answers: readonly ScriptedSendAnswer[]) {
   );
 }
 
-const batchVerificationIsAtomic = async (): Promise<void> => {
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const valid = yield* signMessage({
-        card: fixture.localCard,
-        authority: fixture.localAuthority,
-        recipient: fixture.localCard.agentId,
-        id: 10,
-        body: "valid",
-      });
-      const invalid = yield* signMessage({
-        card: fixture.localCard,
-        authority: fixture.localAuthority,
-        recipient: fixture.localCard.agentId,
-        id: 11,
-        body: "invalid-signature",
-      }).pipe(Effect.flatMap(corruptSignature));
-      const accepted = yield* Ref.make<string[]>([]);
-      const firstInstance = routerInstanceId(10);
-      const router = yield* makeScriptedRouter({
-        polls: [
-          emptyBatch(firstInstance, pollCursor(1)),
-          batch(firstInstance, pollCursor(2), [valid, invalid]),
-        ],
-      });
-      const worker = yield* provide(
-        makeActiveRouterWorker(makeInput(fixture, callbacks({ accepted }))),
-        router.layer,
-        fixture,
-      );
-      const error = yield* provide(
-        worker.pollOnce.pipe(Effect.flip),
-        router.layer,
-        fixture,
-      );
-      expect(error).toStrictEqual(new RouterWorkerAuthenticationError());
-      expect(yield* Ref.get(accepted)).toEqual([]);
-      expect((yield* worker.currentAnchor).pollCursor).toBe(pollCursor(1));
-    }),
-  );
-};
+const batchVerificationIsAtomic = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const valid = yield* signMessage({
+      card: fixture.localCard,
+      authority: fixture.localAuthority,
+      recipient: fixture.localCard.agentId,
+      id: 10,
+      body: "valid",
+    });
+    const invalid = yield* signMessage({
+      card: fixture.localCard,
+      authority: fixture.localAuthority,
+      recipient: fixture.localCard.agentId,
+      id: 11,
+      body: "invalid-signature",
+    }).pipe(Effect.flatMap(corruptSignature));
+    const accepted = yield* Ref.make<string[]>([]);
+    const firstInstance = routerInstanceId(10);
+    const router = yield* makeScriptedRouter({
+      polls: [
+        emptyBatch(firstInstance, pollCursor(1)),
+        batch(firstInstance, pollCursor(2), [valid, invalid]),
+      ],
+    });
+    const worker = yield* provide(
+      makeActiveRouterWorker(makeInput(fixture, callbacks({ accepted }))),
+      router.layer,
+      fixture,
+    );
+    const error = yield* provide(
+      worker.pollOnce.pipe(Effect.flip),
+      router.layer,
+      fixture,
+    );
+    expect(error).toStrictEqual(new RouterWorkerAuthenticationError());
+    expect(yield* Ref.get(accepted)).toEqual([]);
+    expect((yield* worker.currentAnchor).pollCursor).toBe(pollCursor(1));
+  });
 
-const orderedCursorCommit = async (): Promise<void> => {
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const accepted = yield* Ref.make<string[]>([]);
-      const acceptedRouterInstances = yield* Ref.make<string[]>([]);
-      const messages = yield* Effect.forEach(
-        ["one", "invalid", "two"],
-        (text, index) =>
-          signMessage({
-            card: fixture.localCard,
-            authority: fixture.localAuthority,
-            recipient: fixture.localCard.agentId,
-            id: 20 + index,
-            body: text,
+const orderedCursorCommit = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const accepted = yield* Ref.make<string[]>([]);
+    const acceptedRouterInstances = yield* Ref.make<string[]>([]);
+    const messages = yield* Effect.forEach(
+      ["one", "invalid", "two"],
+      (text, index) =>
+        signMessage({
+          card: fixture.localCard,
+          authority: fixture.localAuthority,
+          recipient: fixture.localCard.agentId,
+          id: 20 + index,
+          body: text,
+        }),
+      { concurrency: 1 },
+    );
+    const instance = routerInstanceId(20);
+    const router = yield* makeScriptedRouter({
+      polls: [
+        emptyBatch(instance, pollCursor(3)),
+        batch(instance, pollCursor(4), messages),
+      ],
+    });
+    const worker = yield* provide(
+      makeActiveRouterWorker(
+        makeInput(
+          fixture,
+          callbacks({
+            accepted,
+            acceptedRouterInstances,
+            invalidText: "invalid",
           }),
-        { concurrency: 1 },
-      );
-      const instance = routerInstanceId(20);
-      const router = yield* makeScriptedRouter({
-        polls: [
-          emptyBatch(instance, pollCursor(3)),
-          batch(instance, pollCursor(4), messages),
-        ],
-      });
-      const worker = yield* provide(
-        makeActiveRouterWorker(
-          makeInput(
-            fixture,
-            callbacks({
-              accepted,
-              acceptedRouterInstances,
-              invalidText: "invalid",
-            }),
-          ),
         ),
-        router.layer,
-        fixture,
-      );
-      yield* provide(worker.pollOnce, router.layer, fixture);
-      expect(yield* Ref.get(accepted)).toEqual(["one", "two"]);
-      expect(yield* Ref.get(acceptedRouterInstances)).toEqual([
-        instance,
-        instance,
-      ]);
-      expect((yield* worker.currentAnchor).pollCursor).toBe(pollCursor(4));
-    }),
-  );
-};
+      ),
+      router.layer,
+      fixture,
+    );
+    yield* provide(worker.pollOnce, router.layer, fixture);
+    expect(yield* Ref.get(accepted)).toEqual(["one", "two"]);
+    expect(yield* Ref.get(acceptedRouterInstances)).toEqual([
+      instance,
+      instance,
+    ]);
+    expect((yield* worker.currentAnchor).pollCursor).toBe(pollCursor(4));
+  });
 
-const persistenceRetainsCursor = async (): Promise<void> => {
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const message = yield* signMessage({
-        card: fixture.localCard,
-        authority: fixture.localAuthority,
-        recipient: fixture.localCard.agentId,
-        id: 30,
-        body: "persist-fails",
-      });
-      const instance = routerInstanceId(30);
-      const router = yield* makeScriptedRouter({
-        polls: [
-          emptyBatch(instance, pollCursor(5)),
-          batch(instance, pollCursor(6), [message]),
-        ],
-      });
-      const worker = yield* provide(
-        makeActiveRouterWorker(
-          makeInput(fixture, callbacks({ failAcceptText: "persist-fails" })),
-        ),
-        router.layer,
-        fixture,
-      );
-      const error = yield* provide(
-        worker.pollOnce.pipe(Effect.flip),
-        router.layer,
-        fixture,
-      );
-      expect(error).toStrictEqual(new RouterWorkerPersistenceError());
-      expect((yield* worker.currentAnchor).pollCursor).toBe(pollCursor(5));
-    }),
-  );
-};
+const persistenceRetainsCursor = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const message = yield* signMessage({
+      card: fixture.localCard,
+      authority: fixture.localAuthority,
+      recipient: fixture.localCard.agentId,
+      id: 30,
+      body: "persist-fails",
+    });
+    const instance = routerInstanceId(30);
+    const router = yield* makeScriptedRouter({
+      polls: [
+        emptyBatch(instance, pollCursor(5)),
+        batch(instance, pollCursor(6), [message]),
+      ],
+    });
+    const worker = yield* provide(
+      makeActiveRouterWorker(
+        makeInput(fixture, callbacks({ failAcceptText: "persist-fails" })),
+      ),
+      router.layer,
+      fixture,
+    );
+    const error = yield* provide(
+      worker.pollOnce.pipe(Effect.flip),
+      router.layer,
+      fixture,
+    );
+    expect(error).toStrictEqual(new RouterWorkerPersistenceError());
+    expect((yield* worker.currentAnchor).pollCursor).toBe(pollCursor(5));
+  });
 
-const ambiguousSendRetriesSameBytes = async (): Promise<void> => {
-  const result = await Effect.runPromise(
-    sendThroughScript([connectionLost, acceptsSentBytes]),
-  );
-  const stored = result.outbound.canonicalSignedMessage;
-  expect(result.failure).toEqual(Option.none());
-  expect(result.modes).toEqual(["initial", "retry"]);
-  expect(result.sentBytes).toEqual([stored, stored]);
-  expect(result.pending).toEqual([]);
-};
+const ambiguousSendRetriesSameBytes = () =>
+  Effect.gen(function* () {
+    const result = yield* sendThroughScript([connectionLost, acceptsSentBytes]);
+    const stored = result.outbound.canonicalSignedMessage;
+    expect(result.failure).toEqual(Option.none());
+    expect(result.modes).toEqual(["initial", "retry"]);
+    expect(result.sentBytes).toEqual([stored, stored]);
+    expect(result.pending).toEqual([]);
+  });
 
-const retryUnknownResendsStoredBytes = async (): Promise<void> => {
-  const result = await Effect.runPromise(
-    sendThroughScript([connectionLost, identityUnknown, acceptsSentBytes]),
-  );
-  const stored = result.outbound.canonicalSignedMessage;
-  expect(result.failure).toEqual(Option.none());
-  expect(result.modes).toEqual(["initial", "retry", "initial"]);
-  expect(result.sentBytes).toEqual([stored, stored, stored]);
-  expect(result.pending).toEqual([]);
-};
+const retryUnknownResendsStoredBytes = () =>
+  Effect.gen(function* () {
+    const result = yield* sendThroughScript([
+      connectionLost,
+      identityUnknown,
+      acceptsSentBytes,
+    ]);
+    const stored = result.outbound.canonicalSignedMessage;
+    expect(result.failure).toEqual(Option.none());
+    expect(result.modes).toEqual(["initial", "retry", "initial"]);
+    expect(result.sentBytes).toEqual([stored, stored, stored]);
+    expect(result.pending).toEqual([]);
+  });
 
-const resentInitialLosesRaceToSlowOriginal = async (): Promise<void> => {
-  const { result, retained } = await Effect.runPromise(
-    Effect.gen(function* () {
+const resentInitialLosesRaceToSlowOriginal = () =>
+  Effect.gen(function* () {
+    const { result, retained } = yield* Effect.gen(function* () {
       const router = yield* slowOriginalRouter();
       const sent = yield* sendThroughScript(router.answers);
       return { result: sent, retained: yield* Ref.get(router.retained) };
-    }),
-  );
-  const stored = result.outbound.canonicalSignedMessage;
-  expect(result.failure).toEqual(Option.none());
-  expect(result.modes).toEqual(["initial", "retry", "initial", "retry"]);
-  expect(result.sentBytes).toEqual([stored, stored, stored, stored]);
-  expect([...retained.keys()]).toEqual([result.outbound.messageId]);
-  expect(result.pending).toEqual([]);
-};
+    });
+    const stored = result.outbound.canonicalSignedMessage;
+    expect(result.failure).toEqual(Option.none());
+    expect(result.modes).toEqual(["initial", "retry", "initial", "retry"]);
+    expect(result.sentBytes).toEqual([stored, stored, stored, stored]);
+    expect([...retained.keys()]).toEqual([result.outbound.messageId]);
+    expect(result.pending).toEqual([]);
+  });
 
 /** A Router result the worker must not resend after, and its scenario. */
 interface FailClosedRow {
@@ -615,12 +608,15 @@ interface FailClosedRow {
  *   before it fails closed.
  * @returns Completion once the send has failed closed.
  */
-const resultFailsClosed = async (row: FailClosedRow): Promise<void> => {
-  const result = await Effect.runPromise(sendThroughScript(row.answers));
-  expect(result.failure).toEqual(Option.some(new RouterWorkerProtocolError()));
-  expect(result.modes).toEqual(row.modes);
-  expect(result.pending).toEqual([result.outbound]);
-};
+const resultFailsClosed = (row: FailClosedRow) =>
+  Effect.gen(function* () {
+    const result = yield* sendThroughScript(row.answers);
+    expect(result.failure).toEqual(
+      Option.some(new RouterWorkerProtocolError()),
+    );
+    expect(result.modes).toEqual(row.modes);
+    expect(result.pending).toEqual([result.outbound]);
+  });
 
 /**
  * Each identity loss spends one of the three attempts, so a Router that
@@ -628,9 +624,9 @@ const resultFailsClosed = async (row: FailClosedRow): Promise<void> => {
  * acceptance scripted seventh. Running out is a transport failure, so the
  * envelope waits for the next drain.
  */
-const alternatingConflictAndLossStopsAtTheBound = async (): Promise<void> => {
-  const result = await Effect.runPromise(
-    sendThroughScript([
+const alternatingConflictAndLossStopsAtTheBound = () =>
+  Effect.gen(function* () {
+    const result = yield* sendThroughScript([
       identityConflict,
       identityUnknown,
       identityConflict,
@@ -638,396 +634,261 @@ const alternatingConflictAndLossStopsAtTheBound = async (): Promise<void> => {
       identityConflict,
       identityUnknown,
       acceptsSentBytes,
-    ]),
-  );
-  expect(result.failure).toEqual(Option.some(new RouterWorkerTransportError()));
-  expect(result.modes).toEqual([
-    "initial",
-    "retry",
-    "initial",
-    "retry",
-    "initial",
-    "retry",
-  ]);
-  expect(result.pending).toEqual([result.outbound]);
-};
+    ]);
+    expect(result.failure).toEqual(
+      Option.some(new RouterWorkerTransportError()),
+    );
+    expect(result.modes).toEqual([
+      "initial",
+      "retry",
+      "initial",
+      "retry",
+      "initial",
+      "retry",
+    ]);
+    expect(result.pending).toEqual([result.outbound]);
+  });
 
-const mismatchedAcceptedDigestRetainsOutbound = async (): Promise<void> => {
-  const result = await Effect.runPromise(
-    sendThroughScript([acceptsDifferentBytes]),
-  );
-  expect(result.failure).toEqual(Option.some(new RouterWorkerProtocolError()));
-  expect(result.pending).toEqual([result.outbound]);
-};
+const mismatchedAcceptedDigestRetainsOutbound = () =>
+  Effect.gen(function* () {
+    const result = yield* sendThroughScript([acceptsDifferentBytes]);
+    expect(result.failure).toEqual(
+      Option.some(new RouterWorkerProtocolError()),
+    );
+    expect(result.pending).toEqual([result.outbound]);
+  });
 
-const restartedSendRecoversBeforeReturning = async (): Promise<void> => {
-  await Effect.runPromise(
-    withOutbox((store) =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const outgoing = yield* signMessage({
-          card: fixture.localCard,
-          authority: fixture.localAuthority,
-          recipient: fixture.localCard.agentId,
-          id: 55,
-          body: "restart-fenced",
-        });
-        const outbound = yield* prepareOutbound(
-          store,
-          "conversation:restart-send",
-          outgoing,
-        );
-        const events = yield* Ref.make<string[]>([]);
-        const oldInstance = routerInstanceId(55);
-        const newInstance = routerInstanceId(56);
-        const router = yield* makeScriptedRouter({
-          polls: [
-            emptyBatch(oldInstance, pollCursor(18)),
-            emptyBatch(newInstance, pollCursor(19)),
-          ],
-          sends: [{ kind: "router_restarted", routerInstanceId: newInstance }],
-        });
-        const worker = yield* provide(
-          makeActiveRouterWorker(
-            makeInput(fixture, callbacks({ events }), store),
-          ),
-          router.layer,
-          fixture,
-        );
-        const error = yield* provide(
-          worker.send(outbound.outboundId).pipe(Effect.flip),
-          router.layer,
-          fixture,
-        );
-        expect(error).toStrictEqual(new RouterWorkerDiscontinuityError());
-        expect(yield* Ref.get(events)).toEqual([
-          "abandon:router_restarted",
-          "recover:router_restarted",
-        ]);
-        expect(yield* Ref.get(router.scripted.pollCalls)).toEqual([
-          { hasCursor: false },
-          { hasCursor: false },
-          { hasCursor: true },
-        ]);
-        expect(yield* worker.currentAnchor).toEqual({
-          routerInstanceId: newInstance,
-          pollCursor: pollCursor(19),
-        });
-        expect((yield* store.recover()).outboundMessages).toEqual([outbound]);
-      }),
-    ),
-  );
-};
-
-const restartOrdersTailBeforeRecovery = async (): Promise<void> => {
-  await Effect.runPromise(
+const restartedSendRecoversBeforeReturning = () =>
+  withOutbox((store) =>
     Effect.gen(function* () {
       const fixture = yield* makeFixture;
+      const outgoing = yield* signMessage({
+        card: fixture.localCard,
+        authority: fixture.localAuthority,
+        recipient: fixture.localCard.agentId,
+        id: 55,
+        body: "restart-fenced",
+      });
+      const outbound = yield* prepareOutbound(
+        store,
+        "conversation:restart-send",
+        outgoing,
+      );
       const events = yield* Ref.make<string[]>([]);
-      const recoveryStarted = yield* Deferred.make<RouterWorkerRecovery>();
-      const releaseRecovery = yield* Deferred.make<void>();
-      const oldInstance = routerInstanceId(60);
-      const newInstance = routerInstanceId(61);
+      const oldInstance = routerInstanceId(55);
+      const newInstance = routerInstanceId(56);
       const router = yield* makeScriptedRouter({
         polls: [
-          emptyBatch(oldInstance, pollCursor(9)),
-          { kind: "cursor_invalid" },
-          emptyBatch(newInstance, pollCursor(10)),
+          emptyBatch(oldInstance, pollCursor(18)),
+          emptyBatch(newInstance, pollCursor(19)),
         ],
-        fallbackPoll: Effect.never,
+        sends: [{ kind: "router_restarted", routerInstanceId: newInstance }],
       });
       const worker = yield* provide(
         makeActiveRouterWorker(
-          makeInput(
-            fixture,
-            callbacks({
-              events,
-              recover: (recovery) =>
-                Deferred.succeed(recoveryStarted, recovery).pipe(
-                  Effect.zipRight(Deferred.await(releaseRecovery)),
-                ),
-            }),
-          ),
+          makeInput(fixture, callbacks({ events }), store),
         ),
         router.layer,
         fixture,
       );
-      const polling = yield* provide(
-        Effect.fork(worker.pollOnce),
+      const error = yield* provide(
+        worker.send(outbound.outboundId).pipe(Effect.flip),
         router.layer,
         fixture,
       );
-      const recovery = yield* Deferred.await(recoveryStarted);
-      const unavailable = yield* worker.currentAnchor.pipe(Effect.flip);
-      expect(unavailable).toStrictEqual(new RouterWorkerUnavailableError());
-      expect(recovery).toMatchObject({
-        reason: "router_restarted",
-        anchor: {
-          routerInstanceId: newInstance,
-          pollCursor: pollCursor(10),
-        },
-      });
+      expect(error).toStrictEqual(new RouterWorkerDiscontinuityError());
       expect(yield* Ref.get(events)).toEqual([
         "abandon:router_restarted",
         "recover:router_restarted",
       ]);
       expect(yield* Ref.get(router.scripted.pollCalls)).toEqual([
         { hasCursor: false },
-        { hasCursor: true },
         { hasCursor: false },
         { hasCursor: true },
       ]);
-      yield* Deferred.succeed(releaseRecovery, undefined);
-      yield* Fiber.join(polling);
       expect(yield* worker.currentAnchor).toEqual({
+        routerInstanceId: newInstance,
+        pollCursor: pollCursor(19),
+      });
+      expect((yield* store.recover()).outboundMessages).toEqual([outbound]);
+    }),
+  );
+
+const restartOrdersTailBeforeRecovery = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const events = yield* Ref.make<string[]>([]);
+    const recoveryStarted = yield* Deferred.make<RouterWorkerRecovery>();
+    const releaseRecovery = yield* Deferred.make<void>();
+    const oldInstance = routerInstanceId(60);
+    const newInstance = routerInstanceId(61);
+    const router = yield* makeScriptedRouter({
+      polls: [
+        emptyBatch(oldInstance, pollCursor(9)),
+        { kind: "cursor_invalid" },
+        emptyBatch(newInstance, pollCursor(10)),
+      ],
+      fallbackPoll: Effect.never,
+    });
+    const worker = yield* provide(
+      makeActiveRouterWorker(
+        makeInput(
+          fixture,
+          callbacks({
+            events,
+            recover: (recovery) =>
+              Deferred.succeed(recoveryStarted, recovery).pipe(
+                Effect.zipRight(Deferred.await(releaseRecovery)),
+              ),
+          }),
+        ),
+      ),
+      router.layer,
+      fixture,
+    );
+    const polling = yield* provide(
+      Effect.fork(worker.pollOnce),
+      router.layer,
+      fixture,
+    );
+    const recovery = yield* Deferred.await(recoveryStarted);
+    const unavailable = yield* worker.currentAnchor.pipe(Effect.flip);
+    expect(unavailable).toStrictEqual(new RouterWorkerUnavailableError());
+    expect(recovery).toMatchObject({
+      reason: "router_restarted",
+      anchor: {
         routerInstanceId: newInstance,
         pollCursor: pollCursor(10),
-      });
-    }),
-  );
-};
+      },
+    });
+    expect(yield* Ref.get(events)).toEqual([
+      "abandon:router_restarted",
+      "recover:router_restarted",
+    ]);
+    expect(yield* Ref.get(router.scripted.pollCalls)).toEqual([
+      { hasCursor: false },
+      { hasCursor: true },
+      { hasCursor: false },
+      { hasCursor: true },
+    ]);
+    yield* Deferred.succeed(releaseRecovery, undefined);
+    yield* Fiber.join(polling);
+    expect(yield* worker.currentAnchor).toEqual({
+      routerInstanceId: newInstance,
+      pollCursor: pollCursor(10),
+    });
+  });
 
-const recoveryRetryPromotesChangedTailToRestart = async (): Promise<void> => {
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const events = yield* Ref.make<string[]>([]);
-      const recoveryAttempts = yield* Ref.make(0);
-      const recoveryStarted = yield* Deferred.make<RouterWorkerRecovery>();
-      const releaseRecovery = yield* Deferred.make<void>();
-      const oldInstance = routerInstanceId(64);
-      const newInstance = routerInstanceId(65);
-      const router = yield* makeScriptedRouter({
-        polls: [
-          emptyBatch(oldInstance, pollCursor(26)),
-          { kind: "feed_gap", routerInstanceId: oldInstance },
-          emptyBatch(oldInstance, pollCursor(27)),
-          emptyBatch(newInstance, pollCursor(28)),
-          emptyBatch(newInstance, pollCursor(29)),
-        ],
-        fallbackPoll: Effect.never,
-      });
-      const worker = yield* provide(
-        makeActiveRouterWorker(
-          makeInput(
-            fixture,
-            callbacks({
-              events,
-              recover: (recovery) =>
-                Ref.getAndUpdate(
-                  recoveryAttempts,
-                  (attempts) => attempts + 1,
-                ).pipe(
-                  Effect.flatMap((attempt) =>
-                    attempt === 0
-                      ? Effect.never
-                      : Deferred.succeed(recoveryStarted, recovery).pipe(
-                          Effect.zipRight(Deferred.await(releaseRecovery)),
-                        ),
-                  ),
+const recoveryRetryPromotesChangedTailToRestart = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const events = yield* Ref.make<string[]>([]);
+    const recoveryAttempts = yield* Ref.make(0);
+    const recoveryStarted = yield* Deferred.make<RouterWorkerRecovery>();
+    const releaseRecovery = yield* Deferred.make<void>();
+    const oldInstance = routerInstanceId(64);
+    const newInstance = routerInstanceId(65);
+    const router = yield* makeScriptedRouter({
+      polls: [
+        emptyBatch(oldInstance, pollCursor(26)),
+        { kind: "feed_gap", routerInstanceId: oldInstance },
+        emptyBatch(oldInstance, pollCursor(27)),
+        emptyBatch(newInstance, pollCursor(28)),
+        emptyBatch(newInstance, pollCursor(29)),
+      ],
+      fallbackPoll: Effect.never,
+    });
+    const worker = yield* provide(
+      makeActiveRouterWorker(
+        makeInput(
+          fixture,
+          callbacks({
+            events,
+            recover: (recovery) =>
+              Ref.getAndUpdate(
+                recoveryAttempts,
+                (attempts) => attempts + 1,
+              ).pipe(
+                Effect.flatMap((attempt) =>
+                  attempt === 0
+                    ? Effect.never
+                    : Deferred.succeed(recoveryStarted, recovery).pipe(
+                        Effect.zipRight(Deferred.await(releaseRecovery)),
+                      ),
                 ),
-            }),
-          ),
+              ),
+          }),
         ),
-        router.layer,
-        fixture,
-      );
+      ),
+      router.layer,
+      fixture,
+    );
 
-      const firstFailure = yield* provide(
-        worker.pollOnce.pipe(Effect.flip),
-        router.layer,
-        fixture,
-      );
-      expect(firstFailure).toStrictEqual(new RouterWorkerDiscontinuityError());
+    const firstFailure = yield* provide(
+      worker.pollOnce.pipe(Effect.flip),
+      router.layer,
+      fixture,
+    );
+    expect(firstFailure).toStrictEqual(new RouterWorkerDiscontinuityError());
 
-      const retry = yield* provide(
-        Effect.fork(worker.pollOnce),
-        router.layer,
-        fixture,
-      );
-      const recovery = yield* Deferred.await(recoveryStarted);
-      const unavailable = yield* worker.currentAnchor.pipe(Effect.flip);
-      expect(unavailable).toStrictEqual(new RouterWorkerUnavailableError());
-      expect(recovery).toMatchObject({
-        reason: "router_restarted",
-        anchor: {
-          routerInstanceId: newInstance,
-          pollCursor: pollCursor(29),
-        },
-      });
-      expect(yield* Ref.get(events)).toEqual([
-        "abandon:feed_gap",
-        "recover:feed_gap",
-        "abandon:router_restarted",
-        "recover:router_restarted",
-      ]);
-
-      yield* Deferred.succeed(releaseRecovery, undefined);
-      yield* Fiber.join(retry);
-      expect(yield* worker.currentAnchor).toEqual({
+    const retry = yield* provide(
+      Effect.fork(worker.pollOnce),
+      router.layer,
+      fixture,
+    );
+    const recovery = yield* Deferred.await(recoveryStarted);
+    const unavailable = yield* worker.currentAnchor.pipe(Effect.flip);
+    expect(unavailable).toStrictEqual(new RouterWorkerUnavailableError());
+    expect(recovery).toMatchObject({
+      reason: "router_restarted",
+      anchor: {
         routerInstanceId: newInstance,
         pollCursor: pollCursor(29),
-      });
-    }),
-  );
-};
+      },
+    });
+    expect(yield* Ref.get(events)).toEqual([
+      "abandon:feed_gap",
+      "recover:feed_gap",
+      "abandon:router_restarted",
+      "recover:router_restarted",
+    ]);
 
-const normalSendWaitsForRecovery = async (): Promise<void> => {
-  await Effect.runPromise(
-    withOutbox((store) =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const outgoing = yield* signMessage({
-          card: fixture.localCard,
-          authority: fixture.localAuthority,
-          recipient: fixture.localCard.agentId,
-          id: 63,
-          body: "recovery-gated-send",
-        });
-        const outbound = yield* prepareOutbound(
-          store,
-          "conversation:recovery-gated-send",
-          outgoing,
-        );
-        const recoveryStarted = yield* Deferred.make<void>();
-        const releaseRecovery = yield* Deferred.make<void>();
-        const instance = routerInstanceId(63);
-        const accepted = yield* acceptedResult(instance, outgoing);
-        const router = yield* makeScriptedRouter({
-          polls: [
-            emptyBatch(instance, pollCursor(24)),
-            { kind: "cursor_invalid" },
-            emptyBatch(instance, pollCursor(25)),
-          ],
-          sends: [accepted],
-          fallbackPoll: Effect.never,
-        });
-        const worker = yield* provide(
-          makeActiveRouterWorker(
-            makeInput(
-              fixture,
-              callbacks({
-                recover: () =>
-                  Deferred.succeed(recoveryStarted, undefined).pipe(
-                    Effect.zipRight(Deferred.await(releaseRecovery)),
-                  ),
-              }),
-              store,
-            ),
-          ),
-          router.layer,
-          fixture,
-        );
-        const recovering = yield* provide(
-          Effect.fork(worker.pollOnce),
-          router.layer,
-          fixture,
-        );
-        yield* Deferred.await(recoveryStarted);
-        const sending = yield* provide(
-          Effect.fork(worker.send(outbound.outboundId)),
-          router.layer,
-          fixture,
-        );
-        yield* Effect.yieldNow();
-        expect(yield* Ref.get(router.scripted.sendCalls)).toEqual([]);
-        yield* Deferred.succeed(releaseRecovery, undefined);
-        yield* Fiber.join(recovering);
-        yield* Fiber.join(sending);
-        expect(yield* Ref.get(router.scripted.sendCalls)).toHaveLength(1);
-        expect((yield* store.recover()).outboundMessages).toEqual([]);
-      }),
-    ),
-  );
-};
+    yield* Deferred.succeed(releaseRecovery, undefined);
+    yield* Fiber.join(retry);
+    expect(yield* worker.currentAnchor).toEqual({
+      routerInstanceId: newInstance,
+      pollCursor: pollCursor(29),
+    });
+  });
 
-const recoveryPumpsIngressBeforeActivation = async (): Promise<void> => {
-  await Effect.runPromise(
+const normalSendWaitsForRecovery = () =>
+  withOutbox((store) =>
     Effect.gen(function* () {
       const fixture = yield* makeFixture;
-      const recoveryMessage = yield* signMessage({
+      const outgoing = yield* signMessage({
         card: fixture.localCard,
         authority: fixture.localAuthority,
         recipient: fixture.localCard.agentId,
-        id: 70,
-        body: "recovery-vote",
+        id: 63,
+        body: "recovery-gated-send",
       });
-      const accepted = yield* Ref.make<string[]>([]);
-      const recoveryIngressAccepted = yield* Deferred.make<void>();
-      const callbackStarted = yield* Deferred.make<void>();
-      const recoveryDurable = yield* Deferred.make<void>();
-      const oldInstance = routerInstanceId(70);
-      const newInstance = routerInstanceId(71);
+      const outbound = yield* prepareOutbound(
+        store,
+        "conversation:recovery-gated-send",
+        outgoing,
+      );
+      const recoveryStarted = yield* Deferred.make<void>();
+      const releaseRecovery = yield* Deferred.make<void>();
+      const instance = routerInstanceId(63);
+      const accepted = yield* acceptedResult(instance, outgoing);
       const router = yield* makeScriptedRouter({
         polls: [
-          emptyBatch(oldInstance, pollCursor(11)),
+          emptyBatch(instance, pollCursor(24)),
           { kind: "cursor_invalid" },
-          emptyBatch(newInstance, pollCursor(12)),
-          batch(newInstance, pollCursor(13), [recoveryMessage]),
+          emptyBatch(instance, pollCursor(25)),
         ],
+        sends: [accepted],
         fallbackPoll: Effect.never,
-      });
-      const recording = callbacks({
-        recoveryAccepted: accepted,
-        recover: () =>
-          Deferred.succeed(callbackStarted, undefined).pipe(
-            Effect.zipRight(Deferred.await(recoveryDurable)),
-          ),
-      });
-      const worker = yield* provide(
-        makeActiveRouterWorker(
-          makeInput(fixture, {
-            ...recording,
-            acceptRecoveryPayload: (ingress) =>
-              recording
-                .acceptRecoveryPayload(ingress)
-                .pipe(
-                  Effect.tap(() =>
-                    Deferred.succeed(recoveryIngressAccepted, undefined),
-                  ),
-                ),
-          }),
-        ),
-        router.layer,
-        fixture,
-      );
-      const polling = yield* provide(
-        Effect.fork(worker.pollOnce),
-        router.layer,
-        fixture,
-      );
-      yield* Deferred.await(callbackStarted);
-      yield* Deferred.await(recoveryIngressAccepted).pipe(
-        Effect.timeout("1 second"),
-      );
-      expect(yield* Ref.get(accepted)).toEqual(["recovery-vote"]);
-      const unavailable = yield* worker.currentAnchor.pipe(Effect.flip);
-      expect(unavailable).toStrictEqual(new RouterWorkerUnavailableError());
-      yield* Deferred.succeed(recoveryDurable, undefined);
-      yield* Fiber.join(polling);
-      expect(yield* worker.currentAnchor).toEqual({
-        routerInstanceId: newInstance,
-        pollCursor: pollCursor(13),
-      });
-    }),
-  );
-};
-
-const recoveryPumpFailureInterruptsCallback = async (): Promise<void> => {
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const callbackStarted = yield* Deferred.make<void>();
-      const callbackInterrupted = yield* Deferred.make<void>();
-      const oldInstance = routerInstanceId(80);
-      const newInstance = routerInstanceId(81);
-      const router = yield* makeScriptedRouter({
-        polls: [
-          emptyBatch(oldInstance, pollCursor(14)),
-          { kind: "cursor_invalid" },
-          emptyBatch(newInstance, pollCursor(15)),
-          { kind: "feed_gap", routerInstanceId: newInstance },
-        ],
       });
       const worker = yield* provide(
         makeActiveRouterWorker(
@@ -1035,131 +896,241 @@ const recoveryPumpFailureInterruptsCallback = async (): Promise<void> => {
             fixture,
             callbacks({
               recover: () =>
-                Deferred.succeed(callbackStarted, undefined).pipe(
-                  Effect.zipRight(Effect.never),
-                  Effect.onInterrupt(() =>
-                    Deferred.succeed(callbackInterrupted, undefined).pipe(
-                      Effect.asVoid,
-                    ),
-                  ),
+                Deferred.succeed(recoveryStarted, undefined).pipe(
+                  Effect.zipRight(Deferred.await(releaseRecovery)),
                 ),
             }),
+            store,
           ),
         ),
         router.layer,
         fixture,
       );
-      const failure = yield* provide(
-        worker.pollOnce.pipe(Effect.flip),
+      const recovering = yield* provide(
+        Effect.fork(worker.pollOnce),
         router.layer,
         fixture,
       );
-      yield* Deferred.await(callbackStarted);
-      yield* Deferred.await(callbackInterrupted);
-      expect(failure).toStrictEqual(new RouterWorkerDiscontinuityError());
-    }),
-  );
-};
-
-const pinnedCardsSurviveRegistryOutage = async (): Promise<void> => {
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const remote = yield* makeIdentityFixture(2, "worker-remote");
-      const accepted = yield* Ref.make<string[]>([]);
-      const instance = routerInstanceId(90);
-      const message = yield* signMessage({
-        card: remote.localCard,
-        authority: remote.localAuthority,
-        recipient: fixture.localCard.agentId,
-        id: 90,
-        body: "durable-history",
-      });
-      const router = yield* makeScriptedRouter({
-        polls: [
-          emptyBatch(instance, pollCursor(16)),
-          batch(instance, pollCursor(17), [message]),
-        ],
-      });
-      const worker = yield* makeActiveRouterWorker({
-        ...makeInput(fixture, callbacks({ accepted })),
-        pinnedSenderCards: [fixture.localCard, remote.localCard],
-      }).pipe(
-        Effect.provide(router.layer),
-        Effect.provide(unavailableRegistryLayer),
-      );
-      yield* worker.pollOnce.pipe(
-        Effect.provide(router.layer),
-        Effect.provide(unavailableRegistryLayer),
-      );
-      expect(yield* Ref.get(accepted)).toEqual(["durable-history"]);
-      expect((yield* worker.currentAnchor).pollCursor).toBe(pollCursor(17));
-    }),
-  );
-};
-
-const coldStartRecoversBeforeActivation = async (): Promise<void> => {
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const events = yield* Ref.make<string[]>([]);
-      const instance = routerInstanceId(100);
-      const router = yield* makeScriptedRouter({
-        polls: [emptyBatch(instance, pollCursor(18))],
-        fallbackPoll: Effect.never,
-      });
-      const worker = yield* provide(
-        makeRouterWorker(makeInput(fixture, callbacks({ events }))),
+      yield* Deferred.await(recoveryStarted);
+      const sending = yield* provide(
+        Effect.fork(worker.send(outbound.outboundId)),
         router.layer,
         fixture,
       );
-
-      const unavailable = yield* worker.currentAnchor.pipe(Effect.flip);
-      expect(unavailable).toStrictEqual(new RouterWorkerUnavailableError());
-
-      yield* provide(worker.pollOnce, router.layer, fixture);
-
-      expect(yield* Ref.get(events)).toEqual([
-        "abandon:router_restarted",
-        "recover:router_restarted",
-      ]);
-      expect(yield* worker.currentAnchor).toEqual({
-        routerInstanceId: instance,
-        pollCursor: pollCursor(18),
-      });
+      yield* Effect.yieldNow();
+      expect(yield* Ref.get(router.scripted.sendCalls)).toEqual([]);
+      yield* Deferred.succeed(releaseRecovery, undefined);
+      yield* Fiber.join(recovering);
+      yield* Fiber.join(sending);
+      expect(yield* Ref.get(router.scripted.sendCalls)).toHaveLength(1);
+      expect((yield* store.recover()).outboundMessages).toEqual([]);
     }),
   );
-};
 
-const awaitAnchorResolvesOnActivation = async (): Promise<void> => {
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const instance = routerInstanceId(101);
-      const router = yield* makeScriptedRouter({
-        polls: [emptyBatch(instance, pollCursor(19))],
-        fallbackPoll: Effect.never,
-      });
-      const worker = yield* provide(
-        makeRouterWorker(makeInput(fixture, callbacks())),
-        router.layer,
-        fixture,
-      );
+const recoveryPumpsIngressBeforeActivation = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const recoveryMessage = yield* signMessage({
+      card: fixture.localCard,
+      authority: fixture.localAuthority,
+      recipient: fixture.localCard.agentId,
+      id: 70,
+      body: "recovery-vote",
+    });
+    const accepted = yield* Ref.make<string[]>([]);
+    const recoveryIngressAccepted = yield* Deferred.make<void>();
+    const callbackStarted = yield* Deferred.make<void>();
+    const recoveryDurable = yield* Deferred.make<void>();
+    const oldInstance = routerInstanceId(70);
+    const newInstance = routerInstanceId(71);
+    const router = yield* makeScriptedRouter({
+      polls: [
+        emptyBatch(oldInstance, pollCursor(11)),
+        { kind: "cursor_invalid" },
+        emptyBatch(newInstance, pollCursor(12)),
+        batch(newInstance, pollCursor(13), [recoveryMessage]),
+      ],
+      fallbackPoll: Effect.never,
+    });
+    const recording = callbacks({
+      recoveryAccepted: accepted,
+      recover: () =>
+        Deferred.succeed(callbackStarted, undefined).pipe(
+          Effect.zipRight(Deferred.await(recoveryDurable)),
+        ),
+    });
+    const worker = yield* provide(
+      makeActiveRouterWorker(
+        makeInput(fixture, {
+          ...recording,
+          acceptRecoveryPayload: (ingress) =>
+            recording
+              .acceptRecoveryPayload(ingress)
+              .pipe(
+                Effect.tap(() =>
+                  Deferred.succeed(recoveryIngressAccepted, undefined),
+                ),
+              ),
+        }),
+      ),
+      router.layer,
+      fixture,
+    );
+    const polling = yield* provide(
+      Effect.fork(worker.pollOnce),
+      router.layer,
+      fixture,
+    );
+    yield* Deferred.await(callbackStarted);
+    yield* Deferred.await(recoveryIngressAccepted).pipe(
+      Effect.timeout("1 second"),
+    );
+    expect(yield* Ref.get(accepted)).toEqual(["recovery-vote"]);
+    const unavailable = yield* worker.currentAnchor.pipe(Effect.flip);
+    expect(unavailable).toStrictEqual(new RouterWorkerUnavailableError());
+    yield* Deferred.succeed(recoveryDurable, undefined);
+    yield* Fiber.join(polling);
+    expect(yield* worker.currentAnchor).toEqual({
+      routerInstanceId: newInstance,
+      pollCursor: pollCursor(13),
+    });
+  });
 
-      const attached = {
-        routerInstanceId: instance,
-        pollCursor: pollCursor(19),
-      };
-      const waiting = yield* Effect.fork(worker.awaitAnchor);
-      expect(yield* Fiber.poll(waiting)).toEqual(Option.none());
+const recoveryPumpFailureInterruptsCallback = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const callbackStarted = yield* Deferred.make<void>();
+    const callbackInterrupted = yield* Deferred.make<void>();
+    const oldInstance = routerInstanceId(80);
+    const newInstance = routerInstanceId(81);
+    const router = yield* makeScriptedRouter({
+      polls: [
+        emptyBatch(oldInstance, pollCursor(14)),
+        { kind: "cursor_invalid" },
+        emptyBatch(newInstance, pollCursor(15)),
+        { kind: "feed_gap", routerInstanceId: newInstance },
+      ],
+    });
+    const worker = yield* provide(
+      makeActiveRouterWorker(
+        makeInput(
+          fixture,
+          callbacks({
+            recover: () =>
+              Deferred.succeed(callbackStarted, undefined).pipe(
+                Effect.zipRight(Effect.never),
+                Effect.onInterrupt(() =>
+                  Deferred.succeed(callbackInterrupted, undefined).pipe(
+                    Effect.asVoid,
+                  ),
+                ),
+              ),
+          }),
+        ),
+      ),
+      router.layer,
+      fixture,
+    );
+    const failure = yield* provide(
+      worker.pollOnce.pipe(Effect.flip),
+      router.layer,
+      fixture,
+    );
+    yield* Deferred.await(callbackStarted);
+    yield* Deferred.await(callbackInterrupted);
+    expect(failure).toStrictEqual(new RouterWorkerDiscontinuityError());
+  });
 
-      yield* provide(worker.pollOnce, router.layer, fixture);
+const pinnedCardsSurviveRegistryOutage = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const remote = yield* makeIdentityFixture(2, "worker-remote");
+    const accepted = yield* Ref.make<string[]>([]);
+    const instance = routerInstanceId(90);
+    const message = yield* signMessage({
+      card: remote.localCard,
+      authority: remote.localAuthority,
+      recipient: fixture.localCard.agentId,
+      id: 90,
+      body: "durable-history",
+    });
+    const router = yield* makeScriptedRouter({
+      polls: [
+        emptyBatch(instance, pollCursor(16)),
+        batch(instance, pollCursor(17), [message]),
+      ],
+    });
+    const worker = yield* makeActiveRouterWorker({
+      ...makeInput(fixture, callbacks({ accepted })),
+      pinnedSenderCards: [fixture.localCard, remote.localCard],
+    }).pipe(
+      Effect.provide(router.layer),
+      Effect.provide(unavailableRegistryLayer),
+    );
+    yield* worker.pollOnce.pipe(
+      Effect.provide(router.layer),
+      Effect.provide(unavailableRegistryLayer),
+    );
+    expect(yield* Ref.get(accepted)).toEqual(["durable-history"]);
+    expect((yield* worker.currentAnchor).pollCursor).toBe(pollCursor(17));
+  });
 
-      expect(yield* Fiber.join(waiting)).toEqual(attached);
-      expect(yield* worker.awaitAnchor).toEqual(attached);
-    }),
-  );
-};
+const coldStartRecoversBeforeActivation = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const events = yield* Ref.make<string[]>([]);
+    const instance = routerInstanceId(100);
+    const router = yield* makeScriptedRouter({
+      polls: [emptyBatch(instance, pollCursor(18))],
+      fallbackPoll: Effect.never,
+    });
+    const worker = yield* provide(
+      makeRouterWorker(makeInput(fixture, callbacks({ events }))),
+      router.layer,
+      fixture,
+    );
+
+    const unavailable = yield* worker.currentAnchor.pipe(Effect.flip);
+    expect(unavailable).toStrictEqual(new RouterWorkerUnavailableError());
+
+    yield* provide(worker.pollOnce, router.layer, fixture);
+
+    expect(yield* Ref.get(events)).toEqual([
+      "abandon:router_restarted",
+      "recover:router_restarted",
+    ]);
+    expect(yield* worker.currentAnchor).toEqual({
+      routerInstanceId: instance,
+      pollCursor: pollCursor(18),
+    });
+  });
+
+const awaitAnchorResolvesOnActivation = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const instance = routerInstanceId(101);
+    const router = yield* makeScriptedRouter({
+      polls: [emptyBatch(instance, pollCursor(19))],
+      fallbackPoll: Effect.never,
+    });
+    const worker = yield* provide(
+      makeRouterWorker(makeInput(fixture, callbacks())),
+      router.layer,
+      fixture,
+    );
+
+    const attached = {
+      routerInstanceId: instance,
+      pollCursor: pollCursor(19),
+    };
+    const waiting = yield* Effect.fork(worker.awaitAnchor);
+    expect(yield* Fiber.poll(waiting)).toEqual(Option.none());
+
+    yield* provide(worker.pollOnce, router.layer, fixture);
+
+    expect(yield* Fiber.join(waiting)).toEqual(attached);
+    expect(yield* worker.awaitAnchor).toEqual(attached);
+  });
 
 /** Log lines `captureLogs` records, as `LEVEL: message`. */
 type LogLines = string[];
@@ -1204,10 +1175,6 @@ const onTestClock = (
     Effect.provide(captureLogs(lines)),
     Effect.provide(TestContext.TestContext),
   );
-
-const runOnTestClock = (
-  ...input: Parameters<typeof onTestClock>
-): Promise<void> => Effect.runPromise(onTestClock(...input));
 
 const outageCursor = pollCursor(40);
 
@@ -1257,15 +1224,15 @@ const outageRouter = (input: {
  * answered probe reattaches at the retained anchor so a held send goes out
  * and the endpoint hears of the reattach.
  */
-const outageDetachesAndReattaches = async (): Promise<void> => {
-  const lines: LogLines = [];
-  const events = Effect.runSync(Ref.make<string[]>([]));
-  const fixture = await Effect.runPromise(makeFixture);
-  const instance = routerInstanceId(110);
-  const reachable = Effect.runSync(Ref.make(true));
-  const tail = Effect.runSync(Ref.make(instance));
-  await Effect.runPromise(
-    withOutbox((store) =>
+const outageDetachesAndReattaches = () =>
+  Effect.gen(function* () {
+    const lines: LogLines = [];
+    const events = Effect.runSync(Ref.make<string[]>([]));
+    const fixture = yield* makeFixture;
+    const instance = routerInstanceId(110);
+    const reachable = Effect.runSync(Ref.make(true));
+    const tail = Effect.runSync(Ref.make(instance));
+    yield* withOutbox((store) =>
       onTestClock(
         lines,
         Effect.gen(function* () {
@@ -1323,63 +1290,65 @@ const outageDetachesAndReattaches = async (): Promise<void> => {
         outageRouter({ reachable, tail }),
         fixture,
       ),
-    ),
-  );
-};
+    );
+  });
 
 /**
  * A detached worker whose probe finds another Router instance recovers from
  * the restart instead of reattaching at the stale anchor.
  */
-const detachedRestartRecovers = async (): Promise<void> => {
-  const lines: LogLines = [];
-  const events = Effect.runSync(Ref.make<string[]>([]));
-  const fixture = await Effect.runPromise(makeFixture);
-  const reachable = Effect.runSync(Ref.make(true));
-  const tail = Effect.runSync(Ref.make(routerInstanceId(111)));
-  const restarted = routerInstanceId(112);
-  await runOnTestClock(
-    lines,
-    Effect.gen(function* () {
-      const worker = yield* makeActiveRouterWorker(
-        makeInput(fixture, callbacks({ events })),
-      );
-      const polling = yield* Effect.fork(worker.run);
-      yield* Ref.set(reachable, false);
-      yield* advanceClock("5 seconds");
-      expect(lines).toEqual(
-        expect.arrayContaining([expect.stringContaining("worker detached")]),
-      );
+const detachedRestartRecovers = () =>
+  Effect.gen(function* () {
+    const lines: LogLines = [];
+    const events = Effect.runSync(Ref.make<string[]>([]));
+    const fixture = yield* makeFixture;
+    const reachable = Effect.runSync(Ref.make(true));
+    const tail = Effect.runSync(Ref.make(routerInstanceId(111)));
+    const restarted = routerInstanceId(112);
+    yield* onTestClock(
+      lines,
+      Effect.gen(function* () {
+        const worker = yield* makeActiveRouterWorker(
+          makeInput(fixture, callbacks({ events })),
+        );
+        const polling = yield* Effect.fork(worker.run);
+        yield* Ref.set(reachable, false);
+        yield* advanceClock("5 seconds");
+        expect(lines).toEqual(
+          expect.arrayContaining([expect.stringContaining("worker detached")]),
+        );
 
-      yield* Ref.set(tail, restarted);
-      yield* Ref.set(reachable, true);
-      yield* advanceClock("6 seconds");
-      expect(yield* worker.currentAnchor).toEqual({
-        routerInstanceId: restarted,
-        pollCursor: outageCursor,
-      });
-      expect(yield* Ref.get(events)).toEqual([
-        "abandon:router_restarted",
-        "recover:router_restarted",
-      ]);
-      expect(lines).not.toEqual(
-        expect.arrayContaining([expect.stringContaining("reattached")]),
-      );
-      yield* Fiber.interrupt(polling);
-    }),
-    outageRouter({ reachable, tail }),
-    fixture,
-  );
-};
+        yield* Ref.set(tail, restarted);
+        yield* Ref.set(reachable, true);
+        yield* advanceClock("6 seconds");
+        expect(yield* worker.currentAnchor).toEqual({
+          routerInstanceId: restarted,
+          pollCursor: outageCursor,
+        });
+        expect(yield* Ref.get(events)).toEqual([
+          "abandon:router_restarted",
+          "recover:router_restarted",
+        ]);
+        expect(lines).not.toEqual(
+          expect.arrayContaining([expect.stringContaining("reattached")]),
+        );
+        yield* Fiber.interrupt(polling);
+      }),
+      outageRouter({ reachable, tail }),
+      fixture,
+    );
+  });
 
 /**
  * A continuation poll that fails with the given Router answers and then
  * succeeds is retried within the poll: the worker never detaches.
  */
-const shortBlipKeepsWorkerAttached =
-  (failures: readonly RouterClientFailure[]) => async (): Promise<void> => {
+const shortBlipKeepsWorkerAttached = (
+  failures: readonly RouterClientFailure[],
+) =>
+  Effect.gen(function* () {
     const lines: LogLines = [];
-    const fixture = await Effect.runPromise(makeFixture);
+    const fixture = yield* makeFixture;
     const instance = routerInstanceId(113);
     const remaining = Effect.runSync(Ref.make([...failures]));
     const pollCalls = Effect.runSync(Ref.make(0));
@@ -1399,7 +1368,7 @@ const shortBlipKeepsWorkerAttached =
             ),
       send: () => Effect.die("no send in this scenario"),
     });
-    await runOnTestClock(
+    yield* onTestClock(
       lines,
       Effect.gen(function* () {
         const worker = yield* makeActiveRouterWorker(
@@ -1420,50 +1389,50 @@ const shortBlipKeepsWorkerAttached =
       routerLayer,
       fixture,
     );
-  };
+  });
 
 /**
  * A poll issued at one generation that fails only after a send-triggered
  * recovery activated the next generation leaves the new generation attached.
  */
-const staleFailureKeepsNewGenerationAttached = async (): Promise<void> => {
-  const lines: LogLines = [];
-  const fixture = await Effect.runPromise(makeFixture);
-  const first = routerInstanceId(114);
-  const second = routerInstanceId(115);
-  const tails = Effect.runSync(
-    Ref.make([
-      emptyBatch(first, pollCursor(43)),
-      emptyBatch(second, pollCursor(44)),
-    ]),
-  );
-  const releaseStale = Effect.runSync(Deferred.make<void>());
-  const staleIssued = Effect.runSync(Deferred.make<void>());
-  const routerLayer = Layer.succeed(Router, {
-    poll: (call) => {
-      switch (call.request.pollCursor) {
-        case undefined:
-          return Ref.modify(tails, ([head, ...rest]) => [
-            head ?? emptyBatch(second, pollCursor(44)),
-            rest,
-          ]);
-        case pollCursor(43):
-          return Deferred.succeed(staleIssued, undefined).pipe(
-            Effect.zipRight(Deferred.await(releaseStale)),
-            Effect.zipRight(Effect.fail(new RouterConnectionError())),
-          );
-        default:
-          return Effect.never;
-      }
-    },
-    send: () =>
-      Effect.succeed({
-        kind: "router_restarted" as const,
-        routerInstanceId: second,
-      }),
-  });
-  await Effect.runPromise(
-    withOutbox((store) =>
+const staleFailureKeepsNewGenerationAttached = () =>
+  Effect.gen(function* () {
+    const lines: LogLines = [];
+    const fixture = yield* makeFixture;
+    const first = routerInstanceId(114);
+    const second = routerInstanceId(115);
+    const tails = Effect.runSync(
+      Ref.make([
+        emptyBatch(first, pollCursor(43)),
+        emptyBatch(second, pollCursor(44)),
+      ]),
+    );
+    const releaseStale = Effect.runSync(Deferred.make<void>());
+    const staleIssued = Effect.runSync(Deferred.make<void>());
+    const routerLayer = Layer.succeed(Router, {
+      poll: (call) => {
+        switch (call.request.pollCursor) {
+          case undefined:
+            return Ref.modify(tails, ([head, ...rest]) => [
+              head ?? emptyBatch(second, pollCursor(44)),
+              rest,
+            ]);
+          case pollCursor(43):
+            return Deferred.succeed(staleIssued, undefined).pipe(
+              Effect.zipRight(Deferred.await(releaseStale)),
+              Effect.zipRight(Effect.fail(new RouterConnectionError())),
+            );
+          default:
+            return Effect.never;
+        }
+      },
+      send: () =>
+        Effect.succeed({
+          kind: "router_restarted" as const,
+          routerInstanceId: second,
+        }),
+    });
+    yield* withOutbox((store) =>
       onTestClock(
         lines,
         Effect.gen(function* () {
@@ -1506,28 +1475,27 @@ const staleFailureKeepsNewGenerationAttached = async (): Promise<void> => {
         routerLayer,
         fixture,
       ),
-    ),
-  );
-};
+    );
+  });
 
 /**
  * A Router lost after recovery started interrupts it: the loop stays up,
  * warns on each failed attempt and every minute, and completes recovery
  * once the Router answers, after which a held send goes out.
  */
-const outageDuringRecoveryRecovers = async (): Promise<void> => {
-  const lines: LogLines = [];
-  const fixture = await Effect.runPromise(makeFixture);
-  const reachable = Effect.runSync(Ref.make(true));
-  const tail = Effect.runSync(Ref.make(routerInstanceId(117)));
-  const restarted = routerInstanceId(118);
-  const recoveryStarted = Effect.runSync(Deferred.make<void>());
-  const recover = () =>
-    Deferred.succeed(recoveryStarted, undefined).pipe(
-      Effect.zipRight(Effect.sleep("20 seconds")),
-    );
-  await Effect.runPromise(
-    withOutbox((store) =>
+const outageDuringRecoveryRecovers = () =>
+  Effect.gen(function* () {
+    const lines: LogLines = [];
+    const fixture = yield* makeFixture;
+    const reachable = Effect.runSync(Ref.make(true));
+    const tail = Effect.runSync(Ref.make(routerInstanceId(117)));
+    const restarted = routerInstanceId(118);
+    const recoveryStarted = Effect.runSync(Deferred.make<void>());
+    const recover = () =>
+      Deferred.succeed(recoveryStarted, undefined).pipe(
+        Effect.zipRight(Effect.sleep("20 seconds")),
+      );
+    yield* withOutbox((store) =>
       onTestClock(
         lines,
         Effect.gen(function* () {
@@ -1582,22 +1550,21 @@ const outageDuringRecoveryRecovers = async (): Promise<void> => {
         outageRouter({ reachable, tail }),
         fixture,
       ),
-    ),
-  );
-};
+    );
+  });
 
 /**
  * A daemon cold-started while its Router is down keeps its recovering worker
  * running and warning, then recovers and sends once the Router answers.
  */
-const coldStartWithRouterDownRecovers = async (): Promise<void> => {
-  const lines: LogLines = [];
-  const fixture = await Effect.runPromise(makeFixture);
-  const instance = routerInstanceId(119);
-  const reachable = Effect.runSync(Ref.make(false));
-  const tail = Effect.runSync(Ref.make(instance));
-  await Effect.runPromise(
-    withOutbox((store) =>
+const coldStartWithRouterDownRecovers = () =>
+  Effect.gen(function* () {
+    const lines: LogLines = [];
+    const fixture = yield* makeFixture;
+    const instance = routerInstanceId(119);
+    const reachable = Effect.runSync(Ref.make(false));
+    const tail = Effect.runSync(Ref.make(instance));
+    yield* withOutbox((store) =>
       onTestClock(
         lines,
         Effect.gen(function* () {
@@ -1654,22 +1621,20 @@ const coldStartWithRouterDownRecovers = async (): Promise<void> => {
         outageRouter({ reachable, tail }),
         fixture,
       ),
-    ),
-  );
-};
+    );
+  });
 
 /**
  * A Router rejection of the request itself is not an outage: the poll loop
  * ends at once with a typed rejection and logs what the Router refused. The
  * worker leaves what that ending does to the daemon to its supervisor.
  */
-const rejectionEndsThePollLoop =
-  (
-    rejection: RouterClientFailure,
-    reason: RouterWorkerRejectedError["reason"],
-  ) =>
-  async (): Promise<void> => {
-    const fixture = await Effect.runPromise(makeFixture);
+const rejectionEndsThePollLoop = (
+  rejection: RouterClientFailure,
+  reason: RouterWorkerRejectedError["reason"],
+) =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
     const instance = routerInstanceId(116);
     const pollCalls = Effect.runSync(Ref.make(0));
     const routerLayer = Layer.succeed(Router, {
@@ -1682,7 +1647,7 @@ const rejectionEndsThePollLoop =
       send: () => Effect.die("no send in this scenario"),
     });
     const lines: LogLines = [];
-    await runOnTestClock(
+    yield* onTestClock(
       lines,
       Effect.gen(function* () {
         const worker = yield* makeActiveRouterWorker(
@@ -1700,77 +1665,74 @@ const rejectionEndsThePollLoop =
       routerLayer,
       fixture,
     );
-  };
+  });
 
 /** A persistence fault is not an outage: the poll loop ends at once. */
-const persistenceFaultEndsPollLoop = async (): Promise<void> => {
-  await Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const message = yield* signMessage({
-        card: fixture.localCard,
-        authority: fixture.localAuthority,
-        recipient: fixture.localCard.agentId,
-        id: 111,
-        body: "persist-fails",
-      });
-      const instance = routerInstanceId(111);
-      const router = yield* makeScriptedRouter({
-        polls: [
-          emptyBatch(instance, pollCursor(21)),
-          batch(instance, pollCursor(22), [message]),
-        ],
-        fallbackPoll: Effect.never,
-      });
-      const worker = yield* provide(
-        makeActiveRouterWorker(
-          makeInput(fixture, callbacks({ failAcceptText: "persist-fails" })),
-        ),
-        router.layer,
-        fixture,
-      );
-      const error = yield* provide(
-        worker.run.pipe(Effect.flip, Effect.timeout("2 seconds")),
-        router.layer,
-        fixture,
-      );
-      expect(error).toStrictEqual(new RouterWorkerPersistenceError());
-      expect(yield* Ref.get(router.scripted.pollCalls)).toHaveLength(2);
-    }),
-  );
-};
+const persistenceFaultEndsPollLoop = () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const message = yield* signMessage({
+      card: fixture.localCard,
+      authority: fixture.localAuthority,
+      recipient: fixture.localCard.agentId,
+      id: 111,
+      body: "persist-fails",
+    });
+    const instance = routerInstanceId(111);
+    const router = yield* makeScriptedRouter({
+      polls: [
+        emptyBatch(instance, pollCursor(21)),
+        batch(instance, pollCursor(22), [message]),
+      ],
+      fallbackPoll: Effect.never,
+    });
+    const worker = yield* provide(
+      makeActiveRouterWorker(
+        makeInput(fixture, callbacks({ failAcceptText: "persist-fails" })),
+      ),
+      router.layer,
+      fixture,
+    );
+    const error = yield* provide(
+      worker.run.pipe(Effect.flip, Effect.timeout("2 seconds")),
+      router.layer,
+      fixture,
+    );
+    expect(error).toStrictEqual(new RouterWorkerPersistenceError());
+    expect(yield* Ref.get(router.scripted.pollCalls)).toHaveLength(2);
+  });
 
 // @agent-code-guard/regression-only: these scenarios pin the endpoint cursor and recovery safety boundary.
 describe("private Router worker", () => {
   it(
     "recovers certified history before activating a cold worker",
-    coldStartRecoversBeforeActivation,
+    runTrace(coldStartRecoversBeforeActivation),
   );
   it(
     "verifies a complete batch before dispatching any item",
-    batchVerificationIsAtomic,
+    runTrace(batchVerificationIsAtomic),
   );
   it(
     "accepts or ignores in order before advancing the cursor",
-    orderedCursorCommit,
+    runTrace(orderedCursorCommit),
   );
   it(
     "retains the prior cursor when durable acceptance fails",
-    persistenceRetainsCursor,
+    runTrace(persistenceRetainsCursor),
   );
   it(
     "retries an ambiguous send with the original envelope",
-    ambiguousSendRetriesSameBytes,
+    runTrace(ambiguousSendRetriesSameBytes),
   );
   it(
     "resends the stored envelope as initial after retry identity loss",
-    retryUnknownResendsStoredBytes,
+    runTrace(retryUnknownResendsStoredBytes),
   );
   it(
     "asks again as retry when a resent initial loses the race to its slow original",
-    resentInitialLosesRaceToSlowOriginal,
+    runTrace(resentInitialLosesRaceToSlowOriginal),
   );
-  it.each<FailClosedRow>([
+  it.for<FailClosedRow>([
     {
       result: "a retry conflicts",
       answers: [connectionLost, identityConflict, acceptsSentBytes],
@@ -1786,104 +1748,116 @@ describe("private Router worker", () => {
       answers: [messageInvalid, acceptsSentBytes],
       modes: ["initial"],
     },
-  ])("fails closed and retains the envelope when $result", (row) =>
-    resultFailsClosed(row),
+  ])(
+    "fails closed and retains the envelope when $result",
+    runTraceFor((row) => resultFailsClosed(row)),
   );
   it(
     "leaves the envelope for the next drain once Router alternation spends every attempt",
-    alternatingConflictAndLossStopsAtTheBound,
+    runTrace(alternatingConflictAndLossStopsAtTheBound),
   );
   it(
     "retains an envelope when Router acceptance names different bytes",
-    mismatchedAcceptedDigestRetainsOutbound,
+    runTrace(mismatchedAcceptedDigestRetainsOutbound),
   );
   it(
     "recovers a fresh tail before returning a Router-restarted send",
-    restartedSendRecoversBeforeReturning,
+    runTrace(restartedSendRecoversBeforeReturning),
   );
   it(
     "promotes an omitted-tail instance change before recovery",
-    restartOrdersTailBeforeRecovery,
+    runTrace(restartOrdersTailBeforeRecovery),
   );
   it(
     "promotes a retry-time omitted-tail instance change before recovery",
-    recoveryRetryPromotesChangedTailToRestart,
+    runTrace(recoveryRetryPromotesChangedTailToRestart),
   );
   it(
     "holds normal sends until recovery activates its Router generation",
-    normalSendWaitsForRecovery,
+    runTrace(normalSendWaitsForRecovery),
   );
   it(
     "pumps recovery ingress before activating the recovered generation",
-    recoveryPumpsIngressBeforeActivation,
+    runTrace(recoveryPumpsIngressBeforeActivation),
   );
   it(
     "interrupts pending recovery when its ingress pump loses continuity",
-    recoveryPumpFailureInterruptsCallback,
+    runTrace(recoveryPumpFailureInterruptsCallback),
   );
   it(
     "authenticates pinned history senders while Registry is unavailable",
-    pinnedCardsSurviveRegistryOutage,
+    runTrace(pinnedCardsSurviveRegistryOutage),
   );
   it(
     "answers awaitAnchor once cold-start recovery activates the worker",
-    awaitAnchorResolvesOnActivation,
+    runTrace(awaitAnchorResolvesOnActivation),
   );
   it(
     "detaches through a Router outage, warns while it lasts, and reattaches",
-    outageDetachesAndReattaches,
+    runTrace(outageDetachesAndReattaches),
     30_000,
   );
   it(
     "stays up, warns, and completes a recovery the Router drops out of",
-    outageDuringRecoveryRecovers,
+    runTrace(outageDuringRecoveryRecovers),
     30_000,
   );
   it(
     "cold-starts with the Router down, warns, and recovers when it answers",
-    coldStartWithRouterDownRecovers,
+    runTrace(coldStartWithRouterDownRecovers),
     30_000,
   );
   it(
     "recovers from a restart a detached worker's probe discovers",
-    detachedRestartRecovers,
+    runTrace(detachedRestartRecovers),
     30_000,
   );
   it(
     "retries a 503 within the poll without detaching",
-    shortBlipKeepsWorkerAttached([
-      new UnavailableError(),
-      new UnavailableError(),
-    ]),
+    runTrace(() =>
+      shortBlipKeepsWorkerAttached([
+        new UnavailableError(),
+        new UnavailableError(),
+      ]),
+    ),
   );
   it(
     "retries a 429 within the poll without detaching",
-    shortBlipKeepsWorkerAttached([
-      new OverloadedError(),
-      new OverloadedError(),
-    ]),
+    runTrace(() =>
+      shortBlipKeepsWorkerAttached([
+        new OverloadedError(),
+        new OverloadedError(),
+      ]),
+    ),
   );
   it(
     "retries a dropped connection within the poll without detaching",
-    shortBlipKeepsWorkerAttached([new RouterConnectionError()]),
+    runTrace(() => shortBlipKeepsWorkerAttached([new RouterConnectionError()])),
   );
   it(
     "keeps a generation recovery re-activated attached after a stale failure",
-    staleFailureKeepsNewGenerationAttached,
+    runTrace(staleFailureKeepsNewGenerationAttached),
     30_000,
   );
   it(
     "logs why and ends the poll loop when the Router rejects the endpoint's authentication",
-    rejectionEndsThePollLoop(new AuthenticationFailedError(), "authentication"),
+    runTrace(() =>
+      rejectionEndsThePollLoop(
+        new AuthenticationFailedError(),
+        "authentication",
+      ),
+    ),
   );
   it(
     "logs why and ends the poll loop when the Router rejects the endpoint's version",
-    rejectionEndsThePollLoop(new VersionMismatchError(), "version"),
+    runTrace(() =>
+      rejectionEndsThePollLoop(new VersionMismatchError(), "version"),
+    ),
   );
   it(
     "ends the poll loop on a persistence fault without retrying",
-    persistenceFaultEndsPollLoop,
+    runTrace(persistenceFaultEndsPollLoop),
   );
 });
 
-/* eslint-enable max-lines, max-lines-per-function, sonarjs/max-lines-per-function, agent-code-guard/async-keyword, agent-code-guard/promise-type, @typescript-eslint/no-invalid-void-type -- Restore repository defaults. */
+/* eslint-enable max-lines, max-lines-per-function, sonarjs/max-lines-per-function, @typescript-eslint/no-invalid-void-type -- Restore repository defaults. */

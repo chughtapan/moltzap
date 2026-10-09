@@ -4,6 +4,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Deferred, Effect, Fiber, Schema, Scope } from "effect";
 import { describe, expect, it } from "vitest";
+import { runTrace } from "../__tests__/run-trace.js";
 import { openEndpointStore } from "../store/index.js";
 import { CollectiveId, SendInput } from "../transport/collectives/forms.js";
 import { SendError } from "../transport/messaging/errors.js";
@@ -67,12 +68,9 @@ const invocationFixture = (
 /** The request every keyed test sends, under idempotency key `once`. */
 const onceRequest = { input, idempotencyKey: "once" };
 
-const runWithFileSystem = <A, E>(
+const withFileSystem = <A, E>(
   effect: Effect.Effect<A, E, Scope.Scope | FileSystem.FileSystem>,
-) =>
-  Effect.runPromise(
-    Effect.scoped(effect).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
+) => Effect.scoped(effect).pipe(Effect.provide(NodeFileSystem.layer));
 
 /** Invocations over a fresh store whose send blocks until `complete` resolves. */
 const freshInvocations = Effect.gen(function* () {
@@ -84,7 +82,7 @@ const freshInvocations = Effect.gen(function* () {
 });
 
 const reportsAnUnseenKeyAsAbsent = () =>
-  runWithFileSystem(
+  withFileSystem(
     Effect.gen(function* () {
       const { invocations } = yield* freshInvocations;
 
@@ -95,7 +93,7 @@ const reportsAnUnseenKeyAsAbsent = () =>
   );
 
 const keepsADisconnectedSendPendingAndJoinsItsRetry = () =>
-  runWithFileSystem(
+  withFileSystem(
     Effect.gen(function* () {
       const test = yield* freshInvocations;
       const disconnected = yield* test.invocations
@@ -119,7 +117,7 @@ const keepsADisconnectedSendPendingAndJoinsItsRetry = () =>
   );
 
 const refusesADifferentInputUnderAKeyInFlight = () =>
-  runWithFileSystem(
+  withFileSystem(
     Effect.gen(function* () {
       const test = yield* freshInvocations;
       yield* test.invocations.send(onceRequest).pipe(Effect.forkScoped);
@@ -140,7 +138,7 @@ const refusesADifferentInputUnderAKeyInFlight = () =>
   );
 
 const replaysAReturnedOutcomeWithoutSendingAgain = () =>
-  runWithFileSystem(
+  withFileSystem(
     Effect.gen(function* () {
       const test = yield* freshInvocations;
       yield* Deferred.succeed(test.complete, undefined);
@@ -154,7 +152,7 @@ const replaysAReturnedOutcomeWithoutSendingAgain = () =>
   );
 
 const replaysAReturnedOutcomeAfterRestart = () =>
-  runWithFileSystem(
+  withFileSystem(
     Effect.gen(function* () {
       const test = yield* freshInvocations;
       yield* Deferred.succeed(test.complete, undefined);
@@ -165,7 +163,7 @@ const replaysAReturnedOutcomeAfterRestart = () =>
   );
 
 const executesEverySendWithoutAKey = () =>
-  runWithFileSystem(
+  withFileSystem(
     Effect.gen(function* () {
       const test = yield* freshInvocations;
       yield* Deferred.succeed(test.complete, undefined);
@@ -262,74 +260,73 @@ const checksRestart = (path: string) =>
     }),
   );
 const preservesUncertaintyAndFailure = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const path = yield* temporaryDirectory;
-        yield* interruptsDaemon(path);
-        yield* checksRestart(path);
-      }),
-    ).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* temporaryDirectory;
+      yield* interruptsDaemon(path);
+      yield* checksRestart(path);
+    }),
+  ).pipe(Effect.provide(NodeFileSystem.layer));
 
 const replaysARefusalWithItsDetail = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const path = yield* temporaryDirectory;
-        const store = yield* openEndpointStore(path);
-        const scope = yield* Scope.Scope;
-        const refusal = new SendError({
-          reason: "unknown-agent",
-          detail: "agent:dana is not a known agent",
-        });
-        const invocations = yield* makeSendInvocations(
-          store,
-          () => Effect.fail(refusal),
-          scope,
-        );
-        yield* invocations
-          .send({ input, idempotencyKey: "refused" })
-          .pipe(Effect.flip);
+  Effect.scoped(
+    Effect.gen(function* () {
+      const path = yield* temporaryDirectory;
+      const store = yield* openEndpointStore(path);
+      const scope = yield* Scope.Scope;
+      const refusal = new SendError({
+        reason: "unknown-agent",
+        detail: "agent:dana is not a known agent",
+      });
+      const invocations = yield* makeSendInvocations(
+        store,
+        () => Effect.fail(refusal),
+        scope,
+      );
+      yield* invocations
+        .send({ input, idempotencyKey: "refused" })
+        .pipe(Effect.flip);
 
-        const replayed = yield* invocations
-          .send({ input, idempotencyKey: "refused" })
-          .pipe(Effect.flip);
+      const replayed = yield* invocations
+        .send({ input, idempotencyKey: "refused" })
+        .pipe(Effect.flip);
 
-        expect(replayed.message).toBe(refusal.message);
-      }),
-    ).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
+      expect(replayed.message).toBe(refusal.message);
+    }),
+  ).pipe(Effect.provide(NodeFileSystem.layer));
 
 // @agent-code-guard/regression-only: these crash and concurrency transcripts pin the invocation contract without asserting collective completion.
 describe("durable send invocations", () => {
   it(
     "reports an idempotency key it has not seen as absent",
-    reportsAnUnseenKeyAsAbsent,
+    runTrace(reportsAnUnseenKeyAsAbsent),
   );
   it(
     "keeps a send pending when its caller disconnects, and a retry joins it",
-    keepsADisconnectedSendPendingAndJoinsItsRetry,
+    runTrace(keepsADisconnectedSendPendingAndJoinsItsRetry),
   );
   it(
     "refuses a different input under a key still in flight",
-    refusesADifferentInputUnderAKeyInFlight,
+    runTrace(refusesADifferentInputUnderAKeyInFlight),
   );
   it(
     "replays a returned outcome without executing the send again",
-    replaysAReturnedOutcomeWithoutSendingAgain,
+    runTrace(replaysAReturnedOutcomeWithoutSendingAgain),
   );
   it(
     "replays a returned outcome with its collective id after restart",
-    replaysAReturnedOutcomeAfterRestart,
+    runTrace(replaysAReturnedOutcomeAfterRestart),
   );
   it(
     "executes every send that names no idempotency key",
-    executesEverySendWithoutAKey,
+    runTrace(executesEverySendWithoutAKey),
   );
   it(
     "leaves interrupted sends indeterminate and replays observed failures",
-    preservesUncertaintyAndFailure,
+    runTrace(preservesUncertaintyAndFailure),
   );
-  it("replays a refusal with its detail", replaysARefusalWithItsDetail);
+  it(
+    "replays a refusal with its detail",
+    runTrace(replaysARefusalWithItsDetail),
+  );
 });

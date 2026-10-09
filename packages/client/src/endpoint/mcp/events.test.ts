@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import type { HarnessMessageReadyEvent } from "../../delivery/operations.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
+import { runTrace } from "../../__tests__/run-trace.js";
 import { DeliveryToken } from "../../store/index.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
 import { acquireHarnessEndpoint } from "../harness-endpoint/index.js";
@@ -253,146 +254,135 @@ const rawRequest = (
   );
 
 const discoversDraftEvents = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const { endpoint } = yield* acquireEventsServer;
-        const discovery = yield* rawRequest(endpoint, "server/discover");
-        expect(discovery).toMatchObject({
-          result: { capabilities: { events: {} } },
-        });
-        const catalog = yield* rawRequest(endpoint, "events/list");
-        const pushDelivery: unknown = expect.arrayContaining(["push"]);
-        expect(catalog).toHaveProperty(
-          "result.events",
-          expect.arrayContaining([
-            expect.objectContaining({
-              name: INBOX_PENDING_EVENT,
-              delivery: pushDelivery,
-            }),
-          ]),
-        );
-        const missing = yield* rawRequest(endpoint, "events/stream", {
-          name: "missing",
-          arguments: {},
-        });
-        expect(missing).toMatchObject({
-          error: { code: -32011, data: { kind: "event" } },
-        });
-        const replay = yield* rawRequest(endpoint, "events/stream", {
-          name: INBOX_PENDING_EVENT,
-          arguments: {},
-          cursor: "stale",
-        });
-        expect(replay).toMatchObject({ error: { code: -32014 } });
-      }),
-    ),
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { endpoint } = yield* acquireEventsServer;
+      const discovery = yield* rawRequest(endpoint, "server/discover");
+      expect(discovery).toMatchObject({
+        result: { capabilities: { events: {} } },
+      });
+      const catalog = yield* rawRequest(endpoint, "events/list");
+      const pushDelivery: unknown = expect.arrayContaining(["push"]);
+      expect(catalog).toHaveProperty(
+        "result.events",
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: INBOX_PENDING_EVENT,
+            delivery: pushDelivery,
+          }),
+        ]),
+      );
+      const missing = yield* rawRequest(endpoint, "events/stream", {
+        name: "missing",
+        arguments: {},
+      });
+      expect(missing).toMatchObject({
+        error: { code: -32011, data: { kind: "event" } },
+      });
+      const replay = yield* rawRequest(endpoint, "events/stream", {
+        name: INBOX_PENDING_EVENT,
+        arguments: {},
+        cursor: "stale",
+      });
+      expect(replay).toMatchObject({ error: { code: -32014 } });
+    }),
   );
 
 const acceptsOmittedSubscribeCursor = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const { endpoint } = yield* acquireEventsServer;
-        const omittedCursor = yield* rawRequest(endpoint, "events/subscribe", {
-          name: "moltzap.inbox.item",
-          arguments: {},
-          delivery: {
-            mode: "webhook",
-            url: "https://callback.example/events",
-            secret: "unavailable",
-          },
-        });
-        expect(omittedCursor).toMatchObject({
-          error: { code: -32014, data: { feature: "deliveryMode" } },
-        });
-      }),
-    ),
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { endpoint } = yield* acquireEventsServer;
+      const omittedCursor = yield* rawRequest(endpoint, "events/subscribe", {
+        name: "moltzap.inbox.item",
+        arguments: {},
+        delivery: {
+          mode: "webhook",
+          url: "https://callback.example/events",
+          secret: "unavailable",
+        },
+      });
+      expect(omittedCursor).toMatchObject({
+        error: { code: -32014, data: { feature: "deliveryMode" } },
+      });
+    }),
   );
 
 const catchesUpAndDrainsNewArrivals = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const harness = yield* acquireRacingEventsServer;
-        harness.add(delivery(1));
-        const endpoint = yield* acquireHarnessEndpoint(harness.endpoint);
-        const firstAccepted = yield* Deferred.make<undefined>();
-        const received = yield* endpoint.messages.pipe(
-          Stream.tap((item) =>
-            item.acknowledge.pipe(
-              Effect.zipRight(Deferred.succeed(firstAccepted, undefined)),
-            ),
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = yield* acquireRacingEventsServer;
+      harness.add(delivery(1));
+      const endpoint = yield* acquireHarnessEndpoint(harness.endpoint);
+      const firstAccepted = yield* Deferred.make<undefined>();
+      const received = yield* endpoint.messages.pipe(
+        Stream.tap((item) =>
+          item.acknowledge.pipe(
+            Effect.zipRight(Deferred.succeed(firstAccepted, undefined)),
           ),
-          Stream.take(2),
-          Stream.runCollect,
-          Effect.forkScoped,
-        );
-        yield* Deferred.await(firstAccepted);
-        harness.add(delivery(2));
-        harness.events.notifyPending();
-        harness.events.notifyPending();
-        const items = yield* Fiber.join(received);
-        expect(Chunk.toReadonlyArray(items).map((item) => item.item)).toEqual([
-          delivery(1).item,
-          delivery(2).item,
-        ]);
-        expect(harness.acknowledged).toEqual([
-          delivery(1).deliveryToken,
-          delivery(2).deliveryToken,
-        ]);
-      }),
-    ),
+        ),
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
+      yield* Deferred.await(firstAccepted);
+      harness.add(delivery(2));
+      harness.events.notifyPending();
+      harness.events.notifyPending();
+      const items = yield* Fiber.join(received);
+      expect(Chunk.toReadonlyArray(items).map((item) => item.item)).toEqual([
+        delivery(1).item,
+        delivery(2).item,
+      ]);
+      expect(harness.acknowledged).toEqual([
+        delivery(1).deliveryToken,
+        delivery(2).deliveryToken,
+      ]);
+    }),
   );
 
 const preservesExclusiveOwnership = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const harness = yield* acquireEventsServer;
-        const first = yield* acquireHarnessEndpoint(harness.endpoint);
-        const second = yield* acquireHarnessEndpoint(harness.endpoint);
-        const running = yield* first.messages.pipe(
-          Stream.runDrain,
-          Effect.forkScoped,
-        );
-        yield* Deferred.await(harness.attached);
-        const refused = yield* second.messages.pipe(
-          Stream.runHead,
-          Effect.flip,
-        );
-        expect(refused.reason).toBe("already-listening");
-        yield* Fiber.interrupt(running);
-        yield* Deferred.await(harness.detached);
-        harness.add(delivery(3));
-        const replay = yield* second.messages.pipe(
-          Stream.take(1),
-          Stream.runCollect,
-        );
-        expect(Chunk.toReadonlyArray(replay).map((item) => item.item)).toEqual([
-          delivery(3).item,
-        ]);
-      }),
-    ),
+  Effect.scoped(
+    Effect.gen(function* () {
+      const harness = yield* acquireEventsServer;
+      const first = yield* acquireHarnessEndpoint(harness.endpoint);
+      const second = yield* acquireHarnessEndpoint(harness.endpoint);
+      const running = yield* first.messages.pipe(
+        Stream.runDrain,
+        Effect.forkScoped,
+      );
+      yield* Deferred.await(harness.attached);
+      const refused = yield* second.messages.pipe(Stream.runHead, Effect.flip);
+      expect(refused.reason).toBe("already-listening");
+      yield* Fiber.interrupt(running);
+      yield* Deferred.await(harness.detached);
+      harness.add(delivery(3));
+      const replay = yield* second.messages.pipe(
+        Stream.take(1),
+        Stream.runCollect,
+      );
+      expect(Chunk.toReadonlyArray(replay).map((item) => item.item)).toEqual([
+        delivery(3).item,
+      ]);
+    }),
   );
 
 // @agent-code-guard/regression-only: these finite protocol transcripts pin interoperability with the official SDK and real loopback HTTP.
 describe("MCP Events draft interoperability", () => {
   it(
     "accepts an omitted subscription cursor before applying delivery policy",
-    acceptsOmittedSubscribeCursor,
+    runTrace(acceptsOmittedSubscribeCursor),
   );
   it(
     "advertises discovery and preserves draft errors for unknown events and replay",
-    discoversDraftEvents,
+    runTrace(discoversDraftEvents),
   );
   it(
     "catches up an item whose wakeup arrives during activation and coalesces later wakeups without implicit acknowledgment",
-    catchesUpAndDrainsNewArrivals,
+    runTrace(catchesUpAndDrainsNewArrivals),
   );
   it(
     "refuses a competing consumer and releases ownership on cancellation",
-    preservesExclusiveOwnership,
+    runTrace(preservesExclusiveOwnership),
   );
 });
 

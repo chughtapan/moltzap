@@ -19,6 +19,7 @@ import {
   issueTestCard,
   makeTestAuthority,
 } from "../../__tests__/agent-card-fixtures.js";
+import { runTrace, runTraceFor } from "../../__tests__/run-trace.js";
 import {
   type ActionCertifiedRecord,
   type ActionCore,
@@ -414,116 +415,112 @@ const expectRepresentationFailure = <Value>(
   );
 
 const verifiesThreshold = (memberCount: number, expectedThreshold: number) =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeProtocolFixture(memberCount);
-      const genesis = yield* buildGenesis(fixture, [
-        { type: "text", text: `members-${memberCount}` },
-      ]);
-      const accepted: CertifiedRecord = {
-        ...genesis.certifiedRecord,
-        durabilityCertificate: {
-          ...genesis.certifiedRecord.durabilityCertificate,
-          votes: asNonEmpty(
-            genesis.durabilityRepresentations.slice(0, expectedThreshold),
-          ),
-        },
-      };
-      expect(quorumThreshold(memberCount)).toBe(expectedThreshold);
-      yield* verifyCertifiedRecord({
-        record: accepted,
+  Effect.gen(function* () {
+    const fixture = yield* makeProtocolFixture(memberCount);
+    const genesis = yield* buildGenesis(fixture, [
+      { type: "text", text: `members-${memberCount}` },
+    ]);
+    const accepted: CertifiedRecord = {
+      ...genesis.certifiedRecord,
+      durabilityCertificate: {
+        ...genesis.certifiedRecord.durabilityCertificate,
+        votes: asNonEmpty(
+          genesis.durabilityRepresentations.slice(0, expectedThreshold),
+        ),
+      },
+    };
+    expect(quorumThreshold(memberCount)).toBe(expectedThreshold);
+    yield* verifyCertifiedRecord({
+      record: accepted,
+      membership: fixture.membership,
+    });
+    const belowThreshold: CertifiedRecord = {
+      ...accepted,
+      durabilityCertificate: {
+        ...accepted.durabilityCertificate,
+        votes: asNonEmpty(
+          genesis.durabilityRepresentations.slice(0, expectedThreshold - 1),
+        ),
+      },
+    };
+    yield* expectRepresentationFailure(
+      verifyCertifiedRecord({
+        record: belowThreshold,
         membership: fixture.membership,
-      });
-      const belowThreshold: CertifiedRecord = {
-        ...accepted,
-        durabilityCertificate: {
-          ...accepted.durabilityCertificate,
-          votes: asNonEmpty(
-            genesis.durabilityRepresentations.slice(0, expectedThreshold - 1),
-          ),
-        },
-      };
-      yield* expectRepresentationFailure(
-        verifyCertifiedRecord({
-          record: belowThreshold,
-          membership: fixture.membership,
-        }),
-      );
-    }),
-  );
+      }),
+    );
+  });
 
 const enforcesGenesisAndPostEvidence = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeProtocolFixture(4);
-      const genesis = yield* buildGenesis(fixture, [
-        { type: "text", text: "genesis" },
-      ]);
-      const nonUnanimousGenesis: ActionCertifiedRecord = {
-        ...genesis.actionCertifiedRecord,
-        actionCertificate: {
-          ...genesis.actionCertifiedRecord.actionCertificate,
-          signatures: asNonEmpty(genesis.actionRepresentations.slice(0, 3)),
-        },
-      };
-      yield* expectRepresentationFailure(
-        verifyActionCertifiedRecord({
-          record: nonUnanimousGenesis,
-          membership: fixture.membership,
-        }),
-      );
-
-      const post = yield* buildPost(fixture, genesis, [
-        { type: "text", text: "ordinary post" },
-      ]);
-      const thresholdPost: ActionCertifiedRecord = {
-        ...post.actionCertifiedRecord,
-        actionCertificate: {
-          ...post.actionCertifiedRecord.actionCertificate,
-          signatures: asNonEmpty(post.actionRepresentations.slice(0, 3)),
-        },
-      };
-      yield* verifyActionCertifiedRecord({
-        record: thresholdPost,
+  Effect.gen(function* () {
+    const fixture = yield* makeProtocolFixture(4);
+    const genesis = yield* buildGenesis(fixture, [
+      { type: "text", text: "genesis" },
+    ]);
+    const nonUnanimousGenesis: ActionCertifiedRecord = {
+      ...genesis.actionCertifiedRecord,
+      actionCertificate: {
+        ...genesis.actionCertifiedRecord.actionCertificate,
+        signatures: asNonEmpty(genesis.actionRepresentations.slice(0, 3)),
+      },
+    };
+    yield* expectRepresentationFailure(
+      verifyActionCertifiedRecord({
+        record: nonUnanimousGenesis,
         membership: fixture.membership,
-      });
-      const missingAuthor: ActionCertifiedRecord = {
-        ...thresholdPost,
-        actionCertificate: {
-          ...thresholdPost.actionCertificate,
-          signatures: [
-            at(post.actionRepresentations, 1),
-            at(post.actionRepresentations, 2),
-            at(post.actionRepresentations, 3),
-          ],
-        },
-      };
-      yield* expectRepresentationFailure(
-        verifyActionCertifiedRecord({
-          record: missingAuthor,
-          membership: fixture.membership,
-        }),
-      );
+      }),
+    );
 
-      const wrongEvidenceKind: CertifiedRecord = {
-        ...post.certifiedRecord,
-        durabilityCertificate: {
-          ...post.certifiedRecord.durabilityCertificate,
-          votes: [
-            at(post.actionRepresentations, 0),
-            at(post.durabilityRepresentations, 1),
-            at(post.durabilityRepresentations, 2),
-          ],
-        },
-      };
-      yield* expectRepresentationFailure(
-        verifyCertifiedRecord({
-          record: wrongEvidenceKind,
-          membership: fixture.membership,
-        }),
-      );
-    }),
-  );
+    const post = yield* buildPost(fixture, genesis, [
+      { type: "text", text: "ordinary post" },
+    ]);
+    const thresholdPost: ActionCertifiedRecord = {
+      ...post.actionCertifiedRecord,
+      actionCertificate: {
+        ...post.actionCertifiedRecord.actionCertificate,
+        signatures: asNonEmpty(post.actionRepresentations.slice(0, 3)),
+      },
+    };
+    yield* verifyActionCertifiedRecord({
+      record: thresholdPost,
+      membership: fixture.membership,
+    });
+    const missingAuthor: ActionCertifiedRecord = {
+      ...thresholdPost,
+      actionCertificate: {
+        ...thresholdPost.actionCertificate,
+        signatures: [
+          at(post.actionRepresentations, 1),
+          at(post.actionRepresentations, 2),
+          at(post.actionRepresentations, 3),
+        ],
+      },
+    };
+    yield* expectRepresentationFailure(
+      verifyActionCertifiedRecord({
+        record: missingAuthor,
+        membership: fixture.membership,
+      }),
+    );
+
+    const wrongEvidenceKind: CertifiedRecord = {
+      ...post.certifiedRecord,
+      durabilityCertificate: {
+        ...post.certifiedRecord.durabilityCertificate,
+        votes: [
+          at(post.actionRepresentations, 0),
+          at(post.durabilityRepresentations, 1),
+          at(post.durabilityRepresentations, 2),
+        ],
+      },
+    };
+    yield* expectRepresentationFailure(
+      verifyCertifiedRecord({
+        record: wrongEvidenceKind,
+        membership: fixture.membership,
+      }),
+    );
+  });
 
 /**
  * A POST record names its membership only by `MembershipHash`, so it verifies
@@ -536,212 +533,203 @@ const enforcesGenesisAndPostEvidence = () =>
  * @returns Completion after every case is checked.
  */
 const verifiesRecordsAgainstTheHeldMembership = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeProtocolFixture(4);
-      const other = yield* makeProtocolFixture(4);
-      const genesis = yield* buildGenesis(fixture, [
-        { type: "text", text: "genesis" },
-      ]);
-      const post = yield* buildPost(fixture, genesis, [
-        { type: "text", text: "ordinary post" },
-      ]);
+  Effect.gen(function* () {
+    const fixture = yield* makeProtocolFixture(4);
+    const other = yield* makeProtocolFixture(4);
+    const genesis = yield* buildGenesis(fixture, [
+      { type: "text", text: "genesis" },
+    ]);
+    const post = yield* buildPost(fixture, genesis, [
+      { type: "text", text: "ordinary post" },
+    ]);
 
-      yield* verifyCertifiedRecord({
+    yield* verifyCertifiedRecord({
+      record: genesis.certifiedRecord,
+      membership: fixture.membership,
+    });
+    yield* verifyCertifiedRecord({
+      record: post.certifiedRecord,
+      membership: fixture.membership,
+    });
+    yield* expectRepresentationFailure(
+      verifyCertifiedRecord({
         record: genesis.certifiedRecord,
-        membership: fixture.membership,
-      });
-      yield* verifyCertifiedRecord({
+        membership: other.membership,
+      }),
+    );
+    yield* expectRepresentationFailure(
+      verifyCertifiedRecord({
         record: post.certifiedRecord,
+        membership: other.membership,
+      }),
+    );
+
+    const postCore = post.actionCertifiedRecord.recordCore;
+    if (!("membershipHash" in postCore)) {
+      return yield* Effect.dieMessage("a POST core carries a MembershipHash");
+    }
+    const renamedCore = {
+      ...postCore,
+      membershipHash: other.membership.hash,
+    };
+    yield* expectRepresentationFailure(
+      verifyActionCertifiedRecord({
+        record: {
+          ...post.actionCertifiedRecord,
+          recordCore: renamedCore,
+          recordHash: yield* hashRecord(renamedCore),
+        },
         membership: fixture.membership,
-      });
-      yield* expectRepresentationFailure(
-        verifyCertifiedRecord({
-          record: genesis.certifiedRecord,
-          membership: other.membership,
-        }),
-      );
-      yield* expectRepresentationFailure(
-        verifyCertifiedRecord({
-          record: post.certifiedRecord,
-          membership: other.membership,
-        }),
-      );
+      }),
+    );
 
-      const postCore = post.actionCertifiedRecord.recordCore;
-      if (!("membershipHash" in postCore)) {
-        return yield* Effect.dieMessage("a POST core carries a MembershipHash");
-      }
-      const renamedCore = {
-        ...postCore,
-        membershipHash: other.membership.hash,
-      };
-      yield* expectRepresentationFailure(
-        verifyActionCertifiedRecord({
-          record: {
-            ...post.actionCertifiedRecord,
-            recordCore: renamedCore,
-            recordHash: yield* hashRecord(renamedCore),
-          },
-          membership: fixture.membership,
-        }),
-      );
+    const genesisCore = genesis.actionCertifiedRecord.recordCore;
+    if (!("membership" in genesisCore)) {
+      return yield* Effect.dieMessage("a GENESIS core carries its descriptor");
+    }
+    const foreignCore = {
+      ...genesisCore,
+      membership: other.membership.descriptor,
+    };
+    yield* expectRepresentationFailure(
+      verifyActionCertifiedRecord({
+        record: {
+          ...genesis.actionCertifiedRecord,
+          recordCore: foreignCore,
+          recordHash: yield* hashRecord(foreignCore),
+        },
+        membership: fixture.membership,
+      }),
+    );
 
-      const genesisCore = genesis.actionCertifiedRecord.recordCore;
-      if (!("membership" in genesisCore)) {
-        return yield* Effect.dieMessage(
-          "a GENESIS core carries its descriptor",
-        );
-      }
-      const foreignCore = {
-        ...genesisCore,
-        membership: other.membership.descriptor,
-      };
-      yield* expectRepresentationFailure(
-        verifyActionCertifiedRecord({
-          record: {
-            ...genesis.actionCertifiedRecord,
-            recordCore: foreignCore,
-            recordHash: yield* hashRecord(foreignCore),
-          },
-          membership: fixture.membership,
-        }),
+    const decodesAsRecordCore = (value: unknown) =>
+      Schema.decodeUnknown(RecordCoreSchema)(value).pipe(
+        Effect.as(true),
+        Effect.orElseSucceed(() => false),
       );
-
-      const decodesAsRecordCore = (value: unknown) =>
-        Schema.decodeUnknown(RecordCoreSchema)(value).pipe(
-          Effect.as(true),
-          Effect.orElseSucceed(() => false),
-        );
-      const { membershipHash, ...postCoreFields } = postCore;
-      expect(
-        yield* decodesAsRecordCore({
-          ...postCoreFields,
-          membership: fixture.membership.descriptor,
-        }),
-      ).toBe(false);
-      const { membership: genesisDescriptor, ...genesisCoreFields } =
-        genesisCore;
-      expect(
-        yield* decodesAsRecordCore({
-          ...genesisCoreFields,
-          membershipHash: fixture.membership.hash,
-        }),
-      ).toBe(false);
-      expect(
-        yield* decodesAsRecordCore({ ...postCoreFields, membershipHash }),
-      ).toBe(true);
-      expect(
-        yield* decodesAsRecordCore({
-          ...genesisCoreFields,
-          membership: genesisDescriptor,
-        }),
-      ).toBe(true);
-    }),
-  );
+    const { membershipHash, ...postCoreFields } = postCore;
+    expect(
+      yield* decodesAsRecordCore({
+        ...postCoreFields,
+        membership: fixture.membership.descriptor,
+      }),
+    ).toBe(false);
+    const { membership: genesisDescriptor, ...genesisCoreFields } = genesisCore;
+    expect(
+      yield* decodesAsRecordCore({
+        ...genesisCoreFields,
+        membershipHash: fixture.membership.hash,
+      }),
+    ).toBe(false);
+    expect(
+      yield* decodesAsRecordCore({ ...postCoreFields, membershipHash }),
+    ).toBe(true);
+    expect(
+      yield* decodesAsRecordCore({
+        ...genesisCoreFields,
+        membership: genesisDescriptor,
+      }),
+    ).toBe(true);
+  });
 
 const verifiesProposalEnvelopeAttribution = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeProtocolFixture(4);
-      const genesis = yield* buildGenesis(fixture, [
-        { type: "text", text: "proposal" },
-      ]);
-      const author = at(fixture.identities, 0).card.agentId;
-      const proposal: ActionProposal = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "action_proposal",
-        action: genesis.action,
-      };
-      yield* verifyActionProposal({
+  Effect.gen(function* () {
+    const fixture = yield* makeProtocolFixture(4);
+    const genesis = yield* buildGenesis(fixture, [
+      { type: "text", text: "proposal" },
+    ]);
+    const author = at(fixture.identities, 0).card.agentId;
+    const proposal: ActionProposal = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "action_proposal",
+      action: genesis.action,
+    };
+    yield* verifyActionProposal({
+      proposal,
+      membership: fixture.membership,
+      outerSenderAgentId: author,
+    });
+    yield* expectRepresentationFailure(
+      verifyActionProposal({
         proposal,
         membership: fixture.membership,
-        outerSenderAgentId: author,
-      });
-      yield* expectRepresentationFailure(
-        verifyActionProposal({
-          proposal,
-          membership: fixture.membership,
-          outerSenderAgentId: at(fixture.identities, 1).card.agentId,
-        }),
-      );
-    }),
-  );
+        outerSenderAgentId: at(fixture.identities, 1).card.agentId,
+      }),
+    );
+  });
 
 const verifiesReanchorCatchUpBindings = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeProtocolFixture(4);
-      const genesis = yield* buildGenesis(fixture, [
-        { type: "text", text: "catch up" },
-      ]);
-      const {
-        reanchor,
-        anchorHash,
-        votes: reanchorRepresentations,
-      } = yield* voteReanchor(fixture, genesis);
-      const completed: CompletedReanchor = {
+  Effect.gen(function* () {
+    const fixture = yield* makeProtocolFixture(4);
+    const genesis = yield* buildGenesis(fixture, [
+      { type: "text", text: "catch up" },
+    ]);
+    const {
+      reanchor,
+      anchorHash,
+      votes: reanchorRepresentations,
+    } = yield* voteReanchor(fixture, genesis);
+    const completed: CompletedReanchor = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "completed_reanchor",
+      anchorHash,
+      reanchor,
+      certificate: {
         moltzapVersion: MOLTZAP_VERSION,
-        kind: "completed_reanchor",
+        kind: "reanchor_certificate",
         anchorHash,
-        reanchor,
-        certificate: {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "reanchor_certificate",
-          anchorHash,
-          votes: asNonEmpty(reanchorRepresentations.slice(0, 3)),
-        },
-      };
-      yield* verifyCompletedReanchor({
-        completed,
-        membership: fixture.membership,
-      });
+        votes: asNonEmpty(reanchorRepresentations.slice(0, 3)),
+      },
+    };
+    yield* verifyCompletedReanchor({
+      completed,
+      membership: fixture.membership,
+    });
 
-      const responder = at(fixture.identities, 0);
-      const request: CatchUpRequest = {
+    const responder = at(fixture.identities, 0);
+    const request: CatchUpRequest = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "catch_up_request",
+      conversationId: fixture.membership.descriptor.conversationId,
+      membershipHash: fixture.membership.hash,
+      requesterAgentId: at(fixture.identities, 1).card.agentId,
+      knownRecordHash: genesis.actionCertifiedRecord.recordHash,
+      knownAnchorHash: genesis.actionCertifiedRecord.recordCore.anchorHash,
+    };
+    const attestation = yield* signEvidenceMessage({
+      statement: {
         moltzapVersion: MOLTZAP_VERSION,
-        kind: "catch_up_request",
-        conversationId: fixture.membership.descriptor.conversationId,
-        membershipHash: fixture.membership.hash,
-        requesterAgentId: at(fixture.identities, 1).card.agentId,
-        knownRecordHash: genesis.actionCertifiedRecord.recordHash,
-        knownAnchorHash: genesis.actionCertifiedRecord.recordCore.anchorHash,
-      };
-      const attestation = yield* signEvidenceMessage({
-        statement: {
-          moltzapVersion: MOLTZAP_VERSION,
-          kind: "catch_up_attestation",
-          signerAgentId: responder.card.agentId,
-          request,
-          itemKind: "completed_reanchor",
-          itemHash: completed.anchorHash,
-          hasMore: false,
-        },
-        agentCard: responder.card,
-        signingAuthority: responder.authority,
-      });
-      const page: CatchUpPage = {
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "catch_up_page",
+        kind: "catch_up_attestation",
+        signerAgentId: responder.card.agentId,
         request,
-        item: completed,
+        itemKind: "completed_reanchor",
+        itemHash: completed.anchorHash,
         hasMore: false,
-        attestation: yield* Schema.encode(SignedMessage)(attestation),
-      };
-      yield* verifyCatchUpPage({
+      },
+      agentCard: responder.card,
+      signingAuthority: responder.authority,
+    });
+    const page: CatchUpPage = {
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "catch_up_page",
+      request,
+      item: completed,
+      hasMore: false,
+      attestation: yield* Schema.encode(SignedMessage)(attestation),
+    };
+    yield* verifyCatchUpPage({
+      page,
+      membership: fixture.membership,
+      responseSenderAgentId: responder.card.agentId,
+    });
+    yield* expectRepresentationFailure(
+      verifyCatchUpPage({
         page,
         membership: fixture.membership,
-        responseSenderAgentId: responder.card.agentId,
-      });
-      yield* expectRepresentationFailure(
-        verifyCatchUpPage({
-          page,
-          membership: fixture.membership,
-          responseSenderAgentId: at(fixture.identities, 1).card.agentId,
-        }),
-      );
-    }),
-  );
+        responseSenderAgentId: at(fixture.identities, 1).card.agentId,
+      }),
+    );
+  });
 
 /**
  * A member that holds no record catches up GENESIS first: a page for an empty
@@ -753,80 +741,78 @@ const verifiesReanchorCatchUpBindings = () =>
  * @returns Completion after every page is checked.
  */
 const catchesUpGenesisFirst = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeProtocolFixture(4);
-      const genesis = yield* buildGenesis(fixture, [
-        { type: "text", text: "genesis" },
-      ]);
-      const post = yield* buildPost(fixture, genesis, [
-        { type: "text", text: "after genesis" },
-      ]);
-      const responder = at(fixture.identities, 0);
-      const request = (
-        known: Pick<CatchUpRequest, "knownRecordHash" | "knownAnchorHash">,
-      ): CatchUpRequest => ({
-        moltzapVersion: MOLTZAP_VERSION,
-        kind: "catch_up_request",
-        conversationId: fixture.membership.descriptor.conversationId,
-        membershipHash: fixture.membership.hash,
-        requesterAgentId: at(fixture.identities, 1).card.agentId,
-        ...known,
-      });
-      const page = (asked: CatchUpRequest, item: CertifiedRecord) =>
-        signEvidenceMessage({
-          statement: {
+  Effect.gen(function* () {
+    const fixture = yield* makeProtocolFixture(4);
+    const genesis = yield* buildGenesis(fixture, [
+      { type: "text", text: "genesis" },
+    ]);
+    const post = yield* buildPost(fixture, genesis, [
+      { type: "text", text: "after genesis" },
+    ]);
+    const responder = at(fixture.identities, 0);
+    const request = (
+      known: Pick<CatchUpRequest, "knownRecordHash" | "knownAnchorHash">,
+    ): CatchUpRequest => ({
+      moltzapVersion: MOLTZAP_VERSION,
+      kind: "catch_up_request",
+      conversationId: fixture.membership.descriptor.conversationId,
+      membershipHash: fixture.membership.hash,
+      requesterAgentId: at(fixture.identities, 1).card.agentId,
+      ...known,
+    });
+    const page = (asked: CatchUpRequest, item: CertifiedRecord) =>
+      signEvidenceMessage({
+        statement: {
+          moltzapVersion: MOLTZAP_VERSION,
+          kind: "catch_up_attestation",
+          signerAgentId: responder.card.agentId,
+          request: asked,
+          itemKind: "certified_record",
+          itemHash: item.actionCertifiedRecord.recordHash,
+          hasMore: false,
+        },
+        agentCard: responder.card,
+        signingAuthority: responder.authority,
+      }).pipe(
+        Effect.flatMap((attestation) =>
+          Schema.encode(SignedMessage)(attestation),
+        ),
+        Effect.map(
+          (attestation): CatchUpPage => ({
             moltzapVersion: MOLTZAP_VERSION,
-            kind: "catch_up_attestation",
-            signerAgentId: responder.card.agentId,
+            kind: "catch_up_page",
             request: asked,
-            itemKind: "certified_record",
-            itemHash: item.actionCertifiedRecord.recordHash,
+            item,
             hasMore: false,
-          },
-          agentCard: responder.card,
-          signingAuthority: responder.authority,
-        }).pipe(
-          Effect.flatMap((attestation) =>
-            Schema.encode(SignedMessage)(attestation),
-          ),
-          Effect.map(
-            (attestation): CatchUpPage => ({
-              moltzapVersion: MOLTZAP_VERSION,
-              kind: "catch_up_page",
-              request: asked,
-              item,
-              hasMore: false,
-              attestation,
-            }),
-          ),
-        );
-      const verify = (candidate: CatchUpPage) =>
-        verifyCatchUpPage({
-          page: candidate,
-          membership: fixture.membership,
-          responseSenderAgentId: responder.card.agentId,
-        });
-      const empty = request({ knownRecordHash: null, knownAnchorHash: null });
-      const atGenesis = request({
-        knownRecordHash: genesis.actionCertifiedRecord.recordHash,
-        knownAnchorHash: genesis.actionCertifiedRecord.recordCore.anchorHash,
+            attestation,
+          }),
+        ),
+      );
+    const verify = (candidate: CatchUpPage) =>
+      verifyCatchUpPage({
+        page: candidate,
+        membership: fixture.membership,
+        responseSenderAgentId: responder.card.agentId,
       });
+    const empty = request({ knownRecordHash: null, knownAnchorHash: null });
+    const atGenesis = request({
+      knownRecordHash: genesis.actionCertifiedRecord.recordHash,
+      knownAnchorHash: genesis.actionCertifiedRecord.recordCore.anchorHash,
+    });
 
-      const elsewhere = yield* buildGenesis(yield* makeProtocolFixture(4), [
-        { type: "text", text: "elsewhere" },
-      ]);
+    const elsewhere = yield* buildGenesis(yield* makeProtocolFixture(4), [
+      { type: "text", text: "elsewhere" },
+    ]);
 
-      yield* verify(yield* page(empty, genesis.certifiedRecord));
-      yield* expectRepresentationFailure(
-        verify(yield* page(empty, post.certifiedRecord)),
-      );
-      yield* expectRepresentationFailure(
-        verify(yield* page(empty, elsewhere.certifiedRecord)),
-      );
-      yield* verify(yield* page(atGenesis, post.certifiedRecord));
-    }),
-  );
+    yield* verify(yield* page(empty, genesis.certifiedRecord));
+    yield* expectRepresentationFailure(
+      verify(yield* page(empty, post.certifiedRecord)),
+    );
+    yield* expectRepresentationFailure(
+      verify(yield* page(empty, elsewhere.certifiedRecord)),
+    );
+    yield* verify(yield* page(atGenesis, post.certifiedRecord));
+  });
 
 /**
  * Builds the largest catch-up page: a POST of the largest content at the
@@ -910,130 +896,122 @@ const maximumArtifact = Effect.runSync(Effect.cached(buildMaximumArtifact));
 const MAXIMUM_PAGE_TIMEOUT_MS = 60_000;
 
 const verifiesMaximumPage = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const { fixture, responder, page } = yield* maximumArtifact;
+  Effect.gen(function* () {
+    const { fixture, responder, page } = yield* maximumArtifact;
 
-      yield* verifyCatchUpPage({
-        page,
-        membership: fixture.membership,
-        responseSenderAgentId: responder.card.agentId,
-      });
-    }),
-  );
+    yield* verifyCatchUpPage({
+      page,
+      membership: fixture.membership,
+      responseSenderAgentId: responder.card.agentId,
+    });
+  });
 
 const sealsMaximumPageInsideIdentityLimits = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const { fixture, responder, page } = yield* maximumArtifact;
+  Effect.gen(function* () {
+    const { fixture, responder, page } = yield* maximumArtifact;
 
-      const pagePlaintext = yield* encodeCanonical(DirectPacket, page);
-      const outer = yield* signOuterPacket({
-        packet: page,
-        membership: fixture.membership,
-        agentCard: responder.card,
-        signingAuthority: responder.authority,
-      });
+    const pagePlaintext = yield* encodeCanonical(DirectPacket, page);
+    const outer = yield* signOuterPacket({
+      packet: page,
+      membership: fixture.membership,
+      agentCard: responder.card,
+      signingAuthority: responder.authority,
+    });
 
-      expect(pagePlaintext.byteLength).toBeLessThanOrEqual(
-        Option.getOrThrow(
-          SealedBody.maximumPlaintextByteLength(maximumMembers),
-        ),
-      );
-      expect(outer.body.byteLength).toBe(
-        Option.getOrThrow(
-          SealedBody.sealedByteLength({
-            plaintextByteLength: pagePlaintext.byteLength,
-            recipientCount: maximumMembers,
-          }),
-        ),
-      );
-      expect(outer.body.byteLength).toBeLessThanOrEqual(
-        maximumIdentityBodyBytes,
-      );
-      expect(outer.recipientAgentIds).toHaveLength(maximumMembers);
-      expect(outer.recipientAgentIds.length).toBeLessThanOrEqual(
-        maximumIdentityRecipients,
-      );
-      expect(SignedMessage.encodedByteLength(outer)).toBeLessThanOrEqual(
-        SignedMessage.maximumEncodedByteLength,
-      );
-    }),
-  );
+    expect(pagePlaintext.byteLength).toBeLessThanOrEqual(
+      Option.getOrThrow(SealedBody.maximumPlaintextByteLength(maximumMembers)),
+    );
+    expect(outer.body.byteLength).toBe(
+      Option.getOrThrow(
+        SealedBody.sealedByteLength({
+          plaintextByteLength: pagePlaintext.byteLength,
+          recipientCount: maximumMembers,
+        }),
+      ),
+    );
+    expect(outer.body.byteLength).toBeLessThanOrEqual(maximumIdentityBodyBytes);
+    expect(outer.recipientAgentIds).toHaveLength(maximumMembers);
+    expect(outer.recipientAgentIds.length).toBeLessThanOrEqual(
+      maximumIdentityRecipients,
+    );
+    expect(SignedMessage.encodedByteLength(outer)).toBeLessThanOrEqual(
+      SignedMessage.maximumEncodedByteLength,
+    );
+  });
 
 const relaysMaximumAttestationInsideIdentityLimits = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const { fixture, responder, attestation } = yield* maximumArtifact;
+  Effect.gen(function* () {
+    const { fixture, responder, attestation } = yield* maximumArtifact;
 
-      const evidencePlaintext = yield* encodeCanonical(
-        SignedMessage,
-        attestation,
-      );
-      const relayedEvidence = yield* signOuterEvidence({
-        evidence: attestation,
-        membership: fixture.membership,
-        agentCard: responder.card,
-        signingAuthority: responder.authority,
-      });
+    const evidencePlaintext = yield* encodeCanonical(
+      SignedMessage,
+      attestation,
+    );
+    const relayedEvidence = yield* signOuterEvidence({
+      evidence: attestation,
+      membership: fixture.membership,
+      agentCard: responder.card,
+      signingAuthority: responder.authority,
+    });
 
-      expect(relayedEvidence.body.byteLength).toBe(
-        Option.getOrThrow(
-          SealedBody.sealedByteLength({
-            plaintextByteLength: evidencePlaintext.byteLength,
-            recipientCount: maximumMembers,
-          }),
-        ),
-      );
-      expect(relayedEvidence.body.byteLength).toBeLessThanOrEqual(
-        maximumIdentityBodyBytes,
-      );
-    }),
-  );
+    expect(relayedEvidence.body.byteLength).toBe(
+      Option.getOrThrow(
+        SealedBody.sealedByteLength({
+          plaintextByteLength: evidencePlaintext.byteLength,
+          recipientCount: maximumMembers,
+        }),
+      ),
+    );
+    expect(relayedEvidence.body.byteLength).toBeLessThanOrEqual(
+      maximumIdentityBodyBytes,
+    );
+  });
 
 // @agent-code-guard/regression-only: these cases pin the accepted quorum, evidence, recovery, and size boundaries.
 describe("Client protocol acceptance", () => {
-  it.each([
+  it.for([
     [2, 2],
     [3, 3],
     [4, 3],
     [10, 7],
   ] as const)(
     "accepts q(%i)=%i durability evidence and rejects one fewer vote",
-    verifiesThreshold,
+    runTraceFor(([memberCount, threshold]) =>
+      verifiesThreshold(memberCount, threshold),
+    ),
   );
   it(
     "requires unanimous GENESIS and author-inclusive POST evidence without hashing either certificate",
-    enforcesGenesisAndPostEvidence,
+    runTrace(enforcesGenesisAndPostEvidence),
   );
   it(
     "verifies a record only against the membership it names, held from GENESIS",
-    verifiesRecordsAgainstTheHeldMembership,
+    runTrace(verifiesRecordsAgainstTheHeldMembership),
   );
   it(
     "requires the proposal envelope sender to be the post author",
-    verifiesProposalEnvelopeAttribution,
+    runTrace(verifiesProposalEnvelopeAttribution),
   );
   it(
     "binds re-anchor and catch-up evidence to the exact position and responder",
-    verifiesReanchorCatchUpBindings,
+    runTrace(verifiesReanchorCatchUpBindings),
   );
   it(
     "catches up GENESIS first, so a later POST page resolves its membership",
-    catchesUpGenesisFirst,
+    runTrace(catchesUpGenesisFirst),
   );
   describe(
     "the largest catch-up page, a re-anchored POST at its maximum membership",
     { timeout: MAXIMUM_PAGE_TIMEOUT_MS },
     () => {
-      it("verifies from its responder", verifiesMaximumPage);
+      it("verifies from its responder", runTrace(verifiesMaximumPage));
       it(
         "fits inside Identity limits sealed to every member",
-        sealsMaximumPageInsideIdentityLimits,
+        runTrace(sealsMaximumPageInsideIdentityLimits),
       );
       it(
         "relays its attestation inside Identity limits sealed to every member",
-        relaysMaximumAttestationInsideIdentityLimits,
+        runTrace(relaysMaximumAttestationInsideIdentityLimits),
       );
     },
   );

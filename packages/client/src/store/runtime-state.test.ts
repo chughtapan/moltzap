@@ -4,6 +4,7 @@ import { Effect, Schema } from "effect";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
+import { runTrace, runTraceFor } from "../__tests__/run-trace.js";
 import {
   bytes,
   databasePath,
@@ -27,39 +28,37 @@ function retainsInvocationAndEventState() {
   const input = bytes('{"input":{"text":"hello","to":"agent:bob"}}');
   const outcome = bytes('{"kind":"success","result":{}}');
   const eventState = bytes('{"subscription":"private"}');
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      yield* withStore(path, (store) =>
-        Effect.gen(function* () {
-          expect(yield* store.beginSendAttempt("finished", input)).toBe(
-            "inserted",
-          );
-          yield* store.finishSendAttempt("finished", outcome);
-          yield* store.beginSendAttempt("interrupted", input);
-          yield* store.writeEventState(eventState);
-        }),
-      );
-      yield* withStore(path, (store) =>
-        Effect.gen(function* () {
-          expect(yield* store.beginSendAttempt("finished", input)).toBe(
-            "existing",
-          );
-          expect(yield* store.readSendAttempt("finished")).toEqual({
-            canonicalInput: input,
-            canonicalOutcome: outcome,
-          });
-          expect(yield* store.readSendAttempt("interrupted")).toEqual({
-            canonicalInput: input,
-          });
-          expect(yield* store.readEventState()).toEqual(eventState);
-          const conflict = yield* store
-            .beginSendAttempt("finished", outcome)
-            .pipe(Effect.flip);
-          expect(conflict.reason).toBe("conflict");
-        }),
-      );
-    }),
-  );
+  return Effect.gen(function* () {
+    yield* withStore(path, (store) =>
+      Effect.gen(function* () {
+        expect(yield* store.beginSendAttempt("finished", input)).toBe(
+          "inserted",
+        );
+        yield* store.finishSendAttempt("finished", outcome);
+        yield* store.beginSendAttempt("interrupted", input);
+        yield* store.writeEventState(eventState);
+      }),
+    );
+    yield* withStore(path, (store) =>
+      Effect.gen(function* () {
+        expect(yield* store.beginSendAttempt("finished", input)).toBe(
+          "existing",
+        );
+        expect(yield* store.readSendAttempt("finished")).toEqual({
+          canonicalInput: input,
+          canonicalOutcome: outcome,
+        });
+        expect(yield* store.readSendAttempt("interrupted")).toEqual({
+          canonicalInput: input,
+        });
+        expect(yield* store.readEventState()).toEqual(eventState);
+        const conflict = yield* store
+          .beginSendAttempt("finished", outcome)
+          .pipe(Effect.flip);
+        expect(conflict.reason).toBe("conflict");
+      }),
+    );
+  });
 }
 
 const identity = {
@@ -128,66 +127,58 @@ function readSchemaVersion(path: string) {
 
 const opensEmptyAfterTheCutover = (version: 2 | 3 | 4) => {
   const path = stateDirectory();
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      const outboundId = yield* withStore(path, seedPreCutoverState);
-      yield* rewindToPreCutoverSchema(path, version);
+  return Effect.gen(function* () {
+    const outboundId = yield* withStore(path, seedPreCutoverState);
+    yield* rewindToPreCutoverSchema(path, version);
 
-      yield* withStore(path, (store) =>
-        Effect.gen(function* () {
-          expect(yield* store.readIdentity()).toBeUndefined();
-          expect(yield* store.recover()).toEqual(yield* freshRecovery);
-          const unsent = yield* store
-            .beginOutbound(outboundId)
-            .pipe(Effect.flip);
-          expect(unsent.reason).toBe("not-found");
-          expect(
-            yield* store.readSendAttempt("before-cutover"),
-          ).toBeUndefined();
-          expect(yield* store.readEventState()).toBeUndefined();
-          expect(yield* store.readInboxSummary()).toEqual({
-            pendingCount: 0,
-            newestSequence: 0,
-          });
-        }),
-      );
-      expect(readSchemaVersion(path)).toMatchObject({ user_version: 5 });
-    }),
-  );
+    yield* withStore(path, (store) =>
+      Effect.gen(function* () {
+        expect(yield* store.readIdentity()).toBeUndefined();
+        expect(yield* store.recover()).toEqual(yield* freshRecovery);
+        const unsent = yield* store.beginOutbound(outboundId).pipe(Effect.flip);
+        expect(unsent.reason).toBe("not-found");
+        expect(yield* store.readSendAttempt("before-cutover")).toBeUndefined();
+        expect(yield* store.readEventState()).toBeUndefined();
+        expect(yield* store.readInboxSummary()).toEqual({
+          pendingCount: 0,
+          newestSequence: 0,
+        });
+      }),
+    );
+    expect(readSchemaVersion(path)).toMatchObject({ user_version: 5 });
+  });
 };
 
 function inspectsWithoutWriting() {
   const path = stateDirectory();
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      const absent = yield* inspectEndpointStore(path);
-      yield* withStore(path, seedPreCutoverState);
-      const current = yield* inspectEndpointStore(path);
-      yield* rewindToPreCutoverSchema(path, 3);
-      const preCutover = yield* inspectEndpointStore(path);
+  return Effect.gen(function* () {
+    const absent = yield* inspectEndpointStore(path);
+    yield* withStore(path, seedPreCutoverState);
+    const current = yield* inspectEndpointStore(path);
+    yield* rewindToPreCutoverSchema(path, 3);
+    const preCutover = yield* inspectEndpointStore(path);
 
-      expect([absent, current, preCutover]).toEqual([
-        "create",
-        "reopen",
-        "create",
-      ]);
-      expect(readSchemaVersion(path)).toMatchObject({ user_version: 3 });
-    }),
-  );
+    expect([absent, current, preCutover]).toEqual([
+      "create",
+      "reopen",
+      "create",
+    ]);
+    expect(readSchemaVersion(path)).toMatchObject({ user_version: 3 });
+  });
 }
 
 describe("endpoint runtime state", () => {
   it(
     "retains completed and interrupted invocations and event state across restart",
-    retainsInvocationAndEventState,
+    runTrace(retainsInvocationAndEventState),
   );
   it(
     "inspects how a store opens without creating or cutting it over",
-    inspectsWithoutWriting,
+    runTrace(inspectsWithoutWriting),
   );
-  it.each([4, 3, 2] as const)(
+  it.for([4, 3, 2] as const)(
     "opens a schema version %i store empty, unregistered and without its queued envelope",
-    opensEmptyAfterTheCutover,
+    runTraceFor((testCase) => opensEmptyAfterTheCutover(testCase)),
   );
 });
 

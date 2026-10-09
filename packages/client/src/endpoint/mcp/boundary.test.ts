@@ -24,6 +24,7 @@ import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { describe, expect, it } from "vitest";
 import type { HarnessEndpoint } from "../harness-endpoint/capability.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
+import { runTrace } from "../../__tests__/run-trace.js";
 import { readRuntimeEvent } from "../../delivery/inbox.js";
 import {
   eventIdOf,
@@ -136,9 +137,9 @@ function capturesProtocolError(
   );
 }
 
-async function advertisesEventsBeforeRegistration() {
-  const capabilities = await Effect.runPromise(
-    Effect.gen(function* () {
+function advertisesEventsBeforeRegistration() {
+  return Effect.gen(function* () {
+    const capabilities = yield* Effect.gen(function* () {
       const { port } = yield* acquireBoundaryServer(operations);
       const client = yield* acquireProtocolClient(
         port,
@@ -154,25 +155,25 @@ async function advertisesEventsBeforeRegistration() {
           }),
         ),
       );
-    }).pipe(Effect.scoped),
-  );
+    }).pipe(Effect.scoped);
 
-  const pushDelivery: unknown = expect.arrayContaining(["push"]);
-  expect(capabilities.events).toContainEqual(
-    expect.objectContaining({
-      name: INBOX_PENDING_EVENT,
-      delivery: pushDelivery,
-    }),
-  );
+    const pushDelivery: unknown = expect.arrayContaining(["push"]);
+    expect(capabilities.events).toContainEqual(
+      expect.objectContaining({
+        name: INBOX_PENDING_EVENT,
+        delivery: pushDelivery,
+      }),
+    );
+  });
 }
 
-async function distinguishesProtocolAndDomainFailures() {
-  const failingOperations: HarnessMcpOperations = {
-    ...operations,
-    readStatus: () => Effect.fail({ reason: "incompatible-daemon" }),
-  };
-  const [malformedCause, domainCause] = await Effect.runPromise(
-    Effect.gen(function* () {
+function distinguishesProtocolAndDomainFailures() {
+  return Effect.gen(function* () {
+    const failingOperations: HarnessMcpOperations = {
+      ...operations,
+      readStatus: () => Effect.fail({ reason: "incompatible-daemon" }),
+    };
+    const [malformedCause, domainCause] = yield* Effect.gen(function* () {
       const { port } = yield* acquireBoundaryServer(failingOperations);
       const client = yield* acquireProtocolClient(
         port,
@@ -185,24 +186,24 @@ async function distinguishesProtocolAndDomainFailures() {
         ],
         { concurrency: 1 },
       );
-    }).pipe(Effect.scoped),
-  );
+    }).pipe(Effect.scoped);
 
-  expect(ProtocolError.isInstance(malformedCause)).toBe(true);
-  expect(ProtocolError.isInstance(domainCause)).toBe(true);
-  if (
-    !ProtocolError.isInstance(malformedCause) ||
-    !ProtocolError.isInstance(domainCause)
-  ) {
-    throw new Error("expected protocol errors from both calls");
-  }
-  expect(malformedCause).toMatchObject({
-    code: ProtocolErrorCode.InvalidParams,
-  });
-  expect(malformedCause.data).toBeUndefined();
-  expect(domainCause).toMatchObject({
-    code: ProtocolErrorCode.InternalError,
-    data: { reason: "incompatible-daemon" },
+    expect(ProtocolError.isInstance(malformedCause)).toBe(true);
+    expect(ProtocolError.isInstance(domainCause)).toBe(true);
+    if (
+      !ProtocolError.isInstance(malformedCause) ||
+      !ProtocolError.isInstance(domainCause)
+    ) {
+      throw new Error("expected protocol errors from both calls");
+    }
+    expect(malformedCause).toMatchObject({
+      code: ProtocolErrorCode.InvalidParams,
+    });
+    expect(malformedCause.data).toBeUndefined();
+    expect(domainCause).toMatchObject({
+      code: ProtocolErrorCode.InternalError,
+      data: { reason: "incompatible-daemon" },
+    });
   });
 }
 
@@ -212,58 +213,58 @@ async function distinguishesProtocolAndDomainFailures() {
  * `incompatible-daemon`. A failure the vocabulary admits cannot show this,
  * because the fallback reason equals the one admitted reason.
  */
-async function reportsOutsideVocabularyStatusFailure() {
-  const failingOperations: HarnessMcpOperations = {
-    ...operations,
-    readStatus: () => Effect.fail({ reason: "persistence-failed" }),
-  };
-  const cause = await Effect.runPromise(
-    Effect.gen(function* () {
+function reportsOutsideVocabularyStatusFailure() {
+  return Effect.gen(function* () {
+    const failingOperations: HarnessMcpOperations = {
+      ...operations,
+      readStatus: () => Effect.fail({ reason: "persistence-failed" }),
+    };
+    const cause = yield* Effect.gen(function* () {
       const { port } = yield* acquireBoundaryServer(failingOperations);
       const client = yield* acquireProtocolClient(
         port,
         "harness-status-vocabulary-client",
       );
       return yield* capturesProtocolError(client, {});
-    }).pipe(Effect.scoped),
-  );
+    }).pipe(Effect.scoped);
 
-  expect(cause).toMatchObject({
-    code: ProtocolErrorCode.InternalError,
-    data: { reason: "incompatible-daemon" },
+    expect(cause).toMatchObject({
+      code: ProtocolErrorCode.InternalError,
+      data: { reason: "incompatible-daemon" },
+    });
   });
 }
 
-async function sanitizesUnexpectedOperationDefects() {
-  const defectiveOperations: HarnessMcpOperations = {
-    ...operations,
-    readStatus: () => Effect.dieMessage(PRIVATE_STATUS_DEFECT),
-  };
-  const cause = await Effect.runPromise(
-    Effect.gen(function* () {
+function sanitizesUnexpectedOperationDefects() {
+  return Effect.gen(function* () {
+    const defectiveOperations: HarnessMcpOperations = {
+      ...operations,
+      readStatus: () => Effect.dieMessage(PRIVATE_STATUS_DEFECT),
+    };
+    const cause = yield* Effect.gen(function* () {
       const { port } = yield* acquireBoundaryServer(defectiveOperations);
       const client = yield* acquireProtocolClient(
         port,
         "harness-defect-client",
       );
       return yield* capturesProtocolError(client, {});
-    }).pipe(Effect.scoped),
-  );
+    }).pipe(Effect.scoped);
 
-  expect(ProtocolError.isInstance(cause)).toBe(true);
-  if (!ProtocolError.isInstance(cause)) {
-    throw new Error("expected a sanitized defect response");
-  }
-  expect(cause).toMatchObject({
-    code: ProtocolErrorCode.InternalError,
-    data: { reason: "incompatible-daemon" },
+    expect(ProtocolError.isInstance(cause)).toBe(true);
+    if (!ProtocolError.isInstance(cause)) {
+      throw new Error("expected a sanitized defect response");
+    }
+    expect(cause).toMatchObject({
+      code: ProtocolErrorCode.InternalError,
+      data: { reason: "incompatible-daemon" },
+    });
+    expect(String(cause)).not.toContain(PRIVATE_STATUS_DEFECT);
   });
-  expect(String(cause)).not.toContain(PRIVATE_STATUS_DEFECT);
 }
 
-async function reportsUnexpectedSubscriptionLoss() {
-  const result = await Effect.runPromise(
-    Effect.gen(function* () {
+function reportsUnexpectedSubscriptionLoss() {
+  return Effect.gen(function* () {
+    const result = yield* Effect.gen(function* () {
       const { server, receive } = yield* observeListeningSubscription();
       yield* Effect.sync(() => {
         server.closeAllConnections();
@@ -275,11 +276,11 @@ async function reportsUnexpectedSubscriptionLoss() {
             new Error("message stream did not observe disconnect"),
         }),
       );
-    }).pipe(Effect.scoped),
-  );
+    }).pipe(Effect.scoped);
 
-  expect(result).toBeInstanceOf(ListenError);
-  expect(result).toMatchObject({ reason: "transport-failed" });
+    expect(result).toBeInstanceOf(ListenError);
+    expect(result).toMatchObject({ reason: "transport-failed" });
+  });
 }
 
 async function keepsIdleSubscriptionAlive() {
@@ -378,62 +379,56 @@ const sendResult = {};
 const MCP_TRACE_TIMEOUT_MS = 30_000;
 
 const distinguishesSendValidationFailures = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const inactive = yield* acquireSendEndpoint(operations);
-        expect(yield* inactive.send(sendInput).pipe(Effect.flip)).toMatchObject(
-          {
-            reason: "network-unavailable",
-          },
-        );
-        const refused = yield* acquireSendEndpoint({
-          ...operations,
-          protocolActive: () => true,
-          send: () => Effect.fail(new SendError({ reason: "not-registered" })),
-        });
-        expect(yield* refused.send(sendInput).pipe(Effect.flip)).toMatchObject({
-          reason: "not-registered",
-        });
-        const invalidOutput = yield* acquireSendEndpoint({
-          ...operations,
-          protocolActive: () => true,
-          send: () =>
-            Effect.succeed({
-              operationId: Schema.decodeUnknownSync(CollectiveId)(
-                `col_${"A".repeat(43)}`,
-              ),
-              unexpected: true,
-            }),
-        });
-        expect(
-          yield* invalidOutput.send(sendInput).pipe(Effect.flip),
-        ).toMatchObject({
-          reason: "network-unavailable",
-        });
-      }),
-    ),
+  Effect.scoped(
+    Effect.gen(function* () {
+      const inactive = yield* acquireSendEndpoint(operations);
+      expect(yield* inactive.send(sendInput).pipe(Effect.flip)).toMatchObject({
+        reason: "network-unavailable",
+      });
+      const refused = yield* acquireSendEndpoint({
+        ...operations,
+        protocolActive: () => true,
+        send: () => Effect.fail(new SendError({ reason: "not-registered" })),
+      });
+      expect(yield* refused.send(sendInput).pipe(Effect.flip)).toMatchObject({
+        reason: "not-registered",
+      });
+      const invalidOutput = yield* acquireSendEndpoint({
+        ...operations,
+        protocolActive: () => true,
+        send: () =>
+          Effect.succeed({
+            operationId: Schema.decodeUnknownSync(CollectiveId)(
+              `col_${"A".repeat(43)}`,
+            ),
+            unexpected: true,
+          }),
+      });
+      expect(
+        yield* invalidOutput.send(sendInput).pipe(Effect.flip),
+      ).toMatchObject({
+        reason: "network-unavailable",
+      });
+    }),
   );
 
 const carriesARefusalDetailAcrossTheDaemonBoundary = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const refusal = new SendError({
-          reason: "unknown-agent",
-          detail: "agent:dana is not a known agent",
-        });
-        const endpoint = yield* acquireSendEndpoint({
-          ...operations,
-          protocolActive: () => true,
-          send: () => Effect.fail(refusal),
-        });
+  Effect.scoped(
+    Effect.gen(function* () {
+      const refusal = new SendError({
+        reason: "unknown-agent",
+        detail: "agent:dana is not a known agent",
+      });
+      const endpoint = yield* acquireSendEndpoint({
+        ...operations,
+        protocolActive: () => true,
+        send: () => Effect.fail(refusal),
+      });
 
-        const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
+      const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
 
-        expect(error.message).toBe(refusal.message);
-      }),
-    ),
+      expect(error.message).toBe(refusal.message);
+    }),
   );
 
 function acquireSendEndpoint(
@@ -570,16 +565,14 @@ function checksRetainedRuntimeSend(directory: string) {
 
 /** The real SDK and overridden dispatcher must preserve options before durable reservation. */
 function preservesRuntimeInvocationMetadata() {
-  return Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const directory = yield* fs.makeTempDirectoryScoped();
-        yield* Effect.scoped(checksRuntimeRetries(directory));
-        yield* Effect.scoped(checksRetainedRuntimeSend(directory));
-      }),
-    ).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped();
+      yield* Effect.scoped(checksRuntimeRetries(directory));
+      yield* Effect.scoped(checksRetainedRuntimeSend(directory));
+    }),
+  ).pipe(Effect.provide(NodeFileSystem.layer));
 }
 
 const invalidSendCalls = [
@@ -648,131 +641,134 @@ const checksSemanticSendSchema = (client: Client) =>
 
 /** Model arguments and malformed metadata must fail before any send reaches execution. */
 function rejectsSendBookkeepingArguments() {
-  return Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const executed: unknown[] = [];
-        const { port } = yield* acquireBoundaryServer({
-          ...operations,
-          protocolActive: () => true,
-          send: (input) =>
-            Effect.sync(() => {
-              executed.push(input);
-              return sendResult;
-            }),
-        });
-        const client = yield* acquireProtocolClient(
-          port,
-          "semantic-send-client",
-        );
-        yield* checksSemanticSendSchema(client);
-        for (const call of invalidSendCalls) {
-          const error = yield* Effect.tryPromise(() =>
-            client.callTool({ name: "send_message", ...call }),
-          ).pipe(Effect.flip);
-          expect(error).toMatchObject({
-            cause: { code: ProtocolErrorCode.InvalidParams },
-          });
-        }
-        expect(executed).toEqual([]);
-        yield* Effect.tryPromise(() =>
-          client.callTool({
-            name: "send_message",
-            arguments: { input: sendInput },
-            _meta: {
-              "another.example/trace": { id: "independent" },
-              [HARNESS_SEND_META_KEY]: { idempotencyKey: "é".repeat(64) },
-            },
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const executed: unknown[] = [];
+      const { port } = yield* acquireBoundaryServer({
+        ...operations,
+        protocolActive: () => true,
+        send: (input) =>
+          Effect.sync(() => {
+            executed.push(input);
+            return sendResult;
           }),
-        );
-        expect(executed).toEqual([
-          { input: sendInput, idempotencyKey: "é".repeat(64) },
-        ]);
-      }),
-    ),
+      });
+      const client = yield* acquireProtocolClient(port, "semantic-send-client");
+      yield* checksSemanticSendSchema(client);
+      for (const call of invalidSendCalls) {
+        const error = yield* Effect.tryPromise(() =>
+          client.callTool({ name: "send_message", ...call }),
+        ).pipe(Effect.flip);
+        expect(error).toMatchObject({
+          cause: { code: ProtocolErrorCode.InvalidParams },
+        });
+      }
+      expect(executed).toEqual([]);
+      yield* Effect.tryPromise(() =>
+        client.callTool({
+          name: "send_message",
+          arguments: { input: sendInput },
+          _meta: {
+            "another.example/trace": { id: "independent" },
+            [HARNESS_SEND_META_KEY]: { idempotencyKey: "é".repeat(64) },
+          },
+        }),
+      );
+      expect(executed).toEqual([
+        { input: sendInput, idempotencyKey: "é".repeat(64) },
+      ]);
+    }),
   );
 }
 
 function readsRetainedEventThroughSdk() {
-  return Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const store = yield* openEndpointStore(
-          yield* fs.makeTempDirectoryScoped(),
-        );
-        const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
-          digest("dlv_", 7),
-        );
-        const item = Schema.decodeUnknownSync(InboundItem)({
-          kind: "operationFailed",
-          id: digest("col_", 7),
-          to: "agent:bob",
-          error: "retained result",
-        });
-        const canonicalItem = yield* encodeRuntimeValue(item);
-        yield* store.putInboxItem({ deliveryToken, canonicalItem });
-        yield* store.acknowledgeInboxItem(deliveryToken);
-        const { port } = yield* acquireBoundaryServer({
-          ...operations,
-          protocolActive: () => true,
-          readEvent: ({ eventId }) => readRuntimeEvent(store, eventId),
-        });
-        const client = yield* acquireProtocolClient(
-          port,
-          "retained-event-client",
-        );
-        const result = yield* Effect.tryPromise(() =>
-          client.callTool({
-            name: "read_event",
-            arguments: { eventId: eventIdOf(deliveryToken) },
-          }),
-        );
-        expect(result.structuredContent).toEqual({ item });
-        expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
-      }),
-    ).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const store = yield* openEndpointStore(
+        yield* fs.makeTempDirectoryScoped(),
+      );
+      const deliveryToken = Schema.decodeUnknownSync(DeliveryToken)(
+        digest("dlv_", 7),
+      );
+      const item = Schema.decodeUnknownSync(InboundItem)({
+        kind: "operationFailed",
+        id: digest("col_", 7),
+        to: "agent:bob",
+        error: "retained result",
+      });
+      const canonicalItem = yield* encodeRuntimeValue(item);
+      yield* store.putInboxItem({ deliveryToken, canonicalItem });
+      yield* store.acknowledgeInboxItem(deliveryToken);
+      const { port } = yield* acquireBoundaryServer({
+        ...operations,
+        protocolActive: () => true,
+        readEvent: ({ eventId }) => readRuntimeEvent(store, eventId),
+      });
+      const client = yield* acquireProtocolClient(
+        port,
+        "retained-event-client",
+      );
+      const result = yield* Effect.tryPromise(() =>
+        client.callTool({
+          name: "read_event",
+          arguments: { eventId: eventIdOf(deliveryToken) },
+        }),
+      );
+      expect(result.structuredContent).toEqual({ item });
+      expect((yield* store.readInboxSummary()).pendingCount).toBe(0);
+    }),
+  ).pipe(Effect.provide(NodeFileSystem.layer));
 }
 
 // @agent-code-guard/regression-only: this boundary pins the exact capability and closed transport failures.
 describe("Harness MCP HTTP boundary", () => {
   it(
     "keeps dispatch and invalid output distinct from rejected send input",
-    distinguishesSendValidationFailures,
+    runTrace(distinguishesSendValidationFailures),
     MCP_TRACE_TIMEOUT_MS,
   );
   it(
     "carries a refusal's detail across the daemon boundary",
-    carriesARefusalDetailAcrossTheDaemonBoundary,
+    runTrace(carriesARefusalDetailAcrossTheDaemonBoundary),
   );
   it(
     "reads an acknowledged event through the SDK without redelivery",
-    readsRetainedEventThroughSdk,
+    runTrace(readsRetainedEventThroughSdk),
   );
   it(
     "preserves runtime send identity through retries, conflicts and restart",
-    preservesRuntimeInvocationMetadata,
+    runTrace(preservesRuntimeInvocationMetadata),
   );
   it(
     "rejects bookkeeping in model arguments and validates runtime metadata",
-    rejectsSendBookkeepingArguments,
+    runTrace(rejectsSendBookkeepingArguments),
     MCP_TRACE_TIMEOUT_MS,
   );
-  it("advertises the event descriptor before registration", () =>
-    advertisesEventsBeforeRegistration());
-  it("keeps malformed input separate from closed domain failures", () =>
-    distinguishesProtocolAndDomainFailures());
-  it("reports a status failure outside its vocabulary as incompatible-daemon", () =>
-    reportsOutsideVocabularyStatusFailure());
-  it("sanitizes unexpected operation defects", () =>
-    sanitizesUnexpectedOperationDefects());
+  it(
+    "advertises the event descriptor before registration",
+    runTrace(advertisesEventsBeforeRegistration),
+  );
+  it(
+    "keeps malformed input separate from closed domain failures",
+    runTrace(distinguishesProtocolAndDomainFailures),
+  );
+  it(
+    "reports a status failure outside its vocabulary as incompatible-daemon",
+    runTrace(reportsOutsideVocabularyStatusFailure),
+  );
+  it(
+    "sanitizes unexpected operation defects",
+    runTrace(sanitizesUnexpectedOperationDefects),
+  );
   it("keeps an idle subscription alive past the fetch body timeout", () =>
     keepsIdleSubscriptionAlive());
   it("loses an idle subscription to the fetch body timeout without keep-alive", () =>
     losesIdleSubscriptionWithoutKeepAlive());
-  it("reports an unexpected subscription disconnect", () =>
-    reportsUnexpectedSubscriptionLoss());
+  it(
+    "reports an unexpected subscription disconnect",
+    runTrace(reportsUnexpectedSubscriptionLoss),
+  );
 });
 
 /* eslint-enable agent-code-guard/async-keyword -- Restore repository defaults after the MCP boundary. */

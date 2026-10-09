@@ -39,6 +39,7 @@ import {
   recordHashOf,
   slotSchema,
 } from "../../__tests__/collective-operation-fixtures.js";
+import { runTrace } from "../../__tests__/run-trace.js";
 import { InboundMessage } from "../messaging/message.js";
 import { Content, type RecordHash } from "../wire/index.js";
 import { AgentAddress } from "../wire/values.js";
@@ -653,28 +654,26 @@ function everyEndpointPublishesTheFirstCloseResult() {
     duplicateAnswer: 0,
     redeliveredClose: 0,
   };
-  return Effect.runPromise(
-    Effect.forEach(
-      EffectArray.range(1, SCHEDULES),
-      (seed) =>
-        runSchedule(seed, coverage).pipe(
-          Effect.andThen(({ harness, id }) => {
-            expectAgreement(seed, harness, id);
-          }),
-        ),
-      { concurrency: 1, discard: true },
-    ).pipe(
-      Effect.andThen(() => {
-        expectEveryInterleavingReached(coverage);
-      }),
-    ),
+  return Effect.forEach(
+    EffectArray.range(1, SCHEDULES),
+    (seed) =>
+      runSchedule(seed, coverage).pipe(
+        Effect.andThen(({ harness, id }) => {
+          expectAgreement(seed, harness, id);
+        }),
+      ),
+    { concurrency: 1, discard: true },
+  ).pipe(
+    Effect.andThen(() => {
+      expectEveryInterleavingReached(coverage);
+    }),
   );
 }
 
 describe("all_gather agreement", () => {
   it(
     "publishes the first close's result at the requester and every honest member",
-    everyEndpointPublishesTheFirstCloseResult,
+    runTrace(everyEndpointPublishesTheFirstCloseResult),
     60_000,
   );
 });

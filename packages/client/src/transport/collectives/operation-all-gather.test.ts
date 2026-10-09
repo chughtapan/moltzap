@@ -34,6 +34,7 @@ import {
   slotSchema,
   unkeptEmit,
 } from "../../__tests__/collective-operation-fixtures.js";
+import { runTrace } from "../../__tests__/run-trace.js";
 import { queuedNetworkFailure, SendError } from "../messaging/errors.js";
 import { InboundMessage } from "../messaging/message.js";
 import { CollectiveEmitError } from "./forms.js";
@@ -330,30 +331,28 @@ function startsWhenTheGroupPostCertifiesWithinTheWait() {
 function endsInItsResultAloneWhenTheDeadlinePassesBeforeTheGroupPostCertifies() {
   const observed = newObserved();
 
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      const posts = { attempted: 0 };
-      const emitted = yield* Deferred.make<undefined>();
-      const layer = yield* makeLayer(observed, {
-        ...signalEmitted(observed, emitted),
-        sendPost: (input) =>
-          posts.attempted++ === 0 ? Effect.never : certifyNext(observed, input),
-      });
-      yield* send(layer, {
-        ...allGatherInput(),
-        collective: {
-          op: "all_gather",
-          deadline: 1,
-          requestedSchema: slotSchema,
-        },
-      });
-      yield* Deferred.await(emitted);
+  return Effect.gen(function* () {
+    const posts = { attempted: 0 };
+    const emitted = yield* Deferred.make<undefined>();
+    const layer = yield* makeLayer(observed, {
+      ...signalEmitted(observed, emitted),
+      sendPost: (input) =>
+        posts.attempted++ === 0 ? Effect.never : certifyNext(observed, input),
+    });
+    yield* send(layer, {
+      ...allGatherInput(),
+      collective: {
+        op: "all_gather",
+        deadline: 1,
+        requestedSchema: slotSchema,
+      },
+    });
+    yield* Deferred.await(emitted);
 
-      expect(observed.emitted).toMatchObject([
-        { kind: "collectiveResult", to: group },
-      ]);
-    }).pipe(Effect.scoped),
-  );
+    expect(observed.emitted).toMatchObject([
+      { kind: "collectiveResult", to: group },
+    ]);
+  }).pipe(Effect.scoped);
 }
 
 function closesWithTheRecordHashOfEachCountedAnswer() {
@@ -986,7 +985,9 @@ describe("all_gather at the requester", () => {
   );
   it(
     "ends in its result alone when the deadline passes before the group post certifies",
-    endsInItsResultAloneWhenTheDeadlinePassesBeforeTheGroupPostCertifies,
+    runTrace(
+      endsInItsResultAloneWhenTheDeadlinePassesBeforeTheGroupPostCertifies,
+    ),
   );
   it(
     "refuses an all_gather with an unknown member before posting",

@@ -44,6 +44,7 @@ import {
   withMisattributedActionEvidence,
 } from "../__tests__/certified-history-fixtures.js";
 import { routerInstanceId } from "../__tests__/router-worker-fixtures.js";
+import { runTrace, runTraceFor } from "../__tests__/run-trace.js";
 import { unusedEndpointStore } from "../__tests__/unused-endpoint-store.js";
 import {
   managementReadConversationRequestSchema,
@@ -358,38 +359,36 @@ function withMembershipRowsNaming(
  * representation carries, in AgentId order.
  */
 const returnsCertificateSignersForAudit = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const { fixture, store, record } = yield* makeCertifiedHistory;
-        const [alice, bob] = fixture.cards;
-        const certified = record.actionCertifiedRecord;
-        const signatures = certified.actionCertificate.signatures;
-        const votes = record.durabilityCertificate.votes;
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { fixture, store, record } = yield* makeCertifiedHistory;
+      const [alice, bob] = fixture.cards;
+      const certified = record.actionCertifiedRecord;
+      const signatures = certified.actionCertificate.signatures;
+      const votes = record.durabilityCertificate.votes;
 
-        const page = yield* readBobHistory(fixture, store);
+      const page = yield* readBobHistory(fixture, store);
 
-        expect(
-          compareAgentIds(alice.agentId, bob.agentId),
-          "alice precedes bob in AgentId order",
-        ).toBeLessThan(0);
-        expect(page.records, "alice's history with bob").toEqual([
-          {
-            recordHash: certified.recordHash,
-            recordCore: certified.recordCore,
-            routerAnchor: certified.routerAnchor,
-            actionSignatures: [
-              signerEvidence(alice, signatures[0]),
-              signerEvidence(bob, signatures[1]),
-            ],
-            durabilityVotes: [
-              signerEvidence(alice, votes[0]),
-              signerEvidence(bob, votes[1]),
-            ],
-          },
-        ]);
-      }),
-    ),
+      expect(
+        compareAgentIds(alice.agentId, bob.agentId),
+        "alice precedes bob in AgentId order",
+      ).toBeLessThan(0);
+      expect(page.records, "alice's history with bob").toEqual([
+        {
+          recordHash: certified.recordHash,
+          recordCore: certified.recordCore,
+          routerAnchor: certified.routerAnchor,
+          actionSignatures: [
+            signerEvidence(alice, signatures[0]),
+            signerEvidence(bob, signatures[1]),
+          ],
+          durabilityVotes: [
+            signerEvidence(alice, votes[0]),
+            signerEvidence(bob, votes[1]),
+          ],
+        },
+      ]);
+    }),
   );
 
 /**
@@ -398,26 +397,24 @@ const returnsCertificateSignersForAudit = () =>
  * persistence-failed, while the unaltered store reads the record.
  */
 const failsReadOverMembershipRowNamingAnotherHash = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const { fixture, store, record } = yield* makeCertifiedHistory;
-        const inconsistent = withMembershipRowsNaming(store, digest("mbr_", 9));
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { fixture, store, record } = yield* makeCertifiedHistory;
+      const inconsistent = withMembershipRowsNaming(store, digest("mbr_", 9));
 
-        const unaltered = yield* readBobRecordHashes(fixture, store);
-        const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
+      const unaltered = yield* readBobRecordHashes(fixture, store);
+      const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
 
-        expect(unaltered, "history read over the unaltered store").toEqual(
-          Exit.succeed([record.actionCertifiedRecord.recordHash]),
-        );
-        expect(
-          corrupt,
-          "history read over the inconsistent membership row",
-        ).toEqual(
-          Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
-        );
-      }),
-    ),
+      expect(unaltered, "history read over the unaltered store").toEqual(
+        Exit.succeed([record.actionCertifiedRecord.recordHash]),
+      );
+      expect(
+        corrupt,
+        "history read over the inconsistent membership row",
+      ).toEqual(
+        Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
+      );
+    }),
   );
 
 /**
@@ -427,27 +424,25 @@ const failsReadOverMembershipRowNamingAnotherHash = () =>
  * unaltered store reads the record.
  */
 const failsReadOverMisattributedEvidence = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const { fixture, store, record } = yield* makeCertifiedHistory;
-        const misattributed = withMisattributedActionEvidence(
-          store,
-          fixture.cards[0].agentId,
-          fixture.cards[1].agentId,
-        );
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { fixture, store, record } = yield* makeCertifiedHistory;
+      const misattributed = withMisattributedActionEvidence(
+        store,
+        fixture.cards[0].agentId,
+        fixture.cards[1].agentId,
+      );
 
-        const unaltered = yield* readBobRecordHashes(fixture, store);
-        const corrupt = yield* readBobRecordHashes(fixture, misattributed);
+      const unaltered = yield* readBobRecordHashes(fixture, store);
+      const corrupt = yield* readBobRecordHashes(fixture, misattributed);
 
-        expect(unaltered, "history read over the unaltered store").toEqual(
-          Exit.succeed([record.actionCertifiedRecord.recordHash]),
-        );
-        expect(corrupt, "history read over the misattributed evidence").toEqual(
-          Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
-        );
-      }),
-    ),
+      expect(unaltered, "history read over the unaltered store").toEqual(
+        Exit.succeed([record.actionCertifiedRecord.recordHash]),
+      );
+      expect(corrupt, "history read over the misattributed evidence").toEqual(
+        Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
+      );
+    }),
   );
 
 /**
@@ -456,33 +451,29 @@ const failsReadOverMisattributedEvidence = () =>
  * persistence-failed, while the unaltered store reads the record.
  */
 const failsReadOverGenesisAnchorSelectingRecord = () =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const { fixture, store, record } = yield* makeCertifiedHistory;
-        const recordHash = record.actionCertifiedRecord.recordHash;
-        const inconsistent = withGenesisAnchorSelecting(store, recordHash);
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { fixture, store, record } = yield* makeCertifiedHistory;
+      const recordHash = record.actionCertifiedRecord.recordHash;
+      const inconsistent = withGenesisAnchorSelecting(store, recordHash);
 
-        const unaltered = yield* readBobRecordHashes(fixture, store);
-        const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
+      const unaltered = yield* readBobRecordHashes(fixture, store);
+      const corrupt = yield* readBobRecordHashes(fixture, inconsistent);
 
-        expect(unaltered, "history read over the unaltered store").toEqual(
-          Exit.succeed([recordHash]),
-        );
-        expect(
-          corrupt,
-          "history read over the inconsistent anchor row",
-        ).toEqual(
-          Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
-        );
-      }),
-    ),
+      expect(unaltered, "history read over the unaltered store").toEqual(
+        Exit.succeed([recordHash]),
+      );
+      expect(corrupt, "history read over the inconsistent anchor row").toEqual(
+        Exit.fail(expect.objectContaining({ reason: "persistence-failed" })),
+      );
+    }),
   );
 
 // @agent-code-guard/regression-only: these cases pin the addressed owner-management contract.
 describe("addressed daemon management", () => {
-  it("pages canonical addresses without exposing conversation identity", () =>
-    Effect.runPromise(
+  it(
+    "pages canonical addresses without exposing conversation identity",
+    runTrace(() =>
       Effect.gen(function* () {
         const fixture = yield* makeIdentityFixture;
         const recovery = yield* makeRecovery(fixture, fixture.cards);
@@ -498,10 +489,12 @@ describe("addressed daemon management", () => {
           hasMore: false,
         });
       }),
-    ));
+    ),
+  );
 
-  it("maps a missing certified history to history-gap", () =>
-    Effect.runPromise(
+  it(
+    "maps a missing certified history to history-gap",
+    runTrace(() =>
       Effect.gen(function* () {
         const fixture = yield* makeIdentityFixture;
         const recovery = yield* makeRecovery(fixture, fixture.cards);
@@ -523,7 +516,8 @@ describe("addressed daemon management", () => {
 
         expect(error).toMatchObject({ reason: "history-gap" });
       }),
-    ));
+    ),
+  );
 });
 
 /** The daemon's registration port before registration. */
@@ -590,7 +584,7 @@ const refusesAnOwnerReadBeforeRegistration = ({ read }: OwnerRead) =>
     const error = yield* read(operations).pipe(Effect.flip);
 
     expect(error).toMatchObject({ reason: "not-registered" });
-  }).pipe(Effect.runPromise);
+  });
 
 /**
  * A group conversation lists as its group address, with the members' names
@@ -633,35 +627,35 @@ const listsAGroupInAsciiNameOrder = () =>
         hasMore: false,
       }),
     );
-  }).pipe(Effect.runPromise);
+  });
 
 describe("owner reads by registration state", () => {
-  it.each(ownerReads)(
+  it.for(ownerReads)(
     "refuses $tool as not-registered before registration without reading state",
-    refusesAnOwnerReadBeforeRegistration,
+    runTraceFor((ownerRead) => refusesAnOwnerReadBeforeRegistration(ownerRead)),
   );
   it(
     "lists a group conversation with its names in unsigned ASCII order",
-    listsAGroupInAsciiNameOrder,
+    runTrace(listsAGroupInAsciiNameOrder),
   );
 });
 
 describe("owner history read over stored rows", () => {
   it(
     "returns each certificate's signers and signatures with the record's anchor",
-    returnsCertificateSignersForAudit,
+    runTrace(returnsCertificateSignersForAudit),
   );
   it(
     "fails a history read whose action evidence is filed under another signer",
-    failsReadOverMisattributedEvidence,
+    runTrace(failsReadOverMisattributedEvidence),
   );
   it(
     "fails a history read whose genesis anchor row selects a record",
-    failsReadOverGenesisAnchorSelectingRecord,
+    runTrace(failsReadOverGenesisAnchorSelectingRecord),
   );
   it(
     "fails a history read whose membership row names another membership hash",
-    failsReadOverMembershipRowNamingAnotherHash,
+    runTrace(failsReadOverMembershipRowNamingAnotherHash),
   );
 });
 
@@ -805,7 +799,7 @@ const failsAtTheRegistryDeadline = () =>
     expect(error).toMatchObject({ reason: "dependency-unavailable" });
     expect(yield* Ref.get(effects.bound)).toEqual([]);
     expect(yield* Ref.get(effects.activated)).toEqual([]);
-  }).pipe(Effect.provide(TestContext.TestContext), Effect.runPromise);
+  }).pipe(Effect.provide(TestContext.TestContext));
 
 /** A lookup and a list, the two Registry calls `search_agents` makes. */
 const agentSearches = [
@@ -840,7 +834,7 @@ const failsSearchAtTheRegistryDeadline = ({
     });
 
     expect(error).toMatchObject({ reason: "dependency-unavailable" });
-  }).pipe(Effect.provide(TestContext.TestContext), Effect.runPromise);
+  }).pipe(Effect.provide(TestContext.TestContext));
 
 /** A Registry whose register waits for `release` after signalling `entered`. */
 function heldRegistry(
@@ -897,20 +891,20 @@ const bindsWhenCancelledDuringTheRegistryCall = () =>
       { agentId: fixture.cards[0].agentId, canonicalAgentCard },
     ]);
     expect(yield* Ref.get(effects.activated)).toEqual([fixture.cards[0]]);
-  }).pipe(Effect.runPromise);
+  });
 
 // @agent-code-guard/regression-only: these cases pin the register tool's cancellation and Registry deadline contract.
 describe("daemon registration through the register tool", () => {
   it(
     "fails a register at the Registry deadline when the Registry never answers",
-    failsAtTheRegistryDeadline,
+    runTrace(failsAtTheRegistryDeadline),
   );
-  it.each(agentSearches)(
+  it.for(agentSearches)(
     "fails a search_agents $search at the Registry deadline when the Registry never answers",
-    failsSearchAtTheRegistryDeadline,
+    runTraceFor((agentSearch) => failsSearchAtTheRegistryDeadline(agentSearch)),
   );
   it(
     "binds and activates a register cancelled during the Registry call",
-    bindsWhenCancelledDuringTheRegistryCall,
+    runTrace(bindsWhenCancelledDuringTheRegistryCall),
   );
 });
