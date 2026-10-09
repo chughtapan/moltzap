@@ -2,7 +2,7 @@
 
 import { FileSystem, HttpClient } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { live as it } from "@effect/vitest";
+import { live as it, effect as itOnTestClock } from "@effect/vitest";
 import {
   AgentCard,
   AgentSigningAuthority,
@@ -25,7 +25,6 @@ import {
   Redacted,
   Ref,
   Schema,
-  TestContext,
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect } from "vitest";
@@ -791,7 +790,7 @@ const failsAtTheRegistryDeadline = () =>
     expect(error).toMatchObject({ reason: "dependency-unavailable" });
     expect(yield* Ref.get(effects.bound)).toEqual([]);
     expect(yield* Ref.get(effects.activated)).toEqual([]);
-  }).pipe(Effect.provide(TestContext.TestContext));
+  });
 
 /** A lookup and a list, the two Registry calls `search_agents` makes. */
 const agentSearches = [
@@ -826,7 +825,7 @@ const failsSearchAtTheRegistryDeadline = ({
     });
 
     expect(error).toMatchObject({ reason: "dependency-unavailable" });
-  }).pipe(Effect.provide(TestContext.TestContext));
+  });
 
 /** A Registry whose register waits for `release` after signalling `entered`. */
 function heldRegistry(
@@ -887,11 +886,11 @@ const bindsWhenCancelledDuringTheRegistryCall = () =>
 
 // @agent-code-guard/regression-only: these cases pin the register tool's cancellation and Registry deadline contract.
 describe("daemon registration through the register tool", () => {
-  it(
+  itOnTestClock(
     "fails a register at the Registry deadline when the Registry never answers",
     failsAtTheRegistryDeadline,
   );
-  it.each(agentSearches)(
+  itOnTestClock.each(agentSearches)(
     "fails a search_agents $search at the Registry deadline when the Registry never answers",
     failsSearchAtTheRegistryDeadline,
   );

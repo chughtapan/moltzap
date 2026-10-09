@@ -1,6 +1,6 @@
 /** @file Native Events handshake bounds and optional-cursor interoperability. */
 
-import { live as it } from "@effect/vitest";
+import { live as it, effect as itOnTestClock } from "@effect/vitest";
 import {
   createMcpHandler,
   fromJsonSchema,
@@ -9,15 +9,7 @@ import {
   type ServerContext,
   SUBSCRIPTION_ID_META_KEY,
 } from "@modelcontextprotocol/server";
-import {
-  Deferred,
-  Duration,
-  Effect,
-  Fiber,
-  Stream,
-  TestClock,
-  TestContext,
-} from "effect";
+import { Deferred, Duration, Effect, Fiber, Stream, TestClock } from "effect";
 import { describe, expect } from "vitest";
 import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
 import { INBOX_PENDING_EVENT } from "../mcp/names.js";
@@ -112,7 +104,7 @@ const boundsInitialHeaders = () =>
         expect.objectContaining({ name: INBOX_PENDING_EVENT }),
       ]);
     }),
-  ).pipe(Effect.provide(TestContext.TestContext));
+  );
 
 /** A server whose `events/list` handler fails with the protocol error `code`. */
 const failingCatalogServer = (code: number) =>
@@ -216,7 +208,7 @@ describe("native MCP Events reception", () => {
   ])("classifies $failure catalog failure as $reason", ({ code, reason }) =>
     classifiesCatalogFailure(code, reason),
   );
-  it(
+  itOnTestClock(
     "bounds a connection whose server withholds HTTP headers",
     boundsInitialHeaders,
   );

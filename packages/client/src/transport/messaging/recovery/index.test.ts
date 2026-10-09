@@ -3,7 +3,7 @@
 import type { RegistryLookupResult } from "@moltzap/identity/registry";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { live as it } from "@effect/vitest";
+import { live as it, effect as itOnTestClock } from "@effect/vitest";
 import {
   AgentCard,
   Ed25519PublicKey,
@@ -6422,7 +6422,7 @@ const backsOffCatchUpRetriesAndStops = () =>
       );
       expect(afterLastRetry).toBe(0);
     }),
-  ).pipe(Effect.provide(TestContext.TestContext));
+  );
 
 /**
  * A conversation's catch-up retries run out while its member is silent. The
@@ -6501,7 +6501,7 @@ const rearmsCatchUpAfterRetriesRunOut = () =>
         fixture.membership.descriptor.conversationId,
       );
     }),
-  ).pipe(Effect.provide(TestContext.TestContext));
+  );
 
 /**
  * The endpoint's post in the N4 conversation is proposed at the certified
@@ -6687,7 +6687,7 @@ const stopsCatchUpRetriesOnceRecovered = () =>
       );
       expect(yield* Queue.size(outbound)).toBe(0);
     }),
-  ).pipe(Effect.provide(TestContext.TestContext));
+  );
 
 /**
  * A conversation's catch-up retries run out while its member is silent, and
@@ -6747,7 +6747,7 @@ const rearmsCatchUpOnTheNextRecoveryRun = () =>
         fixture.membership.descriptor.conversationId,
       );
     }),
-  ).pipe(Effect.provide(TestContext.TestContext));
+  );
 
 /**
  * A conversation's catch-up retries run out while its member is silent, and
@@ -6802,7 +6802,7 @@ const rearmsCatchUpOnALocalSend = () =>
       );
       yield* Fiber.interrupt(sending);
     }),
-  ).pipe(Effect.provide(TestContext.TestContext));
+  );
 
 /**
  * Both of the endpoint's conversations exhaust their catch-up retries while
@@ -6846,7 +6846,7 @@ const rearmsEveryPausedConversationOnReattach = () =>
         ]),
       );
     }),
-  ).pipe(Effect.provide(TestContext.TestContext));
+  );
 
 // @agent-code-guard/regression-only: these traces pin the catch-up and re-anchor work a recovery run routes between its phases and its store.
 describe("catch-up and re-anchor inside a recovery run", () => {
@@ -6854,23 +6854,23 @@ describe("catch-up and re-anchor inside a recovery run", () => {
     "sends a recovered conversation's post while another waits on a silent member, and the held post once that one recovers",
     recoversOneConversationWhileAnotherWaitsOnASilentMember,
   );
-  it(
+  itOnTestClock(
     "backs off catch-up retries exponentially and stops after the last attempt",
     backsOffCatchUpRetriesAndStops,
   );
-  it(
+  itOnTestClock(
     "arms catch-up again when a member's catch-up request arrives after its retries ran out",
     rearmsCatchUpAfterRetriesRunOut,
   );
-  it(
+  itOnTestClock(
     "arms catch-up again on the next recovery run after its retries ran out",
     rearmsCatchUpOnTheNextRecoveryRun,
   );
-  it(
+  itOnTestClock(
     "arms catch-up again on a local send after its retries ran out",
     rearmsCatchUpOnALocalSend,
   );
-  it(
+  itOnTestClock(
     "arms catch-up again for every paused conversation when the Router worker reattaches",
     rearmsEveryPausedConversationOnReattach,
   );
@@ -6882,7 +6882,7 @@ describe("catch-up and re-anchor inside a recovery run", () => {
     "finishes recovering a conversation whose completing delivery is interrupted",
     finishesRecoveryWhenItsDeliveryIsInterrupted,
   );
-  it(
+  itOnTestClock(
     "stops catch-up retries once the conversation recovers",
     stopsCatchUpRetriesOnceRecovered,
   );
@@ -7844,7 +7844,7 @@ const neverSettlesBehindASuccessorAfterAFeedGap = () =>
       expect(certified.head).toBe(recordHash);
       yield* Fiber.interrupt(sending);
     }),
-  ).pipe(Effect.provide(TestContext.TestContext));
+  );
 
 /**
  * After one Router restart with nothing in flight and one N4 member offline,
@@ -8112,7 +8112,7 @@ const settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut = () =>
       expect(whileRetrying).toEqual([]);
       expect(settled).toEqual([recordHash]);
     }),
-  ).pipe(Effect.provide(TestContext.TestContext));
+  );
 
 /**
  * Starts a recovery of the N4 engine at the new Router instance and has it
@@ -8547,7 +8547,7 @@ describe("staged successors in recovery", () => {
     "stages no candidate at the head while a holder answers with its successor",
     waitsBehindASuccessorAHolderAnswersWith,
   );
-  it(
+  itOnTestClock(
     "never settles behind a successor a holder answers with after a feed gap",
     neverSettlesBehindASuccessorAfterAFeedGap,
   );
@@ -8575,7 +8575,7 @@ describe("staged successors in recovery", () => {
     "keeps an earlier-instance wait across an identical catch-up retry",
     keepsAnEarlierInstanceWaitAcrossAnIdenticalRetry,
   );
-  it(
+  itOnTestClock(
     "settles behind an earlier-instance re-anchor vote once its retries run out",
     settlesBehindAnEarlierInstanceVoteOnceTheRetriesRunOut,
   );

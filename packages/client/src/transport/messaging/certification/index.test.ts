@@ -3,7 +3,7 @@
 import type { RegistryLookupResult } from "@moltzap/identity/registry";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { live as it } from "@effect/vitest";
+import { live as it, scoped as itOnTestClock } from "@effect/vitest";
 import {
   AgentCard,
   type AgentSigningAuthority,
@@ -27,7 +27,6 @@ import {
   type Scope,
   Stream,
   SubscriptionRef,
-  TestContext,
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect } from "vitest";
@@ -2318,21 +2317,21 @@ function attachmentWaitLeavesTheEngineGateFree(): Effect.Effect<
 }
 
 describe("engine sends and Router-worker attachment", () => {
-  it(
+  itOnTestClock(
     "holds a send issued before the worker attaches and completes it on attachment",
-    () => onTestClock(sendHeldUntilAttached()),
+    sendHeldUntilAttached,
     TEST_TIMEOUT_MS,
   );
 
-  it(
+  itOnTestClock(
     "fails a send as network-unavailable once the attachment bound elapses",
-    () => onTestClock(sendFailsAfterAttachBound()),
+    sendFailsAfterAttachBound,
     TEST_TIMEOUT_MS,
   );
 
-  it(
+  itOnTestClock(
     "waits for attachment without holding the engine gate recovery needs",
-    () => onTestClock(attachmentWaitLeavesTheEngineGateFree()),
+    attachmentWaitLeavesTheEngineGateFree,
     TEST_TIMEOUT_MS,
   );
 });
@@ -2768,70 +2767,52 @@ function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
   });
 }
 
-/**
- * A scoped scenario on the TestClock, so backoff and timeouts pass in virtual
- * time.
- * @param scenario Scoped scenario to run.
- * @returns The scenario with its scope closed and test services provided.
- */
-function onTestClock(
-  scenario: Effect.Effect<void, never, Scope.Scope>,
-): Effect.Effect<void> {
-  return Effect.scoped(scenario).pipe(Effect.provide(TestContext.TestContext));
-}
-
 describe("a local send during a Router outage", () => {
-  it(
+  itOnTestClock(
     "fails at once saying the post is queued and delivers it after re-attachment",
-    () => onTestClock(localSendDuringOutage()),
+    localSendDuringOutage,
     TEST_TIMEOUT_MS,
   );
-  it(
+  itOnTestClock(
     "sends each outbox row once while the local and background drains race",
-    () => onTestClock(concurrentDrainsSendEachOutboxOnce()),
+    concurrentDrainsSendEachOutboxOnce,
     TEST_TIMEOUT_MS,
   );
-  it(
+  itOnTestClock(
     "bounds a black-holed transmit and delivers its envelope exactly once",
-    () => onTestClock(blackHoledTransmitBoundsTheSend()),
+    blackHoledTransmitBoundsTheSend,
     TEST_TIMEOUT_MS,
   );
 });
 
 describe("outbound loop under a transient Router worker state", () => {
-  it(
+  itOnTestClock(
     "keeps the outbound loop alive when the worker reports unavailable mid-drain",
     () =>
-      onTestClock(
-        transientTransmitFailureLeavesOutboundLoopAlive(
-          new RouterWorkerUnavailableError(),
-        ),
+      transientTransmitFailureLeavesOutboundLoopAlive(
+        new RouterWorkerUnavailableError(),
       ),
     TEST_TIMEOUT_MS,
   );
-  it(
+  itOnTestClock(
     "keeps the outbound loop alive when a transmit observes a Router restart",
     () =>
-      onTestClock(
-        transientTransmitFailureLeavesOutboundLoopAlive(
-          new RouterWorkerDiscontinuityError(),
-        ),
+      transientTransmitFailureLeavesOutboundLoopAlive(
+        new RouterWorkerDiscontinuityError(),
       ),
     TEST_TIMEOUT_MS,
   );
-  it(
+  itOnTestClock(
     "keeps the outbound loop alive when the Router transport drops mid-drain",
     () =>
-      onTestClock(
-        transientTransmitFailureLeavesOutboundLoopAlive(
-          new RouterWorkerTransportError(),
-        ),
+      transientTransmitFailureLeavesOutboundLoopAlive(
+        new RouterWorkerTransportError(),
       ),
     TEST_TIMEOUT_MS,
   );
-  it(
+  itOnTestClock(
     "keeps a cold-started outbound loop alive with a pending outbound row",
-    () => onTestClock(coldStartWithPendingOutboundLeavesOutboundLoopAlive()),
+    coldStartWithPendingOutboundLeavesOutboundLoopAlive,
     TEST_TIMEOUT_MS,
   );
 });
@@ -3082,14 +3063,14 @@ describe("engine faults while staging and sending", () => {
     () => Effect.scoped(failsASendWhoseProposalTheStoreRefuses()),
     TEST_TIMEOUT_MS,
   );
-  it(
+  itOnTestClock(
     "ends the outbound loop with a persistence failure the worker cannot retry",
-    () => onTestClock(persistenceFailureEndsTheOutboundLoop()),
+    persistenceFailureEndsTheOutboundLoop,
     TEST_TIMEOUT_MS,
   );
-  it(
+  itOnTestClock(
     "fails a send without the queued text when the worker's recovery failed",
-    () => onTestClock(failedRecoveryFailsASendAsUnqueued()),
+    failedRecoveryFailsASendAsUnqueued,
     TEST_TIMEOUT_MS,
   );
 });
