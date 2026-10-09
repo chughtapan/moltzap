@@ -83,7 +83,7 @@ jobs:
       - name: Verify the Nx project graph
         run: |
           pnpm nx graph --print > "${RUNNER_TEMP}/moltzap-project-graph.json"
-          node scripts/architecture/check-boundaries.js --nx-graph "${RUNNER_TEMP}/moltzap-project-graph.json"
+          node scripts/architecture/check-boundaries.ts --nx-graph "${RUNNER_TEMP}/moltzap-project-graph.json"
       - run: pnpm format:check
       - run: pnpm docs:check:drift
       - run: pnpm docs:check
