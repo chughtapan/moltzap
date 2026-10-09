@@ -1,9 +1,9 @@
 /** @file Exercises classified delivery durability and loss of request context. */
 
+import { live as it } from "@effect/vitest";
 import { Effect, Array as EffectArray, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
-import { runTrace } from "../__tests__/run-trace.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import { DeliveryToken, openEndpointStore } from "../store/index.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
@@ -198,19 +198,19 @@ const commitsReceiptAtomically = () => {
 describe("durable runtime inbox", () => {
   it(
     "rolls back a failed receipt commit and retains a successful retirement across reopen",
-    runTrace(commitsReceiptAtomically),
+    commitsReceiptAtomically,
   );
   it(
     "retains acknowledgment tombstones and rejects token payload collisions",
-    runTrace(preservesTokenBindings),
+    preservesTokenBindings,
   );
   it(
     "replaces a lost request with one stable, separately identified failure",
-    runTrace(retiresLostRequests),
+    retiresLostRequests,
   );
   it(
     "bounds a snapshot while new arrivals and acknowledgments change unread state",
-    runTrace(freezesPagesAcrossArrivalsAndAcknowledgments),
+    freezesPagesAcrossArrivalsAndAcknowledgments,
   );
 });
 

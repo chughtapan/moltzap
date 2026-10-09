@@ -1,5 +1,6 @@
 /** @file Cryptographic acceptance tests for addressed GENESIS and POST records. */
 
+import { live as it } from "@effect/vitest";
 import {
   AgentCard,
   AgentName,
@@ -13,13 +14,12 @@ import {
 import { RouterInstanceId } from "@moltzap/router";
 import { Effect, Option, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import {
   identifier,
   issueTestCard,
   makeTestAuthority,
 } from "../../__tests__/agent-card-fixtures.js";
-import { runTrace, runTraceFor } from "../../__tests__/run-trace.js";
 import {
   type ActionCertifiedRecord,
   type ActionCore,
@@ -969,49 +969,47 @@ const relaysMaximumAttestationInsideIdentityLimits = () =>
 
 // @agent-code-guard/regression-only: these cases pin the accepted quorum, evidence, recovery, and size boundaries.
 describe("Client protocol acceptance", () => {
-  it.for([
+  it.each([
     [2, 2],
     [3, 3],
     [4, 3],
     [10, 7],
   ] as const)(
     "accepts q(%i)=%i durability evidence and rejects one fewer vote",
-    runTraceFor(([memberCount, threshold]) =>
-      verifiesThreshold(memberCount, threshold),
-    ),
+    ([memberCount, threshold]) => verifiesThreshold(memberCount, threshold),
   );
   it(
     "requires unanimous GENESIS and author-inclusive POST evidence without hashing either certificate",
-    runTrace(enforcesGenesisAndPostEvidence),
+    enforcesGenesisAndPostEvidence,
   );
   it(
     "verifies a record only against the membership it names, held from GENESIS",
-    runTrace(verifiesRecordsAgainstTheHeldMembership),
+    verifiesRecordsAgainstTheHeldMembership,
   );
   it(
     "requires the proposal envelope sender to be the post author",
-    runTrace(verifiesProposalEnvelopeAttribution),
+    verifiesProposalEnvelopeAttribution,
   );
   it(
     "binds re-anchor and catch-up evidence to the exact position and responder",
-    runTrace(verifiesReanchorCatchUpBindings),
+    verifiesReanchorCatchUpBindings,
   );
   it(
     "catches up GENESIS first, so a later POST page resolves its membership",
-    runTrace(catchesUpGenesisFirst),
+    catchesUpGenesisFirst,
   );
   describe(
     "the largest catch-up page, a re-anchored POST at its maximum membership",
     { timeout: MAXIMUM_PAGE_TIMEOUT_MS },
     () => {
-      it("verifies from its responder", runTrace(verifiesMaximumPage));
+      it("verifies from its responder", verifiesMaximumPage);
       it(
         "fits inside Identity limits sealed to every member",
-        runTrace(sealsMaximumPageInsideIdentityLimits),
+        sealsMaximumPageInsideIdentityLimits,
       );
       it(
         "relays its attestation inside Identity limits sealed to every member",
-        runTrace(relaysMaximumAttestationInsideIdentityLimits),
+        relaysMaximumAttestationInsideIdentityLimits,
       );
     },
   );

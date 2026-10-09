@@ -14,6 +14,7 @@
  * test fail when the draw stops reaching the interleavings it exists for.
  */
 
+import { live as it } from "@effect/vitest";
 import {
   Deferred,
   Duration,
@@ -27,7 +28,7 @@ import {
   TestClock,
   TestContext,
 } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import type { EngineSentPost } from "../messaging/index.js";
 import type { CollectiveMemberOutcome, InboundItem } from "./inbound.js";
 import {
@@ -39,7 +40,6 @@ import {
   recordHashOf,
   slotSchema,
 } from "../../__tests__/collective-operation-fixtures.js";
-import { runTrace } from "../../__tests__/run-trace.js";
 import { InboundMessage } from "../messaging/message.js";
 import { Content, type RecordHash } from "../wire/index.js";
 import { AgentAddress } from "../wire/values.js";
@@ -673,7 +673,7 @@ function everyEndpointPublishesTheFirstCloseResult() {
 describe("all_gather agreement", () => {
   it(
     "publishes the first close's result at the requester and every honest member",
-    runTrace(everyEndpointPublishesTheFirstCloseResult),
+    everyEndpointPublishesTheFirstCloseResult,
     60_000,
   );
 });

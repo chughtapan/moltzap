@@ -1,6 +1,7 @@
 /** @file Scripted Router worker ordering, cursor, replay, and recovery laws. */
 
 import type { Registry } from "@moltzap/identity/registry";
+import { live as it } from "@effect/vitest";
 import {
   AuthenticationFailedError,
   OverloadedError,
@@ -30,7 +31,7 @@ import {
   TestContext,
 } from "effect";
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import { advanceClock } from "../../__tests__/advance-clock.js";
 import {
   batch,
@@ -49,7 +50,6 @@ import {
   unavailableRegistryLayer,
   unreachableOutbox,
 } from "../../__tests__/router-worker-fixtures.js";
-import { runTrace, runTraceFor } from "../../__tests__/run-trace.js";
 import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
 import {
   type ConversationFoundation,
@@ -579,11 +579,9 @@ const retryUnknownResendsStoredBytes = () =>
 
 const resentInitialLosesRaceToSlowOriginal = () =>
   Effect.gen(function* () {
-    const { result, retained } = yield* Effect.gen(function* () {
-      const router = yield* slowOriginalRouter();
-      const sent = yield* sendThroughScript(router.answers);
-      return { result: sent, retained: yield* Ref.get(router.retained) };
-    });
+    const router = yield* slowOriginalRouter();
+    const result = yield* sendThroughScript(router.answers);
+    const retained = yield* Ref.get(router.retained);
     const stored = result.outbound.canonicalSignedMessage;
     expect(result.failure).toEqual(Option.none());
     expect(result.modes).toEqual(["initial", "retry", "initial", "retry"]);
@@ -1227,11 +1225,11 @@ const outageRouter = (input: {
 const outageDetachesAndReattaches = () =>
   Effect.gen(function* () {
     const lines: LogLines = [];
-    const events = Effect.runSync(Ref.make<string[]>([]));
+    const events = yield* Ref.make<string[]>([]);
     const fixture = yield* makeFixture;
     const instance = routerInstanceId(110);
-    const reachable = Effect.runSync(Ref.make(true));
-    const tail = Effect.runSync(Ref.make(instance));
+    const reachable = yield* Ref.make(true);
+    const tail = yield* Ref.make(instance);
     yield* withOutbox((store) =>
       onTestClock(
         lines,
@@ -1300,10 +1298,10 @@ const outageDetachesAndReattaches = () =>
 const detachedRestartRecovers = () =>
   Effect.gen(function* () {
     const lines: LogLines = [];
-    const events = Effect.runSync(Ref.make<string[]>([]));
+    const events = yield* Ref.make<string[]>([]);
     const fixture = yield* makeFixture;
-    const reachable = Effect.runSync(Ref.make(true));
-    const tail = Effect.runSync(Ref.make(routerInstanceId(111)));
+    const reachable = yield* Ref.make(true);
+    const tail = yield* Ref.make(routerInstanceId(111));
     const restarted = routerInstanceId(112);
     yield* onTestClock(
       lines,
@@ -1350,8 +1348,8 @@ const shortBlipKeepsWorkerAttached = (
     const lines: LogLines = [];
     const fixture = yield* makeFixture;
     const instance = routerInstanceId(113);
-    const remaining = Effect.runSync(Ref.make([...failures]));
-    const pollCalls = Effect.runSync(Ref.make(0));
+    const remaining = yield* Ref.make([...failures]);
+    const pollCalls = yield* Ref.make(0);
     const routerLayer = Layer.succeed(Router, {
       poll: (call) =>
         call.request.pollCursor === undefined
@@ -1401,14 +1399,12 @@ const staleFailureKeepsNewGenerationAttached = () =>
     const fixture = yield* makeFixture;
     const first = routerInstanceId(114);
     const second = routerInstanceId(115);
-    const tails = Effect.runSync(
-      Ref.make([
-        emptyBatch(first, pollCursor(43)),
-        emptyBatch(second, pollCursor(44)),
-      ]),
-    );
-    const releaseStale = Effect.runSync(Deferred.make<void>());
-    const staleIssued = Effect.runSync(Deferred.make<void>());
+    const tails = yield* Ref.make([
+      emptyBatch(first, pollCursor(43)),
+      emptyBatch(second, pollCursor(44)),
+    ]);
+    const releaseStale = yield* Deferred.make<void>();
+    const staleIssued = yield* Deferred.make<void>();
     const routerLayer = Layer.succeed(Router, {
       poll: (call) => {
         switch (call.request.pollCursor) {
@@ -1487,10 +1483,10 @@ const outageDuringRecoveryRecovers = () =>
   Effect.gen(function* () {
     const lines: LogLines = [];
     const fixture = yield* makeFixture;
-    const reachable = Effect.runSync(Ref.make(true));
-    const tail = Effect.runSync(Ref.make(routerInstanceId(117)));
+    const reachable = yield* Ref.make(true);
+    const tail = yield* Ref.make(routerInstanceId(117));
     const restarted = routerInstanceId(118);
-    const recoveryStarted = Effect.runSync(Deferred.make<void>());
+    const recoveryStarted = yield* Deferred.make<void>();
     const recover = () =>
       Deferred.succeed(recoveryStarted, undefined).pipe(
         Effect.zipRight(Effect.sleep("20 seconds")),
@@ -1562,8 +1558,8 @@ const coldStartWithRouterDownRecovers = () =>
     const lines: LogLines = [];
     const fixture = yield* makeFixture;
     const instance = routerInstanceId(119);
-    const reachable = Effect.runSync(Ref.make(false));
-    const tail = Effect.runSync(Ref.make(instance));
+    const reachable = yield* Ref.make(false);
+    const tail = yield* Ref.make(instance);
     yield* withOutbox((store) =>
       onTestClock(
         lines,
@@ -1636,7 +1632,7 @@ const rejectionEndsThePollLoop = (
   Effect.gen(function* () {
     const fixture = yield* makeFixture;
     const instance = routerInstanceId(116);
-    const pollCalls = Effect.runSync(Ref.make(0));
+    const pollCalls = yield* Ref.make(0);
     const routerLayer = Layer.succeed(Router, {
       poll: (call) =>
         call.request.pollCursor === undefined
@@ -1706,33 +1702,33 @@ const persistenceFaultEndsPollLoop = () =>
 describe("private Router worker", () => {
   it(
     "recovers certified history before activating a cold worker",
-    runTrace(coldStartRecoversBeforeActivation),
+    coldStartRecoversBeforeActivation,
   );
   it(
     "verifies a complete batch before dispatching any item",
-    runTrace(batchVerificationIsAtomic),
+    batchVerificationIsAtomic,
   );
   it(
     "accepts or ignores in order before advancing the cursor",
-    runTrace(orderedCursorCommit),
+    orderedCursorCommit,
   );
   it(
     "retains the prior cursor when durable acceptance fails",
-    runTrace(persistenceRetainsCursor),
+    persistenceRetainsCursor,
   );
   it(
     "retries an ambiguous send with the original envelope",
-    runTrace(ambiguousSendRetriesSameBytes),
+    ambiguousSendRetriesSameBytes,
   );
   it(
     "resends the stored envelope as initial after retry identity loss",
-    runTrace(retryUnknownResendsStoredBytes),
+    retryUnknownResendsStoredBytes,
   );
   it(
     "asks again as retry when a resent initial loses the race to its slow original",
-    runTrace(resentInitialLosesRaceToSlowOriginal),
+    resentInitialLosesRaceToSlowOriginal,
   );
-  it.for<FailClosedRow>([
+  it.each<FailClosedRow>([
     {
       result: "a retry conflicts",
       answers: [connectionLost, identityConflict, acceptsSentBytes],
@@ -1748,115 +1744,94 @@ describe("private Router worker", () => {
       answers: [messageInvalid, acceptsSentBytes],
       modes: ["initial"],
     },
-  ])(
-    "fails closed and retains the envelope when $result",
-    runTraceFor((row) => resultFailsClosed(row)),
-  );
+  ])("fails closed and retains the envelope when $result", resultFailsClosed);
   it(
     "leaves the envelope for the next drain once Router alternation spends every attempt",
-    runTrace(alternatingConflictAndLossStopsAtTheBound),
+    alternatingConflictAndLossStopsAtTheBound,
   );
   it(
     "retains an envelope when Router acceptance names different bytes",
-    runTrace(mismatchedAcceptedDigestRetainsOutbound),
+    mismatchedAcceptedDigestRetainsOutbound,
   );
   it(
     "recovers a fresh tail before returning a Router-restarted send",
-    runTrace(restartedSendRecoversBeforeReturning),
+    restartedSendRecoversBeforeReturning,
   );
   it(
     "promotes an omitted-tail instance change before recovery",
-    runTrace(restartOrdersTailBeforeRecovery),
+    restartOrdersTailBeforeRecovery,
   );
   it(
     "promotes a retry-time omitted-tail instance change before recovery",
-    runTrace(recoveryRetryPromotesChangedTailToRestart),
+    recoveryRetryPromotesChangedTailToRestart,
   );
   it(
     "holds normal sends until recovery activates its Router generation",
-    runTrace(normalSendWaitsForRecovery),
+    normalSendWaitsForRecovery,
   );
   it(
     "pumps recovery ingress before activating the recovered generation",
-    runTrace(recoveryPumpsIngressBeforeActivation),
+    recoveryPumpsIngressBeforeActivation,
   );
   it(
     "interrupts pending recovery when its ingress pump loses continuity",
-    runTrace(recoveryPumpFailureInterruptsCallback),
+    recoveryPumpFailureInterruptsCallback,
   );
   it(
     "authenticates pinned history senders while Registry is unavailable",
-    runTrace(pinnedCardsSurviveRegistryOutage),
+    pinnedCardsSurviveRegistryOutage,
   );
   it(
     "answers awaitAnchor once cold-start recovery activates the worker",
-    runTrace(awaitAnchorResolvesOnActivation),
+    awaitAnchorResolvesOnActivation,
   );
   it(
     "detaches through a Router outage, warns while it lasts, and reattaches",
-    runTrace(outageDetachesAndReattaches),
+    outageDetachesAndReattaches,
     30_000,
   );
   it(
     "stays up, warns, and completes a recovery the Router drops out of",
-    runTrace(outageDuringRecoveryRecovers),
+    outageDuringRecoveryRecovers,
     30_000,
   );
   it(
     "cold-starts with the Router down, warns, and recovers when it answers",
-    runTrace(coldStartWithRouterDownRecovers),
+    coldStartWithRouterDownRecovers,
     30_000,
   );
   it(
     "recovers from a restart a detached worker's probe discovers",
-    runTrace(detachedRestartRecovers),
+    detachedRestartRecovers,
     30_000,
   );
-  it(
-    "retries a 503 within the poll without detaching",
-    runTrace(() =>
-      shortBlipKeepsWorkerAttached([
-        new UnavailableError(),
-        new UnavailableError(),
-      ]),
-    ),
-  );
-  it(
-    "retries a 429 within the poll without detaching",
-    runTrace(() =>
-      shortBlipKeepsWorkerAttached([
-        new OverloadedError(),
-        new OverloadedError(),
-      ]),
-    ),
-  );
-  it(
-    "retries a dropped connection within the poll without detaching",
-    runTrace(() => shortBlipKeepsWorkerAttached([new RouterConnectionError()])),
-  );
+  it("retries a 503 within the poll without detaching", () =>
+    shortBlipKeepsWorkerAttached([
+      new UnavailableError(),
+      new UnavailableError(),
+    ]));
+  it("retries a 429 within the poll without detaching", () =>
+    shortBlipKeepsWorkerAttached([
+      new OverloadedError(),
+      new OverloadedError(),
+    ]));
+  it("retries a dropped connection within the poll without detaching", () =>
+    shortBlipKeepsWorkerAttached([new RouterConnectionError()]));
   it(
     "keeps a generation recovery re-activated attached after a stale failure",
-    runTrace(staleFailureKeepsNewGenerationAttached),
+    staleFailureKeepsNewGenerationAttached,
     30_000,
   );
-  it(
-    "logs why and ends the poll loop when the Router rejects the endpoint's authentication",
-    runTrace(() =>
-      rejectionEndsThePollLoop(
-        new AuthenticationFailedError(),
-        "authentication",
-      ),
-    ),
-  );
-  it(
-    "logs why and ends the poll loop when the Router rejects the endpoint's version",
-    runTrace(() =>
-      rejectionEndsThePollLoop(new VersionMismatchError(), "version"),
-    ),
-  );
+  it("logs why and ends the poll loop when the Router rejects the endpoint's authentication", () =>
+    rejectionEndsThePollLoop(
+      new AuthenticationFailedError(),
+      "authentication",
+    ));
+  it("logs why and ends the poll loop when the Router rejects the endpoint's version", () =>
+    rejectionEndsThePollLoop(new VersionMismatchError(), "version"));
   it(
     "ends the poll loop on a persistence fault without retrying",
-    runTrace(persistenceFaultEndsPollLoop),
+    persistenceFaultEndsPollLoop,
   );
 });
 

@@ -2,6 +2,7 @@
 
 import { HttpClient, HttpClientRequest } from "@effect/platform";
 import { NodeHttpClient } from "@effect/platform-node";
+import { live as it } from "@effect/vitest";
 import {
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
@@ -11,11 +12,10 @@ import {
   PROTOCOL_VERSION_META_KEY,
 } from "@modelcontextprotocol/server";
 import { Chunk, Deferred, Effect, Fiber, Schema, Stream } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import type { HarnessMessageReadyEvent } from "../../delivery/operations.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
-import { runTrace } from "../../__tests__/run-trace.js";
 import { DeliveryToken } from "../../store/index.js";
 import { InboundItem } from "../../transport/collectives/inbound.js";
 import { acquireHarnessEndpoint } from "../harness-endpoint/index.js";
@@ -370,19 +370,19 @@ const preservesExclusiveOwnership = () =>
 describe("MCP Events draft interoperability", () => {
   it(
     "accepts an omitted subscription cursor before applying delivery policy",
-    runTrace(acceptsOmittedSubscribeCursor),
+    acceptsOmittedSubscribeCursor,
   );
   it(
     "advertises discovery and preserves draft errors for unknown events and replay",
-    runTrace(discoversDraftEvents),
+    discoversDraftEvents,
   );
   it(
     "catches up an item whose wakeup arrives during activation and coalesces later wakeups without implicit acknowledgment",
-    runTrace(catchesUpAndDrainsNewArrivals),
+    catchesUpAndDrainsNewArrivals,
   );
   it(
     "refuses a competing consumer and releases ownership on cancellation",
-    runTrace(preservesExclusiveOwnership),
+    preservesExclusiveOwnership,
   );
 });
 

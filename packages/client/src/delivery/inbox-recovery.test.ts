@@ -1,9 +1,9 @@
 /** @file A pending collective request delivery stays answerable across a restart of a current store. */
 
+import { live as it } from "@effect/vitest";
 import { Effect, Encoding, Option, Schema, Scope } from "effect";
-import { expect, it } from "vitest";
+import { expect } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
-import { runTrace } from "../__tests__/run-trace.js";
 import {
   bytes,
   stateDirectory,
@@ -143,5 +143,5 @@ const preservesUnprojectedRequest = () => {
 
 it(
   "keeps an unprojected request answerable after restart of a current store",
-  runTrace(preservesUnprojectedRequest),
+  preservesUnprojectedRequest,
 );

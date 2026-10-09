@@ -1,5 +1,6 @@
 /** @file Pins how the collective layer runs an all_gather at its requester and members. */
 
+import { it } from "@effect/vitest";
 import {
   Deferred,
   Duration,
@@ -10,7 +11,7 @@ import {
   Supervisor,
   TestClock,
 } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import type { EngineSendInput } from "../messaging/index.js";
 import type { InboundItem } from "./inbound.js";
 import type { CollectiveOperations } from "./operation.js";
@@ -34,7 +35,6 @@ import {
   slotSchema,
   unkeptEmit,
 } from "../../__tests__/collective-operation-fixtures.js";
-import { runTrace } from "../../__tests__/run-trace.js";
 import { queuedNetworkFailure, SendError } from "../messaging/errors.js";
 import { InboundMessage } from "../messaging/message.js";
 import { CollectiveEmitError } from "./forms.js";
@@ -983,11 +983,9 @@ describe("all_gather at the requester", () => {
     "starts when its group post certifies within the send's wait",
     startsWhenTheGroupPostCertifiesWithinTheWait,
   );
-  it(
+  it.live(
     "ends in its result alone when the deadline passes before the group post certifies",
-    runTrace(
-      endsInItsResultAloneWhenTheDeadlinePassesBeforeTheGroupPostCertifies,
-    ),
+    endsInItsResultAloneWhenTheDeadlinePassesBeforeTheGroupPostCertifies,
   );
   it(
     "refuses an all_gather with an unknown member before posting",

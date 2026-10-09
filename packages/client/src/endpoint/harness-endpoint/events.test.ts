@@ -1,5 +1,6 @@
 /** @file Native Events handshake bounds and optional-cursor interoperability. */
 
+import { live as it } from "@effect/vitest";
 import {
   createMcpHandler,
   fromJsonSchema,
@@ -17,9 +18,8 @@ import {
   TestClock,
   TestContext,
 } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import { loopbackMcpEndpoint } from "../../__tests__/mcp-http-fixtures.js";
-import { runTrace, runTraceFor } from "../../__tests__/run-trace.js";
 import { INBOX_PENDING_EVENT } from "../mcp/names.js";
 import { inboxWakeups } from "./events.js";
 import { acquireHarnessEndpoint } from "./index.js";
@@ -210,20 +210,19 @@ const continuesAfterRecoverableErrors = () =>
 
 // @agent-code-guard/regression-only: these real HTTP transcripts pin external framing and bounded startup, without mocking transport methods.
 describe("native MCP Events reception", () => {
-  it.for([
+  it.each([
     { failure: "an unsupported", code: -32601, reason: "incompatible-daemon" },
     { failure: "a transient", code: -32603, reason: "transport-failed" },
-  ])(
-    "classifies $failure catalog failure as $reason",
-    runTraceFor(({ code, reason }) => classifiesCatalogFailure(code, reason)),
+  ])("classifies $failure catalog failure as $reason", ({ code, reason }) =>
+    classifiesCatalogFailure(code, reason),
   );
   it(
     "bounds a connection whose server withholds HTTP headers",
-    runTrace(boundsInitialHeaders),
+    boundsInitialHeaders,
   );
   it(
     "accepts absent cursors, continues after recoverable errors and closes on termination",
-    runTrace(continuesAfterRecoverableErrors),
+    continuesAfterRecoverableErrors,
   );
 });
 

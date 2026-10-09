@@ -1,5 +1,6 @@
 /** @file Small boundary tests for the private addressed Client representation. */
 
+import { it } from "@effect/vitest";
 import {
   AgentId,
   MessageId,
@@ -10,13 +11,12 @@ import {
 import canonicalize from "canonicalize";
 import { Effect, Encoding, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import {
   issueTestCard,
   makeTestAuthority,
   type RegistryKeyPair,
 } from "../../__tests__/agent-card-fixtures.js";
-import { runTrace } from "../../__tests__/run-trace.js";
 import {
   ActionHash,
   ActionSignatureStatement,
@@ -239,30 +239,30 @@ const refusesSealedBodyHoldingNoClientValue = () =>
 
 // @agent-code-guard/regression-only: these examples pin the accepted private Client wire boundary and hostile-input closure.
 describe("Client protocol representation", () => {
-  it(
+  it.live(
     "accepts exact JCS and rejects alternate or open representations",
-    runTrace(verifiesCanonicalClosure),
+    verifiesCanonicalClosure,
   );
-  it(
+  it.live(
     "derives stable conversation and author-scoped post identities",
-    runTrace(derivesPrivateIdentifiers),
+    derivesPrivateIdentifiers,
   );
-  it(
+  it.live(
     "enforces the exact canonical content byte bound",
-    runTrace(enforcesContentBounds),
+    enforcesContentBounds,
   );
-  it(
+  it.live(
     "derives a stable inner evidence message identity",
-    runTrace(derivesStableEvidenceIdentity),
+    derivesStableEvidenceIdentity,
   );
-  it(
+  it.live(
     "opens a sealed outer body for each member and for no one else",
-    runTrace(opensSealedBodiesOnlyForMembers),
+    opensSealedBodiesOnlyForMembers,
   );
-  it("refuses a plaintext outer body", runTrace(refusesPlaintextOuterBody));
-  it(
+  it.live("refuses a plaintext outer body", refusesPlaintextOuterBody);
+  it.live(
     "refuses a sealed outer body that holds no Client value",
-    runTrace(refusesSealedBodyHoldingNoClientValue),
+    refusesSealedBodyHoldingNoClientValue,
   );
   // Every wire hash identifier admits only its prefix over the canonical
   // base64url of 32 bytes.

@@ -2,9 +2,9 @@
 
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import { live as it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Schema, Scope } from "effect";
-import { describe, expect, it } from "vitest";
-import { runTrace } from "../__tests__/run-trace.js";
+import { describe, expect } from "vitest";
 import { openEndpointStore } from "../store/index.js";
 import { CollectiveId, SendInput } from "../transport/collectives/forms.js";
 import { SendError } from "../transport/messaging/errors.js";
@@ -299,34 +299,31 @@ const replaysARefusalWithItsDetail = () =>
 describe("durable send invocations", () => {
   it(
     "reports an idempotency key it has not seen as absent",
-    runTrace(reportsAnUnseenKeyAsAbsent),
+    reportsAnUnseenKeyAsAbsent,
   );
   it(
     "keeps a send pending when its caller disconnects, and a retry joins it",
-    runTrace(keepsADisconnectedSendPendingAndJoinsItsRetry),
+    keepsADisconnectedSendPendingAndJoinsItsRetry,
   );
   it(
     "refuses a different input under a key still in flight",
-    runTrace(refusesADifferentInputUnderAKeyInFlight),
+    refusesADifferentInputUnderAKeyInFlight,
   );
   it(
     "replays a returned outcome without executing the send again",
-    runTrace(replaysAReturnedOutcomeWithoutSendingAgain),
+    replaysAReturnedOutcomeWithoutSendingAgain,
   );
   it(
     "replays a returned outcome with its collective id after restart",
-    runTrace(replaysAReturnedOutcomeAfterRestart),
+    replaysAReturnedOutcomeAfterRestart,
   );
   it(
     "executes every send that names no idempotency key",
-    runTrace(executesEverySendWithoutAKey),
+    executesEverySendWithoutAKey,
   );
   it(
     "leaves interrupted sends indeterminate and replays observed failures",
-    runTrace(preservesUncertaintyAndFailure),
+    preservesUncertaintyAndFailure,
   );
-  it(
-    "replays a refusal with its detail",
-    runTrace(replaysARefusalWithItsDetail),
-  );
+  it("replays a refusal with its detail", replaysARefusalWithItsDetail);
 });

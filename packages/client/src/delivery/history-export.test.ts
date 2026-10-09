@@ -2,11 +2,11 @@
 
 import { FileSystem, Error as PlatformError } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import { live as it } from "@effect/vitest";
 import { DateTime, Effect, Schema } from "effect";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
-import { runTrace } from "../__tests__/run-trace.js";
 import { SendInput } from "../transport/collectives/forms.js";
 import { InboundItem } from "../transport/collectives/inbound.js";
 import { PostId } from "../transport/wire/index.js";
@@ -87,23 +87,19 @@ function failingOnce(writes: string[]) {
 
 const appendsDecodableLines = () =>
   Effect.gen(function* () {
-    const text = yield* Effect.scoped(
-      Effect.gen(function* () {
-        const fileSystem = yield* FileSystem.FileSystem;
-        const directory = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "moltzap-history-export-",
-        });
-        const path = join(directory, "history.ndjson");
-        const sink = yield* makeHistoryExport(path);
-        yield* sink.record(inbound());
-        yield* sink.record(outbound());
-        return yield* fileSystem.readFileString(path);
-      }),
-    ).pipe(Effect.provide(NodeFileSystem.layer));
+    const fileSystem = yield* FileSystem.FileSystem;
+    const directory = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "moltzap-history-export-",
+    });
+    const path = join(directory, "history.ndjson");
+    const sink = yield* makeHistoryExport(path);
+    yield* sink.record(inbound());
+    yield* sink.record(outbound());
+    const text = yield* fileSystem.readFileString(path);
 
     expect(text.endsWith("\n")).toBe(true);
     expect(decodeFile(text)).toEqual([inbound(), outbound()]);
-  });
+  }).pipe(Effect.scoped, Effect.provide(NodeFileSystem.layer));
 
 const stopsAfterOneFailureLine = () =>
   Effect.gen(function* () {
@@ -123,9 +119,9 @@ const stopsAfterOneFailureLine = () =>
   });
 
 describe("history export", () => {
-  it("appends one decodable line per record", runTrace(appendsDecodableLines));
+  it("appends one decodable line per record", appendsDecodableLines);
   it(
     "records one failure line, then stops exporting and keeps serving",
-    runTrace(stopsAfterOneFailureLine),
+    stopsAfterOneFailureLine,
   );
 });

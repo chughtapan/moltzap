@@ -3,6 +3,7 @@
 import type { Implementation } from "@modelcontextprotocol/server";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import { it } from "@effect/vitest";
 import {
   Client,
   fromJsonSchema,
@@ -21,10 +22,9 @@ import {
   Stream,
 } from "effect";
 import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import type { HarnessEndpoint } from "../harness-endpoint/capability.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
-import { runTrace } from "../../__tests__/run-trace.js";
 import { readRuntimeEvent } from "../../delivery/inbox.js";
 import {
   eventIdOf,
@@ -139,23 +139,21 @@ function capturesProtocolError(
 
 function advertisesEventsBeforeRegistration() {
   return Effect.gen(function* () {
-    const capabilities = yield* Effect.gen(function* () {
-      const { port } = yield* acquireBoundaryServer(operations);
-      const client = yield* acquireProtocolClient(
-        port,
-        "harness-capability-client",
-      );
-      return yield* Effect.tryPromise(() =>
-        client.request(
-          { method: "events/list", params: {} },
-          fromJsonSchema<{ events: unknown[] }>({
-            type: "object",
-            properties: { events: { type: "array" } },
-            required: ["events"],
-          }),
-        ),
-      );
-    }).pipe(Effect.scoped);
+    const { port } = yield* acquireBoundaryServer(operations);
+    const client = yield* acquireProtocolClient(
+      port,
+      "harness-capability-client",
+    );
+    const capabilities = yield* Effect.tryPromise(() =>
+      client.request(
+        { method: "events/list", params: {} },
+        fromJsonSchema<{ events: unknown[] }>({
+          type: "object",
+          properties: { events: { type: "array" } },
+          required: ["events"],
+        }),
+      ),
+    );
 
     const pushDelivery: unknown = expect.arrayContaining(["push"]);
     expect(capabilities.events).toContainEqual(
@@ -164,7 +162,7 @@ function advertisesEventsBeforeRegistration() {
         delivery: pushDelivery,
       }),
     );
-  });
+  }).pipe(Effect.scoped);
 }
 
 function distinguishesProtocolAndDomainFailures() {
@@ -173,20 +171,18 @@ function distinguishesProtocolAndDomainFailures() {
       ...operations,
       readStatus: () => Effect.fail({ reason: "incompatible-daemon" }),
     };
-    const [malformedCause, domainCause] = yield* Effect.gen(function* () {
-      const { port } = yield* acquireBoundaryServer(failingOperations);
-      const client = yield* acquireProtocolClient(
-        port,
-        "harness-boundary-client",
-      );
-      return yield* Effect.all(
-        [
-          capturesProtocolError(client, { unexpected: true }),
-          capturesProtocolError(client, {}),
-        ],
-        { concurrency: 1 },
-      );
-    }).pipe(Effect.scoped);
+    const { port } = yield* acquireBoundaryServer(failingOperations);
+    const client = yield* acquireProtocolClient(
+      port,
+      "harness-boundary-client",
+    );
+    const [malformedCause, domainCause] = yield* Effect.all(
+      [
+        capturesProtocolError(client, { unexpected: true }),
+        capturesProtocolError(client, {}),
+      ],
+      { concurrency: 1 },
+    );
 
     expect(ProtocolError.isInstance(malformedCause)).toBe(true);
     expect(ProtocolError.isInstance(domainCause)).toBe(true);
@@ -204,7 +200,7 @@ function distinguishesProtocolAndDomainFailures() {
       code: ProtocolErrorCode.InternalError,
       data: { reason: "incompatible-daemon" },
     });
-  });
+  }).pipe(Effect.scoped);
 }
 
 /**
@@ -219,20 +215,18 @@ function reportsOutsideVocabularyStatusFailure() {
       ...operations,
       readStatus: () => Effect.fail({ reason: "persistence-failed" }),
     };
-    const cause = yield* Effect.gen(function* () {
-      const { port } = yield* acquireBoundaryServer(failingOperations);
-      const client = yield* acquireProtocolClient(
-        port,
-        "harness-status-vocabulary-client",
-      );
-      return yield* capturesProtocolError(client, {});
-    }).pipe(Effect.scoped);
+    const { port } = yield* acquireBoundaryServer(failingOperations);
+    const client = yield* acquireProtocolClient(
+      port,
+      "harness-status-vocabulary-client",
+    );
+    const cause = yield* capturesProtocolError(client, {});
 
     expect(cause).toMatchObject({
       code: ProtocolErrorCode.InternalError,
       data: { reason: "incompatible-daemon" },
     });
-  });
+  }).pipe(Effect.scoped);
 }
 
 function sanitizesUnexpectedOperationDefects() {
@@ -241,14 +235,9 @@ function sanitizesUnexpectedOperationDefects() {
       ...operations,
       readStatus: () => Effect.dieMessage(PRIVATE_STATUS_DEFECT),
     };
-    const cause = yield* Effect.gen(function* () {
-      const { port } = yield* acquireBoundaryServer(defectiveOperations);
-      const client = yield* acquireProtocolClient(
-        port,
-        "harness-defect-client",
-      );
-      return yield* capturesProtocolError(client, {});
-    }).pipe(Effect.scoped);
+    const { port } = yield* acquireBoundaryServer(defectiveOperations);
+    const client = yield* acquireProtocolClient(port, "harness-defect-client");
+    const cause = yield* capturesProtocolError(client, {});
 
     expect(ProtocolError.isInstance(cause)).toBe(true);
     if (!ProtocolError.isInstance(cause)) {
@@ -259,28 +248,25 @@ function sanitizesUnexpectedOperationDefects() {
       data: { reason: "incompatible-daemon" },
     });
     expect(String(cause)).not.toContain(PRIVATE_STATUS_DEFECT);
-  });
+  }).pipe(Effect.scoped);
 }
 
 function reportsUnexpectedSubscriptionLoss() {
   return Effect.gen(function* () {
-    const result = yield* Effect.gen(function* () {
-      const { server, receive } = yield* observeListeningSubscription();
-      yield* Effect.sync(() => {
-        server.closeAllConnections();
-      });
-      return yield* Fiber.join(receive).pipe(
-        Effect.timeoutFail({
-          duration: Duration.seconds(5),
-          onTimeout: () =>
-            new Error("message stream did not observe disconnect"),
-        }),
-      );
-    }).pipe(Effect.scoped);
+    const { server, receive } = yield* observeListeningSubscription();
+    yield* Effect.sync(() => {
+      server.closeAllConnections();
+    });
+    const result = yield* Fiber.join(receive).pipe(
+      Effect.timeoutFail({
+        duration: Duration.seconds(5),
+        onTimeout: () => new Error("message stream did not observe disconnect"),
+      }),
+    );
 
     expect(result).toBeInstanceOf(ListenError);
     expect(result).toMatchObject({ reason: "transport-failed" });
-  });
+  }).pipe(Effect.scoped);
 }
 
 async function keepsIdleSubscriptionAlive() {
@@ -723,51 +709,51 @@ function readsRetainedEventThroughSdk() {
 
 // @agent-code-guard/regression-only: this boundary pins the exact capability and closed transport failures.
 describe("Harness MCP HTTP boundary", () => {
-  it(
+  it.live(
     "keeps dispatch and invalid output distinct from rejected send input",
-    runTrace(distinguishesSendValidationFailures),
+    distinguishesSendValidationFailures,
     MCP_TRACE_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "carries a refusal's detail across the daemon boundary",
-    runTrace(carriesARefusalDetailAcrossTheDaemonBoundary),
+    carriesARefusalDetailAcrossTheDaemonBoundary,
   );
-  it(
+  it.live(
     "reads an acknowledged event through the SDK without redelivery",
-    runTrace(readsRetainedEventThroughSdk),
+    readsRetainedEventThroughSdk,
   );
-  it(
+  it.live(
     "preserves runtime send identity through retries, conflicts and restart",
-    runTrace(preservesRuntimeInvocationMetadata),
+    preservesRuntimeInvocationMetadata,
   );
-  it(
+  it.live(
     "rejects bookkeeping in model arguments and validates runtime metadata",
-    runTrace(rejectsSendBookkeepingArguments),
+    rejectsSendBookkeepingArguments,
     MCP_TRACE_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "advertises the event descriptor before registration",
-    runTrace(advertisesEventsBeforeRegistration),
+    advertisesEventsBeforeRegistration,
   );
-  it(
+  it.live(
     "keeps malformed input separate from closed domain failures",
-    runTrace(distinguishesProtocolAndDomainFailures),
+    distinguishesProtocolAndDomainFailures,
   );
-  it(
+  it.live(
     "reports a status failure outside its vocabulary as incompatible-daemon",
-    runTrace(reportsOutsideVocabularyStatusFailure),
+    reportsOutsideVocabularyStatusFailure,
   );
-  it(
+  it.live(
     "sanitizes unexpected operation defects",
-    runTrace(sanitizesUnexpectedOperationDefects),
+    sanitizesUnexpectedOperationDefects,
   );
   it("keeps an idle subscription alive past the fetch body timeout", () =>
     keepsIdleSubscriptionAlive());
   it("loses an idle subscription to the fetch body timeout without keep-alive", () =>
     losesIdleSubscriptionWithoutKeepAlive());
-  it(
+  it.live(
     "reports an unexpected subscription disconnect",
-    runTrace(reportsUnexpectedSubscriptionLoss),
+    reportsUnexpectedSubscriptionLoss,
   );
 });
 

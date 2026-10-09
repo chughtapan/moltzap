@@ -5,6 +5,7 @@ import {
   HttpClient,
   HttpClientResponse,
 } from "@effect/platform";
+import { live as it } from "@effect/vitest";
 import {
   Clock,
   Context,
@@ -16,9 +17,8 @@ import {
   Schema,
 } from "effect";
 import { createHmac } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
-import { runTrace } from "../../__tests__/run-trace.js";
 import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
 import { readRuntimeEvent } from "../../delivery/inbox.js";
 import { eventIdOf } from "../../delivery/operations.js";
@@ -540,43 +540,43 @@ const rejectsUnsafeCallbacks = () =>
 describe("local Dot webhook conformance", () => {
   it(
     "verifies a rotated secret before caching its challenge",
-    runTrace(verifiesRotatedSecret),
+    verifiesRotatedSecret,
   );
   it(
     "retains exhausted callbacks until owner resume retries the same event",
-    runTrace(resumesExhaustedCallbacks),
+    resumesExhaustedCallbacks,
   );
   it(
     "preserves a terminal response during concurrent refresh and resume",
-    runTrace(refreshPreservesTerminalReceipt),
+    refreshPreservesTerminalReceipt,
   );
   it(
     "discards a retired occurrence while preserving its immutable read result",
-    runTrace(removesRetiredOccurrence),
+    removesRetiredOccurrence,
   );
   it(
     "retains terminally rejected items across restart and refresh",
-    runTrace(retainsTerminalRejections),
+    retainsTerminalRejections,
   );
   it(
     "allows callback inbox reads and ignores a receipt after owner revocation",
-    runTrace(permitsReadAndRevokeDuringDelivery),
+    permitsReadAndRevokeDuringDelivery,
   );
   it(
     "verifies signed callbacks, rotates secrets and enforces the subscription principal",
-    runTrace(signsVerifiesAndRotates),
+    signsVerifiesAndRotates,
   );
   it(
     "retries exact event bytes after database reopen and retires only on receipt",
-    runTrace(retriesAcrossRestart),
+    retriesAcrossRestart,
   );
   it(
     "bounds complete envelopes, retains referenced payloads and drains beyond one page",
-    runTrace(boundsPayloadAndDrains),
+    boundsPayloadAndDrains,
   );
   it(
     "rejects private destinations, DNS to loopback and redirects through Effect HttpClient",
-    runTrace(rejectsUnsafeCallbacks),
+    rejectsUnsafeCallbacks,
   );
 });
 

@@ -1,10 +1,10 @@
 /** @file Pins the runtime state the endpoint store keeps across restart, and the empty store a pre-cutover schema version opens as. */
 
+import { live as it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import { digest } from "../__tests__/agent-card-fixtures.js";
-import { runTrace, runTraceFor } from "../__tests__/run-trace.js";
 import {
   bytes,
   databasePath,
@@ -170,15 +170,15 @@ function inspectsWithoutWriting() {
 describe("endpoint runtime state", () => {
   it(
     "retains completed and interrupted invocations and event state across restart",
-    runTrace(retainsInvocationAndEventState),
+    retainsInvocationAndEventState,
   );
   it(
     "inspects how a store opens without creating or cutting it over",
-    runTrace(inspectsWithoutWriting),
+    inspectsWithoutWriting,
   );
-  it.for([4, 3, 2] as const)(
+  it.each([4, 3, 2] as const)(
     "opens a schema version %i store empty, unregistered and without its queued envelope",
-    runTraceFor((testCase) => opensEmptyAfterTheCutover(testCase)),
+    opensEmptyAfterTheCutover,
   );
 });
 

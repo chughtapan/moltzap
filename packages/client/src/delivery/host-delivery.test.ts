@@ -5,8 +5,9 @@
  * subscriber.
  */
 
+import { live as it } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Ref, Schema, Scope } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import type { CollectiveOperations } from "../transport/collectives/index.js";
 import type { HistoryExportRecord } from "./history-export.js";
 import type { HarnessMessageReadyEvent } from "./operations.js";
@@ -18,7 +19,6 @@ import {
   recordAcknowledgments,
   takeEvery,
 } from "../__tests__/pending-delivery-fixtures.js";
-import { runTrace } from "../__tests__/run-trace.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import {
   DeliveryToken,
@@ -277,27 +277,24 @@ const releasesTheGateWhenAPassFails = () =>
 describe("host delivery", () => {
   it(
     "refuses host operations until a collective layer is active",
-    runTrace(refusesUntilRegistered),
+    refusesUntilRegistered,
   );
-  it(
-    "records each completed send in the history export",
-    runTrace(exportsEachSend),
-  );
+  it("records each completed send in the history export", exportsEachSend);
   it(
     "forwards the host's failure routing to the collective layer",
-    runTrace(forwardsFailureRouting),
+    forwardsFailureRouting,
   );
   it(
     "exports a queued local item once and forgets it on acknowledgment",
-    runTrace(exportsLocalItemOnceAndForgetsIt),
+    exportsLocalItemOnceAndForgetsIt,
   );
   it(
     "reports a store failure while acknowledging as persistence-failed",
-    runTrace(reportsAcknowledgmentPersistenceFailure),
+    reportsAcknowledgmentPersistenceFailure,
   );
   it(
     "releases the delivery gate when a pass fails",
-    runTrace(releasesTheGateWhenAPassFails),
+    releasesTheGateWhenAPassFails,
   );
 });
 
@@ -364,11 +361,11 @@ const exportsItemsReadThroughTheWebhookView = () =>
 describe("host delivery webhook view", () => {
   it(
     "finishes the caller's state update after a committed receipt",
-    runTrace(finishesCallerStateAfterReceiptCommit),
+    finishesCallerStateAfterReceiptCommit,
   );
   it(
     "exports an item read through the webhook inbox view",
-    runTrace(exportsItemsReadThroughTheWebhookView),
+    exportsItemsReadThroughTheWebhookView,
   );
 });
 
@@ -492,14 +489,14 @@ const recordsEachPublishedItemInTheHistoryExportOnce = () =>
 describe("host delivery passes", () => {
   it(
     "stops publishing at a refusal but still consumes later deliveries",
-    runTrace(stopsPublishingAtARefusalButStillConsumesLaterDeliveries),
+    stopsPublishingAtARefusalButStillConsumesLaterDeliveries,
   );
   it(
     "publishes the collective layer's own items after durable deliveries",
-    runTrace(publishesTheCollectiveLayerSOwnItemsAfterDurableDeliveries),
+    publishesTheCollectiveLayerSOwnItemsAfterDurableDeliveries,
   );
   it(
     "records each published item in the history export once",
-    runTrace(recordsEachPublishedItemInTheHistoryExportOnce),
+    recordsEachPublishedItemInTheHistoryExportOnce,
   );
 });

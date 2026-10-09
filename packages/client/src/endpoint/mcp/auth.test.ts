@@ -1,5 +1,6 @@
 /** @file Runtime credentials cannot expose collective protocol history or owner tools. */
 
+import { live as it } from "@effect/vitest";
 import {
   CLIENT_CAPABILITIES_META_KEY,
   CLIENT_INFO_META_KEY,
@@ -7,11 +8,10 @@ import {
 } from "@modelcontextprotocol/server";
 import { AgentCard } from "@moltzap/identity";
 import { Effect, Redacted, Schema } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import type { EventStore } from "../../delivery/operations.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { makeFixture } from "../../__tests__/router-worker-fixtures.js";
-import { runTrace, runTraceFor } from "../../__tests__/run-trace.js";
 import { HARNESS_SEND_META_KEY } from "./names.js";
 import {
   type HarnessMcpOperations,
@@ -260,9 +260,9 @@ const responseStatus = (
 describe.each(registrationStates)(
   "runtime tool authority for a daemon that is $state",
   ({ registered, runtimeTools }) => {
-    it.for(rejectedBearers)(
+    it.each(rejectedBearers)(
       "refuses discovery with $bearer bearer",
-      runTraceFor(({ credential }) =>
+      ({ credential }) =>
         verify(
           credentialedHandler(registered),
           (handler) =>
@@ -271,25 +271,20 @@ describe.each(registrationStates)(
             expect(status).toBe(401);
           },
         ),
-      ),
     );
 
-    it(
-      "lists exactly the runtime tools to the runtime credential",
-      runTrace(() =>
-        verify(
-          credentialedHandler(registered),
-          (handler) => listTools(handler, credentials.runtime),
-          (names) => {
-            expect(names).toEqual(runtimeTools);
-          },
-        ),
-      ),
-    );
+    it("lists exactly the runtime tools to the runtime credential", () =>
+      verify(
+        credentialedHandler(registered),
+        (handler) => listTools(handler, credentials.runtime),
+        (names) => {
+          expect(names).toEqual(runtimeTools);
+        },
+      ));
 
-    it.for(deniedTools)(
+    it.each(deniedTools)(
       "refuses the runtime credential a call to %s",
-      runTraceFor((name) =>
+      (name) =>
         verify(
           credentialedHandler(registered),
           (handler) =>
@@ -300,7 +295,6 @@ describe.each(registrationStates)(
             });
           },
         ),
-      ),
     );
   },
 );
@@ -308,97 +302,77 @@ describe.each(registrationStates)(
 describe.each(registrationStates)(
   "runtime event authority for a daemon that is $state",
   ({ registered }) => {
-    it(
-      "lists only the webhook item event to the runtime credential",
-      runTrace(() =>
-        verify(
-          credentialedHandler(registered),
-          (handler) =>
-            request(handler, "events/list", {}, credentials.runtime).pipe(
-              Effect.flatMap(decodeJson),
-            ),
-          (catalog) => {
-            expect(catalog).toMatchObject({
-              result: {
-                events: [{ name: "moltzap.inbox.item", delivery: ["webhook"] }],
-              },
-            });
-          },
-        ),
-      ),
-    );
+    it("lists only the webhook item event to the runtime credential", () =>
+      verify(
+        credentialedHandler(registered),
+        (handler) =>
+          request(handler, "events/list", {}, credentials.runtime).pipe(
+            Effect.flatMap(decodeJson),
+          ),
+        (catalog) => {
+          expect(catalog).toMatchObject({
+            result: {
+              events: [{ name: "moltzap.inbox.item", delivery: ["webhook"] }],
+            },
+          });
+        },
+      ));
 
-    it(
-      "refuses the runtime credential a native inbox stream",
-      runTrace(() =>
-        verify(
-          credentialedHandler(registered),
-          (handler) =>
-            request(
-              handler,
-              "events/stream",
-              { name: "moltzap.inbox.pending", arguments: {} },
-              credentials.runtime,
-            ).pipe(Effect.flatMap(decodeJson)),
-          (refused) => {
-            expect(refused).toMatchObject({
-              error: { code: -32014, data: { feature: "stream" } },
-            });
-          },
-        ),
-      ),
-    );
+    it("refuses the runtime credential a native inbox stream", () =>
+      verify(
+        credentialedHandler(registered),
+        (handler) =>
+          request(
+            handler,
+            "events/stream",
+            { name: "moltzap.inbox.pending", arguments: {} },
+            credentials.runtime,
+          ).pipe(Effect.flatMap(decodeJson)),
+        (refused) => {
+          expect(refused).toMatchObject({
+            error: { code: -32014, data: { feature: "stream" } },
+          });
+        },
+      ));
   },
 );
 
 describe.each(registrationStates)(
   "owner and local authority for a daemon that is $state",
   ({ registered, ownerTools, localTools }) => {
-    it(
-      "lets the owner credential read the event subscription status",
-      runTrace(() =>
-        verify(
-          credentialedHandler(registered),
-          (handler) =>
-            callTool(
-              handler,
-              { name: "event_subscription_status", arguments: {} },
-              credentials.owner,
-            ),
-          (body) => {
-            expect(body).toMatchObject({
-              result: { structuredContent: { mode: "none" } },
-            });
-          },
-        ),
-      ),
-    );
+    it("lets the owner credential read the event subscription status", () =>
+      verify(
+        credentialedHandler(registered),
+        (handler) =>
+          callTool(
+            handler,
+            { name: "event_subscription_status", arguments: {} },
+            credentials.owner,
+          ),
+        (body) => {
+          expect(body).toMatchObject({
+            result: { structuredContent: { mode: "none" } },
+          });
+        },
+      ));
 
-    it(
-      "lists exactly the owner tools to the owner credential",
-      runTrace(() =>
-        verify(
-          credentialedHandler(registered),
-          (handler) => listTools(handler, credentials.owner),
-          (names) => {
-            expect(names).toEqual(ownerTools);
-          },
-        ),
-      ),
-    );
+    it("lists exactly the owner tools to the owner credential", () =>
+      verify(
+        credentialedHandler(registered),
+        (handler) => listTools(handler, credentials.owner),
+        (names) => {
+          expect(names).toEqual(ownerTools);
+        },
+      ));
 
-    it(
-      "lists exactly the local tools to an unauthenticated local handler",
-      runTrace(() =>
-        verify(
-          acquireHandler(registered, {}),
-          (handler) => listTools(handler, noCredential),
-          (names) => {
-            expect(names).toEqual(localTools);
-          },
-        ),
-      ),
-    );
+    it("lists exactly the local tools to an unauthenticated local handler", () =>
+      verify(
+        acquireHandler(registered, {}),
+        (handler) => listTools(handler, noCredential),
+        (names) => {
+          expect(names).toEqual(localTools);
+        },
+      ));
   },
 );
 
@@ -461,9 +435,9 @@ const unlistedCalls = [
 
 // @agent-code-guard/regression-only: admission must refuse exactly what the caller's catalog does not list.
 describe("calls a caller's catalog does not list", () => {
-  it.for(unlistedCalls)(
+  it.each(unlistedCalls)(
     "refuses $caller a call to $name while $state",
-    runTraceFor(({ name, given, credential }) =>
+    ({ name, given, credential }) =>
       verify(
         given(),
         (handler) => callTool(handler, { name, arguments: {} }, credential),
@@ -473,59 +447,50 @@ describe("calls a caller's catalog does not list", () => {
           });
         },
       ),
-    ),
   );
 });
 
 describe.each(invalidIdempotencyKeys)(
   "tunneled MCP invocation identity with $key key",
   ({ idempotencyKey }) => {
-    it(
-      "refuses the runtime credential's send_message",
-      runTrace(() =>
-        verify(
-          credentialedHandler(true),
-          (handler) =>
-            callTool(
-              handler,
-              {
-                name: "send_message",
-                arguments: { input: { to: "agent:bob", text: "probe" } },
-                _meta: { [HARNESS_SEND_META_KEY]: { idempotencyKey } },
-              },
-              credentials.runtime,
-            ),
-          (body) => {
-            expect(body).toMatchObject({ error: { code: -32602 } });
-          },
-        ),
-      ),
-    );
+    it("refuses the runtime credential's send_message", () =>
+      verify(
+        credentialedHandler(true),
+        (handler) =>
+          callTool(
+            handler,
+            {
+              name: "send_message",
+              arguments: { input: { to: "agent:bob", text: "probe" } },
+              _meta: { [HARNESS_SEND_META_KEY]: { idempotencyKey } },
+            },
+            credentials.runtime,
+          ),
+        (body) => {
+          expect(body).toMatchObject({ error: { code: -32602 } });
+        },
+      ));
 
-    it(
-      "refuses the owner credential's read_send",
-      runTrace(() =>
-        verify(
-          credentialedHandler(true),
-          (handler) =>
-            callTool(
-              handler,
-              { name: "read_send", arguments: { idempotencyKey } },
-              credentials.owner,
-            ),
-          (body) => {
-            expect(body).toMatchObject({ error: { code: -32602 } });
-          },
-        ),
-      ),
-    );
+    it("refuses the owner credential's read_send", () =>
+      verify(
+        credentialedHandler(true),
+        (handler) =>
+          callTool(
+            handler,
+            { name: "read_send", arguments: { idempotencyKey } },
+            credentials.owner,
+          ),
+        (body) => {
+          expect(body).toMatchObject({ error: { code: -32602 } });
+        },
+      ));
   },
 );
 
 describe("tunneled MCP event reads for a registered daemon", () => {
-  it.for(rejectedBearers)(
+  it.each(rejectedBearers)(
     "refuses read_event with $bearer bearer",
-    runTraceFor(({ credential }) =>
+    ({ credential }) =>
       verify(
         credentialedHandler(true),
         (handler) =>
@@ -534,23 +499,18 @@ describe("tunneled MCP event reads for a registered daemon", () => {
           expect(status).toBe(401);
         },
       ),
-    ),
   );
 
-  it(
-    "reports an unknown event to the runtime credential",
-    runTrace(() =>
-      verify(
-        credentialedHandler(true),
-        (handler) => callTool(handler, unknownEvent, credentials.runtime),
-        (body) => {
-          expect(body).toMatchObject({
-            error: { data: { reason: "unknown-event" } },
-          });
-        },
-      ),
-    ),
-  );
+  it("reports an unknown event to the runtime credential", () =>
+    verify(
+      credentialedHandler(true),
+      (handler) => callTool(handler, unknownEvent, credentials.runtime),
+      (body) => {
+        expect(body).toMatchObject({
+          error: { data: { reason: "unknown-event" } },
+        });
+      },
+    ));
 });
 
 /* eslint-enable agent-code-guard/no-hardcoded-assertion-literals -- Restore repository defaults. */

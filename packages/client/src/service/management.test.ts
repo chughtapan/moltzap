@@ -2,6 +2,7 @@
 
 import { FileSystem, HttpClient } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import { live as it } from "@effect/vitest";
 import {
   AgentCard,
   AgentSigningAuthority,
@@ -27,7 +28,7 @@ import {
   TestContext,
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import type { DaemonBootstrap } from "./bootstrap.js";
 import type { DaemonRegistrationState } from "./registration/index.js";
 import { advanceClock } from "../__tests__/advance-clock.js";
@@ -44,7 +45,6 @@ import {
   withMisattributedActionEvidence,
 } from "../__tests__/certified-history-fixtures.js";
 import { routerInstanceId } from "../__tests__/router-worker-fixtures.js";
-import { runTrace, runTraceFor } from "../__tests__/run-trace.js";
 import { unusedEndpointStore } from "../__tests__/unused-endpoint-store.js";
 import {
   managementReadConversationRequestSchema,
@@ -471,53 +471,45 @@ const failsReadOverGenesisAnchorSelectingRecord = () =>
 
 // @agent-code-guard/regression-only: these cases pin the addressed owner-management contract.
 describe("addressed daemon management", () => {
-  it(
-    "pages canonical addresses without exposing conversation identity",
-    runTrace(() =>
-      Effect.gen(function* () {
-        const fixture = yield* makeIdentityFixture;
-        const recovery = yield* makeRecovery(fixture, fixture.cards);
-        const operations = yield* makeDaemonManagementOperations({
-          store: makeStore({ recovery }),
-          bootstrap: fixture.bootstrap,
-          registration: activeRegistration(fixture.cards[0]),
-        }).pipe(Effect.provide(makeRegistryLayer(fixture.cards)));
+  it("pages canonical addresses without exposing conversation identity", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const recovery = yield* makeRecovery(fixture, fixture.cards);
+      const operations = yield* makeDaemonManagementOperations({
+        store: makeStore({ recovery }),
+        bootstrap: fixture.bootstrap,
+        registration: activeRegistration(fixture.cards[0]),
+      }).pipe(Effect.provide(makeRegistryLayer(fixture.cards)));
 
-        expect(yield* operations.searchConversations({})).toEqual({
-          kind: "page",
-          addresses: ["agent:bob"],
-          hasMore: false,
-        });
-      }),
-    ),
-  );
+      expect(yield* operations.searchConversations({})).toEqual({
+        kind: "page",
+        addresses: ["agent:bob"],
+        hasMore: false,
+      });
+    }));
 
-  it(
-    "maps a missing certified history to history-gap",
-    runTrace(() =>
-      Effect.gen(function* () {
-        const fixture = yield* makeIdentityFixture;
-        const recovery = yield* makeRecovery(fixture, fixture.cards);
-        const operations = yield* makeDaemonManagementOperations({
-          store: makeStore({
-            recovery,
-            historyFailure: new EndpointStoreError({ reason: "not-found" }),
-          }),
-          bootstrap: fixture.bootstrap,
-          registration: activeRegistration(fixture.cards[0]),
-        }).pipe(Effect.provide(makeRegistryLayer(fixture.cards)));
-        const request = Schema.decodeUnknownSync(
-          managementReadConversationRequestSchema,
-        )({ address: "agent:bob" });
+  it("maps a missing certified history to history-gap", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const recovery = yield* makeRecovery(fixture, fixture.cards);
+      const operations = yield* makeDaemonManagementOperations({
+        store: makeStore({
+          recovery,
+          historyFailure: new EndpointStoreError({ reason: "not-found" }),
+        }),
+        bootstrap: fixture.bootstrap,
+        registration: activeRegistration(fixture.cards[0]),
+      }).pipe(Effect.provide(makeRegistryLayer(fixture.cards)));
+      const request = Schema.decodeUnknownSync(
+        managementReadConversationRequestSchema,
+      )({ address: "agent:bob" });
 
-        const error = yield* operations
-          .readConversation(request)
-          .pipe(Effect.flip);
+      const error = yield* operations
+        .readConversation(request)
+        .pipe(Effect.flip);
 
-        expect(error).toMatchObject({ reason: "history-gap" });
-      }),
-    ),
-  );
+      expect(error).toMatchObject({ reason: "history-gap" });
+    }));
 });
 
 /** The daemon's registration port before registration. */
@@ -630,32 +622,32 @@ const listsAGroupInAsciiNameOrder = () =>
   });
 
 describe("owner reads by registration state", () => {
-  it.for(ownerReads)(
+  it.each(ownerReads)(
     "refuses $tool as not-registered before registration without reading state",
-    runTraceFor((ownerRead) => refusesAnOwnerReadBeforeRegistration(ownerRead)),
+    refusesAnOwnerReadBeforeRegistration,
   );
   it(
     "lists a group conversation with its names in unsigned ASCII order",
-    runTrace(listsAGroupInAsciiNameOrder),
+    listsAGroupInAsciiNameOrder,
   );
 });
 
 describe("owner history read over stored rows", () => {
   it(
     "returns each certificate's signers and signatures with the record's anchor",
-    runTrace(returnsCertificateSignersForAudit),
+    returnsCertificateSignersForAudit,
   );
   it(
     "fails a history read whose action evidence is filed under another signer",
-    runTrace(failsReadOverMisattributedEvidence),
+    failsReadOverMisattributedEvidence,
   );
   it(
     "fails a history read whose genesis anchor row selects a record",
-    runTrace(failsReadOverGenesisAnchorSelectingRecord),
+    failsReadOverGenesisAnchorSelectingRecord,
   );
   it(
     "fails a history read whose membership row names another membership hash",
-    runTrace(failsReadOverMembershipRowNamingAnotherHash),
+    failsReadOverMembershipRowNamingAnotherHash,
   );
 });
 
@@ -897,14 +889,14 @@ const bindsWhenCancelledDuringTheRegistryCall = () =>
 describe("daemon registration through the register tool", () => {
   it(
     "fails a register at the Registry deadline when the Registry never answers",
-    runTrace(failsAtTheRegistryDeadline),
+    failsAtTheRegistryDeadline,
   );
-  it.for(agentSearches)(
+  it.each(agentSearches)(
     "fails a search_agents $search at the Registry deadline when the Registry never answers",
-    runTraceFor((agentSearch) => failsSearchAtTheRegistryDeadline(agentSearch)),
+    failsSearchAtTheRegistryDeadline,
   );
   it(
     "binds and activates a register cancelled during the Registry call",
-    runTrace(bindsWhenCancelledDuringTheRegistryCall),
+    bindsWhenCancelledDuringTheRegistryCall,
   );
 });

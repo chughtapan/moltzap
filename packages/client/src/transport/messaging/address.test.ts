@@ -2,14 +2,14 @@
 
 import type { VerifiedAgentCard } from "@moltzap/identity";
 import type { RegistryLookupResult } from "@moltzap/identity/registry";
+import { live as it } from "@effect/vitest";
 import { Effect, Exit, Schema } from "effect";
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import {
   issueTestCard,
   makeTestAuthority,
 } from "../../__tests__/agent-card-fixtures.js";
-import { runTrace } from "../../__tests__/run-trace.js";
 import { maximumMembers, MessageAddressInput } from "../wire/values.js";
 import {
   type AddressRegistryPort,
@@ -83,48 +83,40 @@ const thirtyTwoRemoteNames = Array.from(
 
 // @agent-code-guard/regression-only: Resolution pins canonical runtime and private membership projections.
 describe("resolved address state", () => {
-  it(
-    "resolves a direct peer into deterministic private membership",
-    runTrace(() =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const inputAddress = "agent:agent-2";
-        const expectedKind = "direct";
-        const expectedNames = ["agent-1", "agent-2"];
-        const resolved = yield* resolveMessageAddress({
-          localAgentCard: fixture.cards[0],
-          registry: fixture.registry,
-          to: decodeInput(inputAddress),
-        });
+  it("resolves a direct peer into deterministic private membership", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const inputAddress = "agent:agent-2";
+      const expectedKind = "direct";
+      const expectedNames = ["agent-1", "agent-2"];
+      const resolved = yield* resolveMessageAddress({
+        localAgentCard: fixture.cards[0],
+        registry: fixture.registry,
+        to: decodeInput(inputAddress),
+      });
 
-        expect(resolved.kind).toBe(expectedKind);
-        expect(resolved.address).toBe(inputAddress);
-        expect(memberNames(resolved)).toEqual(expectedNames);
-      }),
-    ),
-  );
+      expect(resolved.kind).toBe(expectedKind);
+      expect(resolved.address).toBe(inputAddress);
+      expect(memberNames(resolved)).toEqual(expectedNames);
+    }));
 
-  it(
-    "inserts self and renders complete groups in unsigned ASCII order",
-    runTrace(() =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const inputAddress = "group:agent-2,agent-10";
-        const expectedKind = "group";
-        const expectedAddress = "group:agent-1,agent-10,agent-2";
-        const expectedNames = ["agent-1", "agent-2", "agent-10"];
-        const resolved = yield* resolveMessageAddress({
-          localAgentCard: fixture.cards[0],
-          registry: fixture.registry,
-          to: decodeInput(inputAddress),
-        });
+  it("inserts self and renders complete groups in unsigned ASCII order", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const inputAddress = "group:agent-2,agent-10";
+      const expectedKind = "group";
+      const expectedAddress = "group:agent-1,agent-10,agent-2";
+      const expectedNames = ["agent-1", "agent-2", "agent-10"];
+      const resolved = yield* resolveMessageAddress({
+        localAgentCard: fixture.cards[0],
+        registry: fixture.registry,
+        to: decodeInput(inputAddress),
+      });
 
-        expect(resolved.kind).toBe(expectedKind);
-        expect(resolved.address).toBe(expectedAddress);
-        expect(memberNames(resolved)).toEqual(expectedNames);
-      }),
-    ),
-  );
+      expect(resolved.kind).toBe(expectedKind);
+      expect(resolved.address).toBe(expectedAddress);
+      expect(memberNames(resolved)).toEqual(expectedNames);
+    }));
 });
 
 const membershipInvalid = "membership-invalid";
@@ -132,145 +124,117 @@ const unknownAgent = "unknown-agent";
 
 // @agent-code-guard/regression-only: Resolution pins closed membership and lookup failures.
 describe("invalid address membership", () => {
-  it(
-    "refuses a direct address to self",
-    runTrace(() =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
+  it("refuses a direct address to self", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
 
-        const error = yield* resolveMessageAddress({
-          localAgentCard: fixture.cards[0],
-          registry: fixture.registry,
-          to: decodeInput("agent:agent-1"),
-        }).pipe(Effect.flip);
+      const error = yield* resolveMessageAddress({
+        localAgentCard: fixture.cards[0],
+        registry: fixture.registry,
+        to: decodeInput("agent:agent-1"),
+      }).pipe(Effect.flip);
 
-        expect(error.reason).toBe(membershipInvalid);
-        expect(error.detail).toBeDefined();
-      }),
-    ),
-  );
+      expect(error.reason).toBe(membershipInvalid);
+      expect(error.detail).toBeDefined();
+    }));
 
-  it(
-    "refuses a group naming an agent twice",
-    runTrace(() =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
+  it("refuses a group naming an agent twice", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
 
-        const error = yield* resolveMessageAddress({
-          localAgentCard: fixture.cards[0],
-          registry: fixture.registry,
-          to: decodeInput("group:agent-10,agent-10"),
-        }).pipe(Effect.flip);
+      const error = yield* resolveMessageAddress({
+        localAgentCard: fixture.cards[0],
+        registry: fixture.registry,
+        to: decodeInput("group:agent-10,agent-10"),
+      }).pipe(Effect.flip);
 
-        expect(error.reason).toBe(membershipInvalid);
-        expect(error.detail).toBeDefined();
-      }),
-    ),
-  );
+      expect(error.reason).toBe(membershipInvalid);
+      expect(error.detail).toBeDefined();
+    }));
 
-  it(
-    "refuses an unknown agent and names it in the message",
-    runTrace(() =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const address = "agent:unknown-agent";
+  it("refuses an unknown agent and names it in the message", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const address = "agent:unknown-agent";
 
-        const error = yield* resolveMessageAddress({
-          localAgentCard: fixture.cards[0],
-          registry: fixture.registry,
-          to: decodeInput(address),
-        }).pipe(Effect.flip);
+      const error = yield* resolveMessageAddress({
+        localAgentCard: fixture.cards[0],
+        registry: fixture.registry,
+        to: decodeInput(address),
+      }).pipe(Effect.flip);
 
-        expect(error.reason).toBe(unknownAgent);
-        expect(error.message).toContain(address);
-      }),
-    ),
-  );
+      expect(error.reason).toBe(unknownAgent);
+      expect(error.message).toContain(address);
+    }));
 });
 
 // @agent-code-guard/regression-only: Resolution pins the direct address a one-other-agent group names.
 describe("group naming one other agent", () => {
-  it(
-    "resolves to that agent's direct conversation",
-    runTrace(() =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const direct = yield* resolveMessageAddress({
-          localAgentCard: fixture.cards[0],
-          registry: fixture.registry,
-          to: decodeInput("agent:agent-2"),
-        });
+  it("resolves to that agent's direct conversation", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const direct = yield* resolveMessageAddress({
+        localAgentCard: fixture.cards[0],
+        registry: fixture.registry,
+        to: decodeInput("agent:agent-2"),
+      });
 
-        const resolved = yield* resolveMessageAddress({
-          localAgentCard: fixture.cards[0],
-          registry: fixture.registry,
-          to: decodeInput("group:agent-2"),
-        });
+      const resolved = yield* resolveMessageAddress({
+        localAgentCard: fixture.cards[0],
+        registry: fixture.registry,
+        to: decodeInput("group:agent-2"),
+      });
 
-        expect(resolved).toEqual(direct);
-      }),
-    ),
-  );
+      expect(resolved).toEqual(direct);
+    }));
 
-  it(
-    "resolves to that agent's direct conversation when self is listed too",
-    runTrace(() =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
-        const direct = yield* resolveMessageAddress({
-          localAgentCard: fixture.cards[0],
-          registry: fixture.registry,
-          to: decodeInput("agent:agent-2"),
-        });
+  it("resolves to that agent's direct conversation when self is listed too", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const direct = yield* resolveMessageAddress({
+        localAgentCard: fixture.cards[0],
+        registry: fixture.registry,
+        to: decodeInput("agent:agent-2"),
+      });
 
-        const resolved = yield* resolveMessageAddress({
-          localAgentCard: fixture.cards[0],
-          registry: fixture.registry,
-          to: decodeInput("group:agent-1,agent-2"),
-        });
+      const resolved = yield* resolveMessageAddress({
+        localAgentCard: fixture.cards[0],
+        registry: fixture.registry,
+        to: decodeInput("group:agent-1,agent-2"),
+      });
 
-        expect(resolved).toEqual(direct);
-      }),
-    ),
-  );
+      expect(resolved).toEqual(direct);
+    }));
 });
 
 // @agent-code-guard/regression-only: Resolution pins the accepted group-size boundary.
 describe("group size", () => {
-  it(
-    "refuses a group naming only self",
-    runTrace(() =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
+  it("refuses a group naming only self", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
 
-        const error = yield* resolveMessageAddress({
-          localAgentCard: fixture.cards[0],
-          registry: fixture.registry,
-          to: decodeInput("group:agent-1"),
-        }).pipe(Effect.flip);
+      const error = yield* resolveMessageAddress({
+        localAgentCard: fixture.cards[0],
+        registry: fixture.registry,
+        to: decodeInput("group:agent-1"),
+      }).pipe(Effect.flip);
 
-        expect(error.reason).toBe(membershipInvalid);
-      }),
-    ),
-  );
+      expect(error.reason).toBe(membershipInvalid);
+    }));
 
-  it(
-    "refuses a group over the member limit and states the limit",
-    runTrace(() =>
-      Effect.gen(function* () {
-        const fixture = yield* makeFixture;
+  it("refuses a group over the member limit and states the limit", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
 
-        const error = yield* resolveMessageAddress({
-          localAgentCard: fixture.cards[0],
-          registry: fixture.registry,
-          to: decodeInput(`group:${thirtyTwoRemoteNames}`),
-        }).pipe(Effect.flip);
+      const error = yield* resolveMessageAddress({
+        localAgentCard: fixture.cards[0],
+        registry: fixture.registry,
+        to: decodeInput(`group:${thirtyTwoRemoteNames}`),
+      }).pipe(Effect.flip);
 
-        expect(error.reason).toBe(membershipInvalid);
-        expect(error.message).toContain(String(maximumMembers));
-      }),
-    ),
-  );
+      expect(error.reason).toBe(membershipInvalid);
+      expect(error.message).toContain(String(maximumMembers));
+    }));
 });
 
 /**
@@ -295,6 +259,6 @@ const rendersGroupNamesInAddressOrder = () =>
 describe("group address rendering", () => {
   it(
     "returns the names in the order the address lists them",
-    runTrace(rendersGroupNamesInAddressOrder),
+    rendersGroupNamesInAddressOrder,
   );
 });

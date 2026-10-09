@@ -2,6 +2,7 @@
 
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
+import { it } from "@effect/vitest";
 import { SUBSCRIPTION_ID_META_KEY } from "@modelcontextprotocol/server";
 import { AgentCard } from "@moltzap/identity";
 import {
@@ -16,7 +17,7 @@ import {
   Schema,
 } from "effect";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, vi } from "vitest";
 import type { EventStore } from "../delivery/operations.js";
 import type { HarnessMcpEventHandler } from "../endpoint/mcp/tools.js";
 import type { EnginePendingMessage } from "../transport/messaging/index.js";
@@ -44,7 +45,6 @@ import {
   type RuntimeHarness,
   SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION,
 } from "../__tests__/daemon-runtime-harness.js";
-import { runTraceFor } from "../__tests__/run-trace.js";
 import { stateDirectory } from "../__tests__/store-schema-fixtures.js";
 import { HistoryExportRecord } from "../delivery/history-export.js";
 import { INBOX_PENDING_EVENT } from "../endpoint/mcp/names.js";
@@ -1280,9 +1280,9 @@ describe("daemon activation", () => {
     "stops the daemon when activation $fault",
     stopsWhenActivationFails,
   );
-  it.for(startupFaults)(
+  it.live.each(startupFaults)(
     "fails a registered startup in phase $phase when $fault",
-    runTraceFor((testCase) => failsStartupWith(testCase)),
+    failsStartupWith,
   );
   it(
     "keeps one protocol when a register is retried",

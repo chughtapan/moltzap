@@ -1,6 +1,7 @@
 /** @file A daemon ignores a peer's outer body that does not open for it, and its Router worker keeps accepting sealed traffic. */
 
 import type { Router } from "@moltzap/router";
+import { live as it } from "@effect/vitest";
 import {
   MessageId,
   MOLTZAP_VERSION,
@@ -18,7 +19,7 @@ import {
   Schema,
   Scope,
 } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
 import type { SigningIdentity } from "../../__tests__/certified-history-fixtures.js";
 import type { EndpointEngine } from "../../transport/messaging/index.js";
 import type { DaemonRuntimeError } from "../errors.js";
@@ -33,7 +34,6 @@ import {
   registryLayer,
   routerInstanceId,
 } from "../../__tests__/router-worker-fixtures.js";
-import { runTraceFor } from "../../__tests__/run-trace.js";
 import {
   makeRouterWorker,
   type RouterWorker,
@@ -275,7 +275,7 @@ const ignoresRefusedBodyAndKeepsRunning = (refused: RefusedEnvelope) =>
   );
 
 describe("daemon ingress of outer bodies", () => {
-  it.for<{ readonly body: string; readonly refused: RefusedEnvelope }>([
+  it.each<{ readonly body: string; readonly refused: RefusedEnvelope }>([
     {
       body: "a plaintext body",
       refused: { sealedAs: 31, signer: ({ peer }) => peer, signedAs: 31 },
@@ -307,8 +307,7 @@ describe("daemon ingress of outer bodies", () => {
         signedAs: 35,
       },
     },
-  ])(
-    "ignores $body and goes on accepting sealed traffic",
-    runTraceFor(({ refused }) => ignoresRefusedBodyAndKeepsRunning(refused)),
+  ])("ignores $body and goes on accepting sealed traffic", ({ refused }) =>
+    ignoresRefusedBodyAndKeepsRunning(refused),
   );
 });

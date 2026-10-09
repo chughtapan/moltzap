@@ -1,11 +1,11 @@
 /** @file Exact preflight, proposal-lock, certification, and delivery tests. */
 
+import { live as it } from "@effect/vitest";
 import { Effect } from "effect";
 // eslint-disable-next-line agent-code-guard/prefer-effect-platform -- Tests create and inspect exact real-SQLite permission fixtures around the scoped Effect resource.
 import { chmodSync, statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
-import { runTrace } from "../__tests__/run-trace.js";
+import { describe, expect } from "vitest";
 import {
   bytes,
   databasePath,
@@ -1018,17 +1018,17 @@ function expectReason<Value>(
 describe("endpoint SQLite preflight", () => {
   it(
     "initializes an empty v0 database directly at the current schema and reopens it",
-    runTrace(() => initializesEmptyV0Database()),
+    initializesEmptyV0Database,
   );
 
   it(
     "rejects v1 without changing the database or its permissions",
-    runTrace(() => rejectsV1WithoutMutation()),
+    rejectsV1WithoutMutation,
   );
 
   it(
     "rejects a nonempty v0 database without creating current-schema objects",
-    runTrace(() => rejectsNonemptyV0WithoutInitialization()),
+    rejectsNonemptyV0WithoutInitialization,
   );
 });
 
@@ -1036,74 +1036,74 @@ describe("endpoint SQLite preflight", () => {
 describe("endpoint proposal locking", () => {
   it(
     "atomically binds the first post intent with its foundation",
-    runTrace(() => atomicallyBindsFirstIntentWithItsFoundation()),
+    atomicallyBindsFirstIntentWithItsFoundation,
   );
 
   it(
     "atomically locks a verified genesis with its foundation",
-    runTrace(() => atomicallyLocksVerifiedGenesisFoundation()),
+    atomicallyLocksVerifiedGenesisFoundation,
   );
 
   it(
     "retains the first proposal lock across conflicts and restart",
-    runTrace(() => retainsFirstProposalAcrossRestart()),
+    retainsFirstProposalAcrossRestart,
   );
 
   it(
     "replaces a conflicting lock with a certified one and its certificate",
-    runTrace(() => supersedesAConflictingLockWithItsCertificate()),
+    supersedesAConflictingLockWithItsCertificate,
   );
 });
 
 describe("endpoint record certification and delivery", () => {
   it(
     "atomically promotes remote catch-up and replays one stable delivery",
-    runTrace(() => promotesRemoteRecordWithStableDelivery()),
+    promotesRemoteRecordWithStableDelivery,
   );
 
   it(
     "rolls back remote certification when its delivery is absent",
-    runTrace(() => rollsBackRemoteRecordWithoutDelivery()),
+    rollsBackRemoteRecordWithoutDelivery,
   );
 
   it(
     "completes a local post intent without creating self-delivery",
-    runTrace(() => completesLocalPostWithoutSelfDelivery()),
+    completesLocalPostWithoutSelfDelivery,
   );
 });
 
 describe("endpoint re-anchor candidates", () => {
   it(
     "refuses a candidate away from a head it holds a staged successor of",
-    runTrace(() => refusesAReanchorAwayFromAStagedSuccessor()),
+    refusesAReanchorAwayFromAStagedSuccessor,
   );
 });
 
 describe("endpoint durable Router outbox", () => {
   it(
     "replays, retries, and completes exact envelopes",
-    runTrace(() => persistsExactOutboundLifecycleAcrossRestart()),
+    persistsExactOutboundLifecycleAcrossRestart,
   );
 
   it(
     "invalidates only an exact current envelope set atomically",
-    runTrace(() => discardsOnlyAnExactCurrentOutboundSet()),
+    discardsOnlyAnExactCurrentOutboundSet,
   );
 
   it(
     "recovers record dissemination before and after outbox attachment",
-    runTrace(() => retainsRecordDisseminationAcrossCrashWindows()),
+    retainsRecordDisseminationAcrossCrashWindows,
   );
 });
 
 describe("endpoint empty-history Router restart", () => {
   it(
     "retains intents while replacing only incomplete state",
-    runTrace(() => restartsOnlyAnEmptyConversationAtomically()),
+    restartsOnlyAnEmptyConversationAtomically,
   );
 
   it(
     "refuses to replace a foundation after certification",
-    runTrace(() => refusesEmptyRestartAfterCertification()),
+    refusesEmptyRestartAfterCertification,
   );
 });
