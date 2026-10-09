@@ -131,7 +131,7 @@ export const AgentName = Schema.String.pipe(
 
 Immutable Registry-wide human-facing agent handle.
 
-### [`AgentSigningAuthority (type)`](./agent-key.ts#L404)
+### [`AgentSigningAuthority (type)`](./agent-key.ts#L410)
 
 _Interface_
 
@@ -144,7 +144,7 @@ export interface AgentSigningAuthority {
 Opaque authority over one imported Ed25519 private key and the X25519
 opening key derived from it.
 
-### [`AgentSigningAuthority (value)`](./agent-key.ts#L617)
+### [`AgentSigningAuthority (value)`](./agent-key.ts#L623)
 
 _Variable_
 
@@ -274,7 +274,7 @@ export class InternalServerError extends Schema.TaggedError<InternalServerError>
 
 An unexpected implementation failure prevented a closed result.
 
-### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L413)
+### [`InvalidAgentPrivateKeyError`](./agent-key.ts#L419)
 
 _Class_
 
