@@ -463,6 +463,7 @@ const reproposalDispositionByReason = {
   "invalid-address": "fail",
   "membership-invalid": "fail",
   "network-unavailable": "ignore",
+  "delivery-pending": "ignore",
   "not-registered": "fail",
   "persistence-failed": "fail",
   "unknown-agent": "fail",

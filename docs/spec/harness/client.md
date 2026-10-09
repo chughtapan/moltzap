@@ -290,9 +290,8 @@ receives the request after its deadline, within that hour, keeps it without
 presenting it, so it still applies the close and emits the result.
 
 When a gather or all_gather request post, or an all_gather close, fails as
-queued (a `network-unavailable` whose text says the message is queued), the
-operation reports that post refused or uncertified as stated above, yet the
-daemon still delivers the post later
+`delivery-pending`, the operation reports that post refused or uncertified as
+stated above, yet the daemon still delivers the post later
 ([moltzap#1230](https://github.com/chughtapan/moltzap/issues/1230)).
 
 The operation travels in the post's content. Client certifies `text` as a
@@ -439,6 +438,7 @@ the tool error.
 - `certification-unavailable`;
 - `persistence-failed`;
 - `network-unavailable`;
+- `delivery-pending`;
 - `idempotency-conflict`; or
 - `outcome-unknown`.
 
@@ -446,10 +446,18 @@ A `SendError` or collective refusal message is the failed action, then its
 cause: `send failed: agent:dana is not a known agent`, or `reply failed: the
 question's deadline has passed`. It names the specific input when the failing
 step knows it and states no remedy. A failed send was not sent, except
-`outcome-unknown`, whose text says the message may have been sent, and a
-`network-unavailable` whose text says the message is queued: that send failed
-after durably queueing its post, when its drain timed out or lost the Router,
-and the daemon delivers the post once the Router is reachable.
+`outcome-unknown` and `delivery-pending`, and a keyless resend of either can
+create a second post:
+
+- `outcome-unknown` says the message may have been sent. The send ended
+  without a typed failure, interrupted or by a defect, or the host's request
+  failed or timed out after it may have reached the daemon. A request the
+  daemon cannot have acted on, such as one whose connection was refused,
+  fails as `network-unavailable`.
+- `delivery-pending` says the message is queued. The send durably queued its
+  post and its drain then timed out or failed. The daemon delivers the post
+  once the Router answers or, when that failure stopped the daemon, once it
+  restarts and resumes the post.
 
 `ListenError.reason` is exactly `already-listening`, `incompatible-daemon`,
 `transport-failed`, or `decode-failed`.

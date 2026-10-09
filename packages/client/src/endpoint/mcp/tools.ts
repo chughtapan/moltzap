@@ -27,6 +27,7 @@ import type { CollectiveError } from "../../transport/collectives/forms.js";
 import type { SendError } from "../../transport/messaging/errors.js";
 import {
   decodeHarnessReadSendRequest,
+  decodeHarnessSendResult,
   type DeliveryOperations,
   type EventStore,
   type HarnessAcknowledgeDeliveryRequest,
@@ -312,6 +313,14 @@ const runOperation = async <Value extends Readonly<Record<string, unknown>>>(
   return toolResult(outcome.value);
 };
 
+/**
+ * Run one send and answer its typed failure as JSON-RPC error data. A send
+ * that ends without one, interrupted or by a defect, may already have queued
+ * its post, so it answers `outcome-unknown`.
+ * @param operation A multicast, collective send or collective response.
+ * @param signal The request's abort signal, which interrupts the send.
+ * @returns The send's tool result.
+ */
 // #ignore-sloppy-code-next-line[async-keyword]: MCP tool handlers are Promise callbacks, so this edge awaits Effect before returning the SDK result.
 const runSendOperation = async (
   operation: Effect.Effect<HarnessSendResult, SendError | CollectiveError>,
@@ -320,7 +329,7 @@ const runSendOperation = async (
   const outcome = await Effect.runPromiseExit(operation, { signal });
   if (Exit.isFailure(outcome)) {
     const data = Option.match(Cause.failureOption(outcome.cause), {
-      onNone: (): HarnessSendErrorData => ({ reason: "network-unavailable" }),
+      onNone: (): HarnessSendErrorData => ({ reason: "outcome-unknown" }),
       onSome: sendErrorData,
     });
     throw new ProtocolError(
@@ -600,6 +609,14 @@ const decodeInvocationInput = <A>(
     signal,
   );
 
+/**
+ * Run one send call. A send that returns a result outside its output schema
+ * has already run, so that result is a defect, which `runSendOperation`
+ * answers as `outcome-unknown`.
+ * @param input The `send_message` arguments, metadata and abort signal.
+ * @param operations The daemon operations that run the send.
+ * @returns The send's validated tool result.
+ */
 // #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
 const handleSendToolCall = async (
   input: ToolCallInput,
@@ -609,9 +626,16 @@ const handleSendToolCall = async (
     decodeHarnessSendCall(input.toolArguments, input.metadata),
     input.signal,
   );
+  const send = operations
+    .send(decoded)
+    .pipe(
+      Effect.flatMap((result) =>
+        decodeHarnessSendResult(result).pipe(Effect.orDie),
+      ),
+    );
   return await validateToolOutput(
     sendOutput,
-    await runSendOperation(operations.send(decoded), input.signal),
+    await runSendOperation(send, input.signal),
     input.name,
   );
 };

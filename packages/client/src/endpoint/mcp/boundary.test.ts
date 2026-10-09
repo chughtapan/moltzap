@@ -15,12 +15,19 @@ import {
   Deferred,
   Duration,
   Effect,
+  Exit,
   Fiber,
   Schema,
   Scope,
   Stream,
 } from "effect";
-import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
+import {
+  Agent,
+  type Dispatcher,
+  getGlobalDispatcher,
+  MockAgent,
+  setGlobalDispatcher,
+} from "undici";
 import { describe, expect, it } from "vitest";
 import type { HarnessEndpoint } from "../harness-endpoint/capability.js";
 import { digest } from "../../__tests__/agent-card-fixtures.js";
@@ -40,7 +47,11 @@ import { InboundItem } from "../../transport/collectives/inbound.js";
 import { ListenError, SendError } from "../../transport/messaging/errors.js";
 import { acquireHarnessEndpoint } from "../harness-endpoint/index.js";
 import { acquireHarnessMcpHttpServer } from "./http.js";
-import { HARNESS_SEND_META_KEY, INBOX_PENDING_EVENT } from "./names.js";
+import {
+  HARNESS_SEND_META_KEY,
+  HARNESS_SEND_TOOL,
+  INBOX_PENDING_EVENT,
+} from "./names.js";
 import {
   type HarnessMcpOperations,
   makeHarnessMcpHttpHandler,
@@ -409,7 +420,7 @@ const distinguishesSendValidationFailures = () =>
         expect(
           yield* invalidOutput.send(sendInput).pipe(Effect.flip),
         ).toMatchObject({
-          reason: "network-unavailable",
+          reason: "outcome-unknown",
         });
       }),
     ),
@@ -432,6 +443,173 @@ const carriesARefusalDetailAcrossTheDaemonBoundary = () =>
         const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
 
         expect(error.message).toBe(refusal.message);
+      }),
+    ),
+  );
+
+const carriesDeliveryPendingAcrossTheDaemonBoundary = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const pending = new SendError({ reason: "delivery-pending" });
+        const endpoint = yield* acquireSendEndpoint({
+          ...operations,
+          protocolActive: () => true,
+          send: () => Effect.fail(pending),
+        });
+
+        const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
+
+        expect(error).toStrictEqual(pending);
+      }),
+    ),
+  );
+
+const answersOutcomeUnknownForAnUntypedSendFailure = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const endpoint = yield* acquireSendEndpoint({
+          ...operations,
+          protocolActive: () => true,
+          send: () => Effect.dieMessage("send defect"),
+        });
+
+        const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
+
+        expect(error).toStrictEqual(
+          new SendError({ reason: "outcome-unknown" }),
+        );
+      }),
+    ),
+  );
+
+const reportsOutcomeUnknownWhenTheConnectionDropsMidSend = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<undefined>();
+        const { port, server } = yield* acquireBoundaryServer({
+          ...operations,
+          protocolActive: () => true,
+          send: () =>
+            Deferred.succeed(started, undefined).pipe(
+              Effect.zipRight(Effect.never),
+            ),
+        });
+        const endpoint = yield* acquireHarnessEndpoint(
+          new URL(`http://127.0.0.1:${port}/mcp`),
+        );
+        const sending = yield* Effect.fork(
+          endpoint.send(sendInput).pipe(Effect.flip),
+        );
+        yield* Deferred.await(started);
+
+        server.closeAllConnections();
+
+        expect(yield* Fiber.join(sending)).toStrictEqual(
+          new SendError({ reason: "outcome-unknown" }),
+        );
+      }),
+    ),
+  );
+
+/**
+ * Route this scope's requests through `dispatcher`, then restore the previous
+ * global dispatcher and close this one.
+ * @param dispatcher The undici dispatcher the MCP client's fetch uses.
+ * @returns The scoped routing.
+ */
+function routeRequestsThrough(dispatcher: Dispatcher) {
+  return Effect.acquireRelease(
+    Effect.sync(() => {
+      const previous = getGlobalDispatcher();
+      setGlobalDispatcher(dispatcher);
+      return previous;
+    }),
+    (previous) =>
+      Effect.sync(() => {
+        setGlobalDispatcher(previous);
+      }).pipe(
+        Effect.zipRight(
+          Effect.tryPromise({
+            try: () => dispatcher.close(),
+            catch: (cause) => cause,
+          }),
+        ),
+        Effect.orDie,
+      ),
+  );
+}
+
+/**
+ * A dispatcher that answers the next `send_message` POST with `status` before
+ * it reaches the daemon and passes every other request through.
+ * @param status The HTTP status the daemon's HTTP layer seems to answer.
+ * @returns The dispatcher.
+ */
+function answerSendWithStatus(status: number): MockAgent {
+  const agent = new MockAgent();
+  agent.enableNetConnect();
+  agent
+    .get(/^http:\/\/127\.0\.0\.1:\d+$/)
+    .intercept({
+      path: "/mcp",
+      method: "POST",
+      body: (body) => body.includes(`"${HARNESS_SEND_TOOL}"`),
+    })
+    .reply(status, "refused");
+  return agent;
+}
+
+const classifiesAnHttpAnswerToASend = (
+  status: number,
+  reason: SendError["reason"],
+) =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { port } = yield* acquireBoundaryServer({
+          ...operations,
+          protocolActive: () => true,
+        });
+        const endpoint = yield* acquireHarnessEndpoint(
+          new URL(`http://127.0.0.1:${port}/mcp`),
+        );
+        yield* routeRequestsThrough(answerSendWithStatus(status));
+
+        const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
+
+        expect(error).toStrictEqual(new SendError({ reason }));
+      }),
+    ),
+  );
+
+/**
+ * A send after the server closed. Its requests open one connection each, so
+ * the send meets a refused connection rather than a pooled socket the server
+ * closed, which the request may race.
+ */
+const keepsARefusedConnectionNetworkUnavailable = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* routeRequestsThrough(new Agent({ pipelining: 0 }));
+        const serverScope = yield* Scope.make();
+        const { port } = yield* acquireBoundaryServer({
+          ...operations,
+          protocolActive: () => true,
+        }).pipe(Scope.extend(serverScope));
+        const endpoint = yield* acquireHarnessEndpoint(
+          new URL(`http://127.0.0.1:${port}/mcp`),
+        );
+        yield* Scope.close(serverScope, Exit.void);
+
+        const error = yield* endpoint.send(sendInput).pipe(Effect.flip);
+
+        expect(error).toStrictEqual(
+          new SendError({ reason: "network-unavailable" }),
+        );
       }),
     ),
   );
@@ -743,10 +921,6 @@ describe("Harness MCP HTTP boundary", () => {
     MCP_TRACE_TIMEOUT_MS,
   );
   it(
-    "carries a refusal's detail across the daemon boundary",
-    carriesARefusalDetailAcrossTheDaemonBoundary,
-  );
-  it(
     "reads an acknowledged event through the SDK without redelivery",
     readsRetainedEventThroughSdk,
   );
@@ -773,6 +947,37 @@ describe("Harness MCP HTTP boundary", () => {
     losesIdleSubscriptionWithoutKeepAlive());
   it("reports an unexpected subscription disconnect", () =>
     reportsUnexpectedSubscriptionLoss());
+});
+
+describe("a refused send across the daemon boundary", () => {
+  it(
+    "carries a refusal's detail",
+    carriesARefusalDetailAcrossTheDaemonBoundary,
+  );
+  it("carries delivery-pending", carriesDeliveryPendingAcrossTheDaemonBoundary);
+  it(
+    "answers outcome-unknown for a send that ends without a typed failure",
+    answersOutcomeUnknownForAnUntypedSendFailure,
+  );
+  it(
+    "reports outcome-unknown when the connection drops during a send",
+    reportsOutcomeUnknownWhenTheConnectionDropsMidSend,
+    MCP_TRACE_TIMEOUT_MS,
+  );
+  it(
+    "keeps a refused connection network-unavailable",
+    keepsARefusedConnectionNetworkUnavailable,
+    MCP_TRACE_TIMEOUT_MS,
+  );
+  it.each([
+    [404, "network-unavailable"],
+    [499, "outcome-unknown"],
+    [500, "outcome-unknown"],
+  ] as const)(
+    "classifies an HTTP %i answer to a send as %s",
+    classifiesAnHttpAnswerToASend,
+    MCP_TRACE_TIMEOUT_MS,
+  );
 });
 
 /* eslint-enable agent-code-guard/async-keyword -- Restore repository defaults after the MCP boundary. */

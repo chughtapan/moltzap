@@ -8,7 +8,7 @@ Scoped MCP implementation of the public semantic HarnessEndpoint.
 
 ## Public surface
 
-### [`acquireHarnessEndpoint`](./index.ts#L57)
+### [`acquireHarnessEndpoint`](./index.ts#L58)
 
 _Function_
 
