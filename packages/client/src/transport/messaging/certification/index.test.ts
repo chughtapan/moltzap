@@ -438,33 +438,40 @@ function makeProtocolHarness(
     const registry: AddressRegistryPort = {
       lookup: (request) => Effect.succeed(lookupIdentity(identities, request)),
     };
+    const authorPorts = {
+      actionPolicy: options.actionPolicy ?? signEveryAction,
+      reportStorageFault: options.reportStorageFault ?? Effect.void,
+      attachment: options.attachment,
+      authorSend: options.authorSend,
+    };
+    const memberPorts = {
+      actionPolicy: signEveryAction,
+      reportStorageFault: Effect.void,
+      attachment: undefined,
+      authorSend: undefined,
+    };
     const engines = yield* Effect.forEach(
       identities,
       (identity, index) =>
         requireAt(stores, index, "endpoint store").pipe(
-          Effect.flatMap((store) =>
-            makeEndpointEngine({
+          Effect.flatMap((store) => {
+            const ports = index === 0 ? authorPorts : memberPorts;
+            return makeEndpointEngine({
               localAgentCard: identity.card,
               signingAuthority: identity.authority,
               registrySignerPublicKey,
               registry,
               store: options.wrapStore?.(store, identity, index) ?? store,
-              actionPolicy:
-                index === 0
-                  ? (options.actionPolicy ?? signEveryAction)
-                  : signEveryAction,
-              reportStorageFault:
-                index === 0
-                  ? (options.reportStorageFault ?? Effect.void)
-                  : Effect.void,
+              actionPolicy: ports.actionPolicy,
+              reportStorageFault: ports.reportStorageFault,
               routerWorker: scriptedRouterWorker(
                 store,
                 outbound,
-                index === 0 ? options.attachment : undefined,
-                index === 0 ? options.authorSend : undefined,
+                ports.attachment,
+                ports.authorSend,
               ),
-            }),
-          ),
+            });
+          }),
         ),
       { concurrency: 1 },
     );

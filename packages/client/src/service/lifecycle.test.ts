@@ -249,15 +249,8 @@ const emitsWhileAPassHoldsTheDeliveryGate = async () => {
 };
 
 /**
- * An emitted item the store cannot persist fails the daemon in storage, and
- * its send fails with the refusal it would have carried, rather than waiting
- * or reporting the storage fault as the send's outcome. The store rejects
- * only items other than the fixture's startup delivery.
- */
-/**
- * A storage fault the engine reports on a send's path stops the daemon in
- * storage, so recovery after the restart proposes the send's bound intent.
- * The harness hands the test the report the daemon gave the engine.
+ * A storage fault the engine reports stops the daemon in storage. The
+ * harness hands the test the report the daemon gave the engine.
  */
 const stopsTheDaemonOnAReportedStorageFault = async () => {
   const fixture = await Effect.runPromise(makeFixture);
@@ -288,6 +281,12 @@ const stopsTheDaemonOnAReportedStorageFault = async () => {
   ).toEqual(new DaemonRuntimeError({ phase: "storage" }));
 };
 
+/**
+ * An emitted item the store cannot persist fails the daemon in storage, and
+ * its send fails with the refusal it would have carried, rather than waiting
+ * or reporting the storage fault as the send's outcome. The store rejects
+ * only items other than the fixture's startup delivery.
+ */
 const failsWhenAnEmittedItemCannotPersist = async () => {
   const fixture = await Effect.runPromise(makeFixture);
   const harness = await Effect.runPromise(makeHarness(fixture, "none"));

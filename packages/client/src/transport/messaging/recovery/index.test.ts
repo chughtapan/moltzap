@@ -5922,7 +5922,6 @@ const openPeerEngine = (fixture: RecoveryFixture) =>
       localAgentCard: fixture.remote.card,
       signingAuthority: fixture.remote.authority,
       store,
-      reportStorageFault: Effect.void,
       routerWorker: makeFixtureRouter({
         store,
         local: fixture.remote,
@@ -7661,7 +7660,6 @@ const openN4Holder = (
       localAgentCard: n4.fourth.card,
       signingAuthority: n4.fourth.authority,
       store,
-      reportStorageFault: Effect.void,
       routerWorker: makeFixtureRouter({
         store,
         local: n4.fourth,

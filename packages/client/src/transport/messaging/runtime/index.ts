@@ -70,10 +70,10 @@ export interface EndpointEngineInput {
   readonly routerWorker: EngineRouterPort;
   readonly actionPolicy: EngineActionPolicy;
   /**
-   * Report a storage fault on a send's path after its intent may be durably
-   * bound. The daemon stops on it, so recovery after the restart proposes
-   * the intent; a daemon that kept running would leave it waiting for a head
-   * move that a new conversation never gets.
+   * Report a store failure while binding or proposing a post's intent. The
+   * daemon stops on it, so recovery after the restart proposes the intent; a
+   * daemon that kept running would leave it waiting for a head move that a
+   * new conversation never gets.
    */
   readonly reportStorageFault: Effect.Effect<void>;
 }
