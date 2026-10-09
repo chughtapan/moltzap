@@ -369,8 +369,8 @@ interface ToolListing {
 
 /**
  * Every tool the catalog can list. `installToolCallHandler` replaces the
- * SDK's tools/call dispatch, so the handler it selects serves every call and
- * a listing only names a tool and its schemas.
+ * SDK's tools/call dispatch, so `toolHandlers` serves every call and a listing
+ * only names a tool and its schemas.
  */
 const toolListings = {
   [STATUS_TOOL]: { inputSchema: emptyInput, outputSchema: statusOutput },
@@ -473,6 +473,8 @@ interface ToolCallInput {
   readonly toolArguments: unknown;
   readonly metadata: unknown;
   readonly signal: AbortSignal;
+  /** The subscription the owner event tools inspect, revoke and resume. */
+  readonly events: HarnessEvents;
 }
 
 const toolNotFound = (name: string): never => {
@@ -637,107 +639,99 @@ const handleAcknowledgeDeliveryToolCall = async (
   });
 };
 
-// #ignore-sloppy-code-next-line[async-keyword]: Runtime read dispatch validates the selected MCP schema before invoking the operation.
-const handleInboxReadToolCall = async (
+// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
+const handleReadEventToolCall = async (
   input: ToolCallInput,
   operations: HarnessMcpOperations,
-) => {
-  switch (input.name) {
-    case HARNESS_READ_EVENT_TOOL:
-      return await runValidatedOperation(readEventOutput, input.name, {
-        operation: operations.readEvent(
-          await decodeToolInput(
-            readEventInput,
-            input.toolArguments,
-            input.name,
-          ),
-        ),
-        label: "Event read",
-        allowedReasons: RUNTIME_READ_REASONS,
-        fallbackReason: "persistence-failed",
-        signal: input.signal,
-      });
-    case HARNESS_READ_INBOX_TOOL:
-      return await runValidatedOperation(readInboxOutput, input.name, {
-        operation: operations.readInbox(
-          await decodeToolInput(
-            readInboxInput,
-            input.toolArguments,
-            input.name,
-          ),
-        ),
-        label: "Inbox read",
-        allowedReasons: RUNTIME_READ_REASONS,
-        fallbackReason: "persistence-failed",
-        signal: input.signal,
-      });
-    default:
-      return toolNotFound(input.name);
-  }
-};
+) =>
+  await runValidatedOperation(readEventOutput, input.name, {
+    operation: operations.readEvent(
+      await decodeToolInput(readEventInput, input.toolArguments, input.name),
+    ),
+    label: "Event read",
+    allowedReasons: RUNTIME_READ_REASONS,
+    fallbackReason: "persistence-failed",
+    signal: input.signal,
+  });
 
-// #ignore-sloppy-code-next-line[async-keyword]: Active tool dispatch returns the selected Promise-native MCP operation result.
-const handleActiveToolCall = async (
+// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits schema validation and the Promise-native operation bridge.
+const handleReadInboxToolCall = async (
   input: ToolCallInput,
   operations: HarnessMcpOperations,
-) => {
-  if ([HARNESS_READ_EVENT_TOOL, HARNESS_READ_INBOX_TOOL].includes(input.name)) {
-    return await handleInboxReadToolCall(input, operations);
-  }
-  switch (input.name) {
-    case HARNESS_READ_SEND_TOOL:
-      return await runValidatedOperation(readSendOutput, input.name, {
-        operation: operations.readSend(
-          await decodeInvocationInput(
-            decodeHarnessReadSendRequest(input.toolArguments),
-            input.signal,
-          ),
-        ),
-        label: "Send lookup",
-        allowedReasons: RUNTIME_READ_REASONS,
-        fallbackReason: "persistence-failed",
-        signal: input.signal,
-      });
-    case SEARCH_AGENTS_TOOL:
-      return await handleSearchAgentsToolCall(input, operations);
-    case SEARCH_CONVERSATIONS_TOOL:
-      return await handleSearchConversationsToolCall(input, operations);
-    case READ_CONVERSATION_TOOL:
-      return await handleReadConversationToolCall(input, operations);
-    case HARNESS_SEND_TOOL:
-      return await handleSendToolCall(input, operations);
-    case HARNESS_ACKNOWLEDGE_DELIVERY_TOOL:
-      return await handleAcknowledgeDeliveryToolCall(input, operations);
-    default:
-      return toolNotFound(input.name);
-  }
-};
+) =>
+  await runValidatedOperation(readInboxOutput, input.name, {
+    operation: operations.readInbox(
+      await decodeToolInput(readInboxInput, input.toolArguments, input.name),
+    ),
+    label: "Inbox read",
+    allowedReasons: RUNTIME_READ_REASONS,
+    fallbackReason: "persistence-failed",
+    signal: input.signal,
+  });
 
-const ownerEventOperation = (events: HarnessEvents, name: string) => {
-  switch (name) {
-    case "event_subscription_status":
-      return events.status;
-    case "revoke_event_subscription":
-      return events.revoke.pipe(Effect.as({}));
-    case "resume_event_subscription":
-      return events.resume.pipe(Effect.as({}));
-    default:
-      return undefined;
-  }
-};
+// #ignore-sloppy-code-next-line[async-keyword]: The low-level MCP request handler awaits argument decoding and the Promise-native operation bridge.
+const handleReadSendToolCall = async (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+) =>
+  await runValidatedOperation(readSendOutput, input.name, {
+    operation: operations.readSend(
+      await decodeInvocationInput(
+        decodeHarnessReadSendRequest(input.toolArguments),
+        input.signal,
+      ),
+    ),
+    label: "Send lookup",
+    allowedReasons: RUNTIME_READ_REASONS,
+    fallbackReason: "persistence-failed",
+    signal: input.signal,
+  });
+
 interface RequestAuthority {
   readonly role: HarnessMcpRole;
   readonly events: HarnessEvents;
 }
 
 // #ignore-sloppy-code-next-line[async-keyword]: The MCP edge validates its Promise-native tool schema before running the owner operation.
-const handleOwnerOperation = async (
-  operation: NonNullable<ReturnType<typeof ownerEventOperation>>,
+const handleOwnerOperation = async <
+  Value extends Readonly<Record<string, unknown>>,
+>(
+  operation: Effect.Effect<Value, ProtocolError>,
   input: ToolCallInput,
 ) => {
   await decodeToolInput(emptyInput, input.toolArguments, input.name);
   return toolResult(await runEventOperation(operation, input.signal));
 };
+
+/** Serves one admitted call of the tool it is keyed by in `toolHandlers`. */
+type ToolHandler = (
+  input: ToolCallInput,
+  operations: HarnessMcpOperations,
+  // eslint-disable-next-line agent-code-guard/promise-type -- MCP tool handlers are Promise callbacks of the official SDK.
+) => Promise<ReturnType<typeof toolResult>>;
+
+/**
+ * The handler for each tool the catalog can list, keyed like `toolListings`,
+ * so a listed tool without a handler does not compile.
+ */
+const toolHandlers = {
+  [STATUS_TOOL]: handleStatusToolCall,
+  [REGISTER_TOOL]: handleRegistrationToolCall,
+  event_subscription_status: (input) =>
+    handleOwnerOperation(input.events.status, input),
+  revoke_event_subscription: (input) =>
+    handleOwnerOperation(input.events.revoke.pipe(Effect.as({})), input),
+  resume_event_subscription: (input) =>
+    handleOwnerOperation(input.events.resume.pipe(Effect.as({})), input),
+  [SEARCH_AGENTS_TOOL]: handleSearchAgentsToolCall,
+  [SEARCH_CONVERSATIONS_TOOL]: handleSearchConversationsToolCall,
+  [READ_CONVERSATION_TOOL]: handleReadConversationToolCall,
+  [HARNESS_READ_INBOX_TOOL]: handleReadInboxToolCall,
+  [HARNESS_READ_SEND_TOOL]: handleReadSendToolCall,
+  [HARNESS_SEND_TOOL]: handleSendToolCall,
+  [HARNESS_READ_EVENT_TOOL]: handleReadEventToolCall,
+  [HARNESS_ACKNOWLEDGE_DELIVERY_TOOL]: handleAcknowledgeDeliveryToolCall,
+} satisfies Readonly<Record<ToolName, ToolHandler>>;
 
 /**
  * The tools `role` lists and may call now: its catalog for whether the
@@ -758,24 +752,15 @@ const currentTools = (
 const handleToolCall = async (
   input: ToolCallInput,
   operations: HarnessMcpOperations,
-  authority: RequestAuthority,
+  role: HarnessMcpRole,
 ) => {
-  const admitted: readonly string[] = currentTools(authority.role, operations);
-  if (!admitted.includes(input.name)) {
+  const name = currentTools(role, operations).find(
+    (tool) => tool === input.name,
+  );
+  if (name === undefined) {
     return toolNotFound(input.name);
   }
-  const ownerOperation = ownerEventOperation(authority.events, input.name);
-  if (ownerOperation !== undefined) {
-    return await handleOwnerOperation(ownerOperation, input);
-  }
-  switch (input.name) {
-    case STATUS_TOOL:
-      return await handleStatusToolCall(input, operations);
-    case REGISTER_TOOL:
-      return await handleRegistrationToolCall(input, operations);
-    default:
-      return await handleActiveToolCall(input, operations);
-  }
+  return await toolHandlers[name](input, operations);
 };
 
 /** Schema failures and refused operations stay on the JSON-RPC error channel. */
@@ -790,8 +775,9 @@ const installToolCallHandler = (
       toolArguments: request.params.arguments ?? {},
       metadata: context.mcpReq._meta,
       signal: context.mcpReq.signal,
+      events: authority.events,
     };
-    return handleToolCall(input, operations, authority);
+    return handleToolCall(input, operations, authority.role);
   });
 };
 const runtimeOperations = (
