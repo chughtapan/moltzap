@@ -112,6 +112,7 @@
     "effect": "^3.22.0"
   },
   "devDependencies": {
+    "@effect/vitest": "^0.30.0",
     "@typescript/native": "catalog:",
     "eslint": "^9",
     "typescript": "catalog:",

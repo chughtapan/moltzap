@@ -26,10 +26,10 @@ import {
   type Scope,
   Stream,
   SubscriptionRef,
-  TestContext,
 } from "effect";
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect } from "vitest";
+import { it } from "@effect/vitest";
 import type { AddressRegistryPort } from "../address.js";
 import { advanceClock, untilLive } from "../../../__tests__/advance-clock.js";
 import {
@@ -42,7 +42,6 @@ import {
 import { forwardStoredOutbound } from "../../../__tests__/forward-stored-outbound.js";
 import { openOuterBody } from "../../../__tests__/outer-body-fixtures.js";
 import { pollCursor as fixturePollCursor } from "../../../__tests__/router-worker-fixtures.js";
-import { runTrace, runTraceFor } from "../../../__tests__/run-trace.js";
 import {
   type EndpointStore,
   EndpointStoreError,
@@ -2083,72 +2082,72 @@ function reappendedOuterMessagesYieldOnePost() {
 }
 
 describe("fixed-post endpoint protocol", () => {
-  it.for([2, 4])(
+  it.live.each([2, 4])(
     "seals every outer body of a %i-member post to its members, each of which opens it",
-    { timeout: TEST_TIMEOUT_MS },
-    runTraceFor((testCase) => sealsEveryOuterBodyOfAPost(testCase)),
+    sealsEveryOuterBodyOfAPost,
+    TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "sends 2 + 3n outer messages for one N4 post: its head's certified record and no copy of its own",
-    runTrace(sendsTwoPlusThreeNMessagesPerPost),
+    sendsTwoPlusThreeNMessagesPerPost,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "certifies from the action-certified copies a post whose signatures a member missed, sending its own copy first",
-    runTrace(certifiesFromActionCertifiedCopiesAfterMissingTheSignatures),
+    certifiesFromActionCertifiedCopiesAfterMissingTheSignatures,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "certifies a post past a durability vote a faulty member sealed away from one member",
-    runTrace(certifiesPastAVoteSealedAwayFromOneMember),
+    certifiesPastAVoteSealedAwayFromOneMember,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "adopts an action certificate over its own lock at the same head",
-    runTrace(adoptsAnActionCertificateOverItsOwnLock),
+    adoptsAnActionCertificateOverItsOwnLock,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "adopts a certified record over its own lock at the same head",
-    runTrace(adoptsACertifiedRecordOverItsOwnLock),
+    adoptsACertifiedRecordOverItsOwnLock,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "signs no durability vote on restart for a record it accepted already certified",
-    runTrace(restartSignsNoVoteForARecordAcceptedWhole),
+    restartSignsNoVoteForARecordAcceptedWhole,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "signs nothing for an adopted action when its record's acceptance stops",
-    runTrace(signsNothingForAnAdoptedActionWhenAcceptanceStops),
+    signsNothingForAnAdoptedActionWhenAcceptanceStops,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "refuses a second action certificate over an action it staged",
-    runTrace(refusesASecondCertificateOverAStagedAction),
+    refusesASecondCertificateOverAStagedAction,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "returns the hash of the send's locally stored certified record",
-    runTrace(sendReturnsTheStoredCertifiedRecordHash),
+    sendReturnsTheStoredCertifiedRecordHash,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "reads a pending delivery with the hash of its certified record",
-    runTrace(pendingDeliveryCarriesTheCertifiedRecordHash),
+    pendingDeliveryCarriesTheCertifiedRecordHash,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "mints a distinct PostId for each identical host invocation",
-    runTrace(givesIdenticalHostInvocationsDistinctPostIds),
+    givesIdenticalHostInvocationsDistinctPostIds,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "certifies an author-inclusive N4 POST only after an independent durability quorum",
-    runTrace(certifiesOrdinaryN4Post),
+    certifiesOrdinaryN4Post,
     TEST_TIMEOUT_MS,
   );
-  it.for([
+  it.live.each([
     {
       outcome: "fails to restart as persistence",
       binding: "another conversation",
@@ -2192,8 +2191,7 @@ describe("fixed-post endpoint protocol", () => {
     },
   ])(
     "$outcome over a persisted durability vote bound to $binding",
-    { timeout: TEST_TIMEOUT_MS },
-    runTraceFor(({ bind, filedUnder, restart }) =>
+    ({ bind, filedUnder, restart }) =>
       Effect.scoped(
         Effect.gen(function* () {
           const restarted = yield* restartOverPersistedDurabilityVote(
@@ -2204,36 +2202,34 @@ describe("fixed-post endpoint protocol", () => {
           expect(restarted).toStrictEqual(restart);
         }),
       ),
-    ),
+    TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "creates no action vote before ordering concurrent authors",
-    runTrace(() =>
+    () =>
       ordersCompetingProposalsBeforeActionVotes({
         firstAuthorIndex: 0,
         secondAuthorIndex: 1,
       }),
-    ),
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "creates no action vote before ordering concurrent sends by one author",
-    runTrace(() =>
+    () =>
       ordersCompetingProposalsBeforeActionVotes({
         firstAuthorIndex: 0,
         secondAuthorIndex: 0,
       }),
-    ),
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "retains a durably bound send when its caller is interrupted",
-    runTrace(retainsInterruptedDurableSend),
+    retainsInterruptedDurableSend,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "holds one post when Router appends its outer messages twice",
-    runTrace(reappendedOuterMessagesYieldOnePost),
+    reappendedOuterMessagesYieldOnePost,
     TEST_TIMEOUT_MS,
   );
 });
@@ -2324,21 +2320,21 @@ function attachmentWaitLeavesTheEngineGateFree(): Effect.Effect<
 }
 
 describe("engine sends and Router-worker attachment", () => {
-  it(
+  it.scoped(
     "holds a send issued before the worker attaches and completes it on attachment",
-    runTrace(() => onTestClock(sendHeldUntilAttached())),
+    sendHeldUntilAttached,
     TEST_TIMEOUT_MS,
   );
 
-  it(
+  it.scoped(
     "fails a send as network-unavailable once the attachment bound elapses",
-    runTrace(() => onTestClock(sendFailsAfterAttachBound())),
+    sendFailsAfterAttachBound,
     TEST_TIMEOUT_MS,
   );
 
-  it(
+  it.scoped(
     "waits for attachment without holding the engine gate recovery needs",
-    runTrace(() => onTestClock(attachmentWaitLeavesTheEngineGateFree())),
+    attachmentWaitLeavesTheEngineGateFree,
     TEST_TIMEOUT_MS,
   );
 });
@@ -2774,75 +2770,52 @@ function localSendDuringOutage(): Effect.Effect<void, never, Scope.Scope> {
   });
 }
 
-/**
- * A scoped scenario on the TestClock, so backoff and timeouts pass in virtual
- * time.
- * @param scenario Scoped scenario to run.
- * @returns The scenario with its scope closed and test services provided.
- */
-function onTestClock(
-  scenario: Effect.Effect<void, never, Scope.Scope>,
-): Effect.Effect<void> {
-  return Effect.scoped(scenario).pipe(Effect.provide(TestContext.TestContext));
-}
-
 describe("a local send during a Router outage", () => {
-  it(
+  it.scoped(
     "fails at once saying the post is queued and delivers it after re-attachment",
-    runTrace(() => onTestClock(localSendDuringOutage())),
+    localSendDuringOutage,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.scoped(
     "sends each outbox row once while the local and background drains race",
-    runTrace(() => onTestClock(concurrentDrainsSendEachOutboxOnce())),
+    concurrentDrainsSendEachOutboxOnce,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.scoped(
     "bounds a black-holed transmit and delivers its envelope exactly once",
-    runTrace(() => onTestClock(blackHoledTransmitBoundsTheSend())),
+    blackHoledTransmitBoundsTheSend,
     TEST_TIMEOUT_MS,
   );
 });
 
 describe("outbound loop under a transient Router worker state", () => {
-  it(
+  it.scoped(
     "keeps the outbound loop alive when the worker reports unavailable mid-drain",
-    runTrace(() =>
-      onTestClock(
-        transientTransmitFailureLeavesOutboundLoopAlive(
-          new RouterWorkerUnavailableError(),
-        ),
+    () =>
+      transientTransmitFailureLeavesOutboundLoopAlive(
+        new RouterWorkerUnavailableError(),
       ),
-    ),
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.scoped(
     "keeps the outbound loop alive when a transmit observes a Router restart",
-    runTrace(() =>
-      onTestClock(
-        transientTransmitFailureLeavesOutboundLoopAlive(
-          new RouterWorkerDiscontinuityError(),
-        ),
+    () =>
+      transientTransmitFailureLeavesOutboundLoopAlive(
+        new RouterWorkerDiscontinuityError(),
       ),
-    ),
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.scoped(
     "keeps the outbound loop alive when the Router transport drops mid-drain",
-    runTrace(() =>
-      onTestClock(
-        transientTransmitFailureLeavesOutboundLoopAlive(
-          new RouterWorkerTransportError(),
-        ),
+    () =>
+      transientTransmitFailureLeavesOutboundLoopAlive(
+        new RouterWorkerTransportError(),
       ),
-    ),
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.scoped(
     "keeps a cold-started outbound loop alive with a pending outbound row",
-    runTrace(() =>
-      onTestClock(coldStartWithPendingOutboundLeavesOutboundLoopAlive()),
-    ),
+    coldStartWithPendingOutboundLeavesOutboundLoopAlive,
     TEST_TIMEOUT_MS,
   );
 });
@@ -3083,24 +3056,24 @@ function failedRecoveryFailsASendAsUnqueued(): Effect.Effect<
 }
 
 describe("engine faults while staging and sending", () => {
-  it(
+  it.live(
     "keeps a staged record's copy and fold together when its acceptance is interrupted",
-    runTrace(takesAVoteAfterItsStagingWasInterrupted),
+    takesAVoteAfterItsStagingWasInterrupted,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.live(
     "fails a send as persistence-failed when the store refuses its proposal",
-    runTrace(() => Effect.scoped(failsASendWhoseProposalTheStoreRefuses())),
+    () => Effect.scoped(failsASendWhoseProposalTheStoreRefuses()),
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.scoped(
     "ends the outbound loop with a persistence failure the worker cannot retry",
-    runTrace(() => onTestClock(persistenceFailureEndsTheOutboundLoop())),
+    persistenceFailureEndsTheOutboundLoop,
     TEST_TIMEOUT_MS,
   );
-  it(
+  it.scoped(
     "fails a send without the queued text when the worker's recovery failed",
-    runTrace(() => onTestClock(failedRecoveryFailsASendAsUnqueued())),
+    failedRecoveryFailsASendAsUnqueued,
     TEST_TIMEOUT_MS,
   );
 });
