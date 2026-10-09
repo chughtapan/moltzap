@@ -43,9 +43,6 @@ const PACKAGE_SOURCE_FILES = [
   "src/**/*.ts",
   "src/**/*.cts",
   "src/**/*.mts",
-  "scripts/**/*.ts",
-  "scripts/**/*.cts",
-  "scripts/**/*.mts",
   "*.ts",
   "*.cts",
   "*.mts",
@@ -192,7 +189,7 @@ export function packageEslintConfig(options: PackageEslintOptions) {
 /**
  * Flat configuration for the workspace root: root modules, examples, and the
  * Node-run scripts under `scripts/`. The `scripts/` subtrees ignored here run
- * through `tsx` and are type-checked on their own.
+ * through `tsx`.
  */
 export function rootEslintConfig(tsconfigRootDir: string) {
   const languageOptions = makeTsLanguageOptions(tsconfigRootDir, [

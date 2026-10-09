@@ -14,7 +14,6 @@ import {
   type GateError,
   type GateServices,
   installPackedConsumer,
-  makeTemporaryRoot,
   type PackedManifest,
   PackGateError,
   packWorkspaceClosure,
@@ -78,9 +77,8 @@ const publishedPackages: ReadonlySet<string> = new Set(
   ),
 );
 
-runGate(
+runGate("moltzap-nanoclaw-pack-", (temporaryRoot) =>
   Effect.gen(function* () {
-    const temporaryRoot = yield* makeTemporaryRoot("moltzap-nanoclaw-pack-");
     const { archives, manifests } = yield* packWorkspaceClosure(
       packageRoots,
       temporaryRoot,
@@ -159,7 +157,7 @@ function verifyConsumer(
     );
     yield* runCommand(process.execPath, [checkPath], {
       cwd: consumerRoot,
-      env: { NODE_PATH: undefined },
+      env: { NODE_PATH: "" },
     });
   });
 }

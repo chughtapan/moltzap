@@ -87,9 +87,10 @@ exports, old attempt logs, or duplicate summaries.
 
 Use Node from `.node-version` and the pnpm version in `package.json`. Run build,
 test, lint, and typecheck through `pnpm nx` or the package scripts that wrap it.
-Effect and `@effect/*` are the runtime idiom. Tooling is TypeScript that Node
-runs directly; `scripts/tsconfig.json` enforces erasable syntax. Write `.mjs`
-or `.js` only for a file a tool cannot load as TypeScript.
+Effect and `@effect/*` are the runtime idiom. Tooling is TypeScript;
+`scripts/tsconfig.json` enforces erasable syntax for the scripts Node runs
+directly. Write `.mjs` or `.js` only for a file a tool cannot load as
+TypeScript.
 
 Load the Google guide that matches the work: `google-typescript-style` for
 `.ts`, `google-javascript-style` for JavaScript a tool requires,

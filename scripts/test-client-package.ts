@@ -13,7 +13,6 @@ import {
   type GateError,
   type GateServices,
   installPackedConsumer,
-  makeTemporaryRoot,
   type PackedManifest,
   PackGateError,
   packWorkspaceClosure,
@@ -88,9 +87,8 @@ const publishedPackages: ReadonlySet<string> = new Set(
   Object.keys(workspacePackageRoots),
 );
 
-runGate(
+runGate("moltzap-client-pack-", (temporaryRoot) =>
   Effect.gen(function* () {
-    const temporaryRoot = yield* makeTemporaryRoot("moltzap-client-pack-");
     const { archives, manifests } = yield* packWorkspaceClosure(
       workspacePackageRoots,
       temporaryRoot,
@@ -126,7 +124,7 @@ function verifyPackedManifest(
       daemonTarget === "./bin/moltzapd",
       "packed client does not expose the moltzapd executable",
     );
-    const exportEntries = Object.entries(exportMap(manifest.exports));
+    const exportEntries = Object.entries(manifest.exports ?? {});
     yield* requireCondition(
       exportEntries.length === 2 &&
         exportEntries.some(([subpath]) => subpath === ".") &&
@@ -140,12 +138,6 @@ function verifyPackedManifest(
       subpath === "." ? manifest.name : `${manifest.name}/${subpath.slice(2)}`,
     );
   });
-}
-
-function exportMap(exports: unknown): Readonly<Record<string, unknown>> {
-  return exports !== null && typeof exports === "object"
-    ? Object.fromEntries(Object.entries(exports))
-    : {};
 }
 
 function collectExportTargets(value: unknown): readonly unknown[] {
@@ -296,7 +288,7 @@ function verifyConsumerImports(
     );
     yield* runCommand(process.execPath, [checkPath], {
       cwd: consumerRoot,
-      env: { NODE_PATH: undefined },
+      env: { NODE_PATH: "" },
     });
   });
 }

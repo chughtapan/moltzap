@@ -18,7 +18,6 @@ import {
   type GateError,
   type GateServices,
   installPackedConsumer,
-  makeTemporaryRoot,
   PackGateError,
   packWorkspaceClosure,
   readJsonFile,
@@ -28,12 +27,11 @@ import {
   runGate,
 } from "./test/packed-workspace.ts";
 
-/** Runs one OpenClaw CLI command that prints JSON and returns the decoded output. */
-type OpenClawCli = (
+/** Runs one OpenClaw CLI command that prints JSON and decodes its output. */
+type OpenClawCli = <A, I>(
   args: readonly string[],
-) => Effect.Effect<JsonObject, GateError, GateServices>;
-
-type JsonObject = typeof jsonObject.Type;
+  schema: Schema.Schema<A, I>,
+) => Effect.Effect<A, GateError, GateServices>;
 
 const jsonObject = Schema.Record({ key: Schema.String, value: Schema.Unknown });
 const channelManifest = Schema.Struct({
@@ -53,14 +51,13 @@ const packageRoots = {
   "@moltzap/router": join(workspaceRoot, "packages", "router"),
 };
 
-runGate(
+runGate("moltzap-openclaw-pack-", (temporaryRoot) =>
   Effect.gen(function* () {
     /** The OpenClaw release the channel is built and tested against. */
     const openclawVersion = (yield* readJsonFile(
       join(channelRoot, "package.json"),
       channelManifest,
     )).devDependencies.openclaw;
-    const temporaryRoot = yield* makeTemporaryRoot("moltzap-openclaw-pack-");
     const { archives } = yield* packWorkspaceClosure(
       packageRoots,
       temporaryRoot,
@@ -159,14 +156,14 @@ function pluginHost(
       OPENCLAW_HOME: stateRoot,
       OPENCLAW_STATE_DIR: stateRoot,
     };
-    const openclaw: OpenClawCli = (args) =>
+    const openclaw: OpenClawCli = (args, schema) =>
       runCommand(
         process.execPath,
         [join(openclawRoot, "openclaw.mjs"), ...args, "--json"],
         { cwd: consumerRoot, env },
       ).pipe(
         Effect.flatMap((stdout) =>
-          Schema.decodeUnknown(Schema.parseJson(jsonObject))(stdout),
+          Schema.decodeUnknown(Schema.parseJson(schema))(stdout),
         ),
       );
     return { openclaw, pluginRoot };
@@ -226,8 +223,7 @@ function verifyPluginLoaded(
   openclawVersion: string,
 ): Effect.Effect<void, GateError, GateServices> {
   return Effect.gen(function* () {
-    const listed = yield* openclaw(["plugins", "list"]);
-    const { plugins } = yield* Schema.decodeUnknown(pluginList)(listed);
+    const { plugins } = yield* openclaw(["plugins", "list"], pluginList);
     const plugin = plugins.find(
       (candidate) => candidate.id === "openclaw-channel",
     );
@@ -245,7 +241,10 @@ function verifySkillServed(
   pluginRoot: string,
 ): Effect.Effect<void, GateError, GateServices> {
   return Effect.gen(function* () {
-    const skill = yield* openclaw(["skills", "info", "group-messaging"]);
+    const skill = yield* openclaw(
+      ["skills", "info", "group-messaging"],
+      jsonObject,
+    );
     yield* requireCondition(
       skill.eligible === true && skill.modelVisible === true,
       `expected OpenClaw to show the group-messaging skill to the model, got ${JSON.stringify(skill)}`,
