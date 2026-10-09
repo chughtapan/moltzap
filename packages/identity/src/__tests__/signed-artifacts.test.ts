@@ -9,7 +9,6 @@ import {
   Schema,
 } from "effect";
 import * as fc from "fast-check";
-import { calculateJwkThumbprintUri } from "jose";
 import { generateKeyPairSync } from "node:crypto";
 import { expect, it } from "vitest";
 import {
@@ -342,14 +341,6 @@ const resignWith = (
     ),
   );
 
-const protectedHeaderOf = (representation: RawRepresentation) =>
-  Effect.gen(function* () {
-    const bytes = yield* decodeBase64Url(
-      representation.signatures[0].protected,
-    );
-    return yield* decodeCanonicalJson(rawProtectedHeader, bytes);
-  });
-
 const mutationIsRejected = (
   representation: RawRepresentation,
   agentCard: VerifiedAgentCard,
@@ -565,10 +556,14 @@ it("keeps encoded artifacts unchanged when callers mutate public views", () =>
     }),
   ));
 
-it("rejects every cryptographically covered field mutation", () =>
+it("rejects every cryptographically covered field mutation after the original verifies", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const fixture = yield* makeSnapshotFixture;
+      yield* SignedMessage.verify({
+        signedMessage: fixture.signedMessage,
+        agentCard: fixture.agentCard,
+      });
       const representation = yield* messageRepresentation(
         fixture.signedMessage,
       );
@@ -583,33 +578,7 @@ it("rejects every cryptographically covered field mutation", () =>
     }),
   ));
 
-it("checks the signature again when a message's key has already verified one", () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeSnapshotFixture;
-      yield* SignedMessage.verify({
-        signedMessage: fixture.signedMessage,
-        agentCard: fixture.agentCard,
-      });
-      const representation = yield* messageRepresentation(
-        fixture.signedMessage,
-      );
-      const otherBody = yield* mutatePayload(representation, (value) => ({
-        ...value,
-        body: Encoding.encodeBase64Url(Uint8Array.from([9, 8, 7])),
-      }));
-      const otherSignature = yield* mutateSignature(representation);
-
-      expect(yield* mutationIsRejected(otherBody, fixture.agentCard)).toBe(
-        true,
-      );
-      expect(yield* mutationIsRejected(otherSignature, fixture.agentCard)).toBe(
-        true,
-      );
-    }),
-  ));
-
-it("never answers for one key with another key's kid or verification key", () =>
+it("verifies each message under its own card's key, not another key already imported", () =>
   Effect.runPromise(
     Effect.gen(function* () {
       const first = yield* makeIdentityFixture;
@@ -630,20 +599,11 @@ it("never answers for one key with another key's kid or verification key", () =>
         recipientSet(1),
         2,
       );
-      const secondRepresentation = yield* messageRepresentation(secondMessage);
       const forged = yield* resignWith(
-        secondRepresentation,
+        yield* messageRepresentation(secondMessage),
         first.agentSigningAuthority,
       );
-      const secondKid = yield* Effect.tryPromise({
-        try: () =>
-          calculateJwkThumbprintUri(second.agentCard.publicKey, "sha256"),
-        catch: (cause) => new Error("thumbprint failed", { cause }),
-      });
 
-      expect((yield* protectedHeaderOf(secondRepresentation)).kid).toBe(
-        secondKid,
-      );
       expect(yield* mutationIsRejected(forged, second.agentCard)).toBe(true);
       yield* SignedMessage.verify({
         signedMessage: secondMessage,

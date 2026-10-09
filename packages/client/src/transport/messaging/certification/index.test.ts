@@ -128,7 +128,7 @@ const MEMBER_COUNT = 4;
  * certifies up to three N4 posts, each about 1,230 WebCrypto calls of
  * signing, sealing and verifying, and these slow with machine load: the
  * slowest traces took up to 11.5 s at a load average of 21 to 29 on 8 cores
- * and 15 s at 46. The bound is four times the slowest.
+ * and 15.3 s at 50 to 58. The bound is about four times the slowest.
  */
 const TEST_TIMEOUT_MS = 60_000;
 

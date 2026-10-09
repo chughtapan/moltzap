@@ -266,13 +266,9 @@ export const PUBLIC_KEY_CACHE_ENTRIES = 1_024;
  * order, so re-inserting an entry moves it to the end and the first key is the
  * least recently used.
  */
-const retain = <A>(
-  entries: Map<string, A>,
-  canonicalJwk: string,
-  value: A,
-): void => {
-  entries.delete(canonicalJwk);
-  entries.set(canonicalJwk, value);
+const retain = <A>(entries: Map<string, A>, x: string, value: A): void => {
+  entries.delete(x);
+  entries.set(x, value);
   if (entries.size > PUBLIC_KEY_CACHE_ENTRIES) {
     const oldest = entries.keys().next();
     if (oldest.done !== true) {
@@ -282,44 +278,30 @@ const retain = <A>(
 };
 
 /**
- * Derives a value from a public key alone, once per key while the key stays in
- * `entries`.
- *
- * The cache is an LRU `Map` bounded by `PUBLIC_KEY_CACHE_ENTRIES` and keyed by
- * the RFC 7638 canonical JWK, the exact string the thumbprint hashes, so two
- * keys share an entry only when they are the same key. It is not a `WeakMap`
- * on the key object, because every AgentCard decode makes a new key object and
- * such a cache would miss for each card read from storage or the wire. The
- * derivation reads the snapshot that forms the cache key, so a value is stored
- * only under the key it came from. A failed derivation is not kept. The caches
- * hold key material and never a verification outcome, so every signature, card
- * and body is still checked.
- *
- * @param entries The cache of one derivation.
- * @param publicKey Validated public key.
- * @param derive Derivation from the key's members.
- * @returns The cached or newly derived value.
+ * Derives a value from a public key once while the key stays among the
+ * `PUBLIC_KEY_CACHE_ENTRIES` most recently used. Entries are keyed by `x`:
+ * `crv` and `kty` are fixed and `x` has one accepted spelling, so `x`
+ * determines the RFC 7638 canonical JWK the thumbprint hashes, and two keys
+ * share an entry only when they are the same key. Keying by value keeps a hit
+ * for every AgentCard decode, each of which makes a new key object. A failed
+ * derivation is not kept, and the caches hold key material, never a
+ * verification outcome.
  */
 const cachedPerPublicKey = <A>(
   entries: Map<string, A>,
-  publicKey: PublicKeyValue,
+  publicKey: Ed25519PublicKey,
   derive: (
-    jwk: PublicKeyValue,
+    publicKey: Ed25519PublicKey,
   ) => Effect.Effect<A, Ed25519PublicKeyOperationError>,
 ): Effect.Effect<A, Ed25519PublicKeyOperationError> =>
   Effect.suspend(() => {
-    const jwk: PublicKeyValue = Object.freeze({
-      crv: publicKey.crv,
-      kty: publicKey.kty,
-      x: publicKey.x,
-    });
-    const canonicalJwk = JSON.stringify(jwk);
-    const cached = entries.get(canonicalJwk);
-    const value = cached === undefined ? derive(jwk) : Effect.succeed(cached);
+    const cached = entries.get(publicKey.x);
+    const value =
+      cached === undefined ? derive(publicKey) : Effect.succeed(cached);
     return value.pipe(
       Effect.tap((derived) =>
         Effect.sync(() => {
-          retain(entries, canonicalJwk, derived);
+          retain(entries, publicKey.x, derived);
         }),
       ),
     );
@@ -338,40 +320,30 @@ const thumbprintUris = new Map<string, string>();
 export const ed25519PublicKeyThumbprintUri = (
   publicKey: Ed25519PublicKey,
 ): Effect.Effect<string, Ed25519PublicKeyOperationError> =>
-  cachedPerPublicKey(thumbprintUris, publicKey, (jwk) =>
+  cachedPerPublicKey(thumbprintUris, publicKey, (key) =>
     Effect.tryPromise({
-      try: () => calculateJwkThumbprintUri(jwk, "sha256"),
+      try: () => calculateJwkThumbprintUri(key, "sha256"),
       catch: publicKeyOperationFailure,
     }),
   );
 
 const importPublicJwk = (
-  jwk: JWK,
+  jwk: Ed25519PublicKey | X25519PublicJwk,
   algorithm: string,
 ): Effect.Effect<CryptoKey, Ed25519PublicKeyOperationError> =>
   Effect.tryPromise({
     try: () => importJWK(jwk, algorithm),
     catch: publicKeyOperationFailure,
-  }).pipe(
-    Effect.filterOrFail(
-      (key): key is CryptoKey => !(key instanceof Uint8Array),
-      publicKeyOperationFailure,
-    ),
-  );
+  });
 
 const verificationKeys = new Map<string, CryptoKey>();
 
-/**
- * Imports a validated Ed25519 public key for signature verification.
- *
- * @param publicKey Validated public key, such as an AgentCard key.
- * @returns The imported Ed25519 verification key.
- */
+/** Imports a validated Ed25519 public key to verify signatures under it. */
 export const ed25519VerificationKey = (
   publicKey: Ed25519PublicKey,
 ): Effect.Effect<CryptoKey, Ed25519PublicKeyOperationError> =>
-  cachedPerPublicKey(verificationKeys, publicKey, (jwk) =>
-    importPublicJwk(jwk, "Ed25519"),
+  cachedPerPublicKey(verificationKeys, publicKey, (key) =>
+    importPublicJwk(key, "Ed25519"),
   );
 
 /** JWE key management of sealed bodies; the opening key is imported for it. */
@@ -396,7 +368,7 @@ export interface X25519PublicJwk {
  * @returns The X25519 public JWK.
  */
 export const x25519PublicJwk = (
-  publicKey: PublicKeyValue,
+  publicKey: Ed25519PublicKey,
 ): Either.Either<X25519PublicJwk, Ed25519PublicKeyOperationError> =>
   Either.try({
     try: (): X25519PublicJwk => ({
@@ -413,18 +385,12 @@ export const x25519PublicJwk = (
 
 const sealingKeys = new Map<string, CryptoKey>();
 
-/**
- * Imports the X25519 key that `x25519PublicJwk` maps a validated Ed25519
- * public key to: the key a body is sealed to for that key's agent.
- *
- * @param publicKey Validated Ed25519 public key, such as an AgentCard key.
- * @returns The imported X25519 public key.
- */
+/** Imports the `x25519PublicJwk` image of a validated key to seal bodies to. */
 export const x25519SealingKey = (
   publicKey: Ed25519PublicKey,
 ): Effect.Effect<CryptoKey, Ed25519PublicKeyOperationError> =>
-  cachedPerPublicKey(sealingKeys, publicKey, (jwk) =>
-    Effect.flatMap(x25519PublicJwk(jwk), (agreementKey) =>
+  cachedPerPublicKey(sealingKeys, publicKey, (key) =>
+    Effect.flatMap(x25519PublicJwk(key), (agreementKey) =>
       importPublicJwk(agreementKey, SEALED_BODY_KEY_MANAGEMENT_ALGORITHM),
     ),
   );
@@ -534,7 +500,7 @@ const importFromSeed = (
       try: () => ed25519.utils.toMontgomerySecret(seed),
       catch: invalidPrivateKey,
     });
-    const openingKey = yield* zeroAfter(
+    return yield* zeroAfter(
       secret,
       Effect.tryPromise({
         try: () =>
@@ -546,10 +512,6 @@ const importFromSeed = (
         catch: invalidPrivateKey,
       }),
     );
-    if (openingKey instanceof Uint8Array) {
-      return yield* new InvalidAgentPrivateKeyError();
-    }
-    return openingKey;
   });
 
 /**

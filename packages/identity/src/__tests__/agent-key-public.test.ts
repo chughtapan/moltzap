@@ -3,11 +3,13 @@
 import { it as effectIt } from "@effect/vitest";
 import { Effect, Either, Schema } from "effect";
 import * as fc from "fast-check";
+import { calculateJwkThumbprintUri } from "jose";
 import { generateKeyPairSync, sign as signWithPrivateKey } from "node:crypto";
-import { describe, expect, onTestFinished, vi } from "vitest";
+import { describe, expect } from "vitest";
 import {
   Ed25519PublicKey,
   ed25519PublicKeyThumbprintUri,
+  ed25519VerificationKey,
   hasCanonicalEd25519SignatureEncoding,
   PUBLIC_KEY_CACHE_ENTRIES,
 } from "../agent-key.js";
@@ -109,20 +111,6 @@ const encodeSucceeds = (value: unknown): boolean =>
     onRight: () => true,
   });
 
-describe("Ed25519PublicKey thumbprints", () => {
-  it.effect("matches the RFC thumbprint URI", () =>
-    Effect.gen(function* () {
-      const publicKey =
-        yield* Schema.decodeUnknown(Ed25519PublicKey)(validPublicKey);
-      const thumbprint = yield* ed25519PublicKeyThumbprintUri(publicKey);
-      expect(thumbprint).toBe(RFC_THUMBPRINT_URI);
-      expect(Schema.encodeSync(Ed25519PublicKey)(publicKey)).toEqual(
-        validPublicKey,
-      );
-    }),
-  );
-});
-
 /**
  * A distinct accepted key for each index below 65,536: the index fills the
  * first two bytes, and the 0x11 fill keeps the encoding canonical and away
@@ -139,49 +127,62 @@ const indexedPublicKey = (index: number) => {
   });
 };
 
-/** Derives the thumbprints of keys 1 to `count`, newer than key 0. */
-const deriveNewerThumbprints = (count: number) =>
-  Effect.forEach(
-    Array.from({ length: count }, (...[, index]) =>
-      indexedPublicKey(index + 1),
-    ),
-    (publicKey) => ed25519PublicKeyThumbprintUri(publicKey),
-    { concurrency: 16, discard: true },
+describe("Ed25519PublicKey thumbprints", () => {
+  it.effect("derives each key's own thumbprint after another key's", () =>
+    Effect.gen(function* () {
+      const first = indexedPublicKey(2_000);
+      const second = indexedPublicKey(2_001);
+      const firstThumbprint = yield* ed25519PublicKeyThumbprintUri(first);
+      const secondThumbprint = yield* ed25519PublicKeyThumbprintUri(second);
+      const expected = yield* Effect.tryPromise({
+        try: () => calculateJwkThumbprintUri(second, "sha256"),
+        catch: (cause) => new Error("thumbprint failed", { cause }),
+      });
+
+      expect(secondThumbprint).toBe(expected);
+      expect(secondThumbprint).not.toBe(firstThumbprint);
+    }),
   );
+
+  it.effect("matches the RFC thumbprint URI", () =>
+    Effect.gen(function* () {
+      const publicKey =
+        yield* Schema.decodeUnknown(Ed25519PublicKey)(validPublicKey);
+      const thumbprint = yield* ed25519PublicKeyThumbprintUri(publicKey);
+      expect(thumbprint).toBe(RFC_THUMBPRINT_URI);
+      expect(Schema.encodeSync(Ed25519PublicKey)(publicKey)).toEqual(
+        validPublicKey,
+      );
+    }),
+  );
+});
 
 /**
- * A thumbprint costs one SHA-256 digest when it is derived and none when it
- * is served from the cache, so the digest count shows which keys the cache
- * still holds.
+ * A cached import is the same `CryptoKey` on every call, and a key imported
+ * again after eviction is a new one.
  */
-const derivesDisplacedKeyAgain = Effect.gen(function* () {
-  const oldest = indexedPublicKey(0);
-  yield* ed25519PublicKeyThumbprintUri(oldest);
-  yield* deriveNewerThumbprints(PUBLIC_KEY_CACHE_ENTRIES);
-  const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
-  onTestFinished(() => {
-    digest.mockRestore();
-  });
+it.effect(
+  "imports a key again once as many newer keys as the cache holds displace it",
+  () =>
+    Effect.gen(function* () {
+      const oldest = indexedPublicKey(0);
+      const oldestImport = yield* ed25519VerificationKey(oldest);
+      const newerImports = yield* Effect.forEach(
+        Array.from({ length: PUBLIC_KEY_CACHE_ENTRIES }, (...[, index]) =>
+          indexedPublicKey(index + 1),
+        ),
+        (publicKey) => ed25519VerificationKey(publicKey),
+        { concurrency: 16 },
+      );
 
-  yield* ed25519PublicKeyThumbprintUri(
-    indexedPublicKey(PUBLIC_KEY_CACHE_ENTRIES),
-  );
-  expect(digest).not.toHaveBeenCalled();
-  yield* ed25519PublicKeyThumbprintUri(oldest);
-  expect(digest).toHaveBeenCalledTimes(1);
-});
-
-describe("Ed25519PublicKey thumbprint cache", () => {
-  /**
-   * Filling the cache takes 1,025 digests, about 1.3 s at a load average of
-   * 22 to 26 on 8 cores, so a 20 s bound replaces the 5 s default.
-   */
-  it.effect(
-    "derives a key again once as many newer keys as the cache holds displace it",
-    () => derivesDisplacedKeyAgain,
-    20_000,
-  );
-});
+      expect(
+        yield* ed25519VerificationKey(
+          indexedPublicKey(PUBLIC_KEY_CACHE_ENTRIES),
+        ),
+      ).toBe(newerImports[PUBLIC_KEY_CACHE_ENTRIES - 1]);
+      expect(yield* ed25519VerificationKey(oldest)).not.toBe(oldestImport);
+    }),
+);
 
 describe("Ed25519PublicKey representation", () => {
   it("round-trips generated Ed25519 public keys", () => {
