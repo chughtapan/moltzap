@@ -87,7 +87,7 @@ const seedRequest = (store: EndpointStore, request: InboundMessage) =>
       canonicalAgentCard: bytes("identity"),
     });
     yield* store.putConversationFoundation(foundation);
-    yield* store.applyCatchUpRecord(record, {
+    yield* store.applyCertifiedRecord(record, {
       recipientAgentId: "agent:alice",
       canonicalMessage: bytes(JSON.stringify(request)),
     });

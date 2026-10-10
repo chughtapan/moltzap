@@ -95,7 +95,7 @@ const seedPreCutoverState = (store: EndpointStore) =>
       actionHash: record.actionHash,
       canonicalActionCore: bytes("action-core"),
     });
-    yield* store.applyCatchUpRecord(record, {
+    yield* store.applyCertifiedRecord(record, {
       recipientAgentId: identity.agentId,
       canonicalMessage: bytes("delivery"),
     });

@@ -1116,7 +1116,104 @@ function restartSignsNoVoteForARecordAcceptedWhole() {
     Effect.gen(function* () {
       const harness = yield* makeProtocolHarness();
       const genesisRecordHash = yield* certifyGenesis(harness);
-      const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+      const authorIdentity = yield* requireAt(
+        harness.identities,
+        0,
+        "identity",
+      );
+      yield* certifyAPostMember4Misses(harness, "certified without member 4");
+      const accepted = yield* harness.deliver(
+        [yield* certifiedRecordPacket(harness, authorIdentity)],
+        [3],
+      );
+      yield* harness.drain([3]);
+      yield* takeQueued(harness);
+
+      const resent = yield* restartMember4(harness);
+      const votes = yield* Effect.forEach(
+        yield* messagesOfKind(harness, resent, "durability_vote"),
+        (message) => decodeEvidenceStatement(harness, message),
+        { concurrency: 1 },
+      );
+
+      expect(accepted).toEqual(["accepted"]);
+      expect(votes).toMatchObject([{ recordHash: genesisRecordHash }]);
+    }),
+  );
+}
+
+/**
+ * Members 1, 2 and 3 certify a post that member 4 misses, and member 4's store
+ * refuses member 1's whole CertifiedRecord of it, as a crash before the store
+ * commits the record leaves it. Every store refuses records received whole,
+ * and member 4's is the only one that receives one. Member 4 keeps the post's
+ * action certificate it verified on the way, so once restarted over its store
+ * it resends its genesis signature and vote, then stages the post from that
+ * certificate and sends its own action-certified copy of the post before its
+ * vote. Fails when the record's core is stored apart from its durability
+ * certificate: a restart cannot tell that core from one staged for this
+ * member's own vote, and votes for it with no copy first.
+ * @returns Completion once member 4's restart traffic is checked.
+ */
+function restartSendsItsCopyBeforeVotingForARecordItsStoreRefused() {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const harness = yield* makeProtocolHarness({
+        wrapStore: (store) => refusingWholeRecords(store),
+      });
+      yield* certifyGenesis(harness);
+      const authorIdentity = yield* requireAt(
+        harness.identities,
+        0,
+        "identity",
+      );
+      yield* certifyAPostMember4Misses(harness, "refused by member 4's store");
+      const refused = yield* harness.deliver(
+        [yield* certifiedRecordPacket(harness, authorIdentity)],
+        [3],
+      );
+      yield* harness.drain([3]);
+      yield* takeQueued(harness);
+
+      const resent = yield* restartMember4(harness);
+      const kinds = yield* Effect.forEach(
+        resent,
+        (message) => protocolMessageKind(harness, message),
+        { concurrency: 1 },
+      );
+
+      expect(refused).toEqual(["ignored"]);
+      expect(kinds).toEqual([
+        "action_signature",
+        "durability_vote",
+        "action_certified_record",
+        "durability_vote",
+      ]);
+    }),
+  );
+}
+
+/**
+ * Members 1, 2 and 3 certify a post that member 4 misses, and member 4's store
+ * refuses member 1's whole CertifiedRecord of it. Without a restart, member 4
+ * then receives member 1's action-certified copy of the post: it stages the
+ * post from that copy and sends its own copy before its vote. Fails when
+ * member 4's fold takes the refused record or its promotion ahead of the
+ * store's commit, so the copy finds the post staged or certified only in
+ * memory and draws no copy or no vote from member 4.
+ * Value: protects=a refused whole record installs neither its record nor its
+ *     promotion in the live fold;
+ *     fails_when=the fold install runs before applyCertifiedRecord commits;
+ *     why_new=refusal test checks only restart state; seam=none.
+ * @returns Completion once member 4's answer to the copy is checked.
+ */
+function stagesFromALaterCopyARecordItsStoreRefusedWhole() {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const harness = yield* makeProtocolHarness({
+        wrapStore: (store) => refusingWholeRecords(store),
+      });
+      yield* certifyGenesis(harness);
       const authorIdentity = yield* requireAt(
         harness.identities,
         0,
@@ -1127,59 +1224,100 @@ function restartSignsNoVoteForARecordAcceptedWhole() {
         3,
         "identity",
       );
-      const absentStore = yield* requireAt(harness.stores, 3, "endpoint store");
-      const everyMemberButTheAbsent = [0, 1, 2];
-      const sending = yield* Effect.fork(
-        author.send(yield* sendInput(harness, "certified without member 4")),
+      const authorCopy = yield* certifyAPostMember4Misses(
+        harness,
+        "copied after member 4's store refused it whole",
       );
-      yield* harness.deliver(
-        yield* takeReadyBatch(harness),
-        everyMemberButTheAbsent,
-      );
-      yield* harness.drain(everyMemberButTheAbsent);
-      yield* harness.deliver(
-        yield* takeQueued(harness),
-        everyMemberButTheAbsent,
-      );
-      yield* harness.drain(everyMemberButTheAbsent);
-      yield* harness.deliver(
-        yield* takeQueued(harness),
-        everyMemberButTheAbsent,
-      );
-      yield* harness.drain(everyMemberButTheAbsent);
-      yield* takeQueued(harness);
-      yield* Fiber.join(sending).pipe(Effect.orDie);
-      const accepted = yield* harness.deliver(
+      const refused = yield* harness.deliver(
         [yield* certifiedRecordPacket(harness, authorIdentity)],
         [3],
       );
       yield* harness.drain([3]);
       yield* takeQueued(harness);
 
-      const restarted = yield* restartMember(
-        harness,
-        absentIdentity,
-        absentStore,
-      ).pipe(Effect.orDie);
-      yield* restarted.drainOutbound.pipe(Effect.orDie);
-      const resentVotes = yield* sentOfKind(
-        harness,
-        yield* takeQueued(harness),
-        absentIdentity,
-        "durability_vote",
-      );
-      const resentStatements = yield* Effect.forEach(
-        resentVotes,
-        (message) => decodeEvidenceStatement(harness, message),
+      const answer = yield* harness.deliver(authorCopy, [3]);
+      yield* harness.drain([3]);
+      const kinds = yield* Effect.forEach(
+        (yield* takeQueued(harness)).filter(
+          ({ senderAgentId }) => senderAgentId === absentIdentity.card.agentId,
+        ),
+        (message) => protocolMessageKind(harness, message),
         { concurrency: 1 },
       );
 
-      expect(accepted).toEqual(["accepted"]);
-      expect(resentStatements).toMatchObject([
-        { recordHash: genesisRecordHash },
-      ]);
+      expect(refused).toEqual(["ignored"]);
+      expect(answer).toEqual(["accepted"]);
+      expect(kinds).toEqual(["action_certified_record", "durability_vote"]);
     }),
   );
+}
+
+/**
+ * `store`, refusing every record received whole.
+ * @param store A member's store.
+ * @returns The wrapped store.
+ */
+function refusingWholeRecords(store: EndpointStore): EndpointStore {
+  return {
+    ...store,
+    applyCertifiedRecord: () =>
+      Effect.fail(new EndpointStoreError({ reason: "conflict" })),
+  };
+}
+
+/**
+ * Members 1, 2 and 3 certify member 1's post, which member 4 misses.
+ * @param harness Four members whose genesis is certified.
+ * @param text The post's text.
+ * @returns Member 1's action-certified copy of the post.
+ */
+function certifyAPostMember4Misses(harness: ProtocolHarness, text: string) {
+  return Effect.gen(function* () {
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const authorIdentity = yield* requireAt(harness.identities, 0, "identity");
+    const everyMemberButTheAbsent = [0, 1, 2];
+    const sending = yield* Effect.fork(
+      author.send(yield* sendInput(harness, text)),
+    );
+    yield* harness.deliver(
+      yield* takeReadyBatch(harness),
+      everyMemberButTheAbsent,
+    );
+    yield* harness.drain(everyMemberButTheAbsent);
+    yield* harness.deliver(yield* takeQueued(harness), everyMemberButTheAbsent);
+    yield* harness.drain(everyMemberButTheAbsent);
+    const certifying = yield* takeQueued(harness);
+    const authorCopy = yield* sentOfKind(
+      harness,
+      certifying,
+      authorIdentity,
+      "action_certified_record",
+    );
+    yield* harness.deliver(certifying, everyMemberButTheAbsent);
+    yield* harness.drain(everyMemberButTheAbsent);
+    yield* takeQueued(harness);
+    yield* Fiber.join(sending).pipe(Effect.orDie);
+    return authorCopy;
+  });
+}
+
+/**
+ * Restart member 4 over the store its engine wrote, unwrapped.
+ * @param harness Four members.
+ * @returns What member 4 sends on restart, in order.
+ */
+function restartMember4(harness: ProtocolHarness) {
+  return Effect.gen(function* () {
+    const identity = yield* requireAt(harness.identities, 3, "identity");
+    const store = yield* requireAt(harness.stores, 3, "endpoint store");
+    const restarted = yield* restartMember(harness, identity, store).pipe(
+      Effect.orDie,
+    );
+    yield* restarted.drainOutbound.pipe(Effect.orDie);
+    return (yield* takeQueued(harness)).filter(
+      ({ senderAgentId }) => senderAgentId === identity.card.agentId,
+    );
+  });
 }
 
 /**
@@ -1199,10 +1337,9 @@ function finishesAnInterruptedAcceptanceOfARecordReceivedWhole() {
         release: yield* Deferred.make<undefined>(),
       };
       const harness = yield* makeProtocolHarness({
-        wrapStore: (store) => holdingPostPromotion(store, hold),
+        wrapStore: (store) => holdingWholeRecordCommit(store, hold),
       });
       yield* certifyGenesis(harness);
-      const author = yield* requireAt(harness.engines, 0, "endpoint engine");
       const authorIdentity = yield* requireAt(
         harness.identities,
         0,
@@ -1213,31 +1350,10 @@ function finishesAnInterruptedAcceptanceOfARecordReceivedWhole() {
         3,
         "identity",
       );
-      const everyMemberButTheAbsent = [0, 1, 2];
-      const sending = yield* Effect.fork(
-        author.send(yield* sendInput(harness, "accepted whole")),
-      );
-      yield* harness.deliver(
-        yield* takeReadyBatch(harness),
-        everyMemberButTheAbsent,
-      );
-      yield* harness.drain(everyMemberButTheAbsent);
-      yield* harness.deliver(
-        yield* takeQueued(harness),
-        everyMemberButTheAbsent,
-      );
-      yield* harness.drain(everyMemberButTheAbsent);
-      const certifying = yield* takeQueued(harness);
-      const authorCopy = yield* sentOfKind(
+      const authorCopy = yield* certifyAPostMember4Misses(
         harness,
-        certifying,
-        authorIdentity,
-        "action_certified_record",
+        "accepted whole",
       );
-      yield* harness.deliver(certifying, everyMemberButTheAbsent);
-      yield* harness.drain(everyMemberButTheAbsent);
-      yield* takeQueued(harness);
-      yield* Fiber.join(sending).pipe(Effect.orDie);
 
       yield* Ref.set(hold.armed, true);
       const accepting = yield* Effect.fork(
@@ -1269,16 +1385,16 @@ function finishesAnInterruptedAcceptanceOfARecordReceivedWhole() {
 
 /**
  * `store`, which, once `hold.armed` is set, signals `hold.committed` after it
- * commits a promotion and then waits for `hold.release`: the point an
- * interruption right after the commit reaches.
+ * commits a record received whole and then waits for `hold.release`: the
+ * point an interruption right after the commit reaches.
  * @param store A member's store.
- * @param hold The switch and the two signals of the held promotion.
- * @param hold.armed Whether promotions are held.
- * @param hold.committed Completed once a held promotion is committed.
- * @param hold.release Awaited before a held promotion returns.
+ * @param hold The switch and the two signals of the held commit.
+ * @param hold.armed Whether commits are held.
+ * @param hold.committed Completed once a held commit is done.
+ * @param hold.release Awaited before a held commit returns.
  * @returns The wrapped store.
  */
-function holdingPostPromotion(
+function holdingWholeRecordCommit(
   store: EndpointStore,
   hold: Readonly<{
     armed: Ref.Ref<boolean>;
@@ -1288,9 +1404,9 @@ function holdingPostPromotion(
 ): EndpointStore {
   return {
     ...store,
-    promoteRecord: (record, delivery) =>
+    applyCertifiedRecord: (record, delivery) =>
       store
-        .promoteRecord(record, delivery)
+        .applyCertifiedRecord(record, delivery)
         .pipe(
           Effect.tap(() =>
             Ref.get(hold.armed).pipe(
@@ -2251,6 +2367,16 @@ describe("fixed-post endpoint protocol", () => {
   it(
     "signs no durability vote on restart for a record it accepted already certified",
     restartSignsNoVoteForARecordAcceptedWhole,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "sends its own copy before its vote on restart for a record received whole that its store refused",
+    restartSendsItsCopyBeforeVotingForARecordItsStoreRefused,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "stages from a later copy, sending its own copy before its vote, a record received whole that its store refused",
+    stagesFromALaterCopyARecordItsStoreRefusedWhole,
     TEST_TIMEOUT_MS,
   );
   it(

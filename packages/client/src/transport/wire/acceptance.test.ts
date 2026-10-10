@@ -430,10 +430,16 @@ const verifiesThreshold = (memberCount: number, expectedThreshold: number) =>
       },
     };
     expect(quorumThreshold(memberCount)).toBe(expectedThreshold);
-    yield* verifyCertifiedRecord({
+    const votes = yield* verifyCertifiedRecord({
       record: accepted,
       membership: fixture.membership,
     });
+    expect(votes.map(({ statement }) => statement)).toMatchObject(
+      Array.from({ length: expectedThreshold }, () => ({
+        kind: "durability_vote",
+        recordHash: accepted.durabilityCertificate.recordHash,
+      })),
+    );
     const belowThreshold: CertifiedRecord = {
       ...accepted,
       durabilityCertificate: {

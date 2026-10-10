@@ -553,7 +553,7 @@ export const verifyActionCertifiedRecord = (input: {
 export const verifyCertifiedRecord = (input: {
   readonly record: CertifiedRecord;
   readonly membership: VerifiedMembership;
-}): Effect.Effect<void, ClientRepresentationError> =>
+}): Effect.Effect<readonly VerifiedEvidence[], ClientRepresentationError> =>
   Effect.gen(function* () {
     const { membership } = input;
     const recordHash = yield* verifyActionCertifiedRecord({
@@ -564,7 +564,7 @@ export const verifyCertifiedRecord = (input: {
     if (certificate.recordHash !== recordHash) {
       return yield* representationFailure();
     }
-    yield* verifyEvidenceSet({
+    return yield* verifyEvidenceSet({
       representations: certificate.votes,
       expectedKind: "durability_vote",
       membership,

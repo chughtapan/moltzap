@@ -125,7 +125,7 @@ export const storeCertifiedGenesis = (
       canonicalAgentCard: yield* encodeCanonical(AgentCard, local),
     });
     yield* lockGenesis(store, membership, record);
-    yield* store.applyCatchUpRecord(
+    yield* store.applyCertifiedRecord(
       yield* storedRecordRow(record),
       yield* remotePost(local, membership, record),
     );
