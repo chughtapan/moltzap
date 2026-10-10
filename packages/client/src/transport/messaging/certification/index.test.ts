@@ -304,6 +304,7 @@ function restartMember(
     registry: harness.registry,
     store,
     actionPolicy: signEveryAction,
+    reportStorageFault: Effect.void,
     routerWorker: scriptedRouterWorker(store, harness.outbound),
   });
 }
@@ -396,6 +397,8 @@ interface HarnessOptions {
   readonly attachment?: WorkerAttachment;
   /** Replaces the author's worker transmit. */
   readonly authorSend?: WrapSend;
+  /** Receives the author engine's storage-fault reports. */
+  readonly reportStorageFault?: Effect.Effect<void>;
   /** Replaces the store an endpoint's engine writes through. */
   readonly wrapStore?: (
     store: EndpointStore,
@@ -435,29 +438,40 @@ function makeProtocolHarness(
     const registry: AddressRegistryPort = {
       lookup: (request) => Effect.succeed(lookupIdentity(identities, request)),
     };
+    const authorPorts = {
+      actionPolicy: options.actionPolicy ?? signEveryAction,
+      reportStorageFault: options.reportStorageFault ?? Effect.void,
+      attachment: options.attachment,
+      authorSend: options.authorSend,
+    };
+    const memberPorts = {
+      actionPolicy: signEveryAction,
+      reportStorageFault: Effect.void,
+      attachment: undefined,
+      authorSend: undefined,
+    };
     const engines = yield* Effect.forEach(
       identities,
       (identity, index) =>
         requireAt(stores, index, "endpoint store").pipe(
-          Effect.flatMap((store) =>
-            makeEndpointEngine({
+          Effect.flatMap((store) => {
+            const ports = index === 0 ? authorPorts : memberPorts;
+            return makeEndpointEngine({
               localAgentCard: identity.card,
               signingAuthority: identity.authority,
               registrySignerPublicKey,
               registry,
               store: options.wrapStore?.(store, identity, index) ?? store,
-              actionPolicy:
-                index === 0
-                  ? (options.actionPolicy ?? signEveryAction)
-                  : signEveryAction,
+              actionPolicy: ports.actionPolicy,
+              reportStorageFault: ports.reportStorageFault,
               routerWorker: scriptedRouterWorker(
                 store,
                 outbound,
-                index === 0 ? options.attachment : undefined,
-                index === 0 ? options.authorSend : undefined,
+                ports.attachment,
+                ports.authorSend,
               ),
-            }),
-          ),
+            });
+          }),
         ),
       { concurrency: 1 },
     );
@@ -2635,6 +2649,7 @@ function coldStartWithPendingOutboundLeavesOutboundLoopAlive(): Effect.Effect<
       registry: harness.registry,
       store,
       actionPolicy: signEveryAction,
+      reportStorageFault: Effect.void,
       routerWorker: scriptedRouterWorker(
         store,
         harness.outbound,
@@ -3098,8 +3113,9 @@ const outboundPersistence: EngineOutboundError["reason"] = "persistence";
  * Every member's store refuses plain outbox rows, and the first one any
  * member needs is the author's GENESIS proposal. The author bound the post's
  * intent before that refusal, so the intent is proposed again later and the
- * send fails as `delivery-pending`. Fails when the refusal reports the post
- * as not sent, or escapes the send as a defect.
+ * send fails as `delivery-pending` and the author's engine reports one
+ * storage fault. Fails when the refusal reports the post as not sent, escapes
+ * the send as a defect, or is not reported to the host.
  * @returns The scenario, before its scope closes.
  */
 function failsASendWhoseBoundProposalTheStoreRefuses(): Effect.Effect<
@@ -3108,8 +3124,10 @@ function failsASendWhoseBoundProposalTheStoreRefuses(): Effect.Effect<
   Scope.Scope
 > {
   return Effect.gen(function* () {
+    const faults = yield* Ref.make(0);
     const harness = yield* makeProtocolHarness({
       wrapStore: (store) => refusingOutboxRows(store),
+      reportStorageFault: Ref.update(faults, (count) => count + 1),
     });
     const author = yield* requireAt(harness.engines, 0, "endpoint engine");
 
@@ -3120,6 +3138,7 @@ function failsASendWhoseBoundProposalTheStoreRefuses(): Effect.Effect<
     expect(failure).toStrictEqual(
       new SendError({ reason: "delivery-pending" }),
     );
+    expect(yield* Ref.get(faults), "storage faults reported").toBe(1);
   });
 }
 
@@ -3127,21 +3146,26 @@ function failsASendWhoseBoundProposalTheStoreRefuses(): Effect.Effect<
  * The author's store fails the intent bind itself with `reason`. A raw
  * persistence failure can follow the bind's commit, so whether the intent is
  * durable is unknown; a store refusal rolls the bind back, so nothing was
- * queued. Fails when either reports the other's outcome.
+ * queued, and only the first is reported to the host as a storage fault.
+ * Fails when either reports the other's outcome or fault count.
  * @param reason The store failure the bind meets.
  * @param expected The send's failure for it.
+ * @param expectedFaults Storage faults the author's engine reports for it.
  * @returns The scenario, before its scope closes.
  */
 function failsASendWhoseBindTheStoreFails(
   reason: EndpointStoreError["reason"],
   expected: SendError["reason"],
+  expectedFaults: number,
 ): Effect.Effect<void, never, Scope.Scope> {
   return Effect.gen(function* () {
+    const faults = yield* Ref.make(0);
     const harness = yield* makeProtocolHarness({
       wrapStore: (store) => ({
         ...store,
         bindPostIntent: () => Effect.fail(new EndpointStoreError({ reason })),
       }),
+      reportStorageFault: Ref.update(faults, (count) => count + 1),
     });
     const author = yield* requireAt(harness.engines, 0, "endpoint engine");
 
@@ -3150,6 +3174,9 @@ function failsASendWhoseBindTheStoreFails(
       .pipe(Effect.flip, Effect.orDie);
 
     expect(failure).toStrictEqual(new SendError({ reason: expected }));
+    expect(yield* Ref.get(faults), "storage faults reported").toBe(
+      expectedFaults,
+    );
   });
 }
 
@@ -3231,12 +3258,12 @@ describe("engine faults while staging and sending", () => {
     TEST_TIMEOUT_MS,
   );
   it.each([
-    { reason: "persistence", expected: "outcome-unknown" },
-    { reason: "conflict", expected: "persistence-failed" },
+    { reason: "persistence", expected: "outcome-unknown", faults: 1 },
+    { reason: "conflict", expected: "persistence-failed", faults: 0 },
   ] as const)(
     "fails a send whose intent bind meets a $reason store failure as $expected",
-    ({ reason, expected }) =>
-      Effect.scoped(failsASendWhoseBindTheStoreFails(reason, expected)),
+    ({ reason, expected, faults }) =>
+      Effect.scoped(failsASendWhoseBindTheStoreFails(reason, expected, faults)),
     TEST_TIMEOUT_MS,
   );
   itOnTestClock(

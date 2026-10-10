@@ -155,6 +155,14 @@ daemon stops:
   [Delivery ownership](#delivery-ownership); an item a send produced is lost
   with that state.
 
+A store failure that may leave a post's intent bound but not proposed also
+stops the daemon in `storage`, and recovery proposes the intent after the
+restart. That is a raw persistence failure while binding the intent, which
+fails the send as `outcome-unknown`, or any store failure while queueing its
+proposal, which fails the send as `delivery-pending`. A store refusal while
+binding rolls the bind back: the send fails as `persistence-failed` and the
+daemon keeps running.
+
 A failure or defect while the protocol activates, at startup or after a
 registration binds, also stops the daemon: a Router it cannot reach in phase
 `listener`, anything else in phase `storage`. The failure and its cause are

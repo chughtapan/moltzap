@@ -68,17 +68,26 @@ const sendReasonByStoreReason = {
 >;
 
 /**
- * The failure of an intent bind that did not complete. A store refusal is
- * raised before the bind commits and rolls it back, so nothing was queued; a
- * raw persistence failure may come from the commit itself, so whether the
- * intent is durable, and so proposed later, is unknown.
+ * Fail a send whose intent bind did not complete. A store refusal is raised
+ * before the bind commits and rolls it back, so nothing was queued. A raw
+ * persistence failure may come from the commit itself, so whether the intent
+ * is durable is unknown; it is reported as a storage fault, since a durable
+ * intent outside `runtime.intents` waits for a restart.
+ * @param runtime The engine whose daemon hears of the fault.
  * @param error The store's failure.
- * @returns The send's closed failure.
+ * @returns The send's failure.
  */
-function bindFailure(error: EndpointStoreError): SendError {
+function failBind(
+  runtime: EngineRuntime,
+  error: EndpointStoreError,
+): Effect.Effect<never, SendError> {
   return error.reason === "persistence"
-    ? new SendError({ reason: "outcome-unknown" })
-    : storeFailure(error);
+    ? runtime.input.reportStorageFault.pipe(
+        Effect.zipRight(
+          Effect.fail(new SendError({ reason: "outcome-unknown" })),
+        ),
+      )
+    : Effect.fail(storeFailure(error));
 }
 
 function storeFailure(error: EndpointStoreError): SendError {
@@ -259,6 +268,8 @@ interface AuthorizedProposal {
  * may not have certified the head the proposer certified when the proposal
  * arrives, and it would drop the proposal as not gap-free. The proposer's own
  * copy of that record, which every member can open, reaches each member first.
+ * A store failure while queueing is reported as a storage fault: the intent
+ * stays bound but not proposed until recovery after a restart proposes it.
  * @param runtime Engine that sends the proposal.
  * @param proposal Authorized proposal and the intent it proposes.
  * @returns Completion once both envelopes are queued and the intent records
@@ -285,7 +296,10 @@ function queueAuthorizedProposal(
           }),
         ),
         Effect.catchTags({
-          EndpointStoreError: (error) => Effect.fail(storeFailure(error)),
+          EndpointStoreError: (error) =>
+            runtime.input.reportStorageFault.pipe(
+              Effect.zipRight(Effect.fail(storeFailure(error))),
+            ),
           ClientRepresentationError: () => Effect.fail(representationFailure()),
         }),
         Effect.zipRight(
@@ -490,7 +504,7 @@ function bindPreparedIntent(
           kind: "existing-conversation",
           intent: storedIntent(prepared),
         })
-        .pipe(Effect.mapError(bindFailure));
+        .pipe(Effect.catchAll((error) => failBind(runtime, error)));
       return retained;
     }
     const created = yield* createConversation(runtime, prepared.membership);
@@ -500,7 +514,7 @@ function bindPreparedIntent(
         foundation: created.foundation,
         intent: storedIntent(prepared),
       })
-      .pipe(Effect.mapError(bindFailure));
+      .pipe(Effect.catchAll((error) => failBind(runtime, error)));
     yield* Effect.sync(() => {
       runtime.conversations.set(
         created.conversation.conversationId,
