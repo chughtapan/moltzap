@@ -1132,10 +1132,11 @@ function restartSignsNoVoteForARecordAcceptedWhole() {
  * Members 1, 2 and 3 certify a post that member 4 misses, and member 4's store
  * refuses member 1's whole CertifiedRecord of it, as a crash before the store
  * commits the record leaves it. Every store refuses records received whole,
- * and member 4's is the only one that receives one. Member 4 keeps the post's action certificate
- * it verified on the way, so once restarted over its store it resends its
- * genesis signature and vote, then stages the post from that certificate and
- * sends its own action-certified copy of the post before its vote. Fails when
+ * and member 4's is the only one that receives one. Member 4 keeps the post's
+ * action certificate it verified on the way, so once restarted over its store
+ * it resends its genesis signature and vote, then stages the post from that
+ * certificate and sends its own action-certified copy of the post before its
+ * vote. Fails when
  * the record's core is stored apart from its durability certificate: a
  * restart cannot tell that core from one staged for this member's own vote,
  * and votes for it with no copy first.
@@ -1175,6 +1176,64 @@ function restartSendsItsCopyBeforeVotingForARecordItsStoreRefused() {
         "action_certified_record",
         "durability_vote",
       ]);
+    }),
+  );
+}
+
+/**
+ * Members 1, 2 and 3 certify a post that member 4 misses, and member 4's store
+ * refuses member 1's whole CertifiedRecord of it. Without a restart, member 4
+ * then receives member 1's action-certified copy of the post: it stages the
+ * post from that copy and sends its own copy before its vote. Fails when
+ * member 4's fold takes the refused record or its promotion ahead of the
+ * store's commit, so the copy finds the post staged or certified only in
+ * memory and draws no copy or no vote from member 4.
+ * Value: protects=a refused whole record leaves the live fold unchanged;
+ *     fails_when=the fold install runs before applyCertifiedRecord commits;
+ *     why_new=refusal test checks only restart state; seam=none.
+ * @returns Completion once member 4's answer to the copy is checked.
+ */
+function stagesFromALaterCopyARecordItsStoreRefusedWhole() {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const harness = yield* makeProtocolHarness({
+        wrapStore: (store) => refusingWholeRecords(store),
+      });
+      yield* certifyGenesis(harness);
+      const authorIdentity = yield* requireAt(
+        harness.identities,
+        0,
+        "identity",
+      );
+      const absentIdentity = yield* requireAt(
+        harness.identities,
+        3,
+        "identity",
+      );
+      const authorCopy = yield* certifyAPostMember4Misses(
+        harness,
+        "copied after member 4's store refused it whole",
+      );
+      const refused = yield* harness.deliver(
+        [yield* certifiedRecordPacket(harness, authorIdentity)],
+        [3],
+      );
+      yield* harness.drain([3]);
+      yield* takeQueued(harness);
+
+      const answer = yield* harness.deliver(authorCopy, [3]);
+      yield* harness.drain([3]);
+      const kinds = yield* Effect.forEach(
+        (yield* takeQueued(harness)).filter(
+          ({ senderAgentId }) => senderAgentId === absentIdentity.card.agentId,
+        ),
+        (message) => protocolMessageKind(harness, message),
+        { concurrency: 1 },
+      );
+
+      expect(refused).toEqual(["ignored"]);
+      expect(answer).toEqual(["accepted"]);
+      expect(kinds).toEqual(["action_certified_record", "durability_vote"]);
     }),
   );
 }
@@ -2299,6 +2358,11 @@ describe("fixed-post endpoint protocol", () => {
   it(
     "sends its own copy before its vote on restart for a record received whole that its store refused",
     restartSendsItsCopyBeforeVotingForARecordItsStoreRefused,
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "stages from a later copy, sending its own copy before its vote, a record received whole that its store refused",
+    stagesFromALaterCopyARecordItsStoreRefusedWhole,
     TEST_TIMEOUT_MS,
   );
   it(

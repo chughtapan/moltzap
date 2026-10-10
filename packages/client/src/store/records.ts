@@ -441,8 +441,8 @@ function requireLocalDurabilityEvidenceLock(
  * it, so a re-anchor away from a head and a durability certificate extending
  * that head never both collect this endpoint's signature.
  * @param database Exclusively owned endpoint database.
- * @param record Record staged, or about to be staged, for this endpoint's
- *     durability vote.
+ * @param record Record about to be staged for this endpoint's vote, or a
+ *     staged record this endpoint's own vote is about to be stored for.
  */
 function requireNoReanchorAwayFrom(
   database: DatabaseSync,

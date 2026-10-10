@@ -557,9 +557,8 @@ const certifiedRecordRows = (
 /**
  * Store a fold's complete record as certified and install it as its
  * conversation's head in one uninterruptible step. An interruption between
- * the two would leave the store holding the record certified while the fold
- * does not, and the fold would then take a durability vote the record never
- * needed.
+ * the two would leave the store holding the record certified while the fold,
+ * the conversation's head and the local post's completion still lag it.
  * @param runtime Engine whose store and conversation take the record.
  * @param fold Fold of the record's action, holding its votes.
  * @param record The complete certified record.

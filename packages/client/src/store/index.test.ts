@@ -308,6 +308,12 @@ function completesLocalPostWithoutSelfDelivery() {
   return withStore(directory, (store) =>
     Effect.gen(function* () {
       yield* lockLocalPost(store, record);
+      yield* store.stageRecordForDissemination(stagedRecord(record));
+      yield* Effect.forEach(
+        record.durabilityEvidence,
+        (vote) => store.mergeEvidence(vote),
+        { concurrency: 1, discard: true },
+      );
       yield* store.applyCertifiedRecord(record);
       const recovery = yield* store.recover();
       expect(recovery.postIntents[0]?.completedRecordHash).toBe(
@@ -353,10 +359,17 @@ function refusesAReanchorAwayFromAStagedSuccessor() {
  * The endpoint locks a successor of its certified head, then stages a
  * re-anchor candidate away from the head's anchor, and then receives the
  * successor whole, which it stores without voting for it. The store refuses
- * this endpoint's durability vote for the successor, so its signatures never
+ * this endpoint's durability vote for the successor, whether a copy's
+ * certificate carries it or the endpoint casts it, so its signatures never
  * land on both a re-anchor away from the head and a durability certificate
  * extending it, in this order as in the other. Fails when the store checks
- * only the proposal lock before it keeps the vote.
+ * only the proposal lock before it keeps the vote, or checks the re-anchor
+ * only for a vote the endpoint casts.
+ * Value: protects=no local vote is kept under an anchor this endpoint
+ *     re-anchors away from; fails_when=the re-anchor check covers mergeEvidence
+ *     but not a whole record's certificate; why_new=no other test stores a
+ *     whole record carrying this endpoint's vote under such an anchor;
+ *     seam=none.
  * @returns The trace, run to completion.
  */
 function refusesALocalVoteUnderAnAnchorItReanchorsAwayFrom() {
@@ -371,6 +384,10 @@ function refusesALocalVoteUnderAnAnchorItReanchorsAwayFrom() {
     evidenceKey: LOCAL_AGENT_ID,
     canonicalEvidence: bytes("durability-vote:local"),
   };
+  const delivery: InboundDeliveryInput = {
+    recipientAgentId: LOCAL_AGENT_ID,
+    canonicalMessage: bytes("message:successor"),
+  };
   return withStore(directory, (store) =>
     Effect.gen(function* () {
       yield* lockLocalPost(store, head);
@@ -380,10 +397,17 @@ function refusesALocalVoteUnderAnAnchorItReanchorsAwayFrom() {
         previousRecordHash: head.recordHash,
       });
       yield* store.stageReanchor(reanchorAwayFrom(head));
-      yield* store.applyCertifiedRecord(successor, {
-        recipientAgentId: LOCAL_AGENT_ID,
-        canonicalMessage: bytes("message:successor"),
-      });
+      yield* expectReason(
+        store.applyCertifiedRecord(
+          {
+            ...successor,
+            durabilityEvidence: [...successor.durabilityEvidence, localVote],
+          },
+          delivery,
+        ),
+        "conflict",
+      );
+      yield* store.applyCertifiedRecord(successor, delivery);
 
       yield* expectReason(store.mergeEvidence(localVote), "conflict");
       expect((yield* store.recover()).evidence).not.toContainEqual(localVote);

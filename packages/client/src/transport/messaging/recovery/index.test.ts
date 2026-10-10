@@ -179,8 +179,9 @@ interface N4PartialHistory {
   readonly stagedSuccessor: ActionCertifiedRecordValue;
   /**
    * `stagedSuccessor` with the remote, third and fourth members' durability
-   * votes and none of the local endpoint's, which cannot vote for a successor
-   * of a head it has staged a re-anchor candidate at.
+   * votes. It carries none of the local endpoint's, so it also fits a test
+   * whose endpoint staged a re-anchor candidate at the head, after which the
+   * endpoint holds no vote for any successor of that head.
    */
   readonly certifiedSuccessor: CertifiedRecord;
 }
