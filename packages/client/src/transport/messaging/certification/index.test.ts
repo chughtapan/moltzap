@@ -1136,10 +1136,9 @@ function restartSignsNoVoteForARecordAcceptedWhole() {
  * action certificate it verified on the way, so once restarted over its store
  * it resends its genesis signature and vote, then stages the post from that
  * certificate and sends its own action-certified copy of the post before its
- * vote. Fails when
- * the record's core is stored apart from its durability certificate: a
- * restart cannot tell that core from one staged for this member's own vote,
- * and votes for it with no copy first.
+ * vote. Fails when the record's core is stored apart from its durability
+ * certificate: a restart cannot tell that core from one staged for this
+ * member's own vote, and votes for it with no copy first.
  * @returns Completion once member 4's restart traffic is checked.
  */
 function restartSendsItsCopyBeforeVotingForARecordItsStoreRefused() {
@@ -1188,7 +1187,8 @@ function restartSendsItsCopyBeforeVotingForARecordItsStoreRefused() {
  * member 4's fold takes the refused record or its promotion ahead of the
  * store's commit, so the copy finds the post staged or certified only in
  * memory and draws no copy or no vote from member 4.
- * Value: protects=a refused whole record leaves the live fold unchanged;
+ * Value: protects=a refused whole record installs neither its record nor its
+ *     promotion in the live fold;
  *     fails_when=the fold install runs before applyCertifiedRecord commits;
  *     why_new=refusal test checks only restart state; seam=none.
  * @returns Completion once member 4's answer to the copy is checked.

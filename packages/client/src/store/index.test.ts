@@ -301,6 +301,15 @@ function rollsBackRemoteRecordWithoutDelivery() {
   );
 }
 
+/**
+ * The endpoint stages its own post for its vote and stores that vote, then
+ * receives the post whole, with its own vote in the durability certificate.
+ * The store applies it over the staged record and the stored vote, completes
+ * the local post intent and retains no delivery to this endpoint itself.
+ * Fails when applying a whole record refuses a vote of this endpoint's own
+ * that it already holds, or delivers a local post to its author.
+ * @returns The trace, run to completion.
+ */
 function completesLocalPostWithoutSelfDelivery() {
   const directory = stateDirectory();
   const conversationId = "conversation:local";
@@ -359,12 +368,12 @@ function refusesAReanchorAwayFromAStagedSuccessor() {
  * The endpoint locks a successor of its certified head, then stages a
  * re-anchor candidate away from the head's anchor, and then receives the
  * successor whole, which it stores without voting for it. The store refuses
- * this endpoint's durability vote for the successor, whether a copy's
- * certificate carries it or the endpoint casts it, so its signatures never
- * land on both a re-anchor away from the head and a durability certificate
- * extending it, in this order as in the other. Fails when the store checks
- * only the proposal lock before it keeps the vote, or checks the re-anchor
- * only for a vote the endpoint casts.
+ * this endpoint's durability vote for the successor, whether a whole record's
+ * durability certificate carries it or the endpoint casts it, so its
+ * signatures never land on both a re-anchor away from the head and a
+ * durability certificate extending it, in this order as in the other. Fails
+ * when the store checks only the proposal lock before it keeps the vote, or
+ * checks the re-anchor only for a vote the endpoint casts.
  * Value: protects=no local vote is kept under an anchor this endpoint
  *     re-anchors away from; fails_when=the re-anchor check covers mergeEvidence
  *     but not a whole record's certificate; why_new=no other test stores a
