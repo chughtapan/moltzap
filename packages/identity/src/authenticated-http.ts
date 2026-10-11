@@ -371,21 +371,20 @@ function lookupCard(
 
 /**
  * Any layer can provide the `Registry`, so its result is validated under a try
- * before the card is cached or read. Only a card this package verified passes,
- * and a result that throws on read fails authentication.
+ * before the card is cached or read. A result that fails, including one whose
+ * card this package did not verify or that throws on read, is a Registry
+ * failure and reports `UnavailableError`, as the Registry client's own errors
+ * do.
  */
 function resolveLookupAttempt(
   attempted: Option.Option<RegistryLookupResult>,
-): Effect.Effect<
-  VerifiedAgentCard,
-  OverloadedError | AuthenticationFailedError
-> {
+): Effect.Effect<VerifiedAgentCard, CardResolutionError> {
   if (Option.isNone(attempted)) {
     return Effect.fail(new OverloadedError());
   }
   return Effect.try({
     try: () => Schema.validateSync(lookupResultSchema)(attempted.value),
-    catch: () => new AuthenticationFailedError(),
+    catch: () => new UnavailableError(),
   }).pipe(
     Effect.flatMap((result) =>
       result.kind === "found"

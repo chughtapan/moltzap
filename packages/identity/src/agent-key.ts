@@ -264,7 +264,8 @@ const publicKeyOperationFailure = (): Ed25519PublicKeyOperationError =>
   new Ed25519PublicKeyOperationError();
 
 /**
- * Reads each key's `x` under a try, so a key that throws on read fails with
+ * Calls each thunk and reads its key's `x` under one try, so a key, or a card,
+ * request or authority holding one, that throws on read fails with
  * `Ed25519PublicKeyOperationError` instead of a defect. `crv` and `kty` are
  * fixed and `x` has one accepted spelling, so equal `x` means the same key.
  */

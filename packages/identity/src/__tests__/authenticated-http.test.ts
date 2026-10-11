@@ -816,15 +816,30 @@ it("returns version mismatch to a peer still on the prior MoltZap version", () =
     }),
   ));
 
-it("fails authentication when the Registry returns an AgentCard that cannot be read", () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
-      const fixture = yield* makeIdentityFixture;
-      const agentCard = new Proxy(fixture.agentCard, {
+/**
+ * A Registry result whose card is not one this package verified is a Registry
+ * failure, whether the card throws on read or is a readable copy, which
+ * passes the signature check because it carries the signer's key.
+ */
+it.each([
+  {
+    card: "an AgentCard that cannot be read",
+    replace: (agentCard: VerifiedAgentCard) =>
+      new Proxy(agentCard, {
         get: () => {
           throw new Error("unreadable card");
         },
-      });
+      }),
+  },
+  {
+    card: "a copy of an AgentCard this package did not verify",
+    replace: (agentCard: VerifiedAgentCard) => Object.freeze({ ...agentCard }),
+  },
+])("reports the Registry unavailable when it returns $card", ({ replace }) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const agentCard = replace(fixture.agentCard);
       const prepared = yield* prepareRequest({ fixture });
 
       const refusal = yield* verifyAgentRequest(prepared).pipe(
@@ -839,9 +854,10 @@ it("fails authentication when the Registry returns an AgentCard that cannot be r
         ),
       );
 
-      expect(refusal).toBeInstanceOf(AuthenticationFailedError);
+      expect(refusal).toStrictEqual(new UnavailableError());
     }),
-  ));
+  ),
+);
 
 it("retains a replay claim when concurrent verification completes at expiry", () =>
   Effect.runPromise(
