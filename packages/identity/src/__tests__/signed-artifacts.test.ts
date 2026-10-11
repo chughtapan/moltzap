@@ -14,6 +14,7 @@ import { expect, it } from "vitest";
 import {
   AgentCard,
   AgentCardIssuedAt,
+  AgentCardVerificationError,
   digestAgentCard,
   issueAgentCard,
   type VerifiedAgentCard,
@@ -609,6 +610,33 @@ it("verifies each message under its own card's key, not another key already impo
         signedMessage: secondMessage,
         agentCard: second.agentCard,
       });
+    }),
+  ));
+
+/**
+ * A Proxy over a valid key passes the Ed25519PublicKey Schema, which inspects
+ * property descriptors only, yet throws when its `x` is read.
+ */
+it("fails AgentCard verification with its typed error when the Registry key cannot be read", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const registrySignerPublicKey = Schema.validateSync(Ed25519PublicKey)(
+        new Proxy(fixture.registrySignerPublicKey, {
+          get: () => {
+            throw new Error("unreadable key");
+          },
+        }),
+      );
+
+      const outcome = yield* AgentCard.verify({
+        agentCard: fixture.agentCard,
+        registrySignerPublicKey,
+      }).pipe(Effect.either);
+
+      expect(outcome).toStrictEqual(
+        Either.left(new AgentCardVerificationError()),
+      );
     }),
   ));
 
