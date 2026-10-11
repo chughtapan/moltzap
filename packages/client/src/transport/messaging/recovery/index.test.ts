@@ -17,6 +17,7 @@ import {
   Deferred,
   Duration,
   Effect,
+  Either,
   Exit,
   Fiber,
   Option,
@@ -4240,22 +4241,22 @@ const directAnchorHash = (fixture: RecoveryFixture) =>
     );
 
 /**
- * Re-anchors the N4 conversation at its certified head after a restart: the
- * endpoint stages its candidate and sends its vote, while the direct
- * conversation restarts empty. A certified successor then arrives as recovery
- * traffic, which moves the head past the staged candidate, and the run asks
- * for the history after the new head.
+ * Re-anchors the N4 conversation at `history`'s certified head after a
+ * restart: the endpoint stages its candidate and sends its vote, while the
+ * direct conversation restarts empty. `history`'s certified successor then
+ * arrives as recovery traffic.
  * @param fixture Endpoint owning the direct conversation.
  * @param n4 Engine holding both conversations.
- * @returns The running recovery, its queue, the staged vote, the successor's
- *     disposition, and the request at the new head.
+ * @param history N4 history whose certified head the candidate selects.
+ * @returns The running recovery, its queue, the staged vote, and the
+ *     successor's disposition.
  */
-const advanceN4HeadPastStagedCandidate = (
+const deliverN4SuccessorPastStagedCandidate = (
   fixture: RecoveryFixture,
   n4: N4Foundation,
+  history: N4PartialHistory,
 ) =>
   Effect.gen(function* () {
-    const history = yield* buildN4PartialHistory(fixture, n4);
     yield* directPacketIngressFrom({
       membership: n4.membership,
       sender: fixture.remote,
@@ -4290,8 +4291,32 @@ const advanceN4HeadPastStagedCandidate = (
         routerInstanceId: newRouterInstanceId,
       }),
     );
-    const advancedRequest = yield* takeCatchUpRequest(outbound);
-    return { recovery, outbound, history, staged, successor, advancedRequest };
+    return { recovery, outbound, staged, successor };
+  });
+
+/**
+ * Delivers a certified successor past the endpoint's candidate at the N4
+ * head, as `deliverN4SuccessorPastStagedCandidate` does. The successor moves
+ * the head past the staged candidate, and the run asks for the history after
+ * the new head.
+ * @param fixture Endpoint owning the direct conversation.
+ * @param n4 Engine holding both conversations.
+ * @returns The running recovery, its queue, the history, the staged vote,
+ *     the successor's disposition, and the request at the new head.
+ */
+const advanceN4HeadPastStagedCandidate = (
+  fixture: RecoveryFixture,
+  n4: N4Foundation,
+) =>
+  Effect.gen(function* () {
+    const history = yield* buildN4PartialHistory(fixture, n4);
+    const delivered = yield* deliverN4SuccessorPastStagedCandidate(
+      fixture,
+      n4,
+      history,
+    );
+    const advancedRequest = yield* takeCatchUpRequest(delivered.outbound);
+    return { ...delivered, history, advancedRequest };
   });
 
 /**
@@ -8817,6 +8842,92 @@ const sendsAnUnattachedObligationsCopyAfterAColdStart = () =>
     }),
   );
 
+/**
+ * Stages the endpoint's candidate at the N4 head, through an engine whose
+ * store then refuses the certified successor. The endpoint locks the
+ * successor's action and stores its action certificate before the store
+ * refuses the record, so the store keeps both.
+ * @param fixture Endpoint whose store holds the N4 conversation.
+ * @returns The refused successor's record hash.
+ */
+const refuseSuccessorBehindStagedCandidate = (fixture: RecoveryFixture) =>
+  Effect.gen(function* () {
+    const n4 = yield* addN4Foundation(fixture);
+    const history = yield* buildN4PartialHistory(fixture, n4);
+    const successorHash =
+      history.certifiedSuccessor.actionCertifiedRecord.recordHash;
+    const refusingStore: EndpointStore = {
+      ...fixture.store,
+      applyCertifiedRecord: (record, delivery) =>
+        record.recordHash === successorHash
+          ? Effect.fail(new EndpointStoreError({ reason: "conflict" }))
+          : fixture.store.applyCertifiedRecord(record, delivery),
+    };
+    const refusing = {
+      ...n4,
+      engine: yield* makeEndpointEngine({
+        ...fixture.input,
+        store: refusingStore,
+      }).pipe(Effect.orDie),
+    };
+    const { recovery } = yield* deliverN4SuccessorPastStagedCandidate(
+      fixture,
+      refusing,
+      history,
+    );
+    yield* Fiber.interrupt(recovery);
+    return successorHash;
+  });
+
+/**
+ * The endpoint staged its candidate at the N4 head, and the store then
+ * refused the certified successor after the endpoint had locked its action
+ * and stored its action certificate. An engine that starts over the store
+ * cannot stage the successor for its vote under the anchor its candidate
+ * leaves, so it starts and leaves that conversation waiting: it sends no copy
+ * of the successor and no vote for it. Fails when that store refusal stops
+ * the engine from starting.
+ * @returns The trace, run to completion.
+ */
+const startsPastASuccessorItCannotStageBehindItsCandidate = () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture;
+      const successorHash =
+        yield* refuseSuccessorBehindStagedCandidate(fixture);
+
+      const restart = yield* Effect.either(makeEndpointEngine(fixture.input));
+      expect(
+        Either.getLeft(restart),
+        "the error the restart over the store failed with",
+      ).toEqual(Option.none());
+      const restarted = yield* restart;
+      yield* restarted.drainOutbound;
+      const sent = yield* Effect.forEach(
+        yield* Queue.takeAll(fixture.normalOutbound),
+        (message) => carriedBy(message),
+        { concurrency: 1 },
+      );
+
+      expect(
+        sent.filter(
+          (carried) =>
+            carried.kind === "action_certified_record" &&
+            carried.recordHash === successorHash,
+        ),
+        "copies of the successor the restarted endpoint sent",
+      ).toEqual([]);
+      expect(
+        sent.filter(
+          (carried) =>
+            carried.kind === "durability_vote" &&
+            carried.recordHash === successorHash,
+        ),
+        "durability votes for the successor the restarted endpoint sent",
+      ).toEqual([]);
+    }),
+  );
+
 describe("evidence and outbox rows an engine resumes", () => {
   it("sends its signature for a proposal it signed again after a Router restart recovery", () =>
     resendsItsSignatureForAHeldProposal("router_restarted", 1));
@@ -8829,5 +8940,9 @@ describe("evidence and outbox rows an engine resumes", () => {
   it(
     "queues the copy an unattached dissemination obligation owes when an engine starts",
     sendsAnUnattachedObligationsCopyAfterAColdStart,
+  );
+  it(
+    "starts past a successor it cannot stage behind its re-anchor candidate, sending no copy or vote for it",
+    startsPastASuccessorItCannotStageBehindItsCandidate,
   );
 });

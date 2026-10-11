@@ -1112,6 +1112,46 @@ export const acceptEngineRecoveryIngress = (
     );
 
 /**
+ * Resume the evidence one fold owes from durable state. A fold whose input the
+ * store refuses, such as a record under an anchor this endpoint has staged a
+ * re-anchor candidate away from, has nothing due, as live ingress ignores the
+ * same refusal, so only that fold's conversation waits.
+ * @param runtime Recovered engine state and durable protocol dependencies.
+ * @param fold Fold whose evidence resumes.
+ * @returns Completion once the fold's due evidence is queued or refused.
+ */
+const resumeFold = (
+  runtime: EngineRuntime,
+  fold: EngineActionFold,
+): Effect.Effect<void, RouterWorkerPersistenceError> =>
+  Effect.gen(function* () {
+    yield* localActionEvidence(runtime, fold);
+    yield* maybeCertifyAction(runtime, fold);
+    if (fold.recordHash !== undefined) {
+      yield* localDurabilityEvidence(runtime, fold);
+      const record = yield* makeActionCertifiedRecord(
+        fold,
+        yield* actionAnchorHash(fold),
+      ).pipe(Effect.mapError(localRepresentationFailure));
+      yield* maybePromote(runtime, fold, record);
+    }
+  }).pipe(
+    Effect.catchTag("EndpointStoreError", (error) =>
+      isSemanticStoreRejection(error)
+        ? Effect.logWarning(
+            "Fold not resumed: the endpoint store refused it; its conversation waits",
+          ).pipe(
+            Effect.annotateLogs({
+              conversationId: fold.conversation.conversationId,
+              actionHash: fold.actionHash,
+              reason: error.reason,
+            }),
+          )
+        : Effect.fail(persistenceFailure()),
+    ),
+  );
+
+/**
  * Resume only the evidence obligations already selected in durable state.
  * @param runtime Recovered engine state and durable protocol dependencies.
  * @param conversationId The one conversation to resume; every conversation
@@ -1130,25 +1170,8 @@ export const resumeEngineFolds = (
             conversationId === undefined ||
             fold.conversation.conversationId === conversationId,
         ),
-        (fold) =>
-          Effect.gen(function* () {
-            yield* localActionEvidence(runtime, fold);
-            yield* maybeCertifyAction(runtime, fold);
-            if (fold.recordHash !== undefined) {
-              yield* localDurabilityEvidence(runtime, fold);
-              const record = yield* makeActionCertifiedRecord(
-                fold,
-                yield* actionAnchorHash(fold),
-              ).pipe(Effect.mapError(localRepresentationFailure));
-              yield* maybePromote(runtime, fold, record);
-            }
-          }),
+        (fold) => resumeFold(runtime, fold),
         { concurrency: 1, discard: true },
       ),
     )
-    .pipe(
-      Effect.catchTag("EndpointStoreError", () =>
-        Effect.fail(persistenceFailure()),
-      ),
-      Effect.withSpan("resumeEngineFolds"),
-    );
+    .pipe(Effect.withSpan("resumeEngineFolds"));
