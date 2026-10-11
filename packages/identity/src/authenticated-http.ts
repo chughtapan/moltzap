@@ -144,6 +144,10 @@ function signAgentRequest(input: {
   );
 }
 
+/**
+ * The caller's card comes from the installed `Registry`, which any layer can
+ * provide, so its key is read under a try.
+ */
 function verifyRequest(
   input: {
     readonly bodyBytes: Uint8Array;
@@ -165,10 +169,14 @@ function verifyRequest(
       ),
     );
     const agentCard = yield* dependencies.resolveCard(body.callerAgentId);
+    const publicKey = yield* Effect.try({
+      try: () => agentCard.publicKey,
+      catch: () => new AuthenticationFailedError(),
+    });
     const signature = yield* verifyHttpRequestSignature({
       httpRequest: input.httpRequest,
       bodyBytes: input.bodyBytes,
-      publicKey: agentCard.publicKey,
+      publicKey,
       profile: "normal",
     });
     const claim = yield* claimNonce(dependencies.nonces, {

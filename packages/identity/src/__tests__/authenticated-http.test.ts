@@ -816,6 +816,33 @@ it("returns version mismatch to a peer still on the prior MoltZap version", () =
     }),
   ));
 
+it("fails authentication when the Registry returns an AgentCard that cannot be read", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const agentCard = new Proxy(fixture.agentCard, {
+        get: () => {
+          throw new Error("unreadable card");
+        },
+      });
+      const prepared = yield* prepareRequest({ fixture });
+
+      const refusal = yield* verifyAgentRequest(prepared).pipe(
+        Effect.flip,
+        Effect.provide(
+          authenticatedHttpLayerWithRegistry({
+            register: () =>
+              Effect.dieMessage("registration is outside this test"),
+            lookup: () => Effect.succeed({ kind: "found", agentCard } as const),
+            list: () => Effect.dieMessage("listing is outside this test"),
+          }),
+        ),
+      );
+
+      expect(refusal).toBeInstanceOf(AuthenticationFailedError);
+    }),
+  ));
+
 it("retains a replay claim when concurrent verification completes at expiry", () =>
   Effect.runPromise(
     Effect.gen(function* () {

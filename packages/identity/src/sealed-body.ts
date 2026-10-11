@@ -10,6 +10,7 @@ import {
   agentOpeningPrivateKey,
   AgentSigningAuthority,
   SEALED_BODY_KEY_MANAGEMENT_ALGORITHM,
+  sameEd25519PublicKey,
   x25519SealingKey,
 } from "./agent-key.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
@@ -189,15 +190,29 @@ const isRecipientCount = (recipientCount: number): boolean =>
   recipientCount >= 1 &&
   recipientCount <= MAXIMUM_RECIPIENTS;
 
+/** The AgentCard members that sealing and opening read. */
+type CardMembers = Pick<VerifiedAgentCard, "agentId" | "publicKey">;
+
+/**
+ * Copies the members sealing and opening read. Callers run it under a try, so
+ * a card that throws on read fails with the caller's typed error.
+ */
+const cardMembers = (card: VerifiedAgentCard): CardMembers => ({
+  agentId: card.agentId,
+  publicKey: card.publicKey,
+});
+
 const snapshotRecipients = (
   recipientAgentCards: readonly VerifiedAgentCard[],
-): Effect.Effect<readonly VerifiedAgentCard[], SealedBodySealingError> =>
+): Effect.Effect<readonly CardMembers[], SealedBodySealingError> =>
   Effect.gen(function* () {
     const recipients = yield* Effect.try({
-      try: () => Array.from(recipientAgentCards),
+      try: () => Array.from(recipientAgentCards, (card) => cardMembers(card)),
       catch: sealingFailure,
     });
-    const distinctAgentIds = new Set(recipients.map((card) => card.agentId));
+    const distinctAgentIds = new Set(
+      recipients.map((recipient) => recipient.agentId),
+    );
     if (
       !isRecipientCount(recipients.length) ||
       distinctAgentIds.size !== recipients.length
@@ -244,7 +259,7 @@ const seal = (
     const commitment = yield* commitmentOf(saltedPlaintext, sealingFailure);
     const recipientKeys = yield* Effect.forEach(
       recipients,
-      (card) => x25519SealingKey(card.publicKey),
+      (recipient) => x25519SealingKey(recipient.publicKey),
       { concurrency: 1 },
     ).pipe(Effect.mapError(sealingFailure));
     const encryption = new GeneralEncrypt(saltedPlaintext).setProtectedHeader(
@@ -394,10 +409,15 @@ const open = (
   input: OpenInput,
 ): Effect.Effect<Uint8Array, SealedBodyOpeningError> =>
   Effect.gen(function* () {
-    if (
-      AgentSigningAuthority.publicKey(input.signingAuthority).x !==
-      input.agentCard.publicKey.x
-    ) {
+    const card = yield* Effect.try({
+      try: () => cardMembers(input.agentCard),
+      catch: openingFailure,
+    });
+    const sameKey = yield* sameEd25519PublicKey(
+      () => AgentSigningAuthority.publicKey(input.signingAuthority),
+      () => card.publicKey,
+    ).pipe(Effect.mapError(openingFailure));
+    if (!sameKey) {
       return yield* new SealedBodyOpeningError();
     }
     const representation = yield* decodeCanonicalJson(
@@ -417,7 +437,7 @@ const open = (
     const entry = yield* recipientEntry(
       representation,
       input.signedMessage.recipientAgentIds,
-      input.agentCard.agentId,
+      card.agentId,
     );
     const decrypted = yield* Effect.tryPromise({
       try: () =>

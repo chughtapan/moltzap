@@ -559,6 +559,40 @@ const assertRegistrationClientBehavior = (fixture: ClientFixture) =>
     expect(outcomeName(signingFailure)).toBe(SIGNING_ERROR_TAG);
   });
 
+const unreadableKeyRegistration = Effect.gen(function* () {
+  const signingAuthority = yield* AgentSigningAuthority.fromPkcs8(
+    Redacted.make(makePrivateKeyPem()),
+  );
+  const publicKey = new Proxy(
+    AgentSigningAuthority.publicKey(signingAuthority),
+    {
+      get: () => {
+        throw new Error("unreadable key");
+      },
+    },
+  );
+  const registryLayer = Registry.layer({
+    origin: CLIENT_ORIGIN,
+    registrySignerPublicKey: AgentSigningAuthority.publicKey(signingAuthority),
+    requestTimeout: CLIENT_TIMEOUT,
+  }).pipe(
+    Layer.provide(
+      Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make(() => Effect.dieMessage("no request is sent")),
+      ),
+    ),
+  );
+
+  const outcome = yield* Registry.register({
+    request: { ...makeRequest("unreadable-key"), publicKey },
+    admissionCredential: Redacted.make("admission-token="),
+    signingAuthority,
+  }).pipe(Effect.provide(registryLayer), Effect.either);
+
+  expect(outcomeName(outcome)).toBe(SIGNING_ERROR_TAG);
+});
+
 const clientBehavior = Effect.gen(function* () {
   const fixture = yield* makeClientFixture;
   yield* assertLookupScenarios(fixture);
@@ -579,5 +613,10 @@ describe("Registry private contracts", () => {
   it("classifies public client outcomes without weakening card checks", () => {
     expect.hasAssertions();
     return Effect.runPromise(clientBehavior);
+  });
+
+  it("fails registration with its typed error when the request's key cannot be read", () => {
+    expect.hasAssertions();
+    return Effect.runPromise(unreadableKeyRegistration);
   });
 });

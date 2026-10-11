@@ -10,6 +10,7 @@ import {
   Redacted,
   Schema,
 } from "effect";
+import type { LazyArg } from "effect/Function";
 import {
   calculateJwkThumbprintUri,
   type CryptoKey,
@@ -263,6 +264,34 @@ const publicKeyOperationFailure = (): Ed25519PublicKeyOperationError =>
   new Ed25519PublicKeyOperationError();
 
 /**
+ * Copies a caller-supplied key into a frozen JWK under a try, so a key, or a
+ * value holding one, that throws on read fails with
+ * `Ed25519PublicKeyOperationError` instead of a defect.
+ */
+const readPublicKey = (
+  publicKey: LazyArg<Ed25519PublicKey>,
+): Effect.Effect<PublicKeyValue, Ed25519PublicKeyOperationError> =>
+  Effect.try({
+    try: (): PublicKeyValue =>
+      Object.freeze({ crv: "Ed25519", kty: "OKP", x: publicKey().x }),
+    catch: publicKeyOperationFailure,
+  });
+
+/**
+ * Whether two keys are the same key. Both are read as the per-key caches read
+ * them, so a key that cannot be read fails with
+ * `Ed25519PublicKeyOperationError`. `crv` and `kty` are fixed, so two keys
+ * are the same exactly when their `x` is.
+ */
+export const sameEd25519PublicKey = (
+  left: LazyArg<Ed25519PublicKey>,
+  right: LazyArg<Ed25519PublicKey>,
+): Effect.Effect<boolean, Ed25519PublicKeyOperationError> =>
+  Effect.all([readPublicKey(left), readPublicKey(right)]).pipe(
+    Effect.map(([leftKey, rightKey]) => leftKey.x === rightKey.x),
+  );
+
+/**
  * Most keys that each per-key cache below keeps: eight times
  * `signed-message.ts → MAXIMUM_RECIPIENTS`, so the keys of eight full
  * conversations stay cached. Each entry is one short string or one imported
@@ -290,11 +319,7 @@ const cachedPerPublicKey = <A>(
     jwk: PublicKeyValue,
   ) => Effect.Effect<A, Ed25519PublicKeyOperationError>,
 ): Effect.Effect<A, Ed25519PublicKeyOperationError> =>
-  Effect.try({
-    try: (): PublicKeyValue =>
-      Object.freeze({ crv: "Ed25519", kty: "OKP", x: publicKey.x }),
-    catch: publicKeyOperationFailure,
-  }).pipe(
+  readPublicKey(() => publicKey).pipe(
     Effect.flatMap((jwk) =>
       Option.match(entries.get(jwk.x), {
         onNone: () =>

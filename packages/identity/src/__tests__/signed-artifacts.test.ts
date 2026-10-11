@@ -36,6 +36,7 @@ import {
 import {
   MessageId,
   SignedMessage,
+  SignedMessageSigningError,
   type SignedMessage as SignedMessageValue,
 } from "../signed-message.js";
 
@@ -636,6 +637,30 @@ it("fails AgentCard verification with its typed error when the Registry key cann
 
       expect(outcome).toStrictEqual(
         Either.left(new AgentCardVerificationError()),
+      );
+    }),
+  ));
+
+it("fails signing with its typed error when the sender's AgentCard cannot be read", () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const fixture = yield* makeIdentityFixture;
+      const agentCard = new Proxy(fixture.agentCard, {
+        get: () => {
+          throw new Error("unreadable card");
+        },
+      });
+
+      const outcome = yield* SignedMessage.sign({
+        agentCard,
+        signingAuthority: fixture.agentSigningAuthority,
+        recipientAgentIds: recipientSet(1),
+        messageId: makeMessageId(1),
+        body: Uint8Array.from([1]),
+      }).pipe(Effect.either);
+
+      expect(outcome).toStrictEqual(
+        Either.left(new SignedMessageSigningError()),
       );
     }),
   ));

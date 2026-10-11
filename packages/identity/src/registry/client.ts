@@ -8,7 +8,11 @@ import {
 import { Duration, Effect, Either, Encoding, Redacted, Schema } from "effect";
 import type { AgentId } from "../identifiers.js";
 import { AgentCard, type VerifiedAgentCard } from "../agent-card.js";
-import { AgentSigningAuthority, type Ed25519PublicKey } from "../agent-key.js";
+import {
+  AgentSigningAuthority,
+  type Ed25519PublicKey,
+  sameEd25519PublicKey,
+} from "../agent-key.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "../canonical-json.js";
 import {
   AuthenticationFailedError,
@@ -315,10 +319,11 @@ const makeSignedRegistrationRequest = (
   call: RegistryRegisterCall,
 ) =>
   Effect.gen(function* () {
-    if (
-      AgentSigningAuthority.publicKey(call.signingAuthority).x !==
-      call.request.publicKey.x
-    ) {
+    const sameKey = yield* sameEd25519PublicKey(
+      () => AgentSigningAuthority.publicKey(call.signingAuthority),
+      () => call.request.publicKey,
+    ).pipe(Effect.mapError(() => new AgentSigningError()));
+    if (!sameKey) {
       return yield* new AgentSigningError();
     }
     const bodyBytes = yield* encodeRequest(registrationBody, {
@@ -341,10 +346,19 @@ const makeSignedRegistrationRequest = (
 const registrationMatchesCall = (
   agentCard: VerifiedAgentCard,
   call: RegistryRegisterCall,
-): boolean =>
-  agentCard.principalId === call.request.principalId &&
-  agentCard.agentName === call.request.agentName &&
-  agentCard.publicKey.x === call.request.publicKey.x;
+): Effect.Effect<boolean, RegistryInvalidResponseError> =>
+  sameEd25519PublicKey(
+    () => agentCard.publicKey,
+    () => call.request.publicKey,
+  ).pipe(
+    Effect.mapError(invalidResponse),
+    Effect.map(
+      (sameKey) =>
+        sameKey &&
+        agentCard.principalId === call.request.principalId &&
+        agentCard.agentName === call.request.agentName,
+    ),
+  );
 
 const decodeRegistrationResult = (
   input: RegistryClientInput,
@@ -363,7 +377,7 @@ const decodeRegistrationResult = (
       result.agentCard,
       input.registrySignerPublicKey,
     );
-    if (!registrationMatchesCall(agentCard, call)) {
+    if (!(yield* registrationMatchesCall(agentCard, call))) {
       return yield* invalidResponse();
     }
     return Object.freeze({ kind: "registered", agentCard });
