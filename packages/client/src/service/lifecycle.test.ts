@@ -1,4 +1,10 @@
-/** @file Focused daemon activation, supervision, and durable delivery tests. */
+/**
+ * @file Focused daemon activation, supervision, and durable delivery tests.
+ *
+ * A fiber a test forks outside its scope runs as a daemon, so a failed
+ * assertion is reported at once instead of waiting on an uninterruptible
+ * registration or receipt that only a later step of the test releases.
+ */
 
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
@@ -243,7 +249,7 @@ const failsWhenAnEmittedItemCannotPersist = () =>
           ? store.putInboxItem(item)
           : Effect.fail(new EndpointStoreError({ reason: "persistence" })),
     };
-    const daemon = yield* Effect.fork(
+    const daemon = yield* Effect.forkDaemon(
       run(fixture, rejectingEmissions, harness),
     );
     yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
@@ -299,7 +305,7 @@ const withReceiptFinalizer = (
  * to its caller, so only the delivery-gate wait inside the receipt can stop it.
  */
 const forkWaitingReceipt = (store: EventStore, token: DeliveryToken) =>
-  Effect.fork(
+  Effect.forkDaemon(
     store
       .completeWebhookDelivery(token, new Uint8Array([1]))
       .pipe(Effect.uninterruptible),
@@ -337,7 +343,7 @@ const closesWhileReceiptWaitsOnFailedPersistence = () =>
           commits += 1;
         }),
     };
-    const daemon = yield* Effect.fork(run(fixture, store, harness));
+    const daemon = yield* Effect.forkDaemon(run(fixture, store, harness));
     yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
     const eventStore = requireEventStore(harness);
     original.delivery.acknowledged = false;
@@ -368,7 +374,7 @@ const blocksRegistrationAndSupervisesOutbound = () =>
     );
     yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
     const operations = requireOperations(harness);
-    const registration = yield* Effect.fork(
+    const registration = yield* Effect.forkDaemon(
       operations.register(fixture.registerRequest),
     );
     yield* awaitStage(
@@ -457,14 +463,16 @@ const interruptRegistrationDuringActivation = (
   harness: RuntimeHarness,
 ) =>
   Effect.gen(function* () {
-    const registration = yield* Effect.fork(
+    const registration = yield* Effect.forkDaemon(
       requireOperations(harness).register(fixture.registerRequest),
     );
     yield* awaitStage(
       Deferred.await(harness.engineEntered),
       "engine acquisition",
     );
-    const interruption = yield* Effect.fork(Fiber.interrupt(registration));
+    const interruption = yield* Effect.forkDaemon(
+      Fiber.interrupt(registration),
+    );
     yield* Effect.yieldNow();
     yield* Deferred.succeed(harness.engineRelease, undefined);
     yield* awaitStage(Fiber.join(interruption), "interrupted registration");
@@ -486,7 +494,7 @@ const finishesRegistrationWhenInterrupted = () =>
     const harness = yield* makeHarness(fixture, "none", true);
     const store = makeStore(fixture, false);
     const agentCard = yield* Schema.encode(AgentCard)(fixture.localCard);
-    const daemon = yield* Effect.fork(run(fixture, store, harness));
+    const daemon = yield* Effect.forkDaemon(run(fixture, store, harness));
     yield* Effect.gen(function* () {
       yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
       yield* interruptRegistrationDuringActivation(fixture, harness);
@@ -560,7 +568,7 @@ const acknowledgeDuringReplacementDelivery = (
       "pending delivery read",
     );
 
-    const acknowledgment = yield* Effect.fork(
+    const acknowledgment = yield* Effect.forkDaemon(
       requireOperations(harness).acknowledgeDelivery(pending.deliveryToken),
     );
     yield* Effect.yieldNow();
@@ -700,7 +708,7 @@ const cancelRegisterDuringActivation = (
 ) =>
   Effect.gen(function* () {
     const cancel = new AbortController();
-    const registering = yield* Effect.fork(
+    const registering = yield* Effect.forkDaemon(
       Effect.tryPromise(() =>
         requireHandler(harness).fetch(
           makeToolCallRequest({
@@ -781,7 +789,7 @@ const holdsTheCatalogWhileTheProtocolActivates = () =>
     yield* Effect.forkScoped(run(fixture, makeStore(fixture, false), harness));
     yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
     const operations = requireOperations(harness);
-    const registering = yield* Effect.fork(
+    const registering = yield* Effect.forkDaemon(
       operations.register(fixture.registerRequest),
     );
     yield* awaitStage(
