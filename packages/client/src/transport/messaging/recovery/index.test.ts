@@ -129,7 +129,7 @@ type EngineRouterPort = EndpointEngineInput["routerWorker"];
  * about 50 WebCrypto calls for a restart to about 1,500 for an N4 trace with a
  * holder, and these slow with machine load. Beside a looping client unit
  * suite, the slowest trace of each run took 7.6 to 20.4 s at a load average
- * of 14 to 83 on 8 cores, and one passed 30 s at 67 to 83. The bound is
+ * of 14 to 83 on 8 cores, and one exceeded 30 s at 67 to 83. The bound is
  * twice that.
  */
 const TRACE_TIMEOUT_MS = 60_000;

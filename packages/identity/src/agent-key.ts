@@ -252,8 +252,8 @@ export const Ed25519PublicKey = Schema.transform(
 export type Ed25519PublicKey = typeof Ed25519PublicKey.Type;
 
 /**
- * Reports failure to derive the standard thumbprint URI or the X25519 key for
- * a validated key, or to import it.
+ * Reports failure to read a key, to derive its standard thumbprint URI or
+ * X25519 key, or to import it.
  */
 export class Ed25519PublicKeyOperationError extends Data.TaggedError(
   "Ed25519PublicKeyOperationError",
@@ -315,8 +315,8 @@ const thumbprintUris = makeBoundedCache<string, string>(
  *
  * @param publicKey Validated public key.
  * @returns The standard SHA-256 JWK thumbprint URI.
- * @failure Ed25519PublicKeyOperationError when the JOSE implementation cannot
- * derive the URI.
+ * @failure Ed25519PublicKeyOperationError when the key's `x` cannot be read
+ * or the JOSE implementation cannot derive the URI.
  */
 export const ed25519PublicKeyThumbprintUri = (
   publicKey: Ed25519PublicKey,
