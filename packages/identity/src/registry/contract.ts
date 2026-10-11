@@ -156,7 +156,7 @@ export const registerResultSchema = Schema.Union(
 );
 
 /** Package-private validated lookup outcome. */
-// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- The private RPC descriptor consumes this verified in-process Schema; the package root does not export it.
+// eslint-disable-next-line agent-code-guard/no-exported-brand-constructor -- The private RPC descriptor and AuthenticatedHttp's card resolver consume this verified in-process Schema; the package root does not export it.
 export const lookupResultSchema = Schema.Union(
   exactStruct({
     kind: Schema.Literal("found"),

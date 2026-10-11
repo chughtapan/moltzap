@@ -347,22 +347,19 @@ const makeSignedRegistrationRequest = (
     });
   });
 
+/**
+ * The returned card must carry the signing authority's key, which
+ * `makeSignedRegistrationRequest` already required the request's key to
+ * equal. Comparing with the authority's key reads no caller-supplied key.
+ */
 const registrationMatchesCall = (
   agentCard: VerifiedAgentCard,
   call: RegistryRegisterCall,
-): Effect.Effect<boolean, RegistryInvalidResponseError> =>
-  sameEd25519PublicKey(
-    () => agentCard.publicKey,
-    () => call.request.publicKey,
-  ).pipe(
-    Effect.mapError(invalidResponse),
-    Effect.map(
-      (sameKey) =>
-        sameKey &&
-        agentCard.principalId === call.request.principalId &&
-        agentCard.agentName === call.request.agentName,
-    ),
-  );
+): boolean =>
+  agentCard.principalId === call.request.principalId &&
+  agentCard.agentName === call.request.agentName &&
+  agentCard.publicKey.x ===
+    AgentSigningAuthority.publicKey(call.signingAuthority).x;
 
 const decodeRegistrationResult = (
   input: RegistryClientInput,
@@ -381,7 +378,7 @@ const decodeRegistrationResult = (
       result.agentCard,
       input.registrySignerPublicKey,
     );
-    if (!(yield* registrationMatchesCall(agentCard, call))) {
+    if (!registrationMatchesCall(agentCard, call)) {
       return yield* invalidResponse();
     }
     return Object.freeze({ kind: "registered", agentCard });

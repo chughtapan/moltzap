@@ -12,8 +12,7 @@ import {
   Schema,
 } from "effect";
 import type { VerifiedAgentCard } from "./agent-card.js";
-import type { AgentSigningAuthority, Ed25519PublicKey } from "./agent-key.js";
-import type { RegistryLookupResult } from "./registry/contract.js";
+import type { AgentSigningAuthority } from "./agent-key.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
 import {
   AuthenticationFailedError,
@@ -29,6 +28,10 @@ import {
 } from "./http-signature.js";
 import { AgentId, type AgentId as AgentIdValue } from "./identifiers.js";
 import { Registry } from "./registry.js";
+import {
+  lookupResultSchema,
+  type RegistryLookupResult,
+} from "./registry/contract.js";
 import { MOLTZAP_VERSION } from "./version.js";
 
 /** Request body and caller identity established by AuthenticatedHttp. */
@@ -144,18 +147,6 @@ function signAgentRequest(input: {
   );
 }
 
-/**
- * Reads the key of a card the installed `Registry` returned. Any layer can
- * provide that service, so the read runs under a try.
- */
-const cardPublicKey = (
-  agentCard: VerifiedAgentCard,
-): Effect.Effect<Ed25519PublicKey, AuthenticationFailedError> =>
-  Effect.try({
-    try: () => agentCard.publicKey,
-    catch: () => new AuthenticationFailedError(),
-  });
-
 function verifyRequest(
   input: {
     readonly bodyBytes: Uint8Array;
@@ -177,11 +168,10 @@ function verifyRequest(
       ),
     );
     const agentCard = yield* dependencies.resolveCard(body.callerAgentId);
-    const publicKey = yield* cardPublicKey(agentCard);
     const signature = yield* verifyHttpRequestSignature({
       httpRequest: input.httpRequest,
       bodyBytes: input.bodyBytes,
-      publicKey,
+      publicKey: agentCard.publicKey,
       profile: "normal",
     });
     const claim = yield* claimNonce(dependencies.nonces, {
@@ -379,6 +369,11 @@ function lookupCard(
     .pipe(Effect.flatMap(resolveLookupAttempt));
 }
 
+/**
+ * Any layer can provide the `Registry`, so its result is validated under a try
+ * before the card is cached or read. Only a card this package verified passes,
+ * and a result that throws on read fails authentication.
+ */
 function resolveLookupAttempt(
   attempted: Option.Option<RegistryLookupResult>,
 ): Effect.Effect<
@@ -388,9 +383,16 @@ function resolveLookupAttempt(
   if (Option.isNone(attempted)) {
     return Effect.fail(new OverloadedError());
   }
-  return attempted.value.kind === "found"
-    ? Effect.succeed(attempted.value.agentCard)
-    : Effect.fail(new AuthenticationFailedError());
+  return Effect.try({
+    try: () => Schema.validateSync(lookupResultSchema)(attempted.value),
+    catch: () => new AuthenticationFailedError(),
+  }).pipe(
+    Effect.flatMap((result) =>
+      result.kind === "found"
+        ? Effect.succeed(result.agentCard)
+        : Effect.fail(new AuthenticationFailedError()),
+    ),
+  );
 }
 
 function beginCardResolution(

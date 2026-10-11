@@ -897,9 +897,10 @@ const maximumArtifact = Effect.runSync(Effect.cached(buildMaximumArtifact));
  * POST action and durability certificates, and a re-anchor certificate. The
  * cases verify the page or seal it to every member. Beside a looping client
  * unit suite on 8 cores, the case that pays for the build took 3.2 s to
- * 11.1 s, the slowest at a 1-minute load average of 60 to 94, and once
- * exceeded 15 s at 51 to 60. Every run saw a load of 50 or more, far above
- * the load of CI's single suite. The bound is twice 15 s.
+ * 11.1 s per run; the 11.1 s run saw a 1-minute load average of 60 to 94. At
+ * a load average of 51 to 60, the build once ran past 15 s. Every run saw a
+ * load average of 50 or more; CI runs one suite, at far lower load. The bound
+ * is twice 15 s.
  */
 const MAXIMUM_PAGE_TIMEOUT_MS = 30_000;
 

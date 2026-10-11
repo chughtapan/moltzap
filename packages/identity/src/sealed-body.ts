@@ -190,7 +190,6 @@ const isRecipientCount = (recipientCount: number): boolean =>
   recipientCount >= 1 &&
   recipientCount <= MAXIMUM_RECIPIENTS;
 
-/** The AgentCard members that sealing and opening read. */
 type CardMembers = Pick<VerifiedAgentCard, "agentId" | "publicKey">;
 
 /**

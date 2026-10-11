@@ -373,9 +373,8 @@ const snapshotBody = (candidate: Uint8Array) =>
   });
 
 /**
- * The key comparison reads the caller's card under a try. `digestAgentCard`
- * then admits only a card this module parsed, which is frozen data, so the
- * later card reads cannot throw.
+ * `digestAgentCard` admits only a card this package parsed, which is frozen
+ * data, so the card reads after it cannot throw.
  */
 const prepareSigningMaterial = (input: SignInput) =>
   Effect.gen(function* () {
