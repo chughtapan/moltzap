@@ -1114,8 +1114,8 @@ export const acceptEngineRecoveryIngress = (
 /**
  * Resume the evidence one fold owes from durable state. A fold whose input the
  * store refuses, such as a record under an anchor this endpoint has staged a
- * re-anchor candidate away from, has nothing due, as live ingress ignores the
- * same refusal, so only that fold's conversation waits.
+ * re-anchor candidate away from, resumes nothing past the refusal, as live
+ * ingress ignores the same refusal, so only that fold's conversation waits.
  * @param runtime Recovered engine state and durable protocol dependencies.
  * @param fold Fold whose evidence resumes.
  * @returns Completion once the fold's due evidence is queued or refused.
@@ -1139,7 +1139,7 @@ const resumeFold = (
     Effect.catchTag("EndpointStoreError", (error) =>
       isSemanticStoreRejection(error)
         ? Effect.logWarning(
-            "Fold not resumed: the endpoint store refused it; its conversation waits",
+            "Fold resume stopped: the endpoint store refused it; its conversation waits",
           ).pipe(
             Effect.annotateLogs({
               conversationId: fold.conversation.conversationId,
