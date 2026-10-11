@@ -1,5 +1,6 @@
 /** @file Exact Ed25519 public keys and opaque private signing authority. */
 
+import type { LazyArg } from "effect/Function";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import {
   Data,
@@ -10,7 +11,6 @@ import {
   Redacted,
   Schema,
 } from "effect";
-import type { LazyArg } from "effect/Function";
 import {
   calculateJwkThumbprintUri,
   type CryptoKey,

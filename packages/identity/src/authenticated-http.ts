@@ -12,7 +12,7 @@ import {
   Schema,
 } from "effect";
 import type { VerifiedAgentCard } from "./agent-card.js";
-import type { AgentSigningAuthority } from "./agent-key.js";
+import type { AgentSigningAuthority, Ed25519PublicKey } from "./agent-key.js";
 import type { RegistryLookupResult } from "./registry/contract.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
 import {
@@ -145,9 +145,17 @@ function signAgentRequest(input: {
 }
 
 /**
- * The caller's card comes from the installed `Registry`, which any layer can
- * provide, so its key is read under a try.
+ * Reads the key of a card the installed `Registry` returned. Any layer can
+ * provide that service, so the read runs under a try.
  */
+const cardPublicKey = (
+  agentCard: VerifiedAgentCard,
+): Effect.Effect<Ed25519PublicKey, AuthenticationFailedError> =>
+  Effect.try({
+    try: () => agentCard.publicKey,
+    catch: () => new AuthenticationFailedError(),
+  });
+
 function verifyRequest(
   input: {
     readonly bodyBytes: Uint8Array;
@@ -169,10 +177,7 @@ function verifyRequest(
       ),
     );
     const agentCard = yield* dependencies.resolveCard(body.callerAgentId);
-    const publicKey = yield* Effect.try({
-      try: () => agentCard.publicKey,
-      catch: () => new AuthenticationFailedError(),
-    });
+    const publicKey = yield* cardPublicKey(agentCard);
     const signature = yield* verifyHttpRequestSignature({
       httpRequest: input.httpRequest,
       bodyBytes: input.bodyBytes,

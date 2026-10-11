@@ -9,8 +9,8 @@ import type { VerifiedAgentCard } from "./agent-card.js";
 import {
   agentOpeningPrivateKey,
   AgentSigningAuthority,
-  SEALED_BODY_KEY_MANAGEMENT_ALGORITHM,
   sameEd25519PublicKey,
+  SEALED_BODY_KEY_MANAGEMENT_ALGORITHM,
   x25519SealingKey,
 } from "./agent-key.js";
 import { decodeCanonicalJson, encodeCanonicalJson } from "./canonical-json.js";
@@ -385,6 +385,29 @@ interface OpenInput {
 }
 
 /**
+ * Copies the local card's members under a try and requires its key to be the
+ * authority's, so a card that throws on read or belongs to another agent fails
+ * with `SealedBodyOpeningError`.
+ */
+const authorityCard = (
+  input: OpenInput,
+): Effect.Effect<CardMembers, SealedBodyOpeningError> =>
+  Effect.gen(function* () {
+    const card = yield* Effect.try({
+      try: () => cardMembers(input.agentCard),
+      catch: openingFailure,
+    });
+    const sameKey = yield* sameEd25519PublicKey(
+      () => AgentSigningAuthority.publicKey(input.signingAuthority),
+      () => card.publicKey,
+    ).pipe(Effect.mapError(openingFailure));
+    if (!sameKey) {
+      return yield* new SealedBodyOpeningError();
+    }
+    return card;
+  });
+
+/**
  * Decrypts a verified SignedMessage body sealed to the local agent.
  *
  * It first refuses an AgentCard whose key is not the authority's Ed25519 key.
@@ -409,17 +432,7 @@ const open = (
   input: OpenInput,
 ): Effect.Effect<Uint8Array, SealedBodyOpeningError> =>
   Effect.gen(function* () {
-    const card = yield* Effect.try({
-      try: () => cardMembers(input.agentCard),
-      catch: openingFailure,
-    });
-    const sameKey = yield* sameEd25519PublicKey(
-      () => AgentSigningAuthority.publicKey(input.signingAuthority),
-      () => card.publicKey,
-    ).pipe(Effect.mapError(openingFailure));
-    if (!sameKey) {
-      return yield* new SealedBodyOpeningError();
-    }
+    const card = yield* authorityCard(input);
     const representation = yield* decodeCanonicalJson(
       sealedBodyRepresentation,
       input.signedMessage.body,

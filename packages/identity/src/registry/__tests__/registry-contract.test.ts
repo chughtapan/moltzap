@@ -559,7 +559,8 @@ const assertRegistrationClientBehavior = (fixture: ClientFixture) =>
     expect(outcomeName(signingFailure)).toBe(SIGNING_ERROR_TAG);
   });
 
-const unreadableKeyRegistration = Effect.gen(function* () {
+/** A request whose key throws on read fails as a signing error, not a defect. */
+const assertUnreadableKeyRegistration = Effect.gen(function* () {
   const signingAuthority = yield* AgentSigningAuthority.fromPkcs8(
     Redacted.make(makePrivateKeyPem()),
   );
@@ -597,6 +598,7 @@ const clientBehavior = Effect.gen(function* () {
   const fixture = yield* makeClientFixture;
   yield* assertLookupScenarios(fixture);
   yield* assertRegistrationClientBehavior(fixture);
+  yield* assertUnreadableKeyRegistration;
 });
 
 describe("Registry private contracts", () => {
@@ -613,10 +615,5 @@ describe("Registry private contracts", () => {
   it("classifies public client outcomes without weakening card checks", () => {
     expect.hasAssertions();
     return Effect.runPromise(clientBehavior);
-  });
-
-  it("fails registration with its typed error when the request's key cannot be read", () => {
-    expect.hasAssertions();
-    return Effect.runPromise(unreadableKeyRegistration);
   });
 });

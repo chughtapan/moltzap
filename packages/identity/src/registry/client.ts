@@ -322,7 +322,11 @@ const makeSignedRegistrationRequest = (
     const sameKey = yield* sameEd25519PublicKey(
       () => AgentSigningAuthority.publicKey(call.signingAuthority),
       () => call.request.publicKey,
-    ).pipe(Effect.mapError(() => new AgentSigningError()));
+    ).pipe(
+      Effect.catchTag("Ed25519PublicKeyOperationError", () =>
+        Effect.fail(new AgentSigningError()),
+      ),
+    );
     if (!sameKey) {
       return yield* new AgentSigningError();
     }
