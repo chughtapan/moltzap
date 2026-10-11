@@ -8643,44 +8643,42 @@ const refuseSuccessorBehindStagedCandidate = (fixture: RecoveryFixture) =>
  * @returns The trace, run to completion.
  */
 const startsPastASuccessorItCannotStageBehindItsCandidate = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const { successorHash } =
-        yield* refuseSuccessorBehindStagedCandidate(fixture);
-      yield* Queue.takeAll(fixture.normalOutbound);
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const { successorHash } =
+      yield* refuseSuccessorBehindStagedCandidate(fixture);
+    yield* Queue.takeAll(fixture.normalOutbound);
 
-      const restart = yield* Effect.either(makeEndpointEngine(fixture.input));
-      expect(
-        Either.getLeft(restart),
-        "the error the restart over the store failed with",
-      ).toEqual(Option.none());
-      const restarted = yield* restart;
-      yield* restarted.drainOutbound;
-      const sent = yield* Effect.forEach(
-        yield* Queue.takeAll(fixture.normalOutbound),
-        (message) => carriedBy(message),
-        { concurrency: 1 },
-      );
+    const restart = yield* Effect.either(makeEndpointEngine(fixture.input));
+    expect(
+      Either.getLeft(restart),
+      "the error the restart over the store failed with",
+    ).toEqual(Option.none());
+    const restarted = yield* restart;
+    yield* restarted.drainOutbound;
+    const sent = yield* Effect.forEach(
+      yield* Queue.takeAll(fixture.normalOutbound),
+      (message) => carriedBy(message),
+      { concurrency: 1 },
+    );
 
-      expect(
-        sent.filter(
-          (carried) =>
-            carried.kind === "action_certified_record" &&
-            carried.recordHash === successorHash,
-        ),
-        "copies of the successor the restarted endpoint sent",
-      ).toEqual([]);
-      expect(
-        sent.filter(
-          (carried) =>
-            carried.kind === "durability_vote" &&
-            carried.recordHash === successorHash,
-        ),
-        "durability votes for the successor the restarted endpoint sent",
-      ).toEqual([]);
-    }),
-  );
+    expect(
+      sent.filter(
+        (carried) =>
+          carried.kind === "action_certified_record" &&
+          carried.recordHash === successorHash,
+      ),
+      "copies of the successor the restarted endpoint sent",
+    ).toEqual([]);
+    expect(
+      sent.filter(
+        (carried) =>
+          carried.kind === "durability_vote" &&
+          carried.recordHash === successorHash,
+      ),
+      "durability votes for the successor the restarted endpoint sent",
+    ).toEqual([]);
+  });
 
 /**
  * The endpoint staged its candidate at the N4 head and holds the certified
@@ -8692,25 +8690,23 @@ const startsPastASuccessorItCannotStageBehindItsCandidate = () =>
  * @returns The trace, run to completion.
  */
 const failsToStartWhenTheStoreFailsToStageASuccessorBehindItsCandidate = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      yield* refuseSuccessorBehindStagedCandidate(fixture);
-      const failingStore: EndpointStore = {
-        ...fixture.store,
-        stageRecordForDissemination: () =>
-          Effect.fail(new EndpointStoreError({ reason: "persistence" })),
-      };
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    yield* refuseSuccessorBehindStagedCandidate(fixture);
+    const failingStore: EndpointStore = {
+      ...fixture.store,
+      stageRecordForDissemination: () =>
+        Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+    };
 
-      const restart = yield* Effect.exit(
-        makeEndpointEngine({ ...fixture.input, store: failingStore }),
-      );
+    const restart = yield* Effect.exit(
+      makeEndpointEngine({ ...fixture.input, store: failingStore }),
+    );
 
-      expect(restart, "the restart over the store that fails staging").toEqual(
-        Exit.fail(new EngineInitializationError({ reason: "persistence" })),
-      );
-    }),
-  );
+    expect(restart, "the restart over the store that fails staging").toEqual(
+      Exit.fail(new EngineInitializationError({ reason: "persistence" })),
+    );
+  });
 
 /**
  * The remote member's GENESIS proposal for the fixture's direct conversation,
@@ -8767,40 +8763,34 @@ const remoteGenesisAtTheRestartedFoundation = (
  * @returns The trace, run to completion.
  */
 const resumesALaterConversationPastARefusedFold = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture;
-      const refused = yield* refuseSuccessorBehindStagedCandidate(fixture);
-      const proposal = yield* remoteGenesisAtTheRestartedFoundation(fixture);
-      const actionHash = yield* hashAction(proposal.action);
-      const started = yield* makeEndpointEngine(fixture.input);
-      yield* directPacketIngressFrom({
-        membership: fixture.membership,
-        sender: fixture.remote,
-        packet: proposal,
-        routerInstanceId: newRouterInstanceId,
-      }).pipe(
-        Effect.flatMap((ingress) => started.acceptRouterIngress(ingress)),
-      );
-      yield* started.drainOutbound;
-      const signed = yield* takeSignedActionHashes(fixture.normalOutbound);
+  Effect.gen(function* () {
+    const fixture = yield* makeFixture;
+    const refused = yield* refuseSuccessorBehindStagedCandidate(fixture);
+    const proposal = yield* remoteGenesisAtTheRestartedFoundation(fixture);
+    const actionHash = yield* hashAction(proposal.action);
+    const started = yield* makeEndpointEngine(fixture.input);
+    yield* directPacketIngressFrom({
+      membership: fixture.membership,
+      sender: fixture.remote,
+      packet: proposal,
+      routerInstanceId: newRouterInstanceId,
+    }).pipe(Effect.flatMap((ingress) => started.acceptRouterIngress(ingress)));
+    yield* started.drainOutbound;
+    const signed = yield* takeSignedActionHashes(fixture.normalOutbound);
 
-      const restarted = yield* makeEndpointEngine(fixture.input);
-      yield* restarted.drainOutbound;
-      const signedAgain = yield* takeSignedActionHashes(fixture.normalOutbound);
+    const restarted = yield* makeEndpointEngine(fixture.input);
+    yield* restarted.drainOutbound;
+    const signedAgain = yield* takeSignedActionHashes(fixture.normalOutbound);
 
-      expect(
-        fixture.membership.descriptor.conversationId > refused.conversationId,
-        "the direct conversation's folds resume after the N4 conversation's",
-      ).toBe(true);
-      expect(signed, "actions the started endpoint signed").toContain(
-        actionHash,
-      );
-      expect(signedAgain, "actions the restarted endpoint signed").toContain(
-        actionHash,
-      );
-    }),
-  );
+    expect(
+      fixture.membership.descriptor.conversationId > refused.conversationId,
+      "the direct conversation's folds resume after the N4 conversation's",
+    ).toBe(true);
+    expect(signed, "actions the started endpoint signed").toContain(actionHash);
+    expect(signedAgain, "actions the restarted endpoint signed").toContain(
+      actionHash,
+    );
+  });
 
 describe("evidence and outbox rows an engine resumes", () => {
   it("sends its signature for a proposal it signed again after a Router restart recovery", () =>
