@@ -171,7 +171,7 @@ function advertisesEventsBeforeRegistration() {
         delivery: pushDelivery,
       }),
     );
-  }).pipe(Effect.scoped);
+  });
 }
 
 function distinguishesProtocolAndDomainFailures() {
@@ -209,7 +209,7 @@ function distinguishesProtocolAndDomainFailures() {
       code: ProtocolErrorCode.InternalError,
       data: { reason: "incompatible-daemon" },
     });
-  }).pipe(Effect.scoped);
+  });
 }
 
 /**
@@ -235,7 +235,7 @@ function reportsOutsideVocabularyStatusFailure() {
       code: ProtocolErrorCode.InternalError,
       data: { reason: "incompatible-daemon" },
     });
-  }).pipe(Effect.scoped);
+  });
 }
 
 function sanitizesUnexpectedOperationDefects() {
@@ -257,7 +257,7 @@ function sanitizesUnexpectedOperationDefects() {
       data: { reason: "incompatible-daemon" },
     });
     expect(String(cause)).not.toContain(PRIVATE_STATUS_DEFECT);
-  }).pipe(Effect.scoped);
+  });
 }
 
 function reportsUnexpectedSubscriptionLoss() {
@@ -275,7 +275,7 @@ function reportsUnexpectedSubscriptionLoss() {
 
     expect(result).toBeInstanceOf(ListenError);
     expect(result).toMatchObject({ reason: "transport-failed" });
-  }).pipe(Effect.scoped);
+  });
 }
 
 function keepsIdleSubscriptionAlive() {
@@ -317,7 +317,7 @@ function idleSubscriptionOutcome(keepAliveMillis: number) {
         onSuccess: (cause) => ({ dropped: true as const, cause }),
       }),
     );
-  }).pipe(Effect.scoped);
+  });
 }
 
 /** A boundary server with one endpoint listening on it, and the fiber observing that stream's end. */

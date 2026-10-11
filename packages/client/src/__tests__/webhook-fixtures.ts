@@ -134,7 +134,6 @@ export const enqueue = (store: EndpointStore, byte: number, text?: string) =>
  * @returns The scripted callback's controls and the events to acquire.
  */
 export const fixture = (store: EndpointStore) => {
-  const gate = Effect.unsafeMakeSemaphore(1);
   let status = 200;
   let challengeValid = true;
   let onEvent = Effect.void;
@@ -154,9 +153,6 @@ export const fixture = (store: EndpointStore) => {
     }).pipe(Effect.withSpan("webhookCallback")),
   );
   return {
-    gate,
-    store,
-    client,
     posts,
     status: (value: number) => {
       status = value;
@@ -167,7 +163,7 @@ export const fixture = (store: EndpointStore) => {
     onEvent: (effect: Effect.Effect<void>) => {
       onEvent = effect;
     },
-    acquire: makeWebhookEvents(store, gate).pipe(
+    acquire: makeWebhookEvents(store, Effect.unsafeMakeSemaphore(1)).pipe(
       Effect.provideService(HttpClient.HttpClient, client),
     ),
   };

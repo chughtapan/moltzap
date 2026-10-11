@@ -68,8 +68,6 @@ const invocationFixture = (
 /** The request every keyed test sends, under idempotency key `once`. */
 const onceRequest = { input, idempotencyKey: "once" };
 
-const withFileSystem = Effect.provide(NodeFileSystem.layer);
-
 /** Invocations over a fresh store whose send blocks until `complete` resolves. */
 const freshInvocations = Effect.gen(function* () {
   const store = yield* temporaryDirectory.pipe(
@@ -80,98 +78,86 @@ const freshInvocations = Effect.gen(function* () {
 });
 
 const reportsAnUnseenKeyAsAbsent = () =>
-  withFileSystem(
-    Effect.gen(function* () {
-      const { invocations } = yield* freshInvocations;
+  Effect.gen(function* () {
+    const { invocations } = yield* freshInvocations;
 
-      expect(yield* invocations.readSend({ idempotencyKey: "once" })).toEqual({
-        state: "absent",
-      });
-    }),
-  );
+    expect(yield* invocations.readSend({ idempotencyKey: "once" })).toEqual({
+      state: "absent",
+    });
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 const keepsADisconnectedSendPendingAndJoinsItsRetry = () =>
-  withFileSystem(
-    Effect.gen(function* () {
-      const test = yield* freshInvocations;
-      const disconnected = yield* test.invocations
-        .send(onceRequest)
-        .pipe(Effect.forkScoped);
-      yield* Deferred.await(test.started);
-      yield* Fiber.interrupt(disconnected);
-      const pending = yield* test.invocations.readSend({
-        idempotencyKey: "once",
-      });
+  Effect.gen(function* () {
+    const test = yield* freshInvocations;
+    const disconnected = yield* test.invocations
+      .send(onceRequest)
+      .pipe(Effect.forkScoped);
+    yield* Deferred.await(test.started);
+    yield* Fiber.interrupt(disconnected);
+    const pending = yield* test.invocations.readSend({
+      idempotencyKey: "once",
+    });
 
-      const retry = yield* test.invocations
-        .send(onceRequest)
-        .pipe(Effect.forkScoped);
-      yield* Deferred.succeed(test.complete, undefined);
+    const retry = yield* test.invocations
+      .send(onceRequest)
+      .pipe(Effect.forkScoped);
+    yield* Deferred.succeed(test.complete, undefined);
 
-      expect(pending).toEqual({ state: "pending", input });
-      expect(yield* Fiber.join(retry)).toEqual({ operationId });
-      expect(test.calls()).toBe(1);
-    }),
-  );
+    expect(pending).toEqual({ state: "pending", input });
+    expect(yield* Fiber.join(retry)).toEqual({ operationId });
+    expect(test.calls()).toBe(1);
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 const refusesADifferentInputUnderAKeyInFlight = () =>
-  withFileSystem(
-    Effect.gen(function* () {
-      const test = yield* freshInvocations;
-      yield* test.invocations.send(onceRequest).pipe(Effect.forkScoped);
-      yield* Deferred.await(test.started);
+  Effect.gen(function* () {
+    const test = yield* freshInvocations;
+    yield* test.invocations.send(onceRequest).pipe(Effect.forkScoped);
+    yield* Deferred.await(test.started);
 
-      const conflict = yield* test.invocations
-        .send({
-          ...onceRequest,
-          input: Schema.decodeUnknownSync(SendInput)({
-            to: "agent:bob",
-            text: "different",
-          }),
-        })
-        .pipe(Effect.flip);
+    const conflict = yield* test.invocations
+      .send({
+        ...onceRequest,
+        input: Schema.decodeUnknownSync(SendInput)({
+          to: "agent:bob",
+          text: "different",
+        }),
+      })
+      .pipe(Effect.flip);
 
-      expect(conflict).toMatchObject({ reason: "idempotency-conflict" });
-    }),
-  );
+    expect(conflict).toMatchObject({ reason: "idempotency-conflict" });
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 const replaysAReturnedOutcomeWithoutSendingAgain = () =>
-  withFileSystem(
-    Effect.gen(function* () {
-      const test = yield* freshInvocations;
-      yield* Deferred.succeed(test.complete, undefined);
-      yield* test.invocations.send(onceRequest);
+  Effect.gen(function* () {
+    const test = yield* freshInvocations;
+    yield* Deferred.succeed(test.complete, undefined);
+    yield* test.invocations.send(onceRequest);
 
-      const replayed = yield* test.invocations.send(onceRequest);
+    const replayed = yield* test.invocations.send(onceRequest);
 
-      expect(replayed).toEqual({ operationId });
-      expect(test.calls()).toBe(1);
-    }),
-  );
+    expect(replayed).toEqual({ operationId });
+    expect(test.calls()).toBe(1);
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 const replaysAReturnedOutcomeAfterRestart = () =>
-  withFileSystem(
-    Effect.gen(function* () {
-      const test = yield* freshInvocations;
-      yield* Deferred.succeed(test.complete, undefined);
-      yield* test.invocations.send(onceRequest);
+  Effect.gen(function* () {
+    const test = yield* freshInvocations;
+    yield* Deferred.succeed(test.complete, undefined);
+    yield* test.invocations.send(onceRequest);
 
-      yield* checksRetainedOutcome(test.store, test.scope, onceRequest);
-    }),
-  );
+    yield* checksRetainedOutcome(test.store, test.scope, onceRequest);
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 const executesEverySendWithoutAKey = () =>
-  withFileSystem(
-    Effect.gen(function* () {
-      const test = yield* freshInvocations;
-      yield* Deferred.succeed(test.complete, undefined);
+  Effect.gen(function* () {
+    const test = yield* freshInvocations;
+    yield* Deferred.succeed(test.complete, undefined);
 
-      yield* test.invocations.send({ input });
-      yield* test.invocations.send({ input });
+    yield* test.invocations.send({ input });
+    yield* test.invocations.send({ input });
 
-      expect(test.calls()).toBe(2);
-    }),
-  );
+    expect(test.calls()).toBe(2);
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 const interruptsDaemon = (path: string) =>
   Effect.scoped(
@@ -296,27 +282,25 @@ const replaysARefusalWithItsDetail = () =>
  * retained.
  */
 const returnsTheOwnOutcomeWhenItCannotBeRetained = () =>
-  withFileSystem(
-    Effect.gen(function* () {
-      const store = yield* temporaryDirectory.pipe(
-        Effect.flatMap(openEndpointStore),
-      );
-      const invocations = yield* makeSendInvocations(
-        {
-          ...store,
-          finishSendAttempt: () =>
-            Effect.fail(new EndpointStoreError({ reason: "persistence" })),
-        },
-        () => Effect.succeed({ operationId }),
-        yield* Scope.Scope,
-      );
+  Effect.gen(function* () {
+    const store = yield* temporaryDirectory.pipe(
+      Effect.flatMap(openEndpointStore),
+    );
+    const invocations = yield* makeSendInvocations(
+      {
+        ...store,
+        finishSendAttempt: () =>
+          Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+      },
+      () => Effect.succeed({ operationId }),
+      yield* Scope.Scope,
+    );
 
-      expect(yield* invocations.send(onceRequest)).toEqual({ operationId });
-      expect(
-        yield* invocations.send(onceRequest).pipe(Effect.flip),
-      ).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
-    }),
-  );
+    expect(yield* invocations.send(onceRequest)).toEqual({ operationId });
+    expect(
+      yield* invocations.send(onceRequest).pipe(Effect.flip),
+    ).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 /**
  * A retained outcome the store cannot decode says nothing about whether the
@@ -324,44 +308,42 @@ const returnsTheOwnOutcomeWhenItCannotBeRetained = () =>
  * `indeterminate`.
  */
 const replaysAnUndecodableOutcomeAsUnknown = () =>
-  withFileSystem(
-    Effect.gen(function* () {
-      const store = yield* temporaryDirectory.pipe(
-        Effect.flatMap(openEndpointStore),
-      );
-      const scope = yield* Scope.Scope;
-      const first = yield* makeSendInvocations(
-        store,
-        () => Effect.succeed({ operationId }),
-        scope,
-      );
-      yield* first.send(onceRequest);
-      const corrupted = yield* makeSendInvocations(
-        {
-          ...store,
-          readSendAttempt: (key) =>
-            store
-              .readSendAttempt(key)
-              .pipe(
-                Effect.map((attempt) =>
-                  attempt === undefined
-                    ? attempt
-                    : { ...attempt, canonicalOutcome: Uint8Array.of(0xff) },
-                ),
+  Effect.gen(function* () {
+    const store = yield* temporaryDirectory.pipe(
+      Effect.flatMap(openEndpointStore),
+    );
+    const scope = yield* Scope.Scope;
+    const first = yield* makeSendInvocations(
+      store,
+      () => Effect.succeed({ operationId }),
+      scope,
+    );
+    yield* first.send(onceRequest);
+    const corrupted = yield* makeSendInvocations(
+      {
+        ...store,
+        readSendAttempt: (key) =>
+          store
+            .readSendAttempt(key)
+            .pipe(
+              Effect.map((attempt) =>
+                attempt === undefined
+                  ? attempt
+                  : { ...attempt, canonicalOutcome: Uint8Array.of(0xff) },
               ),
-        },
-        () => Effect.dieMessage("retained send executed again"),
-        scope,
-      );
+            ),
+      },
+      () => Effect.dieMessage("retained send executed again"),
+      scope,
+    );
 
-      expect(
-        yield* corrupted.send(onceRequest).pipe(Effect.flip),
-      ).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
-      expect(
-        yield* corrupted.readSend({ idempotencyKey: "once" }),
-      ).toStrictEqual({ state: "indeterminate", input });
-    }),
-  );
+    expect(yield* corrupted.send(onceRequest).pipe(Effect.flip)).toStrictEqual(
+      new SendError({ reason: "outcome-unknown" }),
+    );
+    expect(yield* corrupted.readSend({ idempotencyKey: "once" })).toStrictEqual(
+      { state: "indeterminate", input },
+    );
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 /**
  * A retried key whose earlier attempt the store cannot read may have posted,
@@ -369,33 +351,31 @@ const replaysAnUndecodableOutcomeAsUnknown = () =>
  * says it was not sent.
  */
 const reportsAnUnreadableEarlierAttemptAsUnknown = () =>
-  withFileSystem(
-    Effect.gen(function* () {
-      const store = yield* temporaryDirectory.pipe(
-        Effect.flatMap(openEndpointStore),
-      );
-      const scope = yield* Scope.Scope;
-      const first = yield* makeSendInvocations(
-        store,
-        () => Effect.succeed({ operationId }),
-        scope,
-      );
-      yield* first.send(onceRequest);
-      const unreadable = yield* makeSendInvocations(
-        {
-          ...store,
-          readSendAttempt: () =>
-            Effect.fail(new EndpointStoreError({ reason: "persistence" })),
-        },
-        () => Effect.dieMessage("retained send executed again"),
-        scope,
-      );
+  Effect.gen(function* () {
+    const store = yield* temporaryDirectory.pipe(
+      Effect.flatMap(openEndpointStore),
+    );
+    const scope = yield* Scope.Scope;
+    const first = yield* makeSendInvocations(
+      store,
+      () => Effect.succeed({ operationId }),
+      scope,
+    );
+    yield* first.send(onceRequest);
+    const unreadable = yield* makeSendInvocations(
+      {
+        ...store,
+        readSendAttempt: () =>
+          Effect.fail(new EndpointStoreError({ reason: "persistence" })),
+      },
+      () => Effect.dieMessage("retained send executed again"),
+      scope,
+    );
 
-      expect(
-        yield* unreadable.send(onceRequest).pipe(Effect.flip),
-      ).toStrictEqual(new SendError({ reason: "outcome-unknown" }));
-    }),
-  );
+    expect(yield* unreadable.send(onceRequest).pipe(Effect.flip)).toStrictEqual(
+      new SendError({ reason: "outcome-unknown" }),
+    );
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 /**
  * A reservation the store fails may have read an attempt the key already
@@ -406,26 +386,23 @@ const classifiesAFailedReservation = (
   reason: EndpointStoreError["reason"],
   expected: SendError["reason"],
 ) =>
-  withFileSystem(
-    Effect.gen(function* () {
-      const store = yield* temporaryDirectory.pipe(
-        Effect.flatMap(openEndpointStore),
-      );
-      const invocations = yield* makeSendInvocations(
-        {
-          ...store,
-          beginSendAttempt: () =>
-            Effect.fail(new EndpointStoreError({ reason })),
-        },
-        () => Effect.dieMessage("unreserved send executed"),
-        yield* Scope.Scope,
-      );
+  Effect.gen(function* () {
+    const store = yield* temporaryDirectory.pipe(
+      Effect.flatMap(openEndpointStore),
+    );
+    const invocations = yield* makeSendInvocations(
+      {
+        ...store,
+        beginSendAttempt: () => Effect.fail(new EndpointStoreError({ reason })),
+      },
+      () => Effect.dieMessage("unreserved send executed"),
+      yield* Scope.Scope,
+    );
 
-      expect(
-        yield* invocations.send(onceRequest).pipe(Effect.flip),
-      ).toStrictEqual(new SendError({ reason: expected }));
-    }),
-  );
+    expect(
+      yield* invocations.send(onceRequest).pipe(Effect.flip),
+    ).toStrictEqual(new SendError({ reason: expected }));
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 // @agent-code-guard/regression-only: these crash and concurrency transcripts pin the invocation contract without asserting collective completion.
 describe("durable send invocations", () => {

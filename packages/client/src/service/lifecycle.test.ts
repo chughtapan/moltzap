@@ -9,13 +9,11 @@ import {
   Cause,
   Data,
   Deferred,
-  Duration,
   Effect,
   Exit,
   Fiber,
   Option,
   Ref,
-  Schedule,
   Schema,
 } from "effect";
 import { join } from "node:path";
@@ -32,17 +30,18 @@ import {
   awaitFrame,
   awaitStage,
   EXPECTED_LISTENER_FAILURE,
+  holdNextRead,
   makeHarness,
   makeListenRequest,
   makeStore,
   makeToolCallRequest,
   makeToolListChangesRequest,
   makeToolListRequest,
+  openStream,
   type ReadBarrier,
   requireEventStore,
   requireHandler,
   requireOperations,
-  responseReader,
   run,
   type RuntimeHarness,
   SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION,
@@ -202,17 +201,10 @@ const emitsWhileAPassHoldsTheDeliveryGate = () =>
       run(fixture, makeStore(fixture, true, harness.delivery), harness),
     );
     yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
-    const readBarrier: ReadBarrier = {
-      entered: yield* Deferred.make<undefined>(),
-      release: yield* Deferred.make<undefined>(),
-    };
-    yield* Effect.sync(() => {
-      harness.delivery.readBarrier = readBarrier;
-    });
-    const reader = responseReader(
-      yield* Effect.tryPromise(() =>
-        requireHandler(harness).fetch(makeListenRequest("listener-1")),
-      ),
+    const readBarrier = yield* holdNextRead(harness);
+    const reader = yield* openStream(
+      requireHandler(harness),
+      makeListenRequest("listener-1"),
     );
     yield* awaitFrame(reader, "subscription acknowledgment");
     yield* awaitStage(Deferred.await(readBarrier.entered), "held pass");
@@ -231,7 +223,6 @@ const emitsWhileAPassHoldsTheDeliveryGate = () =>
         id: sent.operationId,
       }),
     );
-    yield* Effect.tryPromise(() => reader.cancel());
   });
 
 /**
@@ -350,10 +341,9 @@ const closesWhileReceiptWaitsOnFailedPersistence = () =>
     yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
     const eventStore = requireEventStore(harness);
     original.delivery.acknowledged = false;
-    const reader = responseReader(
-      yield* Effect.tryPromise(() =>
-        requireHandler(harness).fetch(makeListenRequest("fatal-receipt")),
-      ),
+    yield* openStream(
+      requireHandler(harness),
+      makeListenRequest("fatal-receipt"),
     );
     yield* awaitStage(Deferred.await(entered), "failing inbox persistence");
     const waiting = yield* forkWaitingReceipt(
@@ -367,7 +357,6 @@ const closesWhileReceiptWaitsOnFailedPersistence = () =>
       yield* awaitStage(Fiber.join(daemon).pipe(Effect.flip), "fatal shutdown"),
     ).toEqual(new DaemonRuntimeError({ phase: "storage" }));
     expect(commits).toBe(0);
-    yield* Effect.tryPromise(() => reader.cancel());
   });
 
 const blocksRegistrationAndSupervisesOutbound = () =>
@@ -532,11 +521,7 @@ const finishesRegistrationWhenInterrupted = () =>
 
 const receivesFirstDelivery = (handler: HarnessMcpEventHandler) =>
   Effect.gen(function* () {
-    const reader = responseReader(
-      yield* Effect.tryPromise(() =>
-        handler.fetch(makeListenRequest("listener-1")),
-      ),
-    );
+    const reader = yield* openStream(handler, makeListenRequest("listener-1"));
     expect(
       yield* awaitFrame(reader, "first subscription acknowledgment"),
     ).toEqual({
@@ -561,38 +546,14 @@ const receivesFirstDelivery = (handler: HarnessMcpEventHandler) =>
     return reader;
   });
 
-/**
- * Wait until the harness engine has served more pending reads than `count`.
- * The daemon runs a delivery pass when a subscriber detaches, and that pass
- * reads pending deliveries once, so this waits for the detach to settle.
- * @param harness The daemon's harness.
- * @param count Pending reads served before the detach.
- * @returns Completion once one more read has been served.
- */
-const servedMoreReadsThan = (harness: RuntimeHarness, count: number) =>
-  Effect.sync(() => harness.delivery.events.length).pipe(
-    Effect.repeat({
-      until: (served) => served > count,
-      schedule: Schedule.spaced(Duration.millis(1)),
-    }),
-  );
-
 const acknowledgeDuringReplacementDelivery = (
   harness: RuntimeHarness,
   handler: HarnessMcpEventHandler,
   pending: EnginePendingMessage,
 ) =>
   Effect.gen(function* () {
-    const readBarrier: ReadBarrier = {
-      entered: yield* Deferred.make<undefined>(),
-      release: yield* Deferred.make<undefined>(),
-    };
-    harness.delivery.readBarrier = readBarrier;
-    const reader = responseReader(
-      yield* Effect.tryPromise(() =>
-        handler.fetch(makeListenRequest("listener-2")),
-      ),
-    );
+    const readBarrier = yield* holdNextRead(harness);
+    const reader = yield* openStream(handler, makeListenRequest("listener-2"));
     yield* awaitFrame(reader, "replacement subscription acknowledgment");
     yield* awaitStage(
       Deferred.await(readBarrier.entered),
@@ -617,9 +578,14 @@ const acknowledgeDuringReplacementDelivery = (
       },
     });
     yield* awaitStage(Fiber.join(acknowledgment), "delivery acknowledgment");
-    return reader;
   });
 
+/**
+ * A delivery replays to each new subscriber until it is acknowledged. The
+ * first subscriber's detach runs a delivery pass of its own; the test holds
+ * that pass's read and lets it finish before the replacement attaches, so the
+ * pass cannot take the replacement's barrier or add to its reads.
+ */
 const replaysUntilAcknowledged = () =>
   Effect.gen(function* () {
     const fixture = yield* makeFixture;
@@ -641,18 +607,19 @@ const replaysUntilAcknowledged = () =>
     const handler = requireHandler(harness);
 
     const firstReader = yield* receivesFirstDelivery(handler);
-    const servedBeforeDetach = harness.delivery.events.length;
+    const detachPass = yield* holdNextRead(harness);
     yield* Effect.tryPromise(() => firstReader.cancel());
     yield* awaitStage(
-      servedMoreReadsThan(harness, servedBeforeDetach),
+      Deferred.await(detachPass.entered),
       "first subscriber's detach pass",
     );
+    yield* Deferred.succeed(detachPass.release, undefined);
     expect(
       (yield* operations.readInbox({})).items,
       "inbox after the first subscriber's delivery",
     ).toEqual([pendingItem]);
     harness.delivery.events.length = 0;
-    const secondReader = yield* acknowledgeDuringReplacementDelivery(
+    yield* acknowledgeDuringReplacementDelivery(
       harness,
       handler,
       fixture.pending,
@@ -661,7 +628,6 @@ const replaysUntilAcknowledged = () =>
       fixture.pending.deliveryToken,
     ]);
     expect(harness.delivery.events).toEqual(["delivery-ready", "acknowledged"]);
-    yield* Effect.tryPromise(() => secondReader.cancel());
   });
 
 /** The names a `tools/list` response carries. */
@@ -771,11 +737,7 @@ const listsToolsAfterACancelledRegister = () =>
   Effect.gen(function* () {
     const fixture = yield* makeFixture;
     const harness = yield* makeHarness(fixture, "none", true);
-    const firstPass: ReadBarrier = {
-      entered: yield* Deferred.make<undefined>(),
-      release: yield* Deferred.make<undefined>(),
-    };
-    harness.delivery.readBarrier = firstPass;
+    const firstPass = yield* holdNextRead(harness);
     yield* Effect.forkScoped(run(fixture, makeStore(fixture, false), harness));
     yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
     const cancelled = yield* cancelRegisterDuringActivation(
@@ -862,12 +824,9 @@ const announcesTheToolListChangeAtActivation = () =>
     const harness = yield* makeHarness(fixture, "none");
     yield* Effect.forkScoped(run(fixture, makeStore(fixture, false), harness));
     yield* awaitStage(Deferred.await(harness.listenerReady), "listener");
-    const reader = responseReader(
-      yield* Effect.tryPromise(() =>
-        requireHandler(harness).fetch(
-          makeToolListChangesRequest("tool-list-changes"),
-        ),
-      ),
+    const reader = yield* openStream(
+      requireHandler(harness),
+      makeToolListChangesRequest("tool-list-changes"),
     );
     const acknowledged = yield* awaitFrame(reader, "listen acknowledgment");
 
@@ -884,7 +843,6 @@ const announcesTheToolListChangeAtActivation = () =>
     expect(changed, "notice after activation").toMatchObject({
       method: TOOL_LIST_CHANGED_METHOD,
     });
-    yield* Effect.tryPromise(() => reader.cancel());
   });
 
 /**
@@ -909,10 +867,9 @@ const refusesTheInboxStreamUntilTheProtocolIsUp = () =>
       requireOperations(harness).register(fixture.registerRequest),
       "registration",
     );
-    const reader = responseReader(
-      yield* Effect.tryPromise(() =>
-        handler.fetch(makeListenRequest("after-registration")),
-      ),
+    const reader = yield* openStream(
+      handler,
+      makeListenRequest("after-registration"),
     );
     const acknowledged = yield* awaitFrame(reader, "inbox acknowledgment");
 
@@ -922,7 +879,6 @@ const refusesTheInboxStreamUntilTheProtocolIsUp = () =>
     expect(acknowledged, "subscription after registration").toMatchObject({
       method: SUBSCRIPTIONS_ACKNOWLEDGED_NOTIFICATION,
     });
-    yield* Effect.tryPromise(() => reader.cancel());
   });
 
 /** A fault a daemon hits, and the phase the daemon stops in. */
