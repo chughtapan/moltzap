@@ -1,154 +1,31 @@
 /** @file Local Dot callback conformance through Effect's HttpClient service. */
 
-import {
-  type HttpBody,
-  HttpClient,
-  HttpClientResponse,
-} from "@effect/platform";
 import { live as it } from "@effect/vitest";
-import {
-  Clock,
-  Context,
-  Deferred,
-  Duration,
-  Effect,
-  Fiber,
-  Match,
-  Schema,
-} from "effect";
+import { Clock, Context, Deferred, Duration, Effect, Fiber } from "effect";
 import { createHmac } from "node:crypto";
 import { describe, expect } from "vitest";
-import { digest } from "../../__tests__/agent-card-fixtures.js";
 import { stateDirectory } from "../../__tests__/store-schema-fixtures.js";
+import {
+  decodeOccurrence,
+  enqueue,
+  fixture,
+  input,
+  item,
+  secret,
+  token,
+  url,
+} from "../../__tests__/webhook-fixtures.js";
 import { readRuntimeEvent } from "../../delivery/inbox.js";
 import { eventIdOf } from "../../delivery/operations.js";
-import {
-  DeliveryToken,
-  encodeRuntimeValue,
-  type EndpointStore,
-  openEndpointStore,
-} from "../../store/index.js";
-import { InboundItem } from "../../transport/collectives/inbound.js";
+import { encodeRuntimeValue, openEndpointStore } from "../../store/index.js";
 import { maximumEventBytes } from "./event-schemas.js";
 import {
   isPublicWebhookAddress,
   sendWebhook,
   webhookHttpClientLayer,
 } from "./event-signing.js";
-import { INBOX_ITEM_EVENT } from "./names.js";
-import { makeWebhookEvents } from "./webhook.js";
 
 /* eslint-disable agent-code-guard/no-hardcoded-assertion-literals, sonarjs/no-hardcoded-ip -- Protocol codes and deliberately unsafe IP fixtures pin the callback trust boundary. */
-
-const secret = `whsec_${Buffer.alloc(32, 1).toString("base64")}`;
-const url = "https://callback.example/events";
-const input = {
-  name: INBOX_ITEM_EVENT,
-  arguments: {},
-  cursor: null,
-  delivery: { mode: "webhook", url, secret },
-};
-const verification = Schema.Struct({
-  type: Schema.Literal("verification"),
-  challenge: Schema.String,
-});
-const occurrence = Schema.Struct({
-  eventId: Schema.String,
-  name: Schema.String,
-  timestamp: Schema.String,
-  data: Schema.Union(
-    Schema.Struct({ kind: Schema.Literal("item"), item: InboundItem }),
-    Schema.Struct({
-      kind: Schema.Literal("reference"),
-      itemKind: Schema.String,
-      bytes: Schema.Number,
-    }),
-  ),
-  cursor: Schema.Null,
-});
-const callback = Schema.parseJson(Schema.Union(verification, occurrence));
-
-const requestBody = (body: HttpBody.HttpBody): string =>
-  Match.value(body).pipe(
-    Match.tag("Uint8Array", (value) => new TextDecoder().decode(value.body)),
-    Match.orElse(() => {
-      throw new Error("Expected exact callback bytes");
-    }),
-  );
-
-const callbackResponse = (
-  request: Parameters<typeof HttpClientResponse.fromWeb>[0],
-  decoded: typeof callback.Type,
-  status: number,
-  challengeValid: boolean,
-) =>
-  HttpClientResponse.fromWeb(
-    request,
-    new Response(
-      "type" in decoded
-        ? JSON.stringify({
-            challenge: challengeValid ? decoded.challenge : "incorrect",
-          })
-        : "receipt".repeat(1024),
-      { status },
-    ),
-  );
-
-const token = (byte: number) =>
-  Schema.decodeUnknownSync(DeliveryToken)(digest("dlv_", byte));
-const item = (text = "failed request") =>
-  Schema.decodeUnknownSync(InboundItem)({
-    kind: "operationFailed",
-    id: digest("col_", 1),
-    to: "agent:bob",
-    error: text,
-  });
-const enqueue = (store: EndpointStore, byte: number, text?: string) =>
-  encodeRuntimeValue(item(text ?? "failed request")).pipe(
-    Effect.flatMap((canonicalItem) =>
-      store.putInboxItem({ deliveryToken: token(byte), canonicalItem }),
-    ),
-  );
-
-const fixture = (store: EndpointStore) => {
-  const gate = Effect.unsafeMakeSemaphore(1);
-  let status = 200;
-  let challengeValid = true;
-  let onEvent = Effect.void;
-  const posts: Array<{
-    readonly body: string;
-    readonly headers: Readonly<Record<string, string>>;
-  }> = [];
-  const client = HttpClient.make((request) =>
-    Effect.gen(function* () {
-      const body = requestBody(request.body);
-      posts.push({ body, headers: { ...request.headers } });
-      const decoded = Schema.decodeUnknownSync(callback)(body);
-      if (!("type" in decoded)) {
-        yield* onEvent;
-      }
-      return callbackResponse(request, decoded, status, challengeValid);
-    }),
-  );
-  return {
-    gate,
-    store,
-    client,
-    posts,
-    status: (value: number) => {
-      status = value;
-    },
-    challenge: (value: boolean) => {
-      challengeValid = value;
-    },
-    onEvent: (effect: Effect.Effect<void>) => {
-      onEvent = effect;
-    },
-    acquire: makeWebhookEvents(store, gate).pipe(
-      Effect.provideService(HttpClient.HttpClient, client),
-    ),
-  };
-};
 
 /** Moves the clock of a scenario that runs `onSteppedClock`. */
 class SteppedClock extends Context.Tag("SteppedClock")<
@@ -208,11 +85,10 @@ const signsVerifiesAndRotates = () =>
       expect(control?.headers["webhook-signature"]).toBe(`v1,${expected}`);
       yield* enqueue(store, 1);
       yield* events.observe();
-      expect(
-        Schema.decodeUnknownSync(Schema.parseJson(occurrence))(
-          test.posts[1]?.body,
-        ).data,
-      ).toEqual({ kind: "item", item: item() });
+      expect(decodeOccurrence(test.posts[1]?.body).data).toEqual({
+        kind: "item",
+        item: item(),
+      });
       expect((yield* events.status).pendingCount).toBe(0);
       const rotated = {
         ...input,
@@ -444,9 +320,7 @@ const boundsPayloadAndDrains = () =>
       expect(test.posts).toHaveLength(55);
       const body = test.posts[1]?.body ?? "";
       expect(Buffer.byteLength(body)).toBeLessThanOrEqual(maximumEventBytes);
-      expect(
-        Schema.decodeUnknownSync(Schema.parseJson(occurrence))(body).data.kind,
-      ).toBe("reference");
+      expect(decodeOccurrence(body).data.kind).toBe("reference");
       expect(
         (yield* readRuntimeEvent(store, eventIdOf(token(1)))).item,
       ).toEqual(item(large));

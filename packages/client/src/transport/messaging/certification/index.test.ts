@@ -3,7 +3,7 @@
 import type { RegistryLookupResult } from "@moltzap/identity/registry";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { live as it, scoped as itOnTestClock } from "@effect/vitest";
+import { scopedLive as it, scoped as itOnTestClock } from "@effect/vitest";
 import {
   AgentCard,
   type AgentSigningAuthority,
@@ -910,91 +910,79 @@ function restartOverPersistedDurabilityVote(
  * @returns Completion once member 2 holds both posts and restarts cleanly.
  */
 function adoptsAnActionCertificateOverItsOwnLock() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness();
-      yield* certifyGenesis(harness);
-      const winnerAuthor = yield* requireAt(
-        harness.engines,
-        0,
-        "endpoint engine",
-      );
-      const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
-      const laggingIdentity = yield* requireAt(
-        harness.identities,
-        1,
-        "identity",
-      );
-      const laggingStore = yield* requireAt(
-        harness.stores,
-        1,
-        "endpoint store",
-      );
-      const winning = yield* Effect.fork(
-        winnerAuthor.send(yield* sendInput(harness, "winner")),
-      );
-      const winnerBatch = yield* takeReadyBatch(harness);
-      const winnerActionHash = yield* requireAt(
-        winnerBatch,
-        1,
-        "winning proposal",
-      ).pipe(
-        Effect.flatMap((message) => decodeActionProposal(harness, message)),
-        Effect.flatMap((proposal) =>
-          hashAction(proposal.action).pipe(Effect.orDie),
-        ),
-      );
-      const losing = yield* Effect.fork(
-        lagging.send(yield* sendInput(harness, "member 2 post")),
-      );
-      const loserBatch = yield* takeReadyBatch(harness);
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    yield* certifyGenesis(harness);
+    const winnerAuthor = yield* requireAt(
+      harness.engines,
+      0,
+      "endpoint engine",
+    );
+    const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
+    const laggingIdentity = yield* requireAt(harness.identities, 1, "identity");
+    const laggingStore = yield* requireAt(harness.stores, 1, "endpoint store");
+    const winning = yield* Effect.fork(
+      winnerAuthor.send(yield* sendInput(harness, "winner")),
+    );
+    const winnerBatch = yield* takeReadyBatch(harness);
+    const winnerActionHash = yield* requireAt(
+      winnerBatch,
+      1,
+      "winning proposal",
+    ).pipe(
+      Effect.flatMap((message) => decodeActionProposal(harness, message)),
+      Effect.flatMap((proposal) =>
+        hashAction(proposal.action).pipe(Effect.orDie),
+      ),
+    );
+    const losing = yield* Effect.fork(
+      lagging.send(yield* sendInput(harness, "member 2 post")),
+    );
+    const loserBatch = yield* takeReadyBatch(harness);
 
-      const silent = yield* requireAt(harness.identities, 3, "identity");
+    const silent = yield* requireAt(harness.identities, 3, "identity");
 
-      yield* harness.deliver(winnerBatch, [0, 2, 3]);
-      yield* harness.deliver(loserBatch);
-      yield* harness.drain();
-      const signatures = yield* takeQueued(harness);
-      yield* harness.deliver(signatures);
-      yield* harness.drain();
-      yield* pump(harness, yield* takeQueued(harness), silent.card.agentId);
-      yield* Fiber.join(winning).pipe(Effect.orDie);
-      yield* Fiber.join(losing).pipe(Effect.orDie);
+    yield* harness.deliver(winnerBatch, [0, 2, 3]);
+    yield* harness.deliver(loserBatch);
+    yield* harness.drain();
+    const signatures = yield* takeQueued(harness);
+    yield* harness.deliver(signatures);
+    yield* harness.drain();
+    yield* pump(harness, yield* takeQueued(harness), silent.card.agentId);
+    yield* Fiber.join(winning).pipe(Effect.orDie);
+    yield* Fiber.join(losing).pipe(Effect.orDie);
 
-      const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
-      expect(pending.map(({ message }) => message.content)).toEqual([
-        [{ type: "text", text: "open group" }],
-        [{ type: "text", text: "winner" }],
-      ]);
-      const recovered = yield* laggingStore.recover().pipe(Effect.orDie);
-      expect(recovered.certifiedRecords).toHaveLength(3);
-      const releasedSignature = signatures.filter(
-        (message) => message.senderAgentId === laggingIdentity.card.agentId,
-      );
-      expect(yield* harness.deliver(releasedSignature, [1])).toEqual([
-        "ignored",
-      ]);
+    const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
+    expect(pending.map(({ message }) => message.content)).toEqual([
+      [{ type: "text", text: "open group" }],
+      [{ type: "text", text: "winner" }],
+    ]);
+    const recovered = yield* laggingStore.recover().pipe(Effect.orDie);
+    expect(recovered.certifiedRecords).toHaveLength(3);
+    const releasedSignature = signatures.filter(
+      (message) => message.senderAgentId === laggingIdentity.card.agentId,
+    );
+    expect(yield* harness.deliver(releasedSignature, [1])).toEqual(["ignored"]);
 
-      yield* takeQueued(harness);
-      const restarted = yield* restartMember(
-        harness,
-        laggingIdentity,
-        laggingStore,
-      ).pipe(Effect.orDie);
-      yield* restarted.drainOutbound.pipe(Effect.orDie);
-      const resent = yield* messagesOfKind(
-        harness,
-        yield* takeQueued(harness),
-        "action_signature",
-      );
-      const resentHashes = yield* Effect.forEach(
-        resent,
-        (message) => decodeActionSignatureHash(harness, message),
-        { concurrency: 1 },
-      );
-      expect(resentHashes).not.toContain(winnerActionHash);
-    }),
-  );
+    yield* takeQueued(harness);
+    const restarted = yield* restartMember(
+      harness,
+      laggingIdentity,
+      laggingStore,
+    ).pipe(Effect.orDie);
+    yield* restarted.drainOutbound.pipe(Effect.orDie);
+    const resent = yield* messagesOfKind(
+      harness,
+      yield* takeQueued(harness),
+      "action_signature",
+    );
+    const resentHashes = yield* Effect.forEach(
+      resent,
+      (message) => decodeActionSignatureHash(harness, message),
+      { concurrency: 1 },
+    );
+    expect(resentHashes).not.toContain(winnerActionHash);
+  });
 }
 
 /**
@@ -1041,67 +1029,61 @@ function certifiedRecordPacket(
  * @returns Completion once member 2 holds both posts.
  */
 function adoptsACertifiedRecordOverItsOwnLock() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness();
-      yield* certifyGenesis(harness);
-      const winnerAuthor = yield* requireAt(
-        harness.engines,
-        0,
-        "endpoint engine",
-      );
-      const winnerAuthorIdentity = yield* requireAt(
-        harness.identities,
-        0,
-        "identity",
-      );
-      const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
-      const laggingStore = yield* requireAt(
-        harness.stores,
-        1,
-        "endpoint store",
-      );
-      const everyMemberButTheLagging = [0, 2, 3];
-      const winning = yield* Effect.fork(
-        winnerAuthor.send(yield* sendInput(harness, "winner")),
-      );
-      const winnerBatch = yield* takeReadyBatch(harness);
-      const losing = yield* Effect.fork(
-        lagging.send(yield* sendInput(harness, "member 2 post")),
-      );
-      const loserBatch = yield* takeReadyBatch(harness);
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    yield* certifyGenesis(harness);
+    const winnerAuthor = yield* requireAt(
+      harness.engines,
+      0,
+      "endpoint engine",
+    );
+    const winnerAuthorIdentity = yield* requireAt(
+      harness.identities,
+      0,
+      "identity",
+    );
+    const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
+    const laggingStore = yield* requireAt(harness.stores, 1, "endpoint store");
+    const everyMemberButTheLagging = [0, 2, 3];
+    const winning = yield* Effect.fork(
+      winnerAuthor.send(yield* sendInput(harness, "winner")),
+    );
+    const winnerBatch = yield* takeReadyBatch(harness);
+    const losing = yield* Effect.fork(
+      lagging.send(yield* sendInput(harness, "member 2 post")),
+    );
+    const loserBatch = yield* takeReadyBatch(harness);
 
-      yield* harness.deliver(winnerBatch, everyMemberButTheLagging);
-      yield* harness.deliver(loserBatch);
-      yield* harness.drain();
-      yield* harness.deliver(yield* takeQueued(harness));
-      yield* harness.drain();
-      yield* harness.deliver(
-        yield* takeQueued(harness),
-        everyMemberButTheLagging,
-      );
-      yield* harness.drain();
-      yield* takeQueued(harness);
-      const winnerCertifiedRecord = yield* certifiedRecordPacket(
-        harness,
-        winnerAuthorIdentity,
-      );
-      const adopted = yield* harness.deliver([winnerCertifiedRecord], [1]);
-      yield* harness.drain([1]);
-      yield* pump(harness, yield* takeQueued(harness));
-      yield* Fiber.join(winning).pipe(Effect.orDie);
-      yield* Fiber.join(losing).pipe(Effect.orDie);
+    yield* harness.deliver(winnerBatch, everyMemberButTheLagging);
+    yield* harness.deliver(loserBatch);
+    yield* harness.drain();
+    yield* harness.deliver(yield* takeQueued(harness));
+    yield* harness.drain();
+    yield* harness.deliver(
+      yield* takeQueued(harness),
+      everyMemberButTheLagging,
+    );
+    yield* harness.drain();
+    yield* takeQueued(harness);
+    const winnerCertifiedRecord = yield* certifiedRecordPacket(
+      harness,
+      winnerAuthorIdentity,
+    );
+    const adopted = yield* harness.deliver([winnerCertifiedRecord], [1]);
+    yield* harness.drain([1]);
+    yield* pump(harness, yield* takeQueued(harness));
+    yield* Fiber.join(winning).pipe(Effect.orDie);
+    yield* Fiber.join(losing).pipe(Effect.orDie);
 
-      expect(adopted).toEqual(["accepted"]);
-      const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
-      expect(pending.map(({ message }) => message.content)).toEqual([
-        [{ type: "text", text: "open group" }],
-        [{ type: "text", text: "winner" }],
-      ]);
-      const recovered = yield* laggingStore.recover().pipe(Effect.orDie);
-      expect(recovered.certifiedRecords).toHaveLength(3);
-    }),
-  );
+    expect(adopted).toEqual(["accepted"]);
+    const pending = yield* lagging.readPendingMessages().pipe(Effect.orDie);
+    expect(pending.map(({ message }) => message.content)).toEqual([
+      [{ type: "text", text: "open group" }],
+      [{ type: "text", text: "winner" }],
+    ]);
+    const recovered = yield* laggingStore.recover().pipe(Effect.orDie);
+    expect(recovered.certifiedRecords).toHaveLength(3);
+  });
 }
 
 /**
@@ -1112,34 +1094,28 @@ function adoptsACertifiedRecordOverItsOwnLock() {
  * @returns Completion once member 4's restart traffic is checked.
  */
 function restartSignsNoVoteForARecordAcceptedWhole() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness();
-      const genesisRecordHash = yield* certifyGenesis(harness);
-      const authorIdentity = yield* requireAt(
-        harness.identities,
-        0,
-        "identity",
-      );
-      yield* certifyAPostMember4Misses(harness, "certified without member 4");
-      const accepted = yield* harness.deliver(
-        [yield* certifiedRecordPacket(harness, authorIdentity)],
-        [3],
-      );
-      yield* harness.drain([3]);
-      yield* takeQueued(harness);
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    const genesisRecordHash = yield* certifyGenesis(harness);
+    const authorIdentity = yield* requireAt(harness.identities, 0, "identity");
+    yield* certifyAPostMember4Misses(harness, "certified without member 4");
+    const accepted = yield* harness.deliver(
+      [yield* certifiedRecordPacket(harness, authorIdentity)],
+      [3],
+    );
+    yield* harness.drain([3]);
+    yield* takeQueued(harness);
 
-      const resent = yield* restartMember4(harness);
-      const votes = yield* Effect.forEach(
-        yield* messagesOfKind(harness, resent, "durability_vote"),
-        (message) => decodeEvidenceStatement(harness, message),
-        { concurrency: 1 },
-      );
+    const resent = yield* restartMember4(harness);
+    const votes = yield* Effect.forEach(
+      yield* messagesOfKind(harness, resent, "durability_vote"),
+      (message) => decodeEvidenceStatement(harness, message),
+      { concurrency: 1 },
+    );
 
-      expect(accepted).toEqual(["accepted"]);
-      expect(votes).toMatchObject([{ recordHash: genesisRecordHash }]);
-    }),
-  );
+    expect(accepted).toEqual(["accepted"]);
+    expect(votes).toMatchObject([{ recordHash: genesisRecordHash }]);
+  });
 }
 
 /**
@@ -1156,41 +1132,35 @@ function restartSignsNoVoteForARecordAcceptedWhole() {
  * @returns Completion once member 4's restart traffic is checked.
  */
 function restartSendsItsCopyBeforeVotingForARecordItsStoreRefused() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness({
-        wrapStore: (store) => refusingWholeRecords(store),
-      });
-      yield* certifyGenesis(harness);
-      const authorIdentity = yield* requireAt(
-        harness.identities,
-        0,
-        "identity",
-      );
-      yield* certifyAPostMember4Misses(harness, "refused by member 4's store");
-      const refused = yield* harness.deliver(
-        [yield* certifiedRecordPacket(harness, authorIdentity)],
-        [3],
-      );
-      yield* harness.drain([3]);
-      yield* takeQueued(harness);
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness({
+      wrapStore: (store) => refusingWholeRecords(store),
+    });
+    yield* certifyGenesis(harness);
+    const authorIdentity = yield* requireAt(harness.identities, 0, "identity");
+    yield* certifyAPostMember4Misses(harness, "refused by member 4's store");
+    const refused = yield* harness.deliver(
+      [yield* certifiedRecordPacket(harness, authorIdentity)],
+      [3],
+    );
+    yield* harness.drain([3]);
+    yield* takeQueued(harness);
 
-      const resent = yield* restartMember4(harness);
-      const kinds = yield* Effect.forEach(
-        resent,
-        (message) => protocolMessageKind(harness, message),
-        { concurrency: 1 },
-      );
+    const resent = yield* restartMember4(harness);
+    const kinds = yield* Effect.forEach(
+      resent,
+      (message) => protocolMessageKind(harness, message),
+      { concurrency: 1 },
+    );
 
-      expect(refused).toEqual(["ignored"]);
-      expect(kinds).toEqual([
-        "action_signature",
-        "durability_vote",
-        "action_certified_record",
-        "durability_vote",
-      ]);
-    }),
-  );
+    expect(refused).toEqual(["ignored"]);
+    expect(kinds).toEqual([
+      "action_signature",
+      "durability_vote",
+      "action_certified_record",
+      "durability_vote",
+    ]);
+  });
 }
 
 /**
@@ -1208,48 +1178,38 @@ function restartSendsItsCopyBeforeVotingForARecordItsStoreRefused() {
  * @returns Completion once member 4's answer to the copy is checked.
  */
 function stagesFromALaterCopyARecordItsStoreRefusedWhole() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness({
-        wrapStore: (store) => refusingWholeRecords(store),
-      });
-      yield* certifyGenesis(harness);
-      const authorIdentity = yield* requireAt(
-        harness.identities,
-        0,
-        "identity",
-      );
-      const absentIdentity = yield* requireAt(
-        harness.identities,
-        3,
-        "identity",
-      );
-      const authorCopy = yield* certifyAPostMember4Misses(
-        harness,
-        "copied after member 4's store refused it whole",
-      );
-      const refused = yield* harness.deliver(
-        [yield* certifiedRecordPacket(harness, authorIdentity)],
-        [3],
-      );
-      yield* harness.drain([3]);
-      yield* takeQueued(harness);
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness({
+      wrapStore: (store) => refusingWholeRecords(store),
+    });
+    yield* certifyGenesis(harness);
+    const authorIdentity = yield* requireAt(harness.identities, 0, "identity");
+    const absentIdentity = yield* requireAt(harness.identities, 3, "identity");
+    const authorCopy = yield* certifyAPostMember4Misses(
+      harness,
+      "copied after member 4's store refused it whole",
+    );
+    const refused = yield* harness.deliver(
+      [yield* certifiedRecordPacket(harness, authorIdentity)],
+      [3],
+    );
+    yield* harness.drain([3]);
+    yield* takeQueued(harness);
 
-      const answer = yield* harness.deliver(authorCopy, [3]);
-      yield* harness.drain([3]);
-      const kinds = yield* Effect.forEach(
-        (yield* takeQueued(harness)).filter(
-          ({ senderAgentId }) => senderAgentId === absentIdentity.card.agentId,
-        ),
-        (message) => protocolMessageKind(harness, message),
-        { concurrency: 1 },
-      );
+    const answer = yield* harness.deliver(authorCopy, [3]);
+    yield* harness.drain([3]);
+    const kinds = yield* Effect.forEach(
+      (yield* takeQueued(harness)).filter(
+        ({ senderAgentId }) => senderAgentId === absentIdentity.card.agentId,
+      ),
+      (message) => protocolMessageKind(harness, message),
+      { concurrency: 1 },
+    );
 
-      expect(refused).toEqual(["ignored"]);
-      expect(answer).toEqual(["accepted"]);
-      expect(kinds).toEqual(["action_certified_record", "durability_vote"]);
-    }),
-  );
+    expect(refused).toEqual(["ignored"]);
+    expect(answer).toEqual(["accepted"]);
+    expect(kinds).toEqual(["action_certified_record", "durability_vote"]);
+  });
 }
 
 /**
@@ -1329,58 +1289,48 @@ function restartMember4(harness: ProtocolHarness) {
  * @returns Completion once member 4's answer to the copy is checked.
  */
 function finishesAnInterruptedAcceptanceOfARecordReceivedWhole() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const hold = {
-        armed: yield* Ref.make(false),
-        committed: yield* Deferred.make<undefined>(),
-        release: yield* Deferred.make<undefined>(),
-      };
-      const harness = yield* makeProtocolHarness({
-        wrapStore: (store) => holdingWholeRecordCommit(store, hold),
-      });
-      yield* certifyGenesis(harness);
-      const authorIdentity = yield* requireAt(
-        harness.identities,
-        0,
-        "identity",
-      );
-      const absentIdentity = yield* requireAt(
-        harness.identities,
-        3,
-        "identity",
-      );
-      const authorCopy = yield* certifyAPostMember4Misses(
-        harness,
-        "accepted whole",
-      );
+  return Effect.gen(function* () {
+    const hold = {
+      armed: yield* Ref.make(false),
+      committed: yield* Deferred.make<undefined>(),
+      release: yield* Deferred.make<undefined>(),
+    };
+    const harness = yield* makeProtocolHarness({
+      wrapStore: (store) => holdingWholeRecordCommit(store, hold),
+    });
+    yield* certifyGenesis(harness);
+    const authorIdentity = yield* requireAt(harness.identities, 0, "identity");
+    const absentIdentity = yield* requireAt(harness.identities, 3, "identity");
+    const authorCopy = yield* certifyAPostMember4Misses(
+      harness,
+      "accepted whole",
+    );
 
-      yield* Ref.set(hold.armed, true);
-      const accepting = yield* Effect.fork(
-        harness.deliver(
-          [yield* certifiedRecordPacket(harness, authorIdentity)],
-          [3],
-        ),
-      );
-      yield* Deferred.await(hold.committed);
-      const interrupting = yield* Effect.fork(Fiber.interrupt(accepting));
-      yield* Deferred.succeed(hold.release, undefined);
-      yield* Fiber.join(interrupting);
-      yield* harness.drain([3]);
-      yield* takeQueued(harness);
-      const answer = yield* harness.deliver(authorCopy, [3]);
-      yield* harness.drain([3]);
-      const votes = yield* sentOfKind(
-        harness,
-        yield* takeQueued(harness),
-        absentIdentity,
-        "durability_vote",
-      );
+    yield* Ref.set(hold.armed, true);
+    const accepting = yield* Effect.fork(
+      harness.deliver(
+        [yield* certifiedRecordPacket(harness, authorIdentity)],
+        [3],
+      ),
+    );
+    yield* Deferred.await(hold.committed);
+    const interrupting = yield* Effect.fork(Fiber.interrupt(accepting));
+    yield* Deferred.succeed(hold.release, undefined);
+    yield* Fiber.join(interrupting);
+    yield* harness.drain([3]);
+    yield* takeQueued(harness);
+    const answer = yield* harness.deliver(authorCopy, [3]);
+    yield* harness.drain([3]);
+    const votes = yield* sentOfKind(
+      harness,
+      yield* takeQueued(harness),
+      absentIdentity,
+      "durability_vote",
+    );
 
-      expect(answer).toEqual(["ignored"]);
-      expect(votes).toEqual([]);
-    }),
-  );
+    expect(answer).toEqual(["ignored"]);
+    expect(votes).toEqual([]);
+  });
 }
 
 /**
@@ -1433,86 +1383,79 @@ function holdingWholeRecordCommit(
  * @returns Completion once member 2's traffic is checked.
  */
 function signsNothingForAnAdoptedActionWhenAcceptanceStops() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const refusing = yield* Ref.make(false);
-      const harness = yield* makeProtocolHarness({
-        wrapStore: (store, identity, index) =>
-          index === 1
-            ? refusingPeerActionEvidence(store, identity.card.agentId, refusing)
-            : store,
-      });
-      yield* certifyGenesis(harness);
-      const winnerAuthor = yield* requireAt(
-        harness.engines,
-        0,
-        "endpoint engine",
-      );
-      const winnerAuthorIdentity = yield* requireAt(
-        harness.identities,
-        0,
-        "identity",
-      );
-      const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
-      const laggingIdentity = yield* requireAt(
-        harness.identities,
-        1,
-        "identity",
-      );
-      const winning = yield* Effect.fork(
-        winnerAuthor.send(yield* sendInput(harness, "winner")),
-      );
-      const winnerBatch = yield* takeReadyBatch(harness);
-      const winnerActionHash = yield* requireAt(
-        winnerBatch,
-        1,
-        "winning proposal",
-      ).pipe(
-        Effect.flatMap((message) => decodeActionProposal(harness, message)),
-        Effect.flatMap((proposal) =>
-          hashAction(proposal.action).pipe(Effect.orDie),
-        ),
-      );
-      yield* Effect.forkScoped(
-        lagging.send(yield* sendInput(harness, "member 2 post")),
-      );
-      const loserBatch = yield* takeReadyBatch(harness);
+  return Effect.gen(function* () {
+    const refusing = yield* Ref.make(false);
+    const harness = yield* makeProtocolHarness({
+      wrapStore: (store, identity, index) =>
+        index === 1
+          ? refusingPeerActionEvidence(store, identity.card.agentId, refusing)
+          : store,
+    });
+    yield* certifyGenesis(harness);
+    const winnerAuthor = yield* requireAt(
+      harness.engines,
+      0,
+      "endpoint engine",
+    );
+    const winnerAuthorIdentity = yield* requireAt(
+      harness.identities,
+      0,
+      "identity",
+    );
+    const lagging = yield* requireAt(harness.engines, 1, "endpoint engine");
+    const laggingIdentity = yield* requireAt(harness.identities, 1, "identity");
+    const winning = yield* Effect.fork(
+      winnerAuthor.send(yield* sendInput(harness, "winner")),
+    );
+    const winnerBatch = yield* takeReadyBatch(harness);
+    const winnerActionHash = yield* requireAt(
+      winnerBatch,
+      1,
+      "winning proposal",
+    ).pipe(
+      Effect.flatMap((message) => decodeActionProposal(harness, message)),
+      Effect.flatMap((proposal) =>
+        hashAction(proposal.action).pipe(Effect.orDie),
+      ),
+    );
+    yield* Effect.forkScoped(
+      lagging.send(yield* sendInput(harness, "member 2 post")),
+    );
+    const loserBatch = yield* takeReadyBatch(harness);
 
-      yield* harness.deliver(winnerBatch, [0, 2, 3]);
-      yield* harness.deliver(loserBatch);
-      yield* harness.drain();
-      yield* harness.deliver(yield* takeQueued(harness));
-      yield* harness.drain();
-      const winnerCertificate = (yield* messagesOfKind(
-        harness,
-        yield* takeQueued(harness),
-        "action_certified_record",
-      )).filter(
-        (message) =>
-          message.senderAgentId === winnerAuthorIdentity.card.agentId,
-      );
-      yield* Ref.set(refusing, true);
-      const stopped = yield* harness.deliver(winnerCertificate, [1]);
-      yield* harness.deliver(winnerBatch, [1]);
-      yield* harness.drain([1]);
-      const sent = (yield* messagesOfKind(
-        harness,
-        yield* takeQueued(harness),
-        "action_signature",
-      )).filter(
-        (message) => message.senderAgentId === laggingIdentity.card.agentId,
-      );
-      const signedHashes = yield* Effect.forEach(
-        sent,
-        (message) => decodeActionSignatureHash(harness, message),
-        { concurrency: 1 },
-      );
+    yield* harness.deliver(winnerBatch, [0, 2, 3]);
+    yield* harness.deliver(loserBatch);
+    yield* harness.drain();
+    yield* harness.deliver(yield* takeQueued(harness));
+    yield* harness.drain();
+    const winnerCertificate = (yield* messagesOfKind(
+      harness,
+      yield* takeQueued(harness),
+      "action_certified_record",
+    )).filter(
+      (message) => message.senderAgentId === winnerAuthorIdentity.card.agentId,
+    );
+    yield* Ref.set(refusing, true);
+    const stopped = yield* harness.deliver(winnerCertificate, [1]);
+    yield* harness.deliver(winnerBatch, [1]);
+    yield* harness.drain([1]);
+    const sent = (yield* messagesOfKind(
+      harness,
+      yield* takeQueued(harness),
+      "action_signature",
+    )).filter(
+      (message) => message.senderAgentId === laggingIdentity.card.agentId,
+    );
+    const signedHashes = yield* Effect.forEach(
+      sent,
+      (message) => decodeActionSignatureHash(harness, message),
+      { concurrency: 1 },
+    );
 
-      expect(stopped).toEqual(["ignored"]);
-      expect(signedHashes).not.toContain(winnerActionHash);
-      yield* Fiber.interrupt(winning);
-    }),
-  );
+    expect(stopped).toEqual(["ignored"]);
+    expect(signedHashes).not.toContain(winnerActionHash);
+    yield* Fiber.interrupt(winning);
+  });
 }
 
 /**
@@ -1554,113 +1497,103 @@ function refusingPeerActionEvidence(
  * @returns Completion once member 2's traffic and lock are checked.
  */
 function refusesASecondCertificateOverAStagedAction() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness();
-      yield* certifyGenesis(harness);
-      const [first, staging, equivocating, fourth] = yield* Effect.all([
-        requireAt(harness.identities, 0, "identity"),
-        requireAt(harness.identities, 1, "identity"),
-        requireAt(harness.identities, 2, "identity"),
-        requireAt(harness.identities, 3, "identity"),
-      ]);
-      const firstEngine = yield* requireAt(
-        harness.engines,
-        0,
-        "endpoint engine",
-      );
-      const fourthEngine = yield* requireAt(
-        harness.engines,
-        3,
-        "endpoint engine",
-      );
-      const stagingStore = yield* requireAt(
-        harness.stores,
-        1,
-        "endpoint store",
-      );
-      yield* Effect.forkScoped(
-        firstEngine.send(yield* sendInput(harness, "staged post")),
-      );
-      const stagedBatch = yield* takeReadyBatch(harness);
-      const stagedActionHash = yield* requireAt(
-        stagedBatch,
-        1,
-        "staged proposal",
-      ).pipe(
-        Effect.flatMap((message) => decodeActionProposal(harness, message)),
-        Effect.flatMap((proposal) =>
-          hashAction(proposal.action).pipe(Effect.orDie),
-        ),
-      );
-      yield* Effect.forkScoped(
-        fourthEngine.send(yield* sendInput(harness, "second post")),
-      );
-      const secondBatch = yield* takeReadyBatch(harness);
-      const secondActionHash = yield* requireAt(
-        secondBatch,
-        1,
-        "second proposal",
-      ).pipe(
-        Effect.flatMap((message) => decodeActionProposal(harness, message)),
-        Effect.flatMap((proposal) =>
-          hashAction(proposal.action).pipe(Effect.orDie),
-        ),
-      );
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    yield* certifyGenesis(harness);
+    const [first, staging, equivocating, fourth] = yield* Effect.all([
+      requireAt(harness.identities, 0, "identity"),
+      requireAt(harness.identities, 1, "identity"),
+      requireAt(harness.identities, 2, "identity"),
+      requireAt(harness.identities, 3, "identity"),
+    ]);
+    const firstEngine = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const fourthEngine = yield* requireAt(
+      harness.engines,
+      3,
+      "endpoint engine",
+    );
+    const stagingStore = yield* requireAt(harness.stores, 1, "endpoint store");
+    yield* Effect.forkScoped(
+      firstEngine.send(yield* sendInput(harness, "staged post")),
+    );
+    const stagedBatch = yield* takeReadyBatch(harness);
+    const stagedActionHash = yield* requireAt(
+      stagedBatch,
+      1,
+      "staged proposal",
+    ).pipe(
+      Effect.flatMap((message) => decodeActionProposal(harness, message)),
+      Effect.flatMap((proposal) =>
+        hashAction(proposal.action).pipe(Effect.orDie),
+      ),
+    );
+    yield* Effect.forkScoped(
+      fourthEngine.send(yield* sendInput(harness, "second post")),
+    );
+    const secondBatch = yield* takeReadyBatch(harness);
+    const secondActionHash = yield* requireAt(
+      secondBatch,
+      1,
+      "second proposal",
+    ).pipe(
+      Effect.flatMap((message) => decodeActionProposal(harness, message)),
+      Effect.flatMap((proposal) =>
+        hashAction(proposal.action).pipe(Effect.orDie),
+      ),
+    );
 
-      yield* harness.deliver(stagedBatch, [0, 1, 2]);
-      yield* harness.deliver(secondBatch, [3]);
-      yield* harness.drain();
-      const signatures = yield* takeQueued(harness);
-      yield* harness.deliver(signatures, [0, 1, 2, 3]);
-      yield* harness.drain();
-      yield* takeQueued(harness);
-      const beforeRefusal = yield* stagingStore.recover().pipe(Effect.orDie);
-      const staged = beforeRefusal.stagedRecords.filter(
-        ({ actionHash }) => actionHash === stagedActionHash,
-      );
-      const ownVotes = beforeRefusal.evidence.filter(
-        ({ kind, evidenceKey }) =>
-          kind === "durability" && evidenceKey === staging.card.agentId,
-      );
-      const equivocations = yield* Effect.forEach(
-        [first, equivocating],
-        (signer) =>
-          hostileActionSignature({
-            harness,
-            signer,
-            actionHash: secondActionHash,
-          }),
-        { concurrency: 1 },
-      );
-      yield* harness.deliver(equivocations, [3]);
-      yield* harness.drain([3]);
-      const secondCertificate = (yield* messagesOfKind(
-        harness,
-        yield* takeQueued(harness),
-        "action_certified_record",
-      )).filter((message) => message.senderAgentId === fourth.card.agentId);
-      const refused = yield* harness.deliver(secondCertificate, [1]);
-      yield* harness.deliver(secondBatch, [1]);
-      yield* harness.drain([1]);
-      const sentByStaging = (yield* takeQueued(harness)).filter(
-        (message) => message.senderAgentId === staging.card.agentId,
-      );
-      const locks = (yield* stagingStore.recover().pipe(Effect.orDie))
-        .proposalLocks;
+    yield* harness.deliver(stagedBatch, [0, 1, 2]);
+    yield* harness.deliver(secondBatch, [3]);
+    yield* harness.drain();
+    const signatures = yield* takeQueued(harness);
+    yield* harness.deliver(signatures, [0, 1, 2, 3]);
+    yield* harness.drain();
+    yield* takeQueued(harness);
+    const beforeRefusal = yield* stagingStore.recover().pipe(Effect.orDie);
+    const staged = beforeRefusal.stagedRecords.filter(
+      ({ actionHash }) => actionHash === stagedActionHash,
+    );
+    const ownVotes = beforeRefusal.evidence.filter(
+      ({ kind, evidenceKey }) =>
+        kind === "durability" && evidenceKey === staging.card.agentId,
+    );
+    const equivocations = yield* Effect.forEach(
+      [first, equivocating],
+      (signer) =>
+        hostileActionSignature({
+          harness,
+          signer,
+          actionHash: secondActionHash,
+        }),
+      { concurrency: 1 },
+    );
+    yield* harness.deliver(equivocations, [3]);
+    yield* harness.drain([3]);
+    const secondCertificate = (yield* messagesOfKind(
+      harness,
+      yield* takeQueued(harness),
+      "action_certified_record",
+    )).filter((message) => message.senderAgentId === fourth.card.agentId);
+    const refused = yield* harness.deliver(secondCertificate, [1]);
+    yield* harness.deliver(secondBatch, [1]);
+    yield* harness.drain([1]);
+    const sentByStaging = (yield* takeQueued(harness)).filter(
+      (message) => message.senderAgentId === staging.card.agentId,
+    );
+    const locks = (yield* stagingStore.recover().pipe(Effect.orDie))
+      .proposalLocks;
 
-      expect(staged).toHaveLength(1);
-      expect(ownVotes.map(({ subjectId }) => subjectId)).toContain(
-        staged[0]?.recordHash,
-      );
-      expect(secondCertificate).toHaveLength(1);
-      expect(refused).toEqual(["ignored"]);
-      expect(sentByStaging).toEqual([]);
-      expect(locks.map(({ actionHash }) => actionHash)).not.toContain(
-        secondActionHash,
-      );
-    }),
-  );
+    expect(staged).toHaveLength(1);
+    expect(ownVotes.map(({ subjectId }) => subjectId)).toContain(
+      staged[0]?.recordHash,
+    );
+    expect(secondCertificate).toHaveLength(1);
+    expect(refused).toEqual(["ignored"]);
+    expect(sentByStaging).toEqual([]);
+    expect(locks.map(({ actionHash }) => actionHash)).not.toContain(
+      secondActionHash,
+    );
+  });
 }
 
 /**
@@ -1673,26 +1606,24 @@ function refusesASecondCertificateOverAStagedAction() {
  * @returns Completion once the post's traffic is counted.
  */
 function sendsTwoPlusThreeNMessagesPerPost() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness();
-      yield* certifyGenesis(harness);
-      const author = yield* requireAt(harness.engines, 0, "endpoint engine");
-      const sending = yield* Effect.fork(
-        author.send(yield* sendInput(harness, "counted post")),
-      );
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    yield* certifyGenesis(harness);
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const sending = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "counted post")),
+    );
 
-      const delivered = yield* pump(harness, yield* takeReadyBatch(harness));
-      yield* Fiber.join(sending).pipe(Effect.orDie);
+    const delivered = yield* pump(harness, yield* takeReadyBatch(harness));
+    yield* Fiber.join(sending).pipe(Effect.orDie);
 
-      const kinds = yield* Effect.forEach(
-        delivered,
-        (message) => protocolMessageKind(harness, message),
-        { concurrency: 1 },
-      );
-      expect(
-        [...kinds].sort((left, right) => left.localeCompare(right)),
-      ).toEqual([
+    const kinds = yield* Effect.forEach(
+      delivered,
+      (message) => protocolMessageKind(harness, message),
+      { concurrency: 1 },
+    );
+    expect([...kinds].sort((left, right) => left.localeCompare(right))).toEqual(
+      [
         "action_certified_record",
         "action_certified_record",
         "action_certified_record",
@@ -1707,9 +1638,9 @@ function sendsTwoPlusThreeNMessagesPerPost() {
         "durability_vote",
         "durability_vote",
         "durability_vote",
-      ]);
-    }),
-  );
+      ],
+    );
+  });
 }
 
 /**
@@ -1723,47 +1654,45 @@ function sendsTwoPlusThreeNMessagesPerPost() {
  * @returns Completion once member 2 holds the post.
  */
 function certifiesFromActionCertifiedCopiesAfterMissingTheSignatures() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness();
-      yield* certifyGenesis(harness);
-      const author = yield* requireAt(harness.engines, 0, "endpoint engine");
-      const returning = yield* requireAt(harness.engines, 1, "endpoint engine");
-      const present = [0, 2, 3];
-      const sending = yield* Effect.fork(
-        author.send(yield* sendInput(harness, "missed post")),
-      );
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    yield* certifyGenesis(harness);
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const returning = yield* requireAt(harness.engines, 1, "endpoint engine");
+    const present = [0, 2, 3];
+    const sending = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "missed post")),
+    );
 
-      yield* harness.deliver(yield* takeReadyBatch(harness), present);
-      yield* harness.drain(present);
-      yield* harness.deliver(yield* takeQueued(harness), present);
-      yield* harness.drain(present);
-      const delivered = yield* pump(harness, yield* takeQueued(harness));
-      yield* Fiber.join(sending).pipe(Effect.orDie);
+    yield* harness.deliver(yield* takeReadyBatch(harness), present);
+    yield* harness.drain(present);
+    yield* harness.deliver(yield* takeQueued(harness), present);
+    yield* harness.drain(present);
+    const delivered = yield* pump(harness, yield* takeQueued(harness));
+    yield* Fiber.join(sending).pipe(Effect.orDie);
 
-      const pending = yield* returning.readPendingMessages().pipe(Effect.orDie);
-      expect(pending.map(({ message }) => message.content)).toEqual([
-        [{ type: "text", text: "open group" }],
-        [{ type: "text", text: "missed post" }],
-      ]);
-      const returningIdentity = yield* requireAt(
-        harness.identities,
-        1,
-        "identity",
-      );
-      expect(
-        yield* Effect.forEach(
-          delivered.filter(
-            ({ senderAgentId }) =>
-              senderAgentId === returningIdentity.card.agentId,
-          ),
-          (message) => protocolMessageKind(harness, message),
-          { concurrency: 1 },
+    const pending = yield* returning.readPendingMessages().pipe(Effect.orDie);
+    expect(pending.map(({ message }) => message.content)).toEqual([
+      [{ type: "text", text: "open group" }],
+      [{ type: "text", text: "missed post" }],
+    ]);
+    const returningIdentity = yield* requireAt(
+      harness.identities,
+      1,
+      "identity",
+    );
+    expect(
+      yield* Effect.forEach(
+        delivered.filter(
+          ({ senderAgentId }) =>
+            senderAgentId === returningIdentity.card.agentId,
         ),
-      ).toEqual(["action_certified_record", "durability_vote"]);
-      expect(yield* certifiedRecordCounts(harness)).toEqual([2, 2, 2, 2]);
-    }),
-  );
+        (message) => protocolMessageKind(harness, message),
+        { concurrency: 1 },
+      ),
+    ).toEqual(["action_certified_record", "durability_vote"]);
+    expect(yield* certifiedRecordCounts(harness)).toEqual([2, 2, 2, 2]);
+  });
 }
 
 /**
@@ -1779,365 +1708,349 @@ function certifiesFromActionCertifiedCopiesAfterMissingTheSignatures() {
  * @returns Completion once the second post certifies.
  */
 function certifiesPastAVoteSealedAwayFromOneMember() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness();
-      yield* certifyGenesis(harness);
-      const author = yield* requireAt(harness.engines, 0, "endpoint engine");
-      const [first, second, lagging, faulty] = harness.identities;
-      if (
-        first === undefined ||
-        second === undefined ||
-        lagging === undefined ||
-        faulty === undefined
-      ) {
-        return yield* Effect.dieMessage("the harness lacks members");
-      }
-      const sendingFirst = yield* Effect.fork(
-        author.send(yield* sendInput(harness, "first post")),
-      );
-      yield* harness.deliver(yield* takeReadyBatch(harness));
-      yield* harness.drain();
-      yield* harness.deliver(yield* takeQueued(harness));
-      yield* harness.drain();
-      const staged = yield* takeQueued(harness);
-      yield* harness.deliver(
-        yield* messagesOfKind(harness, staged, "action_certified_record"),
-      );
-      const vote = (member: ProtocolIdentity) =>
-        sentOfKind(harness, staged, member, "durability_vote");
-      const allButLagging = [0, 1, 3];
-      yield* harness.deliver(
-        [
-          ...(yield* vote(first)),
-          ...(yield* vote(lagging)),
-          ...(yield* vote(faulty)),
-          ...(yield* vote(second)),
-        ],
-        allButLagging,
-      );
-      yield* harness.deliver(
-        [...(yield* vote(first)), ...(yield* vote(lagging))],
-        [2],
-      );
-      yield* harness.drain();
-      yield* Fiber.join(sendingFirst).pipe(Effect.orDie);
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    yield* certifyGenesis(harness);
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const [first, second, lagging, faulty] = harness.identities;
+    if (
+      first === undefined ||
+      second === undefined ||
+      lagging === undefined ||
+      faulty === undefined
+    ) {
+      return yield* Effect.dieMessage("the harness lacks members");
+    }
+    const sendingFirst = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "first post")),
+    );
+    yield* harness.deliver(yield* takeReadyBatch(harness));
+    yield* harness.drain();
+    yield* harness.deliver(yield* takeQueued(harness));
+    yield* harness.drain();
+    const staged = yield* takeQueued(harness);
+    yield* harness.deliver(
+      yield* messagesOfKind(harness, staged, "action_certified_record"),
+    );
+    const vote = (member: ProtocolIdentity) =>
+      sentOfKind(harness, staged, member, "durability_vote");
+    const allButLagging = [0, 1, 3];
+    yield* harness.deliver(
+      [
+        ...(yield* vote(first)),
+        ...(yield* vote(lagging)),
+        ...(yield* vote(faulty)),
+        ...(yield* vote(second)),
+      ],
+      allButLagging,
+    );
+    yield* harness.deliver(
+      [...(yield* vote(first)), ...(yield* vote(lagging))],
+      [2],
+    );
+    yield* harness.drain();
+    yield* Fiber.join(sendingFirst).pipe(Effect.orDie);
 
-      const sendingSecond = yield* Effect.fork(
-        author.send(yield* sendInput(harness, "second post")),
-      );
-      yield* harness.deliver(yield* takeReadyBatch(harness));
-      yield* harness.drain();
-      yield* harness.deliver(yield* vote(second), [2]);
-      yield* harness.drain([2]);
-      yield* pump(harness, yield* takeQueued(harness), faulty.card.agentId);
-      yield* Fiber.join(sendingSecond).pipe(Effect.orDie);
+    const sendingSecond = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "second post")),
+    );
+    yield* harness.deliver(yield* takeReadyBatch(harness));
+    yield* harness.drain();
+    yield* harness.deliver(yield* vote(second), [2]);
+    yield* harness.drain([2]);
+    yield* pump(harness, yield* takeQueued(harness), faulty.card.agentId);
+    yield* Fiber.join(sendingSecond).pipe(Effect.orDie);
 
-      const laggingEngine = yield* requireAt(
-        harness.engines,
-        2,
-        "endpoint engine",
-      );
-      const pending = yield* laggingEngine
-        .readPendingMessages()
-        .pipe(Effect.orDie);
-      expect(pending.map(({ message }) => message.content)).toEqual([
-        [{ type: "text", text: "open group" }],
-        [{ type: "text", text: "first post" }],
-        [{ type: "text", text: "second post" }],
-      ]);
-    }),
-  );
+    const laggingEngine = yield* requireAt(
+      harness.engines,
+      2,
+      "endpoint engine",
+    );
+    const pending = yield* laggingEngine
+      .readPendingMessages()
+      .pipe(Effect.orDie);
+    expect(pending.map(({ message }) => message.content)).toEqual([
+      [{ type: "text", text: "open group" }],
+      [{ type: "text", text: "first post" }],
+      [{ type: "text", text: "second post" }],
+    ]);
+  });
 }
 
 function certifiesOrdinaryN4Post() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness();
-      yield* certifyGenesis(harness);
-      const author = yield* requireAt(harness.identities, 0, "identity");
-      const authorEngine = yield* requireAt(
-        harness.engines,
-        0,
-        "endpoint engine",
-      );
-      const authorStore = yield* requireAt(harness.stores, 0, "endpoint store");
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    yield* certifyGenesis(harness);
+    const author = yield* requireAt(harness.identities, 0, "identity");
+    const authorEngine = yield* requireAt(
+      harness.engines,
+      0,
+      "endpoint engine",
+    );
+    const authorStore = yield* requireAt(harness.stores, 0, "endpoint store");
 
-      const sending = yield* Effect.fork(
-        authorEngine.send(yield* sendInput(harness, "ordinary post")),
-      );
-      const proposalBatch = yield* takeReadyBatch(harness);
-      expect(
-        yield* Effect.forEach(
-          proposalBatch,
-          (message) => protocolMessageKind(harness, message),
-          { concurrency: 1 },
-        ),
-      ).toEqual(["certified_record", "action_proposal"]);
-      const proposalMessage = yield* requireAt(
+    const sending = yield* Effect.fork(
+      authorEngine.send(yield* sendInput(harness, "ordinary post")),
+    );
+    const proposalBatch = yield* takeReadyBatch(harness);
+    expect(
+      yield* Effect.forEach(
         proposalBatch,
-        1,
-        "POST proposal",
-      );
-      const proposal = yield* decodeActionProposal(harness, proposalMessage);
-      if (proposal.action.kind !== "POST") {
-        return yield* Effect.dieMessage("ordinary send did not propose POST");
-      }
-
-      yield* harness.deliver(proposalBatch);
-      yield* harness.drain();
-      const signatureBatch = yield* takeQueued(harness);
-      const actionSignatures = yield* messagesOfKind(
-        harness,
-        signatureBatch,
-        "action_signature",
-      );
-      expect(actionSignatures).toHaveLength(MEMBER_COUNT);
-
-      yield* harness.deliver(actionSignatures.slice(0, 3));
-      yield* harness.drain();
-      const certificationBatch = yield* takeQueued(harness);
-      const actionRecordMessages = yield* messagesOfKind(
-        harness,
-        certificationBatch,
-        "action_certified_record",
-      );
-      const durabilityMessages = yield* messagesOfKind(
-        harness,
-        certificationBatch,
-        "durability_vote",
-      );
-      expect(actionRecordMessages).toHaveLength(MEMBER_COUNT);
-      expect(durabilityMessages).toHaveLength(MEMBER_COUNT);
-
-      const authorActionRecordMessage = actionRecordMessages.find(
-        (message) => message.senderAgentId === author.card.agentId,
-      );
-      if (authorActionRecordMessage === undefined) {
-        return yield* Effect.dieMessage(
-          "author did not assemble the POST action certificate",
-        );
-      }
-      const actionRecord = yield* decodeActionCertifiedRecord(
-        harness,
-        authorActionRecordMessage,
-      );
-      expect(actionRecord.recordCore.action.kind).toBe(proposal.action.kind);
-      expect(actionRecord.actionCertificate.signatures).toHaveLength(3);
-      const actionSigners = yield* Effect.forEach(
-        actionRecord.actionCertificate.signatures,
-        (representation) => Schema.decodeUnknown(SignedMessage)(representation),
+        (message) => protocolMessageKind(harness, message),
         { concurrency: 1 },
-      ).pipe(Effect.orDie);
-      expect(
-        actionSigners.some(
-          (signature) => signature.senderAgentId === author.card.agentId,
-        ),
-      ).toBe(true);
+      ),
+    ).toEqual(["certified_record", "action_proposal"]);
+    const proposalMessage = yield* requireAt(proposalBatch, 1, "POST proposal");
+    const proposal = yield* decodeActionProposal(harness, proposalMessage);
+    if (proposal.action.kind !== "POST") {
+      return yield* Effect.dieMessage("ordinary send did not propose POST");
+    }
 
-      const staged = yield* authorStore.recover().pipe(Effect.orDie);
-      expect(
-        staged.stagedRecords.some(
-          ({ recordHash }) => recordHash === actionRecord.recordHash,
-        ),
-      ).toBe(true);
-      expect(
-        staged.certifiedRecords.some(
-          ({ recordHash }) => recordHash === actionRecord.recordHash,
-        ),
-      ).toBe(false);
-      expect(
-        staged.evidence.filter(
-          ({ kind, subjectId }) =>
-            kind === "durability" && subjectId === actionRecord.recordHash,
-        ),
-      ).toHaveLength(1);
+    yield* harness.deliver(proposalBatch);
+    yield* harness.drain();
+    const signatureBatch = yield* takeQueued(harness);
+    const actionSignatures = yield* messagesOfKind(
+      harness,
+      signatureBatch,
+      "action_signature",
+    );
+    expect(actionSignatures).toHaveLength(MEMBER_COUNT);
 
-      const hostileSigner = yield* requireAt(
-        harness.identities,
-        3,
-        "hostile signer",
+    yield* harness.deliver(actionSignatures.slice(0, 3));
+    yield* harness.drain();
+    const certificationBatch = yield* takeQueued(harness);
+    const actionRecordMessages = yield* messagesOfKind(
+      harness,
+      certificationBatch,
+      "action_certified_record",
+    );
+    const durabilityMessages = yield* messagesOfKind(
+      harness,
+      certificationBatch,
+      "durability_vote",
+    );
+    expect(actionRecordMessages).toHaveLength(MEMBER_COUNT);
+    expect(durabilityMessages).toHaveLength(MEMBER_COUNT);
+
+    const authorActionRecordMessage = actionRecordMessages.find(
+      (message) => message.senderAgentId === author.card.agentId,
+    );
+    if (authorActionRecordMessage === undefined) {
+      return yield* Effect.dieMessage(
+        "author did not assemble the POST action certificate",
       );
-      const wrongConversationVote = yield* hostileDurabilityMessage({
-        harness,
-        signer: hostileSigner,
-        recordHash: actionRecord.recordHash,
-        conversationId: unrelatedConversationId,
-        membershipHash: harness.membership.hash,
-      });
-      const wrongMembershipVote = yield* hostileDurabilityMessage({
-        harness,
-        signer: hostileSigner,
-        recordHash: actionRecord.recordHash,
-        conversationId: harness.membership.descriptor.conversationId,
-        membershipHash: unrelatedMembershipHash,
-      });
-      expect(
-        yield* harness.deliver(
-          [wrongConversationVote, wrongMembershipVote],
-          [0],
-        ),
-      ).toEqual(["ignored", "ignored"]);
+    }
+    const actionRecord = yield* decodeActionCertifiedRecord(
+      harness,
+      authorActionRecordMessage,
+    );
+    expect(actionRecord.recordCore.action.kind).toBe(proposal.action.kind);
+    expect(actionRecord.actionCertificate.signatures).toHaveLength(3);
+    const actionSigners = yield* Effect.forEach(
+      actionRecord.actionCertificate.signatures,
+      (representation) => Schema.decodeUnknown(SignedMessage)(representation),
+      { concurrency: 1 },
+    ).pipe(Effect.orDie);
+    expect(
+      actionSigners.some(
+        (signature) => signature.senderAgentId === author.card.agentId,
+      ),
+    ).toBe(true);
 
-      const afterHostileVotes = yield* authorStore.recover().pipe(Effect.orDie);
-      expect(
-        afterHostileVotes.certifiedRecords.some(
-          ({ recordHash }) => recordHash === actionRecord.recordHash,
-        ),
-      ).toBe(false);
-      expect(
-        afterHostileVotes.evidence.filter(
-          ({ kind, subjectId }) =>
-            kind === "durability" && subjectId === actionRecord.recordHash,
-        ),
-      ).toHaveLength(1);
-
-      const remoteDurabilityVotes = durabilityMessages.filter(
-        (message) => message.senderAgentId !== author.card.agentId,
-      );
-      expect(remoteDurabilityVotes).toHaveLength(3);
-      const firstRemoteVote = yield* requireAt(
-        remoteDurabilityVotes,
-        0,
-        "remote durability vote",
-      );
-      const secondRemoteVote = yield* requireAt(
-        remoteDurabilityVotes,
-        1,
-        "remote durability vote",
-      );
-      expect(yield* harness.deliver([firstRemoteVote], [0])).toEqual([
-        "accepted",
-      ]);
-      const afterFirstRemoteVote = yield* authorStore
-        .recover()
-        .pipe(Effect.orDie);
-      expect(
-        afterFirstRemoteVote.certifiedRecords.some(
-          ({ recordHash }) => recordHash === actionRecord.recordHash,
-        ),
-      ).toBe(false);
-
-      expect(yield* harness.deliver([secondRemoteVote], [0])).toEqual([
-        "accepted",
-      ]);
-      yield* Fiber.join(sending).pipe(Effect.orDie);
-      const certified = yield* authorStore.recover().pipe(Effect.orDie);
-      const storedPost = certified.certifiedRecords.find(
+    const staged = yield* authorStore.recover().pipe(Effect.orDie);
+    expect(
+      staged.stagedRecords.some(
         ({ recordHash }) => recordHash === actionRecord.recordHash,
-      );
-      if (storedPost === undefined) {
-        return yield* Effect.dieMessage("POST did not complete durably");
-      }
-      expect(storedPost.actionEvidence).toHaveLength(3);
-      expect(storedPost.durabilityEvidence).toHaveLength(3);
-      const storedCore = yield* decodeCanonical(
-        RecordCore,
-        storedPost.canonicalRecordCore,
-      ).pipe(Effect.orDie);
-      expect(storedCore.action.kind).toBe(actionRecord.recordCore.action.kind);
-      expect(storedCore.actionHash).toBe(actionRecord.recordCore.actionHash);
-    }),
-  );
+      ),
+    ).toBe(true);
+    expect(
+      staged.certifiedRecords.some(
+        ({ recordHash }) => recordHash === actionRecord.recordHash,
+      ),
+    ).toBe(false);
+    expect(
+      staged.evidence.filter(
+        ({ kind, subjectId }) =>
+          kind === "durability" && subjectId === actionRecord.recordHash,
+      ),
+    ).toHaveLength(1);
+
+    const hostileSigner = yield* requireAt(
+      harness.identities,
+      3,
+      "hostile signer",
+    );
+    const wrongConversationVote = yield* hostileDurabilityMessage({
+      harness,
+      signer: hostileSigner,
+      recordHash: actionRecord.recordHash,
+      conversationId: unrelatedConversationId,
+      membershipHash: harness.membership.hash,
+    });
+    const wrongMembershipVote = yield* hostileDurabilityMessage({
+      harness,
+      signer: hostileSigner,
+      recordHash: actionRecord.recordHash,
+      conversationId: harness.membership.descriptor.conversationId,
+      membershipHash: unrelatedMembershipHash,
+    });
+    expect(
+      yield* harness.deliver([wrongConversationVote, wrongMembershipVote], [0]),
+    ).toEqual(["ignored", "ignored"]);
+
+    const afterHostileVotes = yield* authorStore.recover().pipe(Effect.orDie);
+    expect(
+      afterHostileVotes.certifiedRecords.some(
+        ({ recordHash }) => recordHash === actionRecord.recordHash,
+      ),
+    ).toBe(false);
+    expect(
+      afterHostileVotes.evidence.filter(
+        ({ kind, subjectId }) =>
+          kind === "durability" && subjectId === actionRecord.recordHash,
+      ),
+    ).toHaveLength(1);
+
+    const remoteDurabilityVotes = durabilityMessages.filter(
+      (message) => message.senderAgentId !== author.card.agentId,
+    );
+    expect(remoteDurabilityVotes).toHaveLength(3);
+    const firstRemoteVote = yield* requireAt(
+      remoteDurabilityVotes,
+      0,
+      "remote durability vote",
+    );
+    const secondRemoteVote = yield* requireAt(
+      remoteDurabilityVotes,
+      1,
+      "remote durability vote",
+    );
+    expect(yield* harness.deliver([firstRemoteVote], [0])).toEqual([
+      "accepted",
+    ]);
+    const afterFirstRemoteVote = yield* authorStore
+      .recover()
+      .pipe(Effect.orDie);
+    expect(
+      afterFirstRemoteVote.certifiedRecords.some(
+        ({ recordHash }) => recordHash === actionRecord.recordHash,
+      ),
+    ).toBe(false);
+
+    expect(yield* harness.deliver([secondRemoteVote], [0])).toEqual([
+      "accepted",
+    ]);
+    yield* Fiber.join(sending).pipe(Effect.orDie);
+    const certified = yield* authorStore.recover().pipe(Effect.orDie);
+    const storedPost = certified.certifiedRecords.find(
+      ({ recordHash }) => recordHash === actionRecord.recordHash,
+    );
+    if (storedPost === undefined) {
+      return yield* Effect.dieMessage("POST did not complete durably");
+    }
+    expect(storedPost.actionEvidence).toHaveLength(3);
+    expect(storedPost.durabilityEvidence).toHaveLength(3);
+    const storedCore = yield* decodeCanonical(
+      RecordCore,
+      storedPost.canonicalRecordCore,
+    ).pipe(Effect.orDie);
+    expect(storedCore.action.kind).toBe(actionRecord.recordCore.action.kind);
+    expect(storedCore.actionHash).toBe(actionRecord.recordCore.actionHash);
+  });
 }
 
 function ordersCompetingProposalsBeforeActionVotes(input: {
   readonly firstAuthorIndex: number;
   readonly secondAuthorIndex: number;
 }) {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness();
-      yield* certifyGenesis(harness);
-      const firstAuthor = yield* requireAt(
-        harness.engines,
-        input.firstAuthorIndex,
-        "endpoint engine",
-      );
-      const secondAuthor = yield* requireAt(
-        harness.engines,
-        input.secondAuthorIndex,
-        "endpoint engine",
-      );
-      const observingStore = yield* requireAt(
-        harness.stores,
-        2,
-        "endpoint store",
-      );
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    yield* certifyGenesis(harness);
+    const firstAuthor = yield* requireAt(
+      harness.engines,
+      input.firstAuthorIndex,
+      "endpoint engine",
+    );
+    const secondAuthor = yield* requireAt(
+      harness.engines,
+      input.secondAuthorIndex,
+      "endpoint engine",
+    );
+    const observingStore = yield* requireAt(
+      harness.stores,
+      2,
+      "endpoint store",
+    );
 
-      const firstSending = yield* Effect.fork(
-        firstAuthor.send(yield* sendInput(harness, "first candidate")),
+    const firstSending = yield* Effect.fork(
+      firstAuthor.send(yield* sendInput(harness, "first candidate")),
+    );
+    const firstBatch = yield* takeReadyBatch(harness);
+    const firstMessage = yield* requireAt(firstBatch, 1, "first proposal");
+    const firstProposal = yield* decodeActionProposal(harness, firstMessage);
+    const secondSending = yield* Effect.fork(
+      secondAuthor.send(yield* sendInput(harness, "second candidate")),
+    );
+    const secondBatch = yield* takeReadyBatch(harness);
+    const secondMessage = yield* requireAt(secondBatch, 1, "second proposal");
+    const secondProposal = yield* decodeActionProposal(harness, secondMessage);
+    if (
+      firstProposal.action.kind !== "POST" ||
+      secondProposal.action.kind !== "POST"
+    ) {
+      return yield* Effect.dieMessage(
+        "same-predecessor fixture requires two POST proposals",
       );
-      const firstBatch = yield* takeReadyBatch(harness);
-      const firstMessage = yield* requireAt(firstBatch, 1, "first proposal");
-      const firstProposal = yield* decodeActionProposal(harness, firstMessage);
-      const secondSending = yield* Effect.fork(
-        secondAuthor.send(yield* sendInput(harness, "second candidate")),
-      );
-      const secondBatch = yield* takeReadyBatch(harness);
-      const secondMessage = yield* requireAt(secondBatch, 1, "second proposal");
-      const secondProposal = yield* decodeActionProposal(
-        harness,
-        secondMessage,
-      );
-      if (
-        firstProposal.action.kind !== "POST" ||
-        secondProposal.action.kind !== "POST"
-      ) {
-        return yield* Effect.dieMessage(
-          "same-predecessor fixture requires two POST proposals",
-        );
-      }
-      expect(firstProposal.action.previousRecordHash).toBe(
-        secondProposal.action.previousRecordHash,
-      );
-      expect(firstProposal).not.toHaveProperty("authorSignature");
-      expect(secondProposal).not.toHaveProperty("authorSignature");
-      expect(yield* takeQueued(harness)).toEqual([]);
+    }
+    expect(firstProposal.action.previousRecordHash).toBe(
+      secondProposal.action.previousRecordHash,
+    );
+    expect(firstProposal).not.toHaveProperty("authorSignature");
+    expect(secondProposal).not.toHaveProperty("authorSignature");
+    expect(yield* takeQueued(harness)).toEqual([]);
 
-      expect(yield* harness.deliver([firstMessage, secondMessage])).toEqual([
-        "accepted",
-        "accepted",
-        "accepted",
-        "accepted",
-        "ignored",
-        "ignored",
-        "ignored",
-        "ignored",
-      ]);
-      yield* harness.drain();
-      const emitted = yield* takeQueued(harness);
-      const actionSignatures = yield* messagesOfKind(
-        harness,
-        emitted,
-        "action_signature",
-      );
-      expect(actionSignatures).toHaveLength(MEMBER_COUNT);
-      expect(
-        new Set(actionSignatures.map(({ senderAgentId }) => senderAgentId)),
-      ).toEqual(new Set(harness.identities.map(({ card }) => card.agentId)));
-      const firstActionHash = yield* hashAction(firstProposal.action).pipe(
-        Effect.orDie,
-      );
-      const signatureHashes = yield* Effect.forEach(
-        actionSignatures,
-        (message) => decodeActionSignatureHash(harness, message),
-        { concurrency: 1 },
-      );
-      expect(new Set(signatureHashes)).toEqual(new Set([firstActionHash]));
+    expect(yield* harness.deliver([firstMessage, secondMessage])).toEqual([
+      "accepted",
+      "accepted",
+      "accepted",
+      "accepted",
+      "ignored",
+      "ignored",
+      "ignored",
+      "ignored",
+    ]);
+    yield* harness.drain();
+    const emitted = yield* takeQueued(harness);
+    const actionSignatures = yield* messagesOfKind(
+      harness,
+      emitted,
+      "action_signature",
+    );
+    expect(actionSignatures).toHaveLength(MEMBER_COUNT);
+    expect(
+      new Set(actionSignatures.map(({ senderAgentId }) => senderAgentId)),
+    ).toEqual(new Set(harness.identities.map(({ card }) => card.agentId)));
+    const firstActionHash = yield* hashAction(firstProposal.action).pipe(
+      Effect.orDie,
+    );
+    const signatureHashes = yield* Effect.forEach(
+      actionSignatures,
+      (message) => decodeActionSignatureHash(harness, message),
+      { concurrency: 1 },
+    );
+    expect(new Set(signatureHashes)).toEqual(new Set([firstActionHash]));
 
-      const recovery = yield* observingStore.recover().pipe(Effect.orDie);
-      const successorLocks = recovery.proposalLocks.filter(
-        ({ previousRecordHash }) =>
-          previousRecordHash === firstProposal.action.previousRecordHash,
-      );
-      expect(successorLocks).toHaveLength(1);
-      expect(successorLocks[0]?.actionHash).toBe(firstActionHash);
+    const recovery = yield* observingStore.recover().pipe(Effect.orDie);
+    const successorLocks = recovery.proposalLocks.filter(
+      ({ previousRecordHash }) =>
+        previousRecordHash === firstProposal.action.previousRecordHash,
+    );
+    expect(successorLocks).toHaveLength(1);
+    expect(successorLocks[0]?.actionHash).toBe(firstActionHash);
 
-      yield* Fiber.interrupt(firstSending);
-      yield* Fiber.interrupt(secondSending);
-    }),
-  );
+    yield* Fiber.interrupt(firstSending);
+    yield* Fiber.interrupt(secondSending);
+  });
 }
 
 /**
@@ -2147,72 +2060,64 @@ function ordersCompetingProposalsBeforeActionVotes(input: {
  * Fails when identical input reuses a PostId.
  */
 function givesIdenticalHostInvocationsDistinctPostIds() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness();
-      const author = yield* requireAt(harness.engines, 0, "endpoint engine");
-      const input = yield* sendInput(harness, "repeat intentionally");
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const input = yield* sendInput(harness, "repeat intentionally");
 
-      const firstSending = yield* Effect.fork(author.send(input));
-      const firstBatch = yield* takeReadyBatch(harness);
-      const firstProposal = yield* requireAt(
-        firstBatch,
-        0,
-        "first repeated proposal",
-      ).pipe(
-        Effect.flatMap((message) => decodeActionProposal(harness, message)),
-      );
-      yield* pump(harness, firstBatch);
-      yield* Fiber.join(firstSending).pipe(Effect.orDie);
-      yield* Effect.forkScoped(author.send(input));
-      const secondProposal = yield* takeReadyBatch(harness).pipe(
-        Effect.flatMap((batch) =>
-          requireAt(batch, 1, "second repeated proposal"),
-        ),
-        Effect.flatMap((message) => decodeActionProposal(harness, message)),
-      );
+    const firstSending = yield* Effect.fork(author.send(input));
+    const firstBatch = yield* takeReadyBatch(harness);
+    const firstProposal = yield* requireAt(
+      firstBatch,
+      0,
+      "first repeated proposal",
+    ).pipe(Effect.flatMap((message) => decodeActionProposal(harness, message)));
+    yield* pump(harness, firstBatch);
+    yield* Fiber.join(firstSending).pipe(Effect.orDie);
+    yield* Effect.forkScoped(author.send(input));
+    const secondProposal = yield* takeReadyBatch(harness).pipe(
+      Effect.flatMap((batch) =>
+        requireAt(batch, 1, "second repeated proposal"),
+      ),
+      Effect.flatMap((message) => decodeActionProposal(harness, message)),
+    );
 
-      expect(secondProposal.action.postIntent.postId).not.toBe(
-        firstProposal.action.postIntent.postId,
-      );
-    }),
-  );
+    expect(secondProposal.action.postIntent.postId).not.toBe(
+      firstProposal.action.postIntent.postId,
+    );
+  });
 }
 
 function retainsInterruptedDurableSend() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const policyEntered = yield* Deferred.make<undefined>();
-      const releasePolicy = yield* Deferred.make<undefined>();
-      const harness = yield* makeProtocolHarness({
-        actionPolicy: () =>
-          Deferred.succeed(policyEntered, undefined).pipe(
-            Effect.zipRight(Deferred.await(releasePolicy)),
-            Effect.as("sign" as const),
-          ),
-      });
-      const author = yield* requireAt(harness.engines, 0, "endpoint engine");
-      const sending = yield* Effect.fork(
-        author.send(yield* sendInput(harness, "retained send")),
-      );
-      yield* Deferred.await(policyEntered);
-      const interrupting = yield* Effect.fork(Fiber.interrupt(sending));
-      yield* Effect.yieldNow();
-      yield* Deferred.succeed(releasePolicy, undefined);
-      yield* Fiber.join(interrupting);
-
-      yield* author.drainOutbound.pipe(Effect.orDie);
-      const proposal = yield* takeReadyBatch(harness).pipe(
-        Effect.flatMap((messages) =>
-          requireAt(messages, 0, "retained proposal"),
+  return Effect.gen(function* () {
+    const policyEntered = yield* Deferred.make<undefined>();
+    const releasePolicy = yield* Deferred.make<undefined>();
+    const harness = yield* makeProtocolHarness({
+      actionPolicy: () =>
+        Deferred.succeed(policyEntered, undefined).pipe(
+          Effect.zipRight(Deferred.await(releasePolicy)),
+          Effect.as("sign" as const),
         ),
-        Effect.flatMap((message) => decodeActionProposal(harness, message)),
-      );
-      expect(proposal.action.postIntent.content).toEqual([
-        { type: "text", text: "retained send" },
-      ]);
-    }),
-  );
+    });
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const sending = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "retained send")),
+    );
+    yield* Deferred.await(policyEntered);
+    const interrupting = yield* Effect.fork(Fiber.interrupt(sending));
+    yield* Effect.yieldNow();
+    yield* Deferred.succeed(releasePolicy, undefined);
+    yield* Fiber.join(interrupting);
+
+    yield* author.drainOutbound.pipe(Effect.orDie);
+    const proposal = yield* takeReadyBatch(harness).pipe(
+      Effect.flatMap((messages) => requireAt(messages, 0, "retained proposal")),
+      Effect.flatMap((message) => decodeActionProposal(harness, message)),
+    );
+    expect(proposal.action.postIntent.content).toEqual([
+      { type: "text", text: "retained send" },
+    ]);
+  });
 }
 
 /** Whether an outer body decodes as a Client value without opening it. */
@@ -2231,61 +2136,53 @@ function readsAsPlaintext(
  * wire reads as plaintext.
  */
 function sealsEveryOuterBodyOfAPost(memberCount: number) {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness({ memberCount });
-      const author = yield* requireAt(harness.engines, 0, "endpoint engine");
-      const sending = yield* Effect.fork(
-        author.send(yield* sendInput(harness, "sealed post")),
-      );
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness({ memberCount });
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const sending = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "sealed post")),
+    );
 
-      const delivered = yield* pump(harness, yield* takeReadyBatch(harness));
-      yield* Fiber.join(sending).pipe(Effect.orDie);
+    const delivered = yield* pump(harness, yield* takeReadyBatch(harness));
+    yield* Fiber.join(sending).pipe(Effect.orDie);
 
-      expect(yield* certifiedRecordCounts(harness)).toEqual(
-        harness.identities.map(() => 1),
-      );
-      expect(delivered.length).toBeGreaterThan(memberCount);
-      expect(
-        yield* Effect.forEach(delivered, readsAsPlaintext, {
-          concurrency: 1,
-        }),
-      ).toEqual(delivered.map(() => false));
-    }),
-  );
+    expect(yield* certifiedRecordCounts(harness)).toEqual(
+      harness.identities.map(() => 1),
+    );
+    expect(delivered.length).toBeGreaterThan(memberCount);
+    expect(
+      yield* Effect.forEach(delivered, readsAsPlaintext, {
+        concurrency: 1,
+      }),
+    ).toEqual(delivered.map(() => false));
+  });
 }
 
 // @agent-code-guard/regression-only: These stateful traces exercise durable quorum and interruption boundaries across real endpoint engines.
 function sendReturnsTheStoredCertifiedRecordHash() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness();
-      const recordHash = yield* certifyGenesis(harness);
-      const authorStore = yield* requireAt(harness.stores, 0, "store");
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    const recordHash = yield* certifyGenesis(harness);
+    const authorStore = yield* requireAt(harness.stores, 0, "store");
 
-      const recovery = yield* authorStore.recover().pipe(Effect.orDie);
+    const recovery = yield* authorStore.recover().pipe(Effect.orDie);
 
-      expect(
-        recovery.postIntents.map((intent) => intent.completedRecordHash),
-      ).toEqual([recordHash]);
-    }),
-  );
+    expect(
+      recovery.postIntents.map((intent) => intent.completedRecordHash),
+    ).toEqual([recordHash]);
+  });
 }
 
 function pendingDeliveryCarriesTheCertifiedRecordHash() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness();
-      const recordHash = yield* certifyGenesis(harness);
-      const member = yield* requireAt(harness.engines, 1, "endpoint engine");
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    const recordHash = yield* certifyGenesis(harness);
+    const member = yield* requireAt(harness.engines, 1, "endpoint engine");
 
-      const pending = yield* member.readPendingMessages().pipe(Effect.orDie);
+    const pending = yield* member.readPendingMessages().pipe(Effect.orDie);
 
-      expect(pending.map((message) => message.recordHash)).toEqual([
-        recordHash,
-      ]);
-    }),
-  );
+    expect(pending.map((message) => message.recordHash)).toEqual([recordHash]);
+  });
 }
 
 /**
@@ -2295,42 +2192,38 @@ function pendingDeliveryCarriesTheCertifiedRecordHash() {
  * exchange a second time after certification, and still holds one post.
  */
 function reappendedOuterMessagesYieldOnePost() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const harness = yield* makeProtocolHarness();
-      const genesisHash = yield* certifyGenesis(harness);
-      const author = yield* requireAt(harness.engines, 0, "endpoint engine");
-      const sending = yield* Effect.fork(
-        author.send(yield* sendInput(harness, "appended twice")),
-      );
-      const proposalBatch = yield* takeReadyBatch(harness);
-      yield* harness.deliver(proposalBatch);
-      yield* harness.drain();
-      const transcript = yield* pump(harness, [
-        ...proposalBatch,
-        ...(yield* takeQueued(harness)),
-      ]);
-      const sent = yield* Fiber.join(sending).pipe(Effect.orDie);
+  return Effect.gen(function* () {
+    const harness = yield* makeProtocolHarness();
+    const genesisHash = yield* certifyGenesis(harness);
+    const author = yield* requireAt(harness.engines, 0, "endpoint engine");
+    const sending = yield* Effect.fork(
+      author.send(yield* sendInput(harness, "appended twice")),
+    );
+    const proposalBatch = yield* takeReadyBatch(harness);
+    yield* harness.deliver(proposalBatch);
+    yield* harness.drain();
+    const transcript = yield* pump(harness, [
+      ...proposalBatch,
+      ...(yield* takeQueued(harness)),
+    ]);
+    const sent = yield* Fiber.join(sending).pipe(Effect.orDie);
 
-      yield* pump(harness, transcript);
+    yield* pump(harness, transcript);
 
-      expect(yield* certifiedRecordCounts(harness)).toEqual([2, 2, 2, 2]);
-      const pending = yield* Effect.forEach(
-        harness.engines.slice(1),
-        (engine) => engine.readPendingMessages().pipe(Effect.orDie),
-        { concurrency: 1 },
-      );
-      expect(
-        pending.map((messages) =>
-          messages.map((message) => message.recordHash),
-        ),
-      ).toEqual([
-        [genesisHash, sent.recordHash],
-        [genesisHash, sent.recordHash],
-        [genesisHash, sent.recordHash],
-      ]);
-    }),
-  );
+    expect(yield* certifiedRecordCounts(harness)).toEqual([2, 2, 2, 2]);
+    const pending = yield* Effect.forEach(
+      harness.engines.slice(1),
+      (engine) => engine.readPendingMessages().pipe(Effect.orDie),
+      { concurrency: 1 },
+    );
+    expect(
+      pending.map((messages) => messages.map((message) => message.recordHash)),
+    ).toEqual([
+      [genesisHash, sent.recordHash],
+      [genesisHash, sent.recordHash],
+      [genesisHash, sent.recordHash],
+    ]);
+  });
 }
 
 describe("fixed-post endpoint protocol", () => {
@@ -2459,16 +2352,14 @@ describe("fixed-post endpoint protocol", () => {
   ])(
     "$outcome over a persisted durability vote bound to $binding",
     ({ bind, filedUnder, restart }) =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const restarted = yield* restartOverPersistedDurabilityVote(
-            bind,
-            filedUnder,
-          );
+      Effect.gen(function* () {
+        const restarted = yield* restartOverPersistedDurabilityVote(
+          bind,
+          filedUnder,
+        );
 
-          expect(restarted).toStrictEqual(restart);
-        }),
-      ),
+        expect(restarted).toStrictEqual(restart);
+      }),
     TEST_TIMEOUT_MS,
   );
   it(
@@ -3189,33 +3080,31 @@ function voteOfMember3(
  * @returns Completion once member 2 has answered the vote.
  */
 function takesAVoteAfterItsStagingWasInterrupted() {
-  return Effect.scoped(
-    Effect.gen(function* () {
-      const entered = yield* Deferred.make<undefined>();
-      const release = yield* Deferred.make<undefined>();
-      const harness = yield* makeProtocolHarness({
-        wrapStore: (store) =>
-          holdingDisseminationEnqueue(store, entered, release),
-      });
-      const { signatures, fourths } = yield* signGenesisShortOfMember4(harness);
-      const accepting = yield* Effect.fork(harness.deliver(fourths, [1]));
-      yield* Deferred.await(entered);
+  return Effect.gen(function* () {
+    const entered = yield* Deferred.make<undefined>();
+    const release = yield* Deferred.make<undefined>();
+    const harness = yield* makeProtocolHarness({
+      wrapStore: (store) =>
+        holdingDisseminationEnqueue(store, entered, release),
+    });
+    const { signatures, fourths } = yield* signGenesisShortOfMember4(harness);
+    const accepting = yield* Effect.fork(harness.deliver(fourths, [1]));
+    yield* Deferred.await(entered);
 
-      yield* Fiber.interruptAsFork(accepting, yield* Effect.fiberId);
-      yield* Deferred.succeed(release, undefined);
-      const accepted = yield* Fiber.await(accepting);
-      const answered = yield* harness.deliver(
-        yield* voteOfMember3(harness, signatures),
-        [1],
-      );
+    yield* Fiber.interruptAsFork(accepting, yield* Effect.fiberId);
+    yield* Deferred.succeed(release, undefined);
+    const accepted = yield* Fiber.await(accepting);
+    const answered = yield* harness.deliver(
+      yield* voteOfMember3(harness, signatures),
+      [1],
+    );
 
-      expect(
-        Exit.isInterrupted(accepted),
-        "member 2's acceptance of member 4's signature was interrupted",
-      ).toBe(true);
-      expect(answered).toEqual(["accepted"]);
-    }),
-  );
+    expect(
+      Exit.isInterrupted(accepted),
+      "member 2's acceptance of member 4's signature was interrupted",
+    ).toBe(true);
+    expect(answered).toEqual(["accepted"]);
+  });
 }
 
 /**
@@ -3380,7 +3269,7 @@ describe("engine faults while staging and sending", () => {
   );
   it(
     "fails a send as delivery-pending when the store refuses its bound proposal",
-    () => Effect.scoped(failsASendWhoseBoundProposalTheStoreRefuses()),
+    () => failsASendWhoseBoundProposalTheStoreRefuses(),
     TEST_TIMEOUT_MS,
   );
   it.each([
@@ -3389,7 +3278,7 @@ describe("engine faults while staging and sending", () => {
   ] as const)(
     "fails a send whose intent bind meets a $reason store failure as $expected",
     ({ reason, expected, faults }) =>
-      Effect.scoped(failsASendWhoseBindTheStoreFails(reason, expected, faults)),
+      failsASendWhoseBindTheStoreFails(reason, expected, faults),
     TEST_TIMEOUT_MS,
   );
   itOnTestClock(

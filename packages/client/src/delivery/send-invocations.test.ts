@@ -2,7 +2,7 @@
 
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { live as it } from "@effect/vitest";
+import { scopedLive as it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Schema, Scope } from "effect";
 import { describe, expect } from "vitest";
 import { EndpointStoreError, openEndpointStore } from "../store/index.js";
@@ -68,9 +68,7 @@ const invocationFixture = (
 /** The request every keyed test sends, under idempotency key `once`. */
 const onceRequest = { input, idempotencyKey: "once" };
 
-const withFileSystem = <A, E>(
-  effect: Effect.Effect<A, E, Scope.Scope | FileSystem.FileSystem>,
-) => Effect.scoped(effect).pipe(Effect.provide(NodeFileSystem.layer));
+const withFileSystem = Effect.provide(NodeFileSystem.layer);
 
 /** Invocations over a fresh store whose send blocks until `complete` resolves. */
 const freshInvocations = Effect.gen(function* () {
@@ -260,40 +258,36 @@ const checksRestart = (path: string) =>
     }),
   );
 const preservesUncertaintyAndFailure = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const path = yield* temporaryDirectory;
-      yield* interruptsDaemon(path);
-      yield* checksRestart(path);
-    }),
-  ).pipe(Effect.provide(NodeFileSystem.layer));
+  Effect.gen(function* () {
+    const path = yield* temporaryDirectory;
+    yield* interruptsDaemon(path);
+    yield* checksRestart(path);
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 const replaysARefusalWithItsDetail = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const path = yield* temporaryDirectory;
-      const store = yield* openEndpointStore(path);
-      const scope = yield* Scope.Scope;
-      const refusal = new SendError({
-        reason: "unknown-agent",
-        detail: "agent:dana is not a known agent",
-      });
-      const invocations = yield* makeSendInvocations(
-        store,
-        () => Effect.fail(refusal),
-        scope,
-      );
-      yield* invocations
-        .send({ input, idempotencyKey: "refused" })
-        .pipe(Effect.flip);
+  Effect.gen(function* () {
+    const path = yield* temporaryDirectory;
+    const store = yield* openEndpointStore(path);
+    const scope = yield* Scope.Scope;
+    const refusal = new SendError({
+      reason: "unknown-agent",
+      detail: "agent:dana is not a known agent",
+    });
+    const invocations = yield* makeSendInvocations(
+      store,
+      () => Effect.fail(refusal),
+      scope,
+    );
+    yield* invocations
+      .send({ input, idempotencyKey: "refused" })
+      .pipe(Effect.flip);
 
-      const replayed = yield* invocations
-        .send({ input, idempotencyKey: "refused" })
-        .pipe(Effect.flip);
+    const replayed = yield* invocations
+      .send({ input, idempotencyKey: "refused" })
+      .pipe(Effect.flip);
 
-      expect(replayed.message).toBe(refusal.message);
-    }),
-  ).pipe(Effect.provide(NodeFileSystem.layer));
+    expect(replayed.message).toBe(refusal.message);
+  }).pipe(Effect.provide(NodeFileSystem.layer));
 
 /**
  * A keyed send that posted, whose outcome the store cannot retain, still

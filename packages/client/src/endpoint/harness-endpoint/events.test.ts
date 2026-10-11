@@ -1,6 +1,6 @@
 /** @file Native Events handshake bounds and optional-cursor interoperability. */
 
-import { live as it, effect as itOnTestClock } from "@effect/vitest";
+import { scopedLive as it, scoped as itOnTestClock } from "@effect/vitest";
 import {
   createMcpHandler,
   fromJsonSchema,
@@ -80,31 +80,27 @@ const streamServer = (
 const INITIAL_HEADERS_BOUND = Duration.seconds(60);
 
 const boundsInitialHeaders = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const entered = yield* Deferred.make<undefined>();
-      const requests: unknown[] = [];
-      const handler = streamServer(requests, () =>
-        Deferred.succeed(entered, undefined).pipe(
-          Effect.zipRight(Effect.never),
-        ),
-      );
-      const endpoint = yield* loopbackMcpEndpoint(handler);
-      const reader = yield* inboxWakeups(endpoint).pipe(
-        Stream.runDrain,
-        Effect.flip,
-        Effect.forkScoped,
-      );
-      yield* Deferred.await(entered);
-      yield* TestClock.adjust(
-        Duration.sum(INITIAL_HEADERS_BOUND, Duration.seconds(1)),
-      );
-      expect((yield* Fiber.join(reader)).reason).toBe("transport-failed");
-      expect(requests).toEqual([
-        expect.objectContaining({ name: INBOX_PENDING_EVENT }),
-      ]);
-    }),
-  );
+  Effect.gen(function* () {
+    const entered = yield* Deferred.make<undefined>();
+    const requests: unknown[] = [];
+    const handler = streamServer(requests, () =>
+      Deferred.succeed(entered, undefined).pipe(Effect.zipRight(Effect.never)),
+    );
+    const endpoint = yield* loopbackMcpEndpoint(handler);
+    const reader = yield* inboxWakeups(endpoint).pipe(
+      Stream.runDrain,
+      Effect.flip,
+      Effect.forkScoped,
+    );
+    yield* Deferred.await(entered);
+    yield* TestClock.adjust(
+      Duration.sum(INITIAL_HEADERS_BOUND, Duration.seconds(1)),
+    );
+    expect((yield* Fiber.join(reader)).reason).toBe("transport-failed");
+    expect(requests).toEqual([
+      expect.objectContaining({ name: INBOX_PENDING_EVENT }),
+    ]);
+  });
 
 /** A server whose `events/list` handler fails with the protocol error `code`. */
 const failingCatalogServer = (code: number) =>
@@ -128,15 +124,13 @@ const failingCatalogServer = (code: number) =>
   );
 
 const classifiesCatalogFailure = (code: number, reason: string) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const endpoint = yield* loopbackMcpEndpoint(failingCatalogServer(code));
+  Effect.gen(function* () {
+    const endpoint = yield* loopbackMcpEndpoint(failingCatalogServer(code));
 
-      const error = yield* acquireHarnessEndpoint(endpoint).pipe(Effect.flip);
+    const error = yield* acquireHarnessEndpoint(endpoint).pipe(Effect.flip);
 
-      expect(error.reason).toBe(reason);
-    }),
-  );
+    expect(error.reason).toBe(reason);
+  });
 
 const sendFrames = (
   context: ServerContext,
@@ -170,35 +164,33 @@ const sendFrames = (
   });
 
 const continuesAfterRecoverableErrors = () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const receipts = [
-        yield* Deferred.make<undefined>(),
-        yield* Deferred.make<undefined>(),
-      ];
-      let received = 0;
-      const requests: unknown[] = [];
-      const handler = streamServer(requests, (context) =>
-        sendFrames(context, receipts),
-      );
-      const endpoint = yield* loopbackMcpEndpoint(handler);
-      const failure = yield* inboxWakeups(endpoint).pipe(
-        Stream.tap(() => {
-          const receipt = receipts[received++];
-          return receipt === undefined
-            ? Effect.void
-            : Deferred.succeed(receipt, undefined);
-        }),
-        Stream.runDrain,
-        Effect.flip,
-      );
-      expect(failure.reason).toBe("transport-failed");
-      expect(received).toBe(2);
-      expect(requests).toEqual([
-        expect.objectContaining({ name: INBOX_PENDING_EVENT }),
-      ]);
-    }),
-  );
+  Effect.gen(function* () {
+    const receipts = [
+      yield* Deferred.make<undefined>(),
+      yield* Deferred.make<undefined>(),
+    ];
+    let received = 0;
+    const requests: unknown[] = [];
+    const handler = streamServer(requests, (context) =>
+      sendFrames(context, receipts),
+    );
+    const endpoint = yield* loopbackMcpEndpoint(handler);
+    const failure = yield* inboxWakeups(endpoint).pipe(
+      Stream.tap(() => {
+        const receipt = receipts[received++];
+        return receipt === undefined
+          ? Effect.void
+          : Deferred.succeed(receipt, undefined);
+      }),
+      Stream.runDrain,
+      Effect.flip,
+    );
+    expect(failure.reason).toBe("transport-failed");
+    expect(received).toBe(2);
+    expect(requests).toEqual([
+      expect.objectContaining({ name: INBOX_PENDING_EVENT }),
+    ]);
+  });
 
 // @agent-code-guard/regression-only: these real HTTP transcripts pin external framing and bounded startup, without mocking transport methods.
 describe("native MCP Events reception", () => {
