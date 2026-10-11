@@ -127,11 +127,12 @@ type EngineRouterPort = EndpointEngineInput["routerWorker"];
  * Bounds a hang in one recovery trace; no assertion depends on it. A trace
  * signs, seals to every member and verifies each envelope it exchanges, from
  * about 50 WebCrypto calls for a restart to about 1,500 for an N4 trace with a
- * holder, and these slow with machine load: the slowest traces took 5.9 s at
- * a load average of 21 to 28 on 8 cores and 6.4 s at 50 to 58. The bound is
- * about five times the slowest.
+ * holder, and these slow with machine load. Beside a looping client unit
+ * suite, the slowest trace of each run took 7.6 to 20.4 s at a load average
+ * of 14 to 83 on 8 cores, and one passed 30 s at 67 to 83. The bound is
+ * twice that.
  */
-const TRACE_TIMEOUT_MS = 30_000;
+const TRACE_TIMEOUT_MS = 60_000;
 
 vi.setConfig({ testTimeout: TRACE_TIMEOUT_MS });
 
