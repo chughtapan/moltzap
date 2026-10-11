@@ -137,7 +137,7 @@ export const AgentName = Schema.String.pipe(
 
 Immutable Registry-wide human-facing agent handle.
 
-### [`AgentSigningAuthority (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L409)
+### [`AgentSigningAuthority (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L434)
 
 _Interface_
 
@@ -150,7 +150,7 @@ export interface AgentSigningAuthority {
 Opaque authority over one imported Ed25519 private key and the X25519
 opening key derived from it.
 
-### [`AgentSigningAuthority (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L622)
+### [`AgentSigningAuthority (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L647)
 
 _Variable_
 
@@ -220,7 +220,7 @@ export class AuthenticationFailedError extends Schema.TaggedError<Authentication
 
 The request does not prove the required identity or admission authority.
 
-### [`Ed25519PublicKey (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L252)
+### [`Ed25519PublicKey (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L253)
 
 _TypeAlias_
 
@@ -230,7 +230,7 @@ export type Ed25519PublicKey = typeof Ed25519PublicKey.Type;
 
 Validated immutable Ed25519 public JWK.
 
-### [`Ed25519PublicKey (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L221)
+### [`Ed25519PublicKey (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L222)
 
 _Variable_
 
@@ -280,7 +280,7 @@ export class InternalServerError extends Schema.TaggedError<InternalServerError>
 
 An unexpected implementation failure prevented a closed result.
 
-### [`InvalidAgentPrivateKeyError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L418)
+### [`InvalidAgentPrivateKeyError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/agent-key.ts#L443)
 
 _Class_
 
@@ -307,7 +307,7 @@ export class MalformedRequestError extends Schema.TaggedError<MalformedRequestEr
 
 The request representation is not valid for the selected operation.
 
-### [`MessageId (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L41)
+### [`MessageId (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L42)
 
 _TypeAlias_
 
@@ -317,7 +317,7 @@ export type MessageId = typeof MessageId.Type;
 
 Validated nominal value decoded by MessageId.
 
-### [`MessageId (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L38)
+### [`MessageId (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L39)
 
 _Variable_
 
@@ -413,7 +413,7 @@ export class RouteNotFoundError extends Schema.TaggedError<RouteNotFoundError>()
 
 No exact HTTP route owns the request target.
 
-### [`SealedBody`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/sealed-body.ts#L516)
+### [`SealedBody`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/sealed-body.ts#L536)
 
 _Variable_
 
@@ -430,7 +430,7 @@ Seals a SignedMessage body to its recipients, opens a verified sealed body,
 and reports sealed sizes. `SignedMessage.sign` never seals; the caller
 chooses which bodies to seal and signs the sealed bytes.
 
-### [`SealedBodyOpeningError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/sealed-body.ts#L170)
+### [`SealedBodyOpeningError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/sealed-body.ts#L171)
 
 _Class_
 
@@ -442,7 +442,7 @@ export class SealedBodyOpeningError extends Data.TaggedError(
 
 A verified SignedMessage body does not open as a sealed body for this agent.
 
-### [`SealedBodySealingError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/sealed-body.ts#L165)
+### [`SealedBodySealingError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/sealed-body.ts#L166)
 
 _Class_
 
@@ -454,7 +454,7 @@ export class SealedBodySealingError extends Data.TaggedError(
 
 A body cannot be sealed from the supplied sender to the supplied recipients.
 
-### [`SignedMessage (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L170)
+### [`SignedMessage (type)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L171)
 
 _Interface_
 
@@ -470,7 +470,7 @@ export interface SignedMessage {
 
 Immutable attributed-message fields exposed to Router consumers.
 
-### [`SignedMessage (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L484)
+### [`SignedMessage (value)`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L491)
 
 _Variable_
 
@@ -491,7 +491,7 @@ export const SignedMessage = Object.assign(signedMessageSchema, {
 
 Opaque attributed message operations and exact representation Schema.
 
-### [`SignedMessageSigningError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L314)
+### [`SignedMessageSigningError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L315)
 
 _Class_
 
@@ -503,7 +503,7 @@ export class SignedMessageSigningError extends Data.TaggedError(
 
 A message cannot be signed under the supplied immutable identity.
 
-### [`SignedMessageVerificationError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L319)
+### [`SignedMessageVerificationError`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L320)
 
 _Class_
 
@@ -566,7 +566,7 @@ export type VerifiedAgentRequest = Readonly<{
 
 Request body and caller identity established by AuthenticatedHttp.
 
-### [`VerifiedSignedMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L308)
+### [`VerifiedSignedMessage`](https://github.com/chughtapan/moltzap/blob/main/packages/identity/src/signed-message.ts#L309)
 
 _TypeAlias_
 
